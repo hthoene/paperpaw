@@ -20,8 +20,16 @@ pub(crate) mod codec;
 pub(crate) mod event_tags;
 #[path = "native_host/owner_directory.rs"]
 pub(crate) mod owner_directory;
+#[path = "native_host/shrink.rs"]
+pub(crate) mod shrink;
 
 pub(crate) mod device_log;
+#[allow(
+    dead_code,
+    reason = "the dual-boot request of the firmware queue uses it (Core todo 397)"
+)]
+pub(crate) mod dual_boot_ini;
+pub(crate) mod dual_boot_job;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 pub(crate) mod registry_generation;
@@ -33,6 +41,8 @@ pub(crate) mod work_sched;
 #[path = "native_host/work_service.rs"]
 mod work_service;
 
+#[path = "native_host/firmware_cell.rs"]
+pub(crate) mod firmware_cell;
 #[path = "native_host/firmware_confirm.rs"]
 #[allow(
     dead_code,
@@ -57,6 +67,8 @@ mod firmware_events;
     reason = "the command arms and the pump (slice B) drive the machine; tests do today"
 )]
 pub(crate) mod firmware_install;
+#[path = "native_host/notice.rs"]
+pub(crate) mod notice;
 
 #[path = "native_host/install_grants.rs"]
 pub(crate) mod install_grants;
@@ -108,6 +120,7 @@ pub(crate) mod plugin_unforgotten;
 
 #[path = "native_host/secrets_file.rs"]
 pub(crate) mod secrets_file;
+pub(crate) mod secrets_text;
 
 #[path = "native_host/secrets_service.rs"]
 #[allow(
@@ -119,12 +132,21 @@ pub(crate) mod secrets_service;
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
 
+#[path = "native_host/frame_owner.rs"]
+pub(crate) mod frame_owner;
+
+#[path = "native_host/plugin_heap.rs"]
+pub(crate) mod plugin_heap;
+
 #[path = "native_host/screen_ready.rs"]
 mod screen_ready;
 
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
 pub use ui_service::check_ask;
+
+#[path = "native_host/ui_clipboard.rs"]
+pub(crate) mod ui_clipboard;
 
 #[path = "native_host/ui_hints.rs"]
 pub(crate) mod ui_hints;
@@ -188,6 +210,8 @@ pub(crate) mod shared;
 
 #[path = "native_host/resources.rs"]
 pub mod resources;
+pub use fixed_settings::FixedTables;
+pub use park_linked::ParkShell;
 pub use resources::HostResources;
 
 #[path = "native_host/shell_wiring.rs"]
@@ -196,27 +220,37 @@ pub use shell_wiring::{HostWiring, HyphenTables, WiredHosts};
 
 #[path = "native_host/fonts.rs"]
 mod fonts;
+#[path = "native_host/fonts_data.rs"]
+mod fonts_data;
 
 mod admitted_features;
 #[path = "native_host/secret_bytes.rs"]
 pub(crate) mod secret_bytes;
 
 pub(crate) mod book_data_steps;
+pub(crate) mod book_scope;
 pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;
+mod cover_job_marker;
+mod cover_job_pump;
+pub(crate) mod data_plugin_folders;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
+mod details_job_pump;
 pub mod device_service;
 pub(crate) mod dialog_pump;
 #[path = "native_host/dialogs.rs"]
 pub(crate) mod dialogs;
 pub(crate) mod doc_cache;
 pub(crate) mod doc_host;
+mod doc_pump;
+pub(crate) mod doc_reading;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
+pub(crate) mod event_failures;
 #[allow(dead_code, reason = "wired into the shell frame by the files adapter")]
 pub(crate) mod files_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
@@ -246,6 +280,18 @@ pub(crate) mod image_pump;
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
+pub(crate) mod lib_changed;
+pub(crate) mod lib_cover;
+#[allow(
+    dead_code,
+    reason = "wired by HostWiring::library; the write half is todo 307"
+)]
+pub(crate) mod lib_edits;
+pub(crate) mod lib_host;
+pub(crate) mod lib_import;
+pub(crate) mod lib_jobs;
+pub(crate) mod lib_jobs_env;
+pub(crate) mod lib_jobs_journal;
 pub(crate) mod lib_moves_carry;
 pub(crate) mod lib_moves_host;
 pub(crate) mod lib_moves_journal;
@@ -255,10 +301,13 @@ pub(crate) mod lib_moves_walk;
 pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
+mod library_events;
 pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
 mod moves_pump;
+pub(crate) mod native_book_formats;
+pub(crate) mod native_host_call;
 #[allow(
     dead_code,
     reason = "the shell builds the pool with the NET host and the SOCK host charges it"
@@ -270,7 +319,10 @@ pub(crate) mod net_service;
 mod network_demand;
 pub(crate) mod owner_paths;
 pub(crate) mod paths_in_use;
+mod reading_events;
 pub(crate) mod save_files;
+pub(crate) mod screen_apply;
+pub(crate) mod screen_stage;
 pub(crate) mod service_events;
 mod service_pump;
 mod service_slots;
@@ -278,6 +330,7 @@ mod service_slots;
 pub(crate) mod setting_events;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;
+pub(crate) mod speech;
 mod stack_events;
 #[allow(
     dead_code,
@@ -319,11 +372,19 @@ const REGISTRATIONS: usize = 32;
 /// Callback-scoped drawing for host-owned plugin contexts.
 #[path = "native_host/canvas.rs"]
 pub mod canvas;
+mod canvas_describe;
 
 /// Callback-scoped slot-15 command staging for host-owned plugin contexts.
 #[path = "native_host/commands.rs"]
 pub mod commands;
 
+#[cfg(test)]
+#[path = "native_host/plugin_answers_tests.rs"]
+mod plugin_answers_tests;
+pub(crate) mod plugin_requests;
+#[cfg(test)]
+#[path = "native_host/plugin_requests_tests.rs"]
+mod plugin_requests_tests;
 /// The device-wide table of Wi-Fi join and host requests (DEV).
 #[path = "native_host/radio_requests.rs"]
 pub mod radio_requests;
@@ -461,6 +522,10 @@ mod native_ui_directory;
 #[path = "native_host/widget_drops.rs"]
 mod widget_drops;
 
+#[path = "native_host/fixed_settings.rs"]
+mod fixed_settings;
+#[path = "native_host/native_enable.rs"]
+pub mod native_enable;
 #[path = "native_host/native_install.rs"]
 mod native_install;
 mod native_resources;
@@ -469,6 +534,7 @@ mod native_resources;
 pub(crate) mod native_action;
 #[path = "native_host/native_screen_factory.rs"]
 pub(crate) mod native_screen_factory;
+mod owned_texts;
 
 #[path = "native_host/native_screen.rs"]
 mod native_screen;
@@ -487,8 +553,14 @@ mod native_values;
 #[path = "native_host/native_dispatch.rs"]
 mod native_dispatch;
 
+#[path = "native_host/lease_slot.rs"]
+mod lease_slot;
 #[path = "native_host/native_callbacks.rs"]
 mod native_callbacks;
+#[path = "native_host/park_linked.rs"]
+pub(crate) mod park_linked;
+#[path = "native_host/parked.rs"]
+mod parked;
 
 #[allow(
     dead_code,
@@ -981,11 +1053,13 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     fn publish(mut self, teardown: Teardown<C>) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
         let lease = CallbackLease(self.owner.inner().activate_leased(teardown)?);
         Ok(RegistrationBatch {
-            records: core::mem::take(&mut self.records),
             declarations: core::mem::take(&mut self.declarations),
             raw: core::mem::take(&mut self.raw),
-            _image: core::marker::PhantomData,
-            lease,
+            records: PublishedRecords {
+                records: core::mem::take(&mut self.records),
+                _image: core::marker::PhantomData,
+                lease,
+            },
         })
     }
 
@@ -1097,34 +1171,71 @@ impl<C, M, T> Drop for Construction<'_, C, M, T> {
     }
 }
 
-/// Published records share a lease which keeps their context and code alive.
-/// Record destructors run before that lease is released. External queues need
-/// their own leases and must be cancelled before owner teardown.
+/// A committed batch: its records with their lease, and the declarations
+/// staged beside them, which the caller moves out before it retains the
+/// records (`into_retained` keeps only those).
+/// Declarations drop before the records, and the lease drops last.
 #[non_exhaustive]
 pub struct RegistrationBatch<'a, C, M, T> {
-    records: Vec<T>,
     declarations: Declarations,
     raw: raw_declarations::RawDeclarations,
+    records: PublishedRecords<'a, C, M, T>,
+}
+
+impl<C, M, T> RegistrationBatch<'_, C, M, T> {
+    /// The records alone, for as long as the caller retains the pinned owner
+    /// and image. What is left of the declarations is dropped here: a retained
+    /// batch keeps no room for them (they are moved out before, or unused).
+    ///
+    /// # Safety
+    /// The caller retains the pinned owner and image until the result drops.
+    unsafe fn into_retained(self) -> PublishedRecords<'static, C, M, T>
+    where
+        T: 'static,
+    {
+        let records = self.records;
+        PublishedRecords {
+            records: records.records,
+            _image: core::marker::PhantomData,
+            // SAFETY: the caller provides the retained pinned owner lifetime.
+            lease: CallbackLease(unsafe { records.lease.0.into_retained() }),
+        }
+    }
+
+    // The draft-4 bridge consumes these snapshots together with Declarations.
+    #[allow(dead_code, reason = "draft-4 registry bridge follows the substrate")]
+    pub(crate) fn take_raw_declarations(&mut self) -> raw_declarations::RawDeclarations {
+        core::mem::take(&mut self.raw)
+    }
+
+    /// Move decoded-only host declarations out, leaving an empty set behind.
+    /// Wire submissions are stored separately and do not appear here. They
+    /// currently refuse commit until the SDK declaration views are wired.
+    pub fn take_declarations(&mut self) -> Declarations {
+        core::mem::take(&mut self.declarations)
+    }
+}
+
+impl<'a, C, M, T> Deref for RegistrationBatch<'a, C, M, T> {
+    type Target = PublishedRecords<'a, C, M, T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.records
+    }
+}
+
+/// Published records share a lease which keeps their context and code alive.
+/// Record destructors run before that lease is released. External queues need
+/// their own leases and must be cancelled before owner teardown. This is all
+/// a retained batch keeps for each plugin.
+#[non_exhaustive]
+pub struct PublishedRecords<'a, C, M, T> {
+    records: Vec<T>,
     _image: core::marker::PhantomData<&'a [u8]>,
     lease: CallbackLease<'a, C, M>,
 }
 
-impl<C, M, T> RegistrationBatch<'_, C, M, T> {
-    /// The caller retains the pinned owner and image until this batch drops.
-    unsafe fn into_retained(self) -> RegistrationBatch<'static, C, M, T>
-    where
-        T: 'static,
-    {
-        RegistrationBatch {
-            records: self.records,
-            declarations: self.declarations,
-            raw: self.raw,
-            _image: core::marker::PhantomData,
-            // SAFETY: the caller provides the retained pinned owner lifetime.
-            lease: CallbackLease(unsafe { self.lease.0.into_retained() }),
-        }
-    }
-
+impl<C, M, T> PublishedRecords<'_, C, M, T> {
     /// Number of published host records.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -1142,19 +1253,6 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
-    }
-
-    // The draft-4 bridge consumes these snapshots together with Declarations.
-    #[allow(dead_code, reason = "draft-4 registry bridge follows the substrate")]
-    pub(crate) fn take_raw_declarations(&mut self) -> raw_declarations::RawDeclarations {
-        core::mem::take(&mut self.raw)
-    }
-
-    /// Move decoded-only host declarations out, leaving an empty set behind.
-    /// Wire submissions are stored separately and do not appear here. They
-    /// currently refuse commit until the SDK declaration views are wired.
-    pub fn take_declarations(&mut self) -> Declarations {
-        core::mem::take(&mut self.declarations)
     }
 
     /// Dispatch a declared contribution's token through this batch's owner.
@@ -1232,6 +1330,14 @@ impl<C, M, T> fmt::Debug for Construction<'_, C, M, T> {
 impl<C, M, T> fmt::Debug for RegistrationBatch<'_, C, M, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RegistrationBatch")
+            .field("len", &self.records.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<C, M, T> fmt::Debug for PublishedRecords<'_, C, M, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PublishedRecords")
             .field("len", &self.records.len())
             .finish_non_exhaustive()
     }

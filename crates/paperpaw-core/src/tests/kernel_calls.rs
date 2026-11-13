@@ -368,3 +368,13 @@ fn sounds_are_answered_not_played() {
     kernel.run_commands();
     assert_eq!(*log.borrow(), ["Haus played false"]);
 }
+
+/// Built on the heap (the X4's shell, #250), the kernel starts as one built
+/// on the stack does.
+#[test]
+fn a_kernel_built_on_the_heap_starts_as_one_built_on_the_stack() {
+    let mut boxed = Kernel::builder(DEVICE).build_boxed().unwrap();
+    let mut kernel = Kernel::builder(DEVICE).build().unwrap();
+    let (boxed, kernel) = (boxed.start(Instant(0)), kernel.start(Instant(0)));
+    assert_eq!(boxed.refresh(), kernel.refresh());
+}

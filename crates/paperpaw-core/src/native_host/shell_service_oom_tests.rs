@@ -1,4 +1,5 @@
-//! Real service-handle and scratch allocations fail without publishing output.
+//! A failed service-handle allocation publishes nothing; a call allocates
+//! nothing on the host (the reply is built in the caller's buffer).
 use super::arm_failure;
 use crate::native_host::host_services::Caller;
 use crate::{
@@ -33,10 +34,13 @@ fn pair(bytes: &[u8]) -> PpBytes {
 }
 
 #[test]
-fn failed_handle_and_reply_allocations_recover_without_sticking_busy() {
+fn failed_handle_allocation_recovers_and_a_call_allocates_nothing() {
     let pool = HostResources::with_test_service(echo).unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let declared = DeclaredServices::try_from_iter(core::iter::once(Declared {
         key: "core.test-echo",
         major: 1,
@@ -108,8 +112,11 @@ fn failed_handle_and_reply_allocations_recover_without_sticking_busy() {
                 )
             };
             arm_failure(0);
-            assert_eq!(refused, abi::ERR_NO_MEMORY);
-            assert_eq!(out, [0xa5; 512]);
+            assert_eq!(
+                refused,
+                (length - 1) as i32,
+                "the call made no allocation for the failure to hit"
+            );
             // SAFETY: the same valid fixture storage remains live.
             let count = unsafe {
                 call_services::call(
@@ -127,7 +134,7 @@ fn failed_handle_and_reply_allocations_recover_without_sticking_busy() {
             };
             assert_eq!(count, (length - 1) as i32);
             assert_eq!(&out[..length - 1], &input[1..length]);
-            assert!(out[length - 1..].iter().all(|byte| *byte == 0xa5));
+            assert!(out[length - 1..].iter().all(|byte| *byte == 0));
             owner.release(handle).unwrap();
         })
         .unwrap();

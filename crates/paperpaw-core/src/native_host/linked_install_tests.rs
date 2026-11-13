@@ -152,7 +152,7 @@ fn install(
     kernel: &mut crate::Kernel,
     entry: &'static PpEntry,
     metadata: &'static [u8],
-    id: &str,
+    id: &'static str,
 ) -> Result<(), shell::Error> {
     install_on(kernel, entry, metadata, &shell_host(&[]), id)
 }
@@ -162,7 +162,7 @@ fn install_on(
     entry: &'static PpEntry,
     metadata: &'static [u8],
     host: &Host<'static>,
-    id: &str,
+    id: &'static str,
 ) -> Result<(), shell::Error> {
     install_with(
         kernel,
@@ -179,7 +179,7 @@ fn install_with(
     entry: &'static PpEntry,
     metadata: &'static [u8],
     host: &Host<'static>,
-    id: &str,
+    id: &'static str,
     resources: HostResources,
 ) -> Result<(), shell::Error> {
     install_depth(
@@ -198,7 +198,7 @@ fn install_depth(
     entry: &'static PpEntry,
     metadata: &'static [u8],
     host: &Host<'static>,
-    id: &str,
+    id: &'static str,
     resources: HostResources,
     depth: &FlatDepth,
 ) -> Result<(), shell::Error> {
@@ -213,7 +213,9 @@ fn install_depth(
             resources,
             depth,
             |_, _, _, _| {},
-            |_, _, _| {},
+            |_, _, _, _| {},
+            (core::ptr::null(), 0),
+            crate::native_host::FixedTables::NONE,
         )
     }
 }
@@ -380,17 +382,8 @@ fn metadata_the_kernel_refuses_is_unsupported_before_make() {
 #[test]
 fn an_unparseable_id_is_refused_before_make() {
     let mut kernel = kernel();
-    let long = "a".repeat(41);
-    for id in [
-        "",
-        "Not An Id",
-        "a b",
-        "a..b",
-        "a@x",
-        "x@2",
-        "a.b",
-        long.as_str(),
-    ] {
+    let long: &'static str = alloc::boxed::Box::leak("a".repeat(41).into_boxed_str());
+    for id in ["", "Not An Id", "a b", "a..b", "a@x", "x@2", "a.b", long] {
         assert_eq!(
             status(install(&mut kernel, entry(|_| {}), METADATA, id)),
             ERR_INVALID
@@ -479,6 +472,30 @@ fn plugins_sharing_the_devices_depth_counter_are_all_admitted_and_another_is_ref
     assert!(kernel.shared.native_instances.find("third").is_none());
 }
 
+/// Both admitted plugins' dispatches hold the kernel's one `FlatHost`: the
+/// kernel's handle plus one per plugin, no copy (#248).
+#[test]
+fn linked_plugins_dispatch_through_the_one_flat_host() {
+    let mut kernel = kernel();
+    let depth = FlatDepth::try_new().unwrap();
+    let host = shell_host(&[]);
+    let table = HostResources::try_new().unwrap();
+    for id in ["first", "second"] {
+        install_depth(
+            &mut kernel,
+            entry(|_| {}),
+            METADATA,
+            &host,
+            id,
+            table.try_clone().unwrap(),
+            &depth.try_clone().unwrap(),
+        )
+        .unwrap();
+    }
+    let shared = kernel.shared.native_instances.flat_host.as_ref().unwrap();
+    assert_eq!(shared.strong_count(), 3);
+}
+
 const NETWORK: &str = "uses.network";
 const NETWORK_WIRED: &[Feature<'static>] = &[Feature {
     key: NETWORK,
@@ -486,7 +503,7 @@ const NETWORK_WIRED: &[Feature<'static>] = &[Feature {
 }];
 
 /// Installs `id` with the feature `uses.network` admitted.
-fn install_networked(kernel: &mut crate::Kernel, id: &str) {
+fn install_networked(kernel: &mut crate::Kernel, id: &'static str) {
     let bytes = feature_metadata(NETWORK);
     let with_feature = entry(|entry| {
         entry.metadata = PpBytes {
@@ -640,4 +657,79 @@ fn a_kept_value_is_read_once_and_never_over_what_the_reader_set_since() {
     kernel.forget_native_network("linked");
     kernel.admit_native_network(&paperpaw_sdk::Id::new_static("linked"), true);
     assert_eq!(network_on(&kernel, "linked"), Some(true));
+}
+
+/// What a linked plugin keeps of the kernel's heap does not grow with its
+/// id: the id stays in the program, and so do its declarations' ids, given
+/// in its fixed id table as the firmware gives them (#248, D4; CR remark 1
+/// on PR #1360).
+#[test]
+fn a_linked_plugin_keeps_no_byte_of_its_id() {
+    use crate::native_host::{FixedTables, shell::tests::HEAP_LIVE};
+    use paperpaw_sdk::Id;
+    const LONG: &str = "abcdefghijklmnopqrstuvwxyzabcdefghijklmn";
+    static SHORT_IDS: [Id; 1] = [Id::new_static("a.screen")];
+    static LONG_IDS: [Id; 1] = [Id::new_static(
+        "abcdefghijklmnopqrstuvwxyzabcdefghijklmn.screen",
+    )];
+    fn kept(id: &'static str, ids: &'static [Id]) -> usize {
+        let mut kernel = kernel();
+        let before = HEAP_LIVE.with(Cell::get);
+        // SAFETY: the test factory obeys the contract and its code is static.
+        let registered = unsafe {
+            kernel.register_linked(
+                entry(|_| {}),
+                METADATA,
+                &shell_host(&[]),
+                id,
+                Heap,
+                HostResources::try_new().unwrap(),
+                &FlatDepth::try_new().unwrap(),
+                |_, _, _, _| {},
+                |_, _, _, _| {},
+                (ptr::null(), 0),
+                FixedTables::NONE.with_ids(ids),
+            )
+        };
+        registered.unwrap();
+        let kept = HEAP_LIVE.with(Cell::get) - before;
+        drop(kernel);
+        kept
+    }
+    assert_eq!(kept(LONG, &LONG_IDS), kept("a", &SHORT_IDS));
+}
+
+/// Every plugin id is a valid `Id`, so `register_linked` keeps it with
+/// `Id::new_static` without checking it again (#248, D4): at the edges where
+/// the two checks could differ, whatever the plugin-id check takes, `Id`
+/// takes too.
+#[test]
+fn every_plugin_id_is_an_id() {
+    let forty = "abcdefghijklmnopqrstuvwxyzabcdefghijklmn";
+    let forty_one = "abcdefghijklmnopqrstuvwxyzabcdefghijklmno";
+    let cases: [(&str, bool); 17] = [
+        ("", false),
+        (forty, true),
+        (forty_one, false),
+        ("a", true),
+        ("-a", false),
+        ("a-", true),
+        ("-", false),
+        ("a--b", true),
+        ("--", false),
+        ("0", true),
+        ("123", true),
+        ("x4", true),
+        ("a.b", false),
+        (".a", false),
+        ("a@1", false),
+        ("A", false),
+        ("a b", false),
+    ];
+    for (id, plugin) in cases {
+        assert_eq!(bundle::is_plugin_id(id), plugin, "{id:?}");
+        if plugin {
+            assert!(paperpaw_sdk::Id::parse(id).is_ok(), "{id:?}");
+        }
+    }
 }

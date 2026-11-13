@@ -4,6 +4,7 @@
 extern crate std;
 use super::*;
 use crate::abi7::core_frame::CoreFrame;
+use core::any::TypeId;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::{Instant, PixelFormat};
 
@@ -22,6 +23,9 @@ std::thread_local! {
     static METER: core::cell::RefCell<Option<alloc::rc::Rc<crate::meter::Meter>>> =
         const { core::cell::RefCell::new(None) };
     static RUNNING: Cell<Option<bool>> = const { Cell::new(None) };
+    /// How many token callbacks ran as the frame owner, and how many did not.
+    static OURS: Cell<u32> = const { Cell::new(0) };
+    static NOT_OURS: Cell<u32> = const { Cell::new(0) };
     static SUBSCRIBE: Cell<u32> = const { Cell::new(0) };
 }
 
@@ -143,6 +147,9 @@ fn invoked(state: *mut c_void, token: u32) -> bool {
         return false;
     }
     CALLS.with(|count| count.set(count.get() + 1));
+    let ours = super::super::frame_owner::owner() == Some(context.owner_key());
+    let seen = if ours { &OURS } else { &NOT_OURS };
+    seen.with(|count| count.set(count.get() + 1));
     METER.with(|meter| {
         if let Some(meter) = &*meter.borrow() {
             use paperpaw_sdk::secrets::Running;
@@ -470,11 +477,9 @@ fn native_mapping_finishes_before_callbacks_activate() {
     })
     .unwrap();
     assert_eq!(count, 1);
-    let batch = instance.batch().unwrap();
-    assert!(batch.raw.batches.is_empty());
-    assert_eq!(batch.raw.batches.capacity(), 0);
-    assert_eq!(batch.raw.index.capacity(), 0);
-    assert!(batch.declarations.is_empty());
+    // The retained batch is the records alone: no room for declarations.
+    let batch: &Published<'_, _, _, Registration> = instance.batch().unwrap();
+    assert!(batch.is_empty());
     drop(instance);
     assert_eq!(DESTROYS.with(Cell::get), 1);
 }
@@ -501,7 +506,7 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
             registry_generation: alloc::rc::Rc::clone(&kernel.shared.registry_generation),
         },
-        |_, _, _| {},
+        |_, _, _, _| {},
         crate::native_host::native_instances::test_identity("tokens"),
     ))
     .unwrap();
@@ -561,7 +566,7 @@ fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
             registry_generation: alloc::rc::Rc::clone(&kernel.shared.registry_generation),
         },
-        |_, _, _| {},
+        |_, _, _, _| {},
         crate::native_host::native_instances::test_identity("tokens"),
     ))
     .unwrap();
@@ -702,7 +707,7 @@ fn a_screen_callback_is_a_showing_screen_only_while_it_runs_on_the_stack() {
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
             registry_generation: alloc::rc::Rc::clone(&kernel.shared.registry_generation),
         },
-        |_, _, _| {},
+        |_, _, _, _| {},
         identity,
     );
     PROBE.with(|probe| *probe.borrow_mut() = Some((alloc::rc::Rc::clone(&rows), owner)));
@@ -751,7 +756,7 @@ fn a_native_owner_is_subscribed_to_the_events_it_registered_only() {
                 font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
                 registry_generation: alloc::rc::Rc::clone(&kernel.shared.registry_generation),
             },
-            |_, _, _| {},
+            |_, _, _, _| {},
             crate::native_host::native_instances::test_identity("tokens"),
         )
     };
@@ -762,6 +767,48 @@ fn a_native_owner_is_subscribed_to_the_events_it_registered_only() {
     assert!(!started.subscribed(registrations::EVENT_PAGE_TURNED_TAG));
     assert!(!started.subscribed(registrations::EVENT_HTTP_DONE_TAG));
     assert!(!make(0).subscribed(registrations::EVENT_STARTED_TAG));
+}
+
+/// A call the host dropped is told to the shell with the plugin's id beside
+/// its token and status (the X4 logs all three), without allocating.
+#[test]
+fn a_dropped_call_names_its_plugin() {
+    use super::super::{
+        native_dispatch::NativeDispatch, native_screen::Dispatch, retained::Retained,
+    };
+    std::thread_local! {
+        static DROPPED: core::cell::RefCell<alloc::vec::Vec<(alloc::string::String, u32, i32)>> =
+            const { core::cell::RefCell::new(alloc::vec::Vec::new()) };
+    }
+    fn report(_: &Heap, plugin: &str, token: u32, status: i32) {
+        DROPPED.with(|dropped| dropped.borrow_mut().push((plugin.into(), token, status)));
+    }
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let dispatch = NativeDispatch::new(
+        Retained::make(hosted(false)).unwrap(),
+        super::super::flat::FlatDepth::try_new().unwrap(),
+        super::super::FlatHost {
+            log: Default::default(),
+            meter: alloc::rc::Rc::clone(&kernel.shared.meter),
+            directory: None,
+            stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),
+            font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
+            registry_generation: alloc::rc::Rc::clone(&kernel.shared.registry_generation),
+        },
+        report,
+        crate::native_host::native_instances::test_identity("tokens"),
+    );
+    dispatch.dropped(10, host_glue::ERR_INVALID);
+    assert_eq!(
+        DROPPED.with(|dropped| dropped.take()),
+        [(
+            alloc::string::String::from("tokens"),
+            10,
+            host_glue::ERR_INVALID
+        )]
+    );
 }
 
 /// A stage call reached from inside another plugin's callback runs the plugin
@@ -849,4 +896,50 @@ fn a_nested_draw_is_charged_to_the_plugin_called() {
         drop(running);
     }
     METER.with(|meter| *meter.borrow_mut() = None);
+}
+
+/// Every kind of declared entry (input, event, draw, stage reply) runs the
+/// plugin as the frame owner, and the previous owner is back after it, also
+/// when the callback answers an error and when the call is nested in another
+/// plugin's.
+#[test]
+fn every_token_entry_runs_as_the_frame_owner_and_gives_it_back() {
+    use super::super::frame_owner;
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let hosted = hosted(false);
+    let batch = hosted
+        .construct_registered(hosted.begin().unwrap())
+        .unwrap();
+    let mut framebuffer = paperpaw_graphics::Framebuffer::new(20, 80, PixelFormat::Gray8).unwrap();
+    let mut full_canvas = framebuffer.canvas();
+    let mut canvas = full_canvas.clipped(Rect::new(0, 5, 20, 4));
+    let draw_frame = super::super::frames::screen(0, 0, 20, 80, (5, 9));
+    let depth = DispatchDepth::new();
+    OURS.with(|count| count.set(0));
+    NOT_OURS.with(|count| count.set(0));
+    REPLY.with(|value| value.set(true));
+    let run = |frame: &CoreFrame<'_>, canvas: &mut paperpaw_graphics::Canvas<'_>| {
+        let _ = dispatch_token(&batch, TOKEN, &depth, frame, TokenInvocation::Input(&[]));
+        let _ = dispatch_token(&batch, TOKEN, &depth, frame, TokenInvocation::Event(&[]));
+        let _ = dispatch_token_draw(&batch, TOKEN, &depth, frame, &draw_frame, canvas);
+        let mut output = [0; 8];
+        let _ = super::dispatch_stage(&batch, TOKEN, &depth, frame, b"ask", &mut output);
+    };
+    scoped(&kernel, |frame| {
+        // An answer and an error return: four entries each.
+        for status in [0, -3] {
+            RESULT.with(|value| value.set(status));
+            run(frame, &mut canvas);
+            assert_eq!(frame_owner::owner(), None, "status {status}");
+        }
+        // Nested in another plugin's frame.
+        frame_owner::within(99, ptr::null(), TypeId::of::<()>(), || {
+            run(frame, &mut canvas);
+            assert_eq!(frame_owner::owner(), Some(99));
+        });
+    });
+    assert_eq!(OURS.with(Cell::get), 12);
+    assert_eq!(NOT_OURS.with(Cell::get), 0);
 }

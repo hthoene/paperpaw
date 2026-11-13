@@ -2,6 +2,7 @@
 //! Registrations retain leases from this registry, never a second plugin owner.
 use super::{
     event_tags::EventTags,
+    lease_slot::{Slot, Unpark},
     native_callbacks::{CallbackClock, CallbackRuntime, NativeCallbackEpoch},
     native_screen::Dispatch,
     owner_directory::OwnerDirectory,
@@ -10,7 +11,7 @@ use super::{
 };
 use alloc::{boxed::Box, string::String, vec::Vec};
 use core::cell::Cell;
-use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::Id;
 
 pub(crate) trait NativeInstance: Dispatch {
@@ -26,6 +27,12 @@ pub(crate) trait NativeInstance: Dispatch {
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(None);
+    }
+    /// Whether the owner holds nothing the host keeps for it now, so that
+    /// dropping the instance ends nothing (#248, D3). `false` unless the
+    /// instance can tell.
+    fn holds_nothing(&self) -> bool {
+        false
     }
     /// Deliver the one-record event `bytes` of a host service (`core.net`,
     /// `core.sockets`) to the callback the instance registered for its tag.
@@ -47,6 +54,18 @@ pub(crate) trait NativeInstance: Dispatch {
     ) -> Result<i32, i32> {
         self.service_event(bytes, env)
     }
+    /// The `event` callback at `token` with the one-record `bytes`, lent the
+    /// command `stage` (an action's `event.action_run`). An instance without a
+    /// stage path takes it without one.
+    fn event_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        _stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.event(token, bytes, env)
+    }
     /// A widget's `input` callback at `token` with the one-record `bytes`
     /// (`input.widget`), lent the command `stage`. An instance without a
     /// stage path takes it without one.
@@ -66,23 +85,81 @@ pub(crate) trait NativeInstance: Dispatch {
     }
 }
 
-pub(crate) struct NativeLease(Shared<Box<dyn NativeInstance>>);
+pub(crate) struct NativeLease(Shared<Slot>);
 
 impl NativeLease {
     pub(crate) fn try_new(instance: impl NativeInstance + 'static) -> Result<Self, i32> {
         let instance: Box<dyn NativeInstance> = shared::try_box(instance).ok_or(ERR_NO_MEMORY)?;
-        Shared::try_new(instance)
+        Shared::try_new(Slot::live_now(instance))
             .map(Self)
             .map_err(|_| ERR_NO_MEMORY)
+    }
+    /// A parked plugin's lease: running for everyone, made by `recipe` at
+    /// the first call at a safe point of `clock` (`lease_slot`).
+    pub(crate) fn parked(recipe: Box<dyn Unpark>, clock: CallbackRuntime) -> Result<Self, i32> {
+        let slot = Slot::parked(recipe, clock).ok_or(ERR_NO_MEMORY)?;
+        Shared::try_new(slot).map(Self).map_err(|_| ERR_NO_MEMORY)
     }
     pub(crate) fn try_clone(&self) -> Result<Self, i32> {
         self.0.try_clone().map(Self).ok_or(ERR_NO_MEMORY)
     }
-    pub(crate) fn live(&self) -> Result<&dyn NativeInstance, i32> {
+    /// The one accessor of a call into the plugin: a parked plugin is made
+    /// here at a safe point, else `ERR_BUSY` (asked to start on the next
+    /// pass). `ERR_CANCELLED` for a stopped plugin.
+    pub(crate) fn live(&self) -> Result<core::cell::Ref<'_, dyn NativeInstance>, i32> {
+        self.0.live()
+    }
+    /// Its slot, for what only a parked plugin's lease does (`lease_slot`).
+    pub(crate) fn slot(&self) -> &Slot {
+        &self.0
+    }
+    /// Running, parked included: a parked plugin is running for everyone.
+    pub(crate) fn running(&self) -> bool {
+        self.0.running()
+    }
+    /// The live instance without making a parked one (state and metadata
+    /// only; `None` while parked).
+    pub(crate) fn peek(&self) -> Option<core::cell::Ref<'_, dyn NativeInstance>> {
+        self.0.peek()
+    }
+    pub(crate) fn is_parked(&self) -> bool {
+        self.0.is_parked()
+    }
+    /// Whether the plugin subscribed to `tag`, without making it.
+    pub(crate) fn subscribed(&self, tag: u32) -> bool {
+        self.0.running() && self.0.subscribed(tag)
+    }
+    /// The plugin's image, without making it.
+    pub(crate) fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        self.0.with_image(visit);
+    }
+    pub(crate) fn take_start(&self) -> bool {
+        self.0.take_start()
+    }
+    pub(crate) fn refused(&self) -> bool {
+        self.0.refused()
+    }
+    /// The callback depth of the live instance, without making a parked
+    /// one (0 while parked: a nested call into it answers `ERR_BUSY`).
+    ///
+    /// # Errors
+    /// `ERR_CANCELLED` for a stopped plugin.
+    pub(crate) fn checked_depth(&self) -> Result<u8, i32> {
+        if !self.0.running() {
+            return Err(paperpaw_native::host_glue::ERR_CANCELLED);
+        }
+        Ok(self
+            .0
+            .peek()
+            .map_or(0, |instance| instance.callback_depth()))
+    }
+    /// `ERR_CANCELLED` for a stopped plugin, `Ok` for a running or parked
+    /// one: a check that makes nothing.
+    pub(crate) fn check_running(&self) -> Result<(), i32> {
         if self.0.running() {
-            Ok(&**self.0)
+            Ok(())
         } else {
-            Err(ERR_CANCELLED)
+            Err(paperpaw_native::host_glue::ERR_CANCELLED)
         }
     }
     pub(crate) fn stop(&self) {
@@ -105,6 +182,16 @@ impl NativeLease {
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.live()?.input_staged(token, bytes, env, stage)
+    }
+    /// The `event` callback at `token`, lent the command `stage`.
+    pub(crate) fn event_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.live()?.event_staged(token, bytes, env, stage)
     }
     /// As [`Self::service_event`], with the callback's command stage.
     pub(crate) fn service_event_staged(
@@ -168,7 +255,10 @@ impl Dispatch for NativeLease {
         self.live()?.stage(token, bytes, out, env)
     }
     fn dropped(&self, token: u32, status: i32) {
-        self.0.dropped(token, status);
+        // Told to the live instance only: a parked plugin was never called.
+        if let Some(instance) = self.0.peek() {
+            instance.dropped(token, status);
+        }
     }
 }
 
@@ -179,14 +269,36 @@ struct Entry {
     enabled: bool,
     start: Cell<bool>,
     retiring: bool,
-    replacement: Option<String>,
+    /// The folder of the version that replaces it once it is retired: a box
+    /// of its bytes, not a `String` (a word less in every row, #248 B).
+    replacement: Option<Box<str>>,
+    /// When a failed retirement is tried again (ms), with
+    /// [`FAILURE_REPORTED`]: one field for both (#248 B: the row is 40
+    /// bytes on the X4, was 48).
     retry_at: u64,
-    failure_reported: bool,
+    /// It declared `uses.install` (it may answer plugin requests).
+    installer: bool,
+}
+
+/// The bit of [`Entry::retry_at`] that says its failed retirement was said
+/// already (a time never reaches it).
+const FAILURE_REPORTED: u64 = 1 << 63;
+
+impl Entry {
+    /// When its failed retirement is tried again (ms; 0: at once).
+    fn retry_at(&self) -> u64 {
+        self.retry_at & !FAILURE_REPORTED
+    }
 }
 
 #[derive(Default)]
 pub(crate) struct NativeInstances {
     entries: Vec<Entry>,
+    /// The plugin requests under way (`plugin_requests.rs`); nothing is
+    /// allocated before the first request.
+    pub(crate) plugin_requests: core::cell::RefCell<super::plugin_requests::PluginRequests>,
+    /// The callbacks of plugins that failed (`event_failures.rs`).
+    pub(crate) event_failures: super::event_failures::EventFailures,
     callbacks: CallbackClock,
     pool: Option<OwnerResourceView>,
     orphan_retry_at: Cell<u64>,
@@ -200,6 +312,12 @@ pub(crate) struct NativeInstances {
     /// When the library's move job may be pumped again after a step that
     /// failed (`moves_pump`).
     moves_retry: Cell<Option<u64>>,
+    /// When the document preparing loop may step again after a step that
+    /// could not be made (`doc_pump`).
+    doc_retry: Cell<Option<u64>>,
+    /// How many steps of the preparing loop in a row could not be made (its
+    /// back-off).
+    doc_failures: Cell<u8>,
     /// How many steps in a row were refused (the back-off of `moves_pump`).
     moves_failures: Cell<u8>,
     /// The count of begun moves the pump last saw (`moves_pump`).
@@ -216,9 +334,16 @@ pub(crate) struct NativeInstances {
     /// The commands a callback staged, till the kernel runs them (see
     /// `event_call`).
     pub(super) outbox: super::event_call::Outbox,
+    /// The actions run since the kernel last called its pump (see
+    /// `native_action`); made when the first native action is declared.
+    actions: core::cell::RefCell<Option<super::shared::Shared<super::native_action::ActionQueue>>>,
     /// The hand-over the staged `open` being applied names: `Some(None)` an
     /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
     pending_handover: Cell<Option<Option<u32>>>,
+    /// The kernel handles every plugin's dispatch reads (meter, stack rows,
+    /// declaration directory …): one for all, made with the first plugin
+    /// (`Kernel::shared_flat_host`), so each keeps a handle, not a copy.
+    pub(super) flat_host: Option<super::shared::Shared<super::FlatHost>>,
     #[cfg(test)]
     fixture_pool: Option<super::HostResources>,
 }
@@ -246,10 +371,12 @@ impl Drop for CallbackEpoch<'_> {
 
 /// The event tags an instance subscribed to.
 fn subscriptions(lease: &NativeLease) -> EventTags {
-    lease.live().map_or_else(
-        |_| EventTags::default(),
-        |instance| EventTags::collect(|tag| instance.subscribed(tag)),
-    )
+    // A parked plugin's subscriptions are its recipe's: nothing is made.
+    if lease.running() {
+        EventTags::collect(|tag| lease.subscribed(tag))
+    } else {
+        EventTags::default()
+    }
 }
 
 impl NativeInstances {
@@ -264,6 +391,13 @@ impl NativeInstances {
     pub(crate) fn with_id(&self, key: u64, visit: &mut dyn FnMut(&str)) -> bool {
         self.directory()
             .is_some_and(|directory| directory.with_id(key, visit).is_ok())
+    }
+
+    /// Whether the enabled plugin `id` has a screen on the stack
+    /// ([`OwnerDirectory::plugin_has_screen`]).
+    pub(crate) fn plugin_has_screen(&self, id: &str) -> bool {
+        self.directory()
+            .is_some_and(|directory| directory.plugin_has_screen(id))
     }
 
     /// How many owner-directory updates were skipped since the last call.
@@ -316,6 +450,33 @@ impl NativeInstances {
         self.pool.as_ref()?.ui()
     }
 
+    /// What the screens' callbacks stage for the kernel, once the pool is
+    /// adopted (a kernel with no native plugin has none).
+    pub(crate) fn screen_stage(&self) -> Option<&super::screen_stage::ScreenStage> {
+        Some(&self.pool.as_ref()?.hosts().screen_stage)
+    }
+
+    /// Notes that the instance of `key` declared `uses.install`.
+    pub(crate) fn set_installer(&mut self, key: u64, installer: bool) {
+        if let Some(entry) = self.entry_mut(key) {
+            entry.installer = installer;
+        }
+    }
+
+    /// Whether the running instance of `key` may answer plugin requests.
+    pub(crate) fn is_installer(&self, key: u64) -> bool {
+        self.entry(key)
+            .is_some_and(|entry| entry.enabled && entry.installer)
+    }
+
+    /// The host owner key of the running plugin `id`, if it has an instance.
+    pub(crate) fn key_of(&self, id: &str) -> Option<u64> {
+        self.entries
+            .iter()
+            .find(|entry| entry.enabled && entry.id.as_str() == id)
+            .map(|entry| entry.key)
+    }
+
     /// Retain the device pool before any fallible admission work, including
     /// the first failed factory. Its orphan cleanup must remain reachable.
     pub(crate) fn adopt_pool(&mut self, identity: OwnerResourceView) -> Result<(), i32> {
@@ -350,7 +511,7 @@ impl NativeInstances {
         }
         self.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         if enabled {
-            directory.admit(key, id.as_str())?;
+            directory.admit(key, &id)?;
             if let Some(lease) = &instance {
                 directory.subscribe(key, subscriptions(lease));
             }
@@ -364,9 +525,55 @@ impl NativeInstances {
             retiring: false,
             replacement: None,
             retry_at: 0,
-            failure_reported: false,
+            installer: false,
         });
         Ok(key)
+    }
+
+    /// The queue the actions of native plugins wait in, made on the first
+    /// call.
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY` when it cannot be made.
+    pub(crate) fn action_queue(
+        &self,
+    ) -> Result<super::shared::Shared<super::native_action::ActionQueue>, i32> {
+        let mut slot = self.actions.try_borrow_mut().map_err(|_| ERR_STATE)?;
+        if slot.is_none() {
+            *slot = Some(
+                super::shared::Shared::try_new(super::native_action::ActionQueue::default())
+                    .map_err(|_| ERR_NO_MEMORY)?,
+            );
+        }
+        slot.as_ref()
+            .and_then(super::shared::Shared::try_clone)
+            .ok_or(ERR_NO_MEMORY)
+    }
+
+    /// The queue of actions if one was made (no action was ever declared
+    /// without it).
+    pub(crate) fn action_queue_made(
+        &self,
+    ) -> Option<super::shared::Shared<super::native_action::ActionQueue>> {
+        self.actions
+            .try_borrow()
+            .ok()?
+            .as_ref()
+            .and_then(super::shared::Shared::try_clone)
+    }
+
+    /// The ids of the interface-7 plugins known, enabled or not.
+    pub(crate) fn plugin_ids(&self) -> impl Iterator<Item = &Id> {
+        self.entries.iter().map(|entry| &entry.id)
+    }
+
+    /// A lease of the installed, enabled plugin `key` (`None` for none, or
+    /// where memory refuses the clone).
+    pub(crate) fn lease(&self, key: u64) -> Option<NativeLease> {
+        self.entry(key)
+            .filter(|entry| entry.enabled)
+            .and_then(|entry| entry.instance.as_ref())
+            .and_then(|lease| lease.try_clone().ok())
     }
 
     pub(crate) fn id(&self, key: u64) -> Option<&Id> {
@@ -383,8 +590,7 @@ impl NativeInstances {
         self.entry(key)
             .filter(|entry| entry.enabled)
             .and_then(|entry| entry.instance.as_ref())
-            .and_then(|lease| lease.live().ok())
-            .is_some_and(|instance| instance.subscribed(tag))
+            .is_some_and(|lease| lease.subscribed(tag))
     }
 
     pub(crate) fn find(&self, id: &str) -> Option<u64> {
@@ -400,7 +606,7 @@ impl NativeInstances {
             return Ok(InstanceState::Stopped);
         }
         match &entry.instance {
-            Some(instance) if instance.live().is_ok() => {
+            Some(instance) if instance.running() => {
                 Ok(InstanceState::Running(instance.try_clone()?))
             }
             Some(_) => Ok(InstanceState::Stopped),
@@ -432,6 +638,34 @@ impl NativeInstances {
         Ok(())
     }
 
+    /// A parked plugin whose start is due now (asked where it could not be
+    /// made, its wait over) and whether its batch was refused: at a safe
+    /// point only (`lease_slot`, #248).
+    pub(crate) fn take_parked_start(&self) -> Option<(u64, bool)> {
+        if !self.callbacks.safe_point() {
+            return None;
+        }
+        self.entries
+            .iter()
+            .filter(|entry| entry.enabled && !entry.retiring)
+            .find_map(|entry| {
+                let lease = entry.instance.as_ref()?;
+                lease.take_start().then(|| (entry.key, lease.refused()))
+            })
+    }
+    /// The kernel's time, for a parked plugin's wait after no memory.
+    pub(crate) fn set_now(&self, now_ms: u64) {
+        self.callbacks.set_now(now_ms);
+    }
+    /// No parked plugin is made while the guard lives (a registration).
+    pub(crate) fn hold_unparking(&self) -> Option<super::native_callbacks::Hold> {
+        self.callbacks.hold()
+    }
+    /// The clock a parked plugin's lease reads its safe points from.
+    pub(crate) fn unpark_clock(&mut self) -> Result<CallbackRuntime, i32> {
+        self.callbacks.runtime()
+    }
+
     /// Zero allocation, deduplicated by entry; never flush inside a callback.
     pub(crate) fn take_start(&self) -> Option<u64> {
         if self.callbacks.depth() != 0 {
@@ -453,6 +687,8 @@ impl NativeInstances {
             return Err(ERR_STATE);
         }
         entry.instance = Some(instance);
+        // A plugin that starts again may fail anew, and be said.
+        self.event_failures.forget(key);
         if let Some(directory) = self.directory() {
             directory.subscribe(key, subscribed);
         }
@@ -478,7 +714,7 @@ impl NativeInstances {
             callbacks: self.callbacks.runtime()?,
             // No allocation: a refused share just leaves the handles to the
             // next grant or the plugin's stop (see `NativeCallbackEpoch`).
-            pool: self.pool.as_ref().and_then(OwnerResourceView::try_clone),
+            pool: self.pool.as_ref().and_then(OwnerResourceView::try_pool),
         })
     }
 
@@ -500,7 +736,7 @@ impl NativeInstances {
             .iter()
             .position(|entry| entry.key == key)
             .ok_or(ERR_STATE)?;
-        Ok(self.entries.swap_remove(at).replacement)
+        Ok(self.entries.swap_remove(at).replacement.map(String::from))
     }
 
     /// Reclaim a failed admission without reusing its key or moving any identity.
@@ -520,7 +756,14 @@ impl NativeInstances {
         if !entry.retiring || entry.replacement.is_some() {
             return Err(paperpaw_native::host_glue::ERR_BUSY);
         }
-        entry.replacement = Some(folder);
+        // Exactly its bytes, asked for fallibly: the box then gives nothing
+        // back (no reallocation that could fail).
+        let mut exact = String::new();
+        exact
+            .try_reserve_exact(folder.len())
+            .map_err(|_| paperpaw_native::host_glue::ERR_NO_MEMORY)?;
+        exact.push_str(&folder);
+        entry.replacement = Some(exact.into_boxed_str());
         Ok(())
     }
 
@@ -565,15 +808,16 @@ impl NativeInstances {
             return false;
         };
         if status == paperpaw_native::host_glue::ERR_BUSY {
-            entry.retry_at = 0;
+            entry.retry_at &= FAILURE_REPORTED;
             return false;
         }
-        entry.retry_at = now.saturating_add(5_000);
-        !core::mem::replace(&mut entry.failure_reported, true)
+        let reported = entry.retry_at & FAILURE_REPORTED != 0;
+        entry.retry_at = now.saturating_add(5_000).min(!FAILURE_REPORTED) | FAILURE_REPORTED;
+        !reported
     }
 
     pub(crate) fn retirement_ready(&self, key: u64, now: u64) -> bool {
-        self.entry(key).is_some_and(|entry| entry.retry_at <= now)
+        self.entry(key).is_some_and(|entry| entry.retry_at() <= now)
     }
 
     pub(crate) fn retirement_due(&self, now: u64) -> Option<u64> {
@@ -582,7 +826,7 @@ impl NativeInstances {
             .entries
             .iter()
             .filter(|entry| Self::needs_retirement(entry))
-            .map(|entry| entry.retry_at.max(soon))
+            .map(|entry| entry.retry_at().max(soon))
             .min();
         let orphan = self
             .pool
@@ -677,6 +921,28 @@ impl NativeInstances {
         self.moves_retry.set(at);
     }
 
+    pub(crate) fn doc_retry(&self) -> Option<u64> {
+        self.doc_retry.get()
+    }
+
+    pub(crate) fn set_doc_retry(&self, at: Option<u64>) {
+        self.doc_retry.set(at);
+    }
+
+    /// Counts one more step of the preparing loop that could not be made and
+    /// returns how many in a row.
+    pub(crate) fn doc_failed(&self) -> u8 {
+        let failures = self.doc_failures.get().saturating_add(1);
+        self.doc_failures.set(failures);
+        failures
+    }
+
+    /// A step of the preparing loop was made, or none is due: the back-off
+    /// starts over.
+    pub(crate) fn doc_ok(&self) {
+        self.doc_failures.set(0);
+    }
+
     /// Counts one more refused step and returns how many in a row.
     pub(crate) fn moves_failed(&self) -> u8 {
         let failures = self.moves_failures.get().saturating_add(1);
@@ -711,7 +977,22 @@ impl NativeInstances {
 
     /// The device's `core.work` host, once the shell wired it.
     pub(crate) fn work_services(&self) -> Option<&super::work_service::WorkServices> {
-        self.pool.as_ref()?.hosts().work()
+        // A scheduler not made yet holds no work (#248).
+        self.pool.as_ref()?.hosts().work_made()
+    }
+
+    /// Gives back what the tables kept in reserve while the plugins were
+    /// hosted one by one (every list grows by doubling): called once, when
+    /// the shell has hosted them all ([`Kernel::start`](crate::Kernel::start)).
+    pub(crate) fn shrink_to_fit(&mut self) {
+        super::shrink::shrink(&mut self.entries);
+        self.setting_events.shrink_to_fit();
+        if let Some(directory) = self.directory() {
+            directory.shrink_to_fit();
+        }
+        if let Some(hosts) = self.hosts() {
+            hosts.shrink_to_fit();
+        }
     }
 
     /// The device's wired host views (none before a pool is adopted).
@@ -779,12 +1060,20 @@ impl NativeInstances {
 
     /// The `index`th running instance, in order of installation: its key and
     /// its lease. `None` past the last.
+    /// The first time a parked plugin asked to start may be made.
+    pub(crate) fn parked_start_at(&self) -> Option<u64> {
+        let leases = self
+            .entries
+            .iter()
+            .filter_map(|entry| entry.instance.as_ref());
+        leases.filter_map(|lease| lease.slot().start_at()).min()
+    }
     pub(crate) fn running_nth(&self, index: usize) -> Option<(u64, &NativeLease)> {
         self.entries
             .iter()
             .filter(|entry| entry.enabled && !entry.retiring)
             .filter_map(|entry| Some((entry.key, entry.instance.as_ref()?)))
-            .filter(|(_, lease)| lease.live().is_ok())
+            .filter(|(_, lease)| lease.running())
             .nth(index)
     }
 }
@@ -792,17 +1081,30 @@ impl NativeInstances {
 pub(crate) struct NativeIdentity {
     owner: u64,
     callbacks: CallbackRuntime,
-    /// The device pool, to end the callback's status handles with it.
-    pool: Option<OwnerResourceView>,
+    /// The device pool, to end the callback's status handles with it: the
+    /// pool alone, not an owner's view of it (#248).
+    pool: Option<super::HostResources>,
 }
 impl NativeIdentity {
+    /// The same identity again: a parked plugin's recipe keeps one for each
+    /// time it makes the plugin's dispatch (#248).
+    pub(crate) fn try_clone(&self) -> Option<Self> {
+        Some(Self {
+            owner: self.owner,
+            callbacks: self.callbacks.try_clone()?,
+            pool: match &self.pool {
+                Some(pool) => Some(pool.try_clone()?),
+                None => None,
+            },
+        })
+    }
     pub(crate) fn owner(&self) -> u64 {
         self.owner
     }
     pub(crate) fn callback(&self) -> Result<NativeCallbackEpoch, i32> {
         let epoch = self.callbacks.enter()?;
         Ok(
-            match self.pool.as_ref().and_then(OwnerResourceView::try_clone) {
+            match self.pool.as_ref().and_then(super::HostResources::try_clone) {
                 Some(pool) => epoch.ending_status_handles(pool, self.owner),
                 None => epoch,
             },
@@ -817,7 +1119,12 @@ impl NativeIdentity {
     }
     /// The device's `core.ui` service (widget handles), once a shell wired it.
     pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {
-        self.pool.as_ref()?.ui()
+        self.pool.as_ref()?.hosts().ui()
+    }
+
+    /// What the screens' callbacks stage for the kernel (`screen_stage`).
+    pub(crate) fn screen_stage(&self) -> Option<&super::screen_stage::ScreenStage> {
+        Some(&self.pool.as_ref()?.hosts().screen_stage)
     }
 }
 
@@ -834,387 +1141,10 @@ pub(crate) fn test_identity(owner: &str) -> NativeIdentity {
     registry.identity(key).unwrap()
 }
 
+// What parking a plugin again asks of the table (#248, D3).
+#[path = "native_instances_repark.rs"]
+mod repark;
+
 #[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
-    use super::*;
-    use alloc::rc::Rc;
-    use paperpaw_sdk::Env;
-    struct Fake {
-        active: Cell<bool>,
-        drops: Rc<Cell<u32>>,
-        retired: Rc<Cell<Option<u64>>>,
-        retire_error: Rc<Cell<Option<i32>>>,
-        retire_calls: Rc<Cell<u32>>,
-    }
-    impl Drop for Fake {
-        fn drop(&mut self) {
-            self.drops.set(self.drops.get() + 1);
-        }
-    }
-    impl NativeInstance for Fake {
-        fn running(&self) -> bool {
-            self.active.get()
-        }
-        fn stop(&self) {
-            self.active.set(false);
-        }
-        fn retire(&self, owner: u64) -> Result<(), i32> {
-            self.stop();
-            self.retired.set(Some(owner));
-            self.retire_calls.set(self.retire_calls.get() + 1);
-            self.retire_error.get().map_or(Ok(()), Err)
-        }
-    }
-    impl Dispatch for Fake {
-        fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
-            panic!("not called after stop")
-        }
-        fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
-            panic!("not called after stop")
-        }
-        fn draw(
-            &self,
-            _: u32,
-            _: &super::super::registrations::DrawFrame<'_>,
-            _: &Env<'_>,
-            _: &mut paperpaw_graphics::Canvas<'_>,
-        ) -> Result<i32, i32> {
-            panic!("not called after stop")
-        }
-        fn dropped(&self, _: u32, _: i32) {}
-    }
-
-    #[test]
-    fn frozen_lease_keeps_instance_alive_but_cannot_call_after_registry_stop() {
-        let drops = Rc::new(Cell::new(0));
-        let instance = NativeLease::try_new(Fake {
-            active: Cell::new(true),
-            drops: drops.clone(),
-            retired: Rc::new(Cell::new(None)),
-            retire_error: Default::default(),
-            retire_calls: Default::default(),
-        })
-        .unwrap();
-        let mut registry = NativeInstances::default();
-        let key = registry
-            .test_insert(Id::new_static("probe"), Some(instance), true)
-            .unwrap();
-        let InstanceState::Running(lease) = registry.state(key).unwrap() else {
-            panic!("running");
-        };
-        registry.stop(key).unwrap();
-        assert_eq!(lease.live().err(), Some(ERR_CANCELLED));
-        let kernel = crate::Kernel::builder(crate::tests::DEVICE)
-            .build()
-            .unwrap();
-        let env = kernel.shared.env(paperpaw_platform::Instant(0));
-        assert_eq!(lease.event(1, &[], &env), Err(ERR_CANCELLED));
-        assert_eq!(drops.get(), 0, "frozen lease retains the old owner");
-        drop(lease);
-        assert_eq!(drops.get(), 0);
-        assert!(matches!(registry.state(key), Ok(InstanceState::Stopped)));
-        assert!(registry.retire(key).unwrap().is_none());
-        assert_eq!(drops.get(), 1);
-    }
-
-    struct Subscribing(Cell<bool>);
-    impl NativeInstance for Subscribing {
-        fn running(&self) -> bool {
-            self.0.get()
-        }
-        fn stop(&self) {
-            self.0.set(false);
-        }
-        fn subscribed(&self, tag: u32) -> bool {
-            tag == 99
-        }
-    }
-    impl Dispatch for Subscribing {
-        fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
-            Ok(0)
-        }
-        fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
-            Ok(0)
-        }
-        fn draw(
-            &self,
-            _: u32,
-            _: &super::super::registrations::DrawFrame<'_>,
-            _: &Env<'_>,
-            _: &mut paperpaw_graphics::Canvas<'_>,
-        ) -> Result<i32, i32> {
-            Ok(0)
-        }
-        fn dropped(&self, _: u32, _: i32) {}
-    }
-
-    #[test]
-    fn the_directory_follows_admission_install_and_stop() {
-        let id_of = |dir: &OwnerDirectory, key: u64| {
-            let mut found = None;
-            dir.with_id(key, &mut |id| found = Some(alloc::string::String::from(id)))
-                .ok()
-                .and(found)
-        };
-        let mut registry = NativeInstances::default();
-        let lease = NativeLease::try_new(Subscribing(Cell::new(true))).unwrap();
-        let key = registry
-            .test_insert(Id::new_static("net.probe"), Some(lease), true)
-            .unwrap();
-        let lazy = registry
-            .test_insert(Id::new_static("net.lazy"), None, true)
-            .unwrap();
-        let off = registry
-            .test_insert(Id::new_static("net.off"), None, false)
-            .unwrap();
-        let dir = registry.directory().unwrap().try_clone().unwrap();
-        assert_eq!(id_of(&dir, key).as_deref(), Some("net.probe"));
-        assert_eq!(id_of(&dir, lazy).as_deref(), Some("net.lazy"));
-        assert_eq!(id_of(&dir, off), None, "a disabled owner has no row");
-        assert_eq!(id_of(&dir, key + 1000), None, "unknown owner");
-        assert!(dir.subscribed(key, 99));
-        assert!(!dir.subscribed(key, 101), "not that event");
-        assert!(!dir.subscribed(lazy, 99), "not started: no subscription");
-        let started = NativeLease::try_new(Subscribing(Cell::new(true))).unwrap();
-        registry.install(lazy, started).unwrap();
-        assert!(dir.subscribed(lazy, 99), "the install records it");
-        registry.stop(key).unwrap();
-        assert!(!dir.subscribed(key, 99), "a stopped owner has none");
-        assert_eq!(id_of(&dir, key), None, "nor an id");
-        registry.retire(lazy).unwrap();
-        assert_eq!(id_of(&dir, lazy), None, "a retired owner has no row");
-    }
-
-    #[test]
-    fn an_admission_the_directory_cannot_hold_is_refused_whole() {
-        let mut registry = NativeInstances::default();
-        let first = registry
-            .test_insert(Id::new_static("net.one"), None, true)
-            .unwrap();
-        crate::native_host::net_service::fail_nth(1);
-        let refused = registry.test_insert(Id::new_static("net.two"), None, true);
-        crate::native_host::net_service::fail_nth(0);
-        assert_eq!(refused, Err(ERR_NO_MEMORY));
-        assert_eq!(registry.retained_rows().0, 1, "no registry row either");
-        assert!(registry.find("net.two").is_none());
-        let dir = registry.directory().unwrap().try_clone().unwrap();
-        assert!(dir.with_id(first, &mut |_| {}).is_ok(), "the first stays");
-        registry
-            .test_insert(Id::new_static("net.two"), None, true)
-            .unwrap();
-    }
-
-    #[test]
-    fn lazy_start_deduplicates_and_flushes_only_after_outermost_epoch() {
-        let mut registry = NativeInstances::default();
-        let key = registry
-            .test_insert(Id::new_static("lazy"), None, true)
-            .unwrap();
-        let disabled = registry
-            .test_insert(Id::new_static("disabled"), None, false)
-            .unwrap();
-        assert!(matches!(registry.state(key), Ok(InstanceState::Lazy)));
-        let outer = registry.callback().unwrap();
-        let epoch = outer.epoch();
-        let inner = registry.callback().unwrap();
-        assert_eq!(inner.epoch(), epoch);
-        assert_eq!(registry.depth(), 2);
-        registry.request_start(key).unwrap();
-        registry.request_start(key).unwrap();
-        registry.request_start(disabled).unwrap();
-        assert_eq!(registry.take_start(), None);
-        drop(inner);
-        assert_eq!(registry.take_start(), None);
-        drop(outer);
-        assert_eq!(registry.take_start(), Some(key));
-        assert_eq!(registry.take_start(), None);
-        let next = registry.callback().unwrap();
-        assert!(next.epoch() > epoch);
-    }
-    #[test]
-    fn abandoned_admission_retries_with_a_new_owner_key() {
-        let mut registry = NativeInstances::default();
-        let first = registry
-            .test_insert(Id::new_static("retry"), None, true)
-            .unwrap();
-        let identity = registry.identity(first).unwrap();
-        let epoch = identity.callback().unwrap().epoch();
-        registry.abandon(first).unwrap();
-        assert!(registry.id(first).is_none());
-        assert_eq!(registry.find("retry"), None);
-        let second = registry
-            .test_insert(Id::new_static("retry"), None, true)
-            .unwrap();
-        assert!(second > first);
-        let next = registry.identity(second).unwrap();
-        assert_ne!(identity.owner(), next.owner());
-        assert!(next.callback().unwrap().epoch() > epoch);
-    }
-    #[test]
-    fn reclaiming_middle_row_preserves_live_keys_and_pending_starts() {
-        let mut registry = NativeInstances::default();
-        let failed = registry
-            .test_insert(Id::new_static("failed"), None, true)
-            .unwrap();
-        let live = registry
-            .test_insert(Id::new_static("live"), None, true)
-            .unwrap();
-        registry.request_start(live).unwrap();
-        registry.abandon(failed).unwrap();
-        assert_eq!(registry.id(live).unwrap().as_str(), "live");
-        assert_eq!(registry.find("live"), Some(live));
-        assert_eq!(registry.take_start(), Some(live));
-        assert_eq!(registry.identity(live).unwrap().owner(), live);
-        assert!(matches!(registry.state(failed), Err(ERR_STATE)));
-        assert_eq!(registry.retained_rows().0, 1);
-    }
-    #[test]
-    fn retirement_passes_original_key_to_cleanup_and_reclaims_the_row() {
-        let mut registry = NativeInstances::default();
-        let retired = Rc::new(Cell::new(None));
-        let drops = Rc::new(Cell::new(0));
-        let lease = NativeLease::try_new(Fake {
-            active: Cell::new(true),
-            drops: drops.clone(),
-            retired: retired.clone(),
-            retire_error: Default::default(),
-            retire_calls: Default::default(),
-        })
-        .unwrap();
-        let key = registry
-            .test_insert(Id::new_static("probe"), Some(lease), true)
-            .unwrap();
-        assert!(registry.retire(key).unwrap().is_none());
-        assert_eq!(retired.get(), Some(key));
-        assert_eq!(drops.get(), 1);
-        assert!(registry.id(key).is_none());
-        assert_eq!(registry.retained_rows().0, 0);
-        let replacement = registry
-            .test_insert(Id::new_static("probe"), None, true)
-            .unwrap();
-        assert!(replacement > key);
-    }
-    #[test]
-    fn registry_uses_pool_owner_and_rejects_a_second_pool_even_after_retirement() {
-        let mut registry = NativeInstances::default();
-        let pool = super::super::HostResources::try_new().unwrap();
-        let first = pool.try_owner().unwrap();
-        let key = registry
-            .insert(
-                first.try_view().unwrap(),
-                Id::new_static("first"),
-                None,
-                true,
-            )
-            .unwrap();
-        assert_eq!(key, first.owner_id());
-        assert_eq!(registry.identity(key).unwrap().owner(), first.owner_id());
-        assert!(registry.retire(key).unwrap().is_none());
-        let other_pool = super::super::HostResources::try_new().unwrap();
-        let other = other_pool.try_owner().unwrap();
-        assert_eq!(
-            registry.insert(
-                other.try_view().unwrap(),
-                Id::new_static("other"),
-                None,
-                true
-            ),
-            Err(ERR_STATE)
-        );
-        let second = pool.try_owner().unwrap();
-        let next = registry
-            .insert(
-                second.try_view().unwrap(),
-                Id::new_static("second"),
-                None,
-                true,
-            )
-            .unwrap();
-        assert!(next > key);
-        assert_eq!(next, second.owner_id());
-    }
-    #[test]
-    fn non_busy_cleanup_failure_backs_off_warns_once_and_can_recover() {
-        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-            .build()
-            .unwrap();
-        kernel.take_warnings();
-        let error = Rc::new(Cell::new(Some(paperpaw_native::host_glue::ERR_IO)));
-        let calls = Rc::new(Cell::new(0));
-        let lease = NativeLease::try_new(Fake {
-            active: Cell::new(true),
-            drops: Default::default(),
-            retired: Default::default(),
-            retire_error: error.clone(),
-            retire_calls: calls.clone(),
-        })
-        .unwrap();
-        let owner = Id::new_static("probe");
-        let key = kernel
-            .shared
-            .native_instances
-            .test_insert(owner.clone(), Some(lease), true)
-            .unwrap();
-        kernel.unload_plugin(&owner);
-        assert_eq!(calls.get(), 1);
-        assert_eq!(kernel.take_warnings().len(), 1);
-        let effects = kernel.tick(paperpaw_platform::Instant(50));
-        assert_eq!(calls.get(), 1, "permanent errors do not retry every 50ms");
-        assert_eq!(effects.wake_at(), Some(paperpaw_platform::Instant(5_000)));
-        kernel.tick(paperpaw_platform::Instant(5_000));
-        assert_eq!(calls.get(), 2);
-        assert!(
-            kernel.take_warnings().is_empty(),
-            "the same failure is reported once"
-        );
-        assert_eq!(
-            kernel.native_unload_due(),
-            Some(paperpaw_platform::Instant(10_000))
-        );
-        error.set(None);
-        kernel.tick(paperpaw_platform::Instant(10_000));
-        assert_eq!(calls.get(), 3);
-        assert!(kernel.shared.native_instances.id(key).is_none());
-        assert!(kernel.native_unload_due().is_none());
-    }
-    #[test]
-    fn lost_orphan_retirement_reports_queue_full_once_and_backs_off() {
-        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-            .build()
-            .unwrap();
-        kernel.take_warnings();
-        let pool = super::super::HostResources::try_new().unwrap();
-        let owner = pool.try_owner().unwrap();
-        kernel
-            .shared
-            .native_instances
-            .adopt_pool(owner.try_view().unwrap())
-            .unwrap();
-        // Break the admission invariant deliberately: the old fixed queue
-        // could lose an owner. The driver must report even an empty queue.
-        pool.hosts().owner_gone(123, false);
-        pool.hosts().owner_gone(456, false);
-        let effects = kernel.tick(paperpaw_platform::Instant(0));
-        assert_eq!(effects.wake_at(), Some(paperpaw_platform::Instant(5_000)));
-        let warnings = kernel.take_warnings();
-        assert_eq!(
-            warnings
-                .iter()
-                .filter(|warning| warning.message.contains("retirement queue full"))
-                .count(),
-            1
-        );
-        assert!(pool.hosts().retirements_pending());
-        kernel.tick(paperpaw_platform::Instant(50));
-        kernel.tick(paperpaw_platform::Instant(5_000));
-        assert!(
-            kernel.take_warnings().is_empty(),
-            "the invariant failure is reported once"
-        );
-        assert_eq!(
-            kernel.native_unload_due(),
-            Some(paperpaw_platform::Instant(10_000))
-        );
-    }
-}
+#[path = "native_instances_tests.rs"]
+mod tests;

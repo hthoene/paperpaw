@@ -18,18 +18,32 @@ fn a_format_call_allocation_failure_never_enters_the_format() {
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
     let target = Target { plugin, token: 7 };
     let mut out = [0_u8; 64];
-    // The framed call and the reply buffer: the 1st and 2nd allocations.
-    for nth in 1..=2 {
-        arm_failure(nth);
-        let result = call(&harness.registry, target, &[1, 2], &mut out, &env);
-        arm_failure(0);
-        assert_eq!(result, Err(ERR_NO_MEMORY), "allocation {nth}");
-        assert!(harness.seen.borrow().is_empty());
-        assert_eq!(harness.registry.depth(), 0);
-        assert_eq!(out, [0; 64]);
-    }
+    // The framed call, the one allocation: the format answers into `out`, no
+    // reply buffer of its own (#248).
+    let entered = core::cell::Cell::new(false);
+    arm_failure(1);
+    let result = call(
+        &harness.registry,
+        target,
+        &[1, 2],
+        &mut out,
+        (&env, &entered),
+    );
+    arm_failure(0);
+    assert_eq!(result, Err(ERR_NO_MEMORY));
+    assert!(!entered.get(), "the host's own refusal is not the format's");
+    assert!(harness.seen.borrow().is_empty());
+    assert_eq!(harness.registry.depth(), 0);
+    assert_eq!(out, [0; 64]);
     assert_eq!(
-        call(&harness.registry, target, &[1, 2], &mut out, &env),
+        call(
+            &harness.registry,
+            target,
+            &[1, 2],
+            &mut out,
+            (&env, &entered)
+        ),
         Ok(5)
     );
+    assert!(entered.get());
 }

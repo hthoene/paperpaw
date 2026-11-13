@@ -11,7 +11,7 @@
 )]
 use paperpaw_core::{
     Kernel, KernelBuilder,
-    native_host::{HostResources, flat::FlatDepth},
+    native_host::{HostResources, HostWiring, flat::FlatDepth},
 };
 use paperpaw_native::host_glue::{PpEntry, Services};
 use paperpaw_native::metadata::{Feature, Host as AdmissionHost, Profile, Service};
@@ -103,7 +103,7 @@ impl Services for Heap {
     }
 }
 
-fn report(heap: &Heap, token: u32, status: i32) {
+fn report(heap: &Heap, _: &str, token: u32, status: i32) {
     heap.0.dropped.lock().unwrap().push((token, status));
 }
 
@@ -184,6 +184,8 @@ pub struct Setup {
     config: String,
     /// What else the kernel is built with (see [`Setup::with_kernel`]).
     kernel: Vec<Arc<dyn Fn(KernelBuilder) -> KernelBuilder>>,
+    /// The host services wired for the plugin (see [`Setup::wired`]).
+    wiring: Vec<Arc<dyn Fn(HostWiring) -> HostWiring>>,
 }
 
 impl Default for Setup {
@@ -199,6 +201,7 @@ impl Default for Setup {
             ),
             config: String::new(),
             kernel: Vec::new(),
+            wiring: Vec::new(),
         }
     }
 }
@@ -217,6 +220,7 @@ impl Setup {
             ),
             config: String::new(),
             kernel: Vec::new(),
+            wiring: Vec::new(),
         }
     }
 
@@ -225,6 +229,16 @@ impl Setup {
     /// order given.
     pub fn with_kernel(mut self, step: impl Fn(KernelBuilder) -> KernelBuilder + 'static) -> Self {
         self.kernel.push(Arc::new(step));
+        self
+    }
+
+    /// Wires host services for the plugin as a shell does
+    /// (`HostResources::wire`): `|w| w.lookup()`, `|w| w.library(..)`, ... Steps run in the
+    /// order given. Without any, a service the plugin declared answers as an unwired family
+    /// does; with one the call reaches the real host, and so the checks of the call path (a
+    /// reply buffer smaller than the op's `max_reply` is `ERR_NO_SPACE` there, as on a device).
+    pub fn wired(mut self, step: impl Fn(HostWiring) -> HostWiring + 'static) -> Self {
+        self.wiring.push(Arc::new(step));
         self
     }
 
@@ -253,6 +267,18 @@ pub fn install_in(
     name: &str,
     services: &[&'static str],
 ) -> Result<Installed, String> {
+    install_with(setup, entry, name, services, FEATURES)
+}
+
+/// [`install_in`] on a host that offers only `features` (a shell that does not
+/// back a feature, e.g. the desktop without `uses.install`).
+pub fn install_with(
+    setup: &Setup,
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+    features: &'static [Feature<'static>],
+) -> Result<Installed, String> {
     let services: &'static [Service<'static>] = Box::leak(
         services
             .iter()
@@ -274,11 +300,19 @@ pub fn install_in(
             entry_bytes: 32,
         },
         services,
-        features: FEATURES,
+        features,
     };
     // SAFETY: a linked entry's metadata view is its own static bytes.
     let metadata = unsafe { std::slice::from_raw_parts(entry.metadata.ptr, entry.metadata.len) };
     let heap = Heap::default();
+    let resources = HostResources::try_new().map_err(|e| format!("{e:?}"))?;
+    if !setup.wiring.is_empty() {
+        let wiring = setup
+            .wiring
+            .iter()
+            .fold(HostWiring::new(), |wiring, step| step(wiring));
+        resources.wire(wiring).map_err(|e| format!("wire: {e:?}"))?;
+    }
     // Held from here on, so a refused install is checked for leaks as well.
     let mut installed = Installed {
         kernel: Some(
@@ -294,6 +328,8 @@ pub fn install_in(
         ),
         heap: heap.clone(),
     };
+    // The kernel keeps a linked plugin's id as the firmware does, for the run.
+    let name: &'static str = Box::leak(Box::from(name));
     // SAFETY: statically linked code and metadata live for the whole test.
     unsafe {
         installed.kernel().register_linked(
@@ -302,10 +338,12 @@ pub fn install_in(
             &host,
             name,
             heap.clone(),
-            HostResources::try_new().map_err(|e| format!("{e:?}"))?,
+            resources,
             &FlatDepth::try_new().map_err(|e| format!("{e:?}"))?,
             teardown,
             report,
+            (core::ptr::null(), 0),
+            paperpaw_core::native_host::FixedTables::NONE,
         )
     }
     .map_err(|e| format!("{e:?}"))?;
@@ -320,4 +358,22 @@ pub fn try_construct(
     services: &[&'static str],
 ) -> Result<(), String> {
     install(entry, name, services).map(drop)
+}
+
+/// [`try_construct`] on a host that does not offer the features named in `lacking`.
+pub fn try_construct_lacking(
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+    lacking: &[&str],
+) -> Result<(), String> {
+    let offered: &'static [Feature<'static>] = Box::leak(
+        FEATURES
+            .iter()
+            .filter(|f| !lacking.contains(&f.key))
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    );
+    install_with(&Setup::default(), entry, name, services, offered).map(drop)
 }

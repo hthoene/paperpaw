@@ -19,28 +19,27 @@ use paperpaw_sdk::Env;
 #[non_exhaustive]
 pub struct EnvironmentScope {
     slot: FrameSlot,
-    resources: Option<super::resources::OwnerResourceView>,
     callback: Cell<u64>,
-    cleanup_reporter: Cell<Option<CleanupReporter>>,
+    /// What runs after each callback: the callback's blobs expire, through
+    /// the resources of the context that holds this scope (#248: not a view
+    /// of them of its own, one per plugin).
+    cleanup: Cell<Option<Cleanup>>,
 }
 
 #[derive(Clone, Copy)]
-struct CleanupReporter {
+struct Cleanup {
     context: *const core::ffi::c_void,
-    report: unsafe fn(*const core::ffi::c_void, i32),
+    run: unsafe fn(*const core::ffi::c_void),
 }
 
 struct ExpireBlobs<'a>(&'a EnvironmentScope);
 
 impl Drop for ExpireBlobs<'_> {
     fn drop(&mut self) {
-        if let Some(resources) = &self.0.resources
-            && let Err(error) = resources.expire_blobs()
-            && let Some(reporter) = self.0.cleanup_reporter.get()
-        {
-            // SAFETY: installation ties the sink to the pinned host lifetime.
+        if let Some(cleanup) = self.0.cleanup.get() {
+            // SAFETY: installation ties the hook to the pinned host lifetime.
             unsafe {
-                (reporter.report)(reporter.context, error);
+                (cleanup.run)(cleanup.context);
             }
         }
     }
@@ -52,16 +51,8 @@ impl EnvironmentScope {
     pub const fn new() -> Self {
         Self {
             slot: FrameSlot::new(),
-            resources: None,
             callback: Cell::new(0),
-            cleanup_reporter: Cell::new(None),
-        }
-    }
-
-    pub(crate) fn with_resources(resources: super::resources::OwnerResourceView) -> Self {
-        Self {
-            resources: Some(resources),
-            ..Self::new()
+            cleanup: Cell::new(None),
         }
     }
 
@@ -69,18 +60,34 @@ impl EnvironmentScope {
         self.callback.get()
     }
 
-    /// Install the host diagnostic sink after its containing context is pinned.
+    /// Install what runs after each callback (its blobs expire, a failure is
+    /// reported) once its containing context is pinned.
     ///
     /// # Safety
     /// Context must remain live and immovable while this scope can run. The
-    /// report function must use that context's type and never panic or reenter.
-    pub(crate) unsafe fn set_cleanup_reporter(
+    /// run function must use that context's type and never panic or reenter.
+    pub(crate) unsafe fn set_cleanup(
         &self,
         context: *const core::ffi::c_void,
-        report: unsafe fn(*const core::ffi::c_void, i32),
+        run: unsafe fn(*const core::ffi::c_void),
     ) {
-        self.cleanup_reporter
-            .set(Some(CleanupReporter { context, report }));
+        self.cleanup.set(Some(Cleanup { context, run }));
+    }
+
+    /// Tests: the blobs of `view` expire after each callback, as a hosted
+    /// plugin's do.
+    ///
+    /// # Safety
+    /// `view` stays in place while this scope can run.
+    #[cfg(test)]
+    pub(crate) unsafe fn expire_view(&self, view: &super::resources::OwnerResourceView) {
+        unsafe fn run(raw: *const core::ffi::c_void) {
+            // SAFETY: `expire_view`'s caller keeps the view in place.
+            let view = unsafe { &*raw.cast::<super::resources::OwnerResourceView>() };
+            let _ = view.expire_blobs();
+        }
+        // SAFETY: passed on to the caller.
+        unsafe { self.set_cleanup(core::ptr::from_ref(view).cast(), run) };
     }
 
     fn run_callback<R>(&self, call: impl FnOnce() -> R) -> Result<R, Error> {

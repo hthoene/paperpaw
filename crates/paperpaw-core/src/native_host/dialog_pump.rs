@@ -15,6 +15,7 @@
 //! events; the request is freed when that callback returned, whatever its
 //! status (`ui.md` 3.2, cleanup).
 use super::registrations::{self as wire};
+use crate::native_host::codec;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::{
     Command, Id, Params,
@@ -81,12 +82,21 @@ impl crate::Kernel {
         for _ in 0..store.take_refused() {
             self.warn_runtime("a host dialog's answer was not taken; the question was cancelled");
         }
+        // The kernel's clipboard is the store's (once); a text op 18 committed
+        // goes out to the system (`Io::Copy`); a text left begun by a callback
+        // that returned is dropped.
+        store.bind_clipboard(&self.shared.clipboard);
+        self.clipboard_copy_out();
+        store.clipboard_callbacks_over();
         if store.callbacks_over().is_err() {
             return true;
         }
         let mut more = false;
         while let Some(start) = store.next_starting() {
             self.dialog_open(&store, &start);
+            // What the open led to runs here, not in `dialog_open`: its
+            // locals are not on the stack while those commands run (#250).
+            self.run_commands();
         }
         // Answers: one callback each; what a callback staged runs before the
         // next is called.
@@ -110,24 +120,11 @@ impl crate::Kernel {
                 let Some(delivery) = store.take_delivery(owner) else {
                     break;
                 };
-                let record = wire::EventAnswered {
-                    now_ms: self.now.millis(),
-                    request: delivery.request,
-                    kind: delivery.kind,
-                    outcome: delivery.outcome,
-                    choice: delivery.choice,
-                    length: delivery.length,
-                    flags: delivery.flags,
-                };
-                let mut bytes = [0u8; 64];
-                let Ok(len) =
-                    wire::records_encode(&[wire::Record::EventAnswered(record)], &mut bytes)
-                else {
+                let Some(called) = self.answer_call(owner, &lease, &delivery) else {
                     // Never: the record is fixed size. Freed all the same.
                     let _ = store.delivered(delivery.request);
                     continue;
                 };
-                let called = self.native_event_call(owner, &lease, &bytes[..len]);
                 if called == Err(ERR_BUSY) {
                     // A batch waits: no callback ran, so the answer is kept for
                     // the next pass, not freed.
@@ -144,10 +141,109 @@ impl crate::Kernel {
         more
     }
 
+    /// One answer to the plugin that asked: `event.answered` encoded and its
+    /// callback called; `None` where the record could not be encoded. Its own
+    /// frame, gone before the batch the callback staged runs (#250).
+    #[inline(never)]
+    fn answer_call(
+        &self,
+        owner: u64,
+        lease: &super::native_instances::NativeLease,
+        delivery: &super::ui_requests::Delivery,
+    ) -> Option<Result<i32, i32>> {
+        let record = wire::EventAnswered {
+            now_ms: self.now.millis(),
+            request: delivery.request,
+            kind: delivery.kind,
+            outcome: delivery.outcome,
+            choice: delivery.choice,
+            length: delivery.length,
+            flags: delivery.flags,
+        };
+        let mut bytes = [0u8; 64];
+        let len = codec::encode_batch(&[wire::Record::EventAnswered(record)], &mut bytes).ok()?;
+        Some(self.native_event_call(owner, lease, &bytes[..len]))
+    }
+
+    /// Asks a text question as a plugin's `ui.ask` does, for the tools and
+    /// tests that open the keyboard without a plugin that asks: the request
+    /// is the keyboard plugin's own (its answer goes back to it, which takes
+    /// no notice), and the dialog opens in the keyboard slot with the params
+    /// `core.request` and `core.kind`, from the pump below. `secret` asks for
+    /// a secret text. Nothing of the stack's admission (the guard's rules)
+    /// is applied. For shells and tools only: no plugin asks this way (a
+    /// plugin's question is its `ui.ask`).
+    ///
+    /// # Errors
+    /// Why not: no native keyboard serves the slot, no `ui` service is
+    /// wired, a question of this one is open already (it is not replaced; the
+    /// caller may open the bare screen, which an interface-6 keyboard takes),
+    /// or the question was not taken (memory, the limits).
+    pub fn stage_text_question(
+        &mut self,
+        now: paperpaw_platform::Instant,
+        title: &str,
+        secret: bool,
+    ) -> Result<crate::Effects, &'static str> {
+        let _running = self.shared.meter.enter(crate::meter::CORE);
+        let owner = self
+            .shared
+            .registry
+            .resolve_slot(KEYBOARD.as_str())
+            .map(Id::namespace)
+            .and_then(|plugin| self.shared.native_instances.key_of(plugin))
+            .ok_or("no native keyboard serves the keyboard slot")?;
+        let store = self
+            .shared
+            .native_instances
+            .ui_services()
+            .and_then(|ui| ui.store.try_clone())
+            .ok_or("no ui service is wired")?;
+        if store.open_requests(owner).1 {
+            return Err("a question is open already");
+        }
+        let who = super::ui_store::Stamp::new(owner, 1).map_err(|_| "no stamp")?;
+        let question = super::ui_requests::Question {
+            kind: 0,
+            flags: if secret {
+                super::ui_requests::SECRET
+            } else {
+                0
+            },
+            remote: false,
+            title,
+            text: "",
+            choices: "",
+        };
+        store
+            .ask(who, None, &question, secret, None, false)
+            .map_err(|_| "the question was not taken")?;
+        self.shared.reader = true;
+        self.now = now;
+        self.last_activity = now;
+        // The pump of the finish opens the dialog.
+        Ok(self.finish())
+    }
+
+    /// A text op 18 committed goes out to the system (`Io::Copy`); with no
+    /// memory for the copy it is skipped and the log says so.
+    fn clipboard_copy_out(&mut self) {
+        if !self.shared.clipboard.take_copy() {
+            return;
+        }
+        match self.shared.clipboard.text_for_copy() {
+            Some(text) => self.io.clipboard.copy(text),
+            None => self.warn_runtime("the clipboard could not be copied out: no memory"),
+        }
+    }
+
     /// Opens the dialog of one starting request and tells the store how it
     /// went: up (`open`) or `not_started`. The guard's own question opens above
     /// the guard and is marked as its dialog; any other plugin's under a guard
     /// opens below it and waits there (`ui.md` 4.3), as every screen it opens.
+    // Its own frame: its locals are not on the stack while the pump calls
+    // the plugins (#250).
+    #[inline(never)]
     fn dialog_open(&mut self, store: &super::ui_store::UiStore, start: &super::ui_requests::Start) {
         let (Some(slot), Some(request), Some(kind)) = (
             slot_of(start.kind, start.remote),
@@ -201,8 +297,8 @@ impl crate::Kernel {
             (None, None)
         };
         let params = Params::new()
-            .with("core.request", request)
-            .with("core.kind", kind);
+            .with("core.request", request.as_str())
+            .with("core.kind", kind.as_str());
         let own = self.guard().is_some_and(|guard| {
             self.shared
                 .native_instances
@@ -211,11 +307,27 @@ impl crate::Kernel {
         });
         // Serials only grow: what is at or past this was opened just now.
         let first = self.next_serial;
+        // The params a native dialog reads come from a hand-over of the
+        // host's (`ui.md` 3.2), named by the open as a plugin's `open` names
+        // its own; a dialog that is not native keeps the params. Without
+        // memory for it the dialog opens without (the keyboard refuses it).
+        let handover = store.handover_dialog(&request, &kind).ok();
+        self.shared
+            .native_instances
+            .set_pending_handover(handover.map(Some));
+        // Open for the instance about to be made, so that a native dialog
+        // reads its question in its `screen_opened`, inside the open.
+        let _ = store.dialog_opening(start.request, first);
         self.from_guard = own;
         self.from_guard_own = own;
         self.apply(Command::OpenSlot(slot.clone(), params));
         self.from_guard = false;
         self.from_guard_own = false;
+        // Not named by any later open; freed where no screen took it.
+        self.shared.native_instances.set_pending_handover(None);
+        if let Some(id) = handover {
+            let _ = store.release(id);
+        }
         // Looked up at once, before the commands the open led to run: one of
         // them may open the same slot again (another plugin's, which waits
         // below a guard), and the question must not be bound to that instance.
@@ -244,7 +356,6 @@ impl crate::Kernel {
                 let _ = store.dialog_failed(start.request);
             }
         }
-        self.run_commands();
     }
 }
 

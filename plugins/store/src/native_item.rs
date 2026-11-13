@@ -184,7 +184,7 @@ pub enum Have {
 }
 
 /// What the device has of an id.
-pub type HaveFn = dyn Fn(&str) -> Option<Have>;
+pub type HaveFn<'a> = dyn Fn(&str) -> Option<Have> + 'a;
 
 /// The device that asks for the library's plugins.
 #[derive(Clone, Copy)]
@@ -195,7 +195,7 @@ pub struct Device<'a> {
     pub code_file: &'a str,
     /// What is installed of an id; `None` where the device does not say (then
     /// everything may be installed).
-    pub have: Option<&'a HaveFn>,
+    pub have: Option<&'a HaveFn<'a>>,
     /// The SDK of the kernel that runs, which data plugins must not be later
     /// than.
     pub sdk: Version,

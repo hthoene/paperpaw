@@ -1,6 +1,7 @@
 //! Font and hyphenation records of a native plugin: published with the rest,
 //! all or nothing, and gone with the plugin.
 use super::*;
+use alloc::string::String;
 
 /// The batch of the resource mode `res`: the screen and
 /// 1 the three kinds; 2 a face with no family; 3 a language twice; 4 an
@@ -531,7 +532,11 @@ fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
     let owners = ["b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8"];
     for owner in owners {
         kernel
-            .register_native(host_named(owner, 0), &device_depth(&kernel), |_, _, _| {})
+            .register_native(
+                host_named(owner, 0),
+                &device_depth(&kernel),
+                |_, _, _, _| {},
+            )
             .unwrap();
     }
     let each = (live() - before) / owners.len();

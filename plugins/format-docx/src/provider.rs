@@ -56,6 +56,9 @@ const PART: usize = 3072;
 const ROWS: usize = 64;
 const END_LAST: u32 = 1;
 const END_MORE: u32 = 2;
+/// The `generation` of a paged list (`document.md` section 3: the format's own for the
+/// document, never 0): the lists of a document do not change, so one value serves.
+const LIST_GENERATION: u32 = 1;
 const STATE_READY: u32 = 0;
 const STATE_MORE: u32 = 1;
 const STATE_FAILED: u32 = 2;
@@ -63,6 +66,9 @@ const FLAG_TOC: u32 = 1 << 1;
 const CACHE_MADE: u32 = 1 << 6;
 /// Bit 1 of an open's `flags`: pictures in colour.
 const OPEN_COLOR: u32 = 1 << 1;
+/// Bit 3 of an open's `flags`: details (the library's book details or cover;
+/// not for showing). Bit 2, background (an index build), converts as usual.
+const OPEN_DETAILS: u32 = 1 << 3;
 /// The marker that the cache is whole, written when the last record is done.
 const DONE: &str = cache::DONE;
 
@@ -182,6 +188,10 @@ enum Body {
     /// picture fit, colour.
     Preparing(Fit, bool),
     Ready(DocxDocument),
+    /// A details open (the library's details) of a book whose cache is
+    /// not made: only what the properties say (`meta`, `meta_text`); every
+    /// other ask is `State`, and nothing is converted or written.
+    Details(DocxDocument),
     /// `Err(status)`: the open failed, the id stays until it is closed.
     Failed(i32),
 }
@@ -253,9 +263,9 @@ fn page(rows: &[Record<'_>], from: usize, total: usize, out: &mut [u8]) -> Resul
         frame.clear();
         frame.extend(rows.iter().take(take).cloned());
         frame.push(Record::FmtEnd(stage::FmtEnd::new(
-            if more { END_MORE } else { 0 },
+            if more { 0 } else { END_LAST },
             u32::try_from(total).map_err(|_| Error::Invalid)?,
-            0,
+            LIST_GENERATION,
             u32::try_from(next).map_err(|_| Error::Invalid)?,
             None,
         )));
@@ -358,7 +368,7 @@ impl DocxProvider {
                 Self::block(document, io, conversion, &call, out)
             }
             _ => {
-                let document = self.ready(call.document)?;
+                let document = self.readable(call.document, call.op)?;
                 Self::ask(document, io, &call, out)
             }
         }
@@ -375,7 +385,19 @@ impl DocxProvider {
         match &self.slot(id)?.body {
             Body::Ready(document) => Ok(document),
             Body::Preparing(..) => Err(Error::Busy),
-            Body::Failed(_) => Err(Error::State),
+            Body::Failed(_) | Body::Details(_) => Err(Error::State),
+        }
+    }
+
+    /// The document of `id` for `op`: a details open answers only the
+    /// properties' ops and the cover (a Word document has none), the others
+    /// are `State`.
+    fn readable(&self, id: u32, op: u32) -> Result<&DocxDocument, Error> {
+        match &self.slot(id)?.body {
+            Body::Details(document) if matches!(op, op::META | op::META_TEXT | op::COVER) => {
+                Ok(document)
+            }
+            _ => self.ready(id),
         }
     }
 
@@ -407,6 +429,8 @@ impl DocxProvider {
                 0,
                 ready_flags(document, io, made)?,
             ),
+            // Ready at once, with nothing made: no show-only flags.
+            Body::Details(_) => state_record(call.document, call.conversion, STATE_READY, 0, 0, 0),
             Body::Preparing(..) => {
                 state_record(call.document, call.conversion, STATE_MORE, 0, 0, 0)
             }
@@ -437,6 +461,8 @@ impl DocxProvider {
         let (id, conversion) = (slot.id, slot.conversion);
         let (fit, color) = match &slot.body {
             Body::Ready(_) => return one(state_record(id, conversion, STATE_READY, 0, 0, 0), out),
+            // A details open is ready from the open; there is nothing to prepare.
+            Body::Details(_) => return Err(Error::State),
             Body::Failed(status) => {
                 return one(
                     state_record(id, conversion, STATE_FAILED, 0, *status, 0),
@@ -550,7 +576,10 @@ impl DocxProvider {
             ),
             // No page labels or XPointers, and no fonts, in a Word document.
             11..=13 => Err(Error::NotFound),
-            16 => one(Record::FmtEnd(stage::FmtEnd::new(0, 0, 0, 0, None)), out),
+            16 => one(
+                Record::FmtEnd(stage::FmtEnd::new(END_LAST, 0, LIST_GENERATION, 0, None)),
+                out,
+            ),
             _ => Err(Error::Unsupported),
         }
     }
@@ -576,7 +605,10 @@ impl DocxProvider {
         out: &mut [u8],
     ) -> Result<usize, Error> {
         if call.section != 0 {
-            return one(Record::FmtEnd(stage::FmtEnd::new(0, 0, 0, 0, None)), out);
+            return one(
+                Record::FmtEnd(stage::FmtEnd::new(END_LAST, 0, LIST_GENERATION, 0, None)),
+                out,
+            );
         }
         let spans = document
             .link_spans(io, call.offset, call.index)
@@ -762,6 +794,15 @@ fn start(io: &dyn Storage, call: &stage::FmtCall<'_>) -> Result<(Body, bool), Er
     if io.size(DONE).is_ok() {
         let document = DocxDocument::native(io, fit, color).map_err(|e| document_error(&e))?;
         return Ok((Body::Ready(document), false));
+    }
+    if call.flags & OPEN_DETAILS != 0 {
+        // Not for showing: the properties are all that is asked, and the book
+        // is not converted for them.
+        return match DocxDocument::details(io, fit, color) {
+            Ok(document) => Ok((Body::Details(document), false)),
+            Err(DocumentError::OutOfMemory) => Err(Error::NoMemory),
+            Err(error) => Ok((Body::Failed(i32::from(document_error(&error))), false)),
+        };
     }
     Ok((Body::Preparing(fit, color), true))
 }

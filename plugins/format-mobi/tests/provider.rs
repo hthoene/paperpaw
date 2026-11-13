@@ -143,6 +143,14 @@ fn kind_of(kind: BlockKind) -> (u32, u32) {
     }
 }
 
+/// Whether `end` closes the last page of a list, after checking what `document.md`
+/// section 3 asks of a list end: bit 0 the only flag, and a generation that is never 0.
+fn last_page(end: &stage::FmtEnd) -> bool {
+    assert_eq!(end.generation, 1, "never 0");
+    assert_eq!(end.flags & !1, 0, "bit 0 is the only flag of a list");
+    end.flags & 1 == 1
+}
+
 #[test]
 fn a_book_is_prepared_in_steps_and_reads_like_interface_6() {
     let data = builder().build();
@@ -305,7 +313,9 @@ fn contents_links_cover_and_metadata(
     let reply = run(p, io, &call(7, 1, |_| {})).unwrap();
     let r = rows(&reply);
     assert!(matches!(r[0], stage::Record::FmtSection(s) if s.length == old.section_len(0)));
-    assert!(matches!(r[1], stage::Record::FmtEnd(e) if e.total == 1 && e.flags == 0));
+    assert!(
+        matches!(r[1], stage::Record::FmtEnd(e) if e.total == 1 && e.flags == 1 && e.generation == 1)
+    );
 }
 
 #[test]
@@ -386,7 +396,7 @@ fn long_lists_and_blocks_come_in_pages_and_fragments() {
             assert_eq!(t.title, format!("Chapter {}", seen + n));
         }
         seen += r.len() - 1;
-        if end.flags & 2 == 0 {
+        if last_page(&end) {
             break;
         }
         cursor = end.next;
@@ -425,7 +435,14 @@ fn sniffing_and_the_ops_a_mobipocket_book_has_no_answer_to() {
         assert_eq!(run(&mut p, &io, &call(op, 1, |_| {})), Err(Error::NotFound));
     }
     let reply = run(&mut p, &io, &call(16, 1, |_| {})).unwrap();
-    assert!(matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0));
+    assert!(
+        matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0 && e.flags == 1 && e.generation == 1)
+    );
+    // The links of a later section: an empty list, still ended as the last page.
+    let reply = run(&mut p, &io, &call(14, 1, |c| c.section = 1)).unwrap();
+    assert!(
+        matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0 && e.flags == 1 && e.generation == 1)
+    );
     for op in [19, 20, 99] {
         assert_eq!(
             run(&mut p, &io, &call(op, 1, |_| {})),
@@ -557,4 +574,134 @@ fn hostile_books_never_panic_the_provider() {
             }
         }
     }
+}
+
+/// A details open (the library's details or cover) is ready at once with
+/// what the header says and the cover, read from the book; it converts
+/// nothing, the content asks are `State`, and a normal open after it prepares
+/// the book as ever.
+#[test]
+fn a_details_open_answers_the_header_and_the_cover_and_converts_nothing() {
+    let io = Roots::new(builder().build());
+    let mut p = MobiProvider::new();
+    let reply = run(
+        &mut p,
+        &io,
+        &call(2, 1, |c| {
+            c.image_side = SIDE;
+            c.cover_side = COVER;
+            c.flags = 1 << 3;
+        }),
+    )
+    .unwrap();
+    // Ready, no show-only flags, nothing made.
+    assert_eq!(state(&reply), (0, 0, 0, 0));
+    let reply = run(&mut p, &io, &call(5, 1, |_| {})).unwrap();
+    assert!(matches!(
+        rows(&reply)[0],
+        stage::Record::FmtMeta(m) if m.title == "A Test Book" && m.language == "en"
+            && m.sections == 1 && m.authors == 2 && m.subjects == 1
+    ));
+    let reply = run(
+        &mut p,
+        &io,
+        &call(6, 1, |c| {
+            c.flags = 1;
+            c.index = 1;
+        }),
+    )
+    .unwrap();
+    assert!(matches!(rows(&reply)[0], stage::Record::FmtText(t) if t.text == "Bo Writer"));
+    // The cover, from the cover record of the book.
+    let reply = run(&mut p, &io, &call(17, 1, |c| c.cover_side = COVER)).unwrap();
+    let stage::Record::FmtImage(cover) = rows(&reply)[0] else {
+        panic!("cover")
+    };
+    assert_eq!(cover.index, u32::MAX);
+    assert!(cover.width.max(cover.height) <= COVER && cover.width > 0);
+    // Content is not there: no section, block, contents, link or picture.
+    for op in [3, 7, 8, 9, 10, 14, 15, 18] {
+        assert_eq!(
+            run(&mut p, &io, &call(op, 1, |_| {})),
+            Err(Error::State),
+            "op {op}"
+        );
+    }
+    // Nothing of the conversion was made.
+    for file in ["blocks.bin", "index.bin", "done"] {
+        assert!(io.size(file).is_err(), "{file}");
+    }
+    // Closed and opened as a book to show: prepared as ever.
+    run(&mut p, &io, &call(4, 1, |_| {})).unwrap();
+    let (s, status, flags) = open_ready(&mut p, &io);
+    assert_eq!((s, status), (0, 0));
+    assert_eq!(flags & CACHE_MADE, CACHE_MADE);
+    assert!(io.size("blocks.bin").is_ok());
+}
+
+/// A background open (bit 2, an index build) is not a details open: it needs
+/// blocks, so the book is prepared as for showing.
+#[test]
+fn a_background_open_still_converts_the_book() {
+    let io = Roots::new(builder().build());
+    let mut p = MobiProvider::new();
+    let reply = run(
+        &mut p,
+        &io,
+        &call(2, 1, |c| {
+            c.image_side = SIDE;
+            c.flags = 1 << 2;
+        }),
+    )
+    .unwrap();
+    let mut s = state(&reply).0;
+    assert_eq!(s, 1, "preparing, not ready at once");
+    let mut guard = 0;
+    while s == 1 {
+        s = state(&run(&mut p, &io, &call(3, 1, |_| {})).unwrap()).0;
+        guard += 1;
+        assert!(guard < 1000);
+    }
+    assert_eq!(s, 0);
+    assert!(io.size("blocks.bin").is_ok());
+}
+
+/// A details open (with bit 2 too) of a book with a half made cache serves
+/// the cover from its own picture file (made once, then reused) and touches
+/// nothing else of the folder: the half made files stay as they are.
+#[test]
+fn a_details_open_leaves_a_half_made_cache_and_reuses_the_cover_file() {
+    let io = Roots::new(builder().build());
+    io.write("blocks.bin", b"half").unwrap();
+    io.write("info.txt", b"x").unwrap();
+    let mut p = MobiProvider::new();
+    let reply = run(
+        &mut p,
+        &io,
+        &call(2, 1, |c| {
+            c.cover_side = COVER;
+            c.flags = (1 << 3) | (1 << 2);
+        }),
+    )
+    .unwrap();
+    assert_eq!(state(&reply), (0, 0, 0, 0));
+    let first = run(&mut p, &io, &call(17, 1, |c| c.cover_side = COVER)).unwrap();
+    let stage::Record::FmtImage(one) = rows(&first)[0] else {
+        panic!("cover")
+    };
+    let (path, width, height) = (one.path.to_owned(), one.width, one.height);
+    let size = io.size(&path).unwrap();
+    let second = run(&mut p, &io, &call(17, 1, |c| c.cover_side = COVER)).unwrap();
+    let stage::Record::FmtImage(two) = rows(&second)[0] else {
+        panic!("cover")
+    };
+    assert_eq!(
+        (two.path, two.width, two.height),
+        (path.as_str(), width, height)
+    );
+    assert_eq!(io.size(&path).unwrap(), size);
+    // Nothing else was written or removed.
+    assert_eq!(io.size("blocks.bin").unwrap(), 4);
+    assert_eq!(io.size("info.txt").unwrap(), 1);
+    assert!(io.size("done").is_err());
 }

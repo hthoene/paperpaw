@@ -24,9 +24,9 @@ use paperpaw_ui_kit::{
 };
 
 use crate::declarations::{
-    CARDS_TOKEN, DECKS_TOKEN, EVENTS_TOKEN, OPEN_TOKEN, RESUME_TOKEN, REVIEW_TOKEN, SD_CARD_TOKEN,
-    SD_MENU_TOKEN, SLEEP_CARD, SLEEP_TOKEN, TICK_TOKEN, WORD_STAGE, WORD_TOKEN, WORDS_TOKEN,
-    WORK_TOKEN,
+    CARDS_TOKEN, DECKS_TOKEN, DECORATE_STAGE, DECORATE_TOKEN, EVENTS_TOKEN, OPEN_TOKEN,
+    RESUME_TOKEN, REVIEW_TOKEN, SD_CARD_TOKEN, SD_MENU_TOKEN, SLEEP_CARD, SLEEP_TOKEN, TICK_TOKEN,
+    WORD_STAGE, WORD_TOKEN, WORDS_TOKEN, WORK_TOKEN,
 };
 use crate::files::DataFolder;
 use crate::native_decks::{self, DecksView, Numbers};
@@ -52,9 +52,20 @@ enum Asked {
     Delete,
 }
 
-/// Vocabulary's interface-7 state: the screens open.
+/// Vocabulary's interface-7 plugin. At rest it is one pointer: the state
+/// (the screens open, the widgets, the question asked) is made on first use,
+/// so a device that never opens a vocabulary screen or widget keeps none of
+/// it on the heap (#248).
 #[derive(Debug, Default)]
 pub struct NativeVocabulary {
+    /// One element, so that it can be made without aborting where the heap is
+    /// short (`Box::new` cannot refuse).
+    state: Option<alloc::boxed::Box<[State]>>,
+}
+
+/// Vocabulary's interface-7 state: the screens open.
+#[derive(Debug, Default)]
+pub(crate) struct State {
     pub(crate) ui: Option<Ui>,
     decks: Screens<DecksView>,
     reviews: Screens<ReviewScreen>,
@@ -88,6 +99,49 @@ impl Plugin for NativeVocabulary {
     }
 
     fn event(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        incoming: Incoming<'_>,
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        // What needs no state makes none: the start only puts right what a
+        // power cut left half written, and a tick has nothing to do while no
+        // screen or widget exists.
+        match (self.state.is_none(), token) {
+            (true, EVENTS_TOKEN) => State::default().event(host, token, incoming, reply),
+            (true, TICK_TOKEN) => Ok(()),
+            _ => self.state_of()?.event(host, token, incoming, reply),
+        }
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, frame: DrawFrame<'_>) -> Result<(), Error> {
+        self.state_of()?.draw(host, token, frame)
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        self.state_of()?.input(host, token, input)
+    }
+}
+
+impl NativeVocabulary {
+    /// The state, made on first use.
+    fn state_of(&mut self) -> Result<&mut State, Error> {
+        if self.state.is_none() {
+            let mut one = alloc::vec::Vec::new();
+            one.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+            one.push(State::default());
+            self.state = Some(one.into_boxed_slice());
+        }
+        self.state
+            .as_mut()
+            .and_then(|made| made.first_mut())
+            .ok_or(Error::State)
+    }
+}
+
+impl State {
+    pub(crate) fn event(
         &mut self,
         host: &Host<'_>,
         token: u32,
@@ -132,6 +186,13 @@ impl Plugin for NativeVocabulary {
                 payload,
                 ..
             } if token == WORD_TOKEN => self.word_looked_up(host, payload),
+            Event::StageCall {
+                stage: DECORATE_STAGE,
+                payload,
+                ..
+            } if token == DECORATE_TOKEN => {
+                crate::native_marks_stage::decorate(host, &mut self.ui, payload, reply)
+            }
             Event::ActionRun {
                 action: "vocabulary.flash-cards",
                 ..
@@ -186,7 +247,12 @@ impl Plugin for NativeVocabulary {
         }
     }
 
-    fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+    pub(crate) fn draw(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        mut frame: DrawFrame<'_>,
+    ) -> Result<(), Error> {
         if frame.purpose == DrawPurpose::Widget {
             return self.widgets.draw(host, frame);
         }
@@ -221,7 +287,12 @@ impl Plugin for NativeVocabulary {
         }
     }
 
-    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+    pub(crate) fn input(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        input: Input<'_>,
+    ) -> Result<Handled, Error> {
         // A tap on a widget opens the list of words, or the flash cards.
         if let Some(tap) = self.widgets.tapped(&input) {
             let screen = match tap {
@@ -274,7 +345,7 @@ fn native_decks_screen() -> &'static str {
     crate::native_decks::SCREEN
 }
 
-impl NativeVocabulary {
+impl State {
     pub(crate) fn ensure(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
             self.ui = Some(Ui::open(host)?);

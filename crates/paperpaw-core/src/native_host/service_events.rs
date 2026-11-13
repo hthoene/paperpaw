@@ -21,6 +21,12 @@ pub(crate) const EVENT_BUFFER: usize = 1_280;
 /// the service's table: `ERR_BUSY` when the table is borrowed (call again
 /// on the next pass).
 pub(crate) trait ServiceEvents {
+    /// Whether its events go to the plugins that subscribed to their tag only
+    /// (the pump drops one for any other, uncalled). `false`: every event goes
+    /// to its owner (a request's replies).
+    fn subscribers_only(&self) -> bool {
+        false
+    }
     /// The oldest event of `owner`, encoded into `out` as a one-record batch;
     /// its length and the work run it belongs to (`None`: no run), or `None`
     /// when there is no event. A failure consumes nothing.
@@ -72,6 +78,13 @@ pub(crate) trait ServiceEvents {
     /// taken: what a service stamps its events with where it keeps no clock
     /// of its own.
     fn set_now(&self, _now_ms: u64) {}
+
+    /// The plugin `owner` started (the kernel took it in): what a power cut
+    /// left of it is cleaned up or restored (a `.received/` folder, a staged
+    /// file kept after a failed rename). Never fails: what cannot be done
+    /// now is tried again at the next claim or the plugin's stop. Default:
+    /// nothing to do.
+    fn owner_started(&self, _owner: u64) {}
 }
 
 impl ServiceEvents for net_service::NetServices {
@@ -93,9 +106,18 @@ impl ServiceEvents for net_service::NetServices {
     fn next_deadline(&self) -> Option<u64> {
         net_service::next_deadline(&*self.0)
     }
+    fn owner_started(&self, owner: u64) {
+        net_service::owner_started(&*self.0, owner);
+    }
 }
 
 impl ServiceEvents for doc_service::DocServices {
+    /// A document's state and its end are told to an opener that subscribed
+    /// (`event.document_changed` 88, `event.document_closed` 108), as
+    /// `lookup_ready`: one that did not is not called for them.
+    fn subscribers_only(&self) -> bool {
+        true
+    }
     fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
         // Never in a work run: a document's events belong to no request.
         Ok(self.0.next_event(owner, out)?.map(|length| (length, None)))
@@ -141,5 +163,8 @@ impl ServiceEvents for sock_service::SockServices {
     }
     fn next_deadline(&self) -> Option<u64> {
         sock_service::next_deadline(&*self.0)
+    }
+    fn owner_started(&self, owner: u64) {
+        sock_service::owner_started(&*self.0, owner);
     }
 }

@@ -16,6 +16,7 @@
 //!   question waits and nothing guards (never over the lock), takes the
 //!   answer ([`Kernel::firmware_answer`]), dismisses at sleep and does the
 //!   restart after a yes.
+use super::dialogs::Touch;
 use super::firmware_install::{Answer, Ask};
 use crate::Kernel;
 use alloc::{
@@ -26,10 +27,8 @@ use alloc::{
 use paperpaw_i18n::Arg;
 use paperpaw_platform::{Instant, firmware::Signer};
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::ui::{Dialog, Ui, UiStyle, button_reach};
 use paperpaw_sdk::{
-    Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Hint, HintVisibility, Id, Params,
-    Rect, RefreshMode, Screen,
+    Canvas, Command, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Params, Rect, Screen,
 };
 
 /// The screen's id: a host screen (`core.*`), opened only by the kernel.
@@ -146,9 +145,8 @@ pub(super) const YES: usize = 0;
 
 /// The confirmation screen; see the [module documentation](self).
 pub(crate) struct HostConfirm {
-    style: UiStyle,
-    dialog: Dialog,
-    focus: usize,
+    /// The box the host's confirmations share (`dialogs::ConfirmBox`).
+    board: super::dialogs::ConfirmBox,
     nonce: String,
     /// The buttons in their order: yes, [yes with data,] no. The focus starts
     /// on the last, *No*.
@@ -162,23 +160,18 @@ pub(crate) struct HostConfirm {
 impl HostConfirm {
     /// The screen the kernel opened with `params` (see [`open_params`]).
     pub(crate) fn new(env: &Env<'_>, params: &Params) -> Self {
-        let style = UiStyle::new(env);
         let get = |key| params.get(key).unwrap_or("");
-        let text: Vec<&str> = get(TEXT).split('\n').collect();
         let mut labels = Vec::from([String::from(get(YES_WORD))]);
         if let Some(data) = params.get(DATA_WORD) {
             labels.push(String::from(data));
         }
         labels.push(String::from(get(NO_WORD)));
         let buttons: Vec<&str> = labels.iter().map(String::as_str).collect();
-        let mut dialog = Dialog::new(env, &style, get(TITLE), &text, &buttons);
-        let room = env.device().display.height.saturating_sub(dialog.height());
-        dialog.place(room / 2);
+        // The focus starts on No, the last.
+        let board =
+            super::dialogs::ConfirmBox::new(env, get(TITLE), get(TEXT), &buttons, labels.len() - 1);
         Self {
-            style,
-            dialog,
-            // Focus starts on No.
-            focus: labels.len() - 1,
+            board,
             nonce: String::from(get(NONCE)),
             labels,
             shown: None,
@@ -228,9 +221,7 @@ impl HostConfirm {
 
 impl Screen for HostConfirm {
     fn region(&self, env: &Env<'_>) -> Option<Rect> {
-        let display = env.device().display;
-        let whole = Rect::new(0, 0, display.width, display.height);
-        Some(self.dialog.panel().intersection(&whole).unwrap_or(whole))
+        Some(self.board.region(env))
     }
 
     fn dims_below(&self) -> bool {
@@ -252,7 +243,7 @@ impl Screen for HostConfirm {
 
     fn hint(&self, action: &Id, _: &Env<'_>) -> Hint {
         if *action == actions::CONFIRM {
-            Hint::Text(self.labels[self.focus].clone())
+            Hint::Text(self.labels[self.board.focus()].clone())
         } else {
             Hint::Hidden
         }
@@ -284,8 +275,7 @@ impl Screen for HostConfirm {
     }
 
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        let mut ui = Ui::new(canvas, env, &self.style);
-        self.dialog.draw(&mut ui, Some(self.focus));
+        self.board.draw(canvas, env);
     }
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
@@ -293,7 +283,7 @@ impl Screen for HostConfirm {
             return Handled::Yes;
         }
         if *action == actions::CONFIRM {
-            let answer = self.answer_of(self.focus);
+            let answer = self.answer_of(self.board.focus());
             self.finish(answer, cx);
             return Handled::Yes;
         }
@@ -301,38 +291,9 @@ impl Screen for HostConfirm {
             self.finish(Answer::Dismissed, cx);
             return Handled::Yes;
         }
-        let scrolled = self.dialog.on_action(action);
-        if scrolled.changed() {
-            cx.request_redraw_area(self.dialog.panel());
-            cx.request_refresh(RefreshMode::Fast);
-        }
-        if scrolled.taken() {
-            return Handled::Yes;
-        }
-        let along = if [actions::UP, actions::PREV_PAGE].contains(action) {
-            &actions::LEFT
-        } else if [actions::DOWN, actions::NEXT_PAGE].contains(action) {
-            &actions::RIGHT
-        } else {
-            action
-        };
-        if let Some(focus) = self.dialog.step(self.focus, along)
-            && focus != self.focus
-        {
-            // Only the two buttons change: the one that lost the focus
-            // and the one that has it now.
-            for index in [self.focus, focus] {
-                match self.dialog.button(index) {
-                    Some(button) => {
-                        cx.request_redraw_area(button_reach(&self.style, button));
-                    }
-                    None => cx.request_redraw_area(self.dialog.panel()),
-                }
-            }
-            self.focus = focus;
-            cx.request_refresh(RefreshMode::Fast);
-        }
-        // Every other action does nothing: only the user's answer counts.
+        // Scrolls or moves the focus; every other action does nothing: only
+        // the user's answer counts.
+        let _ = self.board.on_action(action, cx);
         Handled::Yes
     }
 
@@ -340,20 +301,13 @@ impl Screen for HostConfirm {
         if !self.counts(cx.env()) {
             return Handled::Yes;
         }
-        let scrolled = self.dialog.on_gesture(&gesture);
-        if scrolled.changed() {
-            cx.request_redraw_area(self.dialog.panel());
-            cx.request_refresh(RefreshMode::Fast);
-        }
-        if scrolled.taken() {
-            return Handled::Yes;
-        }
         // A touch counts only inside its own buttons.
-        if gesture.kind == GestureKind::Tap
-            && let Some(at) = self.dialog.hit(gesture.start)
-        {
-            let answer = self.answer_of(at);
-            self.finish(answer, cx);
+        match self.board.on_gesture(gesture, cx) {
+            Touch::Button(at) => {
+                let answer = self.answer_of(at);
+                self.finish(answer, cx);
+            }
+            Touch::Taken => {}
         }
         Handled::Yes
     }
@@ -395,7 +349,7 @@ impl Kernel {
     /// after a yes. `true` while another pass has something to do.
     pub(crate) fn firmware_confirm_pump(
         &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+        driver: &super::firmware_cell::DriverRef,
     ) -> bool {
         self.firmware_restart_pump(driver);
         if let Some(question) = driver
@@ -448,7 +402,7 @@ impl Kernel {
         let Some((nonce, answer)) = read_answer(&ANSWERED, params) else {
             return;
         };
-        if let Some(driver) = self.firmware.clone()
+        if let Some(driver) = self.firmware_driver()
             && let Ok(mut driver) = driver.try_borrow_mut()
         {
             let _ = driver.answer_shown(nonce, answer);
@@ -458,7 +412,7 @@ impl Kernel {
     /// The device goes to sleep: a confirmation that shows is dismissed, and
     /// the jobs that run or wait end with reason 20.
     pub(crate) fn firmware_suspend(&mut self) {
-        let Some(driver) = self.firmware.clone() else {
+        let Some(driver) = self.firmware_driver() else {
             return;
         };
         let nonce = driver
@@ -476,7 +430,11 @@ impl Kernel {
 
     /// The plugin `key` stopped: its requests and its confirmation go.
     pub(crate) fn firmware_sender_stopped(&mut self, key: u64) {
-        let Some(driver) = self.firmware.clone() else {
+        let Some(driver) = self.firmware_driver() else {
+            // At rest: only what was kept for it is left.
+            if let Some(cell) = self.firmware.as_ref() {
+                cell.forget_resting(key);
+            }
             return;
         };
         let nonce = driver
@@ -526,10 +484,7 @@ impl Kernel {
     /// A yes to the restart: the plugins hear that PaperPaw stops, and on the
     /// next pass what they saved is written and the device restarts. A
     /// restart that cannot start ends the request with its reason.
-    fn firmware_restart_pump(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_restart_pump(&mut self, driver: &super::firmware_cell::DriverRef) {
         let wanted = driver
             .try_borrow()
             .is_ok_and(|driver| driver.restart_wanted());

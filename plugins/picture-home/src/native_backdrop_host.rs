@@ -9,10 +9,12 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, FrameRect},
         commands::CommandSender,
+        files::{Files, INPUT_BYTES as FILES_INPUT, OUTPUT_BYTES as FILES_OUTPUT},
         fonts::Font,
-        image::{ImageId, ImageStyle, PrepareImage, PrepareRoot},
+        image::{ImageId, ImageStyle, PrepareImage, PrepareRoot, TONE_BYTES},
         settings::{self, SettingValue},
         snapshot,
+        storage::Root,
         ui::Notify,
     },
 };
@@ -22,21 +24,22 @@ use paperpaw_ui_kit::{
     paint, text,
 };
 
-use crate::native_backdrop::{Drawing, Reason};
+use crate::native_backdrop::{Drawing, Reason, Rendering};
 use crate::native_pick;
 use crate::native_picture::{Asked, Recipe};
-use crate::settings::{ANCHOR, FIT, FOLDER, LIGHTEN, PICTURE, ZOOM};
+use crate::settings::{ANCHOR, BRIGHTNESS, CONTRAST, FIT, FOLDER, LIGHTEN, PICTURE, RENDER, ZOOM};
 
 /// The longest path of a request (`command.image_prepare`).
 const PATH_MAX: usize = 512;
+/// Space for a request's command: the longest path, a tone curve and its fields.
+const REQUEST: usize = 1024;
 /// Space for the notice's command: its text and the record round it.
 const NOTICE: usize = 512;
 
 /// What the settings ask for, on this screen: the chosen picture with the fit,
-/// the place, the zoom and the paleness. Brightness, contrast and the dots are
-/// left out: the host's drawing cannot do them (`PORTING-7.md`), so a change of
-/// them must not ask for the picture again. `None` where no picture is chosen
-/// or its path is too long for a request.
+/// the place, the zoom, the paleness, the brightness and contrast and how it
+/// is rendered. `None` where no picture is chosen or its path is too long for a
+/// request.
 ///
 /// # Errors
 /// [`Error::NoMemory`] and the host's refusals.
@@ -51,6 +54,9 @@ pub fn recipe(host: &Host<'_>) -> Result<Option<Recipe>, Error> {
     let anchor = text_of(host, ANCHOR.as_str(), &mut scratch)?;
     let zoom = int_of(host, ZOOM.as_str(), &mut scratch)?;
     let lighten = int_of(host, LIGHTEN.as_str(), &mut scratch)?;
+    let brightness = text_of(host, BRIGHTNESS.as_str(), &mut scratch)?;
+    let contrast = text_of(host, CONTRAST.as_str(), &mut scratch)?;
+    let render = text_of(host, RENDER.as_str(), &mut scratch)?;
     let folder = native_pick::folder(&folder);
     let path = if folder.is_empty() {
         name
@@ -60,20 +66,62 @@ pub fn recipe(host: &Host<'_>) -> Result<Option<Recipe>, Error> {
     if path.len() > PATH_MAX {
         return Ok(None);
     }
+    // Scratch given back before the card is asked.
+    drop(scratch);
+    let (bytes, modified) = file_facts(host, &path)?;
     let display = snapshot::capture_snapshot(host)?;
     let asked = Asked {
         path: &path,
-        bytes: 0,
-        modified: 0,
+        bytes,
+        modified,
         fit: &fit,
         anchor: &anchor,
         zoom,
         lighten,
-        brightness: "",
-        contrast: "",
-        render: "",
+        brightness: &brightness,
+        contrast: &contrast,
+        render: &render,
     };
     Recipe::new(&asked, display.display_width(), display.display_height())
+}
+
+/// The size and the time of the last change of the picture's file (root 1, as
+/// the request reads it), for the recipe's key: a file replaced by another of
+/// the same name is asked for anew, as interface 6 noticed it. Where the card
+/// does not tell (no file, no consent, no time kept) the fact is 0, as on
+/// interface 6.
+///
+/// # Errors
+/// [`Error::NoMemory`] only.
+fn file_facts(host: &Host<'_>, path: &str) -> Result<(u64, i64), Error> {
+    let files = match Files::open(host) {
+        Ok(files) => files,
+        Err(Error::NoMemory) => return Err(Error::NoMemory),
+        Err(_) => return Ok((0, 0)),
+    };
+    let facts = stat_facts(host, &files, path);
+    // The service is released whatever the stat did.
+    files.release(host).ok();
+    facts
+}
+
+fn stat_facts(host: &Host<'_>, files: &Files, path: &str) -> Result<(u64, i64), Error> {
+    // The buffers the service's largest call needs (its replies' cap).
+    let (mut input, mut out) = (buffer(FILES_INPUT)?, buffer(FILES_OUTPUT)?);
+    Ok(
+        match files.stat(host, Root::Files, path, &mut input, &mut out) {
+            Ok(entry) => facts_of(entry.size(), entry.modified()),
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => (0, 0),
+        },
+    )
+}
+
+/// The facts the key keeps of a file's size and time (none: 0).
+#[must_use]
+pub fn facts_of(size: u64, modified: Option<u64>) -> (u64, i64) {
+    let modified = modified.map_or(0, |seconds| i64::try_from(seconds).unwrap_or(i64::MAX));
+    (size, modified)
 }
 
 fn text_of(host: &Host<'_>, key: &str, scratch: &mut [u8]) -> Result<String, Error> {
@@ -91,13 +139,27 @@ fn int_of(host: &Host<'_>, key: &str, scratch: &mut [u8]) -> Result<i64, Error> 
 }
 
 /// Asks the host to make the picture at `path` of the library at most `side`
-/// pixels on its longest side; it answers with `ImageReady` for `cookie`.
+/// pixels on its longest side, turned as its EXIF orientation says and through
+/// the `tone` curve where there is one; it answers with `ImageReady` for
+/// `cookie`.
 ///
 /// # Errors
-/// The host's refusals (too many waiting, no consent, a path too long).
-pub fn ask(host: &Host<'_>, path: &str, cookie: u32, side: u32) -> Result<(), Error> {
-    let request = PrepareImage::new(PrepareRoot::Library, path, cookie).side(side);
-    let mut scratch = [0u8; 640];
+/// The host's refusals (too many waiting, no consent, a path too long) and
+/// [`Error::NoMemory`].
+pub fn ask(
+    host: &Host<'_>,
+    path: &str,
+    cookie: u32,
+    (side, tone): (u32, Option<&[u8; TONE_BYTES]>),
+) -> Result<(), Error> {
+    let mut request = PrepareImage::new(PrepareRoot::Library, path, cookie)
+        .side(side)
+        .turn();
+    if let Some(table) = tone {
+        request = request.tone(table);
+    }
+    // A path of at most 512 bytes, the curve's 256 and the command's own fields.
+    let mut scratch = buffer(REQUEST)?;
     CommandSender::new(host, &mut scratch).image_prepare(&request)
 }
 
@@ -122,7 +184,7 @@ pub fn tell(host: &Host<'_>, reason: Reason) -> Result<(), Error> {
 
 /// Draws the picture under the page: the paper first where the picture does
 /// not cover the screen or is paler than itself, then the picture in each of its
-/// places. A refusal of the host (an ended picture, the card) leaves the page
+/// places that meets the rows the frame may change. A refusal of the host (an ended picture, the card) leaves the page
 /// plain there.
 ///
 /// # Errors
@@ -139,11 +201,19 @@ pub fn draw(
         paint::replay(frame, font, paper.iter())?;
     }
     let mut how = ImageStyle::new().transparency(drawing.transparency);
-    if drawing.fill {
-        how = how.fill();
+    if drawing.stretch {
+        how = how.stretch();
     }
+    how = match drawing.render {
+        Rendering::Panel => how,
+        Rendering::Dots => how.dots(),
+        Rendering::Grays => how.grays(),
+    };
+    // Only the places in the rows this draw may change: the host opens the
+    // picture's file for every call, also for one it then clips away.
+    let rows = (frame.clip_top, frame.clip_bottom);
     let canvas = frame.draw_canvas()?;
-    for place in &drawing.places {
+    for place in drawing.tiles.within(rows) {
         let rect = FrameRect::new(place.x, place.y, place.width, place.height);
         canvas.draw_image(drawing.image, rect, how).ok();
     }
@@ -204,4 +274,17 @@ fn row(
     let x = (f32::from(width) - font.measure_text(size, line)?).max(0.0) / 2.0;
     let area = Rect::new(0, u16::try_from(top).unwrap_or(u16::MAX), width, height);
     text::label(out, font, line, size, x, area, style.ink, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_key_keeps_a_files_size_and_time_and_zero_where_the_card_has_none() {
+        assert_eq!(facts_of(1234, Some(1_700_000_000)), (1234, 1_700_000_000));
+        assert_eq!(facts_of(1234, None), (1234, 0));
+        // A time past what the key holds stays a time, never a wrap.
+        assert_eq!(facts_of(0, Some(u64::MAX)), (0, i64::MAX));
+    }
 }

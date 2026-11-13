@@ -9,7 +9,11 @@
 # origin/abi7/integration (--base REV for another base).
 #
 # Steps, in this order: fmt (and, for changed .rs files there, fmt-shells
-# for shells/xteink and fmt-fuzz for fuzz: rustfmt only), clippy (-D warnings), test, doc (-D warnings),
+# for shells/xteink and fmt-fuzz for fuzz: rustfmt only), clippy (-D warnings), test,
+# test-linked (the tests of each package that has a `linked` feature, run with
+# it: the hosted tests there are built nowhere else), test-native (the app's
+# flows, sleep_parity and sleep_cycles with `native-linked`, when the core, the
+# app, the native layer or a plugin changed, or with --all-linked), doc (-D warnings),
 # changelog, lockfiles, licences, checks (paperpaw-checks), abi-metadata.
 # Every step runs whatever the one before did; each one's own exit code is
 # what counts. The summary at the end lists them, and the script exits 1
@@ -23,6 +27,8 @@
 #
 # Options:
 #   --features LIST   also clippy and test with --features LIST (e.g. linked)
+#   --all-linked      test-linked for every package with a `linked` feature,
+#                     not only the changed ones (the train smoke)
 #   --only a,b,c      run only these steps
 #   --skip a,b,c      skip these steps
 #   --online          let lockfiles use the network (default: --offline)
@@ -54,7 +60,8 @@ lock_args="--offline"
 base="origin/abi7/integration"
 jobs=4
 crates=()
-known=" fmt fmt-shells fmt-fuzz clippy clippy-features test test-features doc changelog lockfiles licences checks abi-metadata "
+all_linked=0
+known=" fmt fmt-shells fmt-fuzz clippy clippy-features test test-features test-linked test-native doc changelog lockfiles licences checks abi-metadata "
 
 check_names() { # LIST OPTION: every name must be a known step
     local name
@@ -68,6 +75,7 @@ while (($#)); do
         --features) features="${2:?--features needs a list}"; shift 2 ;;
         --only) check_names "${2:?--only needs a list}" --only; only=",$2,"; shift 2 ;;
         --skip) check_names "${2:?--skip needs a list}" --skip; skip=",$2,"; shift 2 ;;
+        --all-linked) all_linked=1; shift ;;
         --online) lock_args=""; shift ;;
         --base) base="${2:?--base needs a revision}"; shift 2 ;;
         --jobs) jobs="${2:?--jobs needs a number}"; shift 2 ;;
@@ -243,6 +251,48 @@ fi
 pkg_step test cargo test -j"$jobs" "${pkgs[@]}"
 if [[ -n "$features" ]]; then
     pkg_step test-features cargo test -j"$jobs" "${pkgs[@]}" --features "$features"
+fi
+# The hosted tests of the plugins (tests/hosted_*.rs, test-support/hosted.rs)
+# are built only with --features linked, and CI does not build them: run every
+# selected package's tests with it where the feature exists (one cargo call).
+# Already covered when --features names linked.
+linked_pkgs=()
+if [[ -f "$logs/metadata.json" && ",$features," != *",linked,"* ]]; then
+    while read -r name; do linked_pkgs+=(-p "$name"); done < <(
+        python3 -I - "$logs/metadata.json" "$all_linked" "${crates[@]}" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    metadata = json.load(stream)
+every = sys.argv[2] == "1"
+chosen = set(sys.argv[3:])
+for package in metadata["packages"]:
+    if "linked" in package["features"] and (every or package["name"] in chosen):
+        print(package["name"])
+PY
+    )
+fi
+if ((${#linked_pkgs[@]} > 0)); then
+    step test-linked cargo test -j"$jobs" "${linked_pkgs[@]}" --features linked
+elif ! wanted test-linked; then
+    skipped+=("test-linked (left out by --only/--skip)")
+else
+    skipped+=("test-linked (no selected package has a linked feature)")
+fi
+# The app's flows and sleep tests with the linked native plugins (#248): the
+# workspace test run leaves `native-linked` off, and sleep_* need it.
+native_wanted="$all_linked"
+for crate in "${crates[@]}"; do
+    case "$crate" in
+        paperpaw-core | paperpaw-app | paperpaw-native | paperpaw-plugin-*) native_wanted=1 ;;
+    esac
+done
+if [[ "$native_wanted" == 1 ]]; then
+    step test-native cargo test -j"$jobs" -p paperpaw-app --features native-linked \
+        --test flows --test sleep_parity --test sleep_cycles
+elif ! wanted test-native; then
+    skipped+=("test-native (left out by --only/--skip)")
+else
+    skipped+=("test-native (no core, app, native or plugin package selected)")
 fi
 pkg_step doc env RUSTDOCFLAGS="-D warnings" cargo doc -j"$jobs" --no-deps "${pkgs[@]}"
 step changelog python3 tools/changelog.py check

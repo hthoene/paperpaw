@@ -5,7 +5,8 @@ use paperpaw_sdk::{
     native::{
         Error,
         callbacks::{DrawFrame, FrameRect},
-        fonts::{Font, IconGlyph, TextOrigin},
+        canvas::{PartFlags, PartRole},
+        fonts::{Font, IconGlyph, Ink, TextOrigin},
     },
 };
 
@@ -29,8 +30,8 @@ pub enum Paint {
         /// Colour.
         color: Color,
     },
-    /// A text run in the bold font of the interface (a lit letter among faint
-    /// ones); drawn only by [`replay_with`] given that font.
+    /// A text run drawn bolder (a lit letter among faint ones): the regular font
+    /// with its glyphs widened by `max(1, size / 20)` pixels, as Beta 3 did.
     Bold {
         /// What to draw.
         text: String,
@@ -52,6 +53,17 @@ pub enum Paint {
         origin: TextOrigin,
         /// Colour.
         color: Color,
+    },
+    /// Tells what is drawn (`canvas.describe`): a part of `role` at `rect`, with
+    /// the text drawn inside it as its label. Draws nothing; skipped by the
+    /// replay where nobody asks, and once nobody does, its successors too.
+    Describe {
+        /// What the part is.
+        role: PartRole,
+        /// Focused, on, disabled.
+        flags: PartFlags,
+        /// Where it is, in screen pixels.
+        rect: Rect,
     },
     /// A text run, optionally clipped.
     Text {
@@ -108,6 +120,84 @@ pub fn push(paint: &mut Vec<Paint>, op: Paint) -> Result<(), Error> {
     Ok(())
 }
 
+/// Whether anybody asks what this frame shows (`canvas.describe`): one call
+/// that tells an empty text, which the host leaves out of what it collects.
+/// Ask once at the start of a draw callback and keep the answer in
+/// [`Style::describing`](crate::Style::describing): nothing is queued, nor
+/// copied, where nobody asks. Where the frame cannot be asked, nobody does.
+#[must_use]
+pub fn asking(frame: &mut DrawFrame<'_>) -> bool {
+    let Ok(canvas) = frame.draw_canvas() else {
+        return false;
+    };
+    canvas
+        .describe_part(
+            PartRole::Text,
+            "",
+            FrameRect::new(0, 0, 0, 0),
+            PartFlags::NONE,
+        )
+        .unwrap_or(false)
+}
+
+/// Pushes a [`Paint::Describe`] of `role` at `rect`, to come before the text
+/// drawn inside it: focused where `focused`, faint (does nothing) where
+/// `disabled`. Nothing is queued where `describing` is not set (see
+/// [`asking`]).
+///
+/// # Errors
+/// [`Error::NoMemory`] when the list cannot grow.
+pub fn describe(
+    paint: &mut Vec<Paint>,
+    describing: bool,
+    role: PartRole,
+    rect: Rect,
+    focused: bool,
+    disabled: bool,
+) -> Result<(), Error> {
+    if !describing {
+        return Ok(());
+    }
+    let mut flags = PartFlags::NONE;
+    if focused {
+        flags = flags | PartFlags::FOCUSED;
+    }
+    if disabled {
+        flags = flags | PartFlags::DISABLED;
+    }
+    push(paint, Paint::Describe { role, flags, rect })
+}
+
+/// Pushes the [`Paint::Describe`] of a switch, `on` or off, at `rect`: inside a
+/// row it makes the row on or off. Nothing is queued where `describing` is not
+/// set (see [`asking`]).
+///
+/// # Errors
+/// [`Error::NoMemory`] when the list cannot grow.
+pub fn describe_switch(
+    paint: &mut Vec<Paint>,
+    describing: bool,
+    rect: Rect,
+    on: bool,
+    disabled: bool,
+) -> Result<(), Error> {
+    if !describing {
+        return Ok(());
+    }
+    let mut flags = if on { PartFlags::ON } else { PartFlags::OFF };
+    if disabled {
+        flags = flags | PartFlags::DISABLED;
+    }
+    push(
+        paint,
+        Paint::Describe {
+            role: PartRole::Switch,
+            flags,
+            rect,
+        },
+    )
+}
+
 /// A host rectangle for a widget rectangle.
 #[must_use]
 pub fn frame_rect(rect: Rect) -> FrameRect {
@@ -122,13 +212,27 @@ pub fn frame_rect(rect: Rect) -> FrameRect {
 /// Draws `ops` in order on the frame's canvas with `font`.
 ///
 /// # Errors
-/// Propagates canvas and font errors; [`Error::Unsupported`] for a bold run.
+/// Propagates canvas and font errors.
 pub fn replay<'a>(
     frame: &mut DrawFrame<'_>,
     font: &Font<'_>,
     ops: impl IntoIterator<Item = &'a Paint>,
 ) -> Result<(), Error> {
-    replay_with(frame, font, None, ops)
+    replay_icons(frame, font, None, ops)
+}
+
+/// How many pixels a [`Paint::Bold`] run widens its glyphs: a twentieth of the
+/// size, at least one.
+#[must_use]
+pub fn bold_extra(size: f32) -> u32 {
+    // A size that is not finite and positive is refused by the draw itself.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a saturating float-to-integer cast is wanted; the host clamps the widening to 16"
+    )]
+    let twentieth = (size / 20.0) as u32;
+    twentieth.max(1)
 }
 
 /// Draws the QR code `code`, black on white with the four modules of quiet
@@ -180,20 +284,6 @@ pub fn draw_code(
     Ok(())
 }
 
-/// [`replay`] with a bold font for [`Paint::Bold`] runs.
-///
-/// # Errors
-/// Propagates canvas and font errors; [`Error::Unsupported`] for a bold run
-/// without a bold font.
-pub fn replay_with<'a>(
-    frame: &mut DrawFrame<'_>,
-    font: &Font<'_>,
-    bold: Option<&Font<'_>>,
-    ops: impl IntoIterator<Item = &'a Paint>,
-) -> Result<(), Error> {
-    replay_all(frame, font, (bold, None), ops)
-}
-
 /// [`replay`] with the icon font for [`Paint::Icon`] runs: an icon is left
 /// out where there is no icon font (the callers gave a name the host knows only
 /// with one).
@@ -206,24 +296,21 @@ pub fn replay_icons<'a>(
     icons: Option<&Font<'_>>,
     ops: impl IntoIterator<Item = &'a Paint>,
 ) -> Result<(), Error> {
-    replay_all(frame, font, (None, icons), ops)
-}
-
-/// Draws `ops` in order with `font`, the bold font of [`Paint::Bold`] runs and
-/// the icon font of [`Paint::Icon`] runs.
-///
-/// # Errors
-/// Propagates canvas and font errors; [`Error::Unsupported`] for a bold run
-/// without a bold font. An icon without an icon font is not drawn.
-pub fn replay_all<'a>(
-    frame: &mut DrawFrame<'_>,
-    font: &Font<'_>,
-    (bold, icons): (Option<&Font<'_>>, Option<&Font<'_>>),
-    ops: impl IntoIterator<Item = &'a Paint>,
-) -> Result<(), Error> {
     let mut canvas = frame.draw_canvas()?;
+    // Whether anybody asks what is drawn; once not, no more is told.
+    let mut asked = true;
     for op in ops {
         match op {
+            Paint::Describe { role, flags, rect } => {
+                if asked {
+                    // Only a refused area leaves the part out and goes on;
+                    // nobody asking, or a host that cannot be asked, ends it.
+                    asked = matches!(
+                        canvas.describe_part(*role, "", frame_rect(*rect), *flags),
+                        Ok(true) | Err(Error::Invalid)
+                    );
+                }
+            }
             Paint::Fill(rect, color) => canvas.fill_rectangle(frame_rect(*rect), *color)?,
             Paint::Focus(rect, radius, thickness, color) => match thickness {
                 Some(thickness) => {
@@ -248,8 +335,8 @@ pub fn replay_all<'a>(
                 origin,
                 color,
             } => {
-                let bold = bold.ok_or(Error::Unsupported)?;
-                bold.render_text(&canvas, *size, *origin, *color, text)?;
+                let ink = Ink::new().extra(bold_extra(*size));
+                font.draw_inked(&canvas, *size, *origin, *color, text, ink)?;
             }
             Paint::Icon {
                 glyph,
@@ -279,4 +366,67 @@ pub fn replay_all<'a>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Paint, bold_extra, describe};
+    use alloc::vec::Vec;
+    use paperpaw_sdk::{
+        Rect,
+        native::canvas::{PartFlags, PartRole},
+    };
+
+    #[test]
+    fn a_part_is_queued_with_its_flags_and_only_where_somebody_asks() {
+        let rect = Rect::new(0, 10, 100, 20);
+        let mut paint = Vec::new();
+        describe(&mut paint, true, PartRole::Row, rect, true, true).unwrap();
+        assert!(matches!(
+            paint.as_slice(),
+            [Paint::Describe { role: PartRole::Row, flags, rect: at }]
+                if *flags == (PartFlags::FOCUSED | PartFlags::DISABLED) && *at == rect
+        ));
+        let mut none = Vec::new();
+        describe(&mut none, false, PartRole::Row, rect, true, false).unwrap();
+        assert!(none.is_empty(), "nothing is queued where nobody asks");
+        assert_eq!(none.capacity(), 0, "nor is room made for it");
+    }
+
+    #[test]
+    fn a_switch_is_told_on_or_off_and_faint_where_disabled() {
+        let rect = Rect::new(0, 0, 10, 10);
+        let mut paint = Vec::new();
+        super::describe_switch(&mut paint, true, rect, true, false).unwrap();
+        super::describe_switch(&mut paint, true, rect, false, true).unwrap();
+        super::describe_switch(&mut paint, false, rect, true, false).unwrap();
+        let flags: Vec<u32> = paint
+            .iter()
+            .filter_map(|op| match op {
+                Paint::Describe {
+                    role: PartRole::Switch,
+                    flags,
+                    ..
+                } => Some(flags.bits()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(flags, [0b0110, 0b1010]);
+    }
+
+    #[test]
+    fn bold_widens_by_a_twentieth_of_the_size_and_at_least_one_pixel() {
+        for (size, extra) in [
+            (1.0, 1),
+            (12.0, 1),
+            (39.9, 1),
+            (40.0, 2),
+            (100.0, 5),
+            (1_000.0, 50),
+            (f32::NAN, 1),
+            (-5.0, 1),
+        ] {
+            assert_eq!(bold_extra(size), extra, "size {size}");
+        }
+    }
 }

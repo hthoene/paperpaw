@@ -19,6 +19,8 @@ struct Plugin {
     seen: Rc<RefCell<Vec<Vec<u8>>>>,
     answer: Cell<Result<i32, i32>>,
     depth: Cell<u8>,
+    /// Subscribed to `document_closed` too (every plugin to `document_changed`).
+    closed_too: Rc<Cell<bool>>,
 }
 impl NativeInstance for Plugin {
     fn running(&self) -> bool {
@@ -29,6 +31,15 @@ impl NativeInstance for Plugin {
     }
     fn callback_depth(&self) -> u8 {
         self.depth.get()
+    }
+    /// Every plugin here subscribed to `document_changed`, some to
+    /// `document_closed` too.
+    fn subscribed(&self, tag: u32) -> bool {
+        use crate::native_host::registrations::{
+            EVENT_DOCUMENT_CHANGED_TAG, EVENT_DOCUMENT_CLOSED_TAG,
+        };
+        tag == EVENT_DOCUMENT_CHANGED_TAG
+            || (tag == EVENT_DOCUMENT_CLOSED_TAG && self.closed_too.get())
     }
     fn service_event(&self, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
         self.seen.borrow_mut().push(bytes.to_vec());
@@ -63,8 +74,14 @@ struct Service {
     busy_next: Cell<bool>,
     ticks: Cell<u32>,
     deadline: Cell<Option<u64>>,
+    started: RefCell<Vec<u64>>,
+    /// Its events go to subscribers only (as the document service's).
+    subscribers_only: Cell<bool>,
 }
 impl ServiceEvents for Service {
+    fn subscribers_only(&self) -> bool {
+        self.subscribers_only.get()
+    }
     fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
         if self.busy_next.replace(false) {
             return Err(ERR_BUSY);
@@ -102,6 +119,9 @@ impl ServiceEvents for Service {
     fn next_deadline(&self) -> Option<u64> {
         self.deadline.get()
     }
+    fn owner_started(&self, owner: u64) {
+        self.started.borrow_mut().push(owner);
+    }
 }
 
 pub(crate) struct Fixture {
@@ -110,19 +130,25 @@ pub(crate) struct Fixture {
     /// The bytes each plugin's `service_event` was given.
     pub(crate) seen: Vec<Rc<RefCell<Vec<Vec<u8>>>>>,
     plugins: Vec<Rc<Cell<Result<i32, i32>>>>,
+    /// Each plugin's subscription to `document_closed`.
+    closed_too: Vec<Rc<Cell<bool>>>,
 }
 
 pub(crate) fn fixture(count: usize) -> Fixture {
     let mut instances = NativeInstances::default();
     let (mut keys, mut seen, mut plugins) = (Vec::new(), Vec::new(), Vec::new());
+    let mut closed_too = Vec::new();
     for n in 0..count {
         let log = Rc::new(RefCell::new(Vec::new()));
+        let closed = Rc::new(Cell::new(false));
         let plugin = Plugin {
             running: Cell::new(true),
             seen: Rc::clone(&log),
             answer: Cell::new(Ok(0)),
             depth: Cell::new(0),
+            closed_too: Rc::clone(&closed),
         };
+        closed_too.push(closed);
         let lease = NativeLease::try_new(plugin).unwrap();
         let id = Id::try_parse(["a", "b", "c"][n]).unwrap();
         keys.push(instances.test_insert(id, Some(lease), true).unwrap());
@@ -134,6 +160,7 @@ pub(crate) fn fixture(count: usize) -> Fixture {
         keys,
         seen,
         plugins,
+        closed_too,
     }
 }
 
@@ -233,6 +260,7 @@ fn a_failing_callback_still_frees_the_event_and_does_not_get_it_again() {
         seen: Rc::clone(&f.seen[0]),
         answer: Cell::new(Err(ERR_UNSUPPORTED)),
         depth: Cell::new(0),
+        closed_too: Rc::new(Cell::new(false)),
     })
     .unwrap();
     // Replace the plugin by one that fails.
@@ -313,4 +341,98 @@ fn a_refused_buffer_waits_for_its_retry_time_and_never_asks_for_an_immediate_pas
     assert!(!run_at(&f, &service, 10_000));
     crate::native_host::net_service::fail_nth(0);
     assert_eq!(f.seen[0].borrow().len(), 2);
+}
+
+#[test]
+fn every_wired_service_is_told_an_owner_started() {
+    let (first, second) = (Service::default(), Service::default());
+    tell_owner_started(&[Some(&first), None, Some(&second)], 7);
+    tell_owner_started(&[None, None, None], 8);
+    assert_eq!(first.started.borrow().as_slice(), [7]);
+    assert_eq!(second.started.borrow().as_slice(), [7]);
+}
+
+#[test]
+fn the_buffer_kept_is_small_and_a_larger_event_has_it_made_for_the_pass() {
+    let f = fixture(1);
+    let service = Service::default();
+    queue(&service, f.keys[0], &[1]);
+    assert!(!run(&f, &service));
+    // Idle: 256 bytes, not the 1,280 of the largest event.
+    assert_eq!(f.instances.service_buffer().borrow().len(), EVENT_SMALL);
+    // An event of 1,000 bytes: the buffer is made larger for the pass, the
+    // event is delivered whole, and the room is given back with the pass.
+    service.queue.borrow_mut().push((f.keys[0], vec![7; 1_000]));
+    assert!(!run(&f, &service));
+    assert_eq!(f.seen[0].borrow().last().unwrap().len(), 1_000);
+    assert_eq!(f.instances.service_buffer().borrow().len(), EVENT_SMALL);
+    assert!(f.instances.service_buffer().borrow().capacity() < EVENT_BUFFER);
+}
+
+#[test]
+fn a_refused_larger_buffer_leaves_the_event_waiting_for_the_retry_time() {
+    let f = fixture(1);
+    let service = Service::default();
+    queue(&service, f.keys[0], &[1]);
+    assert!(!run(&f, &service));
+    service.queue.borrow_mut().push((f.keys[0], vec![7; 1_000]));
+    crate::native_host::net_service::fail_nth(1);
+    assert!(!run_at(&f, &service, 5_000), "no pass is asked for at once");
+    crate::native_host::net_service::fail_nth(0);
+    assert_eq!(f.instances.service_retry(), Some(5_000 + RETRY_MS));
+    assert_eq!(service.queue.borrow().len(), 1, "the event is not lost");
+    assert!(!run_at(&f, &service, 5_000 + RETRY_MS));
+    assert_eq!(f.seen[0].borrow().last().unwrap().len(), 1_000);
+}
+
+/// The document service tells subscribers only: `document_changed` (88) and
+/// `document_closed` (108) reach a plugin that subscribed to them, decoded as
+/// its dispatch decodes them (a one-record batch); a plugin that did not
+/// subscribe to `document_closed` is not called for it (no failing callback,
+/// no warning), and every event counts as delivered.
+#[test]
+fn document_events_reach_their_subscribers_and_skip_the_others() {
+    use crate::native_host::codec;
+    use crate::native_host::registrations::{EventDocumentChanged, EventDocumentClosed, Record};
+    let f = fixture(2);
+    f.closed_too[1].set(true);
+    let service = Service::default();
+    service.subscribers_only.set(true);
+    let mut buffer = [0_u8; 64];
+    for owner in [f.keys[0], f.keys[1]] {
+        for record in [
+            Record::EventDocumentChanged(EventDocumentChanged {
+                now_ms: 1,
+                document: 7,
+                state: 1,
+                progress_ppm: 500_000,
+            }),
+            Record::EventDocumentClosed(EventDocumentClosed {
+                now_ms: 1,
+                document: 7,
+                reason: 1,
+            }),
+        ] {
+            let len = codec::encode_event(&record, &mut buffer).unwrap();
+            service
+                .queue
+                .borrow_mut()
+                .push((owner, buffer[..len].to_vec()));
+        }
+    }
+    assert!(!run(&f, &service));
+    let decoded = |plugin: usize| -> Vec<u32> {
+        f.seen[plugin]
+            .borrow()
+            .iter()
+            .map(|bytes| match codec::decode_any_single(bytes).unwrap() {
+                Record::EventDocumentChanged(_) => 88,
+                Record::EventDocumentClosed(_) => 108,
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    };
+    assert_eq!(decoded(0), [88], "changed only: closed not subscribed");
+    assert_eq!(decoded(1), [88, 108], "both: subscribed to both");
+    assert_eq!(service.delivered.borrow().len(), 4, "every event freed");
 }

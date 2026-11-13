@@ -120,11 +120,14 @@ fn a_wrong_argument_leaves_the_default_library_alone() {
 }
 
 /// Runs `script` headless on `profile` in the library `library`, with
-/// `args` more.
+/// `args` more. The first-time hints are off, as they were for these tests
+/// on interface 6: in a fresh library they open over the first screen shown
+/// and, as on a device, take the next button (#2411).
 fn run_in(library: &Path, profile: &str, script: &str, args: &[&str]) -> Run {
     Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"))
         .args(["--profile", profile, "--headless", "--library"])
         .arg(library)
+        .args(["--set", "help.show=false"])
         .args(["--script", script])
         .args(args)
         .output()
@@ -338,6 +341,21 @@ fn text_is_typed_into_the_keyboard_shown() {
     assert_ne!(typed.screen(), "keyboard.screen", "{}", typed.stdout);
 }
 
+/// `run:` reaches an action a native plugin declares, and what the plugin
+/// answers (`open` its screen) is done in the call that ran it: the transfer
+/// plugin's `transfer.open` opens its screen as `core.menu` opens the menu.
+#[test]
+fn an_action_a_native_plugin_declares_opens_its_screen() {
+    let opened = run(
+        "native-action",
+        "xteink-x4",
+        "run:transfer.open,describe",
+        &[],
+    );
+    assert!(opened.ok, "{}", opened.stderr);
+    assert_eq!(opened.screen(), "transfer.screen", "{}", opened.stdout);
+}
+
 /// The screen turned, by the configuration at start or chosen in the
 /// settings while running: the panel trades width and height.
 #[test]
@@ -437,6 +455,92 @@ fn reading_aloud_speaks_passage_after_passage() {
         &[],
     );
     assert!(!silent.stderr.contains("speech ("), "{}", silent.stderr);
+}
+
+/// *Read aloud* at the start for a book opened for the first time and still
+/// prepared (a UTF-16 text the format converts first) is read once the book
+/// opens, in the UI language: a text names none (Beta 3).
+#[test]
+fn reading_aloud_waits_for_a_book_still_prepared() {
+    let library = library("speech-prepared");
+    let mut text = String::new();
+    for n in 0..200 {
+        text.push_str(&format!("Sentence {n} has a few words in it. "));
+    }
+    let mut bytes = vec![0xff, 0xfe];
+    bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+    fs::write(library.join("books/sentences.txt"), bytes).unwrap();
+    let state = library.join(".paperpaw/plugins/reader");
+    fs::create_dir_all(&state).unwrap();
+    fs::write(
+        state.join("state.ini"),
+        "[reader]\nlast = books/sentences.txt\n",
+    )
+    .unwrap();
+    let aloud = run_in(
+        &library,
+        "boox-go-7",
+        "run:reader.read-aloud,wait:15000",
+        &["--set", "core.language=de"],
+    );
+    let _ = fs::remove_dir_all(&library);
+    assert!(aloud.ok, "{}", aloud.stderr);
+    assert_eq!(aloud.screen(), "reader.screen");
+    let spoken = aloud
+        .stderr
+        .lines()
+        .filter(|l| l.starts_with("speech (de, 100 %") && l.contains("Sentence"))
+        .count();
+    assert!(spoken >= 2, "{}", aloud.stderr);
+}
+
+/// A page with a picture shows its text first: the frame of the turn keeps
+/// the picture's place empty (it reads none of the picture), and the frame the
+/// host draws the picture's box in after reads it (#252). Alice's one picture
+/// is its cover: turned away from and back to.
+#[test]
+#[ignore = "needs native activation (the native reader, #243)"]
+fn a_picture_follows_the_text_of_its_page_in_a_frame_of_its_own() {
+    let library = library("picture-pass");
+    let state = library.join(".paperpaw/plugins/reader");
+    fs::create_dir_all(&state).unwrap();
+    fs::write(
+        state.join("state.ini"),
+        "[reader]\nlast = books/alice-in-wonderland.epub\n",
+    )
+    .unwrap();
+    let turned = run_in(
+        &library,
+        "xteink-x4",
+        "wait:8000,page-forward,wait:1000,step:forward,page-back,wait:1000,step:back",
+        &["--trace"],
+    );
+    let _ = fs::remove_dir_all(&library);
+    assert!(turned.ok, "{}", turned.stderr);
+    // The reading screen's frames of the turn back onto the cover, with the
+    // kilobytes each read from the card.
+    let back: Vec<u64> = turned
+        .stdout
+        .lines()
+        .skip_while(|l| !l.starts_with("step forward"))
+        .take_while(|l| !l.starts_with("step back"))
+        .filter(|l| l.starts_with("frame reader.screen"))
+        .map(|l| {
+            let (_, after) = l.split_once(" reads of ").unwrap();
+            after.split(' ').next().unwrap().parse().unwrap()
+        })
+        .collect();
+    assert!(back.len() >= 2, "{}", turned.stdout);
+    assert_eq!(
+        back[0], 0,
+        "the first frame reads no picture: {}",
+        turned.stdout
+    );
+    assert!(
+        back[1..].iter().any(|&kb| kb > 100),
+        "a frame after draws the picture: {}",
+        turned.stdout
+    );
 }
 
 /// A configuration file (`--config`) is read, and `--set` wins over it.

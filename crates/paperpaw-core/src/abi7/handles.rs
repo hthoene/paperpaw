@@ -158,6 +158,41 @@ impl<T> Handles<T> {
         Ok(())
     }
 
+    /// Whether `owner` holds any handle.
+    #[allow(
+        dead_code,
+        reason = "parked plugins (#2638); unused by tests/abi7_teardown.rs"
+    )]
+    pub(crate) fn holds(&self, owner: u64) -> bool {
+        self.slots.iter().any(|slot| {
+            slot.entry
+                .as_ref()
+                .is_some_and(|entry| entry.owner == owner)
+        })
+    }
+
+    /// How many handles are held, all owners together.
+    #[allow(dead_code, reason = "tests of parking again (#248, D3) only")]
+    pub(crate) fn live(&self) -> usize {
+        self.slots
+            .iter()
+            .filter(|slot| slot.entry.is_some())
+            .count()
+    }
+
+    /// Whether `owner` holds a handle of `kind`.
+    #[allow(
+        dead_code,
+        reason = "parked plugins (#248, D3); unused by tests/abi7_teardown.rs"
+    )]
+    pub(crate) fn holds_kind(&self, owner: u64, kind: Kind) -> bool {
+        self.slots.iter().any(|slot| {
+            slot.entry
+                .as_ref()
+                .is_some_and(|entry| entry.owner == owner && entry.kind == kind)
+        })
+    }
+
     /// Host-only budget accounting; the visitor cannot reenter the registry.
     pub(crate) fn visit_kind(&self, kind: Kind, mut visit: impl FnMut(&T)) {
         for slot in &self.slots {
@@ -313,6 +348,20 @@ pub(crate) const fn slot_bytes<T>() -> usize {
 mod tests {
     extern crate alloc;
     use super::*;
+
+    #[test]
+    fn holds_kind_sees_only_the_owners_handles_of_that_kind() {
+        struct Plain;
+        impl Release for Plain {
+            fn release(self) {}
+        }
+        let mut handles = Handles::new();
+        assert!(handles.insert(1, Kind::Service, Plain).is_ok());
+        assert!(handles.insert(2, Kind::Blob, Plain).is_ok());
+        assert!(handles.holds(1) && !handles.holds_kind(1, Kind::Blob));
+        assert!(handles.holds_kind(1, Kind::Service));
+        assert!(handles.holds_kind(2, Kind::Blob) && !handles.holds_kind(3, Kind::Blob));
+    }
 
     #[test]
     fn cancellation_visits_only_the_owner_before_resources_are_taken_and_released() {

@@ -1,7 +1,7 @@
 //! Owner-admitted callbacks selected by declared screen or action tokens.
 use super::registrations;
 use super::{
-    Batch, DispatchDepth, Error, Registration, borrowed, host_glue, no_reply, status_only,
+    DispatchDepth, Error, Published, Registration, borrowed, host_glue, no_reply, status_only,
 };
 use paperpaw_graphics::Canvas;
 
@@ -22,8 +22,8 @@ pub(crate) enum TokenInvocation<'a> {
     dead_code,
     reason = "native built-in adapter follows this prerequisite"
 )]
-pub(crate) fn dispatch_token<S, M>(
-    batch: &Batch<'_, S, M, Registration>,
+pub(crate) fn dispatch_token<S: 'static, M>(
+    batch: &Published<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
     frame: &crate::abi7::core_frame::CoreFrame<'_>,
@@ -38,8 +38,8 @@ pub(crate) fn dispatch_token<S, M>(
 /// the plugin's `commands.submit` for its duration (every callback but
 /// `draw` gets one). The stage is the caller's: it reads what was accepted
 /// after the callback returned.
-pub(crate) fn dispatch_token_staged<S, M>(
-    batch: &Batch<'_, S, M, Registration>,
+pub(crate) fn dispatch_token_staged<S: 'static, M>(
+    batch: &Published<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
     frame: &crate::abi7::core_frame::CoreFrame<'_>,
@@ -48,13 +48,16 @@ pub(crate) fn dispatch_token_staged<S, M>(
 ) -> Result<i32, Error> {
     batch.dispatch_owner(depth, |context| {
         stage.admit_images(context.image_admit());
+        if let Some(dev) = context.dev_context() {
+            stage.admit_dev(dev);
+        }
         // SAFETY: the admitted owner structurally pins the command scope.
         let scope = unsafe { context.map_unchecked(|value| &value.commands) };
         scope.scope(stage, || invoke_token(context, token, frame, invocation))?
     })?
 }
 
-pub(super) fn invoke_token<S>(
+pub(super) fn invoke_token<S: 'static>(
     context: core::pin::Pin<&super::Context<S>>,
     token: u32,
     frame: &crate::abi7::core_frame::CoreFrame<'_>,
@@ -70,9 +73,9 @@ pub(super) fn invoke_token<S>(
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
             // SAFETY: the admitted owner retains state and code. The
             // host-produced payload is borrowed only until this returns.
-            Ok(status_only(unsafe {
+            Ok(status_only(context.run_plugin(|| unsafe {
                 callback(instance.state, token, borrowed(bytes), no_reply())
-            }))
+            })))
         }
         TokenInvocation::Input(bytes) => {
             let Some(callback) = instance.input else {
@@ -80,7 +83,8 @@ pub(super) fn invoke_token<S>(
             };
             // SAFETY: the admitted owner retains state and code, and this
             // host-produced input is borrowed only for the callback.
-            let status = unsafe { callback(instance.state, token, borrowed(bytes)) };
+            let status =
+                context.run_plugin(|| unsafe { callback(instance.state, token, borrowed(bytes)) });
             Ok(if status > 1 {
                 host_glue::ERR_INVALID
             } else {
@@ -97,8 +101,8 @@ pub(super) fn invoke_token<S>(
     dead_code,
     reason = "native built-in adapter follows this prerequisite"
 )]
-pub(crate) fn dispatch_token_draw<S, M>(
-    batch: &Batch<'_, S, M, Registration>,
+pub(crate) fn dispatch_token_draw<S: 'static, M>(
+    batch: &Published<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
     frame: &crate::abi7::core_frame::CoreFrame<'_>,
@@ -113,7 +117,7 @@ pub(crate) fn dispatch_token_draw<S, M>(
     batch.dispatch_owner(depth, |context| {
         // A child's draw reached from another plugin's (compose) is charged to
         // the child; a screen's own draw was entered by the screen router.
-        let _running = frame.meter.enter_unless_running(&context.id);
+        let _running = frame.meter.enter_unless_running(context.plugin_id());
         let instance = context.instance.get().ok_or(Error::Attempt)?;
         let callback = instance
             .draw
@@ -126,7 +130,9 @@ pub(crate) fn dispatch_token_draw<S, M>(
                 canvas_scope.scope(canvas, || {
                     // SAFETY: the admitted owner retains state and code. Encoded
                     // bytes and the canvas scope live only for this callback.
-                    status_only(unsafe { callback(instance.state, token, borrowed(&bytes[..len])) })
+                    status_only(context.run_plugin(|| unsafe {
+                        callback(instance.state, token, borrowed(&bytes[..len]))
+                    }))
                 })
             })?
             .map_err(Into::into)
@@ -134,7 +140,7 @@ pub(crate) fn dispatch_token_draw<S, M>(
 }
 
 // The accessors the command stage reads (`shell.rs` is at its line limit).
-impl<S> super::Context<S> {
+impl<S: 'static> super::Context<S> {
     /// The host owner key of the plugin (the key of its native instance).
     #[allow(
         dead_code,
@@ -164,5 +170,29 @@ impl<S> super::Context<S> {
                 .images()
                 .prepare_room(self.resources.owner_id()),
         }
+    }
+
+    /// What a command stage judges the plugin's power, Wi-Fi and firmware
+    /// commands with (`commands_dev.rs`): its admitted features, the
+    /// kernel's Wi-Fi table and, where wired, the firmware table. Built for
+    /// one callback; none before the kernel wired its Wi-Fi table, and then
+    /// those commands stay `ERR_UNSUPPORTED`.
+    pub(crate) fn dev_context(&self) -> Option<super::super::commands::dev::DevContext<'static>> {
+        let hosts = self.resources.hosts();
+        let context = super::super::commands::dev::DevContext::new(
+            self.declared_services.features(),
+            hosts.radio_requests()?,
+        );
+        Some(match hosts.firmware_cell() {
+            Some(firmware) => {
+                // Allocates nothing: it shares the cell and the driver's skip
+                // counter; a driver is made only by a command that needs one.
+                context.with_firmware(super::super::commands::dev::FirmwareContext::new(
+                    alloc::rc::Rc::clone(firmware),
+                    self.resources.owner_id(),
+                ))
+            }
+            None => context,
+        })
     }
 }

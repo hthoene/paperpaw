@@ -371,6 +371,8 @@ impl Queue {
 
     /// An event was emitted: a moment, what a job waited for, or a
     /// setting of a plugin's network changed.
+    // Its own frame: not inlined into `Kernel::emit_from` (#250).
+    #[inline(never)]
     pub(crate) fn saw(&mut self, event: &Id, params: &Params) {
         if *event == events::SETTING_CHANGED
             && params
@@ -1208,6 +1210,39 @@ impl crate::Shared {
         }
         self.work_states.set_note(owner, note);
     }
+}
+
+/// The network's group, its icon and the network manager setting, on the
+/// core plugin (`core_plugin.rs`).
+///
+/// The manager is the plugin that brings a network up when work or a plugin
+/// wants one (`event.network_wanted`/`idle` go to it alone): the Wi-Fi plugin,
+/// as in Beta 3. Where there is none by that id the events go nowhere; empty
+/// (or another id) is the user's choice, and a reset brings the default back.
+pub(crate) fn register_network(
+    r: &mut paperpaw_sdk::Registrar,
+) -> Result<(), paperpaw_sdk::RegisterError> {
+    use paperpaw_sdk::{Id, SettingGroupSpec, SettingSpec, builtin::groups};
+    // Each plugin's network (its settings made by the kernel).
+    static NETWORK: SettingGroupSpec = SettingGroupSpec::new(NETWORK_GROUP, "core.group.network")
+        .order(87)
+        .within(groups::PLUGINS);
+    r.add_setting_group(&NETWORK)?;
+    static NETWORK_ICON: [(Id, &str); 1] = [(NETWORK_GROUP, "world")];
+    r.add_icons(&NETWORK_ICON)?;
+    static MANAGER: [SettingSpec; 1] = [SettingSpec::text(
+        crate::native_host::commands::dev::NETWORK_MANAGER,
+        "core.setting.network-manager",
+        "wifi",
+        NETWORK_GROUP,
+    )
+    // Guarded: the manager joins and hosts without the user's input and hears
+    // `network_wanted`, so only the settings editor (the user) may name it, never
+    // another plugin by command, default or preset.
+    .guarded()
+    .advanced()
+    .description("core.setting.network-manager.help")];
+    r.add_settings(&MANAGER)
 }
 
 #[cfg(test)]

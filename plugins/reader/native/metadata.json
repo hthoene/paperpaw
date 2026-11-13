@@ -68,6 +68,10 @@
     },
     {
       "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "host",
       "name": "registrations.submit"
     },
     {
@@ -84,7 +88,15 @@
     },
     {
       "kind": "host",
+      "name": "text.covers"
+    },
+    {
+      "kind": "host",
       "name": "canvas.clip"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.draw_image"
     },
     {
       "kind": "callback",
@@ -101,10 +113,29 @@
     {
       "kind": "callback",
       "name": "input"
+    },
+    {
+      "kind": "host",
+      "name": "ui.compose"
     }
   ],
   "services": [
-    "core.ui"
+    "core.device",
+    "core.document",
+    "core.files",
+    "core.library",
+    "core.registry",
+    "core.ui",
+    "core.work"
   ],
-  "features": []
+  "features": [
+    {
+      "key": "uses.library",
+      "required": false
+    },
+    {
+      "key": "uses.storage",
+      "required": true
+    }
+  ]
 }

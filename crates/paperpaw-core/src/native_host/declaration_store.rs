@@ -9,11 +9,14 @@
 use super::{
     declaration_checks::Cap,
     declarations,
-    registrations::{Record, host_records_decode},
+    registrations::{REGISTRATION_MAX_RECORDS, Record, host_records_visit},
     staged::DECLARATIONS_MAX_BYTES,
 };
-use alloc::{boxed::Box, rc::Rc, vec::Vec};
+#[cfg(test)]
+use alloc::rc::Rc;
+use alloc::{boxed::Box, vec::Vec};
 use core::mem::size_of;
+use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
 use paperpaw_sdk::Id;
 
@@ -31,27 +34,91 @@ pub(crate) trait ImageOwner {
     fn native_lease(&self) -> Result<super::native_instances::NativeLease, i32> {
         Err(ERR_STATE)
     }
+    /// Whether the image does not change while the owner lives: an owner whose
+    /// batches are all read from it keeps no index (`declaration_scan.rs`).
+    fn read_only(&self) -> bool {
+        false
+    }
 }
 
-/// Test fixtures may use Rc; native admission uses checked shared ownership.
+/// A native owner keeps its lease and host key inline: no box, and the plugin
+/// id is kept once, in the owner's record. Test fixtures may use Rc; the
+/// firmware has no such owner, so it pays no enum tag for one.
 enum OwnerRef {
+    #[cfg(test)]
     Existing(Rc<dyn ImageOwner>),
-    Native(super::shared::Shared<Box<dyn ImageOwner>>),
+    Native {
+        lease: super::native_instances::NativeLease,
+        owner: u64,
+    },
 }
 impl OwnerRef {
     fn try_clone(&self) -> Result<Self, i32> {
         match self {
+            #[cfg(test)]
             Self::Existing(owner) => Ok(Self::Existing(Rc::clone(owner))),
-            Self::Native(owner) => owner.try_clone().map(Self::Native).ok_or(ERR_NO_MEMORY),
+            Self::Native { lease, owner } => Ok(Self::Native {
+                lease: lease.try_clone()?,
+                owner: *owner,
+            }),
         }
     }
-}
-impl core::ops::Deref for OwnerRef {
-    type Target = dyn ImageOwner;
-    fn deref(&self) -> &Self::Target {
+    /// A native owner is generation 1 while its instance runs, 0 after.
+    fn generation(&self) -> u32 {
         match self {
-            Self::Existing(owner) => &**owner,
-            Self::Native(owner) => &***owner,
+            #[cfg(test)]
+            Self::Existing(owner) => owner.generation(),
+            // Parked counts as running: its declarations stay (#248).
+            Self::Native { lease, .. } => u32::from(lease.running()),
+        }
+    }
+    fn owner_id(&self) -> Result<u64, i32> {
+        match self {
+            #[cfg(test)]
+            Self::Existing(owner) => owner.owner_id(),
+            Self::Native { owner, .. } => Ok(*owner),
+        }
+    }
+    fn native_lease(&self) -> Result<super::native_instances::NativeLease, i32> {
+        match self {
+            #[cfg(test)]
+            Self::Existing(owner) => owner.native_lease(),
+            Self::Native { lease, .. } => {
+                lease.check_running()?;
+                lease.try_clone()
+            }
+        }
+    }
+    fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        match self {
+            #[cfg(test)]
+            Self::Existing(owner) => owner.with_image(visit),
+            Self::Native { lease, .. } => {
+                if lease.running() {
+                    lease.with_image(visit);
+                } else {
+                    visit(None);
+                }
+            }
+        }
+    }
+    /// A native plugin's image is the program's own (a linked plugin) or the
+    /// module the host mapped (a card plugin): read-only to the host. A plugin
+    /// that writes into it anyway can hide its own records or exceed the
+    /// device-wide caps counted at admission (`declaration_scan.rs`).
+    fn read_only(&self) -> bool {
+        match self {
+            #[cfg(test)]
+            Self::Existing(owner) => owner.read_only(),
+            Self::Native { .. } => true,
+        }
+    }
+    fn invalid_declaration(&self, error: i32) {
+        use super::native_screen::Dispatch as _;
+        match self {
+            #[cfg(test)]
+            Self::Existing(owner) => owner.invalid_declaration(error),
+            Self::Native { lease, .. } => lease.dropped(0, error),
         }
     }
 }
@@ -66,6 +133,7 @@ pub(crate) enum DeclRef {
 pub(crate) struct DeclKey {
     owner: u16,
     batch: u16,
+    /// The record's place in its batch (0 the first), not a byte offset.
     record: u16,
     generation: u32,
     incarnation: u32,
@@ -79,7 +147,7 @@ impl DeclKey {
     }
 }
 
-const KIND_COUNT: usize = 33;
+const KIND_COUNT: usize = 36;
 /// The leading kinds with a per-kind record limit (`limits` in `charge`).
 const LIMITED_KINDS: usize = 6;
 
@@ -128,10 +196,77 @@ pub(crate) enum Kind {
     Format,
     /// `reader.spec` (category 32): a reading app the plugin offers.
     Reader,
+    /// `lookup.spec` (category 33): a lookup provider the plugin offers.
+    Lookup,
+    /// `book_field.spec` (category 34): a field the plugin keeps with books.
+    BookField,
+    /// `book_badge.spec` (category 35): a badge the plugin shows on book rows.
+    BookBadge,
 }
-const _: () = assert!(Kind::Reader as usize + 1 == KIND_COUNT);
+const _: () = assert!(Kind::BookBadge as usize + 1 == KIND_COUNT);
+
+/// A slot's key keeps the kind in its top bits and the top of the name hash
+/// in the others. The list is sorted by kind, then by place (declaration
+/// order): every kind in its own range, with no table of offsets per owner,
+/// visited in the order the plugin declared. A name lookup compares the keys
+/// of its kind's range and decodes only those equal; ten bits of hash keep a
+/// slot at 4 bytes, not 8 (#248).
+const KIND_SHIFT: u32 = 10;
+const _: () = assert!(KIND_COUNT <= 1 << (16 - KIND_SHIFT));
+const _: () = assert!(KIND_COUNT <= u64::BITS as usize);
 
 impl Kind {
+    /// Every kind, in order.
+    #[cfg(test)]
+    pub(crate) const ALL: [Self; KIND_COUNT] = [
+        Self::Group,
+        Self::Spec,
+        Self::Extra,
+        Self::Hyphenation,
+        Self::Face,
+        Self::Extension,
+        Self::Screen,
+        Self::Action,
+        Self::Widget,
+        Self::WidgetPlace,
+        Self::StatusItem,
+        Self::StatusLine,
+        Self::StatusPlace,
+        Self::MenuEntry,
+        Self::Icon,
+        Self::MenuNeed,
+        Self::MenuSection,
+        Self::MenuHide,
+        Self::MenuDescribe,
+        Self::SlotSpec,
+        Self::SlotOffer,
+        Self::KeyBind,
+        Self::SettingDefault,
+        Self::SettingChoice,
+        Self::PresetSpec,
+        Self::PresetValue,
+        Self::Stage,
+        Self::Subscription,
+        Self::SetupStep,
+        Self::InputSpec,
+        Self::HelpHint,
+        Self::Format,
+        Self::Reader,
+        Self::Lookup,
+        Self::BookField,
+        Self::BookBadge,
+    ];
+
+    /// The key of a record of this kind whose name hashes to `hash`: its top
+    /// bits, so a kind keeps the order of the full hashes. Names whose hashes
+    /// differ only in the low bits share a key: every lookup compares the
+    /// names in a run of equal keys.
+    fn slot_key(self, hash: u32) -> u16 {
+        // Both parts fit: the kind below 2^6 (checked above), the hash part
+        // below 2^10.
+        ((self as u16) << KIND_SHIFT) | (hash >> (32 - KIND_SHIFT)) as u16
+    }
+
     fn category(self) -> u8 {
         match self {
             Self::Group => 0,
@@ -166,6 +301,9 @@ impl Kind {
             Self::HelpHint => 17,
             Self::Format => 31,
             Self::Reader => 32,
+            Self::Lookup => 33,
+            Self::BookField => 34,
+            Self::BookBadge => 35,
         }
     }
 
@@ -204,16 +342,41 @@ impl Kind {
             Record::HelpHint(_) => Self::HelpHint,
             Record::FormatSpec(_) => Self::Format,
             Record::ReaderSpec(_) => Self::Reader,
+            Record::LookupSpec(_) => Self::Lookup,
+            Record::BookFieldSpec(_) => Self::BookField,
+            Record::BookBadgeSpec(_) => Self::BookBadge,
             _ => return None,
         })
     }
 }
 
+/// How many bits of a slot's place name the record in its batch: a batch
+/// holds at most [`REGISTRATION_MAX_RECORDS`] records.
+const RECORD_BITS: u32 = 3;
+const _: () = assert!(REGISTRATION_MAX_RECORDS <= 1 << RECORD_BITS);
+/// Most batches one owner keeps: the rest of a slot's place. Admission caps
+/// stay below it (512 image entries; 32 KiB of owned bytes, each batch
+/// charged its bytes and index), and a batch beyond is `ERR_NO_SPACE`.
+const BATCHES_MAX: usize = 1 << (16 - RECORD_BITS);
+
 #[derive(Clone, Copy)]
 struct Slot {
-    hash: u32,
-    batch: u16,
-    record: u16,
+    /// The kind and name hash (`Kind::slot_key`).
+    hash: u16,
+    /// The batch (top bits) and the record's place in it ([`RECORD_BITS`]).
+    place: u16,
+}
+
+impl Slot {
+    /// The batch, in the owner's order.
+    fn batch(self) -> u16 {
+        self.place >> RECORD_BITS
+    }
+
+    /// The record's place in its batch (0 the first).
+    fn record(self) -> u16 {
+        self.place & ((1 << RECORD_BITS) - 1)
+    }
 }
 
 /// Fault injection is local to a transaction, so parallel tests cannot interfere.
@@ -271,18 +434,150 @@ impl Input<'_> {
     }
 }
 
-pub(crate) struct PendingDeclarations {
+/// What the store keeps of one owner after admission.
+struct StoredOwner {
     id: Id,
     generation: u32,
     source: OwnerRef,
-    batches: Vec<DeclRef>,
-    /// Every indexed record of the owner in one list: grouped by kind, and
-    /// inside a kind sorted by name hash once the owner is prepared. The
-    /// range of kind `k` is `starts[k]..starts[k + 1]`.
-    slots: Vec<Slot>,
-    starts: [u16; KIND_COUNT + 1],
-    resident: usize,
+    batches: Batches,
     incarnation: u32,
+}
+
+impl StoredOwner {
+    fn new(id: Id, source: OwnerRef) -> Self {
+        Self {
+            id,
+            generation: source.generation(),
+            source,
+            batches: Batches::Refs(None),
+            incarnation: 0,
+        }
+    }
+
+    /// Every batch is read from a read-only image, and no slots are kept.
+    fn image_only(&self) -> bool {
+        matches!(self.batches, Batches::Starts(..))
+    }
+
+    /// The slots of one kind, in declaration order (none for an `image_only`
+    /// owner: see [`Self::places`]).
+    fn of_kind(&self, kind: Kind) -> &[Slot] {
+        let slots = self.batches.slots();
+        let from = slots.partition_point(|slot| slot.hash >> KIND_SHIFT < kind as u16);
+        let rest = &slots[from..];
+        let len = rest.partition_point(|slot| slot.hash >> KIND_SHIFT == kind as u16);
+        &rest[..len]
+    }
+
+    /// The slots of `kind` whose name hashes to `hash` (`Kind::slot_key`), in
+    /// declaration order.
+    fn run(&self, kind: Kind, hash: u32) -> impl Iterator<Item = Slot> + '_ {
+        let key = kind.slot_key(hash);
+        self.of_kind(kind)
+            .iter()
+            .copied()
+            .filter(move |slot| slot.hash == key)
+    }
+
+    /// Adds `slot` after the slots of its kind: staged in declaration order,
+    /// a kind's slots stay in it. The caller has reserved room: nothing here
+    /// allocates.
+    fn add_slot(&mut self, slot: Slot) -> Result<(), i32> {
+        let kind = slot.hash >> KIND_SHIFT;
+        let slots = &mut self.batches.indexed_mut()?.slots;
+        let at = slots.partition_point(|old| old.hash >> KIND_SHIFT <= kind);
+        slots.insert(at, slot);
+        Ok(())
+    }
+
+    /// The places (batch, record) of the records of `kind`, in declaration
+    /// order, until `visit` breaks. An `image_only` owner's are found by
+    /// walking its batches' frames, the image held for one batch at a time
+    /// (never while `visit` runs); a batch whose frames do not walk is said
+    /// to its plugin and skipped.
+    fn places(
+        &self,
+        kind: Kind,
+        visit: &mut dyn FnMut(u16, u16) -> ControlFlow<()>,
+    ) -> ControlFlow<()> {
+        let starts = match &self.batches {
+            Batches::Starts(starts) => starts,
+            Batches::Refs(_) => {
+                for slot in self.of_kind(kind) {
+                    visit(slot.batch(), slot.record())?;
+                }
+                return ControlFlow::Continue(());
+            }
+        };
+        scan::image_places(self, starts, kind, visit)
+    }
+
+    /// How many records of `kind` the owner declares.
+    fn count(&self, kind: Kind) -> usize {
+        if !self.image_only() {
+            return self.of_kind(kind).len();
+        }
+        let mut count = 0;
+        let _ = self.places(kind, &mut |_, _| {
+            count += 1;
+            ControlFlow::Continue(())
+        });
+        count
+    }
+
+    /// The key of the record at `batch`, `record` of the owner in slot `index`.
+    fn key(&self, index: usize, batch: u16, record: u16) -> DeclKey {
+        DeclKey {
+            owner: u16::try_from(index).unwrap_or(u16::MAX),
+            batch,
+            record,
+            generation: self.generation,
+            incarnation: self.incarnation,
+        }
+    }
+
+    /// Keeps no slots and no references where every batch is read from a
+    /// read-only image, only where each batch starts: what the index cost is
+    /// given back at commit (#248). Where there is no room for the starts,
+    /// the owner keeps its index (nothing fails).
+    fn drop_index_if_image_only(&mut self) {
+        let Batches::Refs(Some(indexed)) = &self.batches else {
+            return;
+        };
+        let refs = &indexed.refs;
+        if !self.source.read_only() || refs.is_empty() {
+            return;
+        }
+        let mut starts = Vec::new();
+        if starts.try_reserve_exact(refs.len()).is_err() {
+            return;
+        }
+        for reference in refs {
+            match reference {
+                DeclRef::Image { offset, .. } => starts.push(BatchStart::new(*offset)),
+                DeclRef::Owned(_) => return,
+            }
+        }
+        // Every record is in a slot (staging indexes each one), so the slots'
+        // kinds are the kinds each batch declares.
+        for slot in &indexed.slots {
+            let Some(batch) = starts.get_mut(usize::from(slot.batch())) else {
+                return;
+            };
+            batch.add_kind(u32::from(slot.hash >> KIND_SHIFT));
+        }
+        let Some(starts) = Starts::try_new(&starts) else {
+            return;
+        };
+        self.batches = Batches::Starts(starts);
+    }
+}
+
+/// One owner during admission. The store keeps only `kept`: the charges
+/// and the failure are dropped at commit.
+pub(crate) struct PendingDeclarations {
+    kept: StoredOwner,
+    resident: usize,
     failure: Option<i32>,
     index_bytes: usize,
     image_entries: usize,
@@ -293,40 +588,21 @@ pub(crate) struct PendingDeclarations {
 }
 impl PendingDeclarations {
     pub(crate) fn plugin_id(&self) -> &str {
-        self.id.as_str()
+        self.kept.id.as_str()
     }
     pub(crate) fn host_owner_id(&self) -> Result<u64, i32> {
-        self.source.owner_id()
+        self.kept.source.owner_id()
     }
 
     /// The slots of one kind.
     fn of_kind(&self, kind: Kind) -> &[Slot] {
-        let k = kind as usize;
-        &self.slots[usize::from(self.starts[k])..usize::from(self.starts[k + 1])]
+        self.kept.of_kind(kind)
     }
 
-    /// Adds `slot` at the end of its kind's range. The caller has reserved
-    /// room, so nothing here allocates.
-    fn add_slot(&mut self, kind: Kind, slot: Slot) {
-        let at = usize::from(self.starts[kind as usize + 1]);
-        self.slots.insert(at, slot);
-        // Each owner holds far fewer than 65,535 records (the declaration
-        // byte cap); a saturated offset would only end a range early.
-        for start in &mut self.starts[kind as usize + 1..] {
-            *start = start.saturating_add(1);
-        }
-    }
-
-    pub(crate) fn new(id: Id, source: Rc<dyn ImageOwner>) -> Self {
+    fn with_source(id: Id, source: OwnerRef) -> Self {
         Self {
-            id,
-            generation: source.generation(),
-            source: OwnerRef::Existing(source),
-            batches: Vec::new(),
-            slots: Vec::new(),
-            starts: [0; KIND_COUNT + 1],
+            kept: StoredOwner::new(id, source),
             resident: 0,
-            incarnation: 0,
             failure: None,
             index_bytes: 0,
             image_entries: 0,
@@ -334,24 +610,27 @@ impl PendingDeclarations {
         }
     }
 
-    pub(crate) fn native(id: Id, source: impl ImageOwner + 'static) -> Result<Self, i32> {
-        let source: Box<dyn ImageOwner> = super::shared::try_box(source).ok_or(ERR_NO_MEMORY)?;
-        let source =
-            OwnerRef::Native(super::shared::Shared::try_new(source).map_err(|_| ERR_NO_MEMORY)?);
-        Ok(Self {
-            id,
-            generation: source.generation(),
-            source,
-            batches: Vec::new(),
-            slots: Vec::new(),
-            starts: [0; KIND_COUNT + 1],
-            resident: 0,
-            incarnation: 0,
-            failure: None,
-            index_bytes: 0,
-            image_entries: 0,
-            owned_counts: [0; LIMITED_KINDS],
-        })
+    #[cfg(test)]
+    pub(crate) fn new(id: Id, source: Rc<dyn ImageOwner>) -> Self {
+        Self::with_source(id, OwnerRef::Existing(source))
+    }
+
+    /// A native owner: `owner` is its host key, `lease` its running instance.
+    pub(crate) fn native(id: Id, lease: super::native_instances::NativeLease, owner: u64) -> Self {
+        Self::with_source(id, OwnerRef::Native { lease, owner })
+    }
+
+    /// Room for `batches` more batches and `entries` more indexed records,
+    /// reserved once before they are staged one by one.
+    pub(crate) fn reserve(
+        &mut self,
+        batches: usize,
+        entries: usize,
+        allocations: &mut Allocations,
+    ) -> Result<(), i32> {
+        let indexed = self.kept.batches.indexed_mut()?;
+        allocations.reserve(&mut indexed.refs, batches)?;
+        allocations.reserve(&mut indexed.slots, entries)
     }
 
     /// Stage one whole batch. Failed reservations may grow capacity but never
@@ -373,7 +652,7 @@ impl PendingDeclarations {
             return self.stage(Input::Committed(raw), allocations);
         }
         let range = raw.image.ok_or(ERR_STATE)?;
-        let source = self.source.try_clone()?;
+        let source = self.kept.source.try_clone()?;
         let mut result = Err(ERR_STATE);
         source.with_image(&mut |image| {
             result = raw.view(image).and_then(|bytes| {
@@ -406,24 +685,11 @@ impl PendingDeclarations {
     }
 
     fn stage_inner(&mut self, input: Input<'_>, allocations: &mut Allocations) -> Result<(), i32> {
-        if self.source.generation() != self.generation {
+        if self.kept.source.generation() != self.kept.generation {
             return Err(ERR_STATE);
         }
         let bytes = input.bytes();
-        let decoded = host_records_decode(bytes)?;
-        declarations::validate_batch(self.id.as_str(), &decoded)?;
-        let offsets = super::raw_declarations::offsets(bytes, decoded.len())?;
-        let mut counts = [0usize; KIND_COUNT];
-        let mut kinds = [None; super::registrations::REGISTRATION_MAX_RECORDS];
-        for (index, record) in decoded.iter().enumerate() {
-            if let Some(kind) = Kind::of(&record) {
-                kinds[index] = Some((
-                    kind,
-                    super::declaration_index::record_hash(record).ok_or(ERR_INVALID)?,
-                ));
-                counts[kind as usize] += 1;
-            }
-        }
+        let (kinds, counts) = classify(self.kept.id.as_str(), bytes)?;
         let expected = match &input {
             Input::Committed(raw) => Some(raw.entries),
             Input::Image { entries, .. } => Some(*entries),
@@ -435,7 +701,11 @@ impl PendingDeclarations {
         if counts.iter().all(|&n| n == 0) {
             return Ok(());
         }
-        let batch = u16::try_from(self.batches.len()).map_err(|_| ERR_NO_SPACE)?;
+        let batch = self.kept.batches.len();
+        if batch >= BATCHES_MAX {
+            return Err(ERR_NO_SPACE);
+        }
+        let batch = u16::try_from(batch).map_err(|_| ERR_NO_SPACE)?;
         let mut reference = match &input {
             Input::Image { offset, len, .. } => Some(DeclRef::Image {
                 offset: *offset,
@@ -444,7 +714,7 @@ impl PendingDeclarations {
             _ => None,
         };
         if matches!(input, Input::Borrowed(_)) {
-            self.source.with_image(&mut |image| {
+            self.kept.source.with_image(&mut |image| {
                 reference = image.and_then(|image| image_ref(image, bytes));
             });
         }
@@ -459,22 +729,20 @@ impl PendingDeclarations {
             Some(reference) => reference,
             None => input.own(allocations)?,
         };
-        allocations.reserve(&mut self.batches, 1)?;
-        allocations.reserve(&mut self.slots, counts.iter().sum())?;
+        let indexed = self.kept.batches.indexed_mut()?;
+        allocations.reserve(&mut indexed.refs, 1)?;
+        allocations.reserve(&mut indexed.slots, counts.iter().sum())?;
         for (record, kind) in kinds.into_iter().enumerate() {
             if let Some((kind, hash)) = kind {
-                // The decoder bounds each batch to eight records.
-                self.add_slot(
-                    kind,
-                    Slot {
-                        hash,
-                        batch,
-                        record: offsets[record],
-                    },
-                );
+                // The decoder bounds each batch to eight records
+                // (`RECORD_BITS`), and `batch` is below `BATCHES_MAX`.
+                self.kept.add_slot(Slot {
+                    hash: kind.slot_key(hash),
+                    place: batch << RECORD_BITS | record as u16,
+                })?;
             }
         }
-        self.batches.push(reference);
+        self.kept.batches.indexed_mut()?.refs.push(reference);
         self.resident = resident;
         self.index_bytes = index_bytes;
         self.image_entries = image_entries;
@@ -550,8 +818,11 @@ impl PendingDeclarations {
                 // So do `input.spec` and `help.hint`.
                 usize::MAX,
                 usize::MAX,
-                // And `format.spec` and `reader.spec` (their counts are
-                // checked at commit).
+                // And `format.spec`, `reader.spec`, `lookup.spec`, `book_field.spec`
+                // and `book_badge.spec` (their counts are checked at commit).
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
                 usize::MAX,
                 usize::MAX,
             ];
@@ -586,44 +857,42 @@ fn image_ref(image: &[u8], bytes: &[u8]) -> Option<DeclRef> {
 
 #[derive(Default)]
 pub(crate) struct DeclarationStore {
-    owners: Vec<Option<PendingDeclarations>>,
+    owners: Vec<Option<StoredOwner>>,
     incarnation: u32,
     /// Owners taken out so far.
     removed: u32,
 }
 
 /// Exclusive preparation prevents a second transaction invalidating reservations.
+/// It holds only what the store keeps: the admission charges are gone.
 pub(crate) struct Prepared<'a> {
     store: &'a mut DeclarationStore,
-    pending: PendingDeclarations,
+    owner: StoredOwner,
     at: usize,
 }
 impl Prepared<'_> {
     /// Every allocation and validation completed before this point.
     pub(crate) fn commit(self) {
-        self.store.incarnation = self.pending.incarnation;
+        self.store.incarnation = self.owner.incarnation;
         if self.at == self.store.owners.len() {
-            self.store.owners.push(Some(self.pending));
+            self.store.owners.push(Some(self.owner));
         } else {
-            self.store.owners[self.at] = Some(self.pending);
+            self.store.owners[self.at] = Some(self.owner);
         }
     }
 }
 impl DeclarationStore {
     pub(crate) fn prepare<'a>(
         &'a mut self,
-        mut pending: PendingDeclarations,
+        pending: PendingDeclarations,
         allocations: &mut Allocations,
     ) -> Result<Prepared<'a>, i32> {
         if let Some(error) = pending.failure {
             return Err(error);
         }
+        let mut pending = pending.kept;
         if pending.source.generation() != pending.generation {
             return Err(ERR_STATE);
-        }
-        for kind in 0..KIND_COUNT {
-            let range = usize::from(pending.starts[kind])..usize::from(pending.starts[kind + 1]);
-            super::declaration_index::sort_by_key(&mut pending.slots[range], |entry| entry.hash);
         }
         let at = self
             .owners
@@ -655,7 +924,7 @@ impl DeclarationStore {
                         .is_some_and(|owner| owner.source.generation() == owner.generation)
             })
             .filter_map(|(_, owner)| owner.as_ref())
-            .map(|owner| owner.of_kind(Kind::Format).len())
+            .map(|owner| owner.count(Kind::Format))
             .sum();
         if others + pending.of_kind(Kind::Format).len() > super::format_index::DEVICE {
             allocations.cap = Some(Cap::of(Cap::FORMATS, super::format_index::DEVICE));
@@ -673,18 +942,60 @@ impl DeclarationStore {
                         .is_some_and(|owner| owner.source.generation() == owner.generation)
             })
             .filter_map(|(_, owner)| owner.as_ref())
-            .map(|owner| owner.of_kind(Kind::Reader).len())
+            .map(|owner| owner.count(Kind::Reader))
             .sum();
         if readers + pending.of_kind(Kind::Reader).len() > super::format_index::READERS_DEVICE {
             allocations.cap = Some(Cap::of(Cap::READERS, super::format_index::READERS_DEVICE));
             return Err(paperpaw_native::host_glue::ERR_FULL);
         }
+        // And 64 book fields, 16 book badges and 32 lookup providers on the
+        // device (`library.md` section 1, `document.md` section 7), counted
+        // the same way; the plugin's own caps are checked with its batch.
+        for (kind, device, problem) in [
+            (Kind::BookField, books::FIELDS_DEVICE, Cap::BOOK_FIELDS),
+            (Kind::BookBadge, books::BADGES_DEVICE, Cap::BOOK_BADGES),
+            (
+                Kind::Lookup,
+                super::declaration_checks::LOOKUPS_DEVICE,
+                Cap::LOOKUPS,
+            ),
+        ] {
+            let others: usize = self
+                .owners
+                .iter()
+                .enumerate()
+                .filter(|(index, owner)| {
+                    *index != at
+                        && owner
+                            .as_ref()
+                            .is_some_and(|owner| owner.source.generation() == owner.generation)
+                })
+                .filter_map(|(_, owner)| owner.as_ref())
+                .map(|owner| owner.count(kind))
+                .sum();
+            if others + pending.of_kind(kind).len() > device {
+                allocations.cap = Some(Cap::of(problem, device));
+                return Err(paperpaw_native::host_glue::ERR_FULL);
+            }
+        }
         pending.incarnation = self.incarnation.checked_add(1).ok_or(ERR_NO_SPACE)?;
+        pending.drop_index_if_image_only();
         Ok(Prepared {
             store: self,
-            pending,
+            owner: pending,
             at,
         })
+    }
+
+    /// Whether the owner `key` is in the store and runs: `None` where it is
+    /// not (removed, turned off, replaced), `Some(false)` where it stays
+    /// without running (stopped after a fault, until it is taken out).
+    pub(crate) fn owner_runs(&self, key: u64) -> Option<bool> {
+        self.owners
+            .iter()
+            .flatten()
+            .find(|owner| owner.source.owner_id() == Ok(key))
+            .map(|owner| owner.source.generation() == owner.generation)
     }
 
     /// Remove indexes before releasing the retained owner/module guard.
@@ -754,7 +1065,7 @@ impl DeclarationStore {
             .flatten()
             .find(|owner| owner.source.owner_id() == Ok(key))
             .filter(|owner| owner.source.generation() == owner.generation)
-            .map(PendingDeclarations::plugin_id)
+            .map(|owner| owner.id.as_str())
     }
 
     pub(crate) fn host_owner(&self, plugin: &str) -> Result<u64, i32> {
@@ -770,6 +1081,8 @@ impl DeclarationStore {
         owner.source.owner_id()
     }
 
+    /// Every live record key, in owner and kind order.
+    #[cfg(test)]
     pub(crate) fn all_keys(&self, allocations: &mut Allocations) -> Result<Vec<DeclKey>, i32> {
         let mut keys = Vec::new();
         for (index, owner) in self.owners.iter().enumerate() {
@@ -777,15 +1090,20 @@ impl DeclarationStore {
             if owner.source.generation() != owner.generation {
                 continue;
             }
-            allocations.reserve(&mut keys, owner.slots.len())?;
-            for slot in &owner.slots {
-                keys.push(DeclKey {
-                    owner: u16::try_from(index).map_err(|_| ERR_NO_SPACE)?,
-                    batch: slot.batch,
-                    record: slot.record,
-                    generation: owner.generation,
-                    incarnation: owner.incarnation,
+            u16::try_from(index).map_err(|_| ERR_NO_SPACE)?;
+            for kind in Kind::ALL {
+                let mut failed = None;
+                let _ = owner.places(kind, &mut |batch, record| {
+                    if let Err(error) = allocations.reserve(&mut keys, 1) {
+                        failed = Some(error);
+                        return ControlFlow::Break(());
+                    }
+                    keys.push(owner.key(index, batch, record));
+                    ControlFlow::Continue(())
                 });
+                if let Some(error) = failed {
+                    return Err(error);
+                }
             }
         }
         Ok(keys)
@@ -808,15 +1126,10 @@ impl DeclarationStore {
             if owner.source.generation() != owner.generation {
                 continue;
             }
-            for slot in owner.of_kind(kind) {
-                visit(DeclKey {
-                    owner: u16::try_from(index).unwrap_or(u16::MAX),
-                    batch: slot.batch,
-                    record: slot.record,
-                    generation: owner.generation,
-                    incarnation: owner.incarnation,
-                });
-            }
+            let _ = owner.places(kind, &mut |batch, record| {
+                visit(owner.key(index, batch, record));
+                ControlFlow::Continue(())
+            });
         }
     }
 
@@ -849,30 +1162,33 @@ impl DeclarationStore {
         }) else {
             return false;
         };
+        if owner.image_only() {
+            // Every record of the kind, in declaration order: the first that
+            // matches is the one an index would give.
+            return scan::find_in_image(owner, kind, parts, visit);
+        }
         let category = kind.category();
-        let hash = super::declaration_index::composite_hash(category, parts);
-        let slots = owner.of_kind(kind);
-        let from = slots.partition_point(|slot| slot.hash < hash);
-        for slot in slots[from..].iter().take_while(|slot| slot.hash == hash) {
-            let key = DeclKey {
-                owner: u16::try_from(index).unwrap_or(u16::MAX),
-                batch: slot.batch,
-                record: slot.record,
-                generation: owner.generation,
-                incarnation: owner.incarnation,
-            };
-            let mut found = false;
-            self.with_record(key, &mut |record| {
+        let mut found = false;
+        let mut try_place = |batch: u16, record: u16| {
+            self.with_record(owner.key(index, batch, record), &mut |record| {
                 if super::declaration_index::matches_parts(record, category, parts) {
                     found = true;
                     visit(record);
                 }
             });
             if found {
-                return true;
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        };
+        let hash = super::declaration_index::composite_hash(category, parts);
+        for slot in owner.run(kind, hash) {
+            if try_place(slot.batch(), slot.record()).is_break() {
+                break;
             }
         }
-        false
+        found
     }
 
     /// The higher-ranked visitor cannot retain a reference into the module.
@@ -921,7 +1237,9 @@ impl DeclarationStore {
                 return;
             };
             let result = decode_entry(owner, image, key.batch, key.record).and_then(|record| {
-                if indexed {
+                // An image-only owner keeps no index to check against
+                // (`declaration_scan.rs`).
+                if indexed && !owner.image_only() {
                     check_indexed_name(owner, image, key, record)?;
                 }
                 visit(record);
@@ -937,31 +1255,35 @@ impl DeclarationStore {
 }
 
 fn decode_entry<'a>(
-    owner: &'a PendingDeclarations,
+    owner: &'a StoredOwner,
     image: &'a [u8],
     batch: u16,
     record: u16,
 ) -> Result<Record<'a>, i32> {
-    let reference = owner.batches.get(usize::from(batch)).ok_or(ERR_INVALID)?;
-    let bytes = match reference {
-        DeclRef::Image { offset, len } => {
-            let start = usize::try_from(*offset).map_err(|_| ERR_INVALID)?;
-            start
-                .checked_add(*len as usize)
-                .and_then(|end| image.get(start..end))
-                .ok_or(ERR_INVALID)?
-        }
-        DeclRef::Owned(bytes) => bytes,
-    };
+    let bytes = owner.batches.bytes(usize::from(batch), image)?;
     let (record, _) = super::registrations::host_decode_prefix(
-        bytes.get(usize::from(record)..).ok_or(ERR_INVALID)?,
+        super::raw_declarations::record_at(bytes, usize::from(record))?,
     )?;
     declarations::validate_record(owner.id.as_str(), &record)?;
     Ok(record)
 }
 
+/// The bytes of the batch `reference` names: in `image`, or its own.
+fn batch_bytes<'a>(reference: &'a DeclRef, image: &'a [u8]) -> Result<&'a [u8], i32> {
+    match reference {
+        DeclRef::Image { offset, len } => {
+            let start = usize::try_from(*offset).map_err(|_| ERR_INVALID)?;
+            start
+                .checked_add(*len as usize)
+                .and_then(|end| image.get(start..end))
+                .ok_or(ERR_INVALID)
+        }
+        DeclRef::Owned(bytes) => Ok(bytes),
+    }
+}
+
 fn check_indexed_name(
-    owner: &PendingDeclarations,
+    owner: &StoredOwner,
     image: &[u8],
     key: DeclKey,
     record: Record<'_>,
@@ -970,12 +1292,9 @@ fn check_indexed_name(
     let kind = Kind::of(&record).ok_or(ERR_INVALID)?;
     let (category, _) = name_key(record).ok_or(ERR_INVALID)?;
     let hash = record_hash(record).ok_or(ERR_INVALID)?;
-    let slots = owner.of_kind(kind);
-    let from = slots.partition_point(|slot| slot.hash < hash);
-    let run = slots[from..].iter().take_while(|slot| slot.hash == hash);
-    if !run
-        .clone()
-        .any(|slot| slot.batch == key.batch && slot.record == key.record)
+    if !owner
+        .run(kind, hash)
+        .any(|slot| slot.batch() == key.batch && slot.record() == key.record)
     {
         return Err(ERR_INVALID);
     }
@@ -987,14 +1306,11 @@ fn check_indexed_name(
         core::slice::from_ref(&kind)
     };
     for peer_kind in peer_kinds {
-        let peers = owner.of_kind(*peer_kind);
-        let from = peers.partition_point(|slot| slot.hash < hash);
-        for peer in peers[from..]
-            .iter()
-            .take_while(|slot| slot.hash == hash)
-            .filter(|slot| slot.batch != key.batch || slot.record != key.record)
+        for peer in owner
+            .run(*peer_kind, hash)
+            .filter(|slot| slot.batch() != key.batch || slot.record() != key.record)
         {
-            let Ok(other) = decode_entry(owner, image, peer.batch, peer.record) else {
+            let Ok(other) = decode_entry(owner, image, peer.batch(), peer.record()) else {
                 continue;
             };
             if name_key(other).is_some_and(|(other_kind, _)| {
@@ -1009,13 +1325,32 @@ fn check_indexed_name(
     Ok(())
 }
 
+#[path = "declaration_books.rs"]
+mod books;
+
+#[path = "declaration_batches.rs"]
+mod batches;
 #[path = "declaration_formats.rs"]
 mod formats;
+#[path = "declaration_scan.rs"]
+mod scan;
+use batches::Batches;
+#[path = "declaration_starts.rs"]
+mod starts;
+#[allow(
+    unused_imports,
+    reason = "read by the library catalog's production host"
+)]
+pub(crate) use books::{
+    BADGES_DEVICE, BADGES_PER_PLUGIN, BookBadgeDecl, BookFieldDecl, FIELDS_DEVICE,
+    FIELDS_PER_PLUGIN,
+};
 #[allow(
     unused_imports,
     reason = "read by the document service's production host"
 )]
 pub(crate) use formats::{FormatDecl, ReaderDecl};
+use starts::{BatchStart, Starts};
 #[path = "declaration_stages.rs"]
 mod stages;
 #[allow(
@@ -1024,21 +1359,64 @@ mod stages;
 )]
 pub(crate) use stages::{StageLimits, StageSubscriber};
 
+/// Each record's kind and hash by its place in the batch, `None` for a record
+/// no kind indexes.
+type Classes = [Option<(Kind, u32)>; REGISTRATION_MAX_RECORDS];
+
+/// The kind and hash of each record of the batch `bytes` by its place, and how
+/// many of each kind it holds: the whole batch decoded and checked first (each
+/// record, then frames that tile it), with the statuses of a decoded batch.
+/// One record is decoded at a time (`host_records_visit`), never the eight of a
+/// batch at once: they would take most of the X4's 2 KiB stack band
+/// (`abi/heap-word.md` section 6) under a plugin's own frames.
+#[inline(never)]
+fn classify(id: &str, bytes: &[u8]) -> Result<(Classes, [usize; KIND_COUNT]), i32> {
+    let mut counts = [0usize; KIND_COUNT];
+    let mut kinds = [None; REGISTRATION_MAX_RECORDS];
+    let mut index = 0;
+    // One visit checks and classifies each record: `host_records_visit` has
+    // decoded the whole batch once before the first record is visited, so a
+    // decoding error anywhere still comes before any record's own status.
+    let len = host_records_visit(bytes, REGISTRATION_MAX_RECORDS, &mut |record| {
+        declarations::validate_record(id, &record)?;
+        if let Some(kind) = Kind::of(&record) {
+            let hash = super::declaration_index::record_hash(record).ok_or(ERR_INVALID)?;
+            *kinds.get_mut(index).ok_or(ERR_INVALID)? = Some((kind, hash));
+            *counts.get_mut(kind as usize).ok_or(ERR_INVALID)? += 1;
+        }
+        index += 1;
+        Ok(())
+    })?;
+    // The frames must tile the batch exactly: a lookup walks their headers
+    // to reach a record by its place (`raw_declarations::record_at`).
+    let framing = super::raw_declarations::offsets(bytes, len)?;
+    debug_assert!(
+        framing
+            .get(..len)
+            .is_some_and(|framing| framing.windows(2).all(|pair| pair[0] < pair[1]))
+    );
+    Ok((kinds, counts))
+}
+
 #[cfg(test)]
 #[path = "declaration_store_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "declaration_classify_tests.rs"]
+mod classify_tests;
 
 // The device check validates layout instead of extrapolating host enum sizes.
 #[cfg(target_pointer_width = "32")]
 const _: () = {
     assert!(size_of::<DeclRef>() == 12);
     assert!(size_of::<DeclKey>() == 16);
-    assert!(size_of::<Slot>() == 8);
-    // One list and one table of offsets per owner, flat as kinds are added
-    // (`abi/heap-word.md` section 9).
-    assert!(size_of::<PendingDeclarations>() <= PENDING_BUDGET);
+    assert!(size_of::<Slot>() == 4);
+    // One list per owner, with the kind in each slot's key: flat as kinds are
+    // added (`abi/heap-word.md` section 9). The admission counts are not kept.
+    assert!(size_of::<StoredOwner>() <= OWNER_BUDGET);
 };
 
-/// The most bytes of one owner's `PendingDeclarations` on the X4.
+/// The most bytes the store keeps of one owner on the X4.
 #[cfg(target_pointer_width = "32")]
-const PENDING_BUDGET: usize = 192;
+const OWNER_BUDGET: usize = 64;

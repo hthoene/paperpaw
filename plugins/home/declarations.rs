@@ -1,12 +1,13 @@
 //! What the home screen declares of itself (its pages, grid and footer
 //! settings, screens, slot, actions and menu entries), compared with the
-//! interface-6 registration by the declaration tests. The built-in widgets
-//! and the help hints follow (`PORTING-7.md`).
+//! interface-6 registration by the declaration tests, and the first-time help
+//! hints of the dashboard.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl,
-    KeyBindingDecl, Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, StatusPlaceDecl,
-    WidgetDecl, WidgetLayout, WidgetPlaceDecl,
+    HelpHintDecl, KeyBindingDecl, Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl,
+    StatusPlaceDecl, WidgetDecl, WidgetLayout, WidgetPlaceDecl,
 };
+use paperpaw_sdk::native::ui::HintInput;
 use paperpaw_ui_kit::widget::options::{Opt, declare_all, shared_look};
 
 /// Callback tokens: stable within this plugin.
@@ -18,6 +19,11 @@ pub const ALL_TOOLS: u32 = 1;
 pub const EDIT_PAGES: u32 = 2;
 pub const SETTING_CHANGED: u32 = 3;
 pub const TICK: u32 = 4;
+/// A widget of the plugin says it shows something new (`event.widget_changed`).
+pub const WIDGET_CHANGED: u32 = 5;
+/// The screen stack changed (`event.stack_changed`): a dashboard under another
+/// screen lets its page go.
+pub const STACK_CHANGED: u32 = 6;
 /// Widget tokens: the widget's own callbacks (made, dropped, measured, drawn).
 pub const DATE: u32 = 20;
 pub const CLOCK: u32 = 21;
@@ -169,8 +175,8 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The dashboard, adding to a page, every tool at once, and the footer items'
-/// editor.
+/// The dashboard, adding to a page, every tool at once, and the editor of the
+/// footer's items and of the status line's parts and line.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -215,14 +221,18 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The grid's columns or rows changed (the pages are fitted to it), and the
+/// The grid's columns or rows changed (the pages are fitted to it), the
 /// minute tick (the status line, the clock and what else shows the time are
-/// drawn anew).
+/// drawn anew) and a widget that says it shows something new (the page is laid
+/// out and drawn anew where it is on top) and the screen stack (the home screen
+/// under another screen holds no page).
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
     d.subscribe_event(EventKind::Tick, TICK)?;
+    d.subscribe_event(EventKind::WidgetChanged, WIDGET_CHANGED)?;
+    d.subscribe_event(EventKind::StackChanged, STACK_CHANGED)?;
     d.submit()
 }
 
@@ -332,17 +342,19 @@ pub const WIDGETS: &[Def] = &[
     },
 ];
 
-/// The status line's parts, each a list of status items chosen on their
-/// picker: the line shown instead (none), the time on the left, nothing in the
-/// centre, and Wi-Fi and the battery on the right. Name (relative to the
-/// widget), default, title, help, and whether the picker is home's items screen.
+/// The status line's parts, each a list chosen on its picker: the whole lines
+/// shown instead (none; the first that is there shows), the time on the left,
+/// nothing in the centre, and Wi-Fi and the battery on the right. Name
+/// (relative to the widget), default, title, help, and whether the picker is
+/// home's items screen (for `line` in its lines mode, as interface 6 had the
+/// core screen `core.status-lines`).
 pub const STATUS_PARTS: &[(&str, &str, &str, &str, bool)] = &[
     (
         "line",
         "",
         "home.status.line",
         "home.status.line.help",
-        false,
+        true,
     ),
     (
         "left",
@@ -434,4 +446,35 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
         d.submit()?;
     }
     status(d)
+}
+
+/// The first time: how the gestures go, or the buttons (the dashboard's help
+/// hints, as interface 6 declared them; zones in thousandths of the screen).
+///
+/// # Errors
+/// A declaration is refused.
+pub fn help<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    let refused = |_| DeclareError::Empty("help hint");
+    for (text, input, zone) in [
+        ("home.tips.quick", HintInput::Touch, Some((0, 0, 1000, 120))),
+        ("home.tips.back", HintInput::Touch, Some((0, 400, 150, 300))),
+        ("home.tips.home", HintInput::Touch, None),
+        ("home.tips.tools", HintInput::Touch, None),
+        ("home.tips.arrange", HintInput::Touch, None),
+        ("home.tips.move", HintInput::Buttons, None),
+        ("home.tips.select", HintInput::Buttons, None),
+        ("home.tips.menu", HintInput::Buttons, None),
+        ("home.tips.panel", HintInput::Buttons, None),
+    ] {
+        let mut hint = HelpHintDecl::new("home.dashboard", text, input).map_err(refused)?;
+        if let Some((x, y, w, h)) = zone {
+            hint = hint
+                .zone(paperpaw_sdk::Rect::new(x, y, w, h))
+                .map_err(refused)?;
+        }
+        d.help_hint(hint)?;
+    }
+    d.submit()
 }

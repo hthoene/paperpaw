@@ -46,6 +46,27 @@ impl Source for Fixed {
         }
         Ok(out)
     }
+    fn definitions_within(
+        &mut self,
+        which: usize,
+        word: &str,
+        budget: &mut usize,
+    ) -> Result<Vec<Found>, Error> {
+        self.within(which, word, budget)
+    }
+}
+
+impl Fixed {
+    fn within(
+        &mut self,
+        which: usize,
+        word: &str,
+        budget: &mut usize,
+    ) -> Result<Vec<Found>, Error> {
+        let found = self.definitions(which, word)?;
+        *budget = budget.saturating_sub(found.iter().map(|f| f.text.len()).sum());
+        Ok(found)
+    }
 }
 
 #[test]
@@ -64,6 +85,7 @@ fn the_walk_and_the_pages_survive_refused_allocations() {
     fail_alloc::sweep(|| {
         native_model::find_dictionaries(&mut Tree, "d")?;
         native_model::page_at(&mut fixed, "w", 1)?;
+        native_model::all_within(&mut fixed, "w", &mut 1024)?;
         Ok(())
     });
 }

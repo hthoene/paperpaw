@@ -11,10 +11,11 @@
 //! `native_backdrop_host`): asked for when the screen shows, drawn first and not
 //! while editing, a notice instead of the page while it is made.
 //!
-//! Not yet (named steps in `PORTING-7.md`): the bar drawn in its strip and the
-//! hints row, the icons of tools and of the footer, the finger's drag while
-//! editing, the widgets' updates, and the parts of the picture's recipe the host's
-//! drawing cannot do.
+//! Tools show their icons above their names and the footer its icons
+//! (`native_icons`, `native_dashboard/page.rs`). A widget that says it shows
+//! something new (`event.widget_changed`) is drawn anew in its cell
+//! ([`Dashboard::widget_changed`]). Not yet (named steps in `PORTING-7.md`): the
+//! parts of the picture's recipe the host's drawing cannot do.
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Handled, Point, Rect,
@@ -25,14 +26,14 @@ use paperpaw_sdk::{
         fonts::{Font, FontRole},
         image::ImageReady,
         snapshot::{self, Snapshot},
-        ui::{Compose, MadeWidget, Ui, WidgetHandle, WidgetInputKind},
+        ui::{Compose, Instance, MadeWidget, Ui, WidgetHandle, WidgetInputKind},
     },
     widgets::{ColourSpec, colour_spec, grid::Geometry},
 };
 use paperpaw_ui_kit::{
     Messages, Paint, Style,
     mem::{SERVICE_BUFFER, buffer, push},
-    paint, text,
+    paint, status_line, text,
 };
 
 use crate::native_add_screen as add_screen;
@@ -41,14 +42,12 @@ use crate::native_backdrop_host as picture;
 use crate::native_dash::{self as dash, Footer, Frame, Nav, Wanted};
 use crate::native_focus::{Button, Focus, Owner, Press, Step, Target};
 use crate::native_grid::{self as grid, What};
+use crate::native_icons::{self as icons, Face};
 use crate::native_measure::{self as measure, PLACE};
 use crate::native_pages;
 use crate::native_shown::Shown;
 use crate::native_source::HostSource;
 use crate::native_stage as stage;
-
-/// Lines a tool's name takes at most.
-const NAME_LINES: usize = 3;
 
 /// One item of the page as it shows.
 #[derive(Debug)]
@@ -61,6 +60,8 @@ struct Cell {
     rect: Rect,
     /// A tool's name.
     name: String,
+    /// A tool's icon and state (none for a widget).
+    face: Option<Face>,
     /// A widget's instance, where the host made one.
     widget: Option<MadeWidget>,
 }
@@ -82,6 +83,8 @@ struct Laid {
     pencil: Option<(Rect, String)>,
     /// Where *Add* is, while editing.
     plus: Option<Rect>,
+    /// The icons of the pencil, *Done* and *Add*, where the host has them.
+    icons: icons::Buttons,
     /// The items shown, each with its cells: what is kept when one is moved,
     /// sized or removed.
     items: Vec<grid::Item>,
@@ -89,6 +92,48 @@ struct Laid {
     /// whether the screen is on its side.
     slot: usize,
     wide: bool,
+    /// How wide and high the corner of an item is that a finger sizes it by.
+    handle: u16,
+    /// The status bar, where its strip is kept.
+    bar: Option<bar::Plan>,
+}
+
+/// What a widget's change draws anew.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Redraw {
+    /// Its cell.
+    Area(Rect),
+    /// The whole screen (the focus moved with the targets).
+    Screen,
+}
+
+impl Redraw {
+    /// What a widget's change in `area` draws anew: its cell, or the whole
+    /// screen where the focus shows and the targets moved (the ring moves).
+    #[must_use]
+    pub const fn after(area: Rect, moved: bool, focus_shown: bool) -> Self {
+        if moved && focus_shown {
+            Self::Screen
+        } else {
+            Self::Area(area)
+        }
+    }
+
+    /// Asks the host to draw it anew, with a partial refresh (never the fast
+    /// one, which breaks the picture's grays into dots).
+    ///
+    /// # Errors
+    /// The host's refusal.
+    pub fn queue(self, host: &Host<'_>) -> Result<(), Error> {
+        match self {
+            Self::Area(rect) => {
+                let mut scratch = [0; 64];
+                CommandSender::new(host, &mut scratch)
+                    .queue_redraw_area(RedrawMode::Partial, paint::frame_rect(rect))
+            }
+            Self::Screen => redraw(host),
+        }
+    }
 }
 
 /// What a press on a target leaves to do besides what it did itself.
@@ -104,6 +149,8 @@ enum Next {
 }
 
 mod arrange;
+mod bar;
+mod page;
 
 /// The dashboard.
 #[derive(Debug, Default)]
@@ -124,6 +171,10 @@ pub struct Dashboard {
     options: Option<arrange::Options>,
     /// An item the buttons are moving or sizing.
     moving: Option<arrange::Moving>,
+    /// An item a finger has taken along.
+    drag: Option<arrange::Drag>,
+    /// When a bar that shows after a press goes again (the event clock, ms).
+    revealed: Option<u64>,
     /// The picture behind the page.
     backdrop: Backdrop,
 }
@@ -175,6 +226,8 @@ impl Dashboard {
     pub fn shown(&mut self) {
         self.stale = true;
         self.reshow = true;
+        // A finger's drag does not outlive the screen's being covered.
+        self.drag = None;
     }
 
     /// Wants the picture the settings ask for: the host is asked to make it unless
@@ -191,7 +244,8 @@ impl Dashboard {
             picture::release(host, image);
         }
         if let Some((number, side)) = change.ask {
-            if picture::ask(host, self.backdrop.path(), number, side).is_err() {
+            let tone = self.backdrop.tone();
+            if picture::ask(host, self.backdrop.path(), number, (side, tone.as_ref())).is_err() {
                 self.backdrop.refused();
                 return Ok(());
             }
@@ -221,6 +275,7 @@ impl Dashboard {
             ready.status(),
             ready.image(),
             (ready.width(), ready.height()),
+            ready.luma(),
         );
         match landed {
             Landed::Ignore(held) => {
@@ -236,6 +291,71 @@ impl Dashboard {
         }
         let mut scratch = [0; 64];
         CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Full)
+    }
+
+    /// A widget says it shows something new (`event.widget_changed`): where it is
+    /// one of the page's, what its cell answers to the buttons is read anew (not
+    /// while editing: there each item is one target), as interface 6 did, and the
+    /// area to draw anew is returned (its cell, or the whole screen where the
+    /// focus shows and the targets moved). The host composes the new content at
+    /// the draw. `None`: not this page's widget (or the page is to be laid out
+    /// anyway, or the picture is being made), nothing to draw.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`]; another refusal of the targets keeps the old ones.
+    #[inline(never)]
+    pub fn widget_changed(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        instance: Instance,
+    ) -> Result<Option<Redraw>, Error> {
+        let Some(area) = self.cell_showing(instance.get()) else {
+            return Ok(None);
+        };
+        let Some(laid) = self.laid.as_ref() else {
+            return Ok(None);
+        };
+        if self.editing {
+            return Ok(Some(Redraw::Area(area)));
+        }
+        let footer = Footer {
+            pencil: laid.pencil.as_ref().map_or_else(Rect::default, |p| p.0),
+            plus: laid.plus.unwrap_or_default(),
+        };
+        let buttons = Buttons {
+            editing: false,
+            plus: laid.plus.is_some(),
+            pencil: laid.pencil.is_some(),
+        };
+        let targets = match Self::targets(host, ui, &laid.cells, &footer, buttons) {
+            Ok(targets) => targets,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => return Ok(Some(Redraw::Area(area))),
+        };
+        let moved = targets != laid.targets;
+        if let Some(laid) = self.laid.as_mut() {
+            laid.targets = targets;
+            self.focus.clamp(laid.targets.len());
+        }
+        Ok(Some(Redraw::after(area, moved, self.focus.shown())))
+    }
+
+    /// The cell of the page's widget `instance` (the host's number), where the
+    /// page as laid out shows it: none while the page is to be laid out anew
+    /// anyway or the picture is made (the notice shows instead of the page).
+    fn cell_showing(&self, instance: u32) -> Option<Rect> {
+        if self.stale || self.backdrop.making() {
+            return None;
+        }
+        self.laid
+            .as_ref()?
+            .cells
+            .iter()
+            .find_map(|cell| match cell.widget {
+                Some(MadeWidget::Widget(w)) if w.instance().get() == instance => Some(cell.rect),
+                _ => None,
+            })
     }
 
     /// The screen is closed: the picture goes back to the host.
@@ -268,6 +388,7 @@ impl Dashboard {
         // The cells are new: what pointed at the old ones is no more.
         self.options = None;
         self.moving = None;
+        self.drag = None;
         // The pages are arranged upright: on its side they are derived.
         self.editing &= !laid.wide;
         self.focus.clamp(laid.targets.len());
@@ -321,6 +442,7 @@ impl Dashboard {
         let pencil_on = editing || (src.pencil && !wide);
         let (word, done_word) = Self::pencil_word(host, display, font, pencil_on, editing)?;
         let footer = dash::footer(&metrics, frame.footer, &Wanted { editing, done_word });
+        let button_icons = icons::Buttons::read(host, pencil_on, editing)?;
         let mut cells = Vec::new();
         let buttons = Buttons {
             editing,
@@ -351,6 +473,13 @@ impl Dashboard {
                 return Err(error);
             }
         };
+        let bar = match bar::Plan::new(frame.strip, &src, (metrics.margin, metrics.style_gap)) {
+            Ok(bar) => bar,
+            Err(error) => {
+                release_cells(host, ui, cells);
+                return Err(error);
+            }
+        };
         Ok(Laid {
             frame,
             cells,
@@ -362,9 +491,12 @@ impl Dashboard {
             plate: plate_of(&src),
             pencil: pencil_on.then_some((footer.pencil, word)),
             plus: editing.then_some(footer.plus),
+            icons: button_icons,
             items,
             slot,
             wide,
+            handle: (metrics.row / 2).max(16),
+            bar,
         })
     }
 
@@ -423,8 +555,12 @@ impl Dashboard {
             return Ok(None);
         };
         let rect = geometry.rect(at);
+        let mut face = None;
         let (name, widget) = match &item.what {
-            What::Tool(action) => (text::copy(src.tool_name(action))?, None),
+            What::Tool(action) => {
+                face = Some(icons::face(host, src, action)?);
+                (text::copy(src.tool_name(action))?, None)
+            }
             What::Widget(id) => {
                 let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
                 match ui.widget_make(host, id, PLACE, &mut input, &mut out) {
@@ -479,6 +615,7 @@ impl Dashboard {
             least,
             rect,
             name,
+            face,
             widget,
         }))
     }
@@ -592,7 +729,7 @@ impl Dashboard {
         };
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let drawn = self.paint(host, frame, &display, &font, laid);
+        let drawn = self.paint(host, ui, frame, &display, &font, laid);
         let released = font.release();
         drawn?;
         released
@@ -614,6 +751,7 @@ impl Dashboard {
     fn paint(
         &self,
         host: &Host<'_>,
+        ui: &Ui,
         frame: &mut DrawFrame<'_>,
         display: &Snapshot,
         font: &Font<'_>,
@@ -622,48 +760,54 @@ impl Dashboard {
         let style = Style::read(host, display, font)?;
         let mut below = Vec::new();
         let mut above = Vec::new();
-        for cell in &laid.cells {
-            if let Some(plate) = laid.plate {
-                paint::push(
-                    &mut below,
-                    Paint::Focus(cell.rect, style.corner, None, plate),
-                )?;
-            }
-            if self.editing {
-                // The cells show while editing.
-                let line = Some(u32::from(style.line).max(1));
-                paint::push(
-                    &mut below,
-                    Paint::Focus(cell.rect, style.corner, line, style.ink),
-                )?;
-            }
-            if matches!(cell.what, What::Tool(_)) {
-                name(&mut below, font, &style, cell.rect, &cell.name)?;
-            }
+        // The bar's items its owners draw are composed once the paint is replayed.
+        let shown = laid.bar.as_ref().is_some_and(|plan| self.bar_shown(plan));
+        let mut buffers = [Vec::new(), Vec::new()];
+        if shown {
+            buffers = [buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?];
         }
-        if let Some((rect, word)) = &laid.pencil {
-            name(&mut below, font, &style, *rect, word)?;
-        }
-        if let Some(rect) = laid.plus {
-            name(&mut below, font, &style, rect, "+")?;
-        }
-        if let (Some(nav), true) = (self.nav, laid.dots || self.editing) {
-            for dot in dash::dots(laid.frame.footer, style.gap, laid.pages, nav.page) {
-                self::dot(&mut below, &dot, &style)?;
-            }
-        }
+        let mut placed = Vec::new();
+        let face = status_line::Face {
+            host,
+            font,
+            small: style.small,
+        };
+        self.bar_paint(
+            &face,
+            ui,
+            (laid, style.corner),
+            (&mut below, &mut placed),
+            &mut buffers,
+        )?;
+        // The picture, not while the page is arranged.
+        let drawing = if self.editing {
+            None
+        } else {
+            self.backdrop.drawing()
+        };
+        let icon_font = paperpaw_ui_kit::icons::font(host)?;
+        let circle = paperpaw_ui_kit::icons::glyph(host, icons::CIRCLE)?;
+        let fonts = icons::Fonts {
+            ui: font,
+            icons: icon_font.as_ref(),
+            circle: circle.as_ref(),
+        };
+        self.paint_page(&mut below, &fonts, &style, (laid, drawing.is_some()))?;
+        self.drag_frame(&mut above, &style, laid)?;
         if self.focus.shown()
             && let Some(target) = laid.targets.get(self.focus.at())
         {
             ring(&mut above, target.rect, &style)?;
         }
-        // The picture first, not while the page is arranged.
-        if !self.editing
-            && let Some(drawing) = self.backdrop.drawing()?
-        {
+        // The picture first.
+        if let Some(drawing) = drawing {
             picture::draw(frame, font, &style, &drawing)?;
         }
-        paint::replay(frame, font, below.iter())?;
+        paint::replay_icons(frame, font, fonts.icons, below.iter())?;
+        for item in &placed {
+            // An owner that cannot draw now (busy, gone) leaves its place empty.
+            Ui::compose(host, item.target, item.rect).ok();
+        }
         compose_each(
             laid.cells.iter().filter_map(|cell| match cell.widget {
                 Some(MadeWidget::Widget(widget)) => Some((widget, cell.rect)),
@@ -688,6 +832,9 @@ impl Dashboard {
             return Ok(Handled::No);
         }
         self.ensure(host, ui)?;
+        if let Some(handled) = self.bar_press(host, input)? {
+            return Ok(handled);
+        }
         if let Some(handled) = self.arrange_input(host, ui, input)? {
             return Ok(handled);
         }
@@ -762,6 +909,9 @@ impl Dashboard {
         point: Point,
         kind: WidgetInputKind,
     ) -> Result<Handled, Error> {
+        if !self.editing && self.bar_tap(host, ui, point)? {
+            return Ok(Handled::Yes);
+        }
         let Some(laid) = self.laid.as_ref() else {
             return Ok(Handled::No);
         };
@@ -977,48 +1127,6 @@ fn release_cells(host: &Host<'_>, ui: &Ui, cells: Vec<Cell>) {
             drop_widget(host, ui, widget);
         }
     }
-}
-
-/// A tool's name under where its icon goes (the icons wait for the host's
-/// admission, `PORTING-7.md`): wrapped and centred in its cell.
-fn name(
-    paint: &mut Vec<Paint>,
-    font: &Font<'_>,
-    style: &Style,
-    cell: Rect,
-    name: &str,
-) -> Result<(), Error> {
-    let room = f32::from(cell.width.saturating_sub(style.gap)).max(1.0);
-    let lines = text::wrap_with(
-        |l| font.measure_text(style.small, l),
-        name,
-        room,
-        NAME_LINES,
-    )?;
-    let line = paperpaw_ui_kit::geometry::line_px(font, style.small)?;
-    let total = u32::from(line) * lines.len() as u32;
-    let mut y = u32::from(cell.y) + u32::from(cell.height).saturating_sub(total) / 2;
-    for text in &lines {
-        let wide = font.measure_text(style.small, text)?;
-        let x = f32::from(cell.x) + (f32::from(cell.width) - wide).max(0.0) / 2.0;
-        let row = Rect::new(cell.x, clamp_u32(y), cell.width, line);
-        text::label(paint, font, text, style.small, x, row, style.ink, None)?;
-        y = y.saturating_add(u32::from(line));
-    }
-    Ok(())
-}
-
-/// A dot of the page indicator.
-fn dot(paint: &mut Vec<Paint>, dot: &dash::Dot, style: &Style) -> Result<(), Error> {
-    let size = clamp_u32(dot.size);
-    let rect = Rect::new(clamp_i32(dot.x), clamp_i32(dot.y), size, size);
-    let radius = dot.size / 2;
-    let op = if dot.current {
-        Paint::Focus(rect, radius, None, style.ink)
-    } else {
-        Paint::Focus(rect, radius, Some(u32::from(style.line).max(1)), style.ink)
-    };
-    paintpush(paint, op)
 }
 
 /// The focus ring round a target.
@@ -1249,6 +1357,45 @@ mod tests {
             )),
             0
         );
+    }
+
+    #[test]
+    fn a_widgets_change_draws_its_cell_or_the_screen_where_the_focus_moved() {
+        let cell = Rect::new(10, 20, 200, 100);
+        assert_eq!(Redraw::after(cell, false, false), Redraw::Area(cell));
+        assert_eq!(Redraw::after(cell, false, true), Redraw::Area(cell));
+        assert_eq!(Redraw::after(cell, true, false), Redraw::Area(cell));
+        assert_eq!(Redraw::after(cell, true, true), Redraw::Screen);
+    }
+
+    #[test]
+    fn a_widgets_change_is_not_looked_for_on_a_page_not_laid_out_or_behind_the_notice() {
+        // Not laid out yet (stale): it is drawn as it is when laid out.
+        let fresh = Dashboard::new();
+        assert_eq!(fresh.cell_showing(7), None);
+        let mut laid_none = Dashboard::new();
+        laid_none.stale = false;
+        assert_eq!(laid_none.cell_showing(7), None);
+        // The picture is being made: the notice shows, not the page.
+        let mut making = Dashboard::new();
+        making.stale = false;
+        let asked = crate::native_picture::Asked {
+            path: "a.png",
+            bytes: 0,
+            modified: 0,
+            fit: "picture-home.fit.fill",
+            anchor: "picture-home.anchor.center",
+            zoom: 100,
+            lighten: 0,
+            brightness: "",
+            contrast: "",
+            render: "",
+        };
+        let recipe = crate::native_picture::Recipe::new(&asked, 480, 800).unwrap();
+        let mut cookie = 0;
+        making.backdrop.want(recipe, &mut cookie).unwrap();
+        assert!(making.backdrop.making());
+        assert_eq!(making.cell_showing(7), None);
     }
 
     #[test]

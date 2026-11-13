@@ -1,6 +1,8 @@
 //! Private single-threaded shared ownership with checked allocation and counts.
 //!
-//! Production values are a dispatch budget or a boxed FlatInstance; plugin
+//! Production values are a dispatch budget, a boxed FlatInstance or the one
+//! `FlatHost` all native plugins' dispatches share (`Kernel::shared_flat_host`,
+//! made with the first plugin; the kernel and each dispatch hold a handle); plugin
 //! contexts stay inside PinnedOwner, never a bare HostOwner in Shared. The
 //! instance holds no Shared back-pointer. Subscription closures hold handles
 //! outside the instance, so teardown removes subscriptions to release them.
@@ -109,6 +111,49 @@ impl<T> Shared<T> {
             _local: PhantomData,
             _owned: PhantomData,
         })
+    }
+
+    /// [`Self::try_new`] for a value that is big: the block is had first,
+    /// then `make(arg)` writes the value straight into it (not built on this
+    /// frame and copied, as [`try_box_with`]). Where the heap has no room
+    /// nothing is built and `arg` is given back.
+    #[inline(always)]
+    pub(crate) fn try_new_from<A>(arg: A, make: impl FnOnce(A) -> T) -> Result<Self, A> {
+        let layout = Layout::new::<Inner<T>>();
+        // SAFETY: `Inner` holds two counts: its layout is never zero-sized.
+        let pointer = unsafe { alloc(layout).cast::<Inner<T>>() };
+        let Some(pointer) = NonNull::new(pointer) else {
+            return Err(arg);
+        };
+        // SAFETY: owned, aligned, uninitialized storage for one `Inner<T>`:
+        // each field is written once through its own place, the value last
+        // (`ManuallyDrop<T>` is laid out as `T`).
+        unsafe {
+            let inner = pointer.as_ptr();
+            core::ptr::addr_of_mut!((*inner).count).write(Cell::new(1));
+            core::ptr::addr_of_mut!((*inner).weak).write(Cell::new(1));
+            core::ptr::addr_of_mut!((*inner).value)
+                .cast::<T>()
+                .write(make(arg));
+        }
+        Ok(Self {
+            pointer,
+            _local: PhantomData,
+            _owned: PhantomData,
+        })
+    }
+
+    /// Whether this is the one strong handle and no weak one is out.
+    pub(crate) fn is_unique(&self) -> bool {
+        // SAFETY: this handle retains the initialized allocation.
+        let inner = unsafe { &*self.pointer.as_ptr() };
+        inner.count.get() == 1 && inner.weak.get() == 1
+    }
+
+    /// Whether `a` and `b` share one value.
+    #[cfg(test)]
+    pub(crate) fn ptr_eq(a: &Self, b: &Self) -> bool {
+        a.pointer == b.pointer
     }
 
     pub(crate) fn downgrade(&self) -> Option<Weak<T>> {

@@ -44,6 +44,13 @@ pub fn set_wifi_online(on: bool) {
     WIFI_ONLINE.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Whether devices start online (`--wifi online`); read by the native device
+/// host, which the web build does not have.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn wifi_online() -> bool {
+    WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Loads code plugins built for this computer, or none (by default).
 pub fn set_code_plugins(on: bool) {
     CODE_PLUGINS.store(on, std::sync::atomic::Ordering::Relaxed);
@@ -292,6 +299,10 @@ fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
         view: Rc::default(),
         simulated,
         net: Rc::default(),
+        card: library
+            .open()
+            .ok()
+            .map(|card| Rc::new(card) as Rc<dyn Storage>),
     }
 }
 #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
@@ -596,7 +607,18 @@ impl Device {
         params: paperpaw_core::sdk::Params,
     ) {
         let now = self.now();
-        let effects = budget::track(|| self.kernel.open_screen(now, screen, params));
+        let effects = budget::track(|| {
+            // The keyboard asks a question (a native one cannot open without
+            // it): the step's `title` and `secret` are the question's.
+            if self.kernel.keyboard_screen() == Some(&screen) {
+                let title = params.get("title").unwrap_or_default();
+                let secret = params.get("secret").is_some_and(|value| value == "true");
+                if let Ok(effects) = self.kernel.stage_text_question(now, title, secret) {
+                    return effects;
+                }
+            }
+            self.kernel.open_screen(now, screen, params)
+        });
         self.execute(effects);
     }
 
@@ -1197,6 +1219,13 @@ fn build_kernel(
                 crate::native::native(),
                 Box::new(crate::native::HostLoader::for_device(profile.device.memory)),
             );
+        }
+        // Plugin installs from the card share the firmware's queue: the
+        // emulated device has one, with no firmware to install
+        // (`crate::linked::card_plugins`).
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        if let Some((_, _, chip)) = crate::linked::card_plugins(profile) {
+            builder = builder.firmware_host(Box::new(crate::no_firmware::NoFirmware::new(chip)));
         }
         if let Some(add) = add {
             builder = add(builder);

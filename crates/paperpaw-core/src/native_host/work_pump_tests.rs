@@ -69,7 +69,7 @@ type Hook = Rc<RefCell<Option<Rc<dyn Fn(u64)>>>>;
 
 struct Probe {
     told: Rc<RefCell<Vec<Told>>>,
-    sched: Rc<WorkSched>,
+    sched: crate::native_host::shared::Shared<WorkSched>,
     owner: Rc<Cell<u64>>,
     tags: Vec<u32>,
     running: Cell<bool>,
@@ -180,7 +180,7 @@ impl Dispatch for Probe {
 
 struct World {
     kernel: crate::Kernel,
-    sched: Rc<WorkSched>,
+    sched: crate::native_host::shared::Shared<WorkSched>,
     env: Rc<Fake>,
     owners: Vec<u64>,
     told: Vec<Rc<RefCell<Vec<Told>>>>,
@@ -197,7 +197,7 @@ fn world_with(tags: &[u32], plugins: usize) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let sched = Rc::new(WorkSched::new(Limits::OTHER));
+    let sched = crate::native_host::shared::Shared::try_new(WorkSched::new(Limits::OTHER)).unwrap();
     let env = Rc::new(Fake {
         now: Cell::new(1_000),
         up: Cell::new(true),
@@ -217,7 +217,7 @@ fn world_with(tags: &[u32], plugins: usize) -> World {
         let on_done: Hook = Rc::new(RefCell::new(None));
         let probe = Probe {
             told: Rc::clone(&log),
-            sched: Rc::clone(&sched),
+            sched: sched.try_clone().unwrap(),
             owner: Rc::clone(&me),
             tags: tags.to_vec(),
             running: Cell::new(true),
@@ -247,8 +247,12 @@ fn world_with(tags: &[u32], plugins: usize) -> World {
         .unwrap()
         .hosts()
         .wire_work(WorkServices {
-            sched: Rc::clone(&sched),
-            env: Rc::clone(&env) as Rc<dyn WorkEnv>,
+            sched: sched.try_clone().unwrap(),
+            env: crate::native_host::shared::Shared::try_new(
+                alloc::boxed::Box::new(Rc::clone(&env))
+                    as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>,
+            )
+            .unwrap(),
         })
         .unwrap();
     World {
@@ -731,7 +735,7 @@ mod network {
             let socks = Rc::clone(&resources.hosts().sockets().unwrap().0);
             // The plugin subscribed to `http_done` (a request needs it).
             let owners = resources.hosts().owners().unwrap();
-            let _ = owners.admit(w.owners[0], "a");
+            let _ = owners.admit(w.owners[0], &paperpaw_sdk::Id::new_static("a"));
             owners.subscribe(
                 w.owners[0],
                 EventTags::collect(|tag| tag == DONE || tag == wire::EVENT_SOCKET_TAG),

@@ -163,6 +163,7 @@ fn with_view<R>(limits: Limits, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
         .unwrap();
     let env = kernel.shared.env(Instant(0));
     let store = Shared::try_new(UiStore::new(limits)).unwrap();
+    store.bind_clipboard(&Rc::default());
     let stack = Rc::new(Stack {
         epoch: Cell::new(1),
         instance: Cell::new(None),
@@ -645,11 +646,16 @@ fn ask_is_refused_in_a_work_runs_callback() {
     };
     view(|v| {
         v.stack.instance.set(Some(30));
-        let sched = Rc::new(WorkSched::new(WorkLimits::OTHER));
+        let sched =
+            crate::native_host::shared::Shared::try_new(WorkSched::new(WorkLimits::OTHER)).unwrap();
         v.hosts
             .wire_work(WorkServices {
-                sched: Rc::clone(&sched),
-                env: Rc::new(WorkDevice),
+                sched: sched.try_clone().unwrap(),
+                env: crate::native_host::shared::Shared::try_new(
+                    alloc::boxed::Box::new(WorkDevice)
+                        as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>,
+                )
+                .unwrap(),
             })
             .unwrap();
         // In a run's callback (quiet) no dialog is asked for.
@@ -665,5 +671,354 @@ fn ask_is_refused_in_a_work_runs_callback() {
             let _run = sched.enter_run_callback(2, 7);
             assert!(ask_id(v, 1, ask_record(0, 0b10, "", "")).is_ok());
         }
+    });
+}
+
+impl View<'_> {
+    fn clip_write(&self, owner: u64, offset: u32, data: &str, last: bool) -> Result<(), i32> {
+        self.call(
+            owner,
+            18,
+            &[Record::ServiceUiText(wire::ServiceUiText {
+                text: 0,
+                offset,
+                total: 0,
+                flags: u32::from(last),
+                data,
+            })],
+        )
+        .map(|_| ())
+    }
+    fn clip_read(&self, offset: u32) -> Result<(String, u32, bool), i32> {
+        let reply = self.call(
+            1,
+            19,
+            &[Record::ServiceUiTextAt(wire::ServiceUiTextAt {
+                text: 0,
+                offset,
+            })],
+        )?;
+        match wire::record_decode_one(&reply).unwrap() {
+            Record::ServiceUiText(t) => Ok((t.data.into(), t.total, t.flags & 1 == 1)),
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+#[test]
+fn the_clipboard_is_written_in_parts_and_read_by_anyone() {
+    view(|v| {
+        // Empty to begin with.
+        assert_eq!(v.clip_read(0).unwrap(), (String::new(), 0, true));
+        v.clip_write(1, 0, "hello ", false).unwrap();
+        // Reads see the old (empty) clipboard until `last` commits.
+        assert_eq!(v.clip_read(0).unwrap().1, 0);
+        v.clip_write(1, 6, "wörld", true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap(), ("hello wörld".into(), 12, true));
+        // Another plugin reads it, from the middle.
+        assert_eq!(v.clip_read(6).unwrap(), ("wörld".into(), 12, true));
+    });
+}
+
+#[test]
+fn a_new_clipboard_text_replaces_the_old_only_when_committed() {
+    view(|v| {
+        v.clip_write(1, 0, "old", true).unwrap();
+        v.clip_write(1, 0, "new, begun", false).unwrap();
+        assert_eq!(v.clip_read(0).unwrap().0, "old");
+        // A part at a wrong offset is refused and changes nothing.
+        assert_eq!(v.clip_write(1, 3, "x", false), Err(ERR_INVALID));
+        v.clip_write(1, 10, "!", true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap().0, "new, begun!");
+        // An empty committed text clears it.
+        v.clip_write(1, 0, "", true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap(), (String::new(), 0, true));
+    });
+}
+
+#[test]
+fn a_clipboard_text_left_begun_is_dropped_with_its_callback() {
+    view(|v| {
+        v.clip_write(1, 0, "kept", true).unwrap();
+        v.clip_write(1, 0, "begun", false).unwrap();
+        // The callback returned; the next one cannot continue it.
+        v.stack.epoch.set(2);
+        assert_eq!(v.clip_write(1, 5, "more", true), Err(ERR_INVALID));
+        assert_eq!(v.clip_read(0).unwrap().0, "kept");
+        // The pump between callbacks frees a begun text too.
+        v.clip_write(1, 0, "again", false).unwrap();
+        v.store.clipboard_callbacks_over();
+        v.stack.epoch.set(3);
+        assert_eq!(v.clip_write(1, 5, "x", true), Err(ERR_INVALID));
+    });
+}
+
+#[test]
+fn the_clipboard_holds_4096_bytes_and_never_cuts() {
+    view(|v| {
+        let part = "a".repeat(2_048);
+        v.clip_write(1, 0, &part, false).unwrap();
+        v.clip_write(1, 2_048, &part, true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap().1, 4_096);
+        // One byte over: refused, the old clipboard stays.
+        v.clip_write(1, 0, &part, false).unwrap();
+        v.clip_write(1, 2_048, &part, false).unwrap();
+        assert_eq!(v.clip_write(1, 4_096, "b", true), Err(ERR_NO_SPACE));
+        assert_eq!(v.clip_read(0).unwrap().1, 4_096);
+        // A part over the part size does not frame (the record's own bound).
+        assert_eq!(
+            v.clip_write(1, 0, &"c".repeat(PART_MAX + 1), false),
+            Err(ERR_NO_SPACE)
+        );
+    });
+}
+
+#[test]
+fn clipboard_ops_refuse_another_text_id_and_a_missing_callback() {
+    view(|v| {
+        let write = |text| {
+            v.call(
+                1,
+                18,
+                &[Record::ServiceUiText(wire::ServiceUiText {
+                    text,
+                    offset: 0,
+                    total: 0,
+                    flags: 1,
+                    data: "x",
+                })],
+            )
+            .err()
+        };
+        assert_eq!(write(7), Some(ERR_INVALID));
+        // Flags other than `last`.
+        assert_eq!(
+            v.call(
+                1,
+                18,
+                &[Record::ServiceUiText(wire::ServiceUiText {
+                    text: 0,
+                    offset: 0,
+                    total: 0,
+                    flags: 2,
+                    data: "x",
+                })]
+            )
+            .err(),
+            Some(ERR_INVALID)
+        );
+        // No callback running.
+        v.stack.epoch.set(0);
+        assert_eq!(v.clip_write(1, 0, "x", true), Err(ERR_STATE));
+        assert_eq!(v.clip_read(0), Err(ERR_STATE));
+        // The small-heap device has the same clipboard.
+        v.stack.epoch.set(1);
+        v.stack.x4.set(true);
+        v.clip_write(1, 0, "x", true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap().0, "x");
+    });
+}
+
+/// A committed write is the kernel's text (interface 6 reads the same cell) and
+/// asks once for the copy out; a store the kernel has not bound is `ERR_STATE`.
+#[test]
+fn a_committed_write_replaces_the_kernels_text_and_asks_for_a_copy() {
+    use crate::native_host::ui_clipboard::ClipboardCell;
+    let store = UiStore::new(Limits::ELSEWHERE);
+    let who = Stamp::new(1, 1).unwrap();
+    assert_eq!(store.clipboard_write(who, 0, "x", true), Err(ERR_STATE));
+    let cell = Rc::new(ClipboardCell::default());
+    cell.set(String::from("six"));
+    store.bind_clipboard(&cell);
+    store.clipboard_write(who, 0, "new", false).unwrap();
+    assert_eq!(cell.get(), "six");
+    assert!(!cell.take_copy());
+    store.clipboard_write(who, 3, "!", true).unwrap();
+    assert_eq!(cell.get(), "new!");
+    assert!(cell.take_copy());
+    assert!(!cell.take_copy());
+    assert_eq!(cell.text_for_copy().as_deref(), Some("new!"));
+}
+
+/// Whichever allocation of a write fails, the clipboard is the old text or the
+/// new one, never a mix, and the next write works.
+#[test]
+fn a_clipboard_write_that_finds_no_memory_leaves_the_old_text() {
+    for nth in 1..=10 {
+        view(|v| {
+            v.clip_write(1, 0, "old", true).unwrap();
+            v.fail.set(nth);
+            let written = v.clip_write(1, 0, "new text", true);
+            v.fail.set(0);
+            let read = v.clip_read(0).unwrap().0;
+            match written {
+                Ok(()) => assert_eq!(read, "new text", "allocation {nth}"),
+                Err(_) => assert_eq!(read, "old", "allocation {nth}"),
+            }
+            v.clip_write(1, 0, "next", true).unwrap();
+            assert_eq!(v.clip_read(0).unwrap().0, "next");
+        });
+    }
+}
+
+/// A text written in many small parts reserves room a few times, not once a
+/// part: the capacity doubles up to the cap.
+#[test]
+fn a_clipboard_written_in_many_parts_is_assembled_and_read_whole() {
+    view(|v| {
+        let mut expected = String::new();
+        for n in 0..400_u32 {
+            let part = std::format!("{n:02}-");
+            v.clip_write(1, expected.len() as u32, &part, false)
+                .unwrap();
+            expected.push_str(&part);
+        }
+        v.clip_write(1, expected.len() as u32, "", true).unwrap();
+        assert_eq!(v.clip_read(0).unwrap().1 as usize, expected.len());
+        let (part, total, _) = v.clip_read(0).unwrap();
+        assert_eq!(total as usize, expected.len());
+        assert!(expected.starts_with(&part));
+    });
+}
+
+/// What `handed_file` shows for `instance`: the maker, the root, the path.
+fn handed_of(v: &View<'_>, instance: u32) -> Result<(u64, u32, String), i32> {
+    let mut seen = None;
+    v.store.handed_file(instance, &mut |h| {
+        seen = Some((h.maker, h.root, String::from(h.path)));
+    })?;
+    seen.ok_or(ERR_STATE)
+}
+
+#[test]
+fn a_reader_holding_a_handed_file_passes_it_on_to_its_own_screen() {
+    const MAKER: u64 = 9;
+    const READER: u64 = 12;
+    view(|v| {
+        // A maker hands its file over; the reader's instance 4 holds it.
+        let made = v
+            .make(MAKER, &[("root", "2"), ("path", "licences.md")])
+            .unwrap();
+        v.open_with(MAKER, made, 4);
+        // The reader's callback hands "root 5" and the same path to its
+        // table-of-contents screen (instance 5).
+        v.stack.instance.set(Some(4));
+        let toc = v
+            .make(READER, &[("root", "5"), ("path", "licences.md")])
+            .unwrap();
+        v.open_with(READER, toc, 5);
+        // The screen's file is the maker's, as a root of its own folders: the
+        // same file as instance 4's, and the screen reads the params of the
+        // hand-over the maker made.
+        assert_eq!(handed_of(v, 5), handed_of(v, 4));
+        assert_eq!(handed_of(v, 5), Ok((MAKER, 2, String::from("licences.md"))));
+        v.stack.instance.set(Some(5));
+        let (rows, _) = v.params(READER, toc).unwrap();
+        assert!(rows.contains(&(String::from("root"), String::from("2"))));
+        // And the screen passes it on again (a chain keeps the first maker).
+        let again = v
+            .make(READER, &[("root", "5"), ("path", "licences.md")])
+            .unwrap();
+        v.open_with(READER, again, 6);
+        assert_eq!(handed_of(v, 6), Ok((MAKER, 2, String::from("licences.md"))));
+        // The maker stopping does not take the file from the instances; the
+        // host (doc_open) ends the document with the maker.
+        v.store.owner_stopped(MAKER).unwrap();
+        assert_eq!(handed_of(v, 5), Ok((MAKER, 2, String::from("licences.md"))));
+    });
+}
+
+#[test]
+fn a_root_of_five_is_passed_on_only_for_the_file_the_instance_holds() {
+    view(|v| {
+        let made = v.make(9, &[("root", "0"), ("path", "a.txt")]).unwrap();
+        v.open_with(9, made, 4);
+        let five = |path: &str| v.make(12, &[("root", "5"), ("path", path)]);
+        // Another path than the one held.
+        v.stack.instance.set(Some(4));
+        assert_eq!(five("b.txt").err(), Some(ERR_DENIED));
+        assert_eq!(five("").err(), Some(ERR_DENIED));
+        // No path at all.
+        assert_eq!(v.make(12, &[("root", "5")]).err(), Some(ERR_DENIED));
+        // An instance that holds no hand-over, and a call from no instance.
+        v.stack.instance.set(Some(77));
+        assert_eq!(five("a.txt").err(), Some(ERR_DENIED));
+        v.stack.instance.set(None);
+        assert_eq!(five("a.txt").err(), Some(ERR_DENIED));
+        // A book of the library (root 1) and the maker's own roots are as before.
+        assert!(v.make(12, &[("root", "1"), ("path", "a.txt")]).is_ok());
+        assert!(v.make(12, &[("root", "0"), ("path", "a.txt")]).is_ok());
+    });
+}
+
+#[test]
+fn an_event_without_an_instance_passes_on_the_file_of_the_plugins_topmost_screen_that_holds_it() {
+    const MAKER: u64 = 9;
+    const OTHER: u64 = 10;
+    const READER: u64 = 12;
+    view(|v| {
+        // Two makers hand a file of one name to two screens of the reader (4,
+        // 5) and one to a screen of another plugin (6); a screen of the
+        // reader holds none (7).
+        for (maker, instance) in [(MAKER, 4), (OTHER, 5), (OTHER, 6)] {
+            let made = v
+                .make(maker, &[("root", "0"), ("path", "text.txt")])
+                .unwrap();
+            v.open_with(maker, made, instance);
+        }
+        *v.stack.rows.borrow_mut() =
+            std::vec![row(4, READER), row(5, READER), row(6, 77), row(7, READER)];
+        // The answer to a question the reader asked: no instance runs.
+        v.stack.instance.set(None);
+        let search = v
+            .make(READER, &[("root", "5"), ("path", "text.txt")])
+            .unwrap();
+        v.open_with(READER, search, 8);
+        // The topmost screen of the reader that holds it (5, not 4 nor the
+        // other plugin's 6): its maker and root.
+        assert_eq!(handed_of(v, 8), Ok((OTHER, 0, String::from("text.txt"))));
+        // Another path, or no screen of the plugin holding one: refused.
+        assert_eq!(
+            v.make(READER, &[("root", "5"), ("path", "other.txt")])
+                .err(),
+            Some(ERR_DENIED)
+        );
+        assert_eq!(
+            v.make(31, &[("root", "5"), ("path", "text.txt")]).err(),
+            Some(ERR_DENIED),
+            "a plugin with no screen holding it"
+        );
+        // No callback at all (no stack to look at).
+        v.stack.epoch.set(0);
+        assert!(
+            v.make(READER, &[("root", "5"), ("path", "text.txt")])
+                .is_err()
+        );
+    });
+}
+
+#[test]
+fn a_hand_over_the_host_made_is_nobodys_to_pass_on() {
+    const READER: u64 = 12;
+    view(|v| {
+        // A file whose hand-over the host's key made (the host owns it): the
+        // key is also the store's "no maker" mark, so passing it on would
+        // resolve against the reader's own folder. Refused, in a screen's
+        // callback and in an event's.
+        let made = v
+            .make(u64::MAX, &[("root", "0"), ("path", "text.txt")])
+            .unwrap();
+        v.open_with(u64::MAX, made, 4);
+        v.stack.instance.set(Some(4));
+        assert_eq!(
+            v.make(READER, &[("root", "5"), ("path", "text.txt")]).err(),
+            Some(ERR_DENIED)
+        );
+        v.stack.instance.set(None);
+        *v.stack.rows.borrow_mut() = std::vec![row(4, READER)];
+        assert_eq!(
+            v.make(READER, &[("root", "5"), ("path", "text.txt")]).err(),
+            Some(ERR_DENIED)
+        );
     });
 }

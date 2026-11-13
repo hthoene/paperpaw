@@ -225,10 +225,171 @@ fn secret_settings_resources_and_callback_registrations_are_unsupported() {
 #[test]
 fn production_mapping_uses_checked_id_creation() {
     let default = encoded(SettingValueRef::Bool(true));
-    let value = from_record("battery", wire::Record::SettingSpec(spec(&default))).unwrap();
+    let mut source = checked;
+    let value = from_record(
+        "battery",
+        wire::Record::SettingSpec(spec(&default)),
+        &mut source,
+    )
+    .unwrap();
     let Value::Setting(value) = value else {
         panic!("expected a setting")
     };
     assert_eq!(value.id.as_str(), "battery.enabled");
     assert_eq!(checked_id("invalid/id").unwrap_err(), ERR_INVALID);
+}
+
+/// A linked plugin's read-only data, as the image `register_linked` lends.
+static IMAGE: [u8; 36] = *b"battery.enabledbattery.enabled.helpX";
+/// Its id table, sorted by text, as `fixed_ids_source` makes it.
+static IDS: [Id; 3] = [
+    Id::new_static("battery"),
+    Id::new_static("battery.enabled"),
+    Id::new_static("power.group"),
+];
+
+fn image_text(range: core::ops::Range<usize>) -> &'static str {
+    core::str::from_utf8(&IMAGE[range]).unwrap()
+}
+
+/// Whether `text` is the bytes of the image, not a copy of them.
+fn in_image(text: &str) -> bool {
+    IMAGE.as_ptr_range().contains(&text.as_ptr())
+}
+
+#[test]
+fn kept_ids_and_texts_in_the_image_are_not_copied() {
+    let default = encoded(SettingValueRef::Bool(true));
+    let mut record = spec(&default);
+    record.title = image_text(0..15);
+    record.help = image_text(15..35);
+    let mut kept = Kept {
+        ids: &IDS,
+        image: &IMAGE,
+        titles: &[],
+    };
+    let Value::Setting(value) =
+        from_record("battery", wire::Record::SettingSpec(record), &mut kept).unwrap()
+    else {
+        panic!("expected a setting")
+    };
+    // The table's ids: kept in the program (an owned id has no static text).
+    assert_eq!(value.id.clone().static_str(), "battery.enabled");
+    assert_eq!(value.group.clone().static_str(), "power.group");
+    // The texts are the image's own bytes.
+    assert!(in_image(value.title.as_str()));
+    assert_eq!(value.title.as_str(), "battery.enabled");
+    let help = value.description.unwrap();
+    assert!(in_image(help.as_str()));
+    assert_eq!(help.as_str(), "battery.enabled.help");
+}
+
+#[test]
+fn ids_and_texts_kept_nowhere_are_copied() {
+    let default = encoded(SettingValueRef::Text("on"));
+    let mut record = spec(&default);
+    record.kind = 2;
+    record.choices = "on\noff";
+    record.name = "other";
+    let mut kept = Kept {
+        ids: &IDS,
+        image: &IMAGE,
+        titles: &[],
+    };
+    let Value::Setting(value) =
+        from_record("battery", wire::Record::SettingSpec(record), &mut kept).unwrap()
+    else {
+        panic!("expected a setting")
+    };
+    assert_eq!(value.id.as_str(), "battery.other");
+    assert_eq!(
+        value.id.clone().static_str(),
+        "",
+        "not in the table: a copy"
+    );
+    assert!(!in_image(value.title.as_str()));
+    assert_eq!(value.title.as_str(), "battery.enabled");
+    let SettingKind::Choice(Choices::Owned(choices)) = &value.kind else {
+        panic!("expected owned choices")
+    };
+    assert!(choices.iter().all(|choice| matches!(choice, Cow::Owned(_))));
+    // The image's last bytes are still its own; the empty text is no copy.
+    assert!(matches!(
+        kept.text(image_text(35..36)).unwrap(),
+        Cow::Borrowed("X")
+    ));
+    assert!(matches!(kept.text("").unwrap(), Cow::Borrowed("")));
+    // An id the table does not hold is still checked.
+    assert_eq!(kept.id("Not/An/Id").unwrap_err(), ERR_INVALID);
+}
+
+/// The titles table of a linked plugin: one action of it.
+static TITLES: [paperpaw_sdk::TitleEntry; 1] = [paperpaw_sdk::TitleEntry::new(
+    Id::new_static("battery.open"),
+    "battery.open-title",
+)];
+
+fn action(title: &str) -> wire::ActionSpec<'_> {
+    wire::ActionSpec {
+        name: "open",
+        title,
+        token: 4,
+        flags: 0,
+    }
+}
+
+#[test]
+fn an_action_named_as_in_the_titles_table_keeps_its_entry() {
+    let mut kept = Kept {
+        ids: &IDS,
+        image: &IMAGE,
+        titles: &TITLES,
+    };
+    let Value::Action(same) = from_record(
+        "battery",
+        wire::Record::ActionSpec(action("battery.open-title")),
+        &mut kept,
+    )
+    .unwrap() else {
+        panic!("expected an action")
+    };
+    // The very entry: no row of its own (#248, B).
+    assert!(core::ptr::eq(same.kept.unwrap(), &TITLES[0]));
+    // Its title is the entry's too, not a copy made and dropped (#1372).
+    assert!(matches!(&same.title, Cow::Borrowed(title) if core::ptr::eq(*title, TITLES[0].title)));
+    assert_eq!((same.id.as_str(), same.token), ("battery.open", 4));
+    // Another title: a copy, whatever the id.
+    let Value::Action(other) = from_record(
+        "battery",
+        wire::Record::ActionSpec(action("battery.other-title")),
+        &mut kept,
+    )
+    .unwrap() else {
+        panic!("expected an action")
+    };
+    assert!(other.kept.is_none());
+    assert_eq!(other.title, "battery.other-title");
+}
+
+/// A copy of its own the heap refuses: `ERR_NO_MEMORY`, no panic; a kept
+/// entry needs no heap at all (#248, B; Code Reviewer, #1372).
+#[test]
+fn a_title_the_heap_has_no_room_to_copy_is_refused() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    FAIL_NTH.with(|n| n.set(1));
+    let copy = titled(
+        None,
+        Id::new_static("battery.open"),
+        Cow::Borrowed("battery.open-title"),
+    );
+    let kept = titled(
+        Some(&TITLES[0]),
+        Id::new_static("battery.open"),
+        Cow::Borrowed("battery.open-title"),
+    );
+    let left = FAIL_NTH.with(|n| n.replace(0));
+    assert_eq!(copy.unwrap_err(), ERR_NO_MEMORY);
+    assert!(kept.unwrap().is_kept());
+    // The refused allocation was the copy's; the kept entry asked for none.
+    assert_eq!(left, 0);
 }

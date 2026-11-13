@@ -32,8 +32,8 @@ impl DesktopAdmission {
 
 /// The kernel's diagnostics of an admitted plugin (a refused declaration, a
 /// failed callback) go to the log.
-fn report(_: &DesktopServices, step: u32, status: i32) {
-    eprintln!("native plugin: admission step {step}: status {status}");
+fn report(_: &DesktopServices, plugin: &str, step: u32, status: i32) {
+    eprintln!("native plugin {plugin}: admission step {step}: status {status}");
 }
 
 /// Why a plugin was refused, as the plugin manager says it.

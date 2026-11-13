@@ -128,7 +128,7 @@ fn single(host: &dyn DeviceHost, id: u32, out: &mut [u8]) -> Result<usize, i32> 
             set(&mut slot, || encode(&device_record(f), out));
         })?,
         op::FIRMWARE => host.firmware(&mut |f| {
-            set(&mut slot, || encode(&firmware_record(f), out));
+            set(&mut slot, || encode(&firmware_record(f, 0), out));
         })?,
         op::NATIVE => host.native(&mut |f| {
             set(&mut slot, || encode(&native_record(f), out));
@@ -159,7 +159,7 @@ fn device_record<'a>(f: &DeviceFacts<'a>) -> Record<'a> {
     })
 }
 
-fn firmware_record<'a>(f: &FirmwareFacts<'a>) -> Record<'a> {
+fn firmware_record<'a>(f: &FirmwareFacts<'a>, flags: u32) -> Record<'a> {
     Record::ServiceDevFirmware(wire::ServiceDevFirmware {
         version: clip(f.version, wire::SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES),
         project: clip(f.project, wire::SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES),
@@ -171,10 +171,8 @@ fn firmware_record<'a>(f: &FirmwareFacts<'a>) -> Record<'a> {
         total: f.total,
         reason: f.reason,
         request: f.request,
-        // The dual-boot facts (bit 0 shared, bit 1 ini_off) come with the
-        // dual-boot host side (Core todo 397); until then none are told,
-        // as an older host's record reads.
-        flags: 0,
+        // The dual-boot facts: bit 0 shared, bit 1 ini_off (the machine's).
+        flags,
     })
 }
 
@@ -682,6 +680,8 @@ fn firmware(who: &Caller<'_>, host: &dyn DeviceHost, out: &mut [u8]) -> Result<u
     let mut slot: Option<Result<usize, i32>> = None;
     host.firmware(&mut |facts| {
         let mut facts = *facts;
+        // The dual-boot facts are the machine's (draft 35): none without one.
+        let mut flags = 0;
         if let Some(machine) = who.hosts.firmware_install() {
             // A machine in use (borrowed) is a host fault: not idle by guess.
             match machine.try_borrow() {
@@ -691,11 +691,12 @@ fn firmware(who: &Caller<'_>, host: &dyn DeviceHost, out: &mut [u8]) -> Result<u
                     let (request, reason) = machine.last(who.owner);
                     facts.request = request;
                     facts.reason = u32::from(reason);
+                    flags = machine.dual_flags();
                 }
                 Err(_) => set(&mut slot, || Err(ERR_BUSY)),
             }
         }
-        set(&mut slot, || encode(&firmware_record(&facts), out));
+        set(&mut slot, || encode(&firmware_record(&facts, flags), out));
     })?;
     slot.unwrap_or(Err(ERR_NOT_FOUND))
 }
@@ -710,12 +711,14 @@ const CHECK_PLUGIN_BITS: u32 = 0b111;
 /// Op 13: the state of the caller's request, and the outcome kept for one
 /// that ended (until its next request of the same kind or its stop).
 fn install(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let table = who.hosts.firmware_requests().ok_or(ERR_UNSUPPORTED)?;
+    if !who.hosts.firmware_wired() {
+        return Err(ERR_UNSUPPORTED);
+    }
     let asked: wire::ServiceDevRequest = codec::single(input)?;
-    let found = table
-        .try_borrow()
-        .map_err(|_| ERR_BUSY)?
-        .lookup(who.owner, asked.request)
+    // A resting driver answers from the outcomes kept with its parts.
+    let found = who
+        .hosts
+        .firmware_lookup(who.owner, asked.request)?
         .ok_or(ERR_NOT_FOUND)?;
     let ended = found.outcome;
     encode(
@@ -738,7 +741,11 @@ fn install(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32>
 
 /// Op 6: the caller's last finished firmware check, by its request.
 fn check(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let machine = who.hosts.firmware_install().ok_or(ERR_UNSUPPORTED)?;
+    if !who.hosts.firmware_wired() {
+        return Err(ERR_UNSUPPORTED);
+    }
+    // None made: no check is kept.
+    let machine = who.hosts.firmware_install().ok_or(ERR_NOT_FOUND)?;
     let asked: wire::ServiceDevRequest = codec::single(input)?;
     let machine = machine.try_borrow().map_err(|_| ERR_BUSY)?;
     let checked = machine.checked(who.owner)?;
@@ -810,7 +817,11 @@ fn leaves_out(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let machine = who.hosts.firmware_install().ok_or(ERR_UNSUPPORTED)?;
+    if !who.hosts.firmware_wired() {
+        return Err(ERR_UNSUPPORTED);
+    }
+    // None made: no check is kept.
+    let machine = who.hosts.firmware_install().ok_or(ERR_NOT_FOUND)?;
     let query: wire::ServiceRegQuery<'_> = codec::single(input)?;
     if query.flags != 0 || !query.scope.is_empty() {
         return Err(ERR_INVALID);

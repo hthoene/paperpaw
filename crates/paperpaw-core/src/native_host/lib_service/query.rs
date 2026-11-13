@@ -7,10 +7,15 @@
 //! An unknown book is the host's `ERR_NOT_FOUND`, a stale generation its
 //! `ERR_STATE`; both pass through.
 use super::{BookRef, Caller, ServiceOp, args};
+use crate::abi7::context::Frame;
 use crate::abi7::context::RowsEnd;
+use crate::native_host::lib_cover::CoverCx;
 use crate::native_host::registrations::{self as wire, Record};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED};
+
+/// The files plugin's archive folder setting: the folder a query may leave out.
+const ARCHIVE_SETTING: &str = "files.archive";
 
 mod check;
 mod page;
@@ -37,8 +42,15 @@ pub(crate) trait LibQuery {
     }
     /// Op 2: `lib_entry` rows of the query from its cursor under its
     /// generation (0: the current one). `total` is the number found; the
-    /// generation is the catalog's, never 0.
-    fn query(&self, _query: &wire::ServiceLibQuery<'_>, _visit: Rows<'_>) -> Result<RowsEnd, i32> {
+    /// generation is the catalog's, never 0. `archive` is the archive folder
+    /// setting (`files.archive`, root 1) when the query leaves it out (flags
+    /// bit 1), else empty.
+    fn query(
+        &self,
+        _query: &wire::ServiceLibQuery<'_>,
+        _archive: &str,
+        _visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
         Err(ERR_UNSUPPORTED)
     }
     /// Op 3: one `lib_book`.
@@ -72,14 +84,33 @@ pub(crate) trait LibQuery {
     fn next_in_series(&self, _book: BookRef<'_>, _visit: One<'_>) -> Result<(), i32> {
         Err(ERR_UNSUPPORTED)
     }
+    /// The library's cover job has ended (`doc_cover_job`): `ready`, or failed
+    /// with the key of its book's path (`lib_cover::path_key`). The host raises
+    /// what the screens need to ask again.
+    fn cover_job_ended(&self, _ready: bool, _key: u64) {}
+    /// Cover jobs may begin now (the kernel's start has returned): the screens
+    /// that were told "busy" meanwhile ask again (bit 6).
+    fn cover_jobs_began(&self) {}
+    /// The book with `key` counts as failed (`doc_cover_job`): a reset ended
+    /// its job (a marker left on the card), its job was given up, or its
+    /// format failed it in the host's details job (`doc_details_job`). 0
+    /// names no book.
+    fn cover_job_left(&self, _key: u64) {}
+    /// Whether the book with `key` (`lib_cover::path_key`) failed in a job of
+    /// this run (or a reset ended its job): no job, of either kind, for it.
+    fn book_failed(&self, _key: u64) -> bool {
+        false
+    }
     /// Op 7: the `doc_image` of the book's cover for `who`, `side` 0 for the
     /// list's size, else at most the screen's long side. `ERR_NOT_FOUND` for
-    /// none, `ERR_BUSY` while it is made.
+    /// none, `ERR_BUSY` while it is made. `cx` is the call's frame and
+    /// services: the format that makes it is called through them.
     fn cover(
         &self,
         _who: &Caller<'_>,
         _book: BookRef<'_>,
         _side: u32,
+        _cx: &CoverCx<'_>,
         _visit: One<'_>,
     ) -> Result<(), i32> {
         Err(ERR_UNSUPPORTED)
@@ -148,8 +179,10 @@ mod op {
 }
 
 pub(super) fn run(
+    frame: &dyn Frame,
     host: &dyn super::LibHost,
     who: &Caller<'_>,
+    cx: &CoverCx<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
@@ -157,12 +190,12 @@ pub(super) fn run(
     let rows = usize::from(op.reply_rows);
     match op.id {
         op::STATE => state(host, input, out),
-        op::QUERY | op::FACETS => catalog(host, op.id, rows, input, out),
+        op::QUERY | op::FACETS => catalog(frame, host, op.id, rows, input, out),
         op::BOOK | op::NEXT_IN_SERIES | op::POSITION | op::BOOK_KEY => {
             book_alone(host, op.id, input, out)
         }
         op::TEXT => text(host, input, out),
-        op::COVER => cover(host, who, input, out),
+        op::COVER => cover(host, who, cx, input, out),
         op::ANNOTATIONS | op::ANCHORS => annotated(host, op.id, rows, input, out),
         op::FIELDS => fields(host, rows, input, out),
         _ => Err(ERR_UNSUPPORTED),
@@ -221,6 +254,7 @@ fn check_query(query: &wire::ServiceLibQuery<'_>, facets: bool) -> Result<(), i3
 
 /// Ops 2 and 5: one `lib_query`.
 fn catalog(
+    frame: &dyn Frame,
     host: &dyn super::LibHost,
     id: u32,
     rows: usize,
@@ -239,8 +273,14 @@ fn catalog(
             host.facets(&query, visit)
         })
     } else {
+        // The setting is read only for a query that leaves the archive out.
+        let archive = if query.flags & 0b10 != 0 {
+            frame.settings().text(ARCHIVE_SETTING)
+        } else {
+            ""
+        };
         page::list(out, rows, check::Row::Entry, request, |visit| {
-            host.query(&query, visit)
+            host.query(&query, archive, visit)
         })
     }
 }
@@ -259,11 +299,9 @@ fn book_alone(
             out,
             |visit| host.next_in_series(book, visit),
             |record| match record {
-                // The next book is another one.
-                Record::ServiceLibEntry(row) => {
-                    check::entry(row)?;
-                    require(!matches!(book, BookRef::Key { key, .. } if key == row.key))
-                }
+                // The series' lowest unread book: the given one when it is that
+                // one (library.md 2.1), so no check against the asked key.
+                Record::ServiceLibEntry(row) => check::entry(row),
                 _ => Err(ERR_INVALID),
             },
         ),
@@ -310,6 +348,7 @@ fn text(host: &dyn super::LibHost, input: &[u8], out: &mut [u8]) -> Result<usize
 fn cover(
     host: &dyn super::LibHost,
     who: &Caller<'_>,
+    cx: &CoverCx<'_>,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
@@ -319,7 +358,7 @@ fn cover(
     require(cover.side <= host.screen_long_side()?)?;
     page::one(
         out,
-        |visit| host.cover(who, book, cover.side, visit),
+        |visit| host.cover(who, book, cover.side, cx, visit),
         |record| match record {
             Record::ServiceDocImage(image) => check::cover(image),
             _ => Err(ERR_INVALID),

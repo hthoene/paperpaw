@@ -553,6 +553,7 @@ fn a_refused_allocation_is_no_memory_and_calls_and_writes_nothing() {
 }
 
 #[test]
+#[cfg_attr(feature = "x4-nested", ignore = "x4-nested opens the X4 gate (#250)")]
 fn a_small_device_blocks_stage_runs_until_its_stack_gate_passes() {
     // Every class but `Large` is the small one (`ui_store::is_x4`).
     let fixture = Fixture::new();
@@ -842,7 +843,7 @@ mod native {
                 font_removals: Rc::clone(&kernel.shared.font_removals),
                 registry_generation: Rc::clone(&kernel.shared.registry_generation),
             },
-            |_, _, _| {},
+            |_, _, _, _| {},
             native_host::native_instances::test_identity("probe"),
         ))
         .unwrap()

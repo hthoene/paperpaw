@@ -5,10 +5,12 @@
 mod catalog_job;
 mod clean_up;
 mod finishing;
+mod placeholder;
 mod reading;
 mod widget_settings;
 
 use crate::native_host::book_data_steps::{follow_move, follow_removal};
+use crate::native_host::notice;
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -16,14 +18,14 @@ use alloc::vec::Vec;
 use catalog_job::{CatalogJob, make_library_folder, waits};
 use clean_up::{ask_clean_up, register_clean_up};
 use paperpaw_sdk::builtin::{
-    actions, events, fonts, group_sections, groups, keymap_presets, menus, params, screens,
-    settings, settings_page, slots, status_items,
+    actions, events, group_sections, groups, keymap_presets, menus, params, screens, settings,
+    settings_page, slots, status_items,
 };
 use paperpaw_sdk::library;
 use paperpaw_sdk::time::{self, AUTO, CLOCK_12H, CLOCK_24H, TIME_ZONES};
 use paperpaw_sdk::widgets::{self, Drawn, WidgetSpec};
 use paperpaw_sdk::{
-    ActionHint, Canvas, Color, Command, Commands, Cx, Env, FixedAction, FixedScreen, Handled, Id,
+    ActionHint, Canvas, Command, Commands, Cx, Env, FixedAction, FixedScreen, Handled, Id,
     Manifest, MenuEntry, Params, Plugin, Priority, RegisterError, Registrar, Screen, SettingExtra,
     SettingGroupSpec, SettingKind, SettingSpec, SettingValue, SlotSpec, StatusItemSpec,
     StatusValue,
@@ -91,14 +93,7 @@ impl Plugin for CorePlugin {
                 paperpaw_sdk::SettingValue::Text(Cow::Owned(String::from(text))),
             ));
         })?;
-        // Each plugin's network (its settings made by the kernel).
-        static NETWORK: SettingGroupSpec =
-            SettingGroupSpec::new(crate::work::NETWORK_GROUP, "core.group.network")
-                .order(87)
-                .within(groups::PLUGINS);
-        r.add_setting_group(&NETWORK)?;
-        static NETWORK_ICON: [(Id, &str); 1] = [(crate::work::NETWORK_GROUP, "world")];
-        r.add_icons(&NETWORK_ICON)?;
+        crate::work::register_network(r)?;
         Ok(())
     }
 }
@@ -142,31 +137,14 @@ const ALWAYS: &str = "core.reading-app.always";
 /// Choosing the reading app of a book or a folder (see
 /// `paperpaw_sdk::readers::ask`): the readers that fit are listed; the
 /// one chosen is kept, and a book opens with it; *Standard* forgets the
-/// choice. *Open with…* in the book menu (`readers::ask_once`) lists the
-/// readers of the book, the other ways to open it plugins add
-/// (`menus::OPEN_WITH`) and *Always open it with…*: the one chosen opens
-/// it this time.
+/// choice. *Open with…* (the book menu's, [`register_open_with`], or the
+/// file manager's) lists the readers of the book, the other ways to open it
+/// plugins add (`menus::OPEN_WITH`) and *Always open it with…*: the one
+/// chosen opens it this time.
 fn register_reading_apps(r: &mut Registrar) -> Result<(), RegisterError> {
     use paperpaw_sdk::readers::{self, Choice};
-    // What it does is asked once the book is known (`BOOK_CHOSEN` below).
-    static OPEN_WITH: [FixedAction; 1] =
-        [FixedAction::new(actions::OPEN_WITH, "core.action.open-with").handler(|_, _, _| {})];
-    static OPEN_WITH_ENTRY: [MenuEntry; 1] = [MenuEntry::new(menus::BOOK, actions::OPEN_WITH)];
-    static OPEN_WITH_ICON: [(Id, &str); 1] = [(actions::OPEN_WITH, "apps")];
-    r.add_actions(&OPEN_WITH)?;
-    r.add_menu_entries(&OPEN_WITH_ENTRY)?;
-    r.add_icons(&OPEN_WITH_ICON)?;
-    // Where there is something to choose: another reading app, or another
-    // way to open books.
-    r.set_item_state(actions::OPEN_WITH, |env| {
-        let others = !env.menus().items(menus::OPEN_WITH.as_str()).is_empty();
-        paperpaw_sdk::ItemState::new().shown(others || env.readers().len() > 1)
-    })?;
-    r.on(events::BOOK_CHOSEN, |_, chosen, out| {
-        if chosen.action == actions::OPEN_WITH {
-            out.push(readers::ask_once(&chosen.path));
-        }
-    })?;
+    #[cfg(not(feature = "native-reading"))]
+    register_open_with(r)?;
     r.on(events::READING_APP_WANTED, |env, wanted, out| {
         let path = wanted.path.trim_matches('/');
         let name = paperpaw_sdk::files::name(path);
@@ -241,6 +219,35 @@ fn register_reading_apps(r: &mut Registrar) -> Result<(), RegisterError> {
             out.push(readers::open(path));
         }
     })
+}
+
+/// *Open with…* in the book menu (`readers::ask_once`), where a book has
+/// another reader or another way to open it. Not with the linked native
+/// reader (`native-reading`): the one-time choice there is the file
+/// manager's, and this one's resolver is interface 6's.
+#[cfg(not(feature = "native-reading"))]
+fn register_open_with(r: &mut Registrar) -> Result<(), RegisterError> {
+    use paperpaw_sdk::readers;
+    // What it does is asked once the book is known (`BOOK_CHOSEN` below).
+    static OPEN_WITH: [FixedAction; 1] =
+        [FixedAction::new(actions::OPEN_WITH, "core.action.open-with").handler(|_, _, _| {})];
+    static OPEN_WITH_ENTRY: [MenuEntry; 1] = [MenuEntry::new(menus::BOOK, actions::OPEN_WITH)];
+    static OPEN_WITH_ICON: [(Id, &str); 1] = [(actions::OPEN_WITH, "apps")];
+    r.add_actions(&OPEN_WITH)?;
+    r.add_menu_entries(&OPEN_WITH_ENTRY)?;
+    r.add_icons(&OPEN_WITH_ICON)?;
+    // Where there is something to choose: another reading app, or another
+    // way to open books.
+    r.set_item_state(actions::OPEN_WITH, |env| {
+        let others = !env.menus().items(menus::OPEN_WITH.as_str()).is_empty();
+        paperpaw_sdk::ItemState::new().shown(others || env.readers().len() > 1)
+    })?;
+    r.on(events::BOOK_CHOSEN, |_, chosen, out| {
+        if chosen.action == actions::OPEN_WITH {
+            out.push(readers::ask_once(&chosen.path));
+        }
+    })?;
+    Ok(())
 }
 
 /// The actions screens give a meaning of their own (with their hints in
@@ -602,6 +609,10 @@ fn register_library(r: &mut Registrar) -> Result<(), RegisterError> {
                 library::catalog::state(env.storage()) == library::catalog::State::Missing;
             if !env.formats().is_empty() && (wanted.anew || missing || !catalog.walked.get()) {
                 catalog.want_walk(true, wanted.anew, out);
+            } else if library::catalog::log_is_long(env.storage()) {
+                // The library service's status notes made the log long: it
+                // is folded in at a calm moment, as after a book closed.
+                catalog.want_catch_up(None, false, out);
             } else if library::emptiness::is_empty(env.storage()) {
                 // Walked since the start and listing nothing: not again
                 // (a walk costs a wake's time and battery on the X4), but
@@ -807,7 +818,7 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
     // question every plugin asks (`ask::choice`, `ask::confirm`), unless
     // another screen fills the slot; a folder for a setting: the folder
     // chooser's, whichever plugin fills its slot.
-    static SCREENS: [FixedScreen; 10] = [
+    static SCREENS: [FixedScreen; 11] = [
         FixedScreen::new(
             screens::STATUS_ITEMS,
             "core.status.choose",
@@ -839,8 +850,11 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
         FixedScreen::new(screens::CONFIRM, "core.confirm.screen", |env, params| {
             Box::new(paperpaw_sdk::ui::confirm::Confirm::new(env, params))
         }),
-        FixedScreen::new(screens::PLACEHOLDER, "core.screen.placeholder", |_, _| {
-            Box::new(PlaceholderScreen)
+        FixedScreen::new(notice::SCREEN, notice::TITLE, |env, params| {
+            Box::new(notice::Notice::new(env, params))
+        }),
+        FixedScreen::new(screens::PLACEHOLDER, placeholder::TEXT, |_, _| {
+            Box::new(placeholder::PlaceholderScreen)
         }),
         FixedScreen::new(
             screens::FINISHING_UPDATE,
@@ -870,6 +884,9 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
     r.bind_slot(slots::EDIT_WIDGETS, screens::WIDGET_LIST, Priority::DEFAULT)?;
     r.bind_slot(slots::CHOICE, screens::CHOICE, Priority::FALLBACK)?;
     r.bind_slot(slots::CONFIRM, screens::CONFIRM, Priority::FALLBACK)?;
+    // Notices are the host's (`docs/abi/ui.md`, *Messages*) where no plugin
+    // shows them its own way (#257).
+    r.bind_slot(slots::NOTICE, notice::SCREEN, Priority::FALLBACK)?;
     Ok(())
 }
 
@@ -1318,7 +1335,7 @@ fn register_look_settings(r: &mut Registrar) -> Result<(), RegisterError> {
 
 /// Buttons, the panel's refresh, sleep, rotation, notices and long
 /// presses.
-static DEVICE: [SettingSpec; 16] = [
+static DEVICE: [SettingSpec; 17] = [
     SettingSpec::choice(
         settings::KEYMAP_PRESET.static_str(),
         "core.setting.keymap-preset",
@@ -1346,6 +1363,16 @@ static DEVICE: [SettingSpec; 16] = [
     )
     .advanced()
     .description("core.setting.flash-screens.help"),
+    SettingSpec::number(
+        crate::refresh::UI_FULL_REFRESH_INTERVAL,
+        "core.setting.ui-full-refresh-interval",
+        0,
+        1000,
+        0,
+        groups::DISPLAY,
+    )
+    .advanced()
+    .description("core.setting.ui-full-refresh-interval.help"),
     SettingSpec::switch(
         settings::PICTURES_IN_GRAYS.static_str(),
         "core.setting.pictures-in-grays",
@@ -1750,47 +1777,8 @@ fn register_keymaps_and_setup(r: &mut Registrar) -> Result<(), RegisterError> {
                 .is_none_or(|c| c.utc_offset_minutes.is_none())
         })),
     )?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
-    // Keep source offsets below the 15-bit static catalog-index limit.
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/host/en.ini")))?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/host/de.ini")))?;
+    crate::core_texts::add(r)?;
     Ok(())
-}
-
-/// Shown when no plugin provides a screen for a slot.
-#[derive(Debug)]
-struct PlaceholderScreen;
-
-impl Screen for PlaceholderScreen {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        let area = canvas.clip();
-        let margin = env.metrics().mm(4);
-        let line = env.metrics().tenth_mm(5);
-        let (w, h) = (u32::from(area.width), u32::from(area.height));
-        let inner_w = w.saturating_sub(2 * margin);
-        let inner_h = h.saturating_sub(2 * margin);
-        canvas.stroke_rect(
-            margin as i32,
-            margin as i32,
-            inner_w,
-            inner_h,
-            line,
-            Color::BLACK,
-        );
-        if let Some(font) = env.fonts().role(fonts::UI.as_str()) {
-            let size = env.metrics().pt(14.0);
-            let text = env.i18n().tr("core.screen.placeholder");
-            let width = font.measure(size, text);
-            let x = (w as f32 - width) / 2.0;
-            let baseline = (h / 2) as i32 + (size / 3.0) as i32;
-            font.draw(canvas, size, x, baseline, text, Color::BLACK);
-        }
-    }
-
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
-        Handled::No
-    }
 }
 
 /// Where a screenshot goes: `Screenshots` beside the library folder,
@@ -1838,8 +1826,11 @@ static SPACE: [SettingSpec; 1] = [SettingSpec::choice(
 /// The widgets for room between the others: a gap of a set height, and
 /// the room left (see `paperpaw_sdk::widgets`).
 fn register_spaces(r: &mut Registrar) -> Result<(), RegisterError> {
+    // As `widgets::settings_group` makes it, kept in the program (#248, B).
+    static SPACE_GROUP: SettingGroupSpec =
+        SettingGroupSpec::new(Id::new_static(widgets::SPACE), "core.widget.space");
     let space = Id::new_static(widgets::SPACE);
-    r.add_setting_group(widgets::settings_group(&space, "core.widget.space"))?;
+    r.add_setting_group(&SPACE_GROUP)?;
     r.add_settings(&SPACE)?;
     let space_height = |env: &Env<'_>, _| {
         let size = env.settings().read(&widgets::SPACE_SIZE);

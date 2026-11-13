@@ -4,6 +4,7 @@
 //! reaches a screen below, and nothing reaches one below a guard.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::*;
+use alloc::string::String;
 use paperpaw_platform::{ButtonState, InputEvent, Instant, Point, PointerEvent, PointerPhase};
 use paperpaw_sdk::Id;
 
@@ -27,6 +28,100 @@ std::thread_local! {
     static TAKES_KEYS: Cell<bool> = const { Cell::new(false) };
     /// Whether a pointer contact is answered as handled.
     static TAKES_POINTERS: Cell<bool> = const { Cell::new(false) };
+    /// A batch of commands the screen submits when it hears an action (and, as
+    /// `on_shown`, when it hears it is shown), and what its `input` answers
+    /// then (see `native_screen_command_tests.rs`).
+    pub(super) static STAGED: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
+    pub(super) static STAGED_ON_SHOWN: Cell<bool> = const { Cell::new(false) };
+    pub(super) static STAGED_ANSWER: Cell<i32> = const { Cell::new(1) };
+    /// The features the next installed plugin is admitted with.
+    pub(super) static FEATURES: Cell<crate::native_host::admitted_features::AdmittedFeatures> =
+        const { Cell::new(crate::native_host::admitted_features::AdmittedFeatures::NONE) };
+    /// With a store, the callback makes a hand-over in it first (`page = 3`) and
+    /// submits an `open` of `factory.screen` naming it, as the staged batch
+    /// (the second: the id it names instead of the made one, 0 for the made one).
+    pub(super) static STAGED_HANDOVER: RefCell<
+        Option<(crate::native_host::shared::Shared<crate::native_host::ui_store::UiStore>, u32)>,
+    > = const { RefCell::new(None) };
+}
+
+/// Submits the staged batch from the callback `state` is the screen's of.
+pub(super) fn submit_staged(state: *mut c_void) {
+    let Some(batch) = STAGED.with(|batch| batch.borrow().clone()) else {
+        return;
+    };
+    let batch = match STAGED_HANDOVER.with(|made| {
+        made.borrow()
+            .as_ref()
+            .map(|(store, wrong)| (store.try_clone().unwrap(), *wrong))
+    }) {
+        Some((store, wrong)) => handover_batch(state, &store, wrong),
+        None => batch,
+    };
+    // SAFETY: the owner retains the initialized fixture; its host table and
+    // pinned context are live for the callback.
+    let (host, context) = unsafe {
+        let state = &*state.cast::<ScreenState>();
+        (&*state.host, state.context)
+    };
+    // SAFETY: the batch is readable for its length.
+    let _ = unsafe { (host.commands_submit)(context, borrowed(&batch)) };
+}
+
+/// The batch of an `open` naming a hand-over the callback of `state` makes now
+/// (or `wrong`, an id nobody made, when it is not 0).
+fn handover_batch(
+    state: *mut c_void,
+    store: &crate::native_host::ui_store::UiStore,
+    wrong: u32,
+) -> Vec<u8> {
+    use crate::native_host::commands::{WireCommand, commands_encode};
+    use crate::native_host::ui_store::{Param, Stamp};
+    // SAFETY: the owner retains the initialized fixture and its pinned context.
+    let context = unsafe {
+        &*(*state.cast::<ScreenState>())
+            .context
+            .cast::<Context<Heap>>()
+    };
+    let epoch = context
+        .environment
+        .with_frame(|frame| frame.callback_epoch())
+        .unwrap()
+        .unwrap();
+    let stamp = Stamp::new(context.owner_key(), epoch).unwrap();
+    let made = store
+        .handover_make(
+            stamp,
+            &[Param {
+                key: "page",
+                value: "3",
+            }],
+        )
+        .unwrap();
+    let mut bytes = [0; 256];
+    let len = commands_encode(
+        &[WireCommand::Open {
+            target: "factory.screen",
+            mode: 0,
+            slot: "",
+            handover: if wrong == 0 { made } else { wrong },
+        }],
+        &mut bytes,
+    )
+    .unwrap();
+    bytes[..len].to_vec()
+}
+
+/// The screen-shown event of the screen: submits the staged batch if asked to.
+pub(super) fn events_submit(state: *mut c_void, bytes: &[u8]) {
+    if STAGED_ON_SHOWN.with(Cell::get)
+        && matches!(
+            wire::records_decode_single(bytes),
+            Ok(wire::Record::EventScreenShown(_))
+        )
+    {
+        submit_staged(state);
+    }
 }
 
 /// The `input` callback of the fixture: records the record, answers handled for
@@ -57,7 +152,10 @@ pub(super) unsafe extern "C" fn screen_input(
             i32::from(TAKES_POINTERS.with(Cell::get)),
         ),
         Ok(wire::Record::InputGesture(g)) => (Seen::Gesture(g.kind), 0),
-        Ok(wire::Record::InputAction(a)) => (Seen::Action(a.action.into()), 1),
+        Ok(wire::Record::InputAction(a)) => {
+            submit_staged(state);
+            (Seen::Action(a.action.into()), STAGED_ANSWER.with(Cell::get))
+        }
         _ => return ERR_INVALID,
     };
     let owner = context.resources.owner_id();
@@ -201,7 +299,7 @@ fn nothing_reaches_a_screen_below_the_top() {
     assert!(first.is_empty());
     let other = host_named("other", 0);
     kernel
-        .register_native(other, &device_depth(&kernel), |_, _, _| {})
+        .register_native(other, &device_depth(&kernel), |_, _, _, _| {})
         .unwrap();
     kernel.open_screen(Instant(2), Id::new_static("other.screen"), Params::new());
     let top = kernel.stack.len() - 1;
@@ -224,7 +322,7 @@ fn nothing_reaches_a_screen_below_a_guard() {
     let mut kernel = opened(0, 0);
     let guard = host_named("guard", 1 << 1);
     kernel
-        .register_native(guard, &device_depth(&kernel), |_, _, _| {})
+        .register_native(guard, &device_depth(&kernel), |_, _, _, _| {})
         .unwrap();
     kernel.open_screen(Instant(2), Id::new_static("guard.screen"), Params::new());
     let top = kernel.stack.len() - 1;
@@ -245,4 +343,90 @@ fn nothing_reaches_a_screen_below_a_guard() {
     // Only the guard's callback ran (one owner), and it saw the input.
     assert!(!seen().is_empty());
     assert_eq!(owners().len(), 1, "{:?}", owners());
+}
+
+#[path = "native_dev_screen_tests.rs"]
+mod dev_commands;
+#[path = "native_screen_command_tests.rs"]
+mod screen_commands;
+
+/// A native screen takes every key only to pass it to its plugin: it is not a
+/// real-time screen (#2671). Each of these held before the fix.
+mod not_realtime {
+    use super::*;
+    use crate::native_host::work_sched::{Power, WorkEnv};
+
+    #[test]
+    fn a_native_screen_on_top_shows_no_way_out_hint() {
+        let mut kernel = opened(0, 0);
+        // The notice itself, not the file that keeps it shown (the test
+        // kernel's storage is read-only): none at the opening, none asked.
+        assert!(kernel.notice.is_none() && kernel.waiting_notices.is_empty());
+        kernel.hint_escape();
+        assert!(kernel.notice.is_none() && kernel.waiting_notices.is_empty());
+    }
+
+    #[test]
+    fn back_held_on_a_native_screen_does_not_leave_it() {
+        let mut kernel = opened(0, 0);
+        TAKES_KEYS.with(|takes| takes.set(true));
+        kernel.handle(
+            Instant(100),
+            InputEvent::Button {
+                name: "back",
+                state: ButtonState::Pressed,
+            },
+        );
+        assert_eq!(seen(), [Seen::Key("back".into(), 0)], "the plugin has it");
+        assert_eq!(kernel.escape_due(), None);
+    }
+
+    #[test]
+    fn a_finger_held_in_the_corner_of_a_native_screen_does_not_leave_it() {
+        let mut kernel = opened(0, 0);
+        touch(&mut kernel, 100, PointerPhase::Down, 1, 1);
+        assert_eq!(kernel.escape_due(), None);
+    }
+
+    /// Records whether the kernel said a real-time screen holds the device.
+    #[derive(Default)]
+    struct Held(Cell<Option<bool>>);
+    impl WorkEnv for Held {
+        fn now_ms(&self) -> u64 {
+            0
+        }
+        fn power(&self) -> Power {
+            Power {
+                level: 0,
+                stretch: 1,
+                radio_on: true,
+            }
+        }
+        fn screen_hold(&self) -> bool {
+            self.0.get().unwrap_or(false)
+        }
+        fn network_up(&self) -> bool {
+            true
+        }
+        fn network_allowed(&self, _: u64) -> bool {
+            true
+        }
+        fn saving_manual(&self, _: u64) -> bool {
+            false
+        }
+        fn subscribed(&self, _: u64, _: u32) -> bool {
+            false
+        }
+        fn kernel_state(&self, _: u32, _: u32, screen_hold: bool) {
+            self.0.set(Some(screen_hold));
+        }
+    }
+
+    #[test]
+    fn a_native_screen_on_top_holds_no_background_work() {
+        let kernel = opened(0, 0);
+        let env = Held::default();
+        kernel.tell_work_env(&env);
+        assert_eq!(env.0.get(), Some(false));
+    }
 }

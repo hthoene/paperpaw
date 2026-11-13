@@ -117,6 +117,35 @@ pub(crate) trait WorkEnv {
     }
 }
 
+/// A test's view that the test keeps a handle to (to move its clock).
+#[cfg(test)]
+impl<T: WorkEnv + ?Sized> WorkEnv for alloc::rc::Rc<T> {
+    fn now_ms(&self) -> u64 {
+        (**self).now_ms()
+    }
+    fn power(&self) -> Power {
+        (**self).power()
+    }
+    fn screen_hold(&self) -> bool {
+        (**self).screen_hold()
+    }
+    fn network_up(&self) -> bool {
+        (**self).network_up()
+    }
+    fn network_allowed(&self, owner: u64) -> bool {
+        (**self).network_allowed(owner)
+    }
+    fn saving_manual(&self, owner: u64) -> bool {
+        (**self).saving_manual(owner)
+    }
+    fn subscribed(&self, owner: u64, tag: u32) -> bool {
+        (**self).subscribed(owner, tag)
+    }
+    fn kernel_state(&self, level: u32, stretch: u32, screen_hold: bool) {
+        (**self).kernel_state(level, stretch, screen_hold);
+    }
+}
+
 /// The device's table sizes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Limits {
@@ -971,6 +1000,19 @@ impl WorkSched {
         } else {
             state.entries.remove(at);
         }
+    }
+
+    /// Whether `owner` declared work or has a run (#248, D3).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the table is borrowed.
+    pub(crate) fn owner_holds(&self, owner: u64) -> Result<bool, i32> {
+        let state = self
+            .state
+            .try_borrow()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        Ok(state.entries.iter().any(|e| e.owner == owner)
+            || state.runs.iter().any(|r| r.owner == owner))
     }
 
     /// The plugin stopped: its work and its runs are gone (no events).

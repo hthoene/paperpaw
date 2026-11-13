@@ -1,6 +1,7 @@
 //! A paged list screen: header, rows of title and value, focus, hit-testing.
 use crate::{Messages, Page, Paint, Style, header, paint, text};
 use alloc::{string::String, vec::Vec};
+use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
     Color, Point, Rect,
     native::{
@@ -89,7 +90,8 @@ impl ListRenderer {
         }
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let style = Style::read(host, &display, &font)?;
+        let mut style = Style::read(host, &display, &font)?;
+        style.describing = paint::asking(frame);
         let width = display.display_width();
         let height = display.display_height();
         let top = style.header.saturating_add(style.gap);
@@ -157,6 +159,7 @@ pub fn row(
     focused: bool,
 ) -> Result<(), Error> {
     backdrop(paint, style, rect, focused)?;
+    paint::describe(paint, style.describing, PartRole::Row, rect, focused, false)?;
     columns(paint, font, style, rect, title, value, ink(style, focused))
 }
 

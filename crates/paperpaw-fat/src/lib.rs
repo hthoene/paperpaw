@@ -242,6 +242,7 @@ fn same_path(a: &str, b: &str) -> bool {
 }
 
 /// Whether `entry`'s long name is `name`; `None` where it has none.
+#[inline(never)]
 fn long_name_is<IO: ReadWriteSeek + 'static>(entry: &FatEntry<IO>, name: &str) -> Option<bool> {
     let units = entry.long_file_name_as_ucs2_units()?;
     let long =
@@ -251,6 +252,7 @@ fn long_name_is<IO: ReadWriteSeek + 'static>(entry: &FatEntry<IO>, name: &str) -
 
 /// Whether `entry`'s short name is `name`, its letters read as
 /// [`LossyOemCpConverter`] reads them.
+#[inline(never)]
 fn short_name_is<IO: ReadWriteSeek + 'static>(entry: &FatEntry<IO>, name: &str) -> bool {
     let short = entry.short_file_name_as_bytes().iter().map(|&b| {
         if b.is_ascii() {
@@ -336,6 +338,7 @@ impl Temps {
 }
 
 /// Folder `name` in `dir`.
+#[inline(never)]
 fn open_dir<IO: ReadWriteSeek + 'static>(
     dir: &FatDir<IO>,
     name: &str,
@@ -536,6 +539,7 @@ fn may_be_temp<IO: ReadWriteSeek + 'static>(entry: &FatEntry<IO>) -> bool {
 /// Whether `entry` is a temporary file of an earlier version: named
 /// `~pp<n>.tmp` (`n` a number below 64, as they were) by its short name
 /// and by its long name, where it has one.
+#[inline(never)]
 fn is_old_temp<IO: ReadWriteSeek + 'static>(entry: &FatEntry<IO>) -> bool {
     let short = entry
         .short_file_name_as_bytes()
@@ -709,30 +713,64 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
     /// kept.
     fn dir(&self, path: &str) -> Result<FatDir<IO>, StorageError> {
         let path = path.trim_matches('/');
+        if let Some(kept) = self.kept_dir(path) {
+            return Ok(kept);
+        }
+        self.dir_below_kept(path)
+    }
+
+    /// The folder `path` when it is kept from before (not for the root), the
+    /// latest last.
+    fn kept_dir(&self, path: &str) -> Option<FatDir<IO>> {
         if path.is_empty() {
-            let root = self.root();
-            self.settle_folder("", &root);
-            return Ok(root);
+            return None;
         }
-        {
-            let mut folders = self.folders.borrow_mut();
-            if let Some(i) = folders.iter().position(|(p, _)| same_path(p, path)) {
-                // The latest last.
-                let folder = folders.remove(i);
-                let dir = folder.1.clone();
-                folders.push(folder);
-                return Ok(dir);
-            }
-        }
-        // Looked up in its folder, kept too: the folders of many books'
-        // data are not each looked up from the root.
-        let dir = open_dir(&self.dir(parent(path))?, name(path))?;
-        self.settle_folder(path, &dir);
         let mut folders = self.folders.borrow_mut();
-        if folders.len() == FOLDERS {
-            folders.remove(0);
+        let i = folders.iter().position(|(p, _)| same_path(p, path))?;
+        let folder = folders.remove(i);
+        let dir = folder.1.clone();
+        folders.push(folder);
+        Some(dir)
+    }
+
+    /// Folder `path` not kept: looked up from the nearest folder above it that
+    /// is (the root where none), one name after the other, each settled
+    /// (`settle_folder`) and kept as it is reached. A loop, not a call of
+    /// [`Self::dir`] for each folder above: each of those would hold its
+    /// frame while the card is read below it, where the stack is shortest.
+    #[inline(never)]
+    fn dir_below_kept(&self, path: &str) -> Result<FatDir<IO>, StorageError> {
+        // The nearest folder above that is kept, longest first.
+        let mut known = path.len();
+        let mut dir = loop {
+            known = path[..known].rfind('/').unwrap_or(0);
+            if let Some(kept) = self.kept_dir(&path[..known]) {
+                break kept;
+            }
+            if known == 0 {
+                let root = self.root();
+                self.settle_folder("", &root);
+                break root;
+            }
+        };
+        while known < path.len() {
+            let from = if known == 0 { 0 } else { known + 1 };
+            let end = path[from..].find('/').map_or(path.len(), |i| from + i);
+            known = end;
+            let name = &path[from..end];
+            if name.is_empty() {
+                continue;
+            }
+            // Looked up in its folder, kept too: the folders of many books'
+            // data are not each looked up from the root.
+            dir = open_dir(&dir, name)?;
+            self.settle_folder(&path[..end], &dir);
+            let mut folders = self.folders.borrow_mut();
+            if folders.len() == FOLDERS {
+                folders.remove(0);
+            }
+            folders.push((path[..end].to_string(), dir.clone()));
         }
-        folders.push((path.to_string(), dir.clone()));
         Ok(dir)
     }
 

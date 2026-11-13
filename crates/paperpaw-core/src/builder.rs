@@ -60,7 +60,7 @@ struct BuilderParts {
     /// Network settings kept in the program, by plugin.
     network_settings: &'static [crate::NetworkSettings],
     catalog_indexes: paperpaw_i18n::FixedIndexes,
-    built_catalogs: &'static paperpaw_i18n::BuiltCatalogs,
+    built_catalogs: &'static [paperpaw_i18n::BuiltLanguage],
     /// The most Bluetooth links the shell keeps; none without a radio.
     bluetooth_links: u8,
 }
@@ -150,11 +150,12 @@ impl KernelBuilder {
         self
     }
 
-    /// The English catalogs built in, indexed together when the program
-    /// was built: the translator keeps one catalog for all of them (see
-    /// [`BuiltCatalogs`](paperpaw_i18n::BuiltCatalogs)).
-    pub fn built_catalogs(mut self, table: &'static paperpaw_i18n::BuiltCatalogs) -> Self {
-        self.0.built_catalogs = table;
+    /// The catalogs built in, indexed together when the program was built,
+    /// a table for each language (English, German): the translator keeps one
+    /// catalog for all of a language's (see
+    /// [`BuiltLanguage`](paperpaw_i18n::BuiltLanguage)).
+    pub fn built_catalogs(mut self, tables: &'static [paperpaw_i18n::BuiltLanguage]) -> Self {
+        self.0.built_catalogs = tables;
         self
     }
 
@@ -527,19 +528,77 @@ impl KernelBuilder {
     }
 
     pub fn build(mut self) -> Result<Kernel, KernelError> {
-        let display = self.0.device.display;
-        let rows = self.0.frame_rows.unwrap_or(display.height);
-        let framebuffer = Framebuffer::banded(display.width, display.height, rows, display.format)
-            .map_err(KernelError::Graphics)?;
-        Ok(self.0.build(framebuffer))
+        let framebuffer = self.0.framebuffer()?;
+        let mut kernel = self.0.new_kernel(framebuffer);
+        self.0.set_up(&mut kernel);
+        Ok(kernel)
+    }
+
+    /// [`Self::build`], the kernel on the heap: for a shell whose stack is
+    /// small (the X4's). The kernel is large (about 6 KB there); built so, it
+    /// is on the stack only while it is made, before the start reads the
+    /// card, and every move after it is a pointer's, so no copy of it is on
+    /// the stack under the start's deepest calls (#250). Where the heap has
+    /// no room for it: [`KernelError::NoMemory`], nothing built.
+    pub fn build_boxed(mut self) -> Result<Box<Kernel>, KernelError> {
+        let framebuffer = self.0.framebuffer()?;
+        let mut kernel = self
+            .0
+            .new_kernel_boxed(framebuffer)
+            .ok_or(KernelError::NoMemory)?;
+        self.0.set_up(&mut kernel);
+        Ok(kernel)
     }
 }
 
+/// Errors that prevent the kernel from starting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum KernelError {
+    Graphics(GraphicsError),
+    /// The heap had no room for the kernel ([`KernelBuilder::build_boxed`]).
+    NoMemory,
+}
+
+impl fmt::Display for KernelError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            KernelError::Graphics(error) => write!(f, "cannot create framebuffer: {error}"),
+            KernelError::NoMemory => f.write_str("no memory for the kernel"),
+        }
+    }
+}
+
+impl core::error::Error for KernelError {}
+
+/// The most values kept for settings nobody had declared when the file was
+/// read (see `keep_config_value`): more are only warned about.
+const MAX_LATE_CONFIG: usize = 64;
+
 impl BuilderParts {
-    /// The kernel, built where it is returned: it is large, and each copy
-    /// would take room on the stack while it is built (the X4's is small).
-    fn build(&mut self, framebuffer: Framebuffer) -> Kernel {
-        let mut kernel = self.new_kernel(framebuffer);
+    /// The frame buffer the display wants, in its bands.
+    fn framebuffer(&self) -> Result<Framebuffer, KernelError> {
+        let display = self.device.display;
+        let rows = self.frame_rows.unwrap_or(display.height);
+        Framebuffer::banded(display.width, display.height, rows, display.format)
+            .map_err(KernelError::Graphics)
+    }
+
+    /// [`Self::new_kernel`] on the heap, made only once the room is there
+    /// (`None`, nothing made, where it is not). Not inlined: whatever of the
+    /// kernel is made on the way is in this call's frame, which is gone
+    /// before [`Self::set_up`].
+    #[inline(never)]
+    fn new_kernel_boxed(&mut self, framebuffer: Framebuffer) -> Option<Box<Kernel>> {
+        crate::native_host::shared::try_box_with(|| self.new_kernel(framebuffer))
+    }
+
+    /// Everything the kernel takes from the builder once it is made: the
+    /// card's files read, the plugins registered, the settings applied. Not
+    /// inlined, and on the kernel where it lies: its frame holds no kernel
+    /// (the X4 start's deepest calls are under it, #250).
+    #[inline(never)]
+    fn set_up(&mut self, kernel: &mut Kernel) {
         kernel.card_trouble = self.card_trouble;
         kernel.after_sleep = self.after_sleep;
         paperpaw_sdk::data::take_over_old_name(kernel.shared.storage.as_ref());
@@ -579,8 +638,9 @@ impl BuilderParts {
         );
         // A removal waits for the host to forget its plugin's secrets and
         // grants: the first pass of the kernel finishes it.
-        if to_finish && let Some(driver) = &kernel.firmware {
-            driver.borrow_mut().want_resume();
+        // Kept by the cell: no driver needs to be made for it.
+        if to_finish && let Some(cell) = &kernel.firmware {
+            cell.want_resume();
         }
         for line in said {
             kernel.warn_runtime(line);
@@ -629,7 +689,6 @@ impl BuilderParts {
         kernel.shrink_to_fit();
         kernel.apply_display_settings();
         kernel.settle();
-        kernel
     }
 
     /// The kernel with nothing registered: its `framebuffer`, its storage
@@ -671,7 +730,9 @@ impl BuilderParts {
         hyphenation.set_storage(storage.clone());
         let mut translator = Translator::new();
         translator.fixed_indexes(self.catalog_indexes);
-        translator.built_catalogs(self.built_catalogs);
+        for table in self.built_catalogs {
+            translator.built_language(table);
+        }
         Kernel {
             shared: Shared {
                 native_events: None,
@@ -726,11 +787,12 @@ impl BuilderParts {
                     .then(|| paperpaw_sdk::bluetooth::Bluetooth::new(links)),
                 firmware: self.firmware.take(),
                 native: None,
+                native_safe_mode: self.safe_mode.clone(),
                 after_trial: self.after_trial.take(),
                 power: paperpaw_sdk::power::Power::default(),
                 work_states: paperpaw_sdk::work::WorkStates::default(),
                 reader: false,
-                clipboard: String::new(),
+                clipboard: alloc::rc::Rc::default(),
                 system_clipboard: false,
                 last_input: paperpaw_sdk::keys::InputMode::at_start(&self.device.input),
                 inputs: Vec::new(),
@@ -771,6 +833,8 @@ impl BuilderParts {
                 refresh: RefreshPolicy::default(),
                 deferred: None,
                 defers: 0,
+                followup: None,
+                followup_frame: None,
             },
             input: gestures::InputState {
                 recognizer: Recognizer::default(),
@@ -839,22 +903,18 @@ impl BuilderParts {
             from_guard: false,
             from_guard_own: false,
             own_trusted: Vec::new(),
-            held_notice: None,
+            waiting_notices: crate::notices::Waiting::new(self.device.memory),
             last_activity: Instant(0),
             native_tick_at: None,
             last_user_input: None,
             radio_requests: alloc::rc::Rc::default(),
             firmware: self.firmware_host.take().map(|host| {
-                let mut driver = crate::native_host::firmware_driver::Driver::new(
-                    host,
-                    alloc::rc::Rc::new(core::cell::RefCell::new(
-                        crate::native_host::firmware_install::FirmwareInstall::new(),
-                    )),
-                );
+                // The driver is made at the first firmware or plugin command.
+                let cell = crate::native_host::firmware_cell::FirmwareCell::new(host);
                 if let Some(plugins) = self.plugin_host.take() {
-                    driver.set_plugin_host(plugins);
+                    cell.set_plugin_host(plugins);
                 }
-                alloc::rc::Rc::new(core::cell::RefCell::new(driver))
+                alloc::rc::Rc::new(cell)
             }),
             shown_since: Instant(0),
             scope: None,
@@ -871,9 +931,14 @@ impl BuilderParts {
             card_trouble: None,
             after_sleep: false,
             secrets_unreadable: false,
+            secrets_opened: false,
+            secrets_wired: None,
             pairing_nonce: None,
             plugin_defaults: Vec::new(),
+            late_device_defaults: Vec::new(),
+            late_config: Vec::new(),
             plugin_choices: Vec::new(),
+            native_catalogs_added: false,
             now: Instant::default(),
         }
     }
@@ -883,14 +948,16 @@ impl BuilderParts {
 impl Kernel {
     /// Passwords and keys, as kept on the storage. A file that is there
     /// but cannot be read is said and not written over.
-    fn read_secrets(&mut self) {
-        use paperpaw_sdk::secrets::{FILE, Secrets};
+    pub(crate) fn read_secrets(&mut self) {
+        use paperpaw_sdk::secrets::FILE;
+        let host = self.secrets_host();
         let storage = self.shared.storage.as_ref();
         // Damaged text keeps what can be read: values are written in hex.
         match paperpaw_sdk::files::load_for_update(storage, FILE, MAX_SECRETS) {
             Ok(data) => {
                 let text = String::from_utf8_lossy(data.as_deref().unwrap_or_default());
-                self.shared.secrets = Secrets::decode(&text);
+                self.shared.secrets = Self::decode_secrets(&text, host.as_ref());
+                self.secrets_unreadable = false;
                 if let Some(radio) = &mut self.io.bluetooth {
                     let kept = self.shared.secrets.iter();
                     radio.load(kept.map(|s| (s.id.as_str(), s.value.as_str())));
@@ -1031,7 +1098,7 @@ impl Kernel {
 
     /// The device's own key map, under all others.
     fn load_device_keymap(&mut self, source: Cow<'static, str>) {
-        for problem in self.shared.keymap.load(&source, Origin::Device, true) {
+        for problem in self.shared.keymap.load_kept(&source, Origin::Device, true) {
             self.warn(
                 WarningSource::DeviceKeymap,
                 Some(problem.line),
@@ -1082,8 +1149,12 @@ impl Kernel {
             }
         }
         for (id, value) in device {
-            if let Err(error) = self.shared.settings.set_default_from_text(id, value) {
-                self.warn_runtime(format!("device default `{id}`: {error}"));
+            match self.shared.settings.set_default_from_text(id, value) {
+                Ok(()) => {}
+                // A native plugin declares its settings only once it is
+                // hosted, after this: kept for then (`apply_late_defaults`).
+                Err(paperpaw_sdk::SettingError::Unknown) => self.keep_device_default(id, value),
+                Err(error) => self.warn_runtime(format!("device default `{id}`: {error}")),
             }
         }
         for (plugin, id, value) in mem::take(&mut self.plugin_defaults) {
@@ -1114,6 +1185,106 @@ impl Kernel {
                 );
             }
         }
+    }
+
+    /// Keeps the device default of a setting nobody has declared yet.
+    fn keep_device_default(&mut self, id: &str, value: &str) {
+        let (mut own_id, mut own_value) = (String::new(), String::new());
+        if own_id.try_reserve_exact(id.len()).is_err()
+            || own_value.try_reserve_exact(value.len()).is_err()
+            || self.late_device_defaults.try_reserve(1).is_err()
+        {
+            self.warn_runtime(format!("device default `{id}`: no memory to keep it"));
+            return;
+        }
+        own_id.push_str(id);
+        own_value.push_str(value);
+        self.late_device_defaults.push((own_id, own_value));
+    }
+
+    /// The device defaults kept for settings a plugin declares since
+    /// (`keep_device_default`), set now that it has: a plugin published after
+    /// the kernel was built (a native one) gets the device's value as the
+    /// default, as a plugin of the first pass does. A value the user set
+    /// still wins, as for any default. A default is used up once its setting
+    /// exists (applied, or warned about when the value does not fit); one for
+    /// an id that no plugin ever declares stays unused.
+    pub(crate) fn apply_late_defaults(&mut self) {
+        let waiting = mem::take(&mut self.late_device_defaults);
+        let mut left = Vec::new();
+        // At most as many as were kept: no new place is needed.
+        if left.try_reserve_exact(waiting.len()).is_err() {
+            self.late_device_defaults = waiting;
+            return;
+        }
+        for (id, value) in waiting {
+            if self.shared.settings.spec(id.as_str()).is_none() {
+                left.push((id, value));
+                continue;
+            }
+            // Applied once, or warned about once: not kept.
+            if let Err(error) = self.shared.settings.set_default_from_text(&id, &value) {
+                self.warn_runtime(format!("device default `{id}`: {error}"));
+            }
+        }
+        self.late_device_defaults = left;
+    }
+
+    /// Keeps a configuration value for a setting nobody has declared yet.
+    /// Without room it is only warned about, as before.
+    pub(crate) fn keep_config_value(&mut self, id: &str, value: &str, line: Option<u32>) {
+        let (mut own_id, mut own_value) = (String::new(), String::new());
+        if self.late_config.len() >= MAX_LATE_CONFIG
+            || own_id.try_reserve_exact(id.len()).is_err()
+            || own_value.try_reserve_exact(value.len()).is_err()
+            || self.late_config.try_reserve(1).is_err()
+        {
+            return;
+        }
+        own_id.push_str(id);
+        own_value.push_str(value);
+        self.late_config.push((own_id, own_value, line));
+    }
+
+    /// The configuration values kept for settings a plugin declares since
+    /// (`keep_config_value`), set now that it has: a native plugin declares
+    /// its settings after the kernel is built, when the file was read. The
+    /// warning "unknown setting" given then is taken back; a value that does
+    /// not fit is warned about as it is for any setting. Values are set in
+    /// the order the file had them (the device file, then the shell's), so
+    /// the later wins. Values for ids still undeclared stay kept.
+    pub(crate) fn apply_late_config(&mut self) {
+        if self.late_config.is_empty() {
+            return;
+        }
+        let waiting = mem::take(&mut self.late_config);
+        let mut left = Vec::new();
+        if left.try_reserve_exact(waiting.len()).is_err() {
+            self.late_config = waiting;
+            return;
+        }
+        let mut secrets = Vec::new();
+        for (id, value, line) in waiting {
+            let Some(spec) = self.shared.settings.spec(&id) else {
+                left.push((id, value, line));
+                continue;
+            };
+            let secret = spec.extra().secret;
+            let unknown = format!("`{id}`: {}", paperpaw_sdk::SettingError::Unknown);
+            self.warnings.retain(|warning| {
+                !(warning.line == line
+                    && matches!(warning.source, WarningSource::UserConfig)
+                    && warning.message == unknown)
+            });
+            // A secret goes to the secrets, as one read at the build does.
+            if secret {
+                secrets.push((id, value));
+            } else if let Err(error) = self.shared.settings.set_from_text(&id, &value) {
+                self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
+            }
+        }
+        self.move_secrets(secrets);
+        self.late_config = left;
     }
 
     /// The language, night mode and colours the settings say.
@@ -1187,7 +1358,7 @@ impl Kernel {
             ),
             network_settings: &[],
             catalog_indexes: &[],
-            built_catalogs: &paperpaw_i18n::BuiltCatalogs::NONE,
+            built_catalogs: &[],
             bluetooth_links: 0,
         }))
     }

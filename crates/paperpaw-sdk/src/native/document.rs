@@ -18,8 +18,49 @@ const IMAGE_SIDE_MAX: u32 = 1600;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DocId(u32);
 impl DocId {
+    /// The id a host record names (`event.document_changed`).
+    pub(crate) const fn from_wire(document: u32) -> Self {
+        Self(document)
+    }
     fn record(self) -> wire::ServiceDocRef {
         wire::ServiceDocRef { document: self.0 }
+    }
+
+    /// The id an event names; `None` for 0, which is never an id.
+    pub(crate) const fn named(document: u32) -> Option<Self> {
+        if document == 0 {
+            None
+        } else {
+            Some(Self(document))
+        }
+    }
+}
+
+/// Why the host ended a document this plugin opened (`event.document_closed`,
+/// `document.md` 2.1). Reasons this SDK does not know are [`Self::FormatStopped`],
+/// as the contract requires.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DocClosedReason {
+    /// The format plugin stopped or was uninstalled (`reason` 1).
+    FormatStopped,
+    /// The card went (`reason` 2).
+    CardRemoved,
+    /// The book was moved or removed; for a handed file, its maker stopped
+    /// (`reason` 3).
+    BookGone,
+    /// The place went to a book to show (`reason` 4); an index build tries again
+    /// later.
+    Needed,
+}
+impl DocClosedReason {
+    pub(crate) const fn decode(reason: u32) -> Self {
+        match reason {
+            2 => Self::CardRemoved,
+            3 => Self::BookGone,
+            4 => Self::Needed,
+            _ => Self::FormatStopped,
+        }
     }
 }
 
@@ -140,6 +181,17 @@ pub enum Preparation {
     /// Failed; [`DocState::status`] says why. The id stays until it is closed.
     Failed,
 }
+impl Preparation {
+    /// The wire's `state` (`doc_state`, `event.document_changed`): 0 ready, 1
+    /// preparing; a state this SDK does not know reads as failed.
+    pub(crate) const fn of(state: u32) -> Self {
+        match state {
+            0 => Self::Ready,
+            1 => Self::Preparing,
+            _ => Self::Failed,
+        }
+    }
+}
 impl<'a> DocState<'a> {
     /// The document's id.
     #[must_use]
@@ -149,11 +201,7 @@ impl<'a> DocState<'a> {
     /// Ready, preparing or failed. A state this SDK does not know reads as failed.
     #[must_use]
     pub const fn preparation(&self) -> Preparation {
-        match self.0.state {
-            0 => Preparation::Ready,
-            1 => Preparation::Preparing,
-            _ => Preparation::Failed,
-        }
+        Preparation::of(self.0.state)
     }
     /// Progress in millionths while preparing.
     #[must_use]
@@ -461,6 +509,9 @@ pub use blocks::{
 #[path = "document_meta.rs"]
 mod meta;
 pub use meta::{DocTextPart, DocTextQuery, Metadata};
+#[path = "document_report.rs"]
+mod report;
+pub use report::Report;
 #[path = "document_formats.rs"]
 mod formats;
 pub use formats::{Format, FormatCursor, FormatPage, FormatPageEnd};

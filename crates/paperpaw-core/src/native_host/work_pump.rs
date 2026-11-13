@@ -25,7 +25,7 @@ use super::{
     registrations::{self as wire, Record},
     work_sched::{Event, Moment},
 };
-use alloc::rc::Rc;
+use crate::native_host::codec;
 use paperpaw_platform::Instant;
 
 /// Plugin calls (events 103 to 105) in one pass: the most one device has
@@ -45,7 +45,7 @@ impl crate::Kernel {
     /// moment may come due in the next pass.
     pub(crate) fn native_work_woke(&self) {
         if let Some(work) = self.shared.native_instances.work_services() {
-            work.sched.moment(Moment::Wake, &*work.env);
+            work.sched.moment(Moment::Wake, &**work.env);
         }
     }
 
@@ -65,7 +65,7 @@ impl crate::Kernel {
         // callback's commands can run (`&mut self`) between two calls.
         let Some((sched, env)) = instances
             .work_services()
-            .map(|work| (Rc::clone(&work.sched), Rc::clone(&work.env)))
+            .and_then(|work| Some((work.sched.try_clone()?, work.env.try_clone()?)))
         else {
             return false;
         };
@@ -73,7 +73,7 @@ impl crate::Kernel {
         if instances.depth() > 0 {
             return true;
         }
-        let env = &*env;
+        let env = &**env;
         self.tell_work_env(env);
         let now_ms = env.now_ms();
         let charging = self
@@ -131,7 +131,7 @@ impl crate::Kernel {
     fn work_tell_allowed(&mut self, now_ms: u64) {
         let mut record = [0u8; RECORD_BYTES];
         let allowed = Record::EventWorkAllowed(wire::EventWorkAllowed { now_ms });
-        let Ok(len) = wire::records_encode(&[allowed], &mut record) else {
+        let Ok(len) = codec::encode_batch(&[allowed], &mut record) else {
             debug_assert!(
                 false,
                 "an event.work_allowed record fits {RECORD_BYTES} bytes"
@@ -160,7 +160,10 @@ impl crate::Kernel {
     /// One event of the scheduler to its plugin.
     fn work_deliver(&mut self, event: &Event, now_ms: u64) {
         let instances = &self.shared.native_instances;
-        let Some(sched) = instances.work_services().map(|work| Rc::clone(&work.sched)) else {
+        let Some(sched) = instances
+            .work_services()
+            .and_then(|work| work.sched.try_clone())
+        else {
             return;
         };
         let (owner, token, run) = match event {
@@ -169,7 +172,7 @@ impl crate::Kernel {
         };
         let mut record = [0u8; RECORD_BYTES];
         let encoded = match event {
-            Event::Due(due) => wire::records_encode(
+            Event::Due(due) => codec::encode_batch(
                 &[Record::EventWorkDue(wire::EventWorkDue {
                     now_ms,
                     token,
@@ -178,7 +181,7 @@ impl crate::Kernel {
                 })],
                 &mut record,
             ),
-            Event::Refused(refused) => wire::records_encode(
+            Event::Refused(refused) => codec::encode_batch(
                 &[Record::EventWorkRefused(wire::EventWorkRefused {
                     now_ms,
                     token,
@@ -243,14 +246,14 @@ impl crate::Kernel {
     /// shell's clock, which is the kernel's tick clock).
     pub(crate) fn work_pump_due(&self) -> Option<Instant> {
         let work = self.shared.native_instances.work_services()?;
-        self.tell_work_env(&*work.env);
-        work.sched.next_wake(&*work.env).map(Instant)
+        self.tell_work_env(&**work.env);
+        work.sched.next_wake(&**work.env).map(Instant)
     }
 
     /// Tells the device's view what the kernel holds: the power level and
     /// stretch of the user's mode, and whether a real-time screen (one that
-    /// takes raw keys or runs at a pace) is on top.
-    fn tell_work_env(&self, env: &dyn super::work_sched::WorkEnv) {
+    /// takes raw keys or runs at a pace, not a native one) is on top.
+    pub(crate) fn tell_work_env(&self, env: &dyn super::work_sched::WorkEnv) {
         use paperpaw_sdk::power::PowerLevel;
         let power = &self.shared.power;
         let level = match power.level {
@@ -259,11 +262,10 @@ impl crate::Kernel {
             // Normal, and any level to come: counts as normal.
             _ => 0,
         };
-        let mode = self.top_mode();
         env.kernel_state(
             level,
             power.stretch,
-            mode.takes_raw_keys() || mode.is_paced(),
+            self.top_realtime() || self.top_mode().is_paced(),
         );
     }
 }

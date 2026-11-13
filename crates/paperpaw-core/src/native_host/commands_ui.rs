@@ -1,7 +1,7 @@
 //! Host-only UI authority and deferred redraw effects for one callback.
 use super::*;
 use crate::native_host::stack_rows::StackRows;
-use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_NOT_FOUND};
 use paperpaw_platform::RefreshMode;
 use paperpaw_sdk::{Env, IdError, Params, ScreenKey};
 
@@ -42,6 +42,10 @@ impl<'a> UiContext<'a> {
 pub(crate) struct Redraw {
     pub(crate) screen: ScreenKey,
     pub(crate) mode: Option<RefreshMode>,
+    /// The whole screen (`command.redraw`), else only `areas`
+    /// (`command.redraw_area`, `commands_redraw.rs`).
+    pub(crate) whole: bool,
+    pub(crate) areas: Vec<super::Area>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -223,14 +227,15 @@ impl<'a> CommandStage<'a> {
     /// UI callers drain this form so redraw-only never becomes a refresh.
     pub(crate) fn into_ui_output(mut self) -> (Vec<Command>, Option<Redraw>, u8) {
         let screen = self.ui.as_ref().and_then(|ui| ui.screen);
-        let redraw = self.redraw.zip(screen).map(|(mode, screen)| Redraw {
+        let whole = self.redraw.is_some();
+        let areas = core::mem::take(&mut self.areas);
+        let mode = self.redraw.max(areas.mode);
+        let redraw = mode.zip(screen).map(|(mode, screen)| Redraw {
             screen,
-            mode: match mode {
-                1 => Some(RefreshMode::Fast),
-                2 => Some(RefreshMode::Partial),
-                3 => Some(RefreshMode::Full),
-                _ => None,
-            },
+            mode: super::redraw::refresh_mode(mode),
+            whole,
+            // With the whole screen: drawn in the frame after it.
+            areas: areas.list,
         });
         (
             core::mem::take(&mut self.staged),
@@ -246,6 +251,16 @@ impl<'a> CommandStage<'a> {
             return Err(ERR_STATE);
         }
         Ok(top.key)
+    }
+
+    /// The submitting plugin's screen of this callback, for a `redraw`: it has
+    /// only overlays above it (`native_screen::redrawable`), not just the top.
+    pub(super) fn own_redrawable(&self) -> Result<ScreenKey, i32> {
+        let ui = self.ui.as_ref().ok_or(ERR_UNSUPPORTED)?;
+        let key = ui.screen.ok_or(ERR_STATE)?;
+        super::super::native_screen::redrawable(ui.env.stack(), key, Some(self.owner.as_str()))
+            .map(|_| key)
+            .ok_or(ERR_STATE)
     }
 
     pub(super) fn validate_ui(&self, command: WireCommand<'_>) -> Result<usize, i32> {
@@ -274,7 +289,9 @@ impl<'a> CommandStage<'a> {
                 }
                 Ok(action.len())
             }
-            WireCommand::Redraw { .. } | WireCommand::CloseScreen => self.own_top().map(|_| 0),
+            WireCommand::Redraw { .. } => self.own_redrawable().map(|_| 0),
+            WireCommand::CloseScreen => self.own_top().map(|_| 0),
+            WireCommand::RedrawArea { mode, .. } => self.validate_redraw_area(mode),
             command if super::nav::is_nav(&command) => self.validate_nav(command),
             WireCommand::SetHint {
                 action,
@@ -293,8 +310,101 @@ impl<'a> CommandStage<'a> {
                 ui.widget_check_changed(owner, instance)?;
                 Ok(0)
             }
+            // Bit 0 `announce`; the other bits are `ERR_INVALID` (ui.md, messages).
+            WireCommand::Notify { text, flags } => {
+                if flags & !NOTIFY_ANNOUNCE != 0 {
+                    return Err(ERR_INVALID);
+                }
+                Ok(text.len())
+            }
+            // Speech (`speech.rs`): a device without it says status 3 at once.
+            WireCommand::Speak {
+                text,
+                language,
+                rate,
+                flags,
+                ..
+            } => {
+                crate::native_host::speech::check(rate, flags)?;
+                Ok(text.len() + language.len())
+            }
+            WireCommand::StopSpeaking {} => Ok(0),
+            // A book scope (`book_scope.rs`): from the submitter's own top
+            // screen only, a path that may name a book or empty (the end).
+            WireCommand::SetScope { path } => {
+                self.own_top()?;
+                if !path.is_empty() && !crate::native_host::book_scope::book_path_ok(path) {
+                    return Err(ERR_INVALID);
+                }
+                Ok(path.len())
+            }
+            // Plugin requests (`plugin_requests.rs`): every id valid here, the
+            // room for the request in `validate_plugin_requests`.
+            WireCommand::RequestPlugins { plugins } => {
+                for id in plugins.split('\n').filter(|id| !id.is_empty()) {
+                    copy_id(id)?;
+                    // `core` is not a plugin to ask for (`registry.md` 5): the
+                    // whole batch is refused.
+                    if id == crate::core_plugin::CORE.as_str() {
+                        return Err(ERR_DENIED);
+                    }
+                }
+                Ok(plugins.len())
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
+    }
+
+    /// At most `speech::MAX_TEXTS` texts per plugin: a queued `command.speak`
+    /// beyond is `ERR_FULL`, the batch refused whole (what is staged already
+    /// and what the batch holds count with the kernel's own).
+    pub(super) fn validate_speech_room(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        use crate::native_host::speech::{QUEUE, count, is_reply, is_stop};
+        let mut texts = self.speech_held;
+        for command in &self.staged {
+            if let Command::Speak(speech) = command {
+                if is_reply(speech.reply()) {
+                    let _ = count(&mut texts, Some(speech.is_queued()));
+                } else if is_stop(speech.reply()) {
+                    let _ = count(&mut texts, None);
+                }
+            }
+        }
+        for command in batch.iter() {
+            match command {
+                WireCommand::Speak { flags, .. } => count(&mut texts, Some(flags & QUEUE != 0))?,
+                WireCommand::StopSpeaking {} => count(&mut texts, None)?,
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// At most `plugin_requests::MAX_OPEN` requests are open device-wide, and
+    /// `MAX_PER_PLUGIN` per plugin:
+    /// another is `ERR_FULL` at submit, the batch refused whole (what is staged
+    /// already and what the batch holds count with the kernel's own).
+    pub(super) fn validate_plugin_requests(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        use crate::native_host::plugin_requests::{MAX_OPEN, MAX_PER_PLUGIN};
+        let staged = self
+            .staged
+            .iter()
+            .filter(|command| matches!(command, Command::RequestPlugins { .. }))
+            .count();
+        let mut open = self.requests_open + staged;
+        let mut own = usize::from(self.own_requests) + staged;
+        for command in batch.iter() {
+            if matches!(command, WireCommand::RequestPlugins { .. }) {
+                // Device-wide, and per plugin so that one cannot hold every
+                // slot: `ERR_FULL`, the batch refused whole.
+                if open >= MAX_OPEN || own >= MAX_PER_PLUGIN {
+                    return Err(ERR_FULL);
+                }
+                open += 1;
+                own += 1;
+            }
+        }
+        Ok(())
     }
 
     #[inline(never)]
@@ -311,10 +421,53 @@ impl<'a> CommandStage<'a> {
             }
             WireCommand::CloseScreen => Ok(Command::Close(self.own_top()?)),
             command if super::nav::is_nav(&command) => self.owned_nav(command),
+            WireCommand::Notify { text, flags } => {
+                let mut owned = alloc::string::String::new();
+                owned
+                    .try_reserve_exact(text.len())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                owned.push_str(text);
+                Ok(if flags & NOTIFY_ANNOUNCE != 0 {
+                    Command::Announce(owned)
+                } else {
+                    Command::Notify(owned)
+                })
+            }
+            WireCommand::Speak {
+                cookie,
+                text,
+                language,
+                rate,
+                flags,
+            } => crate::native_host::speech::speak(
+                self.owner,
+                (cookie, text, language),
+                (rate, flags),
+            ),
+            WireCommand::StopSpeaking {} => crate::native_host::speech::stop(self.owner),
+            WireCommand::SetScope { path: "" } => Ok(Command::SetScope(None)),
+            WireCommand::SetScope { path } => {
+                let file = crate::native_host::book_scope::file(self.owner.as_str(), path)?;
+                Ok(Command::SetScope(Some(file)))
+            }
+            WireCommand::RequestPlugins { plugins } => {
+                let mut ids = alloc::vec::Vec::new();
+                ids.try_reserve_exact(plugins.split('\n').count())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                for id in plugins.split('\n').filter(|id| !id.is_empty()) {
+                    ids.push(copy_id(id)?);
+                }
+                let by = self.owner.try_clone().ok_or(ERR_NO_MEMORY)?;
+                Ok(Command::RequestPlugins { by, plugins: ids })
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }
 }
+
+/// `command.notify` flags bit 0: also from background work and when no screen
+/// of the plugin shows.
+pub(super) const NOTIFY_ANNOUNCE: u32 = 1;
 
 pub(super) fn copy_id(text: &str) -> Result<Id, i32> {
     Id::try_parse(text).map_err(|error| match error {
@@ -345,8 +498,29 @@ impl crate::Kernel {
         redraw: Option<Redraw>,
         opens: super::Opens,
     ) {
-        let super::Opens { at, claims } = opens;
+        let clock = self.dev_clock();
+        let host = super::dev::DevHost {
+            clock: &clock,
+            stored: &super::dev::NoStoredNetworks,
+        };
+        let dev = super::dev::DevBatch::default();
+        self.drain_native_batch(owner, (commands, redraw, opens), dev, &host);
+    }
+
+    /// As [`Self::drain_native_opens`], with the DEV commands of the batch
+    /// applied in their place among the others (`commands_dev.rs`): a power
+    /// command after every command before it. The shell acts on the
+    /// kernel's sleep, power-off and restart flags once the frame is shown.
+    pub(crate) fn drain_native_batch(
+        &mut self,
+        owner: &Id,
+        (commands, redraw, mut opens): (Vec<Command>, Option<Redraw>, super::Opens),
+        mut dev: super::dev::DevBatch,
+        host: &super::dev::DevHost<'_>,
+    ) {
+        let (at, claims) = opens.take();
         for (index, command) in commands.into_iter().enumerate() {
+            self.apply_dev_until(owner, &mut dev, Some(index), host);
             let staged = at.iter().find(|open| open.index == index);
             // A replace is the submitter's own top screen's, nobody else's: if
             // another is on top by now (an earlier open of the same batch), it
@@ -368,11 +542,17 @@ impl crate::Kernel {
             // its claim is freed and the instance's old hand-over stays.
             self.release_pending_handover();
         }
+        self.apply_dev_until(owner, &mut dev, None, host);
         // Nothing stays claimed once the batch is applied.
+        let mut kept = false;
         if let Some(store) = self.shared.native_instances.ui_store() {
             for claims in claims {
-                let _ = store.rollback(claims);
+                kept |= store.rollback(claims).is_err();
             }
+        }
+        if kept {
+            // The store was in use: the claims stay until the owner's stop.
+            self.warn_runtime("native hand-over claims could not be freed: the store is busy");
         }
         self.finish_native_redraw(owner, redraw);
     }
@@ -380,8 +560,9 @@ impl crate::Kernel {
     fn release_pending_handover(&mut self) {
         if let Some(Some(id)) = self.shared.native_instances.take_pending_handover()
             && let Some(store) = self.shared.native_instances.ui_store()
+            && store.release(id).is_err()
         {
-            let _ = store.release(id);
+            self.warn_runtime("a native hand-over could not be freed: the store is busy");
         }
     }
 
@@ -413,6 +594,18 @@ impl crate::Kernel {
             })
         {
             self.warn_runtime("native close dropped: its screen no longer exists");
+            return;
+        }
+        // A notify without the announce bit is for a plugin that shows a
+        // screen: otherwise it is dropped (`OK` at submit, logged here).
+        if matches!(command, Command::Notify(_))
+            && !self
+                .shared
+                .stack
+                .iter()
+                .any(|entry| entry.screen.namespace() == owner.as_str())
+        {
+            self.warn_runtime("native notify dropped: the plugin shows no screen");
             return;
         }
         // A key map layer is laid for the owner's own screen on top, the one
@@ -485,17 +678,55 @@ impl crate::Kernel {
         }
     }
 
-    /// The deferred redraw, if its screen is still on top.
+    /// The deferred redraw, if its screen still has only overlays above it
+    /// (`native_screen::redrawable`, as at submit): in its own region, not the
+    /// top's; the overlays over it are drawn again after it.
     pub(crate) fn finish_native_redraw(&mut self, owner: &Id, redraw: Option<Redraw>) {
         if let Some(redraw) = redraw {
-            if !self.native_top(owner, redraw.screen) {
-                self.warn_runtime("native redraw dropped: its screen is no longer on top");
+            let Some(at) = super::super::native_screen::redrawable(
+                &self.shared.stack,
+                redraw.screen,
+                Some(owner.as_str()),
+            ) else {
+                self.warn_runtime("native redraw dropped: its screen is covered");
+                return;
+            };
+            if !redraw.whole {
+                // Each area on its own, now.
+                self.redraw_areas(redraw.screen, &redraw.areas, redraw.mode);
                 return;
             }
-            match redraw.mode {
+            self.redraw_screen(at, redraw.mode);
+            // Areas asked for with it: in the frame after (a newer one
+            // replaces a follow-up still waiting).
+            if !redraw.areas.is_empty() {
+                self.frame.followup = Some(super::Followup {
+                    screen: redraw.screen,
+                    mode: redraw.mode,
+                    areas: redraw.areas,
+                });
+            }
+        }
+    }
+
+    /// The whole of the screen at `at` drawn again: the top as `command.redraw`
+    /// does, one with overlays above it in its own region.
+    fn redraw_screen(&mut self, at: usize, mode: Option<RefreshMode>) {
+        if at + 1 == self.shared.stack.len() {
+            match mode {
                 Some(mode) => self.apply(Command::Redraw(mode)),
                 None => self.output.redraw = true,
             }
+            return;
+        }
+        let region = self.region_of(at);
+        self.invalidate(region);
+        if let Some(mode) = mode {
+            if mode == RefreshMode::Full {
+                let bounds = self.framebuffer.bounds();
+                self.invalidate(bounds);
+            }
+            self.output.request_refresh(mode);
         }
     }
 
@@ -819,6 +1050,129 @@ mod tests {
         assert_eq!(submit(&mut stage, &[WireCommand::Redraw { mode: 0 }]), OK);
     }
     #[test]
+    fn an_area_redraw_marks_only_its_areas_weighed_one_by_one() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let owner = Id::new_static("probe");
+        let key = ScreenKey::new(7);
+        kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+            Id::new_static("probe.screen"),
+            None,
+            false,
+            key,
+        ));
+        let content = kernel.content();
+        let (a, b) = (
+            paperpaw_platform::Rect::new(content.x + 2, content.y + 3, 10, 8),
+            paperpaw_platform::Rect::new(content.x + 40, content.y + 30, 20, 15),
+        );
+        // From the region's corner (the content here: no screen in the stack).
+        let area = |r: paperpaw_platform::Rect| {
+            super::super::Area::new(
+                i32::from(r.x - content.x),
+                i32::from(r.y - content.y),
+                u32::from(r.width),
+                u32::from(r.height),
+            )
+            .unwrap()
+        };
+        // One far outside the screen marks nothing.
+        let outside = super::super::Area::new(500, 500, 100, 100).unwrap();
+        kernel.frame.pending = None;
+        kernel.frame.pending_weight = 0;
+        kernel.output.redraw = false;
+        kernel.output.refresh = None;
+        kernel.drain_native_ui(
+            &owner,
+            Vec::new(),
+            Some(Redraw {
+                screen: key,
+                mode: Some(RefreshMode::Partial),
+                whole: false,
+                areas: alloc::vec![area(a), area(b), outside],
+            }),
+        );
+        assert!(!kernel.output.redraw, "not the whole screen");
+        assert_eq!(kernel.output.refresh, Some(RefreshMode::Partial));
+        assert_eq!(kernel.frame.pending, Some(a.union(&b)));
+        // What the refresh weighs: the two areas, not the rectangle around them.
+        assert_eq!(kernel.frame.pending_weight, 10 * 8 + 20 * 15);
+    }
+
+    #[test]
+    fn areas_asked_with_the_whole_screen_follow_in_the_next_frame() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let owner = Id::new_static("probe");
+        let key = ScreenKey::new(7);
+        kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+            Id::new_static("probe.screen"),
+            None,
+            false,
+            key,
+        ));
+        let content = kernel.content();
+        let picture = paperpaw_platform::Rect::new(content.x + 5, content.y + 10, 30, 20);
+        let area = super::super::Area::new(
+            i32::from(picture.x - content.x),
+            i32::from(picture.y - content.y),
+            u32::from(picture.width),
+            u32::from(picture.height),
+        )
+        .unwrap();
+        let redraw = |areas| Redraw {
+            screen: key,
+            mode: Some(RefreshMode::Partial),
+            whole: true,
+            areas,
+        };
+        kernel.output.redraw = false;
+        kernel.drain_native_ui(&owner, Vec::new(), Some(redraw(alloc::vec![area])));
+        // The page first; the picture waits, and the shell is to come back.
+        assert!(kernel.output.redraw);
+        assert!(kernel.frame.followup.is_some());
+        assert_eq!(kernel.followup_due(true), Some(kernel.now));
+        kernel.run_followup();
+        assert!(
+            kernel.frame.followup.is_some(),
+            "not before the page is drawn"
+        );
+        // The page was drawn: only the picture now, weighed alone.
+        kernel.output.redraw = false;
+        kernel.output.refresh = None;
+        kernel.frame.pending = None;
+        kernel.frame.unrendered = None;
+        kernel.frame.pending_weight = 0;
+        kernel.run_followup();
+        assert_eq!(kernel.frame.pending, Some(picture));
+        assert_eq!(kernel.frame.pending_weight, 30 * 20);
+        // Its frame is the follow-up's: the screen's draws are marked while
+        // it is drawn (and drawn again for the panel), not after.
+        assert_eq!(kernel.frame.followup_frame, Some(key));
+        kernel.frame.unrendered = kernel.frame.pending.take();
+        kernel.render(&mut |_, _| {});
+        assert!(!kernel.shared.stack_rows.is_followup(key));
+        assert_eq!(kernel.output.refresh, Some(RefreshMode::Partial));
+        assert_eq!(
+            (kernel.frame.followup.is_none(), kernel.followup_due(false)),
+            (true, None)
+        );
+        // A follow-up whose screen left the top is dropped.
+        kernel.drain_native_ui(&owner, Vec::new(), Some(redraw(alloc::vec![area])));
+        kernel.output.redraw = false;
+        kernel.frame.pending = None;
+        kernel.frame.unrendered = None;
+        kernel.shared.stack.clear();
+        kernel.run_followup();
+        assert_eq!(
+            (kernel.frame.followup.is_none(), kernel.frame.pending),
+            (true, None)
+        );
+    }
+
+    #[test]
     fn redraw_only_preserves_refresh_and_stale_instance_effects_are_dropped() {
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
             .build()
@@ -839,6 +1193,8 @@ mod tests {
             Some(Redraw {
                 screen: key,
                 mode: None,
+                whole: true,
+                areas: Vec::new(),
             }),
         );
         assert!(kernel.output.redraw);
@@ -861,6 +1217,8 @@ mod tests {
             Some(Redraw {
                 screen: key,
                 mode: Some(RefreshMode::Full),
+                whole: true,
+                areas: Vec::new(),
             }),
         );
         assert!(!kernel.output.redraw);

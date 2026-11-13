@@ -32,6 +32,8 @@ pub(crate) use ui::Redraw;
 
 #[path = "commands_items.rs"]
 mod items;
+#[path = "commands_redraw.rs"]
+mod redraw;
 pub(crate) use items::ItemAdmit;
 #[cfg_attr(
     not(test),
@@ -41,22 +43,22 @@ pub(crate) use items::ItemAdmit;
     )
 )]
 pub(crate) use items::ItemRoom;
+pub(crate) use redraw::{Area, FOLLOWUP_ID, Followup};
 
+#[path = "commands_answers.rs"]
+mod answers;
 #[path = "commands_presets.rs"]
 mod preset;
 #[cfg(test)]
 pub(crate) use preset::{covers as preset_covers, plan as preset_plan, walk as preset_walk};
 #[path = "commands_nav.rs"]
 mod nav;
+pub(crate) use nav::PolicyChange;
 
 #[path = "commands_open.rs"]
 mod open;
 pub(crate) use open::Opens;
 
-#[allow(
-    dead_code,
-    reason = "native screen dispatch installs DEV command authority next"
-)]
 #[path = "commands_dev.rs"]
 pub(crate) mod dev;
 
@@ -64,6 +66,14 @@ pub(crate) mod dev;
 #[derive(Clone, Copy, Debug)]
 pub struct CommandAuthority {
     guarded_exempt: bool,
+}
+
+impl CommandAuthority {
+    /// The authority of a plugin that may (`true`) or may not change the
+    /// guarded settings.
+    pub(crate) const fn new(guarded_exempt: bool) -> Self {
+        Self { guarded_exempt }
+    }
 }
 
 impl crate::Kernel {
@@ -122,12 +132,26 @@ pub struct CommandStage<'a> {
     handovers: Option<open::Handovers<'a>>,
     opens: Opens,
     redraw: Option<u32>,
+    /// `command.redraw_area`s of the callback (`commands_redraw.rs`).
+    areas: redraw::Areas,
     accepted: usize,
     /// `image_prepare` / `image_release` admission, once the host gave it.
     images: Option<ImageAdmit>,
     /// Picture requests of the plugin held elsewhere (kept for a retry or
     /// failed, not yet told): they count against its room.
     images_held: usize,
+    /// Texts of the plugin the kernel's speech holds (being spoken or waiting).
+    speech_held: usize,
+    /// Plugin requests open device-wide (`plugin_requests.rs`).
+    requests_open: usize,
+    /// How many of them are this plugin's (at most [`super::plugin_requests::MAX_PER_PLUGIN`]
+    /// may be open).
+    own_requests: u8,
+    /// What the kernel knows of the plugin requests and of the submitter's
+    /// right to answer them (`commands_answers.rs`).
+    answer_view: super::plugin_requests::AnswerView,
+    /// The answers to apply after the callback (`commands_answers.rs`).
+    staged_answers: Vec<super::plugin_requests::Answer>,
     /// The callback belongs to a work run (`work.md` section 2, "background
     /// work is quiet"): commands that show something are refused.
     quiet: bool,
@@ -177,10 +201,16 @@ impl<'a> CommandStage<'a> {
             handovers: None,
             opens: Opens::default(),
             redraw: None,
+            areas: redraw::Areas::default(),
             accepted: 0,
             images: None,
             quiet: false,
             images_held: 0,
+            speech_held: 0,
+            requests_open: 0,
+            own_requests: 0,
+            answer_view: super::plugin_requests::AnswerView::default(),
+            staged_answers: Vec::new(),
             staged_images: Vec::new(),
             items: None,
             staged_items: Vec::new(),
@@ -215,6 +245,17 @@ impl<'a> CommandStage<'a> {
     /// The picture requests of the plugin that wait outside the table.
     pub(crate) fn set_images_held(&mut self, held: usize) {
         self.images_held = held;
+    }
+
+    /// The plugin requests open device-wide.
+    pub(crate) fn set_requests_open(&mut self, open: usize, own: usize) {
+        self.requests_open = open;
+        self.own_requests = u8::try_from(own).unwrap_or(u8::MAX);
+    }
+
+    /// The texts of the plugin that the kernel's speech holds.
+    pub(crate) fn set_speech_held(&mut self, held: usize) {
+        self.speech_held = held;
     }
 
     /// As [`Self::with_images`], on a stage already lent (the instance's
@@ -290,12 +331,18 @@ impl<'a> CommandStage<'a> {
             Ok(checked) => checked,
             Err(status) => return status,
         };
+        // Answers to plugin requests (`commands_answers.rs`): checked, copied.
+        let (answers, answer_bytes) = match self.validate_answers(batch) {
+            Ok(checked) => checked,
+            Err(status) => return status,
+        };
         // Registration, scalar ranges and the byte budget, without allocating.
         let mut bytes = self
             .bytes
             .saturating_add(dev_bytes)
             .saturating_add(item_bytes)
-            .saturating_add(preset_bytes);
+            .saturating_add(preset_bytes)
+            .saturating_add(answer_bytes);
         if bytes > self.byte_limit {
             return ERR_NO_SPACE;
         }
@@ -309,6 +356,7 @@ impl<'a> CommandStage<'a> {
             || self.staged_images.try_reserve(image_commands).is_err()
             || self.staged_items.try_reserve(item_states.len()).is_err()
             || self.staged_presets.try_reserve(presets.len()).is_err()
+            || self.staged_answers.try_reserve(answers.len()).is_err()
         {
             return ERR_NO_MEMORY;
         }
@@ -327,6 +375,7 @@ impl<'a> CommandStage<'a> {
         if let Err(error) = self
             .dev_reserve(batch)
             .and_then(|()| self.reserve_opens(batch))
+            .and_then(|()| self.reserve_areas(batch))
         {
             return error;
         }
@@ -352,12 +401,9 @@ impl<'a> CommandStage<'a> {
         // Capacity is reserved, so this cannot reallocate.
         self.staged_items.extend(item_states);
         self.staged_presets.extend(presets);
+        self.staged_answers.extend(answers);
         self.keep_claims(claims);
-        for command in batch.iter() {
-            if let WireCommand::Redraw { mode } = command {
-                self.redraw = Some(self.redraw.map_or(mode, |old| old.max(mode)));
-            }
-        }
+        self.push_redraws(batch);
         self.accepted += batch.len();
         self.bytes = bytes;
         self.images = images;
@@ -396,6 +442,7 @@ impl<'a> CommandStage<'a> {
                 let checked = if dev::is_dev(&command)
                     || Self::is_item_state(&command)
                     || Self::is_preset(&command)
+                    || Self::is_answer(&command)
                 {
                     Ok(0)
                 } else {
@@ -409,15 +456,16 @@ impl<'a> CommandStage<'a> {
             };
             self.validate_setting(key, value, bytes)?;
         }
-        Ok(())
+        self.validate_speech_room(batch)?;
+        self.validate_plugin_requests(batch)
     }
 
     /// A batch refused whole, whatever else it holds, the stage as it was.
     #[inline(never)]
     fn refused_before_checks(&self, batch: &CommandBatch<'_>) -> Option<i32> {
-        // `answer_plugin` and a write of a grant are refused for every plugin
-        // (`refused_outright`).
-        if let Some(status) = refused_outright(batch) {
+        // A write of a grant is refused for every plugin (`refused_outright`),
+        // `answer_plugin` for one that did not declare `uses.install`.
+        if let Some(status) = refused_outright(batch).or_else(|| self.answers_denied(batch)) {
             return Some(status);
         }
         // In a work run's callback only the listed commands are staged (the
@@ -433,6 +481,7 @@ impl<'a> CommandStage<'a> {
                 !matches!(
                     command,
                     WireCommand::Redraw { .. }
+                        | WireCommand::RedrawArea { .. }
                         | WireCommand::SetHint { .. }
                         | WireCommand::WidgetChanged { .. }
                         | WireCommand::ScreenPolicy { .. }
@@ -440,6 +489,7 @@ impl<'a> CommandStage<'a> {
                 ) && !dev::is_dev(command)
                     && !Self::is_item_state(command)
                     && !Self::is_preset(command)
+                    && !Self::is_answer(command)
             })
             .count()
     }
@@ -494,9 +544,12 @@ impl<'a> CommandStage<'a> {
         images: bool,
     ) -> Result<(), i32> {
         for command in batch.iter() {
-            if matches!(command, WireCommand::Redraw { .. })
-                || Self::is_item_state(&command)
+            if matches!(
+                command,
+                WireCommand::Redraw { .. } | WireCommand::RedrawArea { .. }
+            ) || Self::is_item_state(&command)
                 || Self::is_preset(&command)
+                || Self::is_answer(&command)
             {
                 continue;
             }
@@ -606,14 +659,17 @@ impl fmt::Debug for CommandStage<'_> {
 
 /// Whether a callback of a work run may stage `command` (`work.md` section
 /// 2, "background work is quiet"): a redraw of its own screens, settings,
-/// pictures, widget values and item states, and the network. Everything else
-/// is refused, so a command added later (a notice, a preview, an install or
-/// firmware confirmation, Bluetooth pairing, an `open`) shows nothing in the
-/// background until it is named here.
+/// pictures, widget values and item states, the network, and a notify with the
+/// `announce` bit (`ui.md` section 7: device messages and rules the user set
+/// up, which the kernel shows at its next pump, in its queue of waiting
+/// notices). Everything else is refused, so a command added later (a plain
+/// notice, a preview, an install or firmware confirmation, Bluetooth pairing,
+/// an `open`) shows nothing in the background until it is named here.
 fn allowed_in_a_run(command: &WireCommand<'_>) -> bool {
     matches!(
         command,
         WireCommand::Redraw { .. }
+            | WireCommand::RedrawArea { .. }
             | WireCommand::SetSetting { .. }
             | WireCommand::ResetSetting { .. }
             | WireCommand::SetItemState { .. }
@@ -628,7 +684,7 @@ fn allowed_in_a_run(command: &WireCommand<'_>) -> bool {
             | WireCommand::WifiHost { .. }
             | WireCommand::NetworkNone {}
             | WireCommand::GoOnline { .. }
-    )
+    ) || matches!(command, WireCommand::Notify { flags, .. } if flags & ui::NOTIFY_ANNOUNCE != 0)
 }
 
 /// Allocation-free command slot inside a pinned host context.
@@ -722,21 +778,15 @@ impl CommandScope {
 
 /// A batch no plugin may send: `ERR_DENIED` for the whole of it.
 ///
-/// `answer_plugin` needs the install feature (`uses.install`, DEV,
-/// `docs/abi/device.md` section 1). Until command staging checks features (DEV
-/// host side), it is refused for every plugin, wherever it sits in the batch.
+/// (`answer_plugin` needs the install feature, `uses.install`: refused for
+/// the others in `commands_answers.rs`.)
 ///
 /// User grants are the host's alone (`screens-input.md`, guarded grants): a
 /// command that sets, resets or previews a `core.grant.*` setting refuses the
 /// whole batch, for every plugin, the one the grant names and the settings
 /// editor included.
 fn refused_outright(batch: &CommandBatch<'_>) -> Option<i32> {
-    batch
-        .iter()
-        .any(|command| {
-            matches!(command, WireCommand::AnswerPlugin { .. }) || touches_grant(command)
-        })
-        .then_some(ERR_DENIED)
+    batch.iter().any(touches_grant).then_some(ERR_DENIED)
 }
 
 /// Whether `command` writes a user grant (`core.grant.*`). `ApplyPreset` names
@@ -766,6 +816,10 @@ impl fmt::Debug for CommandScope {
 #[cfg(test)]
 #[path = "commands_limit_tests.rs"]
 mod limit_tests;
+
+#[cfg(test)]
+#[path = "commands_redraw_below_tests.rs"]
+mod redraw_below_tests;
 
 #[cfg(test)]
 #[path = "commands_hint_tests.rs"]

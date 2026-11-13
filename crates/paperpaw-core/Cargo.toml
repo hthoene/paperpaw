@@ -20,10 +20,23 @@ default = []
 # `panes` feature (on by default in its defaults) asks for it; the SDK is
 # the same either way. In the kernel's own tests: `--features panes`.
 panes = []
+# The reader is the linked native plugin (the app's `native-linked-reading`):
+# the book menu's *Open with…* is not registered, as its resolver is
+# interface 6's, not carried by interface 7 (`docs/abi/document.md` 1).
+native-reading = []
 # Colour framebuffers for colour e-ink panels.
 color = ["paperpaw-graphics/color"]
 # Scalable OpenType/TrueType fonts; not available on the ESP32-C3.
 outline = ["paperpaw-sdk/outline"]
+# Opens the X4's nested-callback stack gate (`ui_store::nested_closed`):
+# `stage.run`, `ui.compose`, the widget ops 7 and 12-15 and op 14 run another
+# plugin's callback inside the caller's on the small memory class too. For the
+# owner's X4 test image until the device measurement passes (#250), then the
+# X4 release; off by default.
+x4-nested = []
+# What the app's and the shells' tests ask the kernel and a shell never does
+# (`Kernel::native_is_parked`): never in a firmware build (#248, D1).
+testing = []
 
 [dependencies]
 paperpaw-native = { workspace = true, features = ["kernel"] }

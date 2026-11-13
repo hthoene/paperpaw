@@ -18,6 +18,18 @@ default = ["store-plugins", "diagnostics", "panes"]
 # `panes`): every shell with the app's defaults has it; the Xteink
 # firmware, never wide, leaves it out.
 panes = ["paperpaw-core/panes"]
+# Home and reader as linked native plugins too (their `NATIVE_PLUGINS` entries
+# and their settings tables, `fixed_tables`, are under this feature, so that
+# no table sits in the image of a build that does not link them); news and
+# vocabulary join them where `native-linked-store` links the store's plugins.
+native-linked-reading = [
+    "native-linked",
+    "paperpaw-core/native-reading",
+    "paperpaw-plugin-home/linked",
+    "paperpaw-plugin-reader/linked",
+    "paperpaw-plugin-news?/linked",
+    "paperpaw-plugin-vocabulary?/linked",
+]
 # The plugins the store offers as files too (ADR 0024): built in where a
 # shell takes them (Android, the emulator, tests), left out of the X4's
 # and the X4 Pro's firmware (see `StorePlugins`).
@@ -72,7 +84,26 @@ native-linked = [
     "paperpaw-plugin-opds/linked",
     "paperpaw-plugin-settings/linked",
     "paperpaw-plugin-setup/linked",
+    "paperpaw-plugin-transfer/linked",
     "paperpaw-plugin-update/linked",
+    "paperpaw-plugin-wifi/linked",
+]
+# The plugins the store offers as files too (`STORE_PLUGINS`) whose interface-6
+# form is gone under `native-linked`, linked as well. Not for the X4 and the X4
+# Pro, which get them as plugin files (their size is the store's, not the
+# image's); the shells that link every plugin (the emulator) name both.
+native-linked-store = [
+    "native-linked",
+    "dep:paperpaw-plugin-aids",
+    "dep:paperpaw-plugin-mail",
+    "dep:paperpaw-plugin-notes-vault",
+    "dep:paperpaw-plugin-widgets",
+    "dep:paperpaw-plugin-news",
+    "dep:paperpaw-plugin-vocabulary",
+    "paperpaw-plugin-aids/linked",
+    "paperpaw-plugin-mail/linked",
+    "paperpaw-plugin-notes-vault/linked",
+    "paperpaw-plugin-widgets/linked",
 ]
 
 [build-dependencies]
@@ -88,7 +119,15 @@ paperpaw-plugin-files = { workspace = true, optional = true }
 paperpaw-plugin-fonts-default = { workspace = true, default-features = false }
 paperpaw-plugin-fonts-browser = { workspace = true, optional = true }
 paperpaw-plugin-store.workspace = true
+paperpaw-epub-family.workspace = true
+# The five plugins' crates, listed here for the plugin list and the catalog
+# indexes (build.rs); the interface-6 registrations come from the family
+# crate until the removals.
 paperpaw-plugin-format-epub.workspace = true
+paperpaw-plugin-format-html.workspace = true
+paperpaw-plugin-format-fb2.workspace = true
+paperpaw-plugin-format-markdown.workspace = true
+paperpaw-plugin-format-cbz.workspace = true
 paperpaw-plugin-format-txt.workspace = true
 paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true
@@ -121,8 +160,19 @@ paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
 
 [dev-dependencies]
+# `Kernel::native_is_parked` for the sleep tests (never in a firmware build).
+paperpaw-core = { workspace = true, features = ["testing"] }
 paperpaw-platform.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
+# Comic books for the sleep tests (#248).
+paperpaw-zip = { workspace = true, features = ["testing"] }
+
+# One check in its own process, no test harness: its allocator counts every
+# allocation, and libtest's captured output would grow the heap it measures.
+[[test]]
+name = "sleep_cycles"
+harness = false
+required-features = ["native-linked"]
 
 [lints]
 workspace = true

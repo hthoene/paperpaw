@@ -9,13 +9,15 @@
 //! stops. Nothing here runs plugin code, and a read never allocates.
 
 use super::{event_tags::EventTags, stack_rows::StackRows, work_sched::WorkSched};
-use alloc::{rc::Rc, string::String, vec::Vec};
+use alloc::{rc::Rc, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_sdk::Id;
 
 struct Row {
     key: u64,
-    id: String,
+    /// A linked plugin's id is kept in the firmware: no heap (#248, D4).
+    id: Id,
     tags: EventTags,
 }
 
@@ -26,7 +28,7 @@ pub(crate) struct OwnerDirectory {
     /// The kernel's screen stack, once a native owner was admitted.
     screens: RefCell<Option<Rc<StackRows>>>,
     /// The scheduler, once `core.work` is wired.
-    sched: RefCell<Option<Rc<WorkSched>>>,
+    sched: RefCell<Option<super::shared::Shared<WorkSched>>>,
     /// Updates ([`Self::subscribe`], [`Self::withdraw`]) that found the table
     /// held and were skipped; the kernel reports them ([`Self::take_missed`]).
     /// A missed subscribe fails closed (nothing is admitted); a missed
@@ -68,9 +70,9 @@ impl OwnerDirectory {
     }
 
     /// Keeps the scheduler for [`Self::current_run`].
-    pub(crate) fn attach_sched(&self, sched: &Rc<WorkSched>) {
+    pub(crate) fn attach_sched(&self, sched: super::shared::Shared<WorkSched>) {
         if let Ok(mut slot) = self.sched.try_borrow_mut() {
-            *slot = Some(Rc::clone(sched));
+            *slot = Some(sched);
         }
     }
 
@@ -92,6 +94,25 @@ impl OwnerDirectory {
             .ok()?
             .as_ref()?
             .topmost_screen(owner)
+    }
+
+    /// Whether an enabled plugin with the id `id` has a screen on the stack
+    /// (shown or covered). Unknown state (the table or the snapshot held or
+    /// stale) says `true`: the caller holds back; no stack attached says
+    /// `false` (no screens). No allocation.
+    pub(crate) fn plugin_has_screen(&self, id: &str) -> bool {
+        let Ok(screens) = self.screens.try_borrow() else {
+            return true;
+        };
+        let Some(screens) = screens.as_ref() else {
+            return false;
+        };
+        let Ok(rows) = self.rows.try_borrow() else {
+            return true;
+        };
+        rows.iter()
+            .filter(|row| row.id.as_str() == id)
+            .any(|row| screens.has_screen(row.key).unwrap_or(true))
     }
 
     /// Whether the work scheduler can be asked now (attached and not in use):
@@ -164,19 +185,25 @@ impl OwnerDirectory {
         }
     }
 
+    /// Gives back the room the rows kept while owners were admitted one by
+    /// one (the list grows by doubling): called once the plugins are hosted.
+    /// A list in use is left as it is.
+    pub(crate) fn shrink_to_fit(&self) {
+        if let Ok(mut rows) = self.rows.try_borrow_mut() {
+            super::shrink::shrink(&mut rows);
+        }
+    }
+
     /// Adds the row of an enabled owner (no subscriptions yet).
     ///
     /// # Errors
     /// `ERR_NO_MEMORY` (nothing is added), `ERR_BUSY` (a reader is visiting).
-    pub(crate) fn admit(&self, key: u64, id: &str) -> Result<(), i32> {
+    pub(crate) fn admit(&self, key: u64, id: &Id) -> Result<(), i32> {
         super::net_service::gate()?;
         let mut rows = self.rows.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         rows.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         super::net_service::gate()?;
-        let mut copy = String::new();
-        copy.try_reserve_exact(id.len())
-            .map_err(|_| ERR_NO_MEMORY)?;
-        copy.push_str(id);
+        let copy = id.try_clone().ok_or(ERR_NO_MEMORY)?;
         rows.retain(|row| row.key != key);
         rows.push(Row {
             key,
@@ -225,7 +252,7 @@ impl OwnerDirectory {
     pub(crate) fn with_id(&self, key: u64, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
         let rows = self.rows.try_borrow().map_err(|_| ERR_STATE)?;
         let row = rows.iter().find(|row| row.key == key).ok_or(ERR_STATE)?;
-        visit(&row.id);
+        visit(row.id.as_str());
         Ok(())
     }
 
@@ -243,6 +270,7 @@ impl OwnerDirectory {
 mod tests {
     use super::*;
     use crate::native_host::net_service::fail_nth;
+    use alloc::string::String;
 
     fn tags(of: &[u32]) -> EventTags {
         let mut set = EventTags::default();
@@ -262,7 +290,7 @@ mod tests {
     fn an_admitted_owner_has_its_id_and_a_stopped_one_has_none() {
         let dir = OwnerDirectory::new();
         assert_eq!(id_of(&dir, 7), Err(ERR_STATE));
-        dir.admit(7, "net.probe").unwrap();
+        dir.admit(7, &Id::new_static("net.probe")).unwrap();
         assert_eq!(id_of(&dir, 7).as_deref(), Ok("net.probe"));
         assert_eq!(id_of(&dir, 8), Err(ERR_STATE));
         dir.withdraw(7);
@@ -288,8 +316,9 @@ mod tests {
         }]);
         assert_eq!(dir.topmost_screen(9), Some(4));
         assert_eq!(dir.topmost_screen(8), None);
-        let sched = Rc::new(WorkSched::new(Limits::OTHER));
-        dir.attach_sched(&sched);
+        let sched =
+            crate::native_host::shared::Shared::try_new(WorkSched::new(Limits::OTHER)).unwrap();
+        dir.attach_sched(sched.try_clone().unwrap());
         assert!(dir.run_known());
         assert_eq!(dir.current_run(9), None);
         // The scheduler in use: not known (never "no run").
@@ -298,10 +327,39 @@ mod tests {
     }
 
     #[test]
+    fn a_plugin_has_a_screen_while_one_of_its_rows_is_on_the_stack() {
+        use crate::native_host::stack_rows::{HOST, OVERLAY, StackRow, StackRows};
+        let row = |instance, owner, flags| StackRow {
+            instance,
+            owner,
+            flags,
+        };
+        let dir = OwnerDirectory::new();
+        dir.admit(5, &Id::new_static("files")).unwrap();
+        dir.admit(6, &Id::new_static("home")).unwrap();
+        assert!(!dir.plugin_has_screen("files"), "no stack, no screens");
+        let rows = Rc::new(StackRows::default());
+        dir.attach_screens(&rows);
+        rows.update([row(1, 6, 0)]);
+        assert!(!dir.plugin_has_screen("files") && dir.plugin_has_screen("home"));
+        // Covered by another owner's screen, or by a dialog: still up.
+        rows.update([
+            row(1, 5, 0),
+            row(2, 6, 0),
+            row(3, 5, OVERLAY),
+            row(4, 0, HOST),
+        ]);
+        assert!(dir.plugin_has_screen("files"));
+        rows.update([row(2, 6, 0), row(4, 0, HOST)]);
+        assert!(!dir.plugin_has_screen("files"), "gone from the stack");
+        assert!(!dir.plugin_has_screen("nobody"));
+    }
+
+    #[test]
     fn subscriptions_belong_to_their_owner_only() {
         let dir = OwnerDirectory::new();
-        dir.admit(1, "a").unwrap();
-        dir.admit(2, "b").unwrap();
+        dir.admit(1, &Id::new_static("a")).unwrap();
+        dir.admit(2, &Id::new_static("b")).unwrap();
         assert!(!dir.subscribed(1, 99), "nothing before the install");
         dir.subscribe(1, tags(&[99]));
         dir.subscribe(3, tags(&[99]));
@@ -315,11 +373,11 @@ mod tests {
     #[test]
     fn a_busy_table_answers_state_and_never_panics() {
         let dir = OwnerDirectory::new();
-        dir.admit(1, "a").unwrap();
+        dir.admit(1, &Id::new_static("a")).unwrap();
         let mut inner = Ok(());
         dir.with_id(1, &mut |_| {
             inner = dir.with_id(1, &mut |_| {});
-            assert_eq!(dir.admit(2, "b"), Err(ERR_BUSY));
+            assert_eq!(dir.admit(2, &Id::new_static("b")), Err(ERR_BUSY));
             dir.withdraw(1);
         })
         .unwrap();
@@ -340,11 +398,38 @@ mod tests {
         let dir = OwnerDirectory::new();
         for nth in [1, 2] {
             fail_nth(nth);
-            assert_eq!(dir.admit(1, "a"), Err(ERR_NO_MEMORY), "failure {nth}");
+            assert_eq!(
+                dir.admit(1, &Id::new_static("a")),
+                Err(ERR_NO_MEMORY),
+                "failure {nth}"
+            );
             fail_nth(0);
             assert_eq!(id_of(&dir, 1), Err(ERR_STATE), "no half row after {nth}");
         }
-        dir.admit(1, "a").unwrap();
+        dir.admit(1, &Id::new_static("a")).unwrap();
         assert_eq!(id_of(&dir, 1).as_deref(), Ok("a"));
+    }
+}
+
+#[cfg(test)]
+mod shrink_tests {
+    extern crate std;
+    use super::*;
+
+    #[test]
+    fn the_rows_give_back_what_doubling_kept() {
+        let directory = OwnerDirectory::new();
+        for key in 1..=13_u64 {
+            directory.admit(key, &Id::new_static("plugin")).unwrap();
+        }
+        let capacity = |d: &OwnerDirectory| d.rows.borrow().capacity();
+        assert!(capacity(&directory) >= 16);
+        directory.shrink_to_fit();
+        assert_eq!(capacity(&directory), 13);
+        // A list that is being read is left as it is.
+        let reading = directory.rows.borrow();
+        directory.shrink_to_fit();
+        drop(reading);
+        assert_eq!(directory.rows.borrow().len(), 13);
     }
 }

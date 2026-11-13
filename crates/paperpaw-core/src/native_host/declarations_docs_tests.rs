@@ -124,6 +124,27 @@ fn lookup(languages: &str, flags: u32) -> LookupSpec<'_> {
 }
 
 #[test]
+fn a_lookup_provider_name_is_at_most_64_bytes() {
+    fn spec(name: &str) -> LookupSpec<'_> {
+        LookupSpec {
+            name,
+            title: "lookup.dict",
+            languages: "",
+            flags: 0,
+            token: 1,
+        }
+    }
+    let name = |n: usize| "a".repeat(n);
+    assert_eq!(lookup_check("dictionary", &spec(&name(64))), Ok(()));
+    // `lookup_entry.provider` holds 64 bytes.
+    assert_eq!(
+        lookup_check("dictionary", &spec(&name(65))),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(lookup_check("dictionary", &spec("")), Err(ERR_INVALID));
+}
+
+#[test]
 fn a_lookup_provider_lists_up_to_32_language_tags_or_any() {
     assert_eq!(lookup_check("dictionary", &lookup("", 1)), Ok(()));
     assert_eq!(
@@ -186,12 +207,28 @@ fn a_book_data_name_is_one_folder_name_of_lowercase_letters_digits_and_dashes() 
     let check = |name| book_data_check("notes-vault", &BookDataSpec { name, kind: 0 });
     let longest = "a".repeat(96);
     let too_long = "a".repeat(97);
-    for name in ["notes", "a", "0", "notes-2", "-", "--", longest.as_str()] {
+    for name in [
+        "notes",
+        "a",
+        "0",
+        "notes-2",
+        "-",
+        "--",
+        longest.as_str(),
+        // 15 and 17 hex digits, and 16 with a letter past `f`: no key.
+        "0123456789abcde",
+        "0123456789abcdef0",
+        "0123456789abcdeg",
+    ] {
         assert_eq!(check(name), Ok(()), "{name}");
     }
     for name in [
         "",
         too_long.as_str(),
+        // 16 hex digits: a book's scope folder `books/<key>/` (#257).
+        "0123456789abcdef",
+        // Upper case is refused by the name rule anyway.
+        "0123456789ABCDEF",
         "Notes",
         "nOtes",
         "a/b",
@@ -217,11 +254,10 @@ fn a_format_is_admitted_and_a_bad_one_is_invalid() {
     use crate::native_host::declarations::validate_record;
     let spec = format("epub", 0);
     assert_eq!(validate_record(PLUGIN, &Record::FormatSpec(spec)), Ok(()));
-    // The lookup and book declarations are checked and refused until the
-    // host admits them.
+    // A lookup provider is admitted too.
     assert_eq!(
         validate_record(PLUGIN, &Record::LookupSpec(lookup("en", 0))),
-        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+        Ok(())
     );
     let mut bad = format("EPUB", 0);
     bad.name = "epub";

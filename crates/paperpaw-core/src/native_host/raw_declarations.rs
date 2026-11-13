@@ -459,7 +459,28 @@ pub(crate) fn offsets(wire: &[u8], count: usize) -> Result<[u16; REGISTRATION_MA
     }
     Ok(offsets)
 }
-fn varint(wire: &[u8], cursor: &mut usize) -> Result<u32, i32> {
+/// The bytes from record `index` of the batch `wire` on (0 the first): its
+/// frames walked, not decoded. `ERR_INVALID` for a place past the batch's
+/// count or a frame that leaves it.
+pub(crate) fn record_at(wire: &[u8], index: usize) -> Result<&[u8], i32> {
+    let mut cursor = 0;
+    let count = varint(wire, &mut cursor)?;
+    if index >= count as usize {
+        return Err(ERR_INVALID);
+    }
+    for _ in 0..index {
+        varint(wire, &mut cursor)?;
+        let len = usize::try_from(varint(wire, &mut cursor)?).map_err(|_| ERR_INVALID)?;
+        cursor = cursor
+            .checked_add(len)
+            .filter(|end| *end <= wire.len())
+            .ok_or(ERR_INVALID)?;
+    }
+    wire.get(cursor..).ok_or(ERR_INVALID)
+}
+/// The LEB128 `u32` at `cursor` (moved past it); `ERR_INVALID` past the end or
+/// over 32 bits.
+pub(crate) fn varint(wire: &[u8], cursor: &mut usize) -> Result<u32, i32> {
     let mut value = 0;
     for shift in (0..=28).step_by(7) {
         let byte = *wire.get(*cursor).ok_or(ERR_INVALID)?;

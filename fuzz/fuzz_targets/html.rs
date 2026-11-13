@@ -4,8 +4,8 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
+use paperpaw_epub_family::HtmlDocument;
 use paperpaw_fuzz::read_document;
-use paperpaw_plugin_format_epub::HtmlDocument;
 use paperpaw_sdk::MemoryStorage;
 
 fuzz_target!(|data: &[u8]| {

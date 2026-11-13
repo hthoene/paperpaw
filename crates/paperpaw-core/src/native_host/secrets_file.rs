@@ -11,15 +11,20 @@
 //! Every buffer is one fallible allocation made up front, wiped when dropped.
 use alloc::vec::Vec;
 use core::fmt;
-use paperpaw_native::host_glue::{ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
+use paperpaw_native::host_glue::{
+    ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+};
 use paperpaw_platform::{Storage, StorageError};
 
 /// The file, in the data folder of the card (the private folder on Android).
 pub(super) const FILE: &str = ".paperpaw/secrets.txt";
 /// The new file, until it replaces the old by rename.
 pub(super) const TEMP: &str = ".paperpaw/secrets.new";
-/// The one read buffer.
-pub(super) const READ_BUF: usize = 4_096;
+/// The one read buffer: a whole line with its line break, and some room so
+/// that a read is not a few bytes long (it must be over [`LINE_MAX`], or a
+/// full buffer without a line break would read as the end of the file).
+pub(super) const READ_BUF: usize = LINE_MAX + 128;
+const _: () = assert!(READ_BUF > LINE_MAX);
 /// Longest line this host reads or writes, without its line break: the names,
 /// the label and a 1,024-byte value sealed (about 2.5 KiB).
 pub(super) const LINE_MAX: usize = 2_560;
@@ -112,7 +117,7 @@ impl Buf {
     }
 }
 
-fn nibble(byte: u8) -> Option<u8> {
+pub(super) fn nibble(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
         b'a'..=b'f' => Some(byte - b'a' + 10),
@@ -121,7 +126,7 @@ fn nibble(byte: u8) -> Option<u8> {
     }
 }
 
-fn is_hex(text: &[u8]) -> bool {
+pub(super) fn is_hex(text: &[u8]) -> bool {
     text.len().is_multiple_of(2) && text.iter().all(|byte| nibble(*byte).is_some())
 }
 
@@ -138,7 +143,7 @@ fn unhex_into(text: &[u8], out: &mut Buf) -> Result<(), i32> {
     Ok(())
 }
 
-fn veil(bytes: &mut [u8]) {
+pub(super) fn veil(bytes: &mut [u8]) {
     for (index, byte) in bytes.iter_mut().enumerate() {
         *byte ^= VEIL[index % VEIL.len()];
     }
@@ -212,7 +217,8 @@ pub(super) fn scan(
         loop {
             let window = &buf.data[start..end];
             let Some(at) = window.iter().position(|byte| *byte == b'\n') else {
-                if window.len() >= LINE_MAX {
+                // No break yet in more than `LINE_MAX` bytes: a longer line.
+                if window.len() > LINE_MAX {
                     let piece = Piece::Opaque {
                         bytes: window,
                         end: false,
@@ -225,7 +231,9 @@ pub(super) fn scan(
                 }
                 break;
             };
-            let piece = if opaque || at >= LINE_MAX {
+            // `at` is the line's length without its break: `LINE_MAX` is
+            // still a line this host reads.
+            let piece = if opaque || at > LINE_MAX {
                 Piece::Opaque {
                     bytes: &window[..at],
                     end: true,
@@ -400,6 +408,10 @@ pub(super) struct Opener<'a> {
     pub(super) sealer: &'a dyn Sealer,
     pub(super) plain: Buf,
     pub(super) blob: Buf,
+    /// A sealed value did not open here (another device's, a lost key): the
+    /// sealer said `ERR_NOT_FOUND`. A busy or unreadable flash is not that
+    /// (Senior R1, #254).
+    pub(super) unopened: bool,
 }
 
 impl<'a> Opener<'a> {
@@ -408,6 +420,7 @@ impl<'a> Opener<'a> {
             sealer,
             plain: Buf::new(SEALED_MAX)?,
             blob: Buf::new(SEALED_MAX)?,
+            unopened: false,
         })
     }
 
@@ -416,6 +429,7 @@ impl<'a> Opener<'a> {
     pub(super) fn open(&mut self, row: &Row<'_>) -> bool {
         self.plain.clear();
         self.blob.clear();
+        let mut absent_here = false;
         let opened = match row.field {
             Field::Veiled(hex) => unhex_into(hex, &mut self.plain).map(|()| {
                 let len = self.plain.len;
@@ -427,7 +441,10 @@ impl<'a> Opener<'a> {
                 let length = self
                     .sealer
                     .open(aad, self.blob.as_bytes(), &mut self.plain.data)
-                    .map_err(|_| ERR_IO)?;
+                    .map_err(|status| {
+                        absent_here = status == ERR_NOT_FOUND;
+                        ERR_IO
+                    })?;
                 if length > VALUE_MAX {
                     return Err(ERR_IO);
                 }
@@ -436,6 +453,9 @@ impl<'a> Opener<'a> {
             }),
         };
         self.blob.clear();
+        if opened.is_err() && absent_here {
+            self.unopened = true;
+        }
         let text = opened.is_ok()
             && self.plain.len <= VALUE_MAX
             && core::str::from_utf8(self.plain.as_bytes()).is_ok();
@@ -450,7 +470,7 @@ impl<'a> Opener<'a> {
     }
 }
 
-fn aad_of<'b>(
+pub(super) fn aad_of<'b>(
     owner: &str,
     name: &str,
     out: &'b mut [u8; 2 * NAME_MAX + 1],

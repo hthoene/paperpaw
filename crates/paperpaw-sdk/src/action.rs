@@ -276,19 +276,54 @@ impl FixedAction {
     }
 }
 
-/// An action as plugins added it, of either kind ([`Actions::get`]).
+/// An action of an interface-7 plugin (`docs/abi/screens-input.md` section
+/// 2): what it is called and which plugin's callback runs it, without a
+/// handler of its own. The kernel runs it by delivering `event.action_run`
+/// to `token` of plugin `owner` (`Action::native`, with the `kernel`
+/// feature). Its id and title are a linked plugin's entry kept in the program
+/// ([`Titled::kept`](crate::Titled::kept)) or a copy: some 24 bytes on a
+/// 32-bit device where an [`ActionSpec`] with a handler takes some 100 (#248).
+#[derive(Debug)]
+pub struct NativeAction {
+    titled: crate::Titled,
+    owner: u64,
+    token: u32,
+}
+
+impl NativeAction {
+    /// The action named by `titled` (its id and title), run by `token` of
+    /// plugin `owner`.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn new(titled: crate::Titled, owner: u64, token: u32) -> Self {
+        Self {
+            titled,
+            owner,
+            token,
+        }
+    }
+}
+
+/// An action as plugins added it, of any kind ([`Actions::get`]).
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub enum Action<'a> {
     Spec(&'a ActionSpec),
     Fixed(&'static FixedAction),
+    /// An interface-7 plugin's: the kernel runs it (`Action::native`, with
+    /// the `kernel` feature).
+    Native(&'a NativeAction),
 }
+
+/// How the row of hints shows a native action: by its title.
+static NATIVE_HINT: ActionHint = ActionHint::Title;
 
 impl<'a> Action<'a> {
     pub fn id(self) -> &'a Id {
         match self {
             Action::Spec(spec) => &spec.id,
             Action::Fixed(fixed) => &fixed.id,
+            Action::Native(native) => native.titled.id(),
         }
     }
 
@@ -297,6 +332,7 @@ impl<'a> Action<'a> {
         match self {
             Action::Spec(spec) => &spec.title,
             Action::Fixed(fixed) => fixed.title,
+            Action::Native(native) => native.titled.title(),
         }
     }
 
@@ -305,6 +341,7 @@ impl<'a> Action<'a> {
         match self {
             Action::Spec(spec) => spec.title.clone(),
             Action::Fixed(fixed) => Cow::Borrowed(fixed.title),
+            Action::Native(native) => native.titled.title_key(),
         }
     }
 
@@ -313,6 +350,7 @@ impl<'a> Action<'a> {
         match self {
             Action::Spec(spec) => &spec.hint,
             Action::Fixed(fixed) => &fixed.hint,
+            Action::Native(_) => &NATIVE_HINT,
         }
     }
 
@@ -321,6 +359,7 @@ impl<'a> Action<'a> {
         match self {
             Action::Spec(spec) => spec.description(),
             Action::Fixed(fixed) => fixed.description,
+            Action::Native(_) => None,
         }
     }
 
@@ -329,6 +368,7 @@ impl<'a> Action<'a> {
         match self {
             Action::Spec(spec) => spec.search_keywords(),
             Action::Fixed(fixed) => fixed.keywords,
+            Action::Native(_) => None,
         }
     }
 
@@ -337,6 +377,7 @@ impl<'a> Action<'a> {
         match self {
             Action::Spec(spec) => spec.is_sealed(),
             Action::Fixed(fixed) => fixed.sealed,
+            Action::Native(_) => false,
         }
     }
 
@@ -345,10 +386,25 @@ impl<'a> Action<'a> {
         match self {
             Action::Spec(spec) => spec.runs_itself(),
             Action::Fixed(fixed) => fixed.handler.is_some(),
+            // The kernel runs it ([`Action::native`]).
+            Action::Native(_) => true,
         }
     }
 
-    /// Runs its own handler with `params` into `out`; whether it has one.
+    /// The plugin and the callback token that run a native action, which
+    /// has no handler here: the kernel delivers `event.action_run` to them.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn native(self) -> Option<(u64, u32)> {
+        match self {
+            Action::Native(native) => Some((native.owner, native.token)),
+            _ => None,
+        }
+    }
+
+    /// Runs its own handler with `params` into `out`; whether it has one
+    /// (a native action has none: see `Action::native`, with the `kernel`
+    /// feature).
     pub fn run(self, env: &Env<'_>, params: &Params, out: &mut crate::Commands) -> bool {
         match self {
             Action::Spec(ActionSpec {
@@ -394,6 +450,9 @@ pub struct Actions {
     /// Those kept in the program, sorted by id; none of an id `specs`
     /// has (the one added last stays).
     fixed: Vec<&'static FixedAction>,
+    /// Those of interface-7 plugins, sorted by id; none of an id `specs` or
+    /// `fixed` has.
+    native: Vec<NativeAction>,
     /// Handlers plugins put in place of actions' own, the highest
     /// priority first: the action, the plugin, the handler.
     overrides: Vec<(Id, Priority, Id, ActionHandler)>,
@@ -405,6 +464,7 @@ impl fmt::Debug for Actions {
         f.debug_struct("Actions")
             .field("specs", &self.specs)
             .field("fixed", &self.fixed)
+            .field("native", &self.native)
             .field("overrides", &overrides)
             .finish()
     }
@@ -421,6 +481,9 @@ impl Actions {
         if let Ok(at) = self.find_fixed(action.id.as_str()) {
             self.fixed.remove(at);
         }
+        if let Ok(at) = self.find_native(action.id.as_str()) {
+            self.native.remove(at);
+        }
         match self.find(action.id.as_str()) {
             Ok(at) => self.specs[at] = action,
             Err(at) => self.specs.insert(at, action),
@@ -435,11 +498,46 @@ impl Actions {
             if let Ok(at) = self.find(action.id.as_str()) {
                 self.specs.remove(at);
             }
+            if let Ok(at) = self.find_native(action.id.as_str()) {
+                self.native.remove(at);
+            }
             match self.find_fixed(action.id.as_str()) {
                 Ok(at) => self.fixed[at] = action,
                 Err(at) => self.fixed.insert(at, action),
             }
         }
+    }
+
+    /// Adds an interface-7 plugin's action; room for it is made first
+    /// ([`Actions::try_reserve_native`]).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn insert_native(&mut self, action: NativeAction) {
+        let id = action.titled.id().as_str();
+        if let Ok(at) = self.find(id) {
+            self.specs.remove(at);
+        }
+        if let Ok(at) = self.find_fixed(id) {
+            self.fixed.remove(at);
+        }
+        match self.find_native(id) {
+            Ok(at) => self.native[at] = action,
+            Err(at) => self.native.insert(at, action),
+        }
+    }
+
+    /// Makes room for `additional` more native actions
+    /// ([`Actions::insert_native`]).
+    ///
+    /// # Errors
+    /// The heap refused the room; nothing changed.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn try_reserve_native(
+        &mut self,
+        additional: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.native.try_reserve_exact(additional)
     }
 
     /// Makes room for `additional` more actions, so that inserting them
@@ -463,6 +561,8 @@ impl Actions {
     pub fn remove_plugin(&mut self, plugin: &str) {
         self.specs.retain(|spec| spec.id.namespace() != plugin);
         self.fixed.retain(|fixed| fixed.id.namespace() != plugin);
+        self.native
+            .retain(|native| native.titled.id().namespace() != plugin);
         self.overrides.retain(|(action, _, owner, _)| {
             action.namespace() != plugin && owner.as_str() != plugin
         });
@@ -477,30 +577,34 @@ impl Actions {
             .binary_search_by(|fixed| fixed.id.as_str().cmp(id))
     }
 
+    fn find_native(&self, id: &str) -> Result<usize, usize> {
+        self.native
+            .binary_search_by(|native| native.titled.id().as_str().cmp(id))
+    }
+
     pub fn get(&self, id: &str) -> Option<Action<'_>> {
         match self.find(id) {
             Ok(at) => Some(Action::Spec(&self.specs[at])),
-            Err(_) => self
-                .find_fixed(id)
-                .ok()
-                .map(|at| Action::Fixed(self.fixed[at])),
+            Err(_) => match self.find_fixed(id) {
+                Ok(at) => Some(Action::Fixed(self.fixed[at])),
+                Err(_) => self
+                    .find_native(id)
+                    .ok()
+                    .map(|at| Action::Native(&self.native[at])),
+            },
         }
     }
 
     pub fn contains(&self, id: &str) -> bool {
-        self.find(id).is_ok() || self.find_fixed(id).is_ok()
+        self.find(id).is_ok() || self.find_fixed(id).is_ok() || self.find_native(id).is_ok()
     }
 
     /// Every action, by id.
     pub fn iter(&self) -> impl Iterator<Item = Action<'_>> {
-        let mut specs = self.specs.iter().map(Action::Spec).peekable();
-        let mut fixed = self.fixed.iter().map(|f| Action::Fixed(f)).peekable();
-        core::iter::from_fn(move || match (specs.peek(), fixed.peek()) {
-            (Some(s), Some(f)) if s.id() <= f.id() => specs.next(),
-            (Some(_), Some(_)) | (None, Some(_)) => fixed.next(),
-            (Some(_), None) => specs.next(),
-            (None, None) => None,
-        })
+        let specs = self.specs.iter().map(Action::Spec);
+        let fixed = self.fixed.iter().map(|f| Action::Fixed(f));
+        let native = self.native.iter().map(Action::Native);
+        by_id(by_id(specs, fixed), native)
     }
 
     /// Whether action `id` runs without a screen that takes it: it has a
@@ -597,8 +701,23 @@ impl Actions {
     pub fn shrink_to_fit(&mut self) {
         self.specs.shrink_to_fit();
         self.fixed.shrink_to_fit();
+        self.native.shrink_to_fit();
         self.overrides.shrink_to_fit();
     }
+}
+
+/// Two lists of actions sorted by id, as one sorted by id.
+fn by_id<'a>(
+    first: impl Iterator<Item = Action<'a>>,
+    second: impl Iterator<Item = Action<'a>>,
+) -> impl Iterator<Item = Action<'a>> {
+    let (mut first, mut second) = (first.peekable(), second.peekable());
+    core::iter::from_fn(move || match (first.peek(), second.peek()) {
+        (Some(a), Some(b)) if a.id() <= b.id() => first.next(),
+        (Some(_), Some(_)) | (None, Some(_)) => second.next(),
+        (Some(_), None) => first.next(),
+        (None, None) => None,
+    })
 }
 
 #[cfg(test)]
@@ -617,5 +736,68 @@ mod tests {
         assert!(!actions.contains("gone.one"));
         assert!(!actions.contains("gone.two"));
         assert_eq!(actions.iter().count(), 1);
+    }
+
+    /// A native action is found, listed in id order among the others, runs
+    /// itself through the kernel, gives way to a later action of its id and
+    /// goes with its plugin (#248).
+    #[test]
+    fn native_actions_are_kept_without_a_handler_and_run_by_the_kernel() {
+        static FIXED: [FixedAction; 1] = [FixedAction::new(Id::new_static("p.b"), "p.b")];
+        let mut actions = Actions::new();
+        actions.try_reserve_native(2).unwrap();
+        let native = |id, token| {
+            let owned = alloc::boxed::Box::new((Id::new_static(id), Cow::Borrowed(id)));
+            NativeAction::new(crate::Titled::owned(owned), 7, token)
+        };
+        actions.insert_native(native("p.c", 3));
+        actions.insert_native(native("p.a", 1));
+        actions.insert_fixed(&FIXED);
+        actions.insert(ActionSpec::new(Id::new_static("q.a"), "q.a"));
+        let ids: Vec<&str> = actions.iter().map(|a| a.id().as_str()).collect();
+        assert_eq!(ids, ["p.a", "p.b", "p.c", "q.a"]);
+        let c = actions.get("p.c").unwrap();
+        assert_eq!(
+            (c.native(), c.title(), c.runs_itself()),
+            (Some((7, 3)), "p.c", true)
+        );
+        assert!(actions.runnable("p.c"));
+        assert_eq!(actions.get("p.b").unwrap().native(), None);
+        // A later action of the same id takes its place, and the other way.
+        actions.insert(ActionSpec::new(Id::new_static("p.a"), "p.a"));
+        assert_eq!(actions.get("p.a").unwrap().native(), None);
+        actions.insert_native(native("q.a", 9));
+        assert_eq!(actions.get("q.a").unwrap().native(), Some((7, 9)));
+        assert_eq!(actions.iter().count(), 4);
+        actions.remove_plugin("p");
+        let ids: Vec<&str> = actions.iter().map(|a| a.id().as_str()).collect();
+        assert_eq!(ids, ["q.a"]);
+    }
+
+    /// A linked plugin's action: its id and title are the entry kept in the
+    /// program, and it reads as a copy of the same would (#248, B).
+    #[test]
+    fn a_native_action_kept_in_the_program_reads_as_a_copy() {
+        static KEPT: crate::TitleEntry =
+            crate::TitleEntry::new(Id::new_static("p.open"), "p.open-title");
+        let mut actions = Actions::new();
+        actions.try_reserve_native(2).unwrap();
+        actions.insert_native(NativeAction::new(crate::Titled::kept(&KEPT), 7, 3));
+        let owned =
+            alloc::boxed::Box::new((Id::new_static("q.open"), Cow::Borrowed("p.open-title")));
+        actions.insert_native(NativeAction::new(crate::Titled::owned(owned), 7, 4));
+        let kept = actions.get("p.open").unwrap();
+        let copy = actions.get("q.open").unwrap();
+        assert!(core::ptr::eq(kept.id(), &KEPT.id));
+        assert_eq!(kept.title(), copy.title());
+        assert!(matches!(kept.title_key(), Cow::Borrowed("p.open-title")));
+        assert_eq!((kept.native(), copy.native()), (Some((7, 3)), Some((7, 4))));
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn a_native_action_takes_32_bytes() {
+        // Its own id and title took 40 of 56 (#248, B).
+        assert!(core::mem::size_of::<NativeAction>() <= 32);
     }
 }

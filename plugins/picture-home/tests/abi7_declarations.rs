@@ -368,6 +368,7 @@ fn screens_offer_places_and_need_match() {
     );
     assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
     assert!(!batches(|d| declarations::navigation(d).unwrap()).is_empty());
+    assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 1);
 }
 
 /// What the batches say, decoded and checked by the host's rules, is what the
@@ -382,6 +383,7 @@ fn the_decoded_batches_say_what_the_registration_says() {
         batches(|d| declarations::settings(d).unwrap()),
         batches(|d| declarations::screens(d).unwrap()),
         batches(|d| declarations::navigation(d).unwrap()),
+        batches(|d| declarations::events(d).unwrap()),
     ] {
         all.extend(batch);
     }
@@ -436,6 +438,18 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.keys, old.keys);
     assert_eq!(native.menu_entries, old.menu_entries);
     assert_eq!(native.actions, old.actions);
-    assert!(native.events.is_empty());
+    // The minute tick (the status bar) and a widget that changed
+    // (`event.widget_changed`, its cell), in any order, and nothing else.
+    assert_eq!(native.events.len(), 2, "{:?}", native.events);
+    for token in [declarations::TICK, declarations::WIDGET_CHANGED] {
+        assert!(
+            native
+                .events
+                .iter()
+                .any(|e| e.ends_with(&format!(":{token}"))),
+            "{token} in {:?}",
+            native.events
+        );
+    }
     assert!(native.others.is_empty(), "{:?}", native.others);
 }

@@ -51,6 +51,9 @@ static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 )]
 mod declarations;
 mod native_entry;
+/// The picker of what goes over the page, without the host.
+pub mod native_pick;
+mod native_picker;
 /// The interface-7 plugin.
 pub mod native_plugin;
 mod native_screen;

@@ -283,6 +283,27 @@ fn a_record_the_op_does_not_answer_with_is_invalid() {
 }
 
 #[test]
+fn a_service_doc_image_in_a_format_reply_is_invalid_and_never_mapped() {
+    // A format cannot hand the opener an image id of its own making: only the
+    // stage writes `doc_image` records.
+    let forged = [Record::ServiceDocImage(wire::ServiceDocImage {
+        image: 7,
+        index: u32::MAX,
+        width: 1,
+        height: 1,
+        flags: 0,
+    })];
+    let mut bytes = vec![0_u8; 256];
+    let n = wire::records_encode_counted(&forged, 64, 256, &mut bytes).unwrap();
+    bytes.truncate(n);
+    let raw: &'static [u8] = std::boxed::Box::leak(bytes.into_boxed_slice());
+    for op in [fmt::COVER, fmt::BLOCK, fmt::META] {
+        let (r, _, _) = go(Behavior::Raw(raw), &images(Ok(Some(1))), "", &call(op));
+        assert_eq!(r, Err(ERR_INVALID), "op {op}");
+    }
+}
+
+#[test]
 fn ops_the_service_does_not_carry_are_unsupported_and_nothing_is_called() {
     for op in [0, 1, 4, 20, 99] {
         let (r, _, h) = go(Behavior::Good, &images(Ok(None)), "", &call(op));

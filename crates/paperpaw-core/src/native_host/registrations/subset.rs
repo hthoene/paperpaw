@@ -22,14 +22,18 @@ pub(crate) fn unexpected(tag: u32) -> i32 {
 }
 
 /// `raw` as the record its tag names, for the few records the host still reads
-/// through the `Record` enum: the kernel's own events, the router's input, the
-/// library page rows it compares and the lookup reply. Every other op decodes
+/// through the `Record` enum: the kernel's own events (the reading edges among
+/// them), the router's input, the files ops' inputs, the library page rows it
+/// compares and the lookup reply. Every other op decodes
 /// the type it expects ([`super::super::codec::single`]). Another tag is
 /// `ERR_UNSUPPORTED`.
 pub(crate) fn decode_record<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
     Ok(match raw.tag() {
         wire::EVENT_ACTION_RUN_TAG => Record::EventActionRun(raw.decode()?),
         wire::EVENT_BATTERY_MEASURED_TAG => Record::EventBatteryMeasured(raw.decode()?),
+        wire::EVENT_BOOK_CLOSED_TAG => Record::EventBookClosed(raw.decode()?),
+        wire::EVENT_BOOK_FINISHED_TAG => Record::EventBookFinished(raw.decode()?),
+        wire::EVENT_BOOK_OPENED_TAG => Record::EventBookOpened(raw.decode()?),
         wire::EVENT_PAGE_TURNED_TAG => Record::EventPageTurned(raw.decode()?),
         wire::EVENT_RESUME_TAG => Record::EventResume(raw.decode()?),
         wire::EVENT_SCREEN_SHOWN_TAG => Record::EventScreenShown(raw.decode()?),
@@ -40,6 +44,9 @@ pub(crate) fn decode_record<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
         wire::INPUT_GESTURE_TAG => Record::InputGesture(raw.decode()?),
         wire::INPUT_KEY_TAG => Record::InputKey(raw.decode()?),
         wire::INPUT_POINTER_TAG => Record::InputPointer(raw.decode()?),
+        wire::SERVICE_FS_LIST_TAG => Record::ServiceFsList(raw.decode()?),
+        wire::SERVICE_FS_MOVE_TAG => Record::ServiceFsMove(raw.decode()?),
+        wire::SERVICE_FS_PATH_TAG => Record::ServiceFsPath(raw.decode()?),
         wire::SERVICE_LIB_ANCHOR_TAG => Record::ServiceLibAnchor(raw.decode()?),
         wire::SERVICE_LIB_ANNOTATION_TAG => Record::ServiceLibAnnotation(raw.decode()?),
         wire::SERVICE_LIB_ENTRY_TAG => Record::ServiceLibEntry(raw.decode()?),
@@ -70,6 +77,7 @@ pub(crate) fn decode_any<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
         wire::EVENT_BOOK_REMOVED_TAG => Record::EventBookRemoved(raw.decode()?),
         wire::EVENT_BROADCAST_TAG => Record::EventBroadcast(raw.decode()?),
         wire::EVENT_CHARGE_CHANGED_TAG => Record::EventChargeChanged(raw.decode()?),
+        wire::EVENT_DOCUMENT_CHANGED_TAG => Record::EventDocumentChanged(raw.decode()?),
         wire::EVENT_DOCUMENT_CLOSED_TAG => Record::EventDocumentClosed(raw.decode()?),
         wire::EVENT_FIRMWARE_CHANGED_TAG => Record::EventFirmwareChanged(raw.decode()?),
         wire::EVENT_HTTP_DONE_TAG => Record::EventHttpDone(raw.decode()?),
@@ -88,6 +96,7 @@ pub(crate) fn decode_any<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
         wire::EVENT_REGISTRY_CHANGED_TAG => Record::EventRegistryChanged(raw.decode()?),
         wire::EVENT_RESUME_TAG => Record::EventResume(raw.decode()?),
         wire::EVENT_SCREEN_CLOSED_TAG => Record::EventScreenClosed(raw.decode()?),
+        wire::EVENT_SCREEN_HIDDEN_TAG => Record::EventScreenHidden(raw.decode()?),
         wire::EVENT_SCREEN_OPENED_TAG => Record::EventScreenOpened(raw.decode()?),
         wire::EVENT_SCREEN_READY_TAG => Record::EventScreenReady(raw.decode()?),
         wire::EVENT_SCREEN_SHOWN_TAG => Record::EventScreenShown(raw.decode()?),
@@ -158,6 +167,7 @@ pub(crate) fn decode_any<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
         wire::SERVICE_DOC_PROGRESS_TAG => Record::ServiceDocProgress(raw.decode()?),
         wire::SERVICE_DOC_READER_TAG => Record::ServiceDocReader(raw.decode()?),
         wire::SERVICE_DOC_REF_TAG => Record::ServiceDocRef(raw.decode()?),
+        wire::SERVICE_DOC_REPORT_TAG => Record::ServiceDocReport(raw.decode()?),
         wire::SERVICE_DOC_RUBY_TAG => Record::ServiceDocRuby(raw.decode()?),
         wire::SERVICE_DOC_RUN_TAG => Record::ServiceDocRun(raw.decode()?),
         wire::SERVICE_DOC_SECTION_TAG => Record::ServiceDocSection(raw.decode()?),
@@ -309,6 +319,7 @@ pub(crate) fn as_wire<'r>(record: &'r Record<'_>) -> Result<&'r dyn WireEncode, 
         Record::EventBookRemoved(r) => r,
         Record::EventBroadcast(r) => r,
         Record::EventChargeChanged(r) => r,
+        Record::EventDocumentChanged(r) => r,
         Record::EventDocumentClosed(r) => r,
         Record::EventFirmwareChanged(r) => r,
         Record::EventHttpDone(r) => r,
@@ -316,6 +327,7 @@ pub(crate) fn as_wire<'r>(record: &'r Record<'_>) -> Result<&'r dyn WireEncode, 
         Record::EventImageReady(r) => r,
         Record::EventInstallDone(r) => r,
         Record::EventLibraryChanged(r) => r,
+        Record::EventLookupReady(r) => r,
         Record::EventNetworkIdle(r) => r,
         Record::EventNetworkWanted(r) => r,
         Record::EventPageTurned(r) => r,
@@ -327,6 +339,7 @@ pub(crate) fn as_wire<'r>(record: &'r Record<'_>) -> Result<&'r dyn WireEncode, 
         Record::EventRegistryChanged(r) => r,
         Record::EventResume(r) => r,
         Record::EventScreenClosed(r) => r,
+        Record::EventScreenHidden(r) => r,
         Record::EventScreenOpened(r) => r,
         Record::EventScreenReady(r) => r,
         Record::EventScreenShown(r) => r,
@@ -398,6 +411,7 @@ pub(crate) fn as_wire<'r>(record: &'r Record<'_>) -> Result<&'r dyn WireEncode, 
         Record::ServiceDocProgress(r) => r,
         Record::ServiceDocReader(r) => r,
         Record::ServiceDocRef(r) => r,
+        Record::ServiceDocReport(r) => r,
         Record::ServiceDocRuby(r) => r,
         Record::ServiceDocRun(r) => r,
         Record::ServiceDocSection(r) => r,

@@ -29,97 +29,32 @@ use paperpaw_native::host_glue::{
 };
 
 mod args;
+mod call;
 mod check;
+pub(crate) mod cover;
+pub(crate) mod details;
+pub(crate) mod pending;
+mod report;
+mod steps;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
-pub(crate) use table::{Document, DocumentTable, FormatRef, Limits, PREPARING, READY};
+pub(crate) use args::ROOT_HANDED;
+pub(crate) use call::{FormatCall, Options};
+pub(crate) use steps::{JobStep, PrepareStep};
+pub(crate) use table::{
+    BACKGROUND, DETAILS, Document, DocumentTable, FAILED, FormatRef, HOST_JOB, JobKind, Limits,
+    PREPARING, READY,
+};
 
 /// Operations of `core.format` the host calls (`document.md` 3).
-pub(crate) mod fmt {
-    pub(crate) const OPEN: u32 = 2;
-    pub(crate) const META: u32 = 5;
-    pub(crate) const META_TEXT: u32 = 6;
-    pub(crate) const SECTIONS: u32 = 7;
-    pub(crate) const BLOCK: u32 = 8;
-    pub(crate) const TOC: u32 = 9;
-    pub(crate) const TOC_TARGET: u32 = 10;
-    pub(crate) const PAGE_LABEL: u32 = 11;
-    pub(crate) const XPOINTER: u32 = 12;
-    pub(crate) const LOCATE: u32 = 13;
-    pub(crate) const LINKS: u32 = 14;
-    pub(crate) const LINK_TARGET: u32 = 15;
-    pub(crate) const FONTS: u32 = 16;
-    pub(crate) const COVER: u32 = 17;
-    pub(crate) const IMAGE: u32 = 18;
-    pub(crate) const PROGRESS: u32 = 19;
-}
+pub(crate) mod fmt;
 
-/// The `doc_option` rows of an `open`, still in the caller's batch.
-#[derive(Clone, Copy)]
-pub(crate) struct Options<'a> {
-    batch: &'a [u8],
-}
-impl<'a> Options<'a> {
-    pub(crate) const NONE: Options<'static> = Options { batch: &[0] };
-    /// The options of a counted batch of `doc_option` rows (tests).
-    #[cfg(test)]
-    pub(crate) const fn from_batch(batch: &'a [u8]) -> Self {
-        Options { batch }
-    }
-    /// Each option in order, `key` a full setting id. The host forwards the
-    /// ones of the format's own plugin whole; none is cut, none is dropped.
-    pub(crate) fn each(&self, visit: impl FnMut(&wire::ServiceDocOption<'a>)) {
-        args::each_option(self.batch, visit);
-    }
-}
-
-/// One call of the format plugin: the typed `fmt.call` of `document.md` 3.
-/// The reply is the op's records in the **service** tags, a bare stream; the
-/// adapter translates the format's stage-local tags to them. For a `siblings`
-/// format the adapter adds the opened file's name as `text`.
-pub(crate) struct FormatCall<'a> {
-    pub(crate) format: FormatRef,
-    pub(crate) op: u32,
-    pub(crate) document: u32,
-    pub(crate) section: u32,
-    pub(crate) offset: u32,
-    pub(crate) index: u32,
-    pub(crate) cursor: u32,
-    pub(crate) generation: u32,
-    pub(crate) flags: u32,
-    pub(crate) image_side: u32,
-    pub(crate) cover_side: u32,
-    pub(crate) conversion: u64,
-    /// Op 13 and 15: the XPointer or href.
-    pub(crate) text: &'a str,
-    /// Op 2 only.
-    pub(crate) options: Options<'a>,
-    /// Op 2 only: the user's CSS file (`doc_open.css_root`, `css_path`;
-    /// `""` for none), which the format reads as root 4.
-    pub(crate) css_root: u32,
-    pub(crate) css_path: &'a str,
-}
-impl FormatCall<'_> {
-    fn new(format: FormatRef, op: u32, document: u32) -> Self {
-        Self {
-            format,
-            op,
-            document,
-            section: 0,
-            offset: 0,
-            index: 0,
-            cursor: 0,
-            generation: 0,
-            flags: 0,
-            image_side: 0,
-            cover_side: 0,
-            conversion: 0,
-            text: "",
-            options: Options::NONE,
-            css_root: 0,
-            css_path: "",
-        }
-    }
+/// The file a hand-over names, resolved (`doc_open` root 5).
+pub(crate) struct HandedBook {
+    /// Its path on the card (the maker's data or install folder joined).
+    pub(crate) card_path: alloc::string::String,
+    /// The maker's owner key.
+    pub(crate) maker: u64,
 }
 
 /// Everything the document service needs from the host. The shell implements
@@ -133,8 +68,7 @@ pub(crate) trait DocHost {
     fn serve(&self, _frame: &dyn Frame, _who: &Caller<'_>, run: &mut dyn FnMut(&dyn DocHost)) {
         run(self.as_dyn());
     }
-    /// The calling plugin: a never-reused host owner id. The shell's host
-    /// does not know it; the backend wraps it in the call's owner.
+    /// The calling plugin: a never-reused host owner id (the backend wraps it).
     fn owner(&self) -> u64 {
         0
     }
@@ -144,8 +78,27 @@ pub(crate) trait DocHost {
     /// Root 0 is the caller's Data; root 1 needs `uses.storage`
     /// (`ERR_DENIED` without).
     fn root_access(&self, root: u32) -> Result<(), i32>;
+    /// `doc_open` root 5: the card path of the file the caller's hand-over
+    /// names, if `path` is that file (`document.md` 1, draft 25). Read only,
+    /// in the maker's data or install folder.
+    ///
+    /// # Errors
+    /// `ERR_DENIED` (another path, no hand-over, no such instance),
+    /// `ERR_NOT_FOUND` (the maker is not installed, or no such file),
+    /// `ERR_STATE` (the store is busy), `ERR_UNSUPPORTED` until wired,
+    /// `ERR_NO_MEMORY`.
+    fn handed_open(&self, _path: &str) -> Result<HandedBook, i32> {
+        Err(ERR_UNSUPPORTED)
+    }
+    /// The document `document` reads a file of `maker`'s folders (root 5):
+    /// it ends when the maker goes (`document_of_maker`).
+    fn handed_maker(&self, _document: u32, _maker: u64) {}
+    /// A document that reads a file of `maker`'s folders and is not ended yet.
+    fn document_of_maker(&self, _maker: u64) -> Option<u32> {
+        None
+    }
     /// Section 1: the format that reads `path` (the longest extension, the
-    /// user's choice, priority). `requested` is a format id or empty.
+    /// user's choice, priority); `requested` is a format id or empty.
     /// `ERR_NOT_FOUND` when none reads it.
     fn select_format(&self, root: u32, path: &str, requested: &str) -> Result<FormatRef, i32>;
     fn format_id(&self, format: FormatRef, visit: &mut dyn FnMut(&str)) -> Result<(), i32>;
@@ -160,6 +113,17 @@ pub(crate) trait DocHost {
     /// Call the format plugin. On success the answer (service-tag records)
     /// is at the start of `out`; the count is at most `out.len()`.
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32>;
+    /// Before an open's `call_format`: the book's cache (root 6) is made
+    /// ready (`document.md` 3). Its own step, so that a busy format is told
+    /// apart from a busy cache (`pending`).
+    fn open_cache(&self, _call: &FormatCall<'_>) -> Result<(), i32> {
+        Ok(())
+    }
+    /// Keeps the open's batch (its CSS file and options) for the document
+    /// whose open waits for its format plugin (`pending`).
+    fn keep_open(&self, _document: u32, _batch: &[u8]) -> Result<(), i32> {
+        Ok(())
+    }
     /// Tell the format plugin to close a document (op 4 `close`). Best
     /// effort; nothing the format says can fail it. The service never calls
     /// it for a document whose format stopped (`format_gone`). The host
@@ -170,6 +134,10 @@ pub(crate) trait DocHost {
     /// same document (ids are generation-checked); the second call does
     /// nothing.
     fn end_images(&self, document: &Document);
+    /// The image ids of documents the host ended out of reach of the image
+    /// table (`end_images` kept them) end now in `images`. A host that ends
+    /// them at once has none to flush.
+    fn flush_images(&self, _images: &super::image_service::ImageTable) {}
     /// The host closed a document on its own (three malformed answers, the
     /// format plugin stopped): the opener gets `event.document_closed`. Only
     /// the event; the service ends the image ids (`end_images`) first and
@@ -194,6 +162,135 @@ pub(crate) trait DocHost {
     /// The kernel's clock, milliseconds, as the pump last read it: the time
     /// the events it delivers are stamped with.
     fn set_now(&self, _now_ms: u64) {}
+    /// One step of the preparing loop (`document.md` 2.1): the format of the
+    /// next preparing document gets op 3 `prepare`, between inputs, from the
+    /// kernel's pump (no opener callback runs), and its answer is recorded.
+    /// A host without a preparing loop has nothing to do.
+    /// Whether a document is preparing (the pump asks before it makes a route).
+    fn preparing(&self) -> bool {
+        false
+    }
+    fn prepare_step(
+        &self,
+        _hosts: &super::host_services::HostServices,
+        _route: &dyn super::fmt_call::Route,
+    ) -> PrepareStep {
+        PrepareStep::Idle
+    }
+    /// One look at the background job (`doc_cover_job`): ended when its
+    /// preparation is over; a details job's book is read first and `keep`
+    /// keeps what was read. Run by the kernel's pump, never inside a callback.
+    fn cover_job_step(
+        &self,
+        _hosts: &super::host_services::HostServices,
+        _route: &dyn super::fmt_call::Route,
+        _keep: &mut details::Keep<'_>,
+    ) -> JobStep {
+        JobStep::None
+    }
+    /// The host's details job (`doc_details_job`), where the host has one.
+    fn details_job(&self) -> Option<&dyn details::DetailsJob> {
+        None
+    }
+    /// Where the cover of the book at `path` stands (`doc_cover_make`): a
+    /// host without the cover job answers every cover inline.
+    fn cover_at(&self, _path: &str) -> super::doc_host::CoverAt {
+        super::doc_host::CoverAt::Made
+    }
+    /// Whether only the cover job prepares: the pump's "more" then does not
+    /// hold the device awake.
+    fn only_cover_job_preparing(&self) -> bool {
+        false
+    }
+    /// The cover job ends now (a book opens elsewhere, the device sleeps): its
+    /// document leaves the table and the format gets its `close`. Nothing is
+    /// restarted; the next `cover` of the book starts it again.
+    fn cover_job_abort(
+        &self,
+        _hosts: &super::host_services::HostServices,
+        _route: &dyn super::fmt_call::Route,
+    ) {
+    }
+    /// The device sleeps inside a callback, where the job cannot be ended: it
+    /// ends at the pump's next look (`cover_job_pump`).
+    fn cover_job_suspend_later(&self) {}
+    /// Whether a cover job exists (the pump asks before it makes a route).
+    fn cover_job_active(&self) -> bool {
+        false
+    }
+    /// Whether a cover job may begin: not before the kernel's start has
+    /// returned (a crash of the format there would count as a failed start).
+    fn cover_jobs_allowed(&self) -> bool {
+        true
+    }
+    /// A `cover` asked for a job where none may begin (before
+    /// [`DocHost::cover_jobs_allowed`], or while a book is open for reading):
+    /// it is remembered, and [`DocHost::cover_jobs_released`] says when to ask
+    /// again.
+    fn cover_job_held_back(&self) {}
+    /// The job (of `kind`) was displaced by an open (its place was needed):
+    /// a cover job is held back as above; either waits a quiet moment, so that
+    /// what displaced it is done before it starts again from the beginning (a
+    /// cache is whole or not used: nothing of the job's work is kept).
+    fn cover_job_displaced(&self, _kind: JobKind) {}
+    /// A library list screen is up (`up`) or not: no *preparing* step (a
+    /// conversion) is taken while one is up and for a quiet moment after it
+    /// closes. Said by the pump, with the end of the quiet time after the
+    /// user's last input and the start (`quiet_until`, kernel ms): before it,
+    /// no step, no cover and no start (#248). Held time does not count toward
+    /// the awake time. Answers when a waiting job's wait ends: the pump wakes.
+    fn cover_job_list(&self, _up: bool, _quiet_until: u64) -> Option<u64> {
+        None
+    }
+    /// An input came: the quiet time begins anew, before its callbacks run.
+    fn cover_job_input(&self, _quiet_until: u64) {}
+    /// Whether the user's quiet time is over.
+    fn cover_quiet(&self) -> bool {
+        true
+    }
+    /// Whether a `cover` of an unmade book waits: nothing is opened for it in
+    /// the list's frame; the library is told when to ask again.
+    fn cover_must_wait(&self) -> bool {
+        !self.cover_jobs_allowed() || !self.cover_quiet() || self.table().reading_besides(0)
+    }
+    /// The key of a book whose job was displaced too often (0: none): failed.
+    fn cover_job_given_up(&self) -> u64 {
+        0
+    }
+    /// Whether a held-back job may begin again now: allowed, no book open for
+    /// reading, no job, and the quiet moment over. Said once; the library then
+    /// raises bit 6 (the screens ask again).
+    fn cover_jobs_released(&self) -> bool {
+        false
+    }
+    /// The kernel's start has returned: jobs may begin. The key of the book a
+    /// marker left from before names (`cover_job_marker`), 0 for none.
+    fn allow_cover_jobs(&self) -> u64 {
+        0
+    }
+    /// The host's details run ended (#248): where no document is open, the
+    /// room of the table, its event queue and the reader's books is given
+    /// back; the next open reserves it again, fallibly. Whether it was.
+    fn release_rooms(&self) -> bool {
+        false
+    }
+    /// A job for the book at `path` is about to begin: its marker is written
+    /// (`cover_job_marker`). An error: the job does not begin.
+    fn cover_job_guard(&self, _path: &str) -> Result<(), i32> {
+        Ok(())
+    }
+    /// The job has left the table, however: its marker goes.
+    fn cover_job_unguard(&self) {}
+    /// The call is the library's own `cover`: it does not displace the cover
+    /// job.
+    fn library_call(&self) -> bool {
+        false
+    }
+    /// Whether `format`'s `format.spec` has bit 0 `prepared` (a conversion
+    /// before reading): only its books are opened with bit 3 `details`.
+    fn format_prepared(&self, _format: FormatRef) -> bool {
+        false
+    }
     /// An `open` is about to read the card path `path` of root `root`
     /// (document `document`): the host counts it so the file is not freed under
     /// the reader. `Err` refuses the open: nothing is opened and the error is
@@ -213,6 +310,25 @@ pub(crate) trait DocHost {
     fn shows_screen(&self, _owner: u64) -> bool {
         false
     }
+    /// The reading session (`document.md` 2.4): a checked report of
+    /// `document`'s reader. `ERR_UNSUPPORTED` where the host keeps none.
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY`, `ERR_BUSY` (see `Reading::report`).
+    fn reading_report(
+        &self,
+        _document: &Document,
+        _report: &wire::ServiceDocReport<'_>,
+    ) -> Result<(), i32> {
+        Err(ERR_UNSUPPORTED)
+    }
+    /// The oldest event of the reading session for the kernel's pump.
+    fn take_reading_edge(&self) -> Option<super::doc_reading::Edge> {
+        None
+    }
+    /// The device goes to sleep or off: a book that is open is closed with
+    /// reason 1 (`core-events.md` 3.2).
+    fn reading_sleep(&self, _now_ms: u64) {}
     /// Turn a format's picture into the opener's image id (`document.md`
     /// 5): `Some(id)`, or `Some(0)` where all ids are out and none is drawn
     /// (`in_block` only; else `ERR_BUSY`), or `None` for a picture that fails
@@ -223,6 +339,11 @@ pub(crate) trait DocHost {
         image: &wire::ServiceDocImage,
         in_block: bool,
     ) -> Result<Option<u32>, i32>;
+    /// A picture of `document` was left out of a block stream (it failed the
+    /// image check, or the format sent none): the block keeps its alt text.
+    /// The host says so once per run of left-out pictures of the same
+    /// document (it keeps the last document it named), never per picture.
+    fn picture_left_out(&self, _document: u32) {}
     /// The format answered that the document is ready (the open, or the
     /// last preparing call): what the host keeps for it is complete now.
     fn document_ready(&self, _document: u32) {}
@@ -230,6 +351,10 @@ pub(crate) trait DocHost {
     /// format index and `visit` gets each format reference it had. Nothing
     /// is called on the plugin.
     fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef));
+    /// Each format reference of the plugin `owner`, left in the index: whether
+    /// a document uses one is asked before the plugin is parked again (#248,
+    /// D3), which must not take its formats away.
+    fn formats_owned(&self, owner: u64, visit: &mut dyn FnMut(FormatRef));
     /// Section 1's formats in a stable order; `ERR_STATE` for a stale
     /// generation (never 0, as REG's).
     fn formats(
@@ -258,6 +383,33 @@ pub(crate) trait DocHost {
     ) -> Result<(), i32>;
 }
 
+/// The format's answer to a `prepare` of `document`, checked and recorded:
+/// the document's state, progress, status and flags are the format's, and
+/// the opener hears of a change (`event.document_changed`). Returns the new
+/// state, its status and whether the state or the progress moved. A
+/// preparation that answers "more" 32 times in a row without rising above its
+/// best progress fails with `ERR_TIMEOUT` (the returned state is then 2). A
+/// malformed answer is `ERR_INVALID` and records nothing.
+///
+/// # Errors
+/// `ERR_INVALID`, `ERR_BUSY` (the table is borrowed), `ERR_NOT_FOUND`.
+pub(crate) fn prepared(
+    table: &DocumentTable,
+    document: &Document,
+    answer: &[u8],
+) -> Result<(u32, i32, bool), i32> {
+    let state: wire::ServiceDocState<'_> = check::only(answer)?;
+    check::state(&state)?;
+    let (moved, now, status) = table.set_prepared(
+        document.id,
+        state.state,
+        state.progress_ppm,
+        state.status,
+        state.flags,
+    )?;
+    Ok((now, status, moved))
+}
+
 /// The opener stopped: its documents end, and each format gets op 4 `close`
 /// and the document's image ids end (`document.md` 2.1). The shell calls it
 /// when a plugin stops.
@@ -275,7 +427,7 @@ pub(crate) fn opener_stopped(host: &dyn DocHost, owner: u64) -> Result<usize, i3
 /// format is gone. One place for every path, so no path calls a stopped format.
 fn end(host: &dyn DocHost, document: &Document) {
     host.end_images(document);
-    if !document.format_gone {
+    if !document.format_gone && !document.open_pending {
         host.close_format(document);
     }
     // One that the host closed earlier released its reader then; one whose
@@ -305,6 +457,10 @@ fn host_closed(host: &dyn DocHost, document: &Document, reason: u32) {
 /// # Errors
 /// `ERR_INVALID` for another reason, `ERR_NOT_FOUND`, `ERR_BUSY` (table
 /// borrowed; a retry ends it).
+///
+/// A caller that has the host services ends a document with
+/// `HostServices::end_document_by_host`, which also ends its image ids at
+/// once (this function alone defers them to the next call).
 pub(crate) fn end_by_host(host: &dyn DocHost, id: u32, reason: u32) -> Result<(), i32> {
     if let Some(document) = host.table().end_by_host(id, reason)? {
         host_closed(host, &document, reason);
@@ -316,8 +472,11 @@ pub(crate) fn end_by_host(host: &dyn DocHost, id: u32, reason: u32) -> Result<()
 /// `close` (image ids end, the format gets op 4, the reader is released) and
 /// its opener hears reason 4 `needed`.
 fn taken(host: &dyn DocHost, document: &Document) {
+    if document.cover_job {
+        host.cover_job_displaced(document.job_kind);
+    }
     host.end_images(document);
-    if !document.format_gone {
+    if !document.format_gone && !document.open_pending {
         host.close_format(document);
     }
     if document.reader_held {
@@ -354,11 +513,21 @@ pub(crate) fn format_retired(
 
 /// What the shell hands the frame under the key `core.document`.
 pub(crate) struct DocServices(pub(crate) alloc::rc::Rc<dyn DocHost>);
+impl DocServices {
+    /// Whether any document, in any state (a pending open too), names a
+    /// format of which `of` says yes: its plugin may not park again (#248 D3).
+    pub(crate) fn uses_format(&self, of: &dyn Fn(FormatRef) -> bool) -> bool {
+        self.0.table().uses_format(of)
+    }
+}
 
 /// The host of this call with its caller: forwards everything but `owner`.
 struct Cx<'a> {
     host: &'a dyn DocHost,
     owner: u64,
+    /// The call is the library's `cover` (`cover`): the book is the library's
+    /// own, so root 1 needs no `uses.storage` of the caller.
+    library: bool,
 }
 impl DocHost for Cx<'_> {
     fn as_dyn(&self) -> &dyn DocHost {
@@ -374,7 +543,19 @@ impl DocHost for Cx<'_> {
         self.host.screen_long_side()
     }
     fn root_access(&self, root: u32) -> Result<(), i32> {
+        if self.library && root == 1 {
+            return Ok(());
+        }
         self.host.root_access(root)
+    }
+    fn handed_open(&self, path: &str) -> Result<HandedBook, i32> {
+        self.host.handed_open(path)
+    }
+    fn handed_maker(&self, document: u32, maker: u64) {
+        self.host.handed_maker(document, maker);
+    }
+    fn document_of_maker(&self, maker: u64) -> Option<u32> {
+        self.host.document_of_maker(maker)
     }
     fn select_format(&self, root: u32, path: &str, requested: &str) -> Result<FormatRef, i32> {
         self.host.select_format(root, path, requested)
@@ -393,6 +574,12 @@ impl DocHost for Cx<'_> {
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
         self.host.call_format(call, out)
     }
+    fn open_cache(&self, call: &FormatCall<'_>) -> Result<(), i32> {
+        self.host.open_cache(call)
+    }
+    fn keep_open(&self, document: u32, batch: &[u8]) -> Result<(), i32> {
+        self.host.keep_open(document, batch)
+    }
     fn close_format(&self, document: &Document) {
         self.host.close_format(document);
     }
@@ -405,14 +592,63 @@ impl DocHost for Cx<'_> {
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.host.reader_opened(document, root, path)
     }
+    fn details_job(&self) -> Option<&dyn details::DetailsJob> {
+        self.host.details_job()
+    }
+    fn release_rooms(&self) -> bool {
+        self.host.release_rooms()
+    }
+    fn cover_at(&self, path: &str) -> super::doc_host::CoverAt {
+        self.host.cover_at(path)
+    }
+    fn cover_jobs_allowed(&self) -> bool {
+        self.host.cover_jobs_allowed()
+    }
+    fn cover_job_held_back(&self) {
+        self.host.cover_job_held_back();
+    }
+    fn cover_quiet(&self) -> bool {
+        self.host.cover_quiet()
+    }
+    fn cover_job_displaced(&self, kind: JobKind) {
+        self.host.cover_job_displaced(kind);
+    }
+    fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
+        self.host.cover_job_guard(path)
+    }
+    fn cover_job_unguard(&self) {
+        self.host.cover_job_unguard();
+    }
+    fn library_call(&self) -> bool {
+        self.library
+    }
+    fn format_prepared(&self, format: FormatRef) -> bool {
+        self.host.format_prepared(format)
+    }
     fn document_ready(&self, document: u32) {
         self.host.document_ready(document);
+    }
+    fn picture_left_out(&self, document: u32) {
+        self.host.picture_left_out(document);
     }
     fn reader_closed(&self, document: u32) {
         self.host.reader_closed(document);
     }
     fn shows_screen(&self, owner: u64) -> bool {
         self.host.shows_screen(owner)
+    }
+    fn reading_report(
+        &self,
+        document: &Document,
+        report: &wire::ServiceDocReport<'_>,
+    ) -> Result<(), i32> {
+        self.host.reading_report(document, report)
+    }
+    fn take_reading_edge(&self) -> Option<super::doc_reading::Edge> {
+        self.host.take_reading_edge()
+    }
+    fn reading_sleep(&self, now_ms: u64) {
+        self.host.reading_sleep(now_ms);
     }
     fn map_image(
         &self,
@@ -424,6 +660,9 @@ impl DocHost for Cx<'_> {
     }
     fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
         self.host.formats_of_owner(owner, visit);
+    }
+    fn formats_owned(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+        self.host.formats_owned(owner, visit);
     }
     fn formats(
         &self,
@@ -475,6 +714,7 @@ mod op {
     pub(super) const FORMATS: u32 = 19;
     pub(super) const FORMAT_FOR: u32 = 20;
     pub(super) const READERS: u32 = 21;
+    pub(super) const REPORT: u32 = 22;
 }
 
 /// The `core.document` backend.
@@ -491,6 +731,7 @@ pub(crate) fn backend(
         let host = &Cx {
             host: bound,
             owner: who.owner,
+            library: false,
         };
         let host: &dyn DocHost = host;
         result = match op.id {
@@ -500,6 +741,7 @@ pub(crate) fn backend(
             op::FORMATS => formats(host, input, usize::from(op.reply_rows.max(64)), out),
             op::READERS => readers(host, input, usize::from(op.reply_rows.max(64)), out),
             op::FORMAT_FOR => format_for(host, input, out),
+            op::REPORT => report::report(host, input, out),
             op::META..=op::PROGRESS => read(host, op, input, out),
             _ => Err(ERR_UNSUPPORTED),
         };
@@ -521,7 +763,13 @@ fn state_reply(host: &dyn DocHost, document: &Document, out: &mut [u8]) -> Resul
                 state: document.state,
                 progress_ppm: document.progress_ppm,
                 status: document.status,
-                flags: document.flags,
+                // Until the format answers a pending open, the row holds the
+                // opener's request flags: no book flag is claimed (#248).
+                flags: if document.open_pending {
+                    0
+                } else {
+                    document.flags
+                },
                 conversion: document.conversion,
                 format,
             }),
@@ -555,12 +803,28 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     let parsed = args::parse_open(input)?;
     let mut request = parsed.open;
     let long_side = host.screen_long_side();
-    args::check_open(&request, long_side)?;
-    host.root_access(request.root)?;
+    args::check_open(&request, long_side, host.library_call())?;
+    // Root 5 names a file of another plugin: the host resolves it to its card
+    // path (the format is chosen by it, the book is held under it).
+    let handed = if request.root == args::ROOT_HANDED {
+        Some(host.handed_open(request.path)?)
+    } else {
+        host.root_access(request.root)?;
+        None
+    };
     if !request.css_path.is_empty() {
         host.root_access(request.css_root)?;
     }
-    let format = host.select_format(request.root, request.path, request.format)?;
+    let format = match handed.as_ref().map(|book| book.card_path.as_str()) {
+        // Read as the card's own path: a sniff reads that file.
+        Some(card) => host.select_format(1, card, request.format)?,
+        None => host.select_format(request.root, request.path, request.format)?,
+    };
+    // Bit 3 `details` is for a `prepared` format's book only; any other
+    // opens as before (`document.md` 2.1).
+    if !host.format_prepared(format) {
+        request.flags &= !table::DETAILS;
+    }
     let options = Options { batch: input };
     // The host resolves the sides, a format never asks the screen and never
     // sees 0; before the conversion key, so an open with 0 and an explicit
@@ -578,6 +842,18 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     let conversion = host.conversion_key(&request, format, options)?;
 
     let table = host.table();
+    // Any open that is not the library's own cover takes the cover job's
+    // place at once, before its own work (`doc_cover_job`).
+    if !host.library_call() {
+        if let Some(job) = table.take_cover_job() {
+            taken(host, &job);
+        }
+        // The host's cover to make too (`doc_cover_make`): a `details`
+        // document is the job's alone, never handed to another open.
+        if let Some(row) = table.take_cover_make() {
+            taken(host, &row);
+        }
+    }
     let caller_shows = host.shows_screen(host.owner());
     let (id, took) = table.open(
         host.owner(),
@@ -590,9 +866,15 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     if let Some(victim) = took {
         taken(host, &victim);
     }
-    if let Err(error) = host.reader_opened(id, request.root, request.path) {
+    let held = handed
+        .as_ref()
+        .map_or(request.path, |book| book.card_path.as_str());
+    if let Err(error) = host.reader_opened(id, request.root, held) {
         table.discard(id);
         return Err(error);
+    }
+    if let Some(book) = &handed {
+        host.handed_maker(id, book.maker);
     }
     table.hold_reader(id);
     let answered = (|| {
@@ -605,21 +887,7 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
         call.options = options;
         call.css_root = request.css_root;
         call.css_path = request.css_path;
-        let length = run(host, &call, out)?;
-        let answer: wire::ServiceDocState<'_> = check::only(&out[..length])?;
-        check::state(&answer)?;
-        table.set_state(
-            id,
-            answer.state,
-            answer.progress_ppm,
-            answer.status,
-            answer.flags,
-            conversion,
-        )?;
-        if answer.state == READY {
-            host.document_ready(id);
-        }
-        Ok(())
+        pending::open(host, &call, input, out)
     })();
     if let Err(error) = answered {
         // The id never reached the opener; the format may hold state for it.
@@ -863,12 +1131,12 @@ fn prepare<'a>(
                 // The cover is index `u32::MAX` (`document.md` 5): its own
                 // size, larger when asked.
                 call.op = fmt::COVER;
-                call.cover_side = args::image_side(r.side, document.cover_side)?;
+                call.cover_side = args::image_side(r.side, document.cover_side);
                 call.image_side = document.image_side;
             } else {
                 call.op = fmt::IMAGE;
                 call.index = r.index;
-                call.image_side = args::image_side(r.side, document.image_side)?;
+                call.image_side = args::image_side(r.side, document.image_side);
                 call.cover_side = document.cover_side;
             }
             Check::Image
@@ -915,6 +1183,7 @@ fn verify(
         Check::Meta => {
             let meta: wire::ServiceDocMeta<'_> = check::only(bytes)?;
             check::meta(&meta)?;
+            host.table().set_sections(document.id, meta.sections);
         }
         Check::Text {
             kind,
@@ -969,8 +1238,12 @@ fn verify(
         Check::Image => {
             let _: wire::ServiceDocImage = check::only(bytes)?;
             let kept = images(host, document, out, length, false)?;
-            // A picture that fails its check is not a picture at all.
-            require(kept != 0)?;
+            // A picture that fails its check is not a picture at all: none
+            // (`document.md` 1, op 15), and the format's file is at fault, not
+            // the caller's request, so the document is not struck for it.
+            if kept == 0 {
+                return Err(ERR_NOT_FOUND);
+            }
             return Ok(kept);
         }
         Check::Progress => {
@@ -1029,6 +1302,9 @@ fn block_verify(
         at.resume,
         |_, _| Ok(()),
     )?;
+    if end.flags & 2 == 0 && fragment.picture_missing() {
+        host.picture_left_out(document.id);
+    }
     let kept = images(host, document, out, length, true)?;
     let pending = (end.flags & 2 != 0).then_some(table::Pending {
         section: at.section,
@@ -1075,6 +1351,9 @@ fn images(
                 at += used;
             }
             None => {
+                if in_block {
+                    host.picture_left_out(document.id);
+                }
                 out.copy_within(at + used..length, at);
                 length -= used;
             }
@@ -1169,7 +1448,12 @@ fn readers(host: &dyn DocHost, input: &[u8], rows: usize, out: &mut [u8]) -> Res
 fn format_for(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
     let path: wire::ServiceDocPath<'_> = codec::single(input)?;
     // Bit 0: sniff when no extension matches.
-    require(path.root <= 1 && path.flags & !1 == 0 && args::path_valid(path.path))?;
+    require(
+        path.root <= 1
+            && path.flags & !1 == 0
+            && args::path_valid(path.path)
+            && args::reachable(path.root, path.path),
+    )?;
     host.root_access(path.root)?;
     let mut written = Err(ERR_NOT_FOUND);
     host.format_for(path.root, path.path, path.flags & 1 != 0, &mut |record| {

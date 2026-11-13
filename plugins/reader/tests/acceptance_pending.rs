@@ -6,7 +6,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 8] = [
+const CASES: [Case; 11] = [
     // A book opens at the position it was left at, in the reading font and
     // the settings of the book (the user's reading settings win over a
     // plugin's defaults, decision 131), pages turn, the page index builds in
@@ -33,6 +33,15 @@ const CASES: [Case; 8] = [
     },
     // Reading aloud, sentence by sentence, with its timer, highlight and page
     // turning; the pages turned by themselves.
+    // The notes export: the list reads the library's annotations, the library
+    // folder setting is read, the Notes folder is made where it is missing and
+    // the Markdown is written to `<file>.new` and moved into place (an old file
+    // stays where a write is refused), then the stage runs.
+    Case {
+        name: "reader-annotations-export",
+        golden: None,
+        blocked_by: &["H1", "H2", "LIB-annotations", "FS-write"],
+    },
     Case {
         name: "reader-aloud-and-auto-turn",
         golden: None,
@@ -43,7 +52,7 @@ const CASES: [Case; 8] = [
     Case {
         name: "reader-status-lines-and-sample",
         golden: None,
-        blocked_by: &["status-declarations", "widget-declarations"],
+        blocked_by: &["settings-group-preview", "status-line-editors"],
     },
     // The reader's own extension points (#241): inserted blocks between
     // lines, text style, an input filter; page numbers from the source text.
@@ -69,6 +78,22 @@ const CASES: [Case; 8] = [
         name: "reader-word-looked-up-run",
         golden: None,
         blocked_by: &["stage-run-host", "H4"],
+    },
+    // Choosing words and the bar over a real page: a long press chooses a
+    // word, *Copy* writes the clipboard, *Look up* opens `core.lookup` and runs
+    // the stage, and every action uses the plugin's one `core.ui` handle (none
+    // is opened and left). The model and the movement are tested without a host.
+    Case {
+        name: "reader-selection-host-flow",
+        golden: None,
+        blocked_by: &["DOC-open-layout", "H4"],
+    },
+    // A link on a real page: followed (a place, a note over the page, the web),
+    // *Back* returns, a turn past the last link goes on to the next page.
+    Case {
+        name: "reader-link-follow-back",
+        golden: None,
+        blocked_by: &["DOC-open-layout", "H4"],
     },
 ];
 
@@ -107,7 +132,7 @@ fn aloud_and_auto_turn() {
 }
 
 #[test]
-#[ignore = "BLOCKED status-declarations, widget-declarations: no native declaration for status places and lines, nor for a preview widget"]
+#[ignore = "BLOCKED settings-group-preview, status-line-editors: the reader declares the sample widget (#257), but the settings plugin shows no group's preview yet, and the status-line items editor is not ported (todo 529)"]
 fn status_lines_and_sample() {
     CASES[4].refuse().unwrap();
 }
@@ -128,4 +153,16 @@ fn open_at_place() {
 #[ignore = "BLOCKED stage-run-host (#828), H4: the host does not run stages for plugins yet, and the native selection flow is not there"]
 fn word_looked_up_run() {
     CASES[7].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED DOC-open-layout, H4: no document host to open a book with words, no native input"]
+fn selection_host_flow() {
+    CASES[8].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED DOC-open-layout, H4: no document host to open a book with links, no native input"]
+fn link_follow_back() {
+    CASES[9].refuse().unwrap();
 }

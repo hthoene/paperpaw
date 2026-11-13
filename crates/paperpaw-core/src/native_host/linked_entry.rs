@@ -26,21 +26,26 @@ pub(crate) struct Admitted {
 }
 
 impl Admitted {
-    /// Copy validated service admission before retaining the linked factory.
+    /// Keep validated service admission before retaining the linked factory:
+    /// the list is borrowed from the static metadata, not copied (#248).
     /// This constructs only the host; the registration transaction runs make.
     ///
     /// # Safety
     /// The linked factory must obey Hosted's native factory contract. Its code
     /// and static data must remain loaded for the entire program lifetime.
+    /// `image` is a read-only mapping of that many bytes that stays mapped for
+    /// the whole run (the program's read-only data), or a null pointer with
+    /// zero length (declarations are then copied).
     pub(crate) unsafe fn hosted<S: Services>(
         self,
         services: S,
-        id: &str,
+        id: paperpaw_sdk::Id,
         report: shell::Report<S>,
         resources: super::HostResources,
+        image: (*const u8, usize),
     ) -> Result<shell::Hosted<S, ()>, shell::Error> {
         let declared =
-            shell::DeclaredServices::try_from_iter(self.metadata.services()).map_err(|error| {
+            shell::DeclaredServices::linked(self.metadata.service_list()).map_err(|error| {
                 match error {
                     shell::DeclaredServicesError::Invalid => {
                         shell::Error::Status(paperpaw_native::host_glue::ERR_INVALID)
@@ -48,17 +53,56 @@ impl Admitted {
                     shell::DeclaredServicesError::NoMemory => shell::Error::Allocation,
                 }
             })?;
-        // SAFETY: the caller guarantees the factory contract and static code
-        // lifetime; linked entries retain no unloadable module or image range.
+        // SAFETY: the caller guarantees the factory contract, the static code
+        // lifetime and the image; a linked entry retains no unloadable module.
         unsafe {
-            shell::Hosted::new(
+            shell::Hosted::with_caller(
                 services,
                 (),
                 self.make,
                 id,
-                (core::ptr::null(), 0),
+                image,
                 report,
                 resources,
+                declared.with_features(self.features),
+            )
+        }
+    }
+
+    /// As [`hosted`](Self::hosted), under the owner key and heap row `seat`
+    /// of the plugin's earlier host: a parked plugin made again (#248).
+    ///
+    /// # Safety
+    /// As [`hosted`](Self::hosted).
+    pub(crate) unsafe fn hosted_for_owner<S: Services + 'static>(
+        self,
+        services: S,
+        id: paperpaw_sdk::Id,
+        report: shell::Report<S>,
+        resources: super::HostResources,
+        image: (*const u8, usize),
+        seat: super::resources::OwnerSeat,
+    ) -> Result<shell::Hosted<S, ()>, shell::Error> {
+        let declared =
+            shell::DeclaredServices::linked(self.metadata.service_list()).map_err(|error| {
+                match error {
+                    shell::DeclaredServicesError::Invalid => {
+                        shell::Error::Status(paperpaw_native::host_glue::ERR_INVALID)
+                    }
+                    shell::DeclaredServicesError::NoMemory => shell::Error::Allocation,
+                }
+            })?;
+        // SAFETY: as `hosted`, passed on.
+        unsafe {
+            shell::Hosted::new_for_owner(
+                services,
+                (),
+                self.make,
+                id,
+                image,
+                report,
+                resources,
+                seat,
                 declared.with_features(self.features),
             )
         }

@@ -14,6 +14,7 @@ use crate::native_host::{
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE, OK};
+use paperpaw_platform::Instant;
 use paperpaw_sdk::{Id, Params, builtin::events as builtin};
 
 const ALL: &[u32] = &[
@@ -70,6 +71,12 @@ impl NativeInstance for Probe {
             wire::Record::EventBookOpened(event) => (wire::EVENT_BOOK_OPENED_TAG, event.now_ms),
             wire::Record::EventBookClosed(event) => (wire::EVENT_BOOK_CLOSED_TAG, event.now_ms),
             wire::Record::EventBookFinished(event) => (wire::EVENT_BOOK_FINISHED_TAG, event.now_ms),
+            wire::Record::EventBookMoved(event) => {
+                self.titles
+                    .borrow_mut()
+                    .push(alloc::format!("{}>{}", event.from, event.path));
+                (wire::EVENT_BOOK_MOVED_TAG, event.now_ms)
+            }
             wire::Record::EventPageTurned(event) => {
                 self.titles.borrow_mut().push(event.title.into());
                 (wire::EVENT_PAGE_TURNED_TAG, event.now_ms)
@@ -182,6 +189,7 @@ fn raise(kernel: &mut crate::Kernel, tag: u32, params: &Params) {
         wire::EVENT_BOOK_OPENED_TAG => builtin::BOOK_OPENED.id().clone(),
         wire::EVENT_BOOK_CLOSED_TAG => builtin::BOOK_CLOSED.id().clone(),
         wire::EVENT_BOOK_FINISHED_TAG => builtin::BOOK_FINISHED.id().clone(),
+        wire::EVENT_BOOK_MOVED_TAG => builtin::BOOK_MOVED.id().clone(),
         _ => builtin::PAGE_TURNED.id().clone(),
     };
     kernel.emit(&event, params);
@@ -243,6 +251,70 @@ fn an_event_raised_during_a_callback_arrives_after_it_returns() {
         [wire::EVENT_STARTED_TAG, wire::EVENT_SUSPEND_TAG],
         "in the order raised"
     );
+}
+
+/// An event raised after a call's pump ran (the kernel's `started`, raised as
+/// the commands of `start` run) wants the pump now, not at the next deadline:
+/// the shell would else tell it only at its next call (#243).
+#[test]
+fn an_event_left_waiting_after_the_pump_wants_the_pump_now() {
+    let mut w = world(ALL, &[]);
+    w.kernel.now = Instant(5_000);
+    assert_eq!(w.kernel.service_due(), None, "nothing waits");
+    w.kernel.emit(builtin::STARTED.id(), &Params::new());
+    assert!(tags(&w, 'a').is_empty(), "queued, not told yet");
+    assert_eq!(w.kernel.service_due(), Some(Instant(5_000)));
+    while w.kernel.native_setting_pump() {}
+    assert_eq!(tags(&w, 'a'), [wire::EVENT_STARTED_TAG]);
+    assert_eq!(w.kernel.service_due(), None, "told: nothing waits");
+}
+
+/// A plugin whose callback fails is not told the event again: one pass of the
+/// pump empties the queue, and nothing keeps the device awake for it.
+#[test]
+fn a_failing_callback_leaves_nothing_waiting_after_one_pass() {
+    let mut w = world(ALL, &[]);
+    w.kernel.now = Instant(5_000);
+    w.fails.set(true);
+    w.kernel.emit(builtin::STARTED.id(), &Params::new());
+    assert_eq!(w.kernel.service_due(), Some(Instant(5_000)));
+    assert!(!w.kernel.native_setting_pump(), "nothing is retried");
+    assert_eq!(w.kernel.service_due(), None);
+}
+
+/// The pump and `service_due` agree at every pass (R1, #1229): the walk over
+/// the waiting owners allocates nothing, so a pass that asks for no other pass
+/// leaves `service_due` free to wait for a deadline, and the device to sleep.
+#[test]
+fn the_pump_and_service_due_agree_at_every_pass() {
+    let mut w = world(ALL, ALL);
+    w.kernel.now = Instant(5_000);
+    for _ in 0..20 {
+        w.kernel
+            .emit(builtin::BATTERY_MEASURED.id(), &Params::new());
+        w.kernel.emit(builtin::RESUME.id(), &Params::new());
+    }
+    for pass in 0..50 {
+        let more = w.kernel.native_setting_pump();
+        let now = w.kernel.service_due() == Some(Instant(5_000));
+        assert_eq!(more, now, "pass {pass}");
+        if !more {
+            break;
+        }
+    }
+    assert_eq!(w.kernel.service_due(), None, "all told");
+}
+
+/// `Kernel::start` raises `started` as its commands run, after its pump: the
+/// effects it returns ask for the next call now (#243).
+#[test]
+fn start_asks_to_be_called_again_now_for_the_started_event() {
+    let mut w = world(ALL, &[]);
+    let effects = w.kernel.start(Instant(7_000));
+    assert!(!tags(&w, 'a').contains(&wire::EVENT_STARTED_TAG));
+    assert_eq!(effects.wake_at(), Some(Instant(7_000)));
+    let _ = w.kernel.tick(Instant(7_000));
+    assert!(tags(&w, 'a').contains(&wire::EVENT_STARTED_TAG));
 }
 
 #[test]
@@ -500,4 +572,74 @@ fn a_book_event_without_a_location_is_not_told_and_is_logged_once() {
     }
     assert!(tags(&w, 'a').is_empty());
     assert_eq!(w.kernel.take_warnings().len(), 1);
+}
+
+/// The params of a move of a book from `from` to `path`.
+fn moved(from: &str, path: &str) -> Params {
+    use paperpaw_sdk::event::EventData;
+    builtin::BookMoved::new(from.into(), path.into()).to_params()
+}
+
+#[test]
+fn a_moved_book_is_told_to_its_subscribers_with_both_paths_and_to_no_one_else() {
+    let mut w = world(&[wire::EVENT_BOOK_MOVED_TAG], &[wire::EVENT_STARTED_TAG]);
+    w.kernel.emit(
+        builtin::BOOK_MOVED.id(),
+        &moved("books/a.txt", "books/new/a.txt"),
+    );
+    // Held until the pump tells it: the edge charges the budget.
+    let held = w
+        .kernel
+        .shared
+        .native_instances
+        .setting_events
+        .budget_used();
+    assert!(held >= 26, "held until told: {held}");
+    while w.kernel.native_setting_pump() {}
+    assert_eq!(tags(&w, 'a'), [wire::EVENT_BOOK_MOVED_TAG]);
+    assert!(tags(&w, 'b').is_empty());
+    assert_eq!(*w.titles.borrow(), ["books/a.txt>books/new/a.txt"]);
+    // Told: nothing waits and the held bytes are back (the budget, not the
+    // list of waiting owners, is what the edge charges).
+    let events = &w.kernel.shared.native_instances.setting_events;
+    assert!(events.waiting().is_empty());
+    assert_eq!(events.budget_used(), 0);
+}
+
+#[test]
+fn a_moved_book_with_a_path_over_the_cap_is_dropped_whole_and_logged_once_not_cut() {
+    let mut w = world(&[wire::EVENT_BOOK_MOVED_TAG], &[]);
+    w.kernel.take_warnings();
+    let long = "a".repeat(513);
+    for _ in 0..2 {
+        raise(
+            &mut w.kernel,
+            wire::EVENT_BOOK_MOVED_TAG,
+            &moved(&long, "b.txt"),
+        );
+        raise(
+            &mut w.kernel,
+            wire::EVENT_BOOK_MOVED_TAG,
+            &moved("a.txt", &long),
+        );
+    }
+    assert!(tags(&w, 'a').is_empty(), "never told with a cut path");
+    assert_eq!(w.kernel.take_warnings().len(), 1, "logged once");
+    // The caps themselves still pass.
+    let edge = "a".repeat(512);
+    raise(
+        &mut w.kernel,
+        wire::EVENT_BOOK_MOVED_TAG,
+        &moved(&edge, &edge),
+    );
+    assert_eq!(tags(&w, 'a'), [wire::EVENT_BOOK_MOVED_TAG]);
+}
+
+#[test]
+fn a_move_without_both_paths_is_dropped_without_a_panic() {
+    let mut w = world(&[wire::EVENT_BOOK_MOVED_TAG], &[]);
+    let mut params = Params::new();
+    params.set("from", "books/a.txt");
+    raise(&mut w.kernel, wire::EVENT_BOOK_MOVED_TAG, &params);
+    assert!(tags(&w, 'a').is_empty());
 }

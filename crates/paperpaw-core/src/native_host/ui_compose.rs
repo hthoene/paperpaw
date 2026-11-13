@@ -103,7 +103,7 @@ pub(crate) fn visible(clip: Rect, x: i32, y: i32, width: u32, height: u32) -> Op
 /// # Safety
 /// `ctx` is null or the pinned `Context<S>` given to `make`; the other
 /// arguments are scalars.
-pub(super) unsafe extern "C" fn compose<S>(
+pub(super) unsafe extern "C" fn compose<S: 'static>(
     ctx: *mut c_void,
     kind: u32,
     handle: u32,
@@ -145,7 +145,7 @@ pub(super) unsafe extern "C" fn compose<S>(
     }
 }
 
-fn run<S>(
+fn run<S: 'static>(
     context: &Context<S>,
     request: &ComposeRequest,
     canvas: &mut Canvas<'_>,

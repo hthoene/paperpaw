@@ -118,6 +118,18 @@ fn make_claim_attach_params_and_the_old_one_goes_after() {
 }
 
 #[test]
+fn the_entry_list_grows_by_one_and_is_given_back_when_empty() {
+    let s = store();
+    let a = s.handover_make(who(1, 1), &[p("k", "a")]).unwrap();
+    // One entry, room for exactly one (the usual growth takes four).
+    assert_eq!(s.inner.borrow().entries.capacity(), 1);
+    own(&s, who(1, 1), a, 5);
+    s.attach(None, 5).unwrap();
+    assert_eq!(s.inner.borrow().entries.len(), 0);
+    assert_eq!(s.inner.borrow().entries.capacity(), 0);
+}
+
+#[test]
 fn a_refused_batch_claims_nothing_and_the_old_data_stays() {
     let s = store();
     let old = s.handover_make(who(1, 1), &[p("k", "old")]).unwrap();
@@ -211,7 +223,10 @@ fn an_owner_that_stopped_cannot_be_claimed_for() {
     let s = store();
     let id = s.handover_make(who(1, 1), &[]).unwrap();
     let claims = s.claim(who(1, 1), &[id]).unwrap();
+    // A made or claimed entry keeps its plugin from sleeping again (#248, D3).
+    assert_eq!(s.owner_holds(1), Ok(true));
     s.owner_stopped(1).unwrap();
+    assert_eq!(s.owner_holds(1), Ok(false));
     assert_eq!(s.attach(Some(id), 3), Err(ERR_STATE));
     drop(claims);
     assert_eq!(s.len(), 0);
@@ -491,6 +506,17 @@ fn only_the_small_memory_class_gets_the_x4_profile() {
     assert!(!is_x4(MemoryClass::Large));
 }
 
+/// The nested-callback gate is closed on the X4 profile only, and only
+/// without the feature `x4-nested` (#250); a large device never has it.
+#[test]
+fn the_nested_gate_is_the_x4_profiles_until_the_feature_opens_it() {
+    assert_eq!(
+        nested_closed(MemoryClass::Small),
+        !cfg!(feature = "x4-nested")
+    );
+    assert!(!nested_closed(MemoryClass::Large));
+}
+
 /// What `handed_file` shows for `instance`: the maker, the root and the path.
 fn handed(s: &UiStore, instance: u32) -> Result<(u64, u32, String), i32> {
     let mut seen = None;
@@ -555,4 +581,206 @@ fn a_handed_file_goes_with_its_instance_and_a_busy_store_is_a_state_error() {
     drop(hold);
     s.instance_closed(6).unwrap();
     assert_eq!(handed(&s, 6), Err(ERR_DENIED));
+}
+
+#[test]
+fn the_host_makes_the_hand_over_of_a_dialog_with_the_params_a_plugin_cannot() {
+    let s = store();
+    // Op 16 refuses a `core.` key to a plugin.
+    assert_eq!(
+        s.handover_make(who(1, 1), &[p("core.request", "7")]),
+        Err(ERR_INVALID)
+    );
+    let id = s.handover_dialog("7", "0").unwrap();
+    // Claimed, so the stack's attach gives it to the dialog's instance.
+    s.attach(Some(id), 5).unwrap();
+    assert_eq!(
+        read_params(&s, 5, id).unwrap(),
+        [
+            ("core.request".into(), "7".into()),
+            ("core.kind".into(), "0".into())
+        ]
+    );
+    // One no screen took is freed by the release.
+    let loose = s.handover_dialog("8", "0").unwrap();
+    s.release(loose).unwrap();
+    assert_eq!(s.attach(Some(loose), 6), Err(ERR_STATE));
+}
+
+#[test]
+fn a_full_table_of_plugins_hand_overs_leaves_room_for_the_hosts_dialogs() {
+    let mut limits = Limits::ELSEWHERE;
+    limits.handovers = 1;
+    let s = UiStore::new(limits);
+    s.handover_make(who(1, 1), &[p("k", "v")]).unwrap();
+    // The plugins' table is full: another of theirs is refused.
+    assert_eq!(s.handover_make(who(1, 1), &[p("k", "w")]), Err(ERR_FULL));
+    // The host's dialogs still open, up to the room it has.
+    s.handover_dialog("1", "0").unwrap();
+    s.handover_dialog("2", "0").unwrap();
+    assert_eq!(s.handover_dialog("3", "0"), Err(ERR_FULL));
+}
+
+#[test]
+fn a_plugin_that_fills_the_params_pool_leaves_room_for_the_hosts_dialogs() {
+    let mut limits = Limits::ELSEWHERE;
+    limits.params_bytes = 300;
+    let s = UiStore::new(limits);
+    // One long value fills the pool as far as it goes.
+    let long = "x".repeat(250);
+    s.handover_make(who(1, 1), &[p("k", &long)]).unwrap();
+    assert_eq!(s.handover_make(who(1, 1), &[p("j", &long)]), Err(ERR_FULL));
+    // The host's dialog still gets its hand-over.
+    let id = s.handover_dialog("1", "0").unwrap();
+    s.attach(Some(id), 3).unwrap();
+    assert_eq!(read_params(&s, 3, id).unwrap().len(), 2);
+}
+
+#[test]
+fn the_hosts_key_is_no_maker_to_pass_a_handed_file_on_for() {
+    let s = store();
+    let params = [p("root", "5"), p("path", "a.txt")];
+    // A file the host made a hand-over for has the host's key as its maker:
+    // it would resolve against the passing plugin's own folder. The "no
+    // maker" mark is a value of its own, never the host's.
+    assert!(is_host_owner(u64::MAX));
+    assert_eq!(
+        s.handover_passing_on(who(3, 1), &params, u64::MAX),
+        Err(ERR_DENIED)
+    );
+    assert!(s.handover_passing_on(who(3, 1), &params, 9).is_ok());
+}
+
+#[test]
+fn the_host_hands_over_the_params_of_an_open_no_plugin_made() {
+    let s = store();
+    let id = s
+        .handover_params(&[
+            p("id", "core.rotation"),
+            // What op 16 refuses a plugin is left out, as is a key again.
+            p("core.request", "7"),
+            p("Bad Key", "x"),
+            p("id", "again"),
+            p("text", "A note."),
+        ])
+        .unwrap();
+    s.attach(Some(id), 4).unwrap();
+    assert_eq!(
+        read_params(&s, 4, id).unwrap(),
+        [
+            ("id".into(), "core.rotation".into()),
+            ("text".into(), "A note.".into())
+        ]
+    );
+    // The text is also the hand-over's text.
+    assert_eq!(read_text(&s, 4, id).unwrap(), "A note.");
+    // Closing the screen frees all of it.
+    s.instance_closed(4).unwrap();
+    assert_eq!((s.len(), s.held()), (0, (0, 0)));
+}
+
+#[test]
+fn a_long_text_is_handed_over_as_the_text_only() {
+    let s = store();
+    let long = "ä".repeat(2_000);
+    let id = s
+        .handover_params(&[p("title", "Name"), p("text", &long)])
+        .unwrap();
+    s.attach(Some(id), 2).unwrap();
+    assert_eq!(
+        read_params(&s, 2, id).unwrap(),
+        [("title".into(), "Name".into())]
+    );
+    assert_eq!(read_text(&s, 2, id).unwrap(), long);
+    s.instance_closed(2).unwrap();
+    assert_eq!((s.len(), s.held()), (0, (0, 0)));
+    // One no screen took is freed by the release.
+    let loose = s.handover_params(&[p("save", "1")]).unwrap();
+    s.release(loose).unwrap();
+    assert_eq!((s.len(), s.held()), (0, (0, 0)));
+}
+
+#[test]
+fn params_over_the_caps_of_op_16_are_not_handed_over() {
+    let s = store();
+    let keys: Vec<String> = (0..=PARAMS_MAX).map(|n| format!("k{n}")).collect();
+    let many: Vec<Param<'_>> = keys.iter().map(|key| p(key, "v")).collect();
+    assert_eq!(s.handover_params(&many), Err(ERR_NO_SPACE));
+    let long = "x".repeat(PARAM_BYTES_MAX);
+    assert_eq!(s.handover_params(&[p("id", &long)]), Err(ERR_NO_SPACE));
+    assert_eq!((s.len(), s.held()), (0, (0, 0)));
+    // A text longer than a hand-over's is left out, the params kept.
+    let text = "x".repeat(TEXT_MAX + 1);
+    let id = s
+        .handover_params(&[p("id", "a"), p("text", &text)])
+        .unwrap();
+    s.attach(Some(id), 1).unwrap();
+    assert_eq!(read_params(&s, 1, id).unwrap(), [("id".into(), "a".into())]);
+    assert_eq!(read_text(&s, 1, id).unwrap(), "");
+}
+
+#[test]
+fn on_the_x4_a_long_text_is_left_out_and_the_params_kept() {
+    let s = UiStore::new(Limits::X4);
+    // Past the 2 KiB the X4 keeps of texts.
+    let text = "x".repeat(4_000);
+    let id = s
+        .handover_params(&[p("id", "a"), p("text", &text)])
+        .unwrap();
+    // Its memory is given back whole.
+    assert_eq!(s.held().1, 0);
+    s.attach(Some(id), 1).unwrap();
+    assert_eq!(read_params(&s, 1, id).unwrap(), [("id".into(), "a".into())]);
+    assert_eq!(read_text(&s, 1, id).unwrap(), "");
+    // One that fits is kept, as its text and as a param.
+    let id = s.handover_params(&[p("text", "A note.")]).unwrap();
+    s.attach(Some(id), 2).unwrap();
+    assert_eq!(read_text(&s, 2, id).unwrap(), "A note.");
+    // A hand-over whose attach failed is released: nothing is left of it.
+    let loose = s.handover_params(&[p("text", "Another.")]).unwrap();
+    let before = s.len();
+    s.release(loose).unwrap();
+    assert_eq!(s.len(), before - 1);
+    s.instance_closed(1).unwrap();
+    s.instance_closed(2).unwrap();
+    assert_eq!((s.len(), s.held()), (0, (0, 0)));
+    // The plugins' table full of such hand-overs: the host's dialogs still
+    // have their room.
+    let mut ids = Vec::new();
+    while let Ok(id) = s.handover_params(&[p("id", "a")]) {
+        ids.push(id);
+    }
+    assert_eq!(ids.len(), Limits::X4.handovers);
+    s.handover_dialog("1", "0").unwrap();
+    s.handover_dialog("2", "0").unwrap();
+}
+
+#[test]
+fn hand_overs_of_params_leave_the_room_of_the_hosts_dialogs_alone() {
+    let mut limits = Limits::ELSEWHERE;
+    limits.handovers = 2;
+    let s = UiStore::new(limits);
+    // Two screens opened with params take the plugins' table.
+    let one = s.handover_params(&[p("id", "core.rotation")]).unwrap();
+    let two = s.handover_params(&[p("text", "A note.")]).unwrap();
+    s.attach(Some(one), 1).unwrap();
+    s.attach(Some(two), 2).unwrap();
+    // A third is refused (that screen opens without), not put in the room
+    // kept for the host's dialogs.
+    assert_eq!(s.handover_params(&[p("id", "x")]), Err(ERR_FULL));
+    // The host's dialogs still open, both of them.
+    let first = s.handover_dialog("1", "0").unwrap();
+    let second = s.handover_dialog("2", "0").unwrap();
+    s.attach(Some(first), 3).unwrap();
+    s.attach(Some(second), 4).unwrap();
+    assert_eq!(read_params(&s, 4, second).unwrap().len(), 2);
+    // So also when the params pool is what is full.
+    let mut limits = Limits::ELSEWHERE;
+    limits.params_bytes = 100;
+    let s = UiStore::new(limits);
+    let long = "x".repeat(80);
+    s.handover_params(&[p("id", &long)]).unwrap();
+    assert_eq!(s.handover_params(&[p("id", &long)]), Err(ERR_FULL));
+    s.handover_dialog("1", "0").unwrap();
+    s.handover_dialog("2", "0").unwrap();
 }

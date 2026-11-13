@@ -108,7 +108,7 @@ pub(crate) fn run(
     }
     // The subscriber is a nested callback, one level deeper than any frame the
     // X4 has measured: closed until its stack gate passes (as `ui.compose`).
-    if super::ui_store::is_x4(frame.env.device().memory) {
+    if super::ui_store::nested_closed(frame.env.device().memory) {
         return Err(ERR_UNSUPPORTED);
     }
     let directory = frame.directory.ok_or(ERR_UNSUPPORTED)?;

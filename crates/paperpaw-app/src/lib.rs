@@ -127,7 +127,7 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 16] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
@@ -144,8 +144,96 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
+    ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
+    ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
+
+/// The linked plugins that may sleep: parked until first use, and again on
+/// standby or under memory pressure, where the kernel's checks allow it
+/// (#248, Decisions 165 and 166). Every other plugin stays awake. A plugin
+/// joins only with a case in `tests/sleep_parity.rs` that shows it behaves
+/// the same parked as awake. Not here: `help`, told of every screen change,
+/// would be made again at the first one; `transfer` installs plugins
+/// (`uses.install`), and the kernel parks no installer. The formats sleep
+/// until a book of theirs opens; they are native plugins only where the build
+/// activates them (the flip, #243), and a name not registered changes nothing.
+#[cfg(feature = "native-linked")]
+pub const SLEEPS: &[&str] = &[
+    "about",
+    "file-manager",
+    "files",
+    "format-cbz",
+    "format-epub",
+    "format-fb2",
+    "format-html",
+    "format-markdown",
+    "format-txt",
+    "format-xtc",
+    "keyboard",
+    "menu",
+    "opds",
+    "settings",
+];
+
+/// Whether the linked plugin `id` may sleep ([`SLEEPS`]).
+#[cfg(feature = "native-linked")]
+#[must_use]
+pub fn sleeps(id: &str) -> bool {
+    SLEEPS.contains(&id)
+}
+
+/// The settings and setting groups plugin `id` keeps in the program, as Beta 3
+/// did, instead of one copy on the heap for each it declares
+/// (`Kernel::register_linked`): the tables its build script makes of its own
+/// declarations. Empty for a plugin that has none; one that is not listed here
+/// only costs memory.
+#[cfg(feature = "native-linked")]
+pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
+    use paperpaw_core::native_host::FixedTables;
+    macro_rules! tables {
+        ($plugin:ident) => {
+            FixedTables::new($plugin::NATIVE_SETTINGS, $plugin::NATIVE_GROUPS)
+                .with_ids($plugin::NATIVE_IDS)
+                .with_titles($plugin::NATIVE_TITLES)
+        };
+    }
+    match id {
+        "about" => tables!(paperpaw_plugin_about),
+        "files" => tables!(paperpaw_plugin_files),
+        "plugin-manager" => tables!(paperpaw_plugin_plugin_manager),
+        "setup" => tables!(paperpaw_plugin_setup),
+        "transfer" => tables!(paperpaw_plugin_transfer),
+        "update" => tables!(paperpaw_plugin_update),
+        "wifi" => tables!(paperpaw_plugin_wifi),
+        #[cfg(feature = "native-linked-store")]
+        "mail" => tables!(paperpaw_plugin_mail),
+        #[cfg(feature = "native-linked-store")]
+        "notes-vault" => tables!(paperpaw_plugin_notes_vault),
+        "bluetooth" => tables!(paperpaw_plugin_bluetooth),
+        "file-manager" => tables!(paperpaw_plugin_file_manager),
+        "help" => tables!(paperpaw_plugin_help),
+        #[cfg(feature = "native-linked-reading")]
+        "home" => tables!(paperpaw_plugin_home),
+        "keyboard" => tables!(paperpaw_plugin_keyboard),
+        "lock" => tables!(paperpaw_plugin_lock),
+        "menu" => tables!(paperpaw_plugin_menu),
+        "opds" => tables!(paperpaw_plugin_opds),
+        "power" => tables!(paperpaw_plugin_power),
+        #[cfg(feature = "native-linked-reading")]
+        "reader" => tables!(paperpaw_plugin_reader),
+        "settings" => tables!(paperpaw_plugin_settings),
+        #[cfg(feature = "native-linked-store")]
+        "aids" => tables!(paperpaw_plugin_aids),
+        #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
+        "news" => tables!(paperpaw_plugin_news),
+        #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
+        "vocabulary" => tables!(paperpaw_plugin_vocabulary),
+        #[cfg(feature = "native-linked-store")]
+        "widgets" => tables!(paperpaw_plugin_widgets),
+        _ => FixedTables::NONE,
+    }
+}
 
 /// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
 /// `Kernel::register_linked`, before the kernel starts (the one path the X4,
@@ -156,8 +244,11 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
 /// the shell's table of handles (each plugin gets a share) with its services
 /// wired; `depth` the shell's one dispatch budget; `services` makes one
 /// [`Services`](paperpaw_native::host_glue::Services) (heap and clock) per
-/// plugin. A plugin the host refuses (a service it does not wire, no memory)
-/// is returned with the reason and does not stop the others.
+/// plugin. A plugin `sleep` says yes for (the shells pass [`sleeps`]) is
+/// registered to sleep (`Kernel::register_linked_parked`, #248): parked
+/// until first use where the kernel's checks allow it. A plugin the host
+/// refuses (a service it does not wire, no memory) is returned with the
+/// reason and does not stop the others.
 ///
 /// # Safety
 /// Every entry of [`NATIVE_PLUGINS`] comes from `native_plugin!(..., linked =
@@ -165,7 +256,9 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
 /// native factory contract and its code and static data stay for the whole
 /// run; the caller must not call this with a `host` that offers more than it
 /// backs: a service or a consent feature offered and not wired is a plugin
-/// that fails later.
+/// that fails later. `image` is the program's read-only data as a mapping that
+/// stays for the whole run (null and zero for none): the plugins' declarations
+/// are kept as offsets into it, not copied (`Kernel::register_linked`).
 #[cfg(feature = "native-linked")]
 #[allow(
     clippy::too_many_arguments,
@@ -176,9 +269,11 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     host: &paperpaw_native::metadata::Host<'static>,
     resources: &paperpaw_core::native_host::HostResources,
     depth: &paperpaw_core::native_host::flat::FlatDepth,
-    mut services: impl FnMut() -> S,
+    services: fn() -> S,
     teardown: paperpaw_core::native_host::shell::Report<S>,
-    report: fn(&S, u32, i32),
+    report: fn(&S, &str, u32, i32),
+    image: (*const u8, usize),
+    sleep: fn(&str) -> bool,
 ) -> alloc::vec::Vec<(
     &'static str,
     Result<(), paperpaw_core::native_host::shell::Error>,
@@ -188,7 +283,34 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     if outcome.try_reserve_exact(NATIVE_PLUGINS.len()).is_err() {
         return outcome;
     }
+    add_native_catalogs(kernel);
+    // What every sleeping plugin keeps of the shell, once: without room for
+    // it they all stay awake.
+    // SAFETY: `image` as this function's contract says.
+    let park_shell = unsafe {
+        paperpaw_core::native_host::ParkShell::try_new(
+            host, services, resources, depth, teardown, report, image,
+        )
+    };
     for (id, linked) in &NATIVE_PLUGINS {
+        if let Some(park_shell) = park_shell.as_ref().filter(|_| sleep(id)) {
+            // SAFETY: as this function's contract says.
+            let status = unsafe {
+                kernel.register_linked_parked(
+                    linked.entry(),
+                    linked.metadata(),
+                    id,
+                    park_shell,
+                    fixed_tables(id),
+                )
+            };
+            // No room for what sleeping keeps: the plugin is registered
+            // awake below instead of not at all.
+            if !matches!(status, Err(Error::Allocation)) {
+                outcome.push((*id, status));
+                continue;
+            }
+        }
         let Some(share) = resources.try_clone() else {
             outcome.push((*id, Err(Error::Allocation)));
             continue;
@@ -205,11 +327,50 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
                 depth,
                 teardown,
                 report,
+                image,
+                fixed_tables(id),
             )
         };
         outcome.push((*id, status));
     }
     outcome
+}
+
+/// The translation catalogs plugin `id` brings built in, as the texts of its
+/// `i18n/<language>.ini` files (a linked native plugin has no code file to
+/// carry them: `screens-input.md` [D]). Empty for a plugin with none.
+#[cfg(feature = "native-linked")]
+#[must_use]
+pub fn native_catalogs(id: &str) -> &'static [&'static str] {
+    const CATALOGS: &[(&str, &[&str])] = include!(concat!(env!("OUT_DIR"), "/native_catalogs.rs"));
+    CATALOGS
+        .iter()
+        .find_map(|(plugin, catalogs)| (*plugin == id).then_some(*catalogs))
+        .unwrap_or(&[])
+}
+
+/// Adds the catalogs of every linked plugin of [`NATIVE_PLUGINS`] to the
+/// kernel's translator, before the kernel starts (one call for a shell that
+/// registers the plugins itself, `register_native_plugins` makes it for its
+/// own; a second call adds nothing): without them the texts of a linked plugin (a title, a key's label) are
+/// not found. The room for them is asked for once.
+#[cfg(feature = "native-linked")]
+pub fn add_native_catalogs(kernel: &mut paperpaw_core::Kernel) {
+    // Once: a shell that calls it after `register_native_plugins` (which does)
+    // adds nothing twice.
+    if !kernel.claim_native_catalogs() {
+        return;
+    }
+    let plugins = NATIVE_PLUGINS
+        .iter()
+        .filter(|(id, _)| !native_catalogs(id).is_empty())
+        .count();
+    kernel.reserve_catalogs(plugins);
+    for (id, _) in NATIVE_PLUGINS {
+        for source in native_catalogs(id) {
+            kernel.add_catalog(source);
+        }
+    }
 }
 
 /// The network settings of every networked first-party plugin, kept in
@@ -232,10 +393,11 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
 pub static CATALOG_INDEXES: &[(u64, &[u16])] =
     include!(concat!(env!("OUT_DIR"), "/catalog_indexes.rs"));
 
-/// The first-party plugins' English catalogs indexed together when the
-/// program was built (see `build.rs`): the translator keeps one catalog
-/// for all of them.
-pub static BUILT_CATALOGS: paperpaw_i18n::BuiltCatalogs =
+/// The first-party plugins' catalogs indexed together when the program
+/// was built (see `build.rs`), a table for English and one for German: the
+/// translator keeps one catalog for all of a language's, and the texts a
+/// source does not give plainly are kept here, not made on the heap.
+pub static BUILT_CATALOGS: &[paperpaw_i18n::BuiltLanguage] =
     include!(concat!(env!("OUT_DIR"), "/built_catalogs.rs"));
 
 /// Adds the first-party plugins to `builder`, those the store offers as
@@ -248,7 +410,7 @@ pub fn install_with(
     let builder = builder
         .network_settings(NETWORK_SETTINGS)
         .catalog_indexes(CATALOG_INDEXES)
-        .built_catalogs(&BUILT_CATALOGS);
+        .built_catalogs(BUILT_CATALOGS);
     let builder = match fonts {
         #[cfg(feature = "outline")]
         Fonts::Outline => builder.plugin(paperpaw_plugin_fonts_default::DefaultFonts),
@@ -259,11 +421,11 @@ pub fn install_with(
     let _ = store;
     let mut b = builder
         .plugin(paperpaw_plugin_format_txt::TxtFormat)
-        .plugin(paperpaw_plugin_format_epub::EpubFormat)
-        .plugin(paperpaw_plugin_format_epub::HtmlFormat)
-        .plugin(paperpaw_plugin_format_epub::Fb2Format)
-        .plugin(paperpaw_plugin_format_epub::MarkdownFormat)
-        .plugin(paperpaw_plugin_format_epub::CbzFormat)
+        .plugin(paperpaw_epub_family::EpubFormat)
+        .plugin(paperpaw_epub_family::HtmlFormat)
+        .plugin(paperpaw_epub_family::Fb2Format)
+        .plugin(paperpaw_epub_family::MarkdownFormat)
+        .plugin(paperpaw_epub_family::CbzFormat)
         .plugin(paperpaw_plugin_format_xtc::XtcFormat)
         .plugin(paperpaw_plugin_dictionary::DictionaryPlugin)
         .plugin(paperpaw_plugin_reader::Reader);
@@ -282,9 +444,13 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
     }
-    b = b
-        .plugin(paperpaw_plugin_wifi::Wifi)
-        .plugin(paperpaw_plugin_transfer::Transfer);
+    // Wi-Fi and Transfer are native plugins, linked (`NATIVE_PLUGINS`), where
+    // the feature says.
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b.plugin(paperpaw_plugin_wifi::Wifi);
+        b = b.plugin(paperpaw_plugin_transfer::Transfer);
+    }
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);

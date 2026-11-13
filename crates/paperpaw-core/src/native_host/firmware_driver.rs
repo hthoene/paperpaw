@@ -31,9 +31,12 @@
 //!   ([`Driver::set_plugin_host`]) none is accepted.
 //! * **Not here.** Nothing of this runs inside a plugin's callback; the pump
 //!   is called from the main loop.
+//!
+//! [`FirmwareInstall`]: super::firmware_install::FirmwareInstall
+use super::dual_boot_job::After;
+use super::firmware_cell::{DriverParts, MachineRef};
 use super::firmware_install::{
-    Answer, Ask, BuiltIns, Event, FirmwareInstall, Job, KIND_CHECK, KIND_FIRMWARE, Outcome,
-    Question,
+    Answer, Ask, BuiltIns, Event, Job, KIND_CHECK, KIND_FIRMWARE, Outcome, Question,
 };
 use super::plugin_job::{
     Finished, ID_MAX, InstallGrants, JobEnv, JobStep, KIND_INSTALL, KIND_REMOVAL, PluginHost,
@@ -41,7 +44,7 @@ use super::plugin_job::{
 };
 use super::plugin_jobs::PluginJobs;
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use core::cell::{Cell, RefCell};
+use core::cell::Cell;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED,
 };
@@ -91,12 +94,12 @@ struct Entry {
 
 /// A kept outcome: `None` while the plugin's request of that kind waits.
 #[derive(Clone, Copy)]
-struct Kept {
-    owner: u64,
+pub(crate) struct Kept {
+    pub(super) owner: u64,
     kind: u32,
     /// The request the slot waits for: only its own outcome fills it.
     request: u32,
-    outcome: Option<Outcome>,
+    pub(super) outcome: Option<Outcome>,
 }
 
 /// One job in the queue: a firmware install or check, or a plugin job.
@@ -128,7 +131,7 @@ impl Queued {
 /// The firmware request table, queue and pump.
 pub(crate) struct Driver {
     host: Box<dyn FirmwareHost>,
-    machine: Rc<RefCell<FirmwareInstall>>,
+    machine: MachineRef,
     entries: Vec<Entry>,
     queue: Vec<Queued>,
     /// The plugin jobs, waiting and running, room reserved at submit.
@@ -157,9 +160,9 @@ pub(crate) struct Driver {
     /// The running removal asks the host to forget this plugin's secrets and
     /// grants and waits for [`Self::plugin_forgotten`].
     plugin_forget: Option<Text<ID_MAX>>,
-    /// A removal journal the start left to finish with the host's help (its
-    /// plugin's secrets and grants): the kernel's first pass does it.
-    resume: bool,
+    /// A stop asked for the bounded steps of [`Self::finish_stopped`]: the
+    /// kernel takes them at the end of its pass ([`Self::take_finish`]).
+    finish_due: bool,
     /// Revocations handed in (`trust_revoked`), kept at the next pump with no
     /// plugin job running; at most [`MAX_REVOCATIONS_QUEUED`].
     revocations: Vec<Revocation>,
@@ -184,11 +187,44 @@ pub(crate) struct Driver {
     restart_wanted: bool,
     /// The plugins were told PaperPaw stops for a restart; it comes next pass.
     stopping: bool,
+    /// The restart wanted is a dual-boot change's: of the running image, no
+    /// new one waits ([`FirmwareHost::restart_running`]).
+    dual_restart: bool,
+    /// The host opened `firmware_dual_boot` ([`Self::open_dual_boot`]).
+    dual_open: bool,
+    /// What a dual-boot change wrote that the machine did not take yet (it
+    /// was borrowed): applied at the next pass, never dropped, so the
+    /// latch of mode 0 protects as soon as the machine is free.
+    dual_pending: Option<After>,
+    /// `paperpaw.ini`'s `dual-boot` was read for `dev_firmware.flags` (once,
+    /// at the first idle pass with the card).
+    ini_read: bool,
 }
 
 impl Driver {
     /// A driver over the device's firmware and the machine the ops read.
-    pub(crate) fn new(host: Box<dyn FirmwareHost>, machine: Rc<RefCell<FirmwareInstall>>) -> Self {
+    #[cfg(test)]
+    pub(crate) fn new(host: Box<dyn FirmwareHost>, machine: MachineRef) -> Self {
+        Self::from_parts(DriverParts::new(host), machine, Rc::new(Cell::new(0)))
+    }
+
+    /// A driver made of `parts`, over `machine`, counting its skips in
+    /// `skipped`.
+    pub(crate) fn from_parts(
+        parts: DriverParts,
+        machine: MachineRef,
+        skipped: Rc<Cell<u32>>,
+    ) -> Self {
+        let DriverParts {
+            host,
+            plugin_host,
+            grants,
+            kept,
+            machine: _,
+        } = parts;
+        if let Ok(mut machine) = machine.try_borrow_mut() {
+            machine.set_dual_host(host.dual_boot_capable(), host.dual_boot_declared());
+        }
         Self {
             host,
             machine,
@@ -197,25 +233,91 @@ impl Driver {
             plugin_jobs: Vec::new(),
             running: None,
             finishing: None,
-            plugin_host: None,
-            grants: None,
+            plugin_host,
+            grants,
             fed: super::install_grants::Granted::NONE,
             plugin_question: None,
             plugin_shown: None,
             plugin_unload: None,
             plugin_forget: None,
-            resume: false,
+            finish_due: false,
             revocations: Vec::new(),
             ready: Vec::new(),
-            kept: Vec::new(),
+            kept,
             lost: 0,
-            skipped: Rc::new(Cell::new(0)),
+            skipped,
             blocked_until: None,
             ask: None,
             shown: None,
             restart_wanted: false,
             stopping: false,
+            dual_restart: false,
+            dual_open: false,
+            dual_pending: None,
+            ini_read: false,
         }
+    }
+
+    /// What the driver is made of, taken out in place for it to rest
+    /// ([`super::firmware_cell::FirmwareCell::rest`]); it keeps a host that
+    /// is gone and is dropped. The outcomes kept for op 13 go with them (a
+    /// slot that waits for no request is dropped), and so does the machine
+    /// while it keeps a check's result or a failed install.
+    pub(crate) fn take_parts(&mut self) -> DriverParts {
+        let mut kept = core::mem::take(&mut self.kept);
+        kept.retain(|kept| kept.outcome.is_some());
+        let keeps = self
+            .machine
+            .try_borrow()
+            .map_or(true, |machine| !machine.at_rest());
+        let machine = if keeps {
+            self.machine.try_clone()
+        } else {
+            None
+        };
+        DriverParts {
+            host: core::mem::replace(&mut self.host, Box::new(super::firmware_cell::Gone)),
+            plugin_host: self.plugin_host.take(),
+            grants: self.grants.take(),
+            kept,
+            machine,
+        }
+    }
+
+    /// Whether nothing is left to run, ask or tell, and the machine runs
+    /// nothing either ([`FirmwareInstall::quiet`]): made again from its parts
+    /// (which keep the outcomes and results plugins may still read), a driver
+    /// is the same. Never for a device that can boot two firmwares (its latch
+    /// and `paperpaw.ini` reading are kept).
+    ///
+    /// [`FirmwareInstall::quiet`]: super::firmware_install::FirmwareInstall::quiet
+    pub(crate) fn at_rest(&self) -> bool {
+        self.entries.is_empty()
+            && self.queue.is_empty()
+            && self.plugin_jobs.is_empty()
+            && self.running.is_none()
+            && self.finishing.is_none()
+            && self.plugin_question.is_none()
+            && self.plugin_shown.is_none()
+            && !self.finish_due
+            && self.plugin_unload.is_none()
+            && self.plugin_forget.is_none()
+            && self.revocations.is_empty()
+            && self.ready.is_empty()
+            && self.blocked_until.is_none()
+            && self.ask.is_none()
+            && self.shown.is_none()
+            && !self.restart_wanted
+            && !self.stopping
+            && !self.dual_restart
+            && !self.dual_open
+            && self.dual_pending.is_none()
+            && !self.host.dual_boot_capable()
+            && self.machine.is_unique()
+            && self
+                .machine
+                .try_borrow()
+                .is_ok_and(|machine| machine.quiet())
     }
 
     /// Takes a revocation to keep at the next idle pump; `false`: no room (the
@@ -287,13 +389,18 @@ impl Driver {
         if !has_slot && self.kept.len() >= KEPT_MAX && !self.evictable() {
             return Err(ERR_FULL);
         }
+        // Exact: an amortized reserve rounds the first one up to four rows.
         let wanted = self.entries.len() + 1;
-        self.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        self.queue.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        self.entries
+            .try_reserve_exact(1)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        self.queue.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)?;
         // An outcome for every waiting request, besides those not yet taken.
-        self.ready.try_reserve(wanted).map_err(|_| ERR_NO_MEMORY)?;
+        self.ready
+            .try_reserve_exact(wanted)
+            .map_err(|_| ERR_NO_MEMORY)?;
         if !has_slot && self.kept.len() < KEPT_MAX {
-            self.kept.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+            self.kept.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)?;
         }
         Ok(())
     }
@@ -455,14 +562,19 @@ impl Driver {
         }
     }
 
-    /// The start left a removal journal that needs the host's help to finish.
-    pub(crate) fn want_resume(&mut self) {
-        self.resume = true;
+    /// A stop wants [`Self::finish_stopped`] at the end of the kernel's pass.
+    pub(crate) fn want_finish(&mut self) {
+        self.finish_due = true;
     }
 
-    /// Whether [`Self::want_resume`] is not done yet; taken once.
-    pub(crate) fn take_resume(&mut self) -> bool {
-        core::mem::take(&mut self.resume)
+    /// Whether [`Self::want_finish`] is not done yet; taken once.
+    pub(crate) fn take_finish(&mut self) -> bool {
+        core::mem::take(&mut self.finish_due)
+    }
+
+    /// Whether [`Self::want_finish`] waits, without taking it.
+    pub(crate) fn finish_due(&self) -> bool {
+        self.finish_due
     }
 
     /// The host closed the instances asked for: the job goes on.
@@ -523,7 +635,10 @@ impl Driver {
     /// job's; else as [`Self::submit_install`].
     pub(crate) fn submit_plugin(&mut self, job: PluginJobs) -> Result<(), i32> {
         let (owner, request, kind) = (job.owner(), job.request(), job.kind());
-        if self.plugin_host.is_none() || !matches!(kind, KIND_INSTALL | KIND_REMOVAL | KIND_CHECK) {
+        let dual = matches!(job, PluginJobs::DualBoot(_));
+        if self.plugin_host.is_none()
+            || !(dual || matches!(kind, KIND_INSTALL | KIND_REMOVAL | KIND_CHECK))
+        {
             return Err(ERR_UNSUPPORTED);
         }
         self.room(owner, request, kind)?;
@@ -541,6 +656,36 @@ impl Driver {
         self.accept(Queued::Plugin { owner, request }, kind);
         self.plugin_jobs.push(job);
         Ok(())
+    }
+
+    /// Opens `command.firmware_dual_boot` to plugins: until then it is
+    /// `ERR_UNSUPPORTED` at submit. The host opens it once `paperpaw.ini` and
+    /// `.paperpaw/` are closed to plugins' file access (`files.md` 1.1), so the
+    /// command is the only way a plugin changes the `[firmware]` section.
+    pub(crate) fn open_dual_boot(&mut self) {
+        self.dual_open = true;
+    }
+
+    /// Whether [`Self::open_dual_boot`] was called.
+    pub(crate) fn dual_boot_open(&self) -> bool {
+        self.dual_open
+    }
+
+    /// `firmware_dual_boot` at submit: a job of the queue, behind a running
+    /// install too.
+    ///
+    /// # Errors
+    /// As [`Self::submit_plugin`].
+    pub(crate) fn submit_dual_boot(
+        &mut self,
+        owner: u64,
+        request: u32,
+        mode: super::dual_boot_ini::Mode,
+    ) -> Result<(), i32> {
+        let capable = self.host.dual_boot_capable();
+        self.submit_plugin(PluginJobs::DualBoot(super::dual_boot_job::DualBoot::new(
+            owner, request, mode, capable,
+        )))
     }
 
     /// `check_file` kind 1 at submit.
@@ -595,8 +740,8 @@ impl Driver {
     }
 
     /// The machine the device ops read (`HostServices::wire_firmware_install`).
-    pub(crate) fn machine(&self) -> Rc<RefCell<FirmwareInstall>> {
-        Rc::clone(&self.machine)
+    pub(crate) fn machine(&self) -> Option<MachineRef> {
+        self.machine.try_clone()
     }
 
     /// The submit gates of `firmware_restart`, and the room its request will
@@ -688,6 +833,10 @@ impl Driver {
     /// outcome are kept like any request's) and the image keeps waiting.
     pub(crate) fn restart_now(&mut self) -> bool {
         self.restart_wanted = false;
+        if core::mem::take(&mut self.dual_restart) {
+            // A dual-boot change's: the request ended already (reason 0).
+            return self.host.restart_running().is_err();
+        }
         let outcome = match self.machine.try_borrow_mut() {
             Ok(mut machine) => machine.restart(&mut *self.host),
             Err(_) => {
@@ -762,6 +911,14 @@ impl Driver {
         if self.running.is_none() && !self.revocations.is_empty() {
             self.keep_revocations(storage);
         }
+        if let Some(after) = self.dual_pending.take()
+            && !self.dual_machine(after)
+        {
+            self.dual_pending = Some(after);
+        }
+        if !self.ini_read && self.running.is_none() && self.host.dual_boot_capable() {
+            self.read_ini(storage);
+        }
         if self.running.is_some() {
             // A job that asked the user waits for the answer; nothing to step.
             if self.plugin_question.is_some()
@@ -812,6 +969,13 @@ impl Driver {
         };
         let kind = self.plugin_jobs[at].kind();
         let granted = self.granted(owner);
+        // A machine borrowed elsewhere counts as "an image waits": a
+        // dual-boot change then ends with reason 21, the safe side.
+        let waiting = self
+            .machine
+            .try_borrow()
+            .map_or(true, |machine| machine.waiting_request().is_some());
+        self.plugin_jobs[at].image_waiting(waiting);
         let finished = match self.plugin_host.as_ref() {
             Some(host) => match self.plugin_jobs[at].step(&JobEnv {
                 storage,
@@ -840,8 +1004,10 @@ impl Driver {
         // The job goes (its `Drop` releases what it holds).
         self.plugin_unload = None;
         self.plugin_forget = None;
+        let after = self.plugin_jobs[at].after();
         // In place: `remove` would hand the job over on this frame.
         drop(self.plugin_jobs.drain(at..=at));
+        self.dual_after(after);
         self.running = None;
         if self.finishing.take() == Some(false) {
             // Its sender stopped meanwhile: no entry, no outcome, no result.
@@ -869,6 +1035,50 @@ impl Driver {
             flags: finished.flags,
             id: finished.changed,
         }))
+    }
+
+    /// What a dual-boot change that wrote `paperpaw.ini` leaves behind: the
+    /// flags follow the file, `auto` latches the setup as declared, and a yes
+    /// to `off` restarts the device.
+    pub(crate) fn dual_after(&mut self, after: After) {
+        if after == After::Nothing {
+            return;
+        }
+        if !self.dual_machine(after) {
+            // The machine is borrowed: kept, applied at the next pass.
+            self.dual_pending = Some(after);
+        }
+        if after == After::Restart {
+            self.dual_restart = true;
+            self.restart_wanted = true;
+        }
+    }
+
+    /// Tells the machine what a dual-boot change wrote: the flags follow the
+    /// file and `auto` latches the setup as declared. `false`: it is borrowed.
+    fn dual_machine(&mut self, after: After) -> bool {
+        let off = after == After::Restart;
+        let Ok(mut machine) = self.machine.try_borrow_mut() else {
+            return false;
+        };
+        machine.set_ini_off(off);
+        if !off {
+            machine.latch_declared();
+        }
+        true
+    }
+
+    /// Reads `paperpaw.ini`'s `dual-boot` once for `dev_firmware.flags`; a file
+    /// that cannot be read says nothing (bit 1 stays 0).
+    fn read_ini(&mut self, storage: &dyn Storage) {
+        if core::mem::replace(&mut self.ini_read, true) {
+            return;
+        }
+        let off = super::dual_boot_ini::card_choice(storage)
+            .is_ok_and(|choice| choice == super::dual_boot_ini::Choice::Off);
+        if let Ok(mut machine) = self.machine.try_borrow_mut() {
+            machine.set_ini_off(off);
+        }
     }
 
     /// The place of the plugin job `(owner, request)`.
@@ -945,12 +1155,6 @@ impl Driver {
             .iter()
             .copied()
             .find(|outcome| (outcome.owner, outcome.request) == (owner, request))
-            .or_else(|| {
-                self.kept
-                    .iter()
-                    .filter(|kept| kept.owner == owner)
-                    .find_map(|kept| kept.outcome.filter(|outcome| outcome.request == request))
-            })
             .map(|outcome| Lookup {
                 kind: outcome.kind,
                 state: 2,
@@ -958,6 +1162,7 @@ impl Driver {
                 done: 0,
                 total: 0,
             })
+            .or_else(|| super::firmware_cell::kept_lookup(&self.kept, owner, request))
     }
 
     /// `dev_firmware.state` now (0 while the machine is in use).
@@ -982,9 +1187,9 @@ impl Driver {
         let stepping = self.running.is_some() && self.plugin_question.is_none();
         let revoking = self.running.is_none() && !self.revocations.is_empty();
         if self.restart_wanted
+            || self.dual_pending.is_some()
             || stepping
             || revoking
-            || self.resume
             || (!held && self.tell_pending())
         {
             return true;

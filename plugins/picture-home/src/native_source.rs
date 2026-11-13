@@ -19,6 +19,9 @@ use paperpaw_ui_kit::{
     text::copy,
 };
 
+use paperpaw_ui_kit::status_line::Lists;
+
+use crate::native_bar::{Look, Placing};
 use crate::native_grid::Sizes;
 use crate::native_pages::{self, MAX_PAGES, Source};
 use crate::native_picture::Visible;
@@ -39,8 +42,19 @@ const FOCUS_AT_ONCE: &str = "picture-home.focus-at-once";
 const PLATE: &str = "picture-home.plate";
 const BAR: &str = "picture-home.bar";
 const BAR_AT: &str = "picture-home.bar.at";
+const BAR_SHAPE: &str = "picture-home.bar.shape";
+const BAR_ALIGN: &str = "picture-home.bar.align";
+const BAR_LOOK: &str = "picture-home.bar.look";
+const BAR_LEFT: &str = "picture-home.bar.left-items";
+const BAR_CENTER: &str = "picture-home.bar.center-items";
+const BAR_RIGHT: &str = "picture-home.bar.right-items";
+const HINTS: &str = "picture-home.hints";
 /// The reader's choice that the arrow keys stay on the page.
 const ARROWS_STAY: &str = "core.arrows-stay-on-page";
+/// The registry's menu row flags: shown as on (a switch that is on), and
+/// enabled now (else faint).
+const CHECKED: u32 = 1;
+const ENABLED: u32 = 1 << 1;
 /// Most widgets and tools kept.
 const MOST: usize = 256;
 /// A page's text is at most this long (the settings' own cap).
@@ -57,6 +71,37 @@ pub struct WidgetRow {
     /// What kind of widget it is.
     pub kind: String,
 }
+
+/// How a tool's menu row looks: its icon's name and whether it is shown on and
+/// enabled now (a switch that is on, a tool its plugin shows faint).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ToolLook {
+    pub icon: String,
+    pub checked: bool,
+    pub enabled: bool,
+}
+
+impl ToolLook {
+    /// No icon, enabled: a tool the menu does not describe.
+    const PLAIN: Self = Self {
+        icon: String::new(),
+        checked: false,
+        enabled: true,
+    };
+
+    fn of(row: &paperpaw_sdk::native::registry::RegistryMenuRow<'_>) -> Result<Self, Error> {
+        Ok(Self {
+            icon: copy(row.icon())?,
+            checked: row.flags() & CHECKED != 0,
+            enabled: row.flags() & ENABLED != 0,
+        })
+    }
+}
+
+/// What one read of the registry returns: the widgets, the tools (action and
+/// name) and the look of each tool, in the order of the tools.
+type Read = (Vec<WidgetRow>, Vec<(String, String)>, Vec<ToolLook>);
 
 /// The snapshot.
 #[derive(Debug, Default)]
@@ -80,9 +125,18 @@ pub struct HostSource {
     pub bar: Visible,
     /// The bar is at the bottom.
     pub bar_bottom: bool,
+    /// What the bar is on, and where its plate sits in the strip.
+    pub bar_look: Look,
+    pub bar_placing: Placing,
+    /// The status items on the bar's left, centre and right.
+    pub bar_items: Lists,
+    /// When the row of hints below shows.
+    pub hints: Visible,
     widgets: Vec<WidgetRow>,
     /// The tools' actions and their names.
     tools: Vec<(String, String)>,
+    /// The look of each tool, in the order of `tools`.
+    looks: Vec<ToolLook>,
     /// What widgets measured at the grid's width: id, rows, fewest rows.
     measured: Vec<(String, u8, u8)>,
 }
@@ -95,7 +149,7 @@ impl HostSource {
     /// [`Error::NoMemory`] and the host's refusals; nothing is kept in part.
     pub fn read(host: &Host<'_>) -> Result<Self, Error> {
         let mut texts = Vec::new();
-        let mut scratch = buffer(TEXT_MAX + 64)?;
+        let mut scratch = buffer(TEXT_MAX)?;
         for slot in 0..MAX_PAGES {
             let key = native_pages::setting(slot)?;
             let text = match settings::read_setting(host, &key, &mut scratch)? {
@@ -131,10 +185,19 @@ impl HostSource {
         let plate = text(PLATE)?;
         let bar = Visible::of(&text(BAR)?);
         let bar_bottom = text(BAR_AT)? == crate::settings::BAR_ATS[1];
+        let bar_look = Look::of(&text(BAR_LOOK)?);
+        let bar_placing = Placing::of(&text(BAR_SHAPE)?, &text(BAR_ALIGN)?);
+        let bar_items = Lists {
+            left: text(BAR_LEFT)?,
+            center: text(BAR_CENTER)?,
+            right: text(BAR_RIGHT)?,
+            line: String::new(),
+        };
+        let hints = Visible::of(&text(HINTS)?);
         let registry = Registry::open(host)?;
         let found = Self::registry(host, &registry);
         let released = registry.release(host);
-        let (widgets, tools) = found?;
+        let (widgets, tools, looks) = found?;
         released?;
         Ok(Self {
             texts,
@@ -147,20 +210,18 @@ impl HostSource {
             plate,
             bar,
             bar_bottom,
+            bar_look,
+            bar_placing,
+            bar_items,
+            hints,
             widgets,
             tools,
+            looks,
             measured: Vec::new(),
         })
     }
 
-    #[allow(
-        clippy::type_complexity,
-        reason = "what one read of the registry returns"
-    )]
-    fn registry(
-        host: &Host<'_>,
-        registry: &Registry,
-    ) -> Result<(Vec<WidgetRow>, Vec<(String, String)>), Error> {
+    fn registry(host: &Host<'_>, registry: &Registry) -> Result<Read, Error> {
         let mut input = buffer(512)?;
         let mut out = buffer(SERVICE_BUFFER)?;
         let mut widgets = Vec::new();
@@ -179,6 +240,7 @@ impl HostSource {
             }
         })?;
         let mut tools: Vec<(String, String)> = Vec::new();
+        let mut looks: Vec<ToolLook> = Vec::new();
         for menu in TOOL_MENUS {
             rows!(cursor => registry.menu(host, menu, MenuQuery::Current, cursor, &mut input, &mut out), |r| {
                 let here_useless = menu == "core.tools" && r.item() == SCREENSHOT;
@@ -187,6 +249,7 @@ impl HostSource {
                     && tools.len() < MOST
                     && !tools.iter().any(|(t, _)| t == r.item());
                 if wanted {
+                    push(&mut looks, ToolLook::of(&r)?)?;
                     push(&mut tools, (copy(r.item())?, copy(r.title())?))
                 } else {
                     Ok(())
@@ -194,10 +257,46 @@ impl HostSource {
             })?;
         }
         if !tools.iter().any(|(t, _)| t == SETTINGS) {
-            // Named as the core names it; the catalog key stands for the word.
-            push(&mut tools, (copy(SETTINGS)?, copy("core.action.settings")?))?;
+            // Named as the core names it, in the reader's language.
+            let title = Self::settings_title(host, registry, &mut input, &mut out)?;
+            push(&mut looks, ToolLook::PLAIN)?;
+            push(&mut tools, (copy(SETTINGS)?, title))?;
         }
-        Ok((widgets, tools))
+        Ok((widgets, tools, looks))
+    }
+
+    /// How the tool of `action` looks: its icon's name and state. A tool the
+    /// menus do not list (it is shown by its id) has no icon and is enabled.
+    #[must_use]
+    pub fn tool_look(&self, action: &str) -> &ToolLook {
+        const PLAIN: &ToolLook = &ToolLook::PLAIN;
+        self.tools
+            .iter()
+            .position(|(id, _)| id == action)
+            .and_then(|at| self.looks.get(at))
+            .unwrap_or(PLAIN)
+    }
+
+    /// The core's name for Settings, translated as the core's actions are
+    /// (`actions` of `core`); its catalog key where the core lists no such
+    /// action, as before.
+    fn settings_title(
+        host: &Host<'_>,
+        registry: &Registry,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<String, Error> {
+        let mut title = None;
+        rows!(cursor => registry.actions(host, "core", cursor, input, out), |r| {
+            if title.is_none() && r.id() == SETTINGS {
+                title = Some(copy(r.title())?);
+            }
+            Ok(())
+        })?;
+        match title {
+            Some(title) => Ok(title),
+            None => copy("core.action.settings"),
+        }
     }
 
     /// The name of a tool, as the user reads it (the action's id where the
@@ -354,6 +453,30 @@ mod tests {
         let src = source();
         assert_eq!(src.tool_name("core.library"), "Library");
         assert_eq!(src.tool_name("other.tool"), "other.tool");
+    }
+
+    #[test]
+    fn a_tool_looks_as_its_menu_row_and_one_not_listed_is_plain() {
+        let mut src = source();
+        src.looks = alloc::vec![
+            ToolLook {
+                icon: "books".into(),
+                checked: false,
+                enabled: true,
+            },
+            ToolLook {
+                icon: "gear".into(),
+                checked: true,
+                enabled: false,
+            },
+        ];
+        assert_eq!(src.tool_look("core.library").icon, "books");
+        let settings = src.tool_look("core.settings");
+        assert!(settings.checked && !settings.enabled);
+        assert_eq!(src.tool_look("other.tool"), &ToolLook::PLAIN);
+        // Fewer looks than tools (a snapshot cut short): plain, never a panic.
+        src.looks.truncate(1);
+        assert_eq!(src.tool_look("core.settings"), &ToolLook::PLAIN);
     }
 
     #[test]

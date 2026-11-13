@@ -1152,6 +1152,21 @@ pub(crate) fn event_delivered(host: &dyn SockHost, owner: u64) -> Result<(), i32
     Ok(())
 }
 
+/// The table, for a query.
+///
+/// # Errors
+/// `ERR_BUSY` when it is borrowed.
+pub(super) fn lock(host: &dyn SockHost) -> Result<RefMut<'_, Inner>, i32> {
+    table(host)
+}
+
+impl Inner {
+    /// Whether `owner` has a socket or a cast.
+    pub(super) fn owner_holds(&self, owner: u64) -> bool {
+        self.socks.iter().any(|s| s.owner == owner) || self.cast_owner_holds(owner)
+    }
+}
+
 /// The plugin stopped: its sockets close without events; the pool gets
 /// everything back.
 pub(super) fn owner_stopped(host: &dyn SockHost, owner: u64) -> Result<(), i32> {

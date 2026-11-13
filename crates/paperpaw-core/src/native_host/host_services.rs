@@ -22,7 +22,11 @@ use super::{
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::{Cell, OnceCell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED};
+
+/// The most documents of one maker the host ends in one go (more than the
+/// device holds).
+const HANDED_ENDS: usize = 64;
 
 /// What the dispatcher tells a service backend about its caller.
 #[derive(Clone, Copy)]
@@ -37,25 +41,45 @@ pub(crate) struct Caller<'a> {
     pub(crate) hosts: &'a HostServices,
 }
 
+/// A machine and a table wired on their own (the device ops' tests).
+#[cfg(test)]
+type FirmwareParts = (
+    OnceCell<super::firmware_cell::MachineRef>,
+    OnceCell<super::firmware_cell::DriverRef>,
+);
+
 #[derive(Default)]
 pub(crate) struct HostServices {
+    /// What a native screen's callbacks stage, for the kernel (`screen_stage`).
+    pub(super) screen_stage: super::screen_stage::ScreenStage,
     documents: OnceCell<DocServices>,
     files: OnceCell<FilesServices>,
     library: OnceCell<LibServices>,
-    lookup: OnceCell<LookupServices>,
+    /// Boxed: its table of pending asks is 1 KiB, held only where it is wired.
+    lookup: OnceCell<alloc::boxed::Box<LookupServices>>,
     hyphen: OnceCell<HyphenServices>,
+    /// The card, for the font files of a plugin's data folder (`font.acquire`
+    /// `data:<path>`).
+    font_card: OnceCell<Rc<dyn paperpaw_platform::Storage>>,
     images: super::image_service::ImageTable,
-    ui: OnceCell<UiServices>,
+    ui: OnceCell<alloc::boxed::Box<UiServices>>,
     device: OnceCell<super::device_service::DeviceServices>,
-    /// The firmware install machine, which `core.device` ops 3, 6 and 16 read
-    /// and the kernel's pump drives. One per device.
-    firmware: OnceCell<Rc<RefCell<super::firmware_install::FirmwareInstall>>>,
-    /// The firmware request table (op 13 reads the state of a request and the
-    /// outcome kept for it). One per device.
-    firmware_requests: OnceCell<Rc<RefCell<super::firmware_driver::Driver>>>,
+    /// The device's firmware: its request table (op 13 reads the state of a
+    /// request and the outcome kept for it) and install machine (ops 3, 6 and
+    /// 16), made while a job needs them, which the kernel's pump drives. One
+    /// per device.
+    firmware: OnceCell<Rc<super::firmware_cell::FirmwareCell>>,
+    /// A machine and a table wired on their own (the device ops' tests).
+    #[cfg(test)]
+    firmware_parts: FirmwareParts,
+    /// The kernel's table of Wi-Fi requests, which a callback's stage
+    /// reserves `join` and `host` in (`commands_dev.rs`). One per device.
+    radio_requests: OnceCell<Rc<RefCell<super::radio_requests::RadioRequests>>>,
     net: OnceCell<NetServices>,
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
+    /// What makes `core.work` at its first call (#248).
+    work_later: Cell<Option<super::shell_wiring::WorkInputs>>,
     secrets: OnceCell<SecretsServices>,
     /// The library's move job and its card side, made when `core.files` is
     /// wired (`lib_moves_service`).
@@ -65,6 +89,11 @@ pub(crate) struct HostServices {
     /// The ids of the plugins linked into the firmware (root 2 of the file
     /// service has no install folder for them).
     linked: OnceCell<Rc<super::linked_plugins::LinkedPlugins>>,
+    /// The folders of the running data plugins (root 1 shows them read only).
+    data_plugins: OnceCell<Rc<super::data_plugin_folders::DataPluginFolders>>,
+    /// The device's facts the library's transactions read (memory class,
+    /// clock), told by the wirings in any order.
+    edit_policy: OnceCell<Rc<super::lib_edits::EditPolicy>>,
     /// The storage paths host writers hold (`core.net` saves), which
     /// `core.files` answers `ERR_BUSY` for. One per device.
     in_use: OnceCell<Rc<super::paths_in_use::PathsInUse>>,
@@ -88,8 +117,13 @@ pub(crate) struct HostServices {
     /// Owner ids are never 0. The vector's room is reserved when an owner is
     /// admitted ([`Self::admit_owner`]): its capacity is never below the owners
     /// alive plus the owners queued, so a drop never allocates and never finds
-    /// the queue full.
-    retiring: RefCell<Vec<u64>>,
+    /// the queue full. Each owner is queued with whether it was being parked
+    /// again: its retry keeps what that retirement keeps (Senior, R4).
+    retiring: RefCell<Vec<(u64, bool)>>,
+    /// The owner being parked again (#248, D3), 0 for none: its retirement
+    /// keeps its library receipts and its formats listed, since its owner
+    /// key lives on and the remade plugin may still use them.
+    parking: core::cell::Cell<u64>,
     /// Owners alive (admitted, not yet dropped).
     alive: Cell<usize>,
     /// Retirements that could not be queued: a broken invariant, reported by
@@ -119,29 +153,37 @@ impl core::fmt::Debug for HostServices {
 impl HostServices {
     pub(crate) const fn new() -> Self {
         Self {
+            screen_stage: super::screen_stage::ScreenStage::new(),
             documents: OnceCell::new(),
             files: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
             hyphen: OnceCell::new(),
+            font_card: OnceCell::new(),
             images: super::image_service::ImageTable::new(),
             ui: OnceCell::new(),
             device: OnceCell::new(),
             firmware: OnceCell::new(),
-            firmware_requests: OnceCell::new(),
+            #[cfg(test)]
+            firmware_parts: (OnceCell::new(), OnceCell::new()),
+            radio_requests: OnceCell::new(),
             net: OnceCell::new(),
             sockets: OnceCell::new(),
             work: OnceCell::new(),
+            work_later: Cell::new(None),
             secrets: OnceCell::new(),
             library_moves: OnceCell::new(),
             busy: OnceCell::new(),
             linked: OnceCell::new(),
+            data_plugins: OnceCell::new(),
+            edit_policy: OnceCell::new(),
             in_use: OnceCell::new(),
             policy: OnceCell::new(),
             pool: OnceCell::new(),
             owners: OnceCell::new(),
             format_scope: super::format_scope::FormatScope::new(),
             retiring: RefCell::new(Vec::new()),
+            parking: core::cell::Cell::new(0),
             alive: Cell::new(0),
             lost: Cell::new(0),
         }
@@ -165,6 +207,31 @@ impl HostServices {
         Ok(())
     }
 
+    /// Owners alive now (tests).
+    #[cfg(test)]
+    pub(crate) fn alive_owners(&self) -> usize {
+        self.alive.get()
+    }
+
+    /// A retirement that could not be queued (tests: the broken invariant).
+    #[cfg(test)]
+    pub(crate) fn lose_a_retirement(&self) {
+        self.lost.set(self.lost.get().saturating_add(1));
+    }
+
+    /// Whether `owner` still waits for its retirement (queued).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the queue is in use; `ERR_STATE` once a retirement
+    /// was lost (which owner's is not known, so none is sure to be done).
+    pub(crate) fn retiring(&self, owner: u64) -> Result<bool, i32> {
+        if self.lost.get() != 0 {
+            return Err(ERR_STATE);
+        }
+        let queue = self.retiring.try_borrow().map_err(|_| ERR_BUSY)?;
+        Ok(queue.iter().any(|(queued, _)| *queued == owner))
+    }
+
     /// An owner is gone; `retired` says its retirement ran to the end. If not,
     /// it is queued for [`Self::retry_retirements`] (in the room reserved at
     /// admission).
@@ -173,12 +240,16 @@ impl HostServices {
         if retired {
             return;
         }
+        // Parked again (D3): the retry keeps its receipts and formats too.
+        let parking = self.parking.get() == owner;
         let queued = self.retiring.try_borrow_mut().is_ok_and(|mut queue| {
-            if queue.contains(&owner) {
+            if let Some(entry) = queue.iter_mut().find(|(queued, _)| *queued == owner) {
+                // A stop for good among the drops ends everything.
+                entry.1 &= parking;
                 return true;
             }
             if queue.len() < queue.capacity() {
-                queue.push(owner);
+                queue.push((owner, parking));
                 true
             } else {
                 false
@@ -195,7 +266,7 @@ impl HostServices {
             || self
                 .retiring
                 .try_borrow()
-                .map_or(true, |queue| queue.iter().any(|owner| *owner != 0))
+                .map_or(true, |queue| queue.iter().any(|(owner, _)| *owner != 0))
     }
 
     /// The main loop's retry: finish the retirement of every queued owner. An
@@ -214,10 +285,10 @@ impl HostServices {
         let mut index = 0;
         loop {
             // No borrow is held across the retirement: it calls into hosts.
-            let owner = {
+            let (owner, parking) = {
                 let queue = self.retiring.try_borrow().map_err(|_| ERR_BUSY)?;
                 match queue.get(index) {
-                    Some(owner) => *owner,
+                    Some(entry) => *entry,
                     None => break,
                 }
             };
@@ -225,19 +296,24 @@ impl HostServices {
             if owner == 0 {
                 continue;
             }
-            match self.owner_retired(owner) {
+            let retired = if parking {
+                self.parking_again(owner, || self.owner_retired(owner))
+            } else {
+                self.owner_retired(owner)
+            };
+            match retired {
                 Ok(()) => {
                     if let Ok(mut queue) = self.retiring.try_borrow_mut()
                         && let Some(slot) = queue.get_mut(index - 1)
                     {
-                        *slot = 0;
+                        slot.0 = 0;
                     }
                 }
                 Err(error) => result = result.and(Err(error)),
             }
         }
         if let Ok(mut queue) = self.retiring.try_borrow_mut() {
-            queue.retain(|owner| *owner != 0);
+            queue.retain(|(owner, _)| *owner != 0);
         }
         result.map(|()| self.retirements_pending())
     }
@@ -264,9 +340,21 @@ impl HostServices {
         host: Rc<dyn LookupHost>,
         log: super::device_log::DeviceLog,
     ) -> Result<(), i32> {
-        self.lookup
-            .set(LookupServices::new(host, log))
-            .map_err(|_| ERR_STATE)
+        let made = super::shared::try_box(LookupServices::new(host, log)).ok_or(ERR_NO_MEMORY)?;
+        self.lookup.set(made).map_err(|_| ERR_STATE)
+    }
+
+    /// Wire the card the data fonts are opened on, once.
+    pub(crate) fn wire_font_card(
+        &self,
+        card: Rc<dyn paperpaw_platform::Storage>,
+    ) -> Result<(), i32> {
+        self.font_card.set(card).map_err(|_| ERR_STATE)
+    }
+
+    /// The card of the data fonts, if wired.
+    pub(crate) fn font_card(&self) -> Option<&Rc<dyn paperpaw_platform::Storage>> {
+        self.font_card.get()
     }
 
     /// Wire `text.hyphenate` once.
@@ -293,21 +381,18 @@ impl HostServices {
     #[allow(dead_code, reason = "a shell wires its screen stack; tests do today")]
     /// Wire `core.ui` once.
     pub(crate) fn wire_ui(&self, ui: UiServices) -> Result<(), i32> {
-        self.ui.set(ui).map_err(|_| ERR_STATE)
+        let made = super::shared::try_box(ui).ok_or(ERR_NO_MEMORY)?;
+        self.ui.set(made).map_err(|_| ERR_STATE)
     }
 
     pub(crate) fn ui(&self) -> Option<&UiServices> {
-        self.ui.get()
+        self.ui.get().map(|ui| &**ui)
     }
 
     /// The file the hand-over of reader `instance` names, for `doc_open`
     /// root 5 (see [`super::ui_store::UiStore::handed_file`]); the instance is
     /// the caller's (`Frame::calling_instance`). `ERR_UNSUPPORTED` while no
     /// `core.ui` store is wired.
-    #[allow(
-        dead_code,
-        reason = "Host's doc_open root 5 calls it (todo 410); tests do today"
-    )]
     pub(crate) fn handed_file(
         &self,
         instance: u32,
@@ -329,29 +414,81 @@ impl HostServices {
             .map_err(|_| ERR_STATE)
     }
 
-    /// Wire the firmware request table once (op 13).
+    /// Wire the device's firmware once.
+    pub(crate) fn wire_firmware(
+        &self,
+        cell: Rc<super::firmware_cell::FirmwareCell>,
+    ) -> Result<(), i32> {
+        self.firmware.set(cell).map_err(|_| ERR_STATE)
+    }
+
+    /// The device's firmware, where wired.
+    pub(crate) fn firmware_cell(&self) -> Option<&Rc<super::firmware_cell::FirmwareCell>> {
+        self.firmware.get()
+    }
+
+    /// Whether the device has a firmware host (a table and a machine may be
+    /// made): without, the firmware ops are `ERR_UNSUPPORTED`.
+    pub(crate) fn firmware_wired(&self) -> bool {
+        #[cfg(test)]
+        if self.firmware_parts.0.get().is_some() || self.firmware_parts.1.get().is_some() {
+            return true;
+        }
+        self.firmware.get().is_some()
+    }
+
+    /// What op 13 says of `owner`'s request `request`: from the driver, or
+    /// from the outcomes resting with its parts; `None` for one not known.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` where the table is in use.
+    pub(crate) fn firmware_lookup(
+        &self,
+        owner: u64,
+        request: u32,
+    ) -> Result<Option<super::firmware_driver::Lookup>, i32> {
+        #[cfg(test)]
+        if let Some(driver) = self.firmware_parts.1.get() {
+            let driver = driver.try_borrow().map_err(|_| ERR_BUSY)?;
+            return Ok(driver.lookup(owner, request));
+        }
+        self.firmware
+            .get()
+            .map_or(Ok(None), |cell| cell.lookup(owner, request))
+    }
+
+    /// Wire the firmware request table on its own (tests).
+    #[cfg(test)]
     pub(crate) fn wire_firmware_requests(
         &self,
-        driver: Rc<RefCell<super::firmware_driver::Driver>>,
+        driver: super::firmware_cell::DriverRef,
     ) -> Result<(), i32> {
-        self.firmware_requests.set(driver).map_err(|_| ERR_STATE)
+        self.firmware_parts.1.set(driver).map_err(|_| ERR_STATE)
     }
 
-    /// The firmware request table, where wired.
-    pub(crate) fn firmware_requests(&self) -> Option<&Rc<RefCell<super::firmware_driver::Driver>>> {
-        self.firmware_requests.get()
+    /// Wire the kernel's Wi-Fi request table; the first wiring stays (the
+    /// kernel has one table).
+    pub(crate) fn wire_radio_requests(
+        &self,
+        table: &Rc<RefCell<super::radio_requests::RadioRequests>>,
+    ) {
+        let _ = self.radio_requests.set(Rc::clone(table));
     }
 
-    /// Wire the firmware install machine once.
-    #[allow(
-        dead_code,
-        reason = "the kernel's pump wires it (slice B2); tests do today"
-    )]
+    /// The kernel's Wi-Fi request table, where wired.
+    pub(crate) fn radio_requests(
+        &self,
+    ) -> Option<&Rc<RefCell<super::radio_requests::RadioRequests>>> {
+        self.radio_requests.get()
+    }
+
+    /// Wire the firmware install machine on its own (tests).
+    #[cfg(test)]
     pub(crate) fn wire_firmware_install(
         &self,
-        machine: Rc<RefCell<super::firmware_install::FirmwareInstall>>,
+        machine: super::firmware_cell::MachineRef,
     ) -> Result<(), i32> {
-        self.firmware.set(machine).map_err(|_| ERR_STATE)
+        self.firmware_parts.0.set(machine).map_err(|_| ERR_STATE)
     }
 
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
@@ -393,9 +530,26 @@ impl HostServices {
             .get_or_init(|| Rc::new(super::net_policy::NetPolicy::new()))
     }
 
+    /// What the wirings tell the library's transactions, made on first use.
+    pub(crate) fn edit_policy(&self) -> &Rc<super::lib_edits::EditPolicy> {
+        self.edit_policy.get_or_init(Default::default)
+    }
+
+    /// Gives back the room kept while the plugins were hosted one by one.
+    pub(crate) fn shrink_to_fit(&self) {
+        if let Some(linked) = self.linked.get() {
+            linked.shrink_to_fit();
+        }
+    }
+
     /// The linked plugin ids, made on first use.
     pub(crate) fn linked(&self) -> &Rc<super::linked_plugins::LinkedPlugins> {
         self.linked.get_or_init(Default::default)
+    }
+
+    /// The running data plugins' folders, made on first use.
+    pub(crate) fn data_plugins(&self) -> &Rc<super::data_plugin_folders::DataPluginFolders> {
+        self.data_plugins.get_or_init(Default::default)
     }
 
     /// The device's network pool, if a service has made it.
@@ -577,17 +731,70 @@ impl HostServices {
         self.sockets.get()
     }
 
-    /// Wire `core.work` once.
+    /// Wire `core.work` once, made.
     pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
+        if self.work_wired() {
+            return Err(ERR_STATE);
+        }
         let owners = self.owners()?;
-        let sched = Rc::clone(&work.sched);
+        let sched = work.sched.try_clone().ok_or(ERR_NO_MEMORY)?;
         self.work.set(work).map_err(|_| ERR_STATE)?;
-        owners.attach_sched(&sched);
+        owners.attach_sched(sched);
         Ok(())
     }
 
-    pub(crate) fn work(&self) -> Option<&WorkServices> {
+    /// Wire `core.work` once, to be made at its first call (#248).
+    pub(crate) fn wire_work_later(
+        &self,
+        inputs: super::shell_wiring::WorkInputs,
+    ) -> Result<(), i32> {
+        if self.work_wired() {
+            return Err(ERR_STATE);
+        }
+        self.work_later.set(Some(inputs));
+        Ok(())
+    }
+
+    /// Whether `core.work` is wired, made or not.
+    pub(crate) fn work_wired(&self) -> bool {
+        let later = self.work_later.take();
+        let wired = later.is_some() || self.work.get().is_some();
+        self.work_later.set(later);
+        wired
+    }
+
+    /// `core.work` where it is made: a scheduler not made holds no work.
+    pub(crate) fn work_made(&self) -> Option<&WorkServices> {
         self.work.get()
+    }
+
+    /// `core.work` for a plugin's call, made now where it is not yet.
+    ///
+    /// # Errors
+    /// `ERR_UNSUPPORTED` when it is not wired; `ERR_NO_MEMORY` (the next
+    /// call tries again).
+    pub(crate) fn work_for_call(&self) -> Result<&WorkServices, i32> {
+        if let Some(work) = self.work.get() {
+            return Ok(work);
+        }
+        let inputs = self.work_later.take().ok_or(ERR_UNSUPPORTED)?;
+        let made = self.owners().and_then(|owners| {
+            let owners = owners.try_clone().ok_or(ERR_NO_MEMORY)?;
+            super::shell_wiring::make_work(&inputs, owners, self.policy().clone())
+        });
+        match made.and_then(|work| self.wire_work(work)) {
+            Ok(()) => self.work.get().ok_or(ERR_STATE),
+            Err(status) => {
+                self.work_later.set(Some(inputs));
+                Err(status)
+            }
+        }
+    }
+
+    /// `core.work`, made now where it is not yet (tests).
+    #[cfg(test)]
+    pub(crate) fn work(&self) -> Option<&WorkServices> {
+        self.work_for_call().ok()
     }
 
     /// Wire `core.secrets` once.
@@ -608,8 +815,34 @@ impl HostServices {
     pub(crate) fn format_scope(&self) -> &super::format_scope::FormatScope {
         &self.format_scope
     }
+
+    /// The host's details run ended (#248): where no document is open, the
+    /// document table's room, the reader's books and the places of the
+    /// format calls are given back until the next open or call makes them
+    /// again, fallibly (an open without room is `ERR_NO_MEMORY`, and a job
+    /// waits). Whether they were.
+    pub(crate) fn release_document_rooms(&self) -> bool {
+        self.documents
+            .get()
+            .is_some_and(|documents| documents.0.release_rooms())
+            && self.format_scope.release()
+    }
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
+    }
+    /// The host ends one document on its own (`doc_service::end_by_host`) and
+    /// its image ids end at once, here where the image table is at hand: a
+    /// stale id must not draw what a later cache holds under the same name.
+    /// Only a borrowed table defers them (to the next call).
+    ///
+    /// # Errors
+    /// `ERR_UNSUPPORTED` without a document service; `end_by_host`'s.
+    #[allow(dead_code, reason = "the card and move hooks call it; tests do today")]
+    pub(crate) fn end_document_by_host(&self, id: u32, reason: u32) -> Result<(), i32> {
+        let documents = self.documents().ok_or(ERR_UNSUPPORTED)?;
+        let result = doc_service::end_by_host(&*documents.0, id, reason);
+        documents.0.flush_images(&self.images);
+        result
     }
     /// The sources of paths in use, made on first use.
     pub(crate) fn busy_sources(&self) -> &Rc<super::storage_files::BusySources> {
@@ -622,15 +855,18 @@ impl HostServices {
         self.library.get()
     }
     pub(crate) fn lookup(&self) -> Option<&LookupServices> {
-        self.lookup.get()
+        self.lookup.get().map(|lookup| &**lookup)
     }
     pub(crate) fn device(&self) -> Option<&super::device_service::DeviceServices> {
         self.device.get()
     }
-    pub(crate) fn firmware_install(
-        &self,
-    ) -> Option<&Rc<RefCell<super::firmware_install::FirmwareInstall>>> {
-        self.firmware.get()
+    /// The firmware install machine, where one is made now.
+    pub(crate) fn firmware_install(&self) -> Option<super::firmware_cell::MachineRef> {
+        #[cfg(test)]
+        if let Some(machine) = self.firmware_parts.0.get() {
+            return machine.try_clone();
+        }
+        self.firmware.get().and_then(|cell| cell.machine())
     }
 
     /// The owner is retired (its callbacks are revoked and its handles
@@ -646,16 +882,36 @@ impl HostServices {
     /// borrowed) means a retry finishes what is left.
     pub(crate) fn owner_retired(&self, owner: u64) -> Result<(), i32> {
         let mut result = Ok(());
+        // Parked again (#248, D3): its owner key lives on, so do its formats
+        // and its library receipts (it is idle: no document uses a format).
+        let parking = self.parking.get() == owner;
         if let Some(documents) = self.documents.get() {
             let host = &*documents.0;
-            host.formats_of_owner(owner, &mut |format| {
-                result =
-                    result.and(doc_service::format_retired(host, format, Some(owner)).map(|_| ()));
-            });
+            if !parking {
+                host.formats_of_owner(owner, &mut |format| {
+                    result = result
+                        .and(doc_service::format_retired(host, format, Some(owner)).map(|_| ()));
+                });
+            }
             result = result.and(doc_service::opener_stopped(host, owner).map(|_| ()));
+            // A book of this plugin's folders (root 5) cannot stay open under
+            // a reader once the folder may go (its update or removal): the
+            // documents end now (reason 3).
+            for _ in 0..HANDED_ENDS {
+                let Some(id) = host.document_of_maker(owner) else {
+                    break;
+                };
+                if let Err(status) = doc_service::end_by_host(host, id, 3) {
+                    result = result.and(Err(status));
+                    break;
+                }
+            }
+            // (The pictures of a format are not mapped yet in this build: no
+            // image id needs ending here; the picture slice, #991, ends them
+            // through `end_document_by_host`.)
         }
         if let Some(library) = self.library.get() {
-            result = result.and(lib_service::owner_stopped(&*library.0, owner));
+            result = result.and(lib_service::owner_stopped(&*library.0, owner, parking));
         }
         // The plugin's pictures end with it (its image ids are its own).
         result = result.and(self.images.owner_stopped(owner));
@@ -675,6 +931,68 @@ impl HostServices {
             result = result.and(work.sched.owner_stopped(owner));
         }
         result
+    }
+
+    /// Runs `park` (dropping `owner`'s instance to park it again, #248, D3)
+    /// with `owner`'s library receipts and formats kept through its
+    /// retirement.
+    pub(crate) fn parking_again<T>(&self, owner: u64, park: impl FnOnce() -> T) -> T {
+        let before = self.parking.replace(owner);
+        let parked = park();
+        self.parking.set(before);
+        parked
+    }
+
+    /// Whether any service holds something of `owner` that
+    /// [`Self::owner_retired`] would end (#248, D3: a plugin is parked again
+    /// only when this is `false`): a document it opened (a pending open too)
+    /// or one of its formats reads (any opener's), a book of its folders
+    /// open, an annotation transaction, an image id or prepare, a request it
+    /// asked or an entry it made for the screen stack, a widget, status
+    /// handle or tap, a network request or server, a socket or cast, declared
+    /// work or a run. Library receipts are files with their own time and do
+    /// not count.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when a table is borrowed (the caller treats it as held).
+    pub(crate) fn owner_holds(&self, owner: u64) -> Result<bool, i32> {
+        if let Some(documents) = self.documents.get() {
+            let host = &*documents.0;
+            let mut used = false;
+            host.formats_owned(owner, &mut |format| {
+                used = used || host.table().uses_format(&|f| f == format);
+            });
+            if used || host.table().owner_holds(owner)? || host.document_of_maker(owner).is_some() {
+                return Ok(true);
+            }
+        }
+        if let Some(transactions) = self.library.get().and_then(|l| l.0.transactions())
+            && transactions.owner_holds(owner)?
+        {
+            return Ok(true);
+        }
+        if self.images.owner_holds(owner)? {
+            return Ok(true);
+        }
+        if let Some(ui) = self.ui.get()
+            && (ui.store.owner_holds(owner)? || ui.plugin_holds(owner)?)
+        {
+            return Ok(true);
+        }
+        if let Some(net) = self.net.get()
+            && net_service::owner_holds(&*net.0, owner)?
+        {
+            return Ok(true);
+        }
+        if let Some(sockets) = self.sockets.get()
+            && sock_service::owner_holds(&*sockets.0, owner)?
+        {
+            return Ok(true);
+        }
+        match self.work.get() {
+            Some(work) => work.sched.owner_holds(owner),
+            None => Ok(false),
+        }
     }
 }
 

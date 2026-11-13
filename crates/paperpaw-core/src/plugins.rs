@@ -77,10 +77,15 @@ impl Kernel {
                 "a plugin with this id is already loaded".into(),
             );
         }
+        // Its row's copy first: a plugin the list has no row for is not
+        // loaded at all, so nothing of it runs unlisted (#248, todo 568).
+        let Some(manifest) = self.copy_manifest(manifest) else {
+            return;
+        };
         if RESERVED_IDS.contains(&id.as_str()) {
             let message = format!("`{id}` names a section of {CONFIG_FILE}; not loaded");
             self.warn(source(), None, message);
-            return self.add_plugin_info(manifest, PluginState::Failed, true);
+            return self.list_plugin(manifest, PluginState::Failed, true);
         }
         let mut staging = Staging::default();
         let mut registrar = Registrar::new(id.clone());
@@ -89,14 +94,14 @@ impl Kernel {
             .and_then(|()| registry::stage(&id, registrar.into_contributions(), &mut staging))
             .and_then(|()| self.merge(&id, staging));
         match result {
-            Ok(()) => self.add_plugin_info(manifest, PluginState::Running, true),
+            Ok(()) => self.list_plugin(manifest, PluginState::Running, true),
             Err(error) => {
                 let line = match error {
                     RegisterError::Parse { line, .. } => Some(line),
                     _ => None,
                 };
                 self.warn(source(), line, format!("not loaded: {error}"));
-                self.add_plugin_info(manifest, PluginState::Failed, true);
+                self.list_plugin(manifest, PluginState::Failed, true);
             }
         }
     }
@@ -112,6 +117,10 @@ impl Kernel {
         if RESERVED_IDS.contains(&id.as_str()) {
             return self.register_plugin(plugin, manifest);
         }
+        // As for one switched on: no row, nothing of it (#248, todo 568).
+        let Some(manifest) = self.copy_manifest(manifest) else {
+            return;
+        };
         let mut registrar = Registrar::new(id.clone());
         if plugin.register(&mut registrar).is_ok() {
             for contribution in registrar.into_contributions() {
@@ -126,12 +135,42 @@ impl Kernel {
                 }
             }
         }
-        self.add_plugin_info(manifest, PluginState::Off, false);
+        self.list_plugin(manifest, PluginState::Off, false);
     }
 
+    /// The copy of `manifest` the plugin list holds, made before anything
+    /// of the plugin is registered: where the heap has no room for it, the
+    /// plugin is refused with a warning, not loaded unlisted, which would let
+    /// a second copy load or an update install afresh (#248, todo 568).
+    fn copy_manifest(&mut self, manifest: Manifest) -> Option<paperpaw_sdk::ManifestRef> {
+        match paperpaw_sdk::ManifestRef::try_new(manifest, None) {
+            Ok(manifest) => Some(manifest),
+            Err(manifest) => {
+                // The heap is full here: the id is moved, not copied, and the
+                // warning is made only where there is room for it.
+                let source = WarningSource::Plugin(manifest.id);
+                self.try_warn(source, &["not loaded: no memory"]);
+                None
+            }
+        }
+    }
+
+    /// Lists a plugin whose manifest was copied first ([`Self::copy_manifest`]).
+    #[cfg(test)]
     pub(crate) fn add_plugin_info(
         &mut self,
         manifest: Manifest,
+        state: PluginState,
+        enabled: bool,
+    ) {
+        if let Some(manifest) = self.copy_manifest(manifest) {
+            self.list_plugin(manifest, state, enabled);
+        }
+    }
+
+    fn list_plugin(
+        &mut self,
+        manifest: paperpaw_sdk::ManifestRef,
         state: PluginState,
         enabled: bool,
     ) {
@@ -192,7 +231,7 @@ impl Kernel {
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
     pub(crate) fn merge(&mut self, plugin: &Id, mut staging: Staging) -> Result<(), RegisterError> {
-        for setting in staging.settings.iter().map(registry::Staged::spec) {
+        for setting in staging.settings.iter().flat_map(registry::Staged::specs) {
             if self.shared.settings.get(setting.id.as_str()).is_some() {
                 return Err(RegisterError::Duplicate {
                     id: setting.id.clone(),
@@ -242,14 +281,11 @@ impl Kernel {
         }
         for setting in staging.settings.drain(..) {
             // Cannot fail: checked above.
-            let _ = match setting {
-                registry::Staged::Owned(spec) => self.shared.settings.define(*spec),
-                registry::Staged::Fixed(list, at) => self.shared.settings.define_fixed(list, at),
-            };
+            let _ = setting.define_in(&mut self.shared.settings);
         }
         for source in staging.keymaps.drain(..) {
             // Validated by the registrar.
-            self.shared.keymap.load(&source, Origin::Plugin, true);
+            self.shared.keymap.load_kept(&source, Origin::Plugin, true);
             self.keys.plugins.push((plugin.clone(), source));
         }
         self.keys.presets.append(&mut staging.keymap_presets);
@@ -483,7 +519,7 @@ impl Kernel {
     pub(crate) fn preset_actions(&self) -> Vec<Id> {
         let mut all = Keymap::default();
         for (_, source) in self.keys.presets.iter().chain(&self.keys.when) {
-            all.load(source, Origin::Preset, true);
+            all.load_kept(source, Origin::Preset, true);
         }
         all.actions().cloned().collect()
     }
@@ -505,12 +541,12 @@ impl Kernel {
             .iter()
             .find(|(id, _)| id.as_str() == preset)
         {
-            keymap.load(source, Origin::Preset, true);
+            keymap.load_kept(source, Origin::Preset, true);
         }
         for (_, source) in &self.keys.plugins {
-            keymap.load(source, Origin::Plugin, true);
+            keymap.load_kept(source, Origin::Plugin, true);
         }
-        keymap.load(&self.keys.device, Origin::Device, true);
+        keymap.load_kept(&self.keys.device, Origin::Device, true);
         // Native plugins' `key.bind` rows: against the preset, plugin and
         // device sources (a binding of the device's outranks them, as before),
         // before the user's. The main-menu rule reads that baseline.
@@ -521,7 +557,7 @@ impl Kernel {
         // After the plugins' other bindings, which they then override.
         for (setting, source) in &self.keys.when {
             if self.shared.settings.bool(setting.as_str()) {
-                keymap.load(source, Origin::Plugin, true);
+                keymap.load_kept(source, Origin::Plugin, true);
             }
         }
         keymap.shrink_to_fit();
@@ -594,6 +630,34 @@ impl Kernel {
         }
     }
 
+    /// Adds the translation catalog `source` of a linked native plugin, built
+    /// into the program (its `i18n/<language>.ini`): the texts the plugin
+    /// reads through `core.i18n`. Only text with the program's lifetime
+    /// (`&'static str`, `include_str!`): a catalog on the storage is
+    /// `Registrar::add_translation_file`. One that does not parse is reported
+    /// and left out.
+    pub fn add_catalog(&mut self, source: &'static str) {
+        match registry::catalog(alloc::borrow::Cow::Borrowed(source)) {
+            Ok(catalog) => self.shared.translator.add(catalog),
+            Err(error) => self.warn_runtime(format!("a built-in catalog: {error}")),
+        }
+    }
+
+    /// `true` the first time it is asked, `false` after: the linked plugins'
+    /// catalogs are added once, whoever asks first (`add_native_catalogs`),
+    /// so a shell that adds them after `register_native_plugins` has
+    /// done it does not add them twice.
+    pub fn claim_native_catalogs(&mut self) -> bool {
+        !core::mem::replace(&mut self.native_catalogs_added, true)
+    }
+
+    /// Room for the catalogs `plugins` more plugins bring, in the languages chosen, asked for once
+    /// before [`Kernel::add_catalog`] (as the start does for the plugins it
+    /// registers): the list does not grow by doubling.
+    pub fn reserve_catalogs(&mut self, plugins: usize) {
+        self.shared.translator.reserve(plugins);
+    }
+
     /// Opens the compiled catalog `path` (`Registrar::add_translation_file`)
     /// and adds it; one that cannot be opened is reported.
     pub(crate) fn add_translation_file(&mut self, plugin: &Id, path: String) {
@@ -660,6 +724,10 @@ impl Kernel {
     /// ([`PLUGINS_ANSWERED`](paperpaw_sdk::builtin::events::PLUGINS_ANSWERED)).
     pub(crate) fn request_plugins(&mut self, by: Id, plugins: Vec<Id>) {
         use paperpaw_sdk::builtin::events::{self, PluginsAnswered};
+        // A native plugin asks native installers (`native_host::plugin_requests`).
+        if self.is_native_plugin(by.as_str()) {
+            return self.native_request_plugins(&by, plugins);
+        }
         let mut wanted: Vec<Id> = Vec::new();
         for id in plugins {
             if wanted.len() == paperpaw_sdk::MAX_REQUESTED_PLUGINS {
@@ -1102,11 +1170,14 @@ impl Kernel {
         self.apply_reading_font();
         self.apply_status_font();
         self.apply_ui_text_curve();
+        // A plugin may have brought or taken the interface's font.
+        self.renew_memory_notice();
         self.rebuild_keymap();
         self.output.commands.push(events::PLUGINS_CHANGED.emit(()));
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
         // What menus, bindings, slots, screens and the rest hold follows the set.
         self.native_registry_changed(crate::native_host::REGISTRY_ALL);
+        self.native_data_plugins_sync();
     }
 
     /// Releases memory reserved while plugins registered: on small devices

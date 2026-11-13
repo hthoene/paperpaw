@@ -11,7 +11,7 @@ std::thread_local! {
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
     /// 1: the batch also declares a group, a setting, its extra and an action;
     /// 2: and a secret setting the host does not map (the batch is refused).
-    static ARMS: Cell<u8> = const { Cell::new(0) };
+    pub(super) static ARMS: Cell<u8> = const { Cell::new(0) };
     /// Another drawable the batch declares: 1 a status item of token 93; 2 a
     /// status line of token 94; 3 a status item of the screen's token 91.
     static DRAWABLE: Cell<u8> = const { Cell::new(0) };
@@ -378,6 +378,7 @@ unsafe extern "C" fn screen_event(
 
     // SAFETY: the callback borrows the host's initialized event for this call.
     let bytes = unsafe { core::slice::from_raw_parts(bytes.ptr, bytes.len) };
+    input_records::events_submit(state, bytes);
     let record = match wire::records_decode_single(bytes) {
         Ok(record) => record,
         Err(error) => return error,
@@ -428,7 +429,7 @@ fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
                 }
                 pool.as_ref().unwrap().try_clone().unwrap()
             }),
-            DeclaredServices::none(),
+            DeclaredServices::none().with_features(input_records::FEATURES.with(Cell::get)),
         )
     }
     .unwrap()
@@ -448,7 +449,7 @@ fn install_resources(
     folder: Option<&str>,
 ) -> Result<(), Error> {
     RES.with(|value| value.set(res));
-    let result = kernel.register_native_in(host(0), &device_depth(kernel), folder, |_, _, _| {});
+    let result = kernel.register_native_in(host(0), &device_depth(kernel), folder, |_, _, _, _| {});
     RES.with(|value| value.set(0));
     result
 }
@@ -458,7 +459,7 @@ fn install_resources(
 /// the admission.
 fn admit_resources(kernel: &mut crate::Kernel, res: u8, folder: Option<&str>) -> Result<(), Error> {
     RES.with(|value| value.set(res));
-    let result = kernel.admit_native(host(0), &device_depth(kernel), folder, |_, _, _| {});
+    let result = kernel.admit_native(host(0), &device_depth(kernel), folder, |_, _, _, _| {});
     RES.with(|value| value.set(0));
     result
 }
@@ -471,21 +472,21 @@ fn a_plugin_with_a_depth_counter_of_its_own_is_refused() {
     for name in ["one", "two"] {
         let hosted = host_named(name, 0);
         kernel
-            .register_native(hosted, &depth, |_, _, _| {})
+            .register_native(hosted, &depth, |_, _, _, _| {})
             .unwrap();
     }
     let other = FlatDepth::try_new().unwrap();
-    let result = kernel.register_native(host_named("three", 0), &other, |_, _, _| {});
+    let result = kernel.register_native(host_named("three", 0), &other, |_, _, _, _| {});
     assert!(matches!(result, Err(Error::Status(host_glue::ERR_STATE))));
     assert!(kernel.shared.native_instances.find("three").is_none());
 }
 
-fn install(kernel: &mut crate::Kernel, flags: u32) -> Result<(), Error> {
-    kernel.register_native(host(flags), &device_depth(kernel), |_, _, _| {
+pub(super) fn install(kernel: &mut crate::Kernel, flags: u32) -> Result<(), Error> {
+    kernel.register_native(host(flags), &device_depth(kernel), |_, _, _, _| {
         REPORTS.with(|value| value.set(value.get() + 1));
     })
 }
-fn kernel(flags: u32) -> crate::Kernel {
+pub(super) fn kernel(flags: u32) -> crate::Kernel {
     reset(NORMAL);
     DESTROYED.with(|value| value.set(0));
     REPORTS.with(|value| value.set(0));
@@ -844,9 +845,10 @@ fn registrations_that_do_not_fit_the_declarations_refuse_the_whole_install() {
 #[test]
 fn native_screen_below_guard_is_opened_and_closed_without_being_shown() {
     let mut kernel = kernel(1 << 1);
+    let depth = device_depth(&kernel);
     for owner in ["base", "other"] {
         kernel
-            .register_native(host_named(owner, 0), &device_depth(&kernel), |_, _, _| {})
+            .register_native(host_named(owner, 0), &depth, |_, _, _, _| {})
             .unwrap();
     }
     kernel.open_screen(
@@ -1237,7 +1239,7 @@ fn first_failed_admission_retains_pool_for_orphan_cleanup_before_any_row_exists(
     {
         let _busy = documents.table().hold().unwrap();
         UNSUPPORTED.with(|value| value.set(true));
-        let result = kernel.register_native(hosted, &depth, |_, _, _| {});
+        let result = kernel.register_native(hosted, &depth, |_, _, _, _| {});
         UNSUPPORTED.with(|value| value.set(false));
         assert!(matches!(
             result,
@@ -1263,17 +1265,15 @@ fn first_failed_admission_retains_pool_for_orphan_cleanup_before_any_row_exists(
 #[test]
 fn expired_directory_refuses_a_native_callback_before_entering_plugin_code() {
     use crate::native_host::{
-        native_dispatch::NativeDispatch, native_screen::Dispatch, retained::Retained,
+        native_declarations::NativeDeclarations, native_dispatch::NativeDispatch,
+        native_screen::Dispatch, retained::Retained, shared::Shared,
     };
     reset(NORMAL);
     DESTROYED.with(|value| value.set(0));
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let directory = crate::native_host::shared::Shared::try_new(
-        crate::native_host::native_declarations::NativeDeclarations::default(),
-    )
-    .unwrap();
+    let directory = Shared::try_new(NativeDeclarations::default()).unwrap();
     let mut flat_host = kernel.flat_host();
     flat_host.directory = directory.downgrade();
     let (retained, ()) = Retained::make_native(host(0), |_| Ok(())).unwrap();
@@ -1281,7 +1281,7 @@ fn expired_directory_refuses_a_native_callback_before_entering_plugin_code() {
         retained,
         FlatDepth::try_new().unwrap(),
         flat_host,
-        |_, _, _| {},
+        |_, _, _, _| {},
         crate::native_host::native_instances::test_identity("factory"),
     );
     drop(directory);

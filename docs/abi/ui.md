@@ -57,6 +57,7 @@ events 83, 88 and 90 are free).
 | 38 | `event.screen_shown` | its fields, among them `instance: u32` | the screen's token |
 | 79 | `event.screen_opened` | `now_ms: u64`, `screen: str 128`, `instance: u32`, `slot: str 128`, `flags: u32`, `handover: u32`, `params: u32`, `text_bytes: u32` | the screen's token |
 | 80 | `event.screen_closed` | `now_ms: u64`, `screen: str 128`, `instance: u32` | the screen's token |
+| 111 | `event.screen_hidden` | `now_ms: u64`, `screen: str 128`, `instance: u32` | the screen's token |
 | 81 | `event.stack_changed` | `now_ms: u64` | subscribers (hint) |
 
 - [D] `screen_opened` comes once per instance, before its first `screen_shown`, and **again**
@@ -67,6 +68,26 @@ events 83, 88 and 90 are free).
   last `draw`; a plugin frees the instance's state there. Like 38 and 39, 79 and 80 are not
   registrable (`ERR_UNSUPPORTED` in `registration.event`): they go to the token of the screen
   they name.
+- [D] **`screen_hidden`** (111, #248; interface 6 `Screen::on_hide`): a full screen opened above
+  the instance, so that it is covered until that one closes. The instance may let go of what it
+  keeps only to draw itself (rows, text windows, pictures) and builds it again from what it keeps
+  (position, selection, open edit transactions, its pending requests and image ids) when its next
+  `screen_shown` comes: **that is the only signal to build again**, and a reply that arrived while
+  hidden is kept or asked again, never drawn from freed state. It is sent only for a full screen
+  above (never for an overlay, which draws the page below), only after `screen_opened` of the
+  instance and never after its `screen_closed`; it may come before its first `screen_shown` (a
+  screen opened below a guard waits hidden). It comes **once per cover**: a second full screen
+  opened above the first sends nothing to the instance below it, and a cover opened after the
+  instance's next `screen_shown` sends it again. A task switch closes the instance
+  (`screen_closed`) and opens it anew, so it sends none.
+- [D] **Delivery of `screen_hidden`.** The host calls the instance's token synchronously while it
+  applies the open of the covering screen, at depth 0 (never inside the opener's callback), before
+  the cover's own `screen_opened` and first `draw`, so that what it frees is free before the cover
+  builds. The callback gets **no command stage**, as `draw` gets none: a command submitted in it
+  is `ERR_STATE`. The host sends it in a frame of 80's size, allocating nothing. It is not
+  registrable (as 79 and 80), a plugin that does not read it loses nothing, and **dropping it is
+  harmless** (the host may drop it when memory is short, or when the callback is refused); a
+  plugin that frees on it must keep the screen drawable by `screen_shown` alone.
 - [D] **Params are lossless** (interface 6 `Params`, Senior's answer to [Q] 3): an opener makes a
   **hand-over** with `core.ui` op 16 `handover` (input: `ui_param` records, reply `ui_handle`) and
   names it in `command.open.handover`. A `ui_param` (`key: str 32`, `value: str 1024`) is one
@@ -77,7 +98,15 @@ events 83, 88 and 90 are free).
   `[a-z0-9_.-]{1,32}`, unique; a value is any UTF-8, newlines included. The host checks the form at
   op 16 (`ERR_INVALID`, over the cap `ERR_NO_SPACE`) and keeps them unchanged; their meaning belongs
   to the screen that reads them. Keys starting with `core.` are the host's (section 3:
-  `core.request`, `core.kind`): op 16 naming one is `ERR_INVALID`.
+  `core.request`, `core.kind`): op 16 naming one is `ERR_INVALID`. **One exception to "unchanged":**
+  an instance that holds a handed file (`document.md` 1, root 5) hands it on to its own screens
+  (a reader's table of contents, search) with `root` `5` and the same `path`; in an event's callback
+  (the answer to a question its screen asked) no instance runs, and the file is the one of the
+  plugin's topmost screen that holds a file of that path (when two screens hold the same path, the
+  topmost wins, so its maker is the file's maker); the host puts the file's own
+  root (`0` or `2`) in the params and the new instance's root 5 names the same file of the same
+  maker. The `open` that names it may open any screen, the reader's own or another plugin's: the
+  file stays the maker's, read only, and the document ends with the maker, whoever reads it. Another path, an instance that holds none, or no path is `ERR_DENIED` at op 16.
 - [D] **Long values** (the reader's selected text, interface 6 `params::TEXT`): a hand-over also has
   one host text (section 3.1 rules: at most 24,576 bytes, written in 3 KiB parts with op 9
   `text_write` on the hand-over id by its maker in the callback that made it, never cut; a begun but
@@ -168,7 +197,9 @@ events 83, 88 and 90 are free).
     gets the open's hand-over (none: its params become empty) and `event.screen_opened` again
     (`flags` bit 0 `again`) before it is shown, so a single screen shows the new params as if
     opened with them (interface 6 `on_reopen`); *back* then leaves it in one press.
-    `screen_policy` cannot change these bits.
+    `screen_policy` cannot change these bits;
+  - bit 8 `hints_hidden`: the screen shows no row of button hints (interface 6
+    `HintVisibility::Hidden`: the sleep screen). Declared only; `screen_policy` cannot change it.
   Other bits stay `ERR_UNSUPPORTED`.
 - [D] **Policies change at run time** (the lock guards only while locked): `command.screen_policy`
   (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4 and 5 above) sets them for
@@ -403,10 +434,10 @@ asker learns its request id at once and long texts move in pages, never cut.
 - [D] What each kind answers: text, the request text (`length` its bytes); choice, `choice` (the
   line's index, `ERR_INVALID` past the list); confirm, `choice` 1 yes or 0 no; folder, the request
   text, a path on root 1 of at most 512 bytes (`ERR_INVALID` longer). Unused fields are 0.
-- [D] **No subscription** (draft 25): `event.answered` goes to the asking plugin by its request,
+- [D] **No subscription**: `event.answered` goes to the asking plugin by its request,
   through `dispatch_event`, without a `registration.event`; like 79 and 80 it is not registrable
   (`ERR_UNSUPPORTED` in `registration.event`; the SDK has no `EventKind` for it). The SDK hands
-  addressed events (38, 39, 79, 80, 82, 109) to the plugin whatever kinds it subscribed to.
+  addressed events (38, 39, 79, 80, 82, 109, 111) to the plugin whatever kinds it subscribed to.
   `dispatch_event` passes `token` 0 for 82 (the ask names no token); the plugin routes it by its
   tag and `request`, never by the token, which may equal one of its own.
 - [D] **An answer is never lost.** `event.answered` is not a held-store edge: the answer stays in
@@ -603,7 +634,8 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   35 and for ops 7 and 12-15 alike (each runs another plugin's callback inside the caller's): they
   join the frame budget of #254 (limit 2,048 bytes per frame), with a device high-water case (home
   with widgets under the sleep screen's widgets) before activation; until the stack gate passes, the
-  X4 answers slot 35 and those ops with `ERR_UNSUPPORTED`.
+  X4 answers slot 35 and those ops with `ERR_UNSUPPORTED`, unless built with the core feature
+  `x4-nested` (the X4 shell's test image only, never a default feature).
 
 ### 5.2 Widgets
 
@@ -657,7 +689,8 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   (a maker that did not subscribe is not told). The host delivers it between callbacks, never
   inside one, once per instance however often the owner said `command.widget_changed`, and only
   while the instance lives. A guard does not hold it (a hint); what the maker then does to its
-  screen follows the stack's rules (`redraw` of a screen not on top is `ERR_STATE`).
+  screen follows the stack's rules (`redraw` of a screen with a non-overlay or a guard above it
+  is `ERR_STATE`).
   `command.widget_changed` names only the submitter's own instances: an unknown or dropped one is
   `ERR_NOT_FOUND`, another plugin's `ERR_DENIED`, and a shell without a widget table answers
   `ERR_UNSUPPORTED` (todo 361, #845).
@@ -821,7 +854,7 @@ or guard rule: only the maker drops its instances.
   closes its own overlay by instance (section 1.3) and resets "seen" in its own data.
 - [D] **Messages.** `notify` shows `text` (display text the plugin formatted, at most 256 bytes)
   over any screen for a few seconds, host-drawn, never over a guarding instance (it waits until the
-  guard closes, at most 4 waiting, 2 on the X4, older ones dropped). `flags` bit 0 `announce`: also
+  guard closes, one after the other in the order they came, at most 4 waiting, 2 on the X4, older ones dropped; without a guard a new message replaces the one on screen and shows its full time). `flags` bit 0 `announce`: also
   from background work and when no screen of the plugin shows (interface 6 `Announce`: device
   messages and rules the user set up; never sync results or offers). Without bit 0 a message from a
   plugin with no instance on the stack is dropped (`OK`, logged). Other bits `ERR_INVALID`.
@@ -840,10 +873,16 @@ or guard rule: only the maker drops its instances.
   system clipboard into op 19 is a shell follow-up (Firmware todo 392).
 - [D] **Speech.** `speak` queues `text` (display text, at most 2,048 bytes) in `language` (a BCP
   47 tag, empty for the system's) at `rate` percent (50-300, else `ERR_INVALID`); `flags` bit 0
-  `queue` (after what is being spoken, else replacing it). `spoken` comes when it was spoken or
+  `queue` (after what is being spoken, else replacing it); at most 4 texts per plugin, the one
+  being spoken included: a queued `speak` beyond is `ERR_FULL` (nothing queued, no `spoken`), one
+  without `queue` replaces and never meets the cap. `spoken` comes when it was spoken or
   could not be (`status` 0 spoken, 1 replaced or stopped, 2 no voice for the language, 3 no speech
   on this device). Only `menu.need` 0 (`speech`) devices speak; elsewhere `spoken` status 3 at
-  once. `stop_speaking` stops the submitter's own speech only.
+  once. `stop_speaking` stops the submitter's own speech only: where its text is the one being
+  spoken the host's one voice stops, and what waited behind it (another plugin's too) ends with
+  `spoken` status 1; where its text only waits behind another's, it is dropped from the line
+  (status 1) and the voice goes on. `spoken` goes to plugins that subscribed to it (event 89),
+  the submitter alone.
 
 ## 8. Sizes and memory
 
@@ -867,6 +906,7 @@ its caps (hand-off).
 | `ui_param` × 32 (op 16 input, op 17 reply) | key and value bytes at most 1,024 in all, plus 32 × 9 of fields and frames, + 1 = 1,313 (+ `end` on op 17) | 4,096 |
 | `command.open` | 1 + 130 + 4 + 130 + 4 = 269, framed 274 | 4,096 and the stage budget |
 | `event.screen_opened` | 1 + 8 + 130 + 4 + 130 + 4 × 4 = 289, framed 293 | the 1.1 KB stack buffer of `core-events.md` 3.3 |
+| `event.screen_hidden` | 1 + 8 + 130 + 4 = 143, framed 147 | the 1.1 KB stack buffer of `core-events.md` 3.3 |
 | `ui.verdict` (filter reply) | under 200 | 3,840 |
 
 ### 8.2 Memory (X4)
@@ -951,6 +991,7 @@ and every device of that profile (the X3 too), not the model.
 | `Command::OpenBook`, `readers::open`, `open_page`, `open_with` | `command.open` mode 1 (slot `core.reader`) or 3 (a `doc_reader.screen` in `core.reader`), params `path`, `page` (`document.md` 1) |
 | `ScreenKey`, `Cx::params`, `params::TEXT` | `instance`; hand-over (op 16, `command.open.handover`), read with op 17 and the hand-over text (op 10); event 79 again on update |
 | `Screen::guards`, `secret`, `holds_edges` (dynamic) | `screen.spec.flags` bits 1, 4, 5; `command.screen_policy` |
+| `Registrar::set_screen_hints(screen, HintVisibility::Hidden)` | `screen.spec.flags` bit 8 `hints_hidden` |
 | `Env::stack`, `StackEntry` (`guards`, `overlay`, `slot`) | `core.ui` op 1, `ui_screen`; event 81 |
 | `Command::SetKeyLayer`, `ShowHints`, `Input` | `command.set_key_layer`, `show_hints`, `raise_input` |
 | `Registrar::add_input`, `add_gesture`, `InputSpec`, `GestureSpec` | `input.spec`; recognizer = filter verdict 5 |

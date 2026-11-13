@@ -134,7 +134,7 @@ impl HostSource {
     /// [`Error::NoMemory`] and the host's refusals; nothing is kept in part.
     pub fn read(host: &Host<'_>, dpi: u16) -> Result<Self, Error> {
         let mut texts = Vec::new();
-        let mut scratch = buffer(TEXT_MAX + 64)?;
+        let mut scratch = buffer(TEXT_MAX)?;
         for wide in [false, true] {
             for slot in 0..MAX_PAGES {
                 let key = native_pages::setting(slot, wide)?;
@@ -236,9 +236,10 @@ impl HostSource {
             })?;
         }
         if !tools.iter().any(|(t, _)| t == SETTINGS) {
-            // Named as the core names it; the catalog key stands for the word.
+            // Named as the core names it, in the reader's language.
+            let title = Self::settings_title(host, registry, &mut input, &mut out)?;
             push(&mut looks, Look::plain())?;
-            push(&mut tools, (copy(SETTINGS)?, copy("core.action.settings")?))?;
+            push(&mut tools, (copy(SETTINGS)?, title))?;
         }
         let mut footer = Vec::new();
         let mut footer_looks = Vec::new();
@@ -260,6 +261,28 @@ impl HostSource {
             footer,
             footer_looks,
         })
+    }
+
+    /// The core's name for Settings, translated as the core's actions are
+    /// (`actions` of `core`); its catalog key where the core lists no such
+    /// action, as before.
+    fn settings_title(
+        host: &Host<'_>,
+        registry: &Registry,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<String, Error> {
+        let mut title = None;
+        rows!(cursor => registry.actions(host, "core", cursor, input, out), |r| {
+            if title.is_none() && r.id() == SETTINGS {
+                title = Some(copy(r.title())?);
+            }
+            Ok(())
+        })?;
+        match title {
+            Some(title) => Ok(title),
+            None => copy("core.action.settings"),
+        }
     }
 
     /// How the tool of `action` looks: its icon's name and state. A tool the

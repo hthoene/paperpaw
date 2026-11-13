@@ -34,7 +34,8 @@ const TOUCH_TOGGLE: &str = "lock.touch-toggle";
 const SLEEP_SLOT: &str = "core.sleep";
 const SETTINGS_SLOT: &str = "core.settings";
 const GROUP: &str = "power.group";
-/// `core.ui` calls use buffers of the schema's capacity.
+/// `core.ui` and `core.device` calls use buffers of the schema's capacity (4,096
+/// bytes: the host refuses a smaller reply buffer).
 const UI_BUFFER: usize = 4096;
 /// A translated label or title fits this.
 const LABEL: usize = 128;
@@ -70,19 +71,7 @@ impl Plugin for NativePower {
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         // Only the kinds this plugin handles are read, so only their decoders are linked.
-        let Some(event) = [
-            incoming.decode_as::<kinds::Started>()?,
-            incoming.decode_as::<kinds::Resume>()?,
-            incoming.decode_as::<kinds::BatteryMeasured>()?,
-            incoming.decode_as::<kinds::ChargeChanged>()?,
-            incoming.decode_as::<kinds::SettingChanged>()?,
-            incoming.decode_as::<kinds::Answered>()?,
-            incoming.decode_as::<kinds::ActionRun>()?,
-            incoming.decode_as::<kinds::StageCall>()?,
-        ]
-        .into_iter()
-        .flatten()
-        .next() else {
+        let Some(event) = decode(&incoming)? else {
             return Ok(());
         };
         match (token, event) {
@@ -119,6 +108,7 @@ impl NativePower {
     }
 
     /// The power button held: a small menu of what the device can do here.
+    #[inline(never)]
     fn ask(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let caps = device_caps(host)?;
         let locked = touch_locked(host);
@@ -151,6 +141,7 @@ impl NativePower {
 
     /// What the option chosen in the power menu does. Nothing for a cancelled
     /// menu, an answer to another request or a typing update.
+    #[inline(never)]
     fn answered(
         &mut self,
         host: &Host<'_>,
@@ -178,7 +169,35 @@ impl NativePower {
     }
 }
 
+/// The event of one of the kinds this plugin handles, if it is one. One kind
+/// is tried after the other: an array of the eight decoded would hold eight
+/// events on the stack at once (over 2 KiB, the X4's band).
+#[inline(never)]
+fn decode<'a>(incoming: &Incoming<'a>) -> Result<Option<Event<'a>>, Error> {
+    macro_rules! first {
+        ($($kind:ident),+) => {
+            $(
+                if let Some(event) = incoming.decode_as::<kinds::$kind>()? {
+                    return Ok(Some(event));
+                }
+            )+
+        };
+    }
+    first!(
+        Started,
+        Resume,
+        BatteryMeasured,
+        ChargeChanged,
+        SettingChanged,
+        Answered,
+        ActionRun,
+        StageCall
+    );
+    Ok(None)
+}
+
 /// Opens the power settings: what a tap on the mode's status item runs.
+#[inline(never)]
 fn open_settings(host: &Host<'_>) -> Result<(), Error> {
     let ui = Ui::open(host)?;
     let result = (|| {
@@ -198,6 +217,7 @@ fn open_settings(host: &Host<'_>) -> Result<(), Error> {
 }
 
 /// Does what a step of the power menu says.
+#[inline(never)]
 fn run(host: &Host<'_>, step: Step) -> Result<(), Error> {
     let mut scratch = [0; 512];
     match step {
@@ -214,6 +234,7 @@ fn run(host: &Host<'_>, step: Step) -> Result<(), Error> {
 /// draws the frame and acts when the panel is idle, so e-ink keeps a screen
 /// that shows what the device really is. Without the sleep screen (its plugin
 /// is off) the command acts alone.
+#[inline(never)]
 fn show_then(
     host: &Host<'_>,
     action: PowerAction,
@@ -252,6 +273,7 @@ fn show_then(
 }
 
 /// The mode to wear now: worn if another is worn.
+#[inline(never)]
 fn wear(host: &Host<'_>) -> Result<(), Error> {
     let mut scratch = [0; 64];
     let mode = match settings::read_setting(host, "power.mode", &mut scratch)? {
@@ -269,7 +291,7 @@ fn wear(host: &Host<'_>) -> Result<(), Error> {
     });
     let device = Device::open(host)?;
     let worn = (|| {
-        let (mut input, mut out) = ([0; 64], [0; 512]);
+        let (mut input, mut out) = ([0; 64], buffer(UI_BUFFER)?);
         let power = device.power(host, 0, &mut input, &mut out)?;
         let level = match power.level() {
             PowerLevel::Saving => Level::Saving,
@@ -299,7 +321,7 @@ fn wear(host: &Host<'_>) -> Result<(), Error> {
 fn device_caps(host: &Host<'_>) -> Result<Caps, Error> {
     let device = Device::open(host)?;
     let caps = (|| {
-        let (mut input, mut out) = ([0; 64], [0; 512]);
+        let (mut input, mut out) = ([0; 64], buffer(UI_BUFFER)?);
         let identity = device.device(host, &mut input, &mut out)?;
         Ok(Caps {
             sleep: identity.supports(DeviceCapability::Sleep),
@@ -340,6 +362,7 @@ fn flag(host: &Host<'_>, key: &str, default: bool) -> bool {
 
 /// The status item: nothing in Normal, so the lines stay calm; the mode's
 /// name while saving or offline.
+#[inline(never)]
 fn status(
     host: &Host<'_>,
     stage: &str,
@@ -378,7 +401,7 @@ fn status(
 fn worn_level(host: &Host<'_>) -> Result<Level, Error> {
     let device = Device::open(host)?;
     let level = (|| {
-        let (mut input, mut out) = ([0; 64], [0; 512]);
+        let (mut input, mut out) = ([0; 64], buffer(UI_BUFFER)?);
         Ok(match device.power(host, 0, &mut input, &mut out)?.level() {
             PowerLevel::Saving => Level::Saving,
             PowerLevel::Offline => Level::Offline,

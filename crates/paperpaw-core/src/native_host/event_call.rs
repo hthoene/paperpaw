@@ -15,6 +15,7 @@ use super::{
     commands::{CALLBACK_COMMAND_BYTES, CALLBACK_COMMANDS, CommandStage, Redraw},
     image_service::commands::ImageCommand,
     native_instances::NativeLease,
+    screen_stage::ScreenStage,
 };
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -27,6 +28,72 @@ pub(crate) struct Staged {
     pub(crate) commands: Vec<Command>,
     pub(crate) redraw: Option<Redraw>,
     pub(crate) images: Vec<ImageCommand>,
+    /// The hand-overs its opens name, and the screens they replace: for the
+    /// drain (`Kernel::drain_native_opens`).
+    pub(crate) opens: super::commands::Opens,
+    /// Its power and Wi-Fi commands, applied in their place among the
+    /// commands (`commands_dev.rs`).
+    pub(crate) dev: Option<alloc::boxed::Box<super::commands::dev::DevBatch>>,
+    /// What a screen's callback stages besides (empty for a service's event,
+    /// whose stage admits none of it).
+    pub(crate) screen: ScreenEffects,
+}
+
+/// The effects a screen callback's stage holds beyond commands and pictures,
+/// applied after them in this order (`Kernel::apply_staged`).
+#[derive(Default)]
+pub(crate) struct ScreenEffects {
+    pub(crate) policies: Vec<super::commands::PolicyChange>,
+    pub(crate) item_states: (
+        Vec<super::item_state::ItemPush>,
+        Option<super::commands::ItemRoom>,
+    ),
+    pub(crate) presets: Vec<alloc::boxed::Box<str>>,
+    /// The answers to plugin requests (`commands_answers.rs`).
+    pub(crate) answers: Vec<super::plugin_requests::Answer>,
+    pub(crate) hints: Vec<super::hint_labels::HintSet>,
+    /// The widgets it said changed (their makers hear of it from the pump).
+    pub(crate) widgets: Vec<u32>,
+}
+
+impl ScreenEffects {
+    fn is_empty(&self) -> bool {
+        self.policies.is_empty()
+            && self.item_states.0.is_empty()
+            && self.presets.is_empty()
+            && self.answers.is_empty()
+            && self.hints.is_empty()
+            && self.widgets.is_empty()
+    }
+}
+
+impl Staged {
+    /// Whether it holds nothing to apply.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.commands.is_empty()
+            && self.dev.is_none()
+            && self.redraw.is_none()
+            && self.images.is_empty()
+            && self.screen.is_empty()
+    }
+
+    /// A batch of commands and pictures, with no screen effects.
+    pub(crate) fn new(
+        owner: u64,
+        commands: Vec<Command>,
+        redraw: Option<Redraw>,
+        images: Vec<ImageCommand>,
+    ) -> Self {
+        Self {
+            owner,
+            commands,
+            redraw,
+            images,
+            opens: super::commands::Opens::default(),
+            dev: None,
+            screen: ScreenEffects::default(),
+        }
+    }
 }
 
 /// The one batch that waits for the kernel to run it.
@@ -68,9 +135,20 @@ impl crate::Kernel {
         lease: &NativeLease,
         bytes: &[u8],
     ) -> Result<i32, i32> {
-        self.native_staged_call(owner, |env, stage| {
+        let status = self.native_staged_call(owner, |env, stage| {
             lease.service_event_staged(bytes, env, stage)
-        })
+        });
+        // A failure of the plugin's callback is noted, for a warning
+        // (`event_failures.rs`): the callers discard the status.
+        if let Err(code) = status {
+            let tag =
+                super::registrations::RawRecord::single(bytes).map_or(0, |record| record.tag());
+            self.shared
+                .native_instances
+                .event_failures
+                .note(owner, tag, code);
+        }
+        status
     }
 
     /// As [`Self::native_event_call`], for the `input` callback of a widget
@@ -111,8 +189,20 @@ impl crate::Kernel {
                 CALLBACK_COMMAND_BYTES,
             )
             .with_ui(&env, self.event_screen(id), 0, self.screen_keys_remaining())
-            .with_widgets(instances.ui_services(), owner);
+            .with_widgets(instances.ui_services(), owner)
+            .with_handover_store(instances.ui_services().map(|ui| &ui.store));
+            // An event's or an action's callback sets its items' states too, as
+            // a screen's does (`update` marks its menu item).
+            if let Some(directory) = self.shared.registry.native_declarations.as_ref() {
+                stage = stage.with_item_states(super::commands::ItemAdmit { directory });
+            }
             stage.set_images_held(self.image_held(owner));
+            stage.set_speech_held(self.io.speech.owned_texts(id.as_str()));
+            stage.set_requests_open(
+                self.native_requests_open(),
+                self.native_requests_open_by(id.as_str()),
+            );
+            stage.set_answer_view(self.native_answer_view(owner));
             // A run's callback is quiet (`work.md` section 2).
             stage.set_quiet(
                 instances
@@ -127,6 +217,10 @@ impl crate::Kernel {
                 // failed borrow is a host fault: the callback fails
                 // (`ERR_BUSY`, as in the shell path) and its batch is dropped.
                 let widgets = stage.take_widget_changes();
+                let item_states = stage.take_item_states();
+                let answers = stage.take_answers();
+                // Its power and Wi-Fi commands, in the box their submit made.
+                let dev = stage.take_dev_boxed();
                 let marked = match instances.ui_services() {
                     Some(ui) if !widgets.is_empty() => ui.widgets_changed(owner, &widgets),
                     _ => Ok(()),
@@ -135,15 +229,21 @@ impl crate::Kernel {
                     status = Err(error);
                     None
                 } else {
-                    let (commands, redraw, _hop) = stage.into_ui_output();
-                    (!commands.is_empty() || redraw.is_some() || !images.is_empty()).then_some(
-                        Staged {
-                            owner,
-                            commands,
-                            redraw,
-                            images,
-                        },
-                    )
+                    let (commands, redraw, _hop, opens) = stage.into_ui_output_with_opens();
+                    (!commands.is_empty()
+                        || dev.is_some()
+                        || redraw.is_some()
+                        || !images.is_empty()
+                        || !item_states.0.is_empty()
+                        || !answers.is_empty())
+                    .then(|| {
+                        let mut staged = Staged::new(owner, commands, redraw, images);
+                        staged.screen.item_states = item_states;
+                        staged.screen.answers = answers;
+                        staged.opens = opens;
+                        staged.dev = dev;
+                        staged
+                    })
                 }
             } else {
                 // An error drops the whole batch with the stage.
@@ -156,6 +256,75 @@ impl crate::Kernel {
             instances.outbox.put(staged)?;
         }
         status
+    }
+
+    /// Delivers the actions native plugins ran since the last call
+    /// (`event.action_run`), each as a staged callback whose batch is run
+    /// before the next: the plugin's `open` reaches the kernel in the call
+    /// that ran the action. `true` when one was delivered (its commands wait
+    /// for the next round of `run_commands`, the caller's, which bounds a
+    /// chain of actions that run one another). Never inside a callback.
+    // Its own frame (the firmware's frame limit for host code).
+    #[inline(never)]
+    pub(crate) fn native_actions_run(&mut self) -> bool {
+        if self.shared.native_instances.depth() != 0 {
+            return false;
+        }
+        let Some(queue) = self.shared.native_instances.action_queue_made() else {
+            return false;
+        };
+        for _ in 0..queue.refused() {
+            self.warn_runtime("a native plugin's action was not run: too many wait");
+        }
+        let mut delivered = false;
+        // Only what waits now: what a delivered action's commands run in turn
+        // (an action that runs itself, or two that run each other) is queued
+        // behind, for the next round of `run_commands`, which bounds them.
+        for _ in 0..queue.waiting() {
+            let Some(pending) = queue.take() else {
+                break;
+            };
+            // A parked plugin is made first; one that cannot be made now
+            // keeps its action, behind those waiting, until it gave up after
+            // its longest wait without memory (#248).
+            if pending.lease.is_parked() && pending.lease.live().err() == Some(ERR_BUSY) {
+                if pending.lease.slot().give_up() {
+                    // This one and every other of its plugin, each said once.
+                    for _ in 0..=queue.drop_owner(pending.owner) {
+                        self.warn_runtime("a native plugin's action was not run: no memory");
+                    }
+                } else if queue.put_back(pending).is_err() {
+                    self.warn_runtime("a native plugin's action was not run: too many wait");
+                }
+                continue;
+            }
+            if self.shared.native_instances.outbox.full() {
+                self.native_outbox_run();
+            }
+            self.deliver_action(pending);
+            self.native_outbox_run();
+            delivered = true;
+        }
+        delivered
+    }
+
+    /// One waiting action to its plugin. Its own frame, gone before the
+    /// batch it staged runs (`native_outbox_run`): the commands applied
+    /// there go deep, the X4's stack is small (#250).
+    #[inline(never)]
+    fn deliver_action(&mut self, pending: super::native_action::Pending) {
+        let status = self.native_staged_call(pending.owner, |env, stage| {
+            pending
+                .lease
+                .event_staged(pending.token, &pending.bytes, env, stage)
+        });
+        let (Ok(status) | Err(status)) = status;
+        if !matches!(status, 0 | 1) {
+            // A stopped or failing plugin leaves the action without
+            // effect; the report says why.
+            use super::native_screen::Dispatch as _;
+            pending.lease.dropped(pending.token, status);
+        }
     }
 
     /// The screen a background callback of `owner` speaks for: its own
@@ -175,19 +344,27 @@ impl crate::Kernel {
     // frame adds their locals (the firmware's frame limit for host code).
     #[inline(never)]
     pub(crate) fn native_outbox_run(&mut self) {
-        let Some(staged) = self.shared.native_instances.outbox.take() else {
-            return;
-        };
-        let Some(owner) = self
-            .shared
-            .native_instances
-            .id(staged.owner)
-            .and_then(|id| paperpaw_sdk::Id::try_parse(id.as_str()).ok())
-        else {
-            return;
-        };
-        self.drain_native_ui(&owner, staged.commands, staged.redraw);
-        self.native_images_apply(staged.owner, staged.images);
+        // The service callbacks' batch first, then the screens' (in the order
+        // their callbacks returned).
+        while let Some(staged) = self.shared.native_instances.outbox.take().or_else(|| {
+            self.shared
+                .native_instances
+                .screen_stage()
+                .and_then(ScreenStage::take)
+        }) {
+            let Some(owner) = self
+                .shared
+                .native_instances
+                .id(staged.owner)
+                .and_then(|id| paperpaw_sdk::Id::try_parse(id.as_str()).ok())
+            else {
+                continue;
+            };
+            // Its warnings say what the callback's own status could not.
+            if self.apply_staged(&owner, staged).is_err() {
+                self.warn_runtime("a native screen's labels or widgets could not be kept");
+            }
+        }
     }
 }
 

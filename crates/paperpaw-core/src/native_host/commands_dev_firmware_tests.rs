@@ -10,9 +10,11 @@ use crate::{
     abi7::commands_wire::{commands_decode, commands_encode},
     native_host::{
         admitted_features::AdmittedFeatures,
+        firmware_driver::Driver,
         firmware_install::{BuiltIns, Event, FirmwareInstall},
     },
 };
+use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_FULL, ERR_STATE, OK};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::{
@@ -66,16 +68,16 @@ impl InputClock for Clock {
     }
 }
 
-fn driver() -> Rc<RefCell<Driver>> {
+fn driver() -> DriverRef {
     let fake = FakeFirmware::new(
         "0.5.0",
         "paperpaw-x4",
         5,
         paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
     );
-    Rc::new(RefCell::new(Driver::new(
+    crate::native_host::firmware_cell::test_shared(RefCell::new(Driver::new(
         alloc::boxed::Box::new(fake),
-        Rc::new(RefCell::new(FirmwareInstall::new())),
+        crate::native_host::firmware_cell::test_shared(RefCell::new(FirmwareInstall::new())),
     )))
 }
 
@@ -108,14 +110,16 @@ fn check(request: u32, kind: u32) -> WireCommand<'static> {
 fn stage(
     kernel: &Kernel,
     bits: u32,
-    firmware: Option<&Rc<RefCell<Driver>>>,
+    firmware: Option<&DriverRef>,
     commands: &[WireCommand<'_>],
 ) -> (i32, DevBatchOutput) {
     let id = Id::new_static("update");
     let env = kernel.shared.env(Instant(0));
     let mut ctx = DevContext::new(AdmittedFeatures::test(bits, HOST), &kernel.radio_requests);
     if let Some(driver) = firmware {
-        ctx = ctx.with_firmware(FirmwareContext::new(Rc::clone(driver), OWNER));
+        let cell =
+            crate::native_host::firmware_cell::FirmwareCell::running(driver.try_clone().unwrap());
+        ctx = ctx.with_firmware(FirmwareContext::new(Rc::new(cell), OWNER));
     }
     let mut stage =
         crate::native_host::commands::CommandStage::new(&id, env.settings(), None, 16, 4096)
@@ -210,7 +214,7 @@ fn the_fields_are_checked_before_anything_is_accepted() {
 }
 
 /// A driver that accepts plugin jobs.
-fn plugin_driver() -> Rc<RefCell<Driver>> {
+fn plugin_driver() -> DriverRef {
     use crate::native_host::plugin_job::PluginHost;
     use paperpaw_native::{
         header5::{Host as Loader, X4_PROFILE},
@@ -849,5 +853,68 @@ fn revocations_past_the_queue_are_dropped_and_counted() {
     assert!(
         !d.borrow_mut()
             .queue_revocation(Revocation::new("notes", [1; 32], [2; 64]))
+    );
+}
+
+fn dual_boot(request: u32, mode: u32) -> WireCommand<'static> {
+    WireCommand::FirmwareDualBoot { request, mode }
+}
+
+#[test]
+fn firmware_dual_boot_is_unsupported_until_the_host_opens_it() {
+    use crate::native_host::plugin_job::PluginHost;
+    use paperpaw_native::{
+        header5::{Host as Loader, X4_PROFILE},
+        metadata::Host as Offered,
+    };
+    let kernel = kernel();
+    let d = driver();
+    d.borrow_mut().set_plugin_host(PluginHost {
+        loader: Loader::x4(1),
+        offered: Offered {
+            abi_major: 7,
+            minor: 1,
+            profile: X4_PROFILE,
+            services: &[],
+            features: &[],
+        },
+        signers: &[],
+    });
+    // The feature first, then the gate: nothing is queued either way.
+    assert_eq!(
+        stage(&kernel, 0, Some(&d), &[dual_boot(1, 1)]).0,
+        ERR_DENIED
+    );
+    assert_eq!(
+        stage(&kernel, FIRMWARE, None, &[dual_boot(1, 1)]).0,
+        ERR_UNSUPPORTED
+    );
+    assert_eq!(
+        stage(&kernel, FIRMWARE, Some(&d), &[dual_boot(1, 1)]).0,
+        ERR_UNSUPPORTED
+    );
+    assert_eq!(d.borrow().waiting(), 0);
+    d.borrow_mut().open_dual_boot();
+    // A mode beyond 1 and request 0 are invalid at submit, nothing queued.
+    for command in [dual_boot(1, 2), dual_boot(0, 1)] {
+        assert_eq!(
+            stage(&kernel, FIRMWARE, Some(&d), &[command]).0,
+            ERR_INVALID
+        );
+    }
+    assert_eq!(d.borrow().waiting(), 0);
+    // Both modes are accepted into the queue, one firmware command a batch.
+    let (status, output) = stage(&kernel, FIRMWARE, Some(&d), &[dual_boot(1, 0)]);
+    assert_eq!(status, OK);
+    drop(output);
+    assert_eq!(
+        stage(
+            &kernel,
+            FIRMWARE,
+            Some(&d),
+            &[dual_boot(2, 1), dual_boot(3, 1)]
+        )
+        .0,
+        ERR_INVALID
     );
 }

@@ -14,7 +14,9 @@ Records: `abi/services/core.files@1.def`.
 - [D] **Slots 20-26 stay the file calls.** `storage.size`, `read_at`, `write`, `append`,
   `rename`, `remove` and `sync` keep their contract: path based, no handles, a root argument,
   synchronous, 4 KiB per call. FS adds what plugins do with **folders** and **file information**,
-  as one versioned service, `core.files` (D4: no new one-off slots).
+  as one versioned service, `core.files` (D4: no new one-off slots). On an error of `read_at`,
+  `out`'s contents are unspecified; only the status counts. After a successful read the
+  bytes past `count` are zeros. An `out` that overlaps the path is `ERR_INVALID`.
 - [D] **Only what first-party plugins use.** Every op below is used by at least two plugins today
   (section 6 lists who). Not offered: copying (plugins copy with `read_at` and `append`, as
   interface 6's `files::copy` does; the SDK keeps that helper), `write_at`, `truncate`, local paths,
@@ -35,7 +37,7 @@ Records: `abi/services/core.files@1.def`.
 | Root | Name | What it is | Access |
 | --- | --- | --- | --- |
 | 0 | data | the plugin's data folder `.paperpaw/plugins/<id>/`, `<id>` stamped from the owner | read and write |
-| 1 | card | the user's files from the card's root, without `plugins/`, `.paperpaw/` and `paperpaw.ini` | read and write, with `uses.storage` |
+| 1 | card | the user's files from the card's root, without `plugins/` (a running data plugin's folder excepted, below), `.paperpaw/` and `paperpaw.ini` | read and write, with `uses.storage` |
 | 2 | bundle | the plugin's own install folder `plugins/<id>/` (files it ships, such as `data/`) | read only |
 | 3 | book | inside a `core.format` call of a `folder` or `siblings` document: its folder (`document.md` section 3) | `list` and `stat` only |
 | 4 and above | reserved (4 and 6 are `core.format`'s, through the storage slots) | | `ERR_UNSUPPORTED` |
@@ -54,6 +56,19 @@ Records: `abi/services/core.files@1.def`.
   plugin lacks a feature the host offers, `screens-input.md` section 13), no longer
   `ERR_UNSUPPORTED`, on slots 20-26 and every `core.files` op. A host that offers no root 1 (no card
   files to give) does not offer `uses.storage` and answers `ERR_UNSUPPORTED`.
+- [D] **Exception: a running data plugin's folder.** Settings name the files of data plugins (a
+  logo, a folder of sleep pictures: `[core] logo = plugins/<folder>/logo.png`, `data-files.md`),
+  and a data plugin holds published files only, no code and no secrets. So root 1 shows
+  `plugins/<folder>/…` **read only** while that plugin runs (a data plugin, not a code plugin;
+  switched on, loaded, not removed), behind the same `uses.storage` gate; every change under it (also as the target of a `move`)
+  is `ERR_DENIED`. The folder name must match one data plugin's folder in full, compared as the card
+  compares names (case folded); a prefix, `..` or an 8.3 alias is refused. Any other `plugins/…`
+  path, a code plugin's folder, a plugin that is off or gone, and `plugins` itself (it has no
+  listing) stay `ERR_INVALID` (`image_prepare`: status 6, not found, where the folder is none of a
+  running data plugin's); a listing of the card's top still leaves out `plugins`. Exactly these
+  ops reach it: `core.files` `stat` and `list`, and `image_prepare`; the storage slots 20-26 keep
+  refusing it, and a `move` out of it is a change (`ERR_DENIED`).
+  (#243, sleep's picture presets.)
 - [D] **Root 2 (new)** is read-only access to the plugin's own install folder, stamped like root 0:
   `storage.size`, `storage.read_at`, and `core.files` ops `list`, `stat`. Every changing call on
   root 2 is `ERR_DENIED`. Reason: plugins ship data files next to their code (vocabulary's

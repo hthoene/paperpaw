@@ -59,7 +59,10 @@ fn owner_family_limit_precedes_larger_device_byte_budget() {
 fn scope_end_expires_blobs_but_keeps_fonts_and_nested_busy_keeps_epoch() {
     let pool = HostResources::try_new().unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
@@ -95,7 +98,10 @@ fn unwind_reclaims_callback_blobs_without_allocation() {
     extern crate std;
     let pool = HostResources::try_new().unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
@@ -119,7 +125,7 @@ fn dropping_a_callback_resource_view_never_releases_owner_fonts() {
     let owner = pool.try_owner().unwrap();
     let font = owner.insert_font(FontKey::Role(FontRole::Ui)).unwrap();
     {
-        let _view = EnvironmentScope::with_resources(owner.try_view().unwrap());
+        let _view = owner.try_view().unwrap();
     }
     owner.with_font(font, |_| Ok(())).unwrap();
 }
@@ -127,18 +133,23 @@ fn dropping_a_callback_resource_view_never_releases_owner_fonts() {
 #[test]
 fn cleanup_failure_reports_once_and_preserves_the_delivered_callback_result() {
     use core::{cell::Cell, ffi::c_void};
-    unsafe fn report(raw: *const c_void, status: i32) {
-        // SAFETY: the test installs the live log cell with this exact type.
-        let log = unsafe { &*raw.cast::<Cell<(u32, i32)>>() };
-        log.set((log.get().0 + 1, status));
+    type Probe = (OwnerResourceView, Cell<(u32, i32)>);
+    unsafe fn expire(raw: *const c_void) {
+        // SAFETY: the test installs the live probe with this exact type.
+        let (view, log) = unsafe { &*raw.cast::<Probe>() };
+        if let Err(status) = view.expire_blobs() {
+            log.set((log.get().0 + 1, status));
+        }
     }
     let pool = HostResources::try_new().unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
-    let log = Cell::new((0, 0));
-    // SAFETY: log stays in place until after every callback; sink never reenters.
+    let probe: Probe = (owner.try_view().unwrap(), Cell::new((0, 0)));
+    let log = &probe.1;
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the probe stays in place until after every callback; the hook
+    // never reenters.
     unsafe {
-        scope.set_cleanup_reporter((&raw const log).cast(), report);
+        scope.set_cleanup((&raw const probe).cast(), expire);
     }
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
@@ -163,4 +174,20 @@ fn cleanup_failure_reports_once_and_preserves_the_delivered_callback_result() {
         .unwrap();
     assert_eq!(log.get(), (1, ERR_BUSY));
     assert!(owner.insert_blob(blob(12, 99)).is_ok());
+}
+
+#[test]
+fn only_a_blob_keeps_a_plugin_from_sleeping_again() {
+    // #248, D3: fonts and service handles are released with the instance
+    // and opened again by the remade plugin; a blob is not.
+    let pool = HostResources::try_new().unwrap();
+    let owner = pool.try_owner().unwrap();
+    let other = pool.try_owner().unwrap();
+    owner.insert_font(FontKey::Role(FontRole::Ui)).unwrap();
+    assert_eq!(owner.holds_blobs(), Ok(false));
+    let handle = owner.insert_blob(blob(12, 1)).unwrap();
+    assert_eq!(owner.holds_blobs(), Ok(true));
+    assert_eq!(other.holds_blobs(), Ok(false));
+    owner.release_blob(handle, 1).unwrap();
+    assert_eq!(owner.holds_blobs(), Ok(false));
 }

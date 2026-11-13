@@ -205,7 +205,9 @@ fn open(resources: &HostResources, reports: &SockReports, tls: bool) -> u32 {
         .policy()
         .update(0, false, false, [].into_iter(), [].into_iter());
     let owners = hosts.owners().unwrap();
-    owners.admit(7, "mail").unwrap();
+    owners
+        .admit(7, &paperpaw_sdk::Id::new_static("mail"))
+        .unwrap();
     owners.subscribe(7, EventTags::collect(|_| true));
     let who = Caller {
         owner: 7,

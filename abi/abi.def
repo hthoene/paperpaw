@@ -1214,6 +1214,106 @@
       "ownership": "call",
       "reentry": "deny",
       "max_bytes": 64
+    },
+    {
+      "id": 41,
+      "name": "text.draw_inked",
+      "since": 1,
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "font",
+          "type": "handle"
+        },
+        {
+          "name": "size",
+          "type": "f32"
+        },
+        {
+          "name": "x",
+          "type": "f32"
+        },
+        {
+          "name": "baseline",
+          "type": "i32"
+        },
+        {
+          "name": "color",
+          "type": "u32"
+        },
+        {
+          "name": "text",
+          "type": "bytes"
+        },
+        {
+          "name": "extra",
+          "type": "u32"
+        },
+        {
+          "name": "tone",
+          "type": "bytes"
+        },
+        {
+          "name": "flags",
+          "type": "u32"
+        },
+        {
+          "name": "out",
+          "type": "out_f32"
+        }
+      ],
+      "result": "status",
+      "effect": "mutate",
+      "ownership": "call",
+      "reentry": "deny",
+      "max_bytes": 4096
+    },
+    {
+      "id": 42,
+      "name": "canvas.describe",
+      "since": 1,
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "role",
+          "type": "u32"
+        },
+        {
+          "name": "flags",
+          "type": "u32"
+        },
+        {
+          "name": "label",
+          "type": "bytes"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        }
+      ],
+      "result": "count",
+      "effect": "mutate",
+      "ownership": "call",
+      "reentry": "deny",
+      "max_bytes": 256
     }
   ],
   "records": [
@@ -1860,6 +1960,15 @@
           "since": 1,
           "optional": true,
           "ordinal": 2,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "chapter_left",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 3,
           "default": null,
           "max_bytes": 0
         }
@@ -3339,6 +3448,15 @@
           "ordinal": 2,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "chapter_left",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 3,
+          "default": null,
+          "max_bytes": 0
         }
       ]
     },
@@ -3445,6 +3563,15 @@
           "ordinal": 2,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "chapter_left",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 3,
+          "default": null,
+          "max_bytes": 0
         }
       ]
     },
@@ -3549,6 +3676,15 @@
           "since": 1,
           "optional": true,
           "ordinal": 2,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "chapter_left",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 3,
           "default": null,
           "max_bytes": 0
         }
@@ -8916,6 +9052,15 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "tone",
+          "type": "bytes",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 256
         }
       ]
     },
@@ -8993,6 +9138,15 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "luma",
+          "type": "bytes",
+          "since": 1,
+          "optional": true,
+          "ordinal": 0,
+          "default": "",
+          "max_bytes": 64
         }
       ]
     },
@@ -14657,6 +14811,40 @@
       ]
     },
     {
+      "id": 111,
+      "name": "event.screen_hidden",
+      "since": 1,
+      "fields": [
+        {
+          "name": "now_ms",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "screen",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "instance",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
       "id": 1593,
       "name": "command.lookup_ready",
       "since": 1,
@@ -14774,6 +14962,164 @@
         },
         {
           "name": "mode",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 1183,
+      "name": "service.doc_report",
+      "since": 1,
+      "fields": [
+        {
+          "name": "document",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "section",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "offset",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "insert",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "progress_ppm",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "title",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 256
+        },
+        {
+          "name": "chapter",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 256
+        },
+        {
+          "name": "page",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 0,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "pages",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 1,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "chapter_left",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 2,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 1596,
+      "name": "command.redraw_area",
+      "since": 1,
+      "fields": [
+        {
+          "name": "mode",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "x",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "y",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "width",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "height",
           "type": "u32",
           "since": 1,
           "optional": false,

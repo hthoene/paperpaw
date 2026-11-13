@@ -11,35 +11,43 @@ use paperpaw_sdk::Env;
 pub(crate) struct NativeDispatch<S: Services + 'static, M: 'static> {
     instance: Retained<S, M>,
     depth: FlatDepth,
-    host: FlatHost,
-    report: fn(&S, u32, i32),
+    host: super::shared::Shared<FlatHost>,
+    report: fn(&S, &str, u32, i32),
     identity: super::native_instances::NativeIdentity,
-    events: super::event_tags::EventTags,
 }
 
 impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
-    /// An instance whose event tags are read from its registrations, which
-    /// the tests that install nothing do.
+    /// An instance whose event tags are read from its registrations, as for
+    /// every instance; the tests that install nothing make theirs here.
     #[cfg(test)]
     pub(crate) fn new(
         instance: Retained<S, M>,
         depth: FlatDepth,
         host: FlatHost,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
         identity: super::native_instances::NativeIdentity,
     ) -> Self {
-        let events = event_tags(&instance, &depth);
-        Self::with_events(instance, depth, host, report, identity, events)
+        Self::with_events(
+            instance,
+            depth,
+            super::shared::Shared::try_new(host).ok().unwrap(),
+            report,
+            identity,
+            super::event_tags::EventTags::default(),
+        )
     }
 
-    /// An instance with the event tags its install admitted.
+    /// An instance after its install admitted the event tags `_events`. They
+    /// are not kept: the retained registrations name the same tags, and
+    /// [`subscribed`](super::native_instances::NativeInstance::subscribed)
+    /// reads them there, which saves 32 bytes for each plugin.
     pub(crate) fn with_events(
         instance: Retained<S, M>,
         depth: FlatDepth,
-        host: FlatHost,
-        report: fn(&S, u32, i32),
+        host: super::shared::Shared<FlatHost>,
+        report: fn(&S, &str, u32, i32),
         identity: super::native_instances::NativeIdentity,
-        events: super::event_tags::EventTags,
+        _events: super::event_tags::EventTags,
     ) -> Self {
         Self {
             instance,
@@ -47,7 +55,6 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             host,
             report,
             identity,
-            events,
         }
     }
 
@@ -88,6 +95,12 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
     ) -> Result<i32, i32> {
         let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
+        // The hand-overs the callback makes are stamped with its epoch: an open
+        // it stages may name them.
+        let mut stage = stage;
+        if let Some(stage) = stage.as_mut() {
+            stage.set_handover_stamp(self.identity.owner(), epoch.epoch());
+        }
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
         // A screen's callback is on the stack until this returns (`core.net`
         // asks whether the screen is showing).
@@ -121,6 +134,51 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         }
         result
     }
+    /// A screen's input or event callback with its command stage: what it
+    /// staged waits in the screen queue for the kernel when it returned `0`
+    /// (`1` too for input), and is dropped with the stage for any other result.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one callback's whole description"
+    )]
+    fn invoke_staged(
+        &self,
+        queue: &super::screen_stage::ScreenStage,
+        inputs: super::screen_stage::StageInputs,
+        token: u32,
+        env: &Env<'_>,
+        instance: Option<paperpaw_sdk::ScreenKey>,
+        invocation: shell::TokenInvocation<'_>,
+        input: bool,
+    ) -> Result<i32, i32> {
+        // Nothing is called while the queue is full or cannot be made ready:
+        // the callback would stage what could not wait, and a batch it
+        // believes went through must not be dropped afterwards.
+        let slot = queue.reserve()?;
+        let owner = self.instance.host().owner().context().plugin()?;
+        let directory = self.host.upgrade_directory()?;
+        let owner_key = self.identity.owner();
+        let mut stage = super::screen_stage::build_stage(super::screen_stage::StageParts {
+            owner: &owner,
+            owner_key,
+            env,
+            screen: instance,
+            hop: 0,
+            inputs,
+            stack_rows: &self.host.stack_rows,
+            ui: self.identity.ui_services(),
+            directory: directory.as_ref(),
+        });
+        let result = self.invoke(token, env, instance, invocation, Some(&mut stage));
+        if matches!(result, Ok(0)) || (input && matches!(result, Ok(1))) {
+            let staged = super::screen_stage::staged_of(stage, owner_key);
+            if !staged.is_empty() {
+                slot.put(staged)?;
+            }
+        }
+        result
+    }
+
     /// A host service's event for the callback registered for its tag, with
     /// the command stage of that callback where the caller has one.
     fn service_call(
@@ -174,6 +232,23 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             epoch.epoch(),
             self.depth.as_depth().current() == 0,
         );
+        // The screen's own draw of the follow-up of its areas: `id` bit 0
+        // (`command.redraw_area`), on every band and every send of it.
+        let marked;
+        let frame = match instance {
+            Some(key)
+                if frame.purpose == 0
+                    && self.depth.as_depth().current() == 0
+                    && self.host.stack_rows.is_followup(key) =>
+            {
+                marked = DrawFrame {
+                    id: frame.id | super::commands::FOLLOWUP_ID,
+                    ..*frame
+                };
+                &marked
+            }
+            _ => frame,
+        };
         let result = shell::dispatch_token_draw(
             batch,
             token,
@@ -191,6 +266,11 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
 }
 
 impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
+    fn secret_now(&self, key: Option<paperpaw_sdk::ScreenKey>) -> Option<bool> {
+        let key = key?;
+        Some(self.host.stack_rows.secret_now(key.serial()))
+    }
+
     fn take_open_info(&self) -> Option<super::ui_store::Info> {
         self.identity.take_open_info()
     }
@@ -225,7 +305,19 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         } else {
             shell::TokenInvocation::Event(bytes)
         };
-        self.invoke(token, env, instance, invocation, None)
+        // Inside a screen call of the kernel the callback gets its command
+        // stage; anywhere else (a fixture without a kernel) there is none to
+        // apply what it would stage.
+        match self
+            .identity
+            .screen_stage()
+            .and_then(|queue| queue.inputs().map(|inputs| (queue, inputs)))
+        {
+            Some((queue, inputs)) => {
+                self.invoke_staged(queue, inputs, token, env, instance, invocation, input)
+            }
+            None => self.invoke(token, env, instance, invocation, None),
+        }
     }
     fn screen_draw(
         &self,
@@ -258,31 +350,12 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         .map_err(status)
     }
     fn dropped(&self, token: u32, status: i32) {
-        (self.report)(
-            &self.instance.host().owner().context().services,
-            token,
-            status,
-        );
+        let context = self.instance.host().owner().context();
+        (self.report)(&context.services, context.plugin_id(), token, status);
     }
 }
 
-/// The event tags the committed registrations name, read once at the start.
-/// A failed read or a tag beyond the set leaves the owner unsubscribed to it.
-#[cfg(test)]
-fn event_tags<S: Services + 'static, M: 'static>(
-    instance: &Retained<S, M>,
-    depth: &FlatDepth,
-) -> super::event_tags::EventTags {
-    let mut tags = super::event_tags::EventTags::default();
-    let _ = instance.registrations(depth.as_depth(), &mut |_, record| {
-        if let super::registrations::Registration::Event { event_tag, .. } = record {
-            let _ = tags.insert(event_tag);
-        }
-    });
-    tags
-}
-
-fn status(error: shell::Error) -> i32 {
+pub(super) fn status(error: shell::Error) -> i32 {
     match error {
         shell::Error::Status(code) | shell::Error::Factory(code) => code,
         shell::Error::Allocation | shell::Error::Lifecycle(Error::Memory) => {
@@ -310,10 +383,13 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
         self.depth.as_depth().0.current()
     }
     fn subscribed(&self, tag: u32) -> bool {
-        self.events.contains(tag)
+        self.instance.subscribed(tag)
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(self.instance.host().image());
+    }
+    fn holds_nothing(&self) -> bool {
+        self.instance.host().holds_nothing()
     }
     fn service_event(&self, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         self.service_call(bytes, env, None)
@@ -325,6 +401,21 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.service_call(bytes, env, Some(stage))
+    }
+    fn event_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.invoke(
+            token,
+            env,
+            None,
+            shell::TokenInvocation::Event(bytes),
+            Some(stage),
+        )
     }
     fn input_staged(
         &self,

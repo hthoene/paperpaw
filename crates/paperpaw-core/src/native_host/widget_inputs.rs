@@ -61,7 +61,9 @@ impl GuardState for RowsGuard<'_> {
 
 impl crate::Kernel {
     /// Delivers the taps waiting for their widgets' makers, a few a pass,
-    /// outside any callback. `true` while taps wait (another pass).
+    /// outside any callback. `true` while taps wait (another pass). Its own
+    /// frame (ppn5 frame limit), apart from the changes'.
+    #[inline(never)]
     pub(crate) fn deliver_widget_inputs(&mut self) -> bool {
         let Some(ui) = self.shared.native_instances.ui_services() else {
             return false;
@@ -92,7 +94,9 @@ impl crate::Kernel {
     }
 
     /// The first waiting tap, delivered or discarded. `false` when none
-    /// waits or the table is in use (the next pass tries again).
+    /// waits or the table is in use (the next pass tries again). Its own
+    /// frame: the record and the call are not in the pump's.
+    #[inline(never)]
     fn deliver_one_widget_input(&self) -> bool {
         let instances = &self.shared.native_instances;
         let Some(ui) = instances.ui_services() else {

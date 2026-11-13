@@ -10,22 +10,31 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use super::DEVICE_INPUT;
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::native::{
     Error, Host,
     commands::CommandSender,
     events::WifiDone,
+    reply::Reply,
     snapshot,
     storage::DataStorage,
-    ui::UiCursor,
+    ui::{
+        UiCursor,
+        stages::{StatusAnswer, StatusCall},
+    },
     work::{Work, WorkDue, WorkSpec},
 };
-use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer, push};
+use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 use paperpaw_ui_kit::text::copy;
 
-use super::{Info, NativeWifi, ON_DEMAND, WHILE_CHARGING, native_known, native_model};
-use crate::native_policy::{Failure, Known, Net, Radio};
+use super::views::Info;
+use super::{NativeWifi, ON_DEMAND, WHILE_CHARGING, native_known, native_model};
+use crate::native_policy::{Failure, Goal, Known, Net, Password, Radio};
 use crate::native_radio::{Action, Facts, Notice, Timer};
+
+/// The input of a `core.ui` stack query (a cursor, no key).
+const STACK_INPUT: usize = 256;
 
 /// The work that switches the radio off, and the one that tries again.
 const IDLE_KEY: &str = "wifi.idle-off";
@@ -47,31 +56,73 @@ const IDLE_SECONDS: [(&str, u64); 5] = [
     ("wifi.idle-off.10m", 600),
 ];
 
-/// What a decision needs read from the host besides the radio.
+/// How much of the networks joined before a decision reads.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Level {
+    /// None of it.
+    No,
+    /// Whether there is any: the names are listed, no password read.
+    Any,
+    /// Every network with its password.
+    All,
+}
+
+/// What a decision needs read from the host besides the radio (always read):
+/// each fact only where the decision looks at it (`native_radio`).
 #[derive(Clone, Copy)]
 struct Need {
+    /// The networks in reach.
     networks: bool,
-    known: bool,
+    known: Level,
+    /// `known` is read only where charging keeps the radio on.
+    known_if_charging: bool,
+    /// Charging keeps the radio on (the setting, the snapshot, the power).
+    charging: bool,
+    /// Home or a book shows (the stack).
+    at_rest: bool,
+    on_demand: bool,
+    /// The idle time.
+    idle: bool,
+    /// The network picked last (the setting, the file).
+    join_first: bool,
+    /// The name of the network joined (a copy).
+    joined: bool,
 }
 
 const NOTHING: Need = Need {
     networks: false,
-    known: false,
+    known: Level::No,
+    known_if_charging: false,
+    charging: false,
+    at_rest: false,
+    on_demand: false,
+    idle: false,
+    join_first: false,
+    joined: false,
 };
-const KNOWN: Need = Need {
-    networks: false,
-    known: true,
-};
-const BOTH: Need = Need {
+
+/// What the decisions that look at the networks in reach and the ones joined
+/// before (the next to join, the failure) read.
+const SCAN: Need = Need {
     networks: true,
-    known: true,
+    known: Level::All,
+    charging: true,
+    idle: true,
+    join_first: true,
+    ..NOTHING
 };
 
 /// The facts of one event, owned: read before it is decided.
 struct Seen {
     info: Info,
+    /// The name of the network joined, where online and asked for.
+    joined: String,
     networks: Vec<Net>,
+    level: Level,
     known: Vec<Known>,
+    /// Stands for the networks joined before where only whether there are any
+    /// is read: a name, no password.
+    some: Known,
     now_ms: u64,
     charging_keeps: bool,
     at_rest: bool,
@@ -87,15 +138,18 @@ impl Seen {
             busy: self.info.busy,
             wanted: self.info.wanted,
             networks: &self.networks,
-            known: &self.known,
+            known: match self.level {
+                Level::No => &[],
+                Level::Any => core::slice::from_ref(&self.some),
+                Level::All => &self.known,
+            },
             now_ms: self.now_ms,
             charging_keeps: self.charging_keeps,
             at_rest: self.at_rest,
             on_demand: self.on_demand,
             idle_ms: self.idle_ms,
             join_first: self.join_first.as_deref(),
-            joined: (self.info.radio == Radio::Online && !self.info.ssid.is_empty())
-                .then_some(self.info.ssid.as_str()),
+            joined: (!self.joined.is_empty()).then_some(self.joined.as_str()),
         }
     }
 }
@@ -114,39 +168,77 @@ impl NativeWifi {
     /// Reads what the decision of an event needs.
     fn seen(&mut self, host: &Host<'_>, now_ms: u64, need: Need) -> Result<Seen, Error> {
         self.ensure(host)?;
+        if need.joined {
+            let named = self.read_named(host)?;
+            let joined = if named.radio == Radio::Online {
+                named.ssid
+            } else {
+                String::new()
+            };
+            return self.seen_with(host, now_ms, named.info, joined, need);
+        }
         let info = self.read_info(host)?;
-        let charging_keeps = self.charging_keeps(host)?;
+        self.seen_with(host, now_ms, info, String::new(), need)
+    }
+
+    /// As [`Self::seen`], the radio read already (and the services open).
+    fn seen_with(
+        &mut self,
+        host: &Host<'_>,
+        now_ms: u64,
+        info: Info,
+        joined: String,
+        need: Need,
+    ) -> Result<Seen, Error> {
+        // The stack first: where nothing shows at rest, charging is not asked.
+        let at_rest = need.at_rest && info.radio.is_on() && self.at_rest(host)?;
+        let charging_keeps =
+            need.charging && (!need.at_rest || at_rest) && self.charging_keeps(host)?;
         let mut networks = Vec::new();
         if need.networks && info.radio.is_on() {
-            for network in self.read_networks(host)? {
-                push(
-                    &mut networks,
-                    Net {
-                        ssid: network.ssid,
-                        secured: network.secured,
-                    },
-                )?;
-            }
+            self.walk_networks(host, &mut networks)?;
         }
-        let known = if need.known {
+        let mut level = need.known;
+        if need.known_if_charging && !charging_keeps {
+            level = Level::No;
+        }
+        let known = if level == Level::All {
             self.read_known(host)?
         } else {
             Vec::new()
         };
-        let strongest = matches!(
-            Self::text(host, JOIN_FIRST)?.as_deref(),
-            Some(FIRST_STRONGEST)
-        );
+        if level == Level::Any && !self.read_kept_any(host)? {
+            level = Level::No;
+        }
+        let join_first = if need.join_first {
+            let strongest = matches!(
+                Self::text(host, JOIN_FIRST)?.as_deref(),
+                Some(FIRST_STRONGEST)
+            );
+            if strongest { None } else { Self::picked(host)? }
+        } else {
+            None
+        };
         Ok(Seen {
             info,
+            joined,
             networks,
+            level,
             known,
+            some: Known {
+                ssid: String::new(),
+                password: Password::default(),
+            },
             now_ms,
             charging_keeps,
-            at_rest: self.at_rest(host)?,
-            on_demand: Self::flag(host, ON_DEMAND)?,
-            idle_ms: idle_ms(&Self::idle(host)?),
-            join_first: if strongest { None } else { Self::picked(host)? },
+            at_rest,
+            on_demand: need.on_demand && Self::flag(host, ON_DEMAND)?,
+            idle_ms: if need.idle {
+                idle_ms(&Self::idle(host)?)
+            } else {
+                0
+            },
+            join_first,
         })
     }
 
@@ -160,7 +252,7 @@ impl NativeWifi {
             return Ok(false);
         }
         let device = self.device.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let (mut input, mut out) = (buffer(DEVICE_INPUT)?, buffer(SERVICE_BUFFER)?);
         match device.power(host, 0, &mut input, &mut out) {
             Ok(power) => Ok(power.online()),
             Err(Error::NotFound | Error::Unsupported) => Ok(false),
@@ -172,7 +264,8 @@ impl NativeWifi {
     /// nothing there uses the network.
     fn at_rest(&self, host: &Host<'_>) -> Result<bool, Error> {
         let ui = self.ui.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        // The query is a cursor and an empty key: 256 B hold it (#248).
+        let (mut input, mut out) = (buffer(STACK_INPUT)?, buffer(SERVICE_BUFFER)?);
         let page = ui.stack(host, UiCursor::start(), &mut input, &mut out)?;
         // The stack is read top first.
         Ok(match page.into_iter().next() {
@@ -231,9 +324,7 @@ impl NativeWifi {
         for action in actions {
             match action {
                 Action::Step(step) => {
-                    let mut one = Vec::new();
-                    push(&mut one, step)?;
-                    self.run(host, one)?;
+                    self.run(host, native_model::one(step)?)?;
                 }
                 Action::Off => CommandSender::new(host, &mut [0; 64]).wifi_off()?,
                 // Best effort, as the other keeps: a timer that cannot be set
@@ -312,14 +403,24 @@ impl NativeWifi {
 
     /// A plugin wants the network: the radio on, the network joined before.
     pub(super) fn network_wanted(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
-        let seen = self.seen(host, now_ms, KNOWN)?;
+        let need = Need {
+            on_demand: true,
+            known: Level::Any,
+            ..NOTHING
+        };
+        let seen = self.seen(host, now_ms, need)?;
         let actions = self.policy.on_wanted(&seen.facts())?;
         self.act(host, actions)
     }
 
     /// Nothing uses the network: off a while later.
     pub(super) fn network_idle(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
-        let seen = self.seen(host, now_ms, NOTHING)?;
+        let need = Need {
+            charging: true,
+            idle: true,
+            ..NOTHING
+        };
+        let seen = self.seen(host, now_ms, need)?;
         let actions = self.policy.on_idle(&seen.facts())?;
         self.act(host, actions)
     }
@@ -327,7 +428,7 @@ impl NativeWifi {
     /// Networks were found: the next network joined before, another scan, or
     /// the failure told.
     pub(super) fn wifi_scanned(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
-        let seen = self.seen(host, now_ms, BOTH)?;
+        let seen = self.seen(host, now_ms, SCAN)?;
         let actions = self.policy.on_scanned(&seen.facts())?;
         self.act(host, actions)?;
         self.phone_scanned(host)?;
@@ -341,7 +442,7 @@ impl NativeWifi {
         let Some(failure) = done.failure() else {
             return Ok(());
         };
-        let seen = self.seen(host, done.now_ms(), BOTH)?;
+        let seen = self.seen(host, done.now_ms(), SCAN)?;
         let actions = self
             .policy
             .on_failed(&seen.facts(), done.ssid(), Failure::from(failure))?;
@@ -352,12 +453,18 @@ impl NativeWifi {
 
     /// The radio changed.
     pub(super) fn radio_changed(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
-        self.ensure(host)?;
-        // The networks joined before are read only where charging could join one.
-        let need = if self.charging_keeps(host)? {
-            KNOWN
-        } else {
-            NOTHING
+        let need = Need {
+            // Whether any network is joined before, only where charging could
+            // join one.
+            known: Level::Any,
+            known_if_charging: true,
+            charging: true,
+            idle: true,
+            // The network picked is compared with the one just joined, which
+            // the user chose.
+            join_first: matches!(self.policy.goal, Goal::Chosen { .. }),
+            joined: true,
+            ..NOTHING
         };
         let seen = self.seen(host, now_ms, need)?;
         let actions = self.policy.on_changed(&seen.facts())?;
@@ -368,14 +475,31 @@ impl NativeWifi {
 
     /// Another power mode: a radio only charging kept on may go off.
     pub(super) fn power_changed(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
-        let seen = self.seen(host, now_ms, NOTHING)?;
+        let need = Need {
+            charging: true,
+            idle: true,
+            ..NOTHING
+        };
+        let seen = self.seen(host, now_ms, need)?;
         let actions = self.policy.on_power(&seen.facts())?;
         self.act(host, actions)
     }
 
-    /// A screen shown: back home or in a book, the radio goes off now.
-    pub(super) fn screen_shown(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
-        let seen = self.seen(host, now_ms, NOTHING)?;
+    /// The stack of screens changed: back home or in a book, the radio goes
+    /// off now. The radio is read first, and the stack only while it is on:
+    /// nothing else is read while it is off.
+    pub(super) fn stack_changed(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
+        self.ensure(host)?;
+        let info = self.read_info(host)?;
+        if !info.radio.is_on() {
+            return Ok(());
+        }
+        let need = Need {
+            at_rest: true,
+            charging: true,
+            ..NOTHING
+        };
+        let seen = self.seen_with(host, now_ms, info, String::new(), need)?;
         let actions = self.policy.on_screen_shown(&seen.facts())?;
         self.act(host, actions)
     }
@@ -388,11 +512,12 @@ impl NativeWifi {
         now_ms: u64,
         started: bool,
     ) -> Result<(), Error> {
-        self.ensure(host)?;
-        let need = if self.charging_keeps(host)? {
-            KNOWN
-        } else {
-            NOTHING
+        let need = Need {
+            known: Level::Any,
+            known_if_charging: true,
+            charging: true,
+            idle: true,
+            ..NOTHING
         };
         let seen = self.seen(host, now_ms, need)?;
         let actions = self.policy.on_charging(&seen.facts(), started)?;
@@ -413,12 +538,85 @@ impl NativeWifi {
         let Some(generation) = generation else {
             return Ok(());
         };
-        let seen = self.seen(host, due.now_ms(), if idle { NOTHING } else { KNOWN })?;
+        let need = Need {
+            charging: true,
+            // Another round looks at whether a network was joined before, and
+            // may set the next timer.
+            known: if idle { Level::No } else { Level::Any },
+            idle: !idle,
+            ..NOTHING
+        };
+        let seen = self.seen(host, due.now_ms(), need)?;
         let actions = if idle {
             self.policy.on_idle_timer(&seen.facts(), generation)?
         } else {
             self.policy.on_retry_timer(&seen.facts(), generation)?
         };
         self.act(host, actions)
+    }
+}
+
+/// The answer for the status item: drawn (the sign, `status_icon`) while a
+/// network is joined; no text hides the item.
+fn status_answer(item: &str, online: bool) -> Result<StatusAnswer<'_>, Error> {
+    if online {
+        StatusAnswer::drawn(item)
+    } else {
+        StatusAnswer::text(item, "")
+    }
+}
+
+/// The status item's own id: the plugin's `wifi.status`.
+const STATUS_ITEM: &str = "wifi.status";
+
+impl NativeWifi {
+    /// The status item: drawn by the plugin (the Wi-Fi sign, `status_icon`)
+    /// while a network is joined, nothing else. A call that is not the host's
+    /// `core.status` is not ours.
+    pub(super) fn status(
+        &mut self,
+        host: &Host<'_>,
+        stage: &str,
+        payload: &[u8],
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        if stage != "core.status" {
+            return Err(Error::Unsupported);
+        }
+        let call = StatusCall::decode(payload)?;
+        self.ensure(host)?;
+        let online = self.read_info(host)?.radio == Radio::Online;
+        let mut answers = [None; 1];
+        for item in call.items() {
+            if item == STATUS_ITEM && answers[0].is_none() {
+                answers[0] = Some(status_answer(item, online)?);
+            }
+        }
+        let [Some(answer)] = answers else {
+            return Ok(());
+        };
+        let mut out = [0; 512];
+        let length = call.reply(&[answer], &mut out)?;
+        reply.write(out.get(..length).ok_or(Error::NoSpace)?)
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+    use alloc::format;
+
+    #[test]
+    fn the_item_is_drawn_while_online_and_hidden_otherwise() {
+        let online = format!("{:?}", status_answer(STATUS_ITEM, true).unwrap());
+        assert!(
+            online.contains("flags: 1") && online.contains("text: \"\""),
+            "{online}"
+        );
+        let off = format!("{:?}", status_answer(STATUS_ITEM, false).unwrap());
+        assert!(
+            off.contains("flags: 0") && off.contains("text: \"\""),
+            "{off}"
+        );
     }
 }

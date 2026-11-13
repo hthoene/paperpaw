@@ -101,6 +101,13 @@ fn next_screen_serial(next: u32, native: bool) -> Option<(u32, u32)> {
     serial.checked_add(1).map(|following| (serial, following))
 }
 
+/// Whether a failed native open is told with the general notice: not after a
+/// lack of memory, which that notice would meet as well (`notify` allocates
+/// without a check); the one made ahead says it then (`memory_notice`).
+fn tells_the_user(status: i32) -> bool {
+    status != paperpaw_native::host_glue::ERR_NO_MEMORY
+}
+
 impl Kernel {
     /// Closed room screens keep enough of the unused key space to reopen.
     pub(crate) fn screen_keys_remaining(&self) -> u32 {
@@ -134,6 +141,19 @@ impl Kernel {
         });
     }
 
+    /// Tells the user that a screen could not be opened (the diagnostic above
+    /// is for the log); the words never name the screen or its params. Not
+    /// called after a lack of memory (see [`tells_the_user`]).
+    fn notify_native_open_failed(&mut self) {
+        let words = self.shared.translator.tr("core.screen.open-failed");
+        let mut text = String::new();
+        if text.try_reserve_exact(words.len()).is_err() {
+            return;
+        }
+        text.push_str(words);
+        self.notify(text);
+    }
+
     fn screen_stack_has_room(&mut self) -> bool {
         if self.shared.stack_rows.cleanup_pending() {
             self.warn_runtime("UI instance cleanup is still pending");
@@ -156,9 +176,17 @@ impl Kernel {
             return self.warn_runtime(format!("unknown screen `{id}`"));
         };
         // Native allocation finishes before changing the serial, layout or screen.
-        let Ok(native_screen) = spec.prepare_native(params) else {
-            self.warn_native_open_failed();
-            return;
+        let native_screen = match spec.prepare_native(params) {
+            Ok(screen) => screen,
+            Err(status) => {
+                self.warn_native_open_failed();
+                if tells_the_user(status) {
+                    self.notify_native_open_failed();
+                } else {
+                    self.show_memory_notice();
+                }
+                return;
+            }
         };
         let on_open = spec.refresh_on_open();
         let Some((serial, next_serial)) = next_screen_serial(self.next_serial, spec.is_native())
@@ -360,7 +388,7 @@ impl Kernel {
     /// none clears its params and text). A screen that is not native keeps
     /// what it has and leaves the hand-over to the drain.
     fn on_reopen_with_handover(&mut self, index: usize, params: &Params) {
-        let info = self.attach_pending_handover(index);
+        let info = self.attach_pending_handover(index, params);
         self.shared.native_instances.set_open_info(info);
         self.with_screen(index, |screen, cx| {
             screen.on_reopen(params, cx);
@@ -372,16 +400,24 @@ impl Kernel {
 
     /// The hand-over the applied `open` names goes to native instance
     /// `index`: what its `screen_opened` says of it comes back (none for no
-    /// staged open).
+    /// staged open and no `params`). Opened without a native `open` (by
+    /// `Kernel::open` with interface-6 `params`: a shell, an interface-6
+    /// plugin, the kernel), the host hands the params over itself
+    /// ([`UiStore::handover_params`](crate::native_host::ui_store::UiStore::handover_params)).
     fn attach_pending_handover(
         &mut self,
         index: usize,
+        params: &Params,
     ) -> Option<crate::native_host::ui_store::Info> {
         if !self.is_native_at(index) {
             return None;
         }
         let serial = self.stack.get(index)?.serial;
-        let pending = self.shared.native_instances.take_pending_handover()?;
+        let pending = match self.shared.native_instances.take_pending_handover() {
+            Some(pending) => pending,
+            None if !params.is_empty() => return self.attach_host_handover(serial, params),
+            None => return None,
+        };
         let store = self.shared.native_instances.ui_store()?;
         let attached = store.attach(pending, serial);
         let info = attached.is_ok().then(|| store.info(serial)).flatten();
@@ -392,6 +428,46 @@ impl Kernel {
             self.warn_runtime("a screen's hand-over could not be attached; it opens without");
         }
         Some(info.unwrap_or(crate::native_host::ui_store::Info::NONE))
+    }
+
+    /// The host's own hand-over of interface-6 `params` goes to native
+    /// instance `serial`; where it cannot be made the screen opens without
+    /// (said as a warning), as it did before.
+    fn attach_host_handover(
+        &mut self,
+        serial: u32,
+        params: &Params,
+    ) -> Option<crate::native_host::ui_store::Info> {
+        use crate::native_host::ui_store::{Info, Param};
+        let store = self.shared.native_instances.ui_store()?;
+        let count = params.iter().count();
+        let mut list = Vec::new();
+        // More than op 16 could ever take is refused before anything is
+        // allocated.
+        let made = (if count > 2 * crate::native_host::ui_store::PARAMS_MAX {
+            Err(paperpaw_native::host_glue::ERR_NO_SPACE)
+        } else {
+            Ok(())
+        })
+        .and_then(|()| {
+            list.try_reserve_exact(count)
+                .map_err(|_| paperpaw_native::host_glue::ERR_NO_MEMORY)
+        })
+        .and_then(|()| {
+            list.extend(params.iter().map(|(key, value)| Param { key, value }));
+            store.handover_params(&list)
+        })
+        .and_then(|id| {
+            store.attach(Some(id), serial).inspect_err(|_| {
+                let _ = store.release(id);
+            })
+        });
+        drop(list);
+        let info = made.is_ok().then(|| store.info(serial)).flatten();
+        if made.is_err() {
+            self.warn_runtime("a screen's params could not be handed over; it opens without");
+        }
+        Some(info.unwrap_or(Info::NONE))
     }
 
     /// Whether `active` has the params an open brings: where a staged open
@@ -437,13 +513,14 @@ impl Kernel {
         !self.from_guard && self.guard().is_some()
     }
 
-    /// Shows the notice held while a screen guarded the device, once none
-    /// does.
+    /// Shows the waiting notices in turn: the oldest once no screen guards
+    /// the device and no notice shows, the next when that one is over.
     pub(crate) fn release_held_notice(&mut self) {
-        if self.guard().is_none()
-            && let Some(text) = self.held_notice.take()
-        {
-            self.notify(text);
+        while self.guard().is_none() && self.notice.is_none() {
+            let Some(text) = self.waiting_notices.pop() else {
+                return;
+            };
+            self.show_notice(text);
         }
     }
 
@@ -464,12 +541,20 @@ impl Kernel {
     }
 
     /// Shows `text` with the screen bound to the notice slot until the
-    /// notice time is over.
+    /// notice time is over, in place of the one that shows. It waits (at most
+    /// 4 waiting, 2 on the X4, the oldest dropped) while a screen guards the
+    /// device and its command is not the guard's own, and behind notices that
+    /// wait: those held while a screen guarded show one after the other.
     pub(crate) fn notify(&mut self, text: String) {
-        if self.held_by_guard() {
-            self.held_notice = Some(text);
+        if self.held_by_guard() || !self.waiting_notices.is_empty() {
+            self.waiting_notices.push(text);
             return;
         }
+        self.show_notice(text);
+    }
+
+    /// Puts `text` on the screen of the notice slot now.
+    fn show_notice(&mut self, text: String) {
         let Some(id) = self
             .shared
             .registry
@@ -488,13 +573,19 @@ impl Kernel {
             return;
         };
         drop(running);
+        self.end_notice();
+        self.place_notice(screen);
+    }
+
+    /// Puts `screen` on as the notice, for `core.notice-seconds`; the one
+    /// before has ended.
+    pub(crate) fn place_notice(&mut self, screen: Box<dyn Screen>) {
         let seconds = self
             .shared
             .settings
             .int(core_settings::NOTICE_SECONDS.as_str())
             .clamp(1, 60) as u32;
-        let region = notice_area(screen.as_ref(), &env);
-        self.end_notice();
+        let region = notice_area(screen.as_ref(), &self.shared.env(self.now));
         self.notice = Some((screen, self.now.add_millis(u64::from(seconds) * 1000)));
         self.invalidate(region);
         self.output.request_refresh(RefreshMode::Fast);
@@ -529,6 +620,7 @@ impl Kernel {
         };
         let env = self.shared.env(self.now);
         let region = notice_area(screen.as_ref(), &env);
+        self.waiting_notices.ended(screen);
         self.invalidate(region);
         self.output.request_refresh(RefreshMode::Fast);
         self.notice_cause();
@@ -667,6 +759,8 @@ impl Kernel {
         }
     }
 
+    // Its own frame: not inlined into `run_commands` (#250).
+    #[inline(never)]
     pub(crate) fn drain_deferred_ui_closes(&mut self) {
         debug_assert_eq!(self.shared.native_instances.depth(), 0);
         if self.shared.stack_rows.take_close_error() != 0 {
@@ -897,6 +991,8 @@ impl Kernel {
     /// and a task with none left goes; so switching back never opens a
     /// file that is gone. A book moved (`BOOK_MOVED`): its screens open
     /// it where it is now.
+    // Its own frame: not inlined into `emit_from` (#250).
+    #[inline(never)]
     pub(crate) fn tasks_follow_books(&mut self, event: &Id, params: &Params) {
         let path = builtin_params::PATH;
         if let Some(removed) = events::BOOK_REMOVED.read(event, params) {
@@ -1081,7 +1177,11 @@ impl Kernel {
         let trusted = self.guard().is_some_and(|guard| {
             index == guard || (index > guard && self.stack.get(index).is_some_and(|s| s.by_guard))
         });
+        // What the screen's callbacks need for their command stage (a native
+        // screen's), asked of the kernel before it is borrowed.
+        let armed = self.arm_screen_stage(index);
         let Some(active) = self.stack.get_mut(index) else {
+            self.disarm_screen_stage(armed);
             self.output.redraw = earlier;
             return Handled::No;
         };
@@ -1097,6 +1197,9 @@ impl Kernel {
             .with_params(&self.action_params);
         let handled = f(active.screen.as_mut(), &mut cx);
         drop(running);
+        if let (Some(before), Some(stage)) = (armed, self.shared.native_instances.screen_stage()) {
+            stage.restore(before);
+        }
         // A part it asked to draw again is in its own coordinates.
         let own = mem::replace(&mut self.output.redraw_area, asked_area);
         if let Some(own) = own.map(|own| chrome::on_screen(own, area)) {
@@ -1356,5 +1459,18 @@ impl Screen for Gone {
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
+    }
+}
+
+#[cfg(test)]
+mod open_notice_tests {
+    use super::tells_the_user;
+    use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_UNSUPPORTED};
+
+    #[test]
+    fn a_failed_open_is_told_except_after_a_lack_of_memory() {
+        assert!(!tells_the_user(ERR_NO_MEMORY));
+        assert!(tells_the_user(ERR_UNSUPPORTED));
+        assert!(tells_the_user(-1));
     }
 }

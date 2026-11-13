@@ -10,7 +10,7 @@
 //! interface-6 home screen of this plugin is the one the app has
 //! (`PORTING-7.md`).
 use crate::{
-    declarations::{ADD, DASHBOARD, PICK, STATUS_ITEMS},
+    declarations::{ADD, DASHBOARD, PICK, STATUS_ITEMS, TICK, WIDGET_CHANGED},
     native_add_screen::{self as add_screen, AddScreen},
     native_backdrop_host,
     native_dashboard::Dashboard,
@@ -33,7 +33,7 @@ use paperpaw_sdk::{
         reply::Reply,
         settings::{self, SettingValue},
         storage::Root,
-        ui::{HandoverId, Instance, Ui},
+        ui::{HandoverId, Instance, Ui, UiCursor},
     },
 };
 use paperpaw_ui_kit::read_event;
@@ -112,6 +112,7 @@ impl Plugin for NativePictureHome {
             .iter()
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
+            .chain(image::EVENTS)
         {
             registrations::submit(host, batch)?;
         }
@@ -122,11 +123,11 @@ impl Plugin for NativePictureHome {
     fn event(
         &mut self,
         host: &Host<'_>,
-        _token: u32,
+        token: u32,
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ImageReady)
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ImageReady, kinds::Tick, kinds::WidgetChanged)
         else {
             return Ok(());
         };
@@ -167,6 +168,15 @@ impl Plugin for NativePictureHome {
                 ..
             } => self.adds.shown(ADD, instance),
             Event::ImageReady(ready) => self.image_ready(host, &ready),
+            // The minute tick: for the dashboard that shows, its bar.
+            Event::Tick { now_ms, .. } if token == TICK => match self.dashboards.top(DASHBOARD) {
+                Some(dashboard) => dashboard.tick(host, now_ms),
+                None => Ok(()),
+            },
+            // A widget of a page shows something new: its cell is drawn anew.
+            Event::WidgetChanged { instance, .. } if token == WIDGET_CHANGED => {
+                self.widget_changed(host, instance)
+            }
             Event::ScreenClosed { instance, .. } => {
                 if let Some(dashboard) = self.dashboards.get(instance) {
                     dashboard.close(host);
@@ -251,6 +261,30 @@ impl NativePictureHome {
             native_backdrop_host::release(host, image);
         }
         Ok(())
+    }
+
+    /// A widget says it shows something new: the dashboard that shows it reads
+    /// its targets anew and, where it is on top of the screen stack, draws its
+    /// cell anew (a redraw of a screen under another is the host's `State`). One
+    /// under another screen is laid out anew when it shows again.
+    #[inline(never)]
+    fn widget_changed(&mut self, host: &Host<'_>, widget: Instance) -> Result<(), Error> {
+        self.ensure_ui(host)?;
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let mut redraw = None;
+        for (instance, dashboard) in self.dashboards.all_with_instance() {
+            if let Some(area) = dashboard.widget_changed(host, ui, widget)? {
+                redraw = Some((instance, area));
+                break;
+            }
+        }
+        let Some((instance, area)) = redraw else {
+            return Ok(());
+        };
+        if stack_top(host, ui)? != Some(instance) {
+            return Ok(());
+        }
+        area.queue(host)
     }
 
     /// Opens `core.ui` in the first live callback; the handle serves later ones.
@@ -474,6 +508,22 @@ fn read_folder(host: &Host<'_>, files: &Files, folder: &str) -> Result<Vec<Strin
         }
     }
     Ok(kept.finish())
+}
+
+/// The room the stack query's request needs (a cursor).
+const STACK_REQUEST: usize = 256;
+
+/// The instance on top of the screen stack, if there is one.
+fn stack_top(host: &Host<'_>, ui: &Ui) -> Result<Option<Instance>, Error> {
+    // The request is a cursor and no more; the reply is a page of rows.
+    let mut input = buffer(STACK_REQUEST)?;
+    let mut output = buffer(SERVICE_BUFFER)?;
+    let page = ui.stack(host, UiCursor::start(), &mut input, &mut output)?;
+    Ok(page
+        .into_iter()
+        .next()
+        .transpose()?
+        .map(|row| row.instance()))
 }
 
 /// Opens the dashboard of `instance`, editing where `edit` (or a page's setting

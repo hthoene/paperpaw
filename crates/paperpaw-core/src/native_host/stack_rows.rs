@@ -49,6 +49,9 @@ pub(crate) struct StackRows {
     /// What the open instances relabel in the row of button hints
     /// (`command.set_hint`); an instance's labels go when it leaves the stack.
     labels: core::cell::RefCell<super::hint_labels::HintLabels>,
+    /// The screen whose `redraw_area` follow-up is being drawn: its draws
+    /// get `draw.frame.id` bit 0 (`commands_redraw.rs`).
+    followup: Cell<Option<paperpaw_sdk::ScreenKey>>,
 }
 impl Default for StackRows {
     fn default() -> Self {
@@ -63,6 +66,7 @@ impl Default for StackRows {
             cleanup_sweep: Cell::new(false),
             running: Cell::new((0, 0)),
             labels: core::cell::RefCell::default(),
+            followup: Cell::new(None),
         }
     }
 }
@@ -89,6 +93,17 @@ impl StackRows {
     #[cfg(test)]
     pub(crate) fn running(&self) -> (u64, u32) {
         self.running.get()
+    }
+
+    /// The frame drawn now is the follow-up of `screen`'s areas (none: no
+    /// screen's), set by the kernel around a frame.
+    pub(crate) fn set_followup(&self, screen: Option<paperpaw_sdk::ScreenKey>) {
+        self.followup.set(screen);
+    }
+
+    /// Whether the frame drawn now is the follow-up of `screen`'s areas.
+    pub(crate) fn is_followup(&self, screen: paperpaw_sdk::ScreenKey) -> bool {
+        self.followup.get() == Some(screen)
     }
 
     /// A callback of the screen `instance` of `owner` begins on the stack; the
@@ -144,6 +159,19 @@ impl StackRows {
                 .is_some_and(|row| !row.host && !row.overlay && row.owner == owner)
         })?;
         self.uncovered(owner, at)
+    }
+
+    /// Whether `owner` has a screen of its own on the stack, shown or covered
+    /// (its dialogs count). `None` for a stale or overflowed snapshot. No
+    /// allocation.
+    pub(crate) fn has_screen(&self, owner: u64) -> Option<bool> {
+        if owner == 0 || !self.valid(self.generation.get()) {
+            return None;
+        }
+        Some((0..self.len()).any(|index| {
+            self.row(index)
+                .is_some_and(|row| !row.host && row.owner == owner)
+        }))
     }
 
     /// The instance of the row at `at` when it is `owner`'s own non-host row
@@ -289,6 +317,13 @@ impl StackRows {
         } else {
             generation.checked_add(1).unwrap_or(0)
         });
+    }
+    /// Whether the instance is secret now, by the kernel's last stack update (its
+    /// run-time policy included); one the rows do not hold, or a stale snapshot,
+    /// counts as secret (fail closed).
+    pub(crate) fn secret_now(&self, instance: u32) -> bool {
+        self.instance(instance, self.generation.get())
+            .is_none_or(|row| row.secret || row.guards)
     }
     pub(crate) fn instance(&self, instance: u32, generation: u64) -> Option<Row> {
         if !self.valid(generation) || instance == 0 {
@@ -608,6 +643,22 @@ mod tests {
         // An overflowed snapshot fails closed.
         let many: alloc::vec::Vec<StackRow> = (1..=17).map(|n| row(n, 9, 0)).collect();
         assert_eq!(topmost(&many, 9), None);
+    }
+
+    #[test]
+    fn an_instance_is_secret_now_by_the_last_update_and_a_missing_one_is_secret() {
+        let rows = StackRows::default();
+        rows.update([row(1, 9, 0), row(2, 9, SECRET), row(3, 9, GUARDS)]);
+        assert!(!rows.secret_now(1));
+        assert!(rows.secret_now(2));
+        assert!(rows.secret_now(3));
+        // Not on the stack, or no instance: fail closed.
+        assert!(rows.secret_now(7));
+        assert!(rows.secret_now(0));
+        // A policy that changed at run time shows with the next update.
+        rows.update([row(1, 9, SECRET), row(2, 9, 0)]);
+        assert!(rows.secret_now(1));
+        assert!(!rows.secret_now(2));
     }
 }
 

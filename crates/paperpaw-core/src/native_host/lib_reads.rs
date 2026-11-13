@@ -35,6 +35,10 @@ use crate::native_host::registrations::{self as wire, Record};
 use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
+pub(crate) use importer::is_by as importer_is_by;
+#[cfg(test)]
+pub(crate) use importer::set as importer_set;
+pub(crate) use jobs::CatalogJobs;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
@@ -45,15 +49,26 @@ use paperpaw_sdk::library::{self, catalog};
 
 mod annotations;
 mod book;
+mod delete;
+mod field;
+mod fields;
+mod importer;
+mod jobs;
+mod old_reader;
 mod position;
 mod provide;
+mod query;
+mod removal;
+mod series;
+mod status;
+mod write;
 
 const PPM: u32 = 1_000_000;
 /// Counts of the books `state` takes while the catalog changes under it.
 const STATE_TRIES: usize = 3;
 
 /// What the card cannot tell the adapter.
-pub(crate) trait CatalogEnv {
+pub trait CatalogEnv {
     /// `Some(progress in parts per million)` while the walk makes the
     /// catalog where there was none (its books are those found so far:
     /// `core.library-walking`), `None` otherwise.
@@ -64,23 +79,72 @@ pub(crate) trait CatalogEnv {
     /// The id of the format of the book at `path`, as the format index
     /// finds it by extension; nothing for none.
     fn format_id(&self, _path: &str, _visit: &mut dyn FnMut(&str)) {}
+    /// The field `id` (`<plugin>.<name>`) a plugin declared with
+    /// `book_field.spec`: `Some(true)` kept in the catalog too (short values),
+    /// `Some(false)` kept with the book only, `None` for none declared.
+    fn book_field(&self, _id: &str) -> Option<bool> {
+        None
+    }
+    /// The clock in milliseconds (an annotation transaction's idle time and
+    /// the life of its receipt); 0 where the host has none: they never run out.
+    fn now_ms(&self) -> u64 {
+        0
+    }
+    /// Whether any plugin keeps data for the book at `path` (`book_data.spec`
+    /// folders and the interface 6 ones): `delete`'s fact bit 2. An error is
+    /// the card's or the memory's.
+    fn book_data_kept(&self, _path: &str) -> Result<bool, i32> {
+        Ok(false)
+    }
+    /// The translated title of the book field `id` (`<plugin>.<name>`) as its
+    /// plugin declared it (`book_field.spec`); nothing where there is none: a
+    /// row then shows the field's name.
+    fn field_title(&self, _id: &str, _visit: &mut dyn FnMut(&str)) {}
+    /// The library folder setting (`library.folder`): a root-1 path, empty for
+    /// the card's top. Where the host says nothing the library is the top.
+    fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
+        visit("");
+    }
 }
 
 /// The catalog reads over `storage`.
 pub(crate) struct CatalogReads {
     storage: Rc<dyn Storage>,
     env: Rc<dyn CatalogEnv>,
+    /// The last book whose Beta 3 reader's files were looked at.
+    old: old_reader::Memo,
 }
 
 impl CatalogReads {
+    /// Op 2 `query`, leaving out the `archive` folder where the query says so
+    /// and the books `hide` names (a pending delete holds them).
+    pub(crate) fn query_hiding(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        hide: &dyn Fn(&str) -> bool,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        query::query(self, query, archive, hide, visit)
+    }
+
+    /// The library folder setting ([`CatalogEnv::library_folder`]).
+    pub(crate) fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
+        self.env.library_folder(visit);
+    }
+
     pub(crate) fn new(storage: Rc<dyn Storage>, env: Rc<dyn CatalogEnv>) -> Self {
-        Self { storage, env }
+        Self {
+            storage,
+            env,
+            old: old_reader::Memo::default(),
+        }
     }
 
     /// The catalog generation of the wire: it changes whenever the
     /// catalog's own generation or its log of changes does (a book added,
     /// removed, its status changed); never 0.
-    fn generation(&self) -> Result<u32, i32> {
+    pub(super) fn generation(&self) -> Result<u32, i32> {
         Ok(self.snapshot()?.0)
     }
 
@@ -191,6 +255,29 @@ impl LibQuery for CatalogReads {
         Ok(())
     }
 
+    fn query(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        query::query(self, query, archive, &|_| false, visit)
+    }
+
+    fn next_in_series(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        self.next_in_series_hiding(book, &|_| false, visit)
+    }
+
+    fn fields(
+        &self,
+        book: BookRef<'_>,
+        cursor: u32,
+        generation: u32,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.read_fields(book, cursor, generation, visit)
+    }
+
     fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         book::book(self, book, visit)
     }
@@ -216,6 +303,8 @@ impl LibQuery for CatalogReads {
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
         self.with_path(book, |path| {
+            self.old
+                .adopt(&*self.storage, path, old_reader::Kept::Annotations);
             annotations::annotations(&*self.storage, path, cursor, generation, visit)
         })
     }
@@ -228,12 +317,18 @@ impl LibQuery for CatalogReads {
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
         self.with_path(book, |path| {
+            self.old
+                .adopt(&*self.storage, path, old_reader::Kept::Annotations);
             annotations::anchors(&*self.storage, path, cursor, generation, visit)
         })
     }
 
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
-        self.with_path(book, |path| position::read(&*self.storage, path, visit))
+        self.with_path(book, |path| {
+            self.old
+                .adopt(&*self.storage, path, old_reader::Kept::Position);
+            position::read(&*self.storage, path, visit)
+        })
     }
 
     fn book_key(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
@@ -242,6 +337,23 @@ impl LibQuery for CatalogReads {
 }
 
 impl CatalogReads {
+    /// Moves the annotations Beta 3's reader kept in its own folder of the
+    /// book at `path` where they are shared, before an edit of them
+    /// (`old_reader`).
+    pub(crate) fn adopt_old_annotations(&self, path: &str) {
+        self.old
+            .adopt(&*self.storage, path, old_reader::Kept::Annotations);
+    }
+
+    /// The book's root-1 path, for the host's own bookkeeping.
+    pub(crate) fn path_of<R>(
+        &self,
+        book: BookRef<'_>,
+        f: impl FnOnce(&str) -> Result<R, i32>,
+    ) -> Result<R, i32> {
+        self.with_path(book, f)
+    }
+
     /// Calls `f` with the root-1 path of the book, which is in the catalog.
     fn with_path<R>(
         &self,
@@ -286,6 +398,20 @@ pub(super) fn fail(error: data::Error) -> i32 {
         data::Error::Storage(e) => storage_status(e),
         _ => ERR_IO,
     }
+}
+
+/// The name of the file in `dir` that is kept for the book at `path` (its key
+/// and `.txt`), built fallibly.
+pub(super) fn kept_file(dir: &str, path: &str) -> Result<String, i32> {
+    let mut digits = [0_u8; library::KEY_LEN];
+    let key = library::key_into(path, &mut digits);
+    let mut name = String::new();
+    name.try_reserve_exact(dir.len() + 1 + key.len() + ".txt".len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    for part in [dir, "/", key, ".txt"] {
+        name.push_str(part);
+    }
+    Ok(name)
 }
 
 fn storage_status(error: StorageError) -> i32 {

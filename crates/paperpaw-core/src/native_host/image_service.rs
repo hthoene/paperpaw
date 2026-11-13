@@ -35,6 +35,7 @@
 //! alpha cache image blends over what is below, all by the SDK's
 //! `draw_image_over`. Other bits answer `ERR_UNSUPPORTED`.
 use super::registrations::{self as wire, Record};
+use crate::native_host::codec;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -58,6 +59,8 @@ pub(crate) const MAX_SIDE: u32 = 1_600;
 /// The longest side of a document image (what the band drawer's one transient
 /// block takes: a colour row of 1,600 pixels is 4.7 KiB).
 pub(crate) const DOC_SIDE_MAX: u32 = 1_600;
+/// The `document` of an image the library's `cover` op made: no document.
+pub(crate) const LIBRARY_COVER: u32 = 0;
 /// The longest cache path.
 pub(crate) const PATH_MAX: usize = 512;
 
@@ -77,6 +80,18 @@ fn is_reserved(name: &str, reserved: &str) -> bool {
         && name[stem.len() + 1..].iter().all(u8::is_ascii_digit)
 }
 
+/// Whether a picture that is not decoded yet may still be named to the opener
+/// without an id: a cache path of root 6 that fits, and a size a decoded
+/// document image can have (each side 1 to [`DOC_SIDE_MAX`]: the format plans
+/// it at the size it will decode to, so the reader's box is exact). Nothing is
+/// read: the file comes with op 16.
+fn pending_ok(cache: &str, image: &super::stages_wire::core_format_v1::FmtImage<'_>) -> bool {
+    cache_path_ok(image.path)
+        && cache.len().saturating_add(1 + image.path.len()) <= PATH_MAX
+        && (1..=DOC_SIDE_MAX).contains(&image.width)
+        && (1..=DOC_SIDE_MAX).contains(&image.height)
+}
+
 /// A cache path of root 6 (`document.md` 5): the storage grammar (relative,
 /// no `.` or `..` segment, `\`, `:`, control characters, empty segments,
 /// names FAT or Windows take for another), and not the host's `.complete`
@@ -93,9 +108,15 @@ fn cache_path_ok(path: &str) -> bool {
 const FILL: u32 = 1;
 /// Flags bit 1: a small picture, no ghost full refresh for it.
 const SMALL: u32 = 2;
+/// Flags bit 2: scale to the rectangle and drop the picture's shape.
+const STRETCH: u32 = 4;
+/// Flags bit 3: black and white dots by force.
+const DOTS: u32 = 8;
+/// Flags bit 4: the panel's grays.
+const GRAYS: u32 = 16;
 /// Flags bits 8 to 15: 255 minus the opacity (0, opaque, by default).
 const TRANSPARENCY_SHIFT: u32 = 8;
-const KNOWN: u32 = FILL | SMALL | (0xff << TRANSPARENCY_SHIFT);
+const KNOWN: u32 = FILL | SMALL | STRETCH | DOTS | GRAYS | (0xff << TRANSPARENCY_SHIFT);
 
 /// Where an image came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,6 +178,7 @@ impl Inner {
 
 pub(crate) mod commands;
 pub(crate) mod prepare;
+pub(crate) mod recipe;
 
 /// The device's images, all plugins'.
 pub(crate) struct ImageTable {
@@ -472,7 +494,9 @@ impl ImageTable {
     /// `doc_image.flags` bit 1; bit 0 there is colour as `image.info` says it
     /// (the cache file's header, and `screen_colour`: never on a screen
     /// without colour); other bits of the record are dropped. The id is the
-    /// host's.
+    /// host's. A picture not decoded yet whose file is not there (or not
+    /// vouched for) still comes, without an id (`image` 0), so the opener
+    /// can ask op 16 for it by `index`.
     ///
     /// # Errors
     /// As [`ImageTable::map_document`].
@@ -504,11 +528,60 @@ impl ImageTable {
             in_block,
             screen_colour,
         )?;
-        Ok(mapped.map(|(image, colour)| wire::ServiceDocImage {
-            image,
-            flags: doc.flags | u32::from(colour),
-            ..doc
-        }))
+        Ok(match mapped {
+            Some((image, colour)) => Some(wire::ServiceDocImage {
+                image,
+                flags: doc.flags | u32::from(colour),
+                ..doc
+            }),
+            // Not decoded yet: there is no cache file to vouch for it, so no id
+            // (`image` 0); the opener asks op 16 by `index`, and that answer,
+            // decoded, is checked as any other (`document.md` 5).
+            None if image.flags & 1 != 0 && pending_ok(cache, image) => Some(doc),
+            None => None,
+        })
+    }
+
+    /// The picture `id` of `owner`, made by a document the library opened for
+    /// its `cover` op, as the library's own: it no longer ends with that
+    /// document (`document 0` is none) and the same cache file has one id. The
+    /// id to hand out: `id`, or the one the owner already has for that file
+    /// (`id` ends, its entry is dropped).
+    ///
+    /// # Errors
+    /// `ERR_NOT_FOUND` (not `owner`'s), `ERR_BUSY`.
+    pub(crate) fn adopt_cover(&self, owner: u64, id: u32) -> Result<u32, i32> {
+        let mut inner = self.lock()?;
+        let at = inner
+            .entries
+            .iter()
+            .position(|e| e.id == id && e.owner == owner)
+            .ok_or(ERR_NOT_FOUND)?;
+        let cover = Origin::Document {
+            document: LIBRARY_COVER,
+            index: u32::MAX,
+        };
+        let known = {
+            let path = &inner.entries[at].path;
+            inner
+                .entries
+                .iter()
+                .position(|e| e.owner == owner && e.origin == cover && e.path == *path)
+        };
+        match known {
+            Some(known) => {
+                // The file has its id already: this one ends and the old one
+                // is handed out again, protected until drawn once.
+                let old = inner.entries[known].id;
+                inner.entries[known].protected = true;
+                inner.entries.remove(at);
+                Ok(old)
+            }
+            None => {
+                inner.entries[at].origin = cover;
+                Ok(id)
+            }
+        }
     }
 
     /// `image_release`, or a reader giving a document image up.
@@ -561,6 +634,18 @@ impl ImageTable {
             .entries
             .retain(|e| !matches!(e.origin, Origin::Document { document: d, .. } if d == document));
         Ok(())
+    }
+
+    /// Whether `owner` has an image id, a prepare waiting or an
+    /// `event.image_ready` not told yet (#248, D3).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the table is borrowed.
+    pub(crate) fn owner_holds(&self, owner: u64) -> Result<bool, i32> {
+        let inner = self.inner.try_borrow().map_err(|_| ERR_BUSY)?;
+        Ok(inner.entries.iter().any(|e| e.owner == owner)
+            || inner.waiting.iter().any(|w| w.owner == owner)
+            || inner.ready.iter().any(|r| r.owner == owner))
     }
 
     /// The plugin stopped: all its images end.
@@ -626,6 +711,10 @@ impl ImageTable {
         if flags & !KNOWN != 0 {
             return Err(ERR_UNSUPPORTED);
         }
+        // Two ways to draw the same thing differently: neither is chosen.
+        if flags & (FILL | STRETCH) == FILL | STRETCH || flags & (DOTS | GRAYS) == DOTS | GRAYS {
+            return Err(ERR_INVALID);
+        }
         let opacity = 255 - u8::try_from((flags >> TRANSPARENCY_SHIFT) & 0xff).unwrap_or(0);
         let (path, w, h) = {
             let inner = self.inner.try_borrow().map_err(|_| ERR_BUSY)?;
@@ -655,14 +744,25 @@ impl ImageTable {
         if (fw, fh) != (w, h) {
             return Err(ERR_INVALID);
         }
-        let Some(place) = place(x, y, width, height, w, h, flags & FILL != 0)? else {
+        let placed = if flags & STRETCH != 0 {
+            stretched(x, y, width, height)?
+        } else {
+            place(x, y, width, height, w, h, flags & FILL != 0)?
+        };
+        let Some(place) = placed else {
             return Ok(());
         };
         let Some(visible) = visible(canvas.clip(), x, y, width, height) else {
             // Nothing of the rectangle is on the canvas; still a draw.
             return self.drawn(owner, id);
         };
-        let picture = paperpaw_sdk::ui::Picture::new(&path, kind, w, h, self.scratch_max.get());
+        let tones = match flags & (DOTS | GRAYS) {
+            DOTS => paperpaw_sdk::ui::Tones::Dots,
+            GRAYS => paperpaw_sdk::ui::Tones::Grays,
+            _ => paperpaw_sdk::ui::Tones::Panel,
+        };
+        let picture = paperpaw_sdk::ui::Picture::new(&path, kind, w, h, self.scratch_max.get())
+            .with_tones(tones);
         let mut child = canvas.clipped(visible).offset(place.left, place.top);
         let area = Rect::new(0, 0, place.width, place.height);
         let mut drawn = Ok(());
@@ -745,12 +845,26 @@ fn place(
     }))
 }
 
+/// The rectangle itself, `STRETCH`: the picture scaled to it, its shape
+/// dropped. `None` for an empty rectangle.
+fn stretched(x: i32, y: i32, width: u32, height: u32) -> Result<Option<Place>, i32> {
+    if width == 0 || height == 0 {
+        return Ok(None);
+    }
+    Ok(Some(Place {
+        left: x,
+        top: y,
+        width: u16::try_from(width).map_err(|_| ERR_INVALID)?,
+        height: u16::try_from(height).map_err(|_| ERR_INVALID)?,
+    }))
+}
+
 /// `image.info` written into `out` as one `doc_image` record; the length.
 ///
 /// # Errors
 /// `ERR_NO_SPACE` (`out` is too small, nothing written).
 pub(crate) fn encode_info(info: Info, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceDocImage(wire::ServiceDocImage {
             image: info.image,
             index: info.index,

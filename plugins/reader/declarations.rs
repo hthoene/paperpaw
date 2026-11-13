@@ -1,15 +1,18 @@
 //! What the reader declares (slice 1): its settings, the screens and the
 //! slots they fill, the actions with their menu entries, icons, device needs
 //! and key bindings, and the events it hears. Compared with the interface-6
-//! registration by `tests/abi7_declarations.rs`. What has no native
-//! declaration yet (status places, the sample widget, the reading app, the
-//! book data folder, screen hints, help, the setup step, the reader's stages)
-//! is listed in `PORTING-7.md`.
+//! registration by `tests/abi7_declarations.rs`. The first-run help, the
+//! setup step and the sample widget are declared by [`first_run`]. What has no
+//! native declaration yet (the book data folder, the screen hints *on press*,
+//! the help's wait for the book) is listed in `PORTING-7.md`.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, Instances, KeyBindingDecl, Kind,
-    MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, StageDecl,
+    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, HelpHintDecl, Instances,
+    KeyBindingDecl, Kind, MenuEntryDecl, ReaderDecl, ScreenDecl, SetupPage, SetupStepDecl,
+    SlotOfferDecl, SpecDecl, StageDecl, StatusItemDecl, StatusLineDecl, StatusPlaceDecl,
+    WidgetDecl,
 };
+use paperpaw_sdk::native::ui::HintInput;
 
 /// Callback tokens: stable within this plugin. Screens from 10, actions from
 /// 100, events from 3.
@@ -19,9 +22,58 @@ pub const ANNOTATIONS: u32 = 12;
 pub const SKIM: u32 = 13;
 pub const FOOTNOTE: u32 = 14;
 pub const SEARCH: u32 = 15;
+/// The status items and lines of the reader (the reader draws its own itself:
+/// the host never calls its caller back for them).
+pub const STATUS_ITEM: u32 = 16;
+pub const STATUS_LINE: u32 = 17;
 pub const STARTED: u32 = 3;
 pub const BOOK_MOVED: u32 = 4;
+/// The device goes to sleep, stops, or the quiet time after a page turn has
+/// gone: the place of the page on show is written (`native_place`).
+pub const SUSPEND: u32 = 5;
+pub const STOPPING: u32 = 6;
+pub const WORK_DUE: u32 = 7;
+/// A setting changed: a page laid out with the reading settings is laid out again
+/// (`native_pages::affects_layout`), one drawn with the text look drawn again.
+pub const SETTING_CHANGED: u32 = 8;
+/// A screen opened, closed or came to the top: reading aloud ends when the
+/// reading screen is no longer the one on top (`native_view/aloud.rs`).
+pub const STACK_CHANGED: u32 = 17;
+/// The host's answer to a sentence handed over (`event.spoken`, 89): it goes
+/// only to plugins that subscribed (`docs/abi/ui.md` 7), so without this
+/// reading aloud stops after one sentence.
+pub const SPOKEN: u32 = 16;
+/// A document's state moved (`event.document_changed`, 88): a book opened for
+/// the first time opens when its preparation is done (`native_view/preparing.rs`).
+/// It goes only to plugins that subscribed.
+pub const DOCUMENT_CHANGED: u32 = 18;
+/// The library changed (`event.library_changed`, 91): when the annotations of
+/// the open book did, its highlights are read again (an edit by another plugin
+/// shows at once). It goes only to plugins that subscribed.
+pub const LIBRARY_CHANGED: u32 = 19;
+/// The store's answer for a pack of letters the reader asked for
+/// (`event.plugin_answered`, 78, `native_script_hint`): it goes only to the
+/// plugin that asked, and only if it subscribed.
+pub const PLUGIN_ANSWERED: u32 = 20;
+/// The token of the search's background scan (`core.work`, key `search`): a step
+/// of the book is read each time. Not a subscription: the work's own token comes
+/// back in `event.work_due`, which the reader hears as `WORK_DUE`.
+#[allow(
+    dead_code,
+    reason = "the plugin's code uses it; the build script that includes this file does not"
+)]
+pub const SEARCH_WORK: u32 = 9;
+/// The token of the table of contents' headings scan (`core.work`, key `toc`),
+/// as [`SEARCH_WORK`].
+#[allow(
+    dead_code,
+    reason = "the plugin's code uses it; the build script that includes this file does not"
+)]
+pub const TOC_WORK: u32 = 19;
 pub const FIRST_ACTION: u32 = 100;
+/// The sample widget above the reading settings (`native_sample`): its draws
+/// and its `core.widget` stage calls.
+pub const SAMPLE: u32 = 40;
 
 const BEHAVIOUR: &str = "core.group.reading-behaviour";
 const CONTROLS: &str = "core.group.controls";
@@ -113,6 +165,168 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     );
     timer.help = "reader.setting.aloud-timer.help";
     d.spec(timer)?;
+    status_settings(d)
+}
+
+/// The settings group of the status lines (the kernel's).
+const STATUS_GROUP: &str = "core.group.status";
+/// The sections of the status settings: the line above the text and the one below.
+const SECTION_TOP: &str = "reader.status.section.top";
+const SECTION_BOTTOM: &str = "reader.status.section.bottom";
+
+/// The default of each part of the line of items, as interface 6 had them:
+/// above nothing; below the chapter on the left, the time in the middle, the
+/// page and the device's symbols on the right.
+const PARTS: [(&str, &str, &str); 6] = [
+    ("status.top-left", "reader.status.top-left", ""),
+    ("status.top-center", "reader.status.top-center", ""),
+    ("status.top-right", "reader.status.top-right", ""),
+    (
+        "status.bottom-left",
+        "reader.status.bottom-left",
+        "reader.status.aloud, reader.status.chapter",
+    ),
+    (
+        "status.bottom-center",
+        "reader.status.bottom-center",
+        "core.status.clock",
+    ),
+    (
+        "status.bottom-right",
+        "reader.status.bottom-right",
+        "lock.touch-status, wifi.status, power.status, core.status.battery, reader.status.page",
+    ),
+];
+
+/// The status lines' settings (interface 6's `status.rs`): the text size and the
+/// distance from the edge, the lines to switch between above and below the text,
+/// what each part of the line of items shows, and the battery's percent.
+pub fn status_settings<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    let number = |name, (default, min, max), title, help, unit, step| {
+        let mut spec = SpecDecl::new(name, Kind::Int { default, min, max }, STATUS_GROUP, title);
+        spec.help = help;
+        (spec, unit, step)
+    };
+    let (size, unit, step) = number(
+        "status.size",
+        (6, 5, 16),
+        "reader.status.size",
+        "reader.status.size.help",
+        "core.unit.pt",
+        1,
+    );
+    d.spec(size)?;
+    let mut extra = ExtraDecl::new("status.size");
+    extra.unit = unit;
+    extra.step = step;
+    d.extra(extra)?;
+    let (mut edge, unit, step) = number(
+        "status.edge",
+        (15, 0, 150),
+        "reader.status.edge",
+        "reader.status.edge.help",
+        "core.unit.tenth-mm",
+        5,
+    );
+    edge.advanced = true;
+    d.spec(edge)?;
+    let mut extra = ExtraDecl::new("status.edge");
+    extra.unit = unit;
+    extra.step = step;
+    d.extra(extra)?;
+    for (name, title, default, section) in [
+        (
+            "status.top-lines",
+            "reader.status.top-lines",
+            "",
+            SECTION_TOP,
+        ),
+        (
+            "status.bottom-lines",
+            "reader.status.bottom-lines",
+            "core.status-line.items, reader.status-line.progress, reader.status-line.empty",
+            SECTION_BOTTOM,
+        ),
+    ] {
+        let mut spec = SpecDecl::new(name, Kind::List(default), STATUS_GROUP, title);
+        spec.help = "reader.status.lines.help";
+        d.spec(spec)?;
+        let mut extra = ExtraDecl::new(name);
+        extra.section = section;
+        d.extra(extra)?;
+    }
+    for (at, (name, title, default)) in PARTS.into_iter().enumerate() {
+        let mut spec = SpecDecl::new(name, Kind::List(default), STATUS_GROUP, title);
+        spec.help = "reader.status.part.help";
+        d.spec(spec)?;
+        let mut extra = ExtraDecl::new(name);
+        extra.section = if at < 3 { SECTION_TOP } else { SECTION_BOTTOM };
+        d.extra(extra)?;
+    }
+    let mut percent = SpecDecl::new(
+        "status.battery-percent",
+        Kind::Bool(true),
+        STATUS_GROUP,
+        "reader.status.battery-percent",
+    );
+    percent.help = "reader.status.battery-percent.help";
+    d.spec(percent)?;
+    d.submit()
+}
+
+/// The status places (the lines above and below the text, each listing the items
+/// of its three parts), the reader's items and its two lines. The reader draws
+/// its own items and lines itself; they are declared so that the lists offer
+/// them (and other plugins' lines can show the reader's items by their id).
+pub fn status<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    let refused = |what| move |_| DeclareError::Empty(what);
+    for (name, title, parts) in [
+        (
+            "status.top",
+            "reader.status.section.top",
+            ["status.top-left", "status.top-center", "status.top-right"],
+        ),
+        (
+            "status.bottom",
+            "reader.status.section.bottom",
+            [
+                "status.bottom-left",
+                "status.bottom-center",
+                "status.bottom-right",
+            ],
+        ),
+    ] {
+        let [left, center, right] = parts.map(|part| ["reader.", part].concat());
+        let place = StatusPlaceDecl::new(name, title, &left, &center, &right)
+            .map_err(refused("status place"))?;
+        d.status_place(place)?;
+    }
+    // The book's and the chapter's titles give way first where a line has no
+    // room, the page last.
+    for (name, title, priority) in [
+        ("status.title", "reader.status.item.title", 64),
+        ("status.chapter", "reader.status.item.chapter", 64),
+        ("status.page", "reader.status.item.page", 224),
+        ("status.progress", "reader.status.item.progress", 128),
+    ] {
+        let item = StatusItemDecl::new(name, title, STATUS_ITEM)
+            .map_err(refused("status item"))?
+            .priority(priority);
+        d.status_item(item)?;
+    }
+    for (name, title) in [
+        ("status-line.progress", "reader.status.line.progress"),
+        ("status-line.empty", "reader.status.line.empty"),
+    ] {
+        // A line is as high as 2.1 times the text size.
+        let line =
+            StatusLineDecl::new(name, title, 2100, STATUS_LINE).map_err(refused("status line"))?;
+        d.status_line(line)?;
+    }
     d.submit()
 }
 
@@ -130,8 +344,19 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     ] {
         // One instance for each set of parameters (the book, the section), as in
         // interface 6.
-        d.screen(ScreenDecl::new(name, title, token).instances(Instances::PerParams))?;
+        let decl = ScreenDecl::new(name, title, token).instances(Instances::PerParams);
+        // The note and the skim bar are laid over the page, which shows above them.
+        d.screen(if matches!(token, FOOTNOTE | SKIM) {
+            decl.overlay()
+        } else {
+            decl
+        })?;
     }
+    // The reading app `reader.app` (interface 6 `ReaderSpec`): its screen shows
+    // books of every format. The host counts a book's reading session only for
+    // a reader it knows: without this, no progress, "Continue reading" or book
+    // event.
+    d.reader(ReaderDecl::new("app", "reader.screen"))?;
     d.submit()
 }
 
@@ -324,12 +549,87 @@ pub fn hold_keys<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The start (reopen the last book) and a book moved (the last book follows).
+/// A help hint: its text, the input it is for, and its zone (x, y, width,
+/// height in thousandths of the screen), if it has one.
+pub type Hint = (&'static str, HintInput, Option<(u16, u16, u16, u16)>);
+
+/// The first time the reading screen shows: its help hints, the tap zones
+/// (thousandths of the screen, as the standard key map has them) or the
+/// buttons (Beta 3's `help::add`). Beta 3 had them wait for the book
+/// (`help::wait`); the host refuses that flag yet (`native_ready`).
+pub const HINTS: [Hint; 9] = [
+    (
+        "reader.help.previous",
+        HintInput::Touch,
+        Some((0, 120, 333, 760)),
+    ),
+    (
+        "reader.help.menu",
+        HintInput::Touch,
+        Some((333, 120, 334, 760)),
+    ),
+    (
+        "reader.help.next",
+        HintInput::Touch,
+        Some((667, 120, 333, 760)),
+    ),
+    ("reader.help.quick", HintInput::Touch, None),
+    ("reader.help.night", HintInput::Touch, None),
+    ("reader.help.turn", HintInput::Buttons, None),
+    ("reader.help.select", HintInput::Buttons, None),
+    ("reader.help.back", HintInput::Buttons, None),
+    ("reader.help.panel", HintInput::Buttons, None),
+];
+
+/// The first run: the reading screen's help hints, the setup step that asks
+/// how large the text is (the kernel's `core.font-size`, titled as that
+/// setting is, which Beta 3's empty title meant), and the sample of text
+/// above the reading settings (`native_sample`).
+pub fn first_run<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    let refused = |what| move |_| DeclareError::Empty(what);
+    for (text, input, zone) in HINTS {
+        let mut hint =
+            HelpHintDecl::new("reader.screen", text, input).map_err(refused("help hint"))?;
+        if let Some((x, y, width, height)) = zone {
+            hint = hint
+                .zone(paperpaw_sdk::Rect::new(x, y, width, height))
+                .map_err(refused("help hint"))?;
+        }
+        d.help_hint(hint)?;
+    }
+    d.submit()?;
+    let mut step = SetupStepDecl::new(
+        "setup.font-size",
+        "core.setting.font-size",
+        SetupPage::Setting("core.font-size"),
+    );
+    step.order = 30;
+    d.setup_step(step)?;
+    let sample = WidgetDecl::new("sample", "reader.sample", "core.widgets.other", SAMPLE)
+        .and_then(|widget| widget.previews("core.group.reading"))
+        .map_err(refused("widget"))?;
+    d.widget(sample)?;
+    d.submit()
+}
+
+/// The start (reopen the last book), a book moved (the last book follows), and
+/// what saves the place: sleep, stop, and the quiet time (`core.work`).
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Started, STARTED)?;
     d.subscribe_event(EventKind::BookMoved, BOOK_MOVED)?;
+    d.subscribe_event(EventKind::Suspend, SUSPEND)?;
+    d.subscribe_event(EventKind::Stopping, STOPPING)?;
+    d.subscribe_event(EventKind::WorkDue, WORK_DUE)?;
+    d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
+    d.subscribe_event(EventKind::StackChanged, STACK_CHANGED)?;
+    d.subscribe_event(EventKind::Spoken, SPOKEN)?;
+    d.subscribe_event(EventKind::DocumentChanged, DOCUMENT_CHANGED)?;
+    d.subscribe_event(EventKind::LibraryChanged, LIBRARY_CHANGED)?;
+    d.subscribe_event(EventKind::PluginAnswered, PLUGIN_ANSWERED)?;
     d.submit()
 }
 
@@ -351,6 +651,12 @@ pub const FILTER_SCHEMA: u32 = 1;
 pub const FILTER_MAX_INPUT: u32 = 160;
 pub const FILTER_MAX_REPLY: u32 = 3840;
 pub const FILTER_MAX_RECORDS: u32 = 4;
+
+/// The bounds of `reader.decorations`, as `stages/reader.decorations@1.def` says.
+pub const DECORATIONS_SCHEMA: u32 = 1;
+pub const DECORATIONS_MAX_INPUT: u32 = 3840;
+pub const DECORATIONS_MAX_REPLY: u32 = 3840;
+pub const DECORATIONS_MAX_RECORDS: u32 = 4;
 
 /// The stage the reader runs after it wrote a book's notes as Markdown
 /// (`core.notes-exported` of interface 6): a notes app or a sync subscribes
@@ -384,6 +690,15 @@ pub fn stages<F: FnMut(&[u8]) -> Result<(), i32>>(
         FILTER_MAX_INPUT,
         FILTER_MAX_REPLY,
         FILTER_MAX_RECORDS,
+    ))?;
+    // The marks of a page (a vocabulary list's words): the reader asks each
+    // laid-out page and draws what the subscribers answer (`PORTING-7.md`).
+    d.stage(StageDecl::new(
+        "decorations",
+        DECORATIONS_SCHEMA,
+        DECORATIONS_MAX_INPUT,
+        DECORATIONS_MAX_REPLY,
+        DECORATIONS_MAX_RECORDS,
     ))?;
     d.submit()
 }

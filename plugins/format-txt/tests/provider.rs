@@ -112,7 +112,12 @@ fn call(op: u32, document: u32, f: impl FnOnce(&mut stage::FmtCall<'static>)) ->
 }
 
 fn run(p: &mut TxtProvider, io: &dyn Io, input: &[u8]) -> Result<Vec<u8>, Error> {
-    let mut out = vec![0u8; 3840];
+    run_in(p, io, input, 3840)
+}
+
+/// [`run`] with a reply buffer of `size` bytes.
+fn run_in(p: &mut TxtProvider, io: &dyn Io, input: &[u8], size: usize) -> Result<Vec<u8>, Error> {
+    let mut out = vec![0u8; size];
     let n = p.call(io, input, &mut out)?;
     out.truncate(n);
     Ok(out)
@@ -144,11 +149,21 @@ fn fold(reply: &[u8], into: &mut Blockful) {
 
 /// One block as the provider gives it, joined from its fragments.
 fn block(p: &mut TxtProvider, io: &dyn Io, offset: u32) -> Result<(Blockful, usize), Error> {
+    block_in(p, io, offset, 3840)
+}
+
+/// [`block`] with reply buffers of `size` bytes.
+fn block_in(
+    p: &mut TxtProvider,
+    io: &dyn Io,
+    offset: u32,
+    size: usize,
+) -> Result<(Blockful, usize), Error> {
     let mut whole = Blockful::default();
     let mut fragments = 0;
     let (mut cursor, mut generation) = (0, 0);
     loop {
-        let reply = run(
+        let reply = run_in(
             p,
             io,
             &call(8, 1, |c| {
@@ -156,6 +171,7 @@ fn block(p: &mut TxtProvider, io: &dyn Io, offset: u32) -> Result<(Blockful, usi
                 c.cursor = cursor;
                 c.generation = generation;
             }),
+            size,
         )?;
         fold(&reply, &mut whole);
         fragments += 1;
@@ -315,6 +331,39 @@ fn a_long_block_comes_in_fragments_that_join_whole() {
     let expected = old.block_at(&old_io, Locator::START).unwrap().unwrap();
     same(&got, &expected);
     assert!(fragments > 1, "{fragments} fragments, {} rows", got.rows);
+}
+
+/// A reply buffer of any size from the smallest that holds the block's longest
+/// record to the most a reply may be: the fragments join to the same block. One
+/// that holds not even the first record is refused, not cut.
+#[test]
+fn fragments_at_any_cap_join_to_the_same_block() {
+    let mut book = Vec::new();
+    for _ in 0..450 {
+        book.extend_from_slice(b"ab\xe4\xf6 ");
+    }
+    let io = Roots::new(book);
+    let mut p = TxtProvider::new();
+    open(&mut p, &io);
+    let (whole, fragments) = block(&mut p, &io, 0).unwrap();
+    assert!(fragments > 1);
+    // The size of the first fragment at the most a reply holds: the cap itself.
+    let first = run(&mut p, &io, &call(8, 1, |c| c.offset = 0)).unwrap();
+    // From the smallest reply that holds this block's longest record (a text part
+    // of about 3 KiB) to one byte short of the most, and exactly the first fragment.
+    let sizes = (3200..3840)
+        .step_by(32)
+        .chain([3839, first.len(), first.len() - 1])
+        .filter(|size| *size >= 3200);
+    for size in sizes {
+        let (got, _) = block_in(&mut p, &io, 0, size).unwrap();
+        assert_eq!(got.header, whole.header, "size {size}");
+        assert_eq!(got.text, whole.text, "size {size}");
+        assert_eq!(got.maps, whole.maps, "size {size}");
+        assert_eq!(got.runs, whole.runs, "size {size}");
+    }
+    // Not even the first record fits: refused, not cut.
+    assert!(matches!(block_in(&mut p, &io, 0, 16), Err(Error::NoSpace)));
 }
 
 #[test]

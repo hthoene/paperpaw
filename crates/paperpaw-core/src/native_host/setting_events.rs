@@ -45,13 +45,16 @@ use paperpaw_sdk::{Id, Settings, wifi::WifiState};
 const TAG: u32 = wire::EVENT_SETTING_CHANGED_TAG;
 
 /// The hint events a plugin can subscribe to.
-const HINTS: [u32; 6] = [
+const HINTS: [u32; 9] = [
     wire::EVENT_PLUGINS_CHANGED_TAG,
     wire::EVENT_WIFI_CHANGED_TAG,
     wire::EVENT_POWER_CHANGED_TAG,
     wire::EVENT_STATUS_CHANGED_TAG,
     wire::EVENT_CHARGE_CHANGED_TAG,
     wire::EVENT_PREVIEW_CHANGED_TAG,
+    wire::EVENT_WIFI_SCANNED_TAG,
+    wire::EVENT_NETWORK_WANTED_TAG,
+    wire::EVENT_NETWORK_IDLE_TAG,
 ];
 
 /// Events told to one plugin in one pass.
@@ -65,7 +68,36 @@ pub(crate) struct SettingEvents {
     cursor: Cell<usize>,
 }
 
+/// Frees the queue of every plugin with nothing waiting and nothing to
+/// remember (a drop already logged stays until the queue is emptied by a
+/// delivery), and the list itself once no queue is left: an idle device holds
+/// no event queue at all. A queue is made again, empty, when the next event
+/// comes.
+fn release_idle(queues: &mut Vec<(u64, Pending)>) {
+    queues.retain(|(_, queue)| !queue.is_idle());
+    if queues.is_empty() {
+        *queues = Vec::new();
+    }
+}
+
 impl SettingEvents {
+    /// Whether something waits for `owner` (or the queues are in use): a
+    /// plugin is not parked again then (#248, D3).
+    pub(crate) fn waits_for(&self, owner: u64) -> bool {
+        self.queues.try_borrow().map_or(true, |queues| {
+            queues
+                .iter()
+                .any(|(key, queue)| *key == owner && !queue.is_idle())
+        })
+    }
+
+    /// Gives back the room the queues kept while plugins were hosted.
+    pub(crate) fn shrink_to_fit(&self) {
+        if let Ok(mut queues) = self.queues.try_borrow_mut() {
+            super::shrink::shrink(&mut queues);
+        }
+    }
+
     /// Whether any running plugin subscribed to the event (else nothing is
     /// captured for it).
     pub(crate) fn wanted(instances: &NativeInstances) -> bool {
@@ -127,7 +159,9 @@ impl SettingEvents {
             .queues
             .try_borrow_mut()
             .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
-        Ok(visit(self.queue_of(&mut queues, owner)?))
+        let made = self.queue_of(&mut queues, owner).map(visit);
+        release_idle(&mut queues);
+        made
     }
 
     /// Announces one change (an empty `key`: read everything again) to every
@@ -159,6 +193,7 @@ impl SettingEvents {
                 let _ = queue.setting(now_ms, key, old, seen);
             }
         }
+        release_idle(&mut queues);
     }
 
     /// Announces that the state behind hint `tag` changed (a second one
@@ -179,6 +214,24 @@ impl SettingEvents {
             if let Ok(queue) = self.queue_of(&mut queues, owner) {
                 let _ = queue.hint(tag);
             }
+        }
+        release_idle(&mut queues);
+    }
+
+    /// As [`Self::publish_hint`], to the plugin `plugin` alone (`wanted` and
+    /// `idle` go to the network manager only).
+    pub(crate) fn publish_hint_to(&self, instances: &NativeInstances, plugin: &str, tag: u32) {
+        let Some(owner) = instances.find(plugin) else {
+            return;
+        };
+        if !HINTS.contains(&tag) || !instances.subscribed(owner, tag) {
+            return;
+        }
+        let Ok(mut queues) = self.queues.try_borrow_mut() else {
+            return;
+        };
+        if let Ok(queue) = self.queue_of(&mut queues, owner) {
+            let _ = queue.hint(tag);
         }
     }
 
@@ -201,6 +254,7 @@ impl SettingEvents {
                 queue.registry(what);
             }
         }
+        release_idle(&mut queues);
     }
 
     /// Tells `plugin` alone that `what` happened (bit 31, `dropped`): no other
@@ -222,6 +276,7 @@ impl SettingEvents {
         if let Ok(queue) = self.queue_of(&mut queues, owner) {
             queue.registry(what);
         }
+        release_idle(&mut queues);
     }
 
     /// Forgets the queues of plugins that no longer subscribe (stopped or
@@ -229,16 +284,28 @@ impl SettingEvents {
     fn prune(&self, instances: &NativeInstances) {
         if let Ok(mut queues) = self.queues.try_borrow_mut() {
             queues.retain(|(owner, _)| Self::listens(instances, *owner));
+            release_idle(&mut queues);
         }
     }
 
     /// The next event of one plugin, detached from its queue.
     fn take(&self, owner: u64) -> Option<Ready> {
         let mut queues = self.queues.try_borrow_mut().ok()?;
+        // The queue stays, empty, until the delivery is finished
+        // ([`Self::release`]): a lost edge is made up by `reread` on this
+        // queue, with no allocation in the state that made the encode fail.
         queues
             .iter_mut()
             .find(|(key, _)| *key == owner)
             .and_then(|(_, queue)| queue.take())
+    }
+
+    /// Gives back the queues with nothing waiting and nothing to remember,
+    /// after a delivery is finished (see [`release_idle`]).
+    fn release(&self) {
+        if let Ok(mut queues) = self.queues.try_borrow_mut() {
+            release_idle(&mut queues);
+        }
     }
 
     /// The plugin's queue lost an event that could not be told: read again.
@@ -259,22 +326,51 @@ impl SettingEvents {
         })
     }
 
-    /// The owners with something waiting, in the pump's order.
+    /// The bytes the held edges charge the device budget (0 when none is held).
+    #[cfg(test)]
+    pub(crate) fn budget_used(&self) -> usize {
+        self.budget
+            .try_borrow()
+            .ok()
+            .and_then(|budget| budget.as_ref().map(EventBudget::used))
+            .unwrap_or(0)
+    }
+
+    /// How many owners have something waiting. Nothing is allocated, so the
+    /// pump and [`Self::any_waiting`] never disagree while memory is short; a
+    /// queue table in use counts none (its user is the pump).
+    pub(super) fn waiting_count(&self) -> usize {
+        self.queues.try_borrow().map_or(0, |queues| {
+            queues.iter().filter(|(_, queue)| !queue.is_empty()).count()
+        })
+    }
+
+    /// The `n`th owner with something waiting, in the table's order; `None`
+    /// past the last (the table may have shrunk since it was counted).
+    pub(super) fn waiting_nth(&self, n: usize) -> Option<u64> {
+        let queues = self.queues.try_borrow().ok()?;
+        queues
+            .iter()
+            .filter(|(_, queue)| !queue.is_empty())
+            .nth(n)
+            .map(|(owner, _)| *owner)
+    }
+
+    /// The owners with something waiting, in the table's order (tests).
+    #[cfg(test)]
     pub(super) fn waiting(&self) -> Vec<u64> {
-        let Ok(queues) = self.queues.try_borrow() else {
-            return Vec::new();
-        };
-        let mut owners = Vec::new();
-        if owners.try_reserve_exact(queues.len()).is_err() {
-            return owners;
-        }
-        owners.extend(
-            queues
-                .iter()
-                .filter(|(_, queue)| !queue.is_empty())
-                .map(|(owner, _)| *owner),
-        );
-        owners
+        (0..self.waiting_count())
+            .filter_map(|n| self.waiting_nth(n))
+            .collect()
+    }
+
+    /// Whether an event waits for any plugin: what `Kernel::service_due`
+    /// asks so that an event raised after this call's pump (the kernel's
+    /// `started`, raised as its commands run) is told at once, not at the next
+    /// deadline. As [`Self::waiting_count`]: nothing allocated, a table in use
+    /// says no.
+    pub(super) fn any_waiting(&self) -> bool {
+        self.waiting_count() > 0
     }
 }
 
@@ -326,6 +422,14 @@ impl crate::Kernel {
             wire::EVENT_POWER_CHANGED_TAG => Hint::Power(&shared.power),
             wire::EVENT_STATUS_CHANGED_TAG => Hint::Status,
             wire::EVENT_PREVIEW_CHANGED_TAG => Hint::Preview,
+            wire::EVENT_WIFI_SCANNED_TAG => Hint::Scanned(
+                shared
+                    .wifi
+                    .as_ref()
+                    .map_or(0, |wifi| wifi.networks.len() as u32),
+            ),
+            wire::EVENT_NETWORK_WANTED_TAG => Hint::NetworkWanted,
+            wire::EVENT_NETWORK_IDLE_TAG => Hint::NetworkIdle,
             wire::EVENT_CHARGE_CHANGED_TAG => {
                 Hint::Charge(ChargeState::from_status(&shared.status, None))
             }
@@ -341,6 +445,16 @@ impl crate::Kernel {
     /// Announces a hint to the plugins subscribed to it.
     pub(crate) fn native_hint_publish(&self, tag: u32) {
         let instances = &self.shared.native_instances;
+        // `network_wanted` and `network_idle` go to the network manager alone
+        // (`device.md` section 3); without one they go nowhere.
+        if tag == wire::EVENT_NETWORK_WANTED_TAG || tag == wire::EVENT_NETWORK_IDLE_TAG {
+            if let Some(manager) = self.network_manager() {
+                instances
+                    .setting_events
+                    .publish_hint_to(instances, manager, tag);
+            }
+            return;
+        }
         instances.setting_events.publish_hint(instances, tag);
     }
 
@@ -367,19 +481,33 @@ impl crate::Kernel {
     // frame adds their locals (the firmware's frame limit for host code).
     #[inline(never)]
     pub(crate) fn native_setting_pump(&mut self) -> bool {
+        // Requests nobody can answer any more are closed (free when none is open).
+        self.native_requests_settle();
         let events = &self.shared.native_instances.setting_events;
         events.prune(&self.shared.native_instances);
-        let owners = events.waiting();
-        if owners.is_empty() {
+        // Walked by index, not collected: the pump needs no allocation, so it
+        // cannot fail where `any_waiting` says an event waits.
+        let count = events.waiting_count();
+        if count == 0 {
             return false;
         }
         if self.shared.native_instances.depth() > 0 {
             return true;
         }
-        let start = events.cursor.get().checked_rem(owners.len()).unwrap_or(0);
+        let start = events.cursor.get().checked_rem(count).unwrap_or(0);
         events.cursor.set(start + 1);
-        for step in 0..owners.len() {
-            let owner = owners[(start + step) % owners.len()];
+        for step in 0..count {
+            // A table that shrank as owners were told: the rest waits for the
+            // next pass, which the result below asks for.
+            let events = &self.shared.native_instances.setting_events;
+            let Some(owner) = events.waiting_nth((start + step) % count) else {
+                continue;
+            };
+            // A parked plugin is made first; what waits for it stays where
+            // it cannot be made now (#248).
+            if !self.native_ready(owner) {
+                continue;
+            }
             for _ in 0..PER_OWNER {
                 // What a callback staged runs before the next one is called.
                 self.native_outbox_run();
@@ -389,16 +517,22 @@ impl crate::Kernel {
             }
         }
         self.native_outbox_run();
-        !self
-            .shared
-            .native_instances
-            .setting_events
-            .waiting()
-            .is_empty()
+        // A parked plugin waiting to be made asks for no pass of its own.
+        let events = &self.shared.native_instances.setting_events;
+        (0..events.waiting_count())
+            .filter_map(|n| events.waiting_nth(n))
+            .any(|owner| !self.native_parked(owner))
     }
 
-    /// Tells `owner` its oldest event; `false` when it had none.
+    /// Tells `owner` its oldest event; `false` when it had none. A queue left
+    /// with nothing is given back when the delivery is done.
     pub(super) fn setting_tell(&self, owner: u64) -> bool {
+        let told = self.tell_one(owner);
+        self.shared.native_instances.setting_events.release();
+        told
+    }
+
+    fn tell_one(&self, owner: u64) -> bool {
         let instances = &self.shared.native_instances;
         let Some(ready) = instances.setting_events.take(owner) else {
             return false;

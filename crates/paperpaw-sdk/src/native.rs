@@ -66,7 +66,7 @@ pub const INTERFACE: u16 = 7;
 /// Freezing deletes this constant and that line: the fingerprint is then
 /// made as if there had never been drafts, and refuses every draft's
 /// builds too.
-pub const DRAFT: u16 = 35;
+pub const DRAFT: u16 = 36;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it
@@ -210,6 +210,8 @@ pub fn fetched_for(storage: &dyn Storage, native: &Native) -> Vec<(String, [u8; 
 /// whether it fits this device and build is for the caller to see
 /// ([`Header::chip`], [`Header::fingerprint`]), and whether the author is
 /// one known (a store remembers the key of the first install).
+/// `Problem::Other(1)` where there was no memory to check the author's
+/// signature: the file is not judged.
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub fn check_file(
@@ -219,7 +221,14 @@ pub fn check_file(
     checked_file(storage, path)
 }
 
+/// The [`Problem::Other`] code of a check that had no memory for itself
+/// (the author's check, about 700 bytes): the file is not judged, and a
+/// later check may well hold. Not a signature that fails (#250).
+pub(crate) const NO_MEMORY: u16 = 1;
+
 /// [`check_file`], for the marks an installer left ([`install::marks`](crate::install::marks)).
+/// [`Problem::Other`]`(`[`NO_MEMORY`]`)` where the author's check found no
+/// memory.
 pub(crate) fn checked_file(
     storage: &dyn Storage,
     path: &str,
@@ -241,10 +250,10 @@ pub(crate) fn checked_file(
         None
     };
     let mut author = match &signature {
-        Some(signature) => Some(signature.check().map_err(|_| Problem::Signature)?),
+        Some(signature) => Some(author_check(signature)?),
         None => None,
     };
-    if let Some(check) = author.as_mut() {
+    if let Some([check]) = author.as_deref_mut() {
         check.absorb(&head);
     }
     let mut digest = header.digest();
@@ -254,7 +263,7 @@ pub(crate) fn checked_file(
         let len = (end - at).min(buf.len() as u64) as usize;
         read_exact(storage, path, at, &mut buf[..len])?;
         digest.update(&buf[..len]);
-        if let Some(check) = author.as_mut() {
+        if let Some([check]) = author.as_deref_mut() {
             check.absorb(&buf[..len]);
         }
         at += len as u64;
@@ -263,9 +272,29 @@ pub(crate) fn checked_file(
         return Err(Problem::Damaged);
     }
     if let Some(check) = author {
+        let [check] = *check;
         check.finish().map_err(|_| Problem::Signature)?;
     }
     Ok((header, signature))
+}
+
+/// The author's check of a signed file, on the heap. Not inlined: the check
+/// (about 700 bytes on the X4) is made in this call's frame alone, so the
+/// caller's frame does not hold it twice while the signature's curve is
+/// decoded, the X4 start's and installs' deepest calls (#250). Without
+/// memory for it: [`NO_MEMORY`], not a failed signature.
+#[inline(never)]
+fn author_check(
+    signature: &Signature,
+) -> Result<alloc::boxed::Box<[signature::SignatureCheck; 1]>, Problem> {
+    let check = signature.check().map_err(|_| Problem::Signature)?;
+    let mut place = Vec::new();
+    place
+        .try_reserve_exact(1)
+        .map_err(|_| Problem::Other(NO_MEMORY))?;
+    place.push(check);
+    // Exactly one place: no reallocation, and the length always fits.
+    alloc::boxed::Box::try_from(place.into_boxed_slice()).map_err(|_| Problem::Other(NO_MEMORY))
 }
 
 /// Where the keys of the authors of the code plugins installed are kept:

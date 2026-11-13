@@ -22,22 +22,20 @@ struct SlotCandidate {
     priority: Priority,
 }
 
-/// The screens plugins added, sorted by id: each id with the translation
-/// key of its name, as [`Env::screens`](paperpaw_sdk::Env) hands them out
-/// (not copied for it), and apart from them what makes the screen.
+/// The screens plugins added: each id with the translation key of its name,
+/// as [`Env::screens`](paperpaw_sdk::Env) hands them out (not copied for it),
+/// and apart from them what makes the screen. Three lists, each sorted by id,
+/// no id in two of them: interface-6 plugins' screens, interface-7 plugins'
+/// (their id and title a linked plugin's entry kept in the program, #248 B)
+/// and those kept in the program.
 #[derive(Default)]
 pub(crate) struct Screens {
     titles: Vec<(Id, Cow<'static, str>)>,
-    made: Vec<Made>,
-    /// Those kept in the program, sorted by id; none of an id `titles`
-    /// has (the one added last stays).
+    made: Vec<AddedMade>,
+    native: Vec<paperpaw_sdk::Titled>,
+    native_made: Vec<crate::native_host::native_screen_factory::NativeMade>,
+    /// Those kept in the program; the one added last of an id stays.
     fixed: Vec<&'static paperpaw_sdk::FixedScreen>,
-}
-
-/// What makes a screen, of its [`ScreenSpec`].
-enum Made {
-    Added(AddedMade),
-    Native(crate::native_host::native_screen_factory::NativeMade),
 }
 
 pub(crate) struct AddedMade {
@@ -50,7 +48,11 @@ pub(crate) struct AddedMade {
 #[derive(Clone, Copy)]
 pub(crate) enum Maker<'a> {
     Added(&'a AddedMade),
-    Native(&'a crate::native_host::native_screen_factory::NativeMade),
+    /// With the screen's id, kept once, in the registry's titles.
+    Native(
+        &'a Id,
+        &'a crate::native_host::native_screen_factory::NativeMade,
+    ),
     Fixed(&'static paperpaw_sdk::FixedScreen),
 }
 
@@ -63,7 +65,7 @@ impl Maker<'_> {
         match self {
             Maker::Added(made) => Ok((made.factory)(env, params)),
             Maker::Fixed(fixed) => Ok(fixed.make(env, params)),
-            Maker::Native(made) => made.make(params),
+            Maker::Native(id, made) => made.make(id, params),
         }
     }
 
@@ -73,7 +75,7 @@ impl Maker<'_> {
         params: &paperpaw_sdk::Params,
     ) -> Result<Option<alloc::boxed::Box<dyn paperpaw_sdk::Screen>>, i32> {
         match self {
-            Maker::Native(made) => made.make(params).map(Some),
+            Maker::Native(id, made) => made.make(id, params).map(Some),
             _ => Ok(None),
         }
     }
@@ -88,19 +90,19 @@ impl Maker<'_> {
         match self {
             Maker::Added(made) => *screen = (made.factory)(env, params),
             Maker::Fixed(fixed) => *screen = fixed.make(env, params),
-            Maker::Native(_) => {}
+            Maker::Native(..) => {}
         }
     }
 
     pub(crate) fn is_native(self) -> bool {
-        matches!(self, Maker::Native(_))
+        matches!(self, Maker::Native(..))
     }
 
     pub(crate) fn refresh_on_open(self) -> Option<paperpaw_sdk::RefreshMode> {
         match self {
             Maker::Added(made) => made.refresh_on_open,
             Maker::Fixed(fixed) => fixed.refresh(),
-            Maker::Native(made) => made.refresh(),
+            Maker::Native(_, made) => made.refresh(),
         }
     }
 
@@ -108,7 +110,7 @@ impl Maker<'_> {
         match self {
             Maker::Added(made) => made.instances,
             Maker::Fixed(fixed) => fixed.how_many(),
-            Maker::Native(made) => made.instances,
+            Maker::Native(_, made) => made.instances(),
         }
     }
 }
@@ -116,7 +118,7 @@ impl Maker<'_> {
 impl core::fmt::Debug for Screens {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_list()
-            .entries(self.titles.iter().map(|(id, _)| id))
+            .entries(self.list().iter().map(|(id, _)| id))
             .finish()
     }
 }
@@ -127,33 +129,44 @@ impl Screens {
             .binary_search_by(|(other, _)| other.as_str().cmp(id))
     }
 
+    fn find_native(&self, id: &str) -> Result<usize, usize> {
+        self.native
+            .binary_search_by(|other| other.id().as_str().cmp(id))
+    }
+
     fn find_fixed(&self, id: &str) -> Result<usize, usize> {
         self.fixed.binary_search_by(|f| f.id().as_str().cmp(id))
     }
 
     pub(crate) fn contains_key<Q: core::borrow::Borrow<str> + ?Sized>(&self, id: &Q) -> bool {
-        self.find(id.borrow()).is_ok() || self.find_fixed(id.borrow()).is_ok()
+        let id = id.borrow();
+        self.find(id).is_ok() || self.find_native(id).is_ok() || self.find_fixed(id).is_ok()
     }
 
     pub(crate) fn get<Q: core::borrow::Borrow<str> + ?Sized>(&self, id: &Q) -> Option<Maker<'_>> {
-        match self.find(id.borrow()) {
-            Ok(at) => Some(match &self.made[at] {
-                Made::Added(made) => Maker::Added(made),
-                Made::Native(made) => Maker::Native(made),
-            }),
-            Err(_) => self
-                .find_fixed(id.borrow())
-                .ok()
-                .map(|at| Maker::Fixed(self.fixed[at])),
+        let id = id.borrow();
+        if let Ok(at) = self.find(id) {
+            return Some(Maker::Added(&self.made[at]));
         }
+        if let Ok(at) = self.find_native(id) {
+            return Some(Maker::Native(self.native[at].id(), &self.native_made[at]));
+        }
+        self.find_fixed(id)
+            .ok()
+            .map(|at| Maker::Fixed(self.fixed[at]))
+    }
+
+    /// The id and title of every interface-7 plugin's screen.
+    pub(crate) fn native_titles(&self) -> impl Iterator<Item = &paperpaw_sdk::Titled> {
+        self.native.iter()
     }
 
     pub(crate) fn remove_native_owner(&mut self, owner: &str) {
         let mut at = 0;
-        while at < self.made.len() {
-            if self.titles[at].0.namespace() == owner && matches!(self.made[at], Made::Native(_)) {
-                self.titles.remove(at);
-                self.made.remove(at);
+        while at < self.native.len() {
+            if self.native[at].id().namespace() == owner {
+                self.native.remove(at);
+                self.native_made.remove(at);
             } else {
                 at += 1;
             }
@@ -161,19 +174,31 @@ impl Screens {
     }
 
     fn title(&self, id: &str) -> Option<&str> {
-        match self.find(id) {
-            Ok(at) => Some(self.titles[at].1.as_ref()),
-            Err(_) => self.find_fixed(id).ok().map(|at| self.fixed[at].title()),
+        if let Ok(at) = self.find(id) {
+            return Some(self.titles[at].1.as_ref());
+        }
+        if let Ok(at) = self.find_native(id) {
+            return Some(self.native[at].title());
+        }
+        self.find_fixed(id).ok().map(|at| self.fixed[at].title())
+    }
+
+    /// Forgets the added and the native screen `id` (one at most has it).
+    fn forget(&mut self, id: &str) {
+        if let Ok(at) = self.find(id) {
+            self.titles.remove(at);
+            self.made.remove(at);
+        }
+        if let Ok(at) = self.find_native(id) {
+            self.native.remove(at);
+            self.native_made.remove(at);
         }
     }
 
     /// Adds screens kept in the program, in place of those of their ids.
     fn insert_fixed(&mut self, screens: &'static [paperpaw_sdk::FixedScreen]) {
         for screen in screens {
-            if let Ok(at) = self.find(screen.id().as_str()) {
-                self.titles.remove(at);
-                self.made.remove(at);
-            }
+            self.forget(screen.id().as_str());
             match self.find_fixed(screen.id().as_str()) {
                 Ok(at) => self.fixed[at] = screen,
                 Err(at) => self.fixed.insert(at, screen),
@@ -193,28 +218,17 @@ impl Screens {
             instances,
             ..
         } = spec;
-        let made = Made::Added(AddedMade {
+        let made = AddedMade {
             factory,
             refresh_on_open,
             instances,
-        });
-        self.insert_made(id, title, made);
-    }
-
-    fn insert_native(
-        &mut self,
-        screen: crate::native_host::native_screen_factory::NativeScreenSpec,
-    ) {
-        self.insert_made(
-            screen.id,
-            Cow::Owned(screen.title),
-            Made::Native(screen.made),
-        );
-    }
-
-    fn insert_made(&mut self, id: Id, title: Cow<'static, str>, made: Made) {
+        };
         if let Ok(at) = self.find_fixed(id.as_str()) {
             self.fixed.remove(at);
+        }
+        if let Ok(at) = self.find_native(id.as_str()) {
+            self.native.remove(at);
+            self.native_made.remove(at);
         }
         match self.find(id.as_str()) {
             Ok(at) => {
@@ -228,14 +242,53 @@ impl Screens {
         }
     }
 
+    fn insert_native(
+        &mut self,
+        screen: crate::native_host::native_screen_factory::NativeScreenSpec,
+    ) {
+        let id = screen.titled.id().as_str();
+        if let Ok(at) = self.find_fixed(id) {
+            self.fixed.remove(at);
+        }
+        if let Ok(at) = self.find(id) {
+            self.titles.remove(at);
+            self.made.remove(at);
+        }
+        match self.find_native(id) {
+            Ok(at) => {
+                self.native[at] = screen.titled;
+                self.native_made[at] = screen.made;
+            }
+            Err(at) => {
+                self.native.insert(at, screen.titled);
+                self.native_made.insert(at, screen.made);
+            }
+        }
+    }
+
+    /// Room for `added` more interface-6 and `native` more interface-7
+    /// screens, so that inserting them cannot fail for lack of memory.
+    fn try_reserve(
+        &mut self,
+        added: usize,
+        native: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.titles.try_reserve(added)?;
+        self.made.try_reserve(added)?;
+        self.native.try_reserve(native)?;
+        self.native_made.try_reserve(native)
+    }
+
     /// Every screen with the translation key of its name.
     pub(crate) fn list(&self) -> paperpaw_sdk::ScreenList<'_> {
-        paperpaw_sdk::ScreenList::new(&self.titles, &self.fixed)
+        paperpaw_sdk::ScreenList::new(&self.titles, &self.native, &self.fixed)
     }
 
     fn shrink_to_fit(&mut self) {
         self.titles.shrink_to_fit();
         self.made.shrink_to_fit();
+        self.native.shrink_to_fit();
+        self.native_made.shrink_to_fit();
         self.fixed.shrink_to_fit();
     }
 }
@@ -334,6 +387,9 @@ impl Subscriptions {
 pub(crate) struct Registry {
     pub(crate) native_declarations:
         Option<crate::native_host::native_declarations::DirectoryHandle>,
+    /// The stand-ins of native formats in the kernel's `Formats` (their files
+    /// are books of the library).
+    pub(crate) native_book_formats: crate::native_host::native_book_formats::NativeBookFormats,
     pub(crate) screens: Screens,
     pub(crate) slots: VecMap<Id, SlotSpec>,
     /// When screens show the row of hints, where they said.
@@ -548,15 +604,58 @@ impl paperpaw_sdk::ScreenMaker for Registry {
 /// the program ([`SettingSpec::fixed`]).
 pub(crate) enum Staged {
     Owned(alloc::boxed::Box<SettingSpec>),
-    /// Spec `.1` of the list `.0`, kept by a reference to the list.
-    Fixed(&'static [SettingSpec], usize),
+    /// Some settings of the table `.0` kept in the program, a table's worth
+    /// as one entry (not one for each of them).
+    Table(&'static [SettingSpec], Picked),
+}
+
+/// Which settings of a table a [`Staged::Table`] stands for.
+pub(crate) enum Picked {
+    /// All of them.
+    All,
+    /// The entries at these places, in the order they are defined in (the
+    /// list the plugin's admission made, kept as it is: no copy).
+    Some(Vec<u16>),
 }
 
 impl Staged {
-    pub(crate) fn spec(&self) -> &SettingSpec {
+    /// How many settings this entry stands for.
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Staged::Owned(_) => 1,
+            Staged::Table(list, Picked::All) => list.len(),
+            Staged::Table(_, Picked::Some(entries)) => entries.len(),
+        }
+    }
+
+    /// The `n`th setting of this entry, `n < self.len()`.
+    fn get(&self, n: usize) -> &SettingSpec {
         match self {
             Staged::Owned(spec) => spec,
-            Staged::Fixed(list, at) => &list[*at],
+            Staged::Table(list, Picked::All) => &list[n],
+            Staged::Table(list, Picked::Some(entries)) => &list[usize::from(entries[n])],
+        }
+    }
+
+    /// The settings this entry stands for, in order.
+    pub(crate) fn specs(&self) -> impl Iterator<Item = &SettingSpec> {
+        (0..self.len()).map(|n| self.get(n))
+    }
+
+    /// Defines the settings this entry stands for in `settings`, which has
+    /// room and no setting of their ids (checked by the caller).
+    pub(crate) fn define_in(
+        self,
+        settings: &mut paperpaw_sdk::Settings,
+    ) -> Result<(), RegisterError> {
+        match self {
+            Staged::Owned(spec) => settings.define(*spec),
+            Staged::Table(list, Picked::All) => {
+                (0..list.len()).try_for_each(|at| settings.define_fixed(list, at))
+            }
+            Staged::Table(list, Picked::Some(entries)) => entries
+                .iter()
+                .try_for_each(|&at| settings.define_fixed(list, usize::from(at))),
         }
     }
 }
@@ -566,6 +665,8 @@ impl Staged {
 #[derive(Default)]
 pub(crate) struct Staging {
     actions: Vec<ActionSpec>,
+    /// Interface-7 plugins' actions, kept without a handler (#248).
+    native_actions: Vec<paperpaw_sdk::NativeAction>,
     screens: Vec<ScreenSpec>,
     native_screens: Vec<crate::native_host::native_screen_factory::NativeScreenSpec>,
     slots: Vec<SlotSpec>,
@@ -650,27 +751,63 @@ fn push_native<T>(target: &mut Vec<T>, value: T) -> Result<(), i32> {
 }
 
 impl Staging {
+    /// A choice a native plugin adds to another plugin's choice setting.
+    pub(crate) fn native_choice(
+        &mut self,
+        setting: Id,
+        value: alloc::string::String,
+    ) -> Result<(), i32> {
+        push_native(&mut self.choices, (setting, Cow::Owned(value)))
+    }
+
     pub(crate) fn native_screen(
         &mut self,
         owner: &Id,
         screen: crate::native_host::native_screen_factory::NativeScreenSpec,
     ) -> Result<(), i32> {
-        if screen.id.namespace() != owner.as_str() {
+        let id = screen.titled.id();
+        if id.namespace() != owner.as_str() {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
         }
         if self
             .native_screens
             .iter()
-            .any(|other| other.id == screen.id)
-            || self.screens.iter().any(|other| other.id == screen.id)
+            .any(|other| other.titled.id() == id)
+            || self.screens.iter().any(|other| &other.id == id)
             || self
                 .fixed_screens
                 .iter()
-                .any(|list| list.iter().any(|other| other.id() == &screen.id))
+                .any(|list| list.iter().any(|other| other.id() == id))
         {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
         }
         push_native(&mut self.native_screens, screen)
+    }
+
+    /// Stages the plugin's action `action`, without infallible growth. An id
+    /// of another plugin, or one staged already, is `ERR_INVALID`.
+    pub(crate) fn native_action(
+        &mut self,
+        owner: &Id,
+        action: paperpaw_sdk::NativeAction,
+    ) -> Result<(), i32> {
+        let id = paperpaw_sdk::Action::Native(&action).id();
+        if id.namespace() != owner.as_str()
+            || self.actions.iter().any(|other| &other.id == id)
+            || self
+                .native_actions
+                .iter()
+                .any(|other| paperpaw_sdk::Action::Native(other).id() == id)
+        {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
+        push_native(&mut self.native_actions, action)
+    }
+
+    /// How many native actions are staged: the room a publication makes in
+    /// the kernel's actions before it merges.
+    pub(crate) fn native_action_count(&self) -> usize {
+        self.native_actions.len()
     }
 
     /// Stages the offer of the plugin's screen `screen` for `slot`, without
@@ -695,14 +832,55 @@ impl Staging {
         )
     }
 
-    /// How many actions, settings and setting groups are staged: what a
-    /// native publication must make room for before it merges.
+    /// How many actions, settings made on the heap and setting groups are
+    /// staged: what a native publication must make room for before it merges
+    /// (the settings kept in the program need only a place in the indexes:
+    /// [`Self::native_fixed_count`]).
     pub(crate) fn native_counts(&self) -> (usize, usize, usize) {
         (
             self.actions.len(),
-            self.settings.len(),
+            self.settings
+                .iter()
+                .filter(|setting| matches!(setting, Staged::Owned(_)))
+                .count(),
             self.setting_groups.len(),
         )
+    }
+
+    /// How many staged settings are kept in the program.
+    pub(crate) fn native_fixed_count(&self) -> usize {
+        self.settings
+            .iter()
+            .filter(|setting| matches!(setting, Staged::Table(..)))
+            .map(Staged::len)
+            .sum()
+    }
+
+    /// Stages the entries `entries` of `list`, a table in the program whose
+    /// entries equal what the plugin declared, without a copy of them on the
+    /// heap: one entry for all of them, the list taken as it is.
+    pub(crate) fn native_fixed_entries(
+        &mut self,
+        list: &'static [SettingSpec],
+        entries: Vec<u16>,
+    ) -> Result<(), i32> {
+        if entries.iter().any(|&at| usize::from(at) >= list.len()) {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
+        push_native(
+            &mut self.settings,
+            Staged::Table(list, Picked::Some(entries)),
+        )
+    }
+
+    /// Stages the setting group `group` of the plugin `owner`, without
+    /// infallible growth.
+    pub(crate) fn native_group(
+        &mut self,
+        owner: &Id,
+        group: paperpaw_sdk::SettingGroup,
+    ) -> Result<(), i32> {
+        self.native(owner, Contribution::SettingGroup(group))
     }
 
     /// Stage already decoded native contributions without infallible growth.
@@ -747,12 +925,17 @@ impl Staging {
                     .iter()
                     .flat_map(|list| list.iter().map(|a| a.id())),
             )
+            .chain(
+                self.native_actions
+                    .iter()
+                    .map(|a| paperpaw_sdk::Action::Native(a).id()),
+            )
             .find(|id| actions.contains(id.as_str()))
             .or_else(|| {
                 self.screens
                     .iter()
                     .map(|s| &s.id)
-                    .chain(self.native_screens.iter().map(|s| &s.id))
+                    .chain(self.native_screens.iter().map(|s| s.titled.id()))
                     .chain(
                         self.fixed_screens
                             .iter()
@@ -778,24 +961,9 @@ impl Staging {
             return Err(RegisterError::Duplicate { id });
         }
         if !self.native_screens.is_empty() {
-            let count = self
-                .screens
-                .len()
-                .checked_add(self.native_screens.len())
-                .ok_or(RegisterError::Invalid {
-                    message: NATIVE_CAPACITY_OVERFLOW.into(),
-                })?;
             registry
                 .screens
-                .titles
-                .try_reserve(count)
-                .map_err(|_| RegisterError::Invalid {
-                    message: NATIVE_CAPACITY_UNAVAILABLE.into(),
-                })?;
-            registry
-                .screens
-                .made
-                .try_reserve(count)
+                .try_reserve(self.screens.len(), self.native_screens.len())
                 .map_err(|_| RegisterError::Invalid {
                     message: NATIVE_CAPACITY_UNAVAILABLE.into(),
                 })?;
@@ -812,6 +980,9 @@ impl Staging {
         }
         for list in self.fixed_actions.drain(..) {
             actions.insert_fixed(list);
+        }
+        for action in self.native_actions.drain(..) {
+            actions.insert_native(action);
         }
         for screen in self.screens.drain(..) {
             registry.screens.insert(screen);
@@ -860,9 +1031,7 @@ pub(crate) fn stage(
             }),
             Contribution::Setting(setting) => staging.settings.push(Staged::Owned(setting)),
             Contribution::FixedSettings(list) => {
-                staging
-                    .settings
-                    .extend((0..list.len()).map(|at| Staged::Fixed(list, at)));
+                staging.settings.push(Staged::Table(list, Picked::All))
             }
             Contribution::SettingGroup(group) => staging.setting_groups.push(group),
             Contribution::SettingDefault { setting, value, .. } => {
@@ -1029,6 +1198,28 @@ mod tests {
     use super::*;
     use alloc::boxed::Box;
     use alloc::string::String;
+
+    #[test]
+    fn a_screen_row_is_three_words() {
+        // #248 B: a native screen's row keeps its token, flags and lease; how
+        // many instances it has is read from its flags. Three words here (was
+        // four), 16 bytes on the X4 (was 20).
+        type Made = crate::native_host::native_screen_factory::NativeMade;
+        assert!(
+            core::mem::size_of::<Made>() <= 3 * core::mem::size_of::<usize>(),
+            "{} bytes",
+            core::mem::size_of::<Made>()
+        );
+    }
+
+    #[test]
+    fn a_native_screens_title_is_two_words() {
+        // #248 B: an interface-7 plugin's screen keeps its id and title as a
+        // linked plugin's entry kept in the program (or one box), not as an
+        // id and a title of its own (five words).
+        let words = core::mem::size_of::<usize>();
+        assert!(core::mem::size_of::<paperpaw_sdk::Titled>() <= 2 * words);
+    }
 
     /// Subscriptions come back as they were added: in order, each with its
     /// event and plugin, a plugin's id kept once for its run of them, the

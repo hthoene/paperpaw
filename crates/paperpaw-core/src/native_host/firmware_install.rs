@@ -407,6 +407,22 @@ pub(crate) struct FirmwareInstall {
     results: Vec<(u64, Slot)>,
     /// Bytes written and to write of the open install (`dev_firmware`).
     progress: (u64, u64),
+    /// The dual-boot facts (`dev_firmware.flags`) and the latch.
+    dual: Dual,
+}
+
+/// What `dev_firmware.flags` tells (`device.md` 3, `docs/dual-boot.md`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Dual {
+    /// The device has a second app partition to share.
+    capable: bool,
+    /// The setup was declared at the start (marker or `paperpaw.ini`).
+    declared: bool,
+    /// An install asked for found, or a change to `auto` made, the setup
+    /// declared: it stays so until the next start whatever the file says.
+    latched: bool,
+    /// `paperpaw.ini` says `dual-boot = off`.
+    ini_off: bool,
 }
 
 impl Default for FirmwareInstall {
@@ -476,7 +492,53 @@ impl FirmwareInstall {
             failed: None,
             results: Vec::new(),
             progress: (0, 0),
+            dual: Dual {
+                capable: false,
+                declared: false,
+                latched: false,
+                ini_off: false,
+            },
         }
+    }
+
+    /// The host's dual-boot facts, read once when the driver is built.
+    pub(crate) fn set_dual_host(&mut self, capable: bool, declared: bool) {
+        self.dual.capable = capable;
+        self.dual.declared = declared;
+    }
+
+    /// What `paperpaw.ini` says now (`dev_firmware.flags` bit 1).
+    pub(crate) fn set_ini_off(&mut self, off: bool) {
+        self.dual.ini_off = off;
+    }
+
+    /// From now on until the next start the setup counts as declared (a change
+    /// to `auto`, Senior R4): an install ends with reason 19.
+    pub(crate) fn latch_declared(&mut self) {
+        self.dual.latched = true;
+    }
+
+    /// `dev_firmware.flags` (draft 35): bit 0 `shared`, bit 1 `ini_off`. A
+    /// device with no second app partition to share says 0.
+    /// Whether nothing runs, waits for its restart, failed or is kept for a
+    /// plugin to read, on a device that boots one firmware: a new machine is
+    /// the same ([`super::firmware_driver::Driver::at_rest`]).
+    pub(crate) fn at_rest(&self) -> bool {
+        self.quiet() && self.failed.is_none() && self.results.is_empty()
+    }
+
+    /// Whether nothing runs or waits for a restart: what is left (check
+    /// results, a failed install's outcome) is only read, so the machine may
+    /// rest with them ([`super::firmware_driver::Driver::into_parts`]).
+    pub(crate) fn quiet(&self) -> bool {
+        matches!(self.phase, Phase::Idle) && self.waiting.is_none() && self.dual == Dual::default()
+    }
+
+    pub(crate) fn dual_flags(&self) -> u32 {
+        if !self.dual.capable {
+            return 0;
+        }
+        u32::from(self.dual.declared || self.dual.latched) | (u32::from(self.dual.ini_off) << 1)
     }
 
     /// Whether a job runs or waits for the user (no other job starts).
@@ -637,6 +699,10 @@ impl FirmwareInstall {
         }
         if job.install.is_some() && self.waiting.is_some() {
             return Some(outcome(&job, RESTART_PENDING));
+        }
+        if job.install.is_some() && self.dual.capable && (self.dual.declared || self.dual.latched) {
+            // Declared as dual boot: no firmware is installed here.
+            return Some(outcome(&job, Reason::NOT_HERE.0));
         }
         if job.install.is_none() {
             self.mark_running(job.owner);

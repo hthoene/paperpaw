@@ -14,6 +14,8 @@ const ENV: Env = Env {
     colour: false,
     max_side: 4096,
     png_row_max: usize::MAX,
+    turn_band: 1 << 20,
+    turn_reads: usize::MAX,
 };
 const B: u64 = 2;
 
@@ -45,7 +47,8 @@ fn a_request_is_decoded_to_a_prepared_image_the_plugin_owns() {
     let t = ImageTable::new();
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 40, 20);
-    t.prepare(A, "a.png", 16, 7, false).unwrap();
+    t.prepare(A, "a.png", 16, 7, false, &Recipe::default())
+        .unwrap();
     assert!(t.prepare_pending());
     let ready = step(&t, &storage).unwrap();
     assert_eq!((ready.owner, ready.cookie, ready.status), (A, 7, READY));
@@ -75,11 +78,13 @@ fn side_zero_is_the_screens_and_a_stopped_plugin_loses_everything() {
     let t = ImageTable::new();
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 64, 64);
-    t.prepare(A, "a.png", 0, 1, false).unwrap();
+    t.prepare(A, "a.png", 0, 1, false, &Recipe::default())
+        .unwrap();
     t.prepare_step(&storage, Env { screen: 32, ..ENV }).unwrap();
     let ready = told(&t).unwrap();
     assert_eq!((ready.status, ready.width), (READY, 32));
-    t.prepare(A, "a.png", 0, 2, false).unwrap();
+    t.prepare(A, "a.png", 0, 2, false, &Recipe::default())
+        .unwrap();
     t.owner_stopped(A).unwrap();
     assert_eq!(step(&t, &storage), None, "its waiting request went too");
     assert_eq!(t.info(A, ready.image), Err(ERR_NOT_FOUND));
@@ -101,13 +106,17 @@ fn a_bad_file_answers_with_a_status_never_an_id() {
         ("cut.png", DAMAGED),
         ("none.png", NOT_FOUND),
     ] {
-        t.prepare(A, path, 16, 3, false).unwrap();
+        t.prepare(A, path, 16, 3, false, &Recipe::default())
+            .unwrap();
         let ready = step(&t, &storage).unwrap();
         assert_eq!((ready.status, ready.image), (status, 0), "{path}");
     }
     // Nothing was kept: no id, no file left, no count against the plugin.
     assert!(t.lock().unwrap().entries.is_empty());
-    assert_eq!(t.prepare(A, "", 16, 3, false), Err(ERR_INVALID));
+    assert_eq!(
+        t.prepare(A, "", 16, 3, false, &Recipe::default()),
+        Err(ERR_INVALID)
+    );
 }
 
 #[test]
@@ -116,19 +125,28 @@ fn four_wait_and_eight_prepared_and_waiting_is_the_most() {
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 8, 8);
     for n in 0..4 {
-        t.prepare(A, "a.png", 8, n, false).unwrap();
+        t.prepare(A, "a.png", 8, n, false, &Recipe::default())
+            .unwrap();
     }
-    assert_eq!(t.prepare(A, "a.png", 8, 9, false), Err(ERR_FULL));
+    assert_eq!(
+        t.prepare(A, "a.png", 8, 9, false, &Recipe::default()),
+        Err(ERR_FULL)
+    );
     // Another plugin has its own four.
-    t.prepare(B, "a.png", 8, 1, false).unwrap();
+    t.prepare(B, "a.png", 8, 1, false, &Recipe::default())
+        .unwrap();
     for _ in 0..4 {
         assert_eq!(step(&t, &storage).unwrap().owner, A, "oldest first");
     }
     for n in 0..4 {
-        t.prepare(A, "a.png", 8, n, false).unwrap();
+        t.prepare(A, "a.png", 8, n, false, &Recipe::default())
+            .unwrap();
     }
     // 4 prepared + 4 waiting is 8: no ninth.
-    assert_eq!(t.prepare(A, "a.png", 8, 9, false), Err(ERR_FULL));
+    assert_eq!(
+        t.prepare(A, "a.png", 8, 9, false, &Recipe::default()),
+        Err(ERR_FULL)
+    );
 }
 
 #[test]
@@ -140,8 +158,9 @@ fn ready_is_one_event_record() {
         image: 3,
         width: 10,
         height: 20,
+        luma: None,
     };
-    let mut out = [0_u8; 64];
+    let mut out = [0_u8; 96];
     let n = wire::record_encode_one(&ready.record(99), &mut out).unwrap();
     let (record, used) = wire::record_decode_prefix(&out[..n]).unwrap();
     assert_eq!(used, n);
@@ -213,7 +232,8 @@ fn boot_cleanup_spares_a_file_a_live_image_uses() {
     let t = ImageTable::new();
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 8, 8);
-    t.prepare(A, "a.png", 8, 1, false).unwrap();
+    t.prepare(A, "a.png", 8, 1, false, &Recipe::default())
+        .unwrap();
     let ready = step(&t, &storage).unwrap();
     assert_eq!(
         t.sweep_cache(&storage, 8, &mut SweepCursor::default()),
@@ -233,7 +253,8 @@ fn prepare_decode_release_without_telling_never_grows_the_answers() {
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 8, 8);
     for round in 0..40 {
-        t.prepare(A, "a.png", 8, round, false).unwrap();
+        t.prepare(A, "a.png", 8, round, false, &Recipe::default())
+            .unwrap();
         assert!(t.prepare_step(&storage, ENV).unwrap());
         let image = t.lock().unwrap().ready[0].image;
         // The plugin lets go of it before it is told anything.
@@ -258,16 +279,21 @@ fn answers_not_told_count_with_the_waiting_ones_until_they_are() {
     let storage = MemoryStorage::new();
     png(&storage, "a.png", 8, 8);
     for n in 0..4 {
-        t.prepare(A, "a.png", 8, n, false).unwrap();
+        t.prepare(A, "a.png", 8, n, false, &Recipe::default())
+            .unwrap();
     }
     while t.prepare_step(&storage, ENV).unwrap() {}
     // Four answers wait to be told: no fifth request, and no growth.
-    assert_eq!(t.prepare(A, "a.png", 8, 9, false), Err(ERR_FULL));
+    assert_eq!(
+        t.prepare(A, "a.png", 8, 9, false, &Recipe::default()),
+        Err(ERR_FULL)
+    );
     assert_eq!(t.prepare_room(A), 0);
     assert_eq!(t.lock().unwrap().ready.len(), 4);
     assert!(told(&t).is_some());
     assert_eq!(t.prepare_room(A), 1);
-    t.prepare(A, "a.png", 8, 9, false).unwrap();
+    t.prepare(A, "a.png", 8, 9, false, &Recipe::default())
+        .unwrap();
 }
 
 #[test]
@@ -280,7 +306,8 @@ fn every_prepared_image_of_every_plugin_can_end_at_once_without_losing_a_file() 
     let mut images = std::vec::Vec::new();
     for owner in owners {
         for n in 0..4 {
-            t.prepare(owner, "a.png", 8, n, false).unwrap();
+            t.prepare(owner, "a.png", 8, n, false, &Recipe::default())
+                .unwrap();
         }
     }
     while t.prepare_step(&storage, ENV).unwrap() {}
@@ -336,7 +363,8 @@ fn the_eighth_prepared_image_then_a_ninth_plugins_first_has_room_for_its_file() 
     png(&storage, "a.png", 8, 8);
     for round in 0..2 {
         for n in 0..4 {
-            t.prepare(A, "a.png", 8, round * 4 + n, false).unwrap();
+            t.prepare(A, "a.png", 8, round * 4 + n, false, &Recipe::default())
+                .unwrap();
         }
         while t.prepare_step(&storage, ENV).unwrap() {}
         for _ in 0..4 {
@@ -344,7 +372,8 @@ fn the_eighth_prepared_image_then_a_ninth_plugins_first_has_room_for_its_file() 
         }
     }
     assert_eq!(t.lock().unwrap().entries.len(), 8);
-    t.prepare(B, "a.png", 8, 1, false).unwrap();
+    t.prepare(B, "a.png", 8, 1, false, &Recipe::default())
+        .unwrap();
     assert!(t.prepare_step(&storage, ENV).unwrap());
     // All nine can end: the list has a place for each file.
     let inner = t.lock().unwrap();
@@ -358,7 +387,8 @@ fn files_a_sweep_must_leave_do_not_hide_the_deletable_ones_behind_them() {
     png(&storage, "a.png", 8, 8);
     // Three live images' files sort first; four stale ones come after.
     for n in 0..3 {
-        t.prepare(A, "a.png", 8, n, false).unwrap();
+        t.prepare(A, "a.png", 8, n, false, &Recipe::default())
+            .unwrap();
     }
     while t.prepare_step(&storage, ENV).unwrap() {}
     let live: std::vec::Vec<String> = t
@@ -394,12 +424,15 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
     let t = ImageTable::new();
     let storage = MemoryStorage::new();
     png(&storage, "big.png", 64, 64);
-    t.prepare(A, "big.png", 0, 1, false).unwrap();
+    t.prepare(A, "big.png", 0, 1, false, &Recipe::default())
+        .unwrap();
     let x4 = Env {
         screen: 480,
         colour: false,
         max_side: 16,
         png_row_max: 8192,
+        turn_band: 32 * 1024,
+        turn_reads: 16_384,
     };
     assert!(t.prepare_step(&storage, x4).unwrap());
     let ready = told(&t).unwrap();
@@ -408,7 +441,8 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
         ready.width <= 16 && ready.height <= 16,
         "side 0 and 4096 stop at 16"
     );
-    t.prepare(A, "big.png", 4096, 2, false).unwrap();
+    t.prepare(A, "big.png", 4096, 2, false, &Recipe::default())
+        .unwrap();
     t.prepare_step(&storage, x4).unwrap();
     let ready = told(&t).unwrap();
     assert!(ready.width <= 16, "a larger side is clamped too");
@@ -417,7 +451,8 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
         png_row_max: 63,
         ..ENV
     };
-    t.prepare(A, "big.png", 8, 3, false).unwrap();
+    t.prepare(A, "big.png", 8, 3, false, &Recipe::default())
+        .unwrap();
     t.prepare_step(&storage, narrow).unwrap();
     let ready = told(&t).unwrap();
     assert_eq!((ready.status, ready.image), (TOO_LARGE, 0));
@@ -425,7 +460,8 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
         png_row_max: 64,
         ..ENV
     };
-    t.prepare(A, "big.png", 8, 4, false).unwrap();
+    t.prepare(A, "big.png", 8, 4, false, &Recipe::default())
+        .unwrap();
     t.prepare_step(&storage, ok).unwrap();
     assert_eq!(told(&t).unwrap().status, READY);
 }
@@ -438,7 +474,8 @@ fn a_cache_name_left_by_an_earlier_boot_is_replaced_and_a_sweep_spares_the_live_
     // The first number a fresh table gives is the one an earlier boot left.
     let stale = file_name(A, 0).unwrap();
     storage.write(&stale, b"junk from the last boot").unwrap();
-    t.prepare(A, "a.png", 8, 1, false).unwrap();
+    t.prepare(A, "a.png", 8, 1, false, &Recipe::default())
+        .unwrap();
     let ready = step(&t, &storage).unwrap();
     assert_eq!(ready.status, READY, "the old file is replaced, not trusted");
     assert!(paperpaw_sdk::ui::probe_picture(&storage, &stale).is_ok());
@@ -707,14 +744,16 @@ fn a_source_over_eight_megapixels_is_refused_from_its_header_before_decoding() {
     storage
         .write("huge.png", &png_header(4_000, 2_001))
         .unwrap();
-    t.prepare(A, "huge.png", 8, 1, false).unwrap();
+    t.prepare(A, "huge.png", 8, 1, false, &Recipe::default())
+        .unwrap();
     let ready = step(&t, &storage).unwrap();
     assert_eq!((ready.status, ready.image), (TOO_LARGE, 0));
     // A GIF the same way.
     storage
         .write("huge.gif", &gif_with_frame((5_000, 5_000), (5_000, 5_000)))
         .unwrap();
-    t.prepare(A, "huge.gif", 8, 2, false).unwrap();
+    t.prepare(A, "huge.gif", 8, 2, false, &Recipe::default())
+        .unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, TOO_LARGE);
     // A JPEG whose frame header comes after a long application segment.
     let mut jpeg = std::vec![0xff, 0xd8, 0xff, 0xe1, 0x10, 0x00];
@@ -723,7 +762,8 @@ fn a_source_over_eight_megapixels_is_refused_from_its_header_before_decoding() {
     jpeg.extend_from_slice(&3_000_u16.to_be_bytes());
     jpeg.extend_from_slice(&3_000_u16.to_be_bytes());
     storage.write("huge.jpg", &jpeg).unwrap();
-    t.prepare(A, "huge.jpg", 8, 3, false).unwrap();
+    t.prepare(A, "huge.jpg", 8, 3, false, &Recipe::default())
+        .unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, TOO_LARGE);
     // Exactly 8 Mpx passes the check (the damaged body then fails the decode).
     assert_eq!(source_pixels(&storage, "huge.jpg"), Ok(Some(9_000_000)));
@@ -734,7 +774,8 @@ fn a_source_over_eight_megapixels_is_refused_from_its_header_before_decoding() {
         source_pixels(&storage, "edge.png"),
         Ok(Some(SOURCE_PIXELS_MAX))
     );
-    t.prepare(A, "edge.png", 8, 4, false).unwrap();
+    t.prepare(A, "edge.png", 8, 4, false, &Recipe::default())
+        .unwrap();
     assert_ne!(step(&t, &storage).unwrap().status, TOO_LARGE);
     // A header with no size, or a JPEG with no frame header, is damaged.
     storage.write("zero.png", &png_header(0, 5)).unwrap();
@@ -776,7 +817,8 @@ fn a_gif_frame_is_counted_and_may_not_be_larger_than_its_screen() {
         .write("bypass.gif", &gif_with_frame((4, 4), (5_000, 5_000)))
         .unwrap();
     assert_eq!(source_pixels(&storage, "bypass.gif"), Err(DAMAGED));
-    t.prepare(A, "bypass.gif", 8, 1, false).unwrap();
+    t.prepare(A, "bypass.gif", 8, 1, false, &Recipe::default())
+        .unwrap();
     let ready = step(&t, &storage).unwrap();
     assert_eq!((ready.status, ready.image), (DAMAGED, 0));
     // A frame inside its screen is counted at the larger of the two.
@@ -789,7 +831,8 @@ fn a_gif_frame_is_counted_and_may_not_be_larger_than_its_screen() {
         .write("huge.gif", &gif_with_frame((4_000, 2_001), (4_000, 2_001)))
         .unwrap();
     assert_eq!(source_pixels(&storage, "huge.gif"), Ok(Some(8_004_000)));
-    t.prepare(A, "huge.gif", 8, 2, false).unwrap();
+    t.prepare(A, "huge.gif", 8, 2, false, &Recipe::default())
+        .unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, TOO_LARGE);
     // No image descriptor (the file ends in the extension), or one with no
     // size, is damaged.
@@ -814,12 +857,399 @@ fn the_longest_side_is_1600_everywhere() {
         ..ENV
     };
     assert_eq!(crate::native_host::image_service::MAX_SIDE, 1_600);
-    t.prepare(A, "p.png", 4096, 1, false).unwrap();
+    t.prepare(A, "p.png", 4096, 1, false, &Recipe::default())
+        .unwrap();
     t.prepare_step(&storage, roomy).unwrap();
     assert_eq!(told(&t).unwrap().status, READY);
     assert_eq!(
         t.add_prepared(A, 9, 1_601, 4, false),
         Err(ERR_INVALID),
         "a prepared image over 1,600 is never kept"
+    );
+}
+
+/// A PNG of gray and opacity (colour type 4, 8 bits), its data stored
+/// uncompressed: `pixels` are `(gray, opacity)` row by row.
+fn gray_alpha_png(width: u32, height: u32, pixels: &[(u8, u8)]) -> std::vec::Vec<u8> {
+    fn crc(bytes: &[u8]) -> u32 {
+        let mut crc = !0_u32;
+        for &byte in bytes {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    (crc >> 1) ^ 0xedb8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+    fn chunk(out: &mut std::vec::Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        out.extend_from_slice(&u32::try_from(data.len()).unwrap().to_be_bytes());
+        let start = out.len();
+        out.extend_from_slice(kind);
+        out.extend_from_slice(data);
+        let sum = crc(&out[start..]);
+        out.extend_from_slice(&sum.to_be_bytes());
+    }
+    let mut raw = std::vec::Vec::new();
+    for row in pixels.chunks(width as usize) {
+        raw.push(0);
+        for &(gray, opacity) in row {
+            raw.extend_from_slice(&[gray, opacity]);
+        }
+    }
+    let (mut a, mut b) = (1_u32, 0_u32);
+    for &byte in &raw {
+        a = (a + u32::from(byte)) % 65_521;
+        b = (b + a) % 65_521;
+    }
+    // Stored blocks of at most 65,535 bytes, the last one marked.
+    let mut zlib = std::vec![0x78, 0x01];
+    let blocks: std::vec::Vec<&[u8]> = raw.chunks(65_535).collect();
+    for (at, block) in blocks.iter().enumerate() {
+        let len = u16::try_from(block.len()).unwrap();
+        zlib.push(u8::from(at + 1 == blocks.len()));
+        zlib.extend_from_slice(&len.to_le_bytes());
+        zlib.extend_from_slice(&(!len).to_le_bytes());
+        zlib.extend_from_slice(block);
+    }
+    zlib.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    let mut png = std::vec::Vec::from(*b"\x89PNG\r\n\x1a\n");
+    let mut header = std::vec::Vec::new();
+    header.extend_from_slice(&width.to_be_bytes());
+    header.extend_from_slice(&height.to_be_bytes());
+    header.extend_from_slice(&[8, 4, 0, 0, 0]);
+    chunk(&mut png, b"IHDR", &header);
+    chunk(&mut png, b"IDAT", &zlib);
+    chunk(&mut png, b"IEND", &[]);
+    png
+}
+
+/// The kind and the bytes of the cache file of `owner`'s first prepared image.
+fn cache_of(
+    t: &ImageTable,
+    storage: &MemoryStorage,
+) -> (paperpaw_sdk::ui::PictureKind, std::vec::Vec<u8>) {
+    let file = {
+        let inner = t.lock().unwrap();
+        file_name(inner.entries[0].owner, inner.entries[0].seq).unwrap()
+    };
+    let (kind, _, _) = paperpaw_sdk::ui::probe_picture(storage, &file).unwrap();
+    let size = usize::try_from(storage.size(&file).unwrap()).unwrap();
+    let mut bytes = std::vec![0_u8; size];
+    assert_eq!(storage.read_at(&file, 0, &mut bytes).unwrap(), size);
+    (kind, bytes)
+}
+
+fn see_through() -> Recipe {
+    Recipe {
+        see_through: true,
+        ..Recipe::default()
+    }
+}
+
+#[test]
+fn a_see_through_png_keeps_its_opacity_and_is_gray() {
+    let pixels = [(0, 0), (0, 255), (200, 128), (100, 255)];
+    let storage = MemoryStorage::new();
+    storage
+        .write("a.png", &gray_alpha_png(2, 2, &pixels))
+        .unwrap();
+    let t = ImageTable::new();
+    // Colour asked too: a see-through picture is gray.
+    t.prepare(A, "a.png", 0, 1, true, &see_through()).unwrap();
+    let ready = step(&t, &storage).unwrap();
+    assert_eq!((ready.status, ready.width, ready.height), (READY, 2, 2));
+    let (kind, bytes) = cache_of(&t, &storage);
+    assert_eq!(kind, paperpaw_sdk::ui::PictureKind::Alpha);
+    assert_eq!(&bytes[..4], b"PPGA");
+    assert_eq!(&bytes[12..], &[0, 0, 0, 255, 200, 128, 100, 255]);
+    assert_eq!(t.info(A, ready.image).unwrap().flags & 1, 0, "never colour");
+    // The brightness grid reads the gray, not the opacity.
+    let luma = ready.luma.unwrap();
+    assert_eq!((luma[0], luma[63]), (0, 100));
+}
+
+#[test]
+fn without_the_bit_a_png_is_over_white_and_a_jpeg_ignores_the_bit() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("a.png", &gray_alpha_png(2, 1, &[(0, 0), (0, 255)]))
+        .unwrap();
+    let t = ImageTable::new();
+    t.prepare(A, "a.png", 0, 1, false, &Recipe::default())
+        .unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, READY);
+    let (kind, bytes) = cache_of(&t, &storage);
+    assert_eq!(kind, paperpaw_sdk::ui::PictureKind::Gray);
+    assert_eq!(&bytes[12..], &[255, 0], "transparent is white");
+    // A JPEG has no transparency to keep: gray, as without the bit.
+    let storage = MemoryStorage::new();
+    storage
+        .write("w.jpg", include_bytes!("fixtures/wide.jpg"))
+        .unwrap();
+    let t = ImageTable::new();
+    t.prepare(A, "w.jpg", 64, 1, false, &see_through()).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, READY);
+    assert_eq!(
+        cache_of(&t, &storage).0,
+        paperpaw_sdk::ui::PictureKind::Gray
+    );
+}
+
+#[test]
+fn a_tone_table_maps_a_see_through_pictures_gray_and_keeps_its_opacity() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("a.png", &gray_alpha_png(2, 1, &[(10, 0), (200, 77)]))
+        .unwrap();
+    let inverted: std::vec::Vec<u8> = (0..=255_u8).rev().collect();
+    let recipe = Recipe {
+        see_through: true,
+        tone: Some(inverted),
+        ..Recipe::default()
+    };
+    let t = ImageTable::new();
+    t.prepare(A, "a.png", 0, 1, false, &recipe).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, READY);
+    let (_, bytes) = cache_of(&t, &storage);
+    assert_eq!(&bytes[12..], &[245, 0, 55, 77]);
+}
+
+/// The cache file of the prepared image at `index` in the table.
+fn file_at(t: &ImageTable, index: usize) -> std::string::String {
+    let inner = t.lock().unwrap();
+    file_name(inner.entries[index].owner, inner.entries[index].seq).unwrap()
+}
+
+#[test]
+fn a_see_through_cache_file_goes_on_release_on_stop_and_in_the_boot_sweep() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("a.png", &gray_alpha_png(2, 1, &[(0, 0), (9, 255)]))
+        .unwrap();
+    // image_release: the file goes the turn after, as an opaque one's.
+    let t = ImageTable::new();
+    t.prepare(A, "a.png", 0, 1, false, &see_through()).unwrap();
+    let ready = step(&t, &storage).unwrap();
+    let file = file_at(&t, 0);
+    assert!(file.starts_with(DIR) && ours(file.rsplit('/').next().unwrap()));
+    assert_eq!(
+        cache_of(&t, &storage).0,
+        paperpaw_sdk::ui::PictureKind::Alpha
+    );
+    t.release(A, ready.image).unwrap();
+    assert_eq!(step(&t, &storage), None);
+    assert!(!storage.exists(&file));
+    // A stopped plugin's see-through file goes too.
+    t.prepare(A, "a.png", 0, 2, false, &see_through()).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, READY);
+    let file = file_at(&t, 0);
+    t.owner_stopped(A).unwrap();
+    assert_eq!(step(&t, &storage), None);
+    assert!(!storage.exists(&file));
+    // One a power cut left is removed by the next boot's sweep.
+    t.prepare(A, "a.png", 0, 3, false, &see_through()).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, READY);
+    let file = file_at(&t, 0);
+    let booted = ImageTable::new();
+    let mut cursor = SweepCursor::default();
+    let mut calls = 0;
+    while booted.sweep_cache(&storage, 8, &mut cursor).unwrap() {
+        calls += 1;
+        assert!(calls < 20, "the sweep must end");
+    }
+    assert!(!storage.exists(&file));
+}
+
+#[test]
+fn an_opaque_cache_is_never_reused_for_a_see_through_request() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("a.png", &gray_alpha_png(2, 1, &[(0, 0), (9, 255)]))
+        .unwrap();
+    let t = ImageTable::new();
+    t.prepare(A, "a.png", 0, 1, false, &Recipe::default())
+        .unwrap();
+    let opaque = step(&t, &storage).unwrap();
+    t.prepare(A, "a.png", 0, 2, false, &see_through()).unwrap();
+    let clear = step(&t, &storage).unwrap();
+    assert_ne!(opaque.image, clear.image);
+    let (first, second) = (file_at(&t, 0), file_at(&t, 1));
+    assert_ne!(first, second, "every request gets its own file");
+    let kind = |path: &str| paperpaw_sdk::ui::probe_picture(&storage, path).unwrap().0;
+    assert_eq!(kind(&first), paperpaw_sdk::ui::PictureKind::Gray);
+    assert_eq!(kind(&second), paperpaw_sdk::ui::PictureKind::Alpha);
+    // Also after the opaque one ended and its number could come back.
+    t.release(A, opaque.image).unwrap();
+    assert_eq!(step(&t, &storage), None);
+    t.prepare(A, "a.png", 0, 3, false, &see_through()).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, READY);
+    let newest = file_at(&t, 1);
+    assert_eq!(kind(&newest), paperpaw_sdk::ui::PictureKind::Alpha);
+}
+
+#[test]
+fn a_jpeg_cache_is_byte_identical_with_and_without_the_bit() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("w.jpg", include_bytes!("fixtures/wide.jpg"))
+        .unwrap();
+    let env = Env {
+        colour: true,
+        ..ENV
+    };
+    for colour in [false, true] {
+        let made = |recipe: &Recipe| {
+            let t = ImageTable::new();
+            t.prepare(A, "w.jpg", 64, 1, colour, recipe).unwrap();
+            t.prepare_step(&storage, env).unwrap();
+            let ready = told(&t).unwrap();
+            (ready, cache_of(&t, &storage))
+        };
+        let (plain, plain_cache) = made(&Recipe::default());
+        let (clear, clear_cache) = made(&see_through());
+        assert_eq!(plain.status, READY);
+        assert_eq!(
+            (plain.width, plain.height, plain.luma),
+            (clear.width, clear.height, clear.luma)
+        );
+        assert!(plain_cache == clear_cache, "colour {colour}");
+    }
+}
+
+#[test]
+fn see_through_pictures_count_to_the_same_eight_prepared() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("a.png", &gray_alpha_png(2, 1, &[(0, 0), (9, 255)]))
+        .unwrap();
+    let t = ImageTable::new();
+    for round in 0..2 {
+        for n in 0..4 {
+            t.prepare(A, "a.png", 0, round * 4 + n, false, &see_through())
+                .unwrap();
+        }
+        for _ in 0..4 {
+            assert_eq!(step(&t, &storage).unwrap().status, READY);
+        }
+    }
+    assert_eq!(
+        t.prepare(A, "a.png", 0, 9, false, &see_through()),
+        Err(ERR_FULL)
+    );
+    assert_eq!(
+        t.prepare(A, "a.png", 0, 9, false, &Recipe::default()),
+        Err(ERR_FULL),
+        "opaque and see-through share the count"
+    );
+}
+
+/// A card whose own allocations are the fixture's: the heap measured is the
+/// host's and the decoder's only.
+struct Shielded(MemoryStorage);
+
+/// Runs `f` with the counting allocator looking away.
+fn shielded<T>(f: impl FnOnce() -> T) -> T {
+    use crate::native_host::shell::tests::HEAP_SHIELD;
+    let was = HEAP_SHIELD.with(|s| s.replace(true));
+    let out = f();
+    HEAP_SHIELD.with(|s| s.set(was));
+    out
+}
+
+impl Storage for Shielded {
+    fn read_at(
+        &self,
+        p: &str,
+        o: u64,
+        b: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        shielded(|| self.0.read_at(p, o, b))
+    }
+    fn size(&self, p: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        shielded(|| self.0.size(p))
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        shielded(|| self.0.write(p, d))
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        shielded(|| self.0.append(p, d))
+    }
+    fn list(
+        &self,
+        d: &str,
+        v: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        shielded(|| self.0.list(d, v))
+    }
+    fn remove(&self, p: &str) -> Result<(), paperpaw_platform::StorageError> {
+        shielded(|| self.0.remove(p))
+    }
+}
+
+/// The most heap `f` held at once, counted from nothing.
+fn heap_peak(f: impl FnOnce()) -> usize {
+    use crate::native_host::shell::tests::{HEAP_LIVE, HEAP_PEAK};
+    HEAP_LIVE.with(|live| live.set(0));
+    HEAP_PEAK.with(|peak| peak.set(0));
+    f();
+    HEAP_PEAK.with(core::cell::Cell::get)
+}
+
+/// The X4 measurement (`document.md` 5 and 8.2): a full-screen see-through
+/// sleep picture (480 x 800, gray and opacity) prepared and drawn over the
+/// page within the X4's limits, its heap beside an opaque one's.
+#[test]
+fn a_full_screen_see_through_picture_on_the_x4_stays_within_the_opaque_bounds() {
+    use paperpaw_graphics::Framebuffer;
+    let (w, h) = (480_u32, 800_u32);
+    let card = Shielded(MemoryStorage::new());
+    let pixels: std::vec::Vec<(u8, u8)> = (0..w * h)
+        .map(|i| ((i % 251) as u8, if (i / w) % 4 == 0 { 0 } else { 200 }))
+        .collect();
+    card.write("sleep.png", &gray_alpha_png(w, h, &pixels))
+        .unwrap();
+    let env = Env::x4(800, false);
+    let mut fb = Framebuffer::new(480, 800, paperpaw_platform::PixelFormat::Mono1).unwrap();
+    let mut measure = |recipe: &Recipe| {
+        let t = ImageTable::new();
+        let made = heap_peak(|| {
+            t.prepare(A, "sleep.png", 0, 1, false, recipe).unwrap();
+            t.prepare_step(&card, env).unwrap();
+        });
+        let ready = told(&t).unwrap();
+        assert_eq!((ready.status, ready.width, ready.height), (READY, w, h));
+        // Over a black page: a transparent row shows the page, an opaque
+        // picture's is white.
+        let mut canvas = fb.canvas();
+        canvas.clear(paperpaw_platform::Color::BLACK);
+        let drawn = heap_peak(|| {
+            t.draw(A, ready.image, &mut canvas, &card, 0, 0, w, h, 0)
+                .unwrap();
+        });
+        let row0 = canvas.gray_at(paperpaw_platform::Point::new(0, 0)).unwrap();
+        (made, drawn, row0)
+    };
+    let (opaque_made, opaque_drawn, opaque_row0) = measure(&Recipe::default());
+    let (clear_made, clear_drawn, clear_row0) = measure(&see_through());
+    assert_eq!(
+        (opaque_row0, clear_row0),
+        (255, 0),
+        "the page shows through"
+    );
+    std::eprintln!(
+        "x4 480x800 mono: prepare opaque {opaque_made} B, see-through {clear_made} B; \
+         draw opaque {opaque_drawn} B, see-through {clear_drawn} B"
+    );
+    // The draw stays inside the X4's 32 KiB scratch (a see-through one is
+    // blended, never dithered); the prepare adds only the opacity's share of
+    // the rows (the downscaler's second sum and the second byte a pixel).
+    assert!(clear_drawn <= super::super::SCRATCH_X4, "{clear_drawn}");
+    assert!(
+        clear_made <= opaque_made + 8 * w as usize,
+        "{clear_made} {opaque_made}"
     );
 }

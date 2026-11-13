@@ -492,11 +492,15 @@ impl ZipArchive {
                 // Made in place: built as a value first, its 10 KB would
                 // be on the stack, deep in the opening of a book.
                 decoder.resize_with(1, DecompressorOxide::default);
-                // A power of two (required for a wrapping window) that holds
-                // the whole entry, or the full deflate history.
-                let window_len = (entry.size.min(WINDOW as u32) as usize)
-                    .next_power_of_two()
-                    .max(64);
+                // An entry that fits the deflate history is inflated whole
+                // into a window of exactly its size (#248: an 8.1 KiB
+                // package document no longer takes 16 KiB); a longer one
+                // wraps through the full history (a power of two).
+                let window_len = if entry.size as usize <= WINDOW {
+                    (entry.size as usize).max(1)
+                } else {
+                    WINDOW
+                };
                 Some((decoder, zeroed(window_len)?))
             }
         };
@@ -619,11 +623,15 @@ impl EntryReader<'_> {
             let Some((decoder, window)) = &mut self.inflate else {
                 break;
             };
-            let flags = if self.remaining > 0 {
+            let whole = window.len() < WINDOW || self.size == WINDOW as u64;
+            let mut flags = if self.remaining > 0 {
                 inflate_flags::TINFL_FLAG_HAS_MORE_INPUT
             } else {
                 0
             };
+            if whole {
+                flags |= inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+            }
             let (status, consumed, written) = decompress(
                 &mut decoder[0],
                 &self.input[self.start..self.end],
@@ -641,9 +649,18 @@ impl EntryReader<'_> {
                 self.made_crc,
                 &window[self.position..self.position + written],
             );
-            self.position = (self.position + written) & (window.len() - 1);
+            self.position = if whole {
+                self.position + written
+            } else {
+                (self.position + written) & (window.len() - 1)
+            };
             match status {
                 TINFLStatus::Done => self.done = true,
+                // A whole window that is full and asked for more: the
+                // content is longer than the entry's size.
+                TINFLStatus::HasMoreOutput if whole && self.position == window.len() => {
+                    return Err(ZipError::Invalid("entry longer than its size"));
+                }
                 TINFLStatus::HasMoreOutput => {}
                 TINFLStatus::NeedsMoreInput if self.remaining > 0 || self.start < self.end => {}
                 TINFLStatus::NeedsMoreInput => {
@@ -943,6 +960,77 @@ mod tests {
 
     fn text(len: u32) -> Vec<u8> {
         (0..len).map(|i| b'a' + (i % 26) as u8).collect()
+    }
+
+    /// Bytes that do not compress (a fixed xorshift): long literal runs.
+    fn noise(len: u32) -> Vec<u8> {
+        let mut x: u32 = 0x9e37_79b9;
+        (0..len)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                x as u8
+            })
+            .collect()
+    }
+
+    #[test]
+    fn entries_of_every_size_inflate_whole_or_through_the_history() {
+        // Small entries go into a window of their exact size, longer ones
+        // wrap through the 32 KiB history (#248): both read back whole,
+        // read at once and streamed, around every edge.
+        let mut sizes: Vec<u32> = (0..300).collect();
+        sizes.extend([511, 512, 513, 4095, 4096, 4097, 8191, 8192, 8193]);
+        sizes.extend([32_767, 32_768, 32_769, 65_536, 70_001]);
+        for len in sizes {
+            for data in [text(len), noise(len)] {
+                let zip = ZipBuilder::new().deflated("d", data.clone()).build();
+                let storage = OneFile(zip);
+                let archive = ZipArchive::open(&storage, "x.zip").unwrap();
+                let entry = archive.entry(&storage, "d").unwrap().unwrap();
+                assert_eq!(
+                    archive.read(&storage, &entry, 1 << 20).unwrap(),
+                    data,
+                    "{len}"
+                );
+                let mut streamed = Vec::new();
+                archive
+                    .stream(&storage, &entry, &mut |chunk| {
+                        streamed.extend_from_slice(chunk);
+                        true
+                    })
+                    .unwrap();
+                assert_eq!(streamed, data, "{len}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_empty_last_block_after_a_full_window_is_read() {
+        // zlib's flushes end a stream with an empty block once all content
+        // is out: the whole window is full by then and must still take it.
+        let stored_abc = [0x00, 0x03, 0x00, 0xfc, 0xff, b'a', b'b', b'c'];
+        for last in [&[0x01, 0x00, 0x00, 0xff, 0xff][..], &[0x03, 0x00][..]] {
+            let mut payload = stored_abc.to_vec();
+            payload.extend_from_slice(last);
+            // A stored entry of the payload, then made a deflated one of "abc".
+            let mut zip = ZipBuilder::new().stored("d", payload.clone()).build();
+            let central = records(&zip)[0];
+            let crc = crc32(0, b"abc").to_le_bytes();
+            for (method, crc_at, size_at) in
+                [(8, 14, 22), (central + 10, central + 16, central + 24)]
+            {
+                zip[method..method + 2].copy_from_slice(&8u16.to_le_bytes());
+                zip[crc_at..crc_at + 4].copy_from_slice(&crc);
+                zip[size_at..size_at + 4].copy_from_slice(&3u32.to_le_bytes());
+            }
+            let storage = OneFile(zip);
+            let archive = ZipArchive::open(&storage, "x.zip").unwrap();
+            let entry = archive.entry(&storage, "d").unwrap().unwrap();
+            assert_eq!(entry.method, Method::Deflate);
+            assert_eq!(archive.read(&storage, &entry, 100).unwrap(), b"abc");
+        }
     }
 
     #[test]

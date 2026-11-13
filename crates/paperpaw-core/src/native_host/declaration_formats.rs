@@ -9,7 +9,7 @@
     reason = "the document service's production host reads these when it is wired"
 )]
 use super::{DeclarationStore, Kind};
-use crate::native_host::registrations::{FormatSpec, ReaderSpec, Record};
+use crate::native_host::registrations::{FormatSpec, LookupSpec, ReaderSpec, Record};
 
 /// One declared format of a live plugin.
 pub(crate) struct FormatDecl<'a, 'b> {
@@ -27,7 +27,31 @@ pub(crate) struct ReaderDecl<'a, 'b> {
     pub(crate) spec: &'b ReaderSpec<'b>,
 }
 
+/// One declared lookup provider of a live plugin (`document.md` section 7).
+pub(crate) struct LookupDecl<'a, 'b> {
+    /// The declaring plugin's host owner id.
+    pub(crate) owner: u64,
+    /// The declaring plugin's id.
+    pub(crate) plugin: &'a str,
+    pub(crate) spec: &'b LookupSpec<'b>,
+}
+
 impl DeclarationStore {
+    /// Every lookup provider of every live plugin, in load order (the
+    /// providers are called in it, `document.md` section 7). The visitor must
+    /// not invoke plugins or reenter the store.
+    pub(crate) fn each_lookup(&self, visit: &mut dyn FnMut(&LookupDecl<'_, '_>)) {
+        self.each_in_load_order(Kind::Lookup, &mut |owner, plugin, record| {
+            if let Record::LookupSpec(spec) = record {
+                visit(&LookupDecl {
+                    owner,
+                    plugin,
+                    spec: &spec,
+                });
+            }
+        });
+    }
+
     /// Every format of every live plugin, the plugin loaded first first (its
     /// declarations' incarnation), a plugin's own in its index order. The
     /// visitor must not invoke plugins or reenter the store.
@@ -57,6 +81,8 @@ impl DeclarationStore {
 
     /// The records of `kind` of live plugins, by ascending incarnation: no
     /// allocation, a scan for the next larger incarnation per plugin.
+    /// A plugin's own in the order it declared them (lookup providers are
+    /// called in it).
     fn each_in_load_order(&self, kind: Kind, visit: &mut dyn for<'r> FnMut(u64, &str, Record<'r>)) {
         let mut last = 0;
         loop {
@@ -83,16 +109,11 @@ impl DeclarationStore {
             let Ok(host) = owner.source.owner_id() else {
                 continue;
             };
-            for slot in owner.of_kind(kind) {
-                let key = super::DeclKey {
-                    owner: u16::try_from(index).unwrap_or(u16::MAX),
-                    batch: slot.batch,
-                    record: slot.record,
-                    generation: owner.generation,
-                    incarnation: owner.incarnation,
-                };
+            let _ = owner.places(kind, &mut |batch, record| {
+                let key = owner.key(index, batch, record);
                 self.with_record(key, &mut |record| visit(host, owner.id.as_str(), record));
-            }
+                core::ops::ControlFlow::Continue(())
+            });
         }
     }
 }

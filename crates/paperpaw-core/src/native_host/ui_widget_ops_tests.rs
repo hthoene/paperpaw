@@ -437,6 +437,7 @@ fn values_are_cached_until_the_status_changes_and_private_ones_hidden_under_a_gu
 }
 
 #[test]
+#[cfg_attr(feature = "x4-nested", ignore = "x4-nested opens the X4 gate (#250)")]
 fn ops_14_and_15_are_depth_one_only_and_unsupported_on_the_x4() {
     world(|w| {
         w.depth.set(2);
@@ -484,7 +485,10 @@ fn a_stopped_plugin_loses_its_instances_and_the_cache() {
         w.status(ME, "a.one").unwrap();
         let ui = w.hosts.ui().unwrap();
         assert_eq!(ui.widgets.handles.borrow().widgets(), 1);
+        // A widget keeps its plugin from sleeping again (#248, D3).
+        assert_eq!(ui.plugin_holds(A), Ok(true));
         ui.plugin_stopped(A).unwrap();
+        assert_eq!(ui.plugin_holds(A), Ok(false));
         assert_eq!(ui.widgets.handles.borrow().widgets(), 0);
         assert_eq!(w.drop_widget(ME, id).err(), Some(ERR_NOT_FOUND));
         // The screen closing drops its instances the same way.

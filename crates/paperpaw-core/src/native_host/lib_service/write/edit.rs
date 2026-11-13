@@ -31,6 +31,8 @@ pub(crate) const STAGED_CAP: u32 = 1 << 20;
 /// Edits one transaction may stage: every edit costs its record, so the count
 /// is bounded besides the bytes.
 const EDITS_CAP: u32 = 1024;
+/// The same on the X4: a commit holds a row per edit while it merges.
+const EDITS_CAP_X4: u32 = 128;
 /// A note's cap (interface 6).
 const NOTE_CAP: u32 = 3 * 1024;
 /// An XPointer's cap (`doc_xpointer`).
@@ -113,10 +115,14 @@ struct Transaction {
     pending: [Option<Pending>; EDITS_PER_CALL],
 }
 
-/// The open transactions: one per plugin and two device-wide. Allocated once.
+/// The open transactions: one per plugin and two device-wide. Their two rows
+/// are reserved at the first `edit_begin` and freed when the last transaction
+/// ends: nothing is held while no plugin edits (#248).
 #[derive(Debug)]
 pub(crate) struct Transactions {
     next_id: Cell<u32>,
+    /// Edits one transaction may stage (`EDITS_CAP`, less on the X4).
+    edits_cap: Cell<u32>,
     rows: RefCell<Vec<Transaction>>,
 }
 
@@ -124,12 +130,29 @@ impl Transactions {
     /// # Errors
     /// `ERR_NO_MEMORY`.
     pub(crate) fn try_new() -> Result<Self, i32> {
-        let mut rows = Vec::new();
-        rows.try_reserve_exact(DEVICE).map_err(|_| ERR_NO_MEMORY)?;
         Ok(Self {
             next_id: Cell::new(1),
-            rows: RefCell::new(rows),
+            edits_cap: Cell::new(EDITS_CAP),
+            rows: RefCell::new(Vec::new()),
         })
+    }
+
+    /// The rows' room, freed once no transaction is open.
+    fn release(rows: &mut Vec<Transaction>) {
+        if rows.is_empty() {
+            *rows = Vec::new();
+        }
+    }
+
+    /// The bytes the rows hold (tests).
+    #[cfg(test)]
+    pub(crate) fn held(&self) -> usize {
+        self.rows.borrow().capacity() * core::mem::size_of::<Transaction>()
+    }
+
+    /// The X4's cap on the edits of one transaction.
+    pub(crate) fn limit_to_x4(&self) {
+        self.edits_cap.set(EDITS_CAP_X4);
     }
 
     fn rows(&self) -> Result<core::cell::RefMut<'_, Vec<Transaction>>, i32> {
@@ -142,7 +165,8 @@ impl Transactions {
     fn expire(&self, now_ms: u64, mut ended: impl FnMut(u32)) -> Result<(), i32> {
         let mut dropped = [0_u32; DEVICE];
         let mut count = 0;
-        self.rows()?.retain(|t| {
+        let mut rows = self.rows()?;
+        rows.retain(|t| {
             let stale = now_ms.saturating_sub(t.touched_ms) > IDLE_MS;
             if stale && let Some(slot) = dropped.get_mut(count) {
                 *slot = t.id;
@@ -150,6 +174,8 @@ impl Transactions {
             }
             !stale
         });
+        Self::release(&mut rows);
+        drop(rows);
         dropped.iter().take(count).for_each(|id| ended(*id));
         Ok(())
     }
@@ -161,6 +187,9 @@ impl Transactions {
         }
         let id = self.next_id.get();
         let next = id.checked_add(1).ok_or(ERR_NO_SPACE)?;
+        if rows.capacity() == 0 {
+            rows.try_reserve_exact(DEVICE).map_err(|_| ERR_NO_MEMORY)?;
+        }
         rows.push(Transaction {
             id,
             owner,
@@ -199,13 +228,27 @@ impl Transactions {
     /// End the transaction. A row that cannot be freed now (the table is in
     /// use) is not lost: every call expires rows idle for 10 minutes.
     fn finish(&self, id: u32) -> Result<(), i32> {
-        self.rows()?.retain(|t| t.id != id);
+        let mut rows = self.rows()?;
+        rows.retain(|t| t.id != id);
+        Self::release(&mut rows);
         Ok(())
     }
 
     /// Whether a transaction is open on `book`, after the idle ones ended.
     pub(super) fn book_open(&self, book: BookId) -> Result<bool, i32> {
         Ok(self.rows()?.iter().any(|t| t.book == book))
+    }
+
+    /// Whether `owner` has a transaction open (#248, D3).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the table is borrowed.
+    pub(crate) fn owner_holds(&self, owner: u64) -> Result<bool, i32> {
+        let rows = self
+            .rows
+            .try_borrow()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        Ok(rows.iter().any(|t| t.owner == owner))
     }
 
     /// The plugin stopped: its transactions end; `ended` gets their ids, after
@@ -217,7 +260,8 @@ impl Transactions {
         let mut closed = [0_u32; DEVICE];
         let mut count = 0;
         // The row count is at most `DEVICE`, so `closed` holds every id.
-        self.rows()?.retain(|t| {
+        let mut rows = self.rows()?;
+        rows.retain(|t| {
             let mine = t.owner == owner;
             if let (true, Some(slot)) = (mine, closed.get_mut(count)) {
                 *slot = t.id;
@@ -225,6 +269,8 @@ impl Transactions {
             }
             !mine
         });
+        Self::release(&mut rows);
+        drop(rows);
         closed.iter().take(count).for_each(|id| ended(*id));
         Ok(())
     }
@@ -287,6 +333,8 @@ fn begin(
     };
     let book_id = host.resolve_book(book)?;
     let id = table.begin(who.owner, book_id, head.annotation_generation, now)?;
+    // A plugin's receipt lives until its next `edit_begin` (`library.md` 2.2).
+    host.receipts_ended(who.owner);
     encode(
         &Record::ServiceLibTransaction(wire::ServiceLibTransaction { transaction: id }),
         out,
@@ -456,7 +504,7 @@ fn add(
         transaction
             .edits
             .checked_add(calls)
-            .is_some_and(|sum| sum <= EDITS_CAP),
+            .is_some_and(|sum| sum <= table.edits_cap.get()),
     )
     .map_err(|_| ERR_NO_SPACE)?;
     let mut planned = [(0_u32, None); EDITS_PER_CALL];

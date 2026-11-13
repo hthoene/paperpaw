@@ -46,7 +46,14 @@ pub(crate) fn call(
         .try_borrow()
         .map_err(|_| ERR_BUSY)?
         .native_lease(owner)?;
-    if lease.live()?.callback_depth() != 1 {
+    if lease.is_parked() {
+        // A parked callee (#248, D2: a format) is not made inside a
+        // callback: it is asked to start at the next safe point, and what
+        // called it waits (a pending open is sent once it is made).
+        let _ = lease.live();
+        return Err(ERR_BUSY);
+    }
+    if lease.checked_depth()? != 1 {
         return Err(ERR_BUSY);
     }
     // The callee's own negative status passes through: it is not a

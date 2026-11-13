@@ -486,6 +486,13 @@ impl Kernel {
         if *id == core_settings::UI_TEXT_CURVE || *id == core_settings::LANGUAGE {
             self.apply_ui_text_curve();
         }
+        // Every `core.ui-*` setting shapes it (size, row, title, curve …).
+        if *id == core_settings::LANGUAGE
+            || id.as_str().starts_with("core.ui-")
+            || *id == core_settings::ROTATION
+        {
+            self.renew_memory_notice();
+        }
         if *id == core_settings::READING_FONT {
             self.apply_reading_font();
         }
@@ -624,6 +631,10 @@ impl Kernel {
                                 paperpaw_sdk::builtin::settings::READING_APP.as_str()
                             )) => {}
                         Err(error) => {
+                            if matches!(error, paperpaw_sdk::SettingError::Unknown) {
+                                // A native plugin may declare it later.
+                                self.keep_config_value(&id, &value, line);
+                            }
                             self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
                         }
                         Ok(()) => {}
@@ -631,7 +642,21 @@ impl Kernel {
                 }
             }
         }
-        for (id, value) in secrets_moved {
+        self.move_secrets(secrets_moved);
+        // Kept apart (see `KeySources::user`).
+        for problem in self.shared.keymap.load(source, Origin::User, false) {
+            self.warn(
+                WarningSource::UserConfig,
+                Some(problem.line),
+                problem.message.into_owned(),
+            );
+        }
+    }
+
+    /// Secret settings the configuration file kept: moved to the secrets and
+    /// taken out of the file once they are saved there.
+    pub(crate) fn move_secrets(&mut self, moved: Vec<(String, String)>) {
+        for (id, value) in moved {
             let label = self
                 .shared
                 .settings
@@ -650,14 +675,6 @@ impl Kernel {
                     paperpaw_config::remove(source, section, key)
                 });
             }
-        }
-        // Kept apart (see `KeySources::user`).
-        for problem in self.shared.keymap.load(source, Origin::User, false) {
-            self.warn(
-                WarningSource::UserConfig,
-                Some(problem.line),
-                problem.message.into_owned(),
-            );
         }
     }
 

@@ -7,6 +7,10 @@ use core::fmt;
 use crate::collections::VecMap;
 use crate::id::Id;
 use crate::plugin::RegisterError;
+#[cfg(feature = "kernel")]
+pub use fixed_table::{
+    fixed_groups_source, fixed_ids_source, fixed_settings_source, fixed_titles_source,
+};
 use specs::Specs;
 
 /// A setting's value.
@@ -1469,6 +1473,10 @@ impl Settings {
 }
 
 mod declared;
+#[cfg(feature = "kernel")]
+mod fixed_table;
+#[cfg(any(test, feature = "kernel"))]
+mod same;
 mod specs;
 #[cfg(test)]
 mod tests;

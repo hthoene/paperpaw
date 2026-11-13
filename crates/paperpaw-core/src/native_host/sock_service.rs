@@ -430,7 +430,6 @@ pub(crate) use table::{
 };
 
 /// The plugin started: a staged file kept after a failed rename comes back.
-#[allow(dead_code, reason = "the kernel's start hook calls it; tests do today")]
 pub(crate) fn owner_started(host: &dyn SockHost, owner: u64) {
     host.recover_saves(owner);
 }
@@ -452,6 +451,15 @@ pub(crate) fn connect_for_tests(
     input: &[u8],
 ) -> Result<u32, i32> {
     table::connect(host, who, input)
+}
+
+/// Whether `owner` has a socket or a cast (#248, D3).
+///
+/// # Errors
+/// `ERR_BUSY` when the table is borrowed.
+pub(crate) fn owner_holds(host: &dyn SockHost, owner: u64) -> Result<bool, i32> {
+    let inner = table::lock(host)?;
+    Ok(inner.owner_holds(owner))
 }
 
 /// The plugin stopped (its callbacks are revoked): its sockets close without
