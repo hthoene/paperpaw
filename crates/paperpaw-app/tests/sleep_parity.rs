@@ -614,7 +614,7 @@ fn format_cbz_is_the_same_asleep() {
 )]
 #[cfg_attr(
     feature = "native-linked-store",
-    ignore = "with the store plugins linked the parked run takes two fewer timer passes; the page is the same (#248, cause open)"
+    ignore = "with the store plugins linked the parked run takes two fewer timer passes; the page is the same (#248, todo 576)"
 )]
 fn format_epub_is_the_same_asleep() {
     same_awake_and_asleep("format-epub");
