@@ -106,6 +106,8 @@ native-linked = ["dep:aes-gcm", "dep:zeroize"]
 # 172; `build.rs` sets `cfg(linked_host)` for the same list). A target-specific
 # dependency, so that the other builds (the web, Android until its shell hosts
 # them) keep the interface-6 app: nothing registers a linked plugin there.
+# The same four targets are listed in `build.rs` (`linked_host`): change both
+# together.
 [target.'cfg(any(all(target_os = "linux", target_arch = "x86_64"), all(target_os = "windows", target_arch = "x86_64"), all(target_os = "macos", any(target_arch = "x86_64", target_arch = "aarch64"))))'.dependencies]
 paperpaw-app = { workspace = true, features = ["native-linked", "native-linked-store", "native-linked-reading"] }
 

@@ -25,7 +25,8 @@ fn clean() -> bool {
 /// Whether this build hosts the linked native plugins: the `native-linked`
 /// feature on a target interface 7 declares a profile for and the shell can
 /// run on (Decision 172: Linux and Windows on x86-64, macOS on x86-64 and
-/// ARM). `cfg(linked_host)` in the sources says so.
+/// ARM). `cfg(linked_host)` in the sources says so. The same four targets are
+/// listed in `Cargo.toml` (the `paperpaw-app` dependency): change both together.
 fn linked_host() {
     println!("cargo::rustc-check-cfg=cfg(linked_host)");
     let var = |name: &str| std::env::var(name).unwrap_or_default();

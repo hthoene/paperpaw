@@ -414,10 +414,13 @@ static RODATA_ANCHOR: [u8; 16] = *b"paperpaw-rodata\0";
 /// linked plugin names it. Empty where there is none, which admits nothing
 /// (`build.rs` only hosts on targets that have one).
 fn host_profile() -> metadata::Profile<'static> {
-    metadata::BUILD_PROFILE.unwrap_or(metadata::Profile {
-        target: "",
-        entry_layout: 0,
-        entry_bytes: 0,
+    metadata::BUILD_PROFILE.unwrap_or_else(|| {
+        eprintln!("linked plugins: no declared profile for this target; none is admitted");
+        metadata::Profile {
+            target: "",
+            entry_layout: 0,
+            entry_bytes: 0,
+        }
     })
 }
 
@@ -474,19 +477,34 @@ fn readonly_mapping(anchor: usize) -> Option<(usize, usize)> {
     const MEM_COMMIT: u32 = 0x1000;
     const PAGE_READONLY: u32 = 0x02;
     const PAGE_EXECUTE_READ: u32 = 0x20;
-    // SAFETY: `VirtualQuery` writes at most `length` bytes of `info`, which is
-    // as large as the structure it fills.
-    let info = unsafe {
+    let query = |at: usize| {
         let mut info = std::mem::MaybeUninit::<MemoryBasicInformation>::zeroed();
         let size = std::mem::size_of::<MemoryBasicInformation>();
-        if VirtualQuery(anchor as *const c_void, info.as_mut_ptr(), size) != size {
+        // SAFETY: `VirtualQuery` writes at most `length` bytes of `info`, which
+        // is as large as the structure it fills.
+        unsafe {
+            (VirtualQuery(at as *const c_void, info.as_mut_ptr(), size) == size)
+                .then(|| info.assume_init())
+        }
+    };
+    // `VirtualQuery` describes the run of pages with the same attributes that
+    // starts at the page of the address asked, not at the run's own start: walk
+    // the runs from the start of the image's allocation to the one that holds
+    // the anchor, which is then whole.
+    let first = query(anchor)?;
+    let mut at = first.allocation_base as usize;
+    loop {
+        let run = query(at)?;
+        let (start, len) = (run.base_address as usize, run.region_size);
+        if start != at || len == 0 {
             return None;
         }
-        info.assume_init()
-    };
-    let readable_only = info.protect == PAGE_READONLY || info.protect == PAGE_EXECUTE_READ;
-    (info.state == MEM_COMMIT && readable_only)
-        .then_some((info.base_address as usize, info.region_size))
+        if anchor < start.saturating_add(len) {
+            let readable_only = run.protect == PAGE_READONLY || run.protect == PAGE_EXECUTE_READ;
+            return (run.state == MEM_COMMIT && readable_only).then_some((start, len));
+        }
+        at = start.saturating_add(len);
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -765,7 +783,6 @@ mod tests {
     /// A linked plugin's declaration bytes are read-only statics like its
     /// metadata; if the metadata lay outside the image found here the
     /// declarations would be copied again, unseen, so none may.
-    #[cfg(target_os = "linux")]
     #[test]
     fn the_linked_plugins_read_only_statics_lie_in_the_image() {
         let (start, len) = rodata_image();
@@ -798,7 +815,6 @@ mod tests {
         assert_eq!(mapping_of("garbage", 0x1000), None);
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn this_programs_read_only_data_is_found_and_holds_the_anchor() {
         let (start, len) = rodata_image();
