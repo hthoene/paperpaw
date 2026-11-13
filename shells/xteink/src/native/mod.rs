@@ -669,6 +669,53 @@ impl CodeLoader for Loader {
         self.load_file(storage, code)
     }
 
+    /// A format-5 file (interface 7) is hosted for the kernel to admit with
+    /// everything it declares: `make` runs in the kernel's registration
+    /// transaction, and its screens, settings and callbacks are registered
+    /// all together or the plugin is refused (`Unsupported` where the stack's
+    /// band is not armed, `NoRoom`, `Damaged`, ...; never loaded without what
+    /// it declared). Any other file is `load`'s.
+    #[cfg(feature = "ppn5")]
+    fn load_native(
+        &mut self,
+        storage: &dyn Storage,
+        code: &CodeFile<'_>,
+    ) -> Result<Option<Box<dyn paperpaw_core::NativeAdmission>>, PluginProblem> {
+        let path = code.path;
+        let mut head = [0; HEADER_LEN];
+        read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
+        if !ppn5::is_format5(&head) {
+            return Ok(None);
+        }
+        // By its id, as safe mode switches it off.
+        crate::safe_mode::loading(code.id.as_str());
+        // As `load_file`: without the net at the stack's end a frame that
+        // overflows is not caught.
+        if !crate::stack::band_armed() {
+            warn!("native: {path} not run: the stack's band is not armed");
+            return Err(PluginProblem::Unsupported);
+        }
+        let Some(depth) = self.resources.depth() else {
+            return Err(PluginProblem::NoRoom);
+        };
+        let Ok(mut resources) = self.resources.0.try_borrow_mut() else {
+            return Err(PluginProblem::NoRoom);
+        };
+        let hosted = ppn5::host(
+            &mut self.place,
+            &depth,
+            &mut resources,
+            &self.device,
+            storage,
+            code,
+        );
+        drop(resources);
+        if hosted.is_ok() {
+            crate::stack::native_loaded();
+        }
+        hosted.map(Some)
+    }
+
     /// What interface-7 plugins are served: `text.hyphenate` (the data
     /// plugins' tables are files on the card) and `core.ui` (the screen stack's
     /// store, sized for this device; nothing is allocated until a plugin uses it).

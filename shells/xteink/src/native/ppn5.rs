@@ -44,9 +44,9 @@
 
 use alloc::boxed::Box;
 use log::warn;
-use paperpaw_core::CodeFile;
 use paperpaw_core::native_host::HostResources;
 use paperpaw_core::native_host::flat::FlatDepth;
+use paperpaw_core::{CodeFile, NativeAdmission};
 use paperpaw_native::MAGIC;
 use paperpaw_native::header5::{HEADER_LEN, Header5, Host, Refusal};
 use paperpaw_platform::Storage;
@@ -94,16 +94,24 @@ fn refused(path: &str, head: &[u8], why: Refusal) -> PluginProblem {
     }
 }
 
-/// Loads the format-5 file `code` as far as the core takes it (see the
-/// [module documentation](self)). `place` puts the image where it runs.
-pub fn load(
+/// A format-5 file checked and placed: its header, where it lies, its entry
+/// and what it declares to need, and when its loading began.
+struct Verified {
+    header: Header5,
+    placed: crate::native::Placed5,
+    make: u32,
+    declared: paperpaw_core::native_host::shell::DeclaredServices,
+    started: u64,
+}
+
+/// Steps 1 to 5 of the [module documentation](self): the header read and
+/// checked against this firmware, the file the installed one, the image
+/// placed and its entry checked. Nothing of the plugin has run.
+fn verify(
     place: &mut super::Place,
-    depth: &FlatDepth,
-    resources: &mut Option<HostResources>,
-    device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     storage: &dyn Storage,
     code: &CodeFile<'_>,
-) -> Result<Box<dyn Plugin>, PluginProblem> {
+) -> Result<Verified, PluginProblem> {
     let path = code.path;
     #[cfg(feature = "esp32s3")]
     if !scanned_table_is_handed() {
@@ -125,8 +133,60 @@ pub fn load(
         return Err(PluginProblem::Changed);
     }
     let (placed, make, declared) = x4::verified(place, storage, code, &header, started)?;
+    Ok(Verified {
+        header,
+        placed,
+        make,
+        declared,
+        started,
+    })
+}
+
+/// Loads the format-5 file `code` as far as the core takes it (see the
+/// [module documentation](self)). `place` puts the image where it runs. A
+/// plugin that declares anything is refused (`Unsupported`): this is the
+/// fallback where the kernel cannot admit it ([`host`]), never a load
+/// without what it declared.
+pub fn load(
+    place: &mut super::Place,
+    depth: &FlatDepth,
+    resources: &mut Option<HostResources>,
+    device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    storage: &dyn Storage,
+    code: &CodeFile<'_>,
+) -> Result<Box<dyn Plugin>, PluginProblem> {
+    let Verified {
+        header,
+        placed,
+        make,
+        declared,
+        started,
+    } = verify(place, storage, code)?;
     x4::run(
         place, code, &header, &placed, make, depth, resources, device, declared, started,
+    )
+}
+
+/// Hosts the format-5 file `code` for the kernel to admit with everything it
+/// declares (`CodeLoader::load_native`): the same checks and placement as
+/// [`load`], then the hosted plugin, not made yet (see [`x4::host`]).
+pub fn host(
+    place: &mut super::Place,
+    depth: &FlatDepth,
+    resources: &mut Option<HostResources>,
+    device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    storage: &dyn Storage,
+    code: &CodeFile<'_>,
+) -> Result<Box<dyn NativeAdmission>, PluginProblem> {
+    let Verified {
+        header,
+        placed,
+        make,
+        declared,
+        ..
+    } = verify(place, storage, code)?;
+    x4::host(
+        place, code, &header, &placed, make, depth, resources, device, declared,
     )
 }
 
@@ -147,10 +207,12 @@ mod x4 {
 
     use log::{info, warn};
     use paperpaw_core::CodeFile;
+    use paperpaw_core::NativeAdmission;
     use paperpaw_core::native_host::HostResources;
     use paperpaw_core::native_host::flat::{DropReason, FlatDepth, FlatError, FlatPlugin};
+    use paperpaw_core::native_host::hosted_admission::HostedAdmission;
     use paperpaw_core::native_host::shell::instance::{Hooks, Instance};
-    use paperpaw_core::native_host::shell::{self, Make};
+    use paperpaw_core::native_host::shell::{self, Hosted, Make};
     use paperpaw_native::header5::{
         EntryFacts, EntryRefusal, HEADER_LEN, Header5, RawEntry, RecordFacts,
     };
@@ -671,11 +733,26 @@ mod x4 {
     /// Makes the plugin of the placed image and returns it as the core's
     /// flat plugin. Called after `make` is read from the written flash and
     /// checked: from here the layout is never rewound.
+    /// What `make` needs once everything that can still be refused before it
+    /// has been (`paperpaw_x4::premake`), in the order that leaves nothing
+    /// behind.
+    struct Ready {
+        /// The device's one counter, a counted share of it.
+        depth: Option<FlatDepth>,
+        /// A share of the device's table of handles.
+        share: HostResources,
+        make: Make,
+        /// The heap and internal RAM free before, and the time, for the log.
+        heap: usize,
+        internal: usize,
+        made: u64,
+    }
+
     #[allow(
         clippy::too_many_arguments,
-        reason = "the loader's one entry: the flash layout, the image, the device's tables and the start time"
+        reason = "the loader's one entry: the flash layout, the image and the device's tables"
     )]
-    pub(super) fn run(
+    fn ready(
         place: &mut crate::native::Place,
         code: &CodeFile<'_>,
         header: &Header5,
@@ -684,9 +761,7 @@ mod x4 {
         depth: &FlatDepth,
         resources: &mut Option<HostResources>,
         device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
-        declared_services: shell::DeclaredServices,
-        started: u64,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
+    ) -> Result<Ready, PluginProblem> {
         let id = code.id.as_str();
         // The device's one counter, a counted share of it, taken before anything
         // is made: the core's `into_plugin` then never makes a counter of its own
@@ -694,7 +769,7 @@ mod x4 {
         let Some(depth) = depth.try_clone() else {
             return Err(PluginProblem::NoRoom);
         };
-        let mut depth = Some(depth);
+        let depth = Some(depth);
         // Plugin calls into the host's slots are told to the record of calls,
         // so the Power-hold escape never blames a plugin for waiting on the host.
         paperpaw_core::native_host::host_slot::set(
@@ -726,6 +801,41 @@ mod x4 {
         // checked there (inside its code, even), so it is the plugin's
         // entry, callable for as long as the image stays placed: all session.
         let make: Make = unsafe { core::mem::transmute::<usize, Make>(make as usize) };
+        Ok(Ready {
+            depth,
+            share,
+            make,
+            heap,
+            internal,
+            made,
+        })
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the loader's one entry: the flash layout, the image, the device's tables and the start time"
+    )]
+    pub(super) fn run(
+        place: &mut crate::native::Place,
+        code: &CodeFile<'_>,
+        header: &Header5,
+        placed: &crate::native::Placed5,
+        make: u32,
+        depth: &FlatDepth,
+        resources: &mut Option<HostResources>,
+        device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+        declared_services: shell::DeclaredServices,
+        started: u64,
+    ) -> Result<Box<dyn Plugin>, PluginProblem> {
+        let id = code.id.as_str();
+        let Ready {
+            mut depth,
+            share,
+            make,
+            heap,
+            internal,
+            made,
+        } = ready(place, code, header, placed, make, depth, resources, device)?;
         let hooks = Hooks {
             event_dropped,
             leaked,
@@ -808,6 +918,77 @@ mod x4 {
             }
         });
         Ok(plugin)
+    }
+
+    /// Hosts the plugin of the placed image, not made yet, for the kernel to
+    /// admit with everything it declares (`CodeLoader::load_native`): `make`
+    /// runs in the kernel's registration transaction, and the declarations
+    /// (screens, settings, actions, fonts, ...) are registered with the
+    /// callbacks it committed, all or none. A refusal there destroys the host
+    /// and says why as the plugin's problem.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the loader's one entry: the flash layout, the image and the device's tables"
+    )]
+    pub(super) fn host(
+        place: &mut crate::native::Place,
+        code: &CodeFile<'_>,
+        header: &Header5,
+        placed: &crate::native::Placed5,
+        make: u32,
+        depth: &FlatDepth,
+        resources: &mut Option<HostResources>,
+        device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+        declared_services: shell::DeclaredServices,
+    ) -> Result<Box<dyn NativeAdmission>, PluginProblem> {
+        let id = code.id.as_str();
+        let Ready {
+            depth, share, make, ..
+        } = ready(place, code, header, placed, make, depth, resources, device)?;
+        let Some(depth) = depth else {
+            return Err(PluginProblem::NoRoom);
+        };
+        // As in `run`: the image's first `code_at` bytes are the read-only data.
+        let data_len = header.code_at.min(header.image_len) as usize;
+        let image_ptr = core::ptr::with_exposed_provenance::<u8>(placed.base as usize);
+        // SAFETY: as in `run`: `make` is the placed entry, callable all
+        // session, and the image is flash (PSRAM on the S3) mapped for it; a
+        // region is reused only after a restart (`FlashModule`).
+        let hosted = unsafe {
+            Hosted::new(
+                X4Services,
+                FlashModule,
+                make,
+                id,
+                (image_ptr, data_len),
+                report,
+                share,
+                declared_services,
+            )
+        }
+        .map_err(|why| {
+            warn!("native: {id}: format 5: refused while hosting: {why:?}");
+            match why {
+                shell::Error::Allocation => PluginProblem::NoRoom,
+                _ => PluginProblem::Damaged,
+            }
+        })?;
+        Ok(Box::new(HostedAdmission::new(
+            hosted,
+            depth,
+            admitted_report,
+            refused,
+        )))
+    }
+
+    /// What the kernel tells of an admitted plugin's callbacks.
+    fn admitted_report(_: &X4Services, plugin: &str, tag: u32, status: i32) {
+        warn!("native: {plugin}: call {tag} ended with {status}");
+    }
+
+    /// Why the kernel refused a plugin it was handed: nothing of it stays.
+    fn refused(folder: &str, why: &shell::Error) {
+        warn!("native: {folder}: not admitted: {why:?}");
     }
 
     /// `text` copied, or `NoRoom`.

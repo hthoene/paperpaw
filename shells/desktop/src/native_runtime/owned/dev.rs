@@ -294,9 +294,7 @@ pub(crate) fn admission(
         library: Some(library),
         copy: copy.to_path_buf(),
     })?;
-    Ok(Box::new(super::super::admit::DesktopAdmission::new(
-        hosted, depth,
-    )))
+    Ok(Box::new(super::super::admit::admission(hosted, depth)))
 }
 
 /// One loaded plugin. Field order is the order of release: the batch (the

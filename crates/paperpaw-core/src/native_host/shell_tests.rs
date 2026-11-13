@@ -1439,6 +1439,8 @@ mod native_device_defaults;
 mod native_late_config;
 #[path = "native_screen_install_tests.rs"]
 mod native_screen_install;
+#[path = "hosted_admission_tests.rs"]
+mod hosted_admission;
 
 #[path = "shell_describe_tests.rs"]
 mod describe;

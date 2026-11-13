@@ -408,7 +408,7 @@ unsafe extern "C" fn screen_event(
     EVENTS.with(|events| events.borrow_mut().push(row));
     OK
 }
-fn host(flags: u32) -> Hosted<Heap, ()> {
+pub(super) fn host(flags: u32) -> Hosted<Heap, ()> {
     host_named("factory", flags)
 }
 fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {

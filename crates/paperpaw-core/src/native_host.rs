@@ -586,6 +586,10 @@ mod linked_install;
 /// scoped dispatch), shared by the desktop and the X4.
 #[path = "native_host/shell.rs"]
 pub mod shell;
+/// A hosted plugin the kernel admits with everything it declares, for every
+/// shell (`CodeLoader::load_native`).
+#[path = "native_host/hosted_admission.rs"]
+pub mod hosted_admission;
 /// Host-owned copies of declaration records staged during construction.
 #[path = "native_host/staged.rs"]
 pub mod staged;
