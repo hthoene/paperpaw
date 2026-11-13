@@ -188,7 +188,9 @@ pub fn backdrop(
             (style.margin / 2).min(rect.width / 8),
             style.line.min(rect.height / 8),
         );
-        let radius = if inset.width < inset.height || !style.pill {
+        // A pill only round a row of one band: round a taller one (a title
+        // over two lines, a note) its ends would cut into the text.
+        let radius = if inset.width < inset.height || !style.pill || inset.height > style.row {
             style.corner
         } else {
             u32::from(inset.height) / 2
