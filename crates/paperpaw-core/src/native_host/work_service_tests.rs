@@ -7,6 +7,7 @@ use crate::abi7::services_wire;
 use crate::native_host::admitted_features::AdmittedFeatures;
 use crate::native_host::call_services::validate_reply;
 use crate::native_host::work_sched::{Limits, Power};
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::Cell;
 use paperpaw_i18n::Translator;
@@ -58,7 +59,7 @@ struct View<'a> {
     env: &'a Env<'a>,
     hosts: crate::native_host::host_services::HostServices,
     clock: Rc<Clock>,
-    sched: Rc<WorkSched>,
+    sched: crate::native_host::shared::Shared<WorkSched>,
 }
 impl Frame for View<'_> {
     fn settings(&self) -> &Settings {
@@ -114,13 +115,17 @@ fn with_view<R>(wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -> R {
         // Owners 1 and 2 are plugins that subscribed to `work_due`; 3 did not.
         subscribed: Vec::from([1, 2]),
     });
-    let sched = Rc::new(WorkSched::new(Limits::X4));
+    let sched = crate::native_host::shared::Shared::try_new(WorkSched::new(Limits::X4)).unwrap();
     let hosts = crate::native_host::host_services::HostServices::new();
     if wire_it {
         hosts
             .wire_work(WorkServices {
-                sched: sched.clone(),
-                env: clock.clone(),
+                sched: sched.try_clone().unwrap(),
+                env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(
+                    clock.clone(),
+                )
+                    as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>)
+                .unwrap(),
             })
             .unwrap();
     }
@@ -351,12 +356,14 @@ fn a_table_cannot_overflow_the_state_reply() {
         allowed: Cell::new(true),
         subscribed: Vec::from([1]),
     });
-    let sched = Rc::new(WorkSched::new(Limits::OTHER));
+    let sched = crate::native_host::shared::Shared::try_new(WorkSched::new(Limits::OTHER)).unwrap();
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts
         .wire_work(WorkServices {
-            sched: sched.clone(),
-            env: clock.clone(),
+            sched: sched.try_clone().unwrap(),
+            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(clock.clone())
+                as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>)
+            .unwrap(),
         })
         .unwrap();
     let v = View {

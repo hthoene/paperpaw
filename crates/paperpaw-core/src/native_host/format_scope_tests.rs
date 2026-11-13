@@ -218,17 +218,17 @@ fn a_full_count_table_drops_the_folder_used_least_recently() {
 fn the_places_of_the_calls_are_made_at_the_first_call_and_kept() {
     let scope = FormatScope::new();
     // Before any call nothing is held, and nothing is inside one.
-    assert!(scope.places().is_empty());
+    assert_eq!(scope.places_len(), 0);
     assert_eq!(seen(&scope, 5), None);
     let guard = scope
         .enter(5, &book("books/a.epub", BookKind::File, "", 1))
         .unwrap();
-    assert_eq!(scope.places().len(), MAX_NESTING);
-    let at = scope.places().as_ptr();
+    assert_eq!(scope.places_len(), MAX_NESTING);
+    let at = scope.places_at();
     drop(guard);
     // The next call takes the same places.
     let _again = scope
         .enter(6, &book("books/b.epub", BookKind::File, "", 2))
         .unwrap();
-    assert_eq!(scope.places().as_ptr(), at);
+    assert_eq!(scope.places_at(), at);
 }

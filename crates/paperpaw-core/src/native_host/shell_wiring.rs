@@ -46,6 +46,7 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::Storage;
 pub use secrets::{Rng, SEALED_MAX, Sealer, SecretsInputs, SecretsLifecycle};
 pub use sockets::{SockFailure, SockInputs, SockLimits, SockReports, TlsFailure, UntrustedWhy};
+pub(crate) use work::make_work;
 pub use work::{WorkDevice, WorkInputs};
 
 /// What a shell wires into the device's host views. Nothing is wired for a
@@ -454,7 +455,7 @@ impl HostResources {
             || (wiring.sockets.is_some() && hosts.sockets().is_some())
             || (wiring.ui.is_some() && hosts.ui().is_some())
             || (wiring.secrets.is_some() && hosts.secrets().is_some())
-            || (wiring.work.is_some() && hosts.work().is_some())
+            || (wiring.work.is_some() && hosts.work_wired())
         {
             return Err(ERR_STATE);
         }
@@ -655,10 +656,11 @@ fn wire_secrets_host(hosts: &Hosts, inputs: SecretsInputs) -> Result<SecretsLife
 
 #[inline(never)]
 fn wire_work(hosts: &Hosts, inputs: WorkInputs) -> Result<(), i32> {
-    let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
-    let sched = work::scheduler(&inputs);
-    let env = Rc::new(inputs.env(owners, hosts.policy().clone()));
-    hosts.wire_work(WorkServices { sched, env })
+    // The directory and the network policy are the device's from here on;
+    // the scheduler and its view are made at the first call (#248).
+    hosts.owners()?;
+    hosts.policy();
+    hosts.wire_work_later(inputs)
 }
 
 #[cfg(test)]

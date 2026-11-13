@@ -325,7 +325,10 @@ fn catalog(w: &World, books: &[(&str, bool)]) {
             catalog::Record::of(path, &book)
         })
         .collect();
-    catalog::write(&*w.card, &records).unwrap();
+    // Through the kernel's storage, as a walk writes it: what the kernel
+    // read before is not looked at again.
+    let env = w.kernel.shared.env(w.kernel.now);
+    catalog::write(env.storage(), &records).unwrap();
 }
 
 /// The kernel's start has returned (a marker left from before is read).
@@ -550,6 +553,66 @@ fn a_book_whose_job_a_reset_ended_is_skipped_from_the_start() {
     pump(&mut w, 1_000);
     assert_eq!(w.format.opens(), 1);
     assert_eq!(kept_title(&w, "books/a.epub"), None);
+    assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
+}
+
+/// Whether the document table, the reader's books and the places of the
+/// format calls hold their room.
+fn rooms(w: &World) -> (bool, bool, bool) {
+    let hosts = w.kernel.shared.native_instances.hosts().unwrap();
+    (
+        w.docs.table().rooms_reserved(),
+        w.docs.books_reserved(),
+        hosts.format_scope().places_len() != 0,
+    )
+}
+
+/// A run that read `books/a.epub` and ended, then `books/b.epub` unread in
+/// the catalog (a book copied in) and the job armed again.
+fn ended_run_and_a_new_book() -> World {
+    let mut w = world(&["books/a.epub", "books/b.epub"]);
+    // `b` counts as read in the first run.
+    catalog(&w, &[("books/a.epub", false), ("books/b.epub", true)]);
+    started(&mut w);
+    w.kernel.native_details_arm();
+    pump(&mut w, 1_000);
+    assert_eq!(w.format.opens(), 1);
+    assert_eq!(rooms(&w), (true, true, true), "the open reserved them");
+    pump(&mut w, 2_000);
+    assert_eq!(wanted(&w), 1, "the run ended");
+    catalog(&w, &[("books/a.epub", true), ("books/b.epub", false)]);
+    w.kernel.native_details_arm();
+    w
+}
+
+#[test]
+fn the_rooms_of_an_ended_run_are_given_back_and_the_next_open_reserves_them_again() {
+    let mut w = ended_run_and_a_new_book();
+    assert_eq!(rooms(&w), (false, false, false), "given back (#248)");
+    pump(&mut w, 3_000);
+    // The next open works as the first did.
+    assert_eq!(w.format.opens(), 2);
+    assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
+    assert_eq!(rooms(&w), (true, true, true));
+}
+
+#[test]
+fn an_open_whose_room_is_refused_waits_and_reads_the_book_later() {
+    use crate::native_host::shell::tests::FAIL_SIZE;
+    let mut w = ended_run_and_a_new_book();
+    // The table's event queue cannot be had again: the open is refused.
+    FAIL_SIZE.with(|size| size.set(w.docs.table().queue_room_bytes()));
+    pump(&mut w, 3_000);
+    let refused = FAIL_SIZE.with(|size| size.replace(0)) == 0;
+    assert!(refused, "the reservation was asked for");
+    assert_eq!(w.format.opens(), 1, "no open without the room");
+    assert_eq!(kept_title(&w, "books/b.epub"), None);
+    assert!(!w.docs.table().rooms_reserved(), "both or none");
+    // A timed wake; nothing lost: the book is read at the next look.
+    let due = w.kernel.native_details_due().unwrap();
+    assert!(due > 3_000);
+    pump(&mut w, due);
+    assert_eq!(w.format.opens(), 2);
     assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
 }
 

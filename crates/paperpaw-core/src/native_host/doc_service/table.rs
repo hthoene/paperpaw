@@ -249,6 +249,40 @@ impl DocumentTable {
         Ok(())
     }
 
+    /// Gives back the room of the table and of its event queue where no
+    /// document is in it and no event waits (#248: the host's details run
+    /// ended): the next `open` reserves it again, fallibly (`reserve`).
+    /// Whether it was given back (or never had).
+    pub(crate) fn release_rooms(&self) -> bool {
+        let (Ok(mut rows), Ok(mut closed)) = (
+            self.documents.try_borrow_mut(),
+            self.closed.try_borrow_mut(),
+        ) else {
+            return false;
+        };
+        if !rows.is_empty() || !closed.is_empty() {
+            return false;
+        }
+        *rows = Vec::new();
+        *closed = Vec::new();
+        true
+    }
+
+    /// Whether the table holds its room (tests of `release_rooms`).
+    #[cfg(test)]
+    pub(crate) fn rooms_reserved(&self) -> bool {
+        self.documents
+            .try_borrow()
+            .is_ok_and(|rows| rows.capacity() != 0)
+            || self.closed.try_borrow().is_ok_and(|c| c.capacity() != 0)
+    }
+
+    /// The bytes of the event queue's room (a test refuses that reservation).
+    #[cfg(test)]
+    pub(crate) fn queue_room_bytes(&self) -> usize {
+        self.limits.device * EVENTS_PER_PLACE * core::mem::size_of::<Closed>()
+    }
+
     /// Hold the table as a running call does (tests of a busy table).
     #[cfg(test)]
     pub(crate) fn hold(&self) -> Result<core::cell::RefMut<'_, Vec<Document>>, i32> {
