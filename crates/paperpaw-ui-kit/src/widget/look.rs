@@ -563,39 +563,8 @@ mod tests {
         assert_eq!(colour("core.ink.auto"), Colour::Auto);
         assert_eq!(colour("#12"), Colour::Auto);
     }
-    /// A style whose every ink is told apart from the black and white and
-    /// the grays a literal would give.
     fn themed(ink: Color, paper: Color) -> Style {
-        Style {
-            corner: 4,
-            pill: false,
-            ring: false,
-            separator_ink: Color::rgb(3, 4, 5),
-            text: 22.0,
-            small: 17.0,
-            title: 26.0,
-            head: 28.0,
-            row: 60,
-            header: 56,
-            margin: 16,
-            gap: 8,
-            line: 2,
-            dark: false,
-            plain: false,
-            separators: alloc::string::String::new(),
-            ink,
-            paper,
-            disabled: Color::rgb(6, 7, 8),
-            rule: Color::rgb(9, 10, 11),
-            muted: Color::rgb(60, 61, 62),
-            note: Color::rgb(63, 64, 65),
-            heading: 30,
-            card: Color::rgb(200, 201, 202),
-            on_dark_muted: Color::rgb(190, 191, 192),
-            strong: false,
-            rtl: false,
-            describing: false,
-        }
+        Style::themed(ink, paper)
     }
 
     fn shape(style: Style, frame: Frame, paper: Colour, shadow: Shadow) -> Shape {

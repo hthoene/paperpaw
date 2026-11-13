@@ -294,7 +294,7 @@ pub fn backdrop(
                     .ring
                     .then_some(u32::from(style.line) * 2)
                     .map(|line| line.max(3)),
-                Color::BLACK,
+                style.ink,
             ),
         )?;
     } else if style.separators != "core.separators.none" {
@@ -428,5 +428,20 @@ mod tests {
         assert_eq!(renderer.rect_of(10), None);
         // Nothing drawn yet: no row is known.
         assert_eq!(ListRenderer::default().rect_of(0), None);
+    }
+
+    #[test]
+    fn the_focus_bar_is_the_themes_ink_so_its_paper_text_reads_on_it() {
+        // #114: the bar was a literal black while its text is the theme's
+        // paper: on a dark theme (light ink, dark paper) both were dark.
+        let style = Style::themed(Color::rgb(235, 230, 220), Color::rgb(25, 30, 35));
+        let mut paint = Vec::new();
+        backdrop(&mut paint, &style, Rect::new(0, 0, 200, 60), true).unwrap();
+        let bar = paint.iter().find_map(|op| match op {
+            Paint::Focus(_, _, None, color) => Some(*color),
+            _ => None,
+        });
+        assert_eq!(bar, Some(style.ink));
+        assert_eq!(ink(&style, true), style.paper);
     }
 }

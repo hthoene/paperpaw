@@ -120,11 +120,7 @@ impl Style {
             }
         };
         let focus = setting_text(host, "core.ui-focus")?;
-        // The soft-focus shade depends on DEV display gray levels, which the
-        // current snapshot facade does not expose. Never silently draw Fill.
-        if focus == "core.focus.soft" {
-            return Err(Error::Unsupported);
-        }
+        let ring = focus_is_ring(&focus);
         let corners = setting_text(host, "core.ui-corners")?;
         let corner = match corners.as_str() {
             "core.corners.small" => tenth(8),
@@ -136,7 +132,7 @@ impl Style {
         Ok(Self {
             corner,
             pill: matches!(corners.as_str(), "core.corners.round" | "core.corners.soft"),
-            ring: focus == "core.focus.ring",
+            ring,
             separator_ink: if setting_text(host, UI_SEPARATORS)? == "core.separators.inset" {
                 color("line-faint", Color::gray(210))
             } else {
@@ -257,6 +253,14 @@ fn ui_language_is_rtl(host: &Host<'_>) -> bool {
     paperpaw_sdk::native::i18n::language(host, &mut scratch).is_ok_and(language_is_rtl)
 }
 
+/// Whether the chosen row is shown as a frame (a ring) and not as a filled bar.
+/// The soft focus (a light bar) is a frame too until the kit draws it: it was
+/// refused, and with it every screen, on a device whose theme chose it
+/// (#114).
+fn focus_is_ring(focus: &str) -> bool {
+    matches!(focus, "core.focus.ring" | "core.focus.soft")
+}
+
 /// `value` tenths of a millimetre in pixels at `dpi`, at least one pixel for
 /// any length.
 fn tenth_mm(dpi: u32, value: u32) -> u32 {
@@ -315,6 +319,44 @@ fn parse_color(value: &str) -> Option<Color> {
     }
 }
 
+/// A style for the tests of the parts that draw in it: its inks are told
+/// apart from black, white and the grays a literal would give.
+#[cfg(test)]
+impl Style {
+    pub(crate) fn themed(ink: Color, paper: Color) -> Self {
+        Self {
+            corner: 4,
+            pill: false,
+            ring: false,
+            separator_ink: Color::rgb(3, 4, 5),
+            text: 22.0,
+            small: 17.0,
+            title: 26.0,
+            head: 28.0,
+            row: 60,
+            header: 56,
+            margin: 16,
+            gap: 8,
+            line: 2,
+            dark: false,
+            plain: false,
+            separators: String::new(),
+            ink,
+            paper,
+            disabled: Color::rgb(6, 7, 8),
+            rule: Color::rgb(9, 10, 11),
+            muted: Color::rgb(60, 61, 62),
+            note: Color::rgb(63, 64, 65),
+            heading: 30,
+            card: Color::rgb(200, 201, 202),
+            on_dark_muted: Color::rgb(190, 191, 192),
+            strong: false,
+            rtl: false,
+            describing: false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,5 +403,48 @@ mod tests {
         }
         // A tag that names a left-to-right script is that, whatever the language.
         assert!(!language_is_rtl("ar-Latn"));
+    }
+
+    #[test]
+    fn the_soft_focus_is_a_frame_until_the_kit_draws_a_light_bar() {
+        // #114: it was refused, and with it every screen of a theme that
+        // chose it (the Pebble theme does).
+        assert!(focus_is_ring("core.focus.ring"));
+        assert!(focus_is_ring("core.focus.soft"));
+        assert!(!focus_is_ring("core.focus.fill"));
+        assert!(!focus_is_ring(""));
+    }
+
+    #[test]
+    fn a_full_palette_fits_the_buffer_it_is_read_into() {
+        // Style::read reads the palette into 512 bytes; the 19 names of the
+        // palette with a colour each are about 300. Names added past 512
+        // would fail every screen: they need a second setting (#114, I2).
+        let names = [
+            "text",
+            "paper",
+            "note",
+            "detail",
+            "muted",
+            "faint",
+            "disabled",
+            "rule",
+            "line",
+            "line-faint",
+            "on-focus-muted",
+            "on-dark-muted",
+            "card",
+            "section",
+            "accent",
+            "on-accent",
+            "link",
+            "selection",
+            "warning",
+        ];
+        let size: usize = names
+            .iter()
+            .map(|name| name.len() + "=#rrggbb ".len())
+            .sum();
+        assert!(size <= 400, "{size}");
     }
 }
