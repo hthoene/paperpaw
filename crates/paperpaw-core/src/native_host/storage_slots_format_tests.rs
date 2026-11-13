@@ -305,13 +305,16 @@ fn outside_a_format_call_roots_3_4_and_6_are_unsupported_and_so_are_the_others()
     within(
         Some(book("books/a.epub", BookKind::File, CACHE, "style.css")),
         |env, format| {
-            for root in [1, 2, 5, 7, 9] {
+            for root in [1, 5, 7, 9] {
                 assert_eq!(
                     read(env, format, root, "x"),
                     Err(ERR_UNSUPPORTED),
                     "root {root}"
                 );
             }
+            // Root 2 is the plugin's install folder, in a format call too
+            // (`files.md` 1.1); it holds no `x`.
+            assert_eq!(read(env, format, 2, "x"), Err(ERR_NOT_FOUND));
         },
     );
 }
