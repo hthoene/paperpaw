@@ -39,6 +39,7 @@ use alloc::{rc::Rc, string::String};
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_UNSUPPORTED};
 
 pub(crate) mod args;
+pub(crate) mod cable_link;
 mod device;
 mod serving;
 mod table;
@@ -414,6 +415,33 @@ pub(crate) fn request_for_tests(
     input: &[u8],
 ) -> Result<u32, i32> {
     table::request(host, who, input)
+}
+
+/// `serve`, `respond` and `stop_serving` as the dispatcher admits them, for
+/// the tests of the cable's kernel side.
+#[cfg(test)]
+pub(crate) fn serve_for_tests(
+    host: &dyn NetHost,
+    who: &Caller<'_>,
+    serve: &wire::ServiceNetServe,
+) -> Result<(), i32> {
+    serving::serve(host, who, serve)
+}
+
+/// See [`serve_for_tests`].
+#[cfg(test)]
+pub(crate) fn respond_for_tests(
+    host: &dyn NetHost,
+    who: &Caller<'_>,
+    input: &[u8],
+) -> Result<(), i32> {
+    serving::respond(host, who, input)
+}
+
+/// See [`serve_for_tests`].
+#[cfg(test)]
+pub(crate) fn stop_for_tests(host: &dyn NetHost, owner: u64, token: u32) -> Result<(), i32> {
+    serving::stop_serving(host, owner, token)
 }
 
 /// The plugin stopped (its callbacks are revoked): its requests are

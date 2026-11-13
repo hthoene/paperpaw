@@ -77,6 +77,9 @@ pub(crate) struct HostServices {
     radio_requests: OnceCell<Rc<RefCell<super::radio_requests::RadioRequests>>>,
     net: OnceCell<NetServices>,
     net_later: OnceCell<Rc<super::shell_wiring::NetLater>>,
+    /// Whether `core.net` is wired with the cable (port 0): the cable's
+    /// first line makes it (`cable_pump`).
+    net_cable: Cell<bool>,
     sockets: OnceCell<SockServices>,
     sockets_later: OnceCell<Rc<super::shell_wiring::SockLater>>,
     work: OnceCell<WorkServices>,
@@ -171,6 +174,7 @@ impl HostServices {
             radio_requests: OnceCell::new(),
             net: OnceCell::new(),
             net_later: OnceCell::new(),
+            net_cable: Cell::new(false),
             sockets: OnceCell::new(),
             sockets_later: OnceCell::new(),
             work: OnceCell::new(),
@@ -743,6 +747,34 @@ impl HostServices {
             .ok_or(ERR_NO_MEMORY)?;
         let _ = self.net.set(NetServices(net_service::NetRef::Made(device)));
         self.net.get().ok_or(ERR_STATE)
+    }
+
+    /// `core.net` is wired with the cable: its device is made at the
+    /// cable's first line ([`Self::cable_net_for_line`]).
+    pub(crate) fn set_net_cable(&self) {
+        self.net_cable.set(true);
+    }
+
+    /// `core.net`'s device where it is made and serves the cable; nothing is
+    /// made here (the pump's passes and the wake-up ask).
+    pub(crate) fn cable_net(&self) -> Option<&super::shared::Shared<net_service::NetDevice>> {
+        match &self.net.get()?.0 {
+            net_service::NetRef::Made(device) if device.cable().is_some() => Some(device),
+            _ => None,
+        }
+    }
+
+    /// `core.net`'s device for a line from the cable, made now where it is
+    /// wired with the cable and not made yet (#248); `None` where it is not
+    /// wired so or finds no room (the line is the interface-6 path's then).
+    pub(crate) fn cable_net_for_line(
+        &self,
+    ) -> Option<&super::shared::Shared<net_service::NetDevice>> {
+        if !self.net_cable.get() {
+            return self.cable_net();
+        }
+        self.net_for_call().ok()?;
+        self.cable_net()
     }
 
     /// The wired services that raise events to plugins, for the kernel's
