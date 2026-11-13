@@ -89,3 +89,14 @@ fn a_turn_into_the_next_chapter_changes_title_and_count() {
 fn every_allocation_may_fail() {
     crate::fail_alloc::sweep(|| Chapter::scan(TABLE.into_iter(), (3, 0)).map(|c| c.title().len()));
 }
+
+#[test]
+fn the_status_line_says_the_chapter_of_the_page() {
+    // #257 (boox reader screens): the item said the book's title on every page.
+    let two = Chapter::scan(TABLE.into_iter(), (3, 5)).unwrap();
+    assert_eq!(shown_title(Some(&two), (3, 5)), Some("Two"));
+    // A chapter kept from another page, before the first, none known: the title.
+    assert_eq!(shown_title(Some(&two), (5, 0)), None);
+    assert_eq!(shown_title(Some(&Chapter::empty()), (0, 0)), None);
+    assert_eq!(shown_title(None, (3, 5)), None);
+}
