@@ -146,7 +146,7 @@ impl ListRenderer {
         )?;
         let mut body = Vec::new();
         body.try_reserve(1).map_err(|_| Error::NoMemory)?;
-        body.push(Paint::Fill(area, style.paper));
+        body.push(Paint::Fill(style.page(area), style.paper));
         for (slot, (label, value)) in rows
             .iter()
             .skip(index * per_page)
@@ -258,11 +258,7 @@ pub fn row(
 /// The ink of text on a row that is focused or not.
 #[must_use]
 pub fn ink(style: &Style, focused: bool) -> Color {
-    if focused && !style.ring {
-        style.paper
-    } else {
-        style.ink
-    }
+    if focused { style.on_bar() } else { style.ink }
 }
 
 /// The focus round a row, or else the separator below it.
@@ -294,7 +290,7 @@ pub fn backdrop(
                     .ring
                     .then_some(u32::from(style.line) * 2)
                     .map(|line| line.max(3)),
-                Color::BLACK,
+                style.bar(),
             ),
         )?;
     } else if style.separators != "core.separators.none" {
@@ -428,5 +424,42 @@ mod tests {
         assert_eq!(renderer.rect_of(10), None);
         // Nothing drawn yet: no row is known.
         assert_eq!(ListRenderer::default().rect_of(0), None);
+    }
+
+    #[test]
+    fn the_focus_bar_is_the_themes_ink_so_its_paper_text_reads_on_it() {
+        // #114: the bar was a literal black while its text is the theme's
+        // paper: on a dark theme (light ink, dark paper) both were dark.
+        let style = Style::themed(Color::rgb(235, 230, 220), Color::rgb(25, 30, 35));
+        let mut paint = Vec::new();
+        backdrop(&mut paint, &style, Rect::new(0, 0, 200, 60), true).unwrap();
+        let bar = paint.iter().find_map(|op| match op {
+            Paint::Focus(_, _, None, color) => Some(*color),
+            _ => None,
+        });
+        assert_eq!(bar, Some(style.ink));
+        assert_eq!(ink(&style, true), style.paper);
+    }
+
+    #[test]
+    fn the_soft_bar_is_a_card_with_the_themes_text_on_it() {
+        let mut style = Style::themed(Color::rgb(10, 20, 30), Color::rgb(240, 230, 220));
+        style.soft = true;
+        let mut paint = Vec::new();
+        backdrop(&mut paint, &style, Rect::new(0, 0, 200, 60), true).unwrap();
+        let bar = paint.iter().find_map(|op| match op {
+            Paint::Focus(_, _, None, color) => Some(*color),
+            _ => None,
+        });
+        assert_eq!(bar, Some(style.soft_bar()));
+        // Of four grays (0, 85, 170, 255) it is not the paper's.
+        assert!(style.soft_bar().luma().abs_diff(style.paper.luma()) > 40);
+        assert_eq!(ink(&style, true), style.ink);
+        // A frame keeps the text's ink too; a dark bar takes the paper.
+        style.soft = false;
+        style.ring = true;
+        assert_eq!(ink(&style, true), style.ink);
+        style.ring = false;
+        assert_eq!(ink(&style, true), style.paper);
     }
 }

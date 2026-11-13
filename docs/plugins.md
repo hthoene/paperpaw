@@ -2356,6 +2356,21 @@ ui-title = 140
 ui-row = 180
 ```
 
+More of the look is a setting as well, each leaving the look as it is until
+a theme sets it: `ui-shadow` (`core.shadow.none`, `.hard`: a hard shadow under
+dialogs and chips), `ui-frame` (`core.frame.own` or one of `.none`, `.line`,
+`.card`, `.dark`: the plate of sheets, dialogs and chips), `ui-density`
+(`core.density.compact`, `.regular`, `.roomy`: the margins and gaps),
+`ui-button` (`core.button.outlined`, `.filled`, `.flat`: buttons not chosen),
+and `ui-focus = core.focus.soft` (a light bar; a frame on panels of black and
+white alone). The colours of the parts sit in `ui-palette` beside the grays:
+`panel` (plates), `focus` (the chosen row's bar), `control` (filled
+buttons), `outline` (lines round plates and chips), `chip` (the chosen chip)
+and `bar` (a dark header); a part the theme does not colour keeps its look.
+`samples/plugins/theme-slate` sets them all. The palette text is read in 512
+bytes, enough for every name with a colour each; the kit's tests fail before
+more names come than that.
+
 Pebble, a theme with lists on cards for touch screens, comes with
 PaperPaw, switched off in the plugin manager.
 
