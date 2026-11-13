@@ -146,8 +146,10 @@ impl Kernel {
         match paperpaw_sdk::ManifestRef::try_new(manifest, None) {
             Ok(manifest) => Some(manifest),
             Err(manifest) => {
-                let source = WarningSource::Plugin(manifest.id.clone());
-                self.warn(source, None, "not loaded: no memory".into());
+                // The heap is full here: the id is moved, not copied, and the
+                // warning is made only where there is room for it.
+                let source = WarningSource::Plugin(manifest.id);
+                self.try_warn(source, &["not loaded: no memory"]);
                 None
             }
         }

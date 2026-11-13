@@ -378,10 +378,35 @@ fn a_plugin_without_room_for_its_row_is_not_loaded() {
 fn a_linked_plugin_left_unlisted_is_warned_about() {
     let mut k = kernel("", "");
     let _ = k.take_warnings();
-    k.warn_not_listed("tight");
+    k.warn_not_listed(&Id::new_static("tight"));
     let warnings = k.take_warnings();
     assert!(warnings.iter().any(|w| {
         matches!(&w.source, crate::WarningSource::Plugin(id) if id.as_str() == "tight")
             && w.message.contains("not listed: no memory")
     }));
+}
+
+/// The same for a plugin the user switched off: where its row's copy is
+/// refused, it is not listed and nothing of it is loaded (its translations
+/// neither), with a warning; with room, it is listed once, off (#248, todo
+/// 568).
+#[test]
+fn a_switched_off_plugin_without_room_for_its_row_is_not_listed() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let mut k = kernel("", "");
+    let _ = k.take_warnings();
+    let manifest = paperpaw_sdk::Plugin::manifest(&Acting);
+    FAIL_NTH.with(|n| n.set(1));
+    k.register_off(&Acting, manifest);
+    let left = FAIL_NTH.with(|n| n.replace(0));
+    assert_eq!(left, 0, "the refusal was used");
+    assert!(k.plugins().get("acting").is_none());
+    assert!(k.take_warnings().iter().any(|w| {
+        matches!(&w.source, crate::WarningSource::Plugin(id) if id.as_str() == "acting")
+            && w.message.contains("not loaded: no memory")
+    }));
+    k.register_off(&Acting, paperpaw_sdk::Plugin::manifest(&Acting));
+    let listed = k.plugins().get("acting").expect("listed");
+    assert!(!listed.enabled);
+    assert!(k.actions().get("acting.go").is_none());
 }
