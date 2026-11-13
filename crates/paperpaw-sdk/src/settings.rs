@@ -1135,7 +1135,10 @@ impl Settings {
     /// a plugin loaded from the card is made for this and kept for a while:
     /// `None` too where the heap has no room for it now.
     pub fn spec(&self, id: &str) -> Option<&SettingSpec> {
-        self.spec_or_full(id).ok().flatten()
+        self.spec_or_full(id).unwrap_or_else(|_| {
+            self.specs.note_short();
+            None
+        })
     }
 
     /// [`Settings::spec`], telling an unknown setting (`None`) from one the

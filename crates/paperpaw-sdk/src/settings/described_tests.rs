@@ -506,14 +506,42 @@ fn what_is_asked_about_a_described_setting_without_its_spec_makes_none() {
     for id in asked {
         assert_eq!(s.defines(id), copied.defines(id), "{id}");
         assert_eq!(s.defines_scoped(id), copied.defines_scoped(id), "{id}");
+        assert_eq!(s.defines_guarded(id), copied.defines_guarded(id), "{id}");
+        assert_eq!(s.defines_secret(id), copied.defines_secret(id), "{id}");
+        assert_eq!(s.knows(id), copied.spec(id).is_some(), "{id}");
     }
     assert!(s.defines("stats.goal") && !s.defines("stats.goal@2"));
     assert!(s.defines_scoped("stats.goal") && s.defines_scoped("stats.goal@2"));
     assert!(!s.defines_scoped("stats.show"));
+    assert!(s.defines_guarded("stats.name") && !s.defines_guarded("stats.goal"));
+    assert!(s.knows("stats@2.goal") && !s.knows("stats.none"));
     // The specs kept as they are: none of those the plugin describes.
     let kept: Vec<String> = s.kept_specs().map(|spec| spec.id.to_string()).collect();
     assert_eq!(kept, ["before.a", "later.z"]);
     assert_eq!(copied.kept_specs().count(), 6);
     assert_eq!(tell.makes.get(), made);
     assert!(!s.any_made());
+}
+
+#[test]
+fn a_spec_left_out_for_lack_of_room_is_noted_until_the_next_rest() {
+    let (mut s, tell) = settings(true);
+    assert!(s.spec("stats.goal").is_some());
+    assert_eq!(s.specs().count(), 6);
+    assert!(!s.went_short());
+    s.rest();
+    // One that cannot be read any more is not there: nothing to note.
+    tell.fail.set(Some(DescribeError::Gone));
+    assert!(s.spec("stats.goal").is_none());
+    assert!(!s.went_short());
+    // Who is told of it (`Full`) needs no note either.
+    tell.fail.set(Some(DescribeError::NoMemory));
+    assert_eq!(s.try_spec("stats.goal"), Err(SettingError::Full));
+    assert!(!s.went_short());
+    assert!(s.spec("stats.goal").is_none());
+    assert!(s.went_short());
+    s.rest();
+    assert!(!s.went_short());
+    assert_eq!(s.specs().count(), 2);
+    assert!(s.went_short());
 }

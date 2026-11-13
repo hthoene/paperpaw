@@ -143,6 +143,10 @@ impl Block {
         self.flags[at] & SCOPED != 0
     }
 
+    pub(super) fn guarded(&self, at: usize) -> bool {
+        self.flags[at] & GUARDED != 0
+    }
+
     /// Which of its settings is called `name`. The hash is compared first;
     /// the name is then read where the plugin keeps it.
     fn find(&self, name: &str) -> Option<usize> {
@@ -364,6 +368,9 @@ pub(super) struct Blocks {
     blocks: Vec<Block>,
     /// Whether a spec was made and is kept: what [`Blocks::rest`] lets go.
     made: Cell<bool>,
+    /// Whether a spec asked for was left out for lack of room since the
+    /// last [`Blocks::rest`].
+    short: Cell<bool>,
 }
 
 impl Blocks {
@@ -465,8 +472,18 @@ impl Blocks {
         self.blocks.retain(|block| block.plugin.as_str() != plugin);
     }
 
+    /// Notes a spec left out for lack of room where nobody is told of it.
+    pub(super) fn note_short(&self) {
+        self.short.set(true);
+    }
+
+    pub(super) fn went_short(&self) -> bool {
+        self.short.get()
+    }
+
     /// Lets go of every made spec. Nothing to do where none was made.
     pub(super) fn rest(&mut self) {
+        self.short.set(false);
         if !self.made.replace(false) {
             return;
         }
@@ -577,9 +594,34 @@ impl super::Settings {
     /// ([`SettingSpec::scoped`]). Nothing is made for it.
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn defines_scoped(&self, id: &str) -> bool {
+        self.located(id).is_some_and(super::specs::At::scoped)
+    }
+
+    /// Whether setting `id` (as [`Settings::defines_scoped`] finds it) is
+    /// defined and guarded ([`SettingSpec::guarded`]). Nothing is made for
+    /// it, so no lack of room makes a guarded setting look like any other.
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn defines_guarded(&self, id: &str) -> bool {
+        self.located(id).is_some_and(super::specs::At::guarded)
+    }
+
+    /// Whether setting `id` (as [`Settings::defines_scoped`] finds it) is
+    /// defined and a secret. Nothing is made for it.
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn defines_secret(&self, id: &str) -> bool {
+        self.located(id).is_some_and(super::specs::At::secret)
+    }
+
+    /// Whether [`Settings::spec`] finds a setting for `id`, a placement's
+    /// too. Nothing is made for it.
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn knows(&self, id: &str) -> bool {
+        self.located(id).is_some()
+    }
+
+    fn located(&self, id: &str) -> Option<super::specs::At<'_>> {
         let plain = crate::id::unplaced(id);
-        let at = self.specs.locate(plain.as_deref().unwrap_or(id));
-        at.is_some_and(super::specs::At::scoped)
+        self.specs.locate(plain.as_deref().unwrap_or(id))
     }
 
     /// The specs kept as they are, in registration order: all but those
@@ -603,6 +645,14 @@ impl super::Settings {
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn any_made(&self) -> bool {
         self.specs.any_made()
+    }
+
+    /// Whether [`Settings::spec`] or [`Settings::specs`] left out a setting
+    /// for lack of room since the last [`Settings::rest`]: the kernel says
+    /// so at the end of the round, as their callers cannot tell.
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn went_short(&self) -> bool {
+        self.specs.went_short()
     }
 }
 

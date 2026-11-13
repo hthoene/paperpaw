@@ -63,6 +63,23 @@ impl<'a> At<'a> {
         }
     }
 
+    #[cfg(any(test, feature = "kernel"))]
+    pub(super) fn guarded(self) -> bool {
+        match self {
+            At::Spec(spec) => spec.guarded,
+            At::Described((block, at)) => block.guarded(at),
+        }
+    }
+
+    /// A described setting is none: it has no extra.
+    #[cfg(any(test, feature = "kernel"))]
+    pub(super) fn secret(self) -> bool {
+        match self {
+            At::Spec(spec) => spec.extra().secret,
+            At::Described(_) => false,
+        }
+    }
+
     /// The setting it follows until it is set (a described one follows
     /// none: it has no extra).
     pub(super) fn follows(self) -> Option<&'a crate::Id> {
@@ -368,6 +385,15 @@ impl Specs {
         self.described.any_made()
     }
 
+    /// Notes a spec left out for lack of room where nobody is told of it.
+    pub(super) fn note_short(&self) {
+        self.described.note_short();
+    }
+
+    pub(super) fn went_short(&self) -> bool {
+        self.described.went_short()
+    }
+
     /// Adds spec `at` of the fixed `list`, whose id is not there yet;
     /// `false` when no place is left. The specs of a list are added one
     /// after another, so the list is kept once.
@@ -467,7 +493,15 @@ impl Specs {
             .iter()
             .filter_map(|&place| match self.place(place) {
                 At::Spec(spec) => Some(spec),
-                At::Described(found) => self.described.spec(found).ok(),
+                At::Described(found) => match self.described.spec(found) {
+                    Ok(spec) => Some(spec),
+                    Err(error) => {
+                        if error == DescribeError::NoMemory {
+                            self.described.note_short();
+                        }
+                        None
+                    }
+                },
             })
     }
 
