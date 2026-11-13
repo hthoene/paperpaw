@@ -253,6 +253,10 @@ pub struct Device {
     /// The kernel's warnings since start (the last `KEPT_WARNINGS`),
     /// besides printed: for tools that check there are none.
     pub warnings: Vec<Warning>,
+    /// The frames shown since start, in order (the last `KEPT_FRAMES`): the
+    /// region and the mode the panel was refreshed with, for tests of what a
+    /// start or a page turn shows.
+    pub shown: Vec<(paperpaw_platform::Rect, RefreshMode)>,
     /// Requests are answered from the emulator's fixtures
     /// ([`Device::use_fixtures`]).
     fixtures: bool,
@@ -307,6 +311,9 @@ fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
 }
 #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
 fn linked_inputs(_: &Library, _: bool) -> LinkedInputs {}
+
+/// How many frames [`Device::shown`] keeps.
+const KEPT_FRAMES: usize = 64;
 
 /// How many of the kernel's warnings [`Device::warnings`] keeps.
 const KEPT_WARNINGS: usize = 1000;
@@ -411,6 +418,7 @@ impl Device {
             bluetooth: crate::bluetooth::Bluetooth::default(),
             speech: std::collections::VecDeque::new(),
             warnings: Vec::new(),
+            shown: Vec::new(),
             fixtures: false,
             wifi_online: WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed),
             #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
@@ -956,6 +964,10 @@ impl Device {
         let colors = self.profile.colors.then(|| self.kernel.colors());
         self.panel
             .refresh(self.controller.view(), region, mode, colors);
+        if self.shown.len() >= KEPT_FRAMES {
+            self.shown.remove(0);
+        }
+        self.shown.push((region, mode));
         // Shown as soon as drawn: plugins that pace themselves by the
         // panel go as fast as they can here.
         let drawn = core::time::Duration::from_micros(crate::host::micros() - started);
