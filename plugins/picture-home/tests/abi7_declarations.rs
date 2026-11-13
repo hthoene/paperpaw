@@ -438,10 +438,16 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.keys, old.keys);
     assert_eq!(native.menu_entries, old.menu_entries);
     assert_eq!(native.actions, old.actions);
-    // The minute tick (the status bar) and a widget that changed
-    // (`event.widget_changed`, its cell), in any order, and nothing else.
-    assert_eq!(native.events.len(), 2, "{:?}", native.events);
-    for token in [declarations::TICK, declarations::WIDGET_CHANGED] {
+    // The minute tick (the status bar), a widget that changed
+    // (`event.widget_changed`, its cell) and a prepared picture
+    // (`event.image_ready`, which the host drops for a plugin that doesn't
+    // subscribe), in any order, and nothing else.
+    assert_eq!(native.events.len(), 3, "{:?}", native.events);
+    for token in [
+        declarations::TICK,
+        declarations::WIDGET_CHANGED,
+        declarations::IMAGE_READY,
+    ] {
         assert!(
             native
                 .events

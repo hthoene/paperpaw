@@ -10,7 +10,7 @@
 //! interface-6 home screen of this plugin is the one the app has
 //! (`PORTING-7.md`).
 use crate::{
-    declarations::{ADD, DASHBOARD, PICK, STATUS_ITEMS, TICK, WIDGET_CHANGED},
+    declarations::{ADD, DASHBOARD, IMAGE_READY, PICK, STATUS_ITEMS, TICK, WIDGET_CHANGED},
     native_add_screen::{self as add_screen, AddScreen},
     native_backdrop_host,
     native_dashboard::Dashboard,
@@ -167,7 +167,7 @@ impl Plugin for NativePictureHome {
                 instance: Some(instance),
                 ..
             } => self.adds.shown(ADD, instance),
-            Event::ImageReady(ready) => self.image_ready(host, &ready),
+            Event::ImageReady(ready) if token == IMAGE_READY => self.image_ready(host, &ready),
             // The minute tick: for the dashboard that shows, its bar.
             Event::Tick { now_ms, .. } if token == TICK => match self.dashboards.top(DASHBOARD) {
                 Some(dashboard) => dashboard.tick(host, now_ms),
