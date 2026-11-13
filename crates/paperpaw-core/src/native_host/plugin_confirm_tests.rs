@@ -535,6 +535,60 @@ mod kernel_side {
         assert_ne!(home.kind, paperpaw_sdk::PluginKind::Data);
         assert!(!kernel.take_warnings().is_empty(), "said");
     }
+
+    #[test]
+    fn a_data_plugin_whose_swap_a_sleep_finishes_is_loaded_too() {
+        // A sleep after each number of steps: one comes during the swap,
+        // which then finishes in the stop's bounded steps, not in a pump.
+        let mut in_the_stop = 0;
+        for pumps in 0..40 {
+            let mut kernel = data_only_kernel();
+            kernel
+                .storage()
+                .write(
+                    "Download/dials/plugin.ini",
+                    b"[plugin]\nid = dials\nname = Dials\nversion = 1.0.0\n",
+                )
+                .unwrap();
+            let job = crate::native_host::plugin_install::PluginInstall::new(
+                1,
+                5,
+                "Download/dials",
+                0,
+                crate::native_host::plugin_rules::Evidence::NONE,
+            )
+            .unwrap();
+            let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
+            driver
+                .borrow_mut()
+                .submit_plugin(crate::native_host::plugin_jobs::PluginJobs::Install(job))
+                .unwrap();
+            drop(driver);
+            for _ in 0..40 {
+                kernel.native_firmware_pump();
+            }
+            let _ = kernel.tick(Instant(0));
+            let _ = kernel.run_action(Instant(600), actions::LEFT);
+            let _ = kernel.run_action(Instant(700), actions::CONFIRM);
+            for _ in 0..pumps {
+                kernel.native_firmware_pump();
+            }
+            let before = kernel.plugins().get("dials").is_some();
+            let _ = kernel.suspend(Instant(1_000));
+            let on_card = kernel.storage().exists("plugins/dials/plugin.ini");
+            let loaded = kernel.plugins().get("dials").is_some();
+            assert_eq!(on_card, loaded, "a sleep after {pumps} steps");
+            // Finished by the sleep pass's pump, event 70 ran with that pass's
+            // commands (as the sleep's own event); finished by the stop's
+            // steps, after them, it waits for the next pass.
+            let waits = kernel.output.commands.iter().any(|c| {
+                matches!(c, crate::Command::Emit(e, _)
+                    if *e == paperpaw_sdk::builtin::events::PLUGINS_CHANGED)
+            });
+            in_the_stop += usize::from(loaded && !before && waits);
+        }
+        assert!(in_the_stop > 0, "no swap finished in the stop's steps");
+    }
 }
 
 /// A removal the user confirms takes the store's record over before it

@@ -248,8 +248,11 @@ impl Drawer {
             .try_reserve_exact(self.tools.len())
             .map_err(|_| Error::NoMemory)?;
         let mut most = 0;
+        let hyphens = icons::Hyphens::of(host);
+        let mut breaks = |word: &str, out: &mut _| hyphens.breaks(host, word, out);
         for action in &self.tools {
-            let name = icons::name_lines(font, &style, probe_cell, src.tool_name(action))?;
+            let name = src.tool_name(action);
+            let name = icons::name_lines(font, &style, probe_cell, name, &mut breaks)?;
             most = most.max(name.lines.len());
             wrapped.push(name);
         }
