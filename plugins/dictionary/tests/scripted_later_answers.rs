@@ -86,6 +86,7 @@ fn setup(seen: &Rc<RefCell<Seen>>) -> ScriptedHost {
             title: "Wikipedia",
             text,
             flags,
+            opens: "",
         })]))
     });
     let work = seen.clone();
