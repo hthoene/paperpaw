@@ -39,6 +39,36 @@ pub fn set_clock(clock: Clock) {
     let _ = CLOCK.set(clock);
 }
 
+/// A moment of [`micros`], to tell how long ago it was (the std `Instant`
+/// cannot be read in a browser).
+#[derive(Clone, Copy, Debug)]
+pub struct Moment(i64);
+
+impl Moment {
+    /// Now.
+    #[must_use]
+    pub fn now() -> Self {
+        Self(i64::try_from(micros()).unwrap_or(i64::MAX))
+    }
+
+    /// Microseconds since this moment (never less than 0).
+    #[must_use]
+    pub fn elapsed_micros(self) -> u64 {
+        let now = i64::try_from(micros()).unwrap_or(i64::MAX);
+        u64::try_from(now.saturating_sub(self.0)).unwrap_or(0)
+    }
+
+    /// This moment, `millis` earlier (for a test that needs time to have passed).
+    #[cfg(test)]
+    #[must_use]
+    pub fn earlier_by_millis(self, millis: u64) -> Self {
+        Self(
+            self.0
+                .saturating_sub(i64::try_from(millis * 1000).unwrap_or(i64::MAX)),
+        )
+    }
+}
+
 /// One line of the kernel's own diagnostics (`KernelBuilder::device_log`),
 /// to the error stream; it keeps no state and is cheap.
 pub fn device_log(line: &str) {

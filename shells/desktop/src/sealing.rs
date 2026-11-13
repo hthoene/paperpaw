@@ -247,10 +247,12 @@ fn create_key(folder: &Path, path: &Path, key: &[u8; KEY_BYTES]) -> io::Result<(
         options.write(true).create_new(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let mut file = options.open(&temp)?;
-        file.write_all(key)?;
-        file.sync_all()?;
-        drop(file);
+        {
+            // Closed before the link is made.
+            let mut file = options.open(&temp)?;
+            file.write_all(key)?;
+            file.sync_all()?;
+        }
         std::fs::hard_link(&temp, path)
     })();
     let _ = std::fs::remove_file(&temp);

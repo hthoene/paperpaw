@@ -15,7 +15,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-paperpaw-emulator = { path = "../desktop", default-features = false }
+paperpaw-emulator = { path = "../desktop", default-features = false, features = ["native-linked"] }
 paperpaw-dev = { path = "../../tools/dev" }
 paperpaw-core = { workspace = true, features = ["color", "outline", "panes"] }
 paperpaw-platform.workspace = true

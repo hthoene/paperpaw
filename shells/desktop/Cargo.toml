@@ -37,6 +37,14 @@ paperpaw-sample-frame-test = { path = "../../samples/frame-test", optional = tru
 # The interlinear sample (ADR 0032), with `--features interlinear`.
 paperpaw-sample-interlinear = { path = "../../samples/interlinear", optional = true }
 
+# What seals the secrets of linked native plugins (`sealing`, AES-256-GCM).
+aes-gcm = { version = "0.10", optional = true, default-features = false, features = ["aes", "zeroize"] }
+# The key is wiped from memory when it is dropped.
+zeroize = { version = "1", optional = true }
+# What is checked on a plugin's bytes before it is loaded (ADR 0034); the
+# kernel's part is the freestanding rule shared with the packager (ADR 0020).
+paperpaw-native = { workspace = true, features = ["kernel"] }
+
 # What a browser does not give Rust: it hands time and random numbers in
 # (see `host`).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -46,13 +54,6 @@ getrandom = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Code plugins built for this computer (`native`).
 libloading = "0.9"
-# What seals the secrets of linked native plugins (`sealing`, AES-256-GCM).
-aes-gcm = { version = "0.10", optional = true, default-features = false, features = ["aes", "zeroize"] }
-# The key is wiped from memory when it is dropped.
-zeroize = { version = "1", optional = true }
-# What is checked on a plugin's bytes before it is loaded (ADR 0034); the
-# kernel's part is the freestanding rule shared with the packager (ADR 0020).
-paperpaw-native = { workspace = true, features = ["kernel"] }
 
 # The user id of a process where there is no `/proc` (macOS): the key file and
 # its folder are the user's alone (`sealing`).
@@ -102,13 +103,13 @@ native-linked = ["dep:aes-gcm", "dep:zeroize"]
 
 # Linked native plugins (`paperpaw-app`'s `native-linked`, and the store's
 # with `native-linked-store`) on the targets they declare a profile for and the
-# shell runs on: Linux and Windows on x86-64, macOS on x86-64 and ARM (Decision
-# 172; `build.rs` sets `cfg(linked_host)` for the same list). A target-specific
-# dependency, so that the other builds (the web, Android until its shell hosts
-# them) keep the interface-6 app: nothing registers a linked plugin there.
-# The same four targets are listed in `build.rs` (`linked_host`): change both
-# together.
-[target.'cfg(any(all(target_os = "linux", target_arch = "x86_64"), all(target_os = "windows", target_arch = "x86_64"), all(target_os = "macos", any(target_arch = "x86_64", target_arch = "aarch64"))))'.dependencies]
+# shell runs on: Linux and Windows on x86-64, macOS on x86-64 and ARM, the
+# browser on wasm32 (Decision 172; `build.rs` sets `cfg(linked_host)` for the
+# same list). A target-specific dependency, so that the other builds (Android
+# until its shell hosts them) keep the interface-6 app: nothing registers a
+# linked plugin there. The same targets are listed in `build.rs`
+# (`linked_host`): change both together.
+[target.'cfg(any(all(target_os = "linux", target_arch = "x86_64"), all(target_os = "windows", target_arch = "x86_64"), all(target_os = "macos", any(target_arch = "x86_64", target_arch = "aarch64")), all(target_os = "unknown", target_arch = "wasm32")))'.dependencies]
 paperpaw-app = { workspace = true, features = ["native-linked", "native-linked-store", "native-linked-reading"] }
 
 [lints]

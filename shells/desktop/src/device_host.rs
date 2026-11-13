@@ -17,7 +17,6 @@ use std::cell::{Cell, RefCell};
 use std::ops::ControlFlow;
 use std::rc::Rc;
 use std::sync::OnceLock;
-use std::time::Instant;
 
 use paperpaw_core::native_host::device_service::{
     BluetoothFacts, BondedRow, DEVICE_SERVICES, DeviceFacts, DeviceHost, DeviceServices,
@@ -79,7 +78,7 @@ pub struct DesktopDevice {
     /// finds it, known as joined before, as [`crate::wifi::pretend_networks`]
     /// does for the interface-6 radio.
     workshop: bool,
-    clock: Instant,
+    clock: crate::host::Moment,
     memory: ProbeCache<MemoryFacts>,
 }
 
@@ -92,7 +91,7 @@ impl DesktopDevice {
             power: RefCell::new(Power::default()),
             wifi_state: Cell::new(0),
             workshop: crate::device::wifi_online(),
-            clock: Instant::now(),
+            clock: crate::host::Moment::now(),
             memory: ProbeCache::new(),
         }
     }
@@ -115,7 +114,7 @@ impl DesktopDevice {
     }
 
     fn now_ms(&self) -> u64 {
-        u64::try_from(self.clock.elapsed().as_millis()).unwrap_or(u64::MAX)
+        self.clock.elapsed_micros() / 1000
     }
 }
 

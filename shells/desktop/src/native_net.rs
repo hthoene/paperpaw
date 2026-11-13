@@ -31,7 +31,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::Instant;
 
 use paperpaw_core::native_host::shell_wiring::{
     HttpDone, HttpJob, HttpReason, NetReports, ServedReply, ServerReason, ShellHttp, ShellNetwork,
@@ -60,7 +59,7 @@ struct Pending {
     hops: u32,
     /// When it first started (`timeout_ms` of a request in memory counts
     /// from there, redirects and all).
-    started: Instant,
+    started: crate::host::Moment,
     /// The first call's `timeout_ms`.
     timeout_ms: u32,
     /// Redirected to `https` and told to core: it goes on when core starts
@@ -75,7 +74,7 @@ impl Pending {
         if self.save_path.is_some() || self.call.body_from.is_some() {
             return Some(self.timeout_ms);
         }
-        let spent = u32::try_from(self.started.elapsed().as_millis()).unwrap_or(u32::MAX);
+        let spent = u32::try_from(self.started.elapsed_micros() / 1000).unwrap_or(u32::MAX);
         self.timeout_ms.checked_sub(spent).filter(|left| *left > 0)
     }
 }
@@ -237,7 +236,7 @@ impl NativeNet {
             timeout_ms: call.timeout_ms,
             call,
             hops: 0,
-            started: Instant::now(),
+            started: crate::host::Moment::now(),
             parked: false,
         };
         self.resume(&mut pending);
@@ -479,7 +478,7 @@ mod tests {
                 progress: false,
             },
             hops: 0,
-            started: Instant::now(),
+            started: crate::host::Moment::now(),
             timeout_ms: 30_000,
             parked: false,
         }
@@ -843,11 +842,11 @@ mod tests {
     fn a_request_in_memory_runs_out_of_time_over_its_redirects() {
         let mut p = pending(None, 0);
         p.timeout_ms = 1;
-        p.started = Instant::now() - std::time::Duration::from_millis(50);
+        p.started = crate::host::Moment::now().earlier_by_millis(50);
         assert_eq!(p.time_left(), None);
         let mut p = pending(Some("a"), 0);
         p.timeout_ms = 1;
-        p.started = Instant::now() - std::time::Duration::from_millis(50);
+        p.started = crate::host::Moment::now().earlier_by_millis(50);
         assert_eq!(
             p.time_left(),
             Some(1),

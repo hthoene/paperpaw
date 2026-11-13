@@ -22,9 +22,11 @@ use paperpaw_core::native_host::device_service::DEVICE_SERVICES;
 use paperpaw_core::native_host::flat::FlatDepth;
 use paperpaw_core::native_host::shell::DATA_SERVICES;
 use paperpaw_core::native_host::shell_wiring::{
-    CatalogEnv, NetInputs, NetLimits, NetReports, Sealer, SecretsInputs, SockInputs, SockLimits,
-    SockReports, WiredHosts, WorkDevice, WorkInputs,
+    CatalogEnv, NetInputs, NetLimits, NetReports, Sealer, SecretsInputs, WiredHosts, WorkDevice,
+    WorkInputs,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use paperpaw_core::native_host::shell_wiring::{SockInputs, SockLimits, SockReports};
 use paperpaw_core::native_host::{HostResources, HostWiring, TeardownStep};
 use paperpaw_native::metadata::{self, Feature, Service};
 use paperpaw_platform::Storage;
@@ -279,7 +281,9 @@ pub struct Inputs {
 pub struct Net {
     pub transport: Rc<crate::native_net::NativeNet>,
     pub reports: NetReports,
-    /// TCP and UDP broadcast (`core.sockets`), where wired.
+    /// TCP and UDP broadcast (`core.sockets`), where wired: not in a browser,
+    /// which has no sockets of its own to offer.
+    #[cfg(not(target_arch = "wasm32"))]
     pub sockets: Option<(Rc<crate::native_sock::NativeSock>, SockReports)>,
 }
 
@@ -304,7 +308,8 @@ impl CatalogEnv for Catalog {
         None
     }
     fn today(&self) -> Option<u32> {
-        if self.simulated {
+        // A browser's `SystemTime` cannot be read: no day there.
+        if self.simulated || cfg!(target_arch = "wasm32") {
             return None;
         }
         let seconds = std::time::SystemTime::now()
@@ -318,6 +323,11 @@ impl CatalogEnv for Catalog {
     fn now_ms(&self) -> u64 {
         if self.simulated {
             return 0;
+        }
+        // A browser's `SystemTime` cannot be read: the shell's clock is the
+        // page's (no wall clock there).
+        if cfg!(target_arch = "wasm32") {
+            return crate::host::micros() / 1000;
         }
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -337,11 +347,14 @@ fn sealer(simulated: bool) -> Result<&'static crate::sealing::KeySealer, std::io
     use std::sync::OnceLock;
     static SIMULATED: OnceLock<KeySealer> = OnceLock::new();
     static USER: OnceLock<KeySealer> = OnceLock::new();
-    let (cell, make): (_, fn() -> std::io::Result<KeySealer>) = if simulated {
-        (&SIMULATED, KeySealer::for_the_process)
-    } else {
-        (&USER, KeySealer::for_the_user)
-    };
+    // A browser has no folder for a user's key: the page's own, as a simulated
+    // run's (secrets last as long as the page).
+    let (cell, make): (_, fn() -> std::io::Result<KeySealer>) =
+        if simulated || cfg!(target_arch = "wasm32") {
+            (&SIMULATED, KeySealer::for_the_process)
+        } else {
+            (&USER, KeySealer::for_the_user)
+        };
     if let Some(sealer) = cell.get() {
         return Ok(sealer);
     }
@@ -651,26 +664,28 @@ pub fn register(
         .device(device)
         .lookup()
         .work(WorkInputs::new(inputs.view.clone(), profile.device.memory));
-    // HTTP over the card (saved and sent files); no card, no `core.net`.
+    // HTTP over the card (saved and sent files); no card, no `core.net`. In a
+    // browser the requests go through the page's own route (`http::set_route`).
     let transport = inputs.storage.clone().map(|storage| {
         let transport = Rc::new(crate::native_net::NativeNet::new(
             storage.clone(),
             inputs.view.clone(),
         ));
+        wiring = std::mem::take(&mut wiring).net(NetInputs::new(
+            storage.clone(),
+            transport.clone(),
+            transport.clone(),
+            // The one pool and its TLS sessions are the same in both
+            // wirings (`SockLimits::large`: 4).
+            NetLimits::new(0, 8).tls_sessions(4),
+        ));
         // TCP with TLS (`paperpaw_serve::secure`) and UDP broadcast. The
         // same transport tells core of the network for both services: core
         // combines their demand.
-        let sockets = Rc::new(crate::native_sock::NativeSock::new());
-        wiring = std::mem::take(&mut wiring)
-            .net(NetInputs::new(
-                storage.clone(),
-                transport.clone(),
-                transport.clone(),
-                // The one pool and its TLS sessions are the same in both
-                // wirings (`SockLimits::large`: 4).
-                NetLimits::new(0, 8).tls_sessions(4),
-            ))
-            .sockets(
+        #[cfg(not(target_arch = "wasm32"))]
+        let sockets = {
+            let sockets = Rc::new(crate::native_sock::NativeSock::new());
+            wiring = std::mem::take(&mut wiring).sockets(
                 SockInputs::new(
                     storage,
                     sockets.clone(),
@@ -679,6 +694,10 @@ pub fn register(
                 )
                 .tls(sockets.clone()),
             );
+            sockets
+        };
+        #[cfg(target_arch = "wasm32")]
+        let sockets = ();
         (transport, sockets)
     });
     // The books, the catalog and the card's files, from the card itself.
@@ -722,10 +741,15 @@ pub fn register(
     *inputs.net.borrow_mut() =
         transport
             .zip(wired.net().cloned())
-            .map(|((transport, sockets), reports)| Net {
-                transport,
-                reports,
-                sockets: wired.sockets().cloned().map(|wired| (sockets, wired)),
+            .map(|((transport, sockets), reports)| {
+                #[cfg(target_arch = "wasm32")]
+                let () = sockets;
+                Net {
+                    transport,
+                    reports,
+                    #[cfg(not(target_arch = "wasm32"))]
+                    sockets: wired.sockets().cloned().map(|wired| (sockets, wired)),
+                }
             });
     let depth = FlatDepth::try_new().map_err(|_| Unavailable::NoRoom)?;
     let host = metadata::Host {

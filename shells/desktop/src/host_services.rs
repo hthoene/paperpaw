@@ -10,14 +10,13 @@
 use std::alloc::Layout;
 use std::ffi::c_void;
 use std::sync::OnceLock;
-use std::time::Instant;
 
 use paperpaw_native::host_glue::{PpHost, Services, ShellCtx, host_table};
 
 /// The emulator's heap and clock.
 #[derive(Debug)]
 pub struct DesktopServices {
-    start: Instant,
+    start: crate::host::Moment,
 }
 
 impl DesktopServices {
@@ -25,7 +24,7 @@ impl DesktopServices {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            start: Instant::now(),
+            start: crate::host::Moment::now(),
         }
     }
 }
@@ -74,7 +73,7 @@ impl Services for DesktopServices {
     }
 
     fn micros(&self) -> u64 {
-        u64::try_from(self.start.elapsed().as_micros()).unwrap_or(u64::MAX)
+        self.start.elapsed_micros()
     }
 }
 
@@ -108,7 +107,7 @@ pub fn desktop_host() -> &'static DesktopHost {
     static HOST: OnceLock<DesktopHost> = OnceLock::new();
     HOST.get_or_init(|| {
         let services: &'static DesktopServices = Box::leak(Box::new(DesktopServices {
-            start: Instant::now(),
+            start: crate::host::Moment::now(),
         }));
         let ctx: &'static mut ShellCtx<'static> = Box::leak(Box::new(ShellCtx::new(services)));
         DesktopHost {
