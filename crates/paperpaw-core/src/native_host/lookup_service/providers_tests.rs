@@ -382,3 +382,27 @@ fn a_frame_without_declarations_cannot_say_who_provides() {
         Err(ERR_UNSUPPORTED)
     );
 }
+
+#[test]
+fn the_ready_event_names_a_providers_first_lookup_and_the_name_finds_its_owner() {
+    let kernel = kernel(false);
+    let env = kernel.shared.env(Instant(0));
+    let mut rig = rig(&env);
+    install(&mut rig.store, &plugin("dict", 1), &[("main", "", 0, 11)]);
+    install(
+        &mut rig.store,
+        &plugin("wiki", 2),
+        &[("wiki", "", 0, 22), ("extra", "", 0, 23)],
+    );
+    let named = |owner| {
+        Providers
+            .provider_name(Some(&rig.store), owner)
+            .map(|(name, len)| String::from_utf8(name[..usize::from(len)].to_vec()).unwrap())
+    };
+    assert_eq!(named(2).as_deref(), Some("wiki"));
+    assert_eq!(named(1).as_deref(), Some("main"));
+    assert_eq!(named(3), None);
+    assert_eq!(Providers.provider_name(None, 2), None);
+    assert_eq!(Providers.provider_owner(&rig, "extra"), Some(2));
+    assert_eq!(Providers.provider_owner(&rig, "none"), None);
+}
