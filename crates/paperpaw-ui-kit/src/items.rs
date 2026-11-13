@@ -38,6 +38,9 @@ pub struct RowItem {
     /// A switch: on or off (the row is told as a switch to whoever asks what
     /// is shown); `None` for a row that is no switch.
     pub on: Option<bool>,
+    /// An input field's look: an outline round the row when it has no focus
+    /// (the settings' search), where other rows have a separator.
+    pub field: bool,
 }
 
 /// An entry of an [`ItemList`].
@@ -79,6 +82,20 @@ impl Item {
             stepper: false,
             disabled: false,
             on: None,
+            field: false,
+        }))
+    }
+
+    /// A row that looks like a field to type in: outlined while it has no
+    /// focus.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when the text cannot be copied.
+    pub fn field(title: &str) -> Result<Self, Error> {
+        Ok(Self::Row(RowItem {
+            title: text::copy(title)?,
+            field: true,
+            ..RowItem::default()
         }))
     }
 
@@ -961,6 +978,21 @@ pub(crate) fn heading(
     )
 }
 
+/// What is behind a row: the focus, the separator, or a field's outline.
+fn row_backdrop(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    rect: Rect,
+    row: &RowItem,
+    focused: bool,
+) -> Result<(), Error> {
+    if row.field && !focused {
+        let (outline, radius, line) = field_outline(style, rect);
+        return paint::push(paint, Paint::Focus(outline, radius, Some(line), style.ink));
+    }
+    backdrop(paint, style, rect, focused)
+}
+
 pub(crate) fn draw_row(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
@@ -969,7 +1001,7 @@ pub(crate) fn draw_row(
     row: &RowItem,
     focused: bool,
 ) -> Result<Option<(Rect, Rect)>, Error> {
-    backdrop(paint, style, rect, focused)?;
+    row_backdrop(paint, style, rect, row, focused)?;
     paint::describe(
         paint,
         style.describing,
@@ -1074,6 +1106,21 @@ pub(crate) fn draw_row(
     Ok(buttons)
 }
 
+/// Where a field row's outline goes: its rectangle, corner radius and line
+/// (the focused row's own, drawn thin).
+fn field_outline(style: &Style, rect: Rect) -> (Rect, u32, u32) {
+    let inset = rect.inset(
+        (style.margin / 2).min(rect.width / 8),
+        style.line.min(rect.height / 8),
+    );
+    let radius = if inset.width < inset.height || !style.pill {
+        style.corner
+    } else {
+        u32::from(inset.height) / 2
+    };
+    (inset, radius, u32::from(style.line).max(1))
+}
+
 /// A small 3x3 grid at the left of `rect` with cell `zone` filled: the part of
 /// the screen a tap zone is.
 fn zone_picture(
@@ -1128,6 +1175,63 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    fn style() -> Style {
+        Style {
+            corner: 4,
+            pill: false,
+            ring: false,
+            separator_ink: paperpaw_sdk::Color::BLACK,
+            text: 22.0,
+            small: 17.0,
+            title: 26.0,
+            head: 28.0,
+            row: 60,
+            header: 56,
+            margin: 16,
+            gap: 8,
+            line: 2,
+            dark: false,
+            plain: false,
+            separators: alloc::string::ToString::to_string("core.separators.lines"),
+            ink: paperpaw_sdk::Color::BLACK,
+            paper: paperpaw_sdk::Color::WHITE,
+            disabled: paperpaw_sdk::Color::gray(160),
+            rule: paperpaw_sdk::Color::gray(190),
+            muted: paperpaw_sdk::Color::gray(100),
+            note: paperpaw_sdk::Color::gray(80),
+            heading: 30,
+            card: paperpaw_sdk::Color::gray(230),
+            on_dark_muted: paperpaw_sdk::Color::gray(200),
+            strong: false,
+            rtl: false,
+            describing: false,
+        }
+    }
+
+    #[test]
+    fn a_field_row_is_a_selectable_row_that_looks_like_a_field() {
+        let Item::Row(row) = Item::field("Search").unwrap() else {
+            panic!("a row")
+        };
+        assert!(row.field && row.value.is_empty() && row.note.is_empty());
+        assert_eq!(row.title, "Search");
+        assert!(Item::field("Search").unwrap().selectable());
+        assert!(!matches!(Item::row("Search", "").unwrap(), Item::Row(r) if r.field));
+    }
+
+    #[test]
+    fn a_field_is_outlined_inside_its_row_with_the_corner_of_the_style() {
+        let style = style();
+        let (outline, radius, line) = field_outline(&style, Rect::new(0, 100, 480, 60));
+        assert_eq!(outline, Rect::new(8, 102, 464, 56));
+        assert_eq!((radius, line), (4, 2));
+        let pill = Style {
+            pill: true,
+            ..style
+        };
+        assert_eq!(field_outline(&pill, Rect::new(0, 100, 480, 60)).1, 28);
     }
 
     fn action(action: &str) -> Input<'_> {

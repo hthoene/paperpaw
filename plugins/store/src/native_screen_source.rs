@@ -80,6 +80,7 @@ pub fn items(name: &str, help: &str) -> Result<Vec<Item>, Error> {
             stepper: false,
             disabled: true,
             on: None,
+            field: false,
         }),
     )?;
     Ok(items)

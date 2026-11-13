@@ -469,6 +469,7 @@ pub fn plugin_row(
         stepper: false,
         disabled: false,
         on: None,
+        field: false,
     })
 }
 
@@ -497,6 +498,7 @@ pub fn top_row(say: &mut dyn Say, top: Top, order: Order, help: &str) -> Result<
         stepper: false,
         disabled: false,
         on: None,
+        field: false,
     })
 }
 
