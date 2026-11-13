@@ -338,7 +338,7 @@ fn draw_window_row(
     let note = text::fit(font, style.small, &row.note, room)?;
     let line = crate::geometry::line_px(font, style.small)?;
     let color = if focused && !style.ring {
-        style.paper
+        style.on_bar()
     } else {
         style.note
     };

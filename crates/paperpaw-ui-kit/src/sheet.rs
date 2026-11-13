@@ -6,6 +6,7 @@ use crate::{
     items::{Item, ItemList, draw_row, heading, item_height, paginate},
     paint::{self},
     text,
+    widget::Frame,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -107,6 +108,10 @@ impl ItemList {
         let font = Font::acquire_role(host, FontRole::Ui)?;
         let mut style = Style::read(host, &display, &font)?;
         style.describing = matches!(frame.purpose, DrawPurpose::Screen) && paint::asking(frame);
+        // The frame the theme chose for all (a line along the top edge unless).
+        let plate = style.plate(Frame::Line);
+        style.ink = plate.ink;
+        style.paper = plate.paper;
         let (width, height) = (display.display_width(), display.display_height());
         let mut heights = Vec::new();
         heights
@@ -144,8 +149,11 @@ impl ItemList {
             false,
             false,
         )?;
-        paint::push(&mut body, Paint::Fill(sheet.region, style.paper))?;
-        paint::push(&mut body, Paint::Fill(sheet.border, style.ink))?;
+        let fill = plate.fill.unwrap_or(plate.paper);
+        paint::push(&mut body, Paint::Fill(sheet.region, fill))?;
+        if plate.outline {
+            paint::push(&mut body, Paint::Fill(sheet.border, style.ink))?;
+        }
         let mut hits = Vec::new();
         let mut steps = Vec::new();
         let mut y = sheet.list.y;

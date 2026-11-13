@@ -258,11 +258,7 @@ pub fn row(
 /// The ink of text on a row that is focused or not.
 #[must_use]
 pub fn ink(style: &Style, focused: bool) -> Color {
-    if focused && !style.ring {
-        style.paper
-    } else {
-        style.ink
-    }
+    if focused { style.on_bar() } else { style.ink }
 }
 
 /// The focus round a row, or else the separator below it.
@@ -294,7 +290,7 @@ pub fn backdrop(
                     .ring
                     .then_some(u32::from(style.line) * 2)
                     .map(|line| line.max(3)),
-                style.ink,
+                style.bar(),
             ),
         )?;
     } else if style.separators != "core.separators.none" {
@@ -442,6 +438,26 @@ mod tests {
             _ => None,
         });
         assert_eq!(bar, Some(style.ink));
+        assert_eq!(ink(&style, true), style.paper);
+    }
+
+    #[test]
+    fn the_soft_bar_is_a_card_with_the_themes_text_on_it() {
+        let mut style = Style::themed(Color::rgb(10, 20, 30), Color::rgb(240, 230, 220));
+        style.soft = true;
+        let mut paint = Vec::new();
+        backdrop(&mut paint, &style, Rect::new(0, 0, 200, 60), true).unwrap();
+        let bar = paint.iter().find_map(|op| match op {
+            Paint::Focus(_, _, None, color) => Some(*color),
+            _ => None,
+        });
+        assert_eq!(bar, Some(style.card));
+        assert_eq!(ink(&style, true), style.ink);
+        // A frame keeps the text's ink too; a dark bar takes the paper.
+        style.soft = false;
+        style.ring = true;
+        assert_eq!(ink(&style, true), style.ink);
+        style.ring = false;
         assert_eq!(ink(&style, true), style.paper);
     }
 }

@@ -23,7 +23,7 @@ use paperpaw_sdk::{
     native::{Error, fonts::Font, snapshot::Snapshot},
 };
 
-use crate::{Paint, Style, paint, text};
+use crate::{Paint, Style, paint, style::Plate, text, widget::Frame};
 
 /// The most chips one row of chips holds; more are refused, not cut short.
 pub const MAX_CHIPS: usize = 32;
@@ -49,6 +49,12 @@ pub struct Chips {
     describing: bool,
     ink: Color,
     paper: Color,
+    /// What an unchosen chip stands on (its frame: an outline on paper
+    /// unless the theme chose another).
+    plate: Plate,
+    /// The pixels of the hard shadow, which lie inside the chip's cell.
+    shadow: u16,
+    shade: Color,
 }
 
 impl Chips {
@@ -129,6 +135,7 @@ impl Chips {
         if count > MAX_CHIPS {
             return Err(Error::NoSpace);
         }
+        let plate = style.plate(Frame::Line);
         let mut labels = Vec::new();
         labels
             .try_reserve_exact(count)
@@ -143,8 +150,11 @@ impl Chips {
             pill: style.pill,
             rtl: style.rtl,
             describing: style.describing,
-            ink: style.ink,
-            paper: style.paper,
+            ink: plate.ink,
+            paper: plate.paper,
+            plate,
+            shadow: style.shadow,
+            shade: style.shade(plate.fill),
         })
     }
 
@@ -336,7 +346,7 @@ impl Chips {
             if !self.shows(i, band) {
                 continue;
             }
-            let back = if i == chosen { self.ink } else { self.paper };
+            let radius = self.radius(cell.height.min(cell.width));
             paint::describe(
                 paint,
                 self.describing,
@@ -345,9 +355,32 @@ impl Chips {
                 focus == Some(i),
                 false,
             )?;
-            let radius = self.radius(cell.height.min(cell.width));
-            paint::push(paint, Paint::Focus(*cell, radius, None, back))?;
-            paint::push(paint, Paint::Focus(*cell, radius, Some(border), self.ink))?;
+            let body = Rect::new(
+                cell.x,
+                cell.y,
+                cell.width.saturating_sub(self.shadow),
+                cell.height.saturating_sub(self.shadow),
+            );
+            let back = if i == chosen {
+                Some(self.ink)
+            } else {
+                self.plate.fill
+            };
+            if self.shadow > 0 && back.is_some() {
+                let below = Rect::new(
+                    body.x.saturating_add(self.shadow),
+                    body.y.saturating_add(self.shadow),
+                    body.width,
+                    body.height,
+                );
+                paint::push(paint, Paint::Focus(below, radius, None, self.shade))?;
+            }
+            if let Some(back) = back {
+                paint::push(paint, Paint::Focus(body, radius, None, back))?;
+            }
+            if self.plate.outline {
+                paint::push(paint, Paint::Focus(body, radius, Some(border), self.ink))?;
+            }
             if focus == Some(i) {
                 let out = self.border.saturating_mul(2);
                 paint::push(

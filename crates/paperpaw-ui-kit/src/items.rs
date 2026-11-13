@@ -1068,7 +1068,7 @@ pub(crate) fn draw_row(
         return Ok(buttons);
     }
     let color = if focused && !style.ring {
-        style.paper
+        style.on_bar()
     } else {
         style.note
     };

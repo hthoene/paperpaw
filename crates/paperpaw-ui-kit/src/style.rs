@@ -1,5 +1,6 @@
 //! Stock UI geometry read through typed native settings and font calls.
 
+use crate::widget::Frame;
 use alloc::string::String;
 use paperpaw_sdk::{
     Color, Rect,
@@ -19,6 +20,74 @@ const UI_LINES: &str = "core.ui-lines";
 const UI_HEADER: &str = "core.ui-header";
 const UI_SEPARATORS: &str = "core.ui-separators";
 const UI_PALETTE: &str = "core.ui-palette";
+const UI_SHADOW: &str = "core.ui-shadow";
+const UI_FRAME: &str = "core.ui-frame";
+const UI_DENSITY: &str = "core.ui-density";
+const UI_BUTTON: &str = "core.ui-button";
+
+/// What a sheet, a dialog or a chip stands on, by its frame: the colour of the
+/// plate, whether a line runs round it, and the inks its content is drawn in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Plate {
+    /// The plate; none where the content stands on the page itself.
+    pub fill: Option<Color>,
+    /// A line round it, in the content's ink.
+    pub outline: bool,
+    /// The ink of the content.
+    pub ink: Color,
+    /// The paper of the content (what the chosen part's text is drawn in).
+    pub paper: Color,
+}
+
+/// How buttons that are not chosen look.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ButtonLook {
+    /// A line round the label, as they always were.
+    #[default]
+    Outlined,
+    /// A card's colour behind the label, no line.
+    Filled,
+    /// The label alone.
+    Flat,
+}
+
+impl ButtonLook {
+    fn of(value: &str) -> Self {
+        match value {
+            "core.button.filled" => Self::Filled,
+            "core.button.flat" => Self::Flat,
+            _ => Self::Outlined,
+        }
+    }
+}
+
+/// How much room the interface leaves between and round its parts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Density {
+    Compact,
+    #[default]
+    Regular,
+    Roomy,
+}
+
+impl Density {
+    fn of(value: &str) -> Self {
+        match value {
+            "core.density.compact" => Self::Compact,
+            "core.density.roomy" => Self::Roomy,
+            _ => Self::Regular,
+        }
+    }
+
+    /// `pixels` a part keeps: three quarters, as it was, five quarters.
+    fn scale(self, pixels: u32) -> u32 {
+        match self {
+            Self::Compact => pixels * 3 / 4,
+            Self::Regular => pixels,
+            Self::Roomy => pixels * 5 / 4,
+        }
+    }
+}
 
 fn integer(host: &Host<'_>, key: &str) -> Result<i64, Error> {
     let mut bytes = [0; 32];
@@ -48,7 +117,22 @@ pub fn setting_text(host: &Host<'_>, key: &str) -> Result<String, Error> {
 pub struct Style {
     pub corner: u32,
     pub pill: bool,
+    /// The chosen row is a frame, not a bar (focus `core.focus.ring`, or the
+    /// soft one on a panel of two grays).
     pub ring: bool,
+    /// The chosen row is a light bar with the text's ink on it (focus
+    /// `core.focus.soft` on a panel of more than two grays).
+    pub soft: bool,
+    /// Pixels of the hard shadow of sheets, dialogs and chips; 0 for none
+    /// (`core.ui-shadow`).
+    pub shadow: u16,
+    /// The frame of sheets, dialogs and chips where the theme chose one for
+    /// all (`core.ui-frame`); `None` leaves each its own.
+    pub frame: Option<Frame>,
+    /// How buttons that are not chosen look (`core.ui-button`).
+    pub button: ButtonLook,
+    /// The panel shows black and white alone: a card is a sparser pattern.
+    pub mono: bool,
     pub separator_ink: Color,
     pub text: f32,
     pub small: f32,
@@ -123,8 +207,7 @@ impl Style {
                 color(name, default)
             }
         };
-        let focus = setting_text(host, "core.ui-focus")?;
-        let ring = focus_is_ring(&focus);
+        let looks = Looks::read(host, display, tenth(10))?;
         let corners = setting_text(host, "core.ui-corners")?;
         let corner = match corners.as_str() {
             "core.corners.small" => tenth(8),
@@ -132,11 +215,16 @@ impl Style {
             "core.corners.soft" => tenth(35),
             _ => 0,
         };
-        let gap = narrow(tenth(20));
+        let gap = narrow(looks.density.scale(tenth(20)));
         Ok(Self {
             corner,
             pill: matches!(corners.as_str(), "core.corners.round" | "core.corners.soft"),
-            ring,
+            ring: looks.ring,
+            soft: looks.soft,
+            shadow: looks.shadow,
+            frame: looks.frame,
+            button: looks.button,
+            mono: display.display_gray_levels() == Some(2),
             separator_ink: if setting_text(host, UI_SEPARATORS)? == "core.separators.inset" {
                 color("line-faint", Color::gray(210))
             } else {
@@ -148,7 +236,11 @@ impl Style {
             head: pt(base * integer(host, UI_TITLE)?.clamp(100, 200) as f32 / 100.0),
             row: narrow((row as u32).max(finger)),
             header: narrow((line_height * (rows + 0.1)) as u32 + lift),
-            margin: narrow(tenth(integer(host, UI_MARGIN)?.clamp(0, 15) as u32 * 10)),
+            margin: narrow(
+                looks
+                    .density
+                    .scale(tenth(integer(host, UI_MARGIN)?.clamp(0, 15) as u32 * 10)),
+            ),
             gap,
             line: narrow(tenth(integer(host, UI_LINES)?.clamp(1, 10) as u32).max(1)),
             dark: header == "core.header.dark",
@@ -169,6 +261,58 @@ impl Style {
             rtl: ui_language_is_rtl(host),
             describing: false,
         })
+    }
+
+    /// The colour of the bar the chosen row is on (the text's ink; a card's
+    /// colour for the light bar).
+    #[must_use]
+    pub fn bar(&self) -> Color {
+        if self.soft { self.card } else { self.ink }
+    }
+
+    /// The ink of text on the chosen row: the paper's on a dark bar, the
+    /// text's own on a light one or in a frame.
+    #[must_use]
+    pub fn on_bar(&self) -> Color {
+        if self.ring || self.soft {
+            self.ink
+        } else {
+            self.paper
+        }
+    }
+
+    /// The plate of a part whose own frame is `own`: the frame the theme
+    /// chose for all where it chose one (`core.ui-frame`). A dark plate is
+    /// the darker of the inks with the lighter one on it.
+    #[must_use]
+    pub fn plate(&self, own: Frame) -> Plate {
+        let paper = Some(self.paper);
+        let (fill, outline) = match self.frame.unwrap_or(own) {
+            Frame::None => (None, false),
+            Frame::Line => (paper, true),
+            Frame::Card if self.mono => (Some(sparser(self.card)), true),
+            Frame::Card => (Some(self.card), false),
+            Frame::Dark => (Some(self.darker()), false),
+        };
+        let dark = matches!(self.frame.unwrap_or(own), Frame::Dark);
+        Plate {
+            fill,
+            outline,
+            ink: if dark { self.lighter() } else { self.ink },
+            paper: if dark { self.darker() } else { self.paper },
+        }
+    }
+
+    /// The colour of a hard shadow: dark gray under a plate that is darker
+    /// than that, else the darker of the inks.
+    #[must_use]
+    pub fn shade(&self, plate: Option<Color>) -> Color {
+        let dark_gray = Color::gray(90);
+        if plate.is_some_and(|fill| fill.luma() < dark_gray.luma() / 2) {
+            dark_gray
+        } else {
+            self.darker()
+        }
     }
 
     /// The darker of the interface's two inks (text and paper): the ink on
@@ -316,13 +460,55 @@ fn ui_language_is_rtl(host: &Host<'_>) -> bool {
     paperpaw_sdk::native::i18n::language(host, &mut scratch).is_ok_and(language_is_rtl)
 }
 
-/// Whether the chosen row is shown as a frame (a ring) and not as a filled bar.
-/// The soft focus (a light bar) is a frame too until the kit draws it: it was
-/// refused, and with it every screen, on a device whose theme chose it
-/// (#114). The light bar itself is drawn from the focus settings of the
-/// build-out (#2848, step 2); until then it is a frame.
-fn focus_is_ring(focus: &str) -> bool {
-    matches!(focus, "core.focus.ring" | "core.focus.soft")
+/// The settings of the look beyond the sizes and colours, read together.
+struct Looks {
+    ring: bool,
+    soft: bool,
+    shadow: u16,
+    frame: Option<Frame>,
+    button: ButtonLook,
+    density: Density,
+}
+
+impl Looks {
+    /// `shadow` is the length of the hard shadow in pixels.
+    fn read(host: &Host<'_>, display: &Snapshot, shadow: u32) -> Result<Self, Error> {
+        let (ring, soft) = focus_look(
+            &setting_text(host, "core.ui-focus")?,
+            display.display_gray_levels(),
+        );
+        let hard = setting_text(host, UI_SHADOW)? == "core.shadow.hard";
+        let frame = setting_text(host, UI_FRAME)?;
+        Ok(Self {
+            ring,
+            soft,
+            shadow: if hard { narrow(shadow) } else { 0 },
+            frame: crate::widget::look::FRAMES
+                .contains(&frame.as_str())
+                .then(|| Frame::of(&frame)),
+            button: ButtonLook::of(&setting_text(host, UI_BUTTON)?),
+            density: Density::of(&setting_text(host, UI_DENSITY)?),
+        })
+    }
+}
+
+/// How the chosen row is shown, as (a frame, a light bar): a dark bar when
+/// neither. The light bar needs more than two grays (a panel that knows no
+/// number of grays, such as a colour one, gets the frame); on two it is a
+/// frame (#114).
+fn focus_look(focus: &str, grays: Option<u16>) -> (bool, bool) {
+    match focus {
+        "core.focus.ring" => (true, false),
+        "core.focus.soft" if grays.is_some_and(|levels| levels > 2) => (false, true),
+        "core.focus.soft" => (true, false),
+        _ => (false, false),
+    }
+}
+
+/// A card on a panel of two grays: half way to the paper, as a pattern.
+fn sparser(card: Color) -> Color {
+    let half = |c: u8| c + (255 - c) / 2;
+    Color::rgb(half(card.r), half(card.g), half(card.b))
 }
 
 /// `value` tenths of a millimetre in pixels at `dpi`, at least one pixel for
@@ -392,6 +578,11 @@ impl Style {
             corner: 4,
             pill: false,
             ring: false,
+            soft: false,
+            shadow: 0,
+            frame: None,
+            button: ButtonLook::Outlined,
+            mono: false,
             separator_ink: Color::rgb(3, 4, 5),
             text: 22.0,
             small: 17.0,
@@ -470,13 +661,16 @@ mod tests {
     }
 
     #[test]
-    fn the_soft_focus_is_a_frame_until_the_kit_draws_a_light_bar() {
+    fn the_soft_focus_is_a_light_bar_on_more_than_two_grays_and_a_frame_on_two() {
         // #114: it was refused, and with it every screen of a theme that
         // chose it (the Pebble theme does).
-        assert!(focus_is_ring("core.focus.ring"));
-        assert!(focus_is_ring("core.focus.soft"));
-        assert!(!focus_is_ring("core.focus.fill"));
-        assert!(!focus_is_ring(""));
+        assert_eq!(focus_look("core.focus.soft", Some(4)), (false, true));
+        assert_eq!(focus_look("core.focus.soft", Some(16)), (false, true));
+        assert_eq!(focus_look("core.focus.soft", Some(2)), (true, false));
+        assert_eq!(focus_look("core.focus.soft", None), (true, false));
+        assert_eq!(focus_look("core.focus.ring", Some(16)), (true, false));
+        assert_eq!(focus_look("core.focus.fill", Some(16)), (false, false));
+        assert_eq!(focus_look("", Some(16)), (false, false));
     }
 
     #[test]
@@ -513,5 +707,53 @@ mod tests {
         cache.clear();
         assert!(cache.get_with(|| Err(Error::NoMemory)).is_err());
         assert!(!cache.is_kept());
+    }
+
+    #[test]
+    fn a_theme_that_chose_a_frame_sets_the_plate_and_the_inks_on_it() {
+        let mut style = Style::themed(Color::rgb(10, 20, 30), Color::rgb(240, 230, 220));
+        // Its own: a line round paper, the inks as they are (the look until now).
+        let own = style.plate(Frame::Line);
+        assert_eq!((own.fill, own.outline), (Some(style.paper), true));
+        assert_eq!((own.ink, own.paper), (style.ink, style.paper));
+        style.frame = Some(Frame::None);
+        assert_eq!(style.plate(Frame::Line).fill, None);
+        style.frame = Some(Frame::Card);
+        let card = style.plate(Frame::Line);
+        assert_eq!((card.fill, card.outline), (Some(style.card), false));
+        style.mono = true;
+        let sparse = style.plate(Frame::Line);
+        assert_eq!(sparse.fill, Some(sparser(style.card)));
+        assert!(sparse.outline, "a pattern needs its line on two grays");
+        style.mono = false;
+        style.frame = Some(Frame::Dark);
+        let dark = style.plate(Frame::Line);
+        assert_eq!(dark.fill, Some(style.darker()));
+        assert_eq!((dark.ink, dark.paper), (style.lighter(), style.darker()));
+    }
+
+    #[test]
+    fn the_shadow_is_dark_gray_under_a_dark_plate_else_the_darker_ink() {
+        let style = Style::themed(Color::BLACK, Color::WHITE);
+        assert_eq!(style.shade(Some(Color::WHITE)), Color::BLACK);
+        assert_eq!(style.shade(None), Color::BLACK);
+        assert_eq!(style.shade(Some(Color::BLACK)), Color::gray(90));
+    }
+
+    #[test]
+    fn density_scales_a_length_and_regular_keeps_it() {
+        assert_eq!(Density::of("core.density.compact").scale(20), 15);
+        assert_eq!(Density::of("core.density.roomy").scale(20), 25);
+        assert_eq!(Density::of("core.density.regular").scale(20), 20);
+        assert_eq!(Density::of("").scale(20), 20);
+        assert_eq!(Density::of("core.density.compact").scale(0), 0);
+    }
+
+    #[test]
+    fn a_button_look_is_named_by_its_value_and_outlined_is_the_default() {
+        assert_eq!(ButtonLook::of("core.button.filled"), ButtonLook::Filled);
+        assert_eq!(ButtonLook::of("core.button.flat"), ButtonLook::Flat);
+        assert_eq!(ButtonLook::of("core.button.outlined"), ButtonLook::Outlined);
+        assert_eq!(ButtonLook::of("anything else"), ButtonLook::Outlined);
     }
 }

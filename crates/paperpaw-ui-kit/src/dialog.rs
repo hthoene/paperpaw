@@ -16,7 +16,10 @@ use crate::{
     Paint, Style,
     geometry::{clamp_u16, line_px},
     mem::push,
-    paint, text,
+    paint,
+    style::{ButtonLook, Plate},
+    text,
+    widget::Frame,
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::canvas::PartRole;
@@ -68,6 +71,13 @@ pub struct Dialog {
     ink: Color,
     paper: Color,
     muted: Color,
+    /// What the box stands on (its frame: a line round paper unless the theme chose).
+    plate: Plate,
+    /// The pixels of the hard shadow, which lie inside `panel`.
+    shadow: u16,
+    shade: Color,
+    look: ButtonLook,
+    card: Color,
 }
 
 fn wrap(font: &Font<'_>, size: f32, paragraph: &str, inner: f32) -> Result<Vec<String>, Error> {
@@ -111,6 +121,7 @@ impl Dialog {
         text: &[&str],
         buttons: &[&str],
     ) -> Result<Self, Error> {
+        let plate = style.plate(Frame::Line);
         let margin = style.margin;
         let width = screen.0.saturating_sub(margin.saturating_mul(2));
         let inner = f32::from(width.saturating_sub(margin.saturating_mul(2))).max(1.0);
@@ -163,9 +174,14 @@ impl Dialog {
             small: style.small,
             area: Rect::new(0, 0, 0, 0),
             top: 0,
-            ink: style.ink,
-            paper: style.paper,
+            ink: plate.ink,
+            paper: plate.paper,
             muted: style.muted,
+            plate,
+            shadow: style.shadow,
+            shade: style.shade(plate.fill),
+            look: style.button,
+            card: style.card,
         };
         if dialog.fitting_lines() < dialog.lines.len() {
             dialog.small_text = true;
@@ -432,12 +448,35 @@ impl Dialog {
             false,
             false,
         )?;
-        paint::push(paint, Paint::Fill(self.panel, self.paper))?;
         let thickness = u32::from(self.line).max(1);
-        paint::push(
-            paint,
-            Paint::Focus(self.panel, self.radius, Some(thickness), self.ink),
-        )?;
+        let body = Rect::new(
+            self.panel.x,
+            self.panel.y,
+            self.panel.width.saturating_sub(self.shadow),
+            self.panel.height.saturating_sub(self.shadow),
+        );
+        if self.shadow > 0 {
+            let below = Rect::new(
+                body.x.saturating_add(self.shadow),
+                body.y.saturating_add(self.shadow),
+                body.width,
+                body.height,
+            );
+            paint::push(paint, Paint::Focus(below, self.radius, None, self.shade))?;
+        }
+        // A dialog always clears its box; without a plate it is paper.
+        let fill = self.plate.fill.unwrap_or(self.paper);
+        if self.shadow > 0 {
+            paint::push(paint, Paint::Focus(body, self.radius, None, fill))?;
+        } else {
+            paint::push(paint, Paint::Fill(self.panel, fill))?;
+        }
+        if self.plate.outline {
+            paint::push(
+                paint,
+                Paint::Focus(body, self.radius, Some(thickness), self.ink),
+            )?;
+        }
         let shown = self.fitting_from(self.top);
         let mut y = self.area.y;
         for i in self.top..self.top.saturating_add(shown) {
@@ -500,6 +539,8 @@ impl Dialog {
             )?;
             let (fill, ink) = if focused {
                 (Some(self.ink), self.paper)
+            } else if self.look == ButtonLook::Filled {
+                (Some(self.card), self.ink)
             } else {
                 (None, self.ink)
             };
@@ -507,6 +548,7 @@ impl Dialog {
                 Some(color) => {
                     paint::push(paint, Paint::Focus(*rect, self.radius, None, color))?;
                 }
+                None if self.look == ButtonLook::Flat => {}
                 None => {
                     paint::push(
                         paint,
@@ -575,6 +617,11 @@ mod tests {
             ink: Color::BLACK,
             paper: Color::WHITE,
             muted: Color::gray(90),
+            plate: Style::themed(Color::BLACK, Color::WHITE).plate(Frame::Line),
+            shadow: 0,
+            shade: Color::BLACK,
+            look: ButtonLook::Outlined,
+            card: Color::gray(230),
         };
         dialog.lay_out(0).unwrap();
         dialog
