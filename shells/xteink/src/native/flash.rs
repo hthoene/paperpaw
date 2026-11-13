@@ -83,6 +83,9 @@ pub struct Flash {
     erased: bool,
     /// Plugins placed at this start.
     placed: u32,
+    /// [`Flash::finish`] ran: the index is written, nothing is placed or
+    /// taken back from here (a hosted image stays where it is until a restart).
+    finished: bool,
 }
 
 impl Flash {
@@ -93,6 +96,7 @@ impl Flash {
             layout: None,
             erased: false,
             placed: 0,
+            finished: false,
         }
     }
 
@@ -231,6 +235,10 @@ impl Flash {
         path: &str,
         header: &Header5,
     ) -> Result<Placed5, PluginProblem> {
+        if self.finished {
+            warn!("native: {path}: placed after the index was written: not loaded");
+            return Err(PluginProblem::NoRoom);
+        }
         let flash = &self.flash;
         let layout = self
             .layout
@@ -282,6 +290,9 @@ impl Flash {
     /// after all (its entry): the layout forgets it.
     #[cfg(feature = "ppn5")]
     pub fn take_back(&mut self, placed: Placed5) {
+        if self.finished {
+            return;
+        }
         if let Some(Some(layout)) = &mut self.layout {
             layout.rewind(placed.mark);
             self.placed = self.placed.saturating_sub(1);
@@ -440,6 +451,7 @@ impl Flash {
     /// Writes the index, if what lies in the region changed, and gives
     /// what hot code did not take of the arena to the heap.
     pub fn finish(&mut self) {
+        self.finished = true;
         let Some(Some(layout)) = &self.layout else {
             super::hot::release(0);
             return;

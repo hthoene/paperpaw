@@ -50,7 +50,7 @@ use paperpaw_core::{CodeFile, NativeAdmission};
 use paperpaw_native::MAGIC;
 use paperpaw_native::header5::{HEADER_LEN, Header5, Host, Refusal};
 use paperpaw_platform::Storage;
-use paperpaw_sdk::{Plugin, PluginProblem};
+use paperpaw_sdk::PluginProblem;
 
 /// What this firmware is, to compare a file with: the X4 (target 5) or the X4
 /// Pro and X4 Classic (target 9) at the interface minor the generated ABI says.
@@ -101,7 +101,6 @@ struct Verified {
     placed: crate::native::Placed5,
     make: u32,
     declared: paperpaw_core::native_host::shell::DeclaredServices,
-    started: u64,
 }
 
 /// Steps 1 to 5 of the [module documentation](self): the header read and
@@ -138,38 +137,11 @@ fn verify(
         placed,
         make,
         declared,
-        started,
     })
 }
 
-/// Loads the format-5 file `code` as far as the core takes it (see the
-/// [module documentation](self)). `place` puts the image where it runs. A
-/// plugin that declares anything is refused (`Unsupported`): this is the
-/// fallback where the kernel cannot admit it ([`host`]), never a load
-/// without what it declared.
-pub fn load(
-    place: &mut super::Place,
-    depth: &FlatDepth,
-    resources: &mut Option<HostResources>,
-    device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
-    storage: &dyn Storage,
-    code: &CodeFile<'_>,
-) -> Result<Box<dyn Plugin>, PluginProblem> {
-    let Verified {
-        header,
-        placed,
-        make,
-        declared,
-        started,
-    } = verify(place, storage, code)?;
-    x4::run(
-        place, code, &header, &placed, make, depth, resources, device, declared, started,
-    )
-}
-
 /// Hosts the format-5 file `code` for the kernel to admit with everything it
-/// declares (`CodeLoader::load_native`): the same checks and placement as
-/// [`load`], then the hosted plugin, not made yet (see [`x4::host`]).
+/// declares (`CodeLoader::load_native`): the checks and placement, then the hosted plugin, not made yet (see [`x4::host`]).
 pub fn host(
     place: &mut super::Place,
     depth: &FlatDepth,
@@ -209,9 +181,8 @@ mod x4 {
     use paperpaw_core::CodeFile;
     use paperpaw_core::NativeAdmission;
     use paperpaw_core::native_host::HostResources;
-    use paperpaw_core::native_host::flat::{DropReason, FlatDepth, FlatError, FlatPlugin};
+    use paperpaw_core::native_host::flat::FlatDepth;
     use paperpaw_core::native_host::hosted_admission::HostedAdmission;
-    use paperpaw_core::native_host::shell::instance::{Hooks, Instance};
     use paperpaw_core::native_host::shell::{self, Hosted, Make};
     use paperpaw_native::header5::{
         EntryFacts, EntryRefusal, HEADER_LEN, Header5, RawEntry, RecordFacts,
@@ -219,7 +190,6 @@ mod x4 {
     use paperpaw_native::host_glue::Services;
     use paperpaw_native::metadata;
     use paperpaw_platform::Storage;
-    use paperpaw_sdk::Plugin;
     use paperpaw_sdk::PluginProblem;
 
     use paperpaw_native::stream5::{EntryCheck, ReadError, Source};
@@ -661,18 +631,6 @@ mod x4 {
         warn!("native: {id}: teardown step {step:?} failed: {why:?}");
     }
 
-    fn event_dropped(id: &str, tag: u32, why: DropReason) {
-        warn!("native: {id}: event {tag} dropped: {why:?}");
-    }
-
-    fn teardown_failed(id: &str, why: paperpaw_core::native_host::Error) {
-        warn!("native: {id}: unload step failed: {why:?}");
-    }
-
-    fn leaked(id: &str) {
-        warn!("native: {id}: still in use at unload, kept");
-    }
-
     /// The steps before `make` with their real allocations
     /// (`paperpaw_x4::premake::PreMake`).
     struct Prepare<'a> {
@@ -763,10 +721,6 @@ mod x4 {
         /// A share of the device's table of handles.
         share: HostResources,
         make: Make,
-        /// The heap and internal RAM free before, and the time, for the log.
-        heap: usize,
-        internal: usize,
-        made: u64,
     }
 
     #[allow(
@@ -797,9 +751,6 @@ mod x4 {
             crate::safe_mode::host_begin,
             crate::safe_mode::host_end,
         );
-        let heap = esp_alloc::HEAP.used();
-        let internal = crate::native::internal_free();
-        let made = crate::micros();
         // Everything that can still be refused before `make`, in the order
         // that leaves nothing behind (`paperpaw_x4::premake`): a refusal gives
         // the flash region back to the layout and lists nothing. Every
@@ -822,123 +773,7 @@ mod x4 {
         // checked there (inside its code, even), so it is the plugin's
         // entry, callable for as long as the image stays placed: all session.
         let make: Make = unsafe { core::mem::transmute::<usize, Make>(make as usize) };
-        Ok(Ready {
-            depth,
-            share,
-            make,
-            heap,
-            internal,
-            made,
-        })
-    }
-
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "the loader's one entry: the flash layout, the image, the device's tables and the start time"
-    )]
-    pub(super) fn run(
-        place: &mut crate::native::Place,
-        code: &CodeFile<'_>,
-        header: &Header5,
-        placed: &crate::native::Placed5,
-        make: u32,
-        depth: &FlatDepth,
-        resources: &mut Option<HostResources>,
-        device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
-        declared_services: shell::DeclaredServices,
-        started: u64,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        let id = code.id.as_str();
-        let Ready {
-            mut depth,
-            share,
-            make,
-            heap,
-            internal,
-            made,
-        } = ready(place, code, header, placed, make, depth, resources, device)?;
-        let hooks = Hooks {
-            event_dropped,
-            leaked,
-            teardown_failed,
-            call_begin,
-            call_end,
-        };
-        // The read-only data is the image's first `code_at` bytes. `Header5::read`
-        // checked `code_at <= image_len` (the whole image is in the placed
-        // room); the length is bounded by it again where the slice is formed,
-        // so the bound is visible here and cannot be passed by a later change.
-        let data_len = header.code_at.min(header.image_len) as usize;
-        // The image is flash memory-mapped at a fixed address: the one place
-        // an address becomes a pointer, with the provenance exposed for it.
-        let image_ptr = core::ptr::with_exposed_provenance::<u8>(placed.base as usize);
-        // SAFETY: as above; the read-only data [0, code_at) of the image is
-        // mapped at `placed.base` for the session (nothing erases the region
-        // before a restart: it is only written by `put5` into free room).
-        let loaded = unsafe {
-            Instance::load(
-                X4Services,
-                FlashModule,
-                make,
-                id,
-                (image_ptr, data_len),
-                report,
-                hooks,
-                share,
-                declared_services,
-            )
-        };
-        let instance = loaded.map_err(|why| {
-            warn!("native: {id}: format 5: refused while making: {why:?}");
-            match why {
-                shell::Error::Allocation => PluginProblem::NoRoom,
-                _ => PluginProblem::Damaged,
-            }
-        })?;
-        if instance.declared_records() != 0 {
-            warn!(
-                "native: {id}: declares {} records, which cannot be applied yet: not loaded",
-                instance.declared_records()
-            );
-            return Err(PluginProblem::Unsupported);
-        }
-        // Checked copies of the id and the name; a refusal drops the instance
-        // (the unload, once) as any other post-`make` failure.
-        let manifest = FlatPlugin::try_manifest(code.id, id, paperpaw_sdk::Version::new(0, 0, 0))
-            .map_err(|_| {
-            warn!("native: {id}: no room for the manifest");
-            PluginProblem::NoRoom
-        })?;
-        // The instance box, the device-wide depth (made with the first plugin,
-        // each plugin holds a counted share), the adapter and its box: all
-        // fallible, a full heap is `NoRoom`, never an abort. A refusal drops
-        // the instance exactly once.
-        let plugin = instance
-            .into_plugin(manifest, &mut depth, code.host)
-            .map_err(|why| {
-                warn!("native: {id}: format 5: {why:?}");
-                match why {
-                    FlatError::Allocation => PluginProblem::NoRoom,
-                    _ => PluginProblem::Unsupported,
-                }
-            })?;
-        let took = crate::native::Took {
-            place_us: made - started,
-            make_us: crate::micros() - made,
-            heap: esp_alloc::HEAP.used() as isize - heap as isize,
-            internal: internal as isize - crate::native::internal_free() as isize,
-            hot: if placed.hot == 0 { 0 } else { header.hot_len },
-        };
-        info!(
-            "native: {id}: format 5 made in {} us, heap {:+} B, internal RAM {:+} B, hot code {} B",
-            took.make_us, took.heap, took.internal, took.hot
-        );
-        critical_section::with(|cs| {
-            if let Some(image) = crate::native::IMAGES.borrow_ref_mut(cs).last_mut() {
-                image.took = Some(took);
-            }
-        });
-        Ok(plugin)
+        Ok(Ready { depth, share, make })
     }
 
     /// Hosts the plugin of the placed image, not made yet, for the kernel to

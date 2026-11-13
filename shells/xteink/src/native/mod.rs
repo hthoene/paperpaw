@@ -330,38 +330,6 @@ impl Loader {
         let started = crate::micros();
         let mut head = [0; HEADER_LEN];
         read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
-        // Interface 7's files (format 5) are read by their own loader.
-        #[cfg(feature = "ppn5")]
-        if ppn5::is_format5(&head) {
-            // Without the net at the stack's end (`stack::arm_band`) a
-            // frame that overflows is not caught: refused, for this start.
-            if !crate::stack::band_armed() {
-                warn!("native: {path} not run: the stack's band is not armed");
-                return Err(PluginProblem::Unsupported);
-            }
-            // The nesting budget every interface-7 plugin of this device
-            // shares: the device's one counter (the linked plugins take the same),
-            // made at the first use (a fallible allocation: `NoRoom`).
-            let Some(depth) = self.resources.depth() else {
-                return Err(PluginProblem::NoRoom);
-            };
-            let Ok(mut resources) = self.resources.0.try_borrow_mut() else {
-                return Err(PluginProblem::NoRoom);
-            };
-            let loaded = ppn5::load(
-                &mut self.place,
-                &depth,
-                &mut resources,
-                &self.device,
-                storage,
-                code,
-            );
-            drop(resources);
-            if loaded.is_ok() {
-                crate::stack::native_loaded();
-            }
-            return loaded;
-        }
         let header = Header::read(&head).map_err(|p| problem_of(&head, p))?;
         if header.chip != CHIP {
             warn!(
