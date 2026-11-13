@@ -451,8 +451,14 @@ impl PanelView {
                 )?;
             }
             let color = if on && !faint { style.paper } else { ink };
-            let room =
-                f32::from(rect.width.saturating_sub(style.margin.saturating_mul(2))).max(1.0);
+            // Room as a button has: its border and a little air, not the page margin
+            // (a round `−` was cut to `…`, "Refresh the screen" to "Refresh the s…").
+            let air = style
+                .line
+                .max(1)
+                .saturating_mul(4)
+                .saturating_add(style.gap / 2);
+            let room = f32::from(rect.width.saturating_sub(air)).max(1.0);
             let fitted = text::fit(font, style.small, label, room)?;
             let wide = font.measure_text(style.small, &fitted)?;
             let x = f32::from(rect.x) + (f32::from(rect.width) - wide).max(0.0) / 2.0;
@@ -470,7 +476,7 @@ impl PanelView {
             Control::Step(_, step) => {
                 button(body, if step < 0 { "\u{2212}" } else { "+" }, false)?;
                 if step > 0 {
-                    self.draw_number(body, font, style, part, rect)?;
+                    self.draw_number(body, font, style, (host, messages), part, rect)?;
                 }
                 Ok(())
             }
@@ -485,11 +491,12 @@ impl PanelView {
             }
             Control::Open(_) => {
                 let value = match &part.info {
-                    Some(info) => {
-                        crate::native_plugin::value_text(info, on_text, off_text, &mut |key| {
-                            messages.copy(host, key)
-                        })?
-                    }
+                    Some(info) => crate::native_plugin::value_text(
+                        info,
+                        on_text,
+                        off_text,
+                        &mut |key, count| crate::native_plugin::say(messages, host, key, count),
+                    )?,
                     None => String::new(),
                 };
                 let shown = text::concat(&[&value, " \u{203a}"])?;
@@ -533,13 +540,17 @@ impl PanelView {
         body: &mut Vec<Paint>,
         font: &Font<'_>,
         style: &Style,
+        (host, messages): (&Host<'_>, &mut Messages),
         part: &Part,
         plus: Rect,
     ) -> Result<(), Error> {
         let Some(Value::Int(now)) = part.info.as_ref().and_then(|i| i.value.as_ref()) else {
             return Ok(());
         };
-        let shown = model::with_unit(*now, part.info.as_ref().map_or("", |i| i.unit.as_str()))?;
+        let unit = part.info.as_ref().map_or("", |i| i.unit.as_str());
+        let shown = crate::native_plugin::int_text(*now, unit, &mut |key, count| {
+            crate::native_plugin::say(messages, host, key, count)
+        })?;
         let wide = font.measure_text(style.small, &shown)?;
         let x = f32::from(plus.x) - style.gap as f32 - wide;
         let area = Rect::new(0, plus.y, plus.x, plus.height);
