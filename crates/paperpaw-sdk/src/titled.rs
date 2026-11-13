@@ -9,7 +9,7 @@ use crate::id::Id;
 
 /// An entry of a linked plugin's titles table, kept in the program: the id of
 /// a screen or an action it declares and the translation key of its name
-/// ([`fixed_titles_source`](crate::native::declare::fixed_titles_source)).
+/// (`native::declare::fixed_titles_source`, with the `kernel` feature).
 /// Made with [`TitleEntry::new`], so that it can grow later.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -30,7 +30,7 @@ impl TitleEntry {
 
 /// An id and the translation key of its name (a screen's, an action's): an
 /// entry kept in the program, which a linked plugin's build makes of its own
-/// declarations ([`fixed_titles_source`](crate::native::declare::fixed_titles_source)),
+/// declarations (`native::declare::fixed_titles_source`, with the `kernel` feature),
 /// or a copy of its own. Reads the same either way.
 #[derive(Clone)]
 pub struct Titled(Held);
