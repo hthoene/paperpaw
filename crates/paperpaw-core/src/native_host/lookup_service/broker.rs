@@ -72,27 +72,29 @@ pub(super) fn finish(
 }
 
 /// A provider's own entry (`length` bytes of `out`) with `more` as the
-/// broker says. The flags are the last four bytes of the record (a
-/// little-endian `u32`, the last field); they are patched where they are,
-/// after checking that they are what the record decodes to, so that no copy
-/// of the texts is made.
+/// broker says. The flags (a little-endian `u32`) come right before the last
+/// field, `opens` (a varint length and its bytes); they are patched where
+/// they are, after checking that they are what the record decodes to, so that
+/// no copy of the texts is made.
 fn set_more(out: &mut [u8], length: usize, more: bool) -> Result<usize, i32> {
     let reply = out.get(..length).ok_or(ERR_INVALID)?;
     let (entry, used) =
         codec::prefix::<wire::ServiceLookupEntry<'_>>(reply).map_err(|_| ERR_INVALID)?;
-    if used != length || length < 4 {
-        return Err(ERR_INVALID);
-    }
+    let tail = varint_len(entry.opens.len()) + entry.opens.len();
+    let at = length
+        .checked_sub(tail)
+        .and_then(|end| end.checked_sub(4))
+        .filter(|_| used == length)
+        .ok_or(ERR_INVALID)?;
     let flags = entry.flags;
     let wanted = (flags & !MORE) | if more { MORE } else { 0 };
     if wanted == flags {
         return Ok(length);
     }
-    let at = length - 4;
-    if reply[at..] != flags.to_le_bytes() {
+    if reply[at..at + 4] != flags.to_le_bytes() {
         return Err(ERR_INVALID);
     }
-    out[at..length].copy_from_slice(&wanted.to_le_bytes());
+    out[at..at + 4].copy_from_slice(&wanted.to_le_bytes());
     Ok(length)
 }
 
@@ -104,9 +106,21 @@ pub(super) fn empty(provider: &str, more: bool, out: &mut [u8]) -> Result<usize,
             title: "",
             text: "",
             flags: if more { MORE } else { 0 },
+            opens: "",
         }),
         out,
     )
+}
+
+/// The bytes of the varint length prefix of `len` (7 bits a byte).
+const fn varint_len(len: usize) -> usize {
+    let mut bytes = 1;
+    let mut rest = len >> 7;
+    while rest != 0 {
+        bytes += 1;
+        rest >>= 7;
+    }
+    bytes
 }
 
 #[cfg(test)]

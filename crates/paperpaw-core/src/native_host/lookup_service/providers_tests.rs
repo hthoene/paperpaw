@@ -121,7 +121,7 @@ impl Frame for Rig<'_> {
             return Ok(3);
         }
         let title = std::format!("title of {owner}");
-        let length = stage::LookupEntry::new(&title, "text", self.flags.get())
+        let length = stage::LookupEntry::new(&title, "text", self.flags.get(), "wikipedia.article")
             .encode(reply)
             .unwrap();
         accept(&reply[..length])?;
@@ -202,6 +202,27 @@ fn providers_answer_one_per_page_in_load_order_and_the_last_has_no_more() {
     let calls = rig.calls.borrow();
     assert_eq!(calls[1], (2, 22, "word".into(), "en".into(), 0));
     assert_eq!(calls.len(), 3);
+}
+
+#[test]
+fn the_screen_an_entry_opens_reaches_the_asker() {
+    let kernel = kernel(false);
+    let env = kernel.shared.env(Instant(0));
+    let mut rig = rig(&env);
+    install(&mut rig.store, &plugin("wiki", 2), &[("wiki", "", 0, 2)]);
+    let ask = wire::ServiceLookupAsk {
+        text: "word",
+        language: "",
+        context: "",
+        cursor: 0,
+    };
+    let mut out = vec![0; 4096];
+    let length = Providers.ask(&rig, ME, &ask, &mut out).unwrap();
+    let Record::ServiceLookupEntry(entry) = wire::record_decode_one(&out[..length]).unwrap() else {
+        panic!("not a lookup_entry")
+    };
+    // As the provider named it (`document.md` 7: Beta 3's *Open Wikipedia ›*).
+    assert_eq!(entry.opens, "wikipedia.article");
 }
 
 #[test]

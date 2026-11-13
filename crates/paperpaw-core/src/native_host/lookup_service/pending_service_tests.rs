@@ -37,6 +37,7 @@ impl LookupHost for Host {
                 title: "Word",
                 text: if pending { "" } else { "definition" },
                 flags: more | if pending { PENDING } else { 0 },
+                opens: "",
             }),
             out,
         )

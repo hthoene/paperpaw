@@ -214,6 +214,9 @@ fn call(
             title: entry.title,
             text: entry.text,
             flags: entry.flags,
+            // Passed on as the provider named it: the asker's `command.open`
+            // checks the screen (`document.md` 7).
+            opens: entry.opens,
         }),
         out,
     )

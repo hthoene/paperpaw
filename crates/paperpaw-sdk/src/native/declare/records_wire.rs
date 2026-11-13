@@ -12098,6 +12098,8 @@ pub const SERVICE_LOOKUP_ENTRY_PROVIDER_MAX_BYTES: usize = 64;
 pub const SERVICE_LOOKUP_ENTRY_TITLE_MAX_BYTES: usize = 256;
 /// Maximum bytes of `service.lookup_entry.text`.
 pub const SERVICE_LOOKUP_ENTRY_TEXT_MAX_BYTES: usize = 2048;
+/// Maximum bytes of `service.lookup_entry.opens`.
+pub const SERVICE_LOOKUP_ENTRY_OPENS_MAX_BYTES: usize = 128;
 
 /// The `service.lookup_entry` record, borrowed from its batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -12110,6 +12112,8 @@ pub struct ServiceLookupEntry<'a> {
     pub text: &'a str,
     /// Little-endian u32.
     pub flags: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub opens: &'a str,
 }
 
 impl<'a> ServiceLookupEntry<'a> {
@@ -12124,6 +12128,7 @@ impl<'a> ServiceLookupEntry<'a> {
             title: body.string(SERVICE_LOOKUP_ENTRY_TITLE_MAX_BYTES)?,
             text: body.string(SERVICE_LOOKUP_ENTRY_TEXT_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
+            opens: body.string(SERVICE_LOOKUP_ENTRY_OPENS_MAX_BYTES)?,
         })
     }
 
@@ -12133,6 +12138,7 @@ impl<'a> ServiceLookupEntry<'a> {
         len += blob_len(self.title.len(), SERVICE_LOOKUP_ENTRY_TITLE_MAX_BYTES)?;
         len += blob_len(self.text.len(), SERVICE_LOOKUP_ENTRY_TEXT_MAX_BYTES)?;
         len += 4;
+        len += blob_len(self.opens.len(), SERVICE_LOOKUP_ENTRY_OPENS_MAX_BYTES)?;
         Ok(len)
     }
 
@@ -12141,6 +12147,7 @@ impl<'a> ServiceLookupEntry<'a> {
         write_blob(self.title.as_bytes(), out, offset);
         write_blob(self.text.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_blob(self.opens.as_bytes(), out, offset);
     }
 }
 

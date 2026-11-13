@@ -17,6 +17,7 @@ fn entry_bytes(provider: &str, text: &str) -> Vec<u8> {
             title: "Word",
             text,
             flags: 0,
+            opens: "",
         }),
         &mut out,
     )
@@ -156,6 +157,7 @@ fn a_providers_own_entry_gets_the_more_bit_of_its_place() {
                     title: "Word",
                     text: "definition",
                     flags,
+                    opens: "",
                 }),
                 &mut bytes,
             )?;

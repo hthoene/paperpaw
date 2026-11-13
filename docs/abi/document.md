@@ -781,8 +781,15 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   reader's selection menu) calls the service `core.lookup` (major 1) op 1 `lookup` (1092
   `lookup_ask`: `text: str 1024`, `language: str 35`, `context: str 1024`, `cursor: u32`) and gets
   the providers' rows 1093 `lookup_entry` (`provider: str 64`, `title: str 256`, `text: str 2048`,
-  `flags` bit 0 more pages, bit 1 pending: the provider answers later) in pages, one provider per
-  page.
+  `flags` bit 0 more pages, bit 1 pending: the provider answers later, `opens: str 128`) in pages,
+  one provider per page. The provider's stage reply `lookup.entry` carries the same `title`,
+  `text`, `flags` and `opens`.
+- [D] **An entry that opens more** (interface 6 `LookupEntry::more`; Beta 3's *Open Wikipedia ›*
+  in the dictionary panel): `opens` names a screen that shows more of the entry (a whole
+  article), empty for none. The host passes it on as the provider wrote it; the asker shows a line
+  for it in its own words and opens it with `command.open` (`ui.md` 1), whose check decides, with a
+  hand-over of the params `word` (the ask's `text`) and `language` and the entry's text as the
+  hand-over's text. A pending entry may name it too.
 - [D] **Provider names:** the registry refuses a `lookup.spec` whose `name` is empty or longer than
   64 bytes with `ERR_INVALID` (`lookup_entry.provider` holds 64), so every entry names its provider.
 - [D] **Caps and names:** at most 8 `lookup.spec` per plugin (a ninth is `ERR_INVALID` for the
@@ -850,7 +857,7 @@ reply 4,096 bytes, stage payload 3,840.
 | `doc_section` page | row 1 + 12 + 5 = 18; 64 rows + `end` = 1,182 | 4,096 |
 | `fmt.call` (+ 12 `fmt.option` for op 2) | 1,592 (section 3); op 2: 1,592 − 1,536 + 12 × 202 = 2,480 | 3,840 |
 | `fmt.call` for ops 13, 15 | the XPointer or href in `text` (1,024 bytes, as `doc_xpointer`, `doc_href`), `arg` empty: 1,592 − 514 = 1,078 | 3,840 |
-| `lookup_entry` page | 1 + 4 + 66 + 258 + 2,050 + 5 = 2,384, one per page | 4,096 |
+| `lookup_entry` page | 1 + 4 + 66 + 258 + 2,050 + 130 + 5 = 2,514, one per page | 4,096 |
 | `command.image_prepare` | 1 + 4 + 514 + 12 + 258 + 5 = 794 | 4,096 |
 
 - [D] Senior's must-fix 1 (round 1: `arg` 1,024 carried the options and the XPointer) is settled
