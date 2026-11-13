@@ -11,7 +11,7 @@
 //! out of providers is `ERR_NOT_FOUND`, which ends the asker's loop.
 //!
 //! Memory: nothing is kept; the call runs in the dispatcher's 4,096-byte
-//! scratch (a `lookup_entry` is at most 2,384 bytes).
+//! scratch (a `lookup_entry` is at most 2,514 bytes).
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
