@@ -1,4 +1,74 @@
 use super::*;
+use paperpaw_sdk::native::callbacks::FrameRect;
+
+/// What a focus step asked of the host, and the areas it refuses.
+#[derive(Default)]
+struct Asked {
+    areas: Vec<FrameRect>,
+    whole: usize,
+    refuse_after: Option<usize>,
+}
+
+impl crate::list::Redraws for Asked {
+    fn area(&mut self, area: FrameRect) -> Result<(), Error> {
+        if self.refuse_after.is_some_and(|n| self.areas.len() >= n) {
+            return Err(Error::Full);
+        }
+        self.areas.push(area);
+        Ok(())
+    }
+    fn whole(&mut self) -> Result<(), Error> {
+        self.whole += 1;
+        Ok(())
+    }
+}
+
+/// A list drawn with rows 1 to 3 of 61 px from y 75 on its page, in a
+/// region that began 10 px down the screen.
+fn drawn() -> ItemList {
+    let mut list = ItemList::new(items("hrrrrr"));
+    list.hits = (1..4)
+        .map(|i| (Rect::new(0, 75 + 61 * (i as u16 - 1), 480, 61), i))
+        .collect();
+    list.origin = (0, 10);
+    list
+}
+
+#[test]
+fn a_step_within_the_page_asks_for_its_two_rows() {
+    let mut asked = Asked::default();
+    drawn().redraw_focus_on(&mut asked, 1, 2).unwrap();
+    assert_eq!(
+        asked.areas,
+        [
+            FrameRect::new(0, 65, 480, 61),
+            FrameRect::new(0, 126, 480, 61)
+        ]
+    );
+    assert_eq!(asked.whole, 0);
+}
+
+#[test]
+fn a_step_off_the_page_or_a_refused_area_asks_for_the_screen() {
+    // Row 4 is on the next page: the step turns it.
+    let mut asked = Asked::default();
+    drawn().redraw_focus_on(&mut asked, 3, 4).unwrap();
+    assert_eq!((asked.areas.len(), asked.whole), (0, 1));
+    // The host takes the first area and refuses the second.
+    let mut asked = Asked {
+        refuse_after: Some(1),
+        ..Asked::default()
+    };
+    drawn().redraw_focus_on(&mut asked, 2, 3).unwrap();
+    assert_eq!(asked.whole, 1);
+    // It refuses the first already.
+    let mut asked = Asked {
+        refuse_after: Some(0),
+        ..Asked::default()
+    };
+    drawn().redraw_focus_on(&mut asked, 2, 3).unwrap();
+    assert_eq!((asked.areas.len(), asked.whole), (0, 1));
+}
 
 fn items(spec: &str) -> Vec<Item> {
     spec.chars()

@@ -35,7 +35,7 @@
 use super::{
     registrations::{self as wire, Record},
     ui_guard,
-    ui_handles::{Dropped, UiHandles},
+    ui_handles::{Dropped, NewWidget, UiHandles},
     ui_service::UiServices,
 };
 use crate::abi7::context::Frame;
@@ -482,12 +482,16 @@ pub(super) fn widget_make(
         .handles
         .try_borrow_mut()
         .map_err(|_| ERR_BUSY)?
-        .make_widget(
-            declared.owner,
+        .make_told(
             who.owner,
             screen,
-            declared.token,
-            declared.private,
+            &NewWidget {
+                owner: declared.owner,
+                token: declared.token,
+                private: declared.private,
+                widget: reference.widget,
+                place: reference.place,
+            },
         )?;
     instance_reply(id, 0, out)
 }

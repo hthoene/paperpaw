@@ -2,9 +2,12 @@
 //! token after its screen closed; the entry ends at the first attempt whatever
 //! came of it; an owner that cannot be called loses its notices without a
 //! delivery; the record fits its buffer, and a buffer too small leaves the
-//! notice listed.
+//! notice listed. `event.widget_made` (84) reaches the owner between
+//! callbacks before the instance's drop, once; an owner not started yet is
+//! started and then told; an instance dropped untold is told neither.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
+use super::ui_handles::NewWidget;
 use super::{
     HostResources,
     native_instances::{NativeInstance, NativeLease},
@@ -14,16 +17,22 @@ use super::{
     ui_service::UiServices,
     ui_store::{Limits, UiStore},
 };
-use alloc::{rc::Rc, vec::Vec};
+use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE, OK};
 use paperpaw_sdk::Id;
 
 const TOKEN: u32 = 41;
 
+/// A made notice as the owner got it: token, instance, widget, place.
+type MadeSeen = (u32, u32, String, String);
+
 /// A native owner that logs the events it is called with.
 struct Probe {
     log: Rc<RefCell<Vec<(u32, u32)>>>,
+    made: Rc<RefCell<Vec<MadeSeen>>>,
+    /// The tags of the events, in order.
+    order: Rc<RefCell<Vec<u32>>>,
     answer: Rc<Cell<Result<i32, i32>>>,
     running: Cell<bool>,
     /// What the owner does inside its callback (given its running flag).
@@ -34,10 +43,22 @@ type Hook = Rc<RefCell<Option<Rc<dyn Fn(&Cell<bool>)>>>>;
 
 impl Dispatch for Probe {
     fn event(&self, token: u32, bytes: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
-        let wire::Record::EventWidgetDropped(event) = wire::records_decode_single(bytes)? else {
-            return Err(ERR_INVALID);
-        };
-        self.log.borrow_mut().push((token, event.instance));
+        match wire::records_decode_single(bytes)? {
+            wire::Record::EventWidgetDropped(event) => {
+                self.order.borrow_mut().push(wire::EVENT_WIDGET_DROPPED_TAG);
+                self.log.borrow_mut().push((token, event.instance));
+            }
+            wire::Record::EventWidgetMade(event) => {
+                self.order.borrow_mut().push(wire::EVENT_WIDGET_MADE_TAG);
+                self.made.borrow_mut().push((
+                    token,
+                    event.instance,
+                    event.widget.into(),
+                    event.place.into(),
+                ));
+            }
+            _ => return Err(ERR_INVALID),
+        }
         let hook = self.hook.borrow().clone();
         if let Some(hook) = hook {
             hook(&self.running);
@@ -74,6 +95,8 @@ struct World {
     kernel: crate::Kernel,
     key: u64,
     log: Rc<RefCell<Vec<(u32, u32)>>>,
+    made: Rc<RefCell<Vec<MadeSeen>>>,
+    order: Rc<RefCell<Vec<u32>>>,
     answer: Rc<Cell<Result<i32, i32>>>,
 }
 
@@ -90,10 +113,14 @@ fn world() -> World {
         .build()
         .unwrap();
     let log = Rc::new(RefCell::new(Vec::new()));
+    let made = Rc::new(RefCell::new(Vec::new()));
+    let order = Rc::new(RefCell::new(Vec::new()));
     let answer = Rc::new(Cell::new(Ok(OK)));
     let hook: Hook = Rc::new(RefCell::new(None));
     let lease = NativeLease::try_new(Probe {
         log: Rc::clone(&log),
+        made: Rc::clone(&made),
+        order: Rc::clone(&order),
         answer: Rc::clone(&answer),
         running: Cell::new(true),
         hook: Rc::clone(&hook),
@@ -115,6 +142,8 @@ fn world() -> World {
         kernel,
         key,
         log,
+        made,
+        order,
         answer,
     }
 }
@@ -134,6 +163,24 @@ impl World {
             .unwrap();
         assert_eq!(self.ui().screen_closed(screen), Ok(1));
         id
+    }
+    /// An instance another plugin (99) made of `owner`'s widget for `screen`.
+    fn made_for(&self, owner: u64, screen: u32, widget: &str, place: &str) -> Result<u32, i32> {
+        let new = NewWidget {
+            owner,
+            token: TOKEN,
+            private: false,
+            widget,
+            place,
+        };
+        self.ui()
+            .widgets
+            .handles
+            .borrow_mut()
+            .make_told(99, screen, &new)
+    }
+    fn made_waiting(&self) -> usize {
+        self.ui().widgets.handles.borrow().made_waiting()
     }
     fn waiting(&self) -> Option<u64> {
         self.ui().next_dropped_owner().unwrap()
@@ -286,4 +333,131 @@ fn a_callback_that_drops_a_widget_or_stops_its_owner_ends_its_own_entry_once() {
         "a stopped owner is not called again"
     );
     assert_eq!(w.waiting(), None, "and does not pin the widget cap");
+}
+
+#[test]
+fn the_owner_hears_of_a_made_instance_between_callbacks_then_of_its_drop() {
+    let mut w = world();
+    let id = w.made_for(w.key, 5, "probe.w@2", "home").unwrap();
+    w.kernel.run_commands();
+    assert_eq!(
+        &*w.made.borrow(),
+        &[(TOKEN, id, String::from("probe.w@2"), String::from("home"))]
+    );
+    assert_eq!(w.made_waiting(), 0);
+    assert_eq!(w.ui().screen_closed(5), Ok(1));
+    w.kernel.run_commands();
+    assert_eq!(&*w.log.borrow(), &[(TOKEN, id)]);
+    assert_eq!(
+        &*w.order.borrow(),
+        &[wire::EVENT_WIDGET_MADE_TAG, wire::EVENT_WIDGET_DROPPED_TAG]
+    );
+    w.kernel.run_commands();
+    assert_eq!(w.order.borrow().len(), 2, "each told once");
+}
+
+#[test]
+fn an_instance_dropped_before_its_owner_heard_of_it_is_told_neither() {
+    let mut w = world();
+    w.made_for(w.key, 5, "probe.w", "").unwrap();
+    let id = w.made_for(w.key, 6, "probe.w", "").unwrap();
+    assert_eq!(w.ui().screen_closed(5), Ok(1));
+    w.ui()
+        .widgets
+        .handles
+        .borrow_mut()
+        .drop_widget(99, id)
+        .unwrap();
+    assert_eq!(w.made_waiting(), 0);
+    assert_eq!(w.waiting(), None);
+    w.kernel.run_commands();
+    assert!(w.order.borrow().is_empty());
+}
+
+#[test]
+fn an_owner_not_started_yet_keeps_its_notice_is_started_and_then_told() {
+    let mut w = world();
+    let lazy = w
+        .kernel
+        .shared
+        .native_instances
+        .insert(
+            w.pool.try_owner().unwrap().try_view().unwrap(),
+            Id::new_static("lazy"),
+            None,
+            true,
+        )
+        .unwrap();
+    let first = w.made_for(lazy, 5, "lazy.w", "").unwrap();
+    // A running owner's notice behind it is not held up.
+    let second = w.made_for(w.key, 6, "probe.w", "").unwrap();
+    assert!(w.kernel.deliver_widget_made());
+    assert_eq!(w.made.borrow().len(), 1);
+    assert_eq!(w.made.borrow()[0].1, second);
+    assert_eq!(w.made_waiting(), 1, "the notice is kept");
+    assert_eq!(w.kernel.shared.native_instances.take_start(), Some(lazy));
+    // It starts: it is told.
+    let lease = NativeLease::try_new(Probe {
+        log: Rc::clone(&w.log),
+        made: Rc::clone(&w.made),
+        order: Rc::clone(&w.order),
+        answer: Rc::clone(&w.answer),
+        running: Cell::new(true),
+        hook: Rc::clone(&w.hook),
+    })
+    .unwrap();
+    w.kernel
+        .shared
+        .native_instances
+        .install(lazy, lease)
+        .unwrap();
+    assert!(w.kernel.deliver_widget_made());
+    assert_eq!(w.made.borrow().len(), 2);
+    assert_eq!(w.made.borrow()[1].1, first);
+    assert_eq!(w.made_waiting(), 0);
+}
+
+#[test]
+fn a_made_notice_ends_at_its_first_attempt_or_with_its_owner() {
+    let mut w = world();
+    w.answer.set(Err(ERR_STATE));
+    w.made_for(w.key, 5, "probe.w", "").unwrap();
+    assert!(w.kernel.deliver_widget_made());
+    assert_eq!(w.made.borrow().len(), 1);
+    assert!(!w.kernel.deliver_widget_made(), "no retry");
+    // A stopped owner is not called, and its notice ends.
+    let mut w = world();
+    w.made_for(w.key, 5, "probe.w", "").unwrap();
+    w.kernel.shared.native_instances.stop(w.key).unwrap();
+    assert!(!w.kernel.deliver_widget_made());
+    assert!(w.made.borrow().is_empty());
+    assert_eq!(w.made_waiting(), 0);
+    // A stopped owner's notices go with it.
+    let w = world();
+    w.made_for(w.key, 5, "probe.w", "").unwrap();
+    assert_eq!(w.ui().plugin_stopped(w.key), Ok(()));
+    assert_eq!(w.made_waiting(), 0);
+}
+
+#[test]
+fn the_largest_made_record_fits_its_buffer() {
+    let w = world();
+    let widget = "w".repeat(128);
+    let place = "p".repeat(128);
+    w.made_for(w.key, u32::MAX, &widget, &place).unwrap();
+    let mut record = [0u8; super::widget_drops::MADE_BYTES];
+    let (notice, len) = super::widget_drops::made_record(
+        &w.ui().widgets.handles,
+        super::ui_handles::Pick::Nth(0),
+        u64::MAX,
+        &mut record,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(notice.owner, w.key);
+    let wire::Record::EventWidgetMade(event) = wire::records_decode_single(&record[..len]).unwrap()
+    else {
+        panic!("not event 84")
+    };
+    assert_eq!((event.widget, event.place), (&*widget, &*place));
 }
