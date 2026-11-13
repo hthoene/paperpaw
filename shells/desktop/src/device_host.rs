@@ -177,8 +177,17 @@ impl DeviceHost for DesktopDevice {
         if !self.profile.wifi {
             return Err(paperpaw_native::host_glue::ERR_NOT_FOUND);
         }
-        // Borrowed from a static list: no allocation, so no allocator
-        // refusal can reach a network query.
+        if crate::device::wifi_online() {
+            let row = NetworkRow {
+                ssid: crate::wifi::WORKSHOP_NETWORK,
+                signal: -40,
+                secured: true,
+                known: true,
+            };
+            if visit(&row).is_break() {
+                return Ok(());
+            }
+        }
         for &(ssid, signal, secured) in crate::wifi::PRETEND_SCAN {
             let row = NetworkRow {
                 ssid,

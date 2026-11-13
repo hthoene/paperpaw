@@ -44,6 +44,12 @@ pub fn set_wifi_online(on: bool) {
     WIFI_ONLINE.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Whether devices start online (`--wifi online`): the pretend radio then also
+/// finds `Workshop Wi-Fi`, known as joined before.
+pub(crate) fn wifi_online() -> bool {
+    WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Loads code plugins built for this computer, or none (by default).
 pub fn set_code_plugins(on: bool) {
     CODE_PLUGINS.store(on, std::sync::atomic::Ordering::Relaxed);
@@ -498,12 +504,31 @@ impl Device {
         self.wifi_online = online;
     }
 
+    /// A run on simulated time keeps the native plugins' secrets in memory
+    /// ([`linked_inputs`]), apart from the card's file the kernel wrote: copied
+    /// over, so that the native `wifi` plugin knows the network it is in.
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    fn share_secrets_with_native(&self) {
+        let (Some(native), Ok(card)) = (self.linked.storage.as_ref(), self.library.open()) else {
+            return;
+        };
+        let file = paperpaw_core::sdk::secrets::FILE;
+        if let Ok(Some(data)) = paperpaw_core::sdk::files::load_for_update(&card, file, 1 << 16) {
+            let _ = native.create_dir(paperpaw_core::sdk::data::DIR);
+            let _ = native.write(file, &data);
+        }
+    }
+
+    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    fn share_secrets_with_native(&self) {}
+
     fn go_online(&mut self, now: Instant) {
         let keep = paperpaw_core::sdk::wifi::keep(
             crate::wifi::WORKSHOP_NETWORK,
             crate::wifi::WORKSHOP_PASSWORD,
         );
         self.kernel.set_secret(keep);
+        self.share_secrets_with_native();
         self.wifi.online(now);
         // On USB: what keeps the radio on, as on a device.
         let status = self.status(now);

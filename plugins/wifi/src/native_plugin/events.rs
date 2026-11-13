@@ -243,10 +243,15 @@ impl NativeWifi {
     /// The radio stays on now: charging, and the user wants that, and the
     /// device is online-capable (offline keeps it off also while charging).
     fn charging_keeps(&self, host: &Host<'_>) -> Result<bool, Error> {
-        if !Self::flag(host, WHILE_CHARGING)? {
+        extern crate std;
+        let flag = Self::flag(host, WHILE_CHARGING);
+        std::eprintln!("TRACE charging_keeps flag={flag:?}");
+        if !flag? {
             return Ok(false);
         }
-        if !snapshot::capture_snapshot(host)?.is_charging() {
+        let charging = snapshot::capture_snapshot(host)?.is_charging();
+        std::eprintln!("TRACE charging_keeps charging={charging}");
+        if !charging {
             return Ok(false);
         }
         let device = self.device.as_ref().ok_or(Error::State)?;
@@ -464,6 +469,14 @@ impl NativeWifi {
             ..NOTHING
         };
         let seen = self.seen(host, now_ms, need)?;
+        {
+            extern crate std;
+            let f = seen.facts();
+            std::eprintln!(
+                "TRACE radio_changed radio={:?} keeps={} known={} goal={:?}",
+                f.radio, f.charging_keeps, f.known.len(), self.policy.goal
+            );
+        }
         let actions = self.policy.on_changed(&seen.facts())?;
         self.act(host, actions)?;
         self.phone_changed(host, now_ms)?;
