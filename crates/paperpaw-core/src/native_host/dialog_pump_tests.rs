@@ -898,5 +898,10 @@ fn a_cancelled_question_is_told_before_the_next_passes_events() {
     act(&mut w, 10, actions::BACK);
     heard.borrow_mut().clear();
     let _ = w.kernel.tick(Instant(20));
-    assert_eq!(heard.borrow().first(), Some(&"answered"), "{:?}", heard.borrow());
+    assert_eq!(
+        heard.borrow().first(),
+        Some(&"answered"),
+        "{:?}",
+        heard.borrow()
+    );
 }

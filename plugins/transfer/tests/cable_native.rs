@@ -19,8 +19,7 @@ mod hosted;
 use paperpaw_core::Effects;
 use paperpaw_core::native_host::device_service::{DeviceFacts, DeviceHost};
 use paperpaw_core::native_host::shell_wiring::{
-    CatalogEnv, HttpJob, NetInputs, NetLimits, ServedReply, ServerReason, ShellHttp,
-    ShellNetwork,
+    CatalogEnv, HttpJob, NetInputs, NetLimits, ServedReply, ServerReason, ShellHttp, ShellNetwork,
 };
 use paperpaw_platform::Instant;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
@@ -72,7 +71,9 @@ impl Card {
         disk.flush().unwrap();
         disk.seek(fatfs::SeekFrom::Start(0)).unwrap();
         let fs = FileSystem::new(disk, FsOptions::new()).unwrap();
-        Self(Rc::new(paperpaw_fat::FatStorage::new(Box::leak(Box::new(fs)))))
+        Self(Rc::new(paperpaw_fat::FatStorage::new(Box::leak(Box::new(
+            fs,
+        )))))
     }
 }
 
