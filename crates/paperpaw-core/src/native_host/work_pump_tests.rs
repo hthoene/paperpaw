@@ -650,6 +650,10 @@ mod network {
     /// The ids of the requests the plugin started, in order.
     type Started = Rc<RefCell<Vec<u32>>>;
 
+    /// A world with `core.net` wired, the ids started, the shell's reports
+    /// and what the plugin does to start a request.
+    type Wired = (World, Started, Rc<NetReports>, Rc<dyn Fn(u64)>);
+
     fn caller(owner: u64, hosts: &HostServices) -> Caller<'_> {
         Caller {
             owner,
@@ -756,12 +760,7 @@ mod network {
 
     /// The world with the plugin's request starter; its work `fetch` is
     /// declared where `work` is set.
-    fn wired(
-        retries: u32,
-        socket: bool,
-        work: bool,
-        saving: bool,
-    ) -> (World, Started, Rc<NetReports>, Rc<dyn Fn(u64)>) {
+    fn wired(retries: u32, socket: bool, work: bool, saving: bool) -> Wired {
         let mut w = world();
         let card = Rc::new(MemoryStorage::new());
         let shell = Rc::new(Shell {

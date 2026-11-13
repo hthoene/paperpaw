@@ -170,8 +170,8 @@ impl NativeNet {
             told.set(true);
             to_https(id)
         };
-        let (finish, to_https): (&dyn Fn(u32, HttpDone<'_>), &dyn Fn(u32) -> Result<(), i32>) =
-            (&finish, &to_https);
+        let finish: &dyn Fn(u32, HttpDone<'_>) = &finish;
+        let to_https: &dyn Fn(u32) -> Result<(), i32> = &to_https;
         // Redirects core was too busy to take: again.
         for id in std::mem::take(&mut *self.upgrades.borrow_mut()) {
             self.upgrade(id, finish, to_https);
