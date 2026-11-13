@@ -6,7 +6,8 @@
 //! room for a 4 KiB reply). Section lengths (op 5) and the picture and table
 //! records are not read yet (`PORTING-7.md`).
 use crate::native_block::{Assembler, pieces};
-use alloc::vec::Vec;
+use crate::native_filter::{self, Filter, Shown};
+use alloc::{borrow::Cow, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::{
@@ -26,6 +27,8 @@ pub const MAX_RESTARTS: usize = 3;
 pub const INPUT_BYTES: usize = 256;
 /// The size of the reply of one read.
 pub const REPLY_BYTES: usize = 4096;
+/// Most blocks the text filters may leave out in a row (Beta 3's limit).
+const MOST_DROPPED: usize = 10_000;
 
 /// What one step of reading a block ended in.
 #[derive(Debug)]
@@ -122,6 +125,8 @@ pub struct HostDocument<'h> {
     whole_pages: bool,
     metadata: Metadata,
     buffers: RefCell<(Vec<u8>, Vec<u8>)>,
+    /// The text filters a block goes through, and the book's path they see.
+    filters: (&'h [Filter], &'h str),
 }
 
 impl<'h> HostDocument<'h> {
@@ -152,7 +157,17 @@ impl<'h> HostDocument<'h> {
             whole_pages,
             metadata: Metadata::default(),
             buffers: RefCell::new((input, out)),
+            filters: (&[], ""),
         })
+    }
+
+    /// The same book with its blocks through `filters` (the book at `path`):
+    /// a block they leave out gives the next one kept, as Beta 3's filtered
+    /// book did.
+    #[must_use]
+    pub fn filtered(mut self, filters: &'h [Filter], path: &'h str) -> Self {
+        self.filters = (filters, path);
+        self
     }
 }
 
@@ -188,8 +203,44 @@ impl Document for HostDocument<'_> {
         _storage: &dyn Storage,
         at: Locator,
     ) -> Result<Option<Block>, DocumentError> {
-        block_result(self.read_at(at))
+        let (filters, path) = self.filters;
+        filtered_block(|at| block_result(self.read_at(at)), (filters, path), at)
     }
+}
+
+/// The block at `at` that `read` gives, through `filters` (the book at
+/// `path`): a block they leave out gives the next one kept, none at the end
+/// of the section, as Beta 3's filtered book did. A rule that cannot be
+/// applied leaves the block as the book has it.
+///
+/// # Errors
+/// What `read` refuses; a block that does not advance; too many left out.
+pub fn filtered_block(
+    mut read: impl FnMut(Locator) -> Result<Option<Block>, DocumentError>,
+    (filters, path): (&[Filter], &str),
+    at: Locator,
+) -> Result<Option<Block>, DocumentError> {
+    let mut at = at;
+    for _ in 0..MOST_DROPPED {
+        let Some(mut block) = read(at)? else {
+            return Ok(None);
+        };
+        if filters.is_empty() {
+            return Ok(Some(block));
+        }
+        if block.end <= at.offset {
+            return Err(DocumentError::Malformed(Cow::Borrowed(
+                "a block that does not advance",
+            )));
+        }
+        match native_filter::apply(filters, path, &mut block) {
+            Ok(Shown::Drop) => at = Locator::new(at.section, block.end),
+            Ok(Shown::Keep) | Err(_) => return Ok(Some(block)),
+        }
+    }
+    Err(DocumentError::Malformed(Cow::Borrowed(
+        "the text filters left out too many blocks in a row",
+    )))
 }
 
 impl HostDocument<'_> {

@@ -12,6 +12,7 @@
 //! reader owns the pipeline); the tests pin both to the same blocks.
 use crate::stages::reader_filter_v1 as wire;
 use alloc::{string::String, vec::Vec};
+use paperpaw_sdk::native::{Host, stages::Stage};
 use paperpaw_sdk::{
     document::{Align, Block, BlockKind, EditError, Run, TextEdit, TextStyle},
     native::Error,
@@ -37,6 +38,57 @@ const HIDE: u32 = 2;
 /// The books whose pictures are their pages: their pictures are never captioned
 /// or hidden.
 const PICTURE_BOOKS: [&str; 4] = ["cbz", "cbr", "xtc", "xtch"];
+
+/// Whether the book at `path` is one whose pictures are its pages (Beta 3's
+/// `image_only`: comic archives and XTC books).
+#[must_use]
+pub fn image_only(path: &str) -> bool {
+    let ext = path.rsplit_once('.').map_or("", |(_, ext)| ext);
+    PICTURE_BOOKS.iter().any(|e| ext.eq_ignore_ascii_case(e))
+}
+
+/// The rules the subscribers of `reader.filter@1` give the book at `path` in
+/// `language`, each checked, in the host's order; none where nobody
+/// subscribed or the device runs no stages yet. A reply that is not sound is
+/// left out, the others stay.
+///
+/// # Errors
+/// [`Error::NoMemory`]; what the host refuses besides "no stages here".
+pub fn ask(host: &Host<'_>, path: &str, language: &str) -> Result<Vec<Filter>, Error> {
+    let mut filters = Vec::new();
+    let stage = Stage::new(host, wire::KEY)?;
+    let format = path.rsplit_once('.').map_or("", |(_, ext)| ext);
+    let format = format.get(..format.len().min(32)).unwrap_or("");
+    let language = language.get(..language.len().min(16)).unwrap_or("");
+    let ask = wire::FilterAsk::new(language, format, u32::from(image_only(path)));
+    let mut input = [0u8; wire::MAX_INPUT];
+    let Ok(len) = ask.encode(&mut input) else {
+        return Ok(filters);
+    };
+    let room = Stage::out_len(wire::MAX_REPLY as u32);
+    let mut out = Vec::new();
+    out.try_reserve_exact(room).map_err(|_| Error::NoMemory)?;
+    out.resize(room, 0);
+    let mut run = stage.run(input.get(..len).unwrap_or(&[]), &mut out);
+    loop {
+        match run.next() {
+            Ok(Some(reply)) if reply.status().is_ok() => {
+                match Filter::from_reply(reply.payload()) {
+                    Ok(filter) => {
+                        filters.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                        filters.push(filter);
+                    }
+                    Err(Error::NoMemory) => return Err(Error::NoMemory),
+                    Err(_) => {}
+                }
+            }
+            Ok(Some(_)) => {}
+            Ok(None) | Err(Error::Unsupported | Error::NotFound) => break,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(filters)
+}
 
 /// One subscriber's rules: its reply, checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -314,9 +366,7 @@ fn picture(
     word: &str,
     limit: usize,
 ) -> Result<Shown, Failed> {
-    let ext = path.rsplit_once('.').map_or("", |(_, ext)| ext);
-    if edit.kind() != BlockKind::Image || PICTURE_BOOKS.iter().any(|e| ext.eq_ignore_ascii_case(e))
-    {
+    if edit.kind() != BlockKind::Image || image_only(path) {
         return Ok(Shown::Keep);
     }
     match policy {
