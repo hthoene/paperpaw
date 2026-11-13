@@ -7200,6 +7200,12 @@ pub fn paperpaw_sdk::native::storage::rename(&paperpaw_sdk::native::Host<'_>, pa
 pub fn paperpaw_sdk::native::storage::size(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::storage::sync(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::storage::write(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub mod paperpaw_sdk::native::text
+pub const paperpaw_sdk::native::text::BREAKS_MAX: usize
+pub const paperpaw_sdk::native::text::LANGUAGE_MAX: usize
+pub const paperpaw_sdk::native::text::MINIMUM_MAX: u32
+pub const paperpaw_sdk::native::text::WORD_MAX: usize
+pub fn paperpaw_sdk::native::text::hyphenate(&paperpaw_sdk::native::Host<'_>, &str, &str, u32, u32, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::ui
 pub mod paperpaw_sdk::native::ui::stages
 #[non_exhaustive] pub enum paperpaw_sdk::native::ui::stages::WidgetCall
