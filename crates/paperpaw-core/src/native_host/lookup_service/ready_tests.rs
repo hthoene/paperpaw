@@ -282,3 +282,32 @@ fn a_ready_command_needs_a_text_and_a_language_the_ask_takes() {
     }
     assert!(stage.take_lookup_readies().is_empty());
 }
+
+#[test]
+fn an_asker_parked_again_loses_its_asks_and_events_so_the_pump_can_idle() {
+    use crate::native_host::service_events::ServiceEvents;
+    let mut w = world();
+    w.ask();
+    let (wiki, lease) = &w.provider;
+    w.kernel.native_event_call(*wiki, lease, &[]).unwrap();
+    w.kernel.native_outbox_run();
+    // Another ask waits as well (asked again before the event came).
+    w.host.kept.set(false);
+    w.ask();
+    assert_eq!(
+        (w.service().events_len(), w.service().pending_len()),
+        (1, 1)
+    );
+    assert_eq!(w.service().next_deadline(), Some(0));
+    // The asker is parked again (#248, D3): its retirement runs as a park.
+    let hosts = w.kernel.shared.native_instances.hosts().unwrap();
+    hosts
+        .parking_again(w.asker, || hosts.owner_retired(w.asker))
+        .unwrap();
+    // The pump skips a parked lease: nothing of it may keep it busy.
+    assert_eq!(
+        (w.service().events_len(), w.service().pending_len()),
+        (0, 0)
+    );
+    assert_eq!(w.service().next_deadline(), None);
+}
