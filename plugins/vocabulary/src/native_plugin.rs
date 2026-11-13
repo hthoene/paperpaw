@@ -323,9 +323,15 @@ impl State {
                     return Ok(Handled::No);
                 };
                 let step = view.input(host, &input)?;
-                // The page the focus is on now is read before it is drawn.
-                let data = DataStorage::new(host);
-                view.prepare(host, &DataFolder(&data))?;
+                // The page the focus is on now is read before it is drawn. A
+                // read that fails leaves the draw to read it, and the step
+                // (a word held, *Export*) still runs.
+                if step != native_list::Step::Ignored {
+                    let data = DataStorage::new(host);
+                    if view.prepare(host, &DataFolder(&data)).is_err() {
+                        view.forget_page();
+                    }
+                }
                 match step {
                     native_list::Step::Held(row) => self.held(host, row)?,
                     native_list::Step::Export => self.export(host)?,

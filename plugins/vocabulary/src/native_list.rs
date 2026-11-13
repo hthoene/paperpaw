@@ -292,6 +292,11 @@ impl WordsView {
         self.list.set_focus(self.list.focus().min(count));
     }
 
+    /// The page read before is not kept: the next draw reads its own.
+    pub(crate) fn forget_page(&mut self) {
+        self.page = None;
+    }
+
     /// Reads the words of the page the next draw shows (the focus's), unless
     /// they are read already: the draw then reads nothing (the X4 draws a frame
     /// in bands, a `draw` each, #243).
