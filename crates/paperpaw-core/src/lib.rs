@@ -343,9 +343,10 @@ pub struct Kernel {
     /// line)`, set as the declaring plugin is published (`native_install`),
     /// and dropped at the start.
     late_config: Vec<(String, String, Option<u32>)>,
-    /// Values plugins offer among other plugins' choices, added once all
-    /// are registered: `(plugin, setting, value)`.
+    /// Values plugins offer among other plugins' choices `(plugin, setting, value)`; one
+    /// for a setting not declared yet waits while native plugins register (until the start).
     plugin_choices: Vec<(Id, Id, Cow<'static, str>)>,
+    native_registering: bool,
     /// The linked plugins' built-in catalogs are added ([`Kernel::claim_native_catalogs`]).
     native_catalogs_added: bool,
     now: Instant,
