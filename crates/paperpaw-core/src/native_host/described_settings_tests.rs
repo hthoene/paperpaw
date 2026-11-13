@@ -340,6 +340,9 @@ fn a_record_that_is_not_the_one_described_is_no_setting() {
         Ok(false)
     );
     assert!(settings.spec("probe.eins").is_none());
+    // A walk asks each place for its spec, by no name: it gives none either.
+    let walked = settings.each(Pick::All, |spec| panic!("{}", spec.id.as_str()));
+    assert_eq!(walked, Ok(()));
     // Of another kind than the default kept: not that setting either.
     let (image, _) = batch(&[
         Record::SettingSpec(wire::SettingSpec {
