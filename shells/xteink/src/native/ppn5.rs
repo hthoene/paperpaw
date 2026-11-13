@@ -194,7 +194,7 @@ pub fn host(
 pub(crate) use x4::register_linked;
 #[cfg(feature = "esp32s3")]
 pub(super) use x4::scanned_table_is_handed;
-pub(super) use x4::{StorageSource, entry_check_failed};
+pub(super) use x4::{StorageSource, entry_check_failed, heap_word};
 
 /// The loader both chips share (the module keeps its first name): the image is
 /// placed (flash on the ESP32-C3, PSRAM on the ESP32-S3), its entry read, and
@@ -445,6 +445,16 @@ mod x4 {
     /// The X4's heap and clock for a plugin: the firmware's allocator, so a
     /// plugin's allocations count against the heap like everything else.
     pub(super) struct X4Services;
+
+    /// The firmware's `PpHeap` table for the heap word of a plugin's image
+    /// (`abi/heap-word.md` section 3); no `abort`: a plugin panic ends in the
+    /// trap, which the crash slot blames on the frame owner.
+    static HEAP_TABLE: paperpaw_native::host_glue::PpHeap = shell::heap_table::<X4Services>();
+
+    /// The address of [`HEAP_TABLE`], written into a placed image's heap word.
+    pub(crate) fn heap_word() -> u32 {
+        core::ptr::addr_of!(HEAP_TABLE).addr() as u32
+    }
 
     /// The host table of this firmware's services as a named, read-only
     /// static, for `paperpaw-sign frames-s3`: the scan reads a table's function

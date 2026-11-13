@@ -61,7 +61,7 @@ const PIECE: usize = 4096;
 /// word is not loaded (as on the X4: `flash::heap_table`).
 #[cfg(feature = "ppn5")]
 fn heap_table() -> Option<u32> {
-    None
+    Some(super::ppn5::heap_word())
 }
 
 /// Places images in PSRAM.

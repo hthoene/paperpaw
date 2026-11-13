@@ -473,7 +473,7 @@ impl Flash {
 /// with another table re-places every plugin.
 #[cfg(feature = "ppn5")]
 fn heap_table() -> Option<u32> {
-    None
+    Some(super::ppn5::heap_word())
 }
 
 /// Before `make`: the word placed in flash for `header` holds the address of
