@@ -739,6 +739,16 @@ impl UiStore {
         })
     }
 
+    /// Whether an answer waits for any asker.
+    pub(crate) fn any_delivery(&self) -> bool {
+        self.inner.try_borrow().is_ok_and(|inner| {
+            inner
+                .requests
+                .iter()
+                .any(|r| r.pending.is_some() && !r.delivering)
+        })
+    }
+
     /// The callback for `delivery` could not run (the plugin was busy or not
     /// known): the answer waits as it was, for the next pass.
     pub(crate) fn undo_delivery(&self, delivery: &Delivery) -> Result<(), i32> {

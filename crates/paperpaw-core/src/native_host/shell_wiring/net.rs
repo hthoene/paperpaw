@@ -269,7 +269,11 @@ impl NetLimits {
         self
     }
 
-    /// Whether the cable server exists.
+    /// Whether the cable server exists: the shell passes the cable's lines
+    /// to [`Kernel::cable_line`](crate::Kernel::cable_line) and sends what
+    /// [`Kernel::take_cable_lines`](crate::Kernel::take_cable_lines) gives;
+    /// core serves `net_serve` port 0 itself (its `listen` never reaches
+    /// [`ShellHttp`]).
     #[must_use]
     pub fn cable(mut self, cable: bool) -> Self {
         self.cable = cable;
@@ -384,7 +388,7 @@ impl NetInputs {
             cable: self.limits.cable,
             servers: self.limits.servers,
         };
-        NetDevice::new(
+        let device = NetDevice::new(
             self.storage,
             self.http,
             self.network,
@@ -393,7 +397,16 @@ impl NetInputs {
             in_use,
             owners,
             policy,
-        )
+        );
+        // The cable's server is the kernel's (`cable_link`): the shell passes
+        // its lines to `Kernel::cable_line`.
+        if profile.cable {
+            device.with_cable(Rc::new(
+                crate::native_host::net_service::cable_link::CableLink::new(),
+            ))
+        } else {
+            device
+        }
     }
 }
 

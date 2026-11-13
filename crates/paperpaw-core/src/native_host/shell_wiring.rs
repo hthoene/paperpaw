@@ -564,8 +564,12 @@ fn wire_net(hosts: &Hosts, inputs: NetInputs) -> Result<NetReports, i32> {
     let (bytes, sessions) = inputs.pool_shape();
     hosts.net_pool(bytes, sessions)?;
     hosts.policy();
+    let cable = inputs.limits.cable;
     let later = Rc::new(net::NetLater::new(inputs));
     hosts.wire_net_later(later.clone())?;
+    if cable {
+        hosts.set_net_cable();
+    }
     Ok(NetReports(later))
 }
 
