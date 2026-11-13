@@ -226,7 +226,6 @@ impl NativeStore {
         let _ = storage;
         match started {
             Started::Downloading => {
-                self.installing_version = Some(crate::native_glue::own(&kept.entry.version)?);
                 self.activity.set_other_job(id, &name)?;
                 self.activity.clear_no_room(id);
                 self.installing = Some(kept);
@@ -318,7 +317,6 @@ impl NativeStore {
         };
         self.sync_step(&id);
         if matches!(step, DownStep::Failed(_)) {
-            self.installing_version = None;
             self.not_installed(host, &id, &name)?;
             return self.go_on(host);
         }
@@ -360,7 +358,6 @@ impl NativeStore {
         let _ = storage.remove_dir_all(&staged.folder);
         self.download.set_step(DownStep::Idle);
         self.installing = None;
-        self.installing_version = None;
         self.sync_step(&staged.plugin);
     }
 
@@ -383,19 +380,16 @@ impl NativeStore {
         let reason = reason_of(done);
         let flags = u32::from(done.data_kept()) | (u32::from(done.at_next_start()) << 1);
         let end = End::new(request, reason, flags);
-        let release = self.loader_release(done.id()).unwrap_or_default();
         let outcome = {
             let mut wire = InstallWire::new(host);
             self.installer.done(
                 &mut wire,
                 &mut self.download,
                 &end,
-                &release,
                 self.activity.flash_hint,
             )?
         };
         self.forget_snapshot();
-        self.installing_version = None;
         self.sync_step(done.id());
         // A page the queue or the offer installed from is not kept for nobody.
         if !self.has_page_screen() {
@@ -442,13 +436,6 @@ impl NativeStore {
     }
 
     /// The release of the page the plugin was installed from.
-    fn loader_release(&self, id: &str) -> Option<String> {
-        // The version that was downloaded, whatever page is held now.
-        self.installing_version
-            .clone()
-            .or_else(|| self.loader.page(id).map(|page| page.entry.version.clone()))
-    }
-
     /// Says what became of plugin `id`, or notes it for the end of a quiet
     /// queue or the request that asked for it.
     #[inline(never)]
@@ -486,7 +473,6 @@ impl NativeStore {
             None => (String::new(), String::new()),
         };
         self.installing = None;
-        self.installing_version = None;
         self.sync_step(&id);
         self.not_installed(host, &id, &name)?;
         self.go_on(host)
@@ -606,7 +592,6 @@ impl NativeStore {
         }
         self.download.set_step(DownStep::Idle);
         self.installing = None;
-        self.installing_version = None;
         self.want = None;
         self.want_retried = false;
         self.sync_step(id);
@@ -644,12 +629,7 @@ impl NativeStore {
         };
         self.forget_snapshot();
         match outcome(reason_of(done), self.activity.flash_hint) {
-            Said::Done => {
-                let id = crate::native_glue::own(done.id())?;
-                let storage = DataStorage::new(host);
-                let _ = crate::native_install::Installs::forget(&storage, &id);
-                self.say_with(host, "store.removed", &name)
-            }
+            Said::Done => self.say_with(host, "store.removed", &name),
             Said::Said(key) => self.say_with(host, key, &name),
             _ => Ok(()),
         }

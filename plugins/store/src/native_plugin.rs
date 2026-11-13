@@ -85,7 +85,6 @@ pub struct NativeStore {
     pub(crate) removing: Option<(u32, String)>,
     /// What the install under way needs of the page it comes from.
     pub(crate) installing: Option<crate::native_list::Page>,
-    pub(crate) installing_version: Option<String>,
     /// Counts the removals asked.
     pub(crate) remove_count: u32,
     /// A value a screen handed to the one below it, which is not on top yet.
@@ -201,7 +200,7 @@ impl NativeStore {
     pub(crate) fn ensure_snapshot(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.snapshot.is_none() {
             let storage = DataStorage::new(host);
-            let snapshot = Snapshot::read(host, &storage)?;
+            let snapshot = Snapshot::read(host)?;
             self.refresh_activity(host)?;
             self.activity.read_facts(host, &storage, Some(&snapshot))?;
             self.snapshot = Some(snapshot);
