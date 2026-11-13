@@ -104,6 +104,26 @@ native-linked = [
 native-linked-store = [
     "native-linked",
     "dep:paperpaw-plugin-aids",
+    "dep:paperpaw-plugin-battery",
+    "dep:paperpaw-plugin-browser",
+    "dep:paperpaw-plugin-calibre",
+    "dep:paperpaw-plugin-diagnostics",
+    "dep:paperpaw-plugin-end-of-book",
+    "dep:paperpaw-plugin-joplin",
+    "dep:paperpaw-plugin-keys",
+    "dep:paperpaw-plugin-koreader",
+    "dep:paperpaw-plugin-menu-editor",
+    "dep:paperpaw-plugin-notes-overview",
+    "dep:paperpaw-plugin-profiles",
+    "dep:paperpaw-plugin-read-later-cloud",
+    "dep:paperpaw-plugin-readwise",
+    "dep:paperpaw-plugin-reading-goal",
+    "dep:paperpaw-plugin-rules",
+    "dep:paperpaw-plugin-stats",
+    "dep:paperpaw-plugin-translate",
+    "dep:paperpaw-plugin-wallabag",
+    "dep:paperpaw-plugin-weather",
+    "dep:paperpaw-plugin-wikipedia",
     "dep:paperpaw-plugin-mail",
     "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-widgets",
@@ -113,6 +133,26 @@ native-linked-store = [
     "dep:paperpaw-plugin-format-images",
     "dep:paperpaw-plugin-format-mobi",
     "paperpaw-plugin-aids/linked",
+    "paperpaw-plugin-battery/linked",
+    "paperpaw-plugin-browser/linked",
+    "paperpaw-plugin-calibre/linked",
+    "paperpaw-plugin-diagnostics/linked",
+    "paperpaw-plugin-end-of-book/linked",
+    "paperpaw-plugin-joplin/linked",
+    "paperpaw-plugin-keys/linked",
+    "paperpaw-plugin-koreader/linked",
+    "paperpaw-plugin-menu-editor/linked",
+    "paperpaw-plugin-notes-overview/linked",
+    "paperpaw-plugin-profiles/linked",
+    "paperpaw-plugin-read-later-cloud/linked",
+    "paperpaw-plugin-readwise/linked",
+    "paperpaw-plugin-reading-goal/linked",
+    "paperpaw-plugin-rules/linked",
+    "paperpaw-plugin-stats/linked",
+    "paperpaw-plugin-translate/linked",
+    "paperpaw-plugin-wallabag/linked",
+    "paperpaw-plugin-weather/linked",
+    "paperpaw-plugin-wikipedia/linked",
     "paperpaw-plugin-mail/linked",
     "paperpaw-plugin-notes-vault/linked",
     "paperpaw-plugin-widgets/linked",
@@ -145,6 +185,26 @@ paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true
 paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
+paperpaw-plugin-battery = { workspace = true, optional = true }
+paperpaw-plugin-browser = { workspace = true, optional = true }
+paperpaw-plugin-calibre = { workspace = true, optional = true }
+paperpaw-plugin-diagnostics = { workspace = true, optional = true }
+paperpaw-plugin-end-of-book = { workspace = true, optional = true }
+paperpaw-plugin-joplin = { workspace = true, optional = true }
+paperpaw-plugin-keys = { workspace = true, optional = true }
+paperpaw-plugin-koreader = { workspace = true, optional = true }
+paperpaw-plugin-menu-editor = { workspace = true, optional = true }
+paperpaw-plugin-notes-overview = { workspace = true, optional = true }
+paperpaw-plugin-profiles = { workspace = true, optional = true }
+paperpaw-plugin-read-later-cloud = { workspace = true, optional = true }
+paperpaw-plugin-readwise = { workspace = true, optional = true }
+paperpaw-plugin-reading-goal = { workspace = true, optional = true }
+paperpaw-plugin-rules = { workspace = true, optional = true }
+paperpaw-plugin-stats = { workspace = true, optional = true }
+paperpaw-plugin-translate = { workspace = true, optional = true }
+paperpaw-plugin-wallabag = { workspace = true, optional = true }
+paperpaw-plugin-weather = { workspace = true, optional = true }
+paperpaw-plugin-wikipedia = { workspace = true, optional = true }
 paperpaw-plugin-notes-vault = { workspace = true, optional = true }
 paperpaw-plugin-picture-home = { workspace = true, optional = true }
 paperpaw-plugin-format-mobi = { workspace = true, optional = true }

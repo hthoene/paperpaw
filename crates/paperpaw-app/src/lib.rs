@@ -156,7 +156,17 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("aids", &paperpaw_plugin_aids::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("battery", &paperpaw_plugin_battery::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("browser", &paperpaw_plugin_browser::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("calibre", &paperpaw_plugin_calibre::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("diagnostics", &paperpaw_plugin_diagnostics::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("end-of-book", &paperpaw_plugin_end_of_book::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
@@ -188,13 +198,26 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("format-txt", &paperpaw_plugin_format_txt::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-reading")]
     ("format-xtc", &paperpaw_plugin_format_xtc::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("joplin", &paperpaw_plugin_joplin::NATIVE_ENTRY),
     ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("keys", &paperpaw_plugin_keys::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("koreader", &paperpaw_plugin_koreader::NATIVE_ENTRY),
     ("lock", &paperpaw_plugin_lock::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("mail", &paperpaw_plugin_mail::NATIVE_ENTRY),
     ("menu", &paperpaw_plugin_menu::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("menu-editor", &paperpaw_plugin_menu_editor::NATIVE_ENTRY),
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
     ("news", &paperpaw_plugin_news::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    (
+        "notes-overview",
+        &paperpaw_plugin_notes_overview::NATIVE_ENTRY,
+    ),
     #[cfg(feature = "native-linked-store")]
     ("notes-vault", &paperpaw_plugin_notes_vault::NATIVE_ENTRY),
     ("opds", &paperpaw_plugin_opds::NATIVE_ENTRY),
@@ -203,17 +226,40 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
         &paperpaw_plugin_plugin_manager::NATIVE_ENTRY,
     ),
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("profiles", &paperpaw_plugin_profiles::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    (
+        "read-later-cloud",
+        &paperpaw_plugin_read_later_cloud::NATIVE_ENTRY,
+    ),
     #[cfg(feature = "native-linked-reading")]
     ("reader", &paperpaw_plugin_reader::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("reading-goal", &paperpaw_plugin_reading_goal::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("readwise", &paperpaw_plugin_readwise::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("rules", &paperpaw_plugin_rules::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("stats", &paperpaw_plugin_stats::NATIVE_ENTRY),
     ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("translate", &paperpaw_plugin_translate::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
     ("vocabulary", &paperpaw_plugin_vocabulary::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
+    ("wallabag", &paperpaw_plugin_wallabag::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("weather", &paperpaw_plugin_weather::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
     ("widgets", &paperpaw_plugin_widgets::NATIVE_ENTRY),
     ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("wikipedia", &paperpaw_plugin_wikipedia::NATIVE_ENTRY),
 ];
 
 /// Whether the linked native plugin `id` is linked here and, if it is, on where
