@@ -8,7 +8,7 @@
 //! every linked plugin against (`shells/desktop/tests/x4_offer.rs`), so a
 //! plugin that would be refused on the device is found on a computer.
 use paperpaw_core::native_host::{device_service::DEVICE_SERVICES, shell::DATA_SERVICES};
-use paperpaw_native::metadata::{Feature, Service};
+use paperpaw_native::metadata::{Feature, Host, Profile, Service};
 
 /// Which families a start wired. A family is offered only where it is wired:
 /// a service offered and not backed is a plugin that fails later. The
@@ -234,6 +234,26 @@ pub fn card_features(wired: Wired) -> &'static [Feature<'static>] {
         (true, false) => &NETWORK,
         (false, true) => &CARD,
         (true, true) => &NETWORK_AND_CARD,
+    }
+}
+
+/// What the admission of a plugin file on the card is checked against: the
+/// linked plugins' services for what `wired` says is wired, and of the features
+/// only [`card_features`]. The firmware and the host tests both build it here,
+/// so a test that admits against it admits as the device does.
+#[must_use]
+pub fn card_host(
+    wired: Wired,
+    abi_major: u16,
+    minor: u16,
+    profile: Profile<'static>,
+) -> Host<'static> {
+    Host {
+        abi_major,
+        minor,
+        profile,
+        services: services(wired),
+        features: card_features(wired),
     }
 }
 

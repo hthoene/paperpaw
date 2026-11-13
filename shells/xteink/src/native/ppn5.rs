@@ -295,13 +295,8 @@ mod x4 {
         // secrets). A plugin that needs more is refused here, costing no flash.
         // The radio's commands are not offered (`wifi` false).
         let wired = crate::device_host::wired_families(false);
-        let offered = metadata::Host {
-            abi_major: HOST.abi_major,
-            minor: HOST.minor,
-            profile: super::PROFILE,
-            services: paperpaw_x4::native_offer::services(wired),
-            features: paperpaw_x4::native_offer::card_features(wired),
-        };
+        let offered =
+            paperpaw_x4::native_offer::card_host(wired, HOST.abi_major, HOST.minor, super::PROFILE);
         let admitted = shell::admission::admit(&record, &offered)
             .map_err(|why| admission_refused(path, why))?;
         let facts = RecordFacts {

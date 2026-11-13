@@ -605,9 +605,10 @@ impl Loader {
     /// Wires `core.secrets`: the card's file, sealed with the device key.
     /// Before the first plugin is admitted, as the families above, so a card
     /// plugin that declares it is admitted at this start; offered to plugins
-    /// only where it succeeded (`device_host::wired_secrets`). A plugin's own
-    /// secrets only: the file is keyed by the plugin's id, which the host
-    /// gives, never the plugin.
+    /// only where it succeeded (`device_host::wired_secrets`). A plugin reaches
+    /// its own secrets only: the file is keyed by the plugin's id, which the host
+    /// gives (the card folder's name, which `load_native` refuses where it is
+    /// the id of a linked plugin), never the plugin.
     #[cfg(feature = "ppn5")]
     fn wire_secrets(&self, storage: &alloc::rc::Rc<dyn Storage>) {
         use paperpaw_core::native_host::HostWiring;
@@ -683,6 +684,16 @@ impl CodeLoader for Loader {
         read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
         if !ppn5::is_format5(&head) {
             return Ok(None);
+        }
+        // The id of a linked plugin is that plugin's: a card folder is named by
+        // whoever made it, and the id keys secrets and files. Card plugins are
+        // admitted before the linked ones register, so this is the one place.
+        if paperpaw_app::is_linked_id(code.id.as_str()) {
+            warn!(
+                "native: {path}: `{}` is a plugin built into this firmware; a card plugin cannot take its id",
+                code.id.as_str()
+            );
+            return Err(PluginProblem::Mismatch);
         }
         // By its id, as safe mode switches it off.
         crate::safe_mode::loading(code.id.as_str());

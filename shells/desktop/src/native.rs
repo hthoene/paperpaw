@@ -340,6 +340,7 @@ impl HostLoader {
     ) -> Result<Box<dyn paperpaw_core::NativeAdmission>, PluginProblem> {
         use crate::native_runtime::Refusal;
         let id = code.id.as_str();
+        refuse_linked_id(id)?;
         let depth = self.shared_depth()?;
         if self.resources.is_none() {
             self.resources = Some(
@@ -370,6 +371,17 @@ impl HostLoader {
     ) -> Result<Box<dyn paperpaw_core::NativeAdmission>, PluginProblem> {
         Err(PluginProblem::Unsupported)
     }
+}
+
+/// A card plugin never takes the id of a linked plugin: the id keys secrets
+/// and files, a card folder is named by whoever made it, and card plugins are
+/// admitted before the linked ones register.
+fn refuse_linked_id(id: &str) -> Result<(), PluginProblem> {
+    if paperpaw_app::is_linked_id(id) {
+        eprintln!("code plugin {id}: a plugin built in has this id; not loaded");
+        return Err(PluginProblem::Mismatch);
+    }
+    Ok(())
 }
 
 /// Whether `bytes` is an interface-7 library (never where that loader is not
@@ -1258,6 +1270,17 @@ static INIT: extern "C" fn() = make_marker;
             .shared_depth()
             .unwrap();
         assert!(!std::ptr::eq(first.as_depth(), other.as_depth()));
+    }
+
+    /// The id of a linked plugin is that plugin's, not a card folder's.
+    #[test]
+    fn a_card_folder_named_like_a_linked_plugin_is_refused() {
+        for id in ["settings", "wifi", "opds", "home"] {
+            assert!(paperpaw_app::is_linked_id(id), "{id} is linked here");
+            assert_eq!(refuse_linked_id(id), Err(PluginProblem::Mismatch), "{id}");
+        }
+        assert!(!paperpaw_app::is_linked_id("a-plugin-of-its-own"));
+        assert_eq!(refuse_linked_id("a-plugin-of-its-own"), Ok(()));
     }
 
     /// A kernel takes one table of handles and one dispatch budget: the card

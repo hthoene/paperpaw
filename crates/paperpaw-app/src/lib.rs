@@ -346,6 +346,23 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
     }
 }
 
+/// Whether `id` is the id of a plugin linked into this program
+/// ([`NATIVE_PLUGINS`] of this build; none where nothing is linked). A plugin
+/// file on the card never takes such an id: the id keys a plugin's secrets and
+/// files, and a card folder is named by whoever made it.
+#[must_use]
+pub fn is_linked_id(id: &str) -> bool {
+    #[cfg(feature = "native-linked")]
+    {
+        NATIVE_PLUGINS.iter().any(|(linked, _)| *linked == id)
+    }
+    #[cfg(not(feature = "native-linked"))]
+    {
+        let _ = id;
+        false
+    }
+}
+
 /// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
 /// `Kernel::register_linked`, before the kernel starts (the one path the X4,
 /// the emulator and the tests share). `host` is what the shell offers

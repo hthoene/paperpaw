@@ -54,13 +54,13 @@ fn without_core_secrets_the_plugins_that_declare_it_are_refused() {
 // the families it may reach (`card_features`). The linked plugins' metadata
 // stands for card plugins' here: the check is the same.
 
-use paperpaw_x4::native_offer::card_features;
-
 fn card_host(wired: Wired) -> Host<'static> {
-    Host {
-        features: card_features(wired),
-        ..host(wired)
-    }
+    paperpaw_x4::native_offer::card_host(
+        wired,
+        7,
+        paperpaw_native::host_glue::MINOR,
+        crate::native_runtime::host_profile(),
+    )
 }
 
 fn metadata_of(id: &str) -> &'static [u8] {
@@ -162,4 +162,26 @@ fn a_card_plugin_never_gets_the_feature_that_reaches_other_plugins_secrets() {
     for feature in ["uses.secrets", "uses.power", "uses.registry", "uses.wifi"] {
         assert!(!card.iter().any(|f| f == feature), "{feature}: {card:?}");
     }
+}
+
+#[test]
+fn a_card_instance_is_denied_the_calls_a_first_party_feature_gates() {
+    use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+    // What the host keeps per instance (`Hosted::features()`) and checks before
+    // it serves a gated call (`AdmittedFeatures::feature`; `core.secrets` lists
+    // and changes other plugins' secrets only with `uses.secrets`): from the
+    // admission of `settings`, once on the card list, once on the linked one.
+    let features = |host: &Host<'static>| {
+        admit(metadata_of("settings"), host)
+            .expect("settings is admitted")
+            .declared
+            .features()
+    };
+    let linked = features(&host(Wired::ALL));
+    assert_eq!(linked.feature("uses.secrets"), Ok(()));
+    assert_eq!(linked.feature("uses.power"), Ok(()));
+    let card = features(&card_host(Wired::ALL));
+    // Not in the card catalog at all: the host answers "unsupported".
+    assert_eq!(card.feature("uses.secrets"), Err(ERR_UNSUPPORTED));
+    assert_eq!(card.feature("uses.power"), Err(ERR_UNSUPPORTED));
 }
