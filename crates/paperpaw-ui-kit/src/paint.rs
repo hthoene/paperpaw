@@ -65,6 +65,18 @@ pub enum Paint {
         /// Where it is, in screen pixels.
         rect: Rect,
     },
+    /// Tells what is drawn, as [`Paint::Describe`], for a part whose label is
+    /// not drawn as text inside it (an icon, a sign): `label` names it.
+    DescribeNamed {
+        /// What the part is.
+        role: PartRole,
+        /// Focused, on, disabled.
+        flags: PartFlags,
+        /// Where it is, in screen pixels.
+        rect: Rect,
+        /// What it is called.
+        label: String,
+    },
     /// A text run, optionally clipped.
     Text {
         /// What to draw.
@@ -166,6 +178,41 @@ pub fn describe(
         flags = flags | PartFlags::DISABLED;
     }
     push(paint, Paint::Describe { role, flags, rect })
+}
+
+/// Pushes a [`Paint::DescribeNamed`]: as [`describe`], for a part that shows
+/// an icon or a sign and no words, named `label` (a button without a name is
+/// told as nothing a reader could say or a test could find).
+///
+/// # Errors
+/// [`Error::NoMemory`] when the list or the label cannot grow.
+pub fn describe_named(
+    paint: &mut Vec<Paint>,
+    describing: bool,
+    (role, rect, label): (PartRole, Rect, &str),
+    focused: bool,
+    disabled: bool,
+) -> Result<(), Error> {
+    if !describing {
+        return Ok(());
+    }
+    let mut flags = PartFlags::NONE;
+    if focused {
+        flags = flags | PartFlags::FOCUSED;
+    }
+    if disabled {
+        flags = flags | PartFlags::DISABLED;
+    }
+    let label = crate::text::copy(label)?;
+    push(
+        paint,
+        Paint::DescribeNamed {
+            role,
+            flags,
+            rect,
+            label,
+        },
+    )
 }
 
 /// Pushes the [`Paint::Describe`] of a switch, `on` or off, at `rect`: inside a
@@ -311,6 +358,19 @@ pub fn replay_icons<'a>(
                     );
                 }
             }
+            Paint::DescribeNamed {
+                role,
+                flags,
+                rect,
+                label,
+            } => {
+                if asked {
+                    asked = matches!(
+                        canvas.describe_part(*role, label, frame_rect(*rect), *flags),
+                        Ok(true) | Err(Error::Invalid)
+                    );
+                }
+            }
             Paint::Fill(rect, color) => canvas.fill_rectangle(frame_rect(*rect), *color)?,
             Paint::Focus(rect, radius, thickness, color) => match thickness {
                 Some(thickness) => {
@@ -391,6 +451,29 @@ mod tests {
         describe(&mut none, false, PartRole::Row, rect, true, false).unwrap();
         assert!(none.is_empty(), "nothing is queued where nobody asks");
         assert_eq!(none.capacity(), 0, "nor is room made for it");
+    }
+
+    #[test]
+    fn a_named_part_keeps_its_name_and_only_where_somebody_asks() {
+        let rect = Rect::new(4, 4, 20, 20);
+        let mut paint = Vec::new();
+        super::describe_named(&mut paint, true, (PartRole::Button, rect, "+"), true, false)
+            .unwrap();
+        assert!(matches!(
+            paint.as_slice(),
+            [Paint::DescribeNamed { role: PartRole::Button, flags, rect: at, label }]
+                if *flags == PartFlags::FOCUSED && *at == rect && label == "+"
+        ));
+        let mut none = Vec::new();
+        super::describe_named(
+            &mut none,
+            false,
+            (PartRole::Button, rect, "+"),
+            false,
+            false,
+        )
+        .unwrap();
+        assert!(none.is_empty(), "nothing is queued where nobody asks");
     }
 
     #[test]

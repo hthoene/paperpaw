@@ -922,12 +922,22 @@ fn screens_say_what_they_show() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    // The pages tapped by their names, the rows with their text and state.
+    // The pages tapped by their names, the rows with their text and state:
+    // the native settings say the state in the row's words (#243).
     assert!(text.contains("Heading \"Display\""), "{text}");
-    assert!(
-        text.contains("Row \"Night mode, White text on black.\" (off)"),
-        "{text}"
-    );
+    let night = if cfg!(all(
+        feature = "native-linked",
+        target_os = "linux",
+        target_arch = "x86_64"
+    )) {
+        "Row \"Night mode, Off, White text on black.\""
+    } else {
+        "Row \"Night mode, White text on black.\" (off)"
+    };
+    assert!(text.contains(night), "{text}");
+    // Every button is named, the stepper's signs too (#243).
+    assert!(!text.contains("Button \"\""), "{text}");
+    assert!(text.contains("Button \"+\""), "{text}");
 }
 
 /// The titles of headers stand in their middle by their capitals: the

@@ -1028,11 +1028,11 @@ pub(crate) fn draw_row(
         cols = style.flip(room, free);
         let (minus, plus) = (style.flip(room, minus), style.flip(room, plus));
         for (rect, glyph) in [(minus, "\u{2212}"), (plus, "+")] {
-            paint::describe(
+            // Named by its sign: a sign alone is not told as text.
+            paint::describe_named(
                 paint,
                 style.describing,
-                PartRole::Button,
-                rect,
+                (PartRole::Button, rect, glyph),
                 false,
                 row.disabled,
             )?;
