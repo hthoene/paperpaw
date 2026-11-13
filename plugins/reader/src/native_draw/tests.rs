@@ -402,3 +402,16 @@ fn a_pictures_path_names_its_image_id_and_its_index() {
     assert_eq!(picture_of("12:x"), None);
     assert_eq!(picture_of("cover.png"), None);
 }
+
+#[test]
+fn small_capitals_are_drawn_as_smaller_capitals() {
+    // #257 (boox-small-caps): "The reader" in small caps was drawn as written.
+    let (page, faces) = page("The reader", TextStyle::SMALL_CAPS);
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
+    let parts: Vec<&str> = ink.calls.iter().map(|c| c.3.as_str()).collect();
+    assert_eq!(parts, ["T", "HE", "READER"]);
+    // The capitals of lower-case letters are narrower than full ones, as the
+    // layout measured them: "HE" starts where "T" ends, at 10.
+    assert_eq!(ink.calls[1].1, 10);
+}

@@ -51,6 +51,8 @@ pub(crate) struct ScreenEffects {
     pub(crate) presets: Vec<alloc::boxed::Box<str>>,
     /// The answers to plugin requests (`commands_answers.rs`).
     pub(crate) answers: Vec<super::plugin_requests::Answer>,
+    /// The ready lookups, as their asks' hashes (`commands_lookup.rs`).
+    pub(crate) lookups: Vec<u64>,
     pub(crate) hints: Vec<super::hint_labels::HintSet>,
     /// The widgets it said changed (their makers hear of it from the pump).
     pub(crate) widgets: Vec<u32>,
@@ -62,6 +64,7 @@ impl ScreenEffects {
             && self.item_states.0.is_empty()
             && self.presets.is_empty()
             && self.answers.is_empty()
+            && self.lookups.is_empty()
             && self.hints.is_empty()
             && self.widgets.is_empty()
     }
@@ -219,6 +222,7 @@ impl crate::Kernel {
                 let widgets = stage.take_widget_changes();
                 let item_states = stage.take_item_states();
                 let answers = stage.take_answers();
+                let lookups = stage.take_lookup_readies();
                 // Its power and Wi-Fi commands, in the box their submit made.
                 let dev = stage.take_dev_boxed();
                 let marked = match instances.ui_services() {
@@ -235,11 +239,13 @@ impl crate::Kernel {
                         || redraw.is_some()
                         || !images.is_empty()
                         || !item_states.0.is_empty()
-                        || !answers.is_empty())
+                        || !answers.is_empty()
+                        || !lookups.is_empty())
                     .then(|| {
                         let mut staged = Staged::new(owner, commands, redraw, images);
                         staged.screen.item_states = item_states;
                         staged.screen.answers = answers;
+                        staged.screen.lookups = lookups;
                         staged.opens = opens;
                         staged.dev = dev;
                         staged

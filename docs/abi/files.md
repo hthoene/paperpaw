@@ -63,17 +63,31 @@ Records: `abi/services/core.files@1.def`.
   switched on, loaded, not removed), behind the same `uses.storage` gate; every change under it (also as the target of a `move`)
   is `ERR_DENIED`. The folder name must match one data plugin's folder in full, compared as the card
   compares names (case folded); a prefix, `..` or an 8.3 alias is refused. Any other `plugins/…`
-  path, a code plugin's folder, a plugin that is off or gone, and `plugins` itself (it has no
-  listing) stay `ERR_INVALID` (`image_prepare`: status 6, not found, where the folder is none of a
-  running data plugin's); a listing of the card's top still leaves out `plugins`. Exactly these
+  path, a code plugin's folder (but for the next point), a plugin that is off or gone, and
+  `plugins` itself (it has no listing) stay `ERR_INVALID` (`image_prepare`: status 6, not
+  found, where the folder is none of a running data plugin's); a listing of the card's top still
+  leaves out `plugins`. Exactly these
   ops reach it: `core.files` `stat` and `list`, and `image_prepare`; the storage slots 20-26 keep
   refusing it, and a `move` out of it is a change (`ERR_DENIED`).
   (#243, sleep's picture presets.)
+- [D] **The same for a running code plugin's install folder.** The exception above also covers
+  `plugins/<id>/` of a code plugin that runs (switched on, loaded, not removed): behind the same
+  `uses.storage` gate, by the same ops (`core.files` `stat` and `list`, `image_prepare`), the
+  folder name matched the same way, every change under it `ERR_DENIED`. The code and the host's
+  files in it are hidden: every name in `CODE_FILES` (`code.ppn`, `code.so`, `code-host.dll`,
+  `code-host.so`, `code-host.dylib`) and `.install-marks`; names are compared without case, and a
+  FAT 8.3 short name of one of them (e.g. `CODE-H~1.DLL`) is hidden the same way; `list` leaves
+  them out, and `stat` and `image_prepare` answer `ERR_INVALID` (status 6). The rest of the folder
+  is readable by any plugin holding `uses.storage`, as in Beta 3: private state belongs in root 0,
+  not in the install folder. A code plugin that is off or removed, or one linked into the firmware
+  (no folder), stays as above. For these ops this replaces "another plugin's install folder is not
+  reachable" (root 2). (#243, todo 581: sleep's picture presets.)
 - [D] **Root 2 (new)** is read-only access to the plugin's own install folder, stamped like root 0:
   `storage.size`, `storage.read_at`, and `core.files` ops `list`, `stat`. Every changing call on
   root 2 is `ERR_DENIED`. Reason: plugins ship data files next to their code (vocabulary's
   `data/phone.txt`, reading-goal's `pictures/`, widgets' `data/quotes.*.txt`), which interface 6
-  read through the whole-card storage. Another plugin's install folder is not reachable (about
+  read through the whole-card storage. Another plugin's install folder is not reachable on root 2
+  (root 1 shows a running one's read only, above; about
   embeds its licence texts, section 6). Where the plugin has no install folder (linked into the
   firmware), root 2 is an empty folder: `ERR_NOT_FOUND` for every path but `""`.
 - [D] **`.received/` in root 0 is the host's** (NET, `network.md` 5.2): it writes served request

@@ -126,6 +126,10 @@ jobs:
       # behind. All need the app's `native-linked`, which the workspace run
       # above leaves off.
       - run: cargo test -p paperpaw-app --features native-linked --test flows --test sleep_parity --test sleep_cycles
+      # Every linked plugin's screens keep the entry of their titles table (#248):
+      # the test is compiled out unless the app's `native-linked*` features are on.
+      - run: cargo test -p paperpaw-app --features native-linked-reading --test linked_settings_tables
+      - run: cargo test -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
 
   check:
     name: Format, lint, test
@@ -388,10 +392,14 @@ jobs:
         # flags of shells/xteink/.cargo/config.toml (no jump tables, frame
         # pointers), which the frame budgets are measured with. Clippy denies
         # the warnings itself; build.rs fails the build if the flags are missing.
+        # The build remaps the runner's paths as the release's does
+        # (tools/ci/firmware-remap.sh): the image here is the released one's
+        # size (shells/xteink/size-budget.txt).
         run: |
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,remote" -- -D warnings
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE" -- -D warnings
-          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE"
+          remap="$("$GITHUB_WORKSPACE/tools/ci/firmware-remap.sh" "$FIRMWARE_TARGET" "$FIRMWARE_TOOLCHAIN")"
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE"
       # The loader's S3 code (format-5 files in PSRAM, `ppn5`) is off by
       # default and so not in the lint and build above; the X4's own job
       # (firmware-host-frames) covers the X4. Without the job's RUSTFLAGS,

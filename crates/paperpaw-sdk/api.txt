@@ -1117,12 +1117,18 @@ pub const paperpaw_sdk::builtin::settings::BOOK_LINE_HEIGHT: paperpaw_sdk::setti
 pub const paperpaw_sdk::builtin::settings::BOOK_MARGINS: paperpaw_sdk::setting::Setting<bool>
 pub const paperpaw_sdk::builtin::settings::BOOK_SIZES: paperpaw_sdk::setting::Setting<bool>
 pub const paperpaw_sdk::builtin::settings::BOOK_SPACING: paperpaw_sdk::setting::Setting<bool>
+pub const paperpaw_sdk::builtin::settings::BUTTON_FILLED: &str
+pub const paperpaw_sdk::builtin::settings::BUTTON_FLAT: &str
 pub const paperpaw_sdk::builtin::settings::BUTTON_HINTS: paperpaw_sdk::setting::Setting<bool>
+pub const paperpaw_sdk::builtin::settings::BUTTON_OUTLINED: &str
 pub const paperpaw_sdk::builtin::settings::CLOCK_FORMAT: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::CONTRAST_NORMAL: &str
 pub const paperpaw_sdk::builtin::settings::CONTRAST_STRONG: &str
 pub const paperpaw_sdk::builtin::settings::CORNERS: &[&str]
 pub const paperpaw_sdk::builtin::settings::DEFAULT_FONT: &str
+pub const paperpaw_sdk::builtin::settings::DENSITY_COMPACT: &str
+pub const paperpaw_sdk::builtin::settings::DENSITY_REGULAR: &str
+pub const paperpaw_sdk::builtin::settings::DENSITY_ROOMY: &str
 pub const paperpaw_sdk::builtin::settings::DEVELOPER: paperpaw_sdk::setting::Setting<bool>
 pub const paperpaw_sdk::builtin::settings::DOUBLE_TAP_MS: paperpaw_sdk::setting::Setting<i64>
 pub const paperpaw_sdk::builtin::settings::EDGE_ENDS: paperpaw_sdk::setting::Setting<i64>
@@ -1136,6 +1142,7 @@ pub const paperpaw_sdk::builtin::settings::FONT_WEIGHT: paperpaw_sdk::setting::S
 pub const paperpaw_sdk::builtin::settings::FOOTNOTES: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::FOOTNOTES_JUMP: &str
 pub const paperpaw_sdk::builtin::settings::FOOTNOTES_POPUP: &str
+pub const paperpaw_sdk::builtin::settings::FRAME_OWN: &str
 pub const paperpaw_sdk::builtin::settings::FRONTLIGHT: paperpaw_sdk::setting::Setting<i64>
 pub const paperpaw_sdk::builtin::settings::FRONTLIGHT_WARMTH: paperpaw_sdk::setting::Setting<i64>
 pub const paperpaw_sdk::builtin::settings::FULL_REFRESH_INTERVAL: paperpaw_sdk::setting::Setting<i64>
@@ -1211,9 +1218,12 @@ pub const paperpaw_sdk::builtin::settings::TEXT_SHARPNESS: paperpaw_sdk::setting
 pub const paperpaw_sdk::builtin::settings::TEXT_SHARPNESS_LEVELS: &[&str]
 pub const paperpaw_sdk::builtin::settings::TIME_ZONE: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::TIME_ZONE_RULE: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
+pub const paperpaw_sdk::builtin::settings::UI_BUTTON: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::UI_CONTRAST: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::UI_CORNERS: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
+pub const paperpaw_sdk::builtin::settings::UI_DENSITY: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::UI_FOCUS: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
+pub const paperpaw_sdk::builtin::settings::UI_FRAME: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::UI_GROUPS: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::UI_HEADER: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::UI_LINES: paperpaw_sdk::setting::Setting<i64>
@@ -1221,6 +1231,7 @@ pub const paperpaw_sdk::builtin::settings::UI_MARGIN: paperpaw_sdk::setting::Set
 pub const paperpaw_sdk::builtin::settings::UI_PALETTE: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::UI_ROW: paperpaw_sdk::setting::Setting<i64>
 pub const paperpaw_sdk::builtin::settings::UI_SEPARATORS: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
+pub const paperpaw_sdk::builtin::settings::UI_SHADOW: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::UI_SIZE: paperpaw_sdk::setting::Setting<i64>
 pub const paperpaw_sdk::builtin::settings::UI_TEXT_CURVE: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::UI_TITLE: paperpaw_sdk::setting::Setting<i64>
@@ -3366,6 +3377,7 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::fmt(&self, &mut co
 #[non_exhaustive] pub struct paperpaw_sdk::native::commands::Evidence<'a>
 impl<'a> paperpaw_sdk::native::commands::Evidence<'a>
 pub const fn paperpaw_sdk::native::commands::Evidence<'a>::author(self, &'a [u8; 32]) -> Self
+pub const fn paperpaw_sdk::native::commands::Evidence<'a>::from_catalog(self) -> Self
 pub const fn paperpaw_sdk::native::commands::Evidence<'a>::new() -> Self
 pub const fn paperpaw_sdk::native::commands::Evidence<'a>::recovery(self, &'a [u8; 32]) -> Self
 pub const fn paperpaw_sdk::native::commands::Evidence<'a>::rotations(self, &'a [paperpaw_sdk::native::commands::Rotation<'a>]) -> Self
@@ -5641,6 +5653,8 @@ pub struct paperpaw_sdk::native::lookup::Entry<'a>
 impl<'a> paperpaw_sdk::native::lookup::Entry<'a>
 pub const fn paperpaw_sdk::native::lookup::Entry<'a>::more(self) -> Self
 pub fn paperpaw_sdk::native::lookup::Entry<'a>::new(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::lookup::Entry<'a>::opens(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::lookup::Entry<'a>::pending(&'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub struct paperpaw_sdk::native::lookup::Lookup
 impl paperpaw_sdk::native::lookup::Lookup
 pub fn paperpaw_sdk::native::lookup::Lookup::ask<'a>(&self, &paperpaw_sdk::native::Host<'_>, &paperpaw_sdk::native::lookup::Question<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<core::option::Option<paperpaw_sdk::native::lookup::ProviderEntry<'a>>, paperpaw_sdk::native::Error>
@@ -5649,6 +5663,7 @@ pub fn paperpaw_sdk::native::lookup::Lookup::release(self, &paperpaw_sdk::native
 pub struct paperpaw_sdk::native::lookup::ProviderEntry<'a>(_)
 impl<'a> paperpaw_sdk::native::lookup::ProviderEntry<'a>
 pub const fn paperpaw_sdk::native::lookup::ProviderEntry<'a>::more(&self) -> bool
+pub fn paperpaw_sdk::native::lookup::ProviderEntry<'a>::opens(&self) -> core::option::Option<&'a str>
 pub const fn paperpaw_sdk::native::lookup::ProviderEntry<'a>::pending(&self) -> bool
 pub const fn paperpaw_sdk::native::lookup::ProviderEntry<'a>::provider(&self) -> &'a str
 pub const fn paperpaw_sdk::native::lookup::ProviderEntry<'a>::text(&self) -> &'a str
@@ -5663,6 +5678,7 @@ pub const paperpaw_sdk::native::lookup::BUFFER: usize
 pub const paperpaw_sdk::native::lookup::MAX_CONTEXT: usize
 pub const paperpaw_sdk::native::lookup::MAX_ENTRY: usize
 pub const paperpaw_sdk::native::lookup::MAX_LANGUAGE: usize
+pub const paperpaw_sdk::native::lookup::MAX_OPENS: usize
 pub const paperpaw_sdk::native::lookup::MAX_TEXT: usize
 pub const paperpaw_sdk::native::lookup::MAX_TITLE: usize
 pub fn paperpaw_sdk::native::lookup::answer(&mut paperpaw_sdk::native::reply::Reply<'_>, &paperpaw_sdk::native::lookup::Entry<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
@@ -6922,6 +6938,7 @@ impl<'a> paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupAsk<'a>
 pub const fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupAsk<'a>::new(&'a str, &'a str, &'a str, u32) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a>
 pub paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry::flags: u32
+pub paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry::opens: &'a str
 pub paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry::text: &'a str
 pub paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry::title: &'a str
 impl<'a> paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a>
@@ -6929,7 +6946,7 @@ pub const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a>::
 pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a>::decode(&'a [u8]) -> core::result::Result<Self, i32>
 pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a>::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
 impl<'a> paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a>
-pub const fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a>::new(&'a str, &'a str, u32) -> Self
+pub const fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a>::new(&'a str, &'a str, u32, &'a str) -> Self
 pub struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::RecordStream<'a>
 impl paperpaw_sdk::native::stage_schemas::core_lookup_v1::RecordStream<'_>
 pub fn paperpaw_sdk::native::stage_schemas::core_lookup_v1::RecordStream<'_>::is_empty(&self) -> bool
@@ -6950,6 +6967,7 @@ pub const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ASK_CONTEX
 pub const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ASK_LANGUAGE_MAX_BYTES: usize
 pub const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ASK_TAG: u32
 pub const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ASK_TEXT_MAX_BYTES: usize
+pub const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ENTRY_OPENS_MAX_BYTES: usize
 pub const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ENTRY_TAG: u32
 pub const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ENTRY_TEXT_MAX_BYTES: usize
 pub const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ENTRY_TITLE_MAX_BYTES: usize
@@ -7200,6 +7218,12 @@ pub fn paperpaw_sdk::native::storage::rename(&paperpaw_sdk::native::Host<'_>, pa
 pub fn paperpaw_sdk::native::storage::size(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::storage::sync(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::storage::write(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub mod paperpaw_sdk::native::text
+pub const paperpaw_sdk::native::text::MAX_BREAKS: usize
+pub const paperpaw_sdk::native::text::MAX_LANGUAGE: usize
+pub const paperpaw_sdk::native::text::MAX_MINIMUM: u32
+pub const paperpaw_sdk::native::text::MAX_WORD: usize
+pub fn paperpaw_sdk::native::text::hyphenate(&paperpaw_sdk::native::Host<'_>, &str, &str, u32, u32, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::ui
 pub mod paperpaw_sdk::native::ui::stages
 #[non_exhaustive] pub enum paperpaw_sdk::native::ui::stages::WidgetCall

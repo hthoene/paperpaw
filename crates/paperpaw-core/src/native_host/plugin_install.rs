@@ -723,14 +723,15 @@ fn read_all(storage: &dyn Storage, path: &str, mut at: u64, buf: &mut [u8]) -> R
 ///
 /// # Errors
 /// A reason: 1 for no memory, 16 for a card error, 4 where the file is none
-/// this device reads.
+/// this device reads, 19 on a device that loads no code.
 #[inline(never)]
 fn uses_of(env: &JobEnv<'_>, path: &str) -> Result<Uses, u8> {
+    let loader = env.host.loader.as_ref().ok_or(reason::NOT_HERE)?;
     let storage = env.storage;
     let size = storage.size(path).map_err(io)?;
     let mut head = [0_u8; HEADER_LEN];
     read_all(storage, path, 0, &mut head)?;
-    let header = Header5::read(&head, size, &env.host.loader).map_err(|_| reason::DAMAGED)?;
+    let header = Header5::read(&head, size, loader).map_err(|_| reason::DAMAGED)?;
     let mut record = Vec::new();
     record
         .try_reserve_exact(header.meta_len as usize)
