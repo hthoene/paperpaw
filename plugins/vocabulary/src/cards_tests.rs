@@ -617,3 +617,42 @@ fn a_blank_line_in_a_deck_is_no_card_and_splits_nothing() {
         ("Hund", "Katze")
     );
 }
+
+/// Where the heap refused the index's update it is taken away (see
+/// `keep_index`); what reads the numbers next makes it anew, and does not take
+/// the missing one for a library with nothing in it.
+#[test]
+fn the_numbers_after_an_index_was_taken_away_are_those_of_the_decks() {
+    let storage = MemoryStorage::new();
+    let deck = add_deck(&storage, "Words").unwrap();
+    add(&storage, deck, [texts("a", "b"), texts("c", "d")]).unwrap();
+    assert!(storage.exists(INDEX));
+    storage.remove(INDEX).unwrap();
+    assert_eq!(sizes(&storage).unwrap().get(&deck), Some(&2));
+    assert!(storage.exists(INDEX), "made anew");
+    storage.remove(INDEX).unwrap();
+    assert_eq!(due_count(&storage, 0, 20).unwrap(), 2, "the two new ones");
+    storage.remove(INDEX).unwrap();
+    assert_eq!(next_due(&storage, 0), None, "new cards are not scheduled");
+    assert!(storage.exists(INDEX), "made anew");
+}
+
+/// A change that is done is not told as failed where only the index could not
+/// follow for want of memory (the caller would do it twice); the index is
+/// taken away to be made anew. Other failures stay failures.
+#[test]
+fn an_index_the_heap_could_not_follow_does_not_fail_the_change() {
+    let storage = MemoryStorage::new();
+    for error in [StorageError::OutOfMemory, StorageError::TooLarge] {
+        storage.write(INDEX, b"x").unwrap();
+        assert_eq!(index_kept(&storage, Err(error)), Ok(()), "{error:?}");
+        assert!(!storage.exists(INDEX), "{error:?}: taken away");
+    }
+    storage.write(INDEX, b"x").unwrap();
+    assert_eq!(index_kept(&storage, Ok(())), Ok(()));
+    assert!(storage.exists(INDEX));
+    assert_eq!(
+        index_kept(&storage, Err(StorageError::Io)),
+        Err(StorageError::Io)
+    );
+}
