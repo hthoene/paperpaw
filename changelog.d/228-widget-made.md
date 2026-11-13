@@ -1,0 +1,3 @@
+### Fixed
+
+- **A widget's owner hears of the instances other plugins make** (#228, #244). The host never sent `event.widget_made`: an owner did not know an instance another plugin made of its widget and answered "not found" when it was measured or drawn, so picture-home's clock and "Start reading" cells, for example, stayed blank. Op 4 now lists a notice for the owner: the owner is told between callbacks before any drop of that instance, or inside the maker's callback right before it is first measured, placed, asked for targets or drawn. Each notice is told once; it is dropped when the owner stops. At most the widget cap of notices wait; each one is a single allocation of at most 256 bytes, freed once it is told.

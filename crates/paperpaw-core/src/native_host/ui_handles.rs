@@ -15,7 +15,10 @@
 //! insert and kept (no growth, no realloc, so no old-plus-new peak): widgets
 //! 32 B x 32 = 1,024 B (x 16 = 512 B on the X4), status handles 40 B x 16 =
 //! 640 B (x 8 = 320 B on the X4), and the drops to tell 16 B x 32 = 512 B (x 16 =
-//! 256 B on the X4); on the X4 at most 1,088 B once all three are used.
+//! 256 B on the X4); on the X4 at most 1,088 B once all three are used. The
+//! made instances their owners have not heard of yet are one allocation each
+//! (the widget id and place, at most 256 B) and their list, given back once
+//! all are told (`ui_handles_made.rs`).
 //!
 //! Plugins are named by their full-width host owner id (`u64`, the one
 //! `OwnerResources` id, never reused, no second namespace), so a made
@@ -29,6 +32,7 @@
 use super::registrations::DrawFrame;
 use crate::abi7::context::{ComposeKind, ComposeRequest};
 use alloc::vec::Vec;
+pub(crate) use made::{Made, NewWidget};
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND,
@@ -83,7 +87,8 @@ struct Widget {
 }
 
 /// A dropped widget instance its owner has yet to hear of (`event.widget_dropped`,
-/// 85, at the owner's token): 16 bytes.
+/// 85, at the owner's token): 16 bytes. A made one's notice (84) is told by
+/// the same three fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Dropped {
     /// The owner's host owner id.
@@ -149,6 +154,9 @@ pub(crate) struct UiHandles {
     /// instances and these fill the cap new instances are refused (`ERR_FULL`)
     /// until Core delivers some.
     dropped: Vec<Dropped>,
+    /// Instances their owners have not heard of yet (`event.widget_made`,
+    /// `ui_handles_made.rs`): empty, and no room kept, once all are told.
+    made: Vec<Made>,
     /// Instances their owners said show something new
     /// (`command.widget_changed`), told to the makers by `event.widget_changed`
     /// (86): a hint, one entry per instance. Room for every live instance is
@@ -168,6 +176,7 @@ impl UiHandles {
         Self {
             widgets: Vec::new(),
             dropped: Vec::new(),
+            made: Vec::new(),
             changed: Vec::new(),
             status: Vec::new(),
             next_widget: 1,
@@ -364,6 +373,7 @@ impl UiHandles {
     /// drop notice waiting (#248, D3).
     pub(crate) fn plugin_holds(&self, plugin: u64) -> bool {
         self.dropped.iter().any(|d| d.owner == plugin)
+            || self.made.iter().any(|m| m.owner == plugin)
             || self
                 .widgets
                 .iter()
@@ -380,6 +390,7 @@ impl UiHandles {
     /// lost to the heap.
     pub(crate) fn drop_plugin(&mut self, plugin: u64) {
         self.dropped.retain(|d| d.owner != plugin);
+        self.forget_made(plugin);
         let dropped = &mut self.dropped;
         self.widgets.retain(|w| {
             let gone = w.maker == plugin || w.owner == plugin;
@@ -560,6 +571,9 @@ pub(crate) fn draw_target(
     }
     Ok(())
 }
+
+#[path = "ui_handles_made.rs"]
+mod made;
 
 #[cfg(test)]
 #[path = "ui_handles_tests.rs"]
