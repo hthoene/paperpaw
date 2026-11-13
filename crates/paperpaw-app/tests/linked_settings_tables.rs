@@ -181,7 +181,6 @@ fn every_linked_plugins_screen_keeps_the_entry_of_its_titles_table() {
 /// kept in the program, not a copy on the heap (#248, B; Senior M1, #1372).
 /// The flip lists them so (`list`, with the build's table of manifests).
 #[test]
-#[ignore = "needs native activation (the flip's list() with kept manifests, handoff to Firmware)"]
 fn every_linked_plugins_row_points_to_its_kept_manifest() {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(DEVICE).storage(storage);
