@@ -48,7 +48,6 @@ pub struct Chips {
     /// Whether to queue what the chips tell about themselves.
     describing: bool,
     ink: Color,
-    paper: Color,
     /// What an unchosen chip stands on (its frame: an outline on paper
     /// unless the theme chose another).
     plate: Plate,
@@ -155,7 +154,6 @@ impl Chips {
             rtl: style.rtl,
             describing: style.describing,
             ink: plate.ink,
-            paper: plate.paper,
             plate,
             chosen: style.roles.chip.unwrap_or(plate.ink),
             on_chosen: style.on(

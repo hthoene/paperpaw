@@ -5,6 +5,7 @@
 mod catalog_job;
 mod clean_up;
 mod finishing;
+mod look_more;
 mod placeholder;
 mod reading;
 mod widget_settings;
@@ -1177,7 +1178,7 @@ fn register_general_settings(r: &mut Registrar) -> Result<(), RegisterError> {
 /// advanced settings its header, corners, highlight, lines, groups,
 /// titles and room. The defaults are PaperPaw's look (soft corners,
 /// pills, plain headers, faint lines); themes (data plugins) set others.
-static LOOK: [SettingSpec; 18] = [
+static LOOK: [SettingSpec; 14] = [
     SettingSpec::number(
         settings::UI_SIZE.static_str(),
         "core.setting.ui-size",
@@ -1231,50 +1232,6 @@ static LOOK: [SettingSpec; 18] = [
     )
     .advanced()
     .description("core.setting.ui-focus.help"),
-    SettingSpec::choice(
-        settings::UI_SHADOW.static_str(),
-        "core.setting.ui-shadow",
-        widgets::SHADOWS,
-        widgets::SHADOWS[0],
-        groups::LOOK,
-    )
-    .advanced()
-    .description("core.setting.ui-shadow.help"),
-    SettingSpec::choice(
-        settings::UI_FRAME.static_str(),
-        "core.setting.ui-frame",
-        widgets::ALL_FRAMES,
-        settings::FRAME_OWN,
-        groups::LOOK,
-    )
-    .advanced()
-    .description("core.setting.ui-frame.help"),
-    SettingSpec::choice(
-        settings::UI_DENSITY.static_str(),
-        "core.setting.ui-density",
-        &[
-            settings::DENSITY_COMPACT,
-            settings::DENSITY_REGULAR,
-            settings::DENSITY_ROOMY,
-        ],
-        settings::DENSITY_REGULAR,
-        groups::LOOK,
-    )
-    .advanced()
-    .description("core.setting.ui-density.help"),
-    SettingSpec::choice(
-        settings::UI_BUTTON.static_str(),
-        "core.setting.ui-button",
-        &[
-            settings::BUTTON_OUTLINED,
-            settings::BUTTON_FILLED,
-            settings::BUTTON_FLAT,
-        ],
-        settings::BUTTON_OUTLINED,
-        groups::LOOK,
-    )
-    .advanced()
-    .description("core.setting.ui-button.help"),
     SettingSpec::choice(
         settings::UI_SEPARATORS.static_str(),
         "core.setting.ui-separators",
@@ -1374,6 +1331,7 @@ static LOOK: [SettingSpec; 18] = [
 
 fn register_look_settings(r: &mut Registrar) -> Result<(), RegisterError> {
     r.add_settings(&LOOK)?;
+    r.add_settings(&look_more::LOOK_MORE)?;
     r.add_settings(&widget_settings::ALL_WIDGETS)
 }
 

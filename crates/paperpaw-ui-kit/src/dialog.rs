@@ -537,6 +537,17 @@ impl Dialog {
             let place = crate::style::flip_rect(self.rtl, self.panel, place);
             paint::push(paint, Paint::Fill(place, self.muted))?;
         }
+        self.prepare_buttons(paint, font, focus, thickness)
+    }
+
+    /// The buttons, `focus` the focused one.
+    fn prepare_buttons(
+        &self,
+        paint: &mut Vec<Paint>,
+        font: &Font<'_>,
+        focus: Option<usize>,
+        thickness: u32,
+    ) -> Result<(), Error> {
         for (i, (rect, label)) in self.buttons.iter().zip(&self.labels).enumerate() {
             let focused = focus == Some(i);
             paint::describe(

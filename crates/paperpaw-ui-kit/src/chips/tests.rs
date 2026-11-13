@@ -392,7 +392,7 @@ fn the_frame_the_theme_chose_sets_the_plate_of_a_chip_not_chosen() {
     chips.frames(&mut paint, 9, None).unwrap();
     let expect = [Paint::Focus(cell, 4, None, Color::BLACK)];
     assert_eq!(alloc::format!("{paint:?}"), alloc::format!("{expect:?}"));
-    assert_eq!((chips.ink, chips.paper), (Color::WHITE, Color::BLACK));
+    assert_eq!((chips.ink, chips.plate.paper), (Color::WHITE, Color::BLACK));
 }
 
 #[test]
