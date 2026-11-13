@@ -316,6 +316,40 @@ fn a_plugin_that_did_not_subscribe_loses_the_answer_without_a_call() {
 }
 
 #[test]
+fn the_lost_answer_warning_copies_nothing_infallibly() {
+    use crate::native_host::shell::tests::FAIL_SIZE;
+    let message = "a: its pictures are not told, it did not subscribe to event.image_ready";
+    let lost = |w: &mut World| {
+        w.kernel
+            .take_warnings()
+            .iter()
+            .filter(|warning| warning.message.contains(message))
+            .count()
+    };
+    // The plugin's id, `a`, is one byte: no copy of it on its own may be made
+    // infallibly (#2795, Code Reviewer remark 3), so a refused one-byte
+    // allocation changes nothing here.
+    let mut w = world(false);
+    w.apply(std::vec![prepare(0, "p.png", 1)]);
+    FAIL_SIZE.with(|size| size.set(1));
+    while w.kernel.native_image_pump() {}
+    FAIL_SIZE.with(|size| size.set(0));
+    assert_eq!(lost(&mut w), 1);
+    // The message is one fallible allocation: refused, nothing is said, and
+    // the next answer tries again.
+    let mut w = world(false);
+    w.apply(std::vec![prepare(0, "p.png", 1)]);
+    FAIL_SIZE.with(|size| size.set(message.len()));
+    while w.kernel.native_image_pump() {}
+    let refused = FAIL_SIZE.with(|size| size.replace(0)) == 0;
+    assert!(refused, "the message was asked for");
+    assert_eq!(lost(&mut w), 0);
+    w.apply(std::vec![prepare(0, "p.png", 2)]);
+    while w.kernel.native_image_pump() {}
+    assert_eq!(lost(&mut w), 1);
+}
+
+#[test]
 fn a_failing_callback_ends_the_answer_but_busy_keeps_it() {
     let mut w = world(true);
     w.apply(std::vec![prepare(0, "p.png", 1)]);

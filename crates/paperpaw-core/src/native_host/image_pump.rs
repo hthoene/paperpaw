@@ -452,14 +452,18 @@ impl crate::Kernel {
         {
             return;
         }
-        let Some(id) = instances.id(owner).map(|id| String::from(id.as_str())) else {
+        // Made while the id is borrowed, fallibly (no copy of the id): where
+        // the heap has no room, nothing is said and the next answer tries again.
+        let Some(message) = instances.id(owner).and_then(|id| {
+            crate::font_refresh::fallible_string(&[
+                id.as_str(),
+                ": its pictures are not told, it did not subscribe to event.image_ready",
+            ])
+        }) else {
             return;
         };
         instances.image_pump.warned.set(owner);
-        self.try_warn_runtime(&[
-            &id,
-            ": its pictures are not told, it did not subscribe to event.image_ready",
-        ]);
+        self.try_warn_made(crate::WarningSource::Runtime, message);
     }
 
     /// `Some(status)` of the plugin's callback when it failed; `None` when it

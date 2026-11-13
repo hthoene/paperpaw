@@ -55,9 +55,16 @@ impl Kernel {
     /// A warning from `source` made of `parts`; none where the heap has no
     /// room for it.
     pub(crate) fn try_warn(&mut self, source: WarningSource, parts: &[&str]) {
-        if let Some(message) = fallible_string(parts)
-            && self.warnings.try_reserve(1).is_ok()
-        {
+        if let Some(message) = fallible_string(parts) {
+            self.try_warn_made(source, message);
+        }
+    }
+
+    /// A warning from `source` whose `message` is made already (fallibly,
+    /// while what it names was borrowed); none where the heap has no room for
+    /// it.
+    pub(crate) fn try_warn_made(&mut self, source: WarningSource, message: String) {
+        if self.warnings.try_reserve(1).is_ok() {
             self.warn(source, None, message);
         }
     }
