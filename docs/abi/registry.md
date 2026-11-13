@@ -99,6 +99,9 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 - [D] `scope` that names nothing known gives an empty page (`total` 0), not an error: a plugin may
   ask for a group or menu of a plugin that is not installed.
 - [D] `setting`, `plugin`, `preset` and `setup_step` with an unknown key: `ERR_NOT_FOUND`.
+- [D] `settings`, `setting` and `choices` read a card plugin's settings from the plugin as they
+  are asked for: without room for one, the answer is `ERR_NO_MEMORY`, never a shorter list or
+  `ERR_NOT_FOUND`.
 - [D] `stack` (screen ids on the stack, owner, guarded) belongs to UIX, not here.
 - [D] `bindings` with an empty `scope` walks every layer in the byte order of the layer id, and
   the inputs of one layer in the order of their names, so a cursor and a re-read under one
