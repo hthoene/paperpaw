@@ -218,6 +218,7 @@ impl PanelView {
             margin: style.margin,
             rtl: false,
             top: self.top,
+            touch: self.touch,
         };
         let entries = self.entries()?;
         let label = panel::label_width(
@@ -345,6 +346,11 @@ impl PanelView {
                     focused,
                 )?;
                 index += 1;
+            }
+            if let (Some(track), Some(part)) =
+                (row.track, row.label.and_then(|i| self.parts.get(i)))
+            {
+                Self::draw_slider(body, style, track, part)?;
             }
         }
         if let Some(bar) = layout.pager {
@@ -541,6 +547,50 @@ impl PanelView {
         })
     }
 
+    /// A slider's track: a thin line, thick up to the knob, and the knob.
+    fn draw_slider(
+        body: &mut Vec<Paint>,
+        style: &Style,
+        track: Rect,
+        part: &Part,
+    ) -> Result<(), Error> {
+        let Some(info) = part.info.as_ref().filter(|i| i.slider()) else {
+            return Ok(());
+        };
+        let Some(Value::Int(now)) = info.value else {
+            return Ok(());
+        };
+        let ink = if part.row.choosable() {
+            style.ink
+        } else {
+            style.disabled
+        };
+        let radius = panel::knob_radius(track);
+        let knob = panel::knob_x(track, now, (info.min, info.max)).clamp(0, i32::from(u16::MAX));
+        let middle = track.y.saturating_add(track.height / 2);
+        let (thin, thick) = (style.line.max(1), style.line.saturating_mul(3).max(3));
+        let start = track.x.saturating_add(radius);
+        let end = track.x.saturating_add(track.width).saturating_sub(radius);
+        let at = knob as u16;
+        let line = |from: u16, to: u16, height: u16| {
+            Rect::new(
+                from,
+                middle.saturating_sub(height / 2),
+                to.saturating_sub(from),
+                height,
+            )
+        };
+        paint::push(body, Paint::Fill(line(start, end, thin), ink))?;
+        paint::push(body, Paint::Fill(line(start, at, thick), ink))?;
+        let circle = Rect::new(
+            at.saturating_sub(radius),
+            middle.saturating_sub(radius),
+            radius.saturating_mul(2),
+            radius.saturating_mul(2),
+        );
+        paint::push(body, Paint::Focus(circle, u32::from(radius), None, ink))
+    }
+
     /// A number's value between its `−` and its `+`, drawn beside the `+`.
     fn draw_number(
         &self,
@@ -621,6 +671,9 @@ impl PanelView {
             }
             _ => {}
         }
+        if let Some((row, track)) = layout.track_at(self.page, at) {
+            return self.set_by_tap(host, row, track, at);
+        }
         if let Some((_, control)) = layout.hit(self.page, at) {
             // The focus shown goes, as after other taps.
             if self.focus.take().is_some() {
@@ -629,6 +682,37 @@ impl PanelView {
             return self.activate(host, control);
         }
         Ok(Outcome::Handled(Handled::Yes))
+    }
+
+    /// A tap on a slider's track: the number is the nearest step to it.
+    fn set_by_tap(
+        &mut self,
+        host: &Host<'_>,
+        row: usize,
+        track: Rect,
+        at: Point,
+    ) -> Result<Outcome, Error> {
+        let handled = Ok(Outcome::Handled(Handled::Yes));
+        // The focus shown goes, as after other taps.
+        if self.focus.take().is_some() {
+            self.redraw(host)?;
+        }
+        let Some(part) = self.parts.get(row) else {
+            return handled;
+        };
+        let Some(info) = part.info.as_ref().filter(|i| i.slider()) else {
+            return handled;
+        };
+        if !part.row.choosable() {
+            return handled;
+        }
+        let next = panel::value_at(track, at.x, (info.min, info.max, info.step));
+        if !matches!(info.value, Some(Value::Int(now)) if now == next) {
+            let mut scratch = buffer(1024)?;
+            CommandSender::new(host, &mut scratch)
+                .set_setting(&info.key, SettingValue::Int(next))?;
+        }
+        handled
     }
 
     fn on_action(

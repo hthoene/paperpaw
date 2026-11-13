@@ -413,23 +413,38 @@ impl Kernel {
             return;
         }
         self.feed_install_grants(&driver);
+        self.firmware_finish_steps(&driver);
+    }
+
+    /// The steps of [`Self::firmware_finish_due`], and the load of a data
+    /// plugin whose swap they finished. Its own frame: the id it keeps is
+    /// not on the frame-limited pass's (#250).
+    #[inline(never)]
+    fn firmware_finish_steps(&mut self, driver: &super::firmware_cell::DriverRef) {
         // Taken only with the driver in hand: a driver lent out now keeps
         // the steps asked for, and the next pass takes them.
-        let Ok(mut driver) = driver.try_borrow_mut() else {
-            return;
-        };
-        if !driver.take_finish() {
-            return;
-        }
-        let hosts = self.shared.native_instances.hosts();
-        // With every plugin found, as the pump's steps (`store_record`).
-        let plugins = &self.shared.plugins;
-        match hosts.and_then(|hosts| hosts.device()) {
-            Some(device) => {
-                let device = DeviceBuiltIns(&*device.0);
-                driver.finish_stopped(self.storage(), &Found(&device, plugins));
+        let installed = {
+            let Ok(mut driver) = driver.try_borrow_mut() else {
+                return;
+            };
+            if !driver.take_finish() {
+                return;
             }
-            None => driver.finish_stopped(self.storage(), &Found(&NoBuiltIns, plugins)),
+            let hosts = self.shared.native_instances.hosts();
+            // With every plugin found, as the pump's steps (`store_record`).
+            let plugins = &self.shared.plugins;
+            // A data plugin whose swap finished here loads as after a pump:
+            // not at the next start, with the old version over its files.
+            loads_now(match hosts.and_then(|hosts| hosts.device()) {
+                Some(device) => {
+                    let device = DeviceBuiltIns(&*device.0);
+                    driver.finish_stopped(self.storage(), &Found(&device, plugins))
+                }
+                None => driver.finish_stopped(self.storage(), &Found(&NoBuiltIns, plugins)),
+            })
+        };
+        if let Some(id) = installed {
+            self.firmware_load_installed(id.as_str());
         }
     }
 
