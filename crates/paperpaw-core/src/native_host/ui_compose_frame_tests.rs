@@ -423,12 +423,13 @@ fn the_kernels_battery_is_drawn_by_the_host_with_no_plugin_called_on_the_x4_too(
         let drawn = w.run_on(World::stamp(), generation, true, &request, &mut fb.canvas());
         assert_eq!(drawn, Ok(()), "{}", device.id);
         assert!(w.seen.borrow().is_empty(), "no plugin is called");
-        let canvas = fb.canvas();
-        let inked = (0..30)
-            .flat_map(|y| (0..width as i32).map(move |x| paperpaw_sdk::Point::new(x, y)))
-            .filter(|at| canvas.pixel(*at) == Some(paperpaw_platform::Color::BLACK))
-            .count();
-        drop(canvas);
+        let inked = {
+            let canvas = fb.canvas();
+            (0..30)
+                .flat_map(|y| (0..width as i32).map(move |x| paperpaw_sdk::Point::new(x, y)))
+                .filter(|at| canvas.pixel(*at) == Some(paperpaw_platform::Color::BLACK))
+                .count()
+        };
         assert!(
             inked > 20,
             "{}: the symbol and percentage, {inked} px",
