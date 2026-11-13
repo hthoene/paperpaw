@@ -263,4 +263,36 @@ mod tests {
         );
         assert_eq!(registry.entries.len(), registered, "nothing was added");
     }
+
+    fn key(family: &str) -> ServiceKey {
+        ServiceKey {
+            schema: crate::abi7::services_wire::service_schema(family, 1).unwrap(),
+            minor: 0,
+            features: AdmittedFeatures::NONE,
+        }
+    }
+
+    #[test]
+    fn one_open_service_holds_room_for_one_handle() {
+        // #248, P2: the handle table grows as handles are opened.
+        let pool = HostResources::try_new().unwrap();
+        let owner = pool.try_owner().unwrap();
+        owner.insert_service(key("core.ui"), usize::MAX).unwrap();
+        assert_eq!(owner.table.handles.borrow().capacity(), 1);
+    }
+
+    #[test]
+    fn a_refused_growth_says_no_memory_and_keeps_the_open_handles() {
+        use crate::native_host::shell::tests::FAIL_NTH;
+        let pool = HostResources::try_new().unwrap();
+        let owner = pool.try_owner().unwrap();
+        let ui = owner.insert_service(key("core.ui"), usize::MAX).unwrap();
+        FAIL_NTH.with(|n| n.set(1));
+        let refused = owner.insert_service(key("core.files"), usize::MAX);
+        FAIL_NTH.with(|n| n.set(0));
+        assert_eq!(refused, Err(ERR_NO_MEMORY));
+        let open = owner.service(ui).map(|key| key.schema.key);
+        assert_eq!(open, Ok("core.ui"), "the open handle is kept");
+        assert!(owner.insert_service(key("core.files"), usize::MAX).is_ok());
+    }
 }
