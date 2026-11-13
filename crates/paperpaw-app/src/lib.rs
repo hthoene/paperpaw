@@ -512,7 +512,7 @@ fn list(
         .map(|(_, kept)| kept);
     let Ok(manifest) = ManifestRef::try_new(made, kept) else {
         // No room for the row: said, as the kernel does, not dropped silently.
-        kernel.warn_not_listed(id);
+        kernel.warn_not_listed(&Id::new_static(id));
         return;
     };
     let info = PluginInfo::new(

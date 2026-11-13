@@ -1125,7 +1125,10 @@ fn the_dispatcher_opens_the_service_and_an_unwired_host_refuses_its_calls() {
     };
     let pool = HostResources::try_new().unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let declared = DeclaredServices::try_from_iter(core::iter::once(Declared {
         key: KEY,
         major: 1,

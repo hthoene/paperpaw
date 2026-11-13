@@ -646,11 +646,16 @@ fn ask_is_refused_in_a_work_runs_callback() {
     };
     view(|v| {
         v.stack.instance.set(Some(30));
-        let sched = Rc::new(WorkSched::new(WorkLimits::OTHER));
+        let sched =
+            crate::native_host::shared::Shared::try_new(WorkSched::new(WorkLimits::OTHER)).unwrap();
         v.hosts
             .wire_work(WorkServices {
-                sched: Rc::clone(&sched),
-                env: Rc::new(WorkDevice),
+                sched: sched.try_clone().unwrap(),
+                env: crate::native_host::shared::Shared::try_new(
+                    alloc::boxed::Box::new(WorkDevice)
+                        as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>,
+                )
+                .unwrap(),
             })
             .unwrap();
         // In a run's callback (quiet) no dialog is asked for.

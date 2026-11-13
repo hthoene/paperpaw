@@ -268,6 +268,12 @@ pub(crate) trait DocHost {
     fn allow_cover_jobs(&self) -> u64 {
         0
     }
+    /// The host's details run ended (#248): where no document is open, the
+    /// room of the table, its event queue and the reader's books is given
+    /// back; the next open reserves it again, fallibly. Whether it was.
+    fn release_rooms(&self) -> bool {
+        false
+    }
     /// A job for the book at `path` is about to begin: its marker is written
     /// (`cover_job_marker`). An error: the job does not begin.
     fn cover_job_guard(&self, _path: &str) -> Result<(), i32> {
@@ -588,6 +594,9 @@ impl DocHost for Cx<'_> {
     }
     fn details_job(&self) -> Option<&dyn details::DetailsJob> {
         self.host.details_job()
+    }
+    fn release_rooms(&self) -> bool {
+        self.host.release_rooms()
     }
     fn cover_at(&self, path: &str) -> super::doc_host::CoverAt {
         self.host.cover_at(path)

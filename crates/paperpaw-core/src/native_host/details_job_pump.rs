@@ -227,6 +227,11 @@ impl crate::Kernel {
             Pass::Wait(at) => Some(at),
             Pass::End => {
                 self.native_details_wanted(true);
+                // The run is over: what its opens reserved is given back
+                // where no document is open (#248).
+                if let Some(hosts) = self.shared.native_instances.hosts() {
+                    hosts.release_document_rooms();
+                }
                 None
             }
             Pass::Started => {
