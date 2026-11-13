@@ -10,7 +10,7 @@ use super::{
     schema,
     tests::{call_failing, call_in, key, query_flags},
 };
-use crate::native_host::described_settings::tests::{held, kernel};
+use crate::native_host::described_settings::tests::{held, kernel, no_room_for_a_spec};
 use crate::native_host::registrations::{self as wire, Record};
 use crate::native_host::shell::tests::FAIL_SIZE;
 use alloc::vec::Vec;
@@ -115,4 +115,34 @@ fn a_list_without_room_for_a_spec_says_so_and_is_never_a_short_list() {
         }
     }
     assert!(refused > 0, "the list made no spec");
+}
+
+#[test]
+fn a_setting_asked_for_without_room_for_its_spec_is_not_one_not_found() {
+    let mut described = kernel(false);
+    let choice = NATIVE_SETTINGS
+        .iter()
+        .find(|spec| matches!(spec.kind, paperpaw_sdk::SettingKind::Choice(_)))
+        .unwrap();
+    let id = choice.id.as_str();
+    for (op, input) in [
+        (schema::OP_SETTING, key(id)),
+        (schema::OP_CHOICES, query_flags(id, 0, 0, 0)),
+    ] {
+        let whole = call_in(&described, None, op, &input, 4096).unwrap();
+        described.shared.settings.rest();
+        no_room_for_a_spec();
+        let refused = call_in(&described, None, op, &input, 4096);
+        assert_eq!(FAIL_SIZE.with(|size| size.replace(0)), 0, "op {op}");
+        assert_eq!(refused, Err(ERR_NO_MEMORY), "op {op}");
+        assert_eq!(call_in(&described, None, op, &input, 4096), Ok(whole));
+    }
+    let none = call_in(
+        &described,
+        None,
+        schema::OP_SETTING,
+        &key("widgets.none"),
+        4096,
+    );
+    assert_eq!(none, Err(ERR_NOT_FOUND));
 }

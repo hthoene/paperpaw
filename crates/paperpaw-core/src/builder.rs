@@ -1161,11 +1161,7 @@ impl Kernel {
         for (plugin, id, value) in mem::take(&mut self.plugin_defaults) {
             // A setting that keeps the device safe takes no other plugin's
             // default.
-            let guarded = self
-                .shared
-                .settings
-                .spec(id.as_str())
-                .is_some_and(|spec| spec.guarded);
+            let guarded = self.shared.settings.defines_guarded(id.as_str());
             if guarded && id.namespace() != plugin.as_str() {
                 self.warn(
                     WarningSource::Plugin(plugin),

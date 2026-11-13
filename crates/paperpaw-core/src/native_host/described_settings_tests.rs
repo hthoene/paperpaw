@@ -542,3 +542,177 @@ fn whether_a_described_setting_is_a_secret_is_told_without_its_spec() {
     );
     assert!(!settings.any_made());
 }
+
+/// An empty text as a setting's default on the wire.
+const EMPTY: &[u8] = &[1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0];
+
+/// 8 as a setting's default on the wire.
+const EIGHT: &[u8] = &[1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0];
+
+/// A number from 0 to 9 that is 8 until it is set.
+fn number(name: &str, flags: u32) -> Record<'_> {
+    Record::SettingSpec(wire::SettingSpec {
+        name,
+        kind: 1,
+        flags,
+        group: "probe.group",
+        title: "Number",
+        help: "",
+        default: EIGHT,
+        min: 0,
+        max: 9,
+        choices: "",
+    })
+}
+
+/// A kernel with `probe`'s settings `lock` (a guarded switch), `open` (a
+/// switch), `name` (a text), `most` (a guarded number) and `some` (a number).
+fn locked_kernel() -> (Rc<Shown>, crate::Kernel) {
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .storage(paperpaw_sdk::MemoryStorage::new())
+        .build()
+        .unwrap();
+    let name = Record::SettingSpec(wire::SettingSpec {
+        name: "name",
+        kind: 3,
+        flags: 0,
+        group: "probe.group",
+        title: "Name",
+        help: "",
+        default: EMPTY,
+        min: 0,
+        max: 0,
+        choices: "",
+    });
+    let records = [
+        switch("lock", "Lock", 2),
+        switch("open", "Open", 0),
+        name,
+        number("most", 2),
+        number("some", 0),
+    ];
+    let shown = define_plugin(&mut kernel.shared.settings, "probe", &records);
+    (shown, kernel)
+}
+
+/// Whether the armed lack of room ([`no_room_for_a_spec`]) was met; it is
+/// taken back.
+fn met_no_room() -> bool {
+    FAIL_SIZE.with(|size| size.replace(0)) == 0
+}
+
+#[test]
+fn a_guarded_setting_stays_another_plugin_s_to_keep_without_room_for_its_spec() {
+    use paperpaw_sdk::{Command, Id};
+    let (_shown, kernel) = locked_kernel();
+    let settings = &kernel.shared.settings;
+    let reserved = crate::commands::Reserved::of(settings, &kernel.shared.registry);
+    let off = |id| Command::SetSetting(Id::new_static(id), SettingValue::Bool(false));
+    let mut out = std::vec![
+        off("probe.lock"),
+        off("probe.open"),
+        Command::ResetSetting(Id::new_static("probe.lock")),
+    ];
+    no_room_for_a_spec();
+    crate::commands::vet_reserved(&mut out, 0, "other", &reserved);
+    // Told from what is kept of it: no spec was asked for.
+    assert!(!met_no_room());
+    assert_eq!(out, [off("probe.open")]);
+    assert!(settings.defines_guarded("probe.lock") && !settings.defines_guarded("probe.open"));
+    assert!(!settings.any_made());
+}
+
+#[test]
+fn a_setting_set_without_room_for_its_spec_is_not_called_unknown() {
+    use paperpaw_sdk::Instant;
+    let (_shown, mut kernel) = locked_kernel();
+    no_room_for_a_spec();
+    let refused = kernel.set_setting(Instant(10), "probe.open", "off");
+    assert!(met_no_room());
+    assert_eq!(refused.err(), Some("no room to read this setting now"));
+    assert_eq!(
+        kernel.set_setting(Instant(20), "probe.none", "off").err(),
+        Some("no such setting")
+    );
+    assert!(kernel.set_setting(Instant(30), "probe.open", "off").is_ok());
+    assert_eq!(
+        kernel.shared.settings.get("probe.open"),
+        Some(&SettingValue::Bool(false))
+    );
+}
+
+#[test]
+fn text_typed_for_a_setting_is_set_without_a_spec_kept_for_it() {
+    use paperpaw_sdk::builtin::{events, params};
+    use paperpaw_sdk::event::EventData;
+    use paperpaw_sdk::{Instant, Params, Typed};
+    let typed = Typed::new("Ann", Params::new().with(params::ID, "probe.name")).to_params();
+    let (_shown, mut kernel) = locked_kernel();
+    // No room for a spec to keep: asked whether the setting is there
+    // without one, what was typed is not dropped unsaid.
+    no_room_for_a_spec();
+    let _ = kernel.send_event(Instant(10), events::SETTING_TYPED.id().clone(), typed);
+    assert!(!met_no_room());
+    assert_eq!(kernel.shared.settings.text("probe.name"), "Ann");
+    let warnings = kernel.take_warnings();
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+#[test]
+fn a_spec_left_out_for_lack_of_room_is_said_at_the_end_of_the_round() {
+    let (_shown, mut kernel) = locked_kernel();
+    let _ = kernel.finish();
+    assert!(!warned(&mut kernel, "no room to read a setting"));
+    // Who asks so cannot tell it from a setting that is not there.
+    no_room_for_a_spec();
+    assert!(kernel.shared.settings.spec("probe.open").is_none());
+    assert!(met_no_room());
+    assert!(kernel.shared.settings.went_short());
+    let _ = kernel.finish();
+    assert!(warned(&mut kernel, "no room to read a setting"));
+    // Said once: the next round knows nothing of it.
+    assert!(!kernel.shared.settings.went_short());
+    let _ = kernel.finish();
+    assert!(!warned(&mut kernel, "no room to read a setting"));
+}
+
+#[test]
+fn no_mode_limits_a_guarded_setting_for_lack_of_room_for_its_spec() {
+    use paperpaw_sdk::{Command, Id, power::Wear, presets::Preset};
+    let (_shown, mut kernel) = locked_kernel();
+    let low = Id::new_static("probe.low");
+    let limits = "power.level = saving\nprobe.most <= 3\nprobe.some <= 3";
+    let mode = Preset::new(
+        low.clone(),
+        paperpaw_sdk::power::MODE_KIND,
+        "Low",
+        "",
+        limits,
+    );
+    kernel.shared.settings.presets_mut().add(mode);
+    no_room_for_a_spec();
+    kernel.apply(Command::Wear(Wear::new(low)));
+    // Whether one is guarded is told from what is kept of it.
+    assert!(!met_no_room());
+    let settings = &kernel.shared.settings;
+    assert_eq!(
+        (settings.int("probe.most"), settings.int("probe.some")),
+        (8, 3)
+    );
+}
+
+#[test]
+fn a_guarded_setting_takes_no_other_plugin_s_default_for_lack_of_room() {
+    use paperpaw_sdk::Id;
+    let (_shown, mut kernel) = locked_kernel();
+    let (other, lock) = (Id::new_static("other"), Id::new_static("probe.lock"));
+    kernel.plugin_defaults.push((other, lock, "off".into()));
+    no_room_for_a_spec();
+    kernel.apply_defaults(&[]);
+    assert!(!met_no_room());
+    assert_eq!(
+        kernel.shared.settings.get("probe.lock"),
+        Some(&SettingValue::Bool(true))
+    );
+    assert!(warned(&mut kernel, "it keeps the device safe"));
+}

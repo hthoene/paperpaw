@@ -82,7 +82,9 @@ impl Plugin for CorePlugin {
             let Some(id) = id else {
                 return;
             };
-            if env.settings().spec(id.as_str()).is_none() {
+            // Asked without its spec: what was typed is not dropped for
+            // lack of room to read one (#248); the change itself says so.
+            if !env.settings().knows(id.as_str()) {
                 return;
             }
             // A secret setting's text is kept with the secrets, never in

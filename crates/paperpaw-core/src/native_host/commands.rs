@@ -288,7 +288,9 @@ impl<'a> CommandStage<'a> {
     /// Registered, non-secret settings may belong to any plugin. Foreign
     /// guarded settings require the host-known editor or kernel identity.
     fn admitted(&self, key: &str) -> Result<&'a SettingSpec, i32> {
-        let spec = self.settings.spec(key).ok_or(ERR_INVALID)?;
+        // No room to read what its plugin describes of it is told as that.
+        let spec = self.settings.try_spec(key).map_err(|_| ERR_NO_MEMORY)?;
+        let spec = spec.ok_or(ERR_INVALID)?;
         if spec.extra().secret {
             return Err(ERR_UNSUPPORTED);
         }
@@ -847,6 +849,19 @@ mod tests {
         let stage = CommandStage::new(&owner, &settings, None, 1, 40);
         assert_eq!(stage.admitted("other.guarded").err(), Some(ERR_INVALID));
         assert!(stage.staged().is_empty());
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    #[test]
+    fn a_setting_there_is_no_room_to_read_is_not_an_invalid_key() {
+        use crate::native_host::described_settings::tests::{no_room_for_a_spec, probe};
+        let (_shown, settings) = probe();
+        let owner = Id::new_static("probe");
+        let stage = CommandStage::new(&owner, &settings, None, 1, 40);
+        no_room_for_a_spec();
+        assert_eq!(stage.admitted("probe.one").err(), Some(ERR_NO_MEMORY));
+        assert_eq!(stage.admitted("probe.none").err(), Some(ERR_INVALID));
+        assert!(stage.admitted("probe.one").is_ok());
     }
 
     #[test]

@@ -56,6 +56,17 @@ const RENAMED: [(&str, &str, &str); 2] = [
     ("core.status-font", "Source Sans 3", "PaperPaw Sans"),
 ];
 
+/// The spec of setting `id` to set by its text (`Kernel::set_setting`); why
+/// not: one there is no room to read now (#248) is not an unknown one.
+pub(crate) fn spec_to_set<'a>(
+    settings: &'a paperpaw_sdk::Settings,
+    id: &str,
+) -> Result<&'a paperpaw_sdk::SettingSpec, &'static str> {
+    let spec = settings.try_spec(id);
+    spec.map_err(|_| "no room to read this setting now")?
+        .ok_or("no such setting")
+}
+
 /// `value` of setting `id` as kept in a file, under its new name where it
 /// was renamed and only the new one is a value it takes now.
 fn renamed(settings: &paperpaw_sdk::Settings, id: &str, value: String) -> String {
@@ -114,12 +125,7 @@ impl Kernel {
     /// active scope, or from the configuration file.
     pub(crate) fn reset_setting(&mut self, id: &Id) {
         // A secret setting is kept with the secrets: reset, it goes.
-        if self
-            .shared
-            .settings
-            .spec(id.as_str())
-            .is_some_and(|spec| spec.extra().secret)
-        {
+        if self.shared.settings.defines_secret(id.as_str()) {
             self.set_secret(paperpaw_sdk::secrets::SecretChange::remove(id.as_str()));
             self.secret_setting_changed(id);
             return;
@@ -631,12 +637,7 @@ impl Kernel {
                     };
                     let value =
                         Cow::<str>::Owned(renamed(&self.shared.settings, &id, value.into_owned()));
-                    let secret = self
-                        .shared
-                        .settings
-                        .spec(&id)
-                        .is_some_and(|spec| spec.extra().secret);
-                    if secret {
+                    if self.shared.settings.defines_secret(&id) {
                         secrets_moved.push((id, value.to_string()));
                         continue;
                     }

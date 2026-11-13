@@ -338,7 +338,7 @@ fn choices(
     scope: &str,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
-    let Some(spec) = exact(sources, scope) else {
+    let Some(spec) = exact(sources, scope)? else {
         return Ok(());
     };
     let SettingKind::Choice(values) = &spec.kind else {
@@ -357,12 +357,13 @@ fn choices(
 }
 
 /// The setting `id` itself (a placement's id names no setting here).
-pub(super) fn exact<'a>(sources: &Sources<'a>, id: &str) -> Option<&'a SettingSpec> {
-    sources
-        .env
-        .settings()
-        .spec(id)
-        .filter(|spec| spec.id.as_str() == id)
+///
+/// # Errors
+/// `ERR_NO_MEMORY`: no room to read what its plugin describes of it (#248).
+pub(super) fn exact<'a>(sources: &Sources<'a>, id: &str) -> Result<Option<&'a SettingSpec>, i32> {
+    let spec = sources.env.settings().try_spec(id);
+    let spec = spec.map_err(|_| ERR_NO_MEMORY)?;
+    Ok(spec.filter(|spec| spec.id.as_str() == id))
 }
 
 /// How many values of `spec` a `reg_choice` row can carry.
@@ -383,7 +384,7 @@ pub(super) fn detail(
     asker: &Asker<'_>,
     visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
 ) -> Result<(), i32> {
-    let spec = exact(sources, key).ok_or(ERR_NOT_FOUND)?;
+    let spec = exact(sources, key)?.ok_or(ERR_NOT_FOUND)?;
     native_extra::ready(sources)?;
     with_row(sources, asker, spec, None, |row| visit(row))?;
     native_extra::with_extra(sources, spec, |shown| extra_row(spec, shown, visit))??;
