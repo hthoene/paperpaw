@@ -848,3 +848,33 @@ allow indirect paperpaw_core::native_host::storage_files::exists_in 2 new in tra
 allow indirect paperpaw_core::native_host::storage::StorageAdapter::free_of_host_writers 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN13paperpaw_core11native_host7storage14StorageAdapter11rename_card 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN13paperpaw_core11native_host7storage14StorageAdapter11rename_card28_$u7b$$u7b$closure$u7d$$u7d$ 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow call host_status -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_sdk::status::StatusItems::item -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call paperpaw_core::native_host::ui_widget_ops::host_status::draw -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_core::native_host::ui_widget_ops::host_status::draw -> __divsf3 the chip's ROM `__divsf3`: not scanned here (device test S4)
+allow call paperpaw_sdk::fonts::Fonts::role -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call paperpaw_sdk::fonts::Fonts::role -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_sdk::status::StatusLine::draw -> __divsf3 the chip's ROM `__divsf3`: not scanned here (device test S4)
+allow call paperpaw_sdk::fonts::Fonts::status_family -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN12paperpaw_sdk6status10StatusLine6layout -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN12paperpaw_sdk6status10StatusLine6layout -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
+allow call _ZN12paperpaw_sdk6status10StatusLine6layout -> __divsf3 the chip's ROM `__divsf3`: not scanned here (device test S4)
+allow call paperpaw_sdk::ui::text::draw_icon_centred -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN102_$LT$core..iter..adapters..map..Map$LT$I$C$F$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$8try_fold -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_sdk::ui::text::icon -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call paperpaw_sdk::ui::text::icon -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_i18n::Translator::localize_digits -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_sdk::menus::Menus::icon -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow call _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$3get -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow indirect host_status 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN4core3ptr50drop_glue$LT$paperpaw_sdk..status..StatusValue$GT$ 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_sdk::status::StatusLine::draw 3 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_sdk::fonts::FontHandle::ink 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN12paperpaw_sdk6status10StatusLine6layout 1 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN4core3ptr50drop_glue$LT$paperpaw_sdk..status..StatusValue$GT$ 1 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN102_$LT$core..iter..adapters..map..Map$LT$I$C$F$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$8try_fold 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN12paperpaw_sdk6status10StatusLine6layout28_$u7b$$u7b$closure$u7d$$u7d$ 1 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_sdk::status::listed 1 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_sdk::ui::text::fit 4 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN89_$LT$alloc..string..String$u20$as$u20$core..iter..traits..collect..Extend$LT$char$GT$$GT$6extend 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$3get 1 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
