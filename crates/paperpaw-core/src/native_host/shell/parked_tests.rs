@@ -193,8 +193,9 @@ fn plugin_allocates(hosted: &Hosted<Heap, Module>, size: usize) -> *mut c_void {
     let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast::<c_void>();
     let mut block = ptr::null_mut();
     // SAFETY: the pinned context of a live owner, a writable output.
-    let status =
-        context.run_plugin(|| unsafe { (context.table().heap_alloc)(ctx, size, 8, &mut block) });
+    let status = context
+        .run_plugin(|| unsafe { (context.table().heap_alloc)(ctx, size, 8, &mut block) })
+        .expect("entered");
     assert_eq!(status, 0);
     block
 }
@@ -204,7 +205,9 @@ fn plugin_frees(hosted: &Hosted<Heap, Module>, block: *mut c_void, size: usize) 
     let context = hosted.owner().context();
     let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast::<c_void>();
     // SAFETY: a block of this plugin's heap, with its size and alignment.
-    context.run_plugin(|| unsafe { (context.table().heap_dealloc)(ctx, block, size, 8) });
+    let _ = context
+        .run_plugin(|| unsafe { (context.table().heap_dealloc)(ctx, block, size, 8) })
+        .expect("entered");
 }
 
 #[test]

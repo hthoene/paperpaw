@@ -46,6 +46,7 @@ impl<S: Services + 'static, M> Hosted<S, M> {
                 report,
                 resources,
                 declared_services,
+                false,
             )
         }
     }
@@ -90,6 +91,7 @@ impl<S: Services + 'static, M> Hosted<S, M> {
                 report,
                 resources,
                 declared_services,
+                false,
             )
         }
     }

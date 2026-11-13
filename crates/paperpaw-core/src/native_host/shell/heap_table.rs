@@ -16,30 +16,83 @@ use core::ptr;
 use paperpaw_native::host_glue::{self, MAJOR, MINOR, OK, PpHeap};
 use paperpaw_native::host_glue::{ERR_INVALID, ShellCtx};
 
+/// `Services::enter` and `leave` of a shell, as function pointers.
+pub(super) struct Entry<S: 'static> {
+    enter: fn(&S, &str) -> bool,
+    leave: fn(&S, &str),
+}
+
+impl<S: super::Services + 'static> Entry<S> {
+    /// One static per services type: a context keeps a pointer to it, one word.
+    pub(super) const OF: Self = Self {
+        enter: S::enter,
+        leave: S::leave,
+    };
+}
+
+/// Tells the shell that the plugin code it announced has returned, however
+/// the call ends.
+struct Leave<'a, S: 'static>(&'a Context<S>);
+
+impl<S: 'static> Drop for Leave<'_, S> {
+    fn drop(&mut self) {
+        if let Some(entry) = self.0.entry {
+            (entry.leave)(&self.0.services, self.0.plugin_id());
+        }
+    }
+}
+
 impl<S: 'static> Context<S> {
-    /// Runs `call`, which enters the code of this plugin (`make`, its
-    /// destructor, a callback), with the plugin as the frame owner. Every
-    /// entry of host code into plugin code goes through here.
-    pub(crate) fn run_plugin<R>(&self, call: impl FnOnce() -> R) -> R {
+    /// Announces an entry of plugin code to the shell (`Services::enter`); a
+    /// plugin from a file only. `None`: refused, nothing may run and no
+    /// `leave` follows.
+    fn announce(&self) -> Option<Leave<'_, S>> {
+        match self.entry {
+            Some(entry) if !(entry.enter)(&self.services, self.plugin_id()) => None,
+            _ => Some(Leave(self)),
+        }
+    }
+
+    /// Runs `call`, which enters the code of this plugin (a callback, a
+    /// token, a stage), with the plugin as the frame owner. Every entry of
+    /// host code into plugin code goes through here, `make` and the
+    /// destructor through their own door. `Error::Refused` where the shell
+    /// refused the entry: the code did not run.
+    pub(crate) fn run_plugin<R>(&self, call: impl FnOnce() -> R) -> Result<R, super::Error> {
+        let _leave = self.announce().ok_or(super::Error::Refused)?;
+        Ok(frame_owner::within_recorded(
+            self.resources.owner_id(),
+            ptr::from_ref(self).cast(),
+            TypeId::of::<S>(),
+            &self.calls.after_make,
+            call,
+        ))
+    }
+
+    /// [`Self::run_plugin`] for `make`: its host calls other than
+    /// `registrations.submit` and the heap are noted apart (`calls.make`).
+    pub(crate) fn run_make<R>(&self, call: impl FnOnce() -> R) -> Result<R, super::Error> {
+        let _leave = self.announce().ok_or(super::Error::Refused)?;
+        Ok(frame_owner::within_recorded(
+            self.resources.owner_id(),
+            ptr::from_ref(self).cast(),
+            TypeId::of::<S>(),
+            &self.calls.make,
+            call,
+        ))
+    }
+
+    /// The destructor: announced but never refused, a skipped one would leak
+    /// what the plugin holds.
+    pub(crate) fn run_destroy(&self, call: impl FnOnce()) {
+        let _leave = self.announce();
         frame_owner::within_recorded(
             self.resources.owner_id(),
             ptr::from_ref(self).cast(),
             TypeId::of::<S>(),
             &self.calls.after_make,
             call,
-        )
-    }
-
-    /// [`Self::run_plugin`] for `make`: its host calls other than
-    /// `registrations.submit` and the heap are noted apart (`calls.make`).
-    pub(crate) fn run_make<R>(&self, call: impl FnOnce() -> R) -> R {
-        frame_owner::within_recorded(
-            self.resources.owner_id(),
-            ptr::from_ref(self).cast(),
-            TypeId::of::<S>(),
-            &self.calls.make,
-            call,
-        )
+        );
     }
 }
 

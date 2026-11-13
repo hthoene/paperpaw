@@ -7,7 +7,7 @@ use super::frame_tests::in_frame;
 use super::*;
 use alloc::vec;
 use core::alloc::Layout;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use std::vec::Vec;
 
@@ -81,6 +81,9 @@ pub(in crate::native_host) fn reset(mode: u8) {
     EVENT_ONLY.with(|e| e.set(false));
     TICKS_TOO.with(|e| e.set(false));
     DRAW_INKED.with(|d| d.set(false));
+    ENTERED.with(|n| n.set(0));
+    LEFT.with(|n| n.set(0));
+    REFUSE_ENTRY.with(|r| r.set(false));
 }
 
 /// The shell's heap and clock.
@@ -103,6 +106,21 @@ impl Services for Heap {
     fn micros(&self) -> u64 {
         0
     }
+    fn enter(&self, _: &str) -> bool {
+        ENTERED.with(|n| n.set(n.get() + 1));
+        !REFUSE_ENTRY.with(Cell::get)
+    }
+    fn leave(&self, _: &str) {
+        LEFT.with(|n| n.set(n.get() + 1));
+    }
+}
+
+std::thread_local! {
+    /// What the shell was told of the entries of plugin code (`Services::enter`
+    /// and `leave`), and whether it refuses them.
+    pub(in crate::native_host) static ENTERED: Cell<u32> = const { Cell::new(0) };
+    pub(in crate::native_host) static LEFT: Cell<u32> = const { Cell::new(0) };
+    pub(in crate::native_host) static REFUSE_ENTRY: Cell<bool> = const { Cell::new(false) };
 }
 
 /// What keeps the plugin alive: its destructor checks the module still is.
@@ -1431,16 +1449,18 @@ mod command_dispatch;
 #[path = "stage_broker_native_tests.rs"]
 mod stage_broker_native;
 
+#[path = "hosted_admission_tests.rs"]
+mod hosted_admission;
 #[path = "memory_notice_tests.rs"]
 mod memory_notice;
 #[path = "native_device_defaults_tests.rs"]
 mod native_device_defaults;
+#[path = "native_entry_hooks_tests.rs"]
+mod native_entry_hooks;
 #[path = "native_late_config_tests.rs"]
 mod native_late_config;
 #[path = "native_screen_install_tests.rs"]
 mod native_screen_install;
-#[path = "hosted_admission_tests.rs"]
-mod hosted_admission;
 
 #[path = "shell_describe_tests.rs"]
 mod describe;

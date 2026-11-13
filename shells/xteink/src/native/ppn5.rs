@@ -512,6 +512,17 @@ mod x4 {
             // is a hang the watchdog resets.
             crate::micros()
         }
+
+        /// A plugin from a card file runs only inside the call hooks that
+        /// name it to safe mode and check the stack's end afterwards (the
+        /// linked plugins are the firmware's own and are not announced).
+        fn enter(&self, id: &str) -> bool {
+            call_begin(id)
+        }
+
+        fn leave(&self, id: &str) {
+            call_end(id);
+        }
     }
 
     /// What the owner keeps alive for a plugin on the X4: nothing to unload.

@@ -58,6 +58,8 @@ pub fn problem_of(error: &Error) -> PluginProblem {
         // that does not decode.
         Error::Status(ERR_INVALID) => PluginProblem::Damaged,
         Error::Lifecycle(super::Error::Memory | super::Error::Capacity) => PluginProblem::NoRoom,
+        // The shell refused to run its code (the X4: its stack's band is not armed).
+        Error::Refused => PluginProblem::NoRoom,
         _ => PluginProblem::Damaged,
     }
 }
