@@ -488,6 +488,7 @@ impl Device {
             // network, as a device of the reader's would.
             let keep = paperpaw_core::sdk::wifi::keep(crate::wifi::TEST_NETWORK, "fixtures");
             self.kernel.set_secret(keep);
+            self.share_secrets_with_native();
         }
         if self.wifi_online && self.profile.wifi {
             self.go_online(now);
@@ -505,12 +506,20 @@ impl Device {
         self.wifi_online = online;
     }
 
+    /// A network saved as joined before, where the native Wi-Fi plugin looks
+    /// for it (a run on simulated time only; [`crate::linked::Inputs::share_secrets`]).
+    fn share_secrets_with_native(&self) {
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        self.linked.share_secrets(self.kernel.storage());
+    }
+
     fn go_online(&mut self, now: Instant) {
         let keep = paperpaw_core::sdk::wifi::keep(
             crate::wifi::WORKSHOP_NETWORK,
             crate::wifi::WORKSHOP_PASSWORD,
         );
         self.kernel.set_secret(keep);
+        self.share_secrets_with_native();
         self.wifi.online(now);
         // On USB: what keeps the radio on, as on a device.
         let status = self.status(now);
