@@ -269,6 +269,9 @@ pub enum SettingKind {
 pub const SETTING_SHOWN: u32 = 1 << 9;
 /// `reg_setting.flags` bit: the value is withheld.
 pub const SETTING_HIDDEN: u32 = 1 << 5;
+/// `reg_setting.flags` bit: an int setting that asks for a slider
+/// (`docs/abi/registry.md`).
+pub const SETTING_SLIDER: u32 = 1 << 11;
 
 /// A setting in a menu with what its row needs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -319,6 +322,13 @@ impl SettingInfo {
             editor: copy(&self.editor)?,
             choices: self.choices,
         })
+    }
+
+    /// Whether it is a number that asks for a slider over a range of more
+    /// than one value.
+    #[must_use]
+    pub fn slider(&self) -> bool {
+        self.kind == SettingKind::Int && self.flags & SETTING_SLIDER != 0 && self.max > self.min
     }
 
     /// Whether the menu lists it: a setting shown only while another has a
