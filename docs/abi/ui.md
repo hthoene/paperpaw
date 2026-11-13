@@ -975,7 +975,8 @@ and every device of that profile (the X3 too), not the model.
 - Composition: no host memory; nesting as `stages-services.md` (depth 2). Ops 7 and 12-15 run one
   stage call each on the host scratch and nest another plugin's callback inside the caller's just
   as slot 35 does: they share slot 35's frame-budget entry and X4 stack gate (section 5.1), and
-  answer `ERR_UNSUPPORTED` on the X4 until it passes.
+  answer `ERR_UNSUPPORTED` on the X4 until it passes, but for the kernel's own status items (op 14
+  and slot 35 kind 1, no plugin called; section 5.3).
 - Widgets: 32 bytes per made instance (the owner's full-width id; 512 bytes at the 16 of the X4),
   at most 32 device-wide (16 on the X4); status handles 40 bytes each, at most 16 (8 on the X4, 320
   bytes); each table is one allocation of its cap, made at its first use. A dropped instance stays
