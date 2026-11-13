@@ -1226,6 +1226,12 @@ fn build_kernel(
         #[cfg(linked_host)]
         if let Some((_, _, chip)) = crate::linked::card_plugins(profile) {
             builder = builder.firmware_host(Box::new(crate::no_firmware::NoFirmware::new(chip)));
+        } else if crate::linked::data_plugins(profile) {
+            // No code is loaded: no chip either (`take_plugin_jobs` sets the
+            // data-only plugin host).
+            builder = builder.firmware_host(Box::new(crate::no_firmware::NoFirmware::new(
+                crate::no_firmware::CHIP_NONE,
+            )));
         }
         if let Some(add) = add {
             builder = add(builder);
@@ -1294,6 +1300,29 @@ mod tests {
         let mut device = Device::new(profile, None, storage, true).unwrap();
         device.start();
         (device, root)
+    }
+
+    /// A device that loads no plugin code and installs data plugins (Boox) has
+    /// the firmware's queue and the data-only plugin host; one that installs
+    /// nothing (a Kobo, as yet) has neither (`linked::data_plugins`).
+    #[cfg(linked_host)]
+    #[test]
+    fn a_boox_takes_plugin_jobs_for_data_plugins_and_a_kobo_none() {
+        let _one = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (id, takes) in [("boox-go-7", true), ("kobo-libra-colour", false)] {
+            let root = std::env::temp_dir()
+                .join(format!("paperpaw-plugin-host-{id}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            let profile = crate::profiles::find(id).unwrap();
+            let storage = DirStorage::new(&root).unwrap();
+            let mut device = Device::new(profile, None, storage, true).unwrap();
+            assert_eq!(crate::linked::data_plugins(profile), takes, "{id}");
+            // True where the kernel has the firmware's queue plugin jobs share.
+            assert_eq!(device.kernel.set_data_plugin_host(), takes, "{id}");
+            let _ = std::fs::remove_dir_all(root);
+        }
     }
 
     /// A run on simulated time keeps its secrets file in memory: the card's

@@ -623,13 +623,21 @@ pub fn card_plugins(
     }
 }
 
+/// Whether `profile`'s device installs data plugins from the card and loads
+/// no plugin code (Boox, Android: it has a catalogue name, but no loader of
+/// the kinds of [`card_plugins`]): plugin jobs install, check and remove data
+/// plugins there, and a plugin with a code file ends with `ERR_UNSUPPORTED`.
+pub fn data_plugins(profile: &Profile) -> bool {
+    profile.catalog_device.is_some() && card_plugins(profile).is_none()
+}
+
 /// Tells `kernel` what plugin jobs check a plugin file against: the services
 /// and features wired here (`on`, with `uses.install`), for the chip of
 /// `profile` ([`card_plugins`]). Whether plugin jobs are taken (the device
 /// installs plugins and the kernel has its firmware host, `device::build`).
 fn take_plugin_jobs(kernel: &mut Kernel, profile: &Profile, on: Wired) -> bool {
     let Some((loader, card, _)) = card_plugins(profile) else {
-        return false;
+        return data_plugins(profile) && kernel.set_data_plugin_host();
     };
     let on = Wired {
         install: true,
