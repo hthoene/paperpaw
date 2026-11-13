@@ -1036,7 +1036,6 @@ pub(crate) fn heading(
     )
 }
 
-/// What is behind a row: the focus, the separator, or a field's outline.
 /// The title and the value: on one line, or the lines a long title was
 /// wrapped to, centred in the band, the value beside the first.
 fn draw_title(
@@ -1062,6 +1061,7 @@ fn draw_title(
     Ok(())
 }
 
+/// What is behind a row: the focus, the separator, or a field's outline.
 fn row_backdrop(
     paint: &mut Vec<Paint>,
     style: &Style,
