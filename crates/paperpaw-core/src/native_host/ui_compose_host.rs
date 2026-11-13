@@ -36,7 +36,7 @@ use super::{
     ui_handles::{self, Caller, ChildDraw, GuardState, Target, UiHandles},
 };
 use crate::abi7::{
-    context::{ComposeRequest, Frame},
+    context::{ComposeKind, ComposeRequest, Frame},
     core_frame::{CallbackStamp, CoreFrame},
 };
 use core::cell::RefCell;
@@ -220,6 +220,12 @@ impl ComposeHost<'_, '_> {
             request.handle,
             self.guard,
         )?;
+        // The owner hears of an instance before its first draw (ui.md 5.2).
+        if request.kind == ComposeKind::Widget
+            && let Ok(lease) = self.leases.lease(target.owner)
+        {
+            super::widget_drops::tell_made(self.handles, &lease, request.handle, self.env);
+        }
         ui_handles::draw_target(&draw, target, request, canvas)
     }
 }
