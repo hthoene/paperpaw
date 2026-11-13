@@ -1033,7 +1033,9 @@ impl HostServices {
             result = result.and(ui.store.owner_stopped(owner));
             result = result.and(ui.plugin_stopped(owner));
         }
-        // Its pending asks (made and to it) and its waiting events end.
+        // Its pending asks (made and to it) and its waiting events end, also
+        // when it is parked again: the event pump skips a parked lease, so a
+        // kept event would keep the pump due (Senior R1 on #1407).
         if let Some(lookup) = self.lookup.get() {
             lookup.stopped(owner);
         }
