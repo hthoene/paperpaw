@@ -37,7 +37,10 @@ use paperpaw_sdk::{
         library::Library,
         registrations,
         reply::Reply,
-        ui::{Instance, Question, RequestId as AskId, TextMode, TextWrite, Ui, UiCursor},
+        settings::{self, SettingValue},
+        ui::{
+            Instance, Question, RequestId as AskId, ScreenPolicy, TextMode, TextWrite, Ui, UiCursor,
+        },
         work::{Work, WorkSpec},
     },
 };
@@ -712,7 +715,45 @@ impl NativeReader {
     /// A setting changed: every reading screen lays its page out again (a
     /// setting of the layout) or draws it again (a setting of the ink). A refusal
     /// of one screen costs the others nothing.
+    /// A page is best in grays where the text is smooth (Beta 3's
+    /// `Screen::grays`): the reading screen says so to the host, which shows
+    /// the whole screen so where the panel has few grays but shows more with
+    /// a refresh of its own. Pages with pictures need nothing here (the host's
+    /// picture pass). A refusal changes nothing: the page stays as it is.
+    /// Every policy the host applies draws the screen again, so where the
+    /// text is not smooth (the screen has no policy) nothing is said, unless
+    /// `changed`: the setting was turned off, and the policy of before ends.
+    fn set_grays(host: &Host<'_>, instance: Instance, changed: bool) {
+        let mut bytes = [0; 16];
+        let smooth = matches!(
+            settings::read_setting(host, "core.smooth-text", &mut bytes),
+            Ok(SettingValue::Bool(true))
+        );
+        if !smooth && !changed {
+            return;
+        }
+        let policy = if smooth {
+            ScreenPolicy::new().grays()
+        } else {
+            ScreenPolicy::new()
+        };
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch)
+            .screen_policy(Some(instance), policy)
+            .ok();
+    }
+
     fn setting_changed(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
+        if key == "core.smooth-text" {
+            let instances: alloc::vec::Vec<Instance> = self
+                .screens
+                .all_with_instance()
+                .map(|(instance, _)| instance)
+                .collect();
+            for instance in instances {
+                Self::set_grays(host, instance, true);
+            }
+        }
         let layout = native_pages::affects_layout(key);
         if !layout && !native_pages::affects_ink(key) {
             return Ok(());
@@ -959,6 +1000,7 @@ impl NativeReader {
     ) -> Result<(), Error> {
         self.screens.shown(SCREEN, instance)?;
         self.wake(host, instance)?;
+        Self::set_grays(host, instance, false);
         let (asked, reopened) = (self.aloud_asked.take(), self.reopening.take());
         if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
             view.shown(host, docs);
