@@ -7,7 +7,13 @@
 extern crate alloc;
 use alloc::vec::Vec;
 
-const GROWTH: usize = 8;
+/// Slots a full table grows by: four (#248, P2). The table only grows (an
+/// exhausted slot stays retired), so it holds what the device opened at most
+/// plus three; a step of eight held room for seven handles from the first
+/// service a plugin opened (1.1 KiB on the emulator), and a step of one
+/// moved the table for every handle opened at start (holes in the X4's
+/// heap).
+const GROWTH: usize = 4;
 const INDEX_BITS: u32 = 10;
 const SLOTS: usize = 1 << INDEX_BITS;
 const INDEX_MASK: u32 = (1 << INDEX_BITS) - 1;
