@@ -332,3 +332,42 @@ fn a_plugin_whose_manifest_has_no_room_is_not_listed() {
     k.add_plugin_info(made(), PluginState::Running, true);
     assert!(k.plugins().get("tight").is_some());
 }
+
+/// A plugin with one action, to see whether anything of it is registered.
+struct Acting;
+
+impl paperpaw_sdk::Plugin for Acting {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("acting"), "Acting", Version::new(1, 0, 0))
+    }
+
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.add_action(paperpaw_sdk::ActionSpec::new(
+            Id::new_static("acting.go"),
+            "Go",
+        ))
+    }
+}
+
+/// A plugin whose row's copy the heap refuses is not loaded at all, rather
+/// than registered unlisted, which would let a second copy load or an update
+/// install afresh; with room, it then loads once, listed (#248, todo 568).
+#[test]
+fn a_plugin_without_room_for_its_row_is_not_loaded() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let mut k = kernel("", "");
+    let manifest = paperpaw_sdk::Plugin::manifest(&Acting);
+    // The first allocation of the registration: the row's copy.
+    FAIL_NTH.with(|n| n.set(1));
+    k.register_plugin(&Acting, manifest);
+    let left = FAIL_NTH.with(|n| n.replace(0));
+    assert_eq!(left, 0, "the refusal was used");
+    assert!(k.plugins().get("acting").is_none());
+    assert!(
+        k.actions().get("acting.go").is_none(),
+        "loaded without a row"
+    );
+    k.register_plugin(&Acting, paperpaw_sdk::Plugin::manifest(&Acting));
+    assert!(k.plugins().get("acting").is_some());
+    assert!(k.actions().get("acting.go").is_some());
+}

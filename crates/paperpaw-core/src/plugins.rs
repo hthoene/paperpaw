@@ -77,10 +77,15 @@ impl Kernel {
                 "a plugin with this id is already loaded".into(),
             );
         }
+        // Its row's copy first: a plugin the list has no row for is not
+        // loaded at all, so nothing of it runs unlisted (#248, todo 568).
+        let Some(manifest) = self.copy_manifest(manifest) else {
+            return;
+        };
         if RESERVED_IDS.contains(&id.as_str()) {
             let message = format!("`{id}` names a section of {CONFIG_FILE}; not loaded");
             self.warn(source(), None, message);
-            return self.add_plugin_info(manifest, PluginState::Failed, true);
+            return self.list_plugin(manifest, PluginState::Failed, true);
         }
         let mut staging = Staging::default();
         let mut registrar = Registrar::new(id.clone());
@@ -89,14 +94,14 @@ impl Kernel {
             .and_then(|()| registry::stage(&id, registrar.into_contributions(), &mut staging))
             .and_then(|()| self.merge(&id, staging));
         match result {
-            Ok(()) => self.add_plugin_info(manifest, PluginState::Running, true),
+            Ok(()) => self.list_plugin(manifest, PluginState::Running, true),
             Err(error) => {
                 let line = match error {
                     RegisterError::Parse { line, .. } => Some(line),
                     _ => None,
                 };
                 self.warn(source(), line, format!("not loaded: {error}"));
-                self.add_plugin_info(manifest, PluginState::Failed, true);
+                self.list_plugin(manifest, PluginState::Failed, true);
             }
         }
     }
@@ -112,6 +117,10 @@ impl Kernel {
         if RESERVED_IDS.contains(&id.as_str()) {
             return self.register_plugin(plugin, manifest);
         }
+        // As for one switched on: no row, nothing of it (#248, todo 568).
+        let Some(manifest) = self.copy_manifest(manifest) else {
+            return;
+        };
         let mut registrar = Registrar::new(id.clone());
         if plugin.register(&mut registrar).is_ok() {
             for contribution in registrar.into_contributions() {
@@ -126,25 +135,43 @@ impl Kernel {
                 }
             }
         }
-        self.add_plugin_info(manifest, PluginState::Off, false);
+        self.list_plugin(manifest, PluginState::Off, false);
     }
 
-    /// Lists a plugin. Its manifest is a copy of its own; where the heap has
-    /// no room for it, the plugin is left out of the list with a warning
-    /// (#248, B: the list holds manifests by reference).
+    /// The copy of `manifest` the plugin list holds, made before anything
+    /// of the plugin is registered: where the heap has no room for it, the
+    /// plugin is refused with a warning, not loaded unlisted, which would let
+    /// a second copy load or an update install afresh (#248, todo 568).
+    fn copy_manifest(&mut self, manifest: Manifest) -> Option<paperpaw_sdk::ManifestRef> {
+        match paperpaw_sdk::ManifestRef::try_new(manifest, None) {
+            Ok(manifest) => Some(manifest),
+            Err(manifest) => {
+                let source = WarningSource::Plugin(manifest.id.clone());
+                self.warn(source, None, "not loaded: no memory".into());
+                None
+            }
+        }
+    }
+
+    /// Lists a plugin whose manifest was copied first ([`Self::copy_manifest`]).
+    #[cfg(test)]
     pub(crate) fn add_plugin_info(
         &mut self,
         manifest: Manifest,
         state: PluginState,
         enabled: bool,
     ) {
-        let manifest = match paperpaw_sdk::ManifestRef::try_new(manifest, None) {
-            Ok(manifest) => manifest,
-            Err(manifest) => {
-                let source = WarningSource::Plugin(manifest.id.clone());
-                return self.warn(source, None, "not listed: no memory".into());
-            }
-        };
+        if let Some(manifest) = self.copy_manifest(manifest) {
+            self.list_plugin(manifest, state, enabled);
+        }
+    }
+
+    fn list_plugin(
+        &mut self,
+        manifest: paperpaw_sdk::ManifestRef,
+        state: PluginState,
+        enabled: bool,
+    ) {
         self.shared.registry_generation.bump();
         self.shared.plugins.push(PluginInfo::new(
             manifest,
