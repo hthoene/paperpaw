@@ -64,6 +64,9 @@ struct Cell {
     face: Option<Face>,
     /// A widget's instance, where the host made one.
     widget: Option<MadeWidget>,
+    /// The widget shows nothing (it measured no height): no plate is drawn
+    /// for it, as interface 6's widgets drew none.
+    blank: bool,
 }
 
 /// The page as laid out: what shows, where, and what the buttons reach.
@@ -337,6 +340,7 @@ impl Dashboard {
         if let Some(laid) = self.laid.as_mut() {
             laid.targets = targets;
             self.focus.clamp(laid.targets.len());
+            Self::remeasure_blank(host, ui, laid, instance.get())?;
         }
         Ok(Some(Redraw::after(area, moved, self.focus.shown())))
     }
@@ -356,6 +360,32 @@ impl Dashboard {
                 Some(MadeWidget::Widget(w)) if w.instance().get() == instance => Some(cell.rect),
                 _ => None,
             })
+    }
+
+    /// Whether the widget `instance` shows nothing now (the shelf with its
+    /// first book, or none left): its plate comes or goes with it. A refusal
+    /// keeps what was measured.
+    fn remeasure_blank(
+        host: &Host<'_>,
+        ui: &Ui,
+        laid: &mut Laid,
+        instance: u32,
+    ) -> Result<(), Error> {
+        let geometry = laid.frame.geometry;
+        let Some(cell) = laid.cells.iter_mut().find(|cell| {
+            matches!(cell.widget, Some(MadeWidget::Widget(w)) if w.instance().get() == instance)
+        }) else {
+            return Ok(());
+        };
+        let Some(made) = cell.widget else {
+            return Ok(());
+        };
+        match measure::measure_shown(host, ui, made, &geometry) {
+            Ok((_, _, blank)) => cell.blank = blank,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => {}
+        }
+        Ok(())
     }
 
     /// The screen is closed: the picture goes back to the host.
@@ -601,9 +631,9 @@ impl Dashboard {
                 return Err(error);
             }
         };
-        let least = match widget {
-            Some(made) => match measure::measure_handle(host, ui, made, geometry) {
-                Ok((_, least)) => least,
+        let (least, blank) = match widget {
+            Some(made) => match measure::measure_shown(host, ui, made, geometry) {
+                Ok((_, least, blank)) => (least, blank),
                 Err(Error::NoMemory) => {
                     if let MadeWidget::Widget(handle) = made {
                         drop_widget(host, ui, handle);
@@ -611,9 +641,9 @@ impl Dashboard {
                     return Err(Error::NoMemory);
                 }
                 // A widget the host cannot measure may not be made lower than one.
-                Err(_) => 1,
+                Err(_) => (1, false),
             },
-            None => 1,
+            None => (1, false),
         };
         Ok(Some(Cell {
             what,
@@ -623,6 +653,7 @@ impl Dashboard {
             name,
             face,
             widget,
+            blank,
         }))
     }
 

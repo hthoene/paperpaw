@@ -303,9 +303,14 @@ On the X4 the host keeps nested callbacks closed until the device's stack check 
 `ui_store::nested_closed`): it lays no other plugin's widget out (`widget_place`, `widget_measure`,
 `widget_targets` and `ui.compose` answer `ERR_UNSUPPORTED`), and every widget of the default page is
 home's. Until then the page shows the picture, the plates and the bar with the widgets' cells left
-empty and nothing in them to reach (`tests/hosted_x4_gate.rs`), where Beta 3 showed the widgets. Full
+empty and nothing in them to reach (`tests/hosted_page.rs`), where Beta 3 showed the widgets. Full
 parity on the X4 comes when that gate opens; nothing changes here then. A widget of another plugin
 shows only once the host tells its owner `event.widget_made` (Core, todo 594).
+
+A widget that shows nothing (it measures no height: the shelf of recent books with none read) has
+no plate over the picture, as on interface 6, where each widget drew its own plate; it keeps its
+place in the grid, and gets its plate when `event.widget_changed` finds it showing something
+(`tests/hosted_page.rs`, which needs `event.widget_made`, Core #1392).
 
 ### Gate: not in `NATIVE_PLUGINS` or `complete.txt` until the activation (with the removal step)
 

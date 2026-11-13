@@ -230,6 +230,23 @@ impl Setup {
         }
     }
 
+    /// The X4's screen and buttons with the memory of a larger reader
+    /// (`MemoryClass::Large`): where the host keeps no X4 limits, e.g. its
+    /// nested callbacks open.
+    pub fn large() -> Self {
+        let x4 = Self::x4();
+        Self {
+            device: DeviceInfo::new(
+                "large",
+                "A larger reader",
+                x4.device.display,
+                x4.device.input,
+                MemoryClass::Large,
+            ),
+            ..x4
+        }
+    }
+
     /// Builds the kernel further with `step`, e.g. `|b| b.plugin(DefaultFontPacks)` for the
     /// fonts a screen draws with, or `|b| b.storage(..)` for files it reads. Steps run in the
     /// order given.
