@@ -1,6 +1,5 @@
 use super::*;
 use crate::fail_alloc::sweep;
-use crate::native_plugin::Ask;
 use alloc::string::ToString;
 use alloc::vec;
 
@@ -183,14 +182,32 @@ fn units_take_the_number_in_or_follow_it() {
 }
 
 #[test]
-fn a_number_is_said_with_its_unit_from_the_catalog_not_with_the_unit_key() {
-    let mut number = info(SettingKind::Int, Some(Value::Int(6)));
-    number.unit = "core.unit.pages".to_string();
-    let said = crate::native_plugin::value_text(&number, "On", "Off", &mut |ask| match ask {
-        Ask::Unit(6, "core.unit.pages") => Ok("6 pages".to_string()),
-        _ => Err(paperpaw_sdk::native::Error::NotFound),
-    });
-    assert_eq!(said.unwrap(), "6 pages");
+fn a_unit_key_is_said_with_its_count_and_never_shown_as_a_key() {
+    let mut catalog = |key: &str, n: i64| match key {
+        "core.unit.pt" => with_unit(n, "pt"),
+        _ => Err(Error::NotFound),
+    };
+    assert_eq!(
+        said_with_unit(9, "core.unit.pt", &mut catalog).unwrap(),
+        "9 pt"
+    );
+    // A key no catalog has: the number alone, not `9 core.unit.mm`.
+    assert_eq!(
+        said_with_unit(4, "core.unit.mm", &mut catalog).unwrap(),
+        "4"
+    );
+    // Units written out are not looked up.
+    assert_eq!(
+        said_with_unit(30, "{count} min", &mut catalog).unwrap(),
+        "30 min"
+    );
+    assert_eq!(said_with_unit(30, "min", &mut catalog).unwrap(), "30 min");
+    // A real failure still fails.
+    let mut refused = |_: &str, _: i64| Err(Error::NoMemory);
+    assert_eq!(
+        said_with_unit(9, "core.unit.pt", &mut refused),
+        Err(Error::NoMemory)
+    );
 }
 
 #[test]
@@ -261,9 +278,8 @@ fn rows_keep_their_order() {
 
 /// What a row says of the value of a setting, in the language of `en`/`de` files.
 fn said(catalog: &paperpaw_i18n::Catalog, info: &SettingInfo) -> String {
-    crate::native_plugin::value_text(info, "On", "Off", &mut |ask| match ask {
-        Ask::Key(key) => Ok(catalog.get(key).unwrap_or(key).to_string()),
-        Ask::Unit(value, unit) => with_unit(value, unit),
+    crate::native_plugin::value_text(info, "On", "Off", &mut |key, _| {
+        Ok(catalog.get(key).unwrap_or(key).to_string())
     })
     .unwrap()
 }
@@ -298,16 +314,12 @@ fn a_choice_is_said_by_its_translated_title_not_by_its_key() {
 #[test]
 fn a_switch_a_number_and_a_text_are_said_as_before() {
     // Nothing is translated here: asked to, the closure fails the row.
-    let say =
-        |kind, value| {
-            crate::native_plugin::value_text(&info(kind, Some(value)), "On", "Off", &mut |ask| {
-                match ask {
-                    Ask::Unit(value, unit) => with_unit(value, unit),
-                    Ask::Key(_) => Err(paperpaw_sdk::native::Error::State),
-                }
-            })
-            .unwrap()
-        };
+    let say = |kind, value| {
+        crate::native_plugin::value_text(&info(kind, Some(value)), "On", "Off", &mut |_, _| {
+            Err(paperpaw_sdk::native::Error::State)
+        })
+        .unwrap()
+    };
     assert_eq!(say(SettingKind::Bool, Value::Bool(true)), "On");
     assert_eq!(say(SettingKind::Bool, Value::Bool(false)), "Off");
     assert_eq!(say(SettingKind::Int, Value::Int(6)), "6 min");
@@ -323,10 +335,10 @@ fn a_choice_with_no_text_in_the_catalogs_is_said_as_it_is_and_a_real_failure_fai
         Some(Value::Text("Literal".to_string())),
     );
     for refused in [Error::NotFound, Error::Invalid] {
-        let said = crate::native_plugin::value_text(&choice, "On", "Off", &mut |_| Err(refused));
+        let said = crate::native_plugin::value_text(&choice, "On", "Off", &mut |_, _| Err(refused));
         assert_eq!(said.unwrap(), "Literal", "{refused:?}");
     }
     let failed =
-        crate::native_plugin::value_text(&choice, "On", "Off", &mut |_| Err(Error::NoMemory));
+        crate::native_plugin::value_text(&choice, "On", "Off", &mut |_, _| Err(Error::NoMemory));
     assert_eq!(failed, Err(Error::NoMemory));
 }

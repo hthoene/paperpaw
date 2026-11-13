@@ -124,3 +124,37 @@ fn a_section_end_is_only_the_answer_to_a_first_ask() {
         Err(DocumentError::OutOfMemory)
     ));
 }
+
+/// What the reading aids answer with their pictures set to be left out.
+fn hiding() -> crate::native_filter::Filter {
+    use paperpaw_plugin_aids::{pictures, reader_filter as aids};
+    let mut bytes = alloc::vec![0; crate::stages::reader_filter_v1::MAX_REPLY];
+    let len = aids::encode(false, "", pictures::HIDE, "Picture", &mut bytes).unwrap();
+    crate::native_filter::Filter::from_reply(&bytes[..len]).unwrap()
+}
+
+#[test]
+fn a_picture_the_rules_leave_out_gives_the_next_block_kept() {
+    // #257 (x4-pictures-hidden): the native reader drew the picture anyway.
+    let blocks = [
+        Block::new(BlockKind::Paragraph, 0, 10, "before".into()),
+        Block::new(BlockKind::Image, 10, 20, "ship".into()),
+        Block::new(BlockKind::Paragraph, 20, 30, "after".into()),
+    ];
+    let read = |at: Locator| {
+        Ok(blocks
+            .iter()
+            .find(|b| b.start <= at.offset && at.offset < b.end)
+            .cloned())
+    };
+    let filters = [hiding()];
+    let path = "books/pictures.epub";
+    let got = filtered_block(read, (&filters, path), Locator::new(0, 10)).unwrap();
+    assert_eq!(got.map(|b| b.text), Some("after".into()));
+    // Without rules the picture is the block there.
+    let got = filtered_block(read, (&[], path), Locator::new(0, 10)).unwrap();
+    assert_eq!(got.map(|b| b.kind), Some(BlockKind::Image));
+    // In a book whose pictures are its pages, nothing is left out.
+    let got = filtered_block(read, (&filters, "a.cbz"), Locator::new(0, 10)).unwrap();
+    assert_eq!(got.map(|b| b.kind), Some(BlockKind::Image));
+}

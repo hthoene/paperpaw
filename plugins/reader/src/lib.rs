@@ -56,6 +56,7 @@ pub mod native_decorations;
 pub mod native_document;
 pub mod native_draw;
 mod native_entry;
+pub mod native_filter;
 pub mod native_handsfree;
 pub mod native_index;
 pub mod native_look;

@@ -312,8 +312,11 @@ impl Serving {
         }
     }
 
-    /// Tells core what happened and reads the files being sent.
-    pub(crate) fn pump(&self, reports: &dyn ServeReports) {
+    /// Tells core what happened and reads the files being sent; `true` when
+    /// core was told anything (the kernel must then tick, see
+    /// `NativeNet::pump`).
+    pub(crate) fn pump(&self, reports: &dyn ServeReports) -> bool {
+        let mut told = false;
         self.read_events();
         loop {
             let next = {
@@ -328,11 +331,13 @@ impl Serving {
                 self.books.borrow_mut().work.push_front(work);
                 break;
             }
+            told = true;
         }
         let storage = &self.storage;
         self.servers
             .borrow_mut()
             .pump(|path, at, buffer| storage.read_at(path, at, buffer).ok());
+        told
     }
 
     /// The report the oldest engine event comes to, its effects on the card

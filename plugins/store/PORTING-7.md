@@ -142,15 +142,15 @@ finishes the port; until then nothing is dropped.
   here: *no room* shows once a check said it (`PageInput::no_room`); until then
   *Install* is offered, as where the room could not be told. The pre-install
   messages for a code plugin's key and signature (`trust.rs`'s `Refusal`) are the
-  host's checks now, said through `outcome`. **Pending (`BLOCKED 5.2-install`):**
-  who installed a version (`Origin`) and as which release (`Installed::release`): the
-  host does not say, so the store keeps its own record of what it installed after an
-  `install_done` of reason 0 (the `store-installs` file of `paperpaw_sdk::install`);
-  until that is wired a plugin counts as put in place another way.
-  **Activation blocker:** until the record is wired no update is ever offered
-  (every installed plugin counts as put in place another way) and *use the store's
-  version* shows for plugins the store itself installed; the store must not be
-  activated before `Origin`/`release` come from the record.
+  host's checks now, said through `outcome`.
+- **Who installed a version** (`Origin`) **and as which release**
+  (`Installed::release`): the registry's `reg_plugin.flags` bit 5 (`registry.md`), set
+  by the host for a version an `install_plugin` with `flags` bit 2 (from a catalog: every
+  install of the store, `native_wire::evidence`) put in place, that version written as the
+  store named it, pre-release included (`Row::from_registry`). The host keeps the record
+  (interface 6's `plugin-origin.txt`, its one-time adoption of the plugins installed
+  before included) and forgets it on another install or a removal; the store keeps no
+  record of its own. Built-in and linked plugins are never the store's.
 - **The screen runs `check_file` first** and passes `flash_hint` from the device
   layout: `no_room` is only set after a check, so without it *Install* shows and the
   install ends in reason 13 instead of saying *no room* beforehand.
@@ -210,18 +210,14 @@ finishes the port; until then nothing is dropped.
   from `Have`; the end comes as `install_done` (`End`) and is said by
   `native_refusal::outcome`. The files are removed at the end whatever it was. The
   library's revocations are handed to the host (`hand_over`, at most 16).
-- **What the store installed** (`Installs`): `.paperpaw/plugin-origin.txt`, the
-  interface-6 file and format (`<id>\t<release>`, at most four releases of a plugin,
-  the newest last, the same release once), so what Beta 3 kept is read as it was;
-  `adopt` keeps interface 6's rule (the plugins installed before the record count as
-  the store's, once). The no-downgrade rule is the host's (reason 11 "older", 14 "the same version"; `device.md` 5.5).
-  Kernel #1091's "installed by store" registry flag is to be used once it lands; the
-  file stays the record until then.
+- **What the store installed** is the host's record (#1091, #1388): each install
+  says it comes from the catalog (`install_plugin` `flags` bit 2) and the registry
+  names those versions (`reg_plugin.flags` bit 5; see *Who installed a version*
+  above). The no-downgrade rule is the host's (reason 11 "older", 14 "the same version"; `device.md` 5.5).
 - **The queue** (`native_install::next`): goes on with `Queue::advance` and keeps the
   queue on the card; `Next::FetchPage(id)` is what the plugin's loader fetches next.
 - **Differences on purpose:** an install the plugin cannot start (`Full` while four
-  wait, no `uses.install`) is `Failed`, not retried; a record that cannot be kept does
-  not turn an installed plugin into a failure.
+  wait, no `uses.install`) is `Failed`, not retried.
 - Tests: the unit tests of both modules and `tests/native_install_refusal.rs`
   (every allocation refused in turn).
 
@@ -243,7 +239,7 @@ finishes the port; until then nothing is dropped.
 - **The install** of plugins, data and code (the check of a code plugin whole, the
   author's key remembered at the first install and followed through signed
   rotations, the digests, the room for code, the revocations handed to the kernel,
-  updates waiting for a restart). The contract is in `docs/abi/device.md` 5.1 to 5.5 (host job B2c pending: `BLOCKED 5.2-install`).
+  updates waiting for a restart). The contract is in `docs/abi/device.md` 5.1 to 5.5.
   The SDK has no typed methods yet for commands 1580 (`install_author`), 1581
   (`install_rotation`) and 1582 (`trust_revoked`); asked of Services. Owner decisions that
   apply: a plugin-triggered install or update needs the host's confirmation (132),
@@ -359,15 +355,13 @@ in place; its removal comes with the PR that finishes the port).
 - **Review of #1141 (Port Reviewer 2, seven must-fixes), what changed:**
   - A step is synced from every end (`install_done`, `download_failed`, a stop): a
     finished install no longer leaves the *Stop* row, a failed download is no longer
-    *Downloading*. The release of the page is kept for the install that outlives the page
-    screen (`installing_version`).
+    *Downloading*.
   - The queue never waits for a page that is not coming: a page request the host
     refuses, or a page screen that took the slot for another plugin (asked again once)
     ends as *not installed* and the queue goes on (`want_failed`).
   - `finish` abandons what it staged (the folder, the busy mark, what was kept) on
     every early error (`abandon`).
-  - A removal says *removed* and lets go of the record only when the host says it
-    was done (reason 0); declined or dismissed nothing changes; a refusal says its reason.
+  - A removal says *removed* only when the host says it was done (reason 0); declined or dismissed nothing changes; a refusal says its reason.
   - Memory (#248): the start reads only the rows of the plugins the offer names
     (`Snapshot::read_some`), and an ask for plugins only the rows of the plugins it names;
     nothing is held. The queue the screens read is read while they are open and dropped

@@ -775,12 +775,26 @@ impl Device {
             let now = self.now();
             self.go_online(now);
         }
-        let net = self.linked.net.borrow();
-        if let Some(net) = net.as_ref() {
-            net.transport.pump(&net.reports, wait);
-            if let Some((sockets, reports)) = &net.sockets {
-                sockets.pump(reports, !self.profile.wifi || self.wifi.is_online());
-            }
+        let told = {
+            let net = self.linked.net.borrow();
+            net.as_ref().is_some_and(|net| {
+                let up = !self.profile.wifi || self.wifi.is_online();
+                let told = net.transport.pump(&net.reports, wait);
+                let sockets = net
+                    .sockets
+                    .as_ref()
+                    .is_some_and(|(sockets, reports)| sockets.pump(reports, up));
+                told | sockets
+            })
+        };
+        // What core was told reaches the plugins in a kernel pass (its
+        // service pump): one now, as the X4's shell does after its reports.
+        // Without it an answer waits for the kernel's next wake, which a
+        // screen that only waits for that answer never asks for (#2795).
+        if told {
+            let now = self.now();
+            let effects = budget::track(|| self.kernel.tick(now));
+            self.execute(effects);
         }
     }
 

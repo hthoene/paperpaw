@@ -236,13 +236,7 @@ impl crate::native_install::Wire for InstallWire<'_, '_> {
         for rotation in &proof.rotations {
             steps.push(Statement::new(&rotation.to, &rotation.signature));
         }
-        let mut evidence = Evidence::new().rotations(&steps);
-        if let Some(author) = &proof.author {
-            evidence = evidence.author(author);
-        }
-        if let Some(recovery) = &proof.recovery {
-            evidence = evidence.recovery(recovery);
-        }
+        let evidence = evidence(proof, &steps);
         let mut scratch = mem::buffer(INSTALL_SCRATCH)?;
         CommandSender::new(self.host, &mut scratch).install_plugin_with(
             request,
@@ -287,4 +281,39 @@ fn revoke(host: &Host<'_>, revoked: &[Revoked]) -> Result<(), Error> {
         CommandSender::new(host, &mut scratch).trust_revoked(&list)?;
     }
     Ok(())
+}
+
+/// What the store's install carries: the library's word, and that it comes
+/// from the catalog (`install_plugin` `flags` bit 2), so the registry names
+/// the version as installed by a store (`reg_plugin.flags` bit 5) and the
+/// store offers its updates.
+fn evidence<'a>(proof: &'a Proof, steps: &'a [Statement<'a>]) -> Evidence<'a> {
+    let mut evidence = Evidence::new().rotations(steps).from_catalog();
+    if let Some(author) = &proof.author {
+        evidence = evidence.author(author);
+    }
+    if let Some(recovery) = &proof.recovery {
+        evidence = evidence.recovery(recovery);
+    }
+    evidence
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_install_of_the_store_comes_from_the_catalog() {
+        let proof = Proof {
+            author: Some([7; 32]),
+            ..Proof::default()
+        };
+        let sideloaded = Evidence::new().author(&[7; 32]);
+        assert_eq!(evidence(&proof, &[]), sideloaded.from_catalog());
+        assert_ne!(evidence(&proof, &[]), sideloaded);
+        assert_eq!(
+            evidence(&Proof::default(), &[]),
+            Evidence::new().from_catalog()
+        );
+    }
 }

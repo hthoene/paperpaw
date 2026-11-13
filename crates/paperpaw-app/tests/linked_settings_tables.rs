@@ -161,11 +161,26 @@ fn every_linked_plugins_screen_keeps_the_entry_of_its_titles_table() {
     let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let _ = kernel.start(Instant(0));
     // Each linked plugin's screen keeps the id of its plugin's titles table,
-    // not a row of its own (#248, B).
+    // not a row of its own (#248, B). Only the plugins registered native
+    // (`NATIVE_PLUGINS`): one that is still interface 6 in this build (home,
+    // notes-vault until activation, #243) has a table for the flip, and its
+    // interface-6 screens, with the same ids, are rows of their own.
+    let native = |plugin: &str| {
+        paperpaw_app::NATIVE_PLUGINS
+            .iter()
+            .any(|(linked, _)| *linked == plugin)
+    };
     let mut kept = 0;
+    let mut plugins: Vec<&str> = Vec::new();
     for id in kernel.known_screens() {
+        if !native(id.namespace()) {
+            continue;
+        }
         let titles = paperpaw_app::fixed_tables(id.namespace()).titles;
         if titles.iter().any(|entry| entry.id == *id) {
+            if !plugins.contains(&id.namespace()) {
+                plugins.push(id.namespace());
+            }
             assert!(
                 titles.iter().any(|entry| core::ptr::eq(&entry.id, id)),
                 "{} keeps a row of its own",
@@ -174,6 +189,7 @@ fn every_linked_plugins_screen_keeps_the_entry_of_its_titles_table() {
             kept += 1;
         }
     }
+    assert!(!plugins.is_empty(), "no native plugin's screens checked");
     assert!(kept > 10, "{kept} screens kept");
 }
 

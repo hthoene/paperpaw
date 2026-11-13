@@ -15,7 +15,7 @@ const CASES: [Case; 3] = [
     Case {
         name: "the-provider-answers-the-dictionary-panel-with-the-summary",
         golden: None,
-        blocked_by: &["lookup-stage-host", "asynchronous-stage-reply"],
+        blocked_by: &["dictionary-panel-asker"],
     },
     Case {
         name: "the-about-line-names-the-source-and-the-licence",
@@ -38,7 +38,7 @@ fn the_summary_screen() {
 }
 
 #[test]
-#[ignore = "BLOCKED: the lookup stage in the host and the asynchronous stage reply (ASY)"]
+#[ignore = "BLOCKED: the dictionary panel as the asker (the provider's flow: native_provider_flow.rs)"]
 fn the_provider() {
     CASES[1].refuse().unwrap();
 }

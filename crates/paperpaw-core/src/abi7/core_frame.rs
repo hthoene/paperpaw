@@ -171,6 +171,10 @@ impl Frame for CoreFrame<'_> {
         Ok(())
     }
 
+    fn host_status(&self, item: &str, out: &mut [u8]) -> Option<super::context::HostStatus> {
+        crate::native_host::ui_widget_ops::host_status::value(self.env, item, out)
+    }
+
     fn widget_call(
         &self,
         owner: u64,
