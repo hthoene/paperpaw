@@ -124,9 +124,11 @@ impl KeySealer {
     }
 }
 
-/// Where a user's settings live on this system: `%APPDATA%` on Windows,
+/// Where a user's settings live on this system: `%LOCALAPPDATA%` on Windows
+/// (the machine's, not the roaming profile that a domain copies to a server),
 /// `~/Library/Application Support` on macOS, `$XDG_CONFIG_HOME` or `~/.config`
-/// elsewhere.
+/// elsewhere. The owner and mode checks of the folder and key are Unix's;
+/// Windows has none (the folder is the user's own by default).
 fn config_folder() -> io::Result<PathBuf> {
     let home = || {
         std::env::var_os("HOME")
@@ -135,10 +137,10 @@ fn config_folder() -> io::Result<PathBuf> {
             .ok_or_else(|| io::Error::other("no configuration folder (HOME is not set)"))
     };
     let base = if cfg!(windows) {
-        std::env::var_os("APPDATA")
+        std::env::var_os("LOCALAPPDATA")
             .filter(|v| !v.is_empty())
             .map(PathBuf::from)
-            .ok_or_else(|| io::Error::other("no configuration folder (APPDATA is not set)"))?
+            .ok_or_else(|| io::Error::other("no configuration folder (LOCALAPPDATA is not set)"))?
     } else if cfg!(target_os = "macos") {
         home()?.join("Library").join("Application Support")
     } else {
@@ -253,8 +255,13 @@ fn create_key(folder: &Path, path: &Path, key: &[u8; KEY_BYTES]) -> io::Result<(
     })();
     let _ = std::fs::remove_file(&temp);
     made?;
-    // The link is on disk before the key is used for a secret.
-    std::fs::File::open(folder)?.sync_all()
+    // The link is on disk before the key is used for a secret. (Windows
+    // cannot open a folder as a file; its file system journals the link.)
+    #[cfg(unix)]
+    std::fs::File::open(folder)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = folder;
+    Ok(())
 }
 
 impl Sealer for KeySealer {
