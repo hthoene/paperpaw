@@ -176,8 +176,8 @@ impl HostResources {
         self.0.try_clone().map(Self)
     }
 
-    #[allow(dead_code, reason = "a shell wires its host views; tests do today")]
-    /// The wired host views, to wire a family once (a shell, a test).
+    /// The wired host views, to wire a family once (a shell, a test), and
+    /// what a plugin's identity reaches through the pool.
     pub(crate) fn hosts(&self) -> &super::host_services::HostServices {
         &self.0.hosts
     }
@@ -317,6 +317,12 @@ pub(crate) struct OwnerResourceView {
 }
 
 impl OwnerResourceView {
+    /// The device pool alone, without an owner: what a plugin's identity
+    /// keeps to reach the wired host views (#248: a word less than a view).
+    pub(crate) fn try_pool(&self) -> Option<HostResources> {
+        self.table.try_clone().map(HostResources)
+    }
+
     /// The `core.ui` service, once a shell wired it.
     pub(crate) fn ui(&self) -> Option<&super::ui_service::UiServices> {
         self.table.hosts.ui()
@@ -332,14 +338,6 @@ impl OwnerResourceView {
     #[cfg(any(test, feature = "testing"))]
     pub(crate) fn handle_count(&self) -> Option<usize> {
         self.table.handles.try_borrow().ok().map(|h| h.live())
-    }
-
-    /// Another view of the same pool, without allocation.
-    pub(crate) fn try_clone(&self) -> Option<Self> {
-        self.table.try_clone().map(|table| Self {
-            table,
-            owner: self.owner,
-        })
     }
 
     pub(crate) fn ui_store(&self) -> Option<&super::ui_store::UiStore> {

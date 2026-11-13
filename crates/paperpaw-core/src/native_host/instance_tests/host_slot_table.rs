@@ -31,7 +31,7 @@ fn every_called_host_table_entry_but_the_allocator_and_the_clock_announces_its_s
     let hosted = fake();
     let context = hosted.owner().context();
     let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast::<c_void>();
-    let table = &context.table;
+    let table = context.table();
     let none = PpBytes {
         ptr: ptr::null(),
         len: 0,

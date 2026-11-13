@@ -98,13 +98,16 @@ impl OwnerResources {
             .map_err(crate::abi7::handles::Error::status)
     }
 
-    #[cfg(test)]
+    /// The blobs of the callback that ended expire (its context's cleanup).
     pub(crate) fn expire_blobs(&self) -> Result<(), i32> {
         expire(&self.table, self.owner)
     }
 }
 
 impl OwnerResourceView {
+    /// Tests: a view's blobs expire (a hosted plugin's expire through its
+    /// context's resources).
+    #[cfg(test)]
     pub(crate) fn expire_blobs(&self) -> Result<(), i32> {
         expire(&self.table, self.owner)
     }

@@ -134,7 +134,10 @@ fn op(family: &str, id: u32) -> &'static ServiceOp {
 
 macro_rules! in_frame {
     ($owner:expr, |$scope:ident| $body:block) => {{
-        let $scope = pin!(EnvironmentScope::with_resources($owner.try_view().unwrap()));
+        let view = $owner.try_view().unwrap();
+        let $scope = pin!(EnvironmentScope::new());
+        // SAFETY: the view outlives the scope's callbacks.
+        unsafe { $scope.expire_view(&view) };
         let kernel = crate::Kernel::builder(crate::tests::DEVICE)
             .build()
             .unwrap();

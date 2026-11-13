@@ -26,7 +26,6 @@ use super::{
     work_sched::{Event, Moment},
 };
 use crate::native_host::codec;
-use alloc::rc::Rc;
 use paperpaw_platform::Instant;
 
 /// Plugin calls (events 103 to 105) in one pass: the most one device has
@@ -46,7 +45,7 @@ impl crate::Kernel {
     /// moment may come due in the next pass.
     pub(crate) fn native_work_woke(&self) {
         if let Some(work) = self.shared.native_instances.work_services() {
-            work.sched.moment(Moment::Wake, &*work.env);
+            work.sched.moment(Moment::Wake, &**work.env);
         }
     }
 
@@ -66,7 +65,7 @@ impl crate::Kernel {
         // callback's commands can run (`&mut self`) between two calls.
         let Some((sched, env)) = instances
             .work_services()
-            .map(|work| (Rc::clone(&work.sched), Rc::clone(&work.env)))
+            .and_then(|work| Some((work.sched.try_clone()?, work.env.try_clone()?)))
         else {
             return false;
         };
@@ -74,7 +73,7 @@ impl crate::Kernel {
         if instances.depth() > 0 {
             return true;
         }
-        let env = &*env;
+        let env = &**env;
         self.tell_work_env(env);
         let now_ms = env.now_ms();
         let charging = self
@@ -161,7 +160,10 @@ impl crate::Kernel {
     /// One event of the scheduler to its plugin.
     fn work_deliver(&mut self, event: &Event, now_ms: u64) {
         let instances = &self.shared.native_instances;
-        let Some(sched) = instances.work_services().map(|work| Rc::clone(&work.sched)) else {
+        let Some(sched) = instances
+            .work_services()
+            .and_then(|work| work.sched.try_clone())
+        else {
             return;
         };
         let (owner, token, run) = match event {
@@ -244,8 +246,8 @@ impl crate::Kernel {
     /// shell's clock, which is the kernel's tick clock).
     pub(crate) fn work_pump_due(&self) -> Option<Instant> {
         let work = self.shared.native_instances.work_services()?;
-        self.tell_work_env(&*work.env);
-        work.sched.next_wake(&*work.env).map(Instant)
+        self.tell_work_env(&**work.env);
+        work.sched.next_wake(&**work.env).map(Instant)
     }
 
     /// Tells the device's view what the kernel holds: the power level and

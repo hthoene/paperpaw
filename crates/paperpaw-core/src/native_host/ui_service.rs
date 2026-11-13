@@ -153,7 +153,7 @@ fn ask(
     // A work run's callback is quiet (`work.md` section 2): no dialog.
     if who
         .hosts
-        .work()
+        .work_made()
         .is_some_and(|work| work.sched.quiet(who.owner))
     {
         return Err(ERR_STATE);

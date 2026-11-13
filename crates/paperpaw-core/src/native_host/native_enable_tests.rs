@@ -332,3 +332,81 @@ fn a_plugin_whose_manifest_has_no_room_is_not_listed() {
     k.add_plugin_info(made(), PluginState::Running, true);
     assert!(k.plugins().get("tight").is_some());
 }
+
+/// A plugin with one action, to see whether anything of it is registered.
+struct Acting;
+
+impl paperpaw_sdk::Plugin for Acting {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("acting"), "Acting", Version::new(1, 0, 0))
+    }
+
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.add_action(paperpaw_sdk::ActionSpec::new(
+            Id::new_static("acting.go"),
+            "Go",
+        ))
+    }
+}
+
+/// A plugin whose row's copy the heap refuses is not loaded at all, rather
+/// than registered unlisted, which would let a second copy load or an update
+/// install afresh; with room, it then loads once, listed (#248, todo 568).
+#[test]
+fn a_plugin_without_room_for_its_row_is_not_loaded() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let mut k = kernel("", "");
+    let manifest = paperpaw_sdk::Plugin::manifest(&Acting);
+    // The first allocation of the registration: the row's copy.
+    FAIL_NTH.with(|n| n.set(1));
+    k.register_plugin(&Acting, manifest);
+    let left = FAIL_NTH.with(|n| n.replace(0));
+    assert_eq!(left, 0, "the refusal was used");
+    assert!(k.plugins().get("acting").is_none());
+    assert!(
+        k.actions().get("acting.go").is_none(),
+        "loaded without a row"
+    );
+    k.register_plugin(&Acting, paperpaw_sdk::Plugin::manifest(&Acting));
+    assert!(k.plugins().get("acting").is_some());
+    assert!(k.actions().get("acting.go").is_some());
+}
+
+/// A linked plugin its shell could not list (no room for its row) is said,
+/// as the kernel says it of its own listing (#248, B part b).
+#[test]
+fn a_linked_plugin_left_unlisted_is_warned_about() {
+    let mut k = kernel("", "");
+    let _ = k.take_warnings();
+    k.warn_not_listed(&Id::new_static("tight"));
+    let warnings = k.take_warnings();
+    assert!(warnings.iter().any(|w| {
+        matches!(&w.source, crate::WarningSource::Plugin(id) if id.as_str() == "tight")
+            && w.message.contains("not listed: no memory")
+    }));
+}
+
+/// The same for a plugin the user switched off: where its row's copy is
+/// refused, it is not listed and nothing of it is loaded (its translations
+/// neither), with a warning; with room, it is listed once, off (#248, todo
+/// 568).
+#[test]
+fn a_switched_off_plugin_without_room_for_its_row_is_not_listed() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let mut k = kernel("", "");
+    let _ = k.take_warnings();
+    let manifest = paperpaw_sdk::Plugin::manifest(&Acting);
+    FAIL_NTH.with(|n| n.set(1));
+    k.register_off(&Acting, manifest);
+    let left = FAIL_NTH.with(|n| n.replace(0));
+    assert_eq!(left, 0, "the refusal was used");
+    assert!(k.plugins().get("acting").is_none());
+    assert!(k.take_warnings().iter().any(|w| {
+        matches!(&w.source, crate::WarningSource::Plugin(id) if id.as_str() == "acting")
+            && w.message.contains("not loaded: no memory")
+    }));
+    k.register_off(&Acting, paperpaw_sdk::Plugin::manifest(&Acting));
+    let listed = k.plugins().get("acting").expect("listed");
+    assert!(!listed.enabled);
+    assert!(k.actions().get("acting.go").is_none());
+}
