@@ -157,22 +157,30 @@ fn an_uncatalogued_books_annotation_texts_and_anchors_are_read_by_its_path() {
             annotation_generation: 0,
         })
     };
+    // Ops 15 and 16 answer too, with the bookmark among the annotations.
+    let rows = call(&host, 15, &[by_path(BOOK), page()]).unwrap();
+    let (mut at, mut id) = (0, None);
+    while at < rows.len() {
+        let (record, used) = wire::record_decode_prefix(&rows[at..]).unwrap();
+        at += used;
+        if let Record::ServiceLibAnnotation(row) = record {
+            id = Some(row.id);
+        }
+    }
+    let id = id.expect("the bookmark is listed");
     let text = || {
         Record::ServiceLibTextAt(wire::ServiceLibTextAt {
             kind: 5,
-            index: 0,
+            index: id,
             offset: 0,
         })
     };
-    // Op 4: the annotation's own text, from its file.
+    // Op 4: the annotation's own text (by its id), from its file.
     let reply = call(&host, 4, &[by_path(BOOK), text()]).unwrap();
     let Record::ServiceLibText(read) = wire::record_decode_one(&reply).unwrap() else {
         panic!("a text")
     };
     assert_eq!(read.text, "x");
-    // Ops 15 and 16 answer too, with the bookmark among the annotations.
-    let rows = call(&host, 15, &[by_path(BOOK), page()]).unwrap();
-    assert!(!rows.is_empty());
     assert!(call(&host, 16, &[by_path(BOOK), page()]).is_ok());
     // A folder is no book: not found, as a missing file.
     for op in [4, 15, 16] {
