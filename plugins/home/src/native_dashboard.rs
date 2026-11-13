@@ -636,17 +636,20 @@ impl Dashboard {
     /// cell, in the order of the cells that are tools.
     fn tool_lines(
         &self,
+        host: &Host<'_>,
         font: &Font<'_>,
         style: &Style,
         laid: &Laid,
     ) -> Result<Vec<(u16, icons::Name)>, Error> {
         let mut lines = Vec::new();
+        let hyphens = icons::Hyphens::of(host);
+        let mut breaks = |word: &str, out: &mut _| hyphens.breaks(host, word, out);
         for cell in &laid.cells {
             if cell.face.is_none() {
                 continue;
             }
             let own = if laid.tool_labels {
-                icons::name_lines(font, style, cell.rect, &cell.name)?
+                icons::name_lines(font, style, cell.rect, &cell.name, &mut breaks)?
             } else {
                 icons::Name {
                     size: style.small,
@@ -701,7 +704,7 @@ impl Dashboard {
             icons: icon_font.as_ref(),
             circle: circle.as_ref(),
         };
-        let wrapped = self.tool_lines(font, &style, laid)?;
+        let wrapped = self.tool_lines(host, font, &style, laid)?;
         let mut tops: Vec<(u16, usize)> = Vec::new();
         tops.try_reserve_exact(wrapped.len())
             .map_err(|_| Error::NoMemory)?;
