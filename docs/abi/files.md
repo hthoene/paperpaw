@@ -74,10 +74,14 @@ Records: `abi/services/core.files@1.def`.
   `plugins/<id>/` of a code plugin that runs (switched on, loaded, not removed): behind the same
   `uses.storage` gate, by the same ops (`core.files` `stat` and `list`, `image_prepare`), the
   folder name matched the same way, every change under it `ERR_DENIED`. The code and the host's
-  files in it (`code.ppn`, `.install-marks`) are hidden: `list` leaves them out, and `stat` and
-  `image_prepare` answer `ERR_INVALID` (status 6). A code plugin that is off or removed, or one
-  linked into the firmware (no folder), stays as above. For these ops this replaces "another
-  plugin's install folder is not reachable" (root 2). (#243, todo 581: sleep's picture presets.)
+  files in it are hidden: every name in `CODE_FILES` (`code.ppn`, `code.so`, `code-host.dll`,
+  `code-host.so`, `code-host.dylib`) and `.install-marks`; names are compared without case, and a
+  FAT 8.3 short name of one of them (e.g. `CODE-H~1.DLL`) is hidden the same way; `list` leaves
+  them out, and `stat` and `image_prepare` answer `ERR_INVALID` (status 6). The rest of the folder
+  is readable by any plugin holding `uses.storage`, as in Beta 3: private state belongs in root 0,
+  not in the install folder. A code plugin that is off or removed, or one linked into the firmware
+  (no folder), stays as above. For these ops this replaces "another plugin's install folder is not
+  reachable" (root 2). (#243, todo 581: sleep's picture presets.)
 - [D] **Root 2 (new)** is read-only access to the plugin's own install folder, stamped like root 0:
   `storage.size`, `storage.read_at`, and `core.files` ops `list`, `stat`. Every changing call on
   root 2 is `ERR_DENIED`. Reason: plugins ship data files next to their code (vocabulary's
