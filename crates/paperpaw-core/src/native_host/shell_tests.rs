@@ -9,6 +9,7 @@ use alloc::vec;
 use core::alloc::Layout;
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
+use std::string::String;
 use std::vec::Vec;
 
 std::thread_local! {
@@ -83,6 +84,7 @@ pub(in crate::native_host) fn reset(mode: u8) {
     DRAW_INKED.with(|d| d.set(false));
     ENTERED.with(|n| n.set(0));
     LEFT.with(|n| n.set(0));
+    ENTER_IDS.with(|ids| ids.borrow_mut().clear());
     REFUSE_ENTRY.with(|r| r.set(false));
 }
 
@@ -106,8 +108,9 @@ impl Services for Heap {
     fn micros(&self) -> u64 {
         0
     }
-    fn enter(&self, _: &str) -> bool {
+    fn enter(&self, id: &str) -> bool {
         ENTERED.with(|n| n.set(n.get() + 1));
+        ENTER_IDS.with(|ids| ids.borrow_mut().push(String::from(id)));
         !REFUSE_ENTRY.with(Cell::get)
     }
     fn leave(&self, _: &str) {
@@ -120,6 +123,8 @@ std::thread_local! {
     /// and `leave`), and whether it refuses them.
     pub(in crate::native_host) static ENTERED: Cell<u32> = const { Cell::new(0) };
     pub(in crate::native_host) static LEFT: Cell<u32> = const { Cell::new(0) };
+    /// The ids `enter` was given, in order (the shell names them to safe mode).
+    pub(in crate::native_host) static ENTER_IDS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     pub(in crate::native_host) static REFUSE_ENTRY: Cell<bool> = const { Cell::new(false) };
 }
 
