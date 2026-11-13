@@ -179,11 +179,11 @@ impl Storage for MemoryStorage {
                 continue;
             };
             found = true;
-            if let Some((sub, _)) = rest.split_once('/') {
-                if dirs.last() != Some(&sub) {
-                    dirs.try_reserve(1).map_err(|_| StorageError::OutOfMemory)?;
-                    dirs.push(sub);
-                }
+            if let Some((sub, _)) = rest.split_once('/')
+                && dirs.last() != Some(&sub)
+            {
+                dirs.try_reserve(1).map_err(|_| StorageError::OutOfMemory)?;
+                dirs.push(sub);
             }
         }
         if !found {
