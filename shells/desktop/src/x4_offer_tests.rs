@@ -7,15 +7,15 @@
 
 use paperpaw_core::native_host::shell::admission::admit;
 use paperpaw_native::metadata::Host;
-use paperpaw_x4::native_offer::{Wired, features, leak, services};
+use paperpaw_x4::native_offer::{Wired, features, services};
 
 fn host(wired: Wired) -> Host<'static> {
     Host {
         abi_major: 7,
         minor: paperpaw_native::host_glue::MINOR,
         profile: crate::native_runtime::host_profile(),
-        services: leak(services(wired)),
-        features: leak(features(wired)),
+        services: services(wired),
+        features: features(wired),
     }
 }
 

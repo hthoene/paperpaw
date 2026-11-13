@@ -7,26 +7,21 @@
 //! (`shells/xteink/src/native/ppn5.rs`) and the ones the host tests admit
 //! every linked plugin against (`shells/desktop/tests/x4_offer.rs`), so a
 //! plugin that would be refused on the device is found on a computer.
-use alloc::{boxed::Box, vec::Vec};
 use paperpaw_core::native_host::{device_service::DEVICE_SERVICES, shell::DATA_SERVICES};
 use paperpaw_native::metadata::{Feature, Service};
 
 /// Which families a start wired. A family is offered only where it is wired:
-/// a service offered and not backed is a plugin that fails later.
+/// a service offered and not backed is a plugin that fails later. The
+/// families come in the groups the device wires them in (`wired_families`),
+/// so every combination has its lists in the program's read-only data, not
+/// made on the heap at the start.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Wired {
-    /// `core.work` (with the network's bridge).
+    /// `core.work`, `core.net` and `core.sockets` (the network and its
+    /// bridge).
     pub work: bool,
-    /// `core.net`.
-    pub net: bool,
-    /// `core.sockets`.
-    pub sockets: bool,
-    /// `core.document`.
-    pub documents: bool,
-    /// `core.library`.
-    pub library: bool,
-    /// `core.files`.
-    pub files: bool,
+    /// `core.document`, `core.library` and `core.files` (the card's three).
+    pub card: bool,
     /// `core.secrets` (the device's, sealed with its key).
     pub secrets: bool,
     /// The radio's commands (`uses.wifi`): the kernel answers them from its
@@ -38,11 +33,7 @@ impl Wired {
     /// Every family the firmware wires for linked plugins.
     pub const ALL: Self = Self {
         work: true,
-        net: true,
-        sockets: true,
-        documents: true,
-        library: true,
-        files: true,
+        card: true,
         secrets: true,
         wifi: true,
     };
@@ -61,69 +52,255 @@ const fn feature(key: &'static str) -> Feature<'static> {
     Feature { key, revision: 1 }
 }
 
+/// How many services a list holds: the data services, `core.device`, the
+/// kernel's own `core.ui` and `core.registry`, and the wired families.
+const fn services_len(secrets: bool, work: bool, card: bool) -> usize {
+    DATA_SERVICES.len()
+        + DEVICE_SERVICES.len()
+        + 2
+        + secrets as usize
+        + 3 * work as usize
+        + 3 * card as usize
+}
+
+/// The services a linked plugin is offered, as one list of `N`.
+const fn build_services<const N: usize>(
+    secrets: bool,
+    work: bool,
+    card: bool,
+) -> [Service<'static>; N] {
+    let mut list = [service("core.ui"); N];
+    let mut at = 0;
+    let mut i = 0;
+    while i < DATA_SERVICES.len() {
+        list[at] = DATA_SERVICES[i];
+        at += 1;
+        i += 1;
+    }
+    let mut i = 0;
+    while i < DEVICE_SERVICES.len() {
+        list[at] = DEVICE_SERVICES[i];
+        at += 1;
+        i += 1;
+    }
+    let keys: [(bool, &str); 9] = [
+        (true, "core.ui"),
+        (true, "core.registry"),
+        (secrets, "core.secrets"),
+        (work, "core.work"),
+        (work, "core.net"),
+        (work, "core.sockets"),
+        (card, "core.document"),
+        (card, "core.library"),
+        (card, "core.files"),
+    ];
+    let mut i = 0;
+    while i < keys.len() {
+        if keys[i].0 {
+            list[at] = service(keys[i].1);
+            at += 1;
+        }
+        i += 1;
+    }
+    assert!(at == N, "the length of a list");
+    list
+}
+
+/// How many features a list holds.
+const fn features_len(secrets: bool, work: bool, card: bool, wifi: bool) -> usize {
+    2 + secrets as usize + work as usize + 2 * card as usize + wifi as usize
+}
+
+/// The consent features a linked plugin may ask for, as one list of `N`.
+const fn build_features<const N: usize>(
+    secrets: bool,
+    work: bool,
+    card: bool,
+    wifi: bool,
+) -> [Feature<'static>; N] {
+    let mut list = [feature("uses.registry"); N];
+    let keys: [(bool, &str); 7] = [
+        (true, "uses.registry"),
+        (true, "uses.power"),
+        (secrets, "uses.secrets"),
+        // One feature for HTTP and sockets (`network.md` 1).
+        (work, "uses.network"),
+        (card, "uses.storage"),
+        (card, "uses.library"),
+        // The radio commands of `core.device` (ops 8, 10, 11, 12), answered
+        // by the kernel's Wi-Fi model.
+        (wifi, "uses.wifi"),
+    ];
+    let mut at = 0;
+    let mut i = 0;
+    while i < keys.len() {
+        if keys[i].0 {
+            list[at] = feature(keys[i].1);
+            at += 1;
+        }
+        i += 1;
+    }
+    assert!(at == N, "the length of a list");
+    list
+}
+
+/// One static list for each combination of the three service groups.
+macro_rules! service_lists {
+    ($(($name:ident, $secrets:expr, $work:expr, $card:expr)),* $(,)?) => {
+        $(static $name: [Service<'static>; services_len($secrets, $work, $card)] =
+            build_services::<{ services_len($secrets, $work, $card) }>($secrets, $work, $card);)*
+    };
+}
+
+service_lists!(
+    (S000, false, false, false),
+    (S001, false, false, true),
+    (S010, false, true, false),
+    (S011, false, true, true),
+    (S100, true, false, false),
+    (S101, true, false, true),
+    (S110, true, true, false),
+    (S111, true, true, true),
+);
+
+/// One static list for each combination of the four feature groups.
+macro_rules! feature_lists {
+    ($(($name:ident, $secrets:expr, $work:expr, $card:expr, $wifi:expr)),* $(,)?) => {
+        $(static $name: [Feature<'static>; features_len($secrets, $work, $card, $wifi)] =
+            build_features::<{ features_len($secrets, $work, $card, $wifi) }>(
+                $secrets, $work, $card, $wifi,
+            );)*
+    };
+}
+
+feature_lists!(
+    (F0000, false, false, false, false),
+    (F0001, false, false, false, true),
+    (F0010, false, false, true, false),
+    (F0011, false, false, true, true),
+    (F0100, false, true, false, false),
+    (F0101, false, true, false, true),
+    (F0110, false, true, true, false),
+    (F0111, false, true, true, true),
+    (F1000, true, false, false, false),
+    (F1001, true, false, false, true),
+    (F1010, true, false, true, false),
+    (F1011, true, false, true, true),
+    (F1100, true, true, false, false),
+    (F1101, true, true, false, true),
+    (F1110, true, true, true, false),
+    (F1111, true, true, true, true),
+);
+
 /// The services a linked plugin is offered: the data services, `core.device`,
 /// the kernel's own `core.ui` and `core.registry`, and the wired families.
+/// A list in the program's read-only data (no heap).
 #[must_use]
-pub fn services(wired: Wired) -> Vec<Service<'static>> {
-    let mut list: Vec<Service<'static>> = Vec::new();
-    list.extend_from_slice(DATA_SERVICES);
-    list.extend_from_slice(DEVICE_SERVICES);
-    list.push(service("core.ui"));
-    list.push(service("core.registry"));
-    for (on, key) in [
-        (wired.secrets, "core.secrets"),
-        (wired.work, "core.work"),
-        (wired.net, "core.net"),
-        (wired.sockets, "core.sockets"),
-        (wired.documents, "core.document"),
-        (wired.library, "core.library"),
-        (wired.files, "core.files"),
-    ] {
-        if on {
-            list.push(service(key));
-        }
+pub fn services(wired: Wired) -> &'static [Service<'static>] {
+    match (wired.secrets, wired.work, wired.card) {
+        (false, false, false) => &S000,
+        (false, false, true) => &S001,
+        (false, true, false) => &S010,
+        (false, true, true) => &S011,
+        (true, false, false) => &S100,
+        (true, false, true) => &S101,
+        (true, true, false) => &S110,
+        (true, true, true) => &S111,
     }
-    list
 }
 
 /// The consent features a linked plugin may ask for (`uses.*`), with the
 /// families that back them. Not offered: `uses.bluetooth`, `uses.install` and
 /// `uses.firmware` (not backed yet: dual boot, todo 450): a plugin that needs
-/// one is refused at admission.
+/// one is refused at admission. A list in the program's read-only data (no
+/// heap).
 #[must_use]
-pub fn features(wired: Wired) -> Vec<Feature<'static>> {
-    let mut list = alloc::vec![feature("uses.registry"), feature("uses.power")];
-    if wired.secrets {
-        list.push(feature("uses.secrets"));
+pub fn features(wired: Wired) -> &'static [Feature<'static>] {
+    match (wired.secrets, wired.work, wired.card, wired.wifi) {
+        (false, false, false, false) => &F0000,
+        (false, false, false, true) => &F0001,
+        (false, false, true, false) => &F0010,
+        (false, false, true, true) => &F0011,
+        (false, true, false, false) => &F0100,
+        (false, true, false, true) => &F0101,
+        (false, true, true, false) => &F0110,
+        (false, true, true, true) => &F0111,
+        (true, false, false, false) => &F1000,
+        (true, false, false, true) => &F1001,
+        (true, false, true, false) => &F1010,
+        (true, false, true, true) => &F1011,
+        (true, true, false, false) => &F1100,
+        (true, true, false, true) => &F1101,
+        (true, true, true, false) => &F1110,
+        (true, true, true, true) => &F1111,
     }
-    // One feature for HTTP and sockets (`network.md` 1).
-    if wired.net || wired.sockets {
-        list.push(feature("uses.network"));
-    }
-    if wired.files {
-        list.push(feature("uses.storage"));
-    }
-    if wired.library {
-        list.push(feature("uses.library"));
-    }
-    // The radio commands of `core.device` (ops 8, 10, 11, 12), answered by the
-    // kernel's Wi-Fi model.
-    if wired.wifi {
-        list.push(feature("uses.wifi"));
-    }
-    list
-}
-
-/// The lists as the kernel keeps them for as long as the plugins run: made
-/// once for a start and left.
-#[must_use]
-pub fn leak<T>(list: Vec<T>) -> &'static [T] {
-    Box::leak(list.into_boxed_slice())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::{vec, vec::Vec};
+
+    /// Every combination of what a start wires, as the four groups.
+    fn every_combination() -> impl Iterator<Item = Wired> {
+        (0..16).map(|bits: u8| Wired {
+            work: bits & 1 != 0,
+            card: bits & 2 != 0,
+            secrets: bits & 4 != 0,
+            wifi: bits & 8 != 0,
+        })
+    }
+
+    /// A list's keys with their major version or revision.
+    type Keyed = Vec<(&'static str, u16)>;
+
+    /// The lists as the firmware made them on the heap before they were
+    /// static: one family at a time, in this order (the reference).
+    fn made_by_hand(wired: Wired) -> (Keyed, Keyed) {
+        let mut services: Vec<(&str, u16)> =
+            DATA_SERVICES.iter().map(|s| (s.key, s.major)).collect();
+        services.extend(DEVICE_SERVICES.iter().map(|s| (s.key, s.major)));
+        services.push(("core.ui", 1));
+        services.push(("core.registry", 1));
+        for (on, keys) in [
+            (wired.secrets, &["core.secrets"][..]),
+            (wired.work, &["core.work", "core.net", "core.sockets"][..]),
+            (
+                wired.card,
+                &["core.document", "core.library", "core.files"][..],
+            ),
+        ] {
+            if on {
+                services.extend(keys.iter().map(|key| (*key, 1)));
+            }
+        }
+        let mut features = vec![("uses.registry", 1), ("uses.power", 1)];
+        for (on, keys) in [
+            (wired.secrets, &["uses.secrets"][..]),
+            (wired.work, &["uses.network"][..]),
+            (wired.card, &["uses.storage", "uses.library"][..]),
+            (wired.wifi, &["uses.wifi"][..]),
+        ] {
+            if on {
+                features.extend(keys.iter().map(|key| (*key, 1)));
+            }
+        }
+        (services, features)
+    }
+
+    #[test]
+    fn every_combination_has_the_list_the_families_make() {
+        for wired in every_combination() {
+            let (services_by_hand, features_by_hand) = made_by_hand(wired);
+            let listed: Vec<_> = services(wired).iter().map(|s| (s.key, s.major)).collect();
+            assert_eq!(listed, services_by_hand, "{wired:?}");
+            let listed: Vec<_> = features(wired)
+                .iter()
+                .map(|f| (f.key, f.revision))
+                .collect();
+            assert_eq!(listed, features_by_hand, "{wired:?}");
+        }
+    }
 
     #[test]
     fn nothing_wired_offers_no_family_and_every_one_wired_offers_all() {
@@ -139,5 +316,13 @@ mod tests {
                 .iter()
                 .any(|f| f.key == "uses.secrets")
         );
+    }
+
+    #[test]
+    fn the_lists_are_in_static_memory_and_the_same_each_time() {
+        let all = Wired::ALL;
+        assert!(core::ptr::eq(services(all), services(all)));
+        assert!(core::ptr::eq(features(all), features(all)));
+        assert!(!core::ptr::eq(services(all), services(Wired::default())));
     }
 }

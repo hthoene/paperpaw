@@ -503,14 +503,14 @@ mod x4 {
         fn linked_report(_: &X4Services, plugin: &str, tag: u32, status: i32) {
             warn!("native: linked: {plugin}: call {tag} ended with {status}");
         }
-        use paperpaw_x4::native_offer::{features, leak, services};
+        use paperpaw_x4::native_offer::{features, services};
         let wired = crate::device_host::wired_families(kernel.wifi_model().is_some());
         let offered = metadata::Host {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
             profile: super::PROFILE,
-            services: leak(services(wired)),
-            features: leak(features(wired)),
+            services: services(wired),
+            features: features(wired),
         };
         // The loader's own table of handles and callback-depth counter (one of
         // each for the device), not a second: the kernel refuses a plugin that

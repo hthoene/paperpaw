@@ -220,7 +220,8 @@ pub fn wired_secrets() {
 
 /// What this start wired, as the lists a linked plugin is offered are made
 /// (`paperpaw_x4::native_offer`): `core.work` with `core.net` and
-/// `core.sockets` (one wiring), the card's three, and `core.secrets`. `wifi`:
+/// `core.sockets` (one wiring), the card's three, and `core.secrets`: the groups
+/// the lists are kept in, static. `wifi`:
 /// the kernel has a Wi-Fi model.
 #[cfg(all(feature = "native-on", feature = "esp32c3"))]
 pub fn wired_families(wifi: bool) -> paperpaw_x4::native_offer::Wired {
@@ -229,11 +230,7 @@ pub fn wired_families(wifi: bool) -> paperpaw_x4::native_offer::Wired {
     let (work, card) = (wired & WIRED_WORK != 0, wired & WIRED_CARD != 0);
     paperpaw_x4::native_offer::Wired {
         work,
-        net: work,
-        sockets: work,
-        documents: card,
-        library: card,
-        files: card,
+        card,
         secrets: wired & WIRED_SECRETS != 0,
         wifi,
     }
