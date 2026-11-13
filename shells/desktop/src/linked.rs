@@ -517,11 +517,15 @@ pub fn register(
     kernel: &mut Kernel,
     profile: &'static Profile,
     inputs: Inputs,
+    pool: &crate::native::DevicePool,
 ) -> Result<usize, Unavailable> {
-    let resources = HostResources::try_new().map_err(|_| Unavailable::NoRoom)?;
+    // The table of handles and the dispatch budget of the card plugins, if
+    // any were admitted already: a kernel takes one of each.
+    let resources = pool
+        .resources(profile.device.memory)
+        .ok_or(Unavailable::NoRoom)?;
     let device: Rc<DesktopDevice> = Rc::new(DesktopDevice::new(profile));
     let mut wiring = HostWiring::new()
-        .ui(profile.device.memory)
         .device(device)
         .lookup()
         .work(WorkInputs::new(inputs.view.clone(), profile.device.memory));
@@ -601,7 +605,7 @@ pub fn register(
                 reports,
                 sockets: wired.sockets().cloned().map(|wired| (sockets, wired)),
             });
-    let depth = FlatDepth::try_new().map_err(|_| Unavailable::NoRoom)?;
+    let depth = pool.depth().ok_or(Unavailable::NoRoom)?;
     let host = metadata::Host {
         abi_major: 7,
         minor: paperpaw_native::host_glue::MINOR,

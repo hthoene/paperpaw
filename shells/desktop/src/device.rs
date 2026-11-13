@@ -1156,6 +1156,9 @@ fn build_kernel(
     #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
     let _ = linked;
     budget::track(|| {
+        // What this kernel's card plugins and linked plugins share.
+        #[cfg(not(target_arch = "wasm32"))]
+        let pool = crate::native::DevicePool::default();
         let fonts = if profile.font_packs {
             paperpaw_app::Fonts::Packs
         } else {
@@ -1217,7 +1220,10 @@ fn build_kernel(
         if CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed) {
             builder = builder.code_plugins(
                 crate::native::native(),
-                Box::new(crate::native::HostLoader::for_device(profile.device.memory)),
+                Box::new(crate::native::HostLoader::for_device_in(
+                    profile.device.memory,
+                    pool.clone(),
+                )),
             );
         }
         // Plugin installs from the card share the firmware's queue: the
@@ -1249,7 +1255,7 @@ fn build_kernel(
         #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
         let kernel = {
             let mut kernel = kernel;
-            match crate::linked::register(&mut kernel, profile, linked.clone()) {
+            match crate::linked::register(&mut kernel, profile, linked.clone(), &pool) {
                 Ok(_) => {}
                 Err(why) => eprintln!("native plugins: none registered ({why:?})"),
             }
