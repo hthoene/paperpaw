@@ -396,16 +396,23 @@ impl Kernel {
         self.feed_install_grants(&driver);
         // Taken only with the driver in hand: a driver lent out now keeps
         // the steps asked for, and the next pass takes them.
-        let Ok(mut driver) = driver.try_borrow_mut() else {
-            return;
+        let installed = {
+            let Ok(mut driver) = driver.try_borrow_mut() else {
+                return;
+            };
+            if !driver.take_finish() {
+                return;
+            }
+            let hosts = self.shared.native_instances.hosts();
+            // A data plugin whose swap finished here loads as after a pump:
+            // not at the next start, with the old version over its files.
+            loads_now(match hosts.and_then(|hosts| hosts.device()) {
+                Some(device) => driver.finish_stopped(self.storage(), &DeviceBuiltIns(&*device.0)),
+                None => driver.finish_stopped(self.storage(), &NoBuiltIns),
+            })
         };
-        if !driver.take_finish() {
-            return;
-        }
-        let hosts = self.shared.native_instances.hosts();
-        match hosts.and_then(|hosts| hosts.device()) {
-            Some(device) => driver.finish_stopped(self.storage(), &DeviceBuiltIns(&*device.0)),
-            None => driver.finish_stopped(self.storage(), &NoBuiltIns),
+        if let Some(id) = installed {
+            self.firmware_load_installed(id.as_str());
         }
     }
 

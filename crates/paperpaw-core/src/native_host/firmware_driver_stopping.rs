@@ -2,7 +2,7 @@
 //! ([`Driver::abort_all`]), one plugin stopping ([`Driver::sender_stopped`]),
 //! and the bounded steps of a plugin job that must finish after either
 //! ([`Driver::finish_stopped`]).
-use super::super::firmware_install::{BuiltIns, KIND_CHECK, KIND_FIRMWARE, Outcome};
+use super::super::firmware_install::{BuiltIns, Event, KIND_CHECK, KIND_FIRMWARE, Outcome};
 use super::super::plugin_job::PluginJob;
 use super::{Driver, Entry, FINISH_STEPS, Queued, STOPPED};
 use paperpaw_platform::Storage;
@@ -107,8 +107,15 @@ impl Driver {
     /// After [`Self::abort_all`] or [`Self::sender_stopped`]: steps a plugin
     /// job that must finish on, at most [`FINISH_STEPS`] steps; what is left
     /// (and a job that merely runs on without its sender, which may take
-    /// long) is stepped by the pump.
-    pub(crate) fn finish_stopped(&mut self, storage: &dyn Storage, built_ins: &dyn BuiltIns) {
+    /// long) is stepped by the pump. Its end where it ended in these steps
+    /// ([`Event::Ended`], also for a sender that stopped and is told
+    /// nothing): the kernel loads a data plugin it installed, as after a
+    /// pump.
+    pub(crate) fn finish_stopped(
+        &mut self,
+        storage: &dyn Storage,
+        built_ins: &dyn BuiltIns,
+    ) -> Event {
         for _ in 0..FINISH_STEPS {
             let must = self
                 .running
@@ -117,8 +124,11 @@ impl Driver {
             if !must {
                 break;
             }
-            self.plugin_step(storage, built_ins);
+            if let Event::Ended(outcome) = self.plugin_step(storage, built_ins) {
+                return Event::Ended(outcome);
+            }
         }
+        Event::Quiet
     }
 
     pub(super) fn kind_of(&self, job: &Queued) -> u32 {
