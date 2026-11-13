@@ -17,6 +17,8 @@ struct Tell {
     fail: Cell<Option<DescribeError>>,
     /// The id every `make` gives its spec from now on.
     renamed: Cell<Option<&'static str>>,
+    /// Every `make` gives a text setting from now on, whatever it was.
+    retyped: Cell<bool>,
     makes: Cell<usize>,
 }
 
@@ -47,6 +49,11 @@ impl Described for Source {
         let mut spec = self.specs.get(at).ok_or(DescribeError::Gone)?.clone();
         if let Some(id) = self.tell.renamed.get() {
             spec.id = Id::new_static(id);
+        }
+        if self.tell.retyped.get() {
+            let id = spec.id.clone();
+            spec = SettingSpec::text("a.text", "a.title", "", OTHER);
+            spec.id = id;
         }
         Ok(spec)
     }
@@ -453,4 +460,60 @@ fn a_default_changed_is_the_one_a_spec_made_later_has() {
         assert_eq!(s.text("stats.span"), "day");
         assert_eq!(s.specs().count(), 4);
     }
+}
+
+#[test]
+fn a_setting_of_another_kind_than_it_was_described_with_is_as_if_not_there() {
+    let (mut s, tell) = settings(true);
+    tell.retyped.set(true);
+    // The default kept is a number: a text setting is not what it is of.
+    assert_eq!(s.try_spec("stats.goal"), Ok(None));
+    assert_eq!(
+        s.set_from_text("stats.goal", "fifty"),
+        Err(SettingError::Unknown)
+    );
+    assert_eq!(s.get("stats.goal"), Some(&SettingValue::Int(30)));
+    // One that was a text setting all along is read as before.
+    assert_eq!(
+        s.try_spec("stats.name").map(|spec| spec.is_some()),
+        Ok(true)
+    );
+    tell.retyped.set(false);
+    assert_eq!(
+        s.try_spec("stats.goal").map(|spec| spec.is_some()),
+        Ok(true)
+    );
+}
+
+#[test]
+fn what_is_asked_about_a_described_setting_without_its_spec_makes_none() {
+    let (s, tell) = settings(true);
+    let (copied, _) = settings(false);
+    // Each was read once, when the plugin's settings were taken.
+    let made = tell.makes.get();
+    let asked = [
+        "before.a",
+        "stats.show",
+        "stats.goal",
+        "stats.goal@2",
+        "stats@2.goal",
+        "stats.span",
+        "stats.name",
+        "stats.none",
+        "stats",
+        "later.z",
+    ];
+    for id in asked {
+        assert_eq!(s.defines(id), copied.defines(id), "{id}");
+        assert_eq!(s.defines_scoped(id), copied.defines_scoped(id), "{id}");
+    }
+    assert!(s.defines("stats.goal") && !s.defines("stats.goal@2"));
+    assert!(s.defines_scoped("stats.goal") && s.defines_scoped("stats.goal@2"));
+    assert!(!s.defines_scoped("stats.show"));
+    // The specs kept as they are: none of those the plugin describes.
+    let kept: Vec<String> = s.kept_specs().map(|spec| spec.id.to_string()).collect();
+    assert_eq!(kept, ["before.a", "later.z"]);
+    assert_eq!(copied.kept_specs().count(), 6);
+    assert_eq!(tell.makes.get(), made);
+    assert!(!s.any_made());
 }

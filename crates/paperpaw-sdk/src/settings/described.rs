@@ -179,6 +179,11 @@ impl Block {
             return Err(DescribeError::Gone);
         }
         let flags = self.flags[at];
+        // Of another kind now than the default kept is of: not the setting
+        // that was described.
+        if !spec.kind.accepts(&self.defaults[at]) {
+            return Err(DescribeError::Gone);
+        }
         spec.default = try_value(&self.defaults[at]).ok_or(DescribeError::NoMemory)?;
         spec.scoped = flags & SCOPED != 0;
         spec.guarded = flags & GUARDED != 0;
@@ -248,6 +253,10 @@ impl DescribedSettings {
         let count = source.count();
         if count > PLACES {
             return Err(DescribeError::Invalid("too many settings"));
+        }
+        // An id is told apart at its first dot: the plugin's has none.
+        if plugin.as_str().contains('.') {
+            return Err(DescribeError::Invalid("a plugin id with a dot"));
         }
         let mut defaults = exactly(count)?;
         let mut flags = exactly(count)?;
@@ -321,30 +330,29 @@ impl DescribedSettings {
         &self.0.plugin
     }
 
-    /// Gives `visit` each setting's id (`<plugin>.<name>`) in their order,
-    /// until it answers `false`; one text is made for all of them.
-    pub(super) fn ids(&self, visit: &mut dyn FnMut(&str) -> bool) -> Result<(), DescribeError> {
-        let mut id = String::new();
-        let plugin = self.0.plugin.as_str();
+    /// Gives `visit` each setting's name (its id is `<plugin>.<name>`) in
+    /// their order, until it answers `false`. Nothing is made.
+    pub(super) fn names(&self, visit: &mut dyn FnMut(&str) -> bool) -> Result<(), DescribeError> {
         for at in 0..self.0.len() {
-            let mut verdict = Ok(true);
-            self.0.source.name(at, &mut |name| {
-                id.clear();
-                if id.try_reserve(plugin.len() + 1 + name.len()).is_err() {
-                    verdict = Err(DescribeError::NoMemory);
-                    return;
-                }
-                id.push_str(plugin);
-                id.push('.');
-                id.push_str(name);
-                verdict = Ok(visit(&id));
-            })?;
-            if !verdict? {
+            let mut on = true;
+            self.0.source.name(at, &mut |name| on = visit(name))?;
+            if !on {
                 break;
             }
         }
         Ok(())
     }
+}
+
+/// The id `<plugin>.<name>`; `None` where it is none or the heap has no room.
+#[cfg(any(test, feature = "kernel"))]
+fn joined(plugin: &str, name: &str) -> Option<Id> {
+    let mut id = String::new();
+    id.try_reserve_exact(plugin.len() + 1 + name.len()).ok()?;
+    id.push_str(plugin);
+    id.push('.');
+    id.push_str(name);
+    Id::try_parse(&id).ok()
 }
 
 /// Where a described setting is: its block and its place there.
@@ -365,6 +373,11 @@ impl Blocks {
             return None;
         }
         let (plugin, name) = id.split_once('.')?;
+        self.find_named(plugin, name)
+    }
+
+    /// The described setting `<plugin>.<name>`.
+    pub(super) fn find_named(&self, plugin: &str, name: &str) -> Option<Found<'_>> {
         self.blocks
             .iter()
             .filter(|block| block.plugin.as_str() == plugin)
@@ -476,7 +489,7 @@ impl Blocks {
 impl super::Settings {
     /// Whether `described` can be defined: `Duplicate` where a setting of
     /// one of its ids is there already, `Invalid` where no places are left
-    /// or its names cannot be read. Nothing is made but one text.
+    /// or its names cannot be read. Nothing is made.
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn check_described(
         &self,
@@ -489,24 +502,30 @@ impl super::Settings {
         if !self.specs.has_room_for_described(described) {
             return Err(invalid("no place left for another setting"));
         }
+        // No text is made for an id unless it is there twice, so that
+        // defining what was checked asks the heap for nothing.
+        let plugin = described.plugin().as_str();
         let mut twice = None;
         described
-            .ids(&mut |id| {
-                if self.specs.has(id) {
-                    twice = Some(Id::try_parse(id));
+            .names(&mut |name| {
+                if self.specs.has_named(plugin, name) {
+                    twice = Some(joined(plugin, name));
                 }
                 twice.is_none()
             })
             .map_err(|_| invalid("a plugin's settings cannot be read now"))?;
         match twice {
             None => Ok(()),
-            Some(Ok(id)) => Err(RegisterError::Duplicate { id }),
-            Some(Err(_)) => Err(invalid("a setting declared twice")),
+            Some(Some(id)) => Err(RegisterError::Duplicate { id }),
+            Some(None) => Err(invalid("a setting declared twice")),
         }
     }
 
     /// Makes room for one more plugin's `settings` described settings, so
     /// that [`Settings::define_described`] cannot fail for lack of memory.
+    /// `others` is how many settings room was made for before
+    /// ([`Settings::try_reserve_with_fixed`]) that are not defined yet: the
+    /// room made here is next to theirs.
     ///
     /// # Errors
     /// The heap refused the room (some may be kept).
@@ -514,8 +533,9 @@ impl super::Settings {
     pub fn try_reserve_described(
         &mut self,
         settings: usize,
+        others: usize,
     ) -> Result<(), alloc::collections::TryReserveError> {
-        self.specs.try_reserve_described(settings)
+        self.specs.try_reserve_described(settings, others)
     }
 
     /// Registers the settings a plugin describes on demand: of each only
@@ -543,6 +563,31 @@ impl super::Settings {
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn try_spec(&self, id: &str) -> Result<Option<&SettingSpec>, super::SettingError> {
         self.spec_or_full(id)
+    }
+
+    /// Whether a setting of exactly this id is defined (a placement's id is
+    /// none). Nothing is made for it.
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn defines(&self, id: &str) -> bool {
+        self.specs.has(id)
+    }
+
+    /// Whether setting `id` (for a placement's id the setting's own, as
+    /// [`Settings::spec`]) is defined and may differ per scope
+    /// ([`SettingSpec::scoped`]). Nothing is made for it.
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn defines_scoped(&self, id: &str) -> bool {
+        let plain = crate::id::unplaced(id);
+        let at = self.specs.locate(plain.as_deref().unwrap_or(id));
+        at.is_some_and(super::specs::At::scoped)
+    }
+
+    /// The specs kept as they are, in registration order: all but those
+    /// their plugins describe, so nothing is made. Every setting with an
+    /// [extra](SettingSpec::extra) is one of them.
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn kept_specs(&self) -> impl Iterator<Item = &SettingSpec> {
+        self.specs.kept()
     }
 
     /// Lets go of the specs made for [`Settings::spec`] and

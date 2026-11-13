@@ -161,6 +161,23 @@ impl Specs {
         self.locate(id).is_some()
     }
 
+    /// Whether there is a setting `<plugin>.<name>`. Nothing is made, nor a
+    /// text for the id.
+    #[cfg(any(test, feature = "kernel"))]
+    pub(super) fn has_named(&self, plugin: &str, name: &str) -> bool {
+        let id = || {
+            plugin
+                .bytes()
+                .chain(core::iter::once(b'.'))
+                .chain(name.bytes())
+        };
+        // Texts compare as their bytes do.
+        let kept = self
+            .by_id
+            .binary_search_by(|&at| self.at(at).id.as_str().bytes().cmp(id()));
+        kept.is_ok() || self.described.find_named(plugin, name).is_some()
+    }
+
     /// Where `id` is in `by_id`, or would go.
     fn find(&self, id: &str) -> Result<usize, usize> {
         self.by_id
@@ -312,14 +329,17 @@ impl Specs {
         self.described.next(described.len()).is_some()
     }
 
-    /// Makes room for one more plugin's `settings` described settings;
-    /// nothing changes when the heap refuses.
+    /// Makes room for one more plugin's `settings` described settings, next
+    /// to `others` room was made for that are not defined yet; nothing
+    /// changes when the heap refuses.
     pub(super) fn try_reserve_described(
         &mut self,
         settings: usize,
+        others: usize,
     ) -> Result<(), alloc::collections::TryReserveError> {
         self.described.try_reserve()?;
-        self.order.try_reserve_exact(settings)
+        self.order
+            .try_reserve_exact(settings.saturating_add(others))
     }
 
     /// Adds `described`, none of whose ids is there yet; `false`, and
@@ -329,7 +349,7 @@ impl Specs {
         let Some(first) = self.described.next(len) else {
             return false;
         };
-        if self.try_reserve_described(len).is_err() {
+        if self.try_reserve_described(len, 0).is_err() {
             return false;
         }
         self.described.add(described, first);
@@ -448,6 +468,18 @@ impl Specs {
             .filter_map(|&place| match self.place(place) {
                 At::Spec(spec) => Some(spec),
                 At::Described(found) => self.described.spec(found).ok(),
+            })
+    }
+
+    /// The specs kept as they are (none a plugin describes), in
+    /// registration order. Nothing is made.
+    #[cfg(any(test, feature = "kernel"))]
+    pub(super) fn kept(&self) -> impl Iterator<Item = &SettingSpec> {
+        self.order
+            .iter()
+            .filter_map(|&place| match self.place(place) {
+                At::Spec(spec) => Some(spec),
+                At::Described(_) => None,
             })
     }
 
