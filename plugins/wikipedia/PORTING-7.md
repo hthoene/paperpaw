@@ -41,13 +41,20 @@ native/metadata.json --bytes native/metadata.bin --json native/metadata.inspecte
   (`network.md` 3.2, 2,000 ms). When it ends with the reason `offline` (the window was missed), the screen
   says so and offers it: confirm or a tap sends `command.go_online` (120 s, `uses.wifi`) and asks again,
   back closes. A plugin hold or *network off* still says "needs a network connection".
-- **The provider** (declared, not submitted): the host answers a lookup provider with `ERR_UNSUPPORTED`
-  until the stage `core.lookup` is live, and a provider that must fetch needs the asynchronous stage
-  reply (todo 98). Until then the dictionary panel has no *Online ›* source; the summary is reached
-  through the slot only. `tests/native_declarations.rs` pins the refusal; when the host admits it, the
-  test fails and `make` submits `image::PROVIDER`.
-- **The summary given by the dictionary's panel** (`text`): the panel does not offer one without the
-  provider; the screen always fetches.
+- **The provider** (done, `src/native_provider.rs`): `make` submits it; the host calls it only while
+  connected. An ask is answered *pending* (title *Encyclopedia*) and the summary is fetched through
+  `core.net` (one ask in flight, a new ask replaces it). When the request ends, the answer is kept
+  (the whole summary, at most 16 KiB, or why there is none) and `lookup_ready` is staged with the
+  ask's text and language; the asker's next ask gets the summary (cut to an entry's 2,048 bytes) with
+  `opens` = `wikipedia.lookup` (*Open Wikipedia ›*). As in Beta 3, no article, a network not reached
+  (every request that did not get through, or no network service) or an unexpected answer is an
+  entry saying so. Scripted-host flow: `tests/native_provider_flow.rs`. Acceptance through the
+  dictionary panel waits for the asker (Port A). The host does not stage `command.lookup_ready` yet
+  (`ERR_UNSUPPORTED`, a step after #1387): the provider keeps its answer all the same, so the
+  asker's next ask gets it; the ignored case `the_end_of_the_request_tells_the_askers` waits for it.
+- **The summary given by the dictionary's panel** (done): the screen an entry opens shows the
+  summary the provider kept for the word (whole), else the hand-over's `text` (at most 1,024 bytes),
+  and fetches only without either.
 - **The line in *About*** (done): the plugin subscribes to `about.lines` (token 4) and answers one
   `lines.line` with `wikipedia.about` (en/de, at most 512 bytes: the source and CC BY-SA 4.0). The codec
   is generated (`tools/stage-codec.py plugins/wikipedia/stages/subscribed plugins/wikipedia/src/stages.rs`,

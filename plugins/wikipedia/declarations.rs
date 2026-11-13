@@ -1,9 +1,9 @@
 //! The lookup's native declarations: the summary screen (an overlay that
 //! fills the slot `core.lookup-online`, with the subscription to the end of
-//! its request), and the provider that offers Wikipedia beside the
-//! dictionaries (declared but not submitted until the host admits and
-//! answers providers that fetch), and the subscription that adds the line
-//! naming the source and the licence to *About*.
+//! its request), the provider that offers Wikipedia beside the dictionaries
+//! (it answers *pending* and fetches, `native_provider`), and the
+//! subscription that adds the line naming the source and the licence to
+//! *About*.
 use paperpaw_sdk::native::declare::{
     Declarations, DeclareError, EventKind, LookupProviderDecl, ScreenDecl, SlotOfferDecl,
     SubscribeDecl,
@@ -31,9 +31,8 @@ pub fn screen<F: FnMut(&[u8]) -> Result<(), i32>>(
     Ok(())
 }
 
-/// The provider. Not submitted yet: the host refuses a lookup provider
-/// (`ERR_UNSUPPORTED`) until the stage `core.lookup` is live, and a plugin
-/// whose `make` fails is not admitted at all (`PORTING-7.md`).
+/// The provider, a network one: the host calls it only while connected
+/// (`document.md` 7).
 pub fn provider<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {

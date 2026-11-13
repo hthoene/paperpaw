@@ -1,12 +1,12 @@
 //! The interface-7 Wikipedia lookup: the summary screen, an overlay that
 //! fills the slot `core.lookup-online` and fetches the summary through
-//! `core.net`. The provider is built into the image but not submitted: the
-//! host refuses lookup providers until the stage `core.lookup` is live and
-//! answers a provider that must fetch only with the asynchronous stage reply
-//! (`PORTING-7.md`). What the plugin decides without a host is in
+//! `core.net`, and the lookup provider beside the dictionaries, which answers
+//! *pending*, fetches and tells the askers when its answer is kept
+//! (`native_provider`). What the plugin decides without a host is in
 //! `native_model` and `native_page`, tested without one.
 use crate::{
-    declarations::{ABOUT_TOKEN, FETCHED_TOKEN, SCREEN_TOKEN},
+    declarations::{ABOUT_TOKEN, FETCHED_TOKEN, PROVIDER_TOKEN, SCREEN_TOKEN},
+    native_provider::Provider,
     native_view::View,
     stages::about_lines_v1 as lines,
 };
@@ -25,13 +25,12 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::{Screens, read_event};
 
-#[expect(
-    dead_code,
-    reason = "the provider is in the image, submitted once the host admits lookup providers"
-)]
 mod image {
     include!(concat!(env!("OUT_DIR"), "/wikipedia_declarations.rs"));
 }
+
+/// The stage a lookup provider is called through.
+const LOOKUP_STAGE: &str = paperpaw_sdk::native::stage_schemas::core_lookup_v1::KEY;
 
 /// The interface-7 Wikipedia lookup.
 #[derive(Debug, Default)]
@@ -39,6 +38,7 @@ pub struct NativeWikipedia {
     ui: Option<Ui>,
     net: Option<Net>,
     screens: Screens<View>,
+    provider: Provider,
 }
 
 impl NativeWikipedia {
@@ -54,19 +54,32 @@ impl NativeWikipedia {
         }
         let ui = self.ui.as_ref().ok_or(Error::State)?;
         let mut view = View::open(host, ui, handover)?;
+        // The whole summary the provider kept for this word (the entry the
+        // panel showed was cut to 2,048 bytes, the hand-over to 1,024).
+        if let Some((title, text)) = self.provider.summary_for(view.word())? {
+            view.show(title, text);
+        }
+        if view.is_loading() {
+            self.ensure_net(host)?;
+            match &self.net {
+                Some(net) => view.fetch(host, net)?,
+                None => view.offline(),
+            }
+        }
+        self.screens.open(instance, view)
+    }
+
+    /// Opens the network service at first use; it stays `None` where there
+    /// is none (no radio, or the plugin is not allowed it).
+    fn ensure_net(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.net.is_none() {
-            // No network service at all (no radio, or the plugin is not allowed it).
             self.net = match Net::open(host) {
                 Ok(net) => Some(net),
                 Err(Error::NoMemory) => return Err(Error::NoMemory),
                 Err(_) => None,
             };
         }
-        match &self.net {
-            Some(net) => view.fetch(host, net)?,
-            None => view.offline(),
-        }
-        self.screens.open(instance, view)
+        Ok(())
     }
 
     /// A request ended: the screen waiting for it shows the answer.
@@ -75,7 +88,13 @@ impl NativeWikipedia {
         host: &Host<'_>,
         done: &paperpaw_sdk::native::net::HttpDone,
     ) -> Result<(), Error> {
-        let (Some(net), Some(view)) = (&self.net, self.screens.top(SCREEN_TOKEN)) else {
+        let Some(net) = &self.net else {
+            return Ok(());
+        };
+        if self.provider.done(host, net, done)? {
+            return Ok(());
+        }
+        let Some(view) = self.screens.top(SCREEN_TOKEN) else {
             return Ok(());
         };
         if !view.waits_for(done.id()) {
@@ -106,7 +125,11 @@ impl NativeWikipedia {
 
 impl Plugin for NativeWikipedia {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::SCREEN.iter().chain(image::ABOUT) {
+        for batch in image::SCREEN
+            .iter()
+            .chain(image::PROVIDER)
+            .chain(image::ABOUT)
+        {
             registrations::submit(host, batch)?;
         }
         Ok(Self::default())
@@ -156,6 +179,12 @@ impl Plugin for NativeWikipedia {
                 if token == ABOUT_TOKEN && stage == lines::KEY =>
             {
                 Self::about(host, payload, reply)
+            }
+            Event::StageCall { stage, payload, .. }
+                if token == PROVIDER_TOKEN && stage == LOOKUP_STAGE =>
+            {
+                self.ensure_net(host)?;
+                self.provider.ask(host, self.net.as_ref(), payload, reply)
             }
             _ => Ok(()),
         }

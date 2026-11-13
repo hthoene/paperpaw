@@ -71,10 +71,25 @@ impl View {
     /// The host's refusals; `NoMemory`.
     pub fn open(host: &Host<'_>, ui: &Ui, handover: Option<HandoverId>) -> Result<Self, Error> {
         let mut view = Self::default();
+        let mut given = String::new();
         if let Some(handover) = handover {
             // A hand-over that cannot be read is a screen for no word, not a failed open:
             // the screen must exist for the draws that follow.
-            let _ = read_params(host, ui, handover, &mut view.word, &mut view.language);
+            let _ = read_params(
+                host,
+                ui,
+                handover,
+                &mut view.word,
+                &mut view.language,
+                &mut given,
+            );
+        }
+        // The summary handed over (the dictionary panel's entry): not fetched again.
+        if !given.trim().is_empty() {
+            view.body = Body::Summary {
+                title: None,
+                text: given,
+            };
         }
         view.word = clean(&view.word, MAX_WORD)?;
         view.language = clean(&view.language, MAX_LANGUAGE)?;
@@ -94,21 +109,31 @@ impl View {
             self.body = Body::Message("wikipedia.not-found");
             return Ok(());
         }
-        let url = native_model::summary_url(&self.language, &self.word)?;
-        let headers = [
-            paperpaw_sdk::native::net::Header::new("User-Agent", "PaperPaw/0.1 (e-reader)")?,
-            paperpaw_sdk::native::net::Header::new("Accept", "application/json")?,
-        ];
-        let request = Request::get(FETCHED_TOKEN, &url)?
-            .headers(&headers)?
-            .max_body(MAX_BODY as u32);
-        let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
-        match net.request(host, &request, &mut input, &mut out) {
+        match request_summary(host, net, &self.language, &self.word) {
             Ok(id) => self.request = Some(id),
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => self.body = Body::Message("wikipedia.failed"),
         }
         Ok(())
+    }
+
+    /// Shows `text` (a summary the plugin has, or the one handed over),
+    /// with the article's `title` where there is one: nothing is fetched.
+    pub fn show(&mut self, title: Option<String>, text: String) {
+        self.page = None;
+        self.body = Body::Summary { title, text };
+    }
+
+    /// Whether the screen still has to fetch its summary.
+    #[must_use]
+    pub const fn is_loading(&self) -> bool {
+        matches!(self.body, Body::Loading)
+    }
+
+    /// The word the screen is for.
+    #[must_use]
+    pub fn word(&self) -> &str {
+        &self.word
     }
 
     /// Says why no request could be made at all (no network service).
@@ -341,9 +366,35 @@ impl View {
     }
 }
 
+/// The id of the summary screen (what a provider's entry opens).
+pub const SCREEN: &str = "wikipedia.lookup";
+
+/// Asks `core.net` for the summary of `word`'s article in `language`
+/// (`FETCHED_TOKEN`, at most [`MAX_BODY`]).
+///
+/// # Errors
+/// `NoMemory`; the host's refusals.
+pub fn request_summary(
+    host: &Host<'_>,
+    net: &Net,
+    language: &str,
+    word: &str,
+) -> Result<RequestId, Error> {
+    let url = native_model::summary_url(language, word)?;
+    let headers = [
+        paperpaw_sdk::native::net::Header::new("User-Agent", "PaperPaw/0.1 (e-reader)")?,
+        paperpaw_sdk::native::net::Header::new("Accept", "application/json")?,
+    ];
+    let request = Request::get(FETCHED_TOKEN, &url)?
+        .headers(&headers)?
+        .max_body(MAX_BODY as u32);
+    let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
+    net.request(host, &request, &mut input, &mut out)
+}
+
 /// The body of a finished request, read in parts into one text; over
 /// [`MAX_BODY`] or not UTF-8 is `NoSpace` / `Invalid` (no summary).
-fn read_body(host: &Host<'_>, net: &Net, done: &HttpDone) -> Result<String, Error> {
+pub fn read_body(host: &Host<'_>, net: &Net, done: &HttpDone) -> Result<String, Error> {
     if done.truncated() || done.body_len() as usize > MAX_BODY {
         return Err(Error::NoSpace);
     }
@@ -397,13 +448,14 @@ fn clean(text: &str, max: usize) -> Result<String, Error> {
     text::copy(text.get(..end).unwrap_or(""))
 }
 
-/// The word and language of `handover`, as the caller gave them.
+/// The word, language and text of `handover`, as the caller gave them.
 fn read_params(
     host: &Host<'_>,
     ui: &Ui,
     handover: HandoverId,
     word: &mut String,
     language: &mut String,
+    given: &mut String,
 ) -> Result<(), Error> {
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     for param in ui.params(host, handover, &mut input, &mut out)? {
@@ -411,6 +463,7 @@ fn read_params(
         match param.key() {
             "word" => *word = text::copy(param.value())?,
             "language" => *language = text::copy(param.value())?,
+            "text" => *given = text::copy(param.value())?,
             _ => {}
         }
     }

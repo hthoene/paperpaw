@@ -440,6 +440,8 @@ pub struct Plugin<'h> {
 #[derive(Clone, Copy)]
 enum Kind {
     Event,
+    /// An event with a reply buffer (a stage call): its start and capacity.
+    Stage(*mut u8, usize),
     Input,
     Draw,
 }
@@ -465,6 +467,26 @@ impl Plugin<'_> {
         self.run(Kind::Event, token, batch)
     }
 
+    /// `dispatch_event(token, batch)` with a reply buffer of `capacity` bytes,
+    /// as the host lends one to a stage call (a lookup provider's answer):
+    /// the callback, and the reply the plugin wrote (its positive status is
+    /// the reply's length; empty after a negative status).
+    pub fn stage_call(
+        &self,
+        token: u32,
+        batch: &[u8],
+        capacity: usize,
+    ) -> Result<(Callback, Vec<u8>), i32> {
+        let mut reply = vec![0_u8; capacity];
+        let mut callback = self.run(Kind::Stage(reply.as_mut_ptr(), capacity), token, batch)?;
+        let used = usize::try_from(callback.status).unwrap_or(0).min(capacity);
+        reply.truncate(used);
+        if callback.status > 0 {
+            callback.status = 0;
+        }
+        Ok((callback, reply))
+    }
+
     /// `input(token, batch)`. The status is 0 (not taken), 1 (taken) or an
     /// error; anything above 1 is a plugin fault and is `ERR_INVALID`, as in
     /// the shell.
@@ -478,6 +500,10 @@ impl Plugin<'_> {
     }
 
     fn run(&self, kind: Kind, token: u32, input: &[u8]) -> Result<Callback, i32> {
+        let out = match kind {
+            Kind::Stage(ptr, cap) => (ptr, cap),
+            _ => (core::ptr::NonNull::dangling().as_ptr(), 0),
+        };
         let state = &*self.host.state;
         // SAFETY: the table `make` returned stays valid until the plugin drops.
         let table = unsafe { &*self.plugin };
@@ -497,16 +523,19 @@ impl Plugin<'_> {
             // and the buffer live for the call.
             Ok(unsafe {
                 match kind {
-                    Kind::Event => (table.dispatch_event.ok_or(ERR_UNSUPPORTED)?)(
-                        table.state,
-                        token,
-                        input,
-                        // No reply buffer: a dangling pointer with capacity 0.
-                        PpBuffer {
-                            ptr: core::ptr::NonNull::dangling().as_ptr(),
-                            cap: 0,
-                        },
-                    ),
+                    Kind::Event | Kind::Stage(..) => {
+                        (table.dispatch_event.ok_or(ERR_UNSUPPORTED)?)(
+                            table.state,
+                            token,
+                            input,
+                            // An event has no reply buffer (a dangling pointer with
+                            // capacity 0); a stage call has the caller's.
+                            PpBuffer {
+                                ptr: out.0,
+                                cap: out.1,
+                            },
+                        )
+                    }
                     Kind::Input => (table.input.ok_or(ERR_UNSUPPORTED)?)(table.state, token, input),
                     Kind::Draw => (table.draw.ok_or(ERR_UNSUPPORTED)?)(table.state, token, input),
                 }
@@ -514,7 +543,7 @@ impl Plugin<'_> {
         };
         let status = match kind {
             Kind::Draw => call()?,
-            Kind::Event | Kind::Input => {
+            Kind::Event | Kind::Stage(..) | Kind::Input => {
                 // SAFETY: the scope lives in the boxed state and never moves.
                 let scope = unsafe { Pin::new_unchecked(&state.scope) };
                 scope.scope(&mut stage, call).map_err(|_| ERR_INVALID)??

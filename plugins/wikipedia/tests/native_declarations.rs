@@ -49,10 +49,7 @@ fn the_host_admits_the_screen_its_slot_and_its_subscription() {
     }
 }
 
-/// The provider is declared but not submitted yet: the host admits a lookup
-/// provider (`lookup.spec` admission). To make the case
-/// `the-provider-answers-the-dictionary-panel-with-the-summary` real, submit
-/// `image::PROVIDER` in `make`.
+/// The host admits the lookup provider `make` submits (`lookup.spec`).
 #[test]
 fn the_host_admits_the_lookup_provider() {
     for batch in batches!(declarations::provider) {
