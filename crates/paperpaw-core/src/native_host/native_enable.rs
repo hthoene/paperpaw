@@ -24,7 +24,9 @@
 use crate::{Kernel, RESERVED_PLUGIN_ID, config::read_config};
 use alloc::string::String;
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID};
-use paperpaw_sdk::{Id, PluginInfo, PluginProblem, native::SafeModeReason};
+use paperpaw_sdk::{
+    Id, PluginInfo, PluginKind, PluginProblem, PluginState, native::SafeModeReason,
+};
 
 /// What `source` says about the plugin `id` in its `[plugins]` section: `off`
 /// anywhere wins over `on`; `None` where it says nothing.
@@ -205,6 +207,10 @@ impl Kernel {
     /// back, why ([`NativeDecision::problem`]). Call it after the plugin is
     /// hosted, so a slot only it fills marks it as one that stays on.
     ///
+    /// A card folder of the same id whose code does not run (refused for the
+    /// id, held back, never installed) gives way: the row is this plugin's,
+    /// its warning stays, and the folder is no longer the id's (#1424 R1).
+    ///
     /// # Errors
     /// `ERR_DENIED` for the kernel's own id; `ERR_INVALID` for an id that is
     /// listed already.
@@ -213,8 +219,14 @@ impl Kernel {
         if id.as_str() == RESERVED_PLUGIN_ID {
             return Err(ERR_DENIED);
         }
-        if self.shared.plugins.get(id.as_str()).is_some() {
-            return Err(ERR_INVALID);
+        if let Some(listed) = self.shared.plugins.get(id.as_str()) {
+            if listed.kind != PluginKind::Code || listed.state == PluginState::Running {
+                return Err(ERR_INVALID);
+            }
+            self.shared.plugins.remove(id.as_str());
+            self.shared
+                .data_folders
+                .retain(|(folder_id, _)| *folder_id != id);
         }
         self.shared.registry_generation.bump();
         self.shared.plugins.push(info);

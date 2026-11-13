@@ -582,14 +582,14 @@ pub(crate) mod linked_entry;
 #[path = "native_host/linked_install.rs"]
 mod linked_install;
 
-/// The shell's side of one hosted plugin (owner, host table, `make`,
-/// scoped dispatch), shared by the desktop and the X4.
-#[path = "native_host/shell.rs"]
-pub mod shell;
 /// A hosted plugin the kernel admits with everything it declares, for every
 /// shell (`CodeLoader::load_native`).
 #[path = "native_host/hosted_admission.rs"]
 pub mod hosted_admission;
+/// The shell's side of one hosted plugin (owner, host table, `make`,
+/// scoped dispatch), shared by the desktop and the X4.
+#[path = "native_host/shell.rs"]
+pub mod shell;
 /// Host-owned copies of declaration records staged during construction.
 #[path = "native_host/staged.rs"]
 pub mod staged;
