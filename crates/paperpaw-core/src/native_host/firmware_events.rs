@@ -19,8 +19,9 @@
 use super::{
     codec,
     device_service::DeviceBuiltIns,
-    firmware_install::{BuiltIns, KIND_CHECK, Outcome},
+    firmware_install::{BuiltIns, Event, KIND_CHECK, Outcome},
     native_instances::InstanceState,
+    plugin_job::{DONE_AT_NEXT_START, KIND_INSTALL},
     registrations::{self as wire, Record},
 };
 use crate::Kernel;
@@ -88,11 +89,22 @@ impl Kernel {
     ) -> bool {
         self.firmware.as_ref().is_some_and(|cell| {
             cell.set_plugin_host(super::plugin_job::PluginHost {
-                loader,
+                loader: Some(loader),
                 offered,
                 signers,
             })
         })
+    }
+
+    /// [`Self::set_plugin_host`] for a device that loads no plugin code
+    /// (Boox/Android, desktop, web): plugin jobs take data plugins only, a
+    /// plugin with a code file ends with reason 19 (`ERR_UNSUPPORTED`), as
+    /// code of another kind of device does. The same queue, so it too needs
+    /// [`KernelBuilder::firmware_host`](crate::KernelBuilder::firmware_host).
+    pub fn set_data_plugin_host(&mut self) -> bool {
+        self.firmware
+            .as_ref()
+            .is_some_and(|cell| cell.set_plugin_host(super::plugin_job::PluginHost::DATA_ONLY))
     }
 
     /// The firmware driver, where one is made now (none at rest).
@@ -129,7 +141,7 @@ impl Kernel {
         };
         self.native_outbox_run();
         self.feed_install_grants(&driver);
-        {
+        let ended = {
             let Ok(mut driver) = driver.try_borrow_mut() else {
                 return true;
             };
@@ -137,7 +149,10 @@ impl Kernel {
             match hosts.and_then(|hosts| hosts.device()) {
                 Some(device) => driver.pump(self.storage(), &DeviceBuiltIns(&*device.0), now),
                 None => driver.pump(self.storage(), &NoBuiltIns, now),
-            };
+            }
+        };
+        if let Event::Ended(outcome) = ended {
+            self.firmware_load_installed(&outcome);
         }
         self.firmware_unload_pump(&driver);
         self.firmware_forget_pump(&driver);
@@ -271,6 +286,32 @@ impl Kernel {
                 });
             }
         }
+    }
+
+    /// A data plugin an install put in place loads at once, before its
+    /// `install_done` is told, as interface 6 did (`Kernel::install_plugin`):
+    /// the old version goes first, and event 70 is raised even where the new
+    /// one does not load. Code changes at the next start (flag bit 1).
+    fn firmware_load_installed(&mut self, outcome: &Outcome) {
+        if outcome.kind != KIND_INSTALL
+            || outcome.reason != 0
+            || outcome.flags & DONE_AT_NEXT_START != 0
+        {
+            return;
+        }
+        let Some(id) = outcome
+            .id
+            .as_ref()
+            .and_then(|id| paperpaw_sdk::Id::parse(id.as_str()).ok())
+        else {
+            return;
+        };
+        let replaced = self.shared.plugins.get(id.as_str()).is_some();
+        if !replaced || self.unload_plugin(&id) {
+            let folder = alloc::format!("{}/{}", paperpaw_sdk::builtin::PLUGIN_DIR, id.as_str());
+            let _ = self.register_folder(&folder);
+        }
+        self.plugins_changed();
     }
 
     /// A removal's first step: the instances of the plugin it removes are

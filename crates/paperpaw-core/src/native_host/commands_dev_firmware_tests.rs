@@ -222,7 +222,7 @@ fn plugin_driver() -> DriverRef {
     };
     let d = driver();
     d.borrow_mut().set_plugin_host(PluginHost {
-        loader: Loader::x4(1),
+        loader: Some(Loader::x4(1)),
         offered: Offered {
             abi_major: 7,
             minor: 1,
@@ -482,6 +482,19 @@ fn an_install_needs_the_feature_a_plugin_host_known_flags_and_a_path_the_plugin_
     assert!(d.borrow().holds(OWNER, 1));
     drop(output);
     assert_eq!(d.borrow().waiting(), 0);
+}
+
+#[test]
+fn a_device_that_loads_no_code_accepts_an_install_and_a_check_at_submit() {
+    use crate::native_host::plugin_job::PluginHost;
+    let kernel = kernel();
+    let d = driver();
+    d.borrow_mut().set_plugin_host(PluginHost::DATA_ONLY);
+    let (status, output) = stage(&kernel, INSTALL, Some(&d), &[install_plugin(1, 0)]);
+    assert_eq!(status, OK);
+    assert!(d.borrow().holds(OWNER, 1));
+    drop(output);
+    assert_eq!(stage(&kernel, INSTALL, Some(&d), &[check(2, 0)]).0, OK);
 }
 
 #[test]
@@ -870,7 +883,7 @@ fn firmware_dual_boot_is_unsupported_until_the_host_opens_it() {
     let kernel = kernel();
     let d = driver();
     d.borrow_mut().set_plugin_host(PluginHost {
-        loader: Loader::x4(1),
+        loader: Some(Loader::x4(1)),
         offered: Offered {
             abi_major: 7,
             minor: 1,
