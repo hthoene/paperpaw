@@ -10,7 +10,7 @@ use core::cell::{Cell, OnceCell};
 use core::fmt;
 use core::ops::ControlFlow;
 
-use super::{Level, SettingSpec, SettingValue};
+use super::{Level, SettingError, SettingSpec, SettingValue, Settings};
 use crate::Id;
 
 /// Why a described setting's spec could not be made.
@@ -503,7 +503,7 @@ impl Blocks {
 }
 
 #[cfg(any(test, feature = "kernel"))]
-impl super::Settings {
+impl Settings {
     /// Whether `described` can be defined: `Duplicate` where a setting of
     /// one of its ids is there already, `Invalid` where no places are left
     /// or its names cannot be read. Nothing is made.
@@ -578,7 +578,7 @@ impl super::Settings {
     /// # Errors
     /// [`SettingError::Full`]: the setting is there; the same may work later.
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn try_spec(&self, id: &str) -> Result<Option<&SettingSpec>, super::SettingError> {
+    pub fn try_spec(&self, id: &str) -> Result<Option<&SettingSpec>, SettingError> {
         self.spec_or_full(id)
     }
 
@@ -656,7 +656,7 @@ impl super::Settings {
     }
 }
 
-impl super::Settings {
+impl Settings {
     /// Gives `visit` the spec of each setting `pick` takes, in registration
     /// order, until it breaks. Unlike [`Settings::specs`] it keeps nothing:
     /// the spec of a setting of a plugin loaded from the card is made for
@@ -672,7 +672,7 @@ impl super::Settings {
         &self,
         pick: super::Pick<'_>,
         visit: &mut dyn FnMut(&SettingSpec) -> ControlFlow<()>,
-    ) -> Result<(), super::SettingError> {
+    ) -> Result<(), SettingError> {
         self.specs.walk(pick, visit)
     }
 
@@ -686,7 +686,7 @@ impl super::Settings {
         &self,
         pick: super::Pick<'_>,
         visit: impl FnMut(&SettingSpec),
-    ) -> Result<(), super::SettingError> {
+    ) -> Result<(), SettingError> {
         self.each_spec(pick, visit)
     }
 
@@ -701,7 +701,7 @@ impl super::Settings {
         &self,
         pick: super::Pick<'_>,
         visit: &mut dyn FnMut(&SettingSpec) -> ControlFlow<()>,
-    ) -> Result<(), super::SettingError> {
+    ) -> Result<(), SettingError> {
         self.specs.walk(pick, visit)
     }
 
@@ -710,7 +710,7 @@ impl super::Settings {
         &self,
         pick: super::Pick<'_>,
         mut visit: impl FnMut(&SettingSpec),
-    ) -> Result<(), super::SettingError> {
+    ) -> Result<(), SettingError> {
         self.specs.walk(pick, &mut |spec| {
             visit(spec);
             ControlFlow::Continue(())
