@@ -575,5 +575,59 @@ class PruneCaches(unittest.TestCase):
         self.assertEqual(prune_caches.stale(entries), [])
 
 
+class FirmwareRemap(unittest.TestCase):
+    """tools/ci/firmware-remap.sh: the released firmware's path remapping (#258)."""
+
+    def setUp(self):
+        self.bash = shutil.which("bash")
+        if os.name == "nt" or not self.bash:
+            self.skipTest("bash is needed for the Linux build's script")
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.home = pathlib.Path(self.directory.name) / "cargo"
+        (self.home / "registry" / "src" / "index.crates.io-0123").mkdir(parents=True)
+
+    def run_script(self, *arguments, home=None, sysroot="/opt/rust"):
+        environment = dict(os.environ, CARGO_HOME=str(home or self.home), FIRMWARE_SYSROOT=sysroot)
+        return subprocess.run(
+            [self.bash, str(HERE / "ci" / "firmware-remap.sh"), *arguments],
+            env=environment, capture_output=True, text=True, check=False,
+        )
+
+    def test_the_repository_the_registry_and_the_toolchain_lose_their_folders(self):
+        done = self.run_script("riscv32imc-unknown-none-elf")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        key, _, value = done.stdout.strip().partition("=")
+        self.assertEqual(key, "target.riscv32imc-unknown-none-elf.rustflags")
+        flags = re.findall(r'"--remap-path-prefix=([^"=]*)=([^"]*)"', value)
+        self.assertEqual(value, "[" + ",".join(f'"--remap-path-prefix={a}={b}"' for a, b in flags) + "]")
+        # rustc takes the last prefix that matches: the cargo home's own
+        # folders come after the home itself.
+        self.assertEqual(flags, [
+            (str(self.home), "cargo"),
+            (f"{self.home}/registry/src/index.crates.io-0123/", ""),
+            ("/opt/rust/lib/rustlib/src/rust/", ""),
+            (f"{HERE.parent}/", ""),
+        ])
+
+    def test_a_path_that_would_break_the_flag_is_refused(self):
+        for name in ['with"quote', "with=sign", "with\\slash"]:
+            home = pathlib.Path(self.directory.name) / name
+            home.mkdir()
+            done = self.run_script("riscv32imc-unknown-none-elf", home=home)
+            self.assertEqual(done.returncode, 1, name)
+            self.assertEqual(done.stdout, "")
+            self.assertIn("cannot remap", done.stderr)
+
+    def test_the_target_is_needed(self):
+        self.assertEqual(self.run_script().returncode, 2)
+
+    def test_the_released_and_the_checked_build_use_it(self):
+        for workflow in ["release.yml", "ci.yml"]:
+            text = (HERE.parent / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
+            self.assertIn('tools/ci/firmware-remap.sh" "$FIRMWARE_TARGET" "$FIRMWARE_TOOLCHAIN")', text)
+            self.assertIn('--config "$remap" --features "$DEVICE"', text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -269,6 +269,9 @@ pub enum SettingKind {
 pub const SETTING_SHOWN: u32 = 1 << 9;
 /// `reg_setting.flags` bit: the value is withheld.
 pub const SETTING_HIDDEN: u32 = 1 << 5;
+/// `reg_setting.flags` bit: an int setting that asks for a slider
+/// (`docs/abi/registry.md`).
+pub const SETTING_SLIDER: u32 = 1 << 11;
 
 /// A setting in a menu with what its row needs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -319,6 +322,13 @@ impl SettingInfo {
             editor: copy(&self.editor)?,
             choices: self.choices,
         })
+    }
+
+    /// Whether it is a number that asks for a slider over a range of more
+    /// than one value.
+    #[must_use]
+    pub fn slider(&self) -> bool {
+        self.kind == SettingKind::Int && self.flags & SETTING_SLIDER != 0 && self.max > self.min
     }
 
     /// Whether the menu lists it: a setting shown only while another has a
@@ -388,6 +398,29 @@ pub fn stepped(info: &SettingInfo, step: i64) -> Option<Value> {
             (next != *now).then_some(Value::Int(next))
         }
         _ => None,
+    }
+}
+
+/// `value` with its unit as the catalogs say it: a unit that is a catalog key
+/// (`core.unit.pt`, with plural forms) is formatted by `plural` with the
+/// number as `{count}`; a key no catalog has leaves the number alone, never
+/// the key on the screen. Any other unit is taken as written ([`with_unit`]).
+///
+/// # Errors
+/// [`Error::NoMemory`] and the host's refusals other than "no such key".
+pub fn said_with_unit(
+    value: i64,
+    unit: &str,
+    plural: &mut dyn FnMut(&str, i64) -> Result<String, Error>,
+) -> Result<String, Error> {
+    let is_key = unit.contains('.') && !unit.contains(' ') && !unit.contains("{count}");
+    if !is_key {
+        return with_unit(value, unit);
+    }
+    match plural(unit, value) {
+        Ok(said) if said != unit && !said.is_empty() => Ok(said),
+        Ok(_) | Err(Error::NotFound | Error::Invalid) => with_unit(value, ""),
+        Err(error) => Err(error),
     }
 }
 

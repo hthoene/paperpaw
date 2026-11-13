@@ -10,9 +10,7 @@
 #[path = "../../test-support/fail_alloc.rs"]
 mod fail_alloc;
 use paperpaw_plugin_store::native_download::{self as dl, Done, Download, FILE_REQUEST};
-use paperpaw_plugin_store::native_install::{
-    self as inst, End, Have, Installer, Installs, Next, Proof,
-};
+use paperpaw_plugin_store::native_install::{self as inst, End, Have, Installer, Next, Proof};
 use paperpaw_plugin_store::native_item::{Digest, File, More, Rotation};
 use paperpaw_plugin_store::native_list::Page;
 use paperpaw_plugin_store::native_model::{Entry, Revoked};
@@ -142,7 +140,7 @@ fn a_download_and_an_install_survive_refused_allocations() {
         if let Some(staged) = download.take_ready(&wire.card)? {
             let have = Have::default();
             installer.finish(&mut wire, &mut download, staged, &page, have)?;
-            installer.done(&mut wire, &mut download, &End::new(1, 0, 2), "1.0.0", false)?;
+            installer.done(&mut wire, &mut download, &End::new(1, 0, 2), false)?;
         }
         inst::hand_over(&mut wire, &revoked)?;
         Download::progress(&wire.card)?;
@@ -151,29 +149,14 @@ fn a_download_and_an_install_survive_refused_allocations() {
 }
 
 #[test]
-fn the_record_of_installs_and_the_queue_survive_refused_allocations() {
+fn the_queue_survives_refused_allocations() {
     let card = Card(MemoryStorage::new());
     fail_alloc::sweep(|| {
         fail_alloc::exempt(|| {
-            for name in [
-                paperpaw_plugin_store::native_install::INSTALLS_FILE,
-                "queue.txt",
-                "queue-quiet.txt",
-            ] {
+            for name in ["queue.txt", "queue-quiet.txt"] {
                 let _ = card.remove(name);
             }
         });
-        let mut kept = false;
-        for n in 0..5 {
-            let release = fail_alloc::exempt(|| format!("1.{n}.0"));
-            kept = Installs::remember(&card, "airy-theme", &release)?;
-        }
-        let installs = Installs::read(&card)?;
-        // A record the card cannot keep for want of memory is said so (false),
-        // not lost silently: where it was kept, it reads back.
-        assert!(!kept || installs.of("airy-theme", "1.4.0"));
-        Installs::forget(&card, "airy-theme")?;
-        Installs::adopt(&card, [("other", "2.0.0")])?;
         let mut queue = Queue::default();
         queue.add(["alpha", "beta"], Mark::Quiet)?;
         assert!(matches!(inst::next(&mut queue, &card)?, Next::FetchPage(_)));

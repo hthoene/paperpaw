@@ -65,6 +65,7 @@ impl Kernel {
             item_states,
             presets,
             answers,
+            lookups,
             hints,
             widgets,
         } = staged.screen;
@@ -83,7 +84,42 @@ impl Kernel {
         let authority = self.command_settings_authority(owner);
         self.apply_native_presets(owner, authority, presets);
         self.native_apply_answers(answers);
+        self.native_apply_lookup_readies(owner_key, &lookups);
         self.apply_labels_and_widgets(owner_key, hints, widgets)
+    }
+
+    /// The provider `owner_key` said its results for the asks `hashes` are
+    /// ready (`command.lookup_ready`, `document.md` 7): their pending asks end
+    /// and each asker gets `event.lookup_ready` from the event pump, naming the
+    /// provider's lookup. Never an error to the provider: without the service,
+    /// the store or a lookup of its own, nothing is told.
+    pub(crate) fn native_apply_lookup_readies(&self, owner_key: u64, hashes: &[u64]) {
+        if hashes.is_empty() {
+            return;
+        }
+        let Some(lookup) = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.lookup())
+        else {
+            return;
+        };
+        let store = self
+            .shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .and_then(|directory| directory.store.try_borrow().ok());
+        let name = lookup.provider_name_of(store.as_deref(), owner_key);
+        drop(store);
+        for hash in hashes {
+            lookup.ready_hash(owner_key, *hash, &mut |asker| {
+                if let Some(name) = name.as_ref() {
+                    lookup.queue_ready(asker, name);
+                }
+            });
+        }
     }
 
     /// The labels the callback set, and the widgets it said changed.

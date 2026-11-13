@@ -27,7 +27,8 @@ pub fn prepare(
 ) -> Result<(), Error> {
     let area = Rect::new(0, 0, width, s.header);
     let (paper, ink) = if s.dark {
-        (s.ink, s.paper)
+        let bar = s.header_bar();
+        (bar, s.on(bar, s.roles.bar.is_some(), s.paper))
     } else {
         (s.paper, s.ink)
     };
