@@ -3687,6 +3687,7 @@ pub paperpaw_sdk::native::declare::ScreenDecl::name: &'a str
 pub paperpaw_sdk::native::declare::ScreenDecl::title: &'a str
 pub paperpaw_sdk::native::declare::ScreenDecl::token: u32
 impl paperpaw_sdk::native::declare::ScreenDecl<'_>
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::grays(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::guards(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::hints_hidden(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::holds_edges(self) -> Self
@@ -7331,6 +7332,7 @@ impl paperpaw_sdk::native::ui::RequestId
 pub const fn paperpaw_sdk::native::ui::RequestId::text(self) -> paperpaw_sdk::native::ui::TextId
 pub struct paperpaw_sdk::native::ui::ScreenPolicy
 impl paperpaw_sdk::native::ui::ScreenPolicy
+pub const fn paperpaw_sdk::native::ui::ScreenPolicy::grays(self) -> Self
 pub const fn paperpaw_sdk::native::ui::ScreenPolicy::guards(self) -> Self
 pub const fn paperpaw_sdk::native::ui::ScreenPolicy::holds_edges(self) -> Self
 pub const fn paperpaw_sdk::native::ui::ScreenPolicy::new() -> Self
