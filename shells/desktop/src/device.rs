@@ -1232,16 +1232,9 @@ fn build_kernel(
         if let Some(light) = profile.light {
             builder = builder.plugin(crate::light::Emulated(light));
         }
-        // Code plugins built for this computer, from the card.
         #[cfg(not(target_arch = "wasm32"))]
-        if CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed) {
-            builder = builder.code_plugins(
-                crate::native::native(),
-                Box::new(crate::native::HostLoader::for_device_in(
-                    profile.device.memory,
-                    pool.clone(),
-                )),
-            );
+        {
+            builder = code_plugins(builder, profile, &pool);
         }
         // Plugin installs from the card share the firmware's queue: the
         // emulated device has one, with no firmware to install
@@ -1266,13 +1259,19 @@ fn build_kernel(
         if let Some(config) = user_config {
             builder = builder.user_config(config);
         }
+        // What is wired is known before the kernel is built: a card plugin is
+        // admitted in `build`, and is offered what the linked ones are.
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        let prepared = crate::linked::prepare(profile, linked, &pool);
         let kernel = builder.build()?;
         // The first-party plugins that are interface-7 plugins (the app built
         // without their interface-6 form), before the first start.
         #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
         let kernel = {
             let mut kernel = kernel;
-            match crate::linked::register(&mut kernel, profile, linked.clone(), &pool) {
+            match prepared.and_then(|prepared| {
+                crate::linked::register(&mut kernel, profile, linked.clone(), &pool, prepared)
+            }) {
                 Ok(_) => {}
                 Err(why) => eprintln!("native plugins: none registered ({why:?})"),
             }
@@ -1280,6 +1279,25 @@ fn build_kernel(
         };
         Ok(kernel)
     })
+}
+
+/// Code plugins built for this computer, from the card.
+#[cfg(not(target_arch = "wasm32"))]
+fn code_plugins(
+    builder: KernelBuilder,
+    profile: &'static Profile,
+    pool: &crate::native::DevicePool,
+) -> KernelBuilder {
+    if !CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed) {
+        return builder;
+    }
+    builder.code_plugins(
+        crate::native::native(),
+        Box::new(crate::native::HostLoader::for_device_in(
+            profile.device.memory,
+            pool.clone(),
+        )),
+    )
 }
 
 /// `device` with its screen turned by `rotation`: on its side, width and

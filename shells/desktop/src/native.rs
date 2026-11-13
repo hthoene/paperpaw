@@ -173,6 +173,10 @@ struct PoolParts {
     resources: Option<paperpaw_core::native_host::HostResources>,
     /// The memory class `core.ui` was wired for: later asks name the same.
     memory: Option<MemoryClass>,
+    /// What card plugins are offered (set by the linked registration, which
+    /// knows what is wired); none until then.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    offer: Option<crate::native_runtime::Offer>,
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
 }
@@ -198,6 +202,19 @@ impl DevicePool {
             .resources
             .as_ref()
             .and_then(paperpaw_core::native_host::HostResources::try_clone)
+    }
+
+    /// What card plugins are offered, once the registration has said.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub(crate) fn offer(&self) -> Option<crate::native_runtime::Offer> {
+        self.0.borrow().offer
+    }
+
+    /// The registration says what is wired: the services of the linked
+    /// plugins and, of the features, those a card plugin may reach.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub(crate) fn set_offer(&self, offer: crate::native_runtime::Offer) {
+        self.0.borrow_mut().offer = Some(offer);
     }
 
     /// A handle on the one device-wide dispatch budget.
@@ -354,13 +371,15 @@ impl HostLoader {
             .as_ref()
             .and_then(paperpaw_core::native_host::HostResources::try_clone)
             .ok_or(PluginProblem::NoRoom)?;
-        crate::native_runtime::admission(id, bytes, resources, depth).map_err(|why| {
-            eprintln!("code plugin {id}: {why}");
-            match why {
-                Refusal::Allocation => PluginProblem::NoRoom,
-                _ => PluginProblem::Damaged,
-            }
-        })
+        crate::native_runtime::admission(id, bytes, resources, depth, self.pool.offer()).map_err(
+            |why| {
+                eprintln!("code plugin {id}: {why}");
+                match why {
+                    Refusal::Allocation => PluginProblem::NoRoom,
+                    _ => PluginProblem::Damaged,
+                }
+            },
+        )
     }
 
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]

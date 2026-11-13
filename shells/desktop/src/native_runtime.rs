@@ -80,12 +80,31 @@ fn metadata(bytes: &[u8], host: &PpHost) -> Result<u16, RuntimeError> {
 }
 
 // Only implemented semantic features belong here. Slot presence is insufficient.
-const WIRED_FEATURES: &[paperpaw_native::metadata::Feature<'static>] = &[];
+pub(crate) const WIRED_FEATURES: &[paperpaw_native::metadata::Feature<'static>] = &[];
 
+#[cfg(test)]
 fn checked_metadata<'a>(
     bytes: &'a [u8],
     host: &PpHost,
     services: &[paperpaw_native::metadata::Service<'_>],
+) -> Result<paperpaw_native::metadata::Checked<'a>, RuntimeError> {
+    checked_metadata_with(bytes, host, services, WIRED_FEATURES)
+}
+
+/// What a card plugin is offered besides the table: the services and the
+/// consent features of the emulated device (the same as the firmware's card
+/// path, `paperpaw_x4::native_offer::card_host`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Offer {
+    pub(crate) services: &'static [paperpaw_native::metadata::Service<'static>],
+    pub(crate) features: &'static [paperpaw_native::metadata::Feature<'static>],
+}
+
+fn checked_metadata_with<'a>(
+    bytes: &'a [u8],
+    host: &PpHost,
+    services: &[paperpaw_native::metadata::Service<'_>],
+    features: &[paperpaw_native::metadata::Feature<'_>],
 ) -> Result<paperpaw_native::metadata::Checked<'a>, RuntimeError> {
     use paperpaw_native::metadata::{self, Host, Profile, Refusal};
     let capabilities = Host {
@@ -97,7 +116,7 @@ fn checked_metadata<'a>(
             entry_bytes: wire::PROFILE_ENTRY_BYTES as u16,
         },
         services,
-        features: WIRED_FEATURES,
+        features,
     };
     match metadata::check(bytes, &capabilities) {
         Ok(checked) => Ok(checked),
@@ -155,7 +174,7 @@ pub unsafe fn load(
 ) -> Result<LoadedPlugin, RuntimeError> {
     // SAFETY: the same authorization and immutable-file contract applies.
     let CheckedLibrary { library, make, .. } =
-        unsafe { checked_library(path, digest, host.table(), &[]) }?;
+        unsafe { checked_library(path, digest, host.table(), &[], WIRED_FEATURES) }?;
     let mut out = ptr::null();
     // SAFETY: table and context outlive the plugin; output storage is writable.
     let status = unsafe { make(host.table(), host.ctx(), &mut out) };
@@ -256,6 +275,7 @@ unsafe fn checked_library(
     digest: &[u8; 32],
     host: &PpHost,
     services: &[paperpaw_native::metadata::Service<'_>],
+    features: &'static [paperpaw_native::metadata::Feature<'static>],
 ) -> Result<CheckedLibrary, RuntimeError> {
     let mut file = std::fs::File::open(path).map_err(|_| RuntimeError::File)?;
     let mut bytes = Vec::new();
@@ -278,15 +298,15 @@ unsafe fn checked_library(
     })?;
     let locator =
         data_export(&bytes, 62, METADATA_SYMBOL, true).map_err(|_| RuntimeError::Export)?;
-    let checked = checked_metadata(locator.bytes, host, services)?;
+    let checked = checked_metadata_with(locator.bytes, host, services, features)?;
     let minor = checked.needs_minor;
-    let declared_services =
-        native_host::shell::DeclaredServices::try_from_metadata(&checked, WIRED_FEATURES).map_err(
-            |error| match error {
-                native_host::shell::DeclaredServicesError::Invalid => RuntimeError::Metadata,
-                native_host::shell::DeclaredServicesError::NoMemory => RuntimeError::NoMemory,
-            },
-        )?;
+    let declared_services = native_host::shell::DeclaredServices::try_from_metadata(
+        &checked, features,
+    )
+    .map_err(|error| match error {
+        native_host::shell::DeclaredServicesError::Invalid => RuntimeError::Metadata,
+        native_host::shell::DeclaredServicesError::NoMemory => RuntimeError::NoMemory,
+    })?;
     let entry = data_export(&bytes, 62, ENTRY_SYMBOL, false).map_err(|_| RuntimeError::Export)?;
     if entry.bytes.len() != wire::PROFILE_ENTRY_BYTES
         || entry.address % wire::PROFILE_ENTRY_ALIGN as u64 != 0
