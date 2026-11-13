@@ -151,8 +151,8 @@ impl Kernel {
             let plugins = &self.shared.plugins;
             match hosts.and_then(|hosts| hosts.device()) {
                 Some(device) => {
-                    let built_ins = Found(&DeviceBuiltIns(&*device.0), plugins);
-                    driver.pump(self.storage(), &built_ins, now)
+                    let device = DeviceBuiltIns(&*device.0);
+                    driver.pump(self.storage(), &Found(&device, plugins), now)
                 }
                 None => driver.pump(self.storage(), &Found(&NoBuiltIns, plugins), now),
             };
