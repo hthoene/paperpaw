@@ -171,11 +171,15 @@ impl View {
             return Ok(false);
         }
         let top = self.panel.as_ref().map_or(0, Panel::top);
+        // What shows stays where the word cannot be read again (no memory).
+        let (kept_panel, kept_entries) = (self.panel.take(), core::mem::take(&mut self.entries));
+        let read = own_entries(host, &self.word, &mut self.entries)
+            .and_then(|own| self.look_up(host, own.count));
+        if let Err(error) = read {
+            (self.panel, self.entries) = (kept_panel, kept_entries);
+            return Err(error);
+        }
         self.top_after = top;
-        self.entries = Vec::new();
-        self.panel = None;
-        let own = own_entries(host, &self.word, &mut self.entries)?;
-        self.look_up(host, own.count)?;
         let mut scratch = [0; 64];
         CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
         Ok(true)

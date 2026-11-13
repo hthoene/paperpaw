@@ -47,7 +47,11 @@ fn main() -> Result<(), String> {
     let batches: Vec<&[u8]> = all.iter().map(Vec::as_slice).collect();
     let table =
         paperpaw_sdk::native::declare::fixed_settings_source("dictionary", "SETTINGS", &batches)?
-            + &paperpaw_sdk::native::declare::fixed_groups_source("dictionary", "GROUPS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_groups_source(
+                "dictionary",
+                "GROUPS",
+                &batches,
+            )?
             + &paperpaw_sdk::native::declare::fixed_ids_source("dictionary", "IDS", &batches)?
             + &paperpaw_sdk::native::declare::fixed_titles_source(
                 "dictionary",

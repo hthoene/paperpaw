@@ -153,19 +153,23 @@ impl NativeDictionary {
 
     /// Declares the work that does the next step of the indexing.
     fn schedule(host: &Host<'_>) -> Result<(), Error> {
-        Self::declare(host, WorkSpec::new(WORK_KEY, WORK_TOKEN)?)
+        Self::declare(host, &WorkSpec::new(WORK_KEY, WORK_TOKEN)?)
     }
 
     fn declare(host: &Host<'_>, spec: &WorkSpec<'_>) -> Result<(), Error> {
         let work = Work::open(host)?;
-        let mut input = [0u8; 256];
-        let declared = work.declare(host, spec, &mut input, &mut []);
+        // The reply buffer holds the op's `max_reply` (64 B): the host refuses
+        // a smaller one.
+        let (mut input, mut out) = ([0u8; 256], [0u8; 64]);
+        let declared = work.declare(host, spec, &mut input, &mut out);
         let released = work.release(host);
         declared.and(released)
     }
 
     /// Starts the timer that ends the wait for later answers where a panel
-    /// waits for one and none runs (Beta 3 waited [`ANSWER_MS`] from the ask).
+    /// waits for one and none runs (Beta 3 waited [`ANSWER_MS`] from the ask;
+    /// a panel that opens declares it again, which replaces it, so each ask
+    /// is waited for as long).
     /// Without a timer the panels do not wait: a note that never goes would
     /// say more than there is.
     fn time_answers(&mut self, host: &Host<'_>) -> Result<(), Error> {
@@ -352,6 +356,8 @@ impl Plugin for NativeDictionary {
                     }
                 }
                 self.screens.open(instance, view)?;
+                // A new ask: its wait starts now (declaring again replaces).
+                self.answers_timer = false;
                 self.time_answers(host)
             }
             Event::ScreenShown {
