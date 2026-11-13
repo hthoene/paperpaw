@@ -81,6 +81,8 @@ pub struct StorageAdapter<'a> {
 /// reader's book) is `ERR_BUSY`, as on `core.files` (`files.md` section 3).
 #[derive(Clone, Copy)]
 pub(crate) struct Card<'a> {
+    /// `Some` wherever root 1 opens: a shell offers `uses.storage` only where
+    /// it wires `core.files` (the desktop's `linked.rs`); `None` only in tests.
     pub(crate) files: Option<&'a dyn FilesHost>,
 }
 
