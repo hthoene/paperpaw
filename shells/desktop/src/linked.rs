@@ -22,7 +22,7 @@ use paperpaw_core::native_host::device_service::DEVICE_SERVICES;
 use paperpaw_core::native_host::flat::FlatDepth;
 use paperpaw_core::native_host::shell::DATA_SERVICES;
 use paperpaw_core::native_host::shell_wiring::{
-    CatalogEnv, NetInputs, NetLimits, NetReports, SecretsInputs, SockInputs, SockLimits,
+    CatalogEnv, NetInputs, NetLimits, NetReports, Sealer, SecretsInputs, SockInputs, SockLimits,
     SockReports, WiredHosts, WorkDevice, WorkInputs,
 };
 use paperpaw_core::native_host::{HostResources, HostWiring, TeardownStep};
@@ -39,16 +39,49 @@ use crate::profiles::Profile;
 /// A service not named here is not offered: a plugin that needs it is refused
 /// at admission.
 fn offered(wired: Wired) -> &'static [Service<'static>] {
-    use std::sync::OnceLock;
-    // One list per combination, made once: a restart registers again.
-    static OFFERED: [OnceLock<&'static [Service<'static>]>; Wired::COMBINATIONS] =
-        [const { OnceLock::new() }; Wired::COMBINATIONS];
-    OFFERED[wired.index()].get_or_init(|| offered_list(wired))
+    let offer = offer(wired);
+    &offer.services[..offer.services_len]
 }
 
-/// The list for one combination of wired services (leaked once, by
-/// [`offered`]: the kernel's admission holds it as long as the plugins run).
-fn offered_list(wired: Wired) -> &'static [Service<'static>] {
+/// The most services a list holds: the data services, `core.device`, the
+/// kernel's two own and every wired family.
+const MAX_SERVICES: usize = 16;
+// A list that outgrows its room fails the build, never the start: the data
+// services, the device's, the kernel's two own and the eight wired families.
+const _: () = assert!(
+    DATA_SERVICES.len() + DEVICE_SERVICES.len() + 2 + 8 <= MAX_SERVICES,
+    "MAX_SERVICES is too small for the all-wired offer"
+);
+/// The most features a list holds.
+const MAX_FEATURES: usize = 8;
+
+/// What is offered to the linked plugins for one combination of wired
+/// services: the services and the consent features.
+struct Offer {
+    services: [Service<'static>; MAX_SERVICES],
+    services_len: usize,
+    features: [Feature<'static>; MAX_FEATURES],
+    features_len: usize,
+}
+
+/// The offer for `wired`, held as long as the plugins run (the kernel's
+/// admission keeps the lists). A run meets one combination: its offer is in
+/// static memory (no heap). Another combination in the same process (the
+/// tests) is made once and left on the heap. A restart registers again.
+fn offer(wired: Wired) -> &'static Offer {
+    use std::sync::OnceLock;
+    static FIRST: OnceLock<(usize, Offer)> = OnceLock::new();
+    static OTHERS: [OnceLock<&'static Offer>; Wired::COMBINATIONS] =
+        [const { OnceLock::new() }; Wired::COMBINATIONS];
+    let first = FIRST.get_or_init(|| (wired.index(), make_offer(wired)));
+    if first.0 == wired.index() {
+        return &first.1;
+    }
+    OTHERS[wired.index()].get_or_init(|| Box::leak(Box::new(make_offer(wired))))
+}
+
+/// The offer for one combination of wired services.
+fn make_offer(wired: Wired) -> Offer {
     const OWN: &[&str] = &["core.ui", "core.registry"];
     let wired_keys = [
         (wired.secrets, "core.secrets"),
@@ -62,18 +95,43 @@ fn offered_list(wired: Wired) -> &'static [Service<'static>] {
     ]
     .into_iter()
     .filter_map(|(on, key)| on.then_some(key));
-    let services: Vec<Service<'static>> = DATA_SERVICES
-        .iter()
-        .chain(DEVICE_SERVICES)
-        .copied()
-        .chain(OWN.iter().copied().chain(wired_keys).map(|key| Service {
+    let mut offer = Offer {
+        services: [Service {
+            key: "",
+            major: 0,
+            semantic_revision: 0,
+            min_table_bytes: 0,
+        }; MAX_SERVICES],
+        services_len: 0,
+        features: [Feature {
+            key: "",
+            revision: 0,
+        }; MAX_FEATURES],
+        features_len: 0,
+    };
+    let services = DATA_SERVICES.iter().chain(DEVICE_SERVICES).copied().chain(
+        OWN.iter().copied().chain(wired_keys).map(|key| Service {
             key,
             major: 1,
             semantic_revision: 0,
             min_table_bytes: 0,
-        }))
-        .collect();
-    Box::leak(services.into_boxed_slice())
+        }),
+    );
+    for service in services {
+        offer.services[offer.services_len] = service;
+        offer.services_len += 1;
+    }
+    let features = features_of(wired);
+    for (feature, on) in features {
+        if on {
+            offer.features[offer.features_len] = Feature {
+                key: feature,
+                revision: 1,
+            };
+            offer.features_len += 1;
+        }
+    }
+    offer
 }
 
 /// Which of the services that are wired only when the shell can are wired.
@@ -128,42 +186,28 @@ impl Wired {
 /// offered, because the desktop does not back them yet: `uses.bluetooth`,
 /// `uses.firmware`. A plugin that needs one is refused at admission.
 fn features(wired: Wired) -> &'static [Feature<'static>] {
-    use std::sync::OnceLock;
-    static FEATURES: [OnceLock<&'static [Feature<'static>]>; Wired::COMBINATIONS] =
-        [const { OnceLock::new() }; Wired::COMBINATIONS];
-    FEATURES[wired.index()].get_or_init(|| features_list(wired))
+    let offer = offer(wired);
+    &offer.features[..offer.features_len]
 }
 
-/// The list for one combination of wired services (leaked once).
-fn features_list(wired: Wired) -> &'static [Feature<'static>] {
-    const fn feature(key: &'static str) -> Feature<'static> {
-        Feature { key, revision: 1 }
-    }
-    let mut features = vec![feature("uses.registry"), feature("uses.power")];
-    if wired.secrets {
-        features.push(feature("uses.secrets"));
-    }
-    // `uses.network` is the one feature of HTTP and sockets (`network.md` 1).
-    if wired.net || wired.sockets {
-        features.push(feature("uses.network"));
-    }
-    // Root 1 (the card's files) and the library are signed features of their
-    // own services (`files.md`, `library.md`).
-    if wired.files {
-        features.push(feature("uses.storage"));
-    }
-    if wired.library {
-        features.push(feature("uses.library"));
-    }
-    // The radio commands (`device.md`) are answered by the pretend radio.
-    if wired.wifi {
-        features.push(feature("uses.wifi"));
-    }
-    // Plugin installs, checks and removals (`device.md` 5.1, 5.2).
-    if wired.install {
-        features.push(feature("uses.install"));
-    }
-    Box::leak(features.into_boxed_slice())
+/// Every feature a shell may offer, with whether `wired` backs it.
+fn features_of(wired: Wired) -> [(&'static str, bool); MAX_FEATURES] {
+    [
+        ("uses.registry", true),
+        ("uses.power", true),
+        ("uses.secrets", wired.secrets),
+        // `uses.network` is the one feature of HTTP and sockets
+        // (`network.md` 1).
+        ("uses.network", wired.net || wired.sockets),
+        // Root 1 (the card's files) and the library are signed features of
+        // their own services (`files.md`, `library.md`).
+        ("uses.storage", wired.files),
+        ("uses.library", wired.library),
+        // The radio commands (`device.md`) are answered by the pretend radio.
+        ("uses.wifi", wired.wifi),
+        // Plugin installs, checks and removals (`device.md` 5.1, 5.2).
+        ("uses.install", wired.install),
+    ]
 }
 
 /// A linked plugin's diagnostics from the kernel (a refused declaration, a
@@ -283,14 +327,42 @@ impl CatalogEnv for Catalog {
 
 /// The sealer of the secrets, or why there is none (then `core.secrets` is
 /// not wired and a plugin that needs it is refused: nothing is stored in the
-/// clear).
-fn sealer(simulated: bool) -> Result<Rc<crate::sealing::KeySealer>, std::io::Error> {
-    let sealer = if simulated {
-        crate::sealing::KeySealer::for_the_process()?
+/// clear). Made once for the process and kept in static memory (the cipher's
+/// tables take 1 KiB); the key is the process's or the user's, which never
+/// change in a run (`sealing`). It is read once per process: `HOME` and
+/// `XDG_*` are not read again, so a test that changes them after the first
+/// call still gets the first key.
+fn sealer(simulated: bool) -> Result<&'static crate::sealing::KeySealer, std::io::Error> {
+    use crate::sealing::KeySealer;
+    use std::sync::OnceLock;
+    static SIMULATED: OnceLock<KeySealer> = OnceLock::new();
+    static USER: OnceLock<KeySealer> = OnceLock::new();
+    let (cell, make): (_, fn() -> std::io::Result<KeySealer>) = if simulated {
+        (&SIMULATED, KeySealer::for_the_process)
     } else {
-        crate::sealing::KeySealer::for_the_user()?
+        (&USER, KeySealer::for_the_user)
     };
-    Ok(Rc::new(sealer))
+    if let Some(sealer) = cell.get() {
+        return Ok(sealer);
+    }
+    let made = make()?;
+    Ok(cell.get_or_init(|| made))
+}
+
+/// The sealer in static memory, as the host takes it (`Rc<dyn Sealer>`): the
+/// handle is a pointer, the cipher stays where it is.
+struct StaticSealer(&'static crate::sealing::KeySealer);
+
+impl Sealer for StaticSealer {
+    fn seals(&self) -> bool {
+        self.0.seals()
+    }
+    fn seal(&self, aad: &[u8], plain: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        self.0.seal(aad, plain, out)
+    }
+    fn open(&self, aad: &[u8], sealed: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        self.0.open(aad, sealed, out)
+    }
 }
 
 /// The step of a teardown that failed, once, without calling plugin code.
@@ -496,7 +568,7 @@ pub fn register(
         (None, _) => eprintln!("native plugins: no secrets (the card cannot be opened)"),
         (Some(storage), Ok(sealer)) => {
             wiring = wiring.secrets(
-                SecretsInputs::new(storage, sealer)
+                SecretsInputs::new(storage, Rc::new(StaticSealer(sealer)))
                     .with_rng(Rc::new(crate::sealing::SystemRng))
                     .on_unreadable(Rc::new(|| {
                         eprintln!("the secrets file could not be read");
@@ -727,6 +799,86 @@ mod tests {
         assert!(std::ptr::eq(offered(card), offered(card)));
         assert!(std::ptr::eq(features(card), features(card)));
         assert_ne!(card.index(), Wired::default().index());
+    }
+
+    /// The offer of a run is in static memory and the sealer too (#248, P3):
+    /// making an offer allocates nothing, and the handle the host takes a
+    /// static sealer by is a pointer, not the cipher's 1 KiB.
+    #[test]
+    fn an_offer_and_a_sealer_take_no_heap() {
+        let _one = crate::one_device_at_a_time();
+        let wired = Wired {
+            secrets: true,
+            net: true,
+            ..Wired::default()
+        };
+        let before = crate::budget::stats().live;
+        let offer = crate::budget::track(|| make_offer(wired));
+        assert_eq!(crate::budget::stats().live, before, "an offer allocated");
+        assert!(offer.services_len > 8 && offer.features_len >= 3);
+        let first = sealer(true).expect("a key for the process");
+        let second = sealer(true).expect("a key for the process");
+        assert!(std::ptr::eq(first, second), "a second sealer was made");
+        let handle = crate::budget::track(|| Rc::new(StaticSealer(first)));
+        let held = crate::budget::stats().live - before;
+        drop(handle);
+        assert!(held < 128, "the sealer's handle holds {held} B");
+        assert_eq!(crate::budget::stats().live, before);
+    }
+
+    /// What is offered follows what is wired, for any combination met in a
+    /// process (the first is in static memory, the others made once).
+    #[test]
+    fn the_offer_follows_what_is_wired() {
+        let keys = |wired: Wired| -> (Vec<&str>, Vec<&str>) {
+            (
+                offered(wired).iter().map(|service| service.key).collect(),
+                features(wired).iter().map(|feature| feature.key).collect(),
+            )
+        };
+        let (bare_services, bare_features) = keys(Wired::default());
+        assert!(bare_services.contains(&"core.ui"));
+        assert!(bare_services.contains(&"core.registry"));
+        assert!(!bare_services.contains(&"core.secrets"));
+        assert_eq!(bare_features, ["uses.registry", "uses.power"]);
+        let all = Wired {
+            secrets: true,
+            work: true,
+            net: true,
+            sockets: true,
+            documents: true,
+            library: true,
+            files: true,
+            lookup: true,
+            wifi: true,
+            install: true,
+        };
+        let (services, features) = keys(all);
+        assert_eq!(services.len(), bare_services.len() + 8);
+        for key in [
+            "core.secrets",
+            "core.work",
+            "core.net",
+            "core.sockets",
+            "core.lookup",
+        ] {
+            assert!(services.contains(&key), "{key}");
+        }
+        assert_eq!(
+            features,
+            [
+                "uses.registry",
+                "uses.power",
+                "uses.secrets",
+                "uses.network",
+                "uses.storage",
+                "uses.library",
+                "uses.wifi",
+                "uses.install",
+            ]
+        );
+        // The same combination again is the same list.
+        assert!(std::ptr::eq(offered(all), offered(all)));
     }
 
     #[test]

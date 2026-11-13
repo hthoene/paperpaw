@@ -233,6 +233,13 @@ pub paperpaw_native::preflight::DataExport::address: u64
 pub paperpaw_native::preflight::DataExport::bytes: &'a [u8]
 pub fn paperpaw_native::preflight::check_elf64_le(&[u8], u16) -> core::result::Result<(), paperpaw_native::preflight::Refusal>
 pub fn paperpaw_native::preflight::data_export<'a>(&'a [u8], u16, &str, bool) -> core::result::Result<paperpaw_native::preflight::DataExport<'a>, paperpaw_native::preflight::Refusal>
+pub mod paperpaw_native::profile
+pub struct paperpaw_native::profile::Profile<'a>
+pub paperpaw_native::profile::Profile::entry_bytes: u16
+pub paperpaw_native::profile::Profile::entry_layout: u16
+pub paperpaw_native::profile::Profile::target: &'a str
+pub const paperpaw_native::profile::BUILD_ENTRY_ALIGN: core::option::Option<u16>
+pub const paperpaw_native::profile::BUILD_PROFILE: core::option::Option<paperpaw_native::profile::Profile<'static>>
 pub mod paperpaw_native::signature
 pub struct paperpaw_native::signature::BadSignature
 impl core::error::Error for paperpaw_native::signature::BadSignature

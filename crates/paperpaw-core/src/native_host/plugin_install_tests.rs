@@ -109,9 +109,13 @@ fn drive_with(
         built_ins: &Names,
         granted,
     };
+    drive_env(&env, job, answer)
+}
+
+fn drive_env(env: &JobEnv<'_>, job: &mut PluginInstall, answer: Answer) -> Ran {
     let mut asked = Vec::new();
     for _ in 0..10_000 {
-        match job.step(&env) {
+        match job.step(env) {
             JobStep::More => {}
             JobStep::Wait => panic!("waited with no question"),
             JobStep::Unload(_) => panic!("an install closes no plugin"),
@@ -1024,4 +1028,77 @@ fn the_copy_is_let_go_before_the_check_and_the_buffer_before_the_question() {
         }
     }
     assert!(asked);
+}
+
+#[test]
+fn an_install_from_a_catalog_is_the_stores_and_any_other_is_not() {
+    use super::super::store_record::{STORE_INSTALLS, StoreRecord};
+    let one = paperpaw_sdk::Version::parse("1.0.0").unwrap();
+    // A data plugin from a catalog (bit 2): its version is the store's.
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    let ran = install(&card, FLAG_CATALOG, Evidence::NONE, Answer::Yes);
+    assert_eq!(ran.done.reason, reason::OK);
+    let read = StoreRecord::read(&card, 8);
+    assert_eq!(read.release("dials", one), Some("1.0.0"));
+    // The same without the bit (a sideload, the plugin manager): not.
+    let card = MemoryStorage::new().with(STORE_INSTALLS, "");
+    data_source(&card, "1.0.0");
+    let ran = install(&card, 0, Evidence::NONE, Answer::Yes);
+    assert_eq!(ran.done.reason, reason::OK);
+    assert_eq!(StoreRecord::read(&card, 8).release("dials", one), None);
+}
+
+#[test]
+fn a_device_without_a_record_takes_its_plugins_for_the_stores_before_an_install_commits() {
+    use super::super::store_record::tests::{Found, record};
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    // A data plugin installed before PaperPaw kept a record (cosy), and a
+    // sideload of dials: cosy is taken for the store's first, dials is not.
+    let env = JobEnv {
+        storage: &card,
+        host: &host(),
+        built_ins: &Found::data(&[("cosy", "2.1")]),
+        granted: false,
+    };
+    let ran = drive_env(&env, &mut job(0, Evidence::NONE), Answer::Yes);
+    assert_eq!(ran.done.reason, reason::OK);
+    assert_eq!(record(&card).as_deref(), Some("cosy\t2.1.0\n"));
+}
+
+#[test]
+fn an_install_whose_adoption_fails_does_not_commit_and_is_asked_again() {
+    use super::super::store_record::tests::{Found, RecordFails, record};
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    let found = Found::data(&[("cosy", "2.1")]);
+    // The record cannot be written: a catalog's install would start it with
+    // its one line, and cosy would never be adopted (Senior R1 on #1388).
+    let failing = RecordFails {
+        card: &card,
+        write: true,
+        size: false,
+    };
+    let env = JobEnv {
+        storage: &failing,
+        host: &host(),
+        built_ins: &found,
+        granted: false,
+    };
+    let ran = drive_env(&env, &mut job(FLAG_CATALOG, Evidence::NONE), Answer::Yes);
+    assert_eq!(ran.done.reason, reason::CARD);
+    assert!(!card.exists("plugins/dials/plugin.ini"), "not installed");
+    assert_eq!(record(&card), None);
+    // Asked again with the card well: cosy adopted, then dials the store's.
+    let env = JobEnv {
+        storage: &card,
+        ..env
+    };
+    let ran = drive_env(&env, &mut job(FLAG_CATALOG, Evidence::NONE), Answer::Yes);
+    assert_eq!(ran.done.reason, reason::OK);
+    assert_eq!(
+        record(&card).as_deref(),
+        Some("cosy\t2.1.0\ndials\t1.0.0\n")
+    );
 }

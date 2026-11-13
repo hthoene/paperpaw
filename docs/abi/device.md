@@ -404,7 +404,9 @@ Tags 1564-1592 and 1595 follow UIX's approved commands (1547-1558, 1561-1563) an
   refused), name and version come from `plugin.ini`, the code is the folder's `code.ppn`, and the
   `uses.*` shown come from that code's native metadata. A bare `.ppn` path is reason 4
   (`ERR_INVALID`). `flags` bit 0 replace an installed plugin of the same id (an update), bit 1
-  allow an older version.
+  allow an older version, bit 2 from a catalog: a store's install, of a code or a data plugin.
+  Bit 2 only marks the version for the store's update offers (`registry.md`, `reg_plugin.flags`
+  bit 5); it grants no trust and changes no check (a code plugin's trust is its evidence, below).
 - [D] **Trust evidence** (store `trust.rs` `Named`, `expected`, `follow`, `revoked.rs`): the
   catalog's word for a code plugin travels in the same batch as `install_author` (the author key the
   catalog names, the recovery key it names for a first install, empty for none, and the code's
