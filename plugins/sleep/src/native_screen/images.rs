@@ -256,20 +256,7 @@ impl Sleeping {
                     }
                     continue;
                 }
-                Content::Cat | Content::Message if self.pics.given_up => return Ok(()),
-                Content::Cat if self.pics.main.is_none() => Some((Kind::Cat, CAT_FILE)),
-                Content::Message if self.pics.main.is_none() => Some((Kind::Logo, LOGO_FILE)),
-                Content::Picture if self.pics.main.is_none() => Some((Kind::Picture, "")),
-                Content::Overlay
-                    if self.pics.main.is_none()
-                        && self
-                            .over
-                            .as_ref()
-                            .is_some_and(|setup| setup.widget.trim().is_empty()) =>
-                {
-                    Some((Kind::Over, ""))
-                }
-                _ => return Ok(()),
+                content => self.asks_for(content).map(|kind| (kind, file_of(kind))),
             };
             let Some((kind, file)) = asked else {
                 return Ok(());
@@ -279,6 +266,35 @@ impl Sleeping {
             }
         }
         Ok(())
+    }
+
+    /// The picture to ask for while `content` shows (the cover is held, not
+    /// asked for): none where one is held or the cat and the logo failed.
+    ///
+    /// The widgets are made at the first draw, which can ask for nothing, so
+    /// what shows where they fail is asked for now, as Beta 3 had it at once:
+    /// the logo above the message where the widgets come up empty, the cat
+    /// where the widget over the page cannot be made and there is no cover.
+    fn asks_for(&self, content: Content) -> Option<Kind> {
+        if self.pics.main.is_some() {
+            return None;
+        }
+        let widget_over = self
+            .over
+            .as_ref()
+            .map(|setup| !setup.widget.trim().is_empty());
+        match content {
+            Content::Cat | Content::Message | Content::Widgets if self.pics.given_up => None,
+            Content::Cat => Some(Kind::Cat),
+            Content::Message | Content::Widgets => Some(Kind::Logo),
+            Content::Picture => Some(Kind::Picture),
+            Content::Overlay => match widget_over {
+                Some(false) => Some(Kind::Over),
+                Some(true) if !self.facts.cover && !self.pics.given_up => Some(Kind::Cat),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     /// Asks the host to prepare the file of `kind` (`file` is the embedded
@@ -395,6 +411,15 @@ impl Sleeping {
         self.pics.cover = last_cover(host, long)?;
         self.facts.cover = self.pics.cover.is_some();
         Ok(())
+    }
+}
+
+/// The embedded file of `kind` in the data folder (none: a file of the card).
+const fn file_of(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Cat => CAT_FILE,
+        Kind::Logo => LOGO_FILE,
+        Kind::Picture | Kind::Over => "",
     }
 }
 
@@ -679,6 +704,47 @@ mod tests {
         // The plugin's own failing too leaves the message alone.
         view.fail(Kind::Logo);
         assert!(view.pics.given_up);
+    }
+
+    fn over_with(widget: &str) -> Option<super::super::OverSetup> {
+        Some(super::super::OverSetup {
+            widget: widget.into(),
+            picture: String::new(),
+            position: String::new(),
+            percent: 35,
+            opacity: 255,
+        })
+    }
+
+    #[test]
+    fn what_shows_where_the_widgets_fail_at_the_first_draw_is_asked_for_at_the_open() {
+        // The widgets: the logo, for the message they fall back to.
+        let mut view = Sleeping::plain(false);
+        view.setting = model::WIDGETS.into();
+        view.facts = super::super::facts_before(false);
+        assert_eq!(view.content(), Content::Widgets);
+        assert_eq!(view.asks_for(Content::Widgets), Some(Kind::Logo));
+        // Held, the first draw's fallback draws it above the message.
+        view.pics.main = Some((Kind::Logo, held(192, 192)));
+        assert_eq!(view.asks_for(Content::Widgets), None);
+        view.laid = Some(super::super::Laid::message());
+        assert_eq!(view.content(), Content::Message);
+        assert!(view.held_for(Content::Message).is_some());
+        // A widget over the page: the cat where there is no cover.
+        let mut view = Sleeping::plain(false);
+        view.over = over_with("stats.widget.today");
+        assert_eq!(view.asks_for(Content::Overlay), Some(Kind::Cat));
+        view.facts.cover = true;
+        assert_eq!(view.asks_for(Content::Overlay), None, "the cover is held");
+        // A picture over the page is asked for itself.
+        view.over = over_with("");
+        assert_eq!(view.asks_for(Content::Overlay), Some(Kind::Over));
+        // The cat or the logo that failed is not asked for again.
+        let mut view = Sleeping::plain(false);
+        view.pics.given_up = true;
+        view.over = over_with("stats.widget.today");
+        assert_eq!(view.asks_for(Content::Widgets), None);
+        assert_eq!(view.asks_for(Content::Overlay), None);
     }
 
     #[test]
