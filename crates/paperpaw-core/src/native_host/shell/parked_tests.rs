@@ -274,3 +274,27 @@ fn an_owner_refused_its_heap_place_leaves_nothing_behind() {
     // The key was not used up: the next owner gets it.
     assert_eq!(pool.try_owner().unwrap().owner_id(), 1);
 }
+
+#[test]
+fn a_hosted_plugins_blob_expires_after_its_callback() {
+    // #248: `Hosted::new` installs the context's own cleanup, so a callback's
+    // blob expires through `Context.resources` (no second view of them).
+    reset(NORMAL);
+    let pool = HostResources::try_new().unwrap();
+    let hosted = fake_in(&pool, None, module()).unwrap();
+    let context = hosted.owner().context();
+    let blob = crate::native_host::resources::Blob {
+        bytes: alloc::vec![7; 12],
+        callback: 1,
+    };
+    context.resources.insert_blob(blob).unwrap();
+    assert_eq!(context.resources.holds_blobs(), Ok(true));
+    // SAFETY: the owner structurally pins the scope; nothing moves it.
+    let scope = unsafe { context.map_unchecked(|context| &context.environment) };
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    scope.scope(&env, || ()).unwrap();
+    assert_eq!(context.resources.holds_blobs(), Ok(false));
+}
