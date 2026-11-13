@@ -286,7 +286,8 @@ fn starting_in_german_peaks_no_higher_than_in_english() {
 /// What a language of all plugins' texts from the card may add to the
 /// start's peak, compiled and read as needed (ADR 0033): its block table
 /// and the messages of the first screen, not its 210 KB.
-const CARD_LANGUAGE_EXTRA_KIB: f64 = 8.0;
+// 8.5: stats, notes-overview and battery add their texts (7.6 KiB without them, 8.3 linked).
+const CARD_LANGUAGE_EXTRA_KIB: f64 = 8.5;
 
 /// A language from the card, of an Arabic interface's size (3,400
 /// messages, some 210 KB), starts within [`CARD_LANGUAGE_EXTRA_KIB`] of
