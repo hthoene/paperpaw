@@ -7,14 +7,17 @@ use super::{
     environment::EnvironmentScope,
     files_service::FilesHost,
     format_scope::FormatScope,
+    linked_plugins::LinkedPlugins,
     paths_in_use::PathsInUse,
     storage::{
-        self, Card, MAX_DATA, MAX_FOLDER, MAX_PATH, PREFIX, ROOT_CARD, ROOT_PLUGIN, StorageAdapter,
+        self, Card, MAX_DATA, MAX_FOLDER, MAX_PATH, PREFIX, ROOT_BUNDLE, ROOT_CARD, ROOT_PLUGIN,
+        StorageAdapter,
     },
 };
 use core::mem::MaybeUninit;
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, buffers,
+    ERR_DENIED, ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes,
+    buffers,
 };
 
 /// What a plugin's slot call reaches beyond root 0. The format calls under
@@ -23,13 +26,15 @@ use paperpaw_native::host_glue::{
 /// call has none of these roots). Its admitted features open root 1, the
 /// user's files, with `uses.storage` (decision 125, `files.md` 1.1), and
 /// `files`, `core.files`'s host where it is wired, says which of them the host
-/// holds busy.
+/// holds busy. `linked` tells whether the plugin is built into the firmware:
+/// then root 2, its install folder, is empty.
 #[derive(Clone, Copy)]
 pub(crate) struct Format<'a> {
     pub(crate) scope: &'a FormatScope,
     pub(crate) owner: u64,
     pub(crate) features: AdmittedFeatures,
     pub(crate) files: Option<&'a dyn FilesHost>,
+    pub(crate) linked: &'a LinkedPlugins,
 }
 
 fn with_adapter<R>(
@@ -65,6 +70,13 @@ fn with_adapter<R>(
                 .with_card(Card {
                     files: format.files,
                 });
+            return call(&adapter);
+        }
+        // Root 2 is the plugin's install folder, read only.
+        if root == ROOT_BUNDLE {
+            let adapter = StorageAdapter::borrowed_folder(storage, folder, in_use)
+                .ok_or(ERR_INVALID)?
+                .with_bundle(format.linked.contains(owner));
             return call(&adapter);
         }
         let mut call = Some(call);
@@ -111,10 +123,19 @@ unsafe fn input<'a>(bytes: PpBytes, max: usize) -> Result<&'a [u8], i32> {
 
 /// The root first (`ERR_UNSUPPORTED` for one the slots do not serve; root 1
 /// `ERR_DENIED` without `uses.storage`, `ERR_UNSUPPORTED` where the host
-/// offers it not), then the path's size, UTF-8 and grammar (`files.md` 3).
-unsafe fn path<'a>(root: u32, bytes: PpBytes, format: Option<Format<'_>>) -> Result<&'a [u8], i32> {
+/// offers it not; root 2 `ERR_DENIED` for a `change`), then the path's size,
+/// UTF-8 and grammar (`files.md` 3).
+unsafe fn path<'a>(
+    root: u32,
+    bytes: PpBytes,
+    format: Option<Format<'_>>,
+    change: bool,
+) -> Result<&'a [u8], i32> {
     match root {
         ROOT_PLUGIN | 3 | 4 | 6 => {}
+        ROOT_BUNDLE if format.is_none() => return Err(ERR_UNSUPPORTED),
+        ROOT_BUNDLE if change => return Err(ERR_DENIED),
+        ROOT_BUNDLE => {}
         ROOT_CARD => format
             .ok_or(ERR_UNSUPPORTED)?
             .features
@@ -158,7 +179,7 @@ pub(crate) unsafe fn size(
             return Err(ERR_INVALID);
         }
         // SAFETY: the caller guarantees live input storage.
-        let path = unsafe { path(root, bytes, format) }?;
+        let path = unsafe { path(root, bytes, format, false) }?;
         with_adapter(scope, owner, None, format.map(|f| (f, root)), |adapter| {
             adapter.size(root, path)
         })
@@ -198,7 +219,7 @@ pub(crate) unsafe fn read_at(
 ) -> i32 {
     let result = (|| {
         // SAFETY: the caller guarantees live input storage.
-        let path = unsafe { path(root, bytes, format) }?;
+        let path = unsafe { path(root, bytes, format, false) }?;
         pair(out.ptr, out.cap, MAX_DATA)?;
         if overlaps(path, out.ptr, out.cap) {
             return Err(ERR_INVALID);
@@ -284,7 +305,7 @@ unsafe fn put(
 ) -> i32 {
     status((|| {
         // SAFETY: the caller guarantees live readable inputs.
-        let path = unsafe { path(root, bytes, format) }?;
+        let path = unsafe { path(root, bytes, format, true) }?;
         // SAFETY: the caller guarantees live readable inputs.
         let data = unsafe { input(data, MAX_DATA) }?;
         with_adapter(
@@ -319,9 +340,9 @@ pub(crate) unsafe fn rename(
 ) -> i32 {
     status((|| {
         // SAFETY: the caller guarantees live readable inputs.
-        let from = unsafe { path(root, from, format) }?;
+        let from = unsafe { path(root, from, format, true) }?;
         // SAFETY: the caller guarantees live readable inputs.
-        let to = unsafe { path(root, to, format) }?;
+        let to = unsafe { path(root, to, format, true) }?;
         with_adapter(
             scope,
             owner,
@@ -347,7 +368,7 @@ pub(crate) unsafe fn remove(
 ) -> i32 {
     status((|| {
         // SAFETY: the caller guarantees live readable input.
-        let path = unsafe { path(root, bytes, format) }?;
+        let path = unsafe { path(root, bytes, format, true) }?;
         with_adapter(
             scope,
             owner,
@@ -365,6 +386,9 @@ pub(crate) fn sync(scope: &EnvironmentScope, owner: &str) -> i32 {
     }))
 }
 
+#[cfg(test)]
+#[path = "storage_slots_bundle_tests.rs"]
+mod bundle_tests;
 #[cfg(test)]
 #[path = "storage_slots_card_tests.rs"]
 mod card_tests;

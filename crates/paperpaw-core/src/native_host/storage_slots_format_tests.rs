@@ -47,11 +47,13 @@ fn within_on(
 ) {
     let scope = FormatScope::new();
     let _guard = book.map(|book| scope.enter(OWNER, &book).unwrap());
+    let linked = LinkedPlugins::default();
     let format = Some(Format {
         scope: &scope,
         owner: OWNER,
         features: AdmittedFeatures::default(),
         files: None,
+        linked: &linked,
     });
     scoped(backend, |env, kernel| {
         let _running = kernel.shared.meter.enter(FORMAT);
@@ -320,11 +322,13 @@ fn another_plugin_is_not_in_the_call() {
     let _guard = scope
         .enter(OWNER, &book("books/a.epub", BookKind::File, CACHE, ""))
         .unwrap();
+    let linked = LinkedPlugins::default();
     let format = Some(Format {
         scope: &scope,
         owner: OWNER + 1,
         features: AdmittedFeatures::default(),
         files: None,
+        linked: &linked,
     });
     scoped(&card(), |env, kernel| {
         let _running = kernel.shared.meter.enter(FORMAT);

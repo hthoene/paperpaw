@@ -46,11 +46,13 @@ fn with(
     call: impl FnOnce(&EnvironmentScope, Option<Format<'_>>),
 ) {
     let scope = FormatScope::new();
+    let linked = LinkedPlugins::default();
     let format = Some(Format {
         scope: &scope,
         owner: 1,
         features,
         files,
+        linked: &linked,
     });
     scoped(backend, |env, kernel| {
         let _running = kernel.shared.meter.enter(OWNER);

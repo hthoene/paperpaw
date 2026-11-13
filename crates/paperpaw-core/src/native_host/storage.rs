@@ -6,8 +6,9 @@
 //! validated as a relative path first and joined under that folder after,
 //! so it cannot name the install folder `plugins/<id>/` or anything else
 //! outside (S5). Root 1 is the user's files from the card's top, for a
-//! plugin the slot let in (`uses.storage`, `files.md` 1.1); roots 3, 4 and 6
-//! are a format call's document; the others are reserved.
+//! plugin the slot let in (`uses.storage`, `files.md` 1.1); root 2 the
+//! plugin's install folder `plugins/<id>/`, read only; roots 3, 4 and 6 are a
+//! format call's document; the others are reserved.
 //!
 //! The reserve (S4) trusts [`Storage::free_space`] and
 //! [`Storage::total_space`]: `free_space` never says more than is free
@@ -38,6 +39,8 @@ use paperpaw_sdk::Id;
 pub const ROOT_PLUGIN: u32 = 0;
 /// Root 1: the user's files from the card's top (`uses.storage`).
 pub(crate) const ROOT_CARD: u32 = 1;
+/// Root 2: the plugin's install folder, read only.
+pub(crate) const ROOT_BUNDLE: u32 = 2;
 /// Longest path a plugin passes, in bytes.
 pub const MAX_PATH: usize = 512;
 /// Longest segment of a path, in bytes.
@@ -67,6 +70,9 @@ pub struct StorageAdapter<'a> {
     format: Option<&'a FormatBook<'a>>,
     /// Root 1 for this call (the slot checked `uses.storage`); `None`: no root 1.
     card: Option<Card<'a>>,
+    /// Root 2 for this call: `Some(built_in)`, where a plugin built into the
+    /// firmware has an empty install folder; `None`: no root 2.
+    bundle: Option<bool>,
 }
 
 /// Root 1 of one slot call: what else holds the user's files, beyond the
@@ -102,6 +108,7 @@ impl<'a> StorageAdapter<'a> {
             in_use: None,
             format: None,
             card: None,
+            bundle: None,
         })
     }
 
@@ -125,6 +132,7 @@ impl<'a> StorageAdapter<'a> {
             in_use,
             format: None,
             card: None,
+            bundle: None,
         })
     }
 
@@ -138,6 +146,13 @@ impl<'a> StorageAdapter<'a> {
     /// The adapter for a call on root 1, the user's files (`files.md` 1.1).
     pub(crate) fn with_card(mut self, card: Card<'a>) -> Self {
         self.card = Some(card);
+        self
+    }
+
+    /// The adapter for a call on root 2, the plugin's install folder
+    /// (`files.md` 1.1); `built_in`: the plugin is linked into the firmware.
+    pub(crate) fn with_bundle(mut self, built_in: bool) -> Self {
+        self.bundle = Some(built_in);
         self
     }
 
@@ -157,6 +172,9 @@ impl<'a> StorageAdapter<'a> {
     ) -> Result<R, i32> {
         if root == ROOT_CARD {
             return self.resolve_card(path, with);
+        }
+        if root == ROOT_BUNDLE {
+            return self.resolve_bundle(path, write, with);
         }
         if root != ROOT_PLUGIN {
             return self.resolve_format(root, path, write, with);
@@ -201,6 +219,40 @@ impl<'a> StorageAdapter<'a> {
             return Err(ERR_INVALID);
         }
         with(relative)
+    }
+
+    /// Root 2, the plugin's install folder `plugins/<id>/`, `<id>` stamped from
+    /// the data folder as root 0's: `ERR_UNSUPPORTED` where the call has no
+    /// root 2, `ERR_DENIED` for a change, the path rules, then `ERR_NOT_FOUND`
+    /// for a plugin built into the firmware (it has no install folder: what
+    /// the card holds there, a leftover of an older install, is never read).
+    #[inline(never)]
+    fn resolve_bundle<R>(
+        &self,
+        path: &[u8],
+        write: bool,
+        with: impl FnOnce(&str) -> Result<R, i32>,
+    ) -> Result<R, i32> {
+        let built_in = self.bundle.ok_or(ERR_UNSUPPORTED)?;
+        if write {
+            return Err(ERR_DENIED);
+        }
+        let relative = relative_path(path)?;
+        if built_in {
+            return Err(ERR_NOT_FOUND);
+        }
+        // `.paperpaw/plugins/<id>/` checked at construction: `plugins/<id>/`.
+        let folder = self.folder.strip_prefix(".paperpaw/").ok_or(ERR_INVALID)?;
+        let mut buf = [0u8; MAX_JOINED];
+        let end = folder.len() + relative.len();
+        let target = buf.get_mut(..end).ok_or(ERR_NO_SPACE)?;
+        target[..folder.len()].copy_from_slice(folder.as_bytes());
+        target[folder.len()..].copy_from_slice(relative.as_bytes());
+        let joined = core::str::from_utf8(target).map_err(|_| ERR_UTF8)?;
+        if !joined.starts_with(folder) || !paperpaw_platform::storage::is_valid_path(joined) {
+            return Err(ERR_INVALID);
+        }
+        with(joined)
     }
 
     /// Roots 3 (the book), 4 (the user's CSS file) and 6 (the document's
