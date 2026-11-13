@@ -432,6 +432,7 @@ fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
             DeclaredServices::none().with_features(input_records::FEATURES.with(Cell::get)),
         )
     }
+    .inspect(super::native_entry_hooks::announce_if_set)
     .unwrap()
 }
 /// The device's depth counter: the first plugin's, once there is one.

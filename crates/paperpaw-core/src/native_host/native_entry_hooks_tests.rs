@@ -5,12 +5,29 @@ use super::native_screen_install::{DESTROYED, install, kernel, open};
 use super::*;
 use paperpaw_sdk::{Id, Params};
 
+std::thread_local! {
+    /// The hosts made by `native_screen_install` are announced to the shell,
+    /// as `HostedAdmission::new` does for a plugin admitted from a file.
+    static ANNOUNCED: Cell<bool> = const { Cell::new(false) };
+}
+
+pub(super) fn announce_if_set(hosted: &Hosted<Heap, ()>) {
+    if ANNOUNCED.with(Cell::get) {
+        hosted.owner().context().announce_entries();
+    }
+}
+
+fn announced() {
+    ANNOUNCED.with(|value| value.set(true));
+}
+
 fn counts() -> (u32, u32) {
     (ENTERED.with(Cell::get), LEFT.with(Cell::get))
 }
 
 #[test]
 fn make_a_callback_and_the_destructor_are_announced_and_each_one_ends() {
+    announced();
     let mut kernel = kernel(0);
     let (entered, left) = counts();
     assert!(entered >= 1, "make was not announced");
@@ -31,6 +48,7 @@ fn make_a_callback_and_the_destructor_are_announced_and_each_one_ends() {
 
 #[test]
 fn a_refused_make_admits_nothing_and_runs_no_plugin_code() {
+    announced();
     reset(NORMAL);
     DESTROYED.with(|value| value.set(0));
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -54,6 +72,7 @@ fn a_refused_make_admits_nothing_and_runs_no_plugin_code() {
 
 #[test]
 fn a_refused_callback_does_not_run_and_neither_does_the_destructor() {
+    announced();
     let mut kernel = kernel(0);
     let (entered, left) = counts();
     REFUSE_ENTRY.with(|refuse| refuse.set(true));
