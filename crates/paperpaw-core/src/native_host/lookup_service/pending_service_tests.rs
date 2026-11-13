@@ -42,14 +42,18 @@ impl LookupHost for Host {
             out,
         )
     }
-    fn provider_owner(&self, name: &str) -> Option<u64> {
+    fn provider_owner(&self, _frame: &dyn Frame, name: &str) -> Option<u64> {
         match name {
             "wiki" => Some(WIKI),
             "translate" => Some(TRANSLATE),
             _ => None,
         }
     }
-    fn subscribed(&self, asker: u64) -> bool {
+    fn subscribed(
+        &self,
+        _hosts: &crate::native_host::host_services::HostServices,
+        asker: u64,
+    ) -> bool {
         self.subscribed.borrow().contains(&asker)
     }
     fn now_ms(&self) -> u64 {
@@ -256,7 +260,7 @@ fn unmatched_ready_commands_log_one_line_a_minute() {
 fn the_event_record_carries_the_time_and_the_provider() {
     let mut out = [0_u8; 96];
     let used = ready_event(123_456, "wiki", &mut out).unwrap();
-    let Record::EventLookupReady(event) = wire::record_decode_one(&out[..used]).unwrap() else {
+    let Record::EventLookupReady(event) = wire::records_decode_single(&out[..used]).unwrap() else {
         panic!("an event")
     };
     assert_eq!((event.now_ms, event.provider), (123_456, "wiki"));

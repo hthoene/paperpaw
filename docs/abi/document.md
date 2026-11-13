@@ -834,6 +834,14 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   kept, now without `pending`. A `lookup_ready` that matches no pending ask does nothing but
   count: the host adds 1 to a counter of unmatched ready commands and logs at most one line a
   minute about them; the command is accepted (never an error to the provider).
+- [D] **The ready command at the host:** checked at submit (an empty `text` or a `language` the
+  ask would refuse is `ERR_INVALID` for the batch), kept as the ask's hash only and applied after
+  the callback with the other commands; a work run's callback may submit it (`work.md` 2: a
+  provider's fetch ends in its run). The event names the provider's first `lookup.spec` (a plugin
+  with several is told by its first name; the asker asks again from 0 or that cursor either way).
+  Events wait in a list of at most one per pending ask (88 bytes each, 1,408 bytes at most on the
+  X4, nothing while none waits) until the event pump hands them to their askers; one without
+  room is dropped and logged (the asker asks again), and an asker that stops loses its own.
 - [D] A pending ask ends without an event when its deadline passes, the asker stops or the
   provider stops; an asker that wants the answer later asks again. The host never starts a
   stopped plugin for a lookup and never holds a provider's answer itself. No provider sees

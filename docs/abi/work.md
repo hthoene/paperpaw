@@ -163,7 +163,8 @@ record.
   events of that run's requests and sockets), a plugin may submit only these commands: `redraw`,
   `set_setting`, `reset_setting`, `set_item_state`, `widget_changed`, `image_prepare`,
   `image_release` and the network ones (`wifi_on`, `wifi_off`, `wifi_scan`, `wifi_join`,
-  `wifi_leave`, `wifi_host`, `network_none`, `go_online`). Every other command is `ERR_STATE` at
+  `wifi_leave`, `wifi_host`, `network_none`, `go_online`) and `lookup_ready` (a lookup provider's
+  fetch ends in its run, `document.md` 7). Every other command is `ERR_STATE` at
   submit, a notice, a dialog, `open` and every command added later alike (the host names a new
   one here before a run may send it), and so are UI calls that would ask the user. Service calls
   (data, network requests, sockets, work declarations) are no commands and stay allowed. The
