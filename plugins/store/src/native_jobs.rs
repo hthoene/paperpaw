@@ -435,7 +435,6 @@ impl NativeStore {
         self.forward(host, event)
     }
 
-    /// The release of the page the plugin was installed from.
     /// Says what became of plugin `id`, or notes it for the end of a quiet
     /// queue or the request that asked for it.
     #[inline(never)]
