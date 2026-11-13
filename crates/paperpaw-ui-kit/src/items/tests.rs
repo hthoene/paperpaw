@@ -327,3 +327,25 @@ fn taps_choose_rows_and_headings_are_not_hit() {
     assert_eq!(list.decide(&tap(100)), ItemStep::Chosen(2));
     assert_eq!(list.decide(&tap(10)), ItemStep::Ignored);
 }
+
+#[test]
+fn a_tall_row_takes_the_corner_of_the_style_not_a_pill_that_cuts_its_text() {
+    let pill = Style {
+        pill: true,
+        ..style()
+    };
+    let radius_of = |rect: Rect| {
+        let mut paint = Vec::new();
+        crate::list::backdrop(&mut paint, &pill, rect, true).unwrap();
+        paint
+            .iter()
+            .find_map(|part| match part {
+                Paint::Focus(_, radius, _, _) => Some(*radius),
+                _ => None,
+            })
+            .unwrap()
+    };
+    // One band: a pill. Two bands (a title over two lines, a note): the corner.
+    assert!(radius_of(Rect::new(0, 0, 480, pill.row)) > pill.corner);
+    assert_eq!(radius_of(Rect::new(0, 0, 480, pill.row * 2)), pill.corner);
+}
