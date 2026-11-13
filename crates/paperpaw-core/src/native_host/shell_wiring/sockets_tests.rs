@@ -93,7 +93,7 @@ fn a_shell_wires_the_sockets_once_and_nothing_is_half_wired() {
     let resources = HostResources::try_new().unwrap();
     let (first, _) = inputs(SockLimits::small(49_152), false);
     let wired = resources.wire(HostWiring::new().sockets(first)).unwrap();
-    assert!(wired.sockets().is_some() && resources.hosts().sockets().is_some());
+    assert!(wired.sockets().is_some() && resources.hosts().sockets_wired());
     let (again, _) = inputs(SockLimits::small(49_152), false);
     let twice = resources.wire(
         HostWiring::new()
@@ -140,8 +140,8 @@ fn net_and_sockets_charge_one_pool_whichever_is_wired_first() {
         };
         resources.wire(wiring).unwrap();
         let hosts = resources.hosts();
-        let net_pool = hosts.net().unwrap().0.table().pool();
-        let sock_pool = hosts.sockets().unwrap().0.table().pool();
+        let net_pool = hosts.net_for_call().unwrap().0.table().pool();
+        let sock_pool = hosts.sockets_for_call().unwrap().0.table().pool();
         assert!(Rc::ptr_eq(net_pool, sock_pool), "one pool");
         assert_eq!(net_pool.capacity(), 49_152);
     }
@@ -181,7 +181,7 @@ fn net_and_sockets_naming_two_pools_are_refused_and_nothing_is_wired() {
         .net(net_inputs(&shell, NetLimits::new(65_536, 2)))
         .sockets(socks);
     assert_eq!(resources.wire(two).err(), Some(ERR_INVALID));
-    assert!(resources.hosts().net().is_none() && resources.hosts().sockets().is_none());
+    assert!(!resources.hosts().net_wired() && !resources.hosts().sockets_wired());
     // A pool made by an earlier wiring is not replaced by another shape.
     resources
         .wire(HostWiring::new().net(net_inputs(&shell, NetLimits::new(49_152, 2))))
@@ -191,7 +191,7 @@ fn net_and_sockets_naming_two_pools_are_refused_and_nothing_is_wired() {
         resources.wire(HostWiring::new().sockets(other)).err(),
         Some(ERR_INVALID)
     );
-    assert!(resources.hosts().sockets().is_none());
+    assert!(!resources.hosts().sockets_wired());
     // The same shape joins the pool.
     let (same, _) = inputs(SockLimits::small(49_152), false);
     resources.wire(HostWiring::new().sockets(same)).unwrap();
@@ -227,13 +227,14 @@ fn open(resources: &HostResources, reports: &SockReports, tls: bool) -> u32 {
     let mut out = std::vec![0; 4096];
     let used =
         wire::records_encode_counted(&[Record::ServiceSockConnect(c)], 20, 4096, &mut out).unwrap();
-    let id = sock_service::admit(&*hosts.sockets().unwrap().0, &who, &out[..used]).unwrap();
+    let id =
+        sock_service::admit(&*hosts.sockets_for_call().unwrap().0, &who, &out[..used]).unwrap();
     reports.connected(id).unwrap();
     id
 }
 
 fn events(resources: &HostResources) -> Vec<(u32, u32)> {
-    let host = &*resources.hosts().sockets().unwrap().0;
+    let host = &*resources.hosts().sockets_for_call().unwrap().0;
     let mut seen = Vec::new();
     let mut out = std::vec![0; 256];
     while let Ok(Some(used)) = sock_service::next_event(host, 7, &mut out) {
@@ -340,6 +341,96 @@ fn the_shell_without_tls_keeps_the_tls_flag_unsupported_through_the_wiring() {
     let (socks, _) = inputs(SockLimits::small(49_152), false);
     resources.wire(HostWiring::new().sockets(socks)).unwrap();
     let hosts = resources.hosts();
-    assert!(hosts.sockets().unwrap().0.tls().is_none());
+    assert!(hosts.sockets_for_call().unwrap().0.tls().is_none());
     let _: Option<&HostServices> = None;
+}
+
+/// Both network services wired on one pool, made by nobody yet.
+fn wired_unmade(resources: &HostResources) -> WiredHosts {
+    let shell = Rc::new(Shell::default());
+    let (socks, _) = inputs(SockLimits::small(49_152), false);
+    let wiring = HostWiring::new()
+        .net(net_inputs(&shell, NetLimits::new(49_152, 1)))
+        .sockets(socks);
+    resources.wire(wiring).unwrap()
+}
+
+#[test]
+fn the_network_services_are_made_at_their_first_call_and_one_without_room_tries_again() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    use paperpaw_native::host_glue::ERR_NO_MEMORY;
+    let resources = HostResources::try_new().unwrap();
+    let _wired = wired_unmade(&resources);
+    let hosts = resources.hosts();
+    // Wired, not made: a device no plugin asks for holds nothing (#248).
+    assert!(hosts.net_wired() && hosts.net().is_none());
+    assert!(hosts.sockets_wired() && hosts.sockets().is_none());
+    // A first call without room for the device is refused; nothing is made.
+    FAIL_NTH.with(|n| n.set(1));
+    let net = hosts.net_for_call().err();
+    FAIL_NTH.with(|n| n.set(1));
+    let sockets = hosts.sockets_for_call().err();
+    FAIL_NTH.with(|n| n.set(0));
+    assert_eq!((net, sockets), (Some(ERR_NO_MEMORY), Some(ERR_NO_MEMORY)));
+    assert!(hosts.net().is_none() && hosts.sockets().is_none());
+    // The next call makes each, once, on the one pool.
+    assert!(hosts.net_for_call().is_ok() && hosts.sockets_for_call().is_ok());
+    let net_pool = hosts.net().unwrap().0.table().pool();
+    assert!(Rc::ptr_eq(
+        net_pool,
+        hosts.sockets().unwrap().0.table().pool()
+    ));
+}
+
+#[test]
+fn reports_before_the_first_call_answer_as_the_empty_device_does() {
+    // One device made by a call, one not: the shell's reports for ids that
+    // cannot exist answer the same on both.
+    let (made, unmade) = (
+        HostResources::try_new().unwrap(),
+        HostResources::try_new().unwrap(),
+    );
+    let (a, b) = (wired_unmade(&made), wired_unmade(&unmade));
+    made.hosts().net_for_call().unwrap();
+    made.hosts().sockets_for_call().unwrap();
+    assert!(unmade.hosts().net().is_none() && unmade.hosts().sockets().is_none());
+    let net = |wired: &WiredHosts| {
+        let r = wired.net().unwrap();
+        (
+            r.finished(9, HttpDone::new(200, HttpReason::Ok)),
+            r.progress(9, 200, 1, Some(2)),
+            r.redirected_to_https(9),
+            r.tick(),
+            r.network_lost(),
+            r.server_started(9, "x"),
+            r.server_failed(9, ServerReason::Refused),
+            r.served_head(9, "GET", "/", None, false, 10),
+            r.served_body(9, 1, 1),
+            r.served_whole(9, 1),
+            r.served_gone(9),
+        )
+    };
+    assert_eq!(net(&a), net(&b));
+    let peer = PeerInfo {
+        certificate: [0; 32],
+        key: [0; 32],
+        time_checked: false,
+    };
+    let sockets = |wired: &WiredHosts| {
+        let r = wired.sockets().unwrap();
+        (
+            (r.connected(9), r.received(9, b"x"), r.peer_closed(9)),
+            (r.writable(9), r.failed(9, SockFailure::Io)),
+            (r.answered(9, b"a", b"x"), r.secured(9, &peer)),
+            r.untrusted(9, UntrustedWhy::NotPinned, &peer),
+            r.tls_failed(9, TlsFailure::Tls),
+            (
+                r.tick(),
+                r.network_lost(),
+                r.take_dropped(),
+                r.take_ignored(),
+            ),
+        )
+    };
+    assert_eq!(sockets(&a), sockets(&b));
 }
