@@ -546,6 +546,40 @@ fn a_run_time_grays_policy_is_what_the_frame_says_of_the_top_screen() {
     assert!(!kernel.finish().grays());
 }
 
+/// A policy the screen has already changes nothing, so nothing is drawn again:
+/// the reader says it at every show (Senior R1 on #1394, a second grays frame).
+#[test]
+fn an_unchanged_policy_does_not_draw_the_screen_again() {
+    let probe = Id::new_static("probe");
+    let mut kernel = guarded_kernel();
+    for screen in ["probe.base", "probe.old"] {
+        open(&mut kernel, screen);
+    }
+    let key = kernel.shared.stack.last().unwrap().key;
+    let change = |flags| PolicyChange {
+        instance: key.serial(),
+        flags,
+        ready: false,
+    };
+    kernel.render(&mut |_, _| {});
+    kernel.finish();
+    // A new policy draws the screen again.
+    kernel.native_screen_policies(&probe, OWN, vec![change(0x200)]);
+    assert!(kernel.output.redraw, "a changed policy is drawn");
+    kernel.render(&mut |_, _| {});
+    kernel.finish();
+    assert!(!kernel.output.redraw);
+    // The same again: nothing to draw.
+    kernel.native_screen_policies(&probe, OWN, vec![change(0x200)]);
+    assert!(
+        !kernel.output.redraw,
+        "the same policy drew the screen again"
+    );
+    // Another one does.
+    kernel.native_screen_policies(&probe, OWN, vec![change(0)]);
+    assert!(kernel.output.redraw);
+}
+
 /// The kernel applies the change on the real stack: the instance guards or is
 /// secret at once, stays so when the stack is synced again, and goes back.
 #[test]
