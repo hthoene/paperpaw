@@ -221,6 +221,36 @@ pub fn concat(parts: &[&str]) -> Result<String, Error> {
     Ok(result)
 }
 
+/// `value` with its unit written out: a unit that holds `{count}` has the number put in,
+/// any other follows the number. For a unit that is a catalog key see
+/// [`crate::Messages::with_unit`].
+///
+/// # Errors
+/// [`Error::NoMemory`] when the string cannot be allocated.
+pub fn with_unit(value: i64, unit: &str) -> Result<String, Error> {
+    let mut digits = [0; 20];
+    let number = if value < 0 {
+        let positive = decimal_u64(value.unsigned_abs(), &mut digits);
+        concat(&["-", positive])?
+    } else {
+        copy(decimal_u64(value as u64, &mut digits))?
+    };
+    if unit.is_empty() {
+        return Ok(number);
+    }
+    // A byte search and `get`, not `split_once("{count}")`: a `&str` pattern search links
+    // the slice panic that prints a character (Debug and Unicode tables, 4 KB).
+    const MARK: &[u8] = b"{count}";
+    let at = unit
+        .as_bytes()
+        .windows(MARK.len())
+        .position(|window| window == MARK);
+    match at.and_then(|at| Some((unit.get(..at)?, unit.get(at + MARK.len()..)?))) {
+        Some((before, after)) => concat(&[before, &number, after]),
+        None => concat(&[&number, " ", unit]),
+    }
+}
+
 /// `text` and an ellipsis, made with fallible allocation.
 ///
 /// # Errors

@@ -6,9 +6,7 @@
 use crate::native_bar::Handed;
 use crate::native_bar_screen::{BarView, Outcome as BarOutcome};
 use crate::native_data::Reader;
-use crate::native_model::{
-    self as model, Act, Choice, Kind, Row, SettingInfo, SettingKind, Value, with_unit,
-};
+use crate::native_model::{self as model, Act, Choice, Kind, Row, SettingInfo, SettingKind, Value};
 use crate::native_panel_screen::{self as panel_screen, Outcome, PanelView};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -503,7 +501,8 @@ impl NativeMenu {
             let value = match (row.kind, info) {
                 (Kind::Submenu, _) => copy("›")?,
                 (Kind::Setting, Some(info)) => {
-                    let text = value_text(info, &on, &off, &mut |key| messages.copy(host, key))?;
+                    let text =
+                        value_text(info, &on, &off, &mut |ask| ask.said(&mut messages, host))?;
                     if editing == Some(index) {
                         concat(&["‹ ", &text, " ›"])?
                     } else {
@@ -741,22 +740,41 @@ pub(crate) fn set_value(
     }
 }
 
+/// What a value's text needs from the catalog.
+pub(crate) enum Ask<'a> {
+    /// The text of a catalog key.
+    Key(&'a str),
+    /// A number with its unit, the unit being a catalog key.
+    Unit(i64, &'a str),
+}
+
+impl Ask<'_> {
+    /// The text, in the language of the display.
+    pub(crate) fn said(&self, messages: &mut Messages, host: &Host<'_>) -> Result<String, Error> {
+        match self {
+            Self::Key(key) => messages.copy(host, key),
+            Self::Unit(value, unit) => messages.with_unit(host, *value, unit),
+        }
+    }
+}
+
 /// The value of a setting as its row shows it. A choice's value is a translation
 /// key (`Kind::Choice`): `translate` gives its text in the language of the
-/// display, so the row says *Auto*, not `power.mode.auto`. A value that has no text says itself.
+/// display, so the row says *Auto*, not `power.mode.auto`; so does a number's unit
+/// (*6 pages*, not `core.unit.pages`). A value that has no text says itself.
 pub(crate) fn value_text(
     info: &SettingInfo,
     on: &str,
     off: &str,
-    translate: &mut dyn FnMut(&str) -> Result<String, Error>,
+    translate: &mut dyn FnMut(Ask<'_>) -> Result<String, Error>,
 ) -> Result<String, Error> {
     match &info.value {
         Some(Value::Bool(true)) => copy(on),
         Some(Value::Bool(false)) => copy(off),
-        Some(Value::Int(v)) => with_unit(*v, &info.unit),
+        Some(Value::Int(v)) => translate(Ask::Unit(*v, &info.unit)),
         Some(Value::Text(v)) if info.kind == SettingKind::Choice && !v.is_empty() => {
             // A value that is no key of the catalogs is said as it is (as `tr` does).
-            match translate(v) {
+            match translate(Ask::Key(v)) {
                 Err(Error::NotFound | Error::Invalid) => copy(v),
                 said => said,
             }

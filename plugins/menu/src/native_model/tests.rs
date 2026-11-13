@@ -1,5 +1,6 @@
 use super::*;
 use crate::fail_alloc::sweep;
+use crate::native_plugin::Ask;
 use alloc::string::ToString;
 use alloc::vec;
 
@@ -182,6 +183,17 @@ fn units_take_the_number_in_or_follow_it() {
 }
 
 #[test]
+fn a_number_is_said_with_its_unit_from_the_catalog_not_with_the_unit_key() {
+    let mut number = info(SettingKind::Int, Some(Value::Int(6)));
+    number.unit = "core.unit.pages".to_string();
+    let said = crate::native_plugin::value_text(&number, "On", "Off", &mut |ask| match ask {
+        Ask::Unit(6, "core.unit.pages") => Ok("6 pages".to_string()),
+        _ => Err(paperpaw_sdk::native::Error::NotFound),
+    });
+    assert_eq!(said.unwrap(), "6 pages");
+}
+
+#[test]
 fn choosing_a_setting_row_depends_on_its_kind_and_the_device() {
     let mut i = info(SettingKind::Int, Some(Value::Int(1)));
     assert_eq!(act(&i, false, false).unwrap(), Act::StartNumber);
@@ -249,8 +261,9 @@ fn rows_keep_their_order() {
 
 /// What a row says of the value of a setting, in the language of `en`/`de` files.
 fn said(catalog: &paperpaw_i18n::Catalog, info: &SettingInfo) -> String {
-    crate::native_plugin::value_text(info, "On", "Off", &mut |key| {
-        Ok(catalog.get(key).unwrap_or(key).to_string())
+    crate::native_plugin::value_text(info, "On", "Off", &mut |ask| match ask {
+        Ask::Key(key) => Ok(catalog.get(key).unwrap_or(key).to_string()),
+        Ask::Unit(value, unit) => with_unit(value, unit),
     })
     .unwrap()
 }
@@ -285,12 +298,16 @@ fn a_choice_is_said_by_its_translated_title_not_by_its_key() {
 #[test]
 fn a_switch_a_number_and_a_text_are_said_as_before() {
     // Nothing is translated here: asked to, the closure fails the row.
-    let say = |kind, value| {
-        crate::native_plugin::value_text(&info(kind, Some(value)), "On", "Off", &mut |_| {
-            Err(paperpaw_sdk::native::Error::State)
-        })
-        .unwrap()
-    };
+    let say =
+        |kind, value| {
+            crate::native_plugin::value_text(&info(kind, Some(value)), "On", "Off", &mut |ask| {
+                match ask {
+                    Ask::Unit(value, unit) => with_unit(value, unit),
+                    Ask::Key(_) => Err(paperpaw_sdk::native::Error::State),
+                }
+            })
+            .unwrap()
+        };
     assert_eq!(say(SettingKind::Bool, Value::Bool(true)), "On");
     assert_eq!(say(SettingKind::Bool, Value::Bool(false)), "Off");
     assert_eq!(say(SettingKind::Int, Value::Int(6)), "6 min");

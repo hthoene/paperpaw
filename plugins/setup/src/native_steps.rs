@@ -9,7 +9,7 @@ use paperpaw_sdk::native::{
 use paperpaw_ui_kit::{
     mem::{buffer, push, stable_sort_by},
     rows,
-    text::{concat, copy, decimal_u64},
+    text::copy,
 };
 
 /// The flag of a step row that says it applies now.
@@ -68,7 +68,9 @@ pub struct Setting {
     pub key: String,
     pub title: String,
     pub help: String,
-    /// The translated unit of a number.
+    /// The translated unit of a number, as text that holds `{count}` (the form for
+    /// 1, and the others).
+    pub unit_one: String,
     pub unit: String,
     /// The screen or slot that edits it, if it has one: `(is_slot, id)`.
     pub editor: Option<(bool, String)>,
@@ -189,10 +191,16 @@ impl<'h, 'cb> Reader<'h, 'cb> {
             (_, Value::Text(text)) => Control::Value(text),
             _ => Control::Value(String::new()),
         };
+        let (unit_one, unit) = if unit.is_empty() {
+            (String::new(), String::new())
+        } else {
+            paperpaw_ui_kit::Messages::new()?.unit_forms(self.host, &unit)?
+        };
         Ok(Setting {
             key: copy(key)?,
             title,
             help,
+            unit_one,
             unit,
             editor,
             control,
@@ -222,17 +230,12 @@ impl Setting {
             Control::Switch(true) => copy(on),
             Control::Switch(false) => copy(off),
             Control::Number { value, .. } => {
-                let mut digits = [0; 20];
-                let number = if *value < 0 {
-                    concat(&["-", decimal_u64(value.unsigned_abs(), &mut digits)])?
+                let unit = if *value == 1 {
+                    &self.unit_one
                 } else {
-                    copy(decimal_u64(value.unsigned_abs(), &mut digits))?
+                    &self.unit
                 };
-                if self.unit.is_empty() {
-                    Ok(number)
-                } else {
-                    concat(&[&number, " ", &self.unit])
-                }
+                paperpaw_ui_kit::text::with_unit(*value, unit)
             }
             Control::Choice { options, at } => match at.and_then(|at| options.get(at)) {
                 Some(option) => copy(&option.title),
@@ -300,6 +303,7 @@ mod tests {
             key: "core.language".into(),
             title: "Language".into(),
             help: String::new(),
+            unit_one: String::new(),
             unit: String::new(),
             editor: None,
             control: Control::Choice {
@@ -320,6 +324,7 @@ mod tests {
             key: "core.font-size".into(),
             title: "Size".into(),
             help: String::new(),
+            unit_one: "pt".into(),
             unit: "pt".into(),
             editor: None,
             control: Control::Number {
@@ -354,6 +359,18 @@ mod tests {
         assert_eq!(number(i64::MAX).next(1), Some(NewValue::Int(24)));
         assert_eq!(number(12).label("On", "Off").unwrap(), "12 pt");
         assert_eq!(number(-3).label("On", "Off").unwrap(), "-3 pt");
+    }
+
+    #[test]
+    fn a_number_says_its_unit_in_the_form_its_count_takes() {
+        let pages = |value| Setting {
+            unit_one: "{count} page".into(),
+            unit: "{count} pages".into(),
+            ..number(value)
+        };
+        assert_eq!(pages(6).label("On", "Off").unwrap(), "6 pages");
+        assert_eq!(pages(1).label("On", "Off").unwrap(), "1 page");
+        assert_eq!(pages(0).label("On", "Off").unwrap(), "0 pages");
     }
 
     #[test]

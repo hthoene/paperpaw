@@ -391,28 +391,7 @@ pub fn stepped(info: &SettingInfo, step: i64) -> Option<Value> {
     }
 }
 
-/// `value` with its unit: a unit that holds `{count}` has the number put in,
-/// any other follows the number.
-///
-/// # Errors
-/// [`Error::NoMemory`].
-pub fn with_unit(value: i64, unit: &str) -> Result<String, Error> {
-    use paperpaw_ui_kit::text::{concat, decimal_u64};
-    let mut digits = [0; 20];
-    let number = if value < 0 {
-        let positive = decimal_u64(value.unsigned_abs(), &mut digits);
-        concat(&["-", positive])?
-    } else {
-        copy(decimal_u64(value as u64, &mut digits))?
-    };
-    if unit.is_empty() {
-        return Ok(number);
-    }
-    match unit.split_once("{count}") {
-        Some((before, after)) => concat(&[before, &number, after]),
-        None => concat(&[&number, " ", unit]),
-    }
-}
+pub use paperpaw_ui_kit::text::with_unit;
 
 #[cfg(test)]
 mod tests;

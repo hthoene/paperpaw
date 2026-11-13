@@ -88,6 +88,19 @@ impl Measure for FontMeasure<'_, '_> {
     }
 }
 
+/// What the value of the setting of `part` says, in the language of the display.
+fn value_said(
+    part: &Part,
+    (host, messages, (on_text, off_text)): (&Host<'_>, &mut Messages, (&str, &str)),
+) -> Result<String, Error> {
+    match &part.info {
+        Some(info) => crate::native_plugin::value_text(info, on_text, off_text, &mut |ask| {
+            ask.said(messages, host)
+        }),
+        None => Ok(String::new()),
+    }
+}
+
 impl PanelView {
     /// A panel for `menu`, hanging from the top when `mode` is [`MODE_TOP`].
     ///
@@ -470,7 +483,8 @@ impl PanelView {
             Control::Step(_, step) => {
                 button(body, if step < 0 { "\u{2212}" } else { "+" }, false)?;
                 if step > 0 {
-                    self.draw_number(body, font, style, part, rect)?;
+                    let shown = value_said(part, (host, messages, (on_text, off_text)))?;
+                    self.draw_number(body, font, style, &shown, rect)?;
                 }
                 Ok(())
             }
@@ -484,14 +498,7 @@ impl PanelView {
                 button(body, label, on)
             }
             Control::Open(_) => {
-                let value = match &part.info {
-                    Some(info) => {
-                        crate::native_plugin::value_text(info, on_text, off_text, &mut |key| {
-                            messages.copy(host, key)
-                        })?
-                    }
-                    None => String::new(),
-                };
+                let value = value_said(part, (host, messages, (on_text, off_text)))?;
                 let shown = text::concat(&[&value, " \u{203a}"])?;
                 if focused {
                     paint::push(
@@ -533,20 +540,16 @@ impl PanelView {
         body: &mut Vec<Paint>,
         font: &Font<'_>,
         style: &Style,
-        part: &Part,
+        shown: &str,
         plus: Rect,
     ) -> Result<(), Error> {
-        let Some(Value::Int(now)) = part.info.as_ref().and_then(|i| i.value.as_ref()) else {
-            return Ok(());
-        };
-        let shown = model::with_unit(*now, part.info.as_ref().map_or("", |i| i.unit.as_str()))?;
-        let wide = font.measure_text(style.small, &shown)?;
+        let wide = font.measure_text(style.small, shown)?;
         let x = f32::from(plus.x) - style.gap as f32 - wide;
         let area = Rect::new(0, plus.y, plus.x, plus.height);
         text::label(
             body,
             font,
-            &shown,
+            shown,
             style.small,
             x.max(0.0),
             area,
