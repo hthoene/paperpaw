@@ -61,6 +61,15 @@ fn decimal(value: u32) -> Option<alloc::string::String> {
 }
 
 impl crate::Kernel {
+    /// Whether an answer waits for its asker (the service pump delivers
+    /// those before it serves anything else).
+    pub(crate) fn native_dialog_answers_waiting(&self) -> bool {
+        self.shared
+            .native_instances
+            .ui_store()
+            .is_some_and(super::ui_store::UiStore::any_delivery)
+    }
+
     /// One pass of the dialog pump; `true` when it wants another at once
     /// (answers remain, or a batch waits).
     // Its own frame: the pump keeps the services' passes apart, so that no

@@ -85,6 +85,7 @@ pub mod host_glue;
 pub mod index;
 mod interface;
 pub mod preflight;
+pub mod profile;
 mod reloc;
 pub mod signature;
 #[cfg(feature = "kernel")]
