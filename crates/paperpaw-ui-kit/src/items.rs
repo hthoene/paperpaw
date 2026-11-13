@@ -10,8 +10,8 @@ use paperpaw_sdk::{
     Handled, Point, Rect,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, DrawPurpose, FrameRect, Input, InputGestureKind},
-        commands::{CommandSender, RedrawMode},
+        callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
+        commands::CommandSender,
         fonts::{Font, FontRole},
         snapshot,
     },
@@ -396,31 +396,20 @@ impl ItemList {
     }
 
     /// Asks for the frame a focus step from row `from` to row `to` needs: the
-    /// two rows alone where both are on the page drawn last (as interface 6's
-    /// `request_redraw_area`), the screen where the step leaves the page or
-    /// the host refuses an area.
+    /// two rows alone where both are on the page drawn last, the screen where
+    /// the step leaves the page or the host refuses an area.
     fn redraw_focus(&self, host: &Host<'_>, from: usize, to: usize) -> Result<(), Error> {
         let mut scratch = [0; 64];
-        let mut sender = CommandSender::new(host, &mut scratch);
-        if let (Some(left), Some(reached)) = (self.rect_of(from), self.rect_of(to)) {
-            let (x, y) = self.origin;
-            let area = |rect: Rect| {
-                FrameRect::new(
-                    i32::from(rect.x).saturating_sub(x),
-                    i32::from(rect.y).saturating_sub(y),
-                    u32::from(rect.width),
-                    u32::from(rect.height),
-                )
-            };
-            if sender
-                .queue_redraw_area(RedrawMode::Partial, area(left))
-                .and_then(|()| sender.queue_redraw_area(RedrawMode::Partial, area(reached)))
-                .is_ok()
-            {
-                return Ok(());
-            }
-        }
-        sender.queue_redraw(RedrawMode::Partial)
+        self.redraw_focus_on(&mut CommandSender::new(host, &mut scratch), from, to)
+    }
+
+    fn redraw_focus_on(
+        &self,
+        to_host: &mut impl crate::list::Redraws,
+        from: usize,
+        to: usize,
+    ) -> Result<(), Error> {
+        crate::list::redraw_step(to_host, self.origin, [self.rect_of(from), self.rect_of(to)])
     }
 
     /// `Handled::Yes` for what the list took.
@@ -1148,7 +1137,6 @@ const _: fn() = || {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     fn items(spec: &str) -> Vec<Item> {
         spec.chars()
             .map(|c| {
