@@ -494,11 +494,27 @@ fn list(
         Option<paperpaw_core::sdk::PluginProblem>,
     ),
 ) {
-    use paperpaw_core::sdk::{Id, Manifest, PluginInfo, PluginKind, RequiredFor, Version};
+    use paperpaw_core::sdk::{
+        Id, Manifest, ManifestRef, PluginInfo, PluginKind, RequiredFor, Version,
+    };
+    /// Each plugin crate's manifest, kept in the program (#248, B part b).
+    static MANIFESTS: &[(&str, Manifest)] =
+        include!(concat!(env!("OUT_DIR"), "/plugin_manifests.rs"));
     let Some(version) = native_version(id).and_then(Version::parse) else {
         return;
     };
-    let manifest = Manifest::new(Id::new_static(id), id, version);
+    // The one kept in the program where every field is the same; else a
+    // copy, and no row where the heap has no room for it.
+    let made = Manifest::new(Id::new_static(id), id, version);
+    let kept = MANIFESTS
+        .iter()
+        .find(|(kept, _)| *kept == id)
+        .map(|(_, kept)| kept);
+    let Ok(manifest) = ManifestRef::try_new(made, kept) else {
+        // No room for the row: said, as the kernel does, not dropped silently.
+        kernel.warn_not_listed(id);
+        return;
+    };
     let info = PluginInfo::new(
         manifest,
         state,

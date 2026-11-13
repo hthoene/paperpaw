@@ -221,6 +221,17 @@ impl Kernel {
         self.find_required_plugins();
         Ok(())
     }
+
+    /// Says that the linked plugin `id` is left out of the plugin list because
+    /// the heap has no room for its row, as [`Kernel::list_native`]'s caller
+    /// found out (a warning, like the kernel's own listing; none where the
+    /// heap has no room even for it) (#248, B part b).
+    pub fn warn_not_listed(&mut self, id: &'static str) {
+        self.try_warn(
+            crate::WarningSource::Plugin(Id::new_static(id)),
+            &["not listed: no memory"],
+        );
+    }
 }
 
 #[cfg(test)]
