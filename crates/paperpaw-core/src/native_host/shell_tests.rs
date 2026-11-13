@@ -64,17 +64,9 @@ unsafe impl core::alloc::GlobalAlloc for Failing {
             n.set(left - 1);
             left == 1
         });
-        if fail == Ok(true) {
-            return ptr::null_mut();
-        }
-        let sized = FAIL_SIZE.try_with(|size| {
-            let hit = size.get() != 0 && size.get() == layout.size();
-            if hit {
-                size.set(0);
-            }
-            hit
-        });
-        if sized == Ok(true) {
+        let sized =
+            || FAIL_SIZE.try_with(|size| size.get() == layout.size() && size.replace(0) != 0);
+        if fail == Ok(true) || sized() == Ok(true) {
             return ptr::null_mut();
         }
         // SAFETY: the caller's layout, forwarded.
