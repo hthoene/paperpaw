@@ -123,3 +123,15 @@ fn building_the_markdown_survives_every_refused_allocation() {
         Ok(size)
     });
 }
+
+#[test]
+fn a_bookmark_row_shows_its_long_text_whole_not_cut() {
+    let Ok(Item::Row(row)) = note_row(
+        "Language: German Other information about a book",
+        "Bookmark · 1 %",
+    ) else {
+        panic!("a row")
+    };
+    assert!(row.whole);
+    assert_eq!(row.note, "Bookmark · 1 %");
+}
