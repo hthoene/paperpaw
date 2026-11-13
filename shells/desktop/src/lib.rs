@@ -13,11 +13,9 @@ pub mod budget;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod cable;
 pub mod device;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod device_host;
 pub mod headless;
 pub mod host;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod host_services;
 pub mod http;
 pub mod light;
@@ -29,7 +27,7 @@ pub mod linked;
 pub mod native;
 #[cfg(linked_host)]
 pub mod native_net;
-#[cfg(linked_host)]
+#[cfg(all(linked_host, not(target_arch = "wasm32")))]
 pub mod native_sock;
 /// The firmware host of an emulated device: plugin jobs only.
 #[cfg(linked_host)]

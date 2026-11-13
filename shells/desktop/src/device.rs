@@ -45,8 +45,7 @@ pub fn set_wifi_online(on: bool) {
 }
 
 /// Whether devices start online (`--wifi online`); read by the native device
-/// host, which the web build does not have.
-#[cfg(not(target_arch = "wasm32"))]
+/// host.
 pub(crate) fn wifi_online() -> bool {
     WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -761,6 +760,7 @@ impl Device {
         let net = self.linked.net.borrow();
         if let Some(net) = net.as_ref() {
             net.transport.pump(&net.reports, wait);
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some((sockets, reports)) = &net.sockets {
                 sockets.pump(reports, !self.profile.wifi || self.wifi.is_online());
             }
