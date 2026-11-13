@@ -339,6 +339,45 @@ fn row<'a>(rows: &'a [String], key: &str) -> &'a str {
     rows.iter().find(|r| r.starts_with(&prefix)).unwrap()
 }
 
+/// A plugin whose setting needs a front light the device does not have.
+struct Lit;
+impl Plugin for Lit {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("lit"), "Lit", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        r.add_setting_group(SettingGroupSpec::new(id("lit.top"), "lit.group").order(1))?;
+        for key in ["lit.light", "lit.plain"] {
+            r.add_setting(SettingSpec::switch(key, "lit.title", false, id("lit.top")))?;
+        }
+        r.set_menu_need(id("lit.light"), paperpaw_sdk::MenuNeed::Frontlight)?;
+        Ok(())
+    }
+}
+
+#[test]
+fn a_setting_for_a_device_that_lacks_what_it_needs_is_not_shown() {
+    let shown = |kernel: &crate::Kernel| {
+        let rows = page(kernel, schema::OP_SETTINGS, "lit").0;
+        (
+            flags_of(row(&rows, "lit.light")) & 512 != 0,
+            flags_of(row(&rows, "lit.plain")) & 512 != 0,
+        )
+    };
+    let without = crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(Lit)
+        .build()
+        .unwrap();
+    assert_eq!(shown(&without), (false, true));
+    let with = crate::Kernel::builder(crate::tests::DEVICE)
+        .frontlight(true)
+        .plugin(Lit)
+        .build()
+        .unwrap();
+    assert_eq!(shown(&with), (true, true));
+}
+
 fn flags_of(row: &str) -> u32 {
     row.split(" flags=")
         .nth(1)
