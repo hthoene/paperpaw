@@ -288,19 +288,19 @@ mod x4 {
         // lacks costs no flash. What it declares is kept for the host, which
         // refuses a query of any other service; the prefix facts the header
         // is compared with are the check's own, read once.
+        // What a card plugin is offered: the services of every family this
+        // start wired, as the linked plugins' (`paperpaw_x4::native_offer`),
+        // and of the features only the families it may reach
+        // (`card_features`: not `uses.secrets`, which reaches other plugins'
+        // secrets). A plugin that needs more is refused here, costing no flash.
+        // The radio's commands are not offered (`wifi` false).
+        let wired = crate::device_host::wired_families(false);
         let offered = metadata::Host {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
             profile: super::PROFILE,
-            services: crate::device_host::offered(),
-            // Advertised with the families they gate, only when those are
-            // wired: a plugin that needs a feature is refused, and one that
-            // merely asks for it keeps no bit.
-            features: if crate::device_host::card_wired() {
-                X4_FEATURES
-            } else {
-                &[]
-            },
+            services: paperpaw_x4::native_offer::services(wired),
+            features: paperpaw_x4::native_offer::card_features(wired),
         };
         let admitted = shell::admission::admit(&record, &offered)
             .map_err(|why| admission_refused(path, why))?;
@@ -373,24 +373,6 @@ mod x4 {
             .map_err(|why| entry_refused(path, why))?;
         Ok(raw.make)
     }
-
-    /// The features this firmware advertises to plugins (`uses.*`): the card's
-    /// files and the library, whose services are wired over the card
-    /// (`device_host::CARD_SERVICES`) and advertised only once that wiring
-    /// has succeeded (`device_host::card_wired`). A feature is listed here in the change
-    /// that wires its family, with the check of `Hosted::features().feature(key)`
-    /// in front of what it gates; admission keeps the bits of the ones a plugin
-    /// asked for either way.
-    const X4_FEATURES: &[metadata::Feature<'static>] = &[
-        metadata::Feature {
-            key: "uses.library",
-            revision: 1,
-        },
-        metadata::Feature {
-            key: "uses.storage",
-            revision: 1,
-        },
-    ];
 
     /// The program's read-only data in flash as a mapping (address and length),
     /// from the linker's own symbols (`esp-hal`'s `rodata.x`: `.rodata` and

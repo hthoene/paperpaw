@@ -572,7 +572,7 @@ impl Loader {
     /// the books a plugin reads, the catalog, and the card's files. One wiring,
     /// because `core.files` needs the sources of what the host holds in use
     /// (the library's moves, the reader's book). Offered to plugins only when
-    /// it succeeded (`device_host::wired_card`, `offered`); a table that is
+    /// it succeeded (`device_host::wired_card`); a table that is
     /// borrowed or missing counts as not wired. Not reached by a plugin until
     /// the activation (the stack gate).
     fn wire_card(&self, storage: &alloc::rc::Rc<dyn Storage>) {
@@ -601,13 +601,41 @@ impl Loader {
             }
         }
     }
+
+    /// Wires `core.secrets`: the card's file, sealed with the device key.
+    /// Before the first plugin is admitted, as the families above, so a card
+    /// plugin that declares it is admitted at this start; offered to plugins
+    /// only where it succeeded (`device_host::wired_secrets`). A plugin's own
+    /// secrets only: the file is keyed by the plugin's id, which the host
+    /// gives, never the plugin.
+    #[cfg(feature = "ppn5")]
+    fn wire_secrets(&self, storage: &alloc::rc::Rc<dyn Storage>) {
+        use paperpaw_core::native_host::HostWiring;
+        let Ok(table) = self.resources.0.try_borrow() else {
+            warn!("native: core.secrets not wired (table busy)");
+            return;
+        };
+        let Some(resources) = table.as_ref() else {
+            warn!("native: core.secrets not wired (no table)");
+            return;
+        };
+        match resources.wire(HostWiring::new().secrets(self.secrets.inputs(storage))) {
+            Ok(mut wired) => {
+                if wired.secrets().is_some() {
+                    crate::device_host::wired_secrets();
+                }
+                self.secrets.keep(&mut wired);
+            }
+            Err(status) => warn!("native: core.secrets not wired ({status})"),
+        }
+    }
 }
 
 impl CodeLoader for Loader {
     /// Wires what the shell offers (`core.net`, `core.sockets`, `core.work`
     /// with the network's bridge, and `core.document`, `core.library`,
     /// `core.files` over the card) before the first plugin is admitted, so the
-    /// offer (`device_host::offered`) is what is wired at this start. They are
+    /// lists (`paperpaw_x4::native_offer`) are what is wired at this start. They are
     /// wired before the per-plugin network policy is filled (a later wiring
     /// would show plugins a false `network_off`); they need the card too
     /// (files read to, the staged file).
@@ -625,6 +653,7 @@ impl CodeLoader for Loader {
         }
         self.wire_network(storage);
         self.wire_card(storage);
+        self.wire_secrets(storage);
     }
 
     fn load(
@@ -704,23 +733,16 @@ impl CodeLoader for Loader {
         // what is wired, so nothing is recorded wrongly.
         // `core.ui` was wired when the table of handles was made (before any
         // plugin loaded); `text.hyphenate` needs the card, which only comes here.
-        // `core.secrets` with them: the card's file, sealed with the device key.
-        let mut wired = match resources.as_ref()?.wire(
-            HostWiring::new()
-                .hyphenation(storage.clone())
-                .secrets(self.secrets.inputs(storage)),
-        ) {
+        let wired = match resources
+            .as_ref()?
+            .wire(HostWiring::new().hyphenation(storage.clone()))
+        {
             Ok(wired) => wired,
             Err(status) => {
-                warn!("native: text.hyphenate and core.secrets not wired ({status})");
+                warn!("native: text.hyphenate not wired ({status})");
                 return None;
             }
         };
-        // `core.secrets` is offered to the linked plugins only where it was wired.
-        if wired.secrets().is_some() {
-            crate::device_host::wired_secrets();
-        }
-        self.secrets.keep(&mut wired);
         wired.hyphen().cloned()
     }
 

@@ -6,9 +6,7 @@
 //! `paperpaw_x4::device_facts`, tested on a computer; this is the calls.
 
 use alloc::rc::Rc;
-use paperpaw_core::native_host::device_service::{DEVICE_SERVICES, MAX_NOT_INSTALLED, MemoryFacts};
-use paperpaw_core::native_host::shell::DATA_SERVICES;
-use paperpaw_native::metadata::Service;
+use paperpaw_core::native_host::device_service::{MAX_NOT_INSTALLED, MemoryFacts};
 use paperpaw_platform::firmware::Running;
 use paperpaw_sdk::native::{NotInstalled, SafeMode};
 use paperpaw_sdk::power::Start;
@@ -105,71 +103,6 @@ pub fn make(
     device
 }
 
-/// `core.work`, wired with the network's bridge (`native::Loader::wire_network`).
-pub const WORK_SERVICES: &[Service<'static>] = &[Service {
-    key: "core.work",
-    major: 1,
-    semantic_revision: 0,
-    min_table_bytes: 0,
-}];
-
-/// `core.document`, `core.files` and `core.library`, wired over the card in
-/// one wiring (`native::Loader::wire_card`). Not `core.secrets` (the device
-/// key's sealer, #411), `core.net`, `core.sockets` or `core.ui`: those stay
-/// out of the list until their families are offered.
-pub const CARD_SERVICES: &[Service<'static>] = &[
-    Service {
-        key: "core.document",
-        major: 1,
-        semantic_revision: 0,
-        min_table_bytes: 0,
-    },
-    Service {
-        key: "core.files",
-        major: 1,
-        semantic_revision: 0,
-        min_table_bytes: 0,
-    },
-    Service {
-        key: "core.library",
-        major: 1,
-        semantic_revision: 0,
-        min_table_bytes: 0,
-    },
-];
-
-/// The data services, `core.device` and the given families, joined at compile
-/// time.
-const fn offer<const N: usize>(more: &[&[Service<'static>]]) -> [Service<'static>; N] {
-    let mut all = [DATA_SERVICES[0]; N];
-    let mut at = 0;
-    let mut part = 0;
-    // Part 0 is the data services, part 1 the device's, the rest `more`.
-    while part < more.len() + 2 {
-        let list = match part {
-            0 => DATA_SERVICES,
-            1 => DEVICE_SERVICES,
-            _ => more[part - 2],
-        };
-        let mut item = 0;
-        while item < list.len() {
-            all[at] = list[item];
-            at += 1;
-            item += 1;
-        }
-        part += 1;
-    }
-    assert!(at == N);
-    all
-}
-
-const BASE: usize = DATA_SERVICES.len() + DEVICE_SERVICES.len();
-static OFFER_NONE: [Service<'static>; BASE] = offer(&[]);
-static OFFER_WORK: [Service<'static>; BASE + WORK_SERVICES.len()] = offer(&[WORK_SERVICES]);
-static OFFER_CARD: [Service<'static>; BASE + CARD_SERVICES.len()] = offer(&[CARD_SERVICES]);
-static OFFER_BOTH: [Service<'static>; BASE + WORK_SERVICES.len() + CARD_SERVICES.len()] =
-    offer(&[WORK_SERVICES, CARD_SERVICES]);
-
 /// Which of the two families the loader wired this start. Reset and written
 /// by the loader's `prepare` hook (before the first plugin is admitted) and
 /// read at each plugin's admission, in the same task: plain loads and stores (no read-modify-write, which the X4's
@@ -197,20 +130,6 @@ pub fn wired_card() {
     WIRED.store(WIRED.load(Relaxed) | WIRED_CARD, Relaxed);
 }
 
-/// The services offered to admission: the data services, `core.device` (this
-/// host answers it) and the families that were actually wired this start, as
-/// the desktop does: a plugin that needs a service that is not wired is
-/// refused at admission, not at its first call. Until a wiring has reported
-/// (and after one that failed) its services are not in the list.
-pub fn offered() -> &'static [Service<'static>] {
-    match WIRED.load(core::sync::atomic::Ordering::Relaxed) & (WIRED_WORK | WIRED_CARD) {
-        0 => &OFFER_NONE,
-        WIRED_WORK => &OFFER_WORK,
-        WIRED_CARD => &OFFER_CARD,
-        _ => &OFFER_BOTH,
-    }
-}
-
 /// Records that the wiring of `core.secrets` (the device's sealer, or the one
 /// that does not seal yet) succeeded.
 pub fn wired_secrets() {
@@ -218,12 +137,11 @@ pub fn wired_secrets() {
     WIRED.store(WIRED.load(Relaxed) | WIRED_SECRETS, Relaxed);
 }
 
-/// What this start wired, as the lists a linked plugin is offered are made
-/// (`paperpaw_x4::native_offer`): `core.work` with `core.net` and
+/// What this start wired, as the lists a linked plugin and a card plugin are
+/// offered are made (`paperpaw_x4::native_offer`): `core.work` with `core.net` and
 /// `core.sockets` (one wiring), the card's three, and `core.secrets`: the groups
 /// the lists are kept in, static. `wifi`:
 /// the kernel has a Wi-Fi model.
-#[cfg(all(feature = "native-on", feature = "esp32c3"))]
 pub fn wired_families(wifi: bool) -> paperpaw_x4::native_offer::Wired {
     use core::sync::atomic::Ordering::Relaxed;
     let wired = WIRED.load(Relaxed);
@@ -234,12 +152,6 @@ pub fn wired_families(wifi: bool) -> paperpaw_x4::native_offer::Wired {
         secrets: wired & WIRED_SECRETS != 0,
         wifi,
     }
-}
-
-/// Whether the card's families are wired (the `uses.*` features that gate
-/// them are advertised only then).
-pub fn card_wired() -> bool {
-    WIRED.load(core::sync::atomic::Ordering::Relaxed) & WIRED_CARD != 0
 }
 
 /// Tells the device what code plugins stand on: the safe mode this start is

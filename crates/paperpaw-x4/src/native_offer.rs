@@ -209,6 +209,33 @@ pub fn services(wired: Wired) -> &'static [Service<'static>] {
     }
 }
 
+/// The consent features a plugin file on the card (a card plugin) may ask
+/// for: the families it is allowed to reach, no more. `uses.network` (HTTP and
+/// sockets), `uses.storage` and `uses.library` where those are wired. Not
+/// offered, whatever is wired, so a card plugin that asks for one is refused at
+/// admission: `uses.secrets` (it reaches other plugins' secrets, their names and
+/// labels, never the values), `uses.registry`, `uses.power`, `uses.wifi`, and
+/// those `features` leaves out too (`uses.install`, `uses.firmware`,
+/// `uses.bluetooth`). The first-party plugins that are linked into the firmware
+/// have those ([`features`]). A list in the program's read-only data.
+#[must_use]
+pub fn card_features(wired: Wired) -> &'static [Feature<'static>] {
+    static NONE: [Feature<'static>; 0] = [];
+    static NETWORK: [Feature<'static>; 1] = [feature("uses.network")];
+    static CARD: [Feature<'static>; 2] = [feature("uses.storage"), feature("uses.library")];
+    static NETWORK_AND_CARD: [Feature<'static>; 3] = [
+        feature("uses.network"),
+        feature("uses.storage"),
+        feature("uses.library"),
+    ];
+    match (wired.work, wired.card) {
+        (false, false) => &NONE,
+        (true, false) => &NETWORK,
+        (false, true) => &CARD,
+        (true, true) => &NETWORK_AND_CARD,
+    }
+}
+
 /// The consent features a linked plugin may ask for (`uses.*`), with the
 /// families that back them. Not offered: `uses.bluetooth`, `uses.install` and
 /// `uses.firmware` (not backed yet: dual boot, todo 450): a plugin that needs
@@ -324,5 +351,48 @@ mod tests {
         assert!(core::ptr::eq(services(all), services(all)));
         assert!(core::ptr::eq(features(all), features(all)));
         assert!(!core::ptr::eq(services(all), services(Wired::default())));
+    }
+
+    #[test]
+    fn a_card_plugin_is_offered_only_the_families_it_may_reach() {
+        for wired in every_combination() {
+            let card = card_features(wired);
+            // Never what reaches another plugin's secrets or the device's
+            // own controls, whatever is wired.
+            for refused in [
+                "uses.secrets",
+                "uses.registry",
+                "uses.power",
+                "uses.wifi",
+                "uses.install",
+                "uses.firmware",
+                "uses.bluetooth",
+            ] {
+                assert!(
+                    !card.iter().any(|f| f.key == refused),
+                    "{refused}: {wired:?}"
+                );
+            }
+            // What is offered is also one a linked plugin has, and only where
+            // its family is wired.
+            for f in card {
+                assert!(features(wired).iter().any(|l| l.key == f.key), "{wired:?}");
+            }
+            assert_eq!(
+                card.iter().any(|f| f.key == "uses.network"),
+                wired.work,
+                "{wired:?}"
+            );
+            assert_eq!(
+                card.iter().any(|f| f.key == "uses.storage"),
+                wired.card,
+                "{wired:?}"
+            );
+            assert_eq!(
+                card.iter().any(|f| f.key == "uses.library"),
+                wired.card,
+                "{wired:?}"
+            );
+        }
     }
 }
