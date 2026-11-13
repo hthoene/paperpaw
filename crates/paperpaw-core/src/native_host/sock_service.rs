@@ -356,7 +356,24 @@ pub(crate) trait SockHost {
 }
 
 /// What the shell hands the frame under the key `core.sockets`.
-pub(crate) struct SockServices(pub(crate) Rc<dyn SockHost>);
+pub(crate) struct SockServices(pub(crate) SockRef);
+
+/// The host behind `core.sockets`: one handed over (tests), or the device's
+/// own, made fallibly at the service's first call (#248).
+pub(crate) enum SockRef {
+    Handed(Rc<dyn SockHost>),
+    Made(super::shared::Shared<device::SockDevice>),
+}
+
+impl core::ops::Deref for SockRef {
+    type Target = dyn SockHost;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Handed(host) => &**host,
+            Self::Made(device) => &**device,
+        }
+    }
+}
 
 /// `core.sockets` ops (`sockets.md` 2).
 mod op {
@@ -378,7 +395,7 @@ pub(crate) fn backend(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let host = &*who.hosts.sockets().ok_or(ERR_UNSUPPORTED)?.0;
+    let host = &*who.hosts.sockets_for_call()?.0;
     match op.id {
         op::CONNECT => {
             let socket = table::connect(host, who, input)?;

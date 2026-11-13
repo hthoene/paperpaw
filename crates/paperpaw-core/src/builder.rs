@@ -937,6 +937,7 @@ impl BuilderParts {
             plugin_defaults: Vec::new(),
             late_device_defaults: Vec::new(),
             late_config: Vec::new(),
+            native_registering: true,
             native_catalogs_added: false,
             plugin_choices: Vec::new(),
             now: Instant::default(),

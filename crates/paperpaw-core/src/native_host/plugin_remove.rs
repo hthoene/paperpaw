@@ -55,6 +55,7 @@
 use alloc::{boxed::Box, string::String};
 use paperpaw_platform::{Storage, StorageError, firmware::Text};
 
+use super::firmware_install::BuiltIns;
 use super::plugin_install::installed_of;
 use super::plugin_job::{
     Answer, DONE_AT_NEXT_START, DONE_DATA_KEPT, Finished, ID_MAX, JobEnv, JobStep, KIND_REMOVAL,
@@ -354,7 +355,13 @@ impl PluginRemove {
     }
 
     #[inline(never)]
-    fn journal(&mut self, storage: &dyn Storage) -> JobStep {
+    fn journal(&mut self, storage: &dyn Storage, built_ins: &dyn BuiltIns) -> JobStep {
+        // Before the removal commits: a device that kept no record of the
+        // store's installs takes its plugins for the store's, once.
+        // A removal starts no record: one that failed is adopted later.
+        if let Some(found) = built_ins.found() {
+            let _ = super::store_record::adopt(storage, found);
+        }
         let removal = Removal {
             id: self.id,
             data: self.data,
@@ -457,7 +464,7 @@ impl PluginJob for PluginRemove {
                 Some(Answer::No) => self.end(reason::DECLINED),
                 Some(Answer::Dismissed) => self.end(reason::DISMISSED),
             },
-            Phase::Journal => self.journal(storage),
+            Phase::Journal => self.journal(storage, env.built_ins),
             Phase::Unload => {
                 if self.aborted {
                     self.phase = Phase::Removing;

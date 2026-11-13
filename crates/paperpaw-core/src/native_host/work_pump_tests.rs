@@ -585,9 +585,10 @@ mod network {
     use super::*;
     use crate::native_host::admitted_features::AdmittedFeatures;
     use crate::native_host::{
+        HostResources,
         event_tags::EventTags,
         host_services::{Caller, HostServices},
-        net_service::{self, NetHost},
+        net_service,
         service_events::ServiceEvents,
         shell_wiring::{
             Connect, HostWiring, HttpDone, HttpJob, HttpReason, NetInputs, NetLimits, NetReports,
@@ -595,7 +596,6 @@ mod network {
             SockTransport,
         },
         sock_service,
-        sock_service::SockHost,
     };
     use paperpaw_sdk::MemoryStorage;
 
@@ -660,8 +660,8 @@ mod network {
     }
 
     /// What the plugin does to start a `core.net` request.
-    fn request_starter(host: &Rc<dyn NetHost>, started: &Started) -> Rc<dyn Fn(u64)> {
-        let (host, started) = (Rc::clone(host), Rc::clone(started));
+    fn request_starter(device: &Rc<HostResources>, started: &Started) -> Rc<dyn Fn(u64)> {
+        let (device, started) = (Rc::clone(device), Rc::clone(started));
         Rc::new(move |owner| {
             let (input, used) = batch(wire::Record::ServiceNetRequest(wire::ServiceNetRequest {
                 token: 3,
@@ -673,15 +673,17 @@ mod network {
                 max_file: 0,
             }));
             let hosts = HostServices::new();
-            let id = net_service::request_for_tests(&*host, &caller(owner, &hosts), &input[..used])
+            // The plugin's first call makes the device (#248).
+            let host = &*device.hosts().net_for_call().unwrap().0;
+            let id = net_service::request_for_tests(host, &caller(owner, &hosts), &input[..used])
                 .unwrap();
             started.borrow_mut().push(id);
         })
     }
 
     /// What the plugin does to connect a socket to `mail.example.org`.
-    fn socket_starter(socks: &Rc<dyn SockHost>, started: &Started) -> Rc<dyn Fn(u64)> {
-        let (socks, started) = (Rc::clone(socks), Rc::clone(started));
+    fn socket_starter(device: &Rc<HostResources>, started: &Started) -> Rc<dyn Fn(u64)> {
+        let (device, started) = (Rc::clone(device), Rc::clone(started));
         Rc::new(move |owner| {
             let (input, used) = batch(wire::Record::ServiceSockConnect(wire::ServiceSockConnect {
                 token: 5,
@@ -693,9 +695,9 @@ mod network {
                 server_name: "",
             }));
             let hosts = HostServices::new();
-            let id =
-                sock_service::connect_for_tests(&*socks, &caller(owner, &hosts), &input[..used])
-                    .unwrap();
+            let socks = &*device.hosts().sockets_for_call().unwrap().0;
+            let id = sock_service::connect_for_tests(socks, &caller(owner, &hosts), &input[..used])
+                .unwrap();
             started.borrow_mut().push(id);
         })
     }
@@ -711,7 +713,7 @@ mod network {
     fn with_retry(retries: u32, socket: bool) -> (World, Started, Rc<NetReports>) {
         let mut w = world();
         let shell = Rc::new(Shell);
-        let (reports, host, socks) = {
+        let (reports, device) = {
             let resources = w.kernel.shared.native_instances.test_resources().unwrap();
             let wired = resources
                 .wire(
@@ -731,8 +733,7 @@ mod network {
                 )
                 .unwrap();
             let reports = Rc::new(wired.net().unwrap().clone());
-            let host = Rc::clone(&resources.hosts().net().unwrap().0);
-            let socks = Rc::clone(&resources.hosts().sockets().unwrap().0);
+            let device = Rc::new(resources.try_clone().unwrap());
             // The plugin subscribed to `http_done` (a request needs it).
             let owners = resources.hosts().owners().unwrap();
             let _ = owners.admit(w.owners[0], &paperpaw_sdk::Id::new_static("a"));
@@ -740,13 +741,13 @@ mod network {
                 w.owners[0],
                 EventTags::collect(|tag| tag == DONE || tag == wire::EVENT_SOCKET_TAG),
             );
-            (reports, host, socks)
+            (reports, device)
         };
         // The user's network settings, read into the policy as at start.
         w.kernel.sync_net_policy();
         let started: Started = Rc::new(RefCell::new(Vec::new()));
-        let start = request_starter(&host, &started);
-        let connect = socket_starter(&socks, &started);
+        let start = request_starter(&device, &started);
+        let connect = socket_starter(&device, &started);
         *w.on_dues[0].borrow_mut() = Some(start.clone());
         let left = Rc::new(Cell::new(retries));
         *w.on_dones[0].borrow_mut() = Some(Rc::new(move |owner| {
