@@ -615,7 +615,11 @@ fn the_transfer_screen_without_a_network_says_there_is_no_wifi() {
     let _ = fs::remove_dir_all(&library);
     assert!(shown.ok, "{}", shown.stderr);
     assert!(shown.stdout.contains("No Wi-Fi"), "{}", shown.stdout);
-    assert!(!shown.stdout.contains("could not start"), "{}", shown.stdout);
+    assert!(
+        !shown.stdout.contains("could not start"),
+        "{}",
+        shown.stdout
+    );
 }
 
 /// A configuration file (`--config`) is read, and `--set` wins over it.
