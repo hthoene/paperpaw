@@ -254,6 +254,10 @@ impl crate::Kernel {
         self.shared
             .native_instances
             .retry_run_closes(self.now.millis());
+        // Answers given since the last pass (a dialog Back closed after it)
+        // reach their askers before any request or event is served: a
+        // computer's next request never finds a cancelled question open.
+        let answered_more = self.native_dialog_answers_waiting() && self.native_dialog_pump();
         // The cable's server: its start told, answered requests gone, a
         // held request delivered (`cable_pump`).
         self.native_cable_pump();
@@ -309,7 +313,8 @@ impl crate::Kernel {
         // (`firmware_events`).
         let firmware_more = self.native_firmware_pump();
         self.shared.native_instances.set_service_more(
-            more || work_more
+            more || answered_more
+                || work_more
                 || image_more
                 || reading_more
                 || setting_more
