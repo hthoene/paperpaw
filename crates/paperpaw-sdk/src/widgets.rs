@@ -1348,11 +1348,18 @@ pub const fn align_spec(id: &'static str, widget: Id, default: Align) -> Setting
 /// id holding settings, see [`settings_group`]).
 pub fn has_settings(env: &Env<'_>, id: &str) -> bool {
     let id = base(id);
-    env.settings().groups().any(|group| group.id.as_str() == id)
-        && env
-            .settings
-            .specs()
-            .any(|spec| env.settings().group_of(spec).as_str() == id)
+    let settings = env.settings();
+    let mut any = false;
+    // One spec at a time: none of a plugin on the card is kept for this.
+    let walked = settings.walk_specs(crate::settings::Pick::All, &mut |spec| {
+        any = settings.group_of(spec).as_str() == id;
+        if any {
+            core::ops::ControlFlow::Break(())
+        } else {
+            core::ops::ControlFlow::Continue(())
+        }
+    });
+    settings.groups().any(|group| group.id.as_str() == id) && walked.is_ok() && any
 }
 
 /// Where `widget`'s text sits, by its [`align_setting`]; left without one.

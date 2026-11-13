@@ -1210,26 +1210,31 @@ pub fn moved_folder(storage: &dyn Storage, value: &str, from: &str, to: &str) ->
 /// the folder chooser or the folder editor), name it at `to` now.
 fn follow_folders(env: &Env<'_>, from: &str, to: &str, out: &mut dyn FnMut(crate::Command)) {
     use crate::builtin::{screens, slots};
-    for spec in env.settings().specs() {
-        let folder = spec
-            .extra()
-            .editor
-            .as_ref()
-            .is_some_and(|editor| match editor {
-                crate::Editor::Slot(slot) => *slot == slots::CHOOSE_FOLDER,
-                crate::Editor::Screen(screen) => *screen == screens::FOLDER_EDITOR,
-            });
-        if !folder {
-            continue;
-        }
-        let value = env.settings().text(spec.id.as_str());
-        if let Some(moved) = moved_folder(env.storage(), value, from, to) {
-            out(crate::Command::SetSetting(
-                spec.id.clone(),
-                crate::SettingValue::Text(moved.into()),
-            ));
-        }
-    }
+    // An editor is part of a spec's extra, and specs with one are kept
+    // whole: nothing is made for this walk, so it cannot run out of room.
+    let walked = env
+        .settings()
+        .each_spec(crate::settings::Pick::WithExtra, |spec| {
+            let folder = spec
+                .extra()
+                .editor
+                .as_ref()
+                .is_some_and(|editor| match editor {
+                    crate::Editor::Slot(slot) => *slot == slots::CHOOSE_FOLDER,
+                    crate::Editor::Screen(screen) => *screen == screens::FOLDER_EDITOR,
+                });
+            if !folder {
+                return;
+            }
+            let value = env.settings().text(spec.id.as_str());
+            if let Some(moved) = moved_folder(env.storage(), value, from, to) {
+                out(crate::Command::SetSetting(
+                    spec.id.clone(),
+                    crate::SettingValue::Text(moved.into()),
+                ));
+            }
+        });
+    debug_assert!(walked.is_ok(), "no spec with an extra is made on demand");
 }
 
 /// Forgets the book at `path`, deleted: its details, its cover made
