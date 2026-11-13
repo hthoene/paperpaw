@@ -337,15 +337,19 @@ fn main() {
     let files_card = card;
     let mut run = Run { kernel, now: 0 };
     run.settle(effects);
-    // A format is a native plugin only where the build activates them (the
-    // flip, #243): one not registered is left out and counted, every other
-    // plugin that may sleep must be there.
+    // A format is a native plugin only where the build links the reading
+    // plugins (`native-linked-reading`, the flip, #243): there every plugin
+    // that may sleep must be registered, formats included; elsewhere only a
+    // format may be left out.
     let (registered, absent): (Vec<&str>, Vec<&str>) = paperpaw_app::SLEEPS
         .iter()
         .copied()
         .partition(|plugin| run.kernel.native_is_parked(plugin).is_some());
+    let formats_linked = cfg!(feature = "native-linked-reading");
     assert!(
-        absent.iter().all(|plugin| plugin.starts_with("format-")),
+        absent
+            .iter()
+            .all(|plugin| !formats_linked && plugin.starts_with("format-")),
         "plugins that may sleep but are not registered: {absent:?}"
     );
     let ways: Vec<(&str, Use)> = registered

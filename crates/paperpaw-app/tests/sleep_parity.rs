@@ -599,43 +599,64 @@ fn settings_is_the_same_asleep() {
 }
 
 #[test]
-#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the linked formats (`native-linked-reading`) (formats are native plugins with the flip, #243)"
+)]
 fn format_cbz_is_the_same_asleep() {
     same_awake_and_asleep("format-cbz");
 }
 
 #[test]
-#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the linked formats (`native-linked-reading`) (formats are native plugins with the flip, #243)"
+)]
 fn format_epub_is_the_same_asleep() {
     same_awake_and_asleep("format-epub");
 }
 
 #[test]
-#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the linked formats (`native-linked-reading`) (formats are native plugins with the flip, #243)"
+)]
 fn format_fb2_is_the_same_asleep() {
     same_awake_and_asleep("format-fb2");
 }
 
 #[test]
-#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the linked formats (`native-linked-reading`) (formats are native plugins with the flip, #243)"
+)]
 fn format_html_is_the_same_asleep() {
     same_awake_and_asleep("format-html");
 }
 
 #[test]
-#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the linked formats (`native-linked-reading`) (formats are native plugins with the flip, #243)"
+)]
 fn format_markdown_is_the_same_asleep() {
     same_awake_and_asleep("format-markdown");
 }
 
 #[test]
-#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the linked formats (`native-linked-reading`) (formats are native plugins with the flip, #243)"
+)]
 fn format_txt_is_the_same_asleep() {
     same_awake_and_asleep("format-txt");
 }
 
 #[test]
-#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the linked formats (`native-linked-reading`) (formats are native plugins with the flip, #243)"
+)]
 fn format_xtc_is_the_same_asleep() {
     same_awake_and_asleep("format-xtc");
 }
@@ -645,7 +666,10 @@ fn format_xtc_is_the_same_asleep() {
 /// has the pages. The count used to start only for a book prepared first
 /// (#248: the open path asked before the screen was on top).
 #[test]
-#[ignore = "needs native activation (the book's format is a native plugin with the flip, #243)"]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the linked formats (`native-linked-reading`) (the book's format is a native plugin with the flip, #243)"
+)]
 fn a_book_ready_at_once_has_its_pages_counted() {
     let book = book_of("format-txt").expect("a txt book");
     let mut run = Run::start(none_sleeps, Some(&book));
@@ -687,7 +711,10 @@ fn page_index(run: &Run) -> bool {
 /// add to the settings' peak) and goes on when the book shows again (#248,
 /// Manager's decision 1).
 #[test]
-#[ignore = "needs native activation (the book's format is a native plugin with the flip, #243)"]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the linked formats (`native-linked-reading`) (the book's format is a native plugin with the flip, #243)"
+)]
 fn the_page_count_waits_while_another_screen_covers_the_book() {
     let book = book_of("format-txt").expect("a txt book");
     let mut run = Run::start(none_sleeps, Some(&book));
