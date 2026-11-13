@@ -228,6 +228,36 @@ fn core_work_is_wired_once_and_its_view_is_made_of_the_shell_the_kernel_and_the_
 }
 
 #[test]
+fn core_work_is_made_at_its_first_call_and_a_call_without_room_tries_again() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let resources = HostResources::try_new().unwrap();
+    resources
+        .wire(HostWiring::new().work(WorkInputs::new(Rc::new(Clock), MemoryClass::Small)))
+        .unwrap();
+    let hosts = resources.hosts();
+    assert!(hosts.work_wired());
+    assert!(
+        hosts.work_made().is_none(),
+        "nothing made at the wiring (#248)"
+    );
+    // The first call without room: no memory, still wired, nothing made.
+    FAIL_NTH.with(|n| n.set(1));
+    let refused = hosts.work_for_call().err();
+    FAIL_NTH.with(|n| n.set(0));
+    assert_eq!(refused, Some(ERR_NO_MEMORY));
+    assert!(hosts.work_made().is_none() && hosts.work_wired());
+    // The next call makes it, over the shell's view as before.
+    let work = hosts.work_for_call().unwrap();
+    assert_eq!(work.env.now_ms(), 5);
+    assert!(work.env.network_up());
+    assert!(core::ptr::eq(hosts.work_made().unwrap(), work));
+    // Wired once: a second wiring is refused.
+    let again =
+        resources.wire(HostWiring::new().work(WorkInputs::new(Rc::new(Clock), MemoryClass::Small)));
+    assert_eq!(again.err(), Some(ERR_STATE));
+}
+
+#[test]
 fn core_secrets_is_wired_once_and_the_shell_keeps_its_lifecycle_calls() {
     let resources = HostResources::try_new().unwrap();
     let mut wired = resources

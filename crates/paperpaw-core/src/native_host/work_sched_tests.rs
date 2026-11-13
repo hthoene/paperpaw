@@ -1141,9 +1141,9 @@ fn the_current_run_is_the_open_callback_of_that_owner_only() {
 #[test]
 fn a_close_the_scheduler_could_not_take_waits_for_the_next_pass_and_an_overflow_is_counted() {
     use crate::native_host::owner_directory::OwnerDirectory;
-    let s = alloc::rc::Rc::new(sched());
+    let s = crate::native_host::shared::Shared::try_new(sched()).unwrap();
     let dir = OwnerDirectory::new();
-    dir.attach_sched(&s);
+    dir.attach_sched(s.try_clone().unwrap());
     let env = Fake::new();
     s.declare(A, &spec("w"), 1_000).unwrap();
     s.begin_pass(&env).unwrap();

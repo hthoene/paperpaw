@@ -307,7 +307,7 @@ impl WorkEnv for Env {
 #[test]
 fn two_callbacks_in_one_pump_step_each_run_their_batch_before_the_next() {
     let mut w = world(true);
-    let sched = Rc::new(WorkSched::new(Limits::OTHER));
+    let sched = crate::native_host::shared::Shared::try_new(WorkSched::new(Limits::OTHER)).unwrap();
     w.kernel
         .shared
         .native_instances
@@ -315,8 +315,10 @@ fn two_callbacks_in_one_pump_step_each_run_their_batch_before_the_next() {
         .unwrap()
         .hosts()
         .wire_work(WorkServices {
-            sched: Rc::clone(&sched),
-            env: Rc::new(Env),
+            sched: sched.try_clone().unwrap(),
+            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Env)
+                as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>)
+            .unwrap(),
         })
         .unwrap();
     for (token, key) in [(1, "one"), (2, "two")] {
@@ -350,7 +352,7 @@ fn two_callbacks_in_one_pump_step_each_run_their_batch_before_the_next() {
 
 /// A pump with one plugin whose work is due.
 fn run_work(w: &mut World) {
-    let sched = Rc::new(WorkSched::new(Limits::OTHER));
+    let sched = crate::native_host::shared::Shared::try_new(WorkSched::new(Limits::OTHER)).unwrap();
     w.kernel
         .shared
         .native_instances
@@ -358,8 +360,10 @@ fn run_work(w: &mut World) {
         .unwrap()
         .hosts()
         .wire_work(WorkServices {
-            sched: Rc::clone(&sched),
-            env: Rc::new(Env),
+            sched: sched.try_clone().unwrap(),
+            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Env)
+                as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>)
+            .unwrap(),
         })
         .unwrap();
     sched
@@ -550,7 +554,7 @@ fn a_plugin_whose_events_all_stage_does_not_keep_the_others_waiting() {
 fn a_runs_network_events_are_quiet_too() {
     use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
     let mut w = world(true);
-    let sched = Rc::new(WorkSched::new(Limits::OTHER));
+    let sched = crate::native_host::shared::Shared::try_new(WorkSched::new(Limits::OTHER)).unwrap();
     w.kernel
         .shared
         .native_instances
@@ -558,8 +562,10 @@ fn a_runs_network_events_are_quiet_too() {
         .unwrap()
         .hosts()
         .wire_work(WorkServices {
-            sched: Rc::clone(&sched),
-            env: Rc::new(Env),
+            sched: sched.try_clone().unwrap(),
+            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Env)
+                as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>)
+            .unwrap(),
         })
         .unwrap();
     w.command.set(1);

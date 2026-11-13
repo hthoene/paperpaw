@@ -15,7 +15,7 @@
 //! fallibly before the format is entered; the drop never allocates. Calls in
 //! calls are bounded by [`MAX_NESTING`], and an owner has one call at a time.
 use alloc::{string::String, vec::Vec};
-use core::cell::{Cell, OnceCell, RefCell};
+use core::cell::{Cell, Ref, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_NO_SPACE};
 
 /// Calls inside calls at most (the nesting budget of the instance registry).
@@ -144,10 +144,15 @@ impl Slot {
 /// entry, which is the call its running callback is for; `enter` refuses a
 /// second one (`ERR_BUSY`) instead of guessing between them, and `current`
 /// answers for exactly that call or for none.
+/// The places of the calls.
+type Places = Option<alloc::boxed::Box<[Slot]>>;
+
 pub(crate) struct FormatScope {
     /// The places for the calls, made at the first call (a device that never
-    /// opens a document through a format holds none of the 1 KiB they take).
-    slots: OnceCell<alloc::boxed::Box<[Slot]>>,
+    /// opens a document through a format holds none of the 1 KiB they take),
+    /// and given back where no call is under way and the host's details run
+    /// ended (`release`, #248).
+    slots: RefCell<Places>,
     /// The bytes in each cache folder (the folder's key, bytes), least
     /// recently used first: counted here because a cache lives longer than a
     /// call and is shared by the documents of one conversion.
@@ -165,7 +170,11 @@ impl core::fmt::Debug for FormatScope {
         f.debug_struct("FormatScope")
             .field(
                 "calls",
-                &self.places().iter().filter(|s| s.live.get()).count(),
+                &self.slots.try_borrow().map_or(0, |places| {
+                    places
+                        .as_deref()
+                        .map_or(0, |p| p.iter().filter(|s| s.live.get()).count())
+                }),
             )
             .finish()
     }
@@ -174,16 +183,21 @@ impl core::fmt::Debug for FormatScope {
 /// Ends the call's scope when dropped, also while unwinding.
 #[must_use = "the scope ends when the guard is dropped"]
 pub(crate) struct Guard<'a> {
-    slot: &'a Slot,
+    /// Held while the call is under way: the places are not given back.
+    places: Ref<'a, Places>,
+    at: usize,
 }
 
 impl Drop for Guard<'_> {
     fn drop(&mut self) {
+        let Some(slot) = self.places.as_deref().and_then(|p| p.get(self.at)) else {
+            return;
+        };
         // First, so that nothing can see the call again whatever follows.
-        self.slot.live.set(false);
+        slot.live.set(false);
         // The copies are freed now if nobody is looking at them; else the
         // next call to use the place frees them.
-        if let Ok(mut entry) = self.slot.entry.try_borrow_mut() {
+        if let Ok(mut entry) = slot.entry.try_borrow_mut() {
             *entry = None;
         }
     }
@@ -200,31 +214,52 @@ fn text(source: &str) -> Result<String, i32> {
 impl FormatScope {
     pub(crate) const fn new() -> Self {
         Self {
-            slots: OnceCell::new(),
+            slots: RefCell::new(None),
             used: RefCell::new(Vec::new()),
         }
     }
 
-    /// The places made so far (none before the first call).
-    fn places(&self) -> &[Slot] {
-        self.slots.get().map_or(&[], |slots| &slots[..])
+    /// The places made so far (tests: none before the first call).
+    #[cfg(test)]
+    pub(crate) fn places_len(&self) -> usize {
+        self.slots
+            .try_borrow()
+            .map_or(0, |places| places.as_deref().map_or(0, <[Slot]>::len))
     }
 
-    /// The places, made now if they are not (fallibly, once).
-    fn places_made(&self) -> Result<&[Slot], i32> {
-        if let Some(slots) = self.slots.get() {
-            return Ok(&slots[..]);
+    /// Where the places are (tests: the same block or a new one).
+    #[cfg(test)]
+    fn places_at(&self) -> *const Slot {
+        self.slots.try_borrow().map_or(core::ptr::null(), |places| {
+            places
+                .as_deref()
+                .map_or(core::ptr::null(), <[Slot]>::as_ptr)
+        })
+    }
+
+    /// The places, made now if they are not (fallibly; again after
+    /// `release`).
+    fn make_places(&self) -> Result<(), i32> {
+        if self.slots.try_borrow().map_err(|_| ERR_BUSY)?.is_some() {
+            return Ok(());
         }
         let mut made = Vec::new();
         made.try_reserve_exact(MAX_NESTING)
             .map_err(|_| ERR_NO_MEMORY)?;
         made.extend((0..MAX_NESTING).map(|_| Slot::new()));
-        // Nothing sets it between the check and here: the host is one thread.
-        let _ = self.slots.set(made.into_boxed_slice());
-        self.slots
-            .get()
-            .map(|slots| &slots[..])
-            .ok_or(ERR_NO_MEMORY)
+        *self.slots.try_borrow_mut().map_err(|_| ERR_BUSY)? = Some(made.into_boxed_slice());
+        Ok(())
+    }
+
+    /// Gives back the places where no call is under way (a call's guard holds
+    /// them): the host's details run ended and no document is open (#248).
+    /// The next call makes them again, fallibly. Whether they were.
+    pub(crate) fn release(&self) -> bool {
+        let Ok(mut places) = self.slots.try_borrow_mut() else {
+            return false;
+        };
+        *places = None;
+        true
     }
 
     /// `add` bytes more and `credit` bytes fewer in the cache folder `folder`
@@ -291,11 +326,14 @@ impl FormatScope {
     /// `ERR_BUSY` when `owner` has a call under way already, `ERR_FULL` when
     /// [`MAX_NESTING`] calls are, `ERR_NO_MEMORY` when the copies cannot be had.
     pub(crate) fn enter(&self, owner: u64, book: &FormatBook<'_>) -> Result<Guard<'_>, i32> {
-        let slots = self.places_made()?;
+        self.make_places()?;
+        let places = self.slots.try_borrow().map_err(|_| ERR_BUSY)?;
+        let slots = places.as_deref().ok_or(ERR_NO_MEMORY)?;
         if slots.iter().any(|s| s.live.get() && s.owner.get() == owner) {
             return Err(ERR_BUSY);
         }
-        let slot = slots.iter().find(|s| !s.live.get()).ok_or(ERR_FULL)?;
+        let at = slots.iter().position(|s| !s.live.get()).ok_or(ERR_FULL)?;
+        let slot = &slots[at];
         let entry = Entry {
             path: text(book.path)?,
             opened: text(book.opened)?,
@@ -309,15 +347,19 @@ impl FormatScope {
         *slot.entry.try_borrow_mut().map_err(|_| ERR_BUSY)? = Some(entry);
         slot.owner.set(owner);
         slot.live.set(true);
-        Ok(Guard { slot })
+        Ok(Guard { places, at })
     }
 
     /// Whether `owner` is inside a format call; if so `visit` is called once
     /// with what that call is for. Nothing is allocated. A call that cannot be
     /// looked at is none: it fails closed.
     pub(crate) fn current(&self, owner: u64, visit: &mut dyn FnMut(&FormatBook<'_>)) -> bool {
-        let Some(slot) = self
-            .places()
+        let Ok(places) = self.slots.try_borrow() else {
+            return false;
+        };
+        let Some(slot) = places
+            .as_deref()
+            .unwrap_or(&[])
             .iter()
             .find(|s| s.live.get() && s.owner.get() == owner)
         else {

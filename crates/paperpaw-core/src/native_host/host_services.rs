@@ -78,6 +78,8 @@ pub(crate) struct HostServices {
     net: OnceCell<NetServices>,
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
+    /// What makes `core.work` at its first call (#248).
+    work_later: Cell<Option<super::shell_wiring::WorkInputs>>,
     secrets: OnceCell<SecretsServices>,
     /// The library's move job and its card side, made when `core.files` is
     /// wired (`lib_moves_service`).
@@ -168,6 +170,7 @@ impl HostServices {
             net: OnceCell::new(),
             sockets: OnceCell::new(),
             work: OnceCell::new(),
+            work_later: Cell::new(None),
             secrets: OnceCell::new(),
             library_moves: OnceCell::new(),
             busy: OnceCell::new(),
@@ -728,17 +731,70 @@ impl HostServices {
         self.sockets.get()
     }
 
-    /// Wire `core.work` once.
+    /// Wire `core.work` once, made.
     pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
+        if self.work_wired() {
+            return Err(ERR_STATE);
+        }
         let owners = self.owners()?;
-        let sched = Rc::clone(&work.sched);
+        let sched = work.sched.try_clone().ok_or(ERR_NO_MEMORY)?;
         self.work.set(work).map_err(|_| ERR_STATE)?;
-        owners.attach_sched(&sched);
+        owners.attach_sched(sched);
         Ok(())
     }
 
-    pub(crate) fn work(&self) -> Option<&WorkServices> {
+    /// Wire `core.work` once, to be made at its first call (#248).
+    pub(crate) fn wire_work_later(
+        &self,
+        inputs: super::shell_wiring::WorkInputs,
+    ) -> Result<(), i32> {
+        if self.work_wired() {
+            return Err(ERR_STATE);
+        }
+        self.work_later.set(Some(inputs));
+        Ok(())
+    }
+
+    /// Whether `core.work` is wired, made or not.
+    pub(crate) fn work_wired(&self) -> bool {
+        let later = self.work_later.take();
+        let wired = later.is_some() || self.work.get().is_some();
+        self.work_later.set(later);
+        wired
+    }
+
+    /// `core.work` where it is made: a scheduler not made holds no work.
+    pub(crate) fn work_made(&self) -> Option<&WorkServices> {
         self.work.get()
+    }
+
+    /// `core.work` for a plugin's call, made now where it is not yet.
+    ///
+    /// # Errors
+    /// `ERR_UNSUPPORTED` when it is not wired; `ERR_NO_MEMORY` (the next
+    /// call tries again).
+    pub(crate) fn work_for_call(&self) -> Result<&WorkServices, i32> {
+        if let Some(work) = self.work.get() {
+            return Ok(work);
+        }
+        let inputs = self.work_later.take().ok_or(ERR_UNSUPPORTED)?;
+        let made = self.owners().and_then(|owners| {
+            let owners = owners.try_clone().ok_or(ERR_NO_MEMORY)?;
+            super::shell_wiring::make_work(&inputs, owners, self.policy().clone())
+        });
+        match made.and_then(|work| self.wire_work(work)) {
+            Ok(()) => self.work.get().ok_or(ERR_STATE),
+            Err(status) => {
+                self.work_later.set(Some(inputs));
+                Err(status)
+            }
+        }
+    }
+
+    /// `core.work`, made now where it is not yet (tests).
+    #[cfg(test)]
+    pub(crate) fn work(&self) -> Option<&WorkServices> {
+        self.work_for_call().ok()
     }
 
     /// Wire `core.secrets` once.
@@ -758,6 +814,18 @@ impl HostServices {
     )]
     pub(crate) fn format_scope(&self) -> &super::format_scope::FormatScope {
         &self.format_scope
+    }
+
+    /// The host's details run ended (#248): where no document is open, the
+    /// document table's room, the reader's books and the places of the
+    /// format calls are given back until the next open or call makes them
+    /// again, fallibly (an open without room is `ERR_NO_MEMORY`, and a job
+    /// waits). Whether they were.
+    pub(crate) fn release_document_rooms(&self) -> bool {
+        self.documents
+            .get()
+            .is_some_and(|documents| documents.0.release_rooms())
+            && self.format_scope.release()
     }
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()

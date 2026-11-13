@@ -977,7 +977,8 @@ impl NativeInstances {
 
     /// The device's `core.work` host, once the shell wired it.
     pub(crate) fn work_services(&self) -> Option<&super::work_service::WorkServices> {
-        self.pool.as_ref()?.hosts().work()
+        // A scheduler not made yet holds no work (#248).
+        self.pool.as_ref()?.hosts().work_made()
     }
 
     /// Gives back what the tables kept in reserve while the plugins were

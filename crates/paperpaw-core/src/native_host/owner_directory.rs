@@ -28,7 +28,7 @@ pub(crate) struct OwnerDirectory {
     /// The kernel's screen stack, once a native owner was admitted.
     screens: RefCell<Option<Rc<StackRows>>>,
     /// The scheduler, once `core.work` is wired.
-    sched: RefCell<Option<Rc<WorkSched>>>,
+    sched: RefCell<Option<super::shared::Shared<WorkSched>>>,
     /// Updates ([`Self::subscribe`], [`Self::withdraw`]) that found the table
     /// held and were skipped; the kernel reports them ([`Self::take_missed`]).
     /// A missed subscribe fails closed (nothing is admitted); a missed
@@ -70,9 +70,9 @@ impl OwnerDirectory {
     }
 
     /// Keeps the scheduler for [`Self::current_run`].
-    pub(crate) fn attach_sched(&self, sched: &Rc<WorkSched>) {
+    pub(crate) fn attach_sched(&self, sched: super::shared::Shared<WorkSched>) {
         if let Ok(mut slot) = self.sched.try_borrow_mut() {
-            *slot = Some(Rc::clone(sched));
+            *slot = Some(sched);
         }
     }
 
@@ -316,8 +316,9 @@ mod tests {
         }]);
         assert_eq!(dir.topmost_screen(9), Some(4));
         assert_eq!(dir.topmost_screen(8), None);
-        let sched = Rc::new(WorkSched::new(Limits::OTHER));
-        dir.attach_sched(&sched);
+        let sched =
+            crate::native_host::shared::Shared::try_new(WorkSched::new(Limits::OTHER)).unwrap();
+        dir.attach_sched(sched.try_clone().unwrap());
         assert!(dir.run_known());
         assert_eq!(dir.current_run(9), None);
         // The scheduler in use: not known (never "no run").

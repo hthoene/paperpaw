@@ -30,6 +30,8 @@ std::thread_local! {
     static UNCOVERED: Cell<u32> = const { Cell::new(0) };
     /// The nth allocation of this thread fails (1-based; 0: none).
     pub(in crate::native_host) static FAIL_NTH: Cell<u32> = const { Cell::new(0) };
+    /// The next allocation of exactly this many bytes fails, once (0: none).
+    pub(in crate::native_host) static FAIL_SIZE: Cell<usize> = const { Cell::new(0) };
     /// Bytes this thread holds from the heap now, and the most it held.
     pub(in crate::native_host) static HEAP_LIVE: Cell<usize> = const { Cell::new(0) };
     pub(in crate::native_host) static HEAP_PEAK: Cell<usize> = const { Cell::new(0) };
@@ -62,7 +64,9 @@ unsafe impl core::alloc::GlobalAlloc for Failing {
             n.set(left - 1);
             left == 1
         });
-        if fail == Ok(true) {
+        let sized =
+            || FAIL_SIZE.try_with(|size| size.get() == layout.size() && size.replace(0) != 0);
+        if fail == Ok(true) || sized() == Ok(true) {
             return ptr::null_mut();
         }
         // SAFETY: the caller's layout, forwarded.
