@@ -143,7 +143,7 @@ pub const fn default_store() -> StorePlugins<'static> {
 /// [`native_default_on`]. Not in the list yet, because their ports are not
 /// finished (each one's `PORTING-7.md` says what is open) or the interface-6
 /// reader still reads books through their interface-6 forms: sleep,
-/// dictionary, store, fonts-browser. The formats (txt, xtc, epub,
+/// dictionary, store. The formats (txt, xtc, epub,
 /// html, fb2, markdown, cbz) are linked with the reader
 /// (`native-linked-reading`), and docx, images and mobi with it where
 /// `native-linked-store` links the store's plugins: the native reader opens
@@ -159,6 +159,11 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    (
+        "fonts-browser",
+        &paperpaw_plugin_fonts_browser::NATIVE_ENTRY,
+    ),
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-reading")]
     ("home", &paperpaw_plugin_home::NATIVE_ENTRY),
@@ -327,6 +332,8 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         "picture-home" => tables!(paperpaw_plugin_picture_home),
         "bluetooth" => tables!(paperpaw_plugin_bluetooth),
         "file-manager" => tables!(paperpaw_plugin_file_manager),
+        #[cfg(feature = "native-linked-store")]
+        "fonts-browser" => tables!(paperpaw_plugin_fonts_browser),
         "help" => tables!(paperpaw_plugin_help),
         #[cfg(feature = "native-linked-reading")]
         "home" => tables!(paperpaw_plugin_home),
@@ -612,7 +619,12 @@ pub fn install_with(
         #[cfg(any(feature = "packs", not(feature = "outline")))]
         Fonts::Packs => builder.plugin(paperpaw_plugin_fonts_default::DefaultFontPacks),
     };
-    #[cfg(not(feature = "store-plugins"))]
+    // Nothing is left to `store` without the store's plugins, or where they
+    // and the reader's are all linked.
+    #[cfg(not(all(
+        feature = "store-plugins",
+        not(all(feature = "native-linked-store", feature = "native-linked-reading"))
+    )))]
     let _ = store;
     let mut b = builder;
     // The plugins that are native plugins, linked (`NATIVE_PLUGINS`), where the
@@ -668,7 +680,9 @@ pub fn install_with(
         b = b.plugin(paperpaw_plugin_wifi::Wifi);
         b = b.plugin(paperpaw_plugin_transfer::Transfer);
     }
-    #[cfg(feature = "store-plugins")]
+    // Fonts browser is a native plugin, linked (`NATIVE_PLUGINS`), where
+    // `native-linked-store` links the store's plugins.
+    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
     {
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
     }
@@ -737,8 +751,12 @@ fn offered_replacing_home(
     }
 }
 
-/// Adds `plugin`, one the store offers as a file too, as `store` says.
-#[cfg(feature = "store-plugins")]
+/// Adds `plugin`, one the store offers as a file too, as `store` says (none
+/// is left to it where the store's and the reader's plugins are all linked).
+#[cfg(all(
+    feature = "store-plugins",
+    not(all(feature = "native-linked-store", feature = "native-linked-reading"))
+))]
 fn offered(
     builder: KernelBuilder,
     store: StorePlugins<'_>,

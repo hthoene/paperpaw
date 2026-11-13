@@ -278,6 +278,18 @@ fn fonts_over_the_caps_are_not_offered() {
 }
 
 #[test]
+fn the_librarys_packs_over_half_a_mebibyte_are_offered_as_on_interface_6() {
+    // The sizes of the largest packs of paperpaw.org's fonts (EB Garamond,
+    // Nunito, Atkinson Hyperlegible Next's bold italic).
+    for size in [558_198, 624_799, 666_854] {
+        let json =
+            catalog(&[font("big", 2, true).replace("\"size\": 2,", &format!("\"size\": {size},"))]);
+        assert_eq!(read(&json, false).len(), 1, "{size}");
+        assert_eq!(read(&json, true).len(), 1, "{size}");
+    }
+}
+
+#[test]
 fn a_catalog_in_a_file_is_read_as_the_text_is() {
     let fonts: Vec<String> = (0..40).map(|n| font(&format!("f{n}"), 2, true)).collect();
     let json = catalog(&fonts);
