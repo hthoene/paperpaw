@@ -299,6 +299,14 @@ but the floor of 8 pixels a tile (`IMG-tile-many`, accepted by the Manager).
 
 The icons of *Add*'s rows are a smaller step named above.
 
+On the X4 the host keeps nested callbacks closed until the device's stack check passes (#250,
+`ui_store::nested_closed`): it lays no other plugin's widget out (`widget_place`, `widget_measure`,
+`widget_targets` and `ui.compose` answer `ERR_UNSUPPORTED`), and every widget of the default page is
+home's. Until then the page shows the picture, the plates and the bar with the widgets' cells left
+empty and nothing in them to reach (`tests/hosted_x4_gate.rs`), where Beta 3 showed the widgets. Full
+parity on the X4 comes when that gate opens; nothing changes here then. A widget of another plugin
+shows only once the host tells its owner `event.widget_made` (Core, todo 594).
+
 ### Gate: not in `NATIVE_PLUGINS` or `complete.txt` until the activation (with the removal step)
 
 `make` submits the `core.home` offer at the priority of a replacing plugin. The dashboard, *Add* and

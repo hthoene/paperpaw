@@ -573,9 +573,15 @@ impl Dashboard {
                                 &mut input,
                                 &mut out,
                             );
-                            if let Err(error) = placed {
-                                drop_widget(host, ui, handle);
-                                return Err(error);
+                            match placed {
+                                // The X4 until its nested callbacks are measured
+                                // (#250): the host lays no other plugin's widget
+                                // out, so its cell stays empty, the page shows.
+                                Ok(()) | Err(Error::Unsupported) => {}
+                                Err(error) => {
+                                    drop_widget(host, ui, handle);
+                                    return Err(error);
+                                }
                             }
                         }
                         (text::copy(Self::widget_title(src, id))?, Some(made))
@@ -645,13 +651,19 @@ impl Dashboard {
                 None => push(&mut targets, tool_target(cell.rect, index))?,
                 Some(MadeWidget::Widget(widget)) => {
                     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                    let found = ui.widget_targets(
+                    let found = match ui.widget_targets(
                         host,
                         widget,
                         paint::frame_rect(cell.rect),
                         &mut input,
                         &mut out,
-                    )?;
+                    ) {
+                        Ok(found) => found,
+                        // A widget the host lays out for no one (the X4's
+                        // closed nested callbacks): nothing to reach in it.
+                        Err(Error::Unsupported) => continue,
+                        Err(error) => return Err(error),
+                    };
                     for target in found {
                         let target = target?;
                         let at = target.rect();
