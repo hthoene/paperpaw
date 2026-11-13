@@ -543,7 +543,7 @@ impl ItemList {
         drop(messages);
         let end = starts.get(page + 1).copied().unwrap_or(self.items.len());
         let mut body = Vec::new();
-        paint::push(&mut body, Paint::Fill(area, style.paper))?;
+        paint::push(&mut body, Paint::Fill(style.page(area), style.paper))?;
         let mut hits = Vec::new();
         let mut steps = Vec::new();
         let mut grip_rects = Vec::new();
@@ -1194,7 +1194,7 @@ pub(crate) fn draw_row(
         return Ok(buttons);
     }
     let color = if focused && !style.ring {
-        style.paper
+        style.on_bar()
     } else {
         style.note
     };

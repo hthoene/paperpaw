@@ -126,7 +126,7 @@ fn excluded_names(root: u32) -> &'static [&'static str] {
 const JOINED: usize = 384;
 
 /// Whether the file or folder `parent/name` exists on `storage`.
-fn exists_in(storage: &dyn Storage, parent: &str, name: &str) -> bool {
+pub(crate) fn exists_in(storage: &dyn Storage, parent: &str, name: &str) -> bool {
     let mut buf = [0u8; JOINED];
     let need = parent.len() + usize::from(!parent.is_empty()) + name.len();
     let Some(room) = buf.get_mut(..need) else {
@@ -244,6 +244,10 @@ impl FilesHost for StorageFiles {
         self.data_plugins
             .as_ref()
             .is_some_and(|folders| folders.contains(name))
+    }
+
+    fn host_file(&self, folder: &str, entry: &str) -> bool {
+        super::data_plugin_folders::host_file(&*self.storage, folder, entry)
     }
 
     fn excluded(&self, root: u32, parent: &str, first_segment: &str) -> bool {

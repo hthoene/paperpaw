@@ -392,6 +392,9 @@ impl MobiProvider {
         }
     }
 
+    // `open`, `prepare`, `ask` and `block` stay apart from `call`: together in
+    // one frame they are over the 2 KiB the X4 allows (the packer refuses it).
+    #[inline(never)]
     fn open(
         &mut self,
         io: &dyn Storage,
@@ -443,6 +446,7 @@ impl MobiProvider {
         Ok(written)
     }
 
+    #[inline(never)]
     fn prepare(
         &mut self,
         io: &dyn Storage,
@@ -514,6 +518,7 @@ impl MobiProvider {
         one(state_record(id, conversion, STATE_READY, 0, 0, flags), out)
     }
 
+    #[inline(never)]
     fn ask(
         document: &MobiDocument,
         io: &dyn Storage,
@@ -735,6 +740,7 @@ impl MobiProvider {
         )
     }
 
+    #[inline(never)]
     fn block(
         document: &MobiDocument,
         io: &dyn Storage,
@@ -777,6 +783,7 @@ fn clear(io: &dyn Storage) {
 
 /// The `flags` of a ready document's state: bit 1 where it has a table of
 /// contents, bit 6 where this call made the cache.
+#[inline(never)]
 fn ready_flags(document: &MobiDocument, io: &dyn Storage, made: bool) -> Result<u32, Error> {
     let toc = document.try_toc_len(io).map_err(|e| document_error(&e))? > 0;
     Ok((u32::from(toc) * FLAG_TOC) | (u32::from(made) * CACHE_MADE))
@@ -785,6 +792,7 @@ fn ready_flags(document: &MobiDocument, io: &dyn Storage, made: bool) -> Result<
 /// Reads the book's head and starts: a ready document where the cache is
 /// whole (the host removes one that is not), else the conversion. `made`
 /// says the cache was made by this call (it is, by the calls to come).
+#[inline(never)]
 fn start(io: &dyn Storage, call: &stage::FmtCall<'_>) -> Result<(Body, bool), Error> {
     let header = Header::read(io, "").map_err(|e| document_error(&e))?;
     let size = io

@@ -16,7 +16,10 @@ use crate::{
     Paint, Style,
     geometry::{clamp_u16, line_px},
     mem::push,
-    paint, text,
+    paint,
+    style::{ButtonLook, Plate},
+    text,
+    widget::Frame,
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::canvas::PartRole;
@@ -68,6 +71,17 @@ pub struct Dialog {
     ink: Color,
     paper: Color,
     muted: Color,
+    /// What the box stands on (its frame: a line round paper unless the theme chose).
+    plate: Plate,
+    /// The pixels of the hard shadow, which lie inside `panel`.
+    shadow: u16,
+    shade: Color,
+    look: ButtonLook,
+    /// The fill of a button that is filled, and of the chosen one with its
+    /// label's ink.
+    control: Color,
+    focus: Color,
+    on_focus: Color,
 }
 
 fn wrap(font: &Font<'_>, size: f32, paragraph: &str, inner: f32) -> Result<Vec<String>, Error> {
@@ -111,6 +125,7 @@ impl Dialog {
         text: &[&str],
         buttons: &[&str],
     ) -> Result<Self, Error> {
+        let plate = style.plate(Frame::Line);
         let margin = style.margin;
         let width = screen.0.saturating_sub(margin.saturating_mul(2));
         let inner = f32::from(width.saturating_sub(margin.saturating_mul(2))).max(1.0);
@@ -163,9 +178,25 @@ impl Dialog {
             small: style.small,
             area: Rect::new(0, 0, 0, 0),
             top: 0,
-            ink: style.ink,
-            paper: style.paper,
-            muted: style.muted,
+            ink: plate.ink,
+            paper: plate.paper,
+            // Gray text is only gray on the page's own paper.
+            muted: if plate.ink == style.ink {
+                style.muted
+            } else {
+                plate.ink
+            },
+            plate,
+            shadow: style.shadow,
+            shade: style.shade(plate.fill),
+            look: style.button,
+            control: style.control(),
+            focus: style.roles.focus.unwrap_or(plate.ink),
+            on_focus: style.on(
+                style.roles.focus.unwrap_or(plate.ink),
+                style.roles.focus.is_some(),
+                plate.paper,
+            ),
         };
         if dialog.fitting_lines() < dialog.lines.len() {
             dialog.small_text = true;
@@ -432,12 +463,8 @@ impl Dialog {
             false,
             false,
         )?;
-        paint::push(paint, Paint::Fill(self.panel, self.paper))?;
         let thickness = u32::from(self.line).max(1);
-        paint::push(
-            paint,
-            Paint::Focus(self.panel, self.radius, Some(thickness), self.ink),
-        )?;
+        self.paint_plate(paint, thickness)?;
         let shown = self.fitting_from(self.top);
         let mut y = self.area.y;
         for i in self.top..self.top.saturating_add(shown) {
@@ -488,6 +515,77 @@ impl Dialog {
             let place = crate::style::flip_rect(self.rtl, self.panel, place);
             paint::push(paint, Paint::Fill(place, self.muted))?;
         }
+        self.prepare_buttons(paint, font, focus, thickness)
+    }
+
+    /// The box: its hard shadow, its plate and the line round it.
+    fn paint_plate(&self, paint: &mut Vec<Paint>, thickness: u32) -> Result<(), Error> {
+        let body = Rect::new(
+            self.panel.x,
+            self.panel.y,
+            self.panel.width.saturating_sub(self.shadow),
+            self.panel.height.saturating_sub(self.shadow),
+        );
+        if self.shadow > 0 {
+            let below = Rect::new(
+                body.x.saturating_add(self.shadow),
+                body.y.saturating_add(self.shadow),
+                body.width,
+                body.height,
+            );
+            paint::push(paint, Paint::Focus(below, self.radius, None, self.shade))?;
+        }
+        // A dialog always clears its box; without a plate it is paper.
+        let fill = self.plate.fill.unwrap_or(self.paper);
+        if self.shadow > 0 {
+            paint::push(paint, Paint::Focus(body, self.radius, None, fill))?;
+        } else {
+            paint::push(paint, Paint::Fill(self.panel, fill))?;
+        }
+        if self.plate.outline {
+            paint::push(
+                paint,
+                Paint::Focus(body, self.radius, Some(thickness), self.plate.line),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// The frame of a button (a fill or a line, or none) and the ink of its label.
+    fn paint_button(
+        &self,
+        paint: &mut Vec<Paint>,
+        rect: Rect,
+        focused: bool,
+        thickness: u32,
+    ) -> Result<Color, Error> {
+        let (fill, ink) = if focused {
+            (Some(self.focus), self.on_focus)
+        } else if self.look == ButtonLook::Filled {
+            (Some(self.control), self.ink)
+        } else {
+            (None, self.ink)
+        };
+        match fill {
+            Some(color) => {
+                paint::push(paint, Paint::Focus(rect, self.radius, None, color))?;
+            }
+            None if self.look == ButtonLook::Flat => {}
+            None => {
+                paint::push(paint, Paint::Focus(rect, self.radius, Some(thickness), ink))?;
+            }
+        }
+        Ok(ink)
+    }
+
+    /// The buttons, `focus` the focused one.
+    fn prepare_buttons(
+        &self,
+        paint: &mut Vec<Paint>,
+        font: &Font<'_>,
+        focus: Option<usize>,
+        thickness: u32,
+    ) -> Result<(), Error> {
         for (i, (rect, label)) in self.buttons.iter().zip(&self.labels).enumerate() {
             let focused = focus == Some(i);
             paint::describe(
@@ -498,22 +596,7 @@ impl Dialog {
                 focused,
                 false,
             )?;
-            let (fill, ink) = if focused {
-                (Some(self.ink), self.paper)
-            } else {
-                (None, self.ink)
-            };
-            match fill {
-                Some(color) => {
-                    paint::push(paint, Paint::Focus(*rect, self.radius, None, color))?;
-                }
-                None => {
-                    paint::push(
-                        paint,
-                        Paint::Focus(*rect, self.radius, Some(thickness), ink),
-                    )?;
-                }
-            }
+            let ink = self.paint_button(paint, *rect, focused, thickness)?;
             let room = f32::from(rect.width.saturating_sub(self.margin.saturating_mul(2))).max(1.0);
             let fitted = text::fit(font, self.small, label, room)?;
             let wide = font.measure_text(self.small, &fitted)?;
@@ -575,6 +658,13 @@ mod tests {
             ink: Color::BLACK,
             paper: Color::WHITE,
             muted: Color::gray(90),
+            plate: Style::themed(Color::BLACK, Color::WHITE).plate(Frame::Line),
+            shadow: 0,
+            shade: Color::BLACK,
+            look: ButtonLook::Outlined,
+            control: Color::gray(230),
+            focus: Color::BLACK,
+            on_focus: Color::WHITE,
         };
         dialog.lay_out(0).unwrap();
         dialog
@@ -691,5 +781,84 @@ mod tests {
     fn layout_survives_every_refused_allocation() {
         let mut d = dialog(3, 3, false);
         crate::fail_alloc::sweep(|| d.place(100).map(|()| d.buttons.len()));
+    }
+
+    fn framed(plate: Plate, shadow: u16, look: ButtonLook) -> Dialog {
+        let mut d = dialog(1, 2, false);
+        d.panel = Rect::new(10, 20, 200, 100);
+        d.plate = plate;
+        d.shadow = shadow;
+        d.look = look;
+        d.shade = Color::gray(77);
+        d.paper = plate.paper;
+        d.ink = plate.ink;
+        d
+    }
+
+    fn ops(f: impl FnOnce(&mut Vec<Paint>) -> Result<(), Error>) -> String {
+        let mut paint = Vec::new();
+        f(&mut paint).unwrap();
+        alloc::format!("{paint:?}")
+    }
+
+    #[test]
+    fn a_dialog_box_is_paper_with_a_line_and_a_shadow_lies_inside_it_under_the_plate() {
+        let style = Style::themed(Color::BLACK, Color::WHITE);
+        let line = style.plate(Frame::Line);
+        let plain = ops(|p| framed(line, 0, ButtonLook::Outlined).paint_plate(p, 2));
+        let expect = [
+            Paint::Fill(Rect::new(10, 20, 200, 100), Color::WHITE),
+            Paint::Focus(Rect::new(10, 20, 200, 100), 4, Some(2), Color::BLACK),
+        ];
+        assert_eq!(plain, alloc::format!("{expect:?}"));
+        let shadowed = ops(|p| framed(line, 6, ButtonLook::Outlined).paint_plate(p, 2));
+        let body = Rect::new(10, 20, 194, 94);
+        let expect = [
+            Paint::Focus(Rect::new(16, 26, 194, 94), 4, None, Color::gray(77)),
+            Paint::Focus(body, 4, None, Color::WHITE),
+            Paint::Focus(body, 4, Some(2), Color::BLACK),
+        ];
+        assert_eq!(shadowed, alloc::format!("{expect:?}"));
+        // A card: its colour, no line.
+        let mut style = Style::themed(Color::BLACK, Color::WHITE);
+        style.frame = Some(Frame::Card);
+        let card =
+            ops(|p| framed(style.plate(Frame::Line), 0, ButtonLook::Outlined).paint_plate(p, 2));
+        let expect = [Paint::Fill(Rect::new(10, 20, 200, 100), style.card)];
+        assert_eq!(card, alloc::format!("{expect:?}"));
+    }
+
+    #[test]
+    fn a_button_not_chosen_is_outlined_filled_or_flat_and_the_chosen_one_is_filled() {
+        let style = Style::themed(Color::BLACK, Color::WHITE);
+        let rect = Rect::new(0, 0, 80, 40);
+        for (look, expect) in [
+            (
+                ButtonLook::Outlined,
+                alloc::format!("{:?}", [Paint::Focus(rect, 4, Some(2), Color::BLACK)]),
+            ),
+            (
+                ButtonLook::Filled,
+                alloc::format!("{:?}", [Paint::Focus(rect, 4, None, Color::gray(230))]),
+            ),
+            (
+                ButtonLook::Flat,
+                alloc::format!("{:?}", Vec::<Paint>::new()),
+            ),
+        ] {
+            let d = framed(style.plate(Frame::Line), 0, look);
+            let mut paint = Vec::new();
+            let ink = d.paint_button(&mut paint, rect, false, 2).unwrap();
+            assert_eq!(alloc::format!("{paint:?}"), expect, "{look:?}");
+            assert_eq!(ink, Color::BLACK);
+        }
+        let d = framed(style.plate(Frame::Line), 0, ButtonLook::Flat);
+        let mut paint = Vec::new();
+        let ink = d.paint_button(&mut paint, rect, true, 2).unwrap();
+        assert_eq!(
+            alloc::format!("{paint:?}"),
+            alloc::format!("{:?}", [Paint::Focus(rect, 4, None, Color::BLACK)])
+        );
+        assert_eq!(ink, Color::WHITE);
     }
 }
