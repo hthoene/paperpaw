@@ -12,6 +12,8 @@
 //! cover and page caches made later in the quiet time; the same with every
 //! plugin awake (#248). That growth from cycle 2 to [`SETTLED`] must
 //! stay under [`ONCE_MAX`]; from [`SETTLED`] on the heap must not change.
+//! Each frame is drawn as a shell draws it: the recall cache keeps what a
+//! call read only until its frame is drawn (todo 576).
 //! The card's files are the test's storage, not the heap: what the card
 //! takes while it changes is left out (`card::changing_card`). Its own
 //! binary without the test harness (`harness = false`): the allocator counts
@@ -163,6 +165,7 @@ impl Run {
     /// Ticks until nothing is due within a second; drops the warnings.
     fn settle(&mut self, mut effects: Effects) {
         for _ in 0..10_000 {
+            self.draw(&effects);
             let Some(at) = effects.wake_at() else {
                 break;
             };
@@ -173,10 +176,21 @@ impl Run {
             native_activation::set_clock(self.now);
             effects = self.kernel.tick(Instant(self.now));
         }
+        self.draw(&effects);
         drop(self.kernel.take_warnings());
         // As a shell does after every kernel call: the radio commands of
         // each standby would else pile up in the queue (#248).
         drop(self.kernel.take_io());
+    }
+
+    /// As a shell does after every kernel call with a refresh: draws the
+    /// frame. Drawing also ends what the storage recall cache kept for it;
+    /// never drawn, the cache would keep up to its budget until a rename
+    /// cleared it (todo 576).
+    fn draw(&mut self, effects: &Effects) {
+        if effects.refresh().is_some() {
+            self.kernel.render(&mut |_, _| {});
+        }
     }
 
     fn run(&mut self, action: &Id) {
@@ -315,12 +329,6 @@ fn compare(first: &mut Option<(isize, usize)>, cycle: usize, now: (isize, usize)
 }
 
 fn main() {
-    // With the store plugins linked the heap drops once by about 11 KB near
-    // cycle 21 (a release, not a leak); skipped there until it is explained.
-    if cfg!(feature = "native-linked-store") {
-        println!("sleep_cycles: skipped with the store plugins linked (#248, todo 576)");
-        return;
-    }
     native_activation::set_clock(0);
     let card = Card::new(true);
     for (_, path, bytes) in BOOKS {

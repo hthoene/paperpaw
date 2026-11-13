@@ -614,7 +614,7 @@ fn format_cbz_is_the_same_asleep() {
 )]
 #[cfg_attr(
     feature = "native-linked-store",
-    ignore = "with the store plugins linked the parked run takes two fewer timer passes; the page is the same (#248, todo 576)"
+    ignore = "with the store plugins linked a cover is still pending when the parked epub opens the book, so the cover list's 1 s quiet time adds a timer pass; the test clock follows wake_at and moves ~2 s, so reading.ini counts one more page turn (only gaps of 2 s or more count); not a card-file difference on a device (#248, todo 576)"
 )]
 fn format_epub_is_the_same_asleep() {
     same_awake_and_asleep("format-epub");
