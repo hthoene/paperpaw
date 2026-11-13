@@ -137,8 +137,9 @@ pub(super) fn rows(
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
     let plugins = sources.env.plugins();
-    store_record::adopt(sources.env.storage(), plugins);
-    let record = StoreRecord::read(sources.env.storage())?;
+    // Not kept now: the rows say no bit 5, and the next call tries again.
+    let _ = store_record::adopt(sources.env.storage(), plugins);
+    let record = StoreRecord::read(sources.env.storage(), plugins.len());
     let core = plugins.kernel();
     if let Some(info) = core
         && with_row(sources, &record, info, &mut *visit).is_break()
@@ -163,8 +164,9 @@ pub(super) fn detail(
     visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
 ) -> Result<(), i32> {
     let info = sources.env.plugins().get(key).ok_or(ERR_NOT_FOUND)?;
-    store_record::adopt(sources.env.storage(), sources.env.plugins());
-    let record = StoreRecord::read(sources.env.storage())?;
+    let plugins = sources.env.plugins();
+    let _ = store_record::adopt(sources.env.storage(), plugins);
+    let record = StoreRecord::read(sources.env.storage(), plugins.len());
     let mut failure = None;
     with_row(sources, &record, info, |row| {
         if let Err(error) = visit(row) {

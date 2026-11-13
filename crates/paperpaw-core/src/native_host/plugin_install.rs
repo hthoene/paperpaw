@@ -586,9 +586,14 @@ impl PluginInstall {
     #[inline(never)]
     fn journal(&mut self, storage: &dyn Storage, built_ins: &dyn BuiltIns) -> JobStep {
         // Before the install commits: a device that kept no record of the
-        // store's installs takes its plugins for the store's, once.
-        if let Some(found) = built_ins.found() {
-            super::store_record::adopt(storage, found);
+        // store's installs takes its plugins for the store's, once. Where that
+        // fails the install does not commit (a catalog's would start the
+        // record with its one line, and the others would never be adopted):
+        // a card error, to be asked again.
+        if let Some(found) = built_ins.found()
+            && !super::store_record::adopt(storage, found)
+        {
+            return self.end(storage, reason::CARD);
         }
         let Some(pins) = self.pins.as_deref() else {
             return self.end(storage, reason::OTHER);

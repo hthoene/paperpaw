@@ -347,9 +347,14 @@ impl Kernel {
             return;
         }
         let hosts = self.shared.native_instances.hosts();
+        // With every plugin found, as the pump's steps (`store_record`).
+        let plugins = &self.shared.plugins;
         match hosts.and_then(|hosts| hosts.device()) {
-            Some(device) => driver.finish_stopped(self.storage(), &DeviceBuiltIns(&*device.0)),
-            None => driver.finish_stopped(self.storage(), &NoBuiltIns),
+            Some(device) => {
+                let device = DeviceBuiltIns(&*device.0);
+                driver.finish_stopped(self.storage(), &Found(&device, plugins));
+            }
+            None => driver.finish_stopped(self.storage(), &Found(&NoBuiltIns, plugins)),
         }
     }
 

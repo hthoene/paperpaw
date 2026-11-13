@@ -358,8 +358,9 @@ impl PluginRemove {
     fn journal(&mut self, storage: &dyn Storage, built_ins: &dyn BuiltIns) -> JobStep {
         // Before the removal commits: a device that kept no record of the
         // store's installs takes its plugins for the store's, once.
+        // A removal starts no record: one that failed is adopted later.
         if let Some(found) = built_ins.found() {
-            super::store_record::adopt(storage, found);
+            let _ = super::store_record::adopt(storage, found);
         }
         let removal = Removal {
             id: self.id,
