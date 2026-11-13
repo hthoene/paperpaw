@@ -39,6 +39,7 @@ use alloc::{rc::Rc, string::String};
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_UNSUPPORTED};
 
 pub(crate) mod args;
+pub(crate) mod cable_link;
 mod device;
 mod serving;
 mod table;
@@ -269,7 +270,24 @@ pub(crate) trait NetHost {
 }
 
 /// What the shell hands the frame under the key `core.net`.
-pub(crate) struct NetServices(pub(crate) Rc<dyn NetHost>);
+pub(crate) struct NetServices(pub(crate) NetRef);
+
+/// The host behind `core.net`: one handed over (tests), or the device's own,
+/// made fallibly at the service's first call (#248).
+pub(crate) enum NetRef {
+    Handed(Rc<dyn NetHost>),
+    Made(super::shared::Shared<NetDevice>),
+}
+
+impl core::ops::Deref for NetRef {
+    type Target = dyn NetHost;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Handed(host) => &**host,
+            Self::Made(device) => &**device,
+        }
+    }
+}
 
 /// `core.net` ops (`network.md` 2).
 mod op {
@@ -290,7 +308,7 @@ pub(crate) fn backend(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let host = &*who.hosts.net().ok_or(ERR_UNSUPPORTED)?.0;
+    let host = &*who.hosts.net_for_call()?.0;
     match op.id {
         op::REQUEST => {
             let id = table::request(host, who, input)?;
@@ -397,6 +415,33 @@ pub(crate) fn request_for_tests(
     input: &[u8],
 ) -> Result<u32, i32> {
     table::request(host, who, input)
+}
+
+/// `serve`, `respond` and `stop_serving` as the dispatcher admits them, for
+/// the tests of the cable's kernel side.
+#[cfg(test)]
+pub(crate) fn serve_for_tests(
+    host: &dyn NetHost,
+    who: &Caller<'_>,
+    serve: &wire::ServiceNetServe,
+) -> Result<(), i32> {
+    serving::serve(host, who, serve)
+}
+
+/// See [`serve_for_tests`].
+#[cfg(test)]
+pub(crate) fn respond_for_tests(
+    host: &dyn NetHost,
+    who: &Caller<'_>,
+    input: &[u8],
+) -> Result<(), i32> {
+    serving::respond(host, who, input)
+}
+
+/// See [`serve_for_tests`].
+#[cfg(test)]
+pub(crate) fn stop_for_tests(host: &dyn NetHost, owner: u64, token: u32) -> Result<(), i32> {
+    serving::stop_serving(host, owner, token)
 }
 
 /// The plugin stopped (its callbacks are revoked): its requests are
