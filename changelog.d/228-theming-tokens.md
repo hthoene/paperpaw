@@ -1,0 +1,3 @@
+### Changed
+
+- **Theming, step 0 to 2 (#114): the default theme is drawn through tokens, with no pixel changed.** The widget frames of the interface kit (`Frame::Dark`, line, card, inverted plate, shadow) and a few plugin spots (help's zone labels, the mail reader's buttons, the OPDS focus bar, the home focus ring) took a literal black or white; they now use the theme's own text and paper inks. With the default palette the colours are the same, so every screen looks as before; a theme with other inks now changes these parts too. A test draws the widget frames in a light and a dark theme and checks that only the theme's inks are used.

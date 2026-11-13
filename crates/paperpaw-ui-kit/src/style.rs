@@ -171,6 +171,28 @@ impl Style {
         })
     }
 
+    /// The darker of the interface's two inks (text and paper): the ink on
+    /// light plates and the plate of a dark frame. Black in the default theme.
+    #[must_use]
+    pub fn darker(&self) -> Color {
+        if self.ink.luma() <= self.paper.luma() {
+            self.ink
+        } else {
+            self.paper
+        }
+    }
+
+    /// The lighter of the interface's two inks: the ink on dark plates.
+    /// White in the default theme.
+    #[must_use]
+    pub fn lighter(&self) -> Color {
+        if self.ink.luma() <= self.paper.luma() {
+            self.paper
+        } else {
+            self.ink
+        }
+    }
+
     /// `rect`, laid out left to right in `outer`, as it stands where the
     /// interface runs right to left: its top and size the same, its left edge
     /// as far from `outer`'s right edge as its left edge was from `outer`'s
