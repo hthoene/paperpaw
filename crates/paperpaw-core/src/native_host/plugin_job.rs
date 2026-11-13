@@ -76,13 +76,35 @@ pub(crate) const FLAG_PINNED_OTHER: u32 = 1 << 2;
 /// kernel's wiring.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PluginHost {
-    /// The chip, interface and entry length the loader reads.
-    pub(crate) loader: header5::Host,
+    /// The chip, interface and entry length the loader reads; `None` on a
+    /// device that loads no plugin code (data plugins only: a code file is
+    /// reason 19, as code of another kind of device is).
+    pub(crate) loader: Option<header5::Host>,
     /// What it offers a plugin's metadata record (services and features).
     pub(crate) offered: metadata::Host<'static>,
     /// The signing keys the firmware itself knows by name (PaperPaw's own);
     /// every other key is shown by its fingerprint.
     pub(crate) signers: &'static [(&'static str, [u8; 32])],
+}
+
+impl PluginHost {
+    /// The host of a device that loads no plugin code: data plugins only.
+    pub(crate) const DATA_ONLY: Self = Self {
+        loader: None,
+        // Never read: a check ends at the code file, before its metadata.
+        offered: metadata::Host {
+            abi_major: 0,
+            minor: 0,
+            profile: metadata::Profile {
+                target: "",
+                entry_layout: 0,
+                entry_bytes: 0,
+            },
+            services: &[],
+            features: &[],
+        },
+        signers: &[],
+    };
 }
 
 /// What a step may use.

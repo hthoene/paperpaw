@@ -246,8 +246,11 @@ impl PluginCheck {
                 self.phase = Phase::Ended;
                 JobStep::Done(Finished::checked(reason::OK, Some(facts)))
             }
-            // Only code of a computer: another kind of device.
-            Some(index) if CODE_FILES.get(index).copied() != Some(CODE) => {
+            // Only code of a computer: another kind of device. On a device
+            // that loads no code (data plugins only) any code is.
+            Some(index)
+                if CODE_FILES.get(index).copied() != Some(CODE) || env.host.loader.is_none() =>
+            {
                 self.end(reason::NOT_HERE)
             }
             Some(_) => {
@@ -280,6 +283,9 @@ impl PluginCheck {
 
     #[inline(never)]
     fn header(&mut self, env: &JobEnv<'_>) -> JobStep {
+        let Some(loader) = env.host.loader.as_ref() else {
+            return self.end(reason::NOT_HERE);
+        };
         let Some(path) = self.code_path() else {
             return self.end(reason::OTHER);
         };
@@ -298,7 +304,7 @@ impl PluginCheck {
                 why
             });
         }
-        let header = match Header5::read(&self.buf[..HEADER_LEN], size, &env.host.loader) {
+        let header = match Header5::read(&self.buf[..HEADER_LEN], size, loader) {
             Ok(header) => header,
             Err(Refusal::NeedsNewerMinor) => {
                 // The revision the file needs: `needs_minor`, at byte 10 of
@@ -312,7 +318,7 @@ impl PluginCheck {
         // Room for the code beside the others, before the file is read whole.
         let manifest = self.manifest;
         let id = manifest.as_ref().map_or("", |m| m.id.as_str());
-        if !room_fits(storage, &env.host.loader, &header, id) {
+        if !room_fits(storage, loader, &header, id) {
             return self.end(reason::NO_ROOM);
         }
         let sha = header.digest();

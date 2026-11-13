@@ -1,8 +1,9 @@
 //! What the device has installed and what is going on with the installs, as the
 //! screens read it (`native_screens::Installs`), with no call to the host of its
-//! own: [`Snapshot`] is read once from the registry and the record of what the
-//! store installed (`.paperpaw/plugin-origin.txt`), when a screen opens or comes
-//! on top, and dropped when the last screen closes; [`Activity`] is what the
+//! own: [`Snapshot`] is read once from the registry (who put a version in place
+//! included: `reg_plugin.flags` bit 5, the host's record of the store's
+//! installs), when a screen opens or comes on top, and dropped when the last
+//! screen closes; [`Activity`] is what the
 //! plugin knows of the downloads, the installs and the queue. [`HostInstalls`]
 //! puts the two together.
 //!
@@ -27,7 +28,6 @@ use paperpaw_ui_kit::{
     text::copy,
 };
 
-use crate::native_install::Installs as Record;
 use crate::native_page::{Installed, Kind, Origin, Trouble, is_pre_release};
 use crate::native_queue::Queue;
 use crate::native_screen_list::FONTS;
@@ -43,6 +43,9 @@ const REQUEST_BYTES: usize = 256;
 const ENABLED: u32 = 1;
 /// The registry's flag of a plugin whose change waits for a restart.
 const RESTART_NEEDED: u32 = 2;
+/// The registry's flag of a version a store installed (`registry.md`,
+/// `reg_plugin.flags` bit 5): its version is written as the store named it.
+const BY_STORE: u32 = 1 << 5;
 /// The host itself, the first row of the plugins.
 const HOST: &str = "core";
 /// The setting of the update plugin that asks for betas (*Beta updates*).
@@ -75,7 +78,7 @@ pub struct Row {
 }
 
 impl Row {
-    /// A row as the registry says it, its origin not yet looked up.
+    /// A row as the registry says it, put in place other than by a store.
     ///
     /// # Errors
     /// `NoMemory`.
@@ -98,6 +101,37 @@ impl Row {
             trouble,
         })
     }
+
+    /// A row as the registry's `reg_plugin` gives it: its `flags`, its
+    /// `version` and the `update` waiting (which counts where there is one),
+    /// its `problem`. A version a store installed (`flags` bit 5) is the
+    /// store's, its version the release as the store named it (interface 6
+    /// `Installed::release`); built-in and linked plugins never are.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn from_registry(
+        id: &str,
+        kind: Kind,
+        flags: u32,
+        (version, update): (&str, &str),
+        problem: u32,
+    ) -> Result<Self, Error> {
+        let waiting = !update.is_empty();
+        let mut row = Self::new(
+            id,
+            kind,
+            flags & ENABLED != 0,
+            flags & RESTART_NEEDED != 0 || waiting,
+            if waiting { update } else { version },
+            trouble_of(problem),
+        )?;
+        if flags & BY_STORE != 0 && kind != Kind::BuiltIn {
+            row.release = Some(copy(&row.version)?);
+            row.origin = Origin::Store;
+        }
+        Ok(row)
+    }
 }
 
 /// The plugins the device has, sorted by id, with who put them there.
@@ -107,31 +141,28 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// Reads the plugins from the registry and the record of the store's
-    /// installs from `storage`.
+    /// Reads the plugins from the registry.
     ///
     /// # Errors
     /// `NoMemory`, the host's refusals; `NoSpace` for more plugins than
     /// `MOST_PAGES` pages hold.
-    pub fn read(host: &Host<'_>, storage: &dyn Storage) -> Result<Self, Error> {
+    pub fn read(host: &Host<'_>) -> Result<Self, Error> {
         let mut out = buffer(SERVICE_BUFFER)?;
         let rows = Self::read_rows(host, &mut out, None)?;
         drop(out);
-        Self::settle(rows, storage)
+        Ok(Self::settle(rows))
     }
 
     /// Reads only the rows of the plugins `ids` (those the device has): what
-    /// the start and an ask for plugins need, not the whole list. No record
-    /// of the store's installs is looked up or adopted: every origin is local.
+    /// the start and an ask for plugins need, not the whole list.
     ///
     /// # Errors
     /// `NoMemory`, the host's refusals.
     pub fn read_some(host: &Host<'_>, ids: &[&str]) -> Result<Self, Error> {
         let mut out = buffer(SERVICE_BUFFER)?;
-        let mut rows = Self::read_rows(host, &mut out, Some(ids))?;
+        let rows = Self::read_rows(host, &mut out, Some(ids))?;
         drop(out);
-        paperpaw_sdk::sort::sort_by(&mut rows, |a, b| a.id.cmp(&b.id));
-        Ok(Self { rows })
+        Ok(Self::settle(rows))
     }
 
     fn read_rows(
@@ -180,24 +211,14 @@ impl Snapshot {
                         RegistryPluginKind::Data => Kind::Data,
                         _ => Kind::BuiltIn,
                     };
-                    let flags = plugin.flags();
-                    let waiting = plugin.update();
-                    let version = if waiting.is_empty() {
-                        plugin.version()
-                    } else {
-                        waiting
-                    };
-                    push(
-                        &mut rows,
-                        Row::new(
-                            plugin.id(),
-                            kind,
-                            flags & ENABLED != 0,
-                            flags & RESTART_NEEDED != 0 || !waiting.is_empty(),
-                            version,
-                            trouble_of(plugin.problem()),
-                        )?,
+                    let row = Row::from_registry(
+                        plugin.id(),
+                        kind,
+                        plugin.flags(),
+                        (plugin.version(), plugin.update()),
+                        plugin.problem(),
                     )?;
+                    push(&mut rows, row)?;
                 }
                 match page.end().next_cursor() {
                     Some(next) => cursor = next,
@@ -209,35 +230,11 @@ impl Snapshot {
         Err(Error::State)
     }
 
-    /// The rows sorted, and each looked up in the record of the store's
-    /// installs. Where no record was ever kept, the plugins installed (those
-    /// built in left out) are taken for the store's, once, as interface 6 did.
-    ///
-    /// # Errors
-    /// `NoMemory`.
-    pub fn settle(mut rows: Vec<Row>, storage: &dyn Storage) -> Result<Self, Error> {
+    /// The rows, sorted by id.
+    #[must_use]
+    pub fn settle(mut rows: Vec<Row>) -> Self {
         paperpaw_sdk::sort::sort_by(&mut rows, |a, b| a.id.cmp(&b.id));
-        // A record that cannot be kept is not the end of the list.
-        if let Err(Error::NoMemory) = Record::adopt(
-            storage,
-            rows.iter()
-                .filter(|row| row.kind != Kind::BuiltIn)
-                .map(|row| (row.id.as_str(), row.version.as_str())),
-        ) {
-            return Err(Error::NoMemory);
-        }
-        let record = Record::read(storage)?;
-        for row in &mut rows {
-            if row.kind == Kind::BuiltIn || !record.of(&row.id, &row.version) {
-                continue;
-            }
-            row.origin = Origin::Store;
-            row.release = record
-                .release(&row.id, &row.version)
-                .map(copy)
-                .transpose()?;
-        }
-        Ok(Self { rows })
+        Self { rows }
     }
 
     /// The plugins, by id.

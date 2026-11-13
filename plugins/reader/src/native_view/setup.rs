@@ -16,6 +16,8 @@ use paperpaw_sdk::{
 pub(super) struct LayoutKey {
     pub(super) reading: Reading,
     pub(super) display: (u16, u16, u16),
+    /// The signature of the text filters the blocks went through (0: none).
+    pub(super) filtered: u64,
 }
 
 /// The text the screen reads its page from: reading settings and the display.
@@ -119,6 +121,7 @@ impl Setup {
                 self.display.display_height(),
                 self.display.display_dpi(),
             ),
+            filtered: 0,
         }
     }
 

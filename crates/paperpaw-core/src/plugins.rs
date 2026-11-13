@@ -781,7 +781,7 @@ impl Kernel {
     /// Registers the data plugin in `folder` (switched off where the
     /// configuration says so) and applies its defaults; `false`, with a
     /// warning, if it could not be.
-    fn register_folder(&mut self, folder: &str) -> bool {
+    pub(crate) fn register_folder(&mut self, folder: &str) -> bool {
         let storage = self.shared.storage.clone();
         let plugin = match crate::data_plugin::load_folder(&storage, folder) {
             Ok(plugin) => plugin,

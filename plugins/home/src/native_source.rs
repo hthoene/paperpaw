@@ -34,6 +34,8 @@ const TOOL_MENUS: [&str; 3] = ["home.actions", "core.tools", "core.apps"];
 const SCREENSHOT: &str = "core.screenshot";
 /// The settings is always a tool.
 const SETTINGS: &str = "core.settings";
+/// The icon the core gives its settings action (a gear).
+const SETTINGS_ICON: &str = "settings";
 /// The settings the pages are laid out by.
 const STATUS_BAR: &str = "home.status-bar";
 const COLUMNS: &str = "home.columns";
@@ -75,6 +77,14 @@ impl Look {
             checked: false,
             enabled: true,
         }
+    }
+
+    /// The settings tool where no menu lists it: the core's gear, enabled.
+    fn settings() -> Result<Self, Error> {
+        Ok(Self {
+            icon: copy(SETTINGS_ICON)?,
+            ..Self::plain()
+        })
     }
 
     fn of(row: &paperpaw_sdk::native::registry::RegistryMenuRow<'_>) -> Result<Self, Error> {
@@ -238,7 +248,7 @@ impl HostSource {
         if !tools.iter().any(|(t, _)| t == SETTINGS) {
             // Named as the core names it, in the reader's language.
             let title = Self::settings_title(host, registry, &mut input, &mut out)?;
-            push(&mut looks, Look::plain())?;
+            push(&mut looks, Look::settings()?)?;
             push(&mut tools, (copy(SETTINGS)?, title))?;
         }
         let mut footer = Vec::new();
@@ -467,6 +477,14 @@ mod tests {
         assert_eq!(mm(220, WIDEST_MM), 953);
         assert_eq!(mm(0, 1), 1);
         assert_eq!(mm(220, 0), 0);
+    }
+
+    #[test]
+    fn the_settings_tool_no_menu_lists_has_the_cores_gear() {
+        // Beta 3 drew a gear; an empty icon left a blank cell in the drawer.
+        let look = Look::settings().unwrap();
+        assert_eq!(look.icon, "settings");
+        assert!(look.enabled && !look.checked);
     }
 
     fn source() -> HostSource {
