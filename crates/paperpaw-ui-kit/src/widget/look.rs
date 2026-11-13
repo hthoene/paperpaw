@@ -235,12 +235,14 @@ pub struct Look {
 enum Colour {
     Auto,
     None,
+    /// The interface's own text colour (an inverted plate).
+    Ink,
     Is(Color),
 }
 
 fn colour(value: &str) -> Colour {
     match value {
-        PAPER_INVERTED => Colour::Is(Color::BLACK),
+        PAPER_INVERTED => Colour::Ink,
         PAPER_LIGHT_GRAY => Colour::Is(Tone::LightGray.color()),
         PAPER_DARK_GRAY => Colour::Is(Tone::DarkGray.color()),
         PAPER_NONE | decorations::NONE => Colour::None,
@@ -375,10 +377,11 @@ impl Shape {
         );
         let paper = match (self.paper, self.frame) {
             (Colour::Is(colour), _) => colour,
+            (Colour::Ink, _) => self.style.ink,
             (Colour::None, _) | (Colour::Auto, Frame::None | Frame::Line | Frame::Card) => {
-                Color::WHITE
+                self.style.paper
             }
-            (Colour::Auto, Frame::Dark) => Color::BLACK,
+            (Colour::Auto, Frame::Dark) => self.style.darker(),
         };
         let (ink, faint) = match self.ink {
             Colour::Is(colour) => (colour, colour),
@@ -393,16 +396,19 @@ impl Shape {
         }
     }
 
+    /// The text and the lesser text on `paper`: the light of the interface's
+    /// two inks on a dark plate, the dark one on a light plate.
     fn inks_on(&self, paper: Color) -> (Color, Color) {
         if paper.luma() < 128 {
+            let light = self.style.lighter();
             let faint = if self.style.strong {
-                Color::WHITE
+                light
             } else {
                 self.style.on_dark_muted
             };
-            (Color::WHITE, faint)
+            (light, faint)
         } else {
-            (Color::BLACK, self.style.muted)
+            (self.style.darker(), self.style.muted)
         }
     }
 
@@ -434,13 +440,14 @@ impl Shape {
             let shade = if look.paper.luma() < dark_gray.luma() / 2 {
                 dark_gray
             } else {
-                Color::BLACK
+                self.style.darker()
             };
             crate::paint::push(out, Paint::Focus(below, corner, None, shade))?;
         }
         let border = u32::from(self.style.line).max(2);
         match self.paper {
-            Colour::Is(colour) => {
+            Colour::Is(_) | Colour::Ink => {
+                let colour = look.paper;
                 crate::paint::push(out, Paint::Focus(plate, corner, None, colour))?;
                 if look.frame == Frame::Line {
                     crate::paint::push(out, Paint::Focus(plate, corner, Some(border), look.ink))?;
@@ -455,7 +462,7 @@ impl Shape {
                 Frame::None => {}
                 Frame::Line => crate::paint::push(
                     out,
-                    Paint::Focus(plate, self.style.corner, Some(border), Color::BLACK),
+                    Paint::Focus(plate, self.style.corner, Some(border), self.style.darker()),
                 )?,
                 Frame::Card if grays <= 2 => {
                     let card = self.style.card;
@@ -465,7 +472,7 @@ impl Shape {
                     let line = u32::from((self.style.line / 2).max(1));
                     crate::paint::push(
                         out,
-                        Paint::Focus(plate, self.style.corner, Some(line), Color::BLACK),
+                        Paint::Focus(plate, self.style.corner, Some(line), self.style.darker()),
                     )?;
                 }
                 Frame::Card => crate::paint::push(
@@ -474,7 +481,7 @@ impl Shape {
                 )?,
                 Frame::Dark => crate::paint::push(
                     out,
-                    Paint::Focus(plate, self.style.corner, None, Color::BLACK),
+                    Paint::Focus(plate, self.style.corner, None, self.style.darker()),
                 )?,
             },
         }
@@ -550,10 +557,109 @@ mod tests {
 
     #[test]
     fn colours_read_tones_codes_and_none() {
-        assert_eq!(colour(PAPER_INVERTED), Colour::Is(Color::BLACK));
+        assert_eq!(colour(PAPER_INVERTED), Colour::Ink);
         assert_eq!(colour(PAPER_NONE), Colour::None);
         assert_eq!(colour("#102030"), Colour::Is(Color::rgb(0x10, 0x20, 0x30)));
         assert_eq!(colour("core.ink.auto"), Colour::Auto);
         assert_eq!(colour("#12"), Colour::Auto);
+    }
+
+    fn themed(ink: Color, paper: Color) -> Style {
+        Style::themed(ink, paper)
+    }
+
+    fn shape(style: Style, frame: Frame, paper: Colour, shadow: Shadow) -> Shape {
+        Shape {
+            style,
+            frame,
+            shadow,
+            paper,
+            ink: Colour::Auto,
+            padding: Padding::Auto,
+            corner: None,
+        }
+    }
+
+    fn colours(out: &[Paint]) -> alloc::vec::Vec<Color> {
+        out.iter()
+            .filter_map(|op| match op {
+                Paint::Fill(_, color) | Paint::Focus(_, _, _, color) => Some(*color),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The theme matrix of the widget frame (#114, step 0): in a theme whose
+    /// inks are none of the literals, every colour a frame draws or gives its
+    /// content is one of the theme's.
+    #[test]
+    fn a_widget_frame_is_drawn_in_the_themes_inks_only() {
+        let themes = [
+            themed(Color::rgb(20, 30, 40), Color::rgb(240, 235, 225)),
+            // A dark theme: light text on dark paper.
+            themed(Color::rgb(235, 230, 220), Color::rgb(25, 30, 35)),
+        ];
+        for style in themes {
+            let sparser = |c: u8| c + (255 - c) / 2;
+            let pattern = Color::rgb(
+                sparser(style.card.r),
+                sparser(style.card.g),
+                sparser(style.card.b),
+            );
+            let allowed = [
+                style.ink,
+                style.paper,
+                style.card,
+                style.muted,
+                style.on_dark_muted,
+                pattern,
+                Tone::DarkGray.color(),
+            ];
+            for frame in [Frame::None, Frame::Line, Frame::Card, Frame::Dark] {
+                for paper in [Colour::Auto, Colour::None, Colour::Ink] {
+                    for shadow in [Shadow::None, Shadow::Hard] {
+                        for grays in [2, 16] {
+                            let shape = shape(themed(style.ink, style.paper), frame, paper, shadow);
+                            let mut out = alloc::vec::Vec::new();
+                            let look = shape
+                                .paint(&mut out, Rect::new(0, 0, 200, 100), grays)
+                                .unwrap();
+                            let mut used = colours(&out);
+                            used.extend([look.ink, look.faint, look.paper]);
+                            for color in used {
+                                assert!(
+                                    allowed.contains(&color),
+                                    "{frame:?} {paper:?} {shadow:?} {grays}: {color:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// In the default theme nothing changes: black and white as before.
+    #[test]
+    fn the_default_theme_draws_the_widget_frames_as_before() {
+        let style = || themed(Color::BLACK, Color::WHITE);
+        let dark = shape(style(), Frame::Dark, Colour::Auto, Shadow::None);
+        let mut out = alloc::vec::Vec::new();
+        let look = dark.paint(&mut out, Rect::new(0, 0, 200, 100), 16).unwrap();
+        assert_eq!(colours(&out), [Color::BLACK]);
+        assert_eq!((look.ink, look.paper), (Color::WHITE, Color::BLACK));
+        let line = shape(style(), Frame::Line, Colour::Auto, Shadow::None);
+        let mut out = alloc::vec::Vec::new();
+        let look = line.paint(&mut out, Rect::new(0, 0, 200, 100), 16).unwrap();
+        assert_eq!(colours(&out), [Color::BLACK]);
+        assert_eq!((look.ink, look.paper), (Color::BLACK, Color::WHITE));
+        let inverted = shape(style(), Frame::Card, Colour::Ink, Shadow::Hard);
+        let mut out = alloc::vec::Vec::new();
+        let look = inverted
+            .paint(&mut out, Rect::new(0, 0, 200, 100), 16)
+            .unwrap();
+        assert_eq!(look.paper, Color::BLACK);
+        // The hard shadow of a plate this dark is a dark gray, as before.
+        assert_eq!(colours(&out), [Tone::DarkGray.color(), Color::BLACK]);
     }
 }

@@ -793,9 +793,9 @@ pub enum SettingError {
     Unknown,
     InvalidValue,
     /// No place is left to keep a changed spec (more than 16,384 made at
-    /// run time), or the heap has no room now for the spec of a setting of
-    /// a plugin loaded from the card: the setting is there, and the same
-    /// may work later.
+    /// run time, or no memory for its copy), or the heap has no room now
+    /// for the spec of a setting of a plugin loaded from the card: the
+    /// setting is there, and the same may work later.
     Full,
     /// The setting's check refused the value: the translation key of why
     /// (see [`SettingExtra::check`]).
