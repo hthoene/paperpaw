@@ -798,6 +798,11 @@ mod x4 {
         declared_services: shell::DeclaredServices,
     ) -> Result<Box<dyn NativeAdmission>, PluginProblem> {
         let id = code.id.as_str();
+        let (heap, internal, started) = (
+            esp_alloc::HEAP.used(),
+            crate::native::internal_free(),
+            crate::micros(),
+        );
         let Ready {
             depth, share, make, ..
         } = ready(place, code, header, placed, make, depth, resources, device)?;
@@ -829,12 +834,56 @@ mod x4 {
                 _ => PluginProblem::Damaged,
             }
         })?;
-        Ok(Box::new(HostedAdmission::new(
-            hosted,
-            depth,
-            admitted_report,
-            refused,
-        )))
+        let hot = if placed.hot == 0 { 0 } else { header.hot_len };
+        Ok(Box::new(Measured {
+            inner: Box::new(HostedAdmission::new(
+                hosted,
+                depth,
+                admitted_report,
+                refused,
+            )),
+            before: (heap, internal, started),
+            hot,
+        }))
+    }
+
+    /// The admission with what the plugin cost: the heap and the time from
+    /// placing it through `make` and the registration of everything it
+    /// declares, which the remote's memory page and the log show per plugin.
+    struct Measured {
+        inner: Box<dyn NativeAdmission>,
+        /// The heap and internal RAM used, and the time, before it was placed.
+        before: (usize, usize, u64),
+        hot: u32,
+    }
+
+    impl NativeAdmission for Measured {
+        fn admit(
+            self: Box<Self>,
+            kernel: &mut paperpaw_core::Kernel,
+            folder: &str,
+        ) -> Result<(), PluginProblem> {
+            let Self { inner, before, hot } = *self;
+            let made = crate::micros();
+            let admitted = inner.admit(kernel, folder);
+            let took = crate::native::Took {
+                place_us: made - before.2,
+                make_us: crate::micros() - made,
+                heap: esp_alloc::HEAP.used() as isize - before.0 as isize,
+                internal: before.1 as isize - crate::native::internal_free() as isize,
+                hot,
+            };
+            info!(
+                "native: {folder}: admitted in {} us (placing {} us), heap {:+} B, internal RAM {:+} B, hot code {} B: {admitted:?}",
+                took.make_us, took.place_us, took.heap, took.internal, took.hot
+            );
+            critical_section::with(|cs| {
+                if let Some(image) = crate::native::IMAGES.borrow_ref_mut(cs).last_mut() {
+                    image.took = Some(took);
+                }
+            });
+            admitted
+        }
     }
 
     /// What the kernel tells of an admitted plugin's callbacks.
