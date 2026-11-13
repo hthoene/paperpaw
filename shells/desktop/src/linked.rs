@@ -174,6 +174,7 @@ pub fn register(
     // browser the requests go through the page's own route (`http::set_route`).
     let transport = inputs.storage.clone().map(|storage| {
         let transport = Rc::new(crate::native_net::NativeNet::new(
+            crate::http::Http::new(),
             storage.clone(),
             inputs.view.clone(),
         ));

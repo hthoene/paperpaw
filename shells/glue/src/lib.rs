@@ -6,6 +6,7 @@
 
 pub mod clock;
 pub mod image;
+pub mod net;
 pub mod offer;
 pub mod services;
 pub mod view;

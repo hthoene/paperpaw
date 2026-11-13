@@ -21,6 +21,7 @@ linked = ["dep:paperpaw-app"]
 paperpaw-app = { workspace = true, features = ["native-linked", "native-linked-store", "native-linked-reading"], optional = true }
 paperpaw-core = { workspace = true, features = ["color", "outline"] }
 # The freestanding checks and the host table of the plugins' ABI (ADR 0034).
+paperpaw-http.workspace = true
 paperpaw-native = { workspace = true, features = ["kernel"] }
 paperpaw-platform.workspace = true
 

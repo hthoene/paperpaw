@@ -18,15 +18,7 @@ use std::{
 use paperpaw_core::sdk::HttpError;
 use paperpaw_core::{HttpCall, HttpResponse};
 
-/// How the reason of an answer too large for its file begins (see
-/// [`too_large`]).
-const TOO_LARGE: &str = "the answer is larger than";
-
-/// Whether `response` is a request's refusal for an answer larger than
-/// its file may be.
-pub fn too_large(response: &HttpResponse) -> bool {
-    response.error == Some(HttpError::Refused) && response.body.starts_with(TOO_LARGE.as_bytes())
-}
+pub use paperpaw_shell_glue::net::{TOO_LARGE, too_large};
 
 /// Where requests go instead of the system's network ([`set_route`]).
 pub trait Route {

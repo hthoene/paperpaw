@@ -59,4 +59,14 @@ impl Moment {
         let now = i64::try_from(micros()).unwrap_or(i64::MAX);
         u64::try_from(now.saturating_sub(self.0)).unwrap_or(0)
     }
+
+    /// This moment, `millis` earlier (for tests).
+    #[cfg(test)]
+    #[must_use]
+    pub fn earlier_by_millis(self, millis: u64) -> Self {
+        Self(
+            self.0
+                .saturating_sub(i64::try_from(millis * 1000).unwrap_or(i64::MAX)),
+        )
+    }
 }
