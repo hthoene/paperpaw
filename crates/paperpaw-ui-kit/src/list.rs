@@ -415,4 +415,18 @@ mod tests {
             Some("core.next-page")
         );
     }
+
+    #[test]
+    fn a_row_is_where_it_was_drawn_and_none_off_its_page() {
+        // The second page of rows of 40 px from y 50, five a page.
+        let renderer = ListRenderer::geometry(Rect::new(0, 50, 300, 200), 40, 1, 5);
+        assert_eq!(renderer.rect_of(5), Some(Rect::new(0, 50, 300, 40)));
+        assert_eq!(renderer.rect_of(7), Some(Rect::new(0, 130, 300, 40)));
+        assert_eq!(renderer.rect_of(9), Some(Rect::new(0, 210, 300, 40)));
+        // The page before and the page after: a step there turns the page.
+        assert_eq!(renderer.rect_of(4), None);
+        assert_eq!(renderer.rect_of(10), None);
+        // Nothing drawn yet: no row is known.
+        assert_eq!(ListRenderer::default().rect_of(0), None);
+    }
 }
