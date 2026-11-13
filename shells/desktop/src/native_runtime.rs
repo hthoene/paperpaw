@@ -25,17 +25,6 @@ mod wire {
     include!(concat!(env!("OUT_DIR"), "/metadata.rs"));
 }
 
-/// The profile this shell hosts (the reviewed Linux x86-64 one), as the
-/// kernel's admission of a linked plugin names it (`crate::linked`).
-#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-pub(crate) fn host_profile() -> paperpaw_native::metadata::Profile<'static> {
-    paperpaw_native::metadata::Profile {
-        target: core::str::from_utf8(wire::PROFILE).unwrap_or(""),
-        entry_layout: wire::PROFILE_ENTRY_LAYOUT as u16,
-        entry_bytes: wire::PROFILE_ENTRY_BYTES as u16,
-    }
-}
-
 /// Refusal before factory invocation, or a failed factory result.
 #[derive(Debug, PartialEq, Eq)]
 pub enum RuntimeError {
