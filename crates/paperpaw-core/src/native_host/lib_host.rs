@@ -365,12 +365,13 @@ impl LibWrite for LibraryHost {
         self.reads.stored_position(book)
     }
 
-    /// The catalogued book's root-1 path (by key, the path the catalog keeps
-    /// for it), for the `lib_result` of op 14; `ERR_NOT_FOUND` for a book a
-    /// pending delete holds, as for the reads.
+    /// The book's root-1 path (by key, the path the catalog keeps for it; by
+    /// path also a book the catalog does not know yet, as op 14 takes it), for
+    /// the `lib_result` of op 14; `ERR_NOT_FOUND` for a book a pending delete
+    /// holds, as for the reads.
     fn book_path(&self, book: BookRef<'_>, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
         self.visible(book)?;
-        self.reads.path_of(book, |path| {
+        self.reads.book_file_of(book, |path| {
             visit(path);
             Ok(())
         })
@@ -500,7 +501,9 @@ impl LibWrite for LibraryHost {
     /// new ones. (A move cannot start while a transaction is open on the
     /// book: the service refuses it, so the commit needs no such check.)
     fn resolve_book(&self, book: BookRef<'_>) -> Result<BookId, i32> {
-        self.reads.path_of(book, |path| {
+        // A book of a library's first session is not in the catalog yet: its
+        // annotations are kept by its path all the same (#257).
+        self.reads.book_file_of(book, |path| {
             if self.in_use(path) {
                 return Err(paperpaw_native::host_glue::ERR_BUSY);
             }
