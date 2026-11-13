@@ -487,3 +487,14 @@ fn a_failed_retirement_waits_five_seconds_and_is_said_once() {
         assert!(!registry.retirement_failed(key, ERR_IO, now), "{now}");
     }
 }
+
+#[test]
+fn a_plugins_identity_keeps_the_pool_not_a_view_of_an_owner() {
+    // #248: every hosted plugin's dispatch keeps one, a parked plugin's
+    // recipe one more; the pool's handle is a word, a view two.
+    let bytes = core::mem::size_of::<super::NativeIdentity>();
+    #[cfg(target_pointer_width = "64")]
+    assert!(bytes <= 24, "{bytes} bytes");
+    #[cfg(target_pointer_width = "32")]
+    assert!(bytes <= 16, "{bytes} bytes");
+}
