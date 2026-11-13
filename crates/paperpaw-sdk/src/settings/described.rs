@@ -83,7 +83,7 @@ impl fmt::Debug for Block {
 }
 
 /// A name's hash: what is compared before the name is read.
-fn hash(name: &str) -> u16 {
+pub(super) fn hash(name: &str) -> u16 {
     let hash = paperpaw_digest::fnv1a64(name.as_bytes());
     (hash ^ (hash >> 16) ^ (hash >> 32) ^ (hash >> 48)) as u16
 }

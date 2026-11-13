@@ -149,6 +149,24 @@ fn described_settings_read_as_copied_ones_do() {
 }
 
 #[test]
+fn a_name_with_the_hash_of_another_is_not_that_setting() {
+    let (mut s, _) = settings(true);
+    // Another name of the plugin whose hash is that of `show`.
+    let like = (0..u32::MAX)
+        .map(|n| alloc::format!("stats.n{n}"))
+        .find(|id| described::hash(&id[6..]) == described::hash("show"))
+        .unwrap();
+    assert_eq!(s.get(&like), None);
+    assert!(!s.defines(&like));
+    assert_eq!(s.try_spec(&like), Ok(None));
+    assert_eq!(
+        s.set(&like, SettingValue::Bool(false)),
+        Err(SettingError::Unknown)
+    );
+    assert_eq!(s.get("stats.show"), Some(&SettingValue::Bool(true)));
+}
+
+#[test]
 fn values_are_set_and_checked_as_those_of_copied_settings() {
     for lazy in [true, false] {
         let (mut s, _) = settings(lazy);
