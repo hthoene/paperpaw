@@ -222,6 +222,10 @@ fn root_one_reaches_a_running_data_plugins_files_only() {
     ] {
         assert_eq!(resolve(gone), Err(ERR_NOT_FOUND), "{gone}");
     }
+    // Its code and the host's files are not there either (`files.md` 1.1).
+    for hidden in ["plugins/owls/code.ppn", "plugins/OWLS/.install-marks"] {
+        assert_eq!(resolve(hidden), Err(ERR_NOT_FOUND), "{hidden}");
+    }
     // The kernel's own folders stay refused.
     assert_eq!(resolve(".paperpaw/cache/a.png"), Err(ERR_DENIED));
     // A data plugin that stops running is not there any more.

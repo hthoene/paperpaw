@@ -112,11 +112,16 @@ impl ImageRoots for Roots<'_> {
         if root == 1 && super::data_plugin_folders::plugin_folder_of(path).is_some() {
             // A data plugin's folder is shown, read only (`files.md` 1.1);
             // that of any other plugin is a file that is not there.
+            // Its code and the host's files are not shown either.
             let shown = self
                 .hosts
                 .files()
                 .zip(super::data_plugin_folders::plugin_folder_of(path))
-                .is_some_and(|(files, name)| files.0.data_folder(name));
+                .is_some_and(|(files, name)| {
+                    files.0.data_folder(name)
+                        && !super::data_plugin_folders::below_folder(path)
+                            .is_some_and(|(folder, entry)| files.0.host_file(folder, entry))
+                });
             if !shown {
                 return Err(ERR_NOT_FOUND);
             }

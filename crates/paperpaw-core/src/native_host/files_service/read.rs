@@ -62,11 +62,19 @@ pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
         return codec::encode_one(&closing, out);
     }
     let hide_protected = target.is_card_top();
+    // A shown plugin folder leaves out its code and the host's files.
+    let folder = input.path.trim_end_matches('/');
+    let plugin_folder = input.root == CARD
+        && crate::native_host::data_plugin_folders::plugin_folder_of(folder).is_some()
+        && folder.matches('/').count() == 1;
     let (mut used, mut rows, mut failure) = (0usize, 0usize, None);
     let listed = view
         .storage
         .list_from(target.joined(), input.cursor, &mut |entry| {
             if hide_protected && target::reaches_protected(view, entry.name) {
+                return true;
+            }
+            if plugin_folder && view.host.host_file(target.joined(), entry.name) {
                 return true;
             }
             if rows == PAGE_ROWS {
