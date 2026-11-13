@@ -590,11 +590,11 @@ fn host_entries_outside_their_scope_are_refused() {
     // SAFETY: the pinned context of a live owner, valid byte buffers.
     unsafe {
         // A canvas call outside a draw dispatch.
-        assert_ne!((context.table.canvas_fill_rect)(ctx, 0, 0, 1, 1, 0), OK);
+        assert_ne!((context.table().canvas_fill_rect)(ctx, 0, 0, 1, 1, 0), OK);
         // An environment query outside a dispatch.
         let mut out = [0u8; 8];
         assert_ne!(
-            (context.table.env_snapshot)(
+            (context.table().env_snapshot)(
                 ctx,
                 PpBuffer {
                     ptr: out.as_mut_ptr(),
@@ -609,7 +609,7 @@ fn host_entries_outside_their_scope_are_refused() {
             registrations::registrations_encode(&[Registration::Draw { token: TOKEN }], &mut bytes)
                 .unwrap();
         assert_ne!(
-            (context.table.registrations_submit)(
+            (context.table().registrations_submit)(
                 ctx,
                 PpBytes {
                     ptr: bytes.as_ptr(),
@@ -1494,3 +1494,6 @@ mod native_screen_install;
 mod describe;
 #[path = "shell_refuse_tests.rs"]
 mod refuse;
+
+#[path = "shell/context_size_tests.rs"]
+mod context_size;

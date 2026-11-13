@@ -76,7 +76,10 @@ fn batch(text: &str) -> Vec<u8> {
 fn open_statuses_unique_keys_and_generic_release_preserve_other_families() {
     let pool = HostResources::with_test_service(echo).unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let declared = declared();
     let key = pair(b"core.test-echo");
     let mut handle = 0x9876;
@@ -166,7 +169,10 @@ fn call_checks_schema_and_owner_before_publishing_a_reply() {
     let pool = HostResources::with_test_service(echo).unwrap();
     let owner = pool.try_owner().unwrap();
     let foreign = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let input = batch("deterministic echo");
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
@@ -268,7 +274,10 @@ fn call_checks_schema_and_owner_before_publishing_a_reply() {
 fn service_failure_leaves_no_reply_and_does_not_stick_busy() {
     let pool = HostResources::with_test_service(failing).unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let input = batch("failure");
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
@@ -384,7 +393,10 @@ fn broken_then_echo(
 fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
     let pool = HostResources::with_test_service(broken_then_echo).unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let input = batch("after broken reply");
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
@@ -512,7 +524,10 @@ fn observed_reply(
 fn a_failed_reply_is_wiped_and_a_kept_one_has_no_tail_left() {
     let pool = HostResources::with_test_service(observed_reply).unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let input = batch("private service reply");
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()

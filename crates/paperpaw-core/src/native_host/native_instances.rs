@@ -714,7 +714,7 @@ impl NativeInstances {
             callbacks: self.callbacks.runtime()?,
             // No allocation: a refused share just leaves the handles to the
             // next grant or the plugin's stop (see `NativeCallbackEpoch`).
-            pool: self.pool.as_ref().and_then(OwnerResourceView::try_clone),
+            pool: self.pool.as_ref().and_then(OwnerResourceView::try_pool),
         })
     }
 
@@ -1080,8 +1080,9 @@ impl NativeInstances {
 pub(crate) struct NativeIdentity {
     owner: u64,
     callbacks: CallbackRuntime,
-    /// The device pool, to end the callback's status handles with it.
-    pool: Option<OwnerResourceView>,
+    /// The device pool, to end the callback's status handles with it: the
+    /// pool alone, not an owner's view of it (#248).
+    pool: Option<super::HostResources>,
 }
 impl NativeIdentity {
     /// The same identity again: a parked plugin's recipe keeps one for each
@@ -1102,7 +1103,7 @@ impl NativeIdentity {
     pub(crate) fn callback(&self) -> Result<NativeCallbackEpoch, i32> {
         let epoch = self.callbacks.enter()?;
         Ok(
-            match self.pool.as_ref().and_then(OwnerResourceView::try_clone) {
+            match self.pool.as_ref().and_then(super::HostResources::try_clone) {
                 Some(pool) => epoch.ending_status_handles(pool, self.owner),
                 None => epoch,
             },
@@ -1117,7 +1118,7 @@ impl NativeIdentity {
     }
     /// The device's `core.ui` service (widget handles), once a shell wired it.
     pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {
-        self.pool.as_ref()?.ui()
+        self.pool.as_ref()?.hosts().ui()
     }
 
     /// What the screens' callbacks stage for the kernel (`screen_stage`).

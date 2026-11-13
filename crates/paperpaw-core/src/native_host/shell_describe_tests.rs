@@ -21,7 +21,7 @@ fn a_long_or_broken_label_is_refused_before_the_canvas_is_asked() {
             len: label.len(),
         };
         // SAFETY: the pinned context of a live owner, a valid byte pair.
-        unsafe { (context.table.canvas_describe)(ctx, 2, 0, pair, 0, 0, 8, 8) }
+        unsafe { (context.table().canvas_describe)(ctx, 2, 0, pair, 0, 0, 8, 8) }
     };
     assert_eq!(describe(&[b'a'; 257]), ERR_INVALID);
     assert_eq!(describe(&[b'a', 0xff, b'b']), ERR_UTF8);

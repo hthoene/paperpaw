@@ -37,7 +37,10 @@ fn pair(bytes: &[u8]) -> PpBytes {
 fn failed_handle_allocation_recovers_and_a_call_allocates_nothing() {
     let pool = HostResources::with_test_service(echo).unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let declared = DeclaredServices::try_from_iter(core::iter::once(Declared {
         key: "core.test-echo",
         major: 1,
