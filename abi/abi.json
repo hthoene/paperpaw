@@ -1782,6 +1782,51 @@
         "entry_layout": 1,
         "name": "esp32s3-xtensa-lx7-ilp32-windowed-le",
         "pointer_bits": 32
+      },
+      {
+        "byte_order": "little",
+        "calling_convention": "x86_64-win64",
+        "entry_align": 8,
+        "entry_bytes": 32,
+        "entry_layout": 1,
+        "name": "windows-x86_64-win64-le",
+        "pointer_bits": 64
+      },
+      {
+        "byte_order": "little",
+        "calling_convention": "x86_64-sysv64",
+        "entry_align": 8,
+        "entry_bytes": 32,
+        "entry_layout": 1,
+        "name": "macos-x86_64-sysv64-le",
+        "pointer_bits": 64
+      },
+      {
+        "byte_order": "little",
+        "calling_convention": "aarch64-darwinpcs",
+        "entry_align": 8,
+        "entry_bytes": 32,
+        "entry_layout": 1,
+        "name": "macos-aarch64-darwinpcs-le",
+        "pointer_bits": 64
+      },
+      {
+        "byte_order": "little",
+        "calling_convention": "aarch64-aapcs64",
+        "entry_align": 8,
+        "entry_bytes": 32,
+        "entry_layout": 1,
+        "name": "android-aarch64-aapcs64-le",
+        "pointer_bits": 64
+      },
+      {
+        "byte_order": "little",
+        "calling_convention": "wasm32-c",
+        "entry_align": 4,
+        "entry_bytes": 20,
+        "entry_layout": 1,
+        "name": "web-wasm32-c-le",
+        "pointer_bits": 32
       }
     ],
     "records": {
