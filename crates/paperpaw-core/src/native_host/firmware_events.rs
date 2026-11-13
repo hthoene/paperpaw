@@ -323,7 +323,15 @@ impl Kernel {
         let native = self.shared.native_instances.find(id.as_str()).is_some()
             || self.shared.native_instances.replacement_pending(&id);
         let replaced = self.shared.plugins.get(id.as_str()).is_some();
-        if !native && (!replaced || self.unload_plugin(&id)) {
+        // Only a data plugin's old version goes: a plugin built in or linked
+        // whose id the job let through (no device host wired) stays.
+        let foreign = replaced && !self.shared.data_folders.iter().any(|(p, _)| *p == id);
+        if foreign {
+            self.warn_runtime(
+                "an installed data plugin has the id of a plugin built in: not loaded",
+            );
+        }
+        if !native && !foreign && (!replaced || self.unload_plugin(&id)) {
             let dir = paperpaw_sdk::builtin::PLUGIN_DIR;
             let mut folder = String::new();
             if folder
