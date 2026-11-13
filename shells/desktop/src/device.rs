@@ -770,6 +770,23 @@ impl Device {
     #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
     fn poll_native_net(&mut self, _wait: Option<std::time::Duration>) {}
 
+    /// Whether the native plugins' servers run (the loop looks again soon).
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    #[must_use]
+    pub fn native_serving(&self) -> bool {
+        self.linked
+            .net
+            .borrow()
+            .as_ref()
+            .is_some_and(|net| net.transport.serving())
+    }
+
+    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    #[must_use]
+    pub fn native_serving(&self) -> bool {
+        false
+    }
+
     /// The native plugins' requests started and not answered yet.
     #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
     fn native_in_flight(&self) -> usize {
