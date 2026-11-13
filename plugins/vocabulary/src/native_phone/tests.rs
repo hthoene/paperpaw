@@ -6,6 +6,8 @@ use alloc::string::ToString;
 use paperpaw_sdk::MemoryStorage;
 
 const KEY: &str = "abc";
+/// The page's template, as the card carries it.
+const HTML: &str = include_str!("../../data/phone.txt");
 
 fn request<'a>(method: &'a str, target: &'a str, body: Option<&'a str>, len: u64) -> Request<'a> {
     Request {
@@ -273,7 +275,7 @@ fn too_much_is_refused_before_it_is_read() {
 
 #[test]
 fn the_page_has_its_texts_and_limits_where_it_marks_them() {
-    let page = assemble("{a:\"/*MAX_IMPORT*/0\"}").unwrap();
+    let page = assemble(HTML, "{a:\"/*MAX_IMPORT*/0\"}").unwrap();
     let page = core::str::from_utf8(&page).unwrap();
     assert!(page.contains("{a:\"/*MAX_IMPORT*/0\"}"));
     // A value that holds a mark is not filled again.
@@ -401,10 +403,10 @@ fn answers_when_the_heap_refuses_are_clean() {
         }
     }
     // The page itself.
-    let (whole, count) = armed(usize::MAX, || assemble("{}"));
+    let (whole, count) = armed(usize::MAX, || assemble(HTML, "{}"));
     assert!(whole.is_ok() && count > 0);
     for at in 1..=count {
-        let (refused, _) = armed(at, || assemble("{}"));
+        let (refused, _) = armed(at, || assemble(HTML, "{}"));
         assert!(matches!(refused, Ok(_) | Err(Error::NoMemory)), "{at}");
     }
 }

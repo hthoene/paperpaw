@@ -4,6 +4,7 @@
 //! carries a key drawn anew each time from the device's random source
 //! (`core.secrets`); wrong keys lock the page for a while. Closing the screen
 //! ends the serving, as on interface 6.
+use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::{
@@ -253,7 +254,15 @@ impl Phone {
             Err(error) => return Err(error),
             Ok(key) => key.map_or((), wipe_text),
         }
-        let page = phone::assemble(&page_strings(host)?)?;
+        let strings = page_strings(host)?;
+        let page = match template(host) {
+            Ok(html) => phone::assemble(&html, &strings)?,
+            Err(Error::NotFound) => {
+                let words = Messages::new()?.copy(host, "vocabulary.phone.page-missing")?;
+                return self.show(host, View::Failed(words));
+            }
+            Err(error) => return Err(error),
+        };
         replace(host, Root::Data, PAGE_FILE, &page)?;
         let server = Server::new(SERVER, PORT)?.max_body(MAX_IMPORT)?;
         let (mut input, mut out) = (buffer(64)?, buffer(SERVE_OUT)?);
@@ -495,6 +504,46 @@ impl Phone {
     }
 }
 
+/// The page's template: the one carried in the code.
+#[cfg(feature = "embedded-page")]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the same shape as the one that reads the card"
+)]
+fn template(_host: &Host<'_>) -> Result<Cow<'static, str>, Error> {
+    Ok(Cow::Borrowed(phone::HTML))
+}
+
+/// The page's template: the file in the plugin's folder on the card.
+///
+/// # Errors
+/// `NotFound` where the plugin was installed without it, `NoMemory`.
+#[cfg(not(feature = "embedded-page"))]
+fn template(host: &Host<'_>) -> Result<Cow<'static, str>, Error> {
+    template_of(paperpaw_ui_kit::files::read_all(
+        host,
+        Root::Install,
+        phone::TEMPLATE_FILE,
+        phone::MAX_TEMPLATE,
+    ))
+}
+
+/// What the file read gave, as a template: none is `NotFound` (the screen says
+/// the page is missing), bytes that are no text are `Utf8`.
+#[cfg_attr(
+    feature = "embedded-page",
+    allow(
+        dead_code,
+        reason = "the code carries the template: only the tests read a file"
+    )
+)]
+fn template_of(read: Result<Option<Vec<u8>>, Error>) -> Result<Cow<'static, str>, Error> {
+    let bytes = read?.ok_or(Error::NotFound)?;
+    String::from_utf8(bytes)
+        .map(Cow::Owned)
+        .map_err(|_| Error::Utf8)
+}
+
 /// The page's texts as a JavaScript object of [`TEXTS`], in the reader's language.
 fn page_strings(host: &Host<'_>) -> Result<String, Error> {
     let mut messages = Messages::new()?;
@@ -579,6 +628,7 @@ fn said(host: &Host<'_>, done: &Done) -> Result<String, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     /// Every text a screen says exists in both catalogs, and the plural one in
     /// both its forms.
@@ -595,6 +645,7 @@ mod tests {
                 "vocabulary.phone.failed",
                 "vocabulary.phone.failed.title",
                 "vocabulary.phone.no-random",
+                "vocabulary.phone.page-missing",
                 "vocabulary.phone.hint",
                 "vocabulary.phone.deck-saved",
                 "vocabulary.phone.card-saved",
@@ -628,6 +679,20 @@ mod tests {
         ] {
             assert!(!is_left(name), "{name}");
         }
+    }
+
+    /// The template read from the card: the page as it is, a missing file is
+    /// `NotFound` (the screen says so), a refusal is the refusal, bytes that
+    /// are no text are refused.
+    #[test]
+    fn the_template_read_from_the_card_is_the_page_or_says_why_not() {
+        let page = include_str!("../data/phone.txt");
+        let read = template_of(Ok(Some(page.as_bytes().to_vec()))).unwrap();
+        assert_eq!(read, page);
+        assert_eq!(template_of(Ok(None)), Err(Error::NotFound));
+        assert_eq!(template_of(Err(Error::NoMemory)), Err(Error::NoMemory));
+        assert_eq!(template_of(Err(Error::Denied)), Err(Error::Denied));
+        assert_eq!(template_of(Ok(Some(vec![0xff, 0xfe]))), Err(Error::Utf8));
     }
 
     #[test]

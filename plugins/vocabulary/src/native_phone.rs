@@ -47,8 +47,16 @@ pub(crate) const MAX_IMPORT: u64 = 4 << 20;
 /// to spare: a longer one is written to a file and sent from it.
 pub(crate) const INLINE: usize = 2_000;
 
-/// The web page; its texts, and its limits, are filled in where it marks them.
-const HTML: &str = include_str!("../data/phone.txt");
+/// The page's template, carried in the code where the plugin is part of an app
+/// (`embedded-page`); a plugin file for a reader leaves it out and reads
+/// [`TEMPLATE_FILE`] from its folder on the card (the store's package holds it).
+#[cfg(feature = "embedded-page")]
+pub(crate) const HTML: &str = include_str!("../data/phone.txt");
+/// The template in the plugin's install folder, and the most it may hold.
+#[cfg(not(feature = "embedded-page"))]
+pub(crate) const TEMPLATE_FILE: &str = "data/phone.txt";
+#[cfg(not(feature = "embedded-page"))]
+pub(crate) const MAX_TEMPLATE: usize = 32 * 1024;
 const STRINGS_MARK: &str = "/*STRINGS*/{}";
 const IMPORT_MARK: &str = "/*MAX_IMPORT*/0";
 const TEXT_MARK: &str = "/*MAX_TEXT*/0";
@@ -509,12 +517,12 @@ fn param(query: &str, name: &str) -> Result<Option<String>, Error> {
     String::from_utf8(out).map(Some).map_err(|_| Error::Utf8)
 }
 
-/// The page with its texts (`strings`, a JSON object of [`TEXTS`]) and its
-/// limits, made in one pass.
+/// The page made of `html` with its texts (`strings`, a JSON object of
+/// [`TEXTS`]) and its limits, in one pass.
 ///
 /// # Errors
 /// `NoMemory`, `Invalid` for a page that lacks the mark of its texts.
-pub(crate) fn assemble(strings: &str) -> Result<Vec<u8>, Error> {
+pub(crate) fn assemble(html: &str, strings: &str) -> Result<Vec<u8>, Error> {
     let (mut import, mut text) = (String::new(), String::new());
     write_to(&mut import, format_args!("{MAX_IMPORT}"))?;
     write_to(&mut text, format_args!("{}", cards::MAX_TEXT))?;
@@ -525,9 +533,9 @@ pub(crate) fn assemble(strings: &str) -> Result<Vec<u8>, Error> {
     ];
     let room: usize = filled.iter().map(|(_, value)| value.len()).sum();
     let mut page = Vec::new();
-    page.try_reserve_exact(HTML.len() + room)
+    page.try_reserve_exact(html.len() + room)
         .map_err(|_| Error::NoMemory)?;
-    let mut rest = HTML;
+    let mut rest = html;
     for (mark, value) in filled {
         // Each search starts where the last value ended: a value may hold a mark.
         let Some(at) = rest.find(mark) else {
