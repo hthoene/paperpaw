@@ -221,7 +221,15 @@ impl Phone {
     /// The server started, failed or stopped.
     pub(crate) fn server(&mut self, host: &Host<'_>, state: ServerState<'_>) -> Result<(), Error> {
         match state {
-            ServerState::Started { address } => self.serving(host, address),
+            ServerState::Started { address } => match self.serving(host, address) {
+                // No room to make the address: the server is not left running
+                // with nobody told how to reach it.
+                Err(Error::NoMemory) => {
+                    self.give_up(host);
+                    Err(Error::NoMemory)
+                }
+                other => other,
+            },
             ServerState::Failed { reason } => self.not_serving(host, reason),
             // Asked for by the plugin: nothing to say. Ended by the network
             // while the address was shown: it is dead, and the screen says so.
@@ -229,6 +237,27 @@ impl Phone {
                 reason: Reason::NoNetwork,
             } => self.not_serving(host, Reason::NoNetwork),
             _ => Ok(()),
+        }
+    }
+
+    /// The server is stopped and the screen says it is not running, as far as
+    /// the memory allows: nothing here may fail again.
+    fn give_up(&mut self, host: &Host<'_>) {
+        if let Some(page) = self.screens.top(TOKEN) {
+            page.guard = None;
+            page.view = View::Failed(String::new());
+        }
+        if let (Ok(net), Ok(mut input), Ok(mut out)) = (
+            handle(&mut self.net, || Net::open(host)),
+            buffer(64),
+            buffer(SERVE_OUT),
+        ) {
+            match net.stop_serving(host, SERVER, &mut input, &mut out) {
+                Ok(()) | Err(_) => {}
+            }
+        }
+        match redraw(host, RedrawMode::Partial) {
+            Ok(()) | Err(_) => {}
         }
     }
 
