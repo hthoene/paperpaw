@@ -130,14 +130,17 @@ impl NativeNet {
     }
 
     /// Hands core the answers that have come (waiting up to `wait` for the
-    /// first), then lets it take its turn (`tick`).
-    pub fn pump(&self, reports: &NetReports, wait: Option<std::time::Duration>) {
+    /// first), then lets it take its turn (`tick`). `true` when core was
+    /// told anything: the kernel must then tick, as its pass delivers the
+    /// events (the X4's shell does the same, `host_net::Bridge::report`).
+    pub fn pump(&self, reports: &NetReports, wait: Option<std::time::Duration>) -> bool {
         // A network gone since the last pump ends every request.
         let up = ShellNetwork::network_up(self);
-        if self.was_up.replace(up) && !up {
+        let lost = self.was_up.replace(up) && !up;
+        if lost {
             let _ = reports.network_lost();
         }
-        self.pump_with(
+        let told = self.pump_with(
             wait,
             &|id, done| {
                 // A request core no longer knows is answered `ERR_NOT_FOUND`: no one to tell.
@@ -146,16 +149,29 @@ impl NativeNet {
             &|id| reports.redirected_to_https(id),
         );
         let _ = reports.tick();
+        lost || told
     }
 
     /// [`NativeNet::pump`] with what core is told through `finish` (a
-    /// request's end) and `to_https` (`redirected_to_https`).
+    /// request's end) and `to_https` (`redirected_to_https`); `true` when
+    /// either was called.
     fn pump_with(
         &self,
         wait: Option<std::time::Duration>,
         finish: &dyn Fn(u32, HttpDone<'_>),
         to_https: &dyn Fn(u32) -> Result<(), i32>,
-    ) {
+    ) -> bool {
+        let told = Cell::new(false);
+        let finish = |id, done: HttpDone<'_>| {
+            told.set(true);
+            finish(id, done);
+        };
+        let to_https = |id| {
+            told.set(true);
+            to_https(id)
+        };
+        let (finish, to_https): (&dyn Fn(u32, HttpDone<'_>), &dyn Fn(u32) -> Result<(), i32>) =
+            (&finish, &to_https);
         // Redirects core was too busy to take: again.
         for id in std::mem::take(&mut *self.upgrades.borrow_mut()) {
             self.upgrade(id, finish, to_https);
@@ -190,6 +206,7 @@ impl NativeNet {
                 }
             }
         }
+        told.get()
     }
 
     /// Tells core that request `id` was redirected to `https` and is parked
@@ -769,6 +786,21 @@ mod tests {
         assert_eq!(told.get(), 1);
         assert_eq!(*ended.borrow(), [(1, 200, HttpReason::Ok)]);
         assert_eq!(net.in_flight(), 0);
+    }
+
+    /// The pump says whether core was told anything: the device then ticks
+    /// the kernel, whose pass tells the plugin (#2795).
+    #[test]
+    fn the_pump_says_whether_core_was_told_anything() {
+        crate::http::set_route(Some(Box::new(Upgrading(Rc::default()))));
+        let net = NativeNet::new(Rc::new(MemoryStorage::new()), Rc::default());
+        let nothing = |_, _: HttpDone<'_>| {};
+        assert!(!net.pump_with(None, &nothing, &|_| Ok(())), "nothing in flight");
+        let call = flight("GET", "https://a.example/x", &[], None, None, 0).call;
+        net.begin(call, None, 0).unwrap();
+        assert!(net.pump_with(None, &nothing, &|_| Ok(())), "an answer");
+        assert!(!net.pump_with(None, &nothing, &|_| Ok(())), "told once");
+        crate::http::set_route(None);
     }
 
     #[test]
