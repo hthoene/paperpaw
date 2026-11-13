@@ -61,6 +61,8 @@ struct Running {
     status_read: Instant,
     /// HTTP requests in flight.
     net: crate::net::Net,
+    /// The interface-7 plugins' `core.net`, where registered.
+    native: Option<crate::native::Native>,
     /// For the system's clipboard.
     app: AndroidApp,
     /// Plugins' servers.
@@ -240,6 +242,12 @@ fn android_main(app: AndroidApp) {
             let effects = state.kernel.http_response(now(), response);
             changed |= apply(state, effects);
         }
+        if let Some(native) = &state.native {
+            native.pump();
+            // What the plugins' answers brought shows now: core has taken its turn.
+            let effects = state.kernel.tick(now());
+            changed |= apply(state, effects);
+        }
         while let Some(event) = state.servers.next() {
             let effects = state.kernel.server_event(now(), event);
             changed |= apply(state, effects);
@@ -408,8 +416,8 @@ fn start_kernel(
         .or_else(|| internal.clone())
         .unwrap_or_else(|| PathBuf::from("."));
     install_samples(app, &root);
-    let storage = match DirStorage::new(&root) {
-        Ok(storage) => storage,
+    let seeded = match DirStorage::new(&root) {
+        Ok(storage) => paperpaw_default_packs::seed_hyphenation(&storage),
         Err(e) => {
             log::error!("storage {}: {e}", root.display());
             return None;
@@ -417,77 +425,59 @@ fn start_kernel(
     };
     // English hyphenation is a data plugin: this app has no flasher, so put it
     // there once (`paperpaw-default-packs`).
-    let seeded = paperpaw_default_packs::seed_hyphenation(&storage);
     if !matches!(seeded, paperpaw_default_packs::Seeded::Kept) {
         log::info!("English hyphenation: {seeded:?}");
     }
-    // The passwords where only PaperPaw reads them (see `private`).
-    let storage = Volumes(
-        match internal
-            .filter(|internal| *internal != root)
-            .map(DirStorage::new)
-        {
-            Some(Ok(private)) => Box::new(Private::new(storage, private)),
-            Some(Err(e)) => {
-                log::warn!("private folder: {e}");
-                Box::new(storage)
-            }
-            None => Box::new(storage),
-        },
-    );
     // The shared storage as `storage`, if the user allowed access; the
     // library is then its `Books` folder unless the user chose another.
     let shared = access::granted(app)
         .then(|| access::storage_dir(app))
         .flatten()
-        .and_then(|dir| {
+        .filter(|dir| {
             // Data plugins and dictionaries are copied there.
             for folder in [PLUGINS, DICTIONARIES, FONTS] {
                 if let Err(e) = std::fs::create_dir_all(dir.join(folder)) {
                     log::warn!("{}: {e}", dir.join(folder).display());
                 }
             }
-            match DirStorage::new(&dir) {
-                Ok(shared) => Some(shared),
-                Err(e) => {
-                    log::warn!("{}: {e}", dir.display());
-                    None
-                }
-            }
+            DirStorage::new(dir)
+                .inspect_err(|e| log::warn!("{}: {e}", dir.display()))
+                .is_ok()
         });
-    // KOReader's dictionaries if there are any, else PaperPaw's folder.
-    let dictionaries = access::storage_dir(app)
-        .filter(|dir| shared.is_some() && dir.join(KOREADER_DICTIONARIES).is_dir())
-        .map_or(DICTIONARIES, |_| KOREADER_DICTIONARIES);
     let shared_storage = shared.is_some();
     // SD cards next to the shared storage, with the same access.
-    let removable: Vec<(&'static str, DirStorage)> = if shared_storage {
+    let removable: Vec<(&'static str, PathBuf)> = if shared_storage {
         access::removable_dirs(app)
             .into_iter()
-            .filter_map(|dir| match DirStorage::new(&dir) {
-                Ok(volume) => Some(volume),
-                Err(e) => {
-                    log::warn!("{}: {e}", dir.display());
-                    None
-                }
-            })
             .enumerate()
-            .map(|(n, volume)| {
+            .map(|(n, dir)| {
                 let name = match n {
                     0 => REMOVABLE.to_string(),
                     n => format!("{REMOVABLE} {}", n + 1),
                 };
                 // Once per start: the mount points live as long as the app.
-                (&*Box::leak(name.into_boxed_str()), volume)
+                (&*Box::leak(name.into_boxed_str()), dir)
             })
             .collect()
     } else {
         Vec::new()
     };
+    let folders = Folders {
+        root,
+        internal,
+        shared: shared.clone(),
+        removable,
+    };
+    let storage = folders.open()?;
+    // KOReader's dictionaries if there are any, else PaperPaw's folder.
+    let dictionaries = access::storage_dir(app)
+        .filter(|dir| shared.is_some() && dir.join(KOREADER_DICTIONARIES).is_dir())
+        .map_or(DICTIONARIES, |_| KOREADER_DICTIONARIES);
     // The plugins the store offers as files are built in here (an app
     // from Play may load no code from files), switched off for a new
     // reader until wanted; for one who ran PaperPaw before, as they were.
     let ran_before = paperpaw_app::ran_before(&storage);
+    let has_light = lights.is_some();
     let mut builder = Kernel::builder(device)
         .clock(micros)
         .random(random)
@@ -500,12 +490,9 @@ fn start_kernel(
         .speech(true)
         .rotation(true)
         .colors(true);
-    builder = match shared {
-        Some(shared) => builder
-            .storage(removable.into_iter().fold(
-                Volumes(Box::new(Mounted::new(storage, SHARED, shared))),
-                |all, (name, volume)| Volumes(Box::new(Mounted::new(all, name, volume))),
-            ))
+    builder = builder.storage(storage);
+    if shared_storage {
+        builder = builder
             .plugin_dir(format!("{SHARED}/{PLUGINS}"))
             .font_dir(format!("{SHARED}/{FONTS}"))
             .font_dir(format!("{SHARED}/{KOREADER_FONTS}"))
@@ -514,9 +501,8 @@ fn start_kernel(
             .setting_default(
                 &paperpaw_plugin_dictionary::FOLDER,
                 format!("{SHARED}/{dictionaries}").into(),
-            ),
-        None => builder.storage(storage),
-    };
+            );
+    }
     // The system language, unless the user chose another one.
     if let Some(language) = app.config().language() {
         builder = builder.setting_default(&settings::LANGUAGE, language.into());
@@ -549,6 +535,18 @@ fn start_kernel(
             return None;
         }
     };
+    // The interface-7 plugins, registered before the kernel starts; the card
+    // is a second handle on what it reads.
+    let native = crate::native::register(
+        &mut kernel,
+        app,
+        &device,
+        folders
+            .open()
+            .map(|card| std::rc::Rc::new(card) as std::rc::Rc<dyn Storage>),
+        format == PixelFormat::Rgb888,
+        has_light,
+    );
     let frame = Framebuffer::new(device.display.width, device.display.height, format).ok()?;
     let _ = kernel.set_status(now, status::read(app, now));
     let effects = kernel.start(now);
@@ -562,6 +560,7 @@ fn start_kernel(
         changed_rows: None,
         status_read: now,
         net: crate::net::Net::new(app),
+        native,
         app: app.clone(),
         servers: {
             let waker = app.create_waker();
@@ -792,6 +791,65 @@ fn input(event: &AndroidInput<'_>) -> Option<Vec<InputEvent>> {
             )
         }
         _ => None,
+    }
+}
+
+/// The folders the kernel's storage is made of.
+struct Folders {
+    /// PaperPaw's own: the app's external files folder, else the internal one.
+    root: PathBuf,
+    /// The internal folder, where the passwords stay (see `private`).
+    internal: Option<PathBuf>,
+    /// The device's shared storage, if the user allowed access.
+    shared: Option<PathBuf>,
+    /// SD cards next to it, by the name they appear under.
+    removable: Vec<(&'static str, PathBuf)>,
+}
+
+impl Folders {
+    /// The storage over them: a new handle each time, as the kernel's and as
+    /// the native plugins' card (the files are the same).
+    fn open(&self) -> Option<Volumes> {
+        let base = match DirStorage::new(&self.root) {
+            Ok(base) => base,
+            Err(e) => {
+                log::error!("storage {}: {e}", self.root.display());
+                return None;
+            }
+        };
+        // The passwords where only PaperPaw reads them (see `private`).
+        let storage = Volumes(
+            match self
+                .internal
+                .as_ref()
+                .filter(|internal| **internal != self.root)
+                .map(DirStorage::new)
+            {
+                Some(Ok(private)) => Box::new(Private::new(base, private)),
+                Some(Err(e)) => {
+                    log::warn!("private folder: {e}");
+                    Box::new(base)
+                }
+                None => Box::new(base),
+            },
+        );
+        let Some(shared) = self
+            .shared
+            .as_ref()
+            .and_then(|dir| DirStorage::new(dir).ok())
+        else {
+            return Some(storage);
+        };
+        Some(self.removable.iter().fold(
+            Volumes(Box::new(Mounted::new(storage, SHARED, shared))),
+            |all, (name, dir)| match DirStorage::new(dir) {
+                Ok(volume) => Volumes(Box::new(Mounted::new(all, name, volume))),
+                Err(e) => {
+                    log::warn!("{}: {e}", dir.display());
+                    all
+                }
+            },
+        ))
     }
 }
 

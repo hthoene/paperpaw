@@ -1635,6 +1635,7 @@ dependencies = [
  "paperpaw-plugin-dictionary",
  "paperpaw-sdk",
  "paperpaw-serve",
+ "paperpaw-shell-glue",
 ]
 
 [[package]]
@@ -2891,6 +2892,7 @@ version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
+ "paperpaw-http",
  "paperpaw-native",
  "paperpaw-platform",
 ]

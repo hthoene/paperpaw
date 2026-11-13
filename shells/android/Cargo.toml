@@ -17,7 +17,11 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 paperpaw-digest.workspace = true
-paperpaw-app = { workspace = true, features = ["outline"] }
+# The linked interface-7 plugins (`native.rs`): the app's moved plugins are
+# there in that form only (`install_with` drops their interface-6 form).
+paperpaw-app = { workspace = true, features = ["outline", "native-linked", "native-linked-store", "native-linked-reading"] }
+# What the shells that host them share: registration, `core.net`'s transport.
+paperpaw-shell-glue = { path = "../glue", features = ["linked"] }
 paperpaw-core = { workspace = true, features = ["color", "outline"] }
 paperpaw-http.workspace = true
 paperpaw-serve.workspace = true
