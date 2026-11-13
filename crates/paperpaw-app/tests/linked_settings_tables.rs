@@ -69,7 +69,7 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
         "file-manager",
     ];
     #[cfg(feature = "native-linked-store")]
-    with_settings.push("aids");
+    with_settings.extend(["aids", "fonts-browser", "picture-home"]);
     #[cfg(feature = "native-linked-reading")]
     with_settings.extend(["home", "reader"]);
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
@@ -91,7 +91,7 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
     )]
     let mut with_groups = vec!["bluetooth", "keyboard", "lock", "power"];
     #[cfg(feature = "native-linked-store")]
-    with_groups.push("widgets");
+    with_groups.extend(["widgets", "picture-home"]);
     #[cfg(feature = "native-linked-reading")]
     // (Reader declares no group of its own: its settings sit in core groups.)
     with_groups.push("home");

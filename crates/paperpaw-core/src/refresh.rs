@@ -38,9 +38,25 @@ pub(crate) struct RefreshPolicy {
     /// them): two items far apart are a region of most of the screen, but
     /// no page. `None`: the region is taken as it is.
     weight: Option<u32>,
+    /// The first frame after the start is not counted (see
+    /// [`RefreshPolicy::after_start`]).
+    skip_first: bool,
 }
 
 impl RefreshPolicy {
+    /// The policy of a kernel that has just started: the first frame shown
+    /// is not counted as a page. The start shows its screen (the home) at
+    /// once, and the plugin that opens the last book hears `event.started`
+    /// on the first wake after it, so the book opens as the second frame
+    /// where Beta 3 opened it in the start itself: counted, the fourth page
+    /// turned would flash.
+    pub(crate) fn after_start() -> Self {
+        Self {
+            skip_first: true,
+            ..Self::default()
+        }
+    }
+
     /// Says what the areas drawn for the refresh that is decided and done
     /// next add up to (see the field), or `None` for what lies in the
     /// region.
@@ -93,6 +109,11 @@ impl RefreshPolicy {
     /// while reading (a clock, a progress line), so that leaving the page
     /// does not flash at once.
     pub(crate) fn done(&mut self, mode: RefreshMode, region: Rect, screen: Rect, every: Intervals) {
+        if core::mem::take(&mut self.skip_first)
+            && !matches!(mode, RefreshMode::Full | RefreshMode::Clear)
+        {
+            return;
+        }
         match mode {
             RefreshMode::Full | RefreshMode::Clear => (self.partials, self.ui) = (0, 0),
             RefreshMode::Partial | RefreshMode::Gray if self.is_page(region, screen) => {
@@ -203,6 +224,22 @@ mod tests {
             policy.decide(RefreshMode::Partial, r, r, pages(2)).0,
             RefreshMode::Full
         );
+    }
+
+    /// The frame the start shows is not a page turned; the next ones are.
+    #[test]
+    fn the_first_frame_after_the_start_is_not_counted() {
+        let mut policy = RefreshPolicy::after_start();
+        let screen = Rect::new(0, 0, 480, 800);
+        policy.done(RefreshMode::Partial, screen, screen, COUNTED);
+        assert_eq!(policy.partials, 0);
+        policy.done(RefreshMode::Partial, screen, screen, COUNTED);
+        assert_eq!(policy.partials, 1);
+        // A full refresh as the first frame counts as what it is.
+        let mut policy = RefreshPolicy::after_start();
+        policy.done(RefreshMode::Full, screen, screen, COUNTED);
+        policy.done(RefreshMode::Partial, screen, screen, COUNTED);
+        assert_eq!(policy.partials, 1);
     }
 
     /// Focus moves, menus and notices (fast or small) count apart and

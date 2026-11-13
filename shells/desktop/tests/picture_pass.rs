@@ -294,7 +294,10 @@ fn pictured(turns: &[Vec<Frame>]) -> Vec<usize> {
 }
 
 #[test]
-#[ignore = "needs native activation (#243: the reader of this build is the interface-6 one)"]
+#[cfg_attr(
+    not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+    ignore = "needs the native reader (the desktop's `native-linked`, #243)"
+)]
 fn small_pictures_follow_their_page_and_do_not_count_as_a_page() {
     let (_, turns) = turns(SMALL);
     let whole = whole();
@@ -333,7 +336,10 @@ fn small_pictures_follow_their_page_and_do_not_count_as_a_page() {
 /// A large picture is shown in grays on the X4, which its panel refreshes
 /// in full: still only the box, not the screen.
 #[test]
-#[ignore = "needs native activation (#243: the reader of this build is the interface-6 one)"]
+#[cfg_attr(
+    not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+    ignore = "needs the native reader (the desktop's `native-linked`, #243)"
+)]
 fn a_large_picture_refreshes_only_its_box() {
     let (opening, turns) = turns(LARGE);
     pictured(&turns);

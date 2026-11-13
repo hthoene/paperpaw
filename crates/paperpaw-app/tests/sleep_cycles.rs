@@ -12,6 +12,8 @@
 //! cover and page caches made later in the quiet time; the same with every
 //! plugin awake (#248). That growth from cycle 2 to [`SETTLED`] must
 //! stay under [`ONCE_MAX`]; from [`SETTLED`] on the heap must not change.
+//! Each frame is drawn as a shell draws it: the recall cache keeps what a
+//! call read only until its frame is drawn (todo 576).
 //! The card's files are the test's storage, not the heap: what the card
 //! takes while it changes is left out (`card::changing_card`). Its own
 //! binary without the test harness (`harness = false`): the allocator counts
@@ -163,6 +165,7 @@ impl Run {
     /// Ticks until nothing is due within a second; drops the warnings.
     fn settle(&mut self, mut effects: Effects) {
         for _ in 0..10_000 {
+            self.draw(&effects);
             let Some(at) = effects.wake_at() else {
                 break;
             };
@@ -173,10 +176,21 @@ impl Run {
             native_activation::set_clock(self.now);
             effects = self.kernel.tick(Instant(self.now));
         }
+        self.draw(&effects);
         drop(self.kernel.take_warnings());
         // As a shell does after every kernel call: the radio commands of
         // each standby would else pile up in the queue (#248).
         drop(self.kernel.take_io());
+    }
+
+    /// As a shell does after every kernel call with a refresh: draws the
+    /// frame. Drawing also ends what the storage recall cache kept for it;
+    /// never drawn, the cache would keep up to its budget until a rename
+    /// cleared it (todo 576).
+    fn draw(&mut self, effects: &Effects) {
+        if effects.refresh().is_some() {
+            self.kernel.render(&mut |_, _| {});
+        }
     }
 
     fn run(&mut self, action: &Id) {
@@ -337,15 +351,19 @@ fn main() {
     let files_card = card;
     let mut run = Run { kernel, now: 0 };
     run.settle(effects);
-    // A format is a native plugin only where the build activates them (the
-    // flip, #243): one not registered is left out and counted, every other
-    // plugin that may sleep must be there.
+    // A format is a native plugin only where the build links the reading
+    // plugins (`native-linked-reading`, the flip, #243): there every plugin
+    // that may sleep must be registered, formats included; elsewhere only a
+    // format may be left out.
     let (registered, absent): (Vec<&str>, Vec<&str>) = paperpaw_app::SLEEPS
         .iter()
         .copied()
         .partition(|plugin| run.kernel.native_is_parked(plugin).is_some());
+    let formats_linked = cfg!(feature = "native-linked-reading");
     assert!(
-        absent.iter().all(|plugin| plugin.starts_with("format-")),
+        absent
+            .iter()
+            .all(|plugin| !formats_linked && plugin.starts_with("format-")),
         "plugins that may sleep but are not registered: {absent:?}"
     );
     let ways: Vec<(&str, Use)> = registered

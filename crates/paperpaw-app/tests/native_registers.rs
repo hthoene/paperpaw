@@ -89,12 +89,19 @@ fn the_ids_of_the_table_are_the_plugins_ids_and_there_are_no_two() {
     assert_eq!(sorted.len(), ids.len());
     // The store plugins whose ports are finished are in the table, behind
     // their feature.
-    for id in ["aids", "mail", "notes-vault", "widgets"] {
+    for id in [
+        "aids",
+        "fonts-browser",
+        "mail",
+        "notes-vault",
+        "picture-home",
+        "widgets",
+    ] {
         assert!(ids.contains(&id), "{id}");
         assert!(STORE_PLUGINS.contains(&id), "{id}");
     }
     // The ones that are not finished are not.
-    for id in ["picture-home", "dictionary", "sleep"] {
+    for id in ["dictionary", "sleep"] {
         assert!(!ids.contains(&id), "{id}");
     }
     // The ones linked with the reader (`native-linked-reading`: home, reader,
@@ -254,4 +261,33 @@ fn in_safe_mode_the_linked_plugins_run_but_the_one_the_crash_was_in() {
     // A built-in plugin that did not crash is hosted as before.
     let (state, enabled) = state(&kernel, "settings").expect("settings is listed");
     assert!(enabled && state != PluginState::Off);
+}
+
+/// Picture home ships off, as Beta 3 shipped it: listed, not hosted, and the
+/// home screen stays home's (`core.home`).
+#[cfg(feature = "native-linked-store")]
+#[test]
+fn picture_home_ships_off_and_home_keeps_the_home_screen() {
+    let mut kernel = kernel("");
+    assert_eq!(
+        state(&kernel, "picture-home"),
+        Some((PluginState::Off, false))
+    );
+    let _ = kernel.start(paperpaw_platform::Instant(0));
+    let shown = kernel.active_screen().map(|id| id.namespace().to_string());
+    assert_eq!(shown.as_deref(), Some("home"), "{shown:?}");
+}
+
+/// Switched on, picture home takes the home screen (`core.home`), as its
+/// interface-6 form did.
+#[cfg(feature = "native-linked-store")]
+#[test]
+fn picture_home_switched_on_takes_the_home_screen() {
+    let mut kernel = kernel("[plugins]\npicture-home = on\n");
+    let (state, enabled) = state(&kernel, "picture-home").expect("listed");
+    assert!(enabled);
+    assert_eq!(state, PluginState::Running);
+    let _ = kernel.start(paperpaw_platform::Instant(0));
+    let shown = kernel.active_screen().map(|id| id.namespace().to_string());
+    assert_eq!(shown.as_deref(), Some("picture-home"), "{shown:?}");
 }

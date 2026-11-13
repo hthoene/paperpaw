@@ -123,9 +123,10 @@ jobs:
       # The app's flows with the linked native plugins, and the plugins that
       # may sleep (#248): each behaves the same parked as awake, also parked
       # again on standby, and 50 standby cycles leave no heap and no handle
-      # behind. All need the app's `native-linked`, which the workspace run
-      # above leaves off.
-      - run: cargo test -p paperpaw-app --features native-linked --test flows --test sleep_parity --test sleep_cycles
+      # behind. With the reader and the formats linked (`native-linked-reading`,
+      # #243): every format that may sleep is a native plugin there, so its
+      # parity cases run and the cycles require it.
+      - run: cargo test -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles
       # Every linked plugin's screens keep the entry of their titles table (#248):
       # the test is compiled out unless the app's `native-linked*` features are on.
       - run: cargo test -p paperpaw-app --features native-linked-reading --test linked_settings_tables
