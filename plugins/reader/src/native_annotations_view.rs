@@ -213,7 +213,7 @@ impl AnnotationsView {
                 })?;
                 items.try_reserve(1).map_err(|_| Error::NoMemory)?;
                 self.places.try_reserve(1).map_err(|_| Error::NoMemory)?;
-                items.push(Item::noted(&title, "", &line)?);
+                items.push(note_row(&title, &line)?);
                 self.places
                     .push(Place::new(row.start_section(), row.start_offset()));
             }
@@ -601,6 +601,12 @@ impl<'a, 'p> Markdown<'a, 'p> {
         }
         Ok(())
     }
+}
+
+/// A bookmark or highlight as a row: its text shown whole, wrapped as in
+/// Beta 3, not cut with an ellipsis.
+fn note_row(title: &str, line: &str) -> Result<Item, Error> {
+    Item::whole(title, "", line)
 }
 
 #[cfg(test)]

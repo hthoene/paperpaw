@@ -3,8 +3,12 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
-use crate::abi7::{context::ui_views::Declared, services_wire};
+use crate::abi7::{
+    context::{ComposeKind, HostStatus, ui_views::Declared},
+    services_wire,
+};
 use crate::native_host::stages_wire::core_widget_v1 as widget;
+use crate::native_host::ui_handles::{self, NoGuard};
 use crate::native_host::{
     admitted_features::AdmittedFeatures,
     call_services::validate_reply,
@@ -77,6 +81,8 @@ struct World<'a> {
     /// stage-local reply bytes, or an error), and each call made.
     widget_replies: RefCell<Vec<Reply>>,
     widget_asked: RefCell<Vec<(u64, u32, widget::Record)>>,
+    /// The kernel's items: a text, or drawn (`None`) with token 3.
+    host: RefCell<Vec<(&'static str, Option<&'static str>)>>,
 }
 
 type Reply = (u64, u32, Result<Vec<u8>, i32>);
@@ -84,6 +90,17 @@ type Reply = (u64, u32, Result<Vec<u8>, i32>);
 use crate::native_host::shell::tests::FAIL_NTH;
 
 impl Frame for World<'_> {
+    fn host_status(&self, item: &str, out: &mut [u8]) -> Option<HostStatus> {
+        let host = self.host.borrow();
+        let (_, value) = host.iter().find(|(id, _)| *id == item)?;
+        Some(match value {
+            Some(text) => {
+                out[..text.len()].copy_from_slice(text.as_bytes());
+                HostStatus::Text(text.len())
+            }
+            None => HostStatus::Drawn(3),
+        })
+    }
     fn settings(&self) -> &Settings {
         self.env.settings()
     }
@@ -322,6 +339,7 @@ fn world<R>(f: impl FnOnce(&World<'_>) -> R) -> R {
         asked: RefCell::new(Vec::new()),
         widget_replies: RefCell::new(Vec::new()),
         widget_asked: RefCell::new(Vec::new()),
+        host: RefCell::new(Vec::new()),
     })
 }
 
@@ -350,6 +368,70 @@ fn a_widget_is_made_for_the_top_instance_dropped_by_its_maker_and_own_is_flagged
         w.depth.set(1);
         w.rows.borrow_mut().push(row(11, A, false));
         assert_eq!(w.make(ME, "a.w").err(), Some(ERR_STATE));
+    });
+}
+
+#[test]
+fn the_kernels_items_are_answered_without_a_call_on_the_x4_too() {
+    world(|w| {
+        w.host.borrow_mut().extend([
+            ("core.status.clock", Some("12:34")),
+            ("core.status.battery", None),
+        ]);
+        w.reply(A, 1, Ok(values(&[("a.one", 0, "open")])));
+        let ask = "core.status.clock\ncore.status.battery\na.one\ncore.status.gone";
+        // The X4 first: the other run caches the plugin's value.
+        for x4 in [true, false] {
+            w.x4.set(x4);
+            w.asked.borrow_mut().clear();
+            let rows = w.status(ME, ask).unwrap();
+            assert_eq!(rows[0], ("core.status.clock".into(), 0, 0, "12:34".into()));
+            // Drawn: a handle of the host's, valid in this callback.
+            let (_, flags, handle, ref text) = rows[1];
+            assert_eq!((flags, text.as_str()), (1, ""), "x4 {x4}");
+            assert_ne!(handle, 0);
+            let handles = w.hosts.ui().unwrap().widgets.handles.borrow();
+            let caller = ui_handles::Caller {
+                plugin: ME,
+                callback: 1,
+                depth: 1,
+            };
+            let target = handles
+                .resolve(caller, ComposeKind::StatusItem, handle, &NoGuard)
+                .unwrap();
+            assert_eq!((target.owner, target.token), (host_status::HOST, 3));
+            drop(handles);
+            // A plugin's item: its owner's call, but not on the X4.
+            let plugin = if x4 { String::new() } else { "open".into() };
+            assert_eq!(rows[2], ("a.one".into(), 0, 0, plugin), "x4 {x4}");
+            assert_eq!(w.asked.borrow().len(), usize::from(!x4));
+            // Neither the kernel's nor declared: no value.
+            assert_eq!(rows[3], ("core.status.gone".into(), 0, 0, String::new()));
+        }
+    });
+}
+
+#[test]
+fn op_4_lists_the_owners_notice_with_the_id_and_place_the_maker_named() {
+    world(|w| {
+        let (id, _) = w.make(ME, "a.w@2").unwrap();
+        // An own widget has no instance, so nobody is told.
+        w.make(ME, "me.w").unwrap();
+        let handles = w.hosts.ui().unwrap().widgets.handles.borrow();
+        assert_eq!(handles.made_waiting(), 1);
+        let made = handles
+            .next_made(crate::native_host::ui_handles::Pick::Instance(id))
+            .unwrap();
+        assert_eq!(
+            (
+                made.owner,
+                made.token,
+                made.instance,
+                made.widget(),
+                made.place()
+            ),
+            (A, 7, id, "a.w@2", "p")
+        );
     });
 }
 
@@ -438,14 +520,19 @@ fn values_are_cached_until_the_status_changes_and_private_ones_hidden_under_a_gu
 
 #[test]
 #[cfg_attr(feature = "x4-nested", ignore = "x4-nested opens the X4 gate (#250)")]
-fn ops_14_and_15_are_depth_one_only_and_unsupported_on_the_x4() {
+fn ops_14_and_15_are_depth_one_only_and_a_plugins_items_go_without_value_on_the_x4() {
     world(|w| {
         w.depth.set(2);
         assert_eq!(w.status(ME, "a.one").err(), Some(ERR_BUSY));
         assert_eq!(w.line(ME, "a.line").err(), Some(ERR_BUSY));
         w.depth.set(1);
         w.x4.set(true);
-        assert_eq!(w.status(ME, "a.one").err(), Some(ERR_UNSUPPORTED));
+        // Op 14 answers: a plugin's item has no value (no nested call), not
+        // the whole op; op 15 needs the owner's call (todo 598).
+        w.asked.borrow_mut().clear();
+        let rows = w.status(ME, "a.one").unwrap();
+        assert_eq!(rows[0], ("a.one".into(), 0, 0, String::new()));
+        assert!(w.asked.borrow().is_empty(), "no owner called");
         assert_eq!(w.line(ME, "a.line").err(), Some(ERR_UNSUPPORTED));
         w.x4.set(false);
         // More than 8 items, an empty line or an overlong one: invalid.

@@ -36,7 +36,7 @@ const PER_OWNER: usize = 4;
 /// `true` when events remain for another pass.
 pub(super) fn pump(
     instances: &NativeInstances,
-    services: &[Option<&dyn ServiceEvents>; 3],
+    services: &[Option<&dyn ServiceEvents>; 4],
     env: &Env<'_>,
     call: &dyn Fn(u64, &super::native_instances::NativeLease, &[u8]),
 ) -> bool {
@@ -254,6 +254,13 @@ impl crate::Kernel {
         self.shared
             .native_instances
             .retry_run_closes(self.now.millis());
+        // Answers given since the last pass (a dialog Back closed after it)
+        // reach their askers before any request or event is served: a
+        // computer's next request never finds a cancelled question open.
+        let answered_more = self.native_dialog_answers_waiting() && self.native_dialog_pump();
+        // The cable's server: its start told, answered requests gone, a
+        // held request delivered (`cable_pump`).
+        self.native_cable_pump();
         // A batch left waiting (a callback outside the pumps staged it) runs
         // first: no event is called while one waits, and none is lost for it.
         // Never inside a callback (as the work and picture pumps): the pump
@@ -306,7 +313,8 @@ impl crate::Kernel {
         // (`firmware_events`).
         let firmware_more = self.native_firmware_pump();
         self.shared.native_instances.set_service_more(
-            more || work_more
+            more || answered_more
+                || work_more
                 || image_more
                 || reading_more
                 || setting_more
@@ -353,6 +361,7 @@ impl crate::Kernel {
             .chain(self.native_demand_due().map(|at| at.millis()))
             .chain(self.native_wifi_due())
             .chain(self.firmware_due())
+            .chain(self.native_cable_due())
             .min()
             .map(Instant)
     }

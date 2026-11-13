@@ -87,3 +87,6 @@ mod item_state;
 
 #[path = "shell_preset_tests.rs"]
 mod preset;
+
+#[path = "shell_storage_root_tests.rs"]
+mod storage_root;

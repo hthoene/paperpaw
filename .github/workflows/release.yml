@@ -376,13 +376,11 @@ jobs:
       - name: Build the firmware
         working-directory: shells/xteink
         # Without remote control over USB, which is for testing.
-        # The runner's paths are remapped (`--config`, which adds to the
-        # flags of `.cargo/config.toml`; RUSTFLAGS would replace them), so the
-        # panic messages in the image do not carry them, and a little flash is
-        # saved. (The same sources in the same folder give the same image; the
-        # folder still changes the layout a little.)
+        # The runner's paths are remapped (tools/ci/firmware-remap.sh says
+        # to what), so the panic messages in the image do not carry them, and
+        # a little flash is saved. CI builds its image the same way.
         run: |
-          remap="target.$FIRMWARE_TARGET.rustflags=[\"--remap-path-prefix=$GITHUB_WORKSPACE=/build\",\"--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo\"]"
+          remap="$("$GITHUB_WORKSPACE/tools/ci/firmware-remap.sh" "$FIRMWARE_TARGET" "$FIRMWARE_TOOLCHAIN")"
           cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           elf="target/$FIRMWARE_TARGET/release/paperpaw-xteink"

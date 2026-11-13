@@ -117,6 +117,8 @@ pub(crate) mod plugin_swap;
 pub(crate) mod plugin_trust;
 #[path = "native_host/plugin_unforgotten.rs"]
 pub(crate) mod plugin_unforgotten;
+#[path = "native_host/store_record.rs"]
+pub(crate) mod store_record;
 
 #[path = "native_host/secrets_file.rs"]
 pub(crate) mod secrets_file;
@@ -230,6 +232,7 @@ pub(crate) mod secret_bytes;
 pub(crate) mod book_data_steps;
 pub(crate) mod book_scope;
 pub(crate) mod busy_adapters;
+mod cable_pump;
 #[path = "native_host/call_services.rs"]
 mod call_services;
 mod cover_job_marker;

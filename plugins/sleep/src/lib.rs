@@ -316,7 +316,8 @@ pub mod cat {
     use paperpaw_sdk::image::{Fit, ImageFile};
     use paperpaw_sdk::ui::UiStyle;
 
-    /// The drawing: 760 × 501 pixels, 16 grays, cropped to the cat.
+    /// The drawing: 760 × 501 pixels, 16 grays stored in 4 bits each
+    /// (#258), cropped to the cat.
     pub const PICTURE: &[u8] = include_bytes!("../pictures/sleeping-cat.png");
 
     /// The room around the cat on each side, in pixels.

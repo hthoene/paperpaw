@@ -222,6 +222,10 @@ fn root_one_reaches_a_running_data_plugins_files_only() {
     ] {
         assert_eq!(resolve(gone), Err(ERR_NOT_FOUND), "{gone}");
     }
+    // Its code and the host's files are not there either (`files.md` 1.1).
+    for hidden in ["plugins/owls/code.ppn", "plugins/OWLS/.install-marks"] {
+        assert_eq!(resolve(hidden), Err(ERR_NOT_FOUND), "{hidden}");
+    }
     // The kernel's own folders stay refused.
     assert_eq!(resolve(".paperpaw/cache/a.png"), Err(ERR_DENIED));
     // A data plugin that stops running is not there any more.
@@ -289,9 +293,20 @@ fn what_cannot_be_kept_fails_to_its_plugin_and_nothing_grows() {
 #[test]
 fn a_plugin_that_did_not_subscribe_loses_the_answer_without_a_call() {
     let mut w = world(false);
-    w.apply(std::vec![prepare(0, "p.png", 1)]);
+    w.apply(std::vec![prepare(0, "p.png", 1), prepare(0, "p.png", 2)]);
     while w.kernel.native_image_pump() {}
     assert!(w.told().is_empty());
+    // Said once, for the plugin to be found (#2795).
+    let said: Vec<_> = w.kernel.take_warnings();
+    let lost = said
+        .iter()
+        .filter(|warning| {
+            warning
+                .message
+                .contains("did not subscribe to event.image_ready")
+        })
+        .count();
+    assert_eq!(lost, 1, "{said:?}");
     // And nothing stays held for it.
     assert!(
         w.kernel
@@ -302,6 +317,40 @@ fn a_plugin_that_did_not_subscribe_loses_the_answer_without_a_call() {
             .borrow()
             .is_none()
     );
+}
+
+#[test]
+fn the_lost_answer_warning_copies_nothing_infallibly() {
+    use crate::native_host::shell::tests::FAIL_SIZE;
+    let message = "a: its pictures are not told, it did not subscribe to event.image_ready";
+    let lost = |w: &mut World| {
+        w.kernel
+            .take_warnings()
+            .iter()
+            .filter(|warning| warning.message.contains(message))
+            .count()
+    };
+    // The plugin's id, `a`, is one byte: no copy of it on its own may be made
+    // infallibly (#2795, Code Reviewer remark 3), so a refused one-byte
+    // allocation changes nothing here.
+    let mut w = world(false);
+    w.apply(std::vec![prepare(0, "p.png", 1)]);
+    FAIL_SIZE.with(|size| size.set(1));
+    while w.kernel.native_image_pump() {}
+    FAIL_SIZE.with(|size| size.set(0));
+    assert_eq!(lost(&mut w), 1);
+    // The message is one fallible allocation: refused, nothing is said, and
+    // the next answer tries again.
+    let mut w = world(false);
+    w.apply(std::vec![prepare(0, "p.png", 1)]);
+    FAIL_SIZE.with(|size| size.set(message.len()));
+    while w.kernel.native_image_pump() {}
+    let refused = FAIL_SIZE.with(|size| size.replace(0)) == 0;
+    assert!(refused, "the message was asked for");
+    assert_eq!(lost(&mut w), 0);
+    w.apply(std::vec![prepare(0, "p.png", 2)]);
+    while w.kernel.native_image_pump() {}
+    assert_eq!(lost(&mut w), 1);
 }
 
 #[test]

@@ -51,7 +51,7 @@ fn driver() -> Driver {
         crate::native_host::firmware_cell::test_shared(RefCell::new(FirmwareInstall::new())),
     );
     d.set_plugin_host(PluginHost {
-        loader: Loader::x4(1),
+        loader: Some(Loader::x4(1)),
         offered: Offered {
             abi_major: 7,
             minor: 1,

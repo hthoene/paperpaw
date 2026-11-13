@@ -192,6 +192,18 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   (`lib_entry.key`, a `u32`, interface 6's catalog offset that "fits 32 bits") with the catalog
   generation it came from (stale: `ERR_STATE`). It is not the **book key** of section 6 (a 16-hex
   string of the path), which only names per-book folders.
+- [D] **A book the catalog does not know yet** (a library's first session, before a view asked
+  for the walk; a file copied on since the last one), named by `path`, is that book for the ops
+  that keep the book's own data by its path: `position`, `set_position`, `annotations`,
+  `anchors`, the edit transaction (ops 13-21) and `text` of an annotation's text or note (op 4,
+  kinds 5 and 6), as Beta 3 kept marks and places by path. The card must hold a file at `path`
+  (any file, not only a book format, as in Beta 3; a folder is none), else `ERR_NOT_FOUND`; what the catalog answers (`details`, `status`, fields, queries) still
+  needs it. The path rules hold as for any `path` (no control character, nothing below
+  `plugins/` or `.paperpaw/`, `files.md` 1.1: `ERR_INVALID`). Once the walk catalogues the book,
+  its position, annotations and anchors are the ones kept by that path: none new, none lost.
+  The data is kept by the path as spelt: another spelling the card takes for the same file (case
+  on FAT, an 8.3 alias) is another path with data of its own, so a plugin names a book as the
+  catalog or the file listing spells it.
 - [D] **No library path reaches `plugins/` or `.paperpaw/`.** Every path a LIB op takes or makes
   (`lib_ref.path`, each `lib_paths` item, `lib_move` `from` and `to`, an import's target and its
   folders) follows FS's root-1 rules (`files.md` 1.1): its first segment may not resolve to

@@ -12,8 +12,19 @@ const JOPLIN_ABI_METADATA: &[u8] = include_bytes!("../native/metadata.host.bin")
     target_os = "none"
 ))]
 const JOPLIN_ABI_METADATA: &[u8] = include_bytes!("../native/metadata.bin");
+// Linked on any other target: the host's metadata, which the SDK sets to the
+// profile of the target the program is built for (Decision 172).
 #[cfg(all(
-    any(feature = "linked", feature = "native-entry"),
+    feature = "linked",
+    not(any(
+        all(target_arch = "x86_64", target_os = "linux"),
+        all(target_arch = "riscv32", target_os = "none")
+    ))
+))]
+const JOPLIN_ABI_METADATA: &[u8] = include_bytes!("../native/metadata.host.bin");
+#[cfg(all(
+    feature = "native-entry",
+    not(feature = "linked"),
     not(any(
         all(target_arch = "x86_64", target_os = "linux"),
         all(target_arch = "riscv32", target_os = "none")

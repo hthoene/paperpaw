@@ -1013,11 +1013,11 @@ impl NativeInstances {
     }
 
     /// The device's services that raise events (`core.net`, `core.sockets`,
-    /// `core.document`), those wired.
-    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 3] {
-        self.pool
-            .as_ref()
-            .map_or([None, None, None], |pool| pool.hosts().event_services())
+    /// `core.document`, `core.lookup`), those wired.
+    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 4] {
+        self.pool.as_ref().map_or([None, None, None, None], |pool| {
+            pool.hosts().event_services()
+        })
     }
 
     /// The device's network pool and the services' hosts, once a service
@@ -1042,7 +1042,7 @@ impl NativeInstances {
     /// The device's network policy, once `core.net` or `core.sockets` is wired.
     pub(crate) fn net_policy(&self) -> Option<alloc::rc::Rc<super::net_policy::NetPolicy>> {
         let hosts = self.pool.as_ref()?.hosts();
-        (hosts.net().is_some() || hosts.sockets().is_some()).then(|| hosts.policy().clone())
+        (hosts.net_wired() || hosts.sockets_wired()).then(|| hosts.policy().clone())
     }
 
     /// A callback is on the stack, for the tests of what runs only between

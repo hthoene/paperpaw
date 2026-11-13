@@ -25,6 +25,7 @@ use crate::native_host::{
     shared::Shared,
     sock_service::{self, SockHost, SockProfile, device::SockDevice, reason, tls_code},
 };
+use paperpaw_native::host_glue::ERR_NOT_FOUND;
 
 /// What the device lets sockets use (`sockets.md` section 6), picked by the
 /// shell from its profile.
@@ -193,7 +194,35 @@ pub enum TlsFailure {
 /// that is unknown, ended or in another state changes nothing (the count of
 /// such reports is [`SockReports::take_ignored`]).
 #[derive(Clone)]
-pub struct SockReports(pub(super) Rc<SockDevice>);
+pub struct SockReports(pub(super) Rc<SockLater>);
+
+/// `core.sockets` until its first call: the shell's inputs, then the device;
+/// and the TLS reports for no socket counted before it was made (as the
+/// device counts them, [`SockReports::take_ignored`]).
+pub(crate) struct SockLater {
+    pub(crate) device: super::later::Later<SockInputs, SockDevice>,
+    ignored: core::cell::Cell<u32>,
+}
+
+impl SockLater {
+    pub(crate) fn new(inputs: SockInputs) -> Self {
+        Self {
+            device: super::later::Later::new(inputs),
+            ignored: core::cell::Cell::new(0),
+        }
+    }
+
+    fn made(&self) -> Option<&SockDevice> {
+        self.device.made()
+    }
+
+    /// A TLS report before the device was made: no socket is in its
+    /// handshake, so it changes nothing and is counted.
+    fn ignored(&self) -> Result<(), i32> {
+        self.ignored.set(self.ignored.get().saturating_add(1));
+        Ok(())
+    }
+}
 
 impl core::fmt::Debug for SockReports {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -207,7 +236,9 @@ impl SockReports {
     /// # Errors
     /// `ERR_BUSY`.
     pub fn connected(&self, id: u32) -> Result<(), i32> {
-        sock_service::connected(&*self.0, id)
+        self.0
+            .made()
+            .map_or(Ok(()), |d| sock_service::connected(d, id))
     }
 
     /// `bytes` arrived for the read of socket `id`: how many were taken (the
@@ -216,7 +247,9 @@ impl SockReports {
     /// # Errors
     /// `ERR_BUSY`; `ERR_STATE` when no read was asked for.
     pub fn received(&self, id: u32, bytes: &[u8]) -> Result<usize, i32> {
-        sock_service::received(&*self.0, id, bytes)
+        self.0
+            .made()
+            .map_or(Err(ERR_NOT_FOUND), |d| sock_service::received(d, id, bytes))
     }
 
     /// The peer of socket `id` closed its side.
@@ -224,7 +257,9 @@ impl SockReports {
     /// # Errors
     /// `ERR_BUSY`.
     pub fn peer_closed(&self, id: u32) -> Result<(), i32> {
-        sock_service::peer_closed(&*self.0, id)
+        self.0
+            .made()
+            .map_or(Ok(()), |d| sock_service::peer_closed(d, id))
     }
 
     /// The connection of socket `id` can take more bytes.
@@ -232,7 +267,9 @@ impl SockReports {
     /// # Errors
     /// `ERR_BUSY`.
     pub fn writable(&self, id: u32) -> Result<(), i32> {
-        sock_service::writable(&*self.0, id)
+        self.0
+            .made()
+            .map_or(Ok(()), |d| sock_service::writable(d, id))
     }
 
     /// The transport lost socket `id`, or could not connect it.
@@ -249,7 +286,9 @@ impl SockReports {
             SockFailure::NoMemory => reason::NO_MEMORY,
             _ => reason::IO,
         };
-        sock_service::failed(&*self.0, id, why)
+        self.0
+            .made()
+            .map_or(Ok(()), |d| sock_service::failed(d, id, why))
     }
 
     /// An answer to broadcast `id` arrived from `from` (its address and port
@@ -259,7 +298,9 @@ impl SockReports {
     /// # Errors
     /// `ERR_BUSY`.
     pub fn answered(&self, id: u32, from: &[u8], data: &[u8]) -> Result<(), i32> {
-        sock_service::answered(&*self.0, id, from, data)
+        self.0
+            .made()
+            .map_or(Ok(()), |d| sock_service::answered(d, id, from, data))
     }
 
     /// The handshake of socket `id` passed.
@@ -267,7 +308,9 @@ impl SockReports {
     /// # Errors
     /// `ERR_BUSY`.
     pub fn secured(&self, id: u32, peer: &PeerInfo) -> Result<(), i32> {
-        sock_service::secured(&*self.0, id, peer)
+        self.0
+            .made()
+            .map_or_else(|| self.0.ignored(), |d| sock_service::secured(d, id, peer))
     }
 
     /// Only the trust of the certificate failed: the socket ends `untrusted`
@@ -280,7 +323,10 @@ impl SockReports {
             UntrustedWhy::NotPinned => tls_code::NOT_PINNED,
             _ => tls_code::UNKNOWN_ISSUER,
         };
-        sock_service::untrusted(&*self.0, id, code, peer)
+        self.0.made().map_or_else(
+            || self.0.ignored(),
+            |d| sock_service::untrusted(d, id, code, peer),
+        )
     }
 
     /// The handshake of socket `id` failed.
@@ -294,7 +340,10 @@ impl SockReports {
             TlsFailure::NoMemory => tls_code::NO_MEMORY,
             _ => tls_code::TLS,
         };
-        sock_service::tls_failed(&*self.0, id, code)
+        self.0.made().map_or_else(
+            || self.0.ignored(),
+            |d| sock_service::tls_failed(d, id, code),
+        )
     }
 
     /// Time passed: connect, idle and handshake times run out, waiting
@@ -303,7 +352,7 @@ impl SockReports {
     /// # Errors
     /// `ERR_BUSY`.
     pub fn tick(&self) -> Result<(), i32> {
-        sock_service::tick(&*self.0)
+        self.0.made().map_or(Ok(()), |d| sock_service::tick(d))
     }
 
     /// The network went away or the device sleeps: every socket ends.
@@ -311,20 +360,23 @@ impl SockReports {
     /// # Errors
     /// `ERR_BUSY`.
     pub fn network_lost(&self) -> Result<(), i32> {
-        sock_service::network_lost(&*self.0)
+        self.0
+            .made()
+            .map_or(Ok(()), |d| sock_service::network_lost(d))
     }
 
     /// Broadcast answers dropped as malformed since the last call (the shell
     /// logs the count once per run, never the contents).
     #[must_use]
     pub fn take_dropped(&self) -> u32 {
-        self.0.table().take_dropped()
+        self.0.made().map_or(0, |d| d.table().take_dropped())
     }
 
     /// Reports for an unknown, ended or not-handshaking socket since the last
     /// call (logged the same way).
     #[must_use]
     pub fn take_ignored(&self) -> u32 {
-        self.0.table().take_ignored()
+        let early = self.0.ignored.replace(0);
+        early.saturating_add(self.0.made().map_or(0, |d| d.table().take_ignored()))
     }
 }

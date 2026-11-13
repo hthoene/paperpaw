@@ -44,7 +44,17 @@ struct Child {
     stack: Rc<crate::native_host::stack_rows::StackRows>,
     /// The (owner, instance) the stack tracker named during each `draw`.
     running: Rc<RefCell<Vec<(u64, u32)>>>,
+    /// The `event.widget_made` it got: token, instance, widget, place and
+    /// the draws before it.
+    made: Rc<RefCell<Vec<Made>>>,
 }
+type Made = (
+    u32,
+    u32,
+    alloc::string::String,
+    alloc::string::String,
+    usize,
+);
 impl NativeInstance for Child {
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(Some(&[]));
@@ -58,8 +68,18 @@ impl NativeInstance for Child {
     }
 }
 impl Dispatch for Child {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
-        unreachable!()
+    fn event(&self, token: u32, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+        let Record::EventWidgetMade(made) = wire::records_decode_single(bytes)? else {
+            panic!("only event 84 is expected");
+        };
+        self.made.borrow_mut().push((
+            token,
+            made.instance,
+            made.widget.into(),
+            made.place.into(),
+            self.seen.borrow().len(),
+        ));
+        Ok(0)
     }
     fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
         unreachable!()
@@ -114,6 +134,7 @@ struct World {
     answer: Rc<Cell<i32>>,
     dropped: Rc<RefCell<Vec<i32>>>,
     running: Rc<RefCell<Vec<(u64, u32)>>>,
+    made: Rc<RefCell<Vec<Made>>>,
     widget: u32,
 }
 
@@ -135,7 +156,11 @@ fn world_on(device: paperpaw_platform::DeviceInfo) -> World {
     let answer = Rc::new(Cell::new(0));
     let dropped = Rc::new(RefCell::new(Vec::new()));
     let running = Rc::new(RefCell::new(Vec::new()));
-    let kernel = crate::Kernel::builder(device).build().unwrap();
+    let made = Rc::new(RefCell::new(Vec::new()));
+    let kernel = crate::Kernel::builder(device)
+        .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+        .build()
+        .unwrap();
     let lease = NativeLease::try_new(Child {
         directory: Rc::downgrade(&directory),
         ui: Rc::clone(&pool),
@@ -146,6 +171,7 @@ fn world_on(device: paperpaw_platform::DeviceInfo) -> World {
         dropped: Rc::clone(&dropped),
         stack: Rc::clone(&kernel.shared.stack_rows),
         running: Rc::clone(&running),
+        made: Rc::clone(&made),
     })
     .unwrap();
     let row = [Record::StatusItem(wire::StatusItem {
@@ -195,6 +221,7 @@ fn world_on(device: paperpaw_platform::DeviceInfo) -> World {
         seen,
         answer,
         dropped,
+        made,
         widget,
     }
 }
@@ -207,6 +234,21 @@ impl World {
         stack_generation: u64,
         with_ui: bool,
         request: &ComposeRequest,
+    ) -> Result<(), i32> {
+        let mut fb = Framebuffer::new(16, 16, PixelFormat::Gray8).unwrap();
+        let mut canvas = fb.canvas();
+        let mut view = canvas.clipped(Rect::new(2, 3, 6, 4));
+        self.run_on(callback, stack_generation, with_ui, request, &mut view)
+    }
+
+    /// [`Self::run`] onto `canvas`.
+    fn run_on(
+        &self,
+        callback: Option<CallbackStamp>,
+        stack_generation: u64,
+        with_ui: bool,
+        request: &ComposeRequest,
+        canvas: &mut Canvas<'_>,
     ) -> Result<(), i32> {
         let env = self.kernel.shared.env(paperpaw_platform::Instant(0));
         let frame = CoreFrame {
@@ -226,10 +268,7 @@ impl World {
             log: Default::default(),
             ui: with_ui.then(|| self.pool.hosts().ui().unwrap()),
         };
-        let mut fb = Framebuffer::new(16, 16, PixelFormat::Gray8).unwrap();
-        let mut canvas = fb.canvas();
-        let mut view = canvas.clipped(Rect::new(2, 3, 6, 4));
-        compose_in(&frame, request, &mut view)
+        compose_in(&frame, request, canvas)
     }
 
     fn generation(&self) -> u64 {
@@ -280,6 +319,63 @@ fn a_screens_draw_composes_a_widget_of_another_plugin_at_the_second_level() {
         Ok(())
     );
     assert_eq!(*w.dropped.borrow(), [-5]);
+}
+
+#[test]
+fn the_owner_hears_of_an_instance_another_plugin_made_before_its_first_draw() {
+    // picture-home (the caller) makes home's (the owner's) widget in its draw
+    // and composes it there: no pass between callbacks comes first.
+    let w = world();
+    let made = w
+        .pool
+        .hosts()
+        .ui()
+        .unwrap()
+        .widgets
+        .handles
+        .borrow_mut()
+        .make_told(
+            CALLER,
+            3,
+            &crate::native_host::ui_handles::NewWidget {
+                owner: OWNER,
+                token: TOKEN,
+                private: false,
+                widget: "remote.clock@2",
+                place: "picture-home.grid",
+            },
+        )
+        .unwrap();
+    let caller = crate::abi7::calls::Instance::new();
+    let _outer = caller.enter(&w.depth.as_depth().0).unwrap();
+    let request = ComposeRequest {
+        handle: made,
+        ..w.request()
+    };
+    for _ in 0..2 {
+        assert_eq!(
+            w.run(World::stamp(), w.generation(), true, &request),
+            Ok(())
+        );
+    }
+    assert_eq!(
+        *w.made.borrow(),
+        [(
+            TOKEN,
+            made,
+            "remote.clock@2".into(),
+            "picture-home.grid".into(),
+            0
+        )],
+        "told once, before the first draw"
+    );
+    assert_eq!(w.seen.borrow().len(), 2);
+    // An instance made without a notice (as `world` does) is told nothing.
+    assert_eq!(
+        w.run(World::stamp(), w.generation(), true, &w.request()),
+        Ok(())
+    );
+    assert_eq!(w.made.borrow().len(), 1);
 }
 
 #[test]
@@ -366,4 +462,64 @@ fn a_small_device_blocks_compose_until_its_stack_gate_passes() {
         Ok(())
     );
     assert_eq!(large.seen.borrow().len(), 1);
+}
+
+#[test]
+fn the_kernels_battery_is_drawn_by_the_host_with_no_plugin_called_on_the_x4_too() {
+    use crate::native_host::ui_widget_ops::host_status::{DRAWN_WIDTH, HOST};
+    for device in [
+        crate::tests::DEVICE,
+        crate::tests::DEVICE.with_memory(MemoryClass::Small),
+    ] {
+        let mut w = world_on(device);
+        let battery = paperpaw_platform::Battery::new(87, false, None);
+        let status = paperpaw_platform::SystemStatus::new(None, Some(battery));
+        let _ = w.kernel.set_status(paperpaw_platform::Instant(0), status);
+        // Op 14 granted it: the host's handle of the battery (token 3).
+        let handle = w
+            .pool
+            .hosts()
+            .ui()
+            .unwrap()
+            .widgets
+            .handles
+            .borrow_mut()
+            .grant_status(CALLER, 1, HOST, 3, false)
+            .unwrap();
+        let caller = crate::abi7::calls::Instance::new();
+        let _outer = caller.enter(&w.depth.as_depth().0).unwrap();
+        // A line of 20-pixel text: the item's place is its least width.
+        let width = 20 * DRAWN_WIDTH / 1000;
+        let request = ComposeRequest {
+            kind: ComposeKind::StatusItem,
+            handle,
+            x: 0,
+            y: 0,
+            width,
+            height: 30,
+            visible: Some(Rect::new(0, 0, width as u16, 30)),
+        };
+        let mut fb = Framebuffer::new(width as u16, 30, PixelFormat::Gray8).unwrap();
+        let generation = w.generation();
+        let drawn = w.run_on(World::stamp(), generation, true, &request, &mut fb.canvas());
+        assert_eq!(drawn, Ok(()), "{}", device.id);
+        assert!(w.seen.borrow().is_empty(), "no plugin is called");
+        let inked = {
+            let canvas = fb.canvas();
+            (0..30)
+                .flat_map(|y| (0..width as i32).map(move |x| paperpaw_sdk::Point::new(x, y)))
+                .filter(|at| canvas.pixel(*at) == Some(paperpaw_platform::Color::BLACK))
+                .count()
+        };
+        assert!(
+            inked > 20,
+            "{}: the symbol and percentage, {inked} px",
+            device.id
+        );
+        // Another callback's handle is gone, as a plugin's is.
+        let later = CallbackStamp::new(CALLER, 2).ok();
+        let stale = w.run_on(later, generation, true, &request, &mut fb.canvas());
+        assert!(stale.is_err(), "{stale:?}");
+        assert!(w.seen.borrow().is_empty());
+    }
 }

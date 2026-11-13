@@ -9290,6 +9290,15 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "opens",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
         }
       ]
     },
@@ -15241,6 +15250,51 @@
         "pointer_bits": 32,
         "byte_order": "little",
         "calling_convention": "xtensa-windowed-call8",
+        "entry_layout": 1,
+        "entry_bytes": 20,
+        "entry_align": 4
+      },
+      {
+        "name": "windows-x86_64-win64-le",
+        "pointer_bits": 64,
+        "byte_order": "little",
+        "calling_convention": "x86_64-win64",
+        "entry_layout": 1,
+        "entry_bytes": 32,
+        "entry_align": 8
+      },
+      {
+        "name": "macos-x86_64-sysv64-le",
+        "pointer_bits": 64,
+        "byte_order": "little",
+        "calling_convention": "x86_64-sysv64",
+        "entry_layout": 1,
+        "entry_bytes": 32,
+        "entry_align": 8
+      },
+      {
+        "name": "macos-aarch64-darwinpcs-le",
+        "pointer_bits": 64,
+        "byte_order": "little",
+        "calling_convention": "aarch64-darwinpcs",
+        "entry_layout": 1,
+        "entry_bytes": 32,
+        "entry_align": 8
+      },
+      {
+        "name": "android-aarch64-aapcs64-le",
+        "pointer_bits": 64,
+        "byte_order": "little",
+        "calling_convention": "aarch64-aapcs64",
+        "entry_layout": 1,
+        "entry_bytes": 32,
+        "entry_align": 8
+      },
+      {
+        "name": "web-wasm32-c-le",
+        "pointer_bits": 32,
+        "byte_order": "little",
+        "calling_convention": "wasm32-c",
         "entry_layout": 1,
         "entry_bytes": 20,
         "entry_align": 4

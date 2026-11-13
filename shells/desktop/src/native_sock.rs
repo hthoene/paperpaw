@@ -273,12 +273,13 @@ impl NativeSock {
 
     /// Hands core what the threads reported, then lets it take its turn
     /// (`tick`); a network gone since the last pump (`up`: whether one is up
-    /// now) ends every socket (`network_lost`).
-    pub fn pump(&self, reports: &SockReports, up: bool) {
-        self.pump_with(reports, up);
+    /// now) ends every socket (`network_lost`). `true` when core was told
+    /// anything: the kernel must then tick (see `NativeNet::pump`).
+    pub fn pump(&self, reports: &SockReports, up: bool) -> bool {
+        self.pump_with(reports, up)
     }
 
-    fn pump_with(&self, reports: &dyn Sink, up: bool) {
+    fn pump_with(&self, reports: &dyn Sink, up: bool) -> bool {
         if self.was_up.replace(up) && !up {
             for (_, entry) in self.entries.borrow_mut().drain() {
                 entry.link.close();
@@ -291,19 +292,22 @@ impl NativeSock {
             {}
             let _ = reports.network_lost();
             let _ = reports.tick();
-            return;
+            return true;
         }
         let mut todo = std::mem::take(&mut *self.again.borrow_mut());
         todo.extend(self.arrived().into_iter().flat_map(Receiver::try_iter));
+        let mut told = !todo.is_empty();
         for event in todo {
             self.report(event, reports);
         }
         // Bytes core did not take yet: offered again (a read may be asked now).
         let ids: Vec<u32> = self.unread.borrow().keys().copied().collect();
+        told |= !ids.is_empty();
         for id in ids {
             self.offer(id, &[], reports);
         }
         let _ = reports.tick();
+        told
     }
 
     /// Tells core of one thing that happened.
