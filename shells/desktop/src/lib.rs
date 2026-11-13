@@ -23,16 +23,16 @@ pub mod http;
 pub mod light;
 /// The first-party interface-7 plugins linked into the emulator, registered
 /// with the kernel (the reviewed Linux x86-64 profile only).
-#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+#[cfg(linked_host)]
 pub mod linked;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
-#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+#[cfg(linked_host)]
 pub mod native_net;
-#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+#[cfg(linked_host)]
 pub mod native_sock;
 /// The firmware host of an emulated device: plugin jobs only.
-#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+#[cfg(linked_host)]
 pub mod no_firmware;
 pub mod offline;
 pub mod panel;
@@ -41,7 +41,7 @@ pub mod private;
 pub mod profiles;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod registry;
-#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+#[cfg(linked_host)]
 mod sealing;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stdio;

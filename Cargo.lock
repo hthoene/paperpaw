@@ -1785,6 +1785,7 @@ dependencies = [
  "aes-gcm",
  "chrono",
  "getrandom 0.4.3",
+ "libc",
  "libloading 0.9.0",
  "paperpaw-app",
  "paperpaw-core",

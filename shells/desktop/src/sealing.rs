@@ -124,14 +124,29 @@ impl KeySealer {
     }
 }
 
+/// Where a user's settings live on this system: `%LOCALAPPDATA%` on Windows
+/// (the machine's, not the roaming profile that a domain copies to a server),
+/// `~/Library/Application Support` on macOS, `$XDG_CONFIG_HOME` or `~/.config`
+/// elsewhere. The owner and mode checks of the folder and key are Unix's;
+/// Windows has none (the folder is the user's own by default).
 fn config_folder() -> io::Result<PathBuf> {
-    let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
-        Some(dir) => PathBuf::from(dir),
-        None => {
-            let home = std::env::var_os("HOME")
-                .filter(|v| !v.is_empty())
-                .ok_or_else(|| io::Error::other("no configuration folder (HOME is not set)"))?;
-            PathBuf::from(home).join(".config")
+    let home = || {
+        std::env::var_os("HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .ok_or_else(|| io::Error::other("no configuration folder (HOME is not set)"))
+    };
+    let base = if cfg!(windows) {
+        std::env::var_os("LOCALAPPDATA")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .ok_or_else(|| io::Error::other("no configuration folder (LOCALAPPDATA is not set)"))?
+    } else if cfg!(target_os = "macos") {
+        home()?.join("Library").join("Application Support")
+    } else {
+        match std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
+            Some(dir) => PathBuf::from(dir),
+            None => home()?.join(".config"),
         }
     };
     if !base.is_absolute() {
@@ -167,12 +182,20 @@ fn make_folder(folder: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// This process's user id (the owner of its own `/proc` entry on Linux, the
-/// one platform the linked plugins run on here).
+/// This process's user id: the owner of its own `/proc` entry on Linux, the
+/// effective user id elsewhere (macOS).
 #[cfg(unix)]
 fn me() -> io::Result<u32> {
-    use std::os::unix::fs::MetadataExt;
-    Ok(std::fs::metadata("/proc/self")?.uid())
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(std::fs::metadata("/proc/self")?.uid())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        // SAFETY: `geteuid` takes nothing and cannot fail.
+        Ok(unsafe { libc::geteuid() })
+    }
 }
 
 fn read_key(path: &Path) -> io::Result<Zeroizing<[u8; KEY_BYTES]>> {
@@ -232,8 +255,13 @@ fn create_key(folder: &Path, path: &Path, key: &[u8; KEY_BYTES]) -> io::Result<(
     })();
     let _ = std::fs::remove_file(&temp);
     made?;
-    // The link is on disk before the key is used for a secret.
-    std::fs::File::open(folder)?.sync_all()
+    // The link is on disk before the key is used for a secret. (Windows
+    // cannot open a folder as a file; its file system journals the link.)
+    #[cfg(unix)]
+    std::fs::File::open(folder)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = folder;
+    Ok(())
 }
 
 impl Sealer for KeySealer {

@@ -22,7 +22,26 @@ fn clean() -> bool {
         .is_ok_and(|o| o.status.success() && o.stdout.iter().all(u8::is_ascii_whitespace))
 }
 
+/// Whether this build hosts the linked native plugins: the `native-linked`
+/// feature on a target interface 7 declares a profile for and the shell can
+/// run on (Decision 172: Linux and Windows on x86-64, macOS on x86-64 and
+/// ARM). `cfg(linked_host)` in the sources says so. The same four targets are
+/// listed in `Cargo.toml` (the `paperpaw-app` dependency): change both together.
+fn linked_host() {
+    println!("cargo::rustc-check-cfg=cfg(linked_host)");
+    let var = |name: &str| std::env::var(name).unwrap_or_default();
+    let (os, arch) = (var("CARGO_CFG_TARGET_OS"), var("CARGO_CFG_TARGET_ARCH"));
+    let target_ok = matches!(
+        (os.as_str(), arch.as_str()),
+        ("linux" | "windows", "x86_64") | ("macos", "x86_64" | "aarch64")
+    );
+    if target_ok && std::env::var_os("CARGO_FEATURE_NATIVE_LINKED").is_some() {
+        println!("cargo::rustc-cfg=linked_host");
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    linked_host();
     metadata_constants()?;
     println!("cargo::rerun-if-env-changed=PAPERPAW_COMMIT");
     println!("cargo::rerun-if-env-changed=PAPERPAW_RELEASE");

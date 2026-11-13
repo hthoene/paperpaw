@@ -500,7 +500,7 @@ fn reading_aloud_waits_for_a_book_still_prepared() {
 /// is its cover: turned away from and back to.
 #[test]
 #[cfg_attr(
-    not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+    not(linked_host),
     ignore = "needs the native reader (the desktop's `native-linked`, #243)"
 )]
 fn a_picture_follows_the_text_of_its_page_in_a_frame_of_its_own() {
@@ -597,7 +597,7 @@ fn the_configuration_file_is_read_and_set_wins_over_it() {
 /// settings as on a device. Without it the radio starts off.
 #[test]
 #[cfg_attr(
-    all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"),
+    linked_host,
     ignore = "native Wi-Fi: switched on again it stays \"On, not connected\" (#243, to fix)"
 )]
 fn online_from_the_start_with_wifi_online() {
