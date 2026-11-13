@@ -421,4 +421,113 @@ mod kernel_side {
         assert_eq!(removal_ended(&mut kernel), Some(3));
         assert!(kernel.storage().exists("plugins/dials/plugin.ini"));
     }
+
+    /// A device that loads no code (Boox, desktop) installs the data plugin
+    /// `id` of `version` from `Download/<id>` with a yes on the screen.
+    fn data_install(
+        kernel: &mut Kernel,
+        request: u32,
+        (id, version): (&str, &str),
+        flags: u32,
+    ) -> Option<u8> {
+        let card = kernel.storage();
+        let ini = alloc::format!("[plugin]\nid = {id}\nname = Dials\nversion = {version}\n");
+        let source = alloc::format!("Download/{id}");
+        card.write(&alloc::format!("{source}/plugin.ini"), ini.as_bytes())
+            .unwrap();
+        let job = crate::native_host::plugin_install::PluginInstall::new(
+            1,
+            request,
+            &source,
+            flags,
+            crate::native_host::plugin_rules::Evidence::NONE,
+        )
+        .unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
+        driver
+            .borrow_mut()
+            .submit_plugin(crate::native_host::plugin_jobs::PluginJobs::Install(job))
+            .unwrap();
+        for _ in 0..40 {
+            kernel.native_firmware_pump();
+        }
+        let _ = kernel.tick(Instant(0));
+        assert_eq!(kernel.stack.last().unwrap().id, SCREEN);
+        kernel.output.commands.clear();
+        let _ = kernel.run_action(Instant(600), actions::LEFT);
+        let _ = kernel.run_action(Instant(700), actions::CONFIRM);
+        for _ in 0..40 {
+            kernel.native_firmware_pump();
+        }
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
+        let driver = driver.borrow();
+        driver
+            .kept(1, KIND_INSTALL)
+            .or_else(|| driver.peek_ready())
+            .map(|outcome| outcome.reason)
+    }
+
+    fn data_only_kernel() -> Kernel {
+        let mut kernel = Kernel::builder(crate::tests::DEVICE)
+            .random(fill)
+            .storage(paperpaw_sdk::MemoryStorage::new())
+            .plugin(Home)
+            .firmware_host(alloc::boxed::Box::new(FakeFirmware::new(
+                "0.5.0",
+                "paperpaw-x4",
+                5,
+                paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
+            )))
+            .data_plugin_host()
+            .build()
+            .unwrap();
+        kernel.start(Instant(0));
+        kernel
+    }
+
+    #[test]
+    fn an_installed_data_plugin_loads_at_once_and_the_list_changes() {
+        let mut kernel = data_only_kernel();
+        let changed = |kernel: &Kernel| {
+            kernel.output.commands.iter().any(|c| {
+                matches!(c, crate::Command::Emit(e, _)
+                    if *e == paperpaw_sdk::builtin::events::PLUGINS_CHANGED)
+            })
+        };
+        let version = |kernel: &Kernel| {
+            kernel
+                .plugins()
+                .get("dials")
+                .map(|info| info.manifest.version.to_string())
+        };
+        assert_eq!(data_install(&mut kernel, 5, ("dials", "1.0.0"), 0), Some(0));
+        // Listed now, not at the next start (interface 6 did the same).
+        assert_eq!(version(&kernel).as_deref(), Some("1.0.0"));
+        assert!(changed(&kernel), "event 70");
+        // An update takes the old version's place at once.
+        let replace = crate::native_host::plugin_install::FLAG_REPLACE;
+        assert_eq!(
+            data_install(&mut kernel, 6, ("dials", "1.1.0"), replace),
+            Some(0)
+        );
+        assert_eq!(version(&kernel).as_deref(), Some("1.1.0"));
+        assert!(changed(&kernel));
+        assert!(
+            kernel.take_warnings().is_empty(),
+            "{:?}",
+            kernel.take_warnings()
+        );
+    }
+
+    #[test]
+    fn a_data_plugin_with_the_id_of_one_built_in_never_unloads_it() {
+        // No device host wired: the job knows no plugin built in.
+        let mut kernel = data_only_kernel();
+        let _ = kernel.take_warnings();
+        assert_eq!(data_install(&mut kernel, 5, ("h", "9.0.0"), 0), Some(0));
+        let home = kernel.plugins().get("h").unwrap();
+        assert_eq!(home.manifest.version.to_string(), "1.0.0", "still built in");
+        assert_ne!(home.kind, paperpaw_sdk::PluginKind::Data);
+        assert!(!kernel.take_warnings().is_empty(), "said");
+    }
 }

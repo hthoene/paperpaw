@@ -10,6 +10,8 @@ use paperpaw_platform::firmware::{CheckFacts, FirmwareHost, Reason, Running, Ste
 /// The chip an app image's header names (`Running::chip`).
 pub const CHIP_ESP32_C3: u16 = 5;
 pub const CHIP_ESP32_S3: u16 = 9;
+/// A device with no firmware image of its own (Boox, Android): no chip.
+pub const CHIP_NONE: u16 = 0;
 
 /// No firmware is installed here; the emulated device's chip is told.
 #[derive(Debug, Clone, Copy)]

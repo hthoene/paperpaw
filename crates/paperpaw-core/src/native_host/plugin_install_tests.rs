@@ -1025,3 +1025,37 @@ fn the_copy_is_let_go_before_the_check_and_the_buffer_before_the_question() {
     }
     assert!(asked);
 }
+
+#[test]
+fn a_device_that_loads_no_code_installs_data_plugins_and_refuses_code() {
+    let data_only = PluginHost::DATA_ONLY;
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    let ran = drive_with(
+        &card,
+        &data_only,
+        &mut job(0, Evidence::NONE),
+        false,
+        Answer::Yes,
+    );
+    assert_eq!(ran.done.reason, reason::OK);
+    assert_eq!(ran.done.changed.unwrap().as_str(), "dials");
+    assert_eq!(
+        text(&card, "plugins/dials/strings.ini").as_deref(),
+        Some("hello\n")
+    );
+    assert!(clean(&card));
+    // Code is code of another kind of device here: nothing asked or copied.
+    let card = MemoryStorage::new();
+    code_source(&card, "1.0.0", &AUTHOR_SEED);
+    let ran = drive_with(
+        &card,
+        &data_only,
+        &mut job(0, Evidence::NONE),
+        true,
+        Answer::Yes,
+    );
+    assert_eq!(ran.done.reason, reason::NOT_HERE);
+    assert!(ran.asked.is_empty());
+    assert!(clean(&card) && !card.exists("plugins/dials/plugin.ini"));
+}
