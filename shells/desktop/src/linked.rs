@@ -46,6 +46,12 @@ fn offered(wired: Wired) -> &'static [Service<'static>] {
 /// The most services a list holds: the data services, `core.device`, the
 /// kernel's two own and every wired family.
 const MAX_SERVICES: usize = 16;
+// A list that outgrows its room fails the build, never the start: the data
+// services, the device's, the kernel's two own and the eight wired families.
+const _: () = assert!(
+    DATA_SERVICES.len() + DEVICE_SERVICES.len() + 2 + 8 <= MAX_SERVICES,
+    "MAX_SERVICES is too small for the all-wired offer"
+);
 /// The most features a list holds.
 const MAX_FEATURES: usize = 8;
 
@@ -323,7 +329,9 @@ impl CatalogEnv for Catalog {
 /// not wired and a plugin that needs it is refused: nothing is stored in the
 /// clear). Made once for the process and kept in static memory (the cipher's
 /// tables take 1 KiB); the key is the process's or the user's, which never
-/// change in a run (`sealing`).
+/// change in a run (`sealing`). It is read once per process: `HOME` and
+/// `XDG_*` are not read again, so a test that changes them after the first
+/// call still gets the first key.
 fn sealer(simulated: bool) -> Result<&'static crate::sealing::KeySealer, std::io::Error> {
     use crate::sealing::KeySealer;
     use std::sync::OnceLock;
