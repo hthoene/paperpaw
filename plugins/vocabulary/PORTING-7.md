@@ -43,7 +43,7 @@ the port.
 - Lines are read by `lines::each_line_limited` (the 8 KiB limit of the cards is a parameter);
   `put_in_place`/`part_of` in `files.rs` replace the SDK's interface-6 `files` helpers (rename
   only: no copy-and-delete fallback; root 0 and the card both rename).
-- `clean_or_empty` stays only for `phone` until it is ported; `cards::path` is for the tests.
+- `clean_or_empty` and `cards::path` are for the tests (the phone page is native now).
 - `alloc_refusal_tests.rs` sweeps decks, sizes, due, due_count, card_at, visit_page, next_due,
   add_deck, rename/delete deck, add, edit, delete, record, fold, queue_lookup, take_lookups and
   recover: after any refusal the decks read, card ids are unique and no `.tmp`/`.part` is left.
@@ -131,20 +131,20 @@ native screens replace these callers.
   come with the marks.
 - The start event puts right what a power cut left (`store::recover`, `cards::recover`, over
   `DataFolder` on the host's data folder); nothing else runs yet. Best effort as in interface 6.
-- Not declared yet: `uses.network` (the phone page) and the events for the words looked up and the wake (the
+- Not declared yet: the events for the words looked up and the wake (the
   native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
   The flash cards' action, entry and screens are declared (next section).
 
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
-  `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
+- `sdcard`, `sdmenu` (done: see *Ported: the card files*), `phone` (done: see *Ported: the phone page*);
+  `fsrs.rs` is pure and needs nothing.
 - The rest of the native shell: the scan action, events and help.
 - The sleep card: done, see *Ported: the sleep card* below.
 - The widgets: done, see *Ported: the home widgets* below.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
 - Marks in books: done on the stage, see *Ported: the marks in books* below (the reader's side asks the stage per page: Plugin Engineer, after #1275).
-- Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
+- Phone page (`phone.rs`): done, see *Ported: the phone page* below.
 - Card-folder files: done, see *Ported: the card files* below.
 
 ## Ported: the marks in books (`native_marks.rs`, `native_marks_stage.rs`, `stages/decorations/`; #257)
@@ -195,9 +195,8 @@ native screens replace these callers.
   screen of its `Target` with a hand-over (a deck is named under `deck`); `tests` pin that the screen ids
   and the key are those of the interface-6 screens. `native_decks_tests.rs` refuses each allocation of the
   rows and of the numbers in turn.
-- Registered with the flash cards' shell (next section). The phone and SD-card rows are not offered
-  yet (`Numbers::phone` and `files` are false): their screens wait, and a row that ends in a refusal is
-  not shown. The automatic update of the decks at opening (`SD_AUTO`) waits with the card adapter.
+- Registered with the flash cards' shell (next section). The phone row is always offered (its screen says
+  why it cannot serve), the SD-card row where the card can be read. The automatic update of the decks at opening (`SD_AUTO`) waits with the card adapter.
   `paperpaw-ui-kit` joins the dependencies (the lock files of the plugin's three workspaces).
 
 ## Ported: save to card (`export.rs`, host-free over `Storage`)
@@ -243,8 +242,7 @@ native screens replace these callers.
   only when it is shown.
 - Time: `HostTime` reads the snapshot's wall clock and zone offset for each input (the device may have
   none: the last time known stands, as in `cards::now_of`).
-- Not offered until their screens exist: *Edit with your phone* (`core.sockets`, #351) and *Cards on the SD
-  card* (a `Storage` over `core.files`, #339/#384), the scan action (`vocabulary.scan-card`), the words' list
+- Not offered until their screens exist: the scan action (`vocabulary.scan-card`), the words' list
   (done: next section), marks in books. Each is an ignored case in `tests/acceptance_pending.rs`.
 - Not proved here: drawing and input of the two screens on a scripted host (H1: the scripted host
   refuses screen commands), a snapshot of the review.
@@ -313,8 +311,7 @@ takes the kit's helpers (and, where it keeps its own keys, swaps left and right 
   deck* / *Make a new deck* under the question. A refused allocation ends the run with *Not enough memory…*, never a
   panic; closing the screen cancels a save (no part of a file stays). The flash cards' opening updates from the
   new and changed files (`vocabulary.sd-auto`, once as the decks open).
-- The files row of the decks' screen is offered where the card can be read (the service is there); the phone row
-  stays out until its screen is ported.
+- The files row of the decks' screen is offered where the card can be read (the service is there).
 - Tests: `native_sd_tests.rs` (rows, an update, the ask, a save, the progress, cancelling a save, and every
   allocation of a whole update refused in turn, with the decks still whole). Not tested (needs a host with `core.ui`,
   `core.files` and `core.work`): what the shell draws and the work callbacks.
@@ -376,3 +373,21 @@ takes the kit's helpers (and, where it keeps its own keys, swaps left and right 
   touch, buttons, any input) are declared as `help.hint` for the screen `vocabulary.review`; the host answers
   them from `core.ui` op 3 `hints` (#892). Tested as declarations (`tests/declarations.rs`).
 
+
+## Ported: the phone page (`native_phone.rs`, `native_phone_screen.rs`, `native_phone_draw.rs`, `native_key.rs`; #2861, #257)
+
+- *Edit with your phone* on the flash cards' screen opens the declared screen `vocabulary.phone` (single instance).
+  Opening it starts a `core.net` server (`SERVER`); its state events and the requests it gets (`event.server`,
+  `event.served_request`, declared for this plugin) are answered from `native_phone::answer`, which is host-free
+  and tested: good, wrong key (403; too many wrong ones lock the guard, 429, as in Beta 3), malformed (400/404/422),
+  too long (413, refused before a byte is read), and every allocation refused in turn (200 or 503, the decks
+  whole). The same page (`data/phone.txt`, with the texts of the language filled in) is written to `phone.html` in the data folder and sent from there; the screen shows the
+  address and a QR code (copied from the transfer plugin's drawing, a plain canvas) and the key.
+- The access key comes from `core.secrets` randomness as in transfer (`native_key.rs`: the same bytes the SDK
+  turns into letters; a source that gives no or short bytes gives no key and the screen says so). Nothing is
+  served without a key; the key is not logged or stored.
+- Declared: `uses.network` optional, `core.net`, `core.secrets`, the screen and the two events. The row is always
+  offered; a device without a network says "Not connected to a network. Switch on Wi-Fi, then open this again."
+- No interface-6 code is in this path (`phone.rs` stays only in the interface-6 plugin, removed with #1026).
+  The cases that need the real server on a host are ignored until native activation (headless test in
+  `shells/desktop/tests/headless.rs`).

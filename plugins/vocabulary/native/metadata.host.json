@@ -141,10 +141,19 @@
   ],
   "services": [
     "core.files",
+    "core.net",
+    "core.secrets",
     "core.ui",
     "core.work"
   ],
   "features": [
-    "uses.storage"
+    {
+      "key": "uses.network",
+      "required": false
+    },
+    {
+      "key": "uses.storage",
+      "required": false
+    }
   ]
 }
