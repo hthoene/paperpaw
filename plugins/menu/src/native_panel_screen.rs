@@ -768,12 +768,6 @@ impl PanelView {
     }
 }
 
-/// The labels of a choice's `values`, as `translate` says them; a value
-/// without a text of its own is said as it is and never takes the whole
-/// panel with it (#257: the reader's font panel did not open).
-///
-/// # Errors
-/// [`Error::NoMemory`] and the host's refusals other than "no such key".
 /// The room for a button's label: its width less the margin on each side,
 /// but a small round button (`−`, `+`) keeps most of its width, so its sign
 /// is never cut to `…`.
@@ -781,6 +775,12 @@ fn button_room(width: u16, margin: u16) -> u16 {
     width.saturating_sub(margin.min(width / 8).saturating_mul(2))
 }
 
+/// The labels of a choice's `values`, as `translate` says them; a value
+/// without a text of its own is said as it is and never takes the whole
+/// panel with it (#257: the reader's font panel did not open).
+///
+/// # Errors
+/// [`Error::NoMemory`] and the host's refusals other than "no such key".
 fn choice_labels(
     values: &[String],
     translate: &mut dyn FnMut(&str) -> Result<String, Error>,

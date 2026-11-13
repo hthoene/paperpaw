@@ -33,7 +33,9 @@ impl View {
             return false;
         };
         let before = native_filter::signature(&open.filters);
-        open.ask_filters(host);
+        let asked = native_filter::ask(host, &open.path, &open.language);
+        let old = core::mem::take(&mut open.filters);
+        open.filters = native_filter::renewed(old, asked);
         native_filter::signature(&open.filters) != before
     }
 }

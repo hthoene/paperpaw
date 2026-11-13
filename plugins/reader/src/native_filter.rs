@@ -90,6 +90,14 @@ pub fn ask(host: &Host<'_>, path: &str, language: &str) -> Result<Vec<Filter>, E
     Ok(filters)
 }
 
+/// The rules after asking again: the new ones, or the old ones where the
+/// ask was refused (a busy host or no memory says nothing about the rules,
+/// so the pages are not laid out anew without them).
+#[must_use]
+pub fn renewed(old: Vec<Filter>, asked: Result<Vec<Filter>, Error>) -> Vec<Filter> {
+    asked.unwrap_or(old)
+}
+
 /// One subscriber's rules: its reply, checked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Filter {

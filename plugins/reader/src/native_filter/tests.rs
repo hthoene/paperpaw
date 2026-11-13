@@ -252,3 +252,15 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn a_refused_ask_keeps_the_rules_there_were() {
+    let old = Filter::from_reply(&reply(false, "x=y", pictures::SHOW, "Picture")).unwrap();
+    let new = Filter::from_reply(&reply(true, "x=y", pictures::SHOW, "Picture")).unwrap();
+    // A busy host says nothing about the rules: the pages keep theirs.
+    let kept = renewed(vec![old.clone()], Err(Error::Busy));
+    assert_eq!(kept, core::slice::from_ref(&old));
+    // An answer, even an empty one, replaces them.
+    assert_eq!(renewed(vec![old.clone()], Ok(vec![new.clone()])), [new]);
+    assert!(renewed(vec![old], Ok(Vec::new())).is_empty());
+}

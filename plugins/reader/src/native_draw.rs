@@ -301,6 +301,8 @@ fn draw_small_caps(
             part.clear();
         }
         part_size = at;
+        part.try_reserve(shown.len_utf8())
+            .map_err(|_| Error::NoMemory)?;
         part.push(shown);
     }
     if !part.is_empty() {
