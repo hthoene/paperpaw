@@ -1,7 +1,7 @@
 //! A hosted native plugin handed to the kernel to admit, for every shell
 //! (`CodeLoader::load_native`): the desktop's, the Android app's and the
 //! X4's differ only in the host type they run it on and where a refusal is
-//! said. What the kernel does with it is [`Kernel::register_native_in`]: `make`
+//! said. What the kernel does with it is [`Kernel::register_native_in`](crate::Kernel::register_native_in): `make`
 //! runs there, under the kernel's registration transaction, and the plugin's
 //! declarations (screens, settings, actions, fonts, ...) and the callbacks it
 //! committed are registered together or not at all. A refusal destroys the

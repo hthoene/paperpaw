@@ -754,6 +754,15 @@ pub fn trust(root: &std::path::Path) -> std::io::Result<Vec<String>> {
     Ok(installed)
 }
 
+#[cfg(all(
+    test,
+    feature = "native-linked",
+    target_os = "linux",
+    target_arch = "x86_64"
+))]
+#[path = "native_card_id_tests.rs"]
+mod card_id_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
