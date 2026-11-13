@@ -285,6 +285,11 @@ impl Serving {
             body,
             file,
         });
+        // The answer is the engine's now (a file is read as the connection
+        // takes it): the request has ended for core, which frees its place
+        // (`served_gone`: "answer sent"; without it a server is full after a
+        // few requests).
+        self.books.borrow_mut().work.push_back(Work::Gone { core });
         Ok(())
     }
 
@@ -706,6 +711,9 @@ mod tests {
         assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
         assert!(answer.contains("text/html") && answer.contains("X-Test: yes"));
         assert!(answer.ends_with("<p>hello</p>"), "{answer}");
+        // Core is told that the request has ended (its place is free again).
+        until(&serving, &core, |core| core.told().len() == 4);
+        assert_eq!(core.told()[3], "gone 7");
         // The request is answered: core's number is not known any more.
         assert_eq!(
             serving.answer(7, 200, "text/plain", vec![], vec![], None),
