@@ -6,9 +6,10 @@ use super::{
     sources::Sources,
 };
 use crate::native_host::registrations::{self as wire, Record};
+use crate::native_host::store_record::{self, StoreRecord};
 use core::{fmt::Write, ops::ControlFlow};
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
-use paperpaw_sdk::{PluginInfo, PluginKind, PluginProblem, PluginState};
+use paperpaw_sdk::{PluginInfo, PluginKind, PluginProblem, PluginState, Version};
 
 /// `reg_plugin.flags`.
 const ENABLED: u32 = 1;
@@ -16,6 +17,7 @@ const RESTART_NEEDED: u32 = 1 << 1;
 const REQUIRED: u32 = 1 << 2;
 const LINKED: u32 = 1 << 3;
 const SAFE_MODE: u32 = 1 << 4;
+const FROM_STORE: u32 = 1 << 5;
 
 /// Room for `<id>.plugin.description`: an id (64), a dot and the suffix.
 type Key = Fixed<96>;
@@ -42,8 +44,8 @@ fn problem(problem: Option<PluginProblem>) -> (u32, u32) {
     }
 }
 
-fn flags(info: &PluginInfo) -> u32 {
-    let mut flags = 0;
+fn flags(info: &PluginInfo, from_store: bool) -> u32 {
+    let mut flags = if from_store { FROM_STORE } else { 0 };
     if info.enabled {
         flags |= ENABLED;
     }
@@ -65,17 +67,37 @@ fn flags(info: &PluginInfo) -> u32 {
 }
 
 /// The row of `info` handed to `visit` (its strings live on this stack).
-fn with_row<R>(sources: &Sources<'_>, info: &PluginInfo, visit: impl FnOnce(&dyn Row) -> R) -> R {
+fn with_row<R>(
+    sources: &Sources<'_>,
+    record: &StoreRecord,
+    info: &PluginInfo,
+    visit: impl FnOnce(&dyn Row) -> R,
+) -> R {
     let id = info.manifest.id.as_str();
+    // Bit 5: the version installed, or the one waiting, is a store's; it is
+    // written as the store named it. Never a plugin built in or linked.
+    let store = |version: Version| {
+        (info.kind != PluginKind::BuiltIn)
+            .then(|| record.release(id, version))
+            .flatten()
+    };
+    let installed = store(info.manifest.version);
+    let waiting = info.update.and_then(store);
     let name = Key::of(&[id, ".plugin.name"])
         .and_then(|key| sources.env.i18n().get(key.as_str()))
         .unwrap_or(&info.manifest.name);
     let mut version = Fixed::<32>::new();
     // A version too long for its field is cut, never refused.
-    let _ = write!(version, "{}", info.manifest.version);
+    let _ = match installed {
+        Some(release) => version.write_str(release),
+        None => write!(version, "{}", info.manifest.version),
+    };
     let mut update = Fixed::<32>::new();
     if let Some(next) = &info.update {
-        let _ = write!(update, "{next}");
+        let _ = match waiting {
+            Some(release) => update.write_str(release),
+            None => write!(update, "{next}"),
+        };
     }
     let (mut problem, mut problem_arg) = problem(info.problem);
     // A plugin refused at a declaration cap says which (14, 15; the cap).
@@ -101,7 +123,7 @@ fn with_row<R>(sources: &Sources<'_>, info: &PluginInfo, visit: impl FnOnce(&dyn
             PluginState::Off => 1,
             _ => 2,
         },
-        flags: flags(info),
+        flags: flags(info, installed.is_some() || waiting.is_some()),
         problem,
         problem_arg,
         update: update.as_str(),
@@ -115,9 +137,12 @@ pub(super) fn rows(
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
     let plugins = sources.env.plugins();
+    // Not kept now: the rows say no bit 5, and the next call tries again.
+    let _ = store_record::adopt(sources.env.storage(), plugins);
+    let record = StoreRecord::read(sources.env.storage(), plugins.len());
     let core = plugins.kernel();
     if let Some(info) = core
-        && with_row(sources, info, &mut *visit).is_break()
+        && with_row(sources, &record, info, &mut *visit).is_break()
     {
         return Ok(());
     }
@@ -125,7 +150,7 @@ pub(super) fn rows(
         if core.is_some_and(|core| core.manifest.id == info.manifest.id) {
             continue;
         }
-        if with_row(sources, info, &mut *visit).is_break() {
+        if with_row(sources, &record, info, &mut *visit).is_break() {
             break;
         }
     }
@@ -139,8 +164,11 @@ pub(super) fn detail(
     visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
 ) -> Result<(), i32> {
     let info = sources.env.plugins().get(key).ok_or(ERR_NOT_FOUND)?;
+    let plugins = sources.env.plugins();
+    let _ = store_record::adopt(sources.env.storage(), plugins);
+    let record = StoreRecord::read(sources.env.storage(), plugins.len());
     let mut failure = None;
-    with_row(sources, info, |row| {
+    with_row(sources, &record, info, |row| {
         if let Err(error) = visit(row) {
             failure = Some(error);
         }

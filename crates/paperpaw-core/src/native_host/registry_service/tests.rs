@@ -787,3 +787,81 @@ fn a_removed_plugin_leaves_no_refusal_behind() {
     kernel.unload_plugin(&Id::new_static("demo"));
     assert!(!kept(&kernel));
 }
+
+#[test]
+fn a_plugin_a_store_installed_says_so_with_its_release_as_the_store_named_it() {
+    // The host's record: a store put in place cosy 2.1 and mine 1.0.0 (since
+    // replaced by another way's 2.0.0); a line naming a built-in counts for
+    // nothing.
+    let record = "cosy\t1.0.0\ncosy\t2.1\nmine\t1.0.0\ndemo\t1.2.3\n";
+    let mut storage =
+        paperpaw_sdk::MemoryStorage::new().with(".paperpaw/plugin-origin.txt", record);
+    for (name, version) in [("cosy", "2.1"), ("mine", "2.0.0"), ("own", "2.1")] {
+        let ini = format!("[plugin]\nname = {name}\nversion = {version}\nformats = 4\n");
+        storage = storage.with(&format!("plugins/{name}/plugin.ini"), ini);
+    }
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(Demo { actions: 1 })
+        .storage(storage)
+        .build()
+        .unwrap();
+    let (rows, _) = page(&kernel, schema::OP_PLUGINS, "");
+    let row = |id: &str| {
+        let head = format!("plugin {id} ");
+        rows.iter()
+            .find(|row| row.starts_with(&head))
+            .unwrap()
+            .clone()
+    };
+    // Enabled (bit 0) and installed by a store (bit 5), as it was named.
+    assert!(
+        row("cosy").contains(" 2.1 kind=1 state=0 flags=33 "),
+        "{rows:?}"
+    );
+    // Replaced since, put in place otherwise, built in: no bit 5.
+    assert!(
+        row("mine").contains(" 2.0.0 kind=1 state=0 flags=1 "),
+        "{rows:?}"
+    );
+    assert!(
+        row("own").contains(" 2.1.0 kind=1 state=0 flags=1 "),
+        "{rows:?}"
+    );
+    assert!(row("demo").contains(" flags=9 "), "{rows:?}");
+    // Op 6 says the same.
+    let reply = call(&kernel, schema::OP_PLUGIN, &key("cosy"), 4096).unwrap();
+    assert!(read(&reply).0[0].contains(" 2.1 kind=1 state=0 flags=33 "));
+    // Without room for the record the list still answers, every plugin in
+    // it (Senior R2 on #1388): the record never takes the plugin list down.
+    // (The read refused once is a pass of the rows without bit 5.)
+    use crate::native_host::shell::tests::FAIL_SIZE;
+    FAIL_SIZE.with(|size| size.set(record.len()));
+    let answered = call(&kernel, schema::OP_PLUGINS, &query("", 0, 0), 4096);
+    let unspent = FAIL_SIZE.with(|size| size.replace(0));
+    assert_eq!(unspent, 0, "the record's read was refused");
+    let rows = read(&answered.unwrap()).0;
+    assert_eq!(rows.len(), 5, "{rows:?}");
+}
+
+#[test]
+fn the_first_plugin_rows_take_a_device_without_a_record_for_the_stores() {
+    use crate::native_host::store_record::tests::record;
+    // Installed before PaperPaw kept a record of the store's installs.
+    let ini = "[plugin]\nname = cosy\nversion = 2.1\nformats = 4\n";
+    let storage = paperpaw_sdk::MemoryStorage::new().with("plugins/cosy/plugin.ini", ini);
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(Demo { actions: 1 })
+        .storage(storage)
+        .build()
+        .unwrap();
+    let card = kernel.shared.storage.as_ref();
+    assert_eq!(record(card), None);
+    let (rows, _) = page(&kernel, schema::OP_PLUGINS, "");
+    let cosy = rows.iter().find(|row| row.starts_with("plugin cosy "));
+    assert!(
+        cosy.unwrap().contains(" kind=1 state=0 flags=33 "),
+        "{rows:?}"
+    );
+    // Built-in plugins are never the store's.
+    assert_eq!(record(card).as_deref(), Some("cosy\t2.1.0\n"));
+}
