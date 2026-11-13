@@ -38,6 +38,7 @@ impl WorkDevice for DeviceView {
 /// What the card cannot tell the catalog reads, on the desktop: no walk
 /// shown, today's date from the computer's clock (none on simulated time, so
 /// no book is new in a run that must not depend on the day).
+#[derive(Debug)]
 pub struct Catalog {
     /// A run on simulated time (tests, scripts).
     pub simulated: bool,

@@ -30,6 +30,7 @@ pub const MAX_FEATURES: usize = 8;
 
 /// What is offered to the linked plugins for one combination of wired
 /// services: the services and the consent features.
+#[derive(Debug)]
 pub struct Offer {
     services: [Service<'static>; MAX_SERVICES],
     services_len: usize,

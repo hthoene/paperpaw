@@ -93,6 +93,18 @@ pub struct Shell {
     pub wiring: HostWiring,
 }
 
+impl std::fmt::Debug for Shell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Shell")
+            .field("memory", &self.memory)
+            .field("widest", &self.widest)
+            .field("simulated", &self.simulated)
+            .field("wifi", &self.wifi)
+            .field("jobs", &self.jobs)
+            .finish_non_exhaustive()
+    }
+}
+
 /// What registration leaves: how many plugins were registered, and the wiring
 /// the shell takes its own services' reports from.
 #[derive(Debug)]
