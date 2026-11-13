@@ -680,6 +680,12 @@ impl BuilderParts {
         kernel.restore_timing();
         kernel.apply_reading_font();
         kernel.apply_status_font();
+        // Every plugin found: a device that kept no record of the store's
+        // installs takes them for the store's, once (`reg_plugin` bit 5).
+        crate::native_host::store_record::adopt(
+            kernel.shared.storage.as_ref(),
+            &kernel.shared.plugins,
+        );
         kernel.validate();
         kernel.rebuild_keymap();
         // Memory given back before the language is read in: its catalogs

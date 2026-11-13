@@ -54,8 +54,12 @@ use super::shared::try_box;
 pub(crate) const FLAG_REPLACE: u32 = 1;
 /// Bit 1: an older (or the same) version is allowed.
 pub(crate) const FLAG_OLDER: u32 = 2;
+/// Bit 2: from a catalog, a store's install (code or data): the version is
+/// marked as the store's, for its updates (`reg_plugin.flags` bit 5). It
+/// grants no trust and changes no check.
+pub(crate) const FLAG_CATALOG: u32 = 4;
 /// The bits `install_plugin.flags` defines; another is `ERR_INVALID`.
-pub(crate) const FLAGS: u32 = FLAG_REPLACE | FLAG_OLDER;
+pub(crate) const FLAGS: u32 = FLAG_REPLACE | FLAG_OLDER | FLAG_CATALOG;
 
 const CODE: &str = "code.ppn";
 
@@ -566,7 +570,7 @@ impl PluginInstall {
             return self.end(storage, reason::OTHER);
         };
         // A catalog's install keeps its store: it offers its updates.
-        let from = if self.evidence.author.is_some() {
+        let from = if self.flags & FLAG_CATALOG != 0 {
             From::Store(manifest.parsed)
         } else {
             From::Local

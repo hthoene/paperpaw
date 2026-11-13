@@ -1025,3 +1025,25 @@ fn the_copy_is_let_go_before_the_check_and_the_buffer_before_the_question() {
     }
     assert!(asked);
 }
+
+#[test]
+fn an_install_from_a_catalog_is_the_stores_and_any_other_is_not() {
+    use super::super::store_record::{STORE_INSTALLS, StoreRecord};
+    let one = paperpaw_sdk::Version::parse("1.0.0").unwrap();
+    // A data plugin from a catalog (bit 2): its version is the store's.
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    let ran = install(&card, FLAG_CATALOG, Evidence::NONE, Answer::Yes);
+    assert_eq!(ran.done.reason, reason::OK);
+    let read = StoreRecord::read(&card).unwrap();
+    assert_eq!(read.release("dials", one), Some("1.0.0"));
+    // The same without the bit (a sideload, the plugin manager): not.
+    let card = MemoryStorage::new().with(STORE_INSTALLS, "");
+    data_source(&card, "1.0.0");
+    let ran = install(&card, 0, Evidence::NONE, Answer::Yes);
+    assert_eq!(ran.done.reason, reason::OK);
+    assert_eq!(
+        StoreRecord::read(&card).unwrap().release("dials", one),
+        None
+    );
+}

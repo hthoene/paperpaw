@@ -6,10 +6,9 @@ use super::{
     sources::Sources,
 };
 use crate::native_host::registrations::{self as wire, Record};
-use alloc::vec::Vec;
+use crate::native_host::store_record::StoreRecord;
 use core::{fmt::Write, ops::ControlFlow};
-use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NOT_FOUND};
-use paperpaw_platform::Storage;
+use paperpaw_native::host_glue::ERR_NOT_FOUND;
 use paperpaw_sdk::{PluginInfo, PluginKind, PluginProblem, PluginState, Version};
 
 /// `reg_plugin.flags`.
@@ -19,53 +18,6 @@ const REQUIRED: u32 = 1 << 2;
 const LINKED: u32 = 1 << 3;
 const SAFE_MODE: u32 = 1 << 4;
 const FROM_STORE: u32 = 1 << 5;
-
-/// The host's record of the versions a store installed (`<id>\t<release>`
-/// lines, the newest last; `paperpaw_sdk::install::Origins`), out of reach of
-/// plugins and of the card transfers.
-const STORE_INSTALLS: &str = ".paperpaw/plugin-origin.txt";
-/// The longest record read (as the SDK's reader).
-const RECORD_MAX: u64 = 64 * 1024;
-
-/// The record, read once for a call (`reg_plugin.flags` bit 5).
-struct StoreRecord(Vec<u8>);
-
-impl StoreRecord {
-    /// None kept, or a card that cannot read it, is an empty record (no
-    /// plugin counts as a store's, as the SDK's reader takes it).
-    ///
-    /// # Errors
-    /// `ERR_NO_MEMORY`: the call can be asked again.
-    fn read(storage: &dyn Storage) -> Result<Self, i32> {
-        let Ok(size) = storage.size(STORE_INSTALLS) else {
-            return Ok(Self(Vec::new()));
-        };
-        let size = usize::try_from(size.min(RECORD_MAX)).map_err(|_| ERR_NO_MEMORY)?;
-        let mut bytes = Vec::new();
-        bytes.try_reserve_exact(size).map_err(|_| ERR_NO_MEMORY)?;
-        bytes.resize(size, 0);
-        let mut filled = 0;
-        while filled < size {
-            match storage.read_at(STORE_INSTALLS, filled as u64, &mut bytes[filled..]) {
-                Ok(0) | Err(_) => break,
-                Ok(read) => filled += read,
-            }
-        }
-        bytes.truncate(filled);
-        Ok(Self(bytes))
-    }
-
-    /// The release of `plugin` a store installed with the numbers of
-    /// `version`, as the store named it (`1.2.0-beta.1`): the last kept.
-    fn release(&self, plugin: &str, version: Version) -> Option<&str> {
-        self.0.rsplit(|&byte| byte == b'\n').find_map(|line| {
-            let line = core::str::from_utf8(line).ok()?;
-            let (id, written) = line.split_once('\t')?;
-            let written = written.trim();
-            (id == plugin && Version::parse(written) == Some(version)).then_some(written)
-        })
-    }
-}
 
 /// Room for `<id>.plugin.description`: an id (64), a dot and the suffix.
 type Key = Fixed<96>;
