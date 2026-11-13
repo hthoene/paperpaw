@@ -286,7 +286,13 @@ fn starting_in_german_peaks_no_higher_than_in_english() {
 /// What a language of all plugins' texts from the card may add to the
 /// start's peak, compiled and read as needed (ADR 0033): its block table
 /// and the messages of the first screen, not its 210 KB.
-const CARD_LANGUAGE_EXTRA_KIB: f64 = 8.0;
+///
+/// 10.0 KiB since the start settles its first passes before its first frame
+/// (#243): native plugins hear `Started` while the first frame is built, and
+/// read their card-language texts then, a transient overlap. Measured on the
+/// emulator X4 profile: English / Arabic peak 111.4 / 119.0 KiB before,
+/// 111.8 / 121.7 KiB after (121.7 of 256 KiB). A later saving is noted on #248.
+const CARD_LANGUAGE_EXTRA_KIB: f64 = 10.0;
 
 /// A language from the card, of an Arabic interface's size (3,400
 /// messages, some 210 KB), starts within [`CARD_LANGUAGE_EXTRA_KIB`] of
