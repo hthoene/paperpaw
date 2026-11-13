@@ -71,8 +71,11 @@ pub(crate) trait FilesHost {
     /// (`plugins/<name>`), is its code or one of the host's files, which root
     /// 1 never shows ([`super::data_plugin_folders::host_file`]).
     ///
-    /// Required: a host that forgets it would show a plugin's code.
-    fn host_file(&self, folder: &str, entry: &str) -> bool;
+    /// The default hides every entry right below a shown plugin folder (the
+    /// safe side: a host that does not say never shows a plugin's code).
+    fn host_file(&self, _folder: &str, _entry: &str) -> bool {
+        true
+    }
 
     /// Whether `plugin` is built into the firmware (a linked plugin). Its
     /// install folder (root 2) counts as empty whatever the card holds at
