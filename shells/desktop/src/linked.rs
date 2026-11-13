@@ -321,8 +321,13 @@ impl CatalogEnv for Catalog {
     /// The wall clock in milliseconds: the idle time of an annotation
     /// transaction and the life of its receipt. A simulated clock is none.
     fn now_ms(&self) -> u64 {
-        if self.simulated || cfg!(target_arch = "wasm32") {
+        if self.simulated {
             return 0;
+        }
+        // A browser's `SystemTime` cannot be read: the shell's clock is the
+        // page's (no wall clock there).
+        if cfg!(target_arch = "wasm32") {
+            return crate::host::micros() / 1000;
         }
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
