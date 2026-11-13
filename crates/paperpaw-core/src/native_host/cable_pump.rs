@@ -21,8 +21,8 @@ use super::net_service::{
 };
 use super::shell_wiring::ServedDecision;
 use crate::Kernel;
+use super::shared::Shared;
 use crate::io::cable::Line;
-use alloc::rc::Rc;
 use paperpaw_sdk::{Params, builtin::slots};
 
 /// The kernel's answer to a request the cable's server cannot take.
@@ -33,23 +33,18 @@ fn refuse_link(link: &CableLink, number: u32, status: u32, why: &str) {
 
 impl Kernel {
     /// `core.net`'s device for the cable's lines, while no interface-6 server
-    /// runs on the cable.
-    pub(crate) fn native_cable(&self) -> Option<Rc<NetDevice>> {
+    /// runs on the cable; nothing is made here (the pump's passes).
+    pub(crate) fn native_cable(&self) -> Option<Shared<NetDevice>> {
         if self.io.servers.cable_server().is_some() {
             return None;
         }
-        self.shared
-            .native_instances
-            .hosts()?
-            .cable_net()
-            .filter(|device| device.cable().is_some())
-            .cloned()
+        self.cable_device()
     }
 
-    /// `core.net`'s device where it serves the cable, interface-6 server or
-    /// not (the lines it queued still go out).
-    fn cable_device(&self) -> Option<Rc<NetDevice>> {
-        self.shared.native_instances.hosts()?.cable_net().cloned()
+    /// `core.net`'s device where it is made and serves the cable,
+    /// interface-6 server or not (the lines it queued still go out).
+    fn cable_device(&self) -> Option<Shared<NetDevice>> {
+        self.shared.native_instances.hosts()?.cable_net()?.try_clone()
     }
 
     /// A line of the computer's for the native server. `paused`: the last

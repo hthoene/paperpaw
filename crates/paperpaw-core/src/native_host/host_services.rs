@@ -76,10 +76,9 @@ pub(crate) struct HostServices {
     /// reserves `join` and `host` in (`commands_dev.rs`). One per device.
     radio_requests: OnceCell<Rc<RefCell<super::radio_requests::RadioRequests>>>,
     net: OnceCell<NetServices>,
-    /// `core.net`'s device where it serves the cable (port 0): the kernel
-    /// passes it the cable's lines (`cable_pump`).
-    cable_net: OnceCell<Rc<net_service::NetDevice>>,
+    net_later: OnceCell<Rc<super::shell_wiring::NetLater>>,
     sockets: OnceCell<SockServices>,
+    sockets_later: OnceCell<Rc<super::shell_wiring::SockLater>>,
     work: OnceCell<WorkServices>,
     /// What makes `core.work` at its first call (#248).
     work_later: Cell<Option<super::shell_wiring::WorkInputs>>,
@@ -171,8 +170,9 @@ impl HostServices {
             firmware_parts: (OnceCell::new(), OnceCell::new()),
             radio_requests: OnceCell::new(),
             net: OnceCell::new(),
-            cable_net: OnceCell::new(),
+            net_later: OnceCell::new(),
             sockets: OnceCell::new(),
+            sockets_later: OnceCell::new(),
             work: OnceCell::new(),
             work_later: Cell::new(None),
             secrets: OnceCell::new(),
@@ -498,7 +498,9 @@ impl HostServices {
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.net` once.
     pub(crate) fn wire_net(&self, host: Rc<dyn NetHost>) -> Result<(), i32> {
-        self.net.set(NetServices(host)).map_err(|_| ERR_STATE)
+        self.net
+            .set(NetServices(net_service::NetRef::Handed(host)))
+            .map_err(|_| ERR_STATE)
     }
 
     /// The device's one network pool, made by the first wiring that names a
@@ -705,18 +707,51 @@ impl HostServices {
         self.owners.get().ok_or(ERR_STATE)
     }
 
+    /// `core.net` where it is made: a device not made holds no request.
     pub(crate) fn net(&self) -> Option<&NetServices> {
         self.net.get()
     }
 
-    /// Wire the cable's server once (`core.net` with the cable).
-    pub(crate) fn wire_cable(&self, device: Rc<net_service::NetDevice>) -> Result<(), i32> {
-        self.cable_net.set(device).map_err(|_| ERR_STATE)
+    /// Wire `core.net` once, to be made at its first call (#248).
+    pub(crate) fn wire_net_later(
+        &self,
+        later: Rc<super::shell_wiring::NetLater>,
+    ) -> Result<(), i32> {
+        if self.net_wired() {
+            return Err(ERR_STATE);
+        }
+        self.net_later.set(later).map_err(|_| ERR_STATE)
     }
 
-    /// `core.net`'s device, where it serves the cable.
-    pub(crate) fn cable_net(&self) -> Option<&Rc<net_service::NetDevice>> {
-        self.cable_net.get()
+    /// Whether `core.net` is wired, made or not.
+    pub(crate) fn net_wired(&self) -> bool {
+        self.net.get().is_some() || self.net_later.get().is_some()
+    }
+
+    /// `core.net` for a plugin's call, made now where it is not yet.
+    ///
+    /// # Errors
+    /// `ERR_UNSUPPORTED` when it is not wired; `ERR_NO_MEMORY` (the next
+    /// call tries again).
+    pub(crate) fn net_for_call(&self) -> Result<&NetServices, i32> {
+        if let Some(net) = self.net.get() {
+            return Ok(net);
+        }
+        let later = self.net_later.get().ok_or(ERR_UNSUPPORTED)?;
+        let device = super::shell_wiring::make_net(self, later)?
+            .try_clone()
+            .ok_or(ERR_NO_MEMORY)?;
+        let _ = self.net.set(NetServices(net_service::NetRef::Made(device)));
+        self.net.get().ok_or(ERR_STATE)
+    }
+
+    /// `core.net`'s device where it is made and serves the cable; nothing is
+    /// made here (the pump's passes and the wake-up ask).
+    pub(crate) fn cable_net(&self) -> Option<&super::shared::Shared<net_service::NetDevice>> {
+        match &self.net.get()?.0 {
+            net_service::NetRef::Made(device) if device.cable().is_some() => Some(device),
+            _ => None,
+        }
     }
 
     /// The wired services that raise events to plugins, for the kernel's
@@ -738,11 +773,48 @@ impl HostServices {
     #[allow(dead_code, reason = "a shell wires its sockets; tests do today")]
     /// Wire `core.sockets` once.
     pub(crate) fn wire_sockets(&self, host: Rc<dyn SockHost>) -> Result<(), i32> {
-        self.sockets.set(SockServices(host)).map_err(|_| ERR_STATE)
+        self.sockets
+            .set(SockServices(sock_service::SockRef::Handed(host)))
+            .map_err(|_| ERR_STATE)
     }
 
+    /// `core.sockets` where it is made: a device not made holds no socket.
     pub(crate) fn sockets(&self) -> Option<&SockServices> {
         self.sockets.get()
+    }
+
+    /// Wire `core.sockets` once, to be made at its first call (#248).
+    pub(crate) fn wire_sockets_later(
+        &self,
+        later: Rc<super::shell_wiring::SockLater>,
+    ) -> Result<(), i32> {
+        if self.sockets_wired() {
+            return Err(ERR_STATE);
+        }
+        self.sockets_later.set(later).map_err(|_| ERR_STATE)
+    }
+
+    /// Whether `core.sockets` is wired, made or not.
+    pub(crate) fn sockets_wired(&self) -> bool {
+        self.sockets.get().is_some() || self.sockets_later.get().is_some()
+    }
+
+    /// `core.sockets` for a plugin's call, made now where it is not yet.
+    ///
+    /// # Errors
+    /// As [`Self::net_for_call`].
+    pub(crate) fn sockets_for_call(&self) -> Result<&SockServices, i32> {
+        if let Some(sockets) = self.sockets.get() {
+            return Ok(sockets);
+        }
+        let later = self.sockets_later.get().ok_or(ERR_UNSUPPORTED)?;
+        let device = super::shell_wiring::make_sockets(self, later)?
+            .try_clone()
+            .ok_or(ERR_NO_MEMORY)?;
+        let _ = self
+            .sockets
+            .set(SockServices(sock_service::SockRef::Made(device)));
+        self.sockets.get().ok_or(ERR_STATE)
     }
 
     /// Wire `core.work` once, made.

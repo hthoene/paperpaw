@@ -17,6 +17,7 @@ use crate::native_host::{
     },
     stack_rows::{StackRow, StackRows},
 };
+use alloc::rc::Rc;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{Id, MemoryStorage};
 use std::{string::String, vec::Vec};
@@ -100,7 +101,7 @@ fn world_on(card: Rc<dyn Storage>) -> World {
 }
 
 impl World {
-    fn device(&self) -> Rc<NetDevice> {
+    fn device(&self) -> crate::native_host::shared::Shared<NetDevice> {
         self.kernel.native_cable().unwrap()
     }
 
