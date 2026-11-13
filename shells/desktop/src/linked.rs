@@ -382,7 +382,9 @@ fn teardown_report(
 pub enum Unavailable {
     /// No room for the shared table of handles or the dispatch budget.
     NoRoom,
-    /// The wiring of `core.ui` or `core.device` was refused.
+    /// The wiring of `core.device`, `core.work`, `core.net`, `core.secrets` or
+    /// the card's services was refused (`core.ui` is wired when the pool makes
+    /// its table, [`crate::native::DevicePool`]).
     Wiring(i32),
 }
 

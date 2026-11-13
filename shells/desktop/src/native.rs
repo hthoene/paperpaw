@@ -171,6 +171,8 @@ pub struct DevicePool(std::rc::Rc<std::cell::RefCell<PoolParts>>);
 #[derive(Debug, Default)]
 struct PoolParts {
     resources: Option<paperpaw_core::native_host::HostResources>,
+    /// The memory class `core.ui` was wired for: later asks name the same.
+    memory: Option<MemoryClass>,
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
 }
@@ -185,7 +187,13 @@ impl DevicePool {
         let mut parts = self.0.borrow_mut();
         if parts.resources.is_none() {
             parts.resources = new_resources(memory);
+            parts.memory = Some(memory);
         }
+        debug_assert_eq!(
+            parts.memory,
+            Some(memory),
+            "one kernel, one memory class: the table was made for another"
+        );
         parts
             .resources
             .as_ref()
