@@ -54,6 +54,11 @@ zeroize = { version = "1", optional = true }
 # kernel's part is the freestanding rule shared with the packager (ADR 0020).
 paperpaw-native = { workspace = true, features = ["kernel"] }
 
+# The user id of a process where there is no `/proc` (macOS): the key file and
+# its folder are the user's alone (`sealing`).
+[target.'cfg(all(unix, not(target_os = "linux")))'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 paperpaw-sdk.workspace = true
 paperpaw-text.workspace = true
