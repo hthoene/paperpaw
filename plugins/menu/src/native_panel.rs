@@ -572,13 +572,22 @@ pub fn knob_radius(track: Rect) -> u16 {
 /// that end.
 #[must_use]
 pub fn value_at(track: Rect, x: i32, (min, max, step): (i64, i64, i64)) -> i64 {
+    // In u64 without a product that can overflow: a card plugin declares any
+    // range, up to the whole of i64, and 128-bit helpers are not wanted on
+    // the X4. The range's `span / run` is shared out first.
     let max = max.max(min);
+    let span = max.abs_diff(min);
     let radius = i64::from(knob_radius(track));
     let run = (i64::from(track.width) - 2 * radius).max(1);
     let along = (i64::from(x) - i64::from(track.x) - radius).clamp(0, run);
-    let raw = min + (along * (max - min) + run / 2) / run;
-    let step = step.max(1);
-    (min + ((raw - min) + step / 2) / step * step).clamp(min, max)
+    let (run, along) = (run as u64, along as u64);
+    let (whole, rest) = (span / run, span % run);
+    let offset = whole * along + (rest * along + run / 2) / run;
+    let step = u64::try_from(step).unwrap_or(1).max(1);
+    let offset = (offset.saturating_add(step / 2) / step)
+        .saturating_mul(step)
+        .min(span);
+    min.checked_add_unsigned(offset).unwrap_or(max)
 }
 
 /// Where the knob of a slider on `track` is, at `value`: its centre's pixel.
@@ -586,13 +595,16 @@ pub fn value_at(track: Rect, x: i32, (min, max, step): (i64, i64, i64)) -> i64 {
 pub fn knob_x(track: Rect, value: i64, (min, max): (i64, i64)) -> i32 {
     let max = max.max(min);
     let radius = i64::from(knob_radius(track));
-    let run = (i64::from(track.width) - 2 * radius).max(0);
-    let along = if max > min {
-        (value.clamp(min, max) - min) * run / (max - min)
-    } else {
-        0
-    };
-    (i64::from(track.x) + radius + along) as i32
+    let run = (i64::from(track.width) - 2 * radius).max(0) as u64;
+    let span = max.abs_diff(min);
+    let offset = value.clamp(min, max).abs_diff(min);
+    // A pixel's worth is enough: both are scaled down to 32 bits first, so
+    // that `run * offset` (a pixel count under 2^16) cannot overflow.
+    let shift = (u64::BITS - span.leading_zeros()).saturating_sub(32);
+    let (span, offset) = (span >> shift, offset >> shift);
+    let along = (run * offset).checked_div(span).unwrap_or(0);
+    let at = i64::from(track.x) + radius + along as i64;
+    i32::try_from(at).unwrap_or(0)
 }
 
 /// Where the focus goes from `from` (`None`: nowhere yet) one control forward

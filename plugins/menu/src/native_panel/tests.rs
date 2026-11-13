@@ -520,3 +520,24 @@ fn a_tap_sets_the_nearest_step_and_the_ends_are_reached() {
     let odd = value_at(track, (first + last) / 2, (10, 31, 4));
     assert!((10..=31).contains(&odd) && (odd - 10) % 4 == 0, "{odd}");
 }
+
+#[test]
+fn a_range_of_the_whole_of_i64_does_not_overflow() {
+    let track = Rect::new(100, 0, 260, 60);
+    let wide = (i64::MIN, i64::MAX, 1);
+    for x in [-5, 0, 100, 230, 360, 480] {
+        let value = value_at(track, x, wide);
+        assert!((i64::MIN..=i64::MAX).contains(&value));
+    }
+    assert_eq!(value_at(track, 0, wide), i64::MIN);
+    assert_eq!(value_at(track, 480, wide), i64::MAX);
+    // The knob is on the track for any value, and the ends are the ends.
+    let radius = i32::from(knob_radius(track));
+    for value in [i64::MIN, -1, 0, i64::MAX] {
+        let at = knob_x(track, value, (i64::MIN, i64::MAX));
+        assert!((100 + radius..=360 - radius).contains(&at), "{value}: {at}");
+    }
+    // A step of more than the range, and a range upside down.
+    assert_eq!(value_at(track, 230, (0, 10, i64::MAX)), 0);
+    assert_eq!(value_at(track, 230, (7, 3, 1)), 7);
+}

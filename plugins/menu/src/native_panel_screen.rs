@@ -693,6 +693,10 @@ impl PanelView {
         at: Point,
     ) -> Result<Outcome, Error> {
         let handled = Ok(Outcome::Handled(Handled::Yes));
+        // The focus shown goes, as after other taps.
+        if self.focus.take().is_some() {
+            self.redraw(host)?;
+        }
         let Some(part) = self.parts.get(row) else {
             return handled;
         };
