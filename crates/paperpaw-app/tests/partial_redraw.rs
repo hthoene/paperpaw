@@ -414,10 +414,6 @@ fn main_menu_and_tools() {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked-reading",
-    ignore = "native reader: a step in the table of contents redraws the whole screen, not its two rows (#257, to fix)"
-)]
 fn table_of_contents() {
     let mut app = App::new();
     app.open_slot(slots::READER, Params::new().with(params::PATH, BOOK));

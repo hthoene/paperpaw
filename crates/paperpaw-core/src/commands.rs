@@ -360,9 +360,9 @@ impl Kernel {
                 if self.native_actions_run() {
                     continue;
                 }
-                // The makers of widgets dropped meanwhile hear of it; what
-                // they stage is the next round's.
-                if self.deliver_widget_drops() {
+                // The owners of widgets made and dropped meanwhile hear of
+                // it (made first); what they stage is the next round's.
+                if self.deliver_widget_made() || self.deliver_widget_drops() {
                     continue;
                 }
                 // All done: the screen on top now is told it shows, if it
