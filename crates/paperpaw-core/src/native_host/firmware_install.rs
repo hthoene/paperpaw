@@ -79,6 +79,13 @@ pub(crate) trait BuiltIns {
     /// The number (below [`Self::count`]) of the built-in plugin of this
     /// plugin id (op 4's `BuiltinRow.id`); `None` for a name the running image does not have.
     fn index_of(&self, plugin_id: &str) -> Option<usize>;
+    /// Every plugin the kernel found, for a plugin install or removal to take
+    /// the store's record over before it commits
+    /// ([`store_record::adopt`](super::store_record::adopt)); `None` where
+    /// they are not known (the record is then left as it is).
+    fn found(&self) -> Option<&paperpaw_sdk::Plugins> {
+        None
+    }
 }
 
 /// The built-in plugins an image has, one bit each.

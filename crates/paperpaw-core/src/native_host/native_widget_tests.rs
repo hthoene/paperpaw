@@ -9,6 +9,7 @@ use crate::native_host::{
     native_instances::{NativeInstance, NativeLease},
     raw_declarations::RawDeclarations,
     registrations::Record,
+    ui_service::UiServices,
 };
 extern crate std;
 use alloc::{rc::Rc, vec::Vec};
@@ -28,6 +29,8 @@ struct Target {
     seen: Rc<RefCell<Vec<widget::Record>>>,
     answer: Rc<RefCell<Vec<u8>>>,
     dropped: Rc<RefCell<Vec<i32>>>,
+    /// The instances of `event.widget_made` it got, with the calls before.
+    made: Rc<RefCell<Vec<(u32, u32, usize)>>>,
 }
 impl NativeInstance for Target {
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
@@ -42,8 +45,13 @@ impl NativeInstance for Target {
     }
 }
 impl Dispatch for Target {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
-        unreachable!()
+    fn event(&self, token: u32, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+        let Record::EventWidgetMade(made) = wire::records_decode_single(bytes)? else {
+            panic!("only event 84 is expected");
+        };
+        let before = self.seen.borrow().len();
+        self.made.borrow_mut().push((token, made.instance, before));
+        Ok(0)
     }
     fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
         unreachable!()
@@ -93,6 +101,7 @@ struct World {
     seen: Rc<RefCell<Vec<widget::Record>>>,
     answer: Rc<RefCell<Vec<u8>>>,
     dropped: Rc<RefCell<Vec<i32>>>,
+    made: Rc<RefCell<Vec<(u32, u32, usize)>>>,
     owner: Cell<u64>,
 }
 
@@ -102,12 +111,14 @@ fn world(device: paperpaw_platform::DeviceInfo) -> World {
     let seen = Rc::new(RefCell::new(Vec::new()));
     let answer = Rc::new(RefCell::new(Vec::new()));
     let dropped = Rc::new(RefCell::new(Vec::new()));
+    let made = Rc::new(RefCell::new(Vec::new()));
     let lease = NativeLease::try_new(Target {
         depth: depth.try_clone().unwrap(),
         guard: crate::abi7::calls::Instance::new(),
         seen: Rc::clone(&seen),
         answer: Rc::clone(&answer),
         dropped: Rc::clone(&dropped),
+        made: Rc::clone(&made),
     })
     .unwrap();
     // The directory holds the owner by a declaration; a status item stands in.
@@ -147,6 +158,7 @@ fn world(device: paperpaw_platform::DeviceInfo) -> World {
         seen,
         answer,
         dropped,
+        made,
         owner: Cell::new(OWNER),
     }
 }
@@ -163,6 +175,17 @@ impl World {
     }
 
     fn call(&self, with_callback: bool, out: &mut [u8]) -> Result<usize, i32> {
+        self.call_about(with_callback, None, 9, out)
+    }
+
+    /// A measure of `instance`, with the device's `core.ui` service or none.
+    fn call_about(
+        &self,
+        with_callback: bool,
+        ui: Option<&UiServices>,
+        instance: u32,
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
         let env = self.kernel.shared.env(paperpaw_platform::Instant(0));
         let frame = CoreFrame {
             callback: with_callback
@@ -180,9 +203,9 @@ impl World {
             plugins: &self.kernel.shared.plugins,
             work: &self.kernel.shared.work_states,
             log: Default::default(),
-            ui: None,
+            ui,
         };
-        let measure = widget::Record::WidgetMeasure(widget::WidgetMeasure::new(9, 200));
+        let measure = widget::Record::WidgetMeasure(widget::WidgetMeasure::new(instance, 200));
         let mut payload = [0; 64];
         let length = widget::input_encode(&[measure], &mut payload).unwrap();
         super::call(&frame, self.owner.get(), TOKEN, &payload[..length], out)
@@ -254,4 +277,48 @@ fn a_reply_the_codec_refuses_or_the_caller_cannot_hold_is_the_calls_failure() {
     w.size_reply();
     assert_eq!(w.call(true, &mut [0; 2]), Err(ERR_NO_SPACE));
     assert_eq!(w.dropped.borrow().len(), 2);
+}
+
+#[test]
+fn the_owner_hears_of_the_instance_before_it_is_first_asked_about_it() {
+    use crate::native_host::{
+        shared::Shared,
+        ui_handles::NewWidget,
+        ui_store::{Limits, UiStore},
+    };
+    let w = world(crate::tests::DEVICE);
+    w.size_reply();
+    let ui = UiServices::new(
+        Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap(),
+        false,
+    );
+    let new = NewWidget {
+        owner: OWNER,
+        token: TOKEN,
+        private: false,
+        widget: "remote.w",
+        place: "",
+    };
+    let instance = ui
+        .widgets
+        .handles
+        .borrow_mut()
+        .make_told(CALLER, 3, &new)
+        .unwrap();
+    let caller = crate::abi7::calls::Instance::new();
+    let _outer = caller.enter(&w.depth.as_depth().0).unwrap();
+    let mut out = [0; 3840];
+    // Another instance's call tells nothing of this one.
+    w.call_about(true, Some(&ui), instance + 1, &mut out)
+        .unwrap();
+    assert!(w.made.borrow().is_empty());
+    w.call_about(true, Some(&ui), instance, &mut out).unwrap();
+    w.call_about(true, Some(&ui), instance, &mut out).unwrap();
+    assert_eq!(
+        *w.made.borrow(),
+        [(TOKEN, instance, 1)],
+        "told once, before its first call"
+    );
+    assert_eq!(w.seen.borrow().len(), 3);
+    assert_eq!(ui.widgets.handles.borrow().made_waiting(), 0);
 }
