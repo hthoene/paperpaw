@@ -1225,9 +1225,21 @@ fn an_install_with_evidence_is_one_batch_in_the_contracts_order() {
             &Evidence::new().from_catalog(),
         )
         .unwrap();
+    // Alone it is bit 2 only.
+    sender
+        .install_plugin_with(
+            13,
+            InstallRoot::Data,
+            "staging/z",
+            false,
+            false,
+            &Evidence::new().from_catalog(),
+        )
+        .unwrap();
     let batches = decoded(&ctx);
-    let last = batches.last().unwrap();
-    assert!(last[0].ends_with("flags: 5 }"), "{}", last[0]);
+    let (update, alone) = (&batches[batches.len() - 2], &batches[batches.len() - 1]);
+    assert!(update[0].ends_with("flags: 5 }"), "{}", update[0]);
+    assert!(alone[0].ends_with("flags: 4 }"), "{}", alone[0]);
 }
 
 #[test]
