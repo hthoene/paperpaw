@@ -3,11 +3,12 @@
 //! (the dots, on a pill over the picture, the pencil or *Done* and *Add* with
 //! their icons, the words where the host has no icon), as interface 6 drew them.
 use super::*;
-use crate::native_icons::Fonts;
+use crate::native_icons::{Breaks, Fonts};
 
 impl Dashboard {
     /// Paints the items' plates and the tools, then the footer, into `below`;
-    /// `plated`: the picture shows behind the page.
+    /// `plated`: the picture shows behind the page; `breaks`: where a word of
+    /// a tool's name may be hyphenated.
     #[inline(never)]
     pub(super) fn paint_page(
         &self,
@@ -15,6 +16,7 @@ impl Dashboard {
         fonts: &Fonts<'_, '_>,
         style: &Style,
         (laid, plated): (&Laid, bool),
+        breaks: &mut Breaks<'_>,
     ) -> Result<(), Error> {
         for cell in &laid.cells {
             if let Some(plate) = laid.plate {
@@ -30,8 +32,8 @@ impl Dashboard {
                 self.corner_mark(below, style, cell.rect, laid.handle)?;
             }
             if let (What::Tool(_), Some(face)) = (&cell.what, cell.face) {
-                let lines = icons::name_lines(fonts.ui, style, cell.rect, &cell.name)?;
-                icons::draw_tool(below, fonts, style, cell.rect, (&lines, face))?;
+                let name = icons::name_lines(fonts.ui, style, cell.rect, &cell.name, breaks)?;
+                icons::draw_tool(below, fonts, style, cell.rect, (&name, face))?;
             }
         }
         self.paint_footer(below, fonts, style, (laid, plated))
@@ -118,8 +120,14 @@ fn word_in(
     area: Rect,
     word: &str,
 ) -> Result<(), Error> {
-    let lines = icons::name_lines(font, style, area, word)?;
-    icons::name(out, font, style, area, (&lines, style.ink))
+    let room = f32::from(area.width.saturating_sub(style.gap)).max(1.0);
+    let lines = text::wrap_with(
+        |line| font.measure_text(style.small, line),
+        word,
+        room,
+        icons::NAME_LINES,
+    )?;
+    icons::name(out, font, area, (&lines, style.small, style.ink))
 }
 
 /// A dot of the page indicator.
