@@ -451,7 +451,9 @@ mod tests {
             Paint::Focus(_, _, None, color) => Some(*color),
             _ => None,
         });
-        assert_eq!(bar, Some(style.card));
+        assert_eq!(bar, Some(style.soft_bar()));
+        // Of four grays (0, 85, 170, 255) it is not the paper's.
+        assert!(style.soft_bar().luma().abs_diff(style.paper.luma()) > 40);
         assert_eq!(ink(&style, true), style.ink);
         // A frame keeps the text's ink too; a dark bar takes the paper.
         style.soft = false;

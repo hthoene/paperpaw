@@ -9,3 +9,4 @@
 - **Fixed (#114): the strip between a header and the list under it showed the screen's clear colour, not the theme's paper.** In a theme whose paper is not white (or a dark one) the strip was a white band; lists, windows and item lists now paint the page up to the header. With the default look nothing changes.
 - **A theme's light `focus`, `control` and `chip` colours are left out on a panel of two grays** (they would draw as paper, an invisible bar or button); the chosen row's frame there is the `outline` colour, else the ink.
 - **A card plate gets its edge where the theme coloured `outline`** (a card the colour of the page had no visible edge at its top and left, only the shadow).
+- **Content on a plate takes the ink that reads on it** (a light card in a dark theme gets dark text; the dialog's gray text follows a dark plate).

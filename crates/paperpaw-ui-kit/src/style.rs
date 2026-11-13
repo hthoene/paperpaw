@@ -164,6 +164,16 @@ fn integer(host: &Host<'_>, key: &str) -> Result<i64, Error> {
 /// fit, or every screen fails (#114, I2).
 pub(crate) const TEXT_BYTES: usize = 512;
 
+/// The palette text as read: a palette that does not fit the buffer it is read
+/// into ([`TEXT_BYTES`]; the host answers `NoSpace`) is read as none, so the
+/// stock grays are drawn, not nothing at all (every screen failed on it).
+fn palette_or_none(read: Result<String, Error>) -> Result<String, Error> {
+    match read {
+        Err(Error::NoSpace) => Ok(String::new()),
+        other => other,
+    }
+}
+
 pub fn setting_text(host: &Host<'_>, key: &str) -> Result<String, Error> {
     let mut bytes = [0; TEXT_BYTES];
     Ok(match settings::read_setting(host, key, &mut bytes)? {
@@ -262,7 +272,7 @@ impl Style {
         let finger = finger_px(display);
         let lift = finger.saturating_sub(row as u32);
         let header = setting_text(host, UI_HEADER)?;
-        let palette = setting_text(host, UI_PALETTE)?;
+        let palette = palette_or_none(setting_text(host, UI_PALETTE))?;
         let color = |name, default| palette_color(&palette, name, default);
         let strong = setting_text(host, "core.ui-contrast")? == "core.contrast.strong";
         let faint = |name, default| {
@@ -357,7 +367,28 @@ impl Style {
         }
         self.roles
             .focus
-            .unwrap_or(if self.soft { self.card } else { self.ink })
+            .unwrap_or(if self.soft { self.soft_bar() } else { self.ink })
+    }
+
+    /// The light bar where the theme gave no `focus`: the paper, three tenths of
+    /// the way to the ink, so that it still stands out from the paper on a panel
+    /// of four grays (a card's colour, gray 225, would be paper there).
+    #[must_use]
+    pub fn soft_bar(&self) -> Color {
+        let mix = |paper: u8, ink: u8| {
+            let (p, i) = (u16::from(paper), u16::from(ink));
+            let value = if i >= p {
+                p + (i - p) * 3 / 10
+            } else {
+                p - (p - i) * 3 / 10
+            };
+            value as u8
+        };
+        Color::rgb(
+            mix(self.paper.r, self.ink.r),
+            mix(self.paper.g, self.ink.g),
+            mix(self.paper.b, self.ink.b),
+        )
     }
 
     /// The ink of text on the chosen row: the paper's on a dark bar, the
@@ -398,9 +429,11 @@ impl Style {
             (Some(_), Some(panel)) => Some(panel),
             (fill, _) => fill,
         };
-        let (ink, paper) = match (kind, self.roles.panel, fill) {
-            (_, Some(panel), Some(_)) => {
-                let ink = readable(panel, self.ink, self.paper);
+        // The content takes the ink that reads on the plate, whatever the plate
+        // is: a card in a dark theme, a dark plate, a panel the theme coloured.
+        let (ink, paper) = match fill {
+            Some(plate) => {
+                let ink = readable(plate, self.ink, self.paper);
                 (
                     ink,
                     if ink == self.ink {
@@ -410,10 +443,7 @@ impl Style {
                     },
                 )
             }
-            (Frame::Dark, None, Some(_)) if self.darker() != self.paper => {
-                (self.lighter(), self.darker())
-            }
-            _ => (self.ink, self.paper),
+            None => (self.ink, self.paper),
         };
         Plate {
             fill,
@@ -506,9 +536,10 @@ impl Style {
 /// and kept until the screen clears it. A read is a dozen host calls and a
 /// screen drawn in bands (the X4) reads once per band: a screen that holds one
 /// reads once per look. The screen must clear it when `setting_changed`
-/// arrives and when it is shown or opened, or it draws a look the reader
-/// has left. Nothing in the kit holds one for a screen: a plugin that does not
-/// ask reads as before.
+/// arrives and when it is shown or opened, or it draws a look the reader has
+/// left. Nothing in the kit holds one for a screen yet: a plugin that does not
+/// ask reads as before. **Whoever first holds one adds the test** that it is
+/// cleared on `setting_changed` and on show.
 #[derive(Debug, Default)]
 pub struct StyleCache {
     style: Option<Style>,
@@ -954,7 +985,12 @@ mod tests {
         let plate = style.plate(Frame::Line);
         assert_eq!(plate.fill, Some(style.card));
         assert_ne!(plate.fill, Some(style.paper));
-        assert_eq!((plate.ink, plate.paper), (style.ink, style.paper));
+        // The card here is light: the content takes the dark ink on it, not
+        // the theme's light text (#1420 review, remark 3).
+        assert_eq!((plate.ink, plate.paper), (style.paper, style.ink));
+        style.card = Color::gray(40);
+        let dim = style.plate(Frame::Line);
+        assert_eq!((dim.ink, dim.paper), (style.ink, style.paper));
     }
 
     #[test]
@@ -1020,5 +1056,29 @@ mod tests {
         assert_eq!(style.bar(), Color::BLACK);
         style.roles.outline = Some(Color::gray(40));
         assert_eq!(style.bar(), Color::gray(40));
+    }
+
+    /// What the host answers a read of a text longer than the buffer: `NoSpace`
+    /// (`read_setting`'s contract), and nothing of the value.
+    fn host_reads(value: &str) -> Result<String, Error> {
+        if value.len() > TEXT_BYTES {
+            Err(Error::NoSpace)
+        } else {
+            Ok(String::from(value))
+        }
+    }
+
+    #[test]
+    fn a_palette_longer_than_its_buffer_is_read_as_none_and_not_as_a_failure() {
+        let long = "muted=60 ".repeat(67);
+        assert!(long.len() >= 600);
+        let palette = palette_or_none(host_reads(&long)).unwrap();
+        assert_eq!(palette, "");
+        // With none, every role has the colour it had without a theme.
+        assert_eq!(palette_color(&palette, "text", Color::BLACK), Color::BLACK);
+        assert_eq!(Roles::read(&palette), Roles::default());
+        // A palette that fits is kept; any other failure is still one.
+        assert_eq!(palette_or_none(host_reads("muted=60")).unwrap(), "muted=60");
+        assert_eq!(palette_or_none(Err(Error::NoMemory)), Err(Error::NoMemory));
     }
 }
