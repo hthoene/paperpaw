@@ -265,3 +265,145 @@ fn root_one_changes_wait_for_what_the_host_holds_and_reads_never_do() {
     assert_eq!(backend.files.read_at("words/cards.txt", 0, &mut out), Ok(5));
     assert!(backend.files.exists("other.txt") && backend.files.exists("news/feed.xml"));
 }
+
+/// One card in memory, shared by the kernel, the slots and the library's move
+/// job (as on a device), with the entry identities a move journals.
+#[derive(Clone)]
+struct Shared(alloc::rc::Rc<paperpaw_sdk::MemoryStorage>);
+
+impl Storage for Shared {
+    fn read_at(
+        &self,
+        p: &str,
+        o: u64,
+        b: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        self.0.read_at(p, o, b)
+    }
+    fn size(&self, p: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        self.0.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.append(p, d)
+    }
+    fn list(
+        &self,
+        d: &str,
+        v: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.list(d, v)
+    }
+    fn remove(&self, p: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.remove(p)
+    }
+    fn rename(&self, f: &str, t: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.rename(f, t)
+    }
+    fn create_dir(&self, p: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.create_dir(p)
+    }
+    fn ignores_case(&self) -> bool {
+        self.0.ignores_case()
+    }
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.0.same_entry(a, b)
+    }
+    fn entry_identity(&self, p: &str) -> Result<Option<u64>, paperpaw_platform::StorageError> {
+        self.0.entry_identity(p)
+    }
+}
+
+#[test]
+fn a_root_one_rename_is_the_librarys_move_and_its_books_keep_their_place() {
+    use crate::native_host::{
+        host_services::HostServices, lib_moves_service::Pump, storage_files::StorageFiles,
+    };
+    use alloc::{borrow::Cow, rc::Rc};
+    use paperpaw_sdk::{
+        FormatSpec, Id, MemoryStorage,
+        document::{DocumentError, Locator},
+        positions::{self, Position},
+    };
+    let card = Rc::new(MemoryStorage::new());
+    card.write("Books/old/a.epub", b"book").unwrap();
+    let place = Position::new(Locator::new(7, 1234), 41.5);
+    positions::save(&*card, "Books/old/a.epub", &place).unwrap();
+    let storage: Rc<dyn Storage> = Rc::new(Shared(card.clone()));
+    let hosts = HostServices::default();
+    let moves = hosts.wire_library_moves(storage.clone()).unwrap();
+    let files = StorageFiles::new(storage, hosts.busy_sources().clone(), Rc::default())
+        .with_moves(moves.clone());
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .storage(Shared(card.clone()))
+        .build()
+        .unwrap();
+    kernel
+        .shared
+        .formats
+        .add(FormatSpec::new(
+            Id::new_static("test.epub"),
+            "EPUB",
+            alloc::vec![Cow::Borrowed("epub")],
+            alloc::boxed::Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+        ))
+        .unwrap();
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let scope = core::pin::pin!(EnvironmentScope::new());
+    let linked = LinkedPlugins::default();
+    let formats = FormatScope::new();
+    let format = Some(Format {
+        scope: &formats,
+        owner: 1,
+        features: features(true, true),
+        files: Some(&files),
+        linked: &linked,
+    });
+    let none = PathsInUse::default();
+    scope
+        .as_ref()
+        .scope(&env, || {
+            let _running = kernel.shared.meter.enter(OWNER);
+            // SAFETY: live inputs.
+            let renamed = unsafe {
+                rename(
+                    &scope,
+                    OWNER,
+                    format,
+                    &none,
+                    1,
+                    bytes(b"Books/old"),
+                    bytes(b"Books/new"),
+                )
+            };
+            assert_eq!(renamed, OK);
+            assert!(moves.moves().active(), "the library's move job");
+            // One move at a time: another rename waits for it.
+            card.write("notes.txt", b"n").unwrap();
+            // SAFETY: live inputs.
+            let second = unsafe {
+                rename(
+                    &scope,
+                    OWNER,
+                    format,
+                    &none,
+                    1,
+                    bytes(b"notes.txt"),
+                    bytes(b"notes2.txt"),
+                )
+            };
+            assert_eq!(second, ERR_BUSY);
+        })
+        .unwrap();
+    for _ in 0..100 {
+        if moves.pump(&env, &mut |_| ()) == Pump::Idle {
+            break;
+        }
+    }
+    assert!(!moves.moves().active(), "carried");
+    assert!(card.exists("Books/new/a.epub"));
+    let kept = positions::load(&*card, "Books/new/a.epub").expect("the place followed");
+    assert_eq!((kept.at.section, kept.at.offset), (7, 1234));
+}

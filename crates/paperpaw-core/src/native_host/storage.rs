@@ -495,6 +495,10 @@ impl<'a> StorageAdapter<'a> {
                 // Neither end may be a file a host writer holds.
                 self.free_of_host_writers(f, Access::Rename)?;
                 self.free_of_host_writers(t, Access::Rename)?;
+                // Root 1: the library follows (`files.md` 2.6).
+                if let Some(files) = self.card.and_then(|card| card.files) {
+                    return self.rename_card(files, f, t);
+                }
                 // What the rename replaces is not in the cache any more.
                 let credit = if root == 6 { self.size_of(t) } else { 0 };
                 let moved = match self.storage.rename(f, t) {
@@ -512,6 +516,35 @@ impl<'a> StorageAdapter<'a> {
                 moved
             })
         })
+    }
+
+    /// Slot 24 on root 1, where `core.files`' host is wired: the user's files
+    /// move as `core.files` moves them (`files.md` 2.6), its host's rename with
+    /// the library following, so that a book or a folder of books keeps its
+    /// position, annotations and plugins' book data: the journal entry, the
+    /// rename, then the library's bounded job carries each book to its new
+    /// path. `ERR_BUSY` while such a job runs (one at a time, device-wide).
+    /// As on the plain rename, a missing `from` is `ERR_NOT_FOUND` and the
+    /// folders above `to` are made where they are not there yet; the move job
+    /// says the rest (`ERR_STATE` for a folder at `to`, `ERR_INVALID` for a
+    /// folder into itself).
+    #[inline(never)]
+    fn rename_card(&self, files: &dyn FilesHost, f: &str, t: &str) -> Result<(), i32> {
+        if files.moving() {
+            return Err(ERR_BUSY);
+        }
+        let there = |path: &str| {
+            self.storage.exists(path) || self.storage.list_from(path, 0, &mut |_| false).is_ok()
+        };
+        if !there(f) {
+            return Err(ERR_NOT_FOUND);
+        }
+        if let Some((parent, _)) = t.rsplit_once('/')
+            && !there(parent)
+        {
+            self.make_parents(t)?;
+        }
+        files.rename(self.storage, f, t, true, true)
     }
 
     /// Slot 25: removes the file; a missing one is fine.
