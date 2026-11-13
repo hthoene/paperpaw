@@ -19,7 +19,7 @@ use paperpaw_sdk::{PluginInfo, PluginKind, PluginState, RequiredFor};
 fn kernel(version: Version) -> PluginInfo {
     let manifest = Manifest::new(CORE_PLUGIN, "PaperPaw kernel", version);
     PluginInfo::new(
-        manifest,
+        paperpaw_sdk::ManifestRef::try_new(manifest, None).unwrap(),
         PluginState::Running,
         true,
         RequiredFor::default(),

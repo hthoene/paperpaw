@@ -663,12 +663,13 @@ impl crate::Kernel {
                     .map_err(shell::Error::Status)?,
                 // Kept without a handler: the kernel runs it by the plugin's
                 // key and token (`native_action::queue_run`, #248).
-                Owned::Action(callback) => staging
-                    .native_action(
-                        owner,
-                        NativeAction::new(callback.id, callback.title, key, callback.token),
-                    )
-                    .map_err(shell::Error::Status)?,
+                Owned::Action(callback) => {
+                    let titled = native_values::titled(callback.kept, callback.id, callback.title)
+                        .map_err(shell::Error::Status)?;
+                    staging
+                        .native_action(owner, NativeAction::new(titled, key, callback.token))
+                        .map_err(shell::Error::Status)?;
+                }
                 Owned::Choice { setting, value } => staging
                     .native_choice(setting, value)
                     .map_err(shell::Error::Status)?,

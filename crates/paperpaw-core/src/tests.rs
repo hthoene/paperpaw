@@ -3278,6 +3278,7 @@ mod hyphenation_feed;
 mod hyphenation_tables;
 mod input;
 mod input_kinds;
+mod kept_groups;
 mod kernel_calls;
 mod key_guard;
 mod library_catalog;

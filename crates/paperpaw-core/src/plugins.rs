@@ -129,12 +129,22 @@ impl Kernel {
         self.add_plugin_info(manifest, PluginState::Off, false);
     }
 
+    /// Lists a plugin. Its manifest is a copy of its own; where the heap has
+    /// no room for it, the plugin is left out of the list with a warning
+    /// (#248, B: the list holds manifests by reference).
     pub(crate) fn add_plugin_info(
         &mut self,
         manifest: Manifest,
         state: PluginState,
         enabled: bool,
     ) {
+        let manifest = match paperpaw_sdk::ManifestRef::try_new(manifest, None) {
+            Ok(manifest) => manifest,
+            Err(manifest) => {
+                let source = WarningSource::Plugin(manifest.id.clone());
+                return self.warn(source, None, "not listed: no memory".into());
+            }
+        };
         self.shared.registry_generation.bump();
         self.shared.plugins.push(PluginInfo::new(
             manifest,

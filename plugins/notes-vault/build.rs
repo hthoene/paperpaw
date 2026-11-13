@@ -52,7 +52,12 @@ fn main() -> Result<(), String> {
                 "GROUPS",
                 &batches,
             )?
-            + &paperpaw_sdk::native::declare::fixed_ids_source("notes-vault", "IDS", &batches)?;
+            + &paperpaw_sdk::native::declare::fixed_ids_source("notes-vault", "IDS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_titles_source(
+                "notes-vault",
+                "TITLES",
+                &batches,
+            )?;
     std::fs::write(out.join("notes_vault_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("notes_vault_declarations.rs"), source)

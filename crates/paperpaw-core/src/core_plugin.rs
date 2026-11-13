@@ -1826,8 +1826,11 @@ static SPACE: [SettingSpec; 1] = [SettingSpec::choice(
 /// The widgets for room between the others: a gap of a set height, and
 /// the room left (see `paperpaw_sdk::widgets`).
 fn register_spaces(r: &mut Registrar) -> Result<(), RegisterError> {
+    // As `widgets::settings_group` makes it, kept in the program (#248, B).
+    static SPACE_GROUP: SettingGroupSpec =
+        SettingGroupSpec::new(Id::new_static(widgets::SPACE), "core.widget.space");
     let space = Id::new_static(widgets::SPACE);
-    r.add_setting_group(widgets::settings_group(&space, "core.widget.space"))?;
+    r.add_setting_group(&SPACE_GROUP)?;
     r.add_settings(&SPACE)?;
     let space_height = |env: &Env<'_>, _| {
         let size = env.settings().read(&widgets::SPACE_SIZE);
