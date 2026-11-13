@@ -269,7 +269,24 @@ pub(crate) trait NetHost {
 }
 
 /// What the shell hands the frame under the key `core.net`.
-pub(crate) struct NetServices(pub(crate) Rc<dyn NetHost>);
+pub(crate) struct NetServices(pub(crate) NetRef);
+
+/// The host behind `core.net`: one handed over (tests), or the device's own,
+/// made fallibly at the service's first call (#248).
+pub(crate) enum NetRef {
+    Handed(Rc<dyn NetHost>),
+    Made(super::shared::Shared<NetDevice>),
+}
+
+impl core::ops::Deref for NetRef {
+    type Target = dyn NetHost;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Handed(host) => &**host,
+            Self::Made(device) => &**device,
+        }
+    }
+}
 
 /// `core.net` ops (`network.md` 2).
 mod op {
@@ -290,7 +307,7 @@ pub(crate) fn backend(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let host = &*who.hosts.net().ok_or(ERR_UNSUPPORTED)?.0;
+    let host = &*who.hosts.net_for_call()?.0;
     match op.id {
         op::REQUEST => {
             let id = table::request(host, who, input)?;

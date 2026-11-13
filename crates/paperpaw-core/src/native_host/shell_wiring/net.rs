@@ -23,6 +23,7 @@ use crate::{
     },
 };
 use alloc::{string::String, vec::Vec};
+use paperpaw_native::host_glue::ERR_NOT_FOUND;
 
 /// The headers of a request or an answer, in order, as `(name, value)`.
 #[derive(Clone)]
@@ -503,7 +504,10 @@ pub enum ServedDecision {
 /// The transport's reports, for the shell's loop. `ERR_BUSY` means the table is
 /// borrowed: call again.
 #[derive(Clone)]
-pub struct NetReports(pub(super) Rc<NetDevice>);
+pub struct NetReports(pub(super) Rc<NetLater>);
+
+/// `core.net` until its first call: the shell's inputs, then the device.
+pub(crate) type NetLater = super::later::Later<NetInputs, NetDevice>;
 
 impl core::fmt::Debug for NetReports {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -517,7 +521,9 @@ impl NetReports {
     /// # Errors
     /// `ERR_BUSY`.
     pub fn finished(&self, id: u32, done: HttpDone<'_>) -> Result<(), i32> {
-        self.0.report_finished(id, done)
+        self.0
+            .made()
+            .map_or(Ok(()), |d| d.report_finished(id, done))
     }
 
     /// Bytes of request `id`'s answer arrived (only 2xx answers of a request
@@ -532,7 +538,9 @@ impl NetReports {
         received: u64,
         total: Option<u64>,
     ) -> Result<(), i32> {
-        net_service::progress(&*self.0, id, status, received, total)
+        self.0.made().map_or(Ok(()), |d| {
+            net_service::progress(d, id, status, received, total)
+        })
     }
 
     /// Request `id` was redirected from `http` to `https` and the shell closed
@@ -549,7 +557,9 @@ impl NetReports {
     /// over, which is normal after a cancel and no failure of the request;
     /// `ERR_STATE` for a request that is not running or is https already.
     pub fn redirected_to_https(&self, id: u32) -> Result<(), i32> {
-        net_service::redirected_to_https(&*self.0, id)
+        self.0.made().map_or(Err(ERR_NOT_FOUND), |d| {
+            net_service::redirected_to_https(d, id)
+        })
     }
 
     /// Time passed: timeouts and the answer time of served requests run out.
@@ -557,7 +567,7 @@ impl NetReports {
     /// # Errors
     /// `ERR_BUSY`.
     pub fn tick(&self) -> Result<(), i32> {
-        net_service::tick(&*self.0)
+        self.0.made().map_or(Ok(()), |d| net_service::tick(d))
     }
 
     /// The network went away.
@@ -565,7 +575,9 @@ impl NetReports {
     /// # Errors
     /// `ERR_BUSY`.
     pub fn network_lost(&self) -> Result<(), i32> {
-        net_service::network_lost(&*self.0)
+        self.0
+            .made()
+            .map_or(Ok(()), |d| net_service::network_lost(d))
     }
 
     /// The listener of `server` is open at `address` (the host and port a
@@ -581,7 +593,9 @@ impl NetReports {
     /// still pending must cancel); `ERR_STATE` when it was reported already;
     /// `ERR_BUSY`.
     pub fn server_started(&self, server: u32, address: &str) -> Result<(), i32> {
-        net_service::server_started(&*self.0, server, address)
+        self.0.made().map_or(Err(ERR_NOT_FOUND), |d| {
+            net_service::server_started(d, server, address)
+        })
     }
 
     /// The listener of `server` could not be opened (or went away). The
@@ -594,7 +608,9 @@ impl NetReports {
     /// `ERR_NOT_FOUND` for a server that stopped meanwhile; `ERR_BUSY`.
     pub fn server_failed(&self, server: u32, reason: ServerReason) -> Result<(), i32> {
         let _ = reason;
-        net_service::server_failed(&*self.0, server)
+        self.0.made().map_or(Err(ERR_NOT_FOUND), |d| {
+            net_service::server_failed(d, server)
+        })
     }
 
     /// A request head arrived on `server`.
@@ -610,8 +626,9 @@ impl NetReports {
         chunked: bool,
         head_len: u32,
     ) -> Result<ServedDecision, i32> {
-        self.0
-            .served_head(server, method, target, content_length, chunked, head_len)
+        self.0.made().map_or(Err(ERR_NOT_FOUND), |d| {
+            d.served_head(server, method, target, content_length, chunked, head_len)
+        })
     }
 
     /// `added` more bytes of the upload of `request` arrived (`received` in all).
@@ -619,7 +636,8 @@ impl NetReports {
     /// # Errors
     /// `ERR_NOT_FOUND`; `ERR_BUSY`.
     pub fn served_body(&self, request: u32, received: u64, added: u64) -> Result<u32, i32> {
-        match net_service::served_body(&*self.0, request, received, added)? {
+        let device = self.0.made().ok_or(ERR_NOT_FOUND)?;
+        match net_service::served_body(device, request, received, added)? {
             net_service::Decision::Reject(status) => Ok(status),
             _ => Ok(0),
         }
@@ -630,7 +648,9 @@ impl NetReports {
     /// # Errors
     /// `ERR_NOT_FOUND`; `ERR_BUSY`.
     pub fn served_whole(&self, request: u32, total: u64) -> Result<(), i32> {
-        net_service::served_whole(&*self.0, request, total)
+        self.0.made().map_or(Err(ERR_NOT_FOUND), |d| {
+            net_service::served_whole(d, request, total)
+        })
     }
 
     /// The connection of `request` went away.
@@ -638,6 +658,8 @@ impl NetReports {
     /// # Errors
     /// `ERR_BUSY`.
     pub fn served_gone(&self, request: u32) -> Result<(), i32> {
-        net_service::served_gone(&*self.0, request)
+        self.0
+            .made()
+            .map_or(Ok(()), |d| net_service::served_gone(d, request))
     }
 }

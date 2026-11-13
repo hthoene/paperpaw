@@ -26,6 +26,8 @@ use super::{
     work_service::WorkServices,
 };
 
+#[path = "shell_wiring/later.rs"]
+mod later;
 #[path = "shell_wiring/net.rs"]
 mod net;
 #[path = "shell_wiring/secrets.rs"]
@@ -38,6 +40,7 @@ pub use super::lib_reads::CatalogEnv;
 pub use super::plugin_heap::{PLUGIN_HEAP_LARGE, PLUGIN_HEAP_SMALL, default_plugin_heap};
 pub use super::sock_service::{Connect, PeerInfo, SockTls, SockTransport, TlsOpen, TlsPin};
 use alloc::{rc::Rc, vec::Vec};
+pub(crate) use net::NetLater;
 pub use net::{
     HttpDone, HttpHeaders, HttpJob, HttpReason, NetInputs, NetLimits, NetReports, ServedDecision,
     ServedReply, ServerReason, ShellHttp, ShellNetwork,
@@ -45,6 +48,7 @@ pub use net::{
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::Storage;
 pub use secrets::{Rng, SEALED_MAX, Sealer, SecretsInputs, SecretsLifecycle};
+pub(crate) use sockets::SockLater;
 pub use sockets::{SockFailure, SockInputs, SockLimits, SockReports, TlsFailure, UntrustedWhy};
 pub(crate) use work::make_work;
 pub use work::{WorkDevice, WorkInputs};
@@ -451,8 +455,8 @@ impl HostResources {
             || (wiring.library.is_some() && hosts.library().is_some())
             || (wiring.lookup && hosts.lookup().is_some())
             || (wiring.device.is_some() && hosts.device().is_some())
-            || (wiring.net.is_some() && hosts.net().is_some())
-            || (wiring.sockets.is_some() && hosts.sockets().is_some())
+            || (wiring.net.is_some() && hosts.net_wired())
+            || (wiring.sockets.is_some() && hosts.sockets_wired())
             || (wiring.ui.is_some() && hosts.ui().is_some())
             || (wiring.secrets.is_some() && hosts.secrets().is_some())
             || (wiring.work.is_some() && hosts.work_wired())
@@ -551,26 +555,73 @@ impl HostResources {
 /// limit).
 type Hosts = super::host_services::HostServices;
 
+/// `core.net` and `core.sockets` are made at their first call (#248): the
+/// directory, the pool and the policy they share are the device's from here
+/// on, the device itself waits with the shell's inputs.
 #[inline(never)]
 fn wire_net(hosts: &Hosts, inputs: NetInputs) -> Result<NetReports, i32> {
-    let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
+    hosts.owners()?;
     let (bytes, sessions) = inputs.pool_shape();
-    let pool = hosts.net_pool(bytes, sessions)?.clone();
-    let device =
-        Rc::new(inputs.device(pool, hosts.in_use().clone(), owners, hosts.policy().clone()));
-    hosts.wire_net(device.clone())?;
-    Ok(NetReports(device))
+    hosts.net_pool(bytes, sessions)?;
+    hosts.policy();
+    let later = Rc::new(net::NetLater::new(inputs));
+    hosts.wire_net_later(later.clone())?;
+    Ok(NetReports(later))
 }
 
 #[inline(never)]
 fn wire_sockets(hosts: &Hosts, inputs: SockInputs) -> Result<SockReports, i32> {
-    let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
+    hosts.owners()?;
     let (bytes, sessions) = inputs.pool_shape();
+    hosts.net_pool(bytes, sessions)?;
+    hosts.policy();
+    let later = Rc::new(sockets::SockLater::new(inputs));
+    hosts.wire_sockets_later(later.clone())?;
+    Ok(SockReports(later))
+}
+
+/// `core.net`'s device, made now from what the wiring kept.
+///
+/// # Errors
+/// `ERR_NO_MEMORY` (the next call tries again); `ERR_STATE`.
+pub(crate) fn make_net<'a>(
+    hosts: &Hosts,
+    later: &'a net::NetLater,
+) -> Result<&'a Shared<super::net_service::NetDevice>, i32> {
+    later.make(
+        |inputs| net_parts(hosts, inputs.pool_shape()),
+        |inputs, (pool, in_use, owners, policy)| inputs.device(pool, in_use, owners, policy),
+    )
+}
+
+/// `core.sockets`' device, made now from what the wiring kept.
+///
+/// # Errors
+/// As [`make_net`].
+pub(crate) fn make_sockets<'a>(
+    hosts: &Hosts,
+    later: &'a sockets::SockLater,
+) -> Result<&'a Shared<super::sock_service::device::SockDevice>, i32> {
+    later.device.make(
+        |inputs| net_parts(hosts, inputs.pool_shape()),
+        |inputs, (pool, in_use, owners, policy)| inputs.device(pool, in_use, owners, policy),
+    )
+}
+
+type NetParts = (
+    Rc<super::net_pool::NetPool>,
+    Rc<super::paths_in_use::PathsInUse>,
+    Shared<super::owner_directory::OwnerDirectory>,
+    Rc<super::net_policy::NetPolicy>,
+);
+
+/// What the host lends a network device: none of it is made here (the
+/// wiring made the pool and the policy), so nothing but the device's own
+/// block can be refused.
+fn net_parts(hosts: &Hosts, (bytes, sessions): (u32, u8)) -> Result<NetParts, i32> {
+    let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
     let pool = hosts.net_pool(bytes, sessions)?.clone();
-    let device =
-        Rc::new(inputs.device(pool, hosts.in_use().clone(), owners, hosts.policy().clone()));
-    hosts.wire_sockets(device.clone())?;
-    Ok(SockReports(device))
+    Ok((pool, hosts.in_use().clone(), owners, hosts.policy().clone()))
 }
 
 #[inline(never)]
