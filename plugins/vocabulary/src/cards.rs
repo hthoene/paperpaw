@@ -176,7 +176,7 @@ impl From<StorageError> for Problem {
 /// again, a deck made again).
 fn index_kept(storage: &dyn Storage, result: Result<(), StorageError>) -> Result<(), StorageError> {
     match keep_index(storage, result) {
-        Err(StorageError::TooLarge) => Ok(()),
+        Err(StorageError::TooLarge | StorageError::OutOfMemory) => Ok(()),
         other => other,
     }
 }

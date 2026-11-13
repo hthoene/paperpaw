@@ -636,3 +636,23 @@ fn the_numbers_after_an_index_was_taken_away_are_those_of_the_decks() {
     assert_eq!(next_due(&storage, 0), None, "new cards are not scheduled");
     assert!(storage.exists(INDEX), "made anew");
 }
+
+/// A change that is done is not told as failed where only the index could not
+/// follow for want of memory (the caller would do it twice); the index is
+/// taken away to be made anew. Other failures stay failures.
+#[test]
+fn an_index_the_heap_could_not_follow_does_not_fail_the_change() {
+    let storage = MemoryStorage::new();
+    for error in [StorageError::OutOfMemory, StorageError::TooLarge] {
+        storage.write(INDEX, b"x").unwrap();
+        assert_eq!(index_kept(&storage, Err(error)), Ok(()), "{error:?}");
+        assert!(!storage.exists(INDEX), "{error:?}: taken away");
+    }
+    storage.write(INDEX, b"x").unwrap();
+    assert_eq!(index_kept(&storage, Ok(())), Ok(()));
+    assert!(storage.exists(INDEX));
+    assert_eq!(
+        index_kept(&storage, Err(StorageError::Io)),
+        Err(StorageError::Io)
+    );
+}
