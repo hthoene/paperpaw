@@ -125,7 +125,11 @@ pub fn draw_page<M: Measure>(
                     at += 1;
                 }
                 let start = x;
-                x += draw_word(ink, (role, size), x, baseline, word)?;
+                x += if run.face.style.small_caps() {
+                    draw_small_caps(ink, (role, size), x, baseline, word)?
+                } else {
+                    draw_word(ink, (role, size), x, baseline, word)?
+                };
                 if !word.is_empty() && !line.inserted {
                     // A word goes on from the run before where no space is between.
                     if at == 0 || line.text.as_bytes().get(at - 1) == Some(&b' ') {
@@ -270,6 +274,39 @@ fn draw_word(
         return Ok(0.0);
     }
     ink.run(role, size, x, baseline, &visible)
+}
+
+/// One word in small capitals: its lower-case letters as capitals at
+/// [`SMALL_CAPS`](crate::native_typeset::SMALL_CAPS) of `size`, the rest as
+/// they are, each part drawn after the other (as the layout measured them).
+fn draw_small_caps(
+    ink: &mut impl Ink,
+    (role, size): (Role, f32),
+    x: f32,
+    baseline: i32,
+    word: &str,
+) -> Result<f32, Error> {
+    let mut width = 0.0;
+    let mut part = alloc::string::String::new();
+    part.try_reserve(word.len().saturating_mul(2))
+        .map_err(|_| Error::NoMemory)?;
+    let mut part_size = size;
+    for c in word.chars() {
+        if paperpaw_sdk::text::is_invisible(c) {
+            continue;
+        }
+        let (shown, at) = crate::native_typeset::small_capital(c, true, size);
+        if at.to_bits() != part_size.to_bits() && !part.is_empty() {
+            width += ink.run(role, part_size, x + width, baseline, &part)?;
+            part.clear();
+        }
+        part_size = at;
+        part.push(shown);
+    }
+    if !part.is_empty() {
+        width += ink.run(role, part_size, x + width, baseline, &part)?;
+    }
+    Ok(width)
 }
 
 /// How a run of text reaches the host: the one place to change when the host
