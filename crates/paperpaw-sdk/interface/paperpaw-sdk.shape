@@ -2806,7 +2806,7 @@ struct paperpaw_sdk::native::canvas::clip::ClipGuard<'a, 'cb> { canvas: &'a mut 
 struct paperpaw_sdk::native::canvas::describe::PartFlags(0: u32)
 struct paperpaw_sdk::native::commands::CommandSender<'cb, 'buf> { host: &'cb paperpaw_sdk::native::binding::Host<'cb>, scratch: &'buf mut [u8] }
 struct paperpaw_sdk::native::commands::device::FirmwareOptions<'a> { allow_older: bool, foreign: bool, key: core::option::Option<&'a [u8; 32]> }
-struct paperpaw_sdk::native::commands::evidence::Evidence<'a> { author: core::option::Option<&'a [u8; 32]>, recovery: core::option::Option<&'a [u8; 32]>, sha256: core::option::Option<&'a [u8; 32]>, rotations: &'a [paperpaw_sdk::native::commands::evidence::Rotation<'a>] }
+struct paperpaw_sdk::native::commands::evidence::Evidence<'a> { author: core::option::Option<&'a [u8; 32]>, recovery: core::option::Option<&'a [u8; 32]>, sha256: core::option::Option<&'a [u8; 32]>, rotations: &'a [paperpaw_sdk::native::commands::evidence::Rotation<'a>], from_catalog: bool }
 struct paperpaw_sdk::native::commands::evidence::Revocation<'a> { plugin: &'a str, key: &'a [u8; 32], signature: &'a [u8; 64] }
 struct paperpaw_sdk::native::commands::evidence::Rotation<'a> { to: &'a [u8; 32], signature: &'a [u8; 64] }
 struct paperpaw_sdk::native::commands::item_state::ItemState<'a> { flags: u32, label: &'a str, label_args: &'a [paperpaw_sdk::native::formatting::Arg<'a>], badge: &'a str, badge_args: &'a [paperpaw_sdk::native::formatting::Arg<'a>] }

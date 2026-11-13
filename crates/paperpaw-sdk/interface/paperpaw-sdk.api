@@ -3366,6 +3366,7 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::fmt(&self, &mut co
 #[non_exhaustive] pub struct paperpaw_sdk::native::commands::Evidence<'a>
 impl<'a> paperpaw_sdk::native::commands::Evidence<'a>
 pub const fn paperpaw_sdk::native::commands::Evidence<'a>::author(self, &'a [u8; 32]) -> Self
+pub const fn paperpaw_sdk::native::commands::Evidence<'a>::from_catalog(self) -> Self
 pub const fn paperpaw_sdk::native::commands::Evidence<'a>::new() -> Self
 pub const fn paperpaw_sdk::native::commands::Evidence<'a>::recovery(self, &'a [u8; 32]) -> Self
 pub const fn paperpaw_sdk::native::commands::Evidence<'a>::rotations(self, &'a [paperpaw_sdk::native::commands::Rotation<'a>]) -> Self
