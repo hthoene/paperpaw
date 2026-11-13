@@ -106,6 +106,10 @@ const _: () = if let Some(profile) = paperpaw_native::profile::BUILD_PROFILE {
     assert!(profile.entry_layout == 1);
     assert!(profile.entry_bytes as usize == mem::size_of::<PpEntry>());
 };
+// And its declared alignment (`entry_align`) is the entry's real one.
+const _: () = if let Some(align) = paperpaw_native::profile::BUILD_ENTRY_ALIGN {
+    assert!(align as usize == mem::align_of::<PpEntry>());
+};
 
 /// Validate the generated layout-2 prefix for the export macro. The metadata's
 /// declared minor, not the SDK's current minor, controls host admission.

@@ -21,38 +21,59 @@ pub struct Profile<'a> {
 pub(crate) const PREFIX_SIZE: usize = 32;
 pub(crate) const MAX_BYTES: usize = 2048;
 
-/// A declared profile with entry layout 1 (`PpEntry`).
-const fn profile(target: &'static str, entry_bytes: u16) -> Option<Profile<'static>> {
-    Some(Profile {
-        target,
-        entry_layout: 1,
-        entry_bytes,
-    })
+/// A declared profile with entry layout 1 (`PpEntry`) and the alignment its
+/// entry has there (`entry_align`).
+const fn profile(
+    target: &'static str,
+    entry_bytes: u16,
+    entry_align: u16,
+) -> Option<(Profile<'static>, u16)> {
+    Some((
+        Profile {
+            target,
+            entry_layout: 1,
+            entry_bytes,
+        },
+        entry_align,
+    ))
 }
+
+/// The declared profile of this build's target with its entry alignment.
+const BUILD: Option<(Profile<'static>, u16)> = if cfg!(not(target_endian = "little")) {
+    None
+} else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+    profile("linux-x86_64-sysv64-le", 32, 8)
+} else if cfg!(all(target_os = "none", target_arch = "riscv32")) {
+    profile("esp32c3-riscv32imc-ilp32-soft-le", 20, 4)
+} else if cfg!(all(target_os = "none", target_arch = "xtensa")) {
+    profile("esp32s3-xtensa-lx7-ilp32-windowed-le", 20, 4)
+} else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+    profile("windows-x86_64-win64-le", 32, 8)
+} else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+    profile("macos-x86_64-sysv64-le", 32, 8)
+} else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    profile("macos-aarch64-darwinpcs-le", 32, 8)
+} else if cfg!(all(target_os = "android", target_arch = "aarch64")) {
+    profile("android-aarch64-aapcs64-le", 32, 8)
+} else if cfg!(all(target_os = "unknown", target_arch = "wasm32")) {
+    profile("web-wasm32-c-le", 20, 4)
+} else {
+    None
+};
 
 /// The declared profile (`abi/abi.def`) of the target this program is built
 /// for: what a linked plugin's metadata names, and what the shell that hosts
 /// it checks. `None` where interface 7 declares no profile for the target.
-pub const BUILD_PROFILE: Option<Profile<'static>> = if cfg!(not(target_endian = "little")) {
-    None
-} else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-    profile("linux-x86_64-sysv64-le", 32)
-} else if cfg!(all(target_os = "none", target_arch = "riscv32")) {
-    profile("esp32c3-riscv32imc-ilp32-soft-le", 20)
-} else if cfg!(all(target_os = "none", target_arch = "xtensa")) {
-    profile("esp32s3-xtensa-lx7-ilp32-windowed-le", 20)
-} else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
-    profile("windows-x86_64-win64-le", 32)
-} else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-    profile("macos-x86_64-sysv64-le", 32)
-} else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-    profile("macos-aarch64-darwinpcs-le", 32)
-} else if cfg!(all(target_os = "android", target_arch = "aarch64")) {
-    profile("android-aarch64-aapcs64-le", 32)
-} else if cfg!(all(target_os = "unknown", target_arch = "wasm32")) {
-    profile("web-wasm32-c-le", 20)
-} else {
-    None
+pub const BUILD_PROFILE: Option<Profile<'static>> = match BUILD {
+    Some((profile, _)) => Some(profile),
+    None => None,
+};
+
+/// The alignment of the entry in [`BUILD_PROFILE`] (`entry_align` in
+/// `abi/abi.def`); `None` where there is no such profile.
+pub const BUILD_ENTRY_ALIGN: Option<u16> = match BUILD {
+    Some((_, align)) => Some(align),
+    None => None,
 };
 
 /// Offsets in the format-2 prefix (`abi/generated/metadata-layout.json`).
@@ -101,6 +122,7 @@ const fn framed(metadata: &[u8]) -> bool {
 /// Where `metadata` is not a format-2 record with one export (at compile
 /// time when called in a constant).
 #[must_use]
+#[doc(hidden)]
 pub const fn retargeted_len(metadata: &[u8], profile: &Profile<'_>) -> usize {
     assert!(
         framed(metadata),
@@ -118,6 +140,7 @@ pub const fn retargeted_len(metadata: &[u8], profile: &Profile<'_>) -> usize {
 /// Where `metadata` is not such a record or `N` is not its new length (at
 /// compile time when called in a constant).
 #[must_use]
+#[doc(hidden)]
 pub const fn retarget<const N: usize>(metadata: &[u8], profile: &Profile<'_>) -> [u8; N] {
     assert!(
         N == retargeted_len(metadata, profile),

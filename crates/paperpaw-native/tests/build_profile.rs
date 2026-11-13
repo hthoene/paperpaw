@@ -11,8 +11,8 @@ fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// Every declared profile: name, entry layout, entry bytes.
-fn declared() -> Vec<(String, u16, u16)> {
+/// Every declared profile: name, entry layout, entry bytes, entry alignment.
+fn declared() -> Vec<(String, u16, u16, u16)> {
     let schema: Value =
         serde_json::from_slice(&std::fs::read(repo().join("abi/abi.def")).unwrap()).unwrap();
     schema["metadata"]["profiles"]
@@ -24,6 +24,7 @@ fn declared() -> Vec<(String, u16, u16)> {
                 p["name"].as_str().unwrap().to_owned(),
                 p["entry_layout"].as_u64().unwrap() as u16,
                 p["entry_bytes"].as_u64().unwrap() as u16,
+                p["entry_align"].as_u64().unwrap() as u16,
             )
         })
         .collect()
@@ -45,14 +46,21 @@ fn every_declared_profile_is_chosen_for_one_target_and_only_those() {
     let source =
         std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/profile.rs"))
             .unwrap();
-    // `profile("name", entry_bytes)`: each declared profile once, as declared.
-    let mut chosen: Vec<(String, u16, u16)> = source
+    // `profile("name", entry_bytes, entry_align)`: each declared profile
+    // once, as declared.
+    let mut chosen: Vec<(String, u16, u16, u16)> = source
         .split("profile(\"")
         .skip(1)
         .map(|rest| {
             let (name, rest) = rest.split_once("\", ").unwrap();
-            let (bytes, _) = rest.split_once(')').unwrap();
-            (name.to_owned(), 1, bytes.parse().unwrap())
+            let (numbers, _) = rest.split_once(')').unwrap();
+            let (bytes, align) = numbers.split_once(", ").unwrap();
+            (
+                name.to_owned(),
+                1,
+                bytes.parse().unwrap(),
+                align.parse().unwrap(),
+            )
         })
         .collect();
     chosen.sort();
@@ -68,6 +76,7 @@ fn this_build_has_the_linux_profile() {
     assert_eq!(profile.target, "linux-x86_64-sysv64-le");
     assert_eq!(profile.entry_bytes, 32);
     assert_eq!(profile.entry_layout, 1);
+    assert_eq!(paperpaw_native::profile::BUILD_ENTRY_ALIGN, Some(8));
 }
 
 #[test]
@@ -75,7 +84,7 @@ fn metadata_set_to_a_profile_is_the_generators_for_it() {
     let declared = declared();
     for (from, ..) in &declared {
         let source = fixture(from);
-        for (to, layout, bytes) in &declared {
+        for (to, layout, bytes, _) in &declared {
             let profile = Profile {
                 target: to,
                 entry_layout: *layout,

@@ -238,9 +238,8 @@ pub struct paperpaw_native::profile::Profile<'a>
 pub paperpaw_native::profile::Profile::entry_bytes: u16
 pub paperpaw_native::profile::Profile::entry_layout: u16
 pub paperpaw_native::profile::Profile::target: &'a str
+pub const paperpaw_native::profile::BUILD_ENTRY_ALIGN: core::option::Option<u16>
 pub const paperpaw_native::profile::BUILD_PROFILE: core::option::Option<paperpaw_native::profile::Profile<'static>>
-pub const fn paperpaw_native::profile::retarget<const N: usize>(&[u8], &paperpaw_native::profile::Profile<'_>) -> [u8; N]
-pub const fn paperpaw_native::profile::retargeted_len(&[u8], &paperpaw_native::profile::Profile<'_>) -> usize
 pub mod paperpaw_native::signature
 pub struct paperpaw_native::signature::BadSignature
 impl core::error::Error for paperpaw_native::signature::BadSignature
