@@ -583,7 +583,7 @@ fn the_card_files_screen_is_drawn_while_it_updates() {
 /// The files on the card update the decks, and the screen that says what the
 /// update did tells a line that is no card, and each deck what it got.
 #[test]
-#[ignore = "needs the card's files on the storage slots (root 1, files.md): the host refuses them"]
+#[ignore = "needs native activation (the native flash cards, #243) and the card's files on the storage slots (root 1, #1401)"]
 fn the_card_files_screen_says_what_the_update_did() {
     let library = card_files_library("card-files");
     let shown = run_in(

@@ -20,9 +20,9 @@ use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 use paperpaw_ui_kit::{Footer, ItemList, ItemStep, text};
 
 use crate::declarations::{SD_CARD_TOKEN, SD_MENU_TOKEN, WORK_TOKEN};
-use crate::native_card::with_both;
+use crate::native_card::{with_both, with_both_metered};
 use crate::native_plugin::State;
-use crate::native_sd::{self, CARD, MenuView, Run, Shown, Target};
+use crate::native_sd::{self, CARD, MenuView, Next, Run, Shown, Target};
 use crate::native_words::{HostWords, Words};
 use crate::{cards, sync};
 
@@ -59,6 +59,13 @@ pub(crate) fn auto(host: &Host<'_>) -> Result<bool, Error> {
         SettingValue::Bool(true) | SettingValue::Absent
     ))
 }
+
+/// Most steps taken in one work, and most bytes of files read by them: a turn
+/// blocks the buttons while it runs, so it reads 32 KiB at most (two steps of
+/// [`sync::STEP`] of a big file, many of a small one; the file lists and the
+/// merge's small reads come on top).
+const STEPS_A_WORK: usize = 32;
+const READ_A_WORK: u64 = 32 * 1024;
 
 /// Declares the work that does the next step.
 fn schedule(host: &Host<'_>) -> Result<(), Error> {
@@ -197,8 +204,24 @@ impl State {
         if !run.working() {
             return Ok(());
         }
-        let stepped = HostWords::new(host)
-            .and_then(|mut words| with_both(host, |storage| Ok(run.step(storage, &mut words))));
+        // The host makes the next work due a second after this one, so steps are
+        // taken together: until a turn has read `READ_A_WORK` bytes (or the
+        // next step could pass them) or taken `STEPS_A_WORK` steps. The screen
+        // is told once, after. One step a second would take minutes.
+        let stepped = HostWords::new(host).and_then(|mut words| {
+            with_both_metered(host, |storage, read| {
+                let mut next = run.step(storage, &mut words);
+                let mut redraw = next.redraw;
+                for _ in 1..STEPS_A_WORK {
+                    if !next.more || read.get().saturating_add(sync::STEP) > READ_A_WORK {
+                        break;
+                    }
+                    next = run.step(storage, &mut words);
+                    redraw |= next.redraw;
+                }
+                Ok(Next { redraw, ..next })
+            })
+        });
         match stepped {
             Ok(next) => {
                 if next.redraw {
