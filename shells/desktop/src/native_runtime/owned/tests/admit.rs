@@ -210,14 +210,15 @@ fn a_card_plugin_is_admitted_against_what_the_pool_offers() {
         let depth = paperpaw_core::native_host::flat::FlatDepth::try_new().unwrap();
         crate::native_runtime::admission(ID, &bytes, resources, depth, offer)
     };
-    let refused = |result: &Result<_, crate::native_runtime::Refusal>| {
+    assert!(
         matches!(
-            result,
+            admit(None),
             Err(crate::native_runtime::Refusal::Runtime(
                 crate::native_runtime::RuntimeError::Metadata
             ))
-        )
-    };
-    assert!(refused(&admit(None)), "no offer: the service is unknown");
-    assert!(!refused(&admit(Some(offer))), "the offer lists it");
+        ),
+        "no offer: the service is unknown"
+    );
+    let admitted = admit(Some(offer));
+    assert!(admitted.is_ok(), "the offer lists it: {:?}", admitted.err());
 }

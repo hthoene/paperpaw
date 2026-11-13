@@ -662,9 +662,15 @@ pub fn prepare(
     let on = wired_services(&wired, on_card);
     // Card plugins are offered what the linked ones are, of the features only
     // those the firmware's card path gives (`card_features`).
+    // `core.lookup` is the desktop's own: the X4's card path has none, so a
+    // card plugin that needs it is refused here as there.
+    let card = Wired {
+        lookup: false,
+        ..on
+    };
     pool.set_offer(crate::native_runtime::Offer {
-        services: offered(on),
-        features: card_features(on),
+        services: offered(card),
+        features: card_features(card),
     });
     Ok(Prepared {
         resources,
@@ -976,6 +982,49 @@ mod tests {
         );
         // The same combination again is the same list.
         assert!(std::ptr::eq(offered(all), offered(all)));
+    }
+
+    /// `prepare` tells the pool the card path's features, not the linked
+    /// plugins' (`uses.secrets`, `uses.registry`, `uses.power` stay theirs),
+    /// and the services of what is wired, the same as the firmware's
+    /// `card_host` gives for the same combination.
+    #[test]
+    fn prepare_offers_card_plugins_the_card_features() {
+        let profile = crate::profiles::find("xteink-x4").unwrap();
+        let storage: Rc<dyn Storage> = Rc::new(paperpaw_core::sdk::MemoryStorage::new());
+        let inputs = Inputs {
+            storage: Some(storage.clone()),
+            view: Rc::default(),
+            simulated: true,
+            net: Rc::default(),
+            card: Some(storage),
+        };
+        let pool = crate::native::DevicePool::default();
+        let prepared = prepare(profile, &inputs, &pool).expect("wired");
+        let offer = pool.offer().expect("the pool is told");
+        let keys: Vec<&str> = offer.features.iter().map(|f| f.key).collect();
+        assert_eq!(keys, ["uses.network", "uses.storage", "uses.library"]);
+        assert!(keys.len() < features(prepared.on).len());
+        // The services are those of the firmware's card path for the same
+        // wiring (the card's three and the network's three).
+        let firmware = paperpaw_x4::native_offer::Wired {
+            work: prepared.on.work,
+            card: prepared.on.files && prepared.on.library && prepared.on.documents,
+            secrets: prepared.on.secrets,
+            wifi: prepared.on.wifi,
+        };
+        let theirs = paperpaw_x4::native_offer::card_host(
+            firmware,
+            7,
+            paperpaw_native::host_glue::MINOR,
+            crate::native_runtime::host_profile(),
+        );
+        let ours: std::collections::BTreeSet<&str> = offer.services.iter().map(|s| s.key).collect();
+        let firmware_keys: std::collections::BTreeSet<&str> =
+            theirs.services.iter().map(|s| s.key).collect();
+        // The same services, so the emulator never offers a card plugin more
+        // than the X4 does (nor less).
+        assert_eq!(ours, firmware_keys);
     }
 
     /// The card path offers a card plugin the same consent features here as
