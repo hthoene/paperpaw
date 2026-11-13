@@ -4,7 +4,10 @@
 use super::*;
 use crate::native_host::admitted_features::AdmittedFeatures;
 use core::cell::Cell;
-use paperpaw_native::metadata::Feature;
+use paperpaw_native::{
+    host_glue::{ERR_DENIED, ERR_UNSUPPORTED},
+    metadata::Feature,
+};
 use paperpaw_platform::Storage as _;
 use paperpaw_sdk::{Id, MemoryStorage, ScreenKey, StackEntry};
 
