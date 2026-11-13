@@ -452,9 +452,9 @@ fn an_install_needs_the_feature_a_plugin_host_known_flags_and_a_path_the_plugin_
         stage(&kernel, INSTALL, Some(&d), &[install_plugin(0, 0)]).0,
         ERR_INVALID
     );
-    // Bits 0 (replace) and 1 (older) only.
+    // Bits 0 (replace), 1 (older) and 2 (from a catalog) only.
     assert_eq!(
-        stage(&kernel, INSTALL, Some(&d), &[install_plugin(1, 4)]).0,
+        stage(&kernel, INSTALL, Some(&d), &[install_plugin(1, 8)]).0,
         ERR_INVALID
     );
     let card = WireCommand::InstallPlugin {

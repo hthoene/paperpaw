@@ -168,6 +168,10 @@ mod kernel_side {
     }
 
     fn kernel(random: bool) -> Kernel {
+        kernel_on(random, paperpaw_sdk::MemoryStorage::new())
+    }
+
+    pub(super) fn kernel_on(random: bool, card: paperpaw_sdk::MemoryStorage) -> Kernel {
         let fake = FakeFirmware::new(
             "0.5.0",
             "paperpaw-x4",
@@ -180,6 +184,7 @@ mod kernel_side {
             builder = builder.random(fill);
         }
         let mut kernel = builder
+            .storage(card)
             .plugin(Home)
             .firmware_host(alloc::boxed::Box::new(fake))
             .plugin_host(loader, offered, &[])
@@ -530,4 +535,38 @@ mod kernel_side {
         assert_ne!(home.kind, paperpaw_sdk::PluginKind::Data);
         assert!(!kernel.take_warnings().is_empty(), "said");
     }
+}
+
+/// A removal the user confirms takes the store's record over before it
+/// commits, through the kernel's pump (which hands the jobs every plugin
+/// found).
+#[test]
+fn a_confirmed_removal_takes_a_device_without_a_record_for_the_stores() {
+    use crate::native_host::{
+        plugin_jobs::PluginJobs, plugin_remove::PluginRemove, store_record::tests::record,
+    };
+    let ini = "[plugin]\nname = cosy\nversion = 2.1\nformats = 4\n";
+    let card = paperpaw_sdk::MemoryStorage::new().with("plugins/cosy/plugin.ini", ini);
+    let mut kernel = kernel_side::kernel_on(true, card);
+    let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
+    let job = PluginRemove::new(1, 5, "cosy").unwrap();
+    driver
+        .borrow_mut()
+        .submit_plugin(PluginJobs::Remove(job))
+        .unwrap();
+    for _ in 0..20 {
+        kernel.native_firmware_pump();
+    }
+    assert_eq!(
+        record(kernel.shared.storage.as_ref()),
+        None,
+        "not asked yet"
+    );
+    assert!(driver.borrow_mut().answer_plugin(1, 5, Answer::Yes));
+    for _ in 0..50 {
+        kernel.native_firmware_pump();
+    }
+    let card = kernel.shared.storage.as_ref();
+    assert!(!card.exists("plugins/cosy/plugin.ini"), "removed");
+    assert_eq!(record(card).as_deref(), Some("cosy\t2.1.0\n"));
 }

@@ -39,6 +39,7 @@ use paperpaw_sdk::{
 };
 
 use super::files_service::same_fold;
+use super::firmware_install::BuiltIns;
 use super::plugin_check::PluginCheck;
 use super::plugin_folder::{self, Manifest, Walk, Walked};
 use super::plugin_job::{
@@ -54,8 +55,12 @@ use super::shared::try_box;
 pub(crate) const FLAG_REPLACE: u32 = 1;
 /// Bit 1: an older (or the same) version is allowed.
 pub(crate) const FLAG_OLDER: u32 = 2;
+/// Bit 2: from a catalog, a store's install (code or data): the version is
+/// marked as the store's, for its updates (`reg_plugin.flags` bit 5). It
+/// grants no trust and changes no check.
+pub(crate) const FLAG_CATALOG: u32 = 4;
 /// The bits `install_plugin.flags` defines; another is `ERR_INVALID`.
-pub(crate) const FLAGS: u32 = FLAG_REPLACE | FLAG_OLDER;
+pub(crate) const FLAGS: u32 = FLAG_REPLACE | FLAG_OLDER | FLAG_CATALOG;
 
 const CODE: &str = "code.ppn";
 
@@ -566,7 +571,7 @@ impl PluginInstall {
             return self.end(storage, reason::OTHER);
         };
         // A catalog's install keeps its store: it offers its updates.
-        let from = if self.evidence.author.is_some() {
+        let from = if self.flags & FLAG_CATALOG != 0 {
             From::Store(manifest.parsed)
         } else {
             From::Local
@@ -579,7 +584,17 @@ impl PluginInstall {
     }
 
     #[inline(never)]
-    fn journal(&mut self, storage: &dyn Storage) -> JobStep {
+    fn journal(&mut self, storage: &dyn Storage, built_ins: &dyn BuiltIns) -> JobStep {
+        // Before the install commits: a device that kept no record of the
+        // store's installs takes its plugins for the store's, once. Where that
+        // fails the install does not commit (a catalog's would start the
+        // record with its one line, and the others would never be adopted):
+        // a card error, to be asked again.
+        if let Some(found) = built_ins.found()
+            && !super::store_record::adopt(storage, found)
+        {
+            return self.end(storage, reason::CARD);
+        }
         let Some(pins) = self.pins.as_deref() else {
             return self.end(storage, reason::OTHER);
         };
@@ -789,7 +804,7 @@ impl PluginJob for PluginInstall {
                 }
             },
             Phase::Marks => self.marks(storage),
-            Phase::Journal => self.journal(storage),
+            Phase::Journal => self.journal(storage, env.built_ins),
             Phase::Swapping => self.swapping(storage),
             Phase::Ended => JobStep::Done(Finished::refused(reason::OTHER)),
         }
