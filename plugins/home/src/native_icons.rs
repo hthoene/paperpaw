@@ -81,23 +81,107 @@ pub fn pencil(host: &Host<'_>) -> Result<Option<IconGlyph>, Error> {
     icons::glyph(host, PENCIL)
 }
 
-/// The lines the name `name` takes in `cell` (at most [`NAME_LINES`]).
+/// What room a name leaves at the sides of its cell, as interface 6 left.
+const SIDE: u16 = 4;
+/// The least share of the small size a name shrinks to, to fit one line.
+const LEAST: f32 = 0.85;
+/// How much smaller each size tried to fit a name on one line is.
+const SIZE_STEP: f32 = 0.5;
+
+/// A tool's name as it is drawn: its size and its lines.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Name {
+    pub size: f32,
+    pub lines: Vec<String>,
+}
+
+/// The name `name` as it fits `cell` (see [`fit_name`]).
 ///
 /// # Errors
 /// Font refusals and [`Error::NoMemory`].
-pub fn name_lines(
-    font: &Font<'_>,
-    style: &Style,
-    cell: Rect,
-    name: &str,
-) -> Result<Vec<String>, Error> {
-    let room = f32::from(cell.width.saturating_sub(style.gap)).max(1.0);
-    text::wrap_with(
-        |line| font.measure_text(style.small, line),
+pub fn name_lines(font: &Font<'_>, style: &Style, cell: Rect, name: &str) -> Result<Name, Error> {
+    let room = f32::from(cell.width.saturating_sub(SIDE)).max(1.0);
+    fit_name(
+        |size, line| font.measure_text(size, line),
+        style.small,
         name,
         room,
-        NAME_LINES,
     )
+}
+
+/// `name` in `room` as interface 6 fitted a tool's name: on one line, a
+/// little smaller where that is what it takes (down to [`LEAST`] of
+/// `small`); else on up to [`NAME_LINES`] lines broken between words or
+/// after a hyphen written in one, never inside a word; else on one line
+/// that ends in "…". `measure` gives a text's width at a size.
+///
+/// # Errors
+/// Errors of `measure` and [`Error::NoMemory`].
+pub fn fit_name(
+    mut measure: impl FnMut(f32, &str) -> Result<f32, Error>,
+    small: f32,
+    name: &str,
+    room: f32,
+) -> Result<Name, Error> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Ok(Name {
+            size: small,
+            lines: Vec::new(),
+        });
+    }
+    let least = small * LEAST;
+    let mut size = small;
+    while size >= least {
+        if measure(size, name)? <= room {
+            let mut lines = Vec::new();
+            mem::push(&mut lines, text::copy(name)?)?;
+            return Ok(Name { size, lines });
+        }
+        size -= SIZE_STEP;
+    }
+    for size in [small, least] {
+        if let Some(lines) = whole_words(|line| measure(size, line), name, room)? {
+            return Ok(Name { size, lines });
+        }
+    }
+    let lines = text::wrap_with(|line| measure(least, line), name, room, 1)?;
+    Ok(Name { size: least, lines })
+}
+
+/// `name` broken between its words, or after a hyphen inside one, into at
+/// most [`NAME_LINES`] lines no wider than `room`; `None` where a part is
+/// wider than a line or the lines are too few.
+fn whole_words(
+    mut measure: impl FnMut(&str) -> Result<f32, Error>,
+    name: &str,
+    room: f32,
+) -> Result<Option<Vec<String>>, Error> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for word in name.split_whitespace() {
+        let mut first = true;
+        for part in word.split_inclusive('-') {
+            let glue = if first && !line.is_empty() { " " } else { "" };
+            first = false;
+            let joined = text::concat(&[&line, glue, part])?;
+            if measure(&joined)? <= room {
+                line = joined;
+                continue;
+            }
+            if measure(part)? > room {
+                return Ok(None);
+            }
+            if !line.is_empty() {
+                mem::push(&mut lines, core::mem::take(&mut line))?;
+            }
+            line = text::copy(part)?;
+        }
+    }
+    if !line.is_empty() {
+        mem::push(&mut lines, line)?;
+    }
+    Ok((lines.len() <= NAME_LINES).then_some(lines))
 }
 
 /// The most lines any name takes among the tools of the same row (the cells
@@ -144,6 +228,8 @@ pub struct Fonts<'a, 'f> {
 #[derive(Debug)]
 pub struct Tool<'a> {
     pub lines: &'a [String],
+    /// The size its name is drawn at.
+    pub size: f32,
     pub face: Face,
     /// The most lines a name takes among the tools beside it.
     pub row_lines: usize,
@@ -224,7 +310,7 @@ pub fn draw_tool(
         let total = u32::from(line) * u32::try_from(tool.lines.len()).unwrap_or(0);
         let mut top = u32::from(cell.y) + u32::from(cell.height).saturating_sub(total) / 2;
         for shown in tool.lines {
-            let wide = font.measure_text(style.small, shown)?;
+            let wide = font.measure_text(tool.size, shown)?;
             let x = f32::from(cell.x) + (f32::from(cell.width) - wide).max(0.0) / 2.0;
             let row = Rect::new(
                 cell.x,
@@ -232,7 +318,7 @@ pub fn draw_tool(
                 cell.width,
                 line,
             );
-            text::label(out, font, shown, style.small, x, row, ink, None)?;
+            text::label(out, font, shown, tool.size, x, row, ink, None)?;
             top = top.saturating_add(u32::from(line));
         }
         return Ok(());
@@ -243,14 +329,14 @@ pub fn draw_tool(
         .saturating_add(inner)
         .saturating_add(cap);
     for (n, shown) in tool.lines.iter().enumerate() {
-        let wide = font.measure_text(style.small, shown)?;
+        let wide = font.measure_text(tool.size, shown)?;
         let x = f32::from(cell.x) + (f32::from(cell.width) - wide).max(0.0) / 2.0;
         let at = i32::try_from(n).unwrap_or(0).saturating_mul(step);
         paint::push(
             out,
             Paint::Text {
                 text: text::copy(shown)?,
-                size: style.small,
+                size: tool.size,
                 origin: TextOrigin::new(x, baseline.saturating_add(at)),
                 color: ink,
                 clip: None,
@@ -263,6 +349,40 @@ pub fn draw_tool(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every letter half as wide as the size: `name` fitted in 80 pixels at 17.
+    fn fitted(name: &str) -> Name {
+        let measure = |size: f32, line: &str| Ok(line.chars().count() as f32 * size * 0.5);
+        fit_name(measure, 17.0, name, 80.0).unwrap()
+    }
+
+    #[test]
+    fn a_name_a_little_too_wide_shrinks_onto_one_line() {
+        // #257 (x4-drawer-de): "Bibliothe" over "k".
+        let name = fitted("Bibliothek");
+        assert_eq!(name.lines, ["Bibliothek"]);
+        assert!(
+            name.size < 17.0 && name.size >= 17.0 * LEAST,
+            "{}",
+            name.size
+        );
+        assert_eq!(fitted("News").size, 17.0);
+    }
+
+    #[test]
+    fn a_name_breaks_between_words_or_after_its_hyphen_never_inside_a_word() {
+        assert_eq!(fitted("Notizen-Tresor").lines, ["Notizen-", "Tresor"]);
+        assert_eq!(fitted("Plugin-Store").lines, ["Plugin-", "Store"]);
+        assert_eq!(
+            fitted("Wi-Fi transfer files").lines,
+            ["Wi-Fi", "transfer", "files"]
+        );
+        // A word no line holds is cut short on one line, marked as cut.
+        let long = fitted("Einstellungen");
+        assert_eq!(long.lines.len(), 1, "{:?}", long.lines);
+        assert!(long.lines[0].ends_with('…'), "{:?}", long.lines);
+        assert!(fitted("").lines.is_empty());
+    }
 
     #[test]
     fn tools_side_by_side_keep_to_the_most_lines_of_their_row() {
