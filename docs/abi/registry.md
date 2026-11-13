@@ -199,14 +199,17 @@ Field meanings:
   not be loaded"; `update`: the version waiting, empty if none. The first row of op 5 is always the
   host itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
 - [D] `reg_plugin.flags` bit 5 (installed by a store): the version installed, or the one waiting
-  as `update`, is one a store's install put in place (`device.md` 5.2: an install that carries its
-  author's evidence). The host keeps these versions in its own record, out of reach of plugins and
-  of the card transfers (interface 6 `paperpaw_sdk::install::Origin`, `plugin-origin.txt`); a
-  plugin put in place any other way, or replaced since by another version, has the bit clear even
-  where the id is the same. With the bit set, `version` (and `update`) is written as the store
-  named it, pre-release included (`1.2.0-beta.1`; interface 6 `Installed::release`); the numbers
-  are the plugin's own. A store offers updates only for plugins with the bit set, as interface 6
-  did. Built-in and linked plugins (bit 3) never have it.
+  as `update`, was put in place by an `install_plugin` with `flags` bit 2 (from a catalog,
+  `device.md` 5.2), for a code or a data plugin alike (fonts, dictionaries, hyphenation). The host
+  keeps these versions in its own record, out of reach of plugins and of the card transfers:
+  interface 6's `plugin-origin.txt` (`paperpaw_sdk::install::Origin`), kept as it is, including
+  the one-time adoption (`install::adopt`) of the plugins already installed on a device that has
+  no record yet, so store installs from before keep their updates. A plugin put in place any other
+  way, or replaced since by another version, has the bit clear even where the id is the same. With
+  the bit set, `version` (and `update`) is written as the store named it, pre-release included
+  (`1.2.0-beta.1`; interface 6 `Installed::release`); the numbers are the plugin's own. A store
+  offers updates only for plugins with the bit set, as interface 6 did. Built-in and linked plugins
+  (bit 3) never have it.
 - `reg_need.kind`: 0 feature (`key` = `uses.*`, `flags` bit 0 required), 1 service (`key`,
   `version` = major.revision), 2 required plugin (`key` = id, `version` = at least).
 - [D] **Where op 20's rows come from**: kinds 0 and 1 from the native metadata the host
