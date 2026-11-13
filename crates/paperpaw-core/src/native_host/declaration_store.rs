@@ -1162,10 +1162,10 @@ impl DeclarationStore {
         }) else {
             return false;
         };
-        if owner.image_only() {
+        if let Batches::Starts(starts) = &owner.batches {
             // Every record of the kind, in declaration order: the first that
             // matches is the one an index would give.
-            return scan::find_in_image(owner, kind, parts, visit);
+            return scan::find_in_image(owner, starts, kind, parts, visit);
         }
         let category = kind.category();
         let mut found = false;

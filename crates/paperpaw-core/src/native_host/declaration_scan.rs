@@ -182,16 +182,20 @@ pub(super) fn image_places(
     ControlFlow::Continue(())
 }
 
-/// The first record of `kind` of the image-only `owner` whose key fields are
-/// `parts`, in declaration order, given to `visit`: as a lookup through
+/// The first record of `kind` of the image-only `owner` (its batches start at
+/// `starts`) whose key fields are `parts`, in declaration order, given to
+/// `visit`: as a lookup through
 /// [`DeclarationStore::with_record`](super::DeclarationStore::with_record)
-/// would find it, but each record is decoded once and only the one that
-/// matches is validated (`declarations::validate_record`): a key press or a
-/// menu's open looks up names among every record of the kind (#248, R1).
-/// Whether one was found; a record that does not decode or validate is said
-/// to the plugin and is no match.
+/// would find it. The image is held once and each batch's frames are walked
+/// once; only a record that [`may_match`] is decoded, and only the one that
+/// matches is validated (`declarations::validate_record`): a key press, a
+/// menu's open or a settings page looks up names among every record of the
+/// kind (#248, R1). Whether one was found; a batch whose frames do not walk
+/// and a decoded record that does not decode or validate are said to the
+/// plugin and are no match.
 pub(super) fn find_in_image(
     owner: &super::StoredOwner,
+    starts: &super::Starts,
     kind: Kind,
     parts: &[&str],
     visit: &mut dyn for<'a> FnMut(super::Record<'a>),
@@ -201,40 +205,115 @@ pub(super) fn find_in_image(
     if owner.source.generation() != owner.generation {
         return false;
     }
-    let category = kind.category();
+    let bit = 1_u64 << kind as u32;
     let mut found = false;
-    let _ = owner.places(kind, &mut |batch, record| {
-        owner.source.with_image(&mut |image| {
-            let Some(image) = image else {
-                return;
-            };
-            let decoded = owner
-                .batches
-                .bytes(usize::from(batch), image)
-                .and_then(|bytes| {
-                    super::super::raw_declarations::record_at(bytes, usize::from(record))
-                })
-                .and_then(super::super::registrations::host_decode_prefix);
-            let result = decoded.and_then(|(record, _)| {
-                if !super::super::declaration_index::matches_parts(record, category, parts) {
-                    return Ok(());
-                }
-                super::super::declarations::validate_record(owner.id.as_str(), &record)?;
-                found = true;
-                visit(record);
-                Ok(())
-            });
-            if let Err(error) = result {
-                owner.source.invalid_declaration(error);
+    owner.source.with_image(&mut |image| {
+        let Some(image) = image else {
+            return;
+        };
+        for at in 0..starts.len() {
+            if starts.kinds(at) & bit == 0 {
+                continue;
             }
-        });
-        if found {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
+            let Some(start) = starts.start(at) else {
+                break;
+            };
+            match find_in_batch(owner, image, start, kind, parts, visit) {
+                Ok(false) => {}
+                Ok(true) => {
+                    found = true;
+                    break;
+                }
+                Err(error) => owner.source.invalid_declaration(error),
+            }
         }
     });
     found
+}
+
+/// [`find_in_image`] in the batch that starts at `start` in `image`. Its
+/// frames are walked to its end first, so that a batch with a broken frame
+/// answers nothing (`ERR_INVALID`, as [`batch_at`]); then the records that
+/// may match are decoded in their order.
+fn find_in_batch(
+    owner: &super::StoredOwner,
+    image: &[u8],
+    start: u32,
+    kind: Kind,
+    parts: &[&str],
+    visit: &mut dyn for<'a> FnMut(super::Record<'a>),
+) -> Result<bool, i32> {
+    let start = usize::try_from(start).map_err(|_| ERR_INVALID)?;
+    let rest = image.get(start..).ok_or(ERR_INVALID)?;
+    let category = kind.category();
+    let mut cursor = 0;
+    let count = varint(rest, &mut cursor)? as usize;
+    if count > REGISTRATION_MAX_RECORDS {
+        return Err(ERR_INVALID);
+    }
+    // Where the frames that may match start: at most a batch's records.
+    let mut frames = [0_usize; REGISTRATION_MAX_RECORDS];
+    let mut waiting = 0;
+    for _ in 0..count {
+        let frame = cursor;
+        let tag = varint(rest, &mut cursor)?;
+        let len = usize::try_from(varint(rest, &mut cursor)?).map_err(|_| ERR_INVALID)?;
+        let end = cursor.checked_add(len).ok_or(ERR_INVALID)?;
+        let body = rest.get(cursor..end).ok_or(ERR_INVALID)?;
+        cursor = end;
+        if Kind::of_tag(tag) != Some(kind) || !may_match(body, category, parts) {
+            continue;
+        }
+        if let Some(slot) = frames.get_mut(waiting) {
+            *slot = frame;
+            waiting += 1;
+        }
+    }
+    let batch = rest.get(..cursor).ok_or(ERR_INVALID)?;
+    for frame in frames.iter().take(waiting) {
+        // From the record's frame to the batch's end, as `record_at` gives it.
+        let result = batch
+            .get(*frame..)
+            .ok_or(ERR_INVALID)
+            .and_then(super::super::registrations::host_decode_prefix)
+            .and_then(|(record, _)| {
+                if !super::super::declaration_index::matches_parts(record, category, parts) {
+                    return Ok(false);
+                }
+                super::super::declarations::validate_record(owner.id.as_str(), &record)?;
+                visit(record);
+                Ok(true)
+            });
+        match result {
+            Ok(false) => {}
+            Ok(true) => return Ok(true),
+            Err(error) => owner.source.invalid_declaration(error),
+        }
+    }
+    Ok(false)
+}
+
+/// Whether the record in the frame body `body` may have the key fields
+/// `parts`, without decoding it. A record's first key field is text its
+/// decoded form borrows from the frame (`declaration_index::key`), so a body
+/// without those bytes cannot match; names that compare without case are
+/// always decoded.
+fn may_match(body: &[u8], category: u8, parts: &[&str]) -> bool {
+    if super::super::declaration_index::folds_case(category) {
+        return true;
+    }
+    let Some((first, tail)) = parts.first().and_then(|name| name.as_bytes().split_first()) else {
+        return true;
+    };
+    let mut rest = body;
+    while let Some(at) = rest.iter().position(|byte| byte == first) {
+        let after = rest.get(at + 1..).unwrap_or_default();
+        if after.starts_with(tail) {
+            return true;
+        }
+        rest = after;
+    }
+    false
 }
 
 #[cfg(test)]
