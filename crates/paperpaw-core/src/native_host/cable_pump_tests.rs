@@ -50,18 +50,22 @@ impl ShellNetwork for Shell {
 struct World {
     kernel: Kernel,
     owner: u64,
-    card: Rc<MemoryStorage>,
+    card: Rc<dyn Storage>,
     rows: Rc<StackRows>,
 }
 
 fn world() -> World {
+    world_on(Rc::new(MemoryStorage::new()))
+}
+
+/// The world with `core.net` receiving on `card`.
+fn world_on(card: Rc<dyn Storage>) -> World {
     let mut kernel = Kernel::builder(crate::tests::DEVICE).build().unwrap();
     let owner = kernel
         .shared
         .native_instances
         .test_insert(Id::new_static("cab"), None, true)
         .unwrap();
-    let card = Rc::new(MemoryStorage::new());
     let rows = Rc::new(StackRows::default());
     {
         let resources = kernel.shared.native_instances.test_resources().unwrap();
@@ -74,7 +78,9 @@ fn world() -> World {
             )))
             .unwrap();
         let owners = resources.hosts().owners().unwrap();
-        owners.admit(owner, "cab").unwrap();
+        owners
+            .admit(owner, &paperpaw_sdk::Id::new_static("cab"))
+            .unwrap();
         owners.subscribe(owner, EventTags::collect(|_| true));
         owners.attach_screens(&rows);
     }
@@ -324,4 +330,65 @@ fn a_number_used_again_ends_the_earlier_request() {
             "PPT/1 1 end"
         ]
     );
+}
+
+/// A 4 MB FAT card in memory, as the X4's: it keeps an appended file open,
+/// its folder entry (size, first cluster) written when it is synced.
+struct Blocks(Vec<u8>);
+
+impl paperpaw_fat::Blocks for Blocks {
+    fn read_block(
+        &mut self,
+        index: u32,
+        block: &mut [u8; paperpaw_fat::BLOCK],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        let at = index as usize * paperpaw_fat::BLOCK;
+        let part = self.0.get(at..at + paperpaw_fat::BLOCK);
+        block.copy_from_slice(part.ok_or(paperpaw_fat::DiskError)?);
+        Ok(())
+    }
+    fn write_block(
+        &mut self,
+        index: u32,
+        block: &[u8; paperpaw_fat::BLOCK],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        let at = index as usize * paperpaw_fat::BLOCK;
+        let part = self.0.get_mut(at..at + paperpaw_fat::BLOCK);
+        part.ok_or(paperpaw_fat::DiskError)?.copy_from_slice(block);
+        Ok(())
+    }
+    fn blocks(&mut self) -> Result<u32, paperpaw_fat::DiskError> {
+        Ok((self.0.len() / paperpaw_fat::BLOCK) as u32)
+    }
+}
+
+fn fat_card() -> Rc<dyn Storage> {
+    use paperpaw_fat::fatfs::{self, FileSystem, FormatVolumeOptions, FsOptions, Seek, Write};
+    let mut disk = paperpaw_fat::BlockDisk::new(Blocks(std::vec![0; 4 << 20])).unwrap();
+    fatfs::format_volume(&mut disk, FormatVolumeOptions::new()).unwrap();
+    disk.flush().unwrap();
+    disk.seek(fatfs::SeekFrom::Start(0)).unwrap();
+    let fs = FileSystem::new(disk, FsOptions::new()).unwrap();
+    Rc::new(paperpaw_fat::FatStorage::new(std::boxed::Box::leak(
+        std::boxed::Box::new(fs),
+    )))
+}
+
+/// A whole body is on the card before the plugin hears of it: on FAT, which
+/// keeps an appended file open, the file has its entry (its identity, the
+/// first cluster, which a library import of it needs) when it is told.
+#[test]
+fn a_whole_upload_is_on_the_card_before_it_is_told() {
+    let card = fat_card();
+    let mut w = world_on(card.clone());
+    w.serve(0).unwrap();
+    w.kernel.native_cable_pump();
+    let _ = w.events();
+    w.line(1_000, "PPT/1 7 PUT /api/book/a.epub 5");
+    w.line(1_001, "PPT/1 7 data 6162636465");
+    let told = w.events();
+    assert_eq!(told.len(), 1);
+    let path = alloc::format!(".paperpaw/plugins/cab/.received/1/{}", told[0].0);
+    assert!(card.entry_identity(&path).unwrap().is_some());
+    assert_eq!(card.size(&path).unwrap(), 5);
 }

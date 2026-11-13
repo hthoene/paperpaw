@@ -222,6 +222,15 @@ impl Kernel {
                 refuse_link(link, number, status, "");
             }
             Ok(_) if last => {
+                // The whole body is on the card (its size and clusters in its
+                // folder) before the plugin is told: a card that keeps an
+                // appended file open has written nothing of its entry yet.
+                if storage.sync().is_err() {
+                    let _ = link.forget(number);
+                    let _ = net_service::served_gone(device, request);
+                    refuse_link(link, number, 500, "the card could not keep it");
+                    return;
+                }
                 if net_service::served_whole(device, request, received).is_err() {
                     let _ = link.forget(number);
                     let _ = net_service::served_gone(device, request);
