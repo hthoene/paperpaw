@@ -12,7 +12,9 @@
 
 use paperpaw_checks::root;
 
-/// The packages of PaperPaw's own in a lock file: `name = "paperpaw-…"`.
+/// The packages of PaperPaw's own in a lock file: `name = "paperpaw-…"`. The two
+/// patched crates without that prefix (`fatfs`, `trouble-host`: `patches/`) are not
+/// looked at: they stay unnamed, at the profile's `"s"`.
 fn own_packages(lock: &str) -> Vec<String> {
     let mut found: Vec<String> = lock
         .lines()
