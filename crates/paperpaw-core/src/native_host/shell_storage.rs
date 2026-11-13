@@ -56,11 +56,16 @@ pub(super) unsafe extern "C" fn storage_read_at<S: 'static>(
 }
 
 /// What lets a storage slot of this plugin name the document its format call
-/// is for (roots 3, 4 and 6).
+/// is for (roots 3, 4 and 6), the user's files (root 1, `uses.storage`) and
+/// its install folder (root 2).
 fn format_of<S: 'static>(context: &Context<S>) -> Option<super::super::storage_slots::Format<'_>> {
+    let hosts = context.resources.hosts();
     Some(super::super::storage_slots::Format {
-        scope: context.resources.hosts().format_scope(),
+        scope: hosts.format_scope(),
         owner: context.resources.owner_id(),
+        features: context.declared_services.features(),
+        files: hosts.files().map(|files| &*files.0),
+        linked: hosts.linked(),
     })
 }
 
