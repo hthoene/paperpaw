@@ -30,8 +30,12 @@ impl crate::Kernel {
             let title = matches!(action.title_key(), Cow::Borrowed(_));
             note("action", action.id(), title);
         }
-        for (id, title) in shared.registry.screens.native_titles() {
-            note("screen", id, matches!(title, Cow::Borrowed(_)));
+        for titled in shared.registry.screens.native_titles() {
+            note(
+                "screen",
+                titled.id(),
+                matches!(titled.title_key(), Cow::Borrowed(_)),
+            );
         }
         for spec in shared.settings.specs().filter(|spec| native(&spec.id)) {
             note("setting", &spec.id, spec.title.kept().is_some());

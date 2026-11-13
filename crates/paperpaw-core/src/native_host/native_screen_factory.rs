@@ -5,47 +5,57 @@ use super::{
     native_values::Callback,
     shell,
 };
-use alloc::{borrow::Cow, boxed::Box};
+use alloc::boxed::Box;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
 use paperpaw_sdk::{Id, Instances, Screen};
 
 pub(crate) struct NativeScreenSpec {
-    pub(crate) id: Id,
-    pub(crate) title: Cow<'static, str>,
+    /// Its id and title: a linked plugin's entry kept in the program, or a
+    /// copy (#248, B).
+    pub(crate) titled: paperpaw_sdk::Titled,
     pub(crate) made: NativeMade,
 }
 
 /// What makes a native screen; its id is the registry's ([`crate::registry`]
-/// keeps it once, with the title, #248).
+/// keeps it once, with the title, #248). How many instances it has is read
+/// from `flags` (no field of its own: the registry's row is smaller, #248 B).
 pub(crate) struct NativeMade {
     token: u32,
     flags: u32,
     instance: NativeLease,
-    pub(crate) instances: Instances,
+}
+
+/// How many instances of a screen with `flags` there may be; `None` for the
+/// value no screen declares.
+fn instances_of(flags: u32) -> Option<Instances> {
+    match (flags >> 6) & 3 {
+        0 => Some(Instances::PER_PARAMS),
+        1 => Some(Instances::SINGLE),
+        2 => Some(Instances::MANY),
+        _ => None,
+    }
 }
 
 impl NativeScreenSpec {
     pub(crate) fn new(callback: Callback, instance: NativeLease) -> Result<Self, i32> {
-        let instances = match (callback.flags >> 6) & 3 {
-            0 => Instances::PER_PARAMS,
-            1 => Instances::SINGLE,
-            2 => Instances::MANY,
-            _ => return Err(ERR_UNSUPPORTED),
-        };
+        instances_of(callback.flags).ok_or(ERR_UNSUPPORTED)?;
         Ok(Self {
-            id: callback.id,
-            title: callback.title,
+            titled: super::native_values::titled(callback.kept, callback.id, callback.title)?,
             made: NativeMade {
                 token: callback.token,
                 flags: callback.flags,
                 instance,
-                instances,
             },
         })
     }
 }
 
 impl NativeMade {
+    /// How many instances the screen may have (checked when it was made).
+    pub(crate) fn instances(&self) -> Instances {
+        instances_of(self.flags).unwrap_or(Instances::PER_PARAMS)
+    }
+
     pub(crate) fn refresh(&self) -> Option<paperpaw_sdk::RefreshMode> {
         (self.flags & 1 != 0).then_some(paperpaw_sdk::RefreshMode::Full)
     }

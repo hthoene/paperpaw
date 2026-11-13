@@ -573,12 +573,13 @@ fn a_fair_list_says_so_and_keeps_its_picks() {
 
 /// A plugin on the device as the kernel lists it.
 fn on_device(plugins: &mut Plugins, id: &'static str, kind: PluginKind, enabled: bool) {
+    let manifest = paperpaw_sdk::Manifest::new(
+        paperpaw_sdk::Id::new_static(id),
+        "Name",
+        Version::new(1, 0, 0),
+    );
     plugins.push(paperpaw_sdk::PluginInfo::new(
-        paperpaw_sdk::Manifest::new(
-            paperpaw_sdk::Id::new_static(id),
-            "Name",
-            Version::new(1, 0, 0),
-        ),
+        paperpaw_sdk::ManifestRef::try_new(manifest, None).unwrap(),
         if enabled {
             paperpaw_sdk::PluginState::Running
         } else {
@@ -802,12 +803,13 @@ fn a_build_for_this_paperpaw_repairs_an_installed_one_built_for_an_older_one() {
     let (entries, _) = entries(&storage);
     let (stats, waits) = (&entries[0], &entries[1]);
     let installed = |problem| {
+        let manifest = paperpaw_sdk::Manifest::new(
+            paperpaw_sdk::Id::new_static("stats"),
+            "Name",
+            Version::new(1, 0, 0),
+        );
         let mut info = paperpaw_sdk::PluginInfo::new(
-            paperpaw_sdk::Manifest::new(
-                paperpaw_sdk::Id::new_static("stats"),
-                "Name",
-                Version::new(1, 0, 0),
-            ),
+            paperpaw_sdk::ManifestRef::try_new(manifest, None).unwrap(),
             paperpaw_sdk::PluginState::Failed,
             true,
             paperpaw_sdk::RequiredFor::default(),

@@ -88,7 +88,12 @@ fn main() -> Result<(), String> {
                 "GROUPS",
                 &batches,
             )?
-            + &paperpaw_sdk::native::declare::fixed_ids_source("file-manager", "IDS", &named)?;
+            + &paperpaw_sdk::native::declare::fixed_ids_source("file-manager", "IDS", &named)?
+            + &paperpaw_sdk::native::declare::fixed_titles_source(
+                "file-manager",
+                "TITLES",
+                &named,
+            )?;
     std::fs::write(out.join("file_manager_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("file_manager_declarations.rs"), source)

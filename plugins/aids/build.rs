@@ -46,7 +46,8 @@ fn main() -> Result<(), String> {
     let batches: Vec<&[u8]> = all.iter().map(Vec::as_slice).collect();
     let table = paperpaw_sdk::native::declare::fixed_settings_source("aids", "SETTINGS", &batches)?
         + &paperpaw_sdk::native::declare::fixed_groups_source("aids", "GROUPS", &batches)?
-        + &paperpaw_sdk::native::declare::fixed_ids_source("aids", "IDS", &batches)?;
+        + &paperpaw_sdk::native::declare::fixed_ids_source("aids", "IDS", &batches)?
+        + &paperpaw_sdk::native::declare::fixed_titles_source("aids", "TITLES", &batches)?;
     std::fs::write(out.join("aids_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("aids_declarations.rs"), source)

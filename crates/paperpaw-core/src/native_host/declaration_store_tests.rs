@@ -1239,7 +1239,7 @@ fn staged(allocations: &mut Allocations) -> Result<PendingDeclarations, i32> {
 /// The ranges of the one list: in kind order, inside a kind in declaration
 /// order, and the kinds' ranges together make the whole list.
 fn ranges_hold(pending: &PendingDeclarations) {
-    let slots = &pending.kept.slots;
+    let slots = pending.kept.batches.slots();
     assert!(slots.windows(2).all(|pair| {
         let kind = |slot: &Slot| slot.hash >> KIND_SHIFT;
         kind(&pair[0]) < kind(&pair[1])
@@ -1256,7 +1256,7 @@ fn every_kind_lives_in_one_list_by_ranges_and_names_are_found_in_their_kind() {
     ranges_hold(&pending);
     assert_eq!(pending.of_kind(Kind::Group).len(), 3);
     assert_eq!(pending.of_kind(Kind::Action).len(), 3);
-    assert_eq!(pending.kept.slots.len(), 6);
+    assert_eq!(pending.kept.batches.slots().len(), 6);
     let mut store = DeclarationStore::default();
     store.prepare(pending, &mut allocations).unwrap().commit();
     let owner = store.owners[0].as_ref().unwrap();
@@ -1327,7 +1327,7 @@ fn a_failed_reservation_in_staging_keeps_the_list_and_its_offsets_whole() {
         }
         if results.iter().all(Result::is_ok) {
             reached_success = true;
-            assert_eq!(pending.kept.slots.len(), 6);
+            assert_eq!(pending.kept.batches.slots().len(), 6);
         } else {
             assert!(results.contains(&Err(ERR_NO_MEMORY)));
             // A failed owner stays failed: nothing publishes it.

@@ -36,7 +36,11 @@ fn enabled(k: &mut Kernel, id: &str, default_on: bool) -> bool {
 
 fn info(id: &'static str, state: PluginState, enabled: bool) -> PluginInfo {
     PluginInfo::new(
-        Manifest::new(Id::new_static(id), id, Version::new(1, 0, 0)),
+        paperpaw_sdk::ManifestRef::try_new(
+            Manifest::new(Id::new_static(id), id, Version::new(1, 0, 0)),
+            None,
+        )
+        .unwrap(),
         state,
         enabled,
         RequiredFor::default(),
@@ -285,4 +289,46 @@ fn the_decision_says_how_to_list_the_plugin() {
         ),
         (true, Some(PluginProblem::Crashed))
     );
+}
+
+/// A linked plugin's manifest kept in the program (#248, B).
+static KEPT: Manifest = Manifest::fixed(Id::new_static("kept"), "kept", "", Version::new(1, 0, 0));
+
+/// The row of a linked plugin listed with its manifest kept in the program
+/// points there: no copy on the heap (#248, B; Senior M1, #1372).
+#[test]
+fn a_native_plugin_listed_with_a_kept_manifest_points_to_it() {
+    let mut k = kernel("", "");
+    let made = Manifest::new(Id::new_static("kept"), "kept", Version::new(1, 0, 0));
+    let manifest = paperpaw_sdk::ManifestRef::try_new(made, Some(&KEPT)).unwrap();
+    let info = PluginInfo::new(
+        manifest,
+        PluginState::Running,
+        true,
+        RequiredFor::default(),
+        PluginKind::BuiltIn,
+        None,
+        None,
+    );
+    k.list_native(info).unwrap();
+    let listed = &k.plugins().get("kept").unwrap().manifest;
+    assert!(listed.is_fixed());
+    assert!(core::ptr::eq(&**listed, &KEPT));
+}
+
+/// A plugin whose manifest's copy the heap has no room for is left out of
+/// the list, with a warning, not a stop (#248, B; Senior R1, #1372).
+#[test]
+fn a_plugin_whose_manifest_has_no_room_is_not_listed() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let mut k = kernel("", "");
+    let made = || Manifest::new(Id::new_static("tight"), "tight", Version::new(1, 0, 0));
+    FAIL_NTH.with(|n| n.set(1));
+    k.add_plugin_info(made(), PluginState::Running, true);
+    let left = FAIL_NTH.with(|n| n.replace(0));
+    assert_eq!(left, 0);
+    assert!(k.plugins().get("tight").is_none());
+    // With room, it is listed.
+    k.add_plugin_info(made(), PluginState::Running, true);
+    assert!(k.plugins().get("tight").is_some());
 }

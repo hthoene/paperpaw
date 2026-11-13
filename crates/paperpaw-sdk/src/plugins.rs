@@ -5,6 +5,7 @@
 //! change is saved to `paperpaw.ini` and applies after a restart
 //! ([`Command::Restart`](crate::Command)).
 
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::vec::Vec;
 
@@ -140,11 +141,106 @@ pub enum PluginProblem {
     Other(u16),
 }
 
+/// A plugin's manifest as the plugin list holds it: one kept in the program
+/// (a linked plugin's, no heap) or a copy of its own. Reads as the
+/// [`Manifest`] either way (`info.manifest.id`).
+#[derive(Clone)]
+pub struct ManifestRef(Held);
+
+#[derive(Clone)]
+enum Held {
+    Fixed(&'static Manifest),
+    Owned(Box<Manifest>),
+}
+
+impl ManifestRef {
+    /// The manifest `manifest`, kept in the program: nothing is copied.
+    #[must_use]
+    pub const fn fixed(manifest: &'static Manifest) -> Self {
+        Self(Held::Fixed(manifest))
+    }
+
+    /// `made`, the manifest a plugin has: `kept`, the one kept in the
+    /// program, where every field of the two is the same (no heap), else a
+    /// copy of `made` of its own. A manifest kept in the program that
+    /// differs in any field (its description, what it uses, how it works)
+    /// is not taken for it.
+    ///
+    /// # Errors
+    /// `made` back, where the heap has no room for its copy.
+    pub fn try_new(made: Manifest, kept: Option<&'static Manifest>) -> Result<Self, Manifest> {
+        match kept {
+            Some(kept) if *kept == made => Ok(Self::fixed(kept)),
+            _ => try_box(made).map(|owned| Self(Held::Owned(owned))),
+        }
+    }
+
+    /// Whether it is kept in the program ([`ManifestRef::fixed`]), not a copy.
+    #[must_use]
+    pub const fn is_fixed(&self) -> bool {
+        matches!(self.0, Held::Fixed(_))
+    }
+}
+
+impl core::ops::Deref for ManifestRef {
+    type Target = Manifest;
+
+    fn deref(&self) -> &Manifest {
+        match &self.0 {
+            Held::Fixed(manifest) => manifest,
+            Held::Owned(manifest) => manifest,
+        }
+    }
+}
+
+/// `manifest` in a box of its own, or back where the heap has no room for it
+/// (`Box::new` would stop PaperPaw instead).
+fn try_box(manifest: Manifest) -> Result<Box<Manifest>, Manifest> {
+    const { assert!(core::mem::size_of::<Manifest>() > 0) };
+    let layout = core::alloc::Layout::new::<Manifest>();
+    // SAFETY: a layout of non-zero size (asserted above), as `alloc` needs;
+    // null is handled.
+    let pointer = unsafe { alloc::alloc::alloc(layout) }.cast::<Manifest>();
+    if pointer.is_null() {
+        return Err(manifest);
+    }
+    // SAFETY: fresh storage of `Manifest`'s size and alignment from the
+    // global allocator, which `Box` frees with the same layout; written
+    // before the box is made.
+    unsafe {
+        pointer.write(manifest);
+        Ok(Box::from_raw(pointer))
+    }
+}
+
+impl From<&'static Manifest> for ManifestRef {
+    fn from(manifest: &'static Manifest) -> Self {
+        Self::fixed(manifest)
+    }
+}
+
+impl core::fmt::Debug for ManifestRef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        Manifest::fmt(self, f)
+    }
+}
+
+impl PartialEq for ManifestRef {
+    /// By the manifests' fields, wherever each is kept.
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl Eq for ManifestRef {}
+
 /// A plugin and its state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PluginInfo {
-    pub manifest: Manifest,
+    /// What the plugin is: a linked plugin's kept in the program
+    /// ([`ManifestRef::fixed`]), any other's a copy.
+    pub manifest: ManifestRef,
     pub state: PluginState,
     /// Switched on in the configuration. Differs from `state` until the
     /// next start when the user has just switched the plugin.
@@ -168,8 +264,8 @@ impl PluginInfo {
         clippy::too_many_arguments,
         reason = "all its fields, as the constructor of an open type has them"
     )]
-    pub const fn new(
-        manifest: Manifest,
+    pub fn new(
+        manifest: impl Into<ManifestRef>,
         state: PluginState,
         enabled: bool,
         required_for: RequiredFor,
@@ -178,7 +274,7 @@ impl PluginInfo {
         update: Option<crate::Version>,
     ) -> PluginInfo {
         PluginInfo {
-            manifest,
+            manifest: manifest.into(),
             state,
             enabled,
             required_for,
@@ -347,13 +443,17 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
-    use crate::Version;
+    use crate::{Uses, Version};
 
     fn info(id: &'static str, state: PluginState, enabled: bool) -> PluginInfo {
         PluginInfo {
-            manifest: Manifest::new(Id::new_static(id), "Name", Version::new(1, 0, 0))
-                .description("Does things.")
-                .uses(crate::Uses::NOTHING),
+            manifest: ManifestRef::try_new(
+                Manifest::new(Id::new_static(id), "Name", Version::new(1, 0, 0))
+                    .description("Does things.")
+                    .uses(crate::Uses::NOTHING),
+                None,
+            )
+            .unwrap(),
             state,
             enabled,
             required_for: RequiredFor::default(),
@@ -421,5 +521,103 @@ mod tests {
         assert!(!needs.contains(&slots::HOME));
         let ids: Vec<&Id> = needs.iter().collect();
         assert_eq!(ids, [&slots::MENU, &fonts::UI]);
+    }
+
+    /// A linked plugin's manifest, kept in the program (#248, B).
+    static LINKED: Manifest = Manifest::fixed(
+        Id::new_static("linked"),
+        "linked",
+        "",
+        Version::of_package("0", "6", "0", "beta.3"),
+    );
+
+    static HOW: [(&str, &str); 1] = [("en", "What it does.")];
+
+    /// A linked plugin's manifest with every field set (#248, B).
+    static FULL: Manifest = Manifest::fixed(
+        Id::new_static("full"),
+        "Full",
+        "Does it all.",
+        Version::new(1, 2, 3),
+    )
+    .uses(Uses::NETWORK)
+    .how(&HOW);
+
+    /// The manifest the plugin itself has: the same as `FULL`.
+    fn full() -> Manifest {
+        Manifest::new(Id::new_static("full"), "Full", Version::new(1, 2, 3))
+            .description("Does it all.")
+            .uses(Uses::NETWORK)
+            .how(&HOW)
+    }
+
+    /// The manifest kept in the program stands for the plugin's only where
+    /// every field is the same; any other is a copy, so nothing a plugin
+    /// declares (what it uses above all) is lost (#248, B; Senior M1, #1372).
+    #[test]
+    fn a_kept_manifest_stands_only_for_one_the_same_in_every_field() {
+        let same = ManifestRef::try_new(full(), Some(&FULL)).unwrap();
+        assert!(same.is_fixed());
+        assert!(core::ptr::eq(&*same, &FULL));
+        static OTHER_HOW: [(&str, &str); 1] = [("en", "Something else.")];
+        let differing = [
+            full().uses(Uses::NOTHING),
+            full().description("Does less."),
+            full().how(&OTHER_HOW),
+            Manifest::new(Id::new_static("full"), "Fuller", Version::new(1, 2, 3))
+                .description("Does it all.")
+                .uses(Uses::NETWORK)
+                .how(&HOW),
+            Manifest::new(Id::new_static("full"), "Full", Version::new(1, 2, 4))
+                .description("Does it all.")
+                .uses(Uses::NETWORK)
+                .how(&HOW),
+        ];
+        for made in differing {
+            let listed = ManifestRef::try_new(made.clone(), Some(&FULL)).unwrap();
+            assert!(!listed.is_fixed(), "{made:?}");
+            assert_eq!(*listed, made);
+        }
+        // No manifest kept: a copy.
+        assert!(!ManifestRef::try_new(full(), None).unwrap().is_fixed());
+    }
+
+    #[test]
+    fn a_manifest_kept_in_the_program_is_listed_without_a_copy() {
+        let mut plugins = Plugins::new();
+        plugins.push(PluginInfo::new(
+            &LINKED,
+            PluginState::Running,
+            true,
+            RequiredFor::default(),
+            PluginKind::BuiltIn,
+            None,
+            None,
+        ));
+        let listed = plugins.get("linked").unwrap();
+        assert!(listed.manifest.is_fixed());
+        assert!(core::ptr::eq(&*listed.manifest, &LINKED));
+        // It reads as the same manifest made at run time, which is a copy.
+        let made = Manifest::new(
+            Id::new_static("linked"),
+            "linked",
+            Version::parse("0.6.0-beta.3").unwrap(),
+        );
+        let copy = ManifestRef::try_new(made.clone(), None).unwrap();
+        assert!(!copy.is_fixed());
+        assert_eq!(*listed.manifest, made);
+        assert_eq!(listed.manifest, copy);
+        assert_eq!(
+            alloc::format!("{}", listed.manifest.version),
+            "0.6.0-beta.3"
+        );
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn a_listed_plugin_holds_its_manifest_by_reference() {
+        // The plugin list's row: a manifest (80 bytes here) held inline was
+        // most of it (#248, B).
+        assert!(core::mem::size_of::<PluginInfo>() <= 40);
     }
 }
