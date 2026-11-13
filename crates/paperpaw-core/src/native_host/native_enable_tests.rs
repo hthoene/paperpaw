@@ -371,3 +371,17 @@ fn a_plugin_without_room_for_its_row_is_not_loaded() {
     assert!(k.plugins().get("acting").is_some());
     assert!(k.actions().get("acting.go").is_some());
 }
+
+/// A linked plugin its shell could not list (no room for its row) is said,
+/// as the kernel says it of its own listing (#248, B part b).
+#[test]
+fn a_linked_plugin_left_unlisted_is_warned_about() {
+    let mut k = kernel("", "");
+    let _ = k.take_warnings();
+    k.warn_not_listed("tight");
+    let warnings = k.take_warnings();
+    assert!(warnings.iter().any(|w| {
+        matches!(&w.source, crate::WarningSource::Plugin(id) if id.as_str() == "tight")
+            && w.message.contains("not listed: no memory")
+    }));
+}
