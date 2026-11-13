@@ -49,6 +49,20 @@ impl Roles {
     /// The role names, in the order of the fields.
     pub const NAMES: [&'static str; 6] = ["panel", "focus", "control", "outline", "chip", "bar"];
 
+    /// The roles on a panel of two grays, where a fill is black or white: a
+    /// fill lighter than mid-gray would read as paper, so a role that is one
+    /// (`focus`, `control`, `chip`) is left out and the part keeps its look.
+    #[must_use]
+    pub fn for_two_grays(self) -> Self {
+        let dark = |role: Option<Color>| role.filter(|color| color.luma() < 128);
+        Self {
+            focus: dark(self.focus),
+            control: dark(self.control),
+            chip: dark(self.chip),
+            ..self
+        }
+    }
+
     fn read(palette: &str) -> Self {
         let get = |name| palette_find(palette, name);
         Self {
@@ -276,7 +290,11 @@ impl Style {
             frame: looks.frame,
             button: looks.button,
             mono: display.display_gray_levels() == Some(2),
-            roles: Roles::read(&palette),
+            roles: if display.display_gray_levels() == Some(2) {
+                Roles::read(&palette).for_two_grays()
+            } else {
+                Roles::read(&palette)
+            },
             separator_ink: if setting_text(host, UI_SEPARATORS)? == "core.separators.inset" {
                 color("line-faint", Color::gray(210))
             } else {
@@ -330,9 +348,13 @@ impl Style {
     }
 
     /// The colour of the bar the chosen row is on (the theme's `focus`; else
-    /// the text's ink, a card's colour for the light bar).
+    /// the text's ink, a card's colour for the light bar); of the frame it is
+    /// drawn in as a ring (the theme's `outline`, else the ink).
     #[must_use]
     pub fn bar(&self) -> Color {
+        if self.ring {
+            return self.roles.outline.unwrap_or(self.ink);
+        }
         self.roles
             .focus
             .unwrap_or(if self.soft { self.card } else { self.ink })
@@ -971,5 +993,25 @@ mod tests {
         // Never above the top of the screen.
         let high = style.page(Rect::new(0, 3, 480, 700));
         assert_eq!((high.y, high.height), (0, 703));
+    }
+
+    #[test]
+    fn on_two_grays_a_light_fill_role_is_left_out_and_a_dark_one_kept() {
+        let roles = Roles::read("focus=#b4bfc8 control=200 chip=#202020 panel=#ffffff bar=#fff0f0");
+        let two = roles.for_two_grays();
+        assert_eq!((two.focus, two.control), (None, None));
+        assert_eq!(two.chip, Some(Color::rgb(0x20, 0x20, 0x20)));
+        // The roles that are not fills of a part chosen stay.
+        assert_eq!((two.panel, two.bar), (roles.panel, roles.bar));
+    }
+
+    #[test]
+    fn a_ring_is_drawn_in_the_outline_not_the_light_bar_colour() {
+        let mut style = Style::themed(Color::BLACK, Color::WHITE);
+        style.roles.focus = Some(Color::gray(200));
+        style.ring = true;
+        assert_eq!(style.bar(), Color::BLACK);
+        style.roles.outline = Some(Color::gray(40));
+        assert_eq!(style.bar(), Color::gray(40));
     }
 }
