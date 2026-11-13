@@ -196,8 +196,11 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   for the walk; a file copied on since the last one), named by `path`, is that book for the ops
   that keep the book's own data by its path: `position`, `set_position`, `annotations`,
   `anchors`, the edit transaction (ops 13-21) and `text` of an annotation's text or note (op 4,
-  kinds 5 and 6), as Beta 3 kept marks and places by path. The card must hold a file at `path`, else `ERR_NOT_FOUND`; what the catalog
-  answers (`details`, `status`, fields, queries) still needs it.
+  kinds 5 and 6), as Beta 3 kept marks and places by path. The card must hold a file at `path`,
+  else `ERR_NOT_FOUND`; what the catalog answers (`details`, `status`, fields, queries) still
+  needs it. The path rules hold as for any `path` (no control character, nothing below
+  `plugins/` or `.paperpaw/`, `files.md` 1.1: `ERR_INVALID`). Once the walk catalogues the book,
+  its position, annotations and anchors are the ones kept by that path: none new, none lost.
 - [D] **No library path reaches `plugins/` or `.paperpaw/`.** Every path a LIB op takes or makes
   (`lib_ref.path`, each `lib_paths` item, `lib_move` `from` and `to`, an import's target and its
   folders) follows FS's root-1 rules (`files.md` 1.1): its first segment may not resolve to

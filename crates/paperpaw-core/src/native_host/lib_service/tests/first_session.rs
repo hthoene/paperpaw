@@ -9,7 +9,7 @@ use crate::native_host::registrations::{
     ServiceLibEdit as Edit, ServiceLibEditHead as Head, ServiceLibPosition as Position,
     ServiceLibPositionSet as PositionSet, ServiceLibRef as Ref, ServiceLibTransactionRef as TRef,
 };
-use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND};
 use paperpaw_platform::Storage as _;
 use paperpaw_sdk::MemoryStorage;
 
@@ -108,4 +108,36 @@ fn a_book_of_a_librarys_first_session_keeps_its_marks_and_place() {
         assert_eq!(mark(&host, "books/gone.epub"), Err(ERR_NOT_FOUND));
         assert_eq!(place(&host, "books/gone.epub"), Err(ERR_NOT_FOUND));
     }
+}
+
+#[test]
+fn an_uncatalogued_path_keeps_the_path_rules_and_its_data_once_catalogued() {
+    let storage = Rc::new(
+        MemoryStorage::new()
+            .with(BOOK, std::vec![7_u8; 100])
+            .with(".paperpaw/x.epub", std::vec![7_u8; 10])
+            .with("plugins/p/a.epub", std::vec![7_u8; 10]),
+    );
+    let host = host_on(storage.clone());
+    // The path rules hold for a file the catalog does not know too.
+    for path in [".paperpaw/x.epub", "plugins/p/a.epub", "books/a\nb.epub"] {
+        assert_eq!(mark(&host, path), Err(ERR_INVALID), "{path}");
+        assert_eq!(place(&host, path), Err(ERR_INVALID), "{path}");
+    }
+    assert_eq!(place(&host, BOOK), Ok(3));
+    assert_eq!(mark(&host, BOOK), Ok(1));
+    // The walk catalogues it later: the place kept by its path is its own.
+    storage
+        .write(
+            ".paperpaw/library/catalog.txt",
+            b"\tcatalog\t2\t1\nbooks/new.epub\tNew\tN\t\t\t\t\t\t\t\t1\n",
+        )
+        .unwrap();
+    let reply = call(&host, 13, &[by_path(BOOK)]).unwrap();
+    let Record::ServiceLibPosition(read) = wire::record_decode_one(&reply).unwrap() else {
+        panic!("a position")
+    };
+    assert_eq!(read.section, 3);
+    // And it is the catalog's book now (op 3 answers from the catalog).
+    assert!(call(&host, 3, &[by_path(BOOK)]).is_ok());
 }
