@@ -19,6 +19,10 @@ use paperpaw_sdk::{
 
 /// The lines a note takes at most.
 pub const NOTE_LINES: usize = 2;
+/// The lines a note takes at most in a row that shows its text whole.
+pub const WHOLE_NOTE_LINES: usize = 4;
+/// The lines a title takes at most in a row that shows its text whole.
+pub const WHOLE_TITLE_LINES: usize = 2;
 
 /// One row of an [`ItemList`]: a title, a value at the right, a note below.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -41,6 +45,10 @@ pub struct RowItem {
     /// An input field's look: an outline round the row when it has no focus
     /// (the settings' search), where other rows have a separator.
     pub field: bool,
+    /// Its text is shown whole where it is long: the title wrapped to
+    /// [`WHOLE_TITLE_LINES`] and the note to [`WHOLE_NOTE_LINES`], not cut
+    /// with "…".
+    pub whole: bool,
 }
 
 /// An entry of an [`ItemList`].
@@ -83,6 +91,7 @@ impl Item {
             disabled: false,
             on: None,
             field: false,
+            whole: false,
         }))
     }
 
@@ -96,6 +105,21 @@ impl Item {
             title: text::copy(title)?,
             field: true,
             ..RowItem::default()
+        }))
+    }
+
+    /// A row with a note below that shows its text whole: a long title wraps
+    /// to two lines and the note to four, where [`Item::noted`] cuts them.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when the texts cannot be copied.
+    pub fn whole(title: &str, value: &str, note: &str) -> Result<Self, Error> {
+        Ok(Self::Row(RowItem {
+            whole: true,
+            ..match Self::noted(title, value, note)? {
+                Self::Row(row) => row,
+                Self::Heading(_) => RowItem::default(),
+            }
         }))
     }
 
@@ -901,18 +925,49 @@ pub(crate) fn item_height(
 ) -> Result<u16, Error> {
     match item {
         Item::Heading(_) => Ok(style.heading),
-        Item::Row(row) if row.note.is_empty() => Ok(style.row),
         Item::Row(row) => {
-            let lines = note_lines(font, style, width, &row.note, row.zone.is_some())?;
+            let (_, band) = title_lines(font, style, width, row)?;
+            if row.note.is_empty() {
+                return Ok(band);
+            }
+            let lines = note_lines(font, style, width, row)?;
             let line = crate::geometry::line_height(font, style.small)?;
             let notes =
                 crate::geometry::px((line * lines.len() as f32).min(crate::geometry::MAX_PX))?;
-            Ok(style
-                .row
-                .saturating_add(notes)
-                .saturating_add(style.gap / 2))
+            Ok(band.saturating_add(notes).saturating_add(style.gap / 2))
         }
     }
+}
+
+/// The lines of a row's title and the height of its first band: one line in
+/// a row, or, where the row shows its text whole and the title is too long
+/// for its column, the lines the title wraps to.
+fn title_lines(
+    font: &Font<'_>,
+    style: &Style,
+    width: u16,
+    row: &RowItem,
+) -> Result<(Vec<String>, u16), Error> {
+    let mut lines = Vec::new();
+    if row.whole && !row.stepper && !row.title.is_empty() {
+        let room = (f32::from(width) - 3.0 * f32::from(style.margin)).max(1.0);
+        let value = font.measure_text(style.text, &row.value)?.min(room * 0.4);
+        let title_room = (room - value).max(1.0);
+        if font.measure_text(style.text, &row.title)? > title_room {
+            lines = text::wrap_with(
+                |line| font.measure_text(style.text, line),
+                &row.title,
+                title_room,
+                WHOLE_TITLE_LINES,
+            )?;
+        }
+    }
+    if lines.len() < 2 {
+        return Ok((Vec::new(), style.row));
+    }
+    let line = crate::geometry::line_px(font, style.text)?;
+    let block = line.saturating_mul(lines.len() as u16);
+    Ok((lines, style.row.max(block.saturating_add(style.gap))))
 }
 
 fn note_room(style: &Style, width: u16, zone: bool) -> f32 {
@@ -928,14 +983,17 @@ fn note_lines(
     font: &Font<'_>,
     style: &Style,
     width: u16,
-    note: &str,
-    zone: bool,
+    row: &RowItem,
 ) -> Result<Vec<String>, Error> {
     text::wrap_with(
         |line| font.measure_text(style.small, line),
-        note,
-        note_room(style, width, zone),
-        NOTE_LINES,
+        &row.note,
+        note_room(style, width, row.zone.is_some()),
+        if row.whole {
+            WHOLE_NOTE_LINES
+        } else {
+            NOTE_LINES
+        },
     )
 }
 
@@ -979,6 +1037,31 @@ pub(crate) fn heading(
 }
 
 /// What is behind a row: the focus, the separator, or a field's outline.
+/// The title and the value: on one line, or the lines a long title was
+/// wrapped to, centred in the band, the value beside the first.
+fn draw_title(
+    paint: &mut Vec<Paint>,
+    (font, style): (&Font<'_>, &Style),
+    cols: Rect,
+    row: &RowItem,
+    lines: &[String],
+    ink: paperpaw_sdk::Color,
+) -> Result<(), Error> {
+    if lines.is_empty() {
+        return columns(paint, font, style, cols, &row.title, &row.value, ink);
+    }
+    let line = crate::geometry::line_px(font, style.text)?;
+    let block = line.saturating_mul(lines.len() as u16);
+    let top = cols.y.saturating_add(cols.height.saturating_sub(block) / 2);
+    for (index, text) in lines.iter().enumerate() {
+        let at = top.saturating_add(line.saturating_mul(index as u16));
+        let rect = Rect::new(cols.x, at, cols.width, line);
+        let value = if index == 0 { row.value.as_str() } else { "" };
+        columns(paint, font, style, rect, text, value, ink)?;
+    }
+    Ok(())
+}
+
 fn row_backdrop(
     paint: &mut Vec<Paint>,
     style: &Style,
@@ -1018,7 +1101,8 @@ pub(crate) fn draw_row(
     } else {
         ink(style, focused)
     };
-    let mut band = Rect::new(rect.x, rect.y, rect.width, style.row.min(rect.height));
+    let (title_block, band_height) = title_lines(font, style, rect.width, row)?;
+    let mut band = Rect::new(rect.x, rect.y, rect.width, band_height.min(rect.height));
     let mut note_at = rect;
     if let Some(zone) = row.zone {
         let shift = zone_room(style).min(rect.width);
@@ -1075,7 +1159,7 @@ pub(crate) fn draw_row(
         }
         buttons = Some((minus, plus));
     }
-    columns(paint, font, style, cols, &row.title, &row.value, ink)?;
+    draw_title(paint, (font, style), cols, row, &title_block, ink)?;
     if row.note.is_empty() {
         return Ok(buttons);
     }
@@ -1084,7 +1168,7 @@ pub(crate) fn draw_row(
     } else {
         style.note
     };
-    let lines = note_lines(font, style, rect.width, &row.note, row.zone.is_some())?;
+    let lines = note_lines(font, style, rect.width, row)?;
     let line = crate::geometry::line_px(font, style.small)?;
     let mut y = band.y.saturating_add(band.height);
     for text in &lines {
@@ -1219,6 +1303,25 @@ mod tests {
         assert_eq!(row.title, "Search");
         assert!(Item::field("Search").unwrap().selectable());
         assert!(!matches!(Item::row("Search", "").unwrap(), Item::Row(r) if r.field));
+    }
+
+    #[test]
+    fn a_whole_row_is_a_row_with_the_flag_and_no_other_change() {
+        let Item::Row(whole) = Item::whole("Title", "Keep", "A long note").unwrap() else {
+            panic!("a row")
+        };
+        let Item::Row(noted) = Item::noted("Title", "Keep", "A long note").unwrap() else {
+            panic!("a row")
+        };
+        assert!(whole.whole && !noted.whole);
+        assert_eq!(
+            RowItem {
+                whole: false,
+                ..whole
+            },
+            noted
+        );
+        const { assert!(WHOLE_NOTE_LINES > NOTE_LINES && WHOLE_TITLE_LINES == 2) };
     }
 
     #[test]

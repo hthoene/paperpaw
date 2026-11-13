@@ -90,6 +90,7 @@ impl<'s> WordRows<'s> {
             disabled: false,
             on: None,
             field: false,
+            whole: false,
         }))
     }
 
@@ -132,6 +133,7 @@ impl<'s> WordRows<'s> {
                 disabled: false,
                 on: None,
                 field: false,
+                whole: false,
             });
         }
         Ok(rows)

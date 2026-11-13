@@ -72,6 +72,35 @@ fn the_menu_has_an_update_row_then_a_save_row_for_each_deck() {
 }
 
 #[test]
+fn the_menu_rows_show_their_whole_long_texts_not_cut_with_an_ellipsis() {
+    let storage = MemoryStorage::new();
+    put(&storage, "Spanish.tsv", "casa\thouse\n");
+    crate::sync::tests::run(&storage, false, true);
+    let decks = cards::decks(&storage).unwrap();
+    let ledger = sync::sources(&storage).unwrap();
+    let pending = sync::pending(&storage, FOLDER).unwrap();
+    let shown = Shown {
+        folder: FOLDER,
+        pending,
+        decks: &decks,
+        ledger: &ledger,
+    };
+    let mut view = MenuView::new(&mut words("en"), shown).unwrap();
+    let rows: Vec<_> = view
+        .list()
+        .items()
+        .iter()
+        .filter_map(|item| match item {
+            Item::Row(row) => Some(row),
+            Item::Heading(_) => None,
+        })
+        .collect();
+    assert!(rows.len() >= 3);
+    // Each row has a note, and each is told whole: wrapped, not cut.
+    assert!(rows.iter().all(|row| !row.note.is_empty() && row.whole));
+}
+
+#[test]
 fn the_rows_say_what_each_does_in_both_languages() {
     let storage = MemoryStorage::new();
     put(&storage, "Spanish.tsv", "casa\thouse\n");
