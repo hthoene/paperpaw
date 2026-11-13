@@ -303,13 +303,17 @@ impl Inputs {
     /// kernel wrote (a network saved as joined before, sealed as it is) is
     /// copied there, where the native Wi-Fi plugin looks for the networks it
     /// joins again. A real run shares the card: nothing to do. Bytes are
-    /// copied as they are; no value is read or logged.
+    /// copied as they are; no value is read or logged. The native store's
+    /// whole secrets file is replaced, so a secret a native plugin kept earlier
+    /// in the same run is gone (fine for the fixtures, which save before any
+    /// plugin runs).
     pub fn share_secrets(&self, kernel: &dyn Storage) {
         let (true, Some(native)) = (self.simulated, &self.storage) else {
             return;
         };
         let file = paperpaw_core::sdk::secrets::FILE;
-        if let Ok(Some(data)) = paperpaw_core::sdk::files::load_for_update(kernel, file, 1 << 20)
+        // Raw bytes: nothing to strip, and no file is nothing to copy.
+        if let Ok(data) = paperpaw_core::sdk::read_file(kernel, file, 1 << 20)
             && let Err(why) = native.write(file, &data)
         {
             eprintln!("the native plugins' secrets could not be seeded: {why:?}");
