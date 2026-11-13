@@ -84,9 +84,9 @@ impl WorkInputs {
         }
     }
 
-    pub(crate) fn env(self, owners: Shared<OwnerDirectory>, policy: Rc<NetPolicy>) -> WorkAdapter {
+    pub(crate) fn env(&self, owners: Shared<OwnerDirectory>, policy: Rc<NetPolicy>) -> WorkAdapter {
         WorkAdapter {
-            device: self.device,
+            device: self.device.clone(),
             owners,
             policy,
             level: Cell::new(0),
@@ -155,7 +155,19 @@ impl WorkEnv for WorkAdapter {
     }
 }
 
-/// The scheduler of a device, made once.
-pub(crate) fn scheduler(inputs: &WorkInputs) -> Rc<WorkSched> {
-    Rc::new(WorkSched::new(inputs.limits()))
+/// The scheduler of a device and its view, made at the first call of
+/// `core.work` (#248), every allocation fallible.
+///
+/// # Errors
+/// `ERR_NO_MEMORY`.
+pub(crate) fn make_work(
+    inputs: &WorkInputs,
+    owners: Shared<OwnerDirectory>,
+    policy: Rc<NetPolicy>,
+) -> Result<WorkServices, i32> {
+    let sched = Shared::try_new(WorkSched::new(inputs.limits())).map_err(|_| ERR_NO_MEMORY)?;
+    let env: alloc::boxed::Box<dyn WorkEnv> =
+        crate::native_host::shared::try_box(inputs.env(owners, policy)).ok_or(ERR_NO_MEMORY)?;
+    let env = Shared::try_new(env).map_err(|_| ERR_NO_MEMORY)?;
+    Ok(WorkServices { sched, env })
 }

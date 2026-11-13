@@ -13,6 +13,15 @@ impl<S: Services + 'static> SharedTable<S> {
     pub(super) const TABLE: &'static PpHost = &host_table::<S>();
 }
 
+impl<S: Services + 'static> super::Context<S> {
+    /// The one table every plugin hosted with `S` shares: a static, never a
+    /// copy per plugin (152 bytes on the X4), and not a pointer per plugin
+    /// either, as it follows from `S` (#248).
+    pub(crate) const fn table(&self) -> &'static PpHost {
+        SharedTable::<S>::TABLE
+    }
+}
+
 /// The table every plugin hosted with `S` is handed, as the loader hands it
 /// (`SharedTable`). A shell that exposes the same table under a name of its
 /// own (a static for a code scan) can check at start that it is this table:

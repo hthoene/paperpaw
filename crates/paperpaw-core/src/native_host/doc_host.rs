@@ -282,6 +282,14 @@ impl ImageMap for DocImages<'_> {
 }
 
 impl DocState {
+    /// Whether the reader's books hold their room (tests of `release_rooms`).
+    #[cfg(test)]
+    pub(crate) fn books_reserved(&self) -> bool {
+        self.books
+            .try_borrow()
+            .is_ok_and(|books| books.capacity() != 0)
+    }
+
     /// The state for a device with `limits` open documents and a screen whose
     /// long side is `long_side` pixels; reader holds go to `in_use`.
     ///
@@ -783,6 +791,18 @@ impl super::doc_service::DocHost for DocState {
         // The screens ask for their covers first: no details job meanwhile.
         self.job_resume_at
             .set(self.now.get().saturating_add(RESUME_AFTER_MS));
+        true
+    }
+    fn release_rooms(&self) -> bool {
+        if !self.table.release_rooms() {
+            return false;
+        }
+        // No document: no book is held either.
+        if let Ok(mut books) = self.books.try_borrow_mut()
+            && books.is_empty()
+        {
+            *books = Vec::new();
+        }
         true
     }
     fn allow_cover_jobs(&self) -> u64 {
