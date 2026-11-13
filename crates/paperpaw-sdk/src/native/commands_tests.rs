@@ -1212,6 +1212,22 @@ fn an_install_with_evidence_is_one_batch_in_the_contracts_order() {
     assert_eq!(batches[1].len(), 1);
     assert_eq!(batches[2].len(), 2);
     assert!(batches[2][1].starts_with("InstallRotation"));
+    // A store's install says so in bit 2; the others leave it clear.
+    assert!(first[0].ends_with("flags: 1 }"), "{}", first[0]);
+    assert!(batches[1][0].ends_with("flags: 2 }"), "{}", batches[1][0]);
+    sender
+        .install_plugin_with(
+            12,
+            InstallRoot::Data,
+            "staging/y",
+            true,
+            false,
+            &Evidence::new().from_catalog(),
+        )
+        .unwrap();
+    let batches = decoded(&ctx);
+    let last = batches.last().unwrap();
+    assert!(last[0].ends_with("flags: 5 }"), "{}", last[0]);
 }
 
 #[test]
