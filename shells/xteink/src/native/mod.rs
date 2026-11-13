@@ -551,6 +551,9 @@ impl Loader {
         let http: Rc<dyn ShellHttp> = bridge.clone();
         let net_limits = NetLimits::new(crate::host_net::POOL_BYTES, 2)
             .tls_sessions(crate::tls_slots::SESSIONS)
+            // The computer's lines over the cable (`PPT/1`, `usb_lines`) reach the
+            // plugin that serves `net_serve` port 0 (the transfer, #900).
+            .cable(true)
             .max_body(16 * 1024);
         let net = NetInputs::new(storage.clone(), http, network, net_limits);
         // `core.work` with them: its scheduler reads the same clock and the

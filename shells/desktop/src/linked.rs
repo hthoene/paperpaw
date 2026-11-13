@@ -620,7 +620,7 @@ pub fn prepare(
                 transport.clone(),
                 // The one pool and its TLS sessions are the same in both
                 // wirings (`SockLimits::large`: 4).
-                NetLimits::new(0, 8).tls_sessions(4),
+                NetLimits::new(0, 8).tls_sessions(4).cable(true),
             ))
             .sockets(
                 SockInputs::new(
