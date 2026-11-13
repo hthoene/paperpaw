@@ -232,6 +232,12 @@ impl ComposeHost<'_, '_> {
             return Err(ERR_UNSUPPORTED);
         }
         let target = target?;
+        // The owner hears of an instance before its first draw (ui.md 5.2).
+        if request.kind == ComposeKind::Widget
+            && let Ok(lease) = self.leases.lease(target.owner)
+        {
+            super::widget_drops::tell_made(self.handles, &lease, request.handle, self.env);
+        }
         ui_handles::draw_target(&draw, target, request, canvas)
     }
 }

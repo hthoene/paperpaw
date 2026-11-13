@@ -64,6 +64,10 @@ pub(crate) fn call(
         return Err(ERR_BUSY);
     }
     let input = input(payload)?;
+    // The owner hears of the instance before it is asked about it (ui.md 5.2).
+    if let (Some(ui), Some(instance)) = (frame.ui, instance_of(payload)) {
+        super::widget_drops::tell_made(&ui.widgets.handles, &lease, instance, frame.env);
+    }
     // The owner writes straight into the caller's buffer (the one 3,840-byte
     // buffer of the op); the reply is checked where it lies.
     let result = lease
@@ -78,6 +82,16 @@ pub(crate) fn call(
         lease.dropped(token, error);
     }
     result
+}
+
+/// The instance a `core.widget` call is about.
+fn instance_of(payload: &[u8]) -> Option<u32> {
+    match widget::input_decode(payload).ok()?.next()?.ok()? {
+        widget::Record::WidgetMeasure(call) => Some(call.instance),
+        widget::Record::WidgetPlace(call) => Some(call.instance),
+        widget::Record::WidgetTargets(call) => Some(call.instance),
+        _ => None,
+    }
 }
 
 /// The call as the stage's framed input: a `stage.call` naming `core.widget`

@@ -44,7 +44,17 @@ struct Child {
     stack: Rc<crate::native_host::stack_rows::StackRows>,
     /// The (owner, instance) the stack tracker named during each `draw`.
     running: Rc<RefCell<Vec<(u64, u32)>>>,
+    /// The `event.widget_made` it got: token, instance, widget, place and
+    /// the draws before it.
+    made: Rc<RefCell<Vec<Made>>>,
 }
+type Made = (
+    u32,
+    u32,
+    alloc::string::String,
+    alloc::string::String,
+    usize,
+);
 impl NativeInstance for Child {
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(Some(&[]));
@@ -58,8 +68,18 @@ impl NativeInstance for Child {
     }
 }
 impl Dispatch for Child {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
-        unreachable!()
+    fn event(&self, token: u32, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+        let Record::EventWidgetMade(made) = wire::records_decode_single(bytes)? else {
+            panic!("only event 84 is expected");
+        };
+        self.made.borrow_mut().push((
+            token,
+            made.instance,
+            made.widget.into(),
+            made.place.into(),
+            self.seen.borrow().len(),
+        ));
+        Ok(0)
     }
     fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
         unreachable!()
@@ -114,6 +134,7 @@ struct World {
     answer: Rc<Cell<i32>>,
     dropped: Rc<RefCell<Vec<i32>>>,
     running: Rc<RefCell<Vec<(u64, u32)>>>,
+    made: Rc<RefCell<Vec<Made>>>,
     widget: u32,
 }
 
@@ -135,6 +156,7 @@ fn world_on(device: paperpaw_platform::DeviceInfo) -> World {
     let answer = Rc::new(Cell::new(0));
     let dropped = Rc::new(RefCell::new(Vec::new()));
     let running = Rc::new(RefCell::new(Vec::new()));
+    let made = Rc::new(RefCell::new(Vec::new()));
     let kernel = crate::Kernel::builder(device)
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
         .build()
@@ -149,6 +171,7 @@ fn world_on(device: paperpaw_platform::DeviceInfo) -> World {
         dropped: Rc::clone(&dropped),
         stack: Rc::clone(&kernel.shared.stack_rows),
         running: Rc::clone(&running),
+        made: Rc::clone(&made),
     })
     .unwrap();
     let row = [Record::StatusItem(wire::StatusItem {
@@ -198,6 +221,7 @@ fn world_on(device: paperpaw_platform::DeviceInfo) -> World {
         seen,
         answer,
         dropped,
+        made,
         widget,
     }
 }
@@ -295,6 +319,63 @@ fn a_screens_draw_composes_a_widget_of_another_plugin_at_the_second_level() {
         Ok(())
     );
     assert_eq!(*w.dropped.borrow(), [-5]);
+}
+
+#[test]
+fn the_owner_hears_of_an_instance_another_plugin_made_before_its_first_draw() {
+    // picture-home (the caller) makes home's (the owner's) widget in its draw
+    // and composes it there: no pass between callbacks comes first.
+    let w = world();
+    let made = w
+        .pool
+        .hosts()
+        .ui()
+        .unwrap()
+        .widgets
+        .handles
+        .borrow_mut()
+        .make_told(
+            CALLER,
+            3,
+            &crate::native_host::ui_handles::NewWidget {
+                owner: OWNER,
+                token: TOKEN,
+                private: false,
+                widget: "remote.clock@2",
+                place: "picture-home.grid",
+            },
+        )
+        .unwrap();
+    let caller = crate::abi7::calls::Instance::new();
+    let _outer = caller.enter(&w.depth.as_depth().0).unwrap();
+    let request = ComposeRequest {
+        handle: made,
+        ..w.request()
+    };
+    for _ in 0..2 {
+        assert_eq!(
+            w.run(World::stamp(), w.generation(), true, &request),
+            Ok(())
+        );
+    }
+    assert_eq!(
+        *w.made.borrow(),
+        [(
+            TOKEN,
+            made,
+            "remote.clock@2".into(),
+            "picture-home.grid".into(),
+            0
+        )],
+        "told once, before the first draw"
+    );
+    assert_eq!(w.seen.borrow().len(), 2);
+    // An instance made without a notice (as `world` does) is told nothing.
+    assert_eq!(
+        w.run(World::stamp(), w.generation(), true, &w.request()),
+        Ok(())
+    );
+    assert_eq!(w.made.borrow().len(), 1);
 }
 
 #[test]

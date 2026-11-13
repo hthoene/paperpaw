@@ -412,6 +412,30 @@ fn the_kernels_items_are_answered_without_a_call_on_the_x4_too() {
 }
 
 #[test]
+fn op_4_lists_the_owners_notice_with_the_id_and_place_the_maker_named() {
+    world(|w| {
+        let (id, _) = w.make(ME, "a.w@2").unwrap();
+        // An own widget has no instance, so nobody is told.
+        w.make(ME, "me.w").unwrap();
+        let handles = w.hosts.ui().unwrap().widgets.handles.borrow();
+        assert_eq!(handles.made_waiting(), 1);
+        let made = handles
+            .next_made(crate::native_host::ui_handles::Pick::Instance(id))
+            .unwrap();
+        assert_eq!(
+            (
+                made.owner,
+                made.token,
+                made.instance,
+                made.widget(),
+                made.place()
+            ),
+            (A, 7, id, "a.w@2", "p")
+        );
+    });
+}
+
+#[test]
 fn under_a_guard_another_plugins_private_widget_is_denied() {
     world(|w| {
         // The caller's instance is the top; A's lock guards beneath it? No: a
