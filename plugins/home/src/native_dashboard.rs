@@ -64,14 +64,17 @@ struct Cell {
     span: Option<CellSpan>,
 }
 
+/// The footer's actions: each action and its name.
+type Actions = Vec<(String, String)>;
+
 /// The page as laid out: what shows, where, and what the buttons reach.
 #[derive(Debug)]
 struct Laid {
     frame: Frame,
     cells: Vec<Cell>,
     targets: Vec<Target>,
-    /// The footer's actions, in the order of `footer.actions`.
-    actions: Vec<String>,
+    /// The footer's actions with their names, in the order of `footer.actions`.
+    actions: Actions,
     pages: usize,
     dots: bool,
     tool_labels: bool,
@@ -408,7 +411,7 @@ impl Dashboard {
         shown: &[grid::Item],
         (footer, buttons): (&Footer, Buttons),
         cells: &mut Vec<Cell>,
-    ) -> Result<(Vec<Target>, Vec<String>), Error> {
+    ) -> Result<(Vec<Target>, Actions), Error> {
         for (index, item) in shown.iter().enumerate() {
             if let Some(cell) = Self::cell(host, ui, src, &frame.geometry, (index, item))? {
                 push(cells, cell)?;
@@ -416,8 +419,8 @@ impl Dashboard {
         }
         let targets = Self::targets(host, ui, cells, footer, buttons)?;
         let mut actions = Vec::new();
-        for (action, _, _) in src.footer.iter().take(footer.actions.len()) {
-            push(&mut actions, text::copy(action)?)?;
+        for (action, name, _) in src.footer.iter().take(footer.actions.len()) {
+            push(&mut actions, (text::copy(action)?, text::copy(name)?))?;
         }
         Ok((targets, actions))
     }
@@ -666,14 +669,35 @@ impl Dashboard {
     ) -> Result<(), Error> {
         for (at, target) in laid.targets.iter().enumerate() {
             let focused = self.focus.shown() && self.focus.at() == at;
-            paint::describe(
-                below,
-                describing,
-                PartRole::Button,
-                target.rect,
-                focused,
-                false,
-            )?;
+            // The footer's buttons show icons: each is named, as interface 6
+            // named them (a cell is named by the text drawn in it).
+            let name = match target.owner {
+                Owner::Button(Button::Pencil) => {
+                    laid.pencil.as_ref().map(|(_, word)| word.as_str())
+                }
+                Owner::Button(Button::Plus) => Some("+"),
+                Owner::Button(Button::Action(index)) => {
+                    laid.actions.get(index).map(|(_, name)| name.as_str())
+                }
+                _ => None,
+            };
+            match name {
+                Some(name) => paint::describe_named(
+                    below,
+                    describing,
+                    (PartRole::Button, target.rect, name),
+                    focused,
+                    false,
+                )?,
+                None => paint::describe(
+                    below,
+                    describing,
+                    PartRole::Button,
+                    target.rect,
+                    focused,
+                    false,
+                )?,
+            }
         }
         Ok(())
     }
@@ -985,7 +1009,7 @@ impl Dashboard {
                 CommandSender::new(host, &mut scratch).run_action(action)?;
             }
             Owner::Button(Button::Action(index)) => {
-                let Some(action) = laid.actions.get(index) else {
+                let Some((action, _)) = laid.actions.get(index) else {
                     return Ok(Next::Nothing);
                 };
                 let mut scratch = buffer(SERVICE_BUFFER)?;

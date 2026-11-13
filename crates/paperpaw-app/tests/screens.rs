@@ -196,7 +196,13 @@ impl App {
 #[test]
 fn home() {
     let mut app = App::new();
-    app.check("home");
+    // The native home tells its cells and footer buttons as buttons, each
+    // named (#243): its own snapshot.
+    app.check(if cfg!(feature = "native-linked") {
+        "home-native"
+    } else {
+        "home"
+    });
 }
 
 #[test]
