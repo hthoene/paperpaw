@@ -8,7 +8,7 @@ use crate::abi7::services_wire::service_schema;
 use crate::native_host::host_services::{Caller, HostServices};
 use alloc::{borrow::Cow, boxed::Box, format, string::String, vec::Vec};
 use paperpaw_i18n::Translator;
-use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND};
+use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{
     ActionSpec, Canvas, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError, Registrar,
@@ -786,4 +786,55 @@ fn a_removed_plugin_leaves_no_refusal_behind() {
     assert!(kept(&kernel));
     kernel.unload_plugin(&Id::new_static("demo"));
     assert!(!kept(&kernel));
+}
+
+#[test]
+fn a_plugin_a_store_installed_says_so_with_its_release_as_the_store_named_it() {
+    // The host's record: a store put in place cosy 2.1 and mine 1.0.0 (since
+    // replaced by another way's 2.0.0); a line naming a built-in counts for
+    // nothing.
+    let record = "cosy\t1.0.0\ncosy\t2.1\nmine\t1.0.0\ndemo\t1.2.3\n";
+    let mut storage =
+        paperpaw_sdk::MemoryStorage::new().with(".paperpaw/plugin-origin.txt", record);
+    for (name, version) in [("cosy", "2.1"), ("mine", "2.0.0"), ("own", "2.1")] {
+        let ini = format!("[plugin]\nname = {name}\nversion = {version}\nformats = 4\n");
+        storage = storage.with(&format!("plugins/{name}/plugin.ini"), ini);
+    }
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(Demo { actions: 1 })
+        .storage(storage)
+        .build()
+        .unwrap();
+    let (rows, _) = page(&kernel, schema::OP_PLUGINS, "");
+    let row = |id: &str| {
+        let head = format!("plugin {id} ");
+        rows.iter()
+            .find(|row| row.starts_with(&head))
+            .unwrap()
+            .clone()
+    };
+    // Enabled (bit 0) and installed by a store (bit 5), as it was named.
+    assert!(
+        row("cosy").contains(" 2.1 kind=1 state=0 flags=33 "),
+        "{rows:?}"
+    );
+    // Replaced since, put in place otherwise, built in: no bit 5.
+    assert!(
+        row("mine").contains(" 2.0.0 kind=1 state=0 flags=1 "),
+        "{rows:?}"
+    );
+    assert!(
+        row("own").contains(" 2.1.0 kind=1 state=0 flags=1 "),
+        "{rows:?}"
+    );
+    assert!(row("demo").contains(" flags=9 "), "{rows:?}");
+    // Op 6 says the same.
+    let reply = call(&kernel, schema::OP_PLUGIN, &key("cosy"), 4096).unwrap();
+    assert!(read(&reply).0[0].contains(" 2.1 kind=1 state=0 flags=33 "));
+    // Without room for the record the call is refused (asked again, it answers).
+    use crate::native_host::shell::tests::FAIL_SIZE;
+    FAIL_SIZE.with(|size| size.set(record.len()));
+    let refused = call(&kernel, schema::OP_PLUGINS, &query("", 0, 0), 4096);
+    let unspent = FAIL_SIZE.with(|size| size.replace(0));
+    assert_eq!((refused.err(), unspent), (Some(ERR_NO_MEMORY), 0));
 }
