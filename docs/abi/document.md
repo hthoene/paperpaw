@@ -787,9 +787,10 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
 - [D] **An entry that opens more** (interface 6 `LookupEntry::more`; Beta 3's *Open Wikipedia ›*
   in the dictionary panel): `opens` names a screen that shows more of the entry (a whole
   article), empty for none. The host passes it on as the provider wrote it; the asker shows a line
-  for it in its own words and opens it with `command.open` (`ui.md` 1), whose check decides, with a
-  hand-over of the params `word` (the ask's `text`) and `language` and the entry's text as the
-  hand-over's text. A pending entry may name it too.
+  for it in its own words and opens it with `command.open` mode 0 (a screen, `ui.md` 1; not mode
+  1, which opens a slot), whose check decides, with a hand-over of the params `word` (the ask's
+  `text`) and `language` and the entry's text as the hand-over's text. A pending entry may name it
+  too.
 - [D] **Provider names:** the registry refuses a `lookup.spec` whose `name` is empty or longer than
   64 bytes with `ERR_INVALID` (`lookup_entry.provider` holds 64), so every entry names its provider.
 - [D] **Caps and names:** at most 8 `lookup.spec` per plugin (a ninth is `ERR_INVALID` for the
