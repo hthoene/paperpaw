@@ -263,6 +263,11 @@ impl NativeFontsBrowser {
     /// The pages show what can be done now: the font on top, and the list's
     /// states (installed, reading, how far a download is).
     pub(super) fn refresh(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        // No page of this plugin open: nothing is read (the registry's 4 KiB)
+        // nor drawn, as when a store install changes the plugins.
+        if self.screens.top(FONT).is_none() && self.screens.top(LIST).is_none() {
+            return Ok(());
+        }
         let installed = self.installed(host)?;
         let running = self.running()?;
         if let Some(View::Font(view)) = self.screens.top(FONT) {
