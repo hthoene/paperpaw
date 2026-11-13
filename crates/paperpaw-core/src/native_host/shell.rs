@@ -339,9 +339,6 @@ impl<S: Services + 'static, M> Hosted<S, M> {
         declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
         resources.bind_caller(id).map_err(Error::Status)?;
-        let scoped_resources = resources
-            .try_view()
-            .ok_or(Error::Status(host_glue::ERR_NO_MEMORY))?;
         let context = Context {
             report,
             resources,
@@ -352,7 +349,7 @@ impl<S: Services + 'static, M> Hosted<S, M> {
             calls: parked::HostCalls::default(),
             registrations: RegistrationScope::new(),
             commands: super::commands::CommandScope::new(),
-            environment: EnvironmentScope::with_resources(scoped_resources),
+            environment: EnvironmentScope::new(),
             canvas: CanvasScope::new(),
         };
         let owner = pin_owner(HostOwner::new(context, module))?;
@@ -360,9 +357,9 @@ impl<S: Services + 'static, M> Hosted<S, M> {
         // SAFETY: the owner pins Context<S> and keeps it alive through every
         // callback and cleanup. Report<S> promises no panic or reentry.
         unsafe {
-            context.environment.set_cleanup_reporter(
+            context.environment.set_cleanup(
                 (context.get_ref() as *const Context<S>).cast(),
-                report_blob_cleanup::<S>,
+                expire_blobs::<S>,
             );
         }
         Ok(Self {
@@ -673,9 +670,13 @@ pub(crate) mod teardown_fault {
     }
 }
 
-unsafe fn report_blob_cleanup<S: 'static>(raw: *const c_void, status: i32) {
+/// After each callback: its blobs expire; a failure is reported.
+unsafe fn expire_blobs<S: 'static>(raw: *const c_void) {
     // SAFETY: Hosted::new installed the exact pinned Context<S> pointer.
     let context = unsafe { &*raw.cast::<Context<S>>() };
+    let Err(status) = context.resources.expire_blobs() else {
+        return;
+    };
     let error = if status == host_glue::ERR_BUSY {
         super::Error::Busy
     } else {

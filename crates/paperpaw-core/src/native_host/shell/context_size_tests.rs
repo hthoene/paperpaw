@@ -7,7 +7,7 @@ use core::mem::size_of;
 /// The bytes a context may take besides its services, on a 64-bit host
 /// (the emulator); the X4 takes about half.
 #[cfg(target_pointer_width = "64")]
-const CONTEXT_BYTES: usize = 272;
+const CONTEXT_BYTES: usize = 256;
 
 #[cfg(target_pointer_width = "64")]
 #[test]

@@ -324,7 +324,10 @@ fn service_budget_refusal_never_allocates_another_x4_page() {
     use paperpaw_platform::Instant;
     let pool = HostResources::try_new().unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let declared =
         DeclaredServices::try_from_iter(["core.plugin", "core.usage"].into_iter().map(|key| {
             Declared {
@@ -415,8 +418,14 @@ fn nested_plugin_query_shares_the_x4_blob_budget_until_outer_release() {
     let pool = HostResources::try_new().unwrap();
     let outer = pool.try_owner().unwrap();
     let inner = pool.try_owner().unwrap();
-    let outer_scope = pin!(EnvironmentScope::with_resources(outer.try_view().unwrap()));
-    let inner_scope = pin!(EnvironmentScope::with_resources(inner.try_view().unwrap()));
+    let (outer_view, inner_view) = (outer.try_view().unwrap(), inner.try_view().unwrap());
+    let outer_scope = pin!(EnvironmentScope::new());
+    let inner_scope = pin!(EnvironmentScope::new());
+    // SAFETY: the views outlive the scopes' callbacks.
+    unsafe {
+        outer_scope.expire_view(&outer_view);
+        inner_scope.expire_view(&inner_view);
+    }
     let declared = DeclaredServices::try_from_iter(core::iter::once(Declared {
         key: "core.usage",
         major: 1,
