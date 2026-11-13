@@ -16,7 +16,7 @@ use super::codec;
 use super::native_instances::InstanceState;
 use super::native_screen::Dispatch;
 use super::registrations::{self as wire, Record};
-use super::ui_handles::{Dropped, UiHandles};
+use super::ui_handles::{Dropped, Pick, UiHandles};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::Env;
@@ -47,9 +47,12 @@ pub(crate) fn tell_made(
     env: &Env<'_>,
 ) {
     let mut record = [0u8; MADE_BYTES];
-    let Ok(Some((notice, len))) =
-        made_record(handles, Some(instance), env.now().millis(), &mut record)
-    else {
+    let Ok(Some((notice, len))) = made_record(
+        handles,
+        Pick::Instance(instance),
+        env.now().millis(),
+        &mut record,
+    ) else {
         return;
     };
     // The outcome is the plugin's own: the notice ends either way.
@@ -57,18 +60,17 @@ pub(crate) fn tell_made(
     made_told(handles, instance);
 }
 
-/// The `event.widget_made` record of `instance`, or of the oldest made
-/// instance when `None`, for its owner's token (ui.md 5.2), in `out`: the
-/// notice and the length; `None` when nothing waits. `ERR_BUSY` while the
-/// table is in use.
+/// The `event.widget_made` record of the notice `pick` names, for its
+/// owner's token (ui.md 5.2), in `out`: the notice and the length; `None`
+/// when it does not wait. `ERR_BUSY` while the table is in use.
 pub(super) fn made_record(
     handles: &RefCell<UiHandles>,
-    instance: Option<u32>,
+    pick: Pick,
     now_ms: u64,
     out: &mut [u8],
 ) -> Result<Option<(Dropped, usize)>, i32> {
     let handles = handles.try_borrow().map_err(|_| ERR_BUSY)?;
-    let Some(made) = handles.next_made(instance) else {
+    let Some(made) = handles.next_made(pick) else {
         return Ok(None);
     };
     let record = Record::EventWidgetMade(wire::EventWidgetMade {
@@ -97,33 +99,46 @@ fn made_told(handles: &RefCell<UiHandles>, instance: u32) -> bool {
 
 impl crate::Kernel {
     /// Tells the owners of made widget instances, oldest first, outside of
-    /// any native callback; an owner that cannot be called loses its notice.
-    /// `true` when a plugin was called (what it staged is the next round's).
+    /// any native callback. An owner not started yet keeps its notice and is
+    /// asked to start (told on a later pass, once it runs); one that cannot be
+    /// called otherwise (stopped, gone) loses it. `true` when a plugin was
+    /// called (what it staged is the next round's).
     // Its own frame: not inlined into `run_commands` (#250).
     #[inline(never)]
     pub(crate) fn deliver_widget_made(&mut self) -> bool {
         let mut called = false;
+        // Notices kept for owners not started yet come first in the list.
+        let mut kept = 0;
         for _ in 0..PER_PASS {
-            if self.shared.native_instances.depth() != 0 {
+            let instances = &self.shared.native_instances;
+            if instances.depth() != 0 {
                 break;
             }
-            let Some(ui) = self.shared.native_instances.ui_services() else {
+            let Some(ui) = instances.ui_services() else {
                 break;
             };
             let handles = &ui.widgets.handles;
             let mut record = [0u8; MADE_BYTES];
             let now = self.now;
-            let Ok(Some((notice, len))) = made_record(handles, None, now.millis(), &mut record)
+            let Ok(Some((notice, len))) =
+                made_record(handles, Pick::Nth(kept), now.millis(), &mut record)
             else {
-                // Nothing waits, or the table is in use: the next pass tries.
+                // Nothing (more) waits, or the table is in use: the next pass tries.
                 break;
             };
-            if let Ok(InstanceState::Running(lease)) =
-                self.shared.native_instances.state(notice.owner)
-            {
-                let env = self.shared.env(now);
-                let _ = lease.event(notice.token, record.get(..len).unwrap_or(&[]), &env);
-                called = true;
+            match instances.state(notice.owner) {
+                Ok(InstanceState::Running(lease)) => {
+                    let env = self.shared.env(now);
+                    let _ = lease.event(notice.token, record.get(..len).unwrap_or(&[]), &env);
+                    called = true;
+                }
+                // Not started yet: started, and told on a later pass.
+                Ok(InstanceState::Lazy) if instances.request_start(notice.owner).is_ok() => {
+                    kept += 1;
+                    continue;
+                }
+                // Stopped or gone: nobody to tell.
+                _ => {}
             }
             if !made_told(handles, notice.instance) {
                 break;

@@ -32,7 +32,7 @@
 use super::registrations::DrawFrame;
 use crate::abi7::context::{ComposeKind, ComposeRequest};
 use alloc::vec::Vec;
-pub(crate) use made::{Made, NewWidget};
+pub(crate) use made::{Made, NewWidget, Pick};
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND,
@@ -294,7 +294,8 @@ impl UiHandles {
         }
         // Room for the notice was taken when the instance was made.
         let gone = self.widgets.swap_remove(at);
-        self.dropped.push(gone.notice());
+        made::gone(&mut self.made, &mut self.dropped, gone.notice());
+        self.free_made_room();
         Ok(())
     }
 
@@ -327,14 +328,15 @@ impl UiHandles {
     /// told ([`Self::next_dropped`]). Allocation-free (see [`Self::make_widget`]).
     pub(crate) fn drop_screen(&mut self, screen: u32) -> usize {
         let before = self.widgets.len();
-        let dropped = &mut self.dropped;
+        let (dropped, told) = (&mut self.dropped, &mut self.made);
         self.widgets.retain(|w| {
             let gone = w.screen == screen;
             if gone {
-                dropped.push(w.notice());
+                made::gone(told, dropped, w.notice());
             }
             !gone
         });
+        self.free_made_room();
         before - self.widgets.len()
     }
 
@@ -391,14 +393,15 @@ impl UiHandles {
     pub(crate) fn drop_plugin(&mut self, plugin: u64) {
         self.dropped.retain(|d| d.owner != plugin);
         self.forget_made(plugin);
-        let dropped = &mut self.dropped;
+        let (dropped, told) = (&mut self.dropped, &mut self.made);
         self.widgets.retain(|w| {
             let gone = w.maker == plugin || w.owner == plugin;
             if gone && w.owner != plugin {
-                dropped.push(w.notice());
+                made::gone(told, dropped, w.notice());
             }
             !gone
         });
+        self.free_made_room();
         self.status
             .retain(|s| s.caller != plugin && s.owner != plugin);
     }

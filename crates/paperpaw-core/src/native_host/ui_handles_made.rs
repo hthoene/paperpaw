@@ -8,12 +8,15 @@
 //! instance is made, so a refusal leaves nothing. Core tells it between
 //! callbacks, before the drops (`widget_drops.rs`), or inside the maker's
 //! callback right before the owner's first `core.widget` call or nested draw
-//! for the instance. A notice ends at its first attempt whatever came of it,
-//! as a drop's does, and at once when its owner stops. At most the widget cap
-//! of notices wait; the list keeps no room once it is empty.
-use super::UiHandles;
+//! for the instance. An owner not started yet keeps its notice and is asked
+//! to start; it is told once it runs. A notice ends at its first attempt
+//! whatever came of it, as a drop's does, at once when its owner stops, and
+//! with its instance: an instance dropped before its owner heard of it is
+//! told neither (the owner keeps nothing of it). So at most one notice waits
+//! per live instance; the list keeps no room once it is empty.
+use super::{Dropped, UiHandles};
 use alloc::{string::String, vec::Vec};
-use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 
 /// Another plugin's widget op 4 makes an instance of, as the directory and
 /// the maker name it.
@@ -28,6 +31,13 @@ pub(crate) struct NewWidget<'a> {
     pub(crate) widget: &'a str,
     /// `ui_widget_ref.place`.
     pub(crate) place: &'a str,
+}
+
+/// Which notice: the one of an instance, or the `n`th waiting, oldest first.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Pick {
+    Instance(u32),
+    Nth(usize),
 }
 
 /// A made instance its owner is yet to hear of.
@@ -58,18 +68,15 @@ impl Made {
 
 impl UiHandles {
     /// Op 4 for another plugin's widget: [`Self::make_widget`], and the notice
-    /// its owner is to get. `ERR_FULL` when the cap of notices wait, besides
-    /// the instance's own refusals; `ERR_NO_MEMORY` when the heap refuses.
-    /// Nothing is made or listed on any refusal.
+    /// its owner is to get (one per live instance at most, so the widget cap
+    /// holds them). The instance's refusals, `ERR_NO_MEMORY` when the heap
+    /// refuses: nothing is made, listed or kept on any refusal.
     pub(crate) fn make_told(
         &mut self,
         maker: u64,
         screen: u32,
         new: &NewWidget<'_>,
     ) -> Result<u32, i32> {
-        if self.made.len() >= self.widget_cap {
-            return Err(ERR_FULL);
-        }
         let split = u16::try_from(new.widget.len()).map_err(|_| ERR_INVALID)?;
         let length = new
             .widget
@@ -81,7 +88,14 @@ impl UiHandles {
         text.push_str(new.widget);
         text.push_str(new.place);
         self.made.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        let instance = self.make_widget(new.owner, maker, screen, new.token, new.private)?;
+        let instance = match self.make_widget(new.owner, maker, screen, new.token, new.private) {
+            Ok(instance) => instance,
+            Err(error) => {
+                // The room taken for the notice goes again with no notice.
+                self.free_made_room();
+                return Err(error);
+            }
+        };
         self.made.push(Made {
             owner: new.owner,
             token: new.token,
@@ -92,11 +106,11 @@ impl UiHandles {
         Ok(instance)
     }
 
-    /// The notice of `instance`, or the oldest one when `None`.
-    pub(crate) fn next_made(&self, instance: Option<u32>) -> Option<&Made> {
-        match instance {
-            Some(id) => self.made.iter().find(|m| m.instance == id),
-            None => self.made.first(),
+    /// The notice `pick` names, if it waits.
+    pub(crate) fn next_made(&self, pick: Pick) -> Option<&Made> {
+        match pick {
+            Pick::Instance(id) => self.made.iter().find(|m| m.instance == id),
+            Pick::Nth(n) => self.made.get(n),
         }
     }
 
@@ -104,14 +118,17 @@ impl UiHandles {
     /// its notice ends (the list's room too, once it is empty).
     pub(crate) fn made_told(&mut self, instance: u32) {
         self.made.retain(|m| m.instance != instance);
-        if self.made.is_empty() {
-            self.made = Vec::new();
-        }
+        self.free_made_room();
     }
 
     /// `plugin` stopped: nothing is told to it any more.
     pub(super) fn forget_made(&mut self, plugin: u64) {
         self.made.retain(|m| m.owner != plugin);
+        self.free_made_room();
+    }
+
+    /// The list's room goes once nothing waits.
+    pub(super) fn free_made_room(&mut self) {
         if self.made.is_empty() {
             self.made = Vec::new();
         }
@@ -121,5 +138,18 @@ impl UiHandles {
     #[cfg(test)]
     pub(crate) fn made_waiting(&self) -> usize {
         self.made.len()
+    }
+}
+
+/// An instance goes: its owner is to hear of the drop, unless it has not
+/// heard of the instance yet, when its made notice goes and nothing is told.
+/// Allocation-free (the room for the drop was taken with the instance); the
+/// caller gives the list's room back ([`UiHandles::free_made_room`]).
+pub(super) fn gone(made: &mut Vec<Made>, dropped: &mut Vec<Dropped>, notice: Dropped) {
+    match made.iter().position(|m| m.instance == notice.instance) {
+        Some(at) => {
+            made.remove(at);
+        }
+        None => dropped.push(notice),
     }
 }

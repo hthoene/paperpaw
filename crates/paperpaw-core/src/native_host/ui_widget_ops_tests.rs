@@ -361,7 +361,9 @@ fn op_4_lists_the_owners_notice_with_the_id_and_place_the_maker_named() {
         w.make(ME, "me.w").unwrap();
         let handles = w.hosts.ui().unwrap().widgets.handles.borrow();
         assert_eq!(handles.made_waiting(), 1);
-        let made = handles.next_made(Some(id)).unwrap();
+        let made = handles
+            .next_made(crate::native_host::ui_handles::Pick::Instance(id))
+            .unwrap();
         assert_eq!(
             (
                 made.owner,
