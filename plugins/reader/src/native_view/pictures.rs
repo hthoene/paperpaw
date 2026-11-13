@@ -32,6 +32,11 @@ pub(super) enum Pass {
     /// A book just opened on a page with pictures: their boxes are asked for
     /// when the screen is shown; until then its draws keep their places empty.
     Ask,
+    /// Their boxes are asked for and the page has not been drawn since: the
+    /// screen shown again in that time (the host tells a show twice when a
+    /// book opens) asks for nothing more, or the boxes came twice, the first
+    /// time before their pictures (#257, todo 597).
+    Asked,
 }
 
 impl Pass {
@@ -40,8 +45,12 @@ impl Pass {
     /// each of its bands), which draws them; every draw after that does too.
     pub(super) fn drawing(&mut self, follow_up: bool) -> Pictures {
         match (*self, follow_up) {
+            (Self::Asked, false) => {
+                *self = Self::Pending;
+                Pictures::Places
+            }
             (Self::Pending | Self::Ask, false) => Pictures::Places,
-            (Self::Pending | Self::Ask, true) | (Self::Whole, _) => {
+            (Self::Pending | Self::Ask | Self::Asked, true) | (Self::Whole, _) => {
                 *self = Self::Whole;
                 Pictures::Drawn
             }
@@ -86,23 +95,49 @@ impl Open {
         // never leaves the pictures' places empty.
         self.pictures = Pass::Whole;
         redraw(host, mode)?;
-        if !self.has_pictures() {
+        self.ask_boxes(host, docs);
+        Ok(())
+    }
+
+    /// The pictures of a page the show of the screen draws (or drew) with
+    /// their places empty are asked for in a frame of their own: the page
+    /// is not drawn a second time (#257, todo 597: an opened book drew its
+    /// page twice before its cover). Where the host takes no boxes, the page
+    /// is drawn again with its pictures.
+    ///
+    /// # Errors
+    /// The host's refusal to redraw.
+    pub(super) fn show_pictures(&mut self, host: &Host<'_>, docs: &Documents) -> Result<(), Error> {
+        if self.pictures == Pass::Asked || self.ask_boxes(host, docs) {
             return Ok(());
+        }
+        redraw(host, RedrawMode::Partial)
+    }
+
+    /// The boxes of the page's pictures are asked for again (after any
+    /// picture without a live id): whether the host takes them, and the
+    /// draws until their frame keep their places empty ([`Pass::Asked`]);
+    /// else the next draw draws them ([`Pass::Whole`]).
+    fn ask_boxes(&mut self, host: &Host<'_>, docs: &Documents) -> bool {
+        self.pictures = Pass::Whole;
+        if !self.has_pictures() {
+            return false;
         }
         self.ask_missing(host, docs);
         let Some(page) = self.page.as_ref() else {
-            return Ok(());
+            return false;
         };
         let Some(area) = Setup::read(host).ok().and_then(|setup| self.area(&setup)) else {
-            return Ok(());
+            return false;
         };
         // The boxes from the top left of the screen's region, as its draw
         // has them (`draw_with`: the content box, then the picture).
         let origin = (f32::from(area.x), f32::from(area.y));
-        if ask_second_pass(host, picture_boxes(page, origin)) {
-            self.pictures = Pass::Pending;
+        let taken = ask_second_pass(host, picture_boxes(page, origin));
+        if taken {
+            self.pictures = Pass::Asked;
         }
-        Ok(())
+        taken
     }
 }
 
@@ -243,6 +278,17 @@ mod tests {
         assert_eq!(pass.drawing(true), Pictures::Drawn);
         // Any frame after: with them.
         assert_eq!(pass.drawing(false), Pictures::Drawn);
+        assert_eq!(pass, Pass::Whole);
+    }
+
+    #[test]
+    fn boxes_asked_wait_for_a_draw_before_they_are_asked_again() {
+        // Asked: the page has not been drawn since (a second show asks
+        // nothing); its first draw keeps the places empty and waits.
+        let mut pass = Pass::Asked;
+        assert_eq!(pass.drawing(false), Pictures::Places);
+        assert_eq!(pass, Pass::Pending);
+        assert_eq!(pass.drawing(true), Pictures::Drawn);
         assert_eq!(pass, Pass::Whole);
     }
 
