@@ -5,7 +5,9 @@
 //! Root 0 is the plugin's data folder `.paperpaw/plugins/<id>/`. A path is
 //! validated as a relative path first and joined under that folder after,
 //! so it cannot name the install folder `plugins/<id>/` or anything else
-//! outside (S5). Root 1 and later are reserved.
+//! outside (S5). Root 1 is the user's files from the card's top, for a
+//! plugin the slot let in (`uses.storage`, `files.md` 1.1); roots 3, 4 and 6
+//! are a format call's document; the others are reserved.
 //!
 //! The reserve (S4) trusts [`Storage::free_space`] and
 //! [`Storage::total_space`]: `free_space` never says more than is free
@@ -22,6 +24,7 @@
 //! Counting (S7) is the `Metered` storage the adapter is given: bytes read,
 //! bytes written and `sync` calls of the plugin whose code runs.
 
+use super::files_service::{Access, FilesHost};
 use super::format_scope::{BookKind, FormatBook};
 use alloc::borrow::Cow;
 use paperpaw_native::host_glue::{
@@ -33,6 +36,8 @@ use paperpaw_sdk::Id;
 
 /// Root 0: the plugin's own data folder.
 pub const ROOT_PLUGIN: u32 = 0;
+/// Root 1: the user's files from the card's top (`uses.storage`).
+pub(crate) const ROOT_CARD: u32 = 1;
 /// Longest path a plugin passes, in bytes.
 pub const MAX_PATH: usize = 512;
 /// Longest segment of a path, in bytes.
@@ -60,6 +65,17 @@ pub struct StorageAdapter<'a> {
     /// The document of the format call the plugin is in, for roots 3, 4 and 6
     /// (`document.md` 3, Roots); `None` outside such a call.
     format: Option<&'a FormatBook<'a>>,
+    /// Root 1 for this call (the slot checked `uses.storage`); `None`: no root 1.
+    card: Option<Card<'a>>,
+}
+
+/// Root 1 of one slot call: what else holds the user's files, beyond the
+/// host writers' paths (`in_use`). `files` is `core.files`'s host where it is
+/// wired: a change of a path it says is busy (the library's move job, the
+/// reader's book) is `ERR_BUSY`, as on `core.files` (`files.md` section 3).
+#[derive(Clone, Copy)]
+pub(crate) struct Card<'a> {
+    pub(crate) files: Option<&'a dyn FilesHost>,
 }
 
 impl core::fmt::Debug for StorageAdapter<'_> {
@@ -85,6 +101,7 @@ impl<'a> StorageAdapter<'a> {
             folder: Cow::Owned(folder),
             in_use: None,
             format: None,
+            card: None,
         })
     }
 
@@ -107,6 +124,7 @@ impl<'a> StorageAdapter<'a> {
             folder: Cow::Borrowed(folder),
             in_use,
             format: None,
+            card: None,
         })
     }
 
@@ -114,6 +132,12 @@ impl<'a> StorageAdapter<'a> {
     /// document of `book`.
     pub(crate) fn with_format(mut self, book: &'a FormatBook<'a>) -> Self {
         self.format = Some(book);
+        self
+    }
+
+    /// The adapter for a call on root 1, the user's files (`files.md` 1.1).
+    pub(crate) fn with_card(mut self, card: Card<'a>) -> Self {
+        self.card = Some(card);
         self
     }
 
@@ -131,6 +155,9 @@ impl<'a> StorageAdapter<'a> {
         write: bool,
         with: impl FnOnce(&str) -> Result<R, i32>,
     ) -> Result<R, i32> {
+        if root == ROOT_CARD {
+            return self.resolve_card(path, with);
+        }
         if root != ROOT_PLUGIN {
             return self.resolve_format(root, path, write, with);
         }
@@ -149,6 +176,31 @@ impl<'a> StorageAdapter<'a> {
             return Err(ERR_INVALID);
         }
         with(joined)
+    }
+
+    /// Root 1, the card's top: `ERR_UNSUPPORTED` where the call has no root 1,
+    /// the path rules, then the root-1 exclusions `core.files` keeps
+    /// (`plugins`, `.paperpaw`, `paperpaw.ini` as the first segment, in any
+    /// spelling the card takes for one, also an 8.3 alias): `ERR_INVALID`. A
+    /// running data plugin's folder stays refused here (`files.md` 1.1: only
+    /// `stat`, `list` and `image_prepare` reach it).
+    #[inline(never)]
+    fn resolve_card<R>(
+        &self,
+        path: &[u8],
+        with: impl FnOnce(&str) -> Result<R, i32>,
+    ) -> Result<R, i32> {
+        if self.card.is_none() {
+            return Err(ERR_UNSUPPORTED);
+        }
+        let relative = relative_path(path)?;
+        let first = relative.split('/').next().unwrap_or_default();
+        if super::owner_paths::protected_first(first)
+            || super::storage_files::excluded_on(self.storage, ROOT_CARD, "", first)
+        {
+            return Err(ERR_INVALID);
+        }
+        with(relative)
     }
 
     /// Roots 3 (the book), 4 (the user's CSS file) and 6 (the document's
@@ -248,12 +300,17 @@ impl<'a> StorageAdapter<'a> {
     }
 
     /// `ERR_BUSY` when a host writer holds `joined` (a file it is saving to, or
-    /// its staged file).
-    fn free_of_host_writers(&self, joined: &str) -> Result<(), i32> {
-        match self.in_use {
-            Some(table) if table.holds(joined, self.storage.ignores_case()) => Err(ERR_BUSY),
-            _ => Ok(()),
-        }
+    /// its staged file) or, on root 1, `core.files`'s host says `access` to it
+    /// is busy ([`Card`]).
+    fn free_of_host_writers(&self, joined: &str, access: Access) -> Result<(), i32> {
+        let held = self
+            .in_use
+            .is_some_and(|table| table.holds(joined, self.storage.ignores_case()));
+        let busy = self
+            .card
+            .and_then(|card| card.files)
+            .is_some_and(|files| files.busy(joined, access));
+        if held || busy { Err(ERR_BUSY) } else { Ok(()) }
     }
 
     /// Makes the folders above `joined`, where the storage needs them made.
@@ -330,7 +387,7 @@ impl<'a> StorageAdapter<'a> {
             return Err(ERR_NO_SPACE);
         }
         self.resolve(root, path, true, |p| {
-            self.free_of_host_writers(p)?;
+            self.free_of_host_writers(p, Access::Write)?;
             self.check_room(data.len())?;
             // A write replaces the file: what it held is not counted twice.
             let credit = if replaces && root == 6 {
@@ -384,8 +441,8 @@ impl<'a> StorageAdapter<'a> {
         self.resolve(root, from, true, |f| {
             self.resolve(root, to, true, |t| {
                 // Neither end may be a file a host writer holds.
-                self.free_of_host_writers(f)?;
-                self.free_of_host_writers(t)?;
+                self.free_of_host_writers(f, Access::Rename)?;
+                self.free_of_host_writers(t, Access::Rename)?;
                 // What the rename replaces is not in the cache any more.
                 let credit = if root == 6 { self.size_of(t) } else { 0 };
                 let moved = match self.storage.rename(f, t) {
@@ -411,7 +468,7 @@ impl<'a> StorageAdapter<'a> {
     /// An `ERR_*` status.
     pub fn remove(&self, root: u32, path: &[u8]) -> Result<(), i32> {
         self.resolve(root, path, true, |p| {
-            self.free_of_host_writers(p)?;
+            self.free_of_host_writers(p, Access::Remove)?;
             let credit = if root == 6 { self.size_of(p) } else { 0 };
             match self.storage.remove(p) {
                 Ok(()) => {

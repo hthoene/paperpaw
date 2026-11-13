@@ -1,0 +1,3 @@
+### Fixed
+
+- **Native plugins reach the user's files through the storage slots** (#228, #257). Slots 20-26 now serve root 1, the card's user files, as `files.md` 1.1 says: open with the signed `uses.storage` feature, `ERR_DENIED` without it, `ERR_UNSUPPORTED` where the host offers no card files. `plugins/`, `.paperpaw/` and `paperpaw.ini` stay out (any case, 8.3 aliases), and a change of a path the host holds (the open book, a download, the library's move job) is `ERR_BUSY`, as on `core.files`. Before, every root-1 call was refused, so vocabulary's card files read as "This file could not be read".

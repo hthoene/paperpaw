@@ -50,6 +50,8 @@ fn within_on(
     let format = Some(Format {
         scope: &scope,
         owner: OWNER,
+        features: AdmittedFeatures::default(),
+        files: None,
     });
     scoped(backend, |env, kernel| {
         let _running = kernel.shared.meter.enter(FORMAT);
@@ -321,6 +323,8 @@ fn another_plugin_is_not_in_the_call() {
     let format = Some(Format {
         scope: &scope,
         owner: OWNER + 1,
+        features: AdmittedFeatures::default(),
+        files: None,
     });
     scoped(&card(), |env, kernel| {
         let _running = kernel.shared.meter.enter(FORMAT);
