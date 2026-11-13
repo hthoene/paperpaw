@@ -139,7 +139,7 @@ agree (a host test).
   are reserved (0), and a reader ignores bits it does not know. No public keys are listed:
   verifying is the host's.
 - [D] `dev_native` (interface 6 `env.native()`): `abi_major` 7, `abi_draft` the interface draft,
-  `target` the chip id (5 ESP32-C3), `code_file` (`code.ppn`), `safe_mode` 0 none, 1 the last starts
+  `target` the chip id (5 ESP32-C3; 0 no chip: a device with no firmware image of its own, such as the Boox), `code_file` (`code.ppn`), `safe_mode` 0 none, 1 the last starts
   with code plugins failed, 2 the user held the key at power-on (unknown values as 1);
   `crashed` the plugin that was running when a start failed and `last_loaded` the plugin loaded last
   (each empty when not known, interface 6 `SafeMode`); `pending` how many installed or removed code
