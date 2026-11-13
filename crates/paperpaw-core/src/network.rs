@@ -248,7 +248,7 @@ impl Kernel {
         cable.last = Some(now.0);
         // The native server on the cable takes the lines, unless an
         // interface-6 server runs on it (`native_host::cable_pump`).
-        let line = match self.native_cable() {
+        let line = match self.native_cable_for_line() {
             Some(device) => match self.native_cable_line(&device, line, paused) {
                 Some(line) => line,
                 None => return self.finish(),

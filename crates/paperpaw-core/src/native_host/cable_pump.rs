@@ -41,6 +41,20 @@ impl Kernel {
         self.cable_device()
     }
 
+    /// [`Self::native_cable`] for a line from the computer: `core.net` wired
+    /// with the cable is made at the cable's first line (#248), as at a
+    /// plugin's first call.
+    pub(crate) fn native_cable_for_line(&self) -> Option<Shared<NetDevice>> {
+        if self.io.servers.cable_server().is_some() {
+            return None;
+        }
+        self.shared
+            .native_instances
+            .hosts()?
+            .cable_net_for_line()?
+            .try_clone()
+    }
+
     /// `core.net`'s device where it is made and serves the cable,
     /// interface-6 server or not (the lines it queued still go out).
     fn cable_device(&self) -> Option<Shared<NetDevice>> {

@@ -101,8 +101,10 @@ fn world_on(card: Rc<dyn Storage>) -> World {
 }
 
 impl World {
+    /// The device, made as a plugin's first call or the cable's first line
+    /// makes it.
     fn device(&self) -> crate::native_host::shared::Shared<NetDevice> {
-        self.kernel.native_cable().unwrap()
+        self.kernel.native_cable_for_line().unwrap()
     }
 
     fn with_caller<T>(&self, f: impl FnOnce(&NetDevice, &Caller<'_>) -> T) -> T {
@@ -392,4 +394,26 @@ fn a_whole_upload_is_on_the_card_before_it_is_told() {
     let path = alloc::format!(".paperpaw/plugins/cab/.received/1/{}", told[0].0);
     assert!(card.entry_identity(&path).unwrap().is_some());
     assert_eq!(card.size(&path).unwrap(), 5);
+}
+
+/// `core.net` is made at its first call (#248): wired with the cable, the
+/// cable's first line makes it, and the request waits for the server as on a
+/// device that had made it at once.
+#[test]
+fn the_cables_first_line_makes_the_network_device() {
+    let mut w = world();
+    assert!(w.kernel.native_cable().is_none(), "not made at wiring");
+    w.line(1_000, "PPT/1 1 GET /api/hello 0");
+    assert!(w.kernel.native_cable().is_some(), "made by the line");
+    assert!(w.sent().is_empty(), "held, not answered");
+    assert_eq!(w.kernel.native_cable_due(), Some(1_000 + HOLD_MS));
+}
+
+/// Without a line nothing makes it: the service pump's passes only look.
+#[test]
+fn no_line_no_network_device() {
+    let mut w = world();
+    let _ = w.kernel.tick(Instant(1_000));
+    w.kernel.native_cable_pump();
+    assert!(w.kernel.native_cable().is_none());
 }

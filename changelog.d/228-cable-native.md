@@ -6,3 +6,4 @@
 
 - **A received upload is on the card before the plugin hears of it** (#228). The cable's last body part syncs the card first; on FAT an appended file's entry was not written yet, so a book sent over the cable could not be imported (`ERR_UNSUPPORTED`), and a power cut could lose a body already answered for. A card that cannot sync refuses the upload with 500.
 - **A question Back closed is answered before anything else** (#228). Answers that wait when a service pass starts reach their askers before requests and events are served, so a computer's next request no longer finds a cancelled question still open.
+- **The cable's first line makes `core.net`** (#228, #248). With `core.net` made at its first call, a shell that wires it with the cable gets the device made when the computer's first line comes; the service pump's passes never make it.
