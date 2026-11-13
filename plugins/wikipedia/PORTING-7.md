@@ -50,9 +50,10 @@ native/metadata.json --bytes native/metadata.bin --json native/metadata.inspecte
   `opens` = `wikipedia.lookup` (*Open Wikipedia ›*). As in Beta 3, no article, a network not reached
   (every request that did not get through, or no network service) or an unexpected answer is an
   entry saying so. Scripted-host flow: `tests/native_provider_flow.rs`. Acceptance through the
-  dictionary panel waits for the asker (Port A). The host does not stage `command.lookup_ready` yet
-  (`ERR_UNSUPPORTED`, a step after #1387): the provider keeps its answer all the same, so the
-  asker's next ask gets it; the ignored case `the_end_of_the_request_tells_the_askers` waits for it.
+  dictionary panel waits for the asker (Port A). The host stages `command.lookup_ready` (#1407): it
+  ends the matching pending asks and sends `event.lookup_ready` to the askers that subscribed;
+  where it is refused, the provider keeps its answer all the same, so the asker's next ask gets it
+  (`the_end_of_the_request_tells_the_askers`).
 - **The summary given by the dictionary's panel** (done): the screen an entry opens shows the
   summary the provider kept for the word (whole), else the hand-over's text (`core.ui` op 10, the
   entry's text, at most 2,048 bytes; a longer one is not an entry's and is left out), and fetches

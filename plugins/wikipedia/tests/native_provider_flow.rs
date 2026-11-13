@@ -163,10 +163,8 @@ fn a_text_that_grows_under_the_read_is_left_out() {
 }
 
 /// The end of the request tells the askers: `command.lookup_ready` with the
-/// ask's text and language. The host does not stage the command yet (it is
-/// refused, and the provider keeps its answer all the same).
+/// ask's text and language.
 #[test]
-#[ignore = "needs the host to stage command.lookup_ready (separate step after #1387)"]
 fn the_end_of_the_request_tells_the_askers() {
     let (host, _log) = host_with_net(200);
     let p = host.load(NATIVE_ENTRY.entry()).unwrap();
