@@ -110,7 +110,7 @@ pub fn name_lines(font: &Font<'_>, style: &Style, cell: Rect, name: &str) -> Res
 }
 
 /// `name` in `room` as interface 6 fitted a tool's name: on one line, a
-/// little smaller where that is what it takes (down to [`LEAST`] of
+/// little smaller where that is what it takes (down to `LEAST` of
 /// `small`); else on up to [`NAME_LINES`] lines broken between words or
 /// after a hyphen written in one, never inside a word; else on one line
 /// that ends in "…". `measure` gives a text's width at a size.
