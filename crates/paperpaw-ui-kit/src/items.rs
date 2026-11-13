@@ -10,7 +10,7 @@ use paperpaw_sdk::{
     Handled, Point, Rect,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
+        callbacks::{DrawFrame, DrawPurpose, FrameRect, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         snapshot,
@@ -150,6 +150,9 @@ pub struct ItemList {
     pub(crate) grip_rects: Vec<(Rect, usize)>,
     /// The row a finger has taken along and the row it would land on.
     drag: Option<(usize, usize)>,
+    /// Where the last frame's region began on the screen: the rows are drawn
+    /// in screen pixels, a redraw area is asked for in the region's.
+    origin: (i32, i32),
 }
 
 impl ItemList {
@@ -376,8 +379,7 @@ impl ItemList {
         match step {
             ItemStep::Focus(to) => {
                 if to != self.focus {
-                    let mut scratch = [0; 64];
-                    CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+                    self.redraw_focus(host, self.focus, to)?;
                     self.focus = to;
                 }
             }
@@ -391,6 +393,34 @@ impl ItemList {
             ItemStep::Ignored => {}
         }
         Ok(step)
+    }
+
+    /// Asks for the frame a focus step from row `from` to row `to` needs: the
+    /// two rows alone where both are on the page drawn last (as interface 6's
+    /// `request_redraw_area`), the screen where the step leaves the page or
+    /// the host refuses an area.
+    fn redraw_focus(&self, host: &Host<'_>, from: usize, to: usize) -> Result<(), Error> {
+        let mut scratch = [0; 64];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        if let (Some(left), Some(reached)) = (self.rect_of(from), self.rect_of(to)) {
+            let (x, y) = self.origin;
+            let area = |rect: Rect| {
+                FrameRect::new(
+                    i32::from(rect.x).saturating_sub(x),
+                    i32::from(rect.y).saturating_sub(y),
+                    u32::from(rect.width),
+                    u32::from(rect.height),
+                )
+            };
+            if sender
+                .queue_redraw_area(RedrawMode::Partial, area(left))
+                .and_then(|()| sender.queue_redraw_area(RedrawMode::Partial, area(reached)))
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+        sender.queue_redraw(RedrawMode::Partial)
     }
 
     /// `Handled::Yes` for what the list took.
@@ -532,6 +562,7 @@ impl ItemList {
         self.hits = hits;
         self.steps = steps;
         self.grip_rects = grip_rects;
+        self.origin = (frame.rect.x, frame.rect.y);
         Ok(())
     }
 }
