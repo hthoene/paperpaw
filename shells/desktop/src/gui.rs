@@ -374,6 +374,7 @@ impl ApplicationHandler for App {
         // and lines on standard input are looked for regularly.
         if self.device.http.in_flight > 0
             || self.device.servers.any()
+            || self.device.native_serving()
             || self.device.sockets.any()
             || self.cable.is_some()
         {

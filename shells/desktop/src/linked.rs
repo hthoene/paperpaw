@@ -532,7 +532,12 @@ pub fn register(
         .lookup()
         .work(WorkInputs::new(inputs.view.clone(), profile.device.memory));
     // HTTP over the card (saved and sent files); no card, no `core.net`.
+    // The files `core.net` saves, sends and receives are the card's, as
+    // `core.files` has them (a run on simulated time keeps only its secrets in
+    // memory: `inputs.storage`).
+    let net_card = inputs.card.clone();
     let transport = inputs.storage.clone().map(|storage| {
+        let storage = net_card.unwrap_or(storage);
         let transport = Rc::new(crate::native_net::NativeNet::new(
             storage.clone(),
             inputs.view.clone(),
