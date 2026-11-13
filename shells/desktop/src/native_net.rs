@@ -795,7 +795,10 @@ mod tests {
         crate::http::set_route(Some(Box::new(Upgrading(Rc::default()))));
         let net = NativeNet::new(Rc::new(MemoryStorage::new()), Rc::default());
         let nothing = |_, _: HttpDone<'_>| {};
-        assert!(!net.pump_with(None, &nothing, &|_| Ok(())), "nothing in flight");
+        assert!(
+            !net.pump_with(None, &nothing, &|_| Ok(())),
+            "nothing in flight"
+        );
         let call = flight("GET", "https://a.example/x", &[], None, None, 0).call;
         net.begin(call, None, 0).unwrap();
         assert!(net.pump_with(None, &nothing, &|_| Ok(())), "an answer");

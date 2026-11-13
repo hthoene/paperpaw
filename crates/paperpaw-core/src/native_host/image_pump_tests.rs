@@ -296,7 +296,11 @@ fn a_plugin_that_did_not_subscribe_loses_the_answer_without_a_call() {
     let said: Vec<_> = w.kernel.take_warnings();
     let lost = said
         .iter()
-        .filter(|warning| warning.message.contains("did not subscribe to event.image_ready"))
+        .filter(|warning| {
+            warning
+                .message
+                .contains("did not subscribe to event.image_ready")
+        })
         .count();
     assert_eq!(lost, 1, "{said:?}");
     // And nothing stays held for it.
