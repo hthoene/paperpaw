@@ -264,7 +264,7 @@ impl WindowList {
         source.fill(host, first, per_page, &mut rows)?;
         rows.truncate(per_page);
         let mut body = Vec::new();
-        paint::push(&mut body, Paint::Fill(area, style.paper))?;
+        paint::push(&mut body, Paint::Fill(style.page(area), style.paper))?;
         let mut hits = Vec::new();
         hits.try_reserve_exact(rows.len())
             .map_err(|_| Error::NoMemory)?;
@@ -338,7 +338,7 @@ fn draw_window_row(
     let note = text::fit(font, style.small, &row.note, room)?;
     let line = crate::geometry::line_px(font, style.small)?;
     let color = if focused && !style.ring {
-        style.paper
+        style.on_bar()
     } else {
         style.note
     };

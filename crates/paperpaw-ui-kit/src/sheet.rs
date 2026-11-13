@@ -5,7 +5,9 @@ use crate::{
     Messages, Paint, Style,
     items::{Item, ItemList, draw_row, heading, item_height, paginate},
     paint::{self},
+    style::Plate,
     text,
+    widget::Frame,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -107,6 +109,10 @@ impl ItemList {
         let font = Font::acquire_role(host, FontRole::Ui)?;
         let mut style = Style::read(host, &display, &font)?;
         style.describing = matches!(frame.purpose, DrawPurpose::Screen) && paint::asking(frame);
+        // The frame the theme chose for all (a line along the top edge unless).
+        let plate = style.plate(Frame::Line);
+        style.ink = plate.ink;
+        style.paper = plate.paper;
         let (width, height) = (display.display_width(), display.display_height());
         let mut heights = Vec::new();
         heights
@@ -144,8 +150,7 @@ impl ItemList {
             false,
             false,
         )?;
-        paint::push(&mut body, Paint::Fill(sheet.region, style.paper))?;
-        paint::push(&mut body, Paint::Fill(sheet.border, style.ink))?;
+        paint_plate(&mut body, &sheet, &plate)?;
         let mut hits = Vec::new();
         let mut steps = Vec::new();
         let mut y = sheet.list.y;
@@ -191,6 +196,17 @@ impl ItemList {
         self.steps = steps;
         Ok(sheet.region)
     }
+}
+
+/// The sheet's plate: its colour (paper where the theme chose no plate) and, with
+/// a line, the border along its top edge.
+fn paint_plate(paint: &mut Vec<Paint>, sheet: &Geometry, plate: &Plate) -> Result<(), Error> {
+    let fill = plate.fill.unwrap_or(plate.paper);
+    paint::push(paint, Paint::Fill(sheet.region, fill))?;
+    if plate.outline {
+        paint::push(paint, Paint::Fill(sheet.border, plate.line))?;
+    }
+    Ok(())
 }
 
 /// The pager's "page N of M" text.
@@ -335,5 +351,42 @@ mod tests {
         let s = geometry(&[60; 5], &m);
         assert_eq!(s.region.height, 10);
         assert!(s.list.height <= 10);
+    }
+}
+
+#[cfg(test)]
+mod plate_tests {
+    use super::*;
+    use paperpaw_sdk::Color;
+
+    fn sheet() -> Geometry {
+        Geometry {
+            region: Rect::new(0, 500, 480, 300),
+            border: Rect::new(0, 500, 480, 4),
+            list: Rect::new(0, 504, 480, 296),
+            pager: None,
+        }
+    }
+
+    fn drawn(style: &Style) -> alloc::string::String {
+        let mut paint = Vec::new();
+        paint_plate(&mut paint, &sheet(), &style.plate(Frame::Line)).unwrap();
+        alloc::format!("{paint:?}")
+    }
+
+    #[test]
+    fn a_sheet_is_paper_with_a_border_and_follows_the_frame_a_theme_chose() {
+        let mut style = Style::themed(Color::BLACK, Color::WHITE);
+        let expect = [
+            Paint::Fill(sheet().region, Color::WHITE),
+            Paint::Fill(sheet().border, Color::BLACK),
+        ];
+        assert_eq!(drawn(&style), alloc::format!("{expect:?}"));
+        style.frame = Some(Frame::Card);
+        let expect = [Paint::Fill(sheet().region, style.card)];
+        assert_eq!(drawn(&style), alloc::format!("{expect:?}"));
+        style.frame = Some(Frame::None);
+        let expect = [Paint::Fill(sheet().region, Color::WHITE)];
+        assert_eq!(drawn(&style), alloc::format!("{expect:?}"));
     }
 }

@@ -216,12 +216,18 @@ const paperpaw_sdk::builtin::settings::BOOK_LINE_HEIGHT: paperpaw_sdk::setting::
 const paperpaw_sdk::builtin::settings::BOOK_MARGINS: paperpaw_sdk::setting::Setting<bool> = Setting::new("core.book-margins")
 const paperpaw_sdk::builtin::settings::BOOK_SIZES: paperpaw_sdk::setting::Setting<bool> = Setting::new("core.book-sizes")
 const paperpaw_sdk::builtin::settings::BOOK_SPACING: paperpaw_sdk::setting::Setting<bool> = Setting::new("core.book-spacing")
+const paperpaw_sdk::builtin::settings::BUTTON_FILLED: &str = "core.button.filled"
+const paperpaw_sdk::builtin::settings::BUTTON_FLAT: &str = "core.button.flat"
 const paperpaw_sdk::builtin::settings::BUTTON_HINTS: paperpaw_sdk::setting::Setting<bool> = Setting::new("core.button-hints")
+const paperpaw_sdk::builtin::settings::BUTTON_OUTLINED: &str = "core.button.outlined"
 const paperpaw_sdk::builtin::settings::CLOCK_FORMAT: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.clock-format")
 const paperpaw_sdk::builtin::settings::CONTRAST_NORMAL: &str = "core.contrast.normal"
 const paperpaw_sdk::builtin::settings::CONTRAST_STRONG: &str = "core.contrast.strong"
 const paperpaw_sdk::builtin::settings::CORNERS: &[&str] = &[ "core.corners.square", "core.corners.small", "core.corners.round", "core.corners.soft", ]
 const paperpaw_sdk::builtin::settings::DEFAULT_FONT: &str = "core.font.default"
+const paperpaw_sdk::builtin::settings::DENSITY_COMPACT: &str = "core.density.compact"
+const paperpaw_sdk::builtin::settings::DENSITY_REGULAR: &str = "core.density.regular"
+const paperpaw_sdk::builtin::settings::DENSITY_ROOMY: &str = "core.density.roomy"
 const paperpaw_sdk::builtin::settings::DEVELOPER: paperpaw_sdk::setting::Setting<bool> = Setting::new("core.developer")
 const paperpaw_sdk::builtin::settings::DOUBLE_TAP_MS: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.double-tap-ms")
 const paperpaw_sdk::builtin::settings::EDGE_ENDS: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.edge-ends")
@@ -235,6 +241,7 @@ const paperpaw_sdk::builtin::settings::FONT_WEIGHT: paperpaw_sdk::setting::Setti
 const paperpaw_sdk::builtin::settings::FOOTNOTES: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.footnotes")
 const paperpaw_sdk::builtin::settings::FOOTNOTES_JUMP: &str = "core.footnotes.jump"
 const paperpaw_sdk::builtin::settings::FOOTNOTES_POPUP: &str = "core.footnotes.popup"
+const paperpaw_sdk::builtin::settings::FRAME_OWN: &str = "core.frame.own"
 const paperpaw_sdk::builtin::settings::FRONTLIGHT: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.frontlight")
 const paperpaw_sdk::builtin::settings::FRONTLIGHT_WARMTH: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.frontlight-warmth")
 const paperpaw_sdk::builtin::settings::FULL_REFRESH_INTERVAL: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.full-refresh-interval")
@@ -310,9 +317,12 @@ const paperpaw_sdk::builtin::settings::TEXT_SHARPNESS: paperpaw_sdk::setting::Se
 const paperpaw_sdk::builtin::settings::TEXT_SHARPNESS_LEVELS: &[&str] = &[ "core.text-sharpness.soft", "core.text-sharpness.normal", "core.text-sharpness.sharp", ]
 const paperpaw_sdk::builtin::settings::TIME_ZONE: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.time-zone")
 const paperpaw_sdk::builtin::settings::TIME_ZONE_RULE: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.time-zone-rule")
+const paperpaw_sdk::builtin::settings::UI_BUTTON: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.ui-button")
 const paperpaw_sdk::builtin::settings::UI_CONTRAST: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.ui-contrast")
 const paperpaw_sdk::builtin::settings::UI_CORNERS: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.ui-corners")
+const paperpaw_sdk::builtin::settings::UI_DENSITY: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.ui-density")
 const paperpaw_sdk::builtin::settings::UI_FOCUS: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.ui-focus")
+const paperpaw_sdk::builtin::settings::UI_FRAME: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.ui-frame")
 const paperpaw_sdk::builtin::settings::UI_GROUPS: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.ui-groups")
 const paperpaw_sdk::builtin::settings::UI_HEADER: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.ui-header")
 const paperpaw_sdk::builtin::settings::UI_LINES: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.ui-lines")
@@ -320,6 +330,7 @@ const paperpaw_sdk::builtin::settings::UI_MARGIN: paperpaw_sdk::setting::Setting
 const paperpaw_sdk::builtin::settings::UI_PALETTE: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.ui-palette")
 const paperpaw_sdk::builtin::settings::UI_ROW: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.ui-row")
 const paperpaw_sdk::builtin::settings::UI_SEPARATORS: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.ui-separators")
+const paperpaw_sdk::builtin::settings::UI_SHADOW: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.ui-shadow")
 const paperpaw_sdk::builtin::settings::UI_SIZE: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.ui-size")
 const paperpaw_sdk::builtin::settings::UI_TEXT_CURVE: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.ui-text-curve")
 const paperpaw_sdk::builtin::settings::UI_TITLE: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.ui-title")

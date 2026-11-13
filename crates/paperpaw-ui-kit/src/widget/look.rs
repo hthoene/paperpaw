@@ -563,6 +563,7 @@ mod tests {
         assert_eq!(colour("core.ink.auto"), Colour::Auto);
         assert_eq!(colour("#12"), Colour::Auto);
     }
+
     fn themed(ink: Color, paper: Color) -> Style {
         Style::themed(ink, paper)
     }
