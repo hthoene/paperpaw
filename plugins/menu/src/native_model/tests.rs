@@ -249,7 +249,7 @@ fn rows_keep_their_order() {
 
 /// What a row says of the value of a setting, in the language of `en`/`de` files.
 fn said(catalog: &paperpaw_i18n::Catalog, info: &SettingInfo) -> String {
-    crate::native_plugin::value_text(info, "On", "Off", &mut |key, _| {
+    crate::native_plugin::value_text(info, "On", "Off", &mut |key| {
         Ok(catalog.get(key).unwrap_or(key).to_string())
     })
     .unwrap()
@@ -286,7 +286,7 @@ fn a_choice_is_said_by_its_translated_title_not_by_its_key() {
 fn a_switch_a_number_and_a_text_are_said_as_before() {
     // Nothing is translated here: asked to, the closure fails the row.
     let say = |kind, value| {
-        crate::native_plugin::value_text(&info(kind, Some(value)), "On", "Off", &mut |_, _| {
+        crate::native_plugin::value_text(&info(kind, Some(value)), "On", "Off", &mut |_| {
             Err(paperpaw_sdk::native::Error::State)
         })
         .unwrap()
@@ -306,38 +306,10 @@ fn a_choice_with_no_text_in_the_catalogs_is_said_as_it_is_and_a_real_failure_fai
         Some(Value::Text("Literal".to_string())),
     );
     for refused in [Error::NotFound, Error::Invalid] {
-        let said = crate::native_plugin::value_text(&choice, "On", "Off", &mut |_, _| Err(refused));
+        let said = crate::native_plugin::value_text(&choice, "On", "Off", &mut |_| Err(refused));
         assert_eq!(said.unwrap(), "Literal", "{refused:?}");
     }
     let failed =
-        crate::native_plugin::value_text(&choice, "On", "Off", &mut |_, _| Err(Error::NoMemory));
+        crate::native_plugin::value_text(&choice, "On", "Off", &mut |_| Err(Error::NoMemory));
     assert_eq!(failed, Err(Error::NoMemory));
-}
-
-#[test]
-fn a_unit_that_is_a_catalog_key_is_said_in_the_form_the_number_selects() {
-    use paperpaw_sdk::native::Error;
-    let mut unit_info = info(SettingKind::Int, Some(Value::Int(50)));
-    unit_info.unit = "core.unit.percent".to_string();
-    let say = |info: &SettingInfo, text: Result<&str, Error>| {
-        let mut asked = Vec::new();
-        let said = crate::native_plugin::value_text(info, "On", "Off", &mut |key, count| {
-            asked.push((key.to_string(), count));
-            text.map(str::to_string)
-        });
-        (said, asked)
-    };
-    let (said, asked) = say(&unit_info, Ok("50 %"));
-    assert_eq!(said.unwrap(), "50 %");
-    assert_eq!(asked, [("core.unit.percent".to_string(), Some(50))]);
-    // A key the catalogs lack is put after the number, as a unit written out.
-    let (said, _) = say(&unit_info, Err(Error::NotFound));
-    assert_eq!(said.unwrap(), "50 core.unit.percent");
-    // A real failure fails; a unit that is no key is not asked for.
-    assert_eq!(
-        say(&unit_info, Err(Error::NoMemory)).0,
-        Err(Error::NoMemory)
-    );
-    unit_info.unit = "min".to_string();
-    assert_eq!(say(&unit_info, Err(Error::State)).0.unwrap(), "50 min");
 }

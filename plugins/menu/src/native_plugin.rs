@@ -19,7 +19,6 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         events::{Event, Incoming, kinds},
-        formatting::Arg,
         registrations,
         reply::Reply,
         settings::SettingValue,
@@ -504,9 +503,7 @@ impl NativeMenu {
             let value = match (row.kind, info) {
                 (Kind::Submenu, _) => copy("›")?,
                 (Kind::Setting, Some(info)) => {
-                    let text = value_text(info, &on, &off, &mut |key, count| {
-                        say(&mut messages, host, key, count)
-                    })?;
+                    let text = value_text(info, &on, &off, &mut |key| messages.copy(host, key))?;
                     if editing == Some(index) {
                         concat(&["‹ ", &text, " ›"])?
                     } else {
@@ -751,15 +748,15 @@ pub(crate) fn value_text(
     info: &SettingInfo,
     on: &str,
     off: &str,
-    translate: &mut Translate<'_>,
+    translate: &mut dyn FnMut(&str) -> Result<String, Error>,
 ) -> Result<String, Error> {
     match &info.value {
         Some(Value::Bool(true)) => copy(on),
         Some(Value::Bool(false)) => copy(off),
-        Some(Value::Int(v)) => int_text(*v, &info.unit, translate),
+        Some(Value::Int(v)) => with_unit(*v, &info.unit),
         Some(Value::Text(v)) if info.kind == SettingKind::Choice && !v.is_empty() => {
             // A value that is no key of the catalogs is said as it is (as `tr` does).
-            match translate(v, None) {
+            match translate(v) {
                 Err(Error::NotFound | Error::Invalid) => copy(v),
                 said => said,
             }
@@ -767,39 +764,6 @@ pub(crate) fn value_text(
         Some(Value::Text(v)) => copy(v),
         None => copy(""),
     }
-}
-
-/// Says a catalog key: the plain text, or the form a count selects.
-pub(crate) type Translate<'a> = dyn FnMut(&str, Option<i64>) -> Result<String, Error> + 'a;
-
-/// A catalog text: the plain one, or the form `count` selects.
-pub(crate) fn say(
-    messages: &mut Messages,
-    host: &Host<'_>,
-    key: &str,
-    count: Option<i64>,
-) -> Result<String, Error> {
-    match count {
-        Some(count) => messages.format(host, key, &[Arg::Count(count)]),
-        None => messages.copy(host, key),
-    }
-}
-
-/// A number with its unit. A unit a plugin declares is a catalog key
-/// (`core.unit.percent`) that says the number in the form it selects; one
-/// that is no key, or has no text, is put after the number as written.
-pub(crate) fn int_text(
-    value: i64,
-    unit: &str,
-    translate: &mut Translate<'_>,
-) -> Result<String, Error> {
-    if unit.contains('.') && !unit.contains(['{', ' ']) {
-        match translate(unit, Some(value)) {
-            Err(Error::NotFound | Error::Invalid) => {}
-            said => return said,
-        }
-    }
-    with_unit(value, unit)
 }
 
 /// A depth as text.
