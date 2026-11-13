@@ -535,7 +535,7 @@ mod kernel_side {
     fn a_data_plugin_whose_swap_a_sleep_finishes_is_loaded_too() {
         // A sleep after each number of steps: one comes during the swap,
         // which then finishes in the stop's bounded steps, not in a pump.
-        let mut in_the_sleep = 0;
+        let mut in_the_stop = 0;
         for pumps in 0..40 {
             let mut kernel = data_only_kernel();
             kernel
@@ -573,8 +573,15 @@ mod kernel_side {
             let on_card = kernel.storage().exists("plugins/dials/plugin.ini");
             let loaded = kernel.plugins().get("dials").is_some();
             assert_eq!(on_card, loaded, "a sleep after {pumps} steps");
-            in_the_sleep += usize::from(loaded && !before);
+            // Finished by the sleep pass's pump, event 70 ran with that pass's
+            // commands (as the sleep's own event); finished by the stop's
+            // steps, after them, it waits for the next pass.
+            let waits = kernel.output.commands.iter().any(|c| {
+                matches!(c, crate::Command::Emit(e, _)
+                    if *e == paperpaw_sdk::builtin::events::PLUGINS_CHANGED)
+            });
+            in_the_stop += usize::from(loaded && !before && waits);
         }
-        assert!(in_the_sleep > 0, "no sleep came during a swap");
+        assert!(in_the_stop > 0, "no swap finished in the stop's steps");
     }
 }

@@ -394,6 +394,14 @@ impl Kernel {
             return;
         }
         self.feed_install_grants(&driver);
+        self.firmware_finish_steps(&driver);
+    }
+
+    /// The steps of [`Self::firmware_finish_due`], and the load of a data
+    /// plugin whose swap they finished. Its own frame: the id it keeps is
+    /// not on the frame-limited pass's (#250).
+    #[inline(never)]
+    fn firmware_finish_steps(&mut self, driver: &super::firmware_cell::DriverRef) {
         // Taken only with the driver in hand: a driver lent out now keeps
         // the steps asked for, and the next pass takes them.
         let installed = {
