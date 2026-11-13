@@ -302,7 +302,7 @@ impl LibQuery for CatalogReads {
         generation: u32,
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
-        self.with_path(book, |path| {
+        self.with_book_file(book, |path| {
             self.old
                 .adopt(&*self.storage, path, old_reader::Kept::Annotations);
             annotations::annotations(&*self.storage, path, cursor, generation, visit)
@@ -316,7 +316,7 @@ impl LibQuery for CatalogReads {
         generation: u32,
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
-        self.with_path(book, |path| {
+        self.with_book_file(book, |path| {
             self.old
                 .adopt(&*self.storage, path, old_reader::Kept::Annotations);
             annotations::anchors(&*self.storage, path, cursor, generation, visit)
@@ -324,7 +324,7 @@ impl LibQuery for CatalogReads {
     }
 
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
-        self.with_path(book, |path| {
+        self.with_book_file(book, |path| {
             self.old
                 .adopt(&*self.storage, path, old_reader::Kept::Position);
             position::read(&*self.storage, path, visit)
@@ -352,6 +352,41 @@ impl CatalogReads {
         f: impl FnOnce(&str) -> Result<R, i32>,
     ) -> Result<R, i32> {
         self.with_path(book, f)
+    }
+
+    /// [`path_of`](Self::path_of) for a book's own files, kept by its path
+    /// ([`with_book_file`](Self::with_book_file)).
+    pub(crate) fn book_file_of<R>(
+        &self,
+        book: BookRef<'_>,
+        f: impl FnOnce(&str) -> Result<R, i32>,
+    ) -> Result<R, i32> {
+        self.with_book_file(book, f)
+    }
+
+    /// Calls `f` with the root-1 path of a book whose own files are kept by
+    /// its path (its position, its annotations): a book in the catalog, as
+    /// [`with_path`](Self::with_path), and one named by its path that the
+    /// catalog does not know yet but the card holds. That is every book of a
+    /// library's first session until a view of the library asks for the walk:
+    /// Beta 3 kept a book's marks and place by its path and never asked the
+    /// catalog, and so does this (#257). A book named by its catalog handle is
+    /// in the catalog.
+    pub(super) fn with_book_file<R>(
+        &self,
+        book: BookRef<'_>,
+        f: impl FnOnce(&str) -> Result<R, i32>,
+    ) -> Result<R, i32> {
+        let BookRef::Path(path) = book else {
+            return self.with_path(book, f);
+        };
+        match self.locate(book) {
+            Ok(_) => {}
+            // A file, not a folder (whose size the card does not give).
+            Err(ERR_NOT_FOUND) if self.storage.size(path).is_ok() => {}
+            Err(error) => return Err(error),
+        }
+        f(path)
     }
 
     /// Calls `f` with the root-1 path of the book, which is in the catalog.
