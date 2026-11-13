@@ -18,7 +18,8 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::{mem::MaybeUninit, ops::ControlFlow};
-use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED};
+use paperpaw_sdk::Pick;
 use paperpaw_sdk::{
     Level, SettingKind, SettingSpec, SettingValue, Settings,
     builtin::{groups::OTHER, slots::SETTINGS},
@@ -173,14 +174,15 @@ fn source(sources: &Sources<'_>, spec: &SettingSpec) -> u32 {
 pub(super) fn governing<'s>(sources: &Sources<'_>, all: &'s Settings) -> Option<Vec<&'s str>> {
     let mut declared = 0_usize;
     native_extra::each_governing(sources, all, &mut |_| declared += 1);
+    // An extra is of a spec kept as it is: none a plugin describes is made.
     let count = all
-        .specs()
+        .kept_specs()
         .filter(|spec| spec.extra().shown_if.is_some())
         .count();
     let mut ids = Vec::new();
     ids.try_reserve_exact(count.checked_add(declared)?).ok()?;
     ids.extend(
-        all.specs()
+        all.kept_specs()
             .filter_map(|spec| spec.extra().shown_if.as_ref())
             .map(|(of, _)| of.as_str()),
     );
@@ -309,19 +311,23 @@ fn settings(
     let all = sources.env.settings();
     let is_group = scope == OTHER.static_str() || all.groups().any(|g| g.id.as_str() == scope);
     let governing = governing(sources, all);
-    for spec in all.specs() {
-        let hit = scope.is_empty()
-            || if is_group {
-                group_of(sources, spec) == scope
-            } else {
-                spec.id.namespace() == scope
-            };
-        if hit && with_row(sources, asker, spec, governing.as_deref(), |row| visit(row)).is_break()
-        {
-            break;
+    // One spec at a time (#248): what a plugin describes of its settings is
+    // made for its row and let go, and only that of the plugin asked for.
+    let pick = if scope.is_empty() || is_group {
+        Pick::All
+    } else {
+        Pick::Of(scope)
+    };
+    let walked = all.walk(pick, &mut |spec| {
+        let hit = !is_group || scope.is_empty() || group_of(sources, spec) == scope;
+        if hit {
+            with_row(sources, asker, spec, governing.as_deref(), |row| visit(row))
+        } else {
+            ControlFlow::Continue(())
         }
-    }
-    Ok(())
+    });
+    // No room for a spec: the rows given are not all, and the caller is told.
+    walked.map_err(|_| ERR_NO_MEMORY)
 }
 
 /// Op 3: the values of choice setting `scope`, the setting's own first and

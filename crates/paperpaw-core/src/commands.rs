@@ -54,7 +54,11 @@ impl Kernel {
         // The events of the host services, between callbacks.
         self.native_service_pump();
         self.finish_commands();
-        self.finish_frame()
+        let effects = self.finish_frame();
+        // The specs this round made of settings their plugins describe are
+        // let go: none stays on the heap between rounds (#248).
+        self.shared.settings.rest();
+        effects
     }
 
     /// The commands, the work and the network of [`Self::finish`], after the

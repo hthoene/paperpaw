@@ -174,11 +174,13 @@ impl Kernel {
     /// change changes.
     pub(crate) fn scoped_values(&self) -> Vec<(Id, Option<paperpaw_sdk::SettingValue>)> {
         let settings = &self.shared.settings;
-        settings
-            .specs()
-            .filter(|spec| spec.scoped)
-            .map(|spec| (spec.id.clone(), settings.get(spec.id.as_str()).cloned()))
-            .collect()
+        let mut values = Vec::new();
+        // One spec at a time: none a plugin describes is kept for this. For
+        // lack of memory the rest is left out (their change is not told).
+        let _ = settings.each(paperpaw_sdk::Pick::Scoped, |spec| {
+            values.push((spec.id.clone(), settings.get(spec.id.as_str()).cloned()));
+        });
+        values
     }
 
     /// Announces the scoped settings whose value differs from `before`.
@@ -228,6 +230,7 @@ impl Kernel {
             }
             _ => false,
         };
+        let mut full = false;
         let values = read.map(|text| {
             let text = text.ok().flatten().unwrap_or_default();
             let mut values = paperpaw_sdk::collections::VecMap::new();
@@ -239,11 +242,14 @@ impl Kernel {
                     (id, value) = (now.to_string(), was);
                 }
                 let value = renamed(&self.shared.settings, &id, value);
-                let parsed = self
-                    .shared
-                    .settings
-                    .specs()
-                    .find(|spec| spec.id.as_str() == id)
+                // No room to read what its plugin describes of it: the
+                // values read are not all there are.
+                let spec = self.shared.settings.try_spec(&id).unwrap_or_else(|_| {
+                    full = true;
+                    None
+                });
+                let parsed = spec
+                    .filter(|spec| spec.id.as_str() == id)
                     .and_then(|spec| Some((spec.id.clone(), spec.parse(&value)?)));
                 if let Some((id, value)) = parsed {
                     values.insert(id, value);
@@ -251,7 +257,21 @@ impl Kernel {
             }
             values
         });
-        self.shared.settings.set_scope(values);
+        // A part of its values is never taken for all of them, nor written
+        // over the file: without room to read them all, none is used.
+        let none = values
+            .as_ref()
+            .map(|_| paperpaw_sdk::collections::VecMap::new());
+        let full = full || self.shared.settings.try_set_scope(values).is_err();
+        if full {
+            self.shared.settings.set_scope(none);
+            if let Some(path) = &path {
+                self.warn_runtime(format!(
+                    "{path}: no memory to read its settings: they are not used or saved"
+                ));
+            }
+        }
+        let unreadable = unreadable || full;
         if had_values
             || self
                 .shared
@@ -330,8 +350,7 @@ impl Kernel {
             .filter_map(Result::ok)
             .filter(|entry| {
                 let id = format!("{}.{}", entry.section, entry.key);
-                settings.spec(&id).is_some_and(|spec| spec.scoped)
-                    && values.get(id.as_str()).is_none()
+                settings.defines_scoped(&id) && values.get(id.as_str()).is_none()
             })
             .map(|entry| (entry.section.to_string(), entry.key.to_string()))
             .collect();
