@@ -21,14 +21,16 @@ use super::{
     device_service::DeviceBuiltIns,
     firmware_install::{BuiltIns, Event, KIND_CHECK, Outcome},
     native_instances::InstanceState,
-    plugin_job::{DONE_AT_NEXT_START, KIND_INSTALL},
+    plugin_job::{DONE_AT_NEXT_START, ID_MAX, KIND_INSTALL},
     registrations::{self as wire, Record},
 };
 use crate::Kernel;
+use alloc::string::String;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_STATE,
     ERR_UNSUPPORTED, OK,
 };
+use paperpaw_platform::firmware::Text;
 
 /// The room of one record of 96 or 97 (a batch of one).
 const RECORD_BYTES: usize = 128;
@@ -69,6 +71,21 @@ pub(crate) fn status_of(outcome: Outcome) -> i32 {
         OK
     } else {
         by_reason
+    }
+}
+
+/// The data plugin a finished install put in place to load now: reason 0
+/// and not at the next start (a code plugin's change waits for it).
+fn loads_now(event: Event) -> Option<Text<ID_MAX>> {
+    match event {
+        Event::Ended(outcome)
+            if outcome.kind == KIND_INSTALL
+                && outcome.reason == 0
+                && outcome.flags & DONE_AT_NEXT_START == 0 =>
+        {
+            outcome.id
+        }
+        _ => None,
     }
 }
 
@@ -141,18 +158,19 @@ impl Kernel {
         };
         self.native_outbox_run();
         self.feed_install_grants(&driver);
-        let ended = {
+        let installed = {
             let Ok(mut driver) = driver.try_borrow_mut() else {
                 return true;
             };
             let hosts = self.shared.native_instances.hosts();
-            match hosts.and_then(|hosts| hosts.device()) {
+            // Only the id of a data plugin to load is kept, not the event.
+            loads_now(match hosts.and_then(|hosts| hosts.device()) {
                 Some(device) => driver.pump(self.storage(), &DeviceBuiltIns(&*device.0), now),
                 None => driver.pump(self.storage(), &NoBuiltIns, now),
-            }
+            })
         };
-        if let Event::Ended(outcome) = ended {
-            self.firmware_load_installed(&outcome);
+        if let Some(id) = installed {
+            self.firmware_load_installed(id.as_str());
         }
         self.firmware_unload_pump(&driver);
         self.firmware_forget_pump(&driver);
@@ -288,28 +306,43 @@ impl Kernel {
         }
     }
 
-    /// A data plugin an install put in place loads at once, before its
-    /// `install_done` is told, as interface 6 did (`Kernel::install_plugin`):
-    /// the old version goes first, and event 70 is raised even where the new
-    /// one does not load. Code changes at the next start (flag bit 1).
-    fn firmware_load_installed(&mut self, outcome: &Outcome) {
-        if outcome.kind != KIND_INSTALL
-            || outcome.reason != 0
-            || outcome.flags & DONE_AT_NEXT_START != 0
-        {
-            return;
-        }
-        let Some(id) = outcome
-            .id
-            .as_ref()
-            .and_then(|id| paperpaw_sdk::Id::parse(id.as_str()).ok())
-        else {
+    /// The data plugin `id` an install put in place (`plugins/<id>`) loads at
+    /// once, before its `install_done` is told, as interface 6 did
+    /// (`Kernel::install_plugin`): the old version goes first, and event 70
+    /// is raised even where the new one does not load. What that function
+    /// does beyond this has no case here: the job refuses data over code
+    /// (reason 15), so no native instance of the id runs, none waits for a
+    /// replacement, none refuses its unload, and no code plugin stays
+    /// listed; the job settled the install marks before its end.
+    #[inline(never)]
+    fn firmware_load_installed(&mut self, id: &str) {
+        let Ok(id) = paperpaw_sdk::Id::parse(id) else {
             return;
         };
+        // Code of the id (not reachable, see above): left to the next start.
+        let native = self.shared.native_instances.find(id.as_str()).is_some()
+            || self.shared.native_instances.replacement_pending(&id);
         let replaced = self.shared.plugins.get(id.as_str()).is_some();
-        if !replaced || self.unload_plugin(&id) {
-            let folder = alloc::format!("{}/{}", paperpaw_sdk::builtin::PLUGIN_DIR, id.as_str());
-            let _ = self.register_folder(&folder);
+        // Only a data plugin's old version goes: a plugin built in or linked
+        // whose id the job let through (no device host wired) stays.
+        let foreign = replaced && !self.shared.data_folders.iter().any(|(p, _)| *p == id);
+        if foreign {
+            self.warn_runtime(
+                "an installed data plugin has the id of a plugin built in: not loaded",
+            );
+        }
+        if !native && !foreign && (!replaced || self.unload_plugin(&id)) {
+            let dir = paperpaw_sdk::builtin::PLUGIN_DIR;
+            let mut folder = String::new();
+            if folder
+                .try_reserve_exact(dir.len() + 1 + id.as_str().len())
+                .is_ok()
+            {
+                folder.push_str(dir);
+                folder.push('/');
+                folder.push_str(id.as_str());
+                let _ = self.register_folder(&folder);
+            }
         }
         self.plugins_changed();
     }
