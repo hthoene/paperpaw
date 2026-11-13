@@ -49,6 +49,9 @@ pub(crate) enum Step {
 pub(crate) struct WordRows<'s> {
     storage: &'s dyn Storage,
     count: usize,
+    /// The rows read before the draw (their first row and the rows): served
+    /// from memory, so that a draw reads nothing.
+    page: Option<(usize, &'s [RowItem])>,
     /// The title and the note of the *Export* row below the words; none: no
     /// such row.
     export: Option<(String, String)>,
@@ -59,8 +62,15 @@ impl<'s> WordRows<'s> {
         Self {
             storage,
             count,
+            page: None,
             export: None,
         }
+    }
+
+    /// The same, serving the rows `first..first + rows.len()` from `rows`.
+    pub(crate) fn with_page(mut self, page: Option<(usize, &'s [RowItem])>) -> Self {
+        self.page = page;
+        self
     }
 
     /// The same with the *Export* row below the words (where there are any).
@@ -89,6 +99,8 @@ impl<'s> WordRows<'s> {
             stepper: false,
             disabled: false,
             on: None,
+            field: false,
+            whole: false,
         }))
     }
 
@@ -110,6 +122,19 @@ impl<'s> WordRows<'s> {
         if first >= last {
             return Ok(Vec::new());
         }
+        // Read before the draw: copied from memory.
+        if let Some((at, rows)) = self.page
+            && at == first
+            && rows.len() == last - first
+        {
+            let mut out = Vec::new();
+            out.try_reserve_exact(rows.len())
+                .map_err(|_| Error::NoMemory)?;
+            for row in rows {
+                out.push(copy_row(row)?);
+            }
+            return Ok(out);
+        }
         let (from, to) = (self.count - last, self.count - first);
         let words = store::range(self.storage, from, to).map_err(storage_error)?;
         let mut rows = Vec::new();
@@ -130,6 +155,8 @@ impl<'s> WordRows<'s> {
                 stepper: false,
                 disabled: false,
                 on: None,
+                field: false,
+                whole: false,
             });
         }
         Ok(rows)
@@ -170,6 +197,16 @@ impl RowSource for WordRows<'_> {
         *out = rows;
         Ok(())
     }
+}
+
+/// `row` copied, every allocation fallible.
+fn copy_row(row: &RowItem) -> Result<RowItem, Error> {
+    Ok(RowItem {
+        title: text::copy(&row.title)?,
+        value: text::copy(&row.value)?,
+        note: text::copy(&row.note)?,
+        ..RowItem::default()
+    })
 }
 
 /// The question whether to delete `word`: its title, its text, and the two
@@ -230,6 +267,9 @@ pub(crate) struct WordsView {
     empty: ItemList,
     /// Words in all, as counted when the screen was shown.
     count: usize,
+    /// The words of the page shown, read before the draw ([`Self::prepare`]):
+    /// its first row and the rows.
+    page: Option<(usize, Vec<RowItem>)>,
 }
 
 impl WordsView {
@@ -239,6 +279,7 @@ impl WordsView {
             list: WindowList::new(true),
             empty: ItemList::new(Vec::new()),
             count,
+            page: None,
         }
     }
 
@@ -250,8 +291,41 @@ impl WordsView {
     /// focus stays on a row that is there.
     pub(crate) fn recount(&mut self, count: usize) {
         self.count = count;
+        self.page = None;
         // The row after the last word is *Export*.
         self.list.set_focus(self.list.focus().min(count));
+    }
+
+    /// The page read before is not kept: the next draw reads its own.
+    pub(crate) fn forget_page(&mut self) {
+        self.page = None;
+    }
+
+    /// Reads the words of the page the next draw shows (the focus's), unless
+    /// they are read already: the draw then reads nothing (the X4 draws a frame
+    /// in bands, a `draw` each, #243).
+    ///
+    /// # Errors
+    /// What reading the words says, by [`storage_error`]; snapshot and font
+    /// errors.
+    pub(crate) fn prepare(&mut self, host: &Host<'_>, storage: &dyn Storage) -> Result<(), Error> {
+        if self.count == 0 {
+            self.page = None;
+            return Ok(());
+        }
+        // The rows with *Export* below the words, as the draw counts them.
+        let (first, per_page) = self.list.page_of(host, self.count + 1)?;
+        let want = first
+            .saturating_add(per_page)
+            .min(self.count)
+            .saturating_sub(first);
+        if matches!(&self.page, Some((at, rows)) if *at == first && rows.len() == want) {
+            return Ok(());
+        }
+        self.page = None;
+        let rows = WordRows::new(storage, self.count).rows(first, per_page)?;
+        self.page = Some((first, rows));
+        Ok(())
     }
 
     /// Draws the page the focus is on, or what there is to say with no word.
@@ -282,7 +356,10 @@ impl WordsView {
             words.copy("vocabulary.export")?,
             words.copy("vocabulary.export.help")?,
         );
-        let mut rows = WordRows::new(storage, self.count).with_export(title, note);
+        let page = self.page.as_ref().map(|(at, rows)| (*at, rows.as_slice()));
+        let mut rows = WordRows::new(storage, self.count)
+            .with_page(page)
+            .with_export(title, note);
         self.list
             .draw(host, frame, "vocabulary.title", &mut rows, true)
     }

@@ -118,10 +118,20 @@ impl KernelBuilder {
         signers: &'static [(&'static str, [u8; 32])],
     ) -> Self {
         self.0.plugin_host = Some(crate::native_host::plugin_job::PluginHost {
-            loader,
+            loader: Some(loader),
             offered,
             signers,
         });
+        self
+    }
+
+    /// [`Self::plugin_host`] for a device that loads no plugin code
+    /// (Boox/Android, desktop, web): plugin jobs install, check and remove
+    /// data plugins only; a plugin with a code file ends with reason 19
+    /// (`ERR_UNSUPPORTED`). It shares the queue of [`Self::firmware_host`].
+    #[must_use]
+    pub fn data_plugin_host(mut self) -> Self {
+        self.0.plugin_host = Some(crate::native_host::plugin_job::PluginHost::DATA_ONLY);
         self
     }
 
@@ -938,6 +948,7 @@ impl BuilderParts {
             late_device_defaults: Vec::new(),
             late_config: Vec::new(),
             plugin_choices: Vec::new(),
+            native_registering: true,
             native_catalogs_added: false,
             now: Instant::default(),
         }

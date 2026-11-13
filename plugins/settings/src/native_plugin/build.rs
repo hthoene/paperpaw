@@ -309,6 +309,8 @@ pub(super) fn build_list(
         let item = match &link {
             None => Item::heading(&title)?,
             Some(Link::Advanced) => Item::row(&title, &on_off(&mut messages, host, advanced)?)?,
+            // The search looks like the field it opens, as it did in Beta 3.
+            Some(Link::Search) => Item::field(&title)?,
             Some(Link::Reset | Link::Restart) => Item::row(&title, "")?,
             Some(_) => Item::row(&title, "›")?,
         };

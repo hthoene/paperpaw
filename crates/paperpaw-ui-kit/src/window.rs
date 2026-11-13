@@ -72,6 +72,11 @@ impl Window {
     }
 }
 
+/// Rows of `high` pixels that `room` holds, at least one.
+fn per_page(room: u16, high: u16) -> usize {
+    (usize::from(room) / usize::from(high.max(1))).max(1)
+}
+
 /// A paged list of rows read from a [`RowSource`] page by page. Every row
 /// can be chosen; a row's `zone`, `stepper` and `disabled` are not used.
 /// Only scalar geometry survives a draw.
@@ -227,7 +232,7 @@ impl WindowList {
         let top = style.header.saturating_add(style.gap);
         let area = Rect::new(0, top, width, height.saturating_sub(top));
         let high = self.row_height(&font, &style)?;
-        let per_page = (usize::from(area.height) / usize::from(high.max(1))).max(1);
+        let per_page = per_page(area.height, high);
         let len = source.len();
         let Window {
             focus,
@@ -279,6 +284,27 @@ impl WindowList {
         self.per_page = per_page;
         self.focus = focus;
         Ok(())
+    }
+
+    /// The page the next draw shows of a list of `len` rows: its first row and
+    /// how many rows a page holds on this display. A source that reads its rows
+    /// from storage reads them with this before the draw (a draw reads nothing:
+    /// the X4 draws a frame in bands, each a `draw`).
+    ///
+    /// # Errors
+    /// Snapshot, font and style errors.
+    pub fn page_of(&self, host: &Host<'_>, len: usize) -> Result<(usize, usize), Error> {
+        let display = snapshot::capture_snapshot(host)?;
+        let font = Font::acquire_role(host, FontRole::Ui)?;
+        let high = Style::read(host, &display, &font).and_then(|style| {
+            let top = style.header.saturating_add(style.gap);
+            let room = display.display_height().saturating_sub(top);
+            self.row_height(&font, &style).map(|high| (room, high))
+        });
+        font.release()?;
+        let (room, high) = high?;
+        let per_page = per_page(room, high);
+        Ok((Window::of(self.focus, len, per_page).first, per_page))
     }
 
     /// The one height of every row.

@@ -26,7 +26,7 @@ impl BuiltIns for Names {
 
 fn host() -> PluginHost {
     PluginHost {
-        loader: Loader::x4(1),
+        loader: Some(Loader::x4(1)),
         offered: Offered {
             abi_major: 7,
             minor: 1,
@@ -82,6 +82,16 @@ struct Run {
 /// Steps `job` on `storage`: the question gets `answer`, an unload is answered
 /// at once.
 fn drive(job: &mut PluginRemove, storage: &dyn Storage, answer: Answer) -> Run {
+    drive_with(job, storage, &Names, answer)
+}
+
+/// As [`drive`], with the kernel's view of `built_ins`.
+fn drive_with(
+    job: &mut PluginRemove,
+    storage: &dyn Storage,
+    built_ins: &dyn BuiltIns,
+    answer: Answer,
+) -> Run {
     let host = host();
     let mut run = Run {
         done: Finished::refused(0),
@@ -93,7 +103,7 @@ fn drive(job: &mut PluginRemove, storage: &dyn Storage, answer: Answer) -> Run {
         let env = JobEnv {
             storage,
             host: &host,
-            built_ins: &Names,
+            built_ins,
             granted: true,
         };
         match job.step(&env) {
@@ -726,4 +736,20 @@ fn a_leftover_removal_folder_refuses_before_any_journal_is_written() {
         let again = drive(&mut job(), &card, Answer::Yes);
         assert_eq!(again.done.reason, 0, "{left}");
     }
+}
+
+#[test]
+fn a_device_without_a_record_takes_its_plugins_for_the_stores_before_a_removal_commits() {
+    use super::super::store_record::tests::{Found, record};
+    let card = card();
+    // Plugins installed before PaperPaw kept a record: the store's, taken
+    // over before dials goes (as interface 6's store did).
+    let found = Found::data(&[("dials", "1.0.0"), ("dials-plus", "0.2")]);
+    let run = drive_with(&mut job(), &card, &found, Answer::Yes);
+    assert_eq!(run.done.reason, reason::OK);
+    assert!(!is_there(&card, "plugins/dials"));
+    assert_eq!(
+        record(&card).as_deref(),
+        Some("dials\t1.0.0\ndials-plus\t0.2.0\n")
+    );
 }

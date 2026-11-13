@@ -32,7 +32,7 @@ impl BuiltIns for Names {
 
 fn host() -> PluginHost {
     PluginHost {
-        loader: Loader::x4(1),
+        loader: Some(Loader::x4(1)),
         offered: Offered {
             abi_major: 7,
             minor: 1,
@@ -167,7 +167,7 @@ pub(crate) fn asking_job(owner: u64, request: u32) -> PluginJobs {
 /// The plugin host the kernel tests give `Kernel::builder`.
 pub(crate) fn kernel_host() -> (Loader, Offered<'static>) {
     let host = host();
-    (host.loader, host.offered)
+    (Loader::x4(1), host.offered)
 }
 
 fn check_job(owner: u64, request: u32, steps: u32) -> (PluginJobs, Rc<Seen>) {

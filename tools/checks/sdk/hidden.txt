@@ -15,3 +15,5 @@ crates/paperpaw-sdk/src/native.rs: pub mod support  # what plugin! expands to
 crates/paperpaw-sdk/src/version.rs: pub const fn number  # what package_version! expands to
 crates/paperpaw-sdk/src/version.rs: pub const fn of_package  # what package_version! expands to
 crates/paperpaw-sdk/src/native.rs: pub use binding::entry as __entry  # what native_plugin! expands to
+crates/paperpaw-native/src/profile.rs: pub const fn retarget  # what native_plugin! expands to (through __entry::linked_metadata)
+crates/paperpaw-native/src/profile.rs: pub const fn retargeted_len  # what native_plugin! expands to (through __entry::linked_len)

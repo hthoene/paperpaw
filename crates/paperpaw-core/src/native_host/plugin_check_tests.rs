@@ -39,7 +39,7 @@ pub(in crate::native_host) fn author() -> [u8; 32] {
 pub(in crate::native_host) fn host() -> PluginHost {
     static NAMED: std::sync::OnceLock<[(&'static str, [u8; 32]); 1]> = std::sync::OnceLock::new();
     PluginHost {
-        loader: Loader::x4(1),
+        loader: Some(Loader::x4(1)),
         offered: Offered {
             abi_major: 7,
             minor: 1,

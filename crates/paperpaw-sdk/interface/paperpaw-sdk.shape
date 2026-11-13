@@ -1044,6 +1044,7 @@ const paperpaw_sdk::native::declare::records_wire::SERVICE_LOOKUP_ASK_CONTEXT_MA
 const paperpaw_sdk::native::declare::records_wire::SERVICE_LOOKUP_ASK_LANGUAGE_MAX_BYTES: usize = 35usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_LOOKUP_ASK_TAG: u32 = 1_092u32
 const paperpaw_sdk::native::declare::records_wire::SERVICE_LOOKUP_ASK_TEXT_MAX_BYTES: usize = 1_024usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_LOOKUP_ENTRY_OPENS_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_LOOKUP_ENTRY_PROVIDER_MAX_BYTES: usize = 64usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_LOOKUP_ENTRY_TAG: u32 = 1_093u32
 const paperpaw_sdk::native::declare::records_wire::SERVICE_LOOKUP_ENTRY_TEXT_MAX_BYTES: usize = 2_048usize
@@ -1591,6 +1592,7 @@ const paperpaw_sdk::native::lookup::BUFFER: usize = 4_096usize
 const paperpaw_sdk::native::lookup::MAX_CONTEXT: usize = 1_024usize
 const paperpaw_sdk::native::lookup::MAX_ENTRY: usize = 2_048usize
 const paperpaw_sdk::native::lookup::MAX_LANGUAGE: usize = 35usize
+const paperpaw_sdk::native::lookup::MAX_OPENS: usize = 128usize
 const paperpaw_sdk::native::lookup::MAX_TEXT: usize = 1_024usize
 const paperpaw_sdk::native::lookup::MAX_TITLE: usize = 256usize
 const paperpaw_sdk::native::net::BODY_PART: usize = 3_840usize
@@ -1739,6 +1741,7 @@ const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ASK_CONTEXT_MA
 const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ASK_LANGUAGE_MAX_BYTES: usize = 35usize
 const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ASK_TAG: u32 = 1u32
 const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ASK_TEXT_MAX_BYTES: usize = 1_024usize
+const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ENTRY_OPENS_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ENTRY_TAG: u32 = 2u32
 const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ENTRY_TEXT_MAX_BYTES: usize = 2_048usize
 const paperpaw_sdk::native::stage_schemas::core_lookup_v1::LOOKUP_ENTRY_TITLE_MAX_BYTES: usize = 256usize
@@ -2810,7 +2813,7 @@ struct paperpaw_sdk::native::canvas::clip::ClipGuard<'a, 'cb> { canvas: &'a mut 
 struct paperpaw_sdk::native::canvas::describe::PartFlags(0: u32)
 struct paperpaw_sdk::native::commands::CommandSender<'cb, 'buf> { host: &'cb paperpaw_sdk::native::binding::Host<'cb>, scratch: &'buf mut [u8] }
 struct paperpaw_sdk::native::commands::device::FirmwareOptions<'a> { allow_older: bool, foreign: bool, key: core::option::Option<&'a [u8; 32]> }
-struct paperpaw_sdk::native::commands::evidence::Evidence<'a> { author: core::option::Option<&'a [u8; 32]>, recovery: core::option::Option<&'a [u8; 32]>, sha256: core::option::Option<&'a [u8; 32]>, rotations: &'a [paperpaw_sdk::native::commands::evidence::Rotation<'a>] }
+struct paperpaw_sdk::native::commands::evidence::Evidence<'a> { author: core::option::Option<&'a [u8; 32]>, recovery: core::option::Option<&'a [u8; 32]>, sha256: core::option::Option<&'a [u8; 32]>, rotations: &'a [paperpaw_sdk::native::commands::evidence::Rotation<'a>], from_catalog: bool }
 struct paperpaw_sdk::native::commands::evidence::Revocation<'a> { plugin: &'a str, key: &'a [u8; 32], signature: &'a [u8; 64] }
 struct paperpaw_sdk::native::commands::evidence::Rotation<'a> { to: &'a [u8; 32], signature: &'a [u8; 64] }
 struct paperpaw_sdk::native::commands::item_state::ItemState<'a> { flags: u32, label: &'a str, label_args: &'a [paperpaw_sdk::native::formatting::Arg<'a>], badge: &'a str, badge_args: &'a [paperpaw_sdk::native::formatting::Arg<'a>] }
@@ -3012,7 +3015,7 @@ struct paperpaw_sdk::native::declare::records_wire::ServiceLibTextAt { kind: u32
 struct paperpaw_sdk::native::declare::records_wire::ServiceLibTransaction { transaction: u32 }
 struct paperpaw_sdk::native::declare::records_wire::ServiceLibTransactionRef { transaction: u32 }
 struct paperpaw_sdk::native::declare::records_wire::ServiceLookupAsk<'a> { text: &'a str, language: &'a str, context: &'a str, cursor: u32 }
-struct paperpaw_sdk::native::declare::records_wire::ServiceLookupEntry<'a> { provider: &'a str, title: &'a str, text: &'a str, flags: u32 }
+struct paperpaw_sdk::native::declare::records_wire::ServiceLookupEntry<'a> { provider: &'a str, title: &'a str, text: &'a str, flags: u32, opens: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceNetAnswer<'a> { status: u32, flags: u32, body_len: u32, etag: &'a str, content_type: &'a str, final_url: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceNetBody<'a> { data: &'a [u8] }
 struct paperpaw_sdk::native::declare::records_wire::ServiceNetBytes<'a> { data: &'a [u8] }
@@ -3308,7 +3311,7 @@ struct paperpaw_sdk::native::library::rows::Entry<'a>(0: paperpaw_sdk::native::d
 struct paperpaw_sdk::native::library::rows::LibraryPage<'a, T> { bytes: &'a [u8], count: usize, end: paperpaw_sdk::native::library::rows::LibraryPageEnd, decode: fn(paperpaw_sdk::native::declare::records_wire::RawRecord<'a>) -> core::result::Result<T, paperpaw_sdk::native::binding::Error> }
 struct paperpaw_sdk::native::library::rows::LibraryPageEnd { total: u32, generation: u32, next: core::option::Option<paperpaw_sdk::native::library::query::CatalogCursor> }
 struct paperpaw_sdk::native::lookup::Ask<'a>(0: paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupAsk<'a>)
-struct paperpaw_sdk::native::lookup::Entry<'a> { title: &'a str, text: &'a str, flags: u32 }
+struct paperpaw_sdk::native::lookup::Entry<'a> { title: &'a str, text: &'a str, flags: u32, opens: &'a str }
 struct paperpaw_sdk::native::lookup::Lookup { service: paperpaw_sdk::native::services::call::Service }
 struct paperpaw_sdk::native::lookup::ProviderEntry<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLookupEntry<'a>)
 struct paperpaw_sdk::native::lookup::Question<'a> { text: &'a str, language: &'a str, context: &'a str, cursor: u32 }
@@ -3413,7 +3416,7 @@ struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::RecordStream<'
 struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::ReplyWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
 struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::InputWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
 struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupAsk<'a> { text: &'a str, language: &'a str, context: &'a str, cursor: u32 }
-struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a> { title: &'a str, text: &'a str, flags: u32 }
+struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a> { title: &'a str, text: &'a str, flags: u32, opens: &'a str }
 struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::RecordStream<'a> { bytes: &'a [u8], remaining: usize }
 struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::ReplyWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
 struct paperpaw_sdk::native::stage_schemas::core_status_v1::InputWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }

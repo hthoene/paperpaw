@@ -290,9 +290,15 @@ proptest! {
         prop_assert_eq!(old_entry(&new.entry), old.entry);
         prop_assert_eq!(new.author_key, old.author_key);
         prop_assert_eq!(new.recovery_key, old.recovery_key);
+        // The native page keeps the first `MAX_STEPS` (6, what one install
+        // batch carries; `PORTING-7.md`), interface 6 kept 8.
         prop_assert_eq!(
             new.rotations.iter().map(|r| (r.to, r.signature)).collect::<Vec<_>>(),
-            old.rotations.iter().map(|r| (r.to, r.signature)).collect::<Vec<_>>()
+            old.rotations
+                .iter()
+                .take(crate::native_item::MAX_STEPS)
+                .map(|r| (r.to, r.signature))
+                .collect::<Vec<_>>()
         );
         prop_assert_eq!(new.files.len(), old.package.files.len());
         for (n, o) in new.files.iter().zip(&old.package.files) {

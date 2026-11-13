@@ -585,9 +585,10 @@ mod network {
     use super::*;
     use crate::native_host::admitted_features::AdmittedFeatures;
     use crate::native_host::{
+        HostResources,
         event_tags::EventTags,
         host_services::{Caller, HostServices},
-        net_service::{self, NetHost},
+        net_service,
         service_events::ServiceEvents,
         shell_wiring::{
             Connect, HostWiring, HttpDone, HttpJob, HttpReason, NetInputs, NetLimits, NetReports,
@@ -595,16 +596,22 @@ mod network {
             SockTransport,
         },
         sock_service,
-        sock_service::SockHost,
     };
     use paperpaw_sdk::MemoryStorage;
 
     const DONE: u32 = wire::EVENT_HTTP_DONE_TAG;
 
-    #[derive(Default)]
-    struct Shell;
+    /// The shell: a saved answer is written whole to the staged file core
+    /// names, on `card`.
+    struct Shell {
+        card: Rc<MemoryStorage>,
+    }
     impl ShellHttp for Shell {
-        fn start(&self, _: &HttpJob<'_>) -> Result<(), i32> {
+        fn start(&self, job: &HttpJob<'_>) -> Result<(), i32> {
+            use paperpaw_platform::Storage as _;
+            if let Some(path) = job.save_path {
+                self.card.write(path, b"font").unwrap();
+            }
             Ok(())
         }
         fn abort(&self, _: u32) {}
@@ -643,6 +650,10 @@ mod network {
     /// The ids of the requests the plugin started, in order.
     type Started = Rc<RefCell<Vec<u32>>>;
 
+    /// A world with `core.net` wired, the ids started, the shell's reports
+    /// and what the plugin does to start a request.
+    type Wired = (World, Started, Rc<NetReports>, Rc<dyn Fn(u64)>);
+
     fn caller(owner: u64, hosts: &HostServices) -> Caller<'_> {
         Caller {
             owner,
@@ -660,8 +671,8 @@ mod network {
     }
 
     /// What the plugin does to start a `core.net` request.
-    fn request_starter(host: &Rc<dyn NetHost>, started: &Started) -> Rc<dyn Fn(u64)> {
-        let (host, started) = (Rc::clone(host), Rc::clone(started));
+    fn request_starter(device: &Rc<HostResources>, started: &Started) -> Rc<dyn Fn(u64)> {
+        let (device, started) = (Rc::clone(device), Rc::clone(started));
         Rc::new(move |owner| {
             let (input, used) = batch(wire::Record::ServiceNetRequest(wire::ServiceNetRequest {
                 token: 3,
@@ -673,15 +684,49 @@ mod network {
                 max_file: 0,
             }));
             let hosts = HostServices::new();
-            let id = net_service::request_for_tests(&*host, &caller(owner, &hosts), &input[..used])
+            // The plugin's first call makes the device (#248).
+            let host = &*device.hosts().net_for_call().unwrap().0;
+            let id = net_service::request_for_tests(host, &caller(owner, &hosts), &input[..used])
+                .unwrap();
+            started.borrow_mut().push(id);
+        })
+    }
+
+    /// What the plugin does to start a `core.net` request that saves its
+    /// answer to `f<n>.ttf` of its own folder (a download of fonts-browser).
+    fn saver(device: &Rc<HostResources>, started: &Started) -> Rc<dyn Fn(u64)> {
+        let (device, started) = (Rc::clone(device), Rc::clone(started));
+        Rc::new(move |owner| {
+            let path = std::format!("f{}.ttf", started.borrow().len());
+            let mut input = [0u8; 4_096];
+            let records = [
+                wire::Record::ServiceNetRequest(wire::ServiceNetRequest {
+                    token: 3,
+                    method: "GET",
+                    url: "https://example.org/a",
+                    flags: 0,
+                    timeout_ms: 0,
+                    max_body: 0,
+                    max_file: 0,
+                }),
+                wire::Record::ServiceNetFile(wire::ServiceNetFile {
+                    role: 1,
+                    root: 0,
+                    path: &path,
+                }),
+            ];
+            let used = wire::records_encode_counted(&records, 20, 4_096, &mut input).unwrap();
+            let hosts = HostServices::new();
+            let host = &*device.hosts().net_for_call().unwrap().0;
+            let id = net_service::request_for_tests(host, &caller(owner, &hosts), &input[..used])
                 .unwrap();
             started.borrow_mut().push(id);
         })
     }
 
     /// What the plugin does to connect a socket to `mail.example.org`.
-    fn socket_starter(socks: &Rc<dyn SockHost>, started: &Started) -> Rc<dyn Fn(u64)> {
-        let (socks, started) = (Rc::clone(socks), Rc::clone(started));
+    fn socket_starter(device: &Rc<HostResources>, started: &Started) -> Rc<dyn Fn(u64)> {
+        let (device, started) = (Rc::clone(device), Rc::clone(started));
         Rc::new(move |owner| {
             let (input, used) = batch(wire::Record::ServiceSockConnect(wire::ServiceSockConnect {
                 token: 5,
@@ -693,9 +738,9 @@ mod network {
                 server_name: "",
             }));
             let hosts = HostServices::new();
-            let id =
-                sock_service::connect_for_tests(&*socks, &caller(owner, &hosts), &input[..used])
-                    .unwrap();
+            let socks = &*device.hosts().sockets_for_call().unwrap().0;
+            let id = sock_service::connect_for_tests(socks, &caller(owner, &hosts), &input[..used])
+                .unwrap();
             started.borrow_mut().push(id);
         })
     }
@@ -709,15 +754,25 @@ mod network {
 
     /// The same; the retry is a socket when `socket` is set.
     fn with_retry(retries: u32, socket: bool) -> (World, Started, Rc<NetReports>) {
+        let (w, started, reports, _) = wired(retries, socket, true, false);
+        (w, started, reports)
+    }
+
+    /// The world with the plugin's request starter; its work `fetch` is
+    /// declared where `work` is set.
+    fn wired(retries: u32, socket: bool, work: bool, saving: bool) -> Wired {
         let mut w = world();
-        let shell = Rc::new(Shell);
-        let (reports, host, socks) = {
+        let card = Rc::new(MemoryStorage::new());
+        let shell = Rc::new(Shell {
+            card: Rc::clone(&card),
+        });
+        let (reports, device) = {
             let resources = w.kernel.shared.native_instances.test_resources().unwrap();
             let wired = resources
                 .wire(
                     HostWiring::new()
                         .net(NetInputs::new(
-                            Rc::new(MemoryStorage::new()),
+                            card.clone(),
                             shell.clone(),
                             shell.clone(),
                             NetLimits::new(49_152, 2),
@@ -731,8 +786,7 @@ mod network {
                 )
                 .unwrap();
             let reports = Rc::new(wired.net().unwrap().clone());
-            let host = Rc::clone(&resources.hosts().net().unwrap().0);
-            let socks = Rc::clone(&resources.hosts().sockets().unwrap().0);
+            let device = Rc::new(resources.try_clone().unwrap());
             // The plugin subscribed to `http_done` (a request needs it).
             let owners = resources.hosts().owners().unwrap();
             let _ = owners.admit(w.owners[0], &paperpaw_sdk::Id::new_static("a"));
@@ -740,27 +794,34 @@ mod network {
                 w.owners[0],
                 EventTags::collect(|tag| tag == DONE || tag == wire::EVENT_SOCKET_TAG),
             );
-            (reports, host, socks)
+            (reports, device)
         };
         // The user's network settings, read into the policy as at start.
         w.kernel.sync_net_policy();
         let started: Started = Rc::new(RefCell::new(Vec::new()));
-        let start = request_starter(&host, &started);
-        let connect = socket_starter(&socks, &started);
+        let start = if saving {
+            saver(&device, &started)
+        } else {
+            request_starter(&device, &started)
+        };
+        let connect = socket_starter(&device, &started);
         *w.on_dues[0].borrow_mut() = Some(start.clone());
         let left = Rc::new(Cell::new(retries));
+        let retry = start.clone();
         *w.on_dones[0].borrow_mut() = Some(Rc::new(move |owner| {
             if left.get() > 0 {
                 left.set(left.get() - 1);
                 if socket {
                     connect(owner);
                 } else {
-                    start(owner);
+                    retry(owner);
                 }
             }
         }));
-        w.declare(0, &spec("fetch", 1));
-        (w, started, reports)
+        if work {
+            w.declare(0, &spec("fetch", 1));
+        }
+        (w, started, reports, start)
     }
 
     fn finished(reports: &NetReports, id: u32) {
@@ -912,5 +973,26 @@ mod network {
             panic!("an http_done event");
         };
         assert_eq!((event.id, event.reason), (started.borrow()[0], 14));
+    }
+
+    /// A download of four files outside any run (as from a screen): each
+    /// request is started in the callback of the previous one's end, and
+    /// each end is told (#2795).
+    #[test]
+    fn each_request_started_in_the_last_ones_end_callback_is_told_its_end() {
+        for saving in [false, true] {
+            let (mut w, started, reports, start) = wired(3, false, false, saving);
+            start(w.owners[0]);
+            for n in 0..4 {
+                let id = started.borrow()[n];
+                let mut end = HttpDone::new(200, HttpReason::Ok);
+                end.saved = saving;
+                reports.finished(id, end).unwrap();
+                w.kernel.native_service_pump();
+                let said = (n, saving);
+                assert_eq!(w.told(0), [done(id, 0, false)], "{said:?}");
+            }
+            assert_eq!(started.borrow().len(), 4);
+        }
     }
 }
