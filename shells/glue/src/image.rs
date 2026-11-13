@@ -160,7 +160,6 @@ fn readonly_mapping(_anchor: usize) -> Option<(usize, usize)> {
 
 /// The `(start, length)` of the read-only, non-executable mapping in `maps`
 /// (the text of `/proc/self/maps`) that holds `address`.
-#[cfg(any(target_os = "linux", target_os = "android", test))]
 pub fn mapping_of(maps: &str, address: usize) -> Option<(usize, usize)> {
     for line in maps.lines() {
         let mut parts = line.split_ascii_whitespace();
