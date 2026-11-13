@@ -273,12 +273,12 @@ mod tests {
     }
 
     #[test]
-    fn one_open_service_holds_room_for_one_handle() {
-        // #248, P2: the handle table grows as handles are opened.
+    fn one_open_service_holds_room_for_four_handles() {
+        // #248, P2: the handle table grows four slots at a time.
         let pool = HostResources::try_new().unwrap();
         let owner = pool.try_owner().unwrap();
         owner.insert_service(key("core.ui"), usize::MAX).unwrap();
-        assert_eq!(owner.table.handles.borrow().capacity(), 1);
+        assert_eq!(owner.table.handles.borrow().capacity(), 4);
     }
 
     #[test]
@@ -287,12 +287,16 @@ mod tests {
         let pool = HostResources::try_new().unwrap();
         let owner = pool.try_owner().unwrap();
         let ui = owner.insert_service(key("core.ui"), usize::MAX).unwrap();
+        // The first step's four slots are taken without a growth.
+        for family in ["core.files", "core.library", "core.net"] {
+            owner.insert_service(key(family), usize::MAX).unwrap();
+        }
         FAIL_NTH.with(|n| n.set(1));
-        let refused = owner.insert_service(key("core.files"), usize::MAX);
+        let refused = owner.insert_service(key("core.device"), usize::MAX);
         FAIL_NTH.with(|n| n.set(0));
         assert_eq!(refused, Err(ERR_NO_MEMORY));
         let open = owner.service(ui).map(|key| key.schema.key);
         assert_eq!(open, Ok("core.ui"), "the open handle is kept");
-        assert!(owner.insert_service(key("core.files"), usize::MAX).is_ok());
+        assert!(owner.insert_service(key("core.device"), usize::MAX).is_ok());
     }
 }
