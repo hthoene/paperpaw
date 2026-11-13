@@ -144,7 +144,7 @@ pub enum Outcome {
 #[derive(Debug, Default)]
 pub struct Installer {
     /// The request of the install going on, and what it is of.
-    going: Option<Going>,
+    going: Option<alloc::boxed::Box<Going>>,
     next: u32,
 }
 
@@ -218,13 +218,13 @@ impl Installer {
                 Ok(Step::Failed(Failure::Card))
             };
         }
-        self.going = Some(Going {
+        self.going = Some(paperpaw_ui_kit::mem::boxed(Going {
             request,
             plugin: staged.plugin,
             name: staged.name,
             folder: staged.folder,
             updated: update,
-        });
+        })?);
         download.set_step(Step::Installing);
         Ok(Step::Installing)
     }

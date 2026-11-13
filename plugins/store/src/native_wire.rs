@@ -18,7 +18,6 @@ use paperpaw_sdk::native::{
         CommandSender, Evidence, InstallRoot, MAX_REVOCATIONS, Revocation, Rotation as Statement,
     },
     net::{FileRoot, Header, Net, REPLY, REQUEST_INPUT, Request, RequestId},
-    storage::DataStorage,
 };
 use paperpaw_ui_kit::{mem, text::copy};
 
@@ -81,7 +80,7 @@ impl Handles {
 pub struct HostWire<'a, 'h> {
     host: &'a Host<'h>,
     handles: &'a mut Handles,
-    storage: DataStorage<'a, 'h>,
+    storage: crate::native_folders::StoreStorage<'a, 'h>,
 }
 
 impl core::fmt::Debug for HostWire<'_, '_> {
@@ -96,7 +95,7 @@ impl<'a, 'h> HostWire<'a, 'h> {
         Self {
             host,
             handles,
-            storage: DataStorage::new(host),
+            storage: crate::native_folders::StoreStorage::new(host),
         }
     }
 }
@@ -153,7 +152,7 @@ impl crate::native_load::Wire for HostWire<'_, '_> {
 pub struct DownloadWire<'a, 'h> {
     host: &'a Host<'h>,
     handles: &'a mut Handles,
-    storage: DataStorage<'a, 'h>,
+    storage: crate::native_folders::StoreStorage<'a, 'h>,
 }
 
 impl core::fmt::Debug for DownloadWire<'_, '_> {
@@ -168,7 +167,7 @@ impl<'a, 'h> DownloadWire<'a, 'h> {
         Self {
             host,
             handles,
-            storage: DataStorage::new(host),
+            storage: crate::native_folders::StoreStorage::new(host),
         }
     }
 }
@@ -196,7 +195,7 @@ impl crate::native_download::Wire for DownloadWire<'_, '_> {
 /// What the install sends the host.
 pub struct InstallWire<'a, 'h> {
     host: &'a Host<'h>,
-    storage: DataStorage<'a, 'h>,
+    storage: crate::native_folders::StoreStorage<'a, 'h>,
 }
 
 impl core::fmt::Debug for InstallWire<'_, '_> {
@@ -211,7 +210,7 @@ impl<'a, 'h> InstallWire<'a, 'h> {
     pub fn new(host: &'a Host<'h>) -> Self {
         Self {
             host,
-            storage: DataStorage::new(host),
+            storage: crate::native_folders::StoreStorage::new(host),
         }
     }
 }

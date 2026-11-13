@@ -454,7 +454,9 @@ pub fn register(
         .lookup()
         .work(WorkInputs::new(inputs.view.clone(), profile.device.memory));
     // HTTP over the card (saved and sent files); no card, no `core.net`.
-    let transport = inputs.storage.clone().map(|storage| {
+    // The card itself, not the secrets' store (in memory on simulated time):
+    // a saved answer is the plugin's file on the card.
+    let transport = inputs.card.clone().map(|storage| {
         let transport = Rc::new(crate::native_net::NativeNet::new(
             storage.clone(),
             inputs.view.clone(),

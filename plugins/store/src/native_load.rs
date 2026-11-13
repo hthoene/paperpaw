@@ -27,7 +27,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    mem::buffer,
+    mem::{boxed, buffer},
     text::{concat, copy},
 };
 
@@ -170,8 +170,10 @@ pub enum Ended {
 pub struct Loader {
     trouble: Trouble,
     list: Option<RequestId>,
-    index: Option<Index>,
-    page: Option<PageSlot>,
+    /// Boxed, as the page: the plugin keeps only a pointer while the store is
+    /// not open (#248).
+    index: Option<Box<Index>>,
+    page: Option<Box<PageSlot>>,
 }
 
 /// The page of one plugin and how far it is.
@@ -194,7 +196,10 @@ impl Loader {
     /// `NoMemory`.
     pub fn open(&mut self, storage: &dyn Storage) -> Result<(), Error> {
         if self.index.is_none() {
-            self.index = Index::kept(storage)?;
+            self.index = match Index::kept(storage)? {
+                Some(index) => Some(boxed(index)?),
+                None => None,
+            };
         }
         Ok(())
     }
@@ -207,8 +212,8 @@ impl Loader {
 
     /// The list read, `None` until one was.
     #[must_use]
-    pub const fn index(&self) -> Option<&Index> {
-        self.index.as_ref()
+    pub fn index(&self) -> Option<&Index> {
+        self.index.as_deref()
     }
 
     /// How far the page of the plugin last asked for is, and whose it is.
@@ -325,7 +330,7 @@ impl Loader {
                 Err(_) => Details::Failed,
             };
         }
-        self.page = Some(slot);
+        self.page = Some(boxed(slot)?);
         Ok(())
     }
 
@@ -396,7 +401,7 @@ impl Loader {
         let taken = native_index::take(wire.storage(), LIST_PART, device, hooks);
         match taken {
             Ok(Some((index, list))) => {
-                self.index = Some(index);
+                self.index = Some(boxed(index)?);
                 self.trouble = Trouble::None;
                 if let Err(Error::NoMemory) = wire.revoke(&list.revoked) {
                     return Err(Error::NoMemory);
