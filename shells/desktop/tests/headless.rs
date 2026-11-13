@@ -543,6 +543,63 @@ fn a_picture_follows_the_text_of_its_page_in_a_frame_of_its_own() {
     );
 }
 
+/// The card files' library with two decks' files in a folder.
+fn card_files_library(name: &str) -> PathBuf {
+    let library = library(name);
+    let folder = library.join("Flashcards");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(
+        folder.join("German.tsv"),
+        "front\tback\texample\nKatze\tcat\tDie Katze schläft.\nHund\tdog\n\tno front\nHaus\thouse\n",
+    )
+    .unwrap();
+    fs::write(folder.join("Spanish.csv"), "casa;house\ngato;cat\n").unwrap();
+    library
+}
+
+/// The flash cards' update from the files on the card draws its screen (it
+/// was blank: the screen was never noted as the one on top) and steps.
+#[test]
+#[ignore = "needs native activation (the native flash cards, #243)"]
+fn the_card_files_screen_is_drawn_while_it_updates() {
+    let library = card_files_library("card-files-draw");
+    let shown = run_in(
+        &library,
+        "xteink-x4",
+        "run:vocabulary.flash-cards,wait:900,describe",
+        &["--set", "reader.open-last=false"],
+    );
+    let _ = fs::remove_dir_all(&library);
+    assert!(shown.ok, "{}", shown.stderr);
+    assert_eq!(shown.screen(), "vocabulary.sd-card", "{}", shown.stdout);
+    assert!(
+        shown.stdout.contains("Heading \"Cards on the SD card\"")
+            && shown.stdout.contains("Reading "),
+        "{}",
+        shown.stdout
+    );
+}
+
+/// The files on the card update the decks, and the screen that says what the
+/// update did tells a line that is no card, and each deck what it got.
+#[test]
+#[ignore = "needs the card's files on the storage slots (root 1, files.md): the host refuses them"]
+fn the_card_files_screen_says_what_the_update_did() {
+    let library = card_files_library("card-files");
+    let shown = run_in(
+        &library,
+        "xteink-x4",
+        "run:vocabulary.flash-cards,wait:9000,describe",
+        &["--set", "reader.open-last=false"],
+    );
+    let _ = fs::remove_dir_all(&library);
+    assert!(shown.ok, "{}", shown.stderr);
+    assert_eq!(shown.screen(), "vocabulary.sd-card", "{}", shown.stdout);
+    assert!(shown.stdout.contains("3 added"), "{}", shown.stdout);
+    assert!(shown.stdout.contains("2 added"), "{}", shown.stdout);
+    assert!(shown.stdout.contains("1 line left out"), "{}", shown.stdout);
+}
+
 /// A configuration file (`--config`) is read, and `--set` wins over it.
 #[test]
 fn the_configuration_file_is_read_and_set_wins_over_it() {

@@ -63,9 +63,9 @@ pub(crate) fn auto(host: &Host<'_>) -> Result<bool, Error> {
 /// Declares the work that does the next step.
 fn schedule(host: &Host<'_>) -> Result<(), Error> {
     let work = Work::open(host)?;
-    let mut input = [0u8; 256];
+    let (mut input, mut reply) = ([0u8; 256], [0u8; 64]);
     let declared = WorkSpec::new(WORK_KEY, WORK_TOKEN)
-        .and_then(|spec| work.declare(host, &spec, &mut input, &mut []));
+        .and_then(|spec| work.declare(host, &spec, &mut input, &mut reply));
     let released = work.release(host);
     declared.and(released)
 }
@@ -176,6 +176,8 @@ impl State {
         };
         let run = Run::new(&folder(host)?, mode, save)?;
         self.sd_runs.open(instance, run)?;
+        // On top from the start: the work step and the first draw find it.
+        self.sd_runs.shown(SD_CARD_TOKEN, instance)?;
         if let Err(error) = schedule(host)
             && let Some(run) = self.sd_runs.get(instance)
         {
