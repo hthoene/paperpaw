@@ -118,6 +118,22 @@ impl Plugin for Locks {
 struct Asker {
     seen: Rc<RefCell<Vec<wire::EventAnswered>>>,
     status: Result<i32, i32>,
+    /// Where given: it hears `event.stack_changed` too, and logs the order
+    /// of what it hears.
+    heard: Option<Rc<RefCell<Vec<&'static str>>>>,
+}
+
+impl Asker {
+    fn hear(&self, bytes: &[u8]) {
+        let Some(heard) = &self.heard else {
+            return;
+        };
+        match wire::records_decode_single(bytes) {
+            Ok(wire::Record::EventAnswered(_)) => heard.borrow_mut().push("answered"),
+            Ok(wire::Record::EventStackChanged(_)) => heard.borrow_mut().push("stack"),
+            _ => {}
+        }
+    }
 }
 
 impl NativeInstance for Asker {
@@ -125,7 +141,11 @@ impl NativeInstance for Asker {
         true
     }
     fn stop(&self) {}
-    fn service_event(&self, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn subscribed(&self, tag: u32) -> bool {
+        self.heard.is_some() && tag == wire::EVENT_STACK_CHANGED_TAG
+    }
+    fn service_event(&self, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+        self.hear(bytes);
         self.status
     }
     fn service_event_staged(
@@ -134,6 +154,7 @@ impl NativeInstance for Asker {
         _: &Env<'_>,
         _: &mut crate::native_host::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
+        self.hear(bytes);
         if let Ok(wire::Record::EventAnswered(answered)) = wire::records_decode_single(bytes) {
             self.seen.borrow_mut().push(answered);
         }
@@ -191,6 +212,7 @@ fn world_with(status: Result<i32, i32>, locks: Option<&'static str>) -> World {
                 NativeLease::try_new(Asker {
                     seen: Rc::clone(&seen),
                     status,
+                    heard: None,
                 })
                 .unwrap(),
             ),
@@ -771,6 +793,7 @@ fn a_tool_stages_a_text_question_and_the_keyboard_slot_opens_for_it() {
                 NativeLease::try_new(Asker {
                     seen: Rc::clone(&seen),
                     status: Ok(OK),
+                    heard: None,
                 })
                 .unwrap(),
             ),
@@ -805,6 +828,7 @@ fn a_staged_secret_question_is_secret_and_a_second_one_is_refused() {
                 NativeLease::try_new(Asker {
                     seen: Rc::clone(&seen),
                     status: Ok(OK),
+                    heard: None,
                 })
                 .unwrap(),
             ),
@@ -829,4 +853,55 @@ fn a_staged_secret_question_is_secret_and_a_second_one_is_refused() {
             .is_err()
     );
     assert_eq!(w.store.request_count(), 1);
+}
+
+/// A question Back cancelled reaches its asker before anything else of the
+/// next pass (here the change of the stack the close made): what is served
+/// after it (a computer's next request on the cable) never finds the
+/// question still open.
+#[test]
+fn a_cancelled_question_is_told_before_the_next_passes_events() {
+    use paperpaw_sdk::builtin::actions;
+    let mut w = world(Ok(OK));
+    let heard = Rc::new(RefCell::new(Vec::new()));
+    let owner = w
+        .kernel
+        .shared
+        .native_instances
+        .test_insert(
+            Id::try_parse("e").unwrap(),
+            Some(
+                NativeLease::try_new(Asker {
+                    seen: Rc::new(RefCell::new(Vec::new())),
+                    status: Ok(OK),
+                    heard: Some(Rc::clone(&heard)),
+                })
+                .unwrap(),
+            ),
+            true,
+        )
+        .unwrap();
+    let question = Question {
+        kind: 2,
+        flags: 0,
+        remote: false,
+        title: "Title",
+        text: "Question",
+        choices: "",
+    };
+    let who = Stamp::new(owner, 1).unwrap();
+    w.store
+        .ask(who, None, &question, false, None, false)
+        .unwrap();
+    let _ = w.kernel.tick(Instant(5));
+    // Back: the pass of this call ran before the dialog closed.
+    act(&mut w, 10, actions::BACK);
+    heard.borrow_mut().clear();
+    let _ = w.kernel.tick(Instant(20));
+    assert_eq!(
+        heard.borrow().first(),
+        Some(&"answered"),
+        "{:?}",
+        heard.borrow()
+    );
 }

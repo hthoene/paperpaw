@@ -151,7 +151,7 @@ pub fn registrations_decode(bytes: &[u8]) -> Result<RegistrationBatch, i32> {
     Ok(batch)
 }
 
-fn varint_len(mut value: u32) -> usize {
+pub(crate) fn varint_len(mut value: u32) -> usize {
     let mut len = 1;
     while value >= 0x80 {
         len += 1;

@@ -80,7 +80,8 @@ fn set_more(out: &mut [u8], length: usize, more: bool) -> Result<usize, i32> {
     let reply = out.get(..length).ok_or(ERR_INVALID)?;
     let (entry, used) =
         codec::prefix::<wire::ServiceLookupEntry<'_>>(reply).map_err(|_| ERR_INVALID)?;
-    let tail = varint_len(entry.opens.len()) + entry.opens.len();
+    let opens = u32::try_from(entry.opens.len()).map_err(|_| ERR_INVALID)?;
+    let tail = wire::varint_len(opens) + entry.opens.len();
     let at = length
         .checked_sub(tail)
         .and_then(|end| end.checked_sub(4))
@@ -110,17 +111,6 @@ pub(super) fn empty(provider: &str, more: bool, out: &mut [u8]) -> Result<usize,
         }),
         out,
     )
-}
-
-/// The bytes of the varint length prefix of `len` (7 bits a byte).
-const fn varint_len(len: usize) -> usize {
-    let mut bytes = 1;
-    let mut rest = len >> 7;
-    while rest != 0 {
-        bytes += 1;
-        rest >>= 7;
-    }
-    bytes
 }
 
 #[cfg(test)]

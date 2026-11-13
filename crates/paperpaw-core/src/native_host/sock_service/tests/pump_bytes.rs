@@ -11,8 +11,8 @@ fn a_plugin_is_given_event_106_as_a_batch_of_one_it_decodes() {
     let fake = Rc::new(Fake::x4());
     let id = connect(&fake, f.keys[0], 5).unwrap();
     connected(&*fake, id).unwrap();
-    let services = SockServices(fake.clone());
-    pump::run_services(&f, [None, Some(&services), None]);
+    let services = SockServices(super::super::SockRef::Handed(fake.clone()));
+    pump::run_services(&f, [None, Some(&services), None, None]);
     let seen = f.seen[0].borrow();
     assert_eq!(seen.len(), 1, "one event, once");
     let bytes = &seen[0];
