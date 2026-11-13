@@ -218,6 +218,9 @@ fn with_row<R>(
         (shown.slider, native_extra::shows(settings, shown))
     })
     .unwrap_or_else(|_| (extra.slider, settings.shows(spec)));
+    // Not for this device (a front light it lacks): as the settings screen of
+    // interface 6 left it out, so does this row say it is not shown.
+    let shown = shown && env.menus().available(id);
     let mut flags = 0;
     for (on, bit) in [
         (spec.guarded, GUARDED),

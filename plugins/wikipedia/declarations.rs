@@ -1,9 +1,9 @@
 //! The lookup's native declarations: the summary screen (an overlay that
 //! fills the slot `core.lookup-online`, with the subscription to the end of
-//! its request), and the provider that offers Wikipedia beside the
-//! dictionaries (declared but not submitted until the host admits and
-//! answers providers that fetch), and the subscription that adds the line
-//! naming the source and the licence to *About*.
+//! its request), the provider that offers Wikipedia beside the dictionaries
+//! (it answers *pending* and fetches, `native_provider`), and the
+//! subscription that adds the line naming the source and the licence to
+//! *About*.
 use paperpaw_sdk::native::declare::{
     Declarations, DeclareError, EventKind, LookupProviderDecl, ScreenDecl, SlotOfferDecl,
     SubscribeDecl,
@@ -17,6 +17,8 @@ pub const FETCHED_TOKEN: u32 = 3;
 pub const ABOUT_TOKEN: u32 = 4;
 /// The token the host calls the provider with.
 pub const PROVIDER_TOKEN: u32 = 2;
+/// The token of `event.suspend`: the provider drops the answer it kept.
+pub const SUSPEND_TOKEN: u32 = 5;
 
 /// The summary screen.
 pub fn screen<F: FnMut(&[u8]) -> Result<(), i32>>(
@@ -31,15 +33,16 @@ pub fn screen<F: FnMut(&[u8]) -> Result<(), i32>>(
     Ok(())
 }
 
-/// The provider. Not submitted yet: the host refuses a lookup provider
-/// (`ERR_UNSUPPORTED`) until the stage `core.lookup` is live, and a plugin
-/// whose `make` fails is not admitted at all (`PORTING-7.md`).
+/// The provider, a network one: the host calls it only while connected
+/// (`document.md` 7), with its subscription to the suspend.
 pub fn provider<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.lookup_provider(
         LookupProviderDecl::new("summary", "wikipedia.title", PROVIDER_TOKEN).online(),
     )?;
+    // The answer kept is not held through a suspend.
+    d.subscribe_event(EventKind::Suspend, SUSPEND_TOKEN)?;
     d.submit()?;
     Ok(())
 }

@@ -36,7 +36,7 @@ const PER_OWNER: usize = 4;
 /// `true` when events remain for another pass.
 pub(super) fn pump(
     instances: &NativeInstances,
-    services: &[Option<&dyn ServiceEvents>; 3],
+    services: &[Option<&dyn ServiceEvents>; 4],
     env: &Env<'_>,
     call: &dyn Fn(u64, &super::native_instances::NativeLease, &[u8]),
 ) -> bool {

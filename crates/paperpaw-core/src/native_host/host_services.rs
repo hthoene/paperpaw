@@ -778,8 +778,9 @@ impl HostServices {
     }
 
     /// The wired services that raise events to plugins, for the kernel's
-    /// event pump: `core.net`, `core.sockets`, then `core.document`.
-    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 3] {
+    /// event pump: `core.net`, `core.sockets`, `core.document`, then
+    /// `core.lookup`.
+    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 4] {
         [
             self.net
                 .get()
@@ -790,6 +791,9 @@ impl HostServices {
             self.documents
                 .get()
                 .map(|s| s as &dyn super::service_events::ServiceEvents),
+            self.lookup
+                .get()
+                .map(|s| &**s as &dyn super::service_events::ServiceEvents),
         ]
     }
 
@@ -1028,6 +1032,12 @@ impl HostServices {
         if let Some(ui) = self.ui.get() {
             result = result.and(ui.store.owner_stopped(owner));
             result = result.and(ui.plugin_stopped(owner));
+        }
+        // Its pending asks (made and to it) and its waiting events end, also
+        // when it is parked again: the event pump skips a parked lease, so a
+        // kept event would keep the pump due (Senior R1 on #1407).
+        if let Some(lookup) = self.lookup.get() {
+            lookup.stopped(owner);
         }
         if let Some(net) = self.net.get() {
             result = result.and(net_service::owner_stopped(&*net.0, owner));

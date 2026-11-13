@@ -19,6 +19,8 @@ mod wire;
 #[cfg(test)]
 pub(super) use subset::decode_any;
 pub(super) use subset::{as_wire, decode_record, unexpected};
+/// The size of a wire varint (the lookup broker finds fields behind one).
+pub(crate) use wire::varint_len;
 
 pub use wire::{
     EVENT_TICK_TAG, REGISTRATION_MAX_BYTES, REGISTRATION_MAX_RECORDS, Registration,

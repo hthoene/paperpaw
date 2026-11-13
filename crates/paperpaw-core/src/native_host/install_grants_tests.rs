@@ -42,7 +42,7 @@ fn kernel() -> Kernel {
     }
     let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
     driver.borrow_mut().set_plugin_host(PluginHost {
-        loader: Loader::x4(1),
+        loader: Some(Loader::x4(1)),
         offered: Offered {
             abi_major: 7,
             minor: 1,

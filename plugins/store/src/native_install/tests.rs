@@ -113,11 +113,10 @@ fn the_host_is_asked_to_install_with_the_evidence_and_the_end_is_said() {
         ("stage/airy-theme", true, false)
     );
     assert_eq!(proof.author, Some([7; 32]));
-    // Reason 0, the next start for code: installed, kept as the store's, the
-    // files gone.
+    // Reason 0, the next start for code: installed, the files gone.
     let end = End::new(request, 0, 2);
     let outcome = installer
-        .done(&mut wire, &mut download, &end, "1.1.0-beta.1", false)
+        .done(&mut wire, &mut download, &end, false)
         .unwrap();
     assert_eq!(
         outcome,
@@ -131,17 +130,12 @@ fn the_host_is_asked_to_install_with_the_evidence_and_the_end_is_said() {
     assert_eq!(download.step(), Step::Installed);
     assert!(!installer.busy());
     assert!(!wire.storage.exists("stage/airy-theme/plugin.ini"));
-    let installs = Installs::read(&wire.storage).unwrap();
-    assert_eq!(
-        installs.release("airy-theme", "1.1.0"),
-        Some("1.1.0-beta.1")
-    );
-    assert!(installs.of("airy-theme", "1.1.0-beta.2"));
-    assert!(!installs.of("airy-theme", "1.0.0"));
+    // The host keeps the record of the store's installs: none of its own.
+    assert!(!wire.storage.exists(".paperpaw/plugin-origin.txt"));
     // The end of a request that is none going on is not ours.
     assert_eq!(
         installer
-            .done(&mut wire, &mut download, &end, "1.1.0", false)
+            .done(&mut wire, &mut download, &end, false)
             .unwrap(),
         Outcome::Other
     );
@@ -204,7 +198,7 @@ fn what_the_host_refuses_is_said_in_the_stores_words() {
             .unwrap();
         let end = End::new(wire.installs[0].0, reason, 0);
         let outcome = installer
-            .done(&mut wire, &mut download, &end, "1.0.0", false)
+            .done(&mut wire, &mut download, &end, false)
             .unwrap();
         match want {
             Some(key) => assert_eq!(
@@ -217,8 +211,7 @@ fn what_the_host_refuses_is_said_in_the_stores_words() {
             ),
             None => assert_eq!(outcome, Outcome::Silent, "reason {reason}"),
         }
-        // Not installed: no record, the staged files gone, the step idle.
-        assert!(Installs::read(&wire.storage).unwrap().kept.is_empty());
+        // Not installed: the staged files gone, the step idle.
         assert!(!wire.storage.exists("stage/airy-theme/plugin.ini"));
         assert_eq!(download.step(), Step::Idle);
     }
@@ -249,47 +242,6 @@ fn a_refused_install_command_or_a_wrong_plugin_leaves_no_files() {
         .unwrap();
     assert_eq!(step, Step::Failed(Failure::Damaged));
     assert!(wire.installs.is_empty());
-}
-
-#[test]
-fn the_installs_are_kept_four_a_plugin_and_read_back() {
-    let storage = MemoryStorage::new();
-    for n in 0..6 {
-        let release = alloc::format!("1.{n}.0");
-        assert!(Installs::remember(&storage, "airy-theme", &release).unwrap());
-        assert!(Installs::remember(&storage, "other", "2.0.0").unwrap());
-    }
-    let installs = Installs::read(&storage).unwrap();
-    let airy = installs
-        .kept
-        .iter()
-        .filter(|(id, _)| id == "airy-theme")
-        .count();
-    assert_eq!(airy, VERSIONS_KEPT);
-    assert!(!installs.of("airy-theme", "1.1.0"));
-    assert!(installs.of("airy-theme", "1.5.0"));
-    assert!(installs.of("other", "2.0.0"));
-    assert!(Installs::forget(&storage, "airy-theme").unwrap());
-    let installs = Installs::read(&storage).unwrap();
-    assert!(!installs.of("airy-theme", "1.5.0") && installs.of("other", "2.0.0"));
-    // What is no plugin or no version is not kept; damaged lines are skipped.
-    assert!(!Installs::remember(&storage, "Not Ok", "1.0.0").unwrap());
-    assert!(!Installs::remember(&storage, "airy-theme", "1\t0").unwrap());
-    let storage =
-        MemoryStorage::new().with(INSTALLS_FILE, "airy-theme\t1.0.0\nnonsense\n\t3\nx y\t1\n");
-    assert!(Installs::read(&storage).unwrap().of("airy-theme", "1.0.0"));
-    assert_eq!(Installs::read(&storage).unwrap().kept.len(), 1);
-}
-
-#[test]
-fn the_plugins_installed_before_the_record_are_adopted_once() {
-    let storage = MemoryStorage::new();
-    assert!(!Installs::exists(&storage));
-    assert!(Installs::adopt(&storage, [("airy-theme", "1.0.0"), ("Bad Id", "1")]).unwrap());
-    assert!(Installs::read(&storage).unwrap().of("airy-theme", "1.0.0"));
-    // Once kept, it does nothing.
-    assert!(Installs::adopt(&storage, [("other", "2.0.0")]).unwrap());
-    assert!(!Installs::read(&storage).unwrap().of("other", "2.0.0"));
 }
 
 #[test]
@@ -326,20 +278,6 @@ fn the_queue_goes_on_with_the_next_plugin_and_is_kept() {
     );
     assert_eq!(next(&mut queue, &storage).unwrap(), Next::Idle);
     assert!(Queue::read(&storage).unwrap().lines().is_empty());
-}
-
-#[test]
-fn a_record_that_cannot_be_read_is_not_written_over() {
-    // Not text: it is there, but says nothing the store can keep or lose.
-    let storage = MemoryStorage::new().with(INSTALLS_FILE, alloc::vec![0xff, 0xfe, 0x00]);
-    assert!(!Installs::remember(&storage, "airy-theme", "1.0.0").unwrap());
-    assert!(!Installs::forget(&storage, "airy-theme").unwrap());
-    let mut kept = alloc::vec![0; 3];
-    assert_eq!(storage.read_at(INSTALLS_FILE, 0, &mut kept).unwrap(), 3);
-    assert_eq!(kept, [0xff, 0xfe, 0x00]);
-    // No file at all is an empty record, which is written.
-    let empty = MemoryStorage::new();
-    assert!(Installs::remember(&empty, "airy-theme", "1.0.0").unwrap());
 }
 
 /// A card that refuses every write.

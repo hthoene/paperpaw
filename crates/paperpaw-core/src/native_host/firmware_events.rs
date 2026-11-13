@@ -19,15 +19,18 @@
 use super::{
     codec,
     device_service::DeviceBuiltIns,
-    firmware_install::{BuiltIns, KIND_CHECK, Outcome},
+    firmware_install::{BuiltIns, Event, KIND_CHECK, Outcome},
     native_instances::InstanceState,
+    plugin_job::{DONE_AT_NEXT_START, ID_MAX, KIND_INSTALL},
     registrations::{self as wire, Record},
 };
 use crate::Kernel;
+use alloc::string::String;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_STATE,
     ERR_UNSUPPORTED, OK,
 };
+use paperpaw_platform::firmware::Text;
 
 /// The room of one record of 96 or 97 (a batch of one).
 const RECORD_BYTES: usize = 128;
@@ -85,6 +88,21 @@ pub(crate) fn status_of(outcome: Outcome) -> i32 {
     }
 }
 
+/// The data plugin a finished install put in place to load now: reason 0
+/// and not at the next start (a code plugin's change waits for it).
+fn loads_now(event: Event) -> Option<Text<ID_MAX>> {
+    match event {
+        Event::Ended(outcome)
+            if outcome.kind == KIND_INSTALL
+                && outcome.reason == 0
+                && outcome.flags & DONE_AT_NEXT_START == 0 =>
+        {
+            outcome.id
+        }
+        _ => None,
+    }
+}
+
 impl Kernel {
     /// What the device tells plugin jobs about itself, as
     /// [`KernelBuilder::plugin_host`](crate::KernelBuilder::plugin_host) does:
@@ -102,11 +120,22 @@ impl Kernel {
     ) -> bool {
         self.firmware.as_ref().is_some_and(|cell| {
             cell.set_plugin_host(super::plugin_job::PluginHost {
-                loader,
+                loader: Some(loader),
                 offered,
                 signers,
             })
         })
+    }
+
+    /// [`Self::set_plugin_host`] for a device that loads no plugin code
+    /// (Boox/Android, desktop, web): plugin jobs take data plugins only, a
+    /// plugin with a code file ends with reason 19 (`ERR_UNSUPPORTED`), as
+    /// code of another kind of device does. The same queue, so it too needs
+    /// [`KernelBuilder::firmware_host`](crate::KernelBuilder::firmware_host).
+    pub fn set_data_plugin_host(&mut self) -> bool {
+        self.firmware
+            .as_ref()
+            .is_some_and(|cell| cell.set_plugin_host(super::plugin_job::PluginHost::DATA_ONLY))
     }
 
     /// The firmware driver, where one is made now (none at rest).
@@ -143,19 +172,23 @@ impl Kernel {
         };
         self.native_outbox_run();
         self.feed_install_grants(&driver);
-        {
+        let installed = {
             let Ok(mut driver) = driver.try_borrow_mut() else {
                 return true;
             };
             let hosts = self.shared.native_instances.hosts();
             let plugins = &self.shared.plugins;
-            match hosts.and_then(|hosts| hosts.device()) {
+            // Only the id of a data plugin to load is kept, not the event.
+            loads_now(match hosts.and_then(|hosts| hosts.device()) {
                 Some(device) => {
                     let device = DeviceBuiltIns(&*device.0);
                     driver.pump(self.storage(), &Found(&device, plugins), now)
                 }
                 None => driver.pump(self.storage(), &Found(&NoBuiltIns, plugins), now),
-            };
+            })
+        };
+        if let Some(id) = installed {
+            self.firmware_load_installed(id.as_str());
         }
         self.firmware_unload_pump(&driver);
         self.firmware_forget_pump(&driver);
@@ -290,6 +323,47 @@ impl Kernel {
                 });
             }
         }
+    }
+
+    /// The data plugin `id` an install put in place (`plugins/<id>`) loads at
+    /// once, before its `install_done` is told, as interface 6 did
+    /// (`Kernel::install_plugin`): the old version goes first, and event 70
+    /// is raised even where the new one does not load. What that function
+    /// does beyond this has no case here: the job refuses data over code
+    /// (reason 15), so no native instance of the id runs, none waits for a
+    /// replacement, none refuses its unload, and no code plugin stays
+    /// listed; the job settled the install marks before its end.
+    #[inline(never)]
+    fn firmware_load_installed(&mut self, id: &str) {
+        let Ok(id) = paperpaw_sdk::Id::parse(id) else {
+            return;
+        };
+        // Code of the id (not reachable, see above): left to the next start.
+        let native = self.shared.native_instances.find(id.as_str()).is_some()
+            || self.shared.native_instances.replacement_pending(&id);
+        let replaced = self.shared.plugins.get(id.as_str()).is_some();
+        // Only a data plugin's old version goes: a plugin built in or linked
+        // whose id the job let through (no device host wired) stays.
+        let foreign = replaced && !self.shared.data_folders.iter().any(|(p, _)| *p == id);
+        if foreign {
+            self.warn_runtime(
+                "an installed data plugin has the id of a plugin built in: not loaded",
+            );
+        }
+        if !native && !foreign && (!replaced || self.unload_plugin(&id)) {
+            let dir = paperpaw_sdk::builtin::PLUGIN_DIR;
+            let mut folder = String::new();
+            if folder
+                .try_reserve_exact(dir.len() + 1 + id.as_str().len())
+                .is_ok()
+            {
+                folder.push_str(dir);
+                folder.push('/');
+                folder.push_str(id.as_str());
+                let _ = self.register_folder(&folder);
+            }
+        }
+        self.plugins_changed();
     }
 
     /// A removal's first step: the instances of the plugin it removes are

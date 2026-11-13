@@ -47,6 +47,8 @@ pub(crate) use redraw::{Area, FOLLOWUP_ID, Followup};
 
 #[path = "commands_answers.rs"]
 mod answers;
+#[path = "commands_lookup.rs"]
+mod lookup;
 #[path = "commands_presets.rs"]
 mod preset;
 #[cfg(test)]
@@ -152,6 +154,9 @@ pub struct CommandStage<'a> {
     answer_view: super::plugin_requests::AnswerView,
     /// The answers to apply after the callback (`commands_answers.rs`).
     staged_answers: Vec<super::plugin_requests::Answer>,
+    /// The ready lookups to apply after the callback, as their asks' hashes
+    /// (`commands_lookup.rs`).
+    staged_lookups: Vec<u64>,
     /// The callback belongs to a work run (`work.md` section 2, "background
     /// work is quiet"): commands that show something are refused.
     quiet: bool,
@@ -211,6 +216,7 @@ impl<'a> CommandStage<'a> {
             own_requests: 0,
             answer_view: super::plugin_requests::AnswerView::default(),
             staged_answers: Vec::new(),
+            staged_lookups: Vec::new(),
             staged_images: Vec::new(),
             items: None,
             staged_items: Vec::new(),
@@ -323,28 +329,16 @@ impl<'a> CommandStage<'a> {
             Ok(bytes) => bytes,
             Err(status) => return status,
         };
-        // Item states (`commands_items.rs`): checked and copied whole.
-        let (item_states, item_bytes) = match self.validate_item_states(batch) {
-            Ok(checked) => checked,
-            Err(status) => return status,
-        };
-        // Presets (`commands_presets.rs`): checked, their names copied.
-        let (presets, preset_bytes) = match self.validate_presets(batch) {
-            Ok(checked) => checked,
-            Err(status) => return status,
-        };
-        // Answers to plugin requests (`commands_answers.rs`): checked, copied.
-        let (answers, answer_bytes) = match self.validate_answers(batch) {
-            Ok(checked) => checked,
+        // The lists kept apart from the `Command`s ([`Kept`]).
+        let kept = match self.validate_kept(batch) {
+            Ok(kept) => kept,
             Err(status) => return status,
         };
         // Registration, scalar ranges and the byte budget, without allocating.
         let mut bytes = self
             .bytes
             .saturating_add(dev_bytes)
-            .saturating_add(item_bytes)
-            .saturating_add(preset_bytes)
-            .saturating_add(answer_bytes);
+            .saturating_add(kept.bytes);
         if bytes > self.byte_limit {
             return ERR_NO_SPACE;
         }
@@ -356,9 +350,7 @@ impl<'a> CommandStage<'a> {
         let stored = Self::stored_count(batch) - image_commands;
         if self.staged.try_reserve(stored).is_err()
             || self.staged_images.try_reserve(image_commands).is_err()
-            || self.staged_items.try_reserve(item_states.len()).is_err()
-            || self.staged_presets.try_reserve(presets.len()).is_err()
-            || self.staged_answers.try_reserve(answers.len()).is_err()
+            || self.reserve_kept(&kept).is_err()
         {
             return ERR_NO_MEMORY;
         }
@@ -401,15 +393,52 @@ impl<'a> CommandStage<'a> {
             return error;
         }
         // Capacity is reserved, so this cannot reallocate.
-        self.staged_items.extend(item_states);
-        self.staged_presets.extend(presets);
-        self.staged_answers.extend(answers);
+        self.keep(kept);
         self.keep_claims(claims);
         self.push_redraws(batch);
         self.accepted += batch.len();
         self.bytes = bytes;
         self.images = images;
         OK
+    }
+
+    /// The lists of a batch kept apart from the `Command`s, checked and
+    /// copied: item states (`commands_items.rs`), presets
+    /// (`commands_presets.rs`), answers to plugin requests
+    /// (`commands_answers.rs`) and ready lookups (`commands_lookup.rs`).
+    #[inline(never)]
+    fn validate_kept(&self, batch: &CommandBatch<'_>) -> Result<Kept, i32> {
+        let (item_states, item_bytes) = self.validate_item_states(batch)?;
+        let (presets, preset_bytes) = self.validate_presets(batch)?;
+        let (answers, answer_bytes) = self.validate_answers(batch)?;
+        let lookups = self.validate_lookup_readies(batch)?;
+        Ok(Kept {
+            item_states,
+            presets,
+            answers,
+            lookups,
+            bytes: item_bytes
+                .saturating_add(preset_bytes)
+                .saturating_add(answer_bytes),
+        })
+    }
+
+    /// Room for `kept` in the stage's lists.
+    fn reserve_kept(&mut self, kept: &Kept) -> Result<(), ()> {
+        self.staged_items
+            .try_reserve(kept.item_states.len())
+            .and_then(|()| self.staged_presets.try_reserve(kept.presets.len()))
+            .and_then(|()| self.staged_answers.try_reserve(kept.answers.len()))
+            .and_then(|()| self.staged_lookups.try_reserve(kept.lookups.len()))
+            .map_err(|_| ())
+    }
+
+    /// Keeps `kept` in the stage's lists (room reserved by [`Self::reserve_kept`]).
+    fn keep(&mut self, kept: Kept) {
+        self.staged_items.extend(kept.item_states);
+        self.staged_presets.extend(kept.presets);
+        self.staged_answers.extend(kept.answers);
+        self.staged_lookups.extend(kept.lookups);
     }
 
     /// Room for the instances of the batch's `command.widget_changed`.
@@ -445,6 +474,7 @@ impl<'a> CommandStage<'a> {
                     || Self::is_item_state(&command)
                     || Self::is_preset(&command)
                     || Self::is_answer(&command)
+                    || Self::is_lookup_ready(&command)
                 {
                     Ok(0)
                 } else {
@@ -492,6 +522,7 @@ impl<'a> CommandStage<'a> {
                     && !Self::is_item_state(command)
                     && !Self::is_preset(command)
                     && !Self::is_answer(command)
+                    && !Self::is_lookup_ready(command)
             })
             .count()
     }
@@ -552,6 +583,7 @@ impl<'a> CommandStage<'a> {
             ) || Self::is_item_state(&command)
                 || Self::is_preset(&command)
                 || Self::is_answer(&command)
+                || Self::is_lookup_ready(&command)
             {
                 continue;
             }
@@ -647,6 +679,16 @@ impl<'a> CommandStage<'a> {
     }
 }
 
+/// What a batch stages beside its `Command`s, checked before anything is
+/// staged ([`CommandStage::validate_kept`]); `bytes` count against the budget.
+struct Kept {
+    item_states: Vec<super::item_state::ItemPush>,
+    presets: Vec<alloc::boxed::Box<str>>,
+    answers: Vec<super::plugin_requests::Answer>,
+    lookups: Vec<u64>,
+    bytes: usize,
+}
+
 impl fmt::Debug for CommandStage<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CommandStage")
@@ -661,7 +703,8 @@ impl fmt::Debug for CommandStage<'_> {
 
 /// Whether a callback of a work run may stage `command` (`work.md` section
 /// 2, "background work is quiet"): a redraw of its own screens, settings,
-/// pictures, widget values and item states, the network, and a notify with the
+/// pictures, widget values and item states, the network, a ready lookup (a
+/// provider's fetch ends in its run, `document.md` 7) and a notify with the
 /// `announce` bit (`ui.md` section 7: device messages and rules the user set
 /// up, which the kernel shows at its next pump, in its queue of waiting
 /// notices). Everything else is refused, so a command added later (a plain
@@ -686,6 +729,7 @@ fn allowed_in_a_run(command: &WireCommand<'_>) -> bool {
             | WireCommand::WifiHost { .. }
             | WireCommand::NetworkNone {}
             | WireCommand::GoOnline { .. }
+            | WireCommand::LookupReady { .. }
     ) || matches!(command, WireCommand::Notify { flags, .. } if flags & ui::NOTIFY_ANNOUNCE != 0)
 }
 

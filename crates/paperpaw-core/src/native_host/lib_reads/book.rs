@@ -288,7 +288,7 @@ pub(super) fn text(
         4 => Field,
         // The annotation's own text and note: its file.
         5 | 6 => {
-            return reads.with_path(book, |path| {
+            return reads.with_book_file(book, |path| {
                 super::annotations::text(&*reads.storage, path, at, visit)
             });
         }
