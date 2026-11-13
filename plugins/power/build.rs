@@ -88,7 +88,8 @@ fn main() -> Result<(), String> {
     let table =
         paperpaw_sdk::native::declare::fixed_settings_source("power", "SETTINGS", &batches)?
             + &paperpaw_sdk::native::declare::fixed_groups_source("power", "GROUPS", &batches)?
-            + &paperpaw_sdk::native::declare::fixed_ids_source("power", "IDS", &named)?;
+            + &paperpaw_sdk::native::declare::fixed_ids_source("power", "IDS", &named)?
+            + &paperpaw_sdk::native::declare::fixed_titles_source("power", "TITLES", &named)?;
     std::fs::write(out.join("power_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("power_declarations.rs"), source)

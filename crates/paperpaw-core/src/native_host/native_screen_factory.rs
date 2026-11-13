@@ -5,13 +5,14 @@ use super::{
     native_values::Callback,
     shell,
 };
-use alloc::{borrow::Cow, boxed::Box};
+use alloc::boxed::Box;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
 use paperpaw_sdk::{Id, Instances, Screen};
 
 pub(crate) struct NativeScreenSpec {
-    pub(crate) id: Id,
-    pub(crate) title: Cow<'static, str>,
+    /// Its id and title: a linked plugin's entry kept in the program, or a
+    /// copy (#248, B).
+    pub(crate) titled: paperpaw_sdk::Titled,
     pub(crate) made: NativeMade,
 }
 
@@ -39,8 +40,7 @@ impl NativeScreenSpec {
     pub(crate) fn new(callback: Callback, instance: NativeLease) -> Result<Self, i32> {
         instances_of(callback.flags).ok_or(ERR_UNSUPPORTED)?;
         Ok(Self {
-            id: callback.id,
-            title: callback.title,
+            titled: super::native_values::titled(callback.kept, callback.id, callback.title)?,
             made: NativeMade {
                 token: callback.token,
                 flags: callback.flags,

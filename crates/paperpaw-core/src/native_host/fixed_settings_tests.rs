@@ -106,3 +106,50 @@ fn the_id_table_is_sorted_and_holds_the_ids_the_host_makes() {
     );
     assert!(source.starts_with("pub static IDS: [paperpaw_sdk::Id; 6] = ["));
 }
+
+/// A plugin's titles table: sorted by id whatever the order of the
+/// declarations, the first of an id declared twice, no id that is not one,
+/// and each title written as a Rust string that reads back the same (#248,
+/// B; Port Reviewer, #1372).
+#[test]
+fn the_titles_table_is_sorted_once_each_and_escaped() {
+    use crate::native_host::registrations::{ActionSpec, Record, ScreenSpec, records_encode};
+    let screen = |name, title| {
+        Record::ScreenSpec(ScreenSpec {
+            name,
+            title,
+            token: 1,
+            flags: 0,
+        })
+    };
+    let records = [
+        screen("zeta", "p.zeta"),
+        Record::ActionSpec(ActionSpec {
+            name: "alpha",
+            title: "p.\"a\"\\b\n",
+            token: 2,
+            flags: 0,
+        }),
+        // Declared twice: the first stays (the host refuses the second).
+        screen("zeta", "p.second"),
+        // Not an id: left out.
+        screen("Not An Id", "p.bad"),
+        screen("mid", "p.mid"),
+    ];
+    let mut bytes = alloc::vec![0; 1024];
+    let len = records_encode(&records, &mut bytes).unwrap();
+    let source =
+        paperpaw_sdk::native::declare::fixed_titles_source("p", "TITLES", &[&bytes[..len]])
+            .unwrap();
+    let rows: alloc::vec::Vec<&str> = source.lines().skip(1).map(str::trim).collect();
+    assert_eq!(
+        rows,
+        [
+            r#"paperpaw_sdk::TitleEntry::new(paperpaw_sdk::Id::new_static("p.alpha"), "p.\"a\"\\b\n"),"#,
+            r#"paperpaw_sdk::TitleEntry::new(paperpaw_sdk::Id::new_static("p.mid"), "p.mid"),"#,
+            r#"paperpaw_sdk::TitleEntry::new(paperpaw_sdk::Id::new_static("p.zeta"), "p.zeta"),"#,
+            "];",
+        ]
+    );
+    assert!(source.starts_with("pub static TITLES: [paperpaw_sdk::TitleEntry; 3] = [\n"));
+}

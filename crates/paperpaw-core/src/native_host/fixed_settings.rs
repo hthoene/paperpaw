@@ -24,6 +24,11 @@ pub struct FixedTables {
     /// is this entry (no heap; its copies allocate nothing either), any other
     /// is copied. A table out of order finds less, never something else.
     pub ids: &'static [Id],
+    /// The id and title of each screen and action it declares, sorted by id
+    /// (`paperpaw_sdk::native::declare::fixed_titles_source`): a screen or an
+    /// action whose id and title are an entry keeps that entry, no row of its
+    /// own (#248). Any other is copied.
+    pub titles: &'static [paperpaw_sdk::TitleEntry],
     /// The program's read-only data (`Kernel::register_linked`'s `image`):
     /// the titles and texts its declarations hold there are read from there.
     pub(crate) image: &'static [u8],
@@ -39,6 +44,7 @@ impl FixedTables {
         settings: &[],
         groups: &[],
         ids: &[],
+        titles: &[],
         image: &[],
         owner: "",
     };
@@ -53,6 +59,7 @@ impl FixedTables {
             settings,
             groups,
             ids: &[],
+            titles: &[],
             image: &[],
             owner: "",
         }
@@ -64,11 +71,19 @@ impl FixedTables {
         Self { ids, ..self }
     }
 
+    /// The same tables with the plugin's titles table `titles` (sorted by
+    /// id).
+    #[must_use]
+    pub const fn with_titles(self, titles: &'static [paperpaw_sdk::TitleEntry]) -> Self {
+        Self { titles, ..self }
+    }
+
     /// Where ids and texts are taken from for the declarations.
     pub(super) const fn kept(&self) -> super::native_values::Kept {
         super::native_values::Kept {
             ids: self.ids,
             image: self.image,
+            titles: self.titles,
         }
     }
 }
