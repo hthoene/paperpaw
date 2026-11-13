@@ -25,8 +25,9 @@ use paperpaw_ui_kit::{
 
 use crate::declarations::{
     CARDS_TOKEN, DECKS_TOKEN, DECORATE_STAGE, DECORATE_TOKEN, EVENTS_TOKEN, OPEN_TOKEN,
-    RESUME_TOKEN, REVIEW_TOKEN, SD_CARD_TOKEN, SD_MENU_TOKEN, SLEEP_CARD, SLEEP_TOKEN, TICK_TOKEN,
-    WORD_STAGE, WORD_TOKEN, WORDS_TOKEN, WORK_TOKEN,
+    PHONE_TOKEN, REQUEST_TOKEN, RESUME_TOKEN, REVIEW_TOKEN, SD_CARD_TOKEN, SD_MENU_TOKEN,
+    SERVER_TOKEN, SLEEP_CARD, SLEEP_TOKEN, TICK_TOKEN, WORD_STAGE, WORD_TOKEN, WORDS_TOKEN,
+    WORK_TOKEN,
 };
 use crate::files::DataFolder;
 use crate::native_decks::{self, DecksView, Numbers};
@@ -77,6 +78,8 @@ pub(crate) struct State {
     /// The card files' menu, and the screens that update from them or save.
     pub(crate) sd_menus: Screens<crate::native_sd::MenuView>,
     pub(crate) sd_runs: Screens<crate::native_sd::Run>,
+    /// The phone's screen and its server.
+    phone: crate::native_phone_screen::Phone,
     /// The word a question about deleting is asked of, and the question.
     asked: Option<(RequestId, Word, Asked)>,
 }
@@ -148,7 +151,7 @@ impl State {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::WidgetMade, kinds::WidgetDropped, kinds::Resume, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::WorkDue, kinds::StageCall)
+        let Some(event) = read_event!(incoming; kinds::Started, kinds::Tick, kinds::WidgetMade, kinds::WidgetDropped, kinds::Resume, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::WorkDue, kinds::StageCall, kinds::Server, kinds::ServedRequest)
         else {
             return Ok(());
         };
@@ -171,13 +174,24 @@ impl State {
             } => self.widgets.stage(host, payload, reply),
             Event::Resume { .. } if token == RESUME_TOKEN => self.woke(host),
             Event::ScreenOpened { instance, .. } if token == SLEEP_TOKEN => {
-                // A card that cannot be read leaves the screen saying that none
-                // is due: the sleep screen must not be dead.
-                let asleep = match crate::native_sleep_card::read(host) {
-                    Err(Error::NoMemory) => return Err(Error::NoMemory),
-                    other => other.unwrap_or_default(),
-                };
-                self.asleep.open(instance, asleep)
+                self.opened_sleep(host, instance)
+            }
+            Event::ScreenOpened { instance, .. } if token == PHONE_TOKEN => {
+                self.phone.opened(host, instance)
+            }
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == PHONE_TOKEN => self.phone.shown(host, instance),
+            Event::Server(event)
+                if token == SERVER_TOKEN && event.server() == crate::native_phone::SERVER =>
+            {
+                self.phone.server(host, event.state())
+            }
+            Event::ServedRequest(request)
+                if token == REQUEST_TOKEN && request.server() == crate::native_phone::SERVER =>
+            {
+                self.phone.request(host, &request)
             }
             Event::Tick { .. } if token == TICK_TOKEN => self.tick(host),
             Event::WorkDue(_) if token == WORK_TOKEN => self.sd_work(host),
@@ -193,17 +207,8 @@ impl State {
             } if token == DECORATE_TOKEN => {
                 crate::native_marks_stage::decorate(host, &mut self.ui, payload, reply)
             }
-            Event::ActionRun {
-                action: "vocabulary.flash-cards",
-                ..
-            } if token == CARDS_TOKEN => {
-                CommandSender::new(host, &mut [0; 128]).open_screen(native_decks_screen())
-            }
-            Event::ActionRun {
-                action: "vocabulary.open",
-                ..
-            } if token == OPEN_TOKEN => {
-                CommandSender::new(host, &mut [0; 128]).open_screen(native_list::SCREEN)
+            Event::ActionRun { action, .. } if token == CARDS_TOKEN || token == OPEN_TOKEN => {
+                Self::action(host, token, action)
             }
             Event::Answered { answer, .. } => self.answered(host, answer),
             Event::ScreenOpened { instance, .. } if token == WORDS_TOKEN => {
@@ -235,20 +240,42 @@ impl State {
             } if token == DECKS_TOKEN || token == REVIEW_TOKEN || token == WORDS_TOKEN => {
                 self.shown(host, token, instance)
             }
-            Event::ScreenClosed { instance, .. } => {
-                if let Some(review) = self.reviews.get(instance) {
-                    let data = DataStorage::new(host);
-                    review.close(&DataFolder(&data));
-                }
-                self.decks.close(instance);
-                self.reviews.close(instance);
-                self.words.close(instance);
-                self.asleep.close(instance);
-                self.closed_sd(host, instance);
-                Ok(())
-            }
+            Event::ScreenClosed { instance, .. } => self.screen_closed(host, instance),
             _ => Ok(()),
         }
+    }
+
+    /// The two actions of this plugin each open one screen.
+    fn action(host: &Host<'_>, token: u32, action: &str) -> Result<(), Error> {
+        let screen = match (token, action) {
+            (CARDS_TOKEN, "vocabulary.flash-cards") => native_decks_screen(),
+            (OPEN_TOKEN, "vocabulary.open") => native_list::SCREEN,
+            _ => return Ok(()),
+        };
+        CommandSender::new(host, &mut [0; 128]).open_screen(screen)
+    }
+
+    /// A card that cannot be read leaves the screen saying that none is due:
+    /// the sleep screen must not be dead.
+    fn opened_sleep(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        let asleep = match crate::native_sleep_card::read(host) {
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            other => other.unwrap_or_default(),
+        };
+        self.asleep.open(instance, asleep)
+    }
+
+    fn screen_closed(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        if let Some(review) = self.reviews.get(instance) {
+            let data = DataStorage::new(host);
+            review.close(&DataFolder(&data));
+        }
+        self.decks.close(instance);
+        self.reviews.close(instance);
+        self.words.close(instance);
+        self.asleep.close(instance);
+        self.closed_sd(host, instance);
+        self.phone.closed(host, instance)
     }
 
     pub(crate) fn draw(
@@ -276,6 +303,7 @@ impl State {
                 .top(token)
                 .ok_or(Error::State)?
                 .draw(host, &mut frame),
+            PHONE_TOKEN => self.phone.draw(host, &mut frame),
             SD_MENU_TOKEN | SD_CARD_TOKEN => self.draw_sd(host, token, &mut frame),
             WORDS_TOKEN => {
                 let view = self.words.top(token).ok_or(Error::State)?;
@@ -321,6 +349,7 @@ impl State {
                 let data = DataStorage::new(host);
                 screen.input(host, &DataFolder(&data), &input)
             }
+            PHONE_TOKEN => self.phone.input(host, &input),
             SD_MENU_TOKEN | SD_CARD_TOKEN => self.input_sd(host, token, &input),
             WORDS_TOKEN => {
                 let Some(view) = self.words.top(token) else {
@@ -529,6 +558,8 @@ impl State {
         let mut numbers =
             Numbers::read(&storage, due, &folder, pending).map_err(|_| Error::NoMemory)?;
         numbers.files = files.is_ok();
+        // The phone's row is always offered: its screen says why where it cannot serve.
+        numbers.phone = true;
         Ok(numbers)
     }
 
@@ -678,7 +709,7 @@ impl State {
 }
 
 /// The name of the deck the words looked up go into.
-fn lookup_deck(host: &Host<'_>) -> Result<String, Error> {
+pub(crate) fn lookup_deck(host: &Host<'_>) -> Result<String, Error> {
     HostWords::new(host)?.copy("vocabulary.cards.looked-up")
 }
 
