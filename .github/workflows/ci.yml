@@ -392,10 +392,14 @@ jobs:
         # flags of shells/xteink/.cargo/config.toml (no jump tables, frame
         # pointers), which the frame budgets are measured with. Clippy denies
         # the warnings itself; build.rs fails the build if the flags are missing.
+        # The build remaps the runner's paths as the release's does
+        # (tools/ci/firmware-remap.sh): the image here is the released one's
+        # size (shells/xteink/size-budget.txt).
         run: |
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,remote" -- -D warnings
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE" -- -D warnings
-          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE"
+          remap="$("$GITHUB_WORKSPACE/tools/ci/firmware-remap.sh" "$FIRMWARE_TARGET" "$FIRMWARE_TOOLCHAIN")"
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE"
       # The loader's S3 code (format-5 files in PSRAM, `ppn5`) is off by
       # default and so not in the lint and build above; the X4's own job
       # (firmware-host-frames) covers the X4. Without the job's RUSTFLAGS,
