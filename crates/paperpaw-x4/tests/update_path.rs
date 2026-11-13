@@ -842,6 +842,48 @@ fn an_update_without_room_is_refused() {
     }
 }
 
+/// Decision 179: PaperPaw on CrossPoint's layout (the X4 flashed over CrossPoint
+/// keeps its table: slots of 6,553,600 bytes, smaller than PaperPaw's own).
+/// An update that does not fit its slot is refused before anything is
+/// written, however far it was downloaded, and the firmware says the slot's
+/// size as its room (what the update page compares an offer with); one that
+/// fits installs.
+#[test]
+fn on_crosspoints_small_layout_an_update_past_its_slot_is_refused_and_writes_nothing() {
+    const SLOT: usize = 0x64_0000;
+    let board = Board {
+        name: "x4-on-crosspoint",
+        table: common::CROSSPOINT,
+        ..BOARDS[0]
+    };
+    let files = Files::made(board);
+    let mut device = Device::flashed(&files, &files.old);
+    assert_eq!(device.slots.apps[1].1 as usize, SLOT);
+    assert_eq!(
+        device.updates.as_ref().unwrap().firmware().room,
+        SLOT as u64,
+        "the room the page sees is the slot"
+    );
+    let new = image_of(&files.new);
+    // One byte of image past the slot: no room. Exactly the slot: room.
+    let too_large = restamp(&with_segment(new, SLOT - new.len() + 4096), "99.0.0");
+    assert!(too_large.len() > SLOT);
+    let flash = device.updates.as_ref().unwrap().flash().0.clone();
+    device.server.updates = vec![signed(&too_large, &SEED)];
+    assert_eq!(
+        device.update_online(),
+        Taken::Failed(InstallFailure::TooLarge)
+    );
+    assert!(!device.updates.as_ref().unwrap().installing());
+    assert!(
+        device.updates.as_ref().unwrap().flash().0 == flash,
+        "nothing written, not even the OTA data"
+    );
+    // The same device takes an update that fits its slot.
+    device.server.updates = vec![files.new.clone()];
+    assert_eq!(device.update_online(), Taken::Installed);
+}
+
 /// An install whose buffer finds no memory is refused cleanly: nothing is
 /// written, the OTA data is as it was, the firmware running stays, and the
 /// same update installs once there is room.
