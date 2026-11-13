@@ -1052,7 +1052,9 @@ pub(crate) fn draw_row(
             paint::describe_named(
                 paint,
                 style.describing,
-                (PartRole::Button, rect, glyph),
+                PartRole::Button,
+                rect,
+                glyph,
                 false,
                 row.disabled,
             )?;

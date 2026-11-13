@@ -197,8 +197,9 @@ impl App {
 fn home() {
     let mut app = App::new();
     // The native home tells its cells and footer buttons as buttons, each
-    // named (#243): its own snapshot.
-    app.check(if cfg!(feature = "native-linked") {
+    // named (#243): its own snapshot. Home is native where the reading
+    // plugins are linked, not with `native-linked` alone.
+    app.check(if cfg!(feature = "native-linked-reading") {
         "home-native"
     } else {
         "home"
