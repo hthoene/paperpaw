@@ -141,3 +141,48 @@ fn an_uncatalogued_path_keeps_the_path_rules_and_its_data_once_catalogued() {
     // And it is the catalog's book now (op 3 answers from the catalog).
     assert!(call(&host, 3, &[by_path(BOOK)]).is_ok());
 }
+
+#[test]
+fn an_uncatalogued_books_annotation_texts_and_anchors_are_read_by_its_path() {
+    let storage = Rc::new(
+        MemoryStorage::new()
+            .with(BOOK, std::vec![7_u8; 100])
+            .with("books/folder/x.epub", std::vec![7_u8; 10]),
+    );
+    let host = host_on(storage);
+    assert_eq!(mark(&host, BOOK), Ok(1));
+    let page = || {
+        Record::ServiceLibPage(wire::ServiceLibPage {
+            cursor: 0,
+            annotation_generation: 0,
+        })
+    };
+    let text = || {
+        Record::ServiceLibTextAt(wire::ServiceLibTextAt {
+            kind: 5,
+            index: 0,
+            offset: 0,
+        })
+    };
+    // Op 4: the annotation's own text, from its file.
+    let reply = call(&host, 4, &[by_path(BOOK), text()]).unwrap();
+    let Record::ServiceLibText(read) = wire::record_decode_one(&reply).unwrap() else {
+        panic!("a text")
+    };
+    assert_eq!(read.text, "x");
+    // Ops 15 and 16 answer too, with the bookmark among the annotations.
+    let rows = call(&host, 15, &[by_path(BOOK), page()]).unwrap();
+    assert!(!rows.is_empty());
+    assert!(call(&host, 16, &[by_path(BOOK), page()]).is_ok());
+    // A folder is no book: not found, as a missing file.
+    for op in [4, 15, 16] {
+        let input = if op == 4 { text() } else { page() };
+        assert_eq!(
+            call(&host, op, &[by_path("books/folder"), input]),
+            Err(ERR_NOT_FOUND),
+            "op {op}"
+        );
+    }
+    assert_eq!(place(&host, "books/folder"), Err(ERR_NOT_FOUND));
+    assert_eq!(mark(&host, "books/folder"), Err(ERR_NOT_FOUND));
+}
