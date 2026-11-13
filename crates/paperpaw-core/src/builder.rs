@@ -830,7 +830,7 @@ impl BuilderParts {
                 again: false,
                 screenshot: None,
                 mark: None,
-                refresh: RefreshPolicy::default(),
+                refresh: RefreshPolicy::after_start(),
                 deferred: None,
                 defers: 0,
                 followup: None,
