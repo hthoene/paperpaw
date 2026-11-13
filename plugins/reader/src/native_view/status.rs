@@ -21,9 +21,9 @@ impl Open {
         })
     }
 
-    /// What the book tells the items of the reader: its title, how far the
-    /// reader is, the pages once they are counted. The chapter is not known
-    /// until the contents slice says it (the item shows the title meanwhile).
+    /// What the book tells the items of the reader: its title, the chapter of
+    /// the page (the title where it is in none or the book has no contents),
+    /// how far the reader is, the pages once they are counted.
     fn with_facts<T>(
         &self,
         host: &Host<'_>,
@@ -31,7 +31,7 @@ impl Open {
     ) -> Result<T, Error> {
         let facts = Facts {
             title: &self.title,
-            chapter: None,
+            chapter: crate::native_chapter::shown_title(self.chapter.as_ref(), self.at),
             ppm: self
                 .progress
                 .as_ref()

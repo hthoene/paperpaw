@@ -33,6 +33,9 @@ paperpaw-plugin-format-txt.workspace = true
 # By path alone, with no version: the vault needs the reader, and a
 # dev-dependency with a version cannot be published before it.
 paperpaw-plugin-notes-vault = { path = "../notes-vault" }
+# aids' own encoder and filter: the reader's `native_filter` is pinned to them.
+# By path alone, as the vault above.
+paperpaw-plugin-aids = { path = "../aids" }
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs", "outline"] }
 paperpaw-zip = { workspace = true, features = ["testing"] }
 # Scalable fonts, as Android and the emulator have them: a book's own

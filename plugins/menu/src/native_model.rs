@@ -391,6 +391,29 @@ pub fn stepped(info: &SettingInfo, step: i64) -> Option<Value> {
     }
 }
 
+/// `value` with its unit as the catalogs say it: a unit that is a catalog key
+/// (`core.unit.pt`, with plural forms) is formatted by `plural` with the
+/// number as `{count}`; a key no catalog has leaves the number alone, never
+/// the key on the screen. Any other unit is taken as written ([`with_unit`]).
+///
+/// # Errors
+/// [`Error::NoMemory`] and the host's refusals other than "no such key".
+pub fn said_with_unit(
+    value: i64,
+    unit: &str,
+    plural: &mut dyn FnMut(&str, i64) -> Result<String, Error>,
+) -> Result<String, Error> {
+    let is_key = unit.contains('.') && !unit.contains(' ') && !unit.contains("{count}");
+    if !is_key {
+        return with_unit(value, unit);
+    }
+    match plural(unit, value) {
+        Ok(said) if said != unit && !said.is_empty() => Ok(said),
+        Ok(_) | Err(Error::NotFound | Error::Invalid) => with_unit(value, ""),
+        Err(error) => Err(error),
+    }
+}
+
 /// `value` with its unit: a unit that holds `{count}` has the number put in,
 /// any other follows the number.
 ///

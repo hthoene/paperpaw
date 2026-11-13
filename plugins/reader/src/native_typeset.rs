@@ -18,6 +18,23 @@ use paperpaw_sdk::{
 pub const HEADING_SCALE: [f32; 6] = [1.6, 1.4, 1.2, 1.1, 1.0, 1.0];
 /// Entries of the table of widths (a power of two).
 pub const CACHE_ENTRIES: usize = 256;
+/// The size of a small capital against the text's (Beta 3's).
+pub const SMALL_CAPS: f32 = 0.78;
+
+/// What `c` is set as in `face`: in small capitals a lower-case letter is its
+/// capital at [`SMALL_CAPS`] of `size` (one that has no single capital keeps
+/// its form, smaller); anything else is itself at `size`.
+#[must_use]
+pub fn small_capital(c: char, small_caps: bool, size: f32) -> (char, f32) {
+    if !small_caps || !c.is_lowercase() {
+        return (c, size);
+    }
+    let mut upper = c.to_uppercase();
+    match (upper.next(), upper.next()) {
+        (Some(capital), None) => (capital, size * SMALL_CAPS),
+        _ => (c, size * SMALL_CAPS),
+    }
+}
 
 /// The four reading fonts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -253,7 +270,8 @@ impl<M: Measure> Typesetter for Faces<M> {
         if paperpaw_sdk::text::is_invisible(c) {
             return 0.0;
         }
-        let (role, size) = (Role::of(face), self.size(face));
+        let role = Role::of(face);
+        let (c, size) = small_capital(c, face.style.small_caps(), self.size(face));
         let key = u64::from(c) | (role as u64) << 24 | u64::from(size.to_bits()) << 32 | 1 << 63;
         let at = slot(key);
         if let Ok(table) = self.table.try_borrow()

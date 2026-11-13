@@ -22,7 +22,9 @@
 //!   refuse. The pool and directory handles it holds are counted clones.
 //! - **The X4.** Until its stack gate passes (two plugin frames and the host
 //!   frame between them on the main stack, section 5.1) the answer is
-//!   `ERR_UNSUPPORTED`: `gate_open` is false there. The host frames this adds
+//!   `ERR_UNSUPPORTED`: `gate_open` is false there. A status handle of the
+//!   host (the kernel's own item, `host_status`) runs no plugin: it is drawn
+//!   there too, in its own frame. The host frames this adds
 //!   hold no buffers (about 100 bytes each), inside the #254 budget of 2,047
 //!   bytes per frame that CI checks on the `ppn5` build.
 use super::{
@@ -34,6 +36,7 @@ use super::{
     stack_rows::StackRows,
     ui_guard,
     ui_handles::{self, Caller, ChildDraw, GuardState, Target, UiHandles},
+    ui_widget_ops::host_status,
 };
 use crate::abi7::{
     context::{ComposeKind, ComposeRequest, Frame},
@@ -198,9 +201,6 @@ impl ComposeHost<'_, '_> {
         request: &ComposeRequest,
         canvas: &mut Canvas<'_>,
     ) -> Result<(), i32> {
-        if !self.gate_open {
-            return Err(ERR_UNSUPPORTED);
-        }
         let caller = Caller {
             plugin: stamp.owner,
             callback: stamp.epoch,
@@ -219,7 +219,19 @@ impl ComposeHost<'_, '_> {
             request.kind,
             request.handle,
             self.guard,
-        )?;
+        );
+        // The kernel's own item: drawn by the host, no plugin called, so the
+        // X4's gate does not hold it back (todo 598).
+        if let Ok(found) = &target
+            && request.kind == ComposeKind::StatusItem
+            && found.owner == host_status::HOST
+        {
+            return host_status::draw(self.env, found.token, request, canvas);
+        }
+        if !self.gate_open {
+            return Err(ERR_UNSUPPORTED);
+        }
+        let target = target?;
         // The owner hears of an instance before its first draw (ui.md 5.2).
         if request.kind == ComposeKind::Widget
             && let Ok(lease) = self.leases.lease(target.owner)

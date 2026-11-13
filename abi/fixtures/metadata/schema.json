@@ -9847,6 +9847,15 @@
           "ordinal": null,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "opens",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
         }
       ],
       "id": 1093,

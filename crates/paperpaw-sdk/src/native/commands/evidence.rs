@@ -43,6 +43,7 @@ pub struct Evidence<'a> {
     recovery: Option<&'a [u8; 32]>,
     sha256: Option<&'a [u8; 32]>,
     rotations: &'a [Rotation<'a>],
+    from_catalog: bool,
 }
 
 impl<'a> Evidence<'a> {
@@ -54,6 +55,7 @@ impl<'a> Evidence<'a> {
             recovery: None,
             sha256: None,
             rotations: &[],
+            from_catalog: false,
         }
     }
 
@@ -84,6 +86,16 @@ impl<'a> Evidence<'a> {
     #[must_use]
     pub const fn rotations(mut self, rotations: &'a [Rotation<'a>]) -> Self {
         self.rotations = rotations;
+        self
+    }
+
+    /// The install is a store's, from its catalog (`install_plugin` `flags` bit 2): the
+    /// registry lists the version as installed by a store (`reg_plugin.flags` bit 5, as the
+    /// store named it) and the store offers its updates. It grants no trust and changes no
+    /// check.
+    #[must_use]
+    pub const fn from_catalog(mut self) -> Self {
+        self.from_catalog = true;
         self
     }
 }
@@ -142,7 +154,9 @@ impl CommandSender<'_, '_> {
             request,
             root: root.wire(),
             path,
-            flags: u32::from(update) | (u32::from(allow_older) << 1),
+            flags: u32::from(update)
+                | (u32::from(allow_older) << 1)
+                | (u32::from(evidence.from_catalog) << 2),
         };
         let mut count = 1;
         if evidence.author.is_some() || evidence.recovery.is_some() || evidence.sha256.is_some() {

@@ -249,9 +249,9 @@ impl Drawer {
             .map_err(|_| Error::NoMemory)?;
         let mut most = 0;
         for action in &self.tools {
-            let lines = icons::name_lines(font, &style, probe_cell, src.tool_name(action))?;
-            most = most.max(lines.len());
-            wrapped.push(lines);
+            let name = icons::name_lines(font, &style, probe_cell, src.tool_name(action))?;
+            most = most.max(name.lines.len());
+            wrapped.push(name);
         }
         let step = paperpaw_ui_kit::geometry::line_px(font, style.small)?;
         let extra = if most > 1 { step } else { 0 };
@@ -285,12 +285,13 @@ impl Drawer {
         let first = page * grid.per_page();
         for slot in 0..grid.per_page().min(len.saturating_sub(first)) {
             let index = first + slot;
-            let (Some(action), Some(lines)) = (self.tools.get(index), wrapped.get(index)) else {
+            let (Some(action), Some(name)) = (self.tools.get(index), wrapped.get(index)) else {
                 break;
             };
             let face = icons::face(host, &src, action)?;
             let tool = Tool {
-                lines,
+                lines: &name.lines,
+                size: name.size,
                 face,
                 row_lines: most,
             };

@@ -229,6 +229,7 @@ pub(crate) fn staged_of(mut stage: CommandStage<'_>, owner_key: u64) -> Staged {
     let item_states = stage.take_item_states();
     let presets = stage.take_presets();
     let answers = stage.take_answers();
+    let lookups = stage.take_lookup_readies();
     let images = stage.take_image_commands();
     let hints = stage.take_hint_sets();
     let widgets = stage.take_widget_changes();
@@ -242,6 +243,7 @@ pub(crate) fn staged_of(mut stage: CommandStage<'_>, owner_key: u64) -> Staged {
         item_states,
         presets,
         answers,
+        lookups,
         hints,
         widgets,
     };

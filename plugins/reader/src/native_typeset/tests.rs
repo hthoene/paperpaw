@@ -150,3 +150,14 @@ fn what_is_not_drawn_takes_no_room_and_spaces_follow_the_word_spacing() {
     let nan = Faces::new(&fake, 20.0, 1.0).unwrap().word_spacing(f32::NAN);
     assert!((nan.advance(plain, ' ') - 10.0).abs() < 1e-4);
 }
+
+#[test]
+fn a_small_capital_is_measured_as_a_smaller_capital() {
+    let fake = Fake::default();
+    let faces = Faces::new(&fake, 20.0, 1.0).unwrap();
+    let small = face(TextStyle::SMALL_CAPS, 0, 0);
+    // Half a size a letter: a capital 10, a small one 0.78 of that.
+    assert!((faces.advance(small, 'a') - 7.8).abs() < 1e-4);
+    assert!((faces.advance(small, 'A') - 10.0).abs() < 1e-4);
+    assert!((faces.advance(face(TextStyle::REGULAR, 0, 0), 'a') - 10.0).abs() < 1e-4);
+}
