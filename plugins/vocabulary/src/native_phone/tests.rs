@@ -17,6 +17,16 @@ fn request<'a>(method: &'a str, target: &'a str, body: Option<&'a str>, len: u64
     }
 }
 
+/// The decks and the cards of the first, as the page would read them.
+fn shape(storage: &dyn Storage) -> (Option<String>, Option<String>) {
+    // An index the heap could not follow is taken away and made anew when the
+    // numbers are wanted (the app does it at start): the decks' counts say so.
+    match cards::rebuild_index(storage) {
+        Ok(()) | Err(_) => {}
+    }
+    (decks_json(storage).ok(), cards_json(storage, 1, 0).ok())
+}
+
 /// One request with a fresh guard: the status, the body told, and what it did.
 fn ask(
     storage: &dyn Storage,
@@ -372,7 +382,8 @@ fn answers_when_the_heap_refuses_are_clean() {
         let ((whole, _), count) = armed(usize::MAX, || answer(&mut guard, &storage, &asked));
         assert_eq!(whole.status, 200, "{target}: {}", told(&whole.body));
         assert!(count > 0, "{target} allocates nothing");
-        let made = fixture(|| cards::decks(&storage)).map_or(0, |d| d.len());
+        let before = fixture(|| shape(&fixture(make)));
+        let after = fixture(|| shape(&storage));
         for at in 1..=count {
             let storage = fixture(make);
             let mut guard = prepare(&storage);
@@ -383,11 +394,15 @@ fn answers_when_the_heap_refuses_are_clean() {
                 refused.status,
                 told(&refused.body)
             );
-            // The decks read whole afterwards.
-            let decks = fixture(|| cards::decks(&storage));
-            // As they were or as the request made them, never half.
-            let len = decks.map_or(0, |d| d.len());
-            assert!(len == 1 || len == made, "{target} at {at}: {len} decks");
+            // Refused, nothing changed; answered, the request is done whole.
+            // (Never refused after the change: a retry would do it twice.)
+            let now = fixture(|| shape(&storage));
+            let want = if refused.status == 503 {
+                &before
+            } else {
+                &after
+            };
+            assert_eq!(&now, want, "{target} at {at}: {}", refused.status);
         }
     }
     // The page itself.

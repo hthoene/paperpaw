@@ -184,6 +184,29 @@ fn text(status: u16, words: &'static str) -> Answer {
     }
 }
 
+/// The answer `{}`: nothing is made for it.
+fn empty_json() -> Answer {
+    Answer {
+        status: 200,
+        kind: JSON,
+        body: Body::Text("{}"),
+    }
+}
+
+/// Room for an answer of at most `most` bytes. A request that changes the
+/// decks keeps it before it writes anything: out of memory then refuses the
+/// request whole (*503*, nothing changed) and never after the change, when a
+/// retry would add the deck or card twice.
+fn room_for(most: usize) -> Result<String, Fail> {
+    let mut body = String::new();
+    body.try_reserve_exact(most).map_err(|_| Error::NoMemory)?;
+    Ok(body)
+}
+
+/// The most `{"id":N}` and `{"added":N}` say, for [`room_for`].
+const ID_ANSWER: usize = 24;
+const ADDED_ANSWER: usize = 40;
+
 fn json(body: String) -> Answer {
     Answer {
         status: 200,
@@ -260,7 +283,7 @@ fn route(storage: &dyn Storage, request: &Request<'_>, path: &str, query: &str) 
         ("POST", "/api/deck/delete") => {
             let deck = number_of("deck")?.ok_or(MISSING)?;
             cards::delete_deck(storage, deck)?;
-            Ok((json(copy("{}")?), Some(Done::Deleted)))
+            Ok((empty_json(), Some(Done::Deleted)))
         }
         ("POST", "/api/card") => {
             let deck = number_of("deck")?.ok_or(MISSING)?;
@@ -272,7 +295,7 @@ fn route(storage: &dyn Storage, request: &Request<'_>, path: &str, query: &str) 
                 return Err(MISSING);
             };
             cards::delete(storage, deck, id, number_of("v")?)?;
-            Ok((json(copy("{}")?), Some(Done::Deleted)))
+            Ok((empty_json(), Some(Done::Deleted)))
         }
         ("POST", "/api/import") => {
             let deck = number_of("deck")?.ok_or(MISSING)?;
@@ -310,12 +333,12 @@ fn deck(storage: &dyn Storage, request: &Request<'_>) -> Outcome {
     let form = form(storage, request)?.unwrap_or_default();
     let name = field(&form, "name")?;
     let renamed = param(&form, "deck")?.and_then(|d| d.parse::<u32>().ok());
+    let shown = cards::clean_or_empty(&name, cards::MAX_NAME);
+    let mut body = room_for(ID_ANSWER)?;
     let id = match renamed {
         Some(deck) => cards::rename_deck(storage, deck, &name).map(|()| deck)?,
         None => cards::add_deck(storage, &name)?,
     };
-    let shown = cards::clean_or_empty(&name, cards::MAX_NAME);
-    let mut body = String::new();
     write_to(&mut body, format_args!("{{\"id\":{id}}}"))?;
     Ok((json(body), Some(Done::Deck(shown))))
 }
@@ -337,7 +360,7 @@ fn card(storage: &dyn Storage, request: &Request<'_>, deck: u32) -> Outcome {
             }
         }
     }
-    Ok((json(copy("{}")?), Some(Done::Card(front))))
+    Ok((empty_json(), Some(Done::Card(front))))
 }
 
 fn import(storage: &dyn Storage, request: &Request<'_>, deck: u32) -> Outcome {
@@ -353,8 +376,8 @@ fn import(storage: &dyn Storage, request: &Request<'_>, deck: u32) -> Outcome {
             None,
         ));
     }
+    let mut body = room_for(ADDED_ANSWER)?;
     let added = cards::add_from(storage, deck, file)?;
-    let mut body = String::new();
     write_to(&mut body, format_args!("{{\"added\":{added}}}"))?;
     Ok((json(body), Some(Done::Imported(added))))
 }

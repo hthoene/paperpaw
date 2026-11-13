@@ -170,6 +170,17 @@ impl From<StorageError> for Problem {
     }
 }
 
+/// [`keep_index`] for a change that is done: where the index could not follow
+/// for want of memory it is taken away and made anew when it is needed, and the
+/// change stands. A caller told that it failed would do it twice (a card added
+/// again, a deck made again).
+fn index_kept(storage: &dyn Storage, result: Result<(), StorageError>) -> Result<(), StorageError> {
+    match keep_index(storage, result) {
+        Err(StorageError::TooLarge) => Ok(()),
+        other => other,
+    }
+}
+
 /// Appends `text` as a field: a tab, a line break, a backslash written
 /// with a backslash.
 fn push_escaped(out: &mut String, text: &str) -> Result<(), StorageError> {
@@ -557,7 +568,7 @@ pub(crate) fn delete_deck(storage: &dyn Storage, deck: u32) -> Result<(), Proble
     write_decks(storage, &decks, next)?;
     // The deck is out of the list: what follows is not to be left half done.
     let removed = storage.remove(&file);
-    keep_index(storage, set_index(storage, deck, None))?;
+    index_kept(storage, set_index(storage, deck, None))?;
     removed?;
     Ok(())
 }
@@ -820,7 +831,11 @@ impl<'a> Adder<'a> {
     fn finish(mut self) -> Result<usize, Problem> {
         if self.added > 0 {
             self.flush()?;
-            keep_index(
+            // The cards are in the deck. Where the index could not follow for
+            // want of memory it is taken away and made anew when it is needed
+            // ([`keep_index`]): the adding is not undone by that, and a caller
+            // told it failed would add the cards twice.
+            index_kept(
                 self.storage,
                 add_to_index(self.storage, self.deck, self.added as u32),
             )?;
@@ -1022,7 +1037,7 @@ pub(crate) fn rewrite_with(
         let _ = storage.remove(&temporary);
     })?;
     put_in_place(storage, &temporary, &file)?;
-    keep_index(storage, set_index(storage, deck, Some(index)))?;
+    index_kept(storage, set_index(storage, deck, Some(index)))?;
     Ok(added)
 }
 
