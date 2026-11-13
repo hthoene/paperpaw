@@ -14,13 +14,9 @@ const EXPORT_SIZE: usize = 10;
 const SERVICE_SIZE: usize = 12;
 const FEATURE_SIZE: usize = 8;
 
-/// The shell's reviewed target profile, independent of the build machine.
-#[derive(Clone, Copy, Debug)]
-pub struct Profile<'a> {
-    pub target: &'a str,
-    pub entry_layout: u16,
-    pub entry_bytes: u16,
-}
+pub use crate::profile::{BUILD_PROFILE, Profile, retarget, retargeted_len};
+const _: () =
+    assert!(PREFIX_SIZE == crate::profile::PREFIX_SIZE && MAX_BYTES == crate::profile::MAX_BYTES);
 
 /// An implemented service. Every requirement field must match exactly.
 #[derive(Clone, Copy, Debug)]

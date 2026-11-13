@@ -6,7 +6,8 @@ use paperpaw_sdk::{
     Color, Point, Rect,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, DrawPurpose},
+        callbacks::{DrawFrame, DrawPurpose, FrameRect},
+        commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         snapshot,
     },
@@ -20,6 +21,8 @@ pub struct ListRenderer {
     page: usize,
     rows: usize,
     header: Page,
+    /// Where the last frame's region began on the screen.
+    origin: (i32, i32),
 }
 impl ListRenderer {
     /// A renderer with the geometry of an earlier frame: the list area, the
@@ -33,6 +36,7 @@ impl ListRenderer {
             page,
             rows,
             header: Page::default(),
+            origin: (0, 0),
         }
     }
     /// First visible item, from the last successfully rendered frame.
@@ -53,6 +57,32 @@ impl ListRenderer {
         let index = self.first().checked_add(slot)?;
         (slot < self.rows && index < count).then_some(index)
     }
+    /// Where row `index` was drawn in the last frame; `None` off its page.
+    #[must_use]
+    pub fn rect_of(&self, index: usize) -> Option<Rect> {
+        let area = self.area?;
+        let slot = index
+            .checked_sub(self.first())
+            .filter(|slot| *slot < self.rows)?;
+        let y = usize::from(area.y).checked_add(slot.checked_mul(usize::from(self.row))?)?;
+        Some(Rect::new(
+            area.x,
+            u16::try_from(y).ok()?,
+            area.width,
+            self.row,
+        ))
+    }
+
+    /// Asks for the frame a focus step from row `from` to row `to` needs:
+    /// the two rows alone where both are on the page drawn last, the screen
+    /// where the step turns the page or the host refuses an area.
+    ///
+    /// # Errors
+    /// Propagates command queueing errors.
+    pub fn redraw_step(&self, host: &Host<'_>, from: usize, to: usize) -> Result<(), Error> {
+        redraw_areas(host, self.origin, [self.rect_of(from), self.rect_of(to)])
+    }
+
     /// Header navigation target, where touch arrows were drawn.
     pub fn header_action(&self, point: Point) -> Option<&'static str> {
         if self.header.back.is_some_and(|rect| rect.contains(point)) {
@@ -142,8 +172,70 @@ impl ListRenderer {
         self.row = style.row;
         self.rows = per_page;
         self.page = index;
+        self.origin = (frame.rect.x, frame.rect.y);
         Ok(())
     }
+}
+
+/// Asks for the two `areas` of a focus step (in screen pixels; the frame's
+/// region began at `origin`) to be drawn again, as interface 6's
+/// `request_redraw_area`: what the focus leaves and what it reaches. The
+/// whole screen where one is not known (`None`: off the page drawn last) or
+/// the host refuses an area.
+///
+/// # Errors
+/// Propagates command queueing errors.
+pub fn redraw_areas(
+    host: &Host<'_>,
+    origin: (i32, i32),
+    areas: [Option<Rect>; 2],
+) -> Result<(), Error> {
+    let mut scratch = [0; 64];
+    redraw_step(&mut CommandSender::new(host, &mut scratch), origin, areas)
+}
+
+/// Where the redraws of a focus step go: the host's command stage, or a test's
+/// record.
+pub(crate) trait Redraws {
+    /// Asks for `area` of the region to be drawn again.
+    fn area(&mut self, area: FrameRect) -> Result<(), Error>;
+    /// Asks for the whole screen to be drawn again.
+    fn whole(&mut self) -> Result<(), Error>;
+}
+
+impl Redraws for CommandSender<'_, '_> {
+    fn area(&mut self, area: FrameRect) -> Result<(), Error> {
+        self.queue_redraw_area(RedrawMode::Partial, area)
+    }
+    fn whole(&mut self) -> Result<(), Error> {
+        self.queue_redraw(RedrawMode::Partial)
+    }
+}
+
+/// [`redraw_areas`] on `to`.
+pub(crate) fn redraw_step(
+    to: &mut impl Redraws,
+    origin: (i32, i32),
+    areas: [Option<Rect>; 2],
+) -> Result<(), Error> {
+    if let [Some(left), Some(reached)] = areas {
+        let area = |rect: Rect| {
+            FrameRect::new(
+                i32::from(rect.x).saturating_sub(origin.0),
+                i32::from(rect.y).saturating_sub(origin.1),
+                u32::from(rect.width),
+                u32::from(rect.height),
+            )
+        };
+        if to
+            .area(area(left))
+            .and_then(|()| to.area(area(reached)))
+            .is_ok()
+        {
+            return Ok(());
+        }
+    }
+    to.whole()
 }
 /// Prepares one list row: focus, separator, title at the left and value at the right.
 ///
@@ -287,7 +379,7 @@ mod tests {
             row: 40,
             page: 2,
             rows: 5,
-            header: Page::default(),
+            ..ListRenderer::default()
         };
         assert_eq!(renderer.hit(Point::new(2, 50), 14), Some(10));
         assert_eq!(renderer.hit(Point::new(2, 209), 14), Some(13));
@@ -322,5 +414,19 @@ mod tests {
             renderer.header_action(Point::new(200, 20)),
             Some("core.next-page")
         );
+    }
+
+    #[test]
+    fn a_row_is_where_it_was_drawn_and_none_off_its_page() {
+        // The second page of rows of 40 px from y 50, five a page.
+        let renderer = ListRenderer::geometry(Rect::new(0, 50, 300, 200), 40, 1, 5);
+        assert_eq!(renderer.rect_of(5), Some(Rect::new(0, 50, 300, 40)));
+        assert_eq!(renderer.rect_of(7), Some(Rect::new(0, 130, 300, 40)));
+        assert_eq!(renderer.rect_of(9), Some(Rect::new(0, 210, 300, 40)));
+        // The page before and the page after: a step there turns the page.
+        assert_eq!(renderer.rect_of(4), None);
+        assert_eq!(renderer.rect_of(10), None);
+        // Nothing drawn yet: no row is known.
+        assert_eq!(ListRenderer::default().rect_of(0), None);
     }
 }
