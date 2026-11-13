@@ -713,7 +713,14 @@ impl NativeReader {
     /// setting of the layout) or draws it again (a setting of the ink). A refusal
     /// of one screen costs the others nothing.
     fn setting_changed(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
-        let layout = native_pages::affects_layout(key);
+        // Another plugin's setting may change the text filters' rules.
+        let mut refiltered = false;
+        if !key.starts_with("core.") && !key.starts_with("reader.") {
+            for view in self.screens.all() {
+                refiltered |= view.refilter(host);
+            }
+        }
+        let layout = refiltered || native_pages::affects_layout(key);
         if !layout && !native_pages::affects_ink(key) {
             return Ok(());
         }

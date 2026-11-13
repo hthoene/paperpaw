@@ -837,6 +837,11 @@ impl crate::Kernel {
     /// Called once by [`Kernel::start`](crate::Kernel::start); a later install
     /// grows them again, as it always did.
     pub(crate) fn native_hosted(&mut self) {
+        // Registration is over: a choice offered for a setting no plugin
+        // declared is dropped now, with its log line (#244, the sleep port).
+        if core::mem::take(&mut self.native_registering) {
+            self.add_plugin_choices();
+        }
         // Values for settings no plugin declared are not kept any longer.
         self.late_config = Vec::new();
         self.shrink_to_fit();
@@ -1319,6 +1324,8 @@ mod tests {
         kernel
             .publish_native(&mut staging, &owner, "", Default::default())
             .unwrap();
+        // Registration over: one for a setting nobody declared goes now.
+        kernel.native_hosted();
         assert!(kernel.plugin_choices.is_empty());
         let Some(SettingKind::Choice(list)) =
             kernel.shared.settings.spec("host.show").map(|s| &s.kind)
@@ -1350,5 +1357,77 @@ mod tests {
             ("host.show", "host.plain"),
         ]);
         assert_eq!(list, ["host.plain", "vocab.card"]);
+    }
+
+    /// An interface-6 plugin that offers `vocab.card` for `host.show` (a
+    /// native plugin's setting, declared after the kernel is built).
+    struct Offers;
+    impl paperpaw_sdk::Plugin for Offers {
+        fn manifest(&self) -> paperpaw_sdk::Manifest {
+            paperpaw_sdk::Manifest::new(
+                Id::new_static("vocab"),
+                "Vocab",
+                paperpaw_sdk::Version::new(1, 0, 0),
+            )
+        }
+        fn register(
+            &self,
+            r: &mut paperpaw_sdk::Registrar,
+        ) -> Result<(), paperpaw_sdk::RegisterError> {
+            r.add_choice(Id::new_static("host.show"), "vocab.card")
+        }
+    }
+
+    /// The choice waits for the setting a native plugin declares later
+    /// (#244: the vocabulary's sleep card for native sleep's `sleep.show`).
+    #[test]
+    fn a_choice_waits_for_the_setting_a_native_plugin_declares_later() {
+        use paperpaw_sdk::{SettingKind, SettingSpec, SettingValue};
+        static MODES: [&str; 1] = ["host.plain"];
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .plugin(Offers)
+            .build()
+            .unwrap();
+        // As `publish_native` defines the setting and adds the choices.
+        let mode = SettingSpec::new(
+            Id::new_static("host.show"),
+            "host.show",
+            SettingKind::Choice((&MODES[..]).into()),
+            SettingValue::Text("host.plain".into()),
+            paperpaw_sdk::builtin::groups::READING_BEHAVIOUR,
+        );
+        kernel.shared.settings.define(mode).unwrap();
+        kernel.add_plugin_choices();
+        kernel.native_hosted();
+        let Some(SettingKind::Choice(list)) =
+            kernel.shared.settings.spec("host.show").map(|s| &s.kind)
+        else {
+            panic!("a choice setting");
+        };
+        let list: Vec<&str> = list.iter().collect();
+        assert_eq!(list, ["host.plain", "vocab.card"]);
+    }
+
+    /// Nobody declares it: the choice is dropped at the start, said once.
+    #[test]
+    fn a_choice_for_a_setting_nobody_declares_goes_at_the_start() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .plugin(Offers)
+            .build()
+            .unwrap();
+        assert_eq!(
+            kernel.plugin_choices.len(),
+            1,
+            "waits while plugins register"
+        );
+        let _ = kernel.take_warnings();
+        let _ = kernel.start(crate::Instant(0));
+        assert!(kernel.plugin_choices.is_empty());
+        let said = kernel
+            .take_warnings()
+            .iter()
+            .filter(|w| w.message.contains("no such setting"))
+            .count();
+        assert_eq!(said, 1);
     }
 }

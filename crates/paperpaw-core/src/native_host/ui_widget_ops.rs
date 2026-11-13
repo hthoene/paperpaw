@@ -4,9 +4,12 @@
 //!
 //! - **Who.** Op 4 is for the caller's top screen instance; op 5 for the
 //!   instance's maker (the table checks it). Ops 14 and 15 run another
-//!   plugin's callback and are depth 1 only (`ERR_BUSY` deeper); on the X4
-//!   they answer `ERR_UNSUPPORTED` until the nested-callback stack gate passes
-//!   (section 5.1).
+//!   plugin's callback and are depth 1 only (`ERR_BUSY` deeper); on the X4,
+//!   until the nested-callback stack gate passes (section 5.1), op 15
+//!   answers `ERR_UNSUPPORTED` and op 14 leaves the plugins' items without a
+//!   value. The kernel's own items (`host_status`, todo 598) need no call:
+//!   op 14 answers them everywhere, a drawn one with a status handle of the
+//!   host ([`host_status::HOST`]).
 //! - **Own.** A widget, item or line of the caller's own plugin is never
 //!   called back: op 4 and 15 answer `ui_instance` with `flags` bit 0 and
 //!   instance 0, op 14 a row with `flags` bit 2 and nothing else.
@@ -35,7 +38,7 @@
 use super::{
     registrations::{self as wire, Record},
     ui_guard,
-    ui_handles::{Dropped, UiHandles},
+    ui_handles::{Dropped, NewWidget, UiHandles},
     ui_service::UiServices,
 };
 use crate::abi7::context::Frame;
@@ -48,6 +51,11 @@ use paperpaw_native::host_glue::{
 };
 
 use super::{host_services::Caller, stages_wire::core_status_v1 as status};
+use crate::abi7::context::HostStatus;
+
+/// The kernel's own status items (op 14 without a plugin call, todo 598).
+#[path = "host_status.rs"]
+pub(crate) mod host_status;
 
 /// Items one op 14 asks for.
 const ITEMS_MAX: usize = 8;
@@ -482,12 +490,16 @@ pub(super) fn widget_make(
         .handles
         .try_borrow_mut()
         .map_err(|_| ERR_BUSY)?
-        .make_widget(
-            declared.owner,
+        .make_told(
             who.owner,
             screen,
-            declared.token,
-            declared.private,
+            &NewWidget {
+                owner: declared.owner,
+                token: declared.token,
+                private: declared.private,
+                widget: reference.widget,
+                place: reference.place,
+            },
         )?;
     instance_reply(id, 0, out)
 }
@@ -613,6 +625,50 @@ fn classify(
     Ok(())
 }
 
+/// The kernel's own items among those nobody declared (`host_status`): a
+/// text, or a status handle of the host for a drawn value, valid in the
+/// caller's `callback` only. No room for another handle leaves the item
+/// without a value, as for a plugin's.
+fn host_items(
+    frame: &dyn Frame,
+    ui: &UiServices,
+    (caller, callback): (u64, u64),
+    items: &[&str],
+    pending: &[Option<Pending>; ITEMS_MAX],
+    rows: &mut [Value],
+) -> Result<(), i32> {
+    for (at, item) in items.iter().enumerate() {
+        let Some(row) = rows.get_mut(at) else {
+            break;
+        };
+        if pending[at].is_some() || row.flags != 0 || row.len != 0 {
+            continue;
+        }
+        let mut text = [0u8; TEXT_BYTES];
+        match frame.host_status(item, &mut text) {
+            Some(HostStatus::Text(len)) => row.set_text(text.get(..len).unwrap_or(&[])),
+            Some(HostStatus::Drawn(token)) => {
+                let granted = ui
+                    .widgets
+                    .handles
+                    .try_borrow_mut()
+                    .map_err(|_| ERR_BUSY)?
+                    .grant_status(caller, callback, host_status::HOST, token, false);
+                match granted {
+                    Ok(handle) => {
+                        row.flags = DRAWN;
+                        row.handle = handle;
+                    }
+                    Err(ERR_FULL) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            None => {}
+        }
+    }
+    Ok(())
+}
+
 /// One owner call for the items `group[..members]` and the rows it fills.
 #[allow(
     clippy::too_many_arguments,
@@ -705,7 +761,13 @@ pub(super) fn status_values(
     out: &mut [u8],
 ) -> Result<usize, i32> {
     let ask: wire::ServiceUiStatusAsk<'_> = codec::single(input)?;
-    let epoch = nested_gate(frame)?;
+    // The kernel's own items need no nested call: on the X4, until its stack
+    // gate passes, only the plugins' items go without a value (todo 598).
+    let epoch = frame.callback_epoch()?;
+    if frame.callback_depth()? != 1 {
+        return Err(ERR_BUSY);
+    }
+    let closed = frame.nested_closed()?;
     below_guard_gate(frame, who)?;
     let (items, count) = split_items(ask.items)?;
     let items = &items[..count];
@@ -714,6 +776,10 @@ pub(super) fn status_values(
     rows.resize(count, EMPTY);
     let mut pending: [Option<Pending>; ITEMS_MAX] = [None; ITEMS_MAX];
     classify(frame, ui, who, ask.context, items, &mut rows, &mut pending)?;
+    host_items(frame, ui, (who.owner, epoch), items, &pending, &mut rows)?;
+    if closed {
+        pending = [None; ITEMS_MAX];
+    }
     // One call per (owner, token), groups in the order of their first item.
     let mut done = [false; ITEMS_MAX];
     for first in 0..count {

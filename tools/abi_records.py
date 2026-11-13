@@ -265,7 +265,9 @@ pub fn tick_decode(bytes: &[u8]) -> Result<u64, i32> {
 }
 '''
     source = source.replace("@READER@\n", reader_source())
-    source = source.replace("@WRITERS@\n", writer_source())
+    # The records codec's varint size is the host's too (lookup broker, #1387).
+    source = source.replace("@WRITERS@\n", writer_source().replace(
+        'fn varint_len(', 'pub(crate) fn varint_len(', 1))
     for marker, value in replacements.items():
         source = source.replace(marker, str(value))
     declared = wire_records(schema)

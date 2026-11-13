@@ -26,6 +26,7 @@ fn entry_bytes(provider: &str, flags: u32, text: &str) -> Vec<u8> {
             title: "Word",
             text,
             flags,
+            opens: "",
         }),
         &mut out,
     )

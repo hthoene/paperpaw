@@ -123,6 +123,17 @@ impl Chapter {
     }
 }
 
+/// What the status line's chapter item says at `at` with `chapter` known: its
+/// title where it holds `at` and has one; `None` (the book's title is said)
+/// before the first chapter, in a book without contents or while it is not
+/// known.
+#[must_use]
+pub fn shown_title(chapter: Option<&Chapter>, at: (u32, u32)) -> Option<&str> {
+    chapter
+        .filter(|chapter| chapter.covers(at) && !chapter.title().is_empty())
+        .map(Chapter::title)
+}
+
 /// The chapter of `at` in document `id`, asked of the table page by page (at
 /// most [`MAX_ENTRIES`] entries); the starts of entries in the section of `at`
 /// are made exact (`toc_target`), as Beta 3 did. Only the chapter is kept.

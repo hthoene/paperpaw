@@ -3,14 +3,20 @@
 //! **A provider** declares itself with `Declarations::lookup_provider` and is
 //! called as a subscriber of the stage `core.lookup`: the call's payload is one
 //! [`Ask`], the reply one entry written with [`answer`]. A provider answers at
-//! once: this facade is synchronous only. A provider that must fetch (a network
-//! provider) is answered `ERR_UNSUPPORTED` by the host until the request id,
-//! the answer operation and the completion event exist (a later draft, not part
-//! of this API); there is no way to answer "pending" from here.
+//! once. One that must fetch (a network provider) answers [`Entry::pending`]
+//! at once, starts its own request and keeps the result; once kept it stages
+//! `lookup_ready` (`CommandSender::lookup_ready`), and the asker asks again and
+//! is answered from what was kept. An entry may name a screen that shows more
+//! of it ([`Entry::opens`], a whole article).
 //!
 //! **The asker** (the dictionary screen, the reader's selection menu) opens
 //! [`Lookup`] and asks for one provider page at a time with [`Lookup::ask`],
-//! counting `cursor` up from 0 until `None` comes back.
+//! counting `cursor` up from 0 until `None` comes back. An entry that is
+//! [`ProviderEntry::pending`] is answered later: an asker subscribed to
+//! `EventKind::LookupReady` hears when, and asks again with the same text and
+//! language. Where an entry [`opens`](ProviderEntry::opens) a screen, the asker
+//! shows a line for it (Beta 3: *Open Wikipedia ›*) and opens that screen with
+//! a hand-over of `word` and `language` and the entry's text.
 use super::{
     Error, Host,
     declare::records_wire::{self as wire, RawRecord},
@@ -31,6 +37,8 @@ pub const MAX_LANGUAGE: usize = 35;
 pub const MAX_TITLE: usize = 256;
 /// The longest text of an entry.
 pub const MAX_ENTRY: usize = 2048;
+/// The longest id of the screen an entry opens.
+pub const MAX_OPENS: usize = 128;
 /// The buffer an asker needs for the input of one ask and its reply.
 pub const BUFFER: usize = 4096;
 const MORE: u32 = 1;
@@ -82,6 +90,7 @@ pub struct Entry<'a> {
     title: &'a str,
     text: &'a str,
     flags: u32,
+    opens: &'a str,
 }
 
 impl<'a> Entry<'a> {
@@ -97,7 +106,35 @@ impl<'a> Entry<'a> {
             title,
             text,
             flags: 0,
+            opens: "",
         })
+    }
+
+    /// The answer is fetched and comes later: an entry with an empty text
+    /// (`title` may name the source). Once the result is kept, the provider
+    /// stages `lookup_ready` for the ask's text and language, and answers the
+    /// asker's next ask from what it kept.
+    ///
+    /// # Errors
+    /// `NoSpace` for a title over 256 bytes.
+    pub fn pending(title: &'a str) -> Result<Self, Error> {
+        let mut entry = Self::new(title, "")?;
+        entry.flags |= PENDING;
+        Ok(entry)
+    }
+
+    /// `screen` shows more of this entry (a whole article): the asker offers a
+    /// line for it and opens it with a hand-over of `word`, `language` and the
+    /// entry's text (interface 6 `LookupEntry::more`).
+    ///
+    /// # Errors
+    /// `Invalid` for an empty id or one over 128 bytes.
+    pub const fn opens(mut self, screen: &'a str) -> Result<Self, Error> {
+        if screen.is_empty() || screen.len() > MAX_OPENS {
+            return Err(Error::Invalid);
+        }
+        self.opens = screen;
+        Ok(self)
     }
 
     /// More pages of this provider follow (the asker asks again).
@@ -118,6 +155,7 @@ pub fn answer(reply: &mut Reply<'_>, entry: &Entry<'_>) -> Result<(), Error> {
         entry.title,
         entry.text,
         entry.flags,
+        entry.opens,
     ));
     // Encoded in place, after the whole entry was measured: a refusal writes
     // nothing, and no buffer of the entry's size is held on the stack.
@@ -222,13 +260,19 @@ impl<'a> ProviderEntry<'a> {
         self.0.flags & MORE != 0
     }
 
-    /// The reserved "pending" bit of the entry, which denotes a provider that
-    /// must fetch (a network provider). Such a provider is answered
-    /// `ERR_UNSUPPORTED` today and nothing sets the bit: there is no "ask again"
-    /// flow yet, so do not rely on it.
+    /// The provider fetches and answers later (its text is empty): an asker
+    /// subscribed to `EventKind::LookupReady` hears when, and asks again with
+    /// the same text and language.
     #[must_use]
     pub const fn pending(&self) -> bool {
         self.0.flags & PENDING != 0
+    }
+
+    /// The screen that shows more of this entry, `None` where it names none:
+    /// opened with a hand-over of `word`, `language` and the entry's text.
+    #[must_use]
+    pub fn opens(&self) -> Option<&'a str> {
+        Some(self.0.opens).filter(|screen| !screen.is_empty())
     }
 }
 
