@@ -6,7 +6,8 @@
 //! device is awake goes at the next press, so that it never keeps an awake
 //! device to itself. While asleep every press but *sleep* and *home* is taken.
 use crate::{
-    declarations::{EVENTS, IMAGE_READY, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED, STARTED},
+    declarations::{EVENTS, IMAGE_READY, PICK, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED, STARTED},
+    native_picker::Picker,
     native_screen::{Sleeping, read_text},
     native_sleep,
 };
@@ -46,6 +47,8 @@ mod image {
 pub struct NativeSleep {
     ui: Option<Ui>,
     screens: Screens<Sleeping>,
+    /// The picker of the picture and the widget over the page.
+    pickers: Screens<Picker>,
     /// Opened for the slot offers the first time a foreign mode needs them,
     /// then kept for the plugin's lifetime (as `ui`).
     registry: Option<Registry>,
@@ -94,6 +97,18 @@ impl Plugin for NativeSleep {
                 instance: Some(instance),
                 ..
             } if token == SCREEN => self.shown(host, instance),
+            Event::ScreenOpened { instance, .. } if token == PICK => {
+                let picker = Picker::open(host, self.registry(host)?)?;
+                self.pickers.open(instance, picker)
+            }
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == PICK => self.pickers.shown(PICK, instance),
+            Event::ScreenClosed { instance, .. } if token == PICK => {
+                self.pickers.close(instance);
+                Ok(())
+            }
             Event::ScreenClosed { instance, .. } if token == SCREEN => {
                 // The pictures go back to the host with the screen.
                 if let Some(view) = self.screens.get(instance) {
@@ -120,6 +135,13 @@ impl Plugin for NativeSleep {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if token == PICK {
+            return self
+                .pickers
+                .top(token)
+                .ok_or(Error::State)?
+                .draw(host, &mut frame);
+        }
         if token != SCREEN {
             return Err(Error::Invalid);
         }
@@ -134,6 +156,12 @@ impl Plugin for NativeSleep {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        if token == PICK {
+            return match self.pickers.top(token) {
+                Some(picker) => picker.input(host, &input),
+                None => Ok(Handled::No),
+            };
+        }
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };

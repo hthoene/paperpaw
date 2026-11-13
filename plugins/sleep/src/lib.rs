@@ -51,6 +51,7 @@ static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 )]
 mod declarations;
 mod native_entry;
+mod native_picker;
 /// The interface-7 plugin.
 pub mod native_plugin;
 mod native_screen;
