@@ -125,7 +125,7 @@ fn ask(
 
 /// `word` with a hyphen at each place the host answered.
 fn hyphenated(ctx: &mut Context, language: &str, word: &str, minimums: (u32, u32)) -> String {
-    let mut out = [0; BREAKS_MAX];
+    let mut out = [0; MAX_BREAKS];
     let count = ask(ctx, language, word, minimums, &mut out).unwrap();
     let mut shown = String::from(word);
     for &at in out[..count].iter().rev() {
@@ -167,14 +167,14 @@ fn a_german_and_an_english_word_break_where_their_tables_say() {
     assert_eq!(asked.len(), 5);
     assert_eq!(
         asked[4],
-        ("de".into(), "Silbentrennung".into(), 4, 5, BREAKS_MAX)
+        ("de".into(), "Silbentrennung".into(), 4, 5, MAX_BREAKS)
     );
 }
 
 #[test]
 fn an_empty_word_asks_whether_the_language_has_a_table() {
     let mut ctx = both();
-    let mut out = [0; BREAKS_MAX];
+    let mut out = [0; MAX_BREAKS];
     assert_eq!(ask(&mut ctx, "de", "", (0, 0), &mut out), Ok(0));
     assert_eq!(
         ask(&mut ctx, "fr", "", (0, 0), &mut out),
@@ -185,7 +185,7 @@ fn an_empty_word_asks_whether_the_language_has_a_table() {
 #[test]
 fn without_a_table_for_the_language_there_is_none() {
     let mut ctx = Context::default();
-    let mut out = [0; BREAKS_MAX];
+    let mut out = [0; MAX_BREAKS];
     assert_eq!(
         ask(&mut ctx, "de", "Silbentrennung", (0, 0), &mut out),
         Err(Error::NotFound)
@@ -197,24 +197,24 @@ fn a_word_too_short_or_too_long_in_characters_is_left_whole() {
     let mut ctx = both();
     assert_eq!(hyphenated(&mut ctx, "de", "Hut", (2, 2)), "Hut");
     let long = "Donaudampfschifffahrtsgesellschaftskapitänsmützenband";
-    assert!(long.chars().count() > 48 && long.len() <= WORD_MAX);
+    assert!(long.chars().count() > 48 && long.len() <= MAX_WORD);
     assert_eq!(hyphenated(&mut ctx, "de", long, (0, 0)), long);
 }
 
 #[test]
 fn a_bad_argument_is_refused_without_asking_the_host() {
     let mut ctx = both();
-    let mut out = [0; BREAKS_MAX];
-    let word = "a".repeat(WORD_MAX + 1);
-    let tag = "a".repeat(LANGUAGE_MAX + 1);
+    let mut out = [0; MAX_BREAKS];
+    let word = "a".repeat(MAX_WORD + 1);
+    let tag = "a".repeat(MAX_LANGUAGE + 1);
     for (language, word, minimums) in [
         ("de", word.as_str(), (0, 0)),
         ("", "Wort", (0, 0)),
         (tag.as_str(), "Wort", (0, 0)),
         ("de_DE", "Wort", (0, 0)),
         ("dé", "Wort", (0, 0)),
-        ("de", "Wort", (MINIMUM_MAX + 1, 0)),
-        ("de", "Wort", (0, MINIMUM_MAX + 1)),
+        ("de", "Wort", (MAX_MINIMUM + 1, 0)),
+        ("de", "Wort", (0, MAX_MINIMUM + 1)),
     ] {
         assert_eq!(
             ask(&mut ctx, language, word, minimums, &mut out),
@@ -224,10 +224,10 @@ fn a_bad_argument_is_refused_without_asking_the_host() {
     }
     assert!(ctx.asked.borrow().is_empty());
     // At the limits it is asked.
-    let word = "a".repeat(WORD_MAX);
-    let tag = "a".repeat(LANGUAGE_MAX);
+    let word = "a".repeat(MAX_WORD);
+    let tag = "a".repeat(MAX_LANGUAGE);
     assert_eq!(
-        ask(&mut ctx, "de", &word, (MINIMUM_MAX, MINIMUM_MAX), &mut out),
+        ask(&mut ctx, "de", &word, (MAX_MINIMUM, MAX_MINIMUM), &mut out),
         Ok(0)
     );
     assert_eq!(
@@ -288,7 +288,7 @@ fn the_hosts_refusals_pass_through() {
             forced: Some((status, vec![])),
             ..Context::default()
         };
-        let mut out = [0; BREAKS_MAX];
+        let mut out = [0; MAX_BREAKS];
         assert_eq!(ask(&mut ctx, "de", "Wort", (0, 0), &mut out), Err(error));
     }
 }
@@ -300,7 +300,7 @@ fn a_host_that_has_not_wired_the_slot_is_unsupported() {
         table: &table,
         ctx: ptr::null_mut(),
     };
-    let mut out = [0; BREAKS_MAX];
+    let mut out = [0; MAX_BREAKS];
     assert_eq!(
         hyphenate(&host, "de", "Wort", 0, 0, &mut out),
         Err(Error::Unsupported)
