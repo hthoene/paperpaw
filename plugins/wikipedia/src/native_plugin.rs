@@ -5,7 +5,7 @@
 //! (`native_provider`). What the plugin decides without a host is in
 //! `native_model` and `native_page`, tested without one.
 use crate::{
-    declarations::{ABOUT_TOKEN, FETCHED_TOKEN, PROVIDER_TOKEN, SCREEN_TOKEN},
+    declarations::{ABOUT_TOKEN, FETCHED_TOKEN, PROVIDER_TOKEN, SCREEN_TOKEN, SUSPEND_TOKEN},
     native_provider::Provider,
     native_view::View,
     stages::about_lines_v1 as lines,
@@ -55,7 +55,7 @@ impl NativeWikipedia {
         let ui = self.ui.as_ref().ok_or(Error::State)?;
         let mut view = View::open(host, ui, handover)?;
         // The whole summary the provider kept for this word (the entry the
-        // panel showed was cut to 2,048 bytes, the hand-over to 1,024).
+        // panel showed, and the text it handed over, were cut to 2,048 bytes).
         if let Some((title, text)) = self.provider.summary_for(view.word())? {
             view.show(title, text);
         }
@@ -148,7 +148,8 @@ impl Plugin for NativeWikipedia {
             kinds::ScreenShown,
             kinds::ScreenClosed,
             kinds::HttpDone,
-            kinds::StageCall
+            kinds::StageCall,
+            kinds::Suspend
         ) else {
             return Ok(());
         };
@@ -175,6 +176,10 @@ impl Plugin for NativeWikipedia {
                 Ok(())
             }
             Event::HttpDone(done) if token == FETCHED_TOKEN => self.fetched(host, &done),
+            Event::Suspend { .. } if token == SUSPEND_TOKEN => {
+                self.provider.suspend();
+                Ok(())
+            }
             Event::StageCall { stage, payload, .. }
                 if token == ABOUT_TOKEN && stage == lines::KEY =>
             {

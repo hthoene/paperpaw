@@ -6,136 +6,17 @@
 //! the network is not reached the answer says so, as in Beta 3.
 #![cfg(feature = "linked")]
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test assertions")]
-use paperpaw_core::native_host::registrations::{
-    EventHttpDone, Record, ServiceNetAnswer, ServiceNetBytes, ServiceNetStarted, StageCall,
-    record_encode_one, records_decode,
+#[path = "support/provider.rs"]
+mod support;
+use paperpaw_plugin_wikipedia::{NATIVE_ENTRY, declarations::FETCHED_TOKEN};
+use paperpaw_scripted_host::ScriptedHost;
+use support::{
+    EXTRACT, NOT_FOUND, PENDING, UNREACHABLE, ask, done, done_with, host_with, host_with_net,
+    open_screen, suspend, ui_handing_over,
 };
-use paperpaw_plugin_wikipedia::{
-    NATIVE_ENTRY,
-    declarations::{FETCHED_TOKEN, PROVIDER_TOKEN},
-};
-use paperpaw_scripted_host::{ScriptedHost, event_batch};
-use paperpaw_sdk::native::stage_schemas::core_lookup_v1 as lookup;
-use std::cell::RefCell;
-use std::rc::Rc;
 
-const SUMMARY: &str =
-    r#"{"title":"Katze","extract":"Die Hauskatze ist eine Zuchtform der Falbkatze."}"#;
-/// The host's reply buffer of a stage call (the stage's `max_reply`).
-const REPLY: usize = lookup::MAX_REPLY;
-const PENDING: u32 = 2;
-const UNREACHABLE: &str =
-    "Wikipedia could not be reached. Check the Wi-Fi connection and try again.";
-
-fn stream(records: &[Record<'_>]) -> Vec<u8> {
-    let mut out = Vec::new();
-    for record in records {
-        let mut one = vec![0; 4096];
-        let used = record_encode_one(record, &mut one).unwrap();
-        out.extend_from_slice(&one[..used]);
-    }
-    out
-}
-
-/// A host whose `core.net` answers every request with `status` and
-/// [`SUMMARY`]; the requests are logged.
-fn host_with_net(status: u32) -> (ScriptedHost, Rc<RefCell<Vec<String>>>) {
-    let host = ScriptedHost::new();
-    host.add_catalogs_in("i18n").unwrap();
-    let log = Rc::new(RefCell::new(Vec::new()));
-    let seen = log.clone();
-    host.service("core.net", 1, 0, move |op, input| {
-        let batch = records_decode(input).map_err(|_| -1)?;
-        match (op, batch.iter().next()) {
-            (1, Some(Record::ServiceNetRequest(request))) => {
-                seen.borrow_mut()
-                    .push(format!("{} {}", request.url, request.token));
-                let id = u32::try_from(seen.borrow().len()).unwrap();
-                Ok(stream(&[Record::ServiceNetStarted(ServiceNetStarted {
-                    id,
-                })]))
-            }
-            (3, _) => Ok(stream(&[Record::ServiceNetAnswer(ServiceNetAnswer {
-                status,
-                flags: 0,
-                body_len: u32::try_from(SUMMARY.len()).unwrap(),
-                etag: "",
-                content_type: "",
-                final_url: "",
-            })])),
-            (4, Some(Record::ServiceNetRead(read))) => {
-                let from = (read.offset as usize).min(SUMMARY.len());
-                Ok(stream(&[Record::ServiceNetBytes(ServiceNetBytes {
-                    data: &SUMMARY.as_bytes()[from..],
-                })]))
-            }
-            _ => Ok(Vec::new()),
-        }
-    });
-    (host, log)
-}
-
-/// The provider's answer to an ask of `text` in `language`: title, text,
-/// flags and the screen it opens.
-fn ask(
-    p: &paperpaw_scripted_host::Plugin<'_>,
-    text: &str,
-    language: &str,
-) -> (String, String, u32, String) {
-    let mut payload = vec![0; lookup::MAX_INPUT];
-    let used = lookup::input_encode(
-        &[lookup::Record::LookupAsk(lookup::LookupAsk::new(
-            text, language, "", 0,
-        ))],
-        &mut payload,
-    )
-    .unwrap();
-    let call = Record::StageCall(StageCall {
-        stage: lookup::KEY,
-        schema: 1,
-        payload: &payload[..used],
-    });
-    let (callback, reply) = p
-        .stage_call(PROVIDER_TOKEN, &event_batch(&call).unwrap(), REPLY)
-        .unwrap();
-    assert_eq!(callback.status, 0, "the ask is answered");
-    let records = lookup::reply_decode(&reply).unwrap();
-    let mut entries = records.filter_map(|record| match record.unwrap() {
-        lookup::Record::LookupEntry(entry) => Some((
-            entry.title.to_string(),
-            entry.text.to_string(),
-            entry.flags,
-            entry.opens.to_string(),
-        )),
-        _ => None,
-    });
-    let entry = entries.next().expect("one entry");
-    assert!(entries.next().is_none(), "exactly one entry");
-    entry
-}
-
-fn done(p: &paperpaw_scripted_host::Plugin<'_>, id: u32, status: u32, reason: u32) -> bool {
-    let record = Record::EventHttpDone(EventHttpDone {
-        now_ms: 0,
-        id,
-        token: FETCHED_TOKEN,
-        status,
-        reason,
-        flags: 0,
-        body_len: if reason == 0 {
-            u32::try_from(SUMMARY.len()).unwrap()
-        } else {
-            0
-        },
-    });
-    let callback = p
-        .event(FETCHED_TOKEN, &event_batch(&record).unwrap())
-        .unwrap();
-    assert_eq!(callback.status, 0, "the end of the request is taken");
-    // `command.lookup_ready` carries the ask's text and language.
-    callback.batches.iter().any(|batch| {
-        batch.windows(5).any(|w| w == b"Katze") && batch.windows(2).any(|w| w == b"de")
-    })
+fn summary_url(word: &str) -> String {
+    format!("https://de.wikipedia.org/api/rest_v1/page/summary/{word} {FETCHED_TOKEN}")
 }
 
 #[test]
@@ -145,19 +26,14 @@ fn an_ask_is_pending_then_ready_and_answered_from_what_was_kept() {
     let (title, text, flags, _) = ask(&p, "Katze", "de");
     assert_eq!((title.as_str(), text.as_str()), ("Encyclopedia", ""));
     assert_eq!(flags & PENDING, PENDING, "answered later");
-    assert_eq!(
-        log.borrow().as_slice(),
-        [format!(
-            "https://de.wikipedia.org/api/rest_v1/page/summary/Katze {FETCHED_TOKEN}"
-        )]
-    );
+    assert_eq!(log.borrow().as_slice(), [summary_url("Katze")]);
     // Asked again while it is fetched: still pending, not fetched twice.
     assert_eq!(ask(&p, "Katze", "de").2 & PENDING, PENDING);
     assert_eq!(log.borrow().len(), 1);
     done(&p, 1, 200, 0);
     let (title, text, flags, opens) = ask(&p, "Katze", "de");
     assert_eq!(title, "Encyclopedia");
-    assert_eq!(text, "Die Hauskatze ist eine Zuchtform der Falbkatze.");
+    assert_eq!(text, EXTRACT);
     assert_eq!(flags & PENDING, 0);
     assert_eq!(opens, "wikipedia.lookup", "Open Wikipedia ›");
     assert_eq!(log.borrow().len(), 1, "answered from what was kept");
@@ -186,6 +62,52 @@ fn a_request_that_does_not_get_through_is_kept_as_not_reached() {
     assert_eq!((flags & PENDING, opens.as_str()), (0, ""));
 }
 
+/// Beta 3's 404: the entry says there is no article, and opens nothing.
+#[test]
+fn a_word_without_an_article_is_answered_so() {
+    let (host, log) = host_with(404, "");
+    let p = host.load(NATIVE_ENTRY.entry()).unwrap();
+    assert_eq!(ask(&p, "Katze", "de").2 & PENDING, PENDING);
+    done_with(&p, 1, 404, 0, 0);
+    let (_, text, flags, opens) = ask(&p, "Katze", "de");
+    assert_eq!(text, NOT_FOUND);
+    assert_eq!((flags & PENDING, opens.as_str()), (0, ""));
+    assert_eq!(log.borrow().len(), 1, "kept, not fetched again");
+}
+
+/// A different word replaces the answer kept: the old one is dropped as
+/// soon as the new request is accepted, so asking for it fetches again.
+#[test]
+fn a_different_word_replaces_the_answer_kept() {
+    let (host, log) = host_with_net(200);
+    let p = host.load(NATIVE_ENTRY.entry()).unwrap();
+    ask(&p, "Katze", "de");
+    done(&p, 1, 200, 0);
+    assert_eq!(ask(&p, "Katze", "de").1, EXTRACT, "kept");
+    assert_eq!(ask(&p, "Hund", "de").2 & PENDING, PENDING);
+    assert_eq!(ask(&p, "Katze", "de").2 & PENDING, PENDING, "dropped");
+    assert_eq!(
+        log.borrow().as_slice(),
+        [
+            summary_url("Katze"),
+            summary_url("Hund"),
+            summary_url("Katze")
+        ]
+    );
+}
+
+/// A suspend drops the answer kept: the next ask fetches again.
+#[test]
+fn a_suspend_drops_the_answer_kept() {
+    let (host, log) = host_with_net(200);
+    let p = host.load(NATIVE_ENTRY.entry()).unwrap();
+    ask(&p, "Katze", "de");
+    done(&p, 1, 200, 0);
+    suspend(&p);
+    assert_eq!(ask(&p, "Katze", "de").2 & PENDING, PENDING);
+    assert_eq!(log.borrow().len(), 2);
+}
+
 #[test]
 fn another_request_ending_is_not_the_providers() {
     let (host, _log) = host_with_net(200);
@@ -196,6 +118,37 @@ fn another_request_ending_is_not_the_providers() {
         "no ready for a request it did not make"
     );
     assert_eq!(ask(&p, "Katze", "de").2 & PENDING, PENDING);
+}
+
+/// The screen an entry opens shows the summary the provider kept for its
+/// word (`summary_for`) and fetches nothing.
+#[test]
+fn the_screen_for_a_kept_word_shows_it_without_fetching() {
+    let (host, log) = host_with_net(200);
+    ui_handing_over(&host, "Katze", String::new());
+    let p = host.load(NATIVE_ENTRY.entry()).unwrap();
+    ask(&p, "Katze", "de");
+    done(&p, 1, 200, 0);
+    assert_eq!(open_screen(&p), 0);
+    assert_eq!(log.borrow().len(), 1, "not fetched again");
+}
+
+/// The entry's text handed over (`core.ui` op 10, `document.md` 7) is
+/// shown and not fetched; without one, or with a text longer than an
+/// entry's, the screen fetches its summary.
+#[test]
+fn the_screen_shows_the_text_handed_over() {
+    for (text, fetched) in [
+        (EXTRACT.to_string(), 0),
+        (String::new(), 1),
+        ("x".repeat(2049), 1),
+    ] {
+        let (host, log) = host_with_net(200);
+        ui_handing_over(&host, "Katze", text);
+        let p = host.load(NATIVE_ENTRY.entry()).unwrap();
+        assert_eq!(open_screen(&p), 0);
+        assert_eq!(log.borrow().len(), fetched);
+    }
 }
 
 /// The end of the request tells the askers: `command.lookup_ready` with the

@@ -44,7 +44,8 @@ native/metadata.json --bytes native/metadata.bin --json native/metadata.inspecte
 - **The provider** (done, `src/native_provider.rs`): `make` submits it; the host calls it only while
   connected. An ask is answered *pending* (title *Encyclopedia*) and the summary is fetched through
   `core.net` (one ask in flight, a new ask replaces it). When the request ends, the answer is kept
-  (the whole summary, at most 16 KiB, or why there is none) and `lookup_ready` is staged with the
+  (the whole summary, at most 16 KiB, or why there is none; one at a time: dropped as soon as the
+  request for another word is accepted, and on `event.suspend`) and `lookup_ready` is staged with the
   ask's text and language; the asker's next ask gets the summary (cut to an entry's 2,048 bytes) with
   `opens` = `wikipedia.lookup` (*Open Wikipedia ›*). As in Beta 3, no article, a network not reached
   (every request that did not get through, or no network service) or an unexpected answer is an
@@ -53,8 +54,12 @@ native/metadata.json --bytes native/metadata.bin --json native/metadata.inspecte
   (`ERR_UNSUPPORTED`, a step after #1387): the provider keeps its answer all the same, so the
   asker's next ask gets it; the ignored case `the_end_of_the_request_tells_the_askers` waits for it.
 - **The summary given by the dictionary's panel** (done): the screen an entry opens shows the
-  summary the provider kept for the word (whole), else the hand-over's `text` (at most 1,024 bytes),
-  and fetches only without either.
+  summary the provider kept for the word (whole), else the hand-over's text (`core.ui` op 10, the
+  entry's text, at most 2,048 bytes; a longer one is not an entry's and is left out), and fetches
+  only without either.
+- **Memory of the end of a request** (measured, `tests/native_provider_peak.rs`): the `lookup_ready`
+  scratch is taken first (no memory: the ask is let go, nothing half kept), the body is read with a
+  64-byte input and one 4 KiB reply buffer, and goes as soon as the summary is out of it.
 - **The line in *About*** (done): the plugin subscribes to `about.lines` (token 4) and answers one
   `lines.line` with `wikipedia.about` (en/de, at most 512 bytes: the source and CC BY-SA 4.0). The codec
   is generated (`tools/stage-codec.py plugins/wikipedia/stages/subscribed plugins/wikipedia/src/stages.rs`,

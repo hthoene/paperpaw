@@ -17,6 +17,8 @@ pub const FETCHED_TOKEN: u32 = 3;
 pub const ABOUT_TOKEN: u32 = 4;
 /// The token the host calls the provider with.
 pub const PROVIDER_TOKEN: u32 = 2;
+/// The token of `event.suspend`: the provider drops the answer it kept.
+pub const SUSPEND_TOKEN: u32 = 5;
 
 /// The summary screen.
 pub fn screen<F: FnMut(&[u8]) -> Result<(), i32>>(
@@ -32,13 +34,15 @@ pub fn screen<F: FnMut(&[u8]) -> Result<(), i32>>(
 }
 
 /// The provider, a network one: the host calls it only while connected
-/// (`document.md` 7).
+/// (`document.md` 7), with its subscription to the suspend.
 pub fn provider<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.lookup_provider(
         LookupProviderDecl::new("summary", "wikipedia.title", PROVIDER_TOKEN).online(),
     )?;
+    // The answer kept is not held through a suspend.
+    d.subscribe_event(EventKind::Suspend, SUSPEND_TOKEN)?;
     d.submit()?;
     Ok(())
 }

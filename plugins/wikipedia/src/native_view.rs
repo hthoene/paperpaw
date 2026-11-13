@@ -15,7 +15,7 @@ use paperpaw_sdk::{
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         formatting::Arg,
-        i18n,
+        i18n, lookup,
         net::{BODY_PART, HttpDone, Net, REPLY, REQUEST_INPUT, Reason, Request, RequestId},
         snapshot,
         ui::{HandoverId, Ui},
@@ -71,25 +71,20 @@ impl View {
     /// The host's refusals; `NoMemory`.
     pub fn open(host: &Host<'_>, ui: &Ui, handover: Option<HandoverId>) -> Result<Self, Error> {
         let mut view = Self::default();
-        let mut given = String::new();
         if let Some(handover) = handover {
             // A hand-over that cannot be read is a screen for no word, not a failed open:
             // the screen must exist for the draws that follow.
-            let _ = read_params(
-                host,
-                ui,
-                handover,
-                &mut view.word,
-                &mut view.language,
-                &mut given,
-            );
-        }
-        // The summary handed over (the dictionary panel's entry): not fetched again.
-        if !given.trim().is_empty() {
-            view.body = Body::Summary {
-                title: None,
-                text: given,
-            };
+            let _ = read_params(host, ui, handover, &mut view.word, &mut view.language);
+            // The entry's text handed over (`document.md` 7, the panel's
+            // *Open Wikipedia ›*): shown, not fetched again. A text that cannot
+            // be read is fetched instead.
+            let given = read_given(host, ui, handover).unwrap_or_default();
+            if !given.trim().is_empty() {
+                view.body = Body::Summary {
+                    title: None,
+                    text: given,
+                };
+            }
         }
         view.word = clean(&view.word, MAX_WORD)?;
         view.language = clean(&view.language, MAX_LANGUAGE)?;
@@ -398,7 +393,8 @@ pub fn read_body(host: &Host<'_>, net: &Net, done: &HttpDone) -> Result<String, 
     if done.truncated() || done.body_len() as usize > MAX_BODY {
         return Err(Error::NoSpace);
     }
-    let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
+    // The input is one read row (an id and an offset); the reply a part.
+    let (mut input, mut out) = ([0_u8; READ_INPUT], buffer(REPLY)?);
     let mut bytes: Vec<u8> = Vec::new();
     bytes
         .try_reserve_exact(done.body_len() as usize)
@@ -437,6 +433,8 @@ fn wants_online(region: Rect, input: &Input<'_>) -> bool {
 
 /// The most bytes of a word a request carries, and of a language.
 const MAX_WORD: usize = 256;
+/// The input of one body read: the batch of one `service_net_read` row.
+const READ_INPUT: usize = 64;
 const MAX_LANGUAGE: usize = 35;
 
 /// `text` cut at a character to at most `max` bytes.
@@ -448,14 +446,13 @@ fn clean(text: &str, max: usize) -> Result<String, Error> {
     text::copy(text.get(..end).unwrap_or(""))
 }
 
-/// The word, language and text of `handover`, as the caller gave them.
+/// The word and language of `handover`, as the caller gave them.
 fn read_params(
     host: &Host<'_>,
     ui: &Ui,
     handover: HandoverId,
     word: &mut String,
     language: &mut String,
-    given: &mut String,
 ) -> Result<(), Error> {
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     for param in ui.params(host, handover, &mut input, &mut out)? {
@@ -463,11 +460,36 @@ fn read_params(
         match param.key() {
             "word" => *word = text::copy(param.value())?,
             "language" => *language = text::copy(param.value())?,
-            "text" => *given = text::copy(param.value())?,
             _ => {}
         }
     }
     Ok(())
+}
+
+/// The text of `handover` (`core.ui` op 10, `ui.md` 3.1): an entry's text,
+/// at most [`lookup::MAX_ENTRY`] bytes. A longer text is not an entry's and
+/// is left out (empty), as is none.
+fn read_given(host: &Host<'_>, ui: &Ui, handover: HandoverId) -> Result<String, Error> {
+    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    let mut given = String::new();
+    let mut offset = 0;
+    loop {
+        let part = ui.text_read(host, handover.text(), offset, &mut input, &mut out)?;
+        let total = usize::try_from(part.total()).map_err(|_| Error::NoSpace)?;
+        if total > lookup::MAX_ENTRY {
+            return Ok(String::new());
+        }
+        if given.capacity() < total {
+            given
+                .try_reserve_exact(total)
+                .map_err(|_| Error::NoMemory)?;
+        }
+        given.push_str(part.data());
+        match part.next_offset() {
+            Some(next) => offset = next,
+            None => return Ok(given),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -49,12 +49,13 @@ fn the_host_admits_the_screen_its_slot_and_its_subscription() {
     }
 }
 
-/// The host admits the lookup provider `make` submits (`lookup.spec`).
+/// The host admits the lookup provider `make` submits (`lookup.spec`) and
+/// its subscription to the suspend.
 #[test]
 fn the_host_admits_the_lookup_provider() {
     for batch in batches!(declarations::provider) {
         let records = records_decode(&batch).unwrap();
-        assert_eq!(records.iter().count(), 1);
+        assert_eq!(records.iter().count(), 2);
         validate_batch("wikipedia", &records).unwrap();
     }
 }

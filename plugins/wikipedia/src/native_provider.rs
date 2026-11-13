@@ -7,7 +7,10 @@
 //!
 //! As in Beta 3, an answer that is not a summary (no article, the network
 //! not reached, an unexpected answer) is an entry that says why. One ask is
-//! fetched and one answer kept at a time: a new ask replaces both.
+//! fetched and one answer kept at a time: the answer kept is dropped as soon
+//! as the request for another ask is accepted, and when PaperPaw suspends, so
+//! at most one summary is held. A request the host refuses leaves the kept
+//! answer as it was.
 use crate::{
     native_model::{self, Outcome},
     native_view::{SCREEN, read_body, request_summary},
@@ -123,6 +126,8 @@ impl Provider {
             language
         };
         let request = request_summary(host, net, wiki_language, ask.text())?;
+        // The answer to another ask is not kept beside the one fetched.
+        self.kept = None;
         self.asked = Some(Asked {
             text,
             language: kept_language,
@@ -144,10 +149,25 @@ impl Provider {
         {
             return Ok(false);
         }
+        // The scratch of `lookup_ready` first: where there is no memory for it
+        // nothing was read or kept yet, and the ask is let go, so the asker's
+        // next ask fetches again instead of staying pending.
+        let mut scratch = match buffer(READY_SCRATCH) {
+            Ok(scratch) => scratch,
+            Err(error) => {
+                self.asked = None;
+                return Err(error);
+            }
+        };
         let answer = match done.reason() {
-            Reason::Ok => match read_body(host, net, done) {
-                Ok(body) => {
-                    outcome(done.status(), &body).unwrap_or(Answer::Message("wikipedia.failed"))
+            Reason::Ok => match read_body(host, net, done).and_then(|body| {
+                // The body goes as soon as the summary is out of it.
+                outcome(done.status(), &body)
+            }) {
+                Ok(answer) => answer,
+                Err(Error::NoMemory) => {
+                    self.asked = None;
+                    return Err(Error::NoMemory);
                 }
                 // An answer that cannot be read is no answer, never a hang:
                 // the askers are told all the same.
@@ -168,7 +188,6 @@ impl Provider {
         let Some(asked) = self.asked.take() else {
             return Ok(false);
         };
-        let mut scratch = buffer(READY_SCRATCH)?;
         // `ready` is never an error to the provider (`document.md` 7): where
         // the host refuses it, the answer is kept all the same and the
         // asker's next ask gets it.
@@ -179,6 +198,12 @@ impl Provider {
             answer,
         });
         Ok(true)
+    }
+
+    /// PaperPaw suspends: the answer kept is dropped (an ask after it is
+    /// fetched again).
+    pub fn suspend(&mut self) {
+        self.kept = None;
     }
 
     /// The whole summary kept for `word` (the screen an entry opens shows it
@@ -247,7 +272,39 @@ const READY_SCRATCH: usize = lookup::MAX_TEXT + lookup::MAX_LANGUAGE + 64;
 
 #[cfg(test)]
 mod tests {
-    use super::cut;
+    use super::{Answer, Kept, Provider, cut};
+    use alloc::string::String;
+
+    fn kept(answer: Answer) -> Option<Kept> {
+        Some(Kept {
+            text: String::from("Katze"),
+            language: String::from("de"),
+            answer,
+        })
+    }
+
+    #[test]
+    fn the_summary_kept_is_for_its_word_only() {
+        let mut provider = Provider {
+            asked: None,
+            kept: kept(Answer::Summary {
+                title: Some(String::from("Hauskatze")),
+                text: String::from("Die Hauskatze."),
+            }),
+        };
+        assert_eq!(
+            provider.summary_for("Katze").unwrap(),
+            Some((
+                Some(String::from("Hauskatze")),
+                String::from("Die Hauskatze.")
+            ))
+        );
+        assert_eq!(provider.summary_for("Hund").unwrap(), None);
+        provider.suspend();
+        assert_eq!(provider.summary_for("Katze").unwrap(), None);
+        provider.kept = kept(Answer::Message("wikipedia.not-found"));
+        assert_eq!(provider.summary_for("Katze").unwrap(), None, "no summary");
+    }
 
     #[test]
     fn a_text_is_cut_at_a_character() {
