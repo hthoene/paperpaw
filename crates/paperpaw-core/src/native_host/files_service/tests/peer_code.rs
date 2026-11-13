@@ -55,3 +55,26 @@ fn a_code_plugins_pictures_read_and_its_code_is_never_shown() {
         Err(ERR_DENIED)
     );
 }
+
+#[test]
+fn an_8_3_alias_of_the_code_is_left_out_of_list_and_refused_by_stat() {
+    let (card, host) = cards();
+    // The card's short name for `code.ppn` (FAT keeps both spellings).
+    card.file("plugins/sleepy/CODE~1.PPN", 30);
+    let mut names = list_all(&host, 1, "plugins/sleepy").unwrap();
+    names.sort();
+    assert_eq!(names, ["art", "owl.png"], "the alias left out as the code");
+    assert_eq!(
+        call(&host, 2, path(1, "plugins/sleepy/CODE~1.PPN")),
+        Err(ERR_INVALID)
+    );
+}
+
+#[test]
+fn a_short_name_in_a_folder_without_code_is_shown() {
+    let (card, host) = fixture();
+    card.file("plugins/sleepy/OWL~1.PNG", 10);
+    host.data_folders.borrow_mut().push("sleepy");
+    assert_eq!(list_all(&host, 1, "plugins/sleepy").unwrap(), ["OWL~1.PNG"]);
+    assert!(call(&host, 2, path(1, "plugins/sleepy/OWL~1.PNG")).is_ok());
+}
