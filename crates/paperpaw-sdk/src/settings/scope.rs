@@ -38,7 +38,10 @@ impl Settings {
         };
         let ids: Vec<Id> = values.keys().cloned().collect();
         for id in ids {
-            let scoped = self.specs.locate(id.as_str()).is_some_and(|at| at.scoped());
+            let scoped = self
+                .specs
+                .where_is(id.as_str())
+                .is_some_and(|at| at.scoped_flag());
             let valid = match values.get(id.as_str()) {
                 Some(value) if scoped => self
                     .specs

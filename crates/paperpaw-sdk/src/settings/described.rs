@@ -135,15 +135,15 @@ impl Block {
     }
 
     /// The default of setting `at` as it is now.
-    pub(super) fn default(&self, at: usize) -> &SettingValue {
+    pub(super) fn default_now(&self, at: usize) -> &SettingValue {
         &self.defaults[at]
     }
 
-    pub(super) fn scoped(&self, at: usize) -> bool {
+    pub(super) fn scoped_flag(&self, at: usize) -> bool {
         self.flags[at] & SCOPED != 0
     }
 
-    pub(super) fn guarded(&self, at: usize) -> bool {
+    pub(super) fn guarded_flag(&self, at: usize) -> bool {
         self.flags[at] & GUARDED != 0
     }
 
@@ -594,7 +594,7 @@ impl super::Settings {
     /// ([`SettingSpec::scoped`]). Nothing is made for it.
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn defines_scoped(&self, id: &str) -> bool {
-        self.located(id).is_some_and(super::specs::At::scoped)
+        self.located(id).is_some_and(super::specs::At::scoped_flag)
     }
 
     /// Whether setting `id` (as [`Settings::defines_scoped`] finds it) is
@@ -602,14 +602,14 @@ impl super::Settings {
     /// it, so no lack of room makes a guarded setting look like any other.
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn defines_guarded(&self, id: &str) -> bool {
-        self.located(id).is_some_and(super::specs::At::guarded)
+        self.located(id).is_some_and(super::specs::At::guarded_flag)
     }
 
     /// Whether setting `id` (as [`Settings::defines_scoped`] finds it) is
     /// defined and a secret. Nothing is made for it.
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn defines_secret(&self, id: &str) -> bool {
-        self.located(id).is_some_and(super::specs::At::secret)
+        self.located(id).is_some_and(super::specs::At::secret_flag)
     }
 
     /// Whether [`Settings::spec`] finds a setting for `id`, a placement's
@@ -621,7 +621,7 @@ impl super::Settings {
 
     fn located(&self, id: &str) -> Option<super::specs::At<'_>> {
         let plain = crate::id::unplaced(id);
-        self.specs.locate(plain.as_deref().unwrap_or(id))
+        self.specs.where_is(plain.as_deref().unwrap_or(id))
     }
 
     /// The specs kept as they are, in registration order: all but those
@@ -693,7 +693,7 @@ impl super::Settings {
     /// The default of setting `id` as it is now, by its very id (none of
     /// a placement's): nothing is made for it.
     pub(crate) fn default_of(&self, id: &str) -> Option<&SettingValue> {
-        self.specs.locate(id).map(super::specs::At::default)
+        self.specs.where_is(id).map(super::specs::At::default_now)
     }
 
     /// The kernel's `walk`, for what the SDK itself reads of the settings.

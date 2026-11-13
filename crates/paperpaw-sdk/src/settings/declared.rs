@@ -154,7 +154,7 @@ impl Settings {
     /// setting is another plugin's).
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn set_default_by(&mut self, id: &str, text: &str, by: Id) -> Result<(), SettingError> {
-        let was = self.specs.locate(id).map(|at| at.default().clone());
+        let was = self.specs.where_is(id).map(|at| at.default_now().clone());
         let (value, setting) = self
             .specs
             .with(id, |spec| (spec.parse(text), spec.id.try_clone()))?

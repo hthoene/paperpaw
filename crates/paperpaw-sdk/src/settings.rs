@@ -1167,7 +1167,7 @@ impl Settings {
     /// placement's own.
     fn value_id(&self, id: &str) -> Result<Id, SettingError> {
         let plain = crate::id::unplaced(id);
-        let at = self.specs.locate(plain.as_deref().unwrap_or(id));
+        let at = self.specs.where_is(plain.as_deref().unwrap_or(id));
         match at.ok_or(SettingError::Unknown)? {
             specs::At::Spec(spec) if id == spec.id.as_str() => Ok(spec.id.clone()),
             _ => Id::try_parse(id).map_err(|error| match error {
@@ -1338,7 +1338,7 @@ impl Settings {
             return match (shown, crate::id::unplaced(id)) {
                 (Some(value), _) => Some(value),
                 (None, Some(plain)) => self.get(&plain),
-                (None, None) => self.specs.locate(id).map(specs::At::default),
+                (None, None) => self.specs.where_is(id).map(specs::At::default_now),
             };
         }
         if let Some(plain) = crate::id::unplaced(id) {
@@ -1380,12 +1380,12 @@ impl Settings {
         set: impl FnOnce(&str) -> Option<&'s SettingValue>,
     ) -> Option<&'s SettingValue> {
         // The default is kept for every setting: no spec is made for it.
-        let at = self.specs.locate(id)?;
-        let followed = at.follows().and_then(|other| {
+        let at = self.specs.where_is(id)?;
+        let followed = at.followed().and_then(|other| {
             let other = other.as_str();
-            set(other).or_else(|| self.specs.locate(other).map(specs::At::default))
+            set(other).or_else(|| self.specs.where_is(other).map(specs::At::default_now))
         });
-        followed.or(Some(at.default()))
+        followed.or(Some(at.default_now()))
     }
 
     /// The value outside any scope, or the default if none was set; for a
@@ -1410,7 +1410,7 @@ impl Settings {
             return None;
         }
         let value = scope.get(id)?;
-        self.specs.locate(id).filter(|at| at.scoped())?;
+        self.specs.where_is(id).filter(|at| at.scoped_flag())?;
         Some(value)
     } @ data::SETTINGS_SCOPED_VALUE as for<'s> fn(&'s Self, &str) -> Option<&'s SettingValue>
     }
@@ -1434,7 +1434,7 @@ impl Settings {
             return false;
         };
         let only = crate::builtin::settings::SCOPE_ONLY;
-        let scoped = self.specs.locate(id).is_some_and(|at| at.scoped());
+        let scoped = self.specs.where_is(id).is_some_and(|at| at.scoped_flag());
         scoped
             && (id == only.as_str() || scope.get(only.as_str()) == Some(&SettingValue::Bool(true)))
     }

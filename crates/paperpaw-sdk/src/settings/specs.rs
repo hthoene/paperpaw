@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::ops::ControlFlow;
 
 use super::described::{Blocks, DescribeError, DescribedSettings, Found};
-use super::{SettingError, SettingSpec, SettingValue};
+use super::{Extra, SettingError, SettingExtra, SettingSpec, SettingValue};
 
 /// The settings' specs in registration order, found by id through an
 /// index sorted by it: each id kept once. Specs kept in the program
@@ -49,45 +49,54 @@ pub(super) enum At<'a> {
 
 impl<'a> At<'a> {
     /// Its default as it is now: nothing is made for it.
-    pub(super) fn default(self) -> &'a SettingValue {
+    pub(super) fn default_now(self) -> &'a SettingValue {
         match self {
             At::Spec(spec) => &spec.default,
-            At::Described((block, at)) => block.default(at),
+            At::Described((block, at)) => block.default_now(at),
         }
     }
 
-    pub(super) fn scoped(self) -> bool {
+    pub(super) fn scoped_flag(self) -> bool {
         match self {
             At::Spec(spec) => spec.scoped,
-            At::Described((block, at)) => block.scoped(at),
+            At::Described((block, at)) => block.scoped_flag(at),
         }
     }
 
     #[cfg(any(test, feature = "kernel"))]
-    pub(super) fn guarded(self) -> bool {
+    pub(super) fn guarded_flag(self) -> bool {
         match self {
             At::Spec(spec) => spec.guarded,
-            At::Described((block, at)) => block.guarded(at),
+            At::Described((block, at)) => block.guarded_flag(at),
         }
     }
 
     /// A described setting is none: it has no extra.
     #[cfg(any(test, feature = "kernel"))]
-    pub(super) fn secret(self) -> bool {
+    pub(super) fn secret_flag(self) -> bool {
         match self {
-            At::Spec(spec) => spec.extra().secret,
+            At::Spec(spec) => own_extra(spec).is_some_and(|extra| extra.secret),
             At::Described(_) => false,
         }
     }
 
     /// The setting it follows until it is set (a described one follows
     /// none: it has no extra).
-    pub(super) fn follows(self) -> Option<&'a crate::Id> {
+    pub(super) fn followed(self) -> Option<&'a crate::Id> {
         match self {
-            At::Spec(spec) => spec.extra().follows.as_ref(),
+            At::Spec(spec) => own_extra(spec).and_then(|extra| extra.follows.as_ref()),
             At::Described(_) => None,
         }
     }
+}
+
+/// The extra `spec` was given, if any ([`SettingSpec::extra`] without the
+/// one that stands for none).
+fn own_extra(spec: &SettingSpec) -> Option<&SettingExtra> {
+    spec.extra.as_ref().map(|extra| match extra {
+        Extra::Fixed(extra) => *extra,
+        Extra::Owned(extra) => &**extra,
+    })
 }
 
 /// Which settings a walk visits ([`Settings::walk`](super::Settings::walk)).
@@ -120,7 +129,7 @@ impl Pick<'_> {
     fn takes_described(self, (block, at): Found<'_>) -> bool {
         match self {
             Pick::All => true,
-            Pick::Scoped => block.scoped(at),
+            Pick::Scoped => block.scoped_flag(at),
             Pick::Of(plugin) => block.plugin().as_str() == plugin,
             Pick::OfAny(plugins) => plugins.contains(&block.plugin().as_str()),
             Pick::WithExtra => false,
@@ -160,7 +169,7 @@ impl Specs {
     }
 
     /// Where setting `id` is kept. Nothing is made.
-    pub(super) fn locate(&self, id: &str) -> Option<At<'_>> {
+    pub(super) fn where_is(&self, id: &str) -> Option<At<'_>> {
         match self.find(id) {
             Ok(at) => Some(At::Spec(self.at(self.by_id[at]))),
             Err(_) => self.described.find(id).map(At::Described),
@@ -170,12 +179,12 @@ impl Specs {
     /// Whether setting `id` is one its plugin describes.
     #[cfg(any(test, feature = "kernel"))]
     pub(super) fn is_described(&self, id: &str) -> bool {
-        matches!(self.locate(id), Some(At::Described(_)))
+        matches!(self.where_is(id), Some(At::Described(_)))
     }
 
     /// Whether there is a setting `id`. Nothing is made.
     pub(super) fn has(&self, id: &str) -> bool {
-        self.locate(id).is_some()
+        self.where_is(id).is_some()
     }
 
     /// Whether there is a setting `<plugin>.<name>`. Nothing is made, nor a
@@ -204,7 +213,7 @@ impl Specs {
     /// The spec of setting `id`; a described one is made if need be and
     /// kept until the next rest ([`Specs::rest`]).
     pub(super) fn get(&self, id: &str) -> Result<Option<&SettingSpec>, SettingError> {
-        match self.locate(id) {
+        match self.where_is(id) {
             None => Ok(None),
             Some(At::Spec(spec)) => Ok(Some(spec)),
             Some(At::Described(found)) => full(self.described.spec(found)),
@@ -218,7 +227,7 @@ impl Specs {
         id: &str,
         f: impl FnOnce(&SettingSpec) -> R,
     ) -> Result<Option<R>, SettingError> {
-        match self.locate(id) {
+        match self.where_is(id) {
             None => Ok(None),
             Some(At::Spec(spec)) => Ok(Some(f(spec))),
             Some(At::Described((block, at))) => match block.kept(at) {
