@@ -809,12 +809,16 @@ mod x4 {
         let Some(depth) = depth else {
             return Err(PluginProblem::NoRoom);
         };
-        // As in `run`: the image's first `code_at` bytes are the read-only data.
+        // The image's first `code_at` bytes are the read-only data;
+        // `Header5::read` checked `code_at <= image_len`, and the whole image
+        // lies in the placed room, so the slice cannot pass it.
         let data_len = header.code_at.min(header.image_len) as usize;
         let image_ptr = core::ptr::with_exposed_provenance::<u8>(placed.base as usize);
-        // SAFETY: as in `run`: `make` is the placed entry, callable all
-        // session, and the image is flash (PSRAM on the S3) mapped for it; a
-        // region is reused only after a restart (`FlashModule`).
+        // SAFETY: `make` was read from the image just placed and checked there,
+        // so it is the plugin's entry, callable all session; the image is
+        // flash (PSRAM on the S3) mapped at `placed.base` for the session:
+        // only `put5` writes the region, and only before `finish`, into free
+        // room, so nothing erases it under the plugin (`FlashModule`).
         let hosted = unsafe {
             Hosted::new(
                 X4Services,
@@ -836,12 +840,7 @@ mod x4 {
         })?;
         let hot = if placed.hot == 0 { 0 } else { header.hot_len };
         Ok(Box::new(Measured {
-            inner: Box::new(HostedAdmission::new(
-                hosted,
-                depth,
-                admitted_report,
-                refused,
-            )),
+            inner: HostedAdmission::new(hosted, depth, admitted_report, refused),
             before: (heap, internal, started),
             hot,
         }))
@@ -851,8 +850,9 @@ mod x4 {
     /// placing it through `make` and the registration of everything it
     /// declares, which the remote's memory page and the log show per plugin.
     struct Measured {
-        inner: Box<dyn NativeAdmission>,
-        /// The heap and internal RAM used, and the time, before it was placed.
+        inner: HostedAdmission<X4Services, FlashModule>,
+        /// The heap and internal RAM used, and the time, when hosting began
+        /// (after `verify` placed the image: placing costs flash, not heap).
         before: (usize, usize, u64),
         hot: u32,
     }
@@ -865,7 +865,7 @@ mod x4 {
         ) -> Result<(), PluginProblem> {
             let Self { inner, before, hot } = *self;
             let made = crate::micros();
-            let admitted = inner.admit(kernel, folder);
+            let admitted = inner.admit_in(kernel, folder);
             let took = crate::native::Took {
                 place_us: made - before.2,
                 make_us: crate::micros() - made,

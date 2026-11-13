@@ -60,25 +60,37 @@ pub fn problem_of(error: &Error) -> PluginProblem {
         // that does not decode.
         Error::Status(ERR_INVALID) => PluginProblem::Damaged,
         Error::Lifecycle(super::Error::Memory | super::Error::Capacity) => PluginProblem::NoRoom,
-        // The shell refused to run its code (the X4: its stack's band is not armed).
-        Error::Refused => PluginProblem::NoRoom,
+        // The shell refused to run its code (the X4: its stack's band is not armed),
+        // as `load_native` says it.
+        Error::Refused => PluginProblem::Unsupported,
         _ => PluginProblem::Damaged,
     }
 }
 
-impl<S: Services + 'static, M: 'static> NativeAdmission for HostedAdmission<S, M> {
-    fn admit(self: Box<Self>, kernel: &mut Kernel, folder: &str) -> Result<(), PluginProblem> {
+impl<S: Services + 'static, M: 'static> HostedAdmission<S, M> {
+    /// [`NativeAdmission::admit`] on the value: a shell that wraps the
+    /// admission (to measure it) holds it without a second allocation.
+    ///
+    /// # Errors
+    /// Why the kernel refused the plugin, as a code plugin's problem.
+    pub fn admit_in(self, kernel: &mut Kernel, folder: &str) -> Result<(), PluginProblem> {
         let Self {
             hosted,
             depth,
             report,
             refused,
-        } = *self;
+        } = self;
         kernel
             .register_native_in(hosted, &depth, Some(folder), report)
             .map_err(|error| {
                 refused(folder, &error);
                 problem_of(&error)
             })
+    }
+}
+
+impl<S: Services + 'static, M: 'static> NativeAdmission for HostedAdmission<S, M> {
+    fn admit(self: Box<Self>, kernel: &mut Kernel, folder: &str) -> Result<(), PluginProblem> {
+        (*self).admit_in(kernel, folder)
     }
 }

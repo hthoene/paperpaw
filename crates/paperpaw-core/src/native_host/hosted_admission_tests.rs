@@ -88,7 +88,7 @@ fn a_refusal_is_said_the_same_way_on_every_shell() {
         PluginProblem::NeedsNewerPaperPaw
     );
     assert_eq!(said(Error::Status(ERR_INVALID)), PluginProblem::Damaged);
-    assert_eq!(said(Error::Refused), PluginProblem::NoRoom);
+    assert_eq!(said(Error::Refused), PluginProblem::Unsupported);
     assert_eq!(said(Error::Factory(-1)), PluginProblem::Damaged);
     assert_eq!(
         said(Error::Lifecycle(crate::native_host::Error::Memory)),
