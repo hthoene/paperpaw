@@ -128,12 +128,7 @@ impl Dialog {
                     style.small
                 };
                 let wide = font.measure_text(size, label)?;
-                let need = if wide >= 10.0 * gap {
-                    wide + 2.0 * gap
-                } else {
-                    wide * 1.2
-                };
-                stacked |= need > f32::from(share);
+                stacked |= button_need(wide, gap, f32::from(margin)) > f32::from(share);
             }
         }
         let title_lines = if title.is_empty() {
@@ -524,6 +519,18 @@ impl Dialog {
     }
 }
 
+/// The width a button needs for a label `wide` set in it: the room the
+/// drawing leaves (the button's width less the margin at both sides), or a
+/// fifth more than a short word. A button that is narrower is stacked.
+fn button_need(wide: f32, gap: f32, margin: f32) -> f32 {
+    let room = wide + 2.0 * margin;
+    if wide >= 10.0 * gap {
+        room
+    } else {
+        (wide * 1.2).max(room)
+    }
+}
+
 fn copy_all(items: &[&str]) -> Result<Vec<String>, Error> {
     let mut found = Vec::new();
     found
@@ -585,6 +592,19 @@ mod tests {
         dialog.rtl = true;
         dialog.lay_out(0).unwrap();
         dialog
+    }
+
+    #[test]
+    fn a_label_that_the_button_would_cut_makes_the_buttons_stack() {
+        // X4 (480 px): two buttons share 152 px each, and the label of
+        // 120 px is drawn in the 152 less a margin of 20 at both sides.
+        let (share, gap, margin) = (152.0, 8.0, 20.0);
+        let need = button_need(120.0, gap, margin);
+        assert!(need > share, "a label of 120 px does not fit 112 px");
+        // A label that fits is drawn in full side by side.
+        assert!(button_need(100.0, gap, margin) <= share);
+        // A short word needs a fifth more, and the margins too.
+        assert!(button_need(10.0, gap, margin) >= 10.0 + 2.0 * margin);
     }
 
     #[test]
