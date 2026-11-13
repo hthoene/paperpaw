@@ -1803,6 +1803,7 @@ dependencies = [
  "paperpaw-sample-interlinear",
  "paperpaw-sdk",
  "paperpaw-serve",
+ "paperpaw-shell-glue",
  "paperpaw-table",
  "paperpaw-text",
  "paperpaw-zip",
@@ -2882,6 +2883,16 @@ dependencies = [
  "rcgen",
  "rustls",
  "webpki-roots",
+]
+
+[[package]]
+name = "paperpaw-shell-glue"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-app",
+ "paperpaw-core",
+ "paperpaw-native",
+ "paperpaw-platform",
 ]
 
 [[package]]

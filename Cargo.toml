@@ -103,6 +103,7 @@ members = [
     "plugins/home",
     "plugins/keyboard",
     "shells/desktop",
+    "shells/glue",
     "shells/web",
     "shells/android",
     "tools/fontgen",

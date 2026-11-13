@@ -1,0 +1,28 @@
+[package]
+name = "paperpaw-shell-glue"
+description = "What the shells that host the linked interface-7 plugins share: the services and features offered, the host table's heap and clock, registration with the kernel (Decision 172)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+default = []
+# Registration of the app's linked plugins (`register`): the shells that host
+# them (Decision 172).
+linked = ["dep:paperpaw-app"]
+
+[dependencies]
+# The app's linked plugins (`register_native_plugins`, `NATIVE_PLUGINS`).
+paperpaw-app = { workspace = true, features = ["native-linked", "native-linked-store", "native-linked-reading"], optional = true }
+paperpaw-core = { workspace = true, features = ["color", "outline"] }
+# The freestanding checks and the host table of the plugins' ABI (ADR 0034).
+paperpaw-native = { workspace = true, features = ["kernel"] }
+paperpaw-platform.workspace = true
+
+[lints]
+workspace = true

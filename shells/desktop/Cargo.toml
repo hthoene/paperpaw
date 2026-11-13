@@ -37,6 +37,9 @@ paperpaw-sample-frame-test = { path = "../../samples/frame-test", optional = tru
 # The interlinear sample (ADR 0032), with `--features interlinear`.
 paperpaw-sample-interlinear = { path = "../../samples/interlinear", optional = true }
 
+# What the shells that host the linked plugins share (the host table's heap
+# and clock, the services offered, registration; `linked` below).
+paperpaw-shell-glue = { path = "../glue" }
 # What seals the secrets of linked native plugins (`sealing`, AES-256-GCM).
 aes-gcm = { version = "0.10", optional = true, default-features = false, features = ["aes", "zeroize"] }
 # The key is wiped from memory when it is dropped.
@@ -111,6 +114,7 @@ native-linked = ["dep:aes-gcm", "dep:zeroize"]
 # (`linked_host`): change both together.
 [target.'cfg(any(all(target_os = "linux", target_arch = "x86_64"), all(target_os = "windows", target_arch = "x86_64"), all(target_os = "macos", any(target_arch = "x86_64", target_arch = "aarch64")), all(target_os = "unknown", target_arch = "wasm32")))'.dependencies]
 paperpaw-app = { workspace = true, features = ["native-linked", "native-linked-store", "native-linked-reading"] }
+paperpaw-shell-glue = { path = "../glue", features = ["linked"] }
 
 [lints]
 workspace = true

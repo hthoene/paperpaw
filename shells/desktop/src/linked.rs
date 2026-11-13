@@ -14,240 +14,26 @@
 //! dispatch budget are shared by every linked plugin, as the loader's are for
 //! the plugins of the card (`native::HostLoader`).
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use paperpaw_core::Kernel;
-use paperpaw_core::native_host::device_service::DEVICE_SERVICES;
-use paperpaw_core::native_host::flat::FlatDepth;
-use paperpaw_core::native_host::shell::DATA_SERVICES;
+use paperpaw_core::native_host::HostWiring;
 use paperpaw_core::native_host::shell_wiring::{
-    CatalogEnv, NetInputs, NetLimits, NetReports, Sealer, SecretsInputs, WiredHosts, WorkDevice,
-    WorkInputs,
+    NetInputs, NetLimits, NetReports, Sealer, SecretsInputs,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use paperpaw_core::native_host::shell_wiring::{SockInputs, SockLimits, SockReports};
-use paperpaw_core::native_host::{HostResources, HostWiring, TeardownStep};
-use paperpaw_native::metadata::{self, Feature, Service};
+use paperpaw_native::metadata;
 use paperpaw_platform::Storage;
+use paperpaw_shell_glue::{PluginJobs, Shell};
+
+pub use paperpaw_shell_glue::Unavailable;
+pub use paperpaw_shell_glue::image::rodata_image;
+pub use paperpaw_shell_glue::view::DeviceView;
 
 use crate::device_host::DesktopDevice;
-use crate::host_services::DesktopServices;
 use crate::profiles::Profile;
-
-/// The services this shell wires for linked plugins: the data services of the
-/// shared host table, `core.device` over the profile's device, and the ones
-/// the table serves from the kernel's own views (`core.ui`, `core.registry`).
-/// A service not named here is not offered: a plugin that needs it is refused
-/// at admission.
-fn offered(wired: Wired) -> &'static [Service<'static>] {
-    let offer = offer(wired);
-    &offer.services[..offer.services_len]
-}
-
-/// The most services a list holds: the data services, `core.device`, the
-/// kernel's two own and every wired family.
-const MAX_SERVICES: usize = 16;
-// A list that outgrows its room fails the build, never the start: the data
-// services, the device's, the kernel's two own and the eight wired families.
-const _: () = assert!(
-    DATA_SERVICES.len() + DEVICE_SERVICES.len() + 2 + 8 <= MAX_SERVICES,
-    "MAX_SERVICES is too small for the all-wired offer"
-);
-/// The most features a list holds.
-const MAX_FEATURES: usize = 8;
-
-/// What is offered to the linked plugins for one combination of wired
-/// services: the services and the consent features.
-struct Offer {
-    services: [Service<'static>; MAX_SERVICES],
-    services_len: usize,
-    features: [Feature<'static>; MAX_FEATURES],
-    features_len: usize,
-}
-
-/// The offer for `wired`, held as long as the plugins run (the kernel's
-/// admission keeps the lists). A run meets one combination: its offer is in
-/// static memory (no heap). Another combination in the same process (the
-/// tests) is made once and left on the heap. A restart registers again.
-fn offer(wired: Wired) -> &'static Offer {
-    use std::sync::OnceLock;
-    static FIRST: OnceLock<(usize, Offer)> = OnceLock::new();
-    static OTHERS: [OnceLock<&'static Offer>; Wired::COMBINATIONS] =
-        [const { OnceLock::new() }; Wired::COMBINATIONS];
-    let first = FIRST.get_or_init(|| (wired.index(), make_offer(wired)));
-    if first.0 == wired.index() {
-        return &first.1;
-    }
-    OTHERS[wired.index()].get_or_init(|| Box::leak(Box::new(make_offer(wired))))
-}
-
-/// The offer for one combination of wired services.
-fn make_offer(wired: Wired) -> Offer {
-    const OWN: &[&str] = &["core.ui", "core.registry"];
-    let wired_keys = [
-        (wired.secrets, "core.secrets"),
-        (wired.work, "core.work"),
-        (wired.net, "core.net"),
-        (wired.sockets, "core.sockets"),
-        (wired.documents, "core.document"),
-        (wired.library, "core.library"),
-        (wired.files, "core.files"),
-        (wired.lookup, "core.lookup"),
-    ]
-    .into_iter()
-    .filter_map(|(on, key)| on.then_some(key));
-    let mut offer = Offer {
-        services: [Service {
-            key: "",
-            major: 0,
-            semantic_revision: 0,
-            min_table_bytes: 0,
-        }; MAX_SERVICES],
-        services_len: 0,
-        features: [Feature {
-            key: "",
-            revision: 0,
-        }; MAX_FEATURES],
-        features_len: 0,
-    };
-    let services = DATA_SERVICES.iter().chain(DEVICE_SERVICES).copied().chain(
-        OWN.iter().copied().chain(wired_keys).map(|key| Service {
-            key,
-            major: 1,
-            semantic_revision: 0,
-            min_table_bytes: 0,
-        }),
-    );
-    for service in services {
-        offer.services[offer.services_len] = service;
-        offer.services_len += 1;
-    }
-    let features = features_of(wired);
-    for (feature, on) in features {
-        if on {
-            offer.features[offer.features_len] = Feature {
-                key: feature,
-                revision: 1,
-            };
-            offer.features_len += 1;
-        }
-    }
-    offer
-}
-
-/// Which of the services that are wired only when the shell can are wired.
-#[derive(Clone, Copy, Debug, Default)]
-struct Wired {
-    secrets: bool,
-    work: bool,
-    net: bool,
-    sockets: bool,
-    documents: bool,
-    library: bool,
-    files: bool,
-    lookup: bool,
-    /// The profile's device has the radio the pretend Wi-Fi answers for
-    /// (`wifi.rs`): `uses.wifi` and the radio commands are backed.
-    wifi: bool,
-    /// Plugin jobs are taken (the emulated device installs plugins from the
-    /// card: [`card_plugins`]): `uses.install` is backed.
-    install: bool,
-}
-
-impl Wired {
-    /// How many combinations there are (one bit a service).
-    const COMBINATIONS: usize = 1 << 10;
-
-    fn index(self) -> usize {
-        [
-            self.secrets,
-            self.work,
-            self.net,
-            self.sockets,
-            self.documents,
-            self.library,
-            self.files,
-            self.lookup,
-            self.wifi,
-            self.install,
-        ]
-        .into_iter()
-        .enumerate()
-        .fold(0, |index, (bit, on)| index | usize::from(on) << bit)
-    }
-}
-
-/// The consent features this shell backs: the registry (the kernel's own),
-/// the device's power view (`core.device`) and, where they are wired,
-/// `uses.secrets` (it has a sealing key), `uses.network` (HTTP requests,
-/// `core.net`), `uses.storage` (the card's files, `core.files`) and
-/// `uses.library` (`core.library`) and, on a profile whose device has Wi-Fi,
-/// `uses.wifi` (the pretend radio answers the radio commands) and, where the
-/// emulated device installs plugins ([`card_plugins`]), `uses.install`. Not
-/// offered, because the desktop does not back them yet: `uses.bluetooth`,
-/// `uses.firmware`. A plugin that needs one is refused at admission.
-fn features(wired: Wired) -> &'static [Feature<'static>] {
-    let offer = offer(wired);
-    &offer.features[..offer.features_len]
-}
-
-/// Every feature a shell may offer, with whether `wired` backs it.
-fn features_of(wired: Wired) -> [(&'static str, bool); MAX_FEATURES] {
-    [
-        ("uses.registry", true),
-        ("uses.power", true),
-        ("uses.secrets", wired.secrets),
-        // `uses.network` is the one feature of HTTP and sockets
-        // (`network.md` 1).
-        ("uses.network", wired.net || wired.sockets),
-        // Root 1 (the card's files) and the library are signed features of
-        // their own services (`files.md`, `library.md`).
-        ("uses.storage", wired.files),
-        ("uses.library", wired.library),
-        // The radio commands (`device.md`) are answered by the pretend radio.
-        ("uses.wifi", wired.wifi),
-        // Plugin installs, checks and removals (`device.md` 5.1, 5.2).
-        ("uses.install", wired.install),
-    ]
-}
-
-/// A linked plugin's diagnostics from the kernel (a refused declaration, a
-/// failed callback) go to stderr.
-fn linked_report(_: &DesktopServices, plugin: &str, tag: u32, status: i32) {
-    eprintln!("native plugin {plugin}: call {tag} ended with {status}");
-}
-
-/// What the device tells `core.work` (`WorkDevice`): the kernel's clock as the
-/// device last read it and whether the network is up. The device writes both
-/// where it reads its clock ([`DeviceView::set`]), so the scheduler and the
-/// kernel's tick agree.
-#[derive(Debug, Default)]
-pub struct DeviceView {
-    now_ms: Cell<u64>,
-    online: Cell<bool>,
-}
-
-impl DeviceView {
-    /// The clock and the network as they are now.
-    pub fn set(&self, now_ms: u64, online: bool) {
-        self.now_ms.set(now_ms);
-        self.online.set(online);
-    }
-}
-
-impl WorkDevice for DeviceView {
-    fn now_ms(&self) -> u64 {
-        self.now_ms.get()
-    }
-    fn network_up(&self) -> bool {
-        self.online.get()
-    }
-    /// The pretend radio is on when the network is up.
-    fn radio_on(&self) -> bool {
-        self.online.get()
-    }
-}
 
 /// What the device hands the registration besides its profile.
 #[derive(Clone)]
@@ -296,45 +82,6 @@ impl std::fmt::Debug for Inputs {
     }
 }
 
-/// What the card cannot tell the catalog reads, on the desktop: no walk
-/// shown, today's date from the computer's clock (none on simulated time, so
-/// no book is new in a run that must not depend on the day).
-struct Catalog {
-    simulated: bool,
-}
-
-impl CatalogEnv for Catalog {
-    fn walking(&self) -> Option<u32> {
-        None
-    }
-    fn today(&self) -> Option<u32> {
-        // A browser's `SystemTime` cannot be read: no day there.
-        if self.simulated || cfg!(target_arch = "wasm32") {
-            return None;
-        }
-        let seconds = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()?
-            .as_secs();
-        u32::try_from(seconds / 86_400).ok()
-    }
-    /// The wall clock in milliseconds: the idle time of an annotation
-    /// transaction and the life of its receipt. A simulated clock is none.
-    fn now_ms(&self) -> u64 {
-        if self.simulated {
-            return 0;
-        }
-        // A browser's `SystemTime` cannot be read: the shell's clock is the
-        // page's (no wall clock there).
-        if cfg!(target_arch = "wasm32") {
-            return crate::host::micros() / 1000;
-        }
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(0))
-    }
-}
-
 /// The sealer of the secrets, or why there is none (then `core.secrets` is
 /// not wired and a plugin that needs it is refused: nothing is stored in the
 /// clear). Made once for the process and kept in static memory (the cipher's
@@ -377,229 +124,6 @@ impl Sealer for StaticSealer {
         self.0.open(aad, sealed, out)
     }
 }
-
-/// The step of a teardown that failed, once, without calling plugin code.
-fn teardown_report(
-    _: &DesktopServices,
-    id: &str,
-    step: TeardownStep,
-    why: paperpaw_core::native_host::Error,
-) {
-    eprintln!("native plugin {id}: teardown step {step:?} failed: {why:?}");
-}
-
-/// Why the linked plugins could not be registered at all (a plugin the host
-/// refuses is said on stderr and does not stop the others).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Unavailable {
-    /// No room for the shared table of handles or the dispatch budget.
-    NoRoom,
-    /// The wiring of `core.ui` or `core.device` was refused.
-    Wiring(i32),
-}
-
-/// `core.document`, `core.library` and `core.files` over the card itself.
-/// The files come with the library: a book its move job carries is in use
-/// for the library's writes.
-fn on_the_card(
-    wiring: HostWiring,
-    profile: &'static Profile,
-    card: Rc<dyn Storage>,
-    simulated: bool,
-) -> HostWiring {
-    let display = profile.device.display;
-    wiring
-        .documents(
-            profile.device.memory,
-            u32::from(display.width.max(display.height)),
-        )
-        .library(card.clone(), Rc::new(Catalog { simulated }))
-        .files(card)
-}
-
-/// A value the linker puts in this program's read-only data (the same segment
-/// as the plugins' declaration bytes), to find that segment by.
-static RODATA_ANCHOR: [u8; 16] = *b"paperpaw-rodata\0";
-
-/// The profile this shell hosts: the declared one of the target it is built for
-/// (`paperpaw_native::profile`, `abi/abi.def`), as the kernel's admission of a
-/// linked plugin names it. Empty where there is none, which admits nothing
-/// (`build.rs` only hosts on targets that have one).
-fn host_profile() -> metadata::Profile<'static> {
-    metadata::BUILD_PROFILE.unwrap_or_else(|| {
-        eprintln!("linked plugins: no declared profile for this target; none is admitted");
-        metadata::Profile {
-            target: "",
-            entry_layout: 0,
-            entry_bytes: 0,
-        }
-    })
-}
-
-/// The program's read-only data as a mapping (address and length) that stays
-/// mapped for the whole run, or `(null, 0)` where it cannot be found: the
-/// linked plugins keep their declarations as offsets into it, not as copies
-/// (`Kernel::register_linked`).
-///
-/// Found as the mapping of this process that holds `RODATA_ANCHOR` and is
-/// readable and not writable: on Linux by `/proc/self/maps` (readable, not
-/// writable and not executable), on Windows by `VirtualQuery`, on macOS by
-/// `mach_vm_region` (the linker puts constants in the executable `__TEXT`
-/// segment there).
-pub fn rodata_image() -> (*const u8, usize) {
-    let anchor = std::ptr::addr_of!(RODATA_ANCHOR) as usize;
-    match readonly_mapping(anchor) {
-        Some((start, len)) => (start as *const u8, len),
-        None => (std::ptr::null(), 0),
-    }
-}
-
-/// The `(start, length)` of the mapping of this process that holds `anchor`,
-/// if it cannot be written.
-#[cfg(target_os = "linux")]
-fn readonly_mapping(anchor: usize) -> Option<(usize, usize)> {
-    std::fs::read_to_string("/proc/self/maps")
-        .ok()
-        .and_then(|maps| mapping_of(&maps, anchor))
-}
-
-#[cfg(windows)]
-fn readonly_mapping(anchor: usize) -> Option<(usize, usize)> {
-    use std::ffi::c_void;
-    /// `MEMORY_BASIC_INFORMATION` of a 64-bit process (`winnt.h`).
-    #[repr(C)]
-    struct MemoryBasicInformation {
-        base_address: *mut c_void,
-        allocation_base: *mut c_void,
-        allocation_protect: u32,
-        partition_id: u16,
-        region_size: usize,
-        state: u32,
-        protect: u32,
-        kind: u32,
-    }
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn VirtualQuery(
-            address: *const c_void,
-            buffer: *mut MemoryBasicInformation,
-            length: usize,
-        ) -> usize;
-    }
-    const MEM_COMMIT: u32 = 0x1000;
-    const PAGE_READONLY: u32 = 0x02;
-    const PAGE_EXECUTE_READ: u32 = 0x20;
-    let query = |at: usize| {
-        let mut info = std::mem::MaybeUninit::<MemoryBasicInformation>::zeroed();
-        let size = std::mem::size_of::<MemoryBasicInformation>();
-        // SAFETY: `VirtualQuery` writes at most `length` bytes of `info`, which
-        // is as large as the structure it fills.
-        unsafe {
-            (VirtualQuery(at as *const c_void, info.as_mut_ptr(), size) == size)
-                .then(|| info.assume_init())
-        }
-    };
-    // `VirtualQuery` describes the run of pages with the same attributes that
-    // starts at the page of the address asked, not at the run's own start: walk
-    // the runs from the start of the image's allocation to the one that holds
-    // the anchor, which is then whole.
-    let first = query(anchor)?;
-    let mut at = first.allocation_base as usize;
-    loop {
-        let run = query(at)?;
-        let (start, len) = (run.base_address as usize, run.region_size);
-        if start != at || len == 0 {
-            return None;
-        }
-        if anchor < start.saturating_add(len) {
-            let readable_only = run.protect == PAGE_READONLY || run.protect == PAGE_EXECUTE_READ;
-            return (run.state == MEM_COMMIT && readable_only).then_some((start, len));
-        }
-        at = start.saturating_add(len);
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn readonly_mapping(anchor: usize) -> Option<(usize, usize)> {
-    unsafe extern "C" {
-        static mach_task_self_: u32;
-        fn mach_vm_region(
-            task: u32,
-            address: *mut u64,
-            size: *mut u64,
-            flavor: i32,
-            info: *mut i32,
-            count: *mut u32,
-            object: *mut u32,
-        ) -> i32;
-    }
-    /// `VM_REGION_BASIC_INFO_64`: `vm_region_basic_info_data_64_t`, nine
-    /// 32-bit words, the first of them the protection.
-    const VM_REGION_BASIC_INFO_64: i32 = 9;
-    const INFO_WORDS: u32 = 9;
-    const VM_PROT_READ: i32 = 1;
-    const VM_PROT_WRITE: i32 = 2;
-    let (mut start, mut size) = (anchor as u64, 0_u64);
-    let (mut info, mut words, mut object) = ([0_i32; INFO_WORDS as usize], INFO_WORDS, 0_u32);
-    // SAFETY: the arguments are the ones `mach_vm_region` documents, the
-    // buffer holds `INFO_WORDS` words, and `mach_task_self_` is the task port
-    // the system keeps for this process.
-    let status = unsafe {
-        mach_vm_region(
-            mach_task_self_,
-            &mut start,
-            &mut size,
-            VM_REGION_BASIC_INFO_64,
-            info.as_mut_ptr(),
-            &mut words,
-            &mut object,
-        )
-    };
-    // The region that holds the anchor, not the next one after it.
-    let holds =
-        status == 0 && start <= anchor as u64 && (anchor as u64) < start.saturating_add(size);
-    let protection = info[0];
-    (holds && protection & VM_PROT_READ != 0 && protection & VM_PROT_WRITE == 0)
-        .then_some((usize::try_from(start).ok()?, usize::try_from(size).ok()?))
-}
-
-#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
-fn readonly_mapping(_anchor: usize) -> Option<(usize, usize)> {
-    None
-}
-
-/// The `(start, length)` of the read-only, non-executable mapping in `maps`
-/// (the text of `/proc/self/maps`) that holds `address`.
-#[cfg(any(target_os = "linux", test))]
-fn mapping_of(maps: &str, address: usize) -> Option<(usize, usize)> {
-    for line in maps.lines() {
-        let mut parts = line.split_ascii_whitespace();
-        let (range, perms) = (parts.next()?, parts.next()?);
-        let (start, end) = range.split_once('-')?;
-        let start = usize::from_str_radix(start, 16).ok()?;
-        let end = usize::from_str_radix(end, 16).ok()?;
-        if address < start || address >= end {
-            continue;
-        }
-        return (perms.starts_with("r--")).then_some((start, end - start));
-    }
-    None
-}
-
-/// What is wired: the wiring's own answer for the services that may be left
-/// out, and the card's families (`on_card`).
-fn wired_services(wired: &WiredHosts, on_card: Wired) -> Wired {
-    Wired {
-        secrets: wired.secrets().is_some(),
-        work: true,
-        net: wired.net().is_some(),
-        sockets: wired.sockets().is_some(),
-        lookup: true,
-        ..on_card
-    }
-}
-
 /// What a plugin file for the emulated device is checked against: the loader
 /// of its chip and the metadata profile of its firmware (`device.md` 5.1), as
 /// the device's firmware has them. `None` for a device PaperPaw installs no
@@ -631,28 +155,6 @@ pub fn data_plugins(profile: &Profile) -> bool {
     profile.catalog_device.is_some() && card_plugins(profile).is_none()
 }
 
-/// Tells `kernel` what plugin jobs check a plugin file against: the services
-/// and features wired here (`on`, with `uses.install`), for the chip of
-/// `profile` ([`card_plugins`]). Whether plugin jobs are taken (the device
-/// installs plugins and the kernel has its firmware host, `device::build`).
-fn take_plugin_jobs(kernel: &mut Kernel, profile: &Profile, on: Wired) -> bool {
-    let Some((loader, card, _)) = card_plugins(profile) else {
-        return data_plugins(profile) && kernel.set_data_plugin_host();
-    };
-    let on = Wired {
-        install: true,
-        ..on
-    };
-    let offered = metadata::Host {
-        abi_major: 7,
-        minor: paperpaw_native::host_glue::MINOR,
-        profile: card,
-        services: offered(on),
-        features: features(on),
-    };
-    kernel.set_plugin_host(loader, offered, &[])
-}
-
 /// Registers every plugin of `paperpaw_app::NATIVE_PLUGINS` with `kernel` for
 /// the device of `profile`; the number registered. Call before the kernel
 /// starts, once.
@@ -665,13 +167,9 @@ pub fn register(
     profile: &'static Profile,
     inputs: Inputs,
 ) -> Result<usize, Unavailable> {
-    let resources = HostResources::try_new().map_err(|_| Unavailable::NoRoom)?;
+    paperpaw_shell_glue::clock::set_micros(crate::host::micros);
     let device: Rc<DesktopDevice> = Rc::new(DesktopDevice::new(profile));
-    let mut wiring = HostWiring::new()
-        .ui(profile.device.memory)
-        .device(device)
-        .lookup()
-        .work(WorkInputs::new(inputs.view.clone(), profile.device.memory));
+    let mut wiring = HostWiring::new();
     // HTTP over the card (saved and sent files); no card, no `core.net`. In a
     // browser the requests go through the page's own route (`http::set_route`).
     let transport = inputs.storage.clone().map(|storage| {
@@ -708,15 +206,6 @@ pub fn register(
         let sockets = ();
         (transport, sockets)
     });
-    // The books, the catalog and the card's files, from the card itself.
-    let mut on_card = Wired::default();
-    if let Some(card) = inputs.card {
-        wiring = on_the_card(wiring, profile, card, inputs.simulated);
-        on_card.documents = true;
-        on_card.library = true;
-        on_card.files = true;
-    }
-    on_card.wifi = profile.wifi;
     match (inputs.storage, sealer(inputs.simulated)) {
         (None, _) => eprintln!("native plugins: no secrets (the card cannot be opened)"),
         (Some(storage), Ok(sealer)) => {
@@ -730,22 +219,27 @@ pub fn register(
         }
         (Some(_), Err(why)) => eprintln!("native plugins: no secrets (no key: {why})"),
     }
-    let wired = resources.wire(wiring).map_err(Unavailable::Wiring)?;
-    // Values an older version kept veiled are sealed now (none to do on a
-    // fresh card).
-    if let Some(secrets) = wired.secrets()
-        && let Err(status) = secrets.upgrade()
-    {
-        eprintln!("native plugins: the secrets file could not be upgraded ({status})");
-    }
-    // Interface 6's passwords are opened and written through the sealer from
-    // here on, whether or not a native plugin is ever admitted (decision 140);
-    // before `Kernel::start`, as `Kernel::wire_secrets` asks.
-    if let Some(secrets) = wired.secrets() {
-        kernel.wire_secrets(secrets);
-    }
-    let mut on = wired_services(&wired, on_card);
-    on.install = take_plugin_jobs(kernel, profile, on);
+    let jobs = match card_plugins(profile) {
+        Some((loader, card, _)) => PluginJobs::Code { loader, card },
+        None if data_plugins(profile) => PluginJobs::Data,
+        None => PluginJobs::None,
+    };
+    let display = profile.device.display;
+    let registered = paperpaw_shell_glue::register(
+        kernel,
+        Shell {
+            memory: profile.device.memory,
+            widest: u32::from(display.width.max(display.height)),
+            device,
+            view: inputs.view,
+            card: inputs.card,
+            simulated: inputs.simulated,
+            wifi: profile.wifi,
+            jobs,
+            wiring,
+        },
+    )?;
+    let wired = &registered.wired;
     *inputs.net.borrow_mut() =
         transport
             .zip(wired.net().cloned())
@@ -759,58 +253,16 @@ pub fn register(
                     sockets: wired.sockets().cloned().map(|wired| (sockets, wired)),
                 }
             });
-    let depth = FlatDepth::try_new().map_err(|_| Unavailable::NoRoom)?;
-    let host = metadata::Host {
-        abi_major: 7,
-        minor: paperpaw_native::host_glue::MINOR,
-        profile: host_profile(),
-        services: offered(on),
-        features: features(on),
-    };
-    let outcome = register_linked(kernel, &host, &resources, &depth);
-    let mut registered = 0;
-    for (id, status) in outcome {
-        match status {
-            Ok(()) => registered += 1,
-            Err(why) => eprintln!("native plugin {id}: not registered: {why:?}"),
-        }
-    }
-    Ok(registered)
-}
-
-/// Registers the app's linked plugins: the ones `paperpaw_app::sleeps` names
-/// parked, every other one awake (#248, D1).
-fn register_linked(
-    kernel: &mut Kernel,
-    host: &metadata::Host<'static>,
-    resources: &HostResources,
-    depth: &FlatDepth,
-) -> Vec<(
-    &'static str,
-    Result<(), paperpaw_core::native_host::shell::Error>,
-)> {
-    // SAFETY: the offered services are the ones wired by the caller
-    // (`offered`), and the plugins are the app's linked ones, as the helper's
-    // contract says.
-    unsafe {
-        paperpaw_app::register_native_plugins(
-            kernel,
-            host,
-            resources,
-            depth,
-            DesktopServices::new,
-            teardown_report,
-            linked_report,
-            |id| paperpaw_app::native_default_on(id, paperpaw_app::default_store()),
-            rodata_image(),
-            paperpaw_app::sleeps,
-        )
-    }
+    Ok(registered.count)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use paperpaw_core::native_host::shell_wiring::CatalogEnv;
+    use paperpaw_shell_glue::image::{host_profile, mapping_of};
+    use paperpaw_shell_glue::offer::{Wired, features, make_offer, offered};
+    use paperpaw_shell_glue::view::Catalog;
 
     /// A linked plugin's declaration bytes are read-only statics like its
     /// metadata; if the metadata lay outside the image found here the
@@ -845,14 +297,6 @@ mod tests {
         assert_eq!(mapping_of(maps, 0x55d0_c8b5_0000), None);
         assert_eq!(mapping_of(maps, 0x1000), None);
         assert_eq!(mapping_of("garbage", 0x1000), None);
-    }
-
-    #[test]
-    fn this_programs_read_only_data_is_found_and_holds_the_anchor() {
-        let (start, len) = rodata_image();
-        assert!(len > 0, "no read-only mapping found");
-        let anchor = std::ptr::addr_of!(RODATA_ANCHOR) as usize;
-        assert!(start as usize <= anchor && anchor < start as usize + len);
     }
 
     fn keys(wired: Wired) -> Vec<&'static str> {
@@ -960,7 +404,7 @@ mod tests {
         let before = crate::budget::stats().live;
         let offer = crate::budget::track(|| make_offer(wired));
         assert_eq!(crate::budget::stats().live, before, "an offer allocated");
-        assert!(offer.services_len > 8 && offer.features_len >= 3);
+        assert!(offer.services().len() > 8 && offer.features().len() >= 3);
         let first = sealer(true).expect("a key for the process");
         let second = sealer(true).expect("a key for the process");
         assert!(std::ptr::eq(first, second), "a second sealer was made");
