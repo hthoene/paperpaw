@@ -19,11 +19,6 @@ fn request<'a>(method: &'a str, target: &'a str, body: Option<&'a str>, len: u64
 
 /// The decks and the cards of the first, as the page would read them.
 fn shape(storage: &dyn Storage) -> (Option<String>, Option<String>) {
-    // An index the heap could not follow is taken away and made anew when the
-    // numbers are wanted (the app does it at start): the decks' counts say so.
-    match cards::rebuild_index(storage) {
-        Ok(()) | Err(_) => {}
-    }
     (decks_json(storage).ok(), cards_json(storage, 1, 0).ok())
 }
 
