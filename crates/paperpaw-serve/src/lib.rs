@@ -344,7 +344,16 @@ impl Servers {
         );
         send(ServerEvent::Started {
             server,
-            address: format!("{}:{port}", local_address()),
+            // The address that answers: where the server is bound to loopback
+            // only, that is the loopback address, not the LAN's.
+            address: format!(
+                "{}:{port}",
+                if self.address.is_loopback() {
+                    self.address
+                } else {
+                    local_address()
+                }
+            ),
         });
         let (waiting, next, wake, heads) = (
             self.waiting.clone(),
@@ -392,6 +401,17 @@ impl Servers {
                 });
             }
         });
+    }
+}
+
+impl Drop for Servers {
+    /// Closes every listener and connection (a rebuilt kernel's old servers
+    /// must not keep their ports).
+    fn drop(&mut self) {
+        let servers: Vec<u32> = self.running.keys().copied().collect();
+        for server in servers {
+            self.stop(server);
+        }
     }
 }
 
@@ -824,6 +844,32 @@ mod tests {
         assert_eq!(answer_head(&mut client), "");
         assert!(started.elapsed() < Duration::from_secs(4));
         // The listener goes once its thread woke.
+        let freed = (0..40).any(|_| {
+            thread::sleep(Duration::from_millis(50));
+            TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok()
+        });
+        assert!(freed, "the port is free again");
+    }
+
+    #[test]
+    fn a_loopback_server_reports_the_loopback_address() {
+        let mut servers = Servers::new(|| {}).listening_on(Ipv4Addr::LOCALHOST.into());
+        servers.apply(ServerCall::Listen {
+            server: 1,
+            port: 18_965,
+        });
+        let ServerEvent::Started { address, .. } = next(&servers) else {
+            panic!("not started");
+        };
+        assert!(address.starts_with("127.0.0.1:"), "{address}");
+        servers.apply(ServerCall::Stop { server: 1 });
+    }
+
+    #[test]
+    fn dropping_the_servers_frees_their_ports() {
+        let mut servers = Servers::new(|| {}).listening_on(Ipv4Addr::LOCALHOST.into());
+        let port = serving(&mut servers, 18_985);
+        drop(servers);
         let freed = (0..40).any(|_| {
             thread::sleep(Duration::from_millis(50));
             TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok()
