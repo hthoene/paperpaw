@@ -9,19 +9,18 @@
 //!
 //! What stays the store's: the evidence it hands over, the rule that the
 //! version installed is not replaced by an older or the same one (the host's
-//! reason 14, unless the entry is a repair of a build that does not run), the
-//! revocations the library lists, and the record of what the store installed
-//! ([`Installs`]), which says whether it may offer a plugin's updates and as
-//! which release (interface 6 `install::origin`, `plugin-origin.txt`).
+//! reason 14, unless the entry is a repair of a build that does not run) and
+//! the revocations the library lists. Its installs say they come from the
+//! catalog (`install_plugin` `flags` bit 2): the host keeps the record of what
+//! the store installed (interface 6 `install::origin`, `plugin-origin.txt`)
+//! and the registry names those versions (`reg_plugin.flags` bit 5,
+//! `native_installs`).
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::install::is_plugin_name;
 use paperpaw_sdk::native::Error;
-use paperpaw_ui_kit::{
-    mem::push,
-    text::{concat, copy},
-};
+use paperpaw_ui_kit::{mem::push, text::copy};
 
 use crate::native_download::{Download, Failure, Staged, Step};
 use crate::native_item::Rotation;
@@ -35,15 +34,6 @@ use crate::native_refusal::{self as words, Outcome as Said};
 pub const MAX_STEPS: usize = 6;
 /// The most revocations handed over in one go (the SDK's bound).
 pub const MAX_REVOKED: usize = 16;
-/// The file of the versions the store installed (lines `<id>\t<release>`): the
-/// interface-6 file (`paperpaw_sdk::data_path!("plugin-origin.txt")`), so what
-/// Beta 3 kept is read as it was.
-pub const INSTALLS_FILE: &str = ".paperpaw/plugin-origin.txt";
-/// The most of the record read, in bytes.
-const MAX_INSTALLS: usize = 64 * 1024;
-/// The versions kept of one plugin: the one installed, and those before it in
-/// case an install did not complete.
-pub const VERSIONS_KEPT: usize = 4;
 
 /// The library's word about a code plugin, carried with its install.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -230,9 +220,7 @@ impl Installer {
     }
 
     /// The end of an install request (`event.install_done`, kind 0): what the
-    /// store says of it. An install that ended with reason 0 is remembered as
-    /// the store's (`release` as the library names the version, a pre-release
-    /// with it); the staged files go whatever it was.
+    /// store says of it. The staged files go whatever it was.
     ///
     /// # Errors
     /// `NoMemory`.
@@ -242,7 +230,6 @@ impl Installer {
         wire: &mut dyn Wire,
         download: &mut Download,
         end: &End,
-        release: &str,
         flash_hint: bool,
     ) -> Result<Outcome, Error> {
         match &self.going {
@@ -256,10 +243,6 @@ impl Installer {
         match words::outcome(end.reason, flash_hint) {
             Said::Done => {
                 download.set_step(Step::Installed);
-                // A record that cannot be kept is no reason to say it failed:
-                // the plugin is installed, the store only counts it as put in
-                // place another way until it is kept again.
-                let _ = Installs::remember(wire.storage(), &going.plugin, release);
                 Ok(Outcome::Installed {
                     plugin: going.plugin,
                     name: going.name,
@@ -358,177 +341,6 @@ pub fn next(queue: &mut Queue, storage: &dyn Storage) -> Result<Next, Error> {
 
 fn discard(storage: &dyn Storage, folder: &str) {
     let _ = storage.remove_dir_all(folder);
-}
-
-/// The versions the store installed, kept in its data folder: a plugin counts
-/// as the store's only while its version is one of them (interface 6
-/// `install::origin`). Lines `<id>\t<release>`, at most [`VERSIONS_KEPT`] of a
-/// plugin, the newest last.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct Installs {
-    kept: Vec<(String, String)>,
-}
-
-impl Installs {
-    /// What the file says; none where it cannot be read.
-    ///
-    /// # Errors
-    /// `NoMemory`.
-    pub fn read(storage: &dyn Storage) -> Result<Self, Error> {
-        match crate::native_queue::read_text(storage, INSTALLS_FILE, MAX_INSTALLS)? {
-            Some(text) => Self::parse(&text),
-            None => Ok(Self::default()),
-        }
-    }
-
-    fn parse(text: &str) -> Result<Self, Error> {
-        let mut kept = Vec::new();
-        for line in text.lines() {
-            let Some((id, release)) = line.split_once('\t') else {
-                continue;
-            };
-            if is_plugin_name(id) && !release.trim().is_empty() {
-                push(&mut kept, (copy(id)?, copy(release.trim())?))?;
-            }
-        }
-        Ok(Self { kept })
-    }
-
-    /// What the file says, or `None` where it is there but cannot be read (a
-    /// write on it would wipe the other plugins' records).
-    ///
-    /// # Errors
-    /// `NoMemory`.
-    fn load(storage: &dyn Storage) -> Result<Option<Self>, Error> {
-        if !storage.exists(INSTALLS_FILE) {
-            return Ok(Some(Self::default()));
-        }
-        match crate::native_queue::read_text(storage, INSTALLS_FILE, MAX_INSTALLS)? {
-            Some(text) => Self::parse(&text).map(Some),
-            None => Ok(None),
-        }
-    }
-
-    /// Whether the file is there (once it is, the plugins installed before are
-    /// not adopted again).
-    #[must_use]
-    pub fn exists(storage: &dyn Storage) -> bool {
-        storage.exists(INSTALLS_FILE)
-    }
-
-    /// Whether the store installed `plugin` at `release` (or a version with the
-    /// same numbers: betas of one release share them).
-    #[must_use]
-    pub fn of(&self, plugin: &str, version: &str) -> bool {
-        self.release(plugin, version).is_some()
-    }
-
-    /// The version of `plugin` the store installed with the numbers of
-    /// `version`, as the store named it (`0.5.0-beta.2`); the last such one.
-    #[must_use]
-    pub fn release(&self, plugin: &str, version: &str) -> Option<&str> {
-        let numbers = numbers_of(version);
-        self.kept
-            .iter()
-            .rev()
-            .find(|(id, release)| id == plugin && numbers_of(release) == numbers)
-            .map(|(_, release)| release.as_str())
-    }
-
-    /// Remembers that the store installed `plugin` at `release`; false where
-    /// the file cannot be kept (left as it was).
-    ///
-    /// # Errors
-    /// `NoMemory`.
-    pub fn remember(storage: &dyn Storage, plugin: &str, release: &str) -> Result<bool, Error> {
-        if !is_plugin_name(plugin) || release.is_empty() || release.contains(['\t', '\n', '\r']) {
-            return Ok(false);
-        }
-        let Some(mut now) = Self::load(storage)? else {
-            return Ok(false);
-        };
-        // The same release once, then room for the new one: the oldest of this
-        // plugin's go when there are too many.
-        now.kept
-            .retain(|(id, kept)| !(id == plugin && kept == release));
-        let mut keep = Vec::new();
-        keep.try_reserve_exact(now.kept.len())
-            .map_err(|_| Error::NoMemory)?;
-        let mut seen = 0;
-        for (id, _) in now.kept.iter().rev() {
-            let kept = if id == plugin {
-                seen += 1;
-                seen < VERSIONS_KEPT
-            } else {
-                true
-            };
-            keep.push(kept);
-        }
-        let mut flags = keep.into_iter().rev();
-        now.kept.retain(|_| flags.next().unwrap_or(true));
-        push(&mut now.kept, (copy(plugin)?, copy(release)?))?;
-        Ok(now.keep(storage))
-    }
-
-    /// Forgets every version of `plugin` (an install of another kind put one
-    /// in place, or it was removed).
-    ///
-    /// # Errors
-    /// `NoMemory`.
-    pub fn forget(storage: &dyn Storage, plugin: &str) -> Result<bool, Error> {
-        let Some(mut now) = Self::load(storage)? else {
-            return Ok(false);
-        };
-        now.kept.retain(|(id, _)| id != plugin);
-        Ok(now.keep(storage))
-    }
-
-    /// Takes the plugins installed (`installed`: id and version, those built in
-    /// left out) for the store's, where no record was ever kept on this device:
-    /// before PaperPaw kept them, the plugins the store installed went unnamed
-    /// and keep its updates. Once kept, it does nothing.
-    ///
-    /// # Errors
-    /// `NoMemory`.
-    pub fn adopt<'a>(
-        storage: &dyn Storage,
-        installed: impl IntoIterator<Item = (&'a str, &'a str)>,
-    ) -> Result<bool, Error> {
-        if Self::exists(storage) {
-            return Ok(true);
-        }
-        let mut now = Self::default();
-        for (id, version) in installed {
-            if is_plugin_name(id) && !version.is_empty() && !version.contains(['\t', '\n', '\r']) {
-                push(&mut now.kept, (copy(id)?, copy(version)?))?;
-            }
-        }
-        Ok(now.keep(storage))
-    }
-
-    fn keep(&self, storage: &dyn Storage) -> bool {
-        let mut text = String::new();
-        for (id, release) in &self.kept {
-            let Ok(line) = concat(&[id, "\t", release, "\n"]) else {
-                return false;
-            };
-            if text.try_reserve(line.len()).is_err() {
-                return false;
-            }
-            text.push_str(&line);
-        }
-        if text.is_empty() {
-            return storage.remove(INSTALLS_FILE).is_ok() || !storage.exists(INSTALLS_FILE);
-        }
-        storage.write(INSTALLS_FILE, text.as_bytes()).is_ok()
-    }
-}
-
-/// The numbers of a version, without a pre-release or build: `0.5.0` of
-/// `0.5.0-beta.2+7`.
-fn numbers_of(version: &str) -> &str {
-    let end = version.find(['-', '+']).unwrap_or(version.len());
-    version.get(..end).unwrap_or(version)
 }
 
 #[cfg(test)]
