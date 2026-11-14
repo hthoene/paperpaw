@@ -1,0 +1,3 @@
+### Fixed
+
+- **A list of settings builds only the rows it answers** (#248, #228). The registry service answers a list of settings in pages of 32 rows. For each page it built the row of every setting in the list twice, once to count it and once to reach the page: its title looked up in the catalog, its value read, what its plugin declares of it found in the plugin's image. With some hundred settings and the settings screen's fifty pages per opening, that was most of the time a settings page took to open. A setting is now counted and passed by its id and group alone, and its row is built once, where a page takes it.

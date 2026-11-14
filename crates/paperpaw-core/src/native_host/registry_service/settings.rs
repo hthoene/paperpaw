@@ -17,7 +17,7 @@ use crate::{
     native_host::registrations::{self as wire, Record},
 };
 use alloc::vec::Vec;
-use core::{mem::MaybeUninit, ops::ControlFlow};
+use core::{cell::OnceCell, mem::MaybeUninit, ops::ControlFlow};
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::Pick;
 use paperpaw_sdk::{
@@ -208,6 +208,8 @@ fn with_row<R>(
     governing: Option<&[&str]>,
     f: impl FnOnce(&Record<'_>) -> R,
 ) -> R {
+    #[cfg(test)]
+    built::count();
     let env = sources.env;
     let settings = env.settings();
     let id = spec.id.as_str();
@@ -288,6 +290,59 @@ fn with_row<R>(
     }))
 }
 
+/// A setting's row in a list, built where it is framed and not before: its
+/// title is looked up, its value read and what its plugin declares of it
+/// found in the plugin's image, which a list that counts its rows or passes
+/// those before its cursor has no use for (#248: a page of 32 rows built
+/// every setting twice).
+struct Listed<'a, 's> {
+    sources: &'a Sources<'s>,
+    asker: &'a Asker<'a>,
+    all: &'s Settings,
+    spec: &'a SettingSpec,
+    /// What [`governing`] finds, asked for by the first row built.
+    governing: &'a OnceCell<Option<Vec<&'s str>>>,
+}
+
+impl Listed<'_, '_> {
+    fn built<R>(&self, f: impl FnOnce(&Record<'_>) -> R) -> R {
+        let governing = self
+            .governing
+            .get_or_init(|| governing(self.sources, self.all));
+        with_row(self.sources, self.asker, self.spec, governing.as_deref(), f)
+    }
+}
+
+impl Row for Listed<'_, '_> {
+    fn framed_len(&self) -> Result<usize, i32> {
+        self.built(|row| row.framed_len())
+    }
+
+    fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+        self.built(|row| row.encode(out))
+    }
+
+    /// Its key and its group alone can be too long for their fields: the
+    /// title is cut to its own, a value too long for its own is left out,
+    /// the rest are numbers.
+    fn frames(&self) -> bool {
+        let bare = Record::ServiceRegSetting(wire::ServiceRegSetting {
+            key: self.spec.id.as_str(),
+            group: group_of(self.sources, self.spec),
+            kind: 0,
+            flags: 0,
+            source: 0,
+            title: "",
+            value: &[],
+        });
+        bare.framed_len().is_ok()
+    }
+
+    fn encode_within(&self, out: &mut [u8]) -> Result<Option<usize>, i32> {
+        self.built(|row| row.encode_within(out))
+    }
+}
+
 pub(super) fn rows(
     sources: &Sources<'_>,
     op: u32,
@@ -313,7 +368,7 @@ fn settings(
     native_extra::ready(sources)?;
     let all = sources.env.settings();
     let is_group = scope == OTHER.static_str() || all.groups().any(|g| g.id.as_str() == scope);
-    let governing = governing(sources, all);
+    let governing = OnceCell::new();
     // One spec at a time (#248): what a plugin describes of its settings is
     // made for its row and let go, and only that of the plugin asked for.
     let pick = if scope.is_empty() || is_group {
@@ -324,7 +379,13 @@ fn settings(
     let walked = all.walk(pick, &mut |spec| {
         let hit = !is_group || scope.is_empty() || group_of(sources, spec) == scope;
         if hit {
-            with_row(sources, asker, spec, governing.as_deref(), |row| visit(row))
+            visit(&Listed {
+                sources,
+                asker,
+                all,
+                spec,
+                governing: &governing,
+            })
         } else {
             ControlFlow::Continue(())
         }
@@ -436,4 +497,25 @@ fn extra_row(
             choices: choice_count(spec),
         },
     ))
+}
+
+/// How many rows [`with_row`] built on this thread, for the tests that hold
+/// a list to the rows it answers.
+#[cfg(test)]
+pub(super) mod built {
+    extern crate std as test_std;
+    use core::cell::Cell;
+
+    test_std::thread_local! {
+        static BUILT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn count() {
+        BUILT.with(|built| built.set(built.get() + 1));
+    }
+
+    /// The rows built since the last call.
+    pub(in crate::native_host::registry_service) fn take() -> usize {
+        BUILT.with(|built| built.replace(0))
+    }
 }
