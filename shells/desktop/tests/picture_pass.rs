@@ -178,8 +178,13 @@ fn reading(picture: (&[u8], &str)) -> (Device, Vec<Frame>) {
     paperpaw_emulator::budget::override_limit(None);
     let profile = profiles::find("xteink-x4").unwrap();
     let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
+    // The start shows the book's first page itself (before the first frame it
+    // settles its first passes): that frame is the opening's first.
+    let started = Clock::now();
     device.start();
-    let opening = wait(&mut device, 10_000);
+    let first = *device.shown.last().expect("the start shows a frame");
+    let mut opening = vec![Frame::shown(&device, first, started)];
+    opening.extend(wait(&mut device, 10_000));
     let mut screen = None;
     device.call(|kernel, _| {
         screen = kernel.active_screen().map(ToString::to_string);

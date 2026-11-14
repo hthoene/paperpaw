@@ -73,6 +73,24 @@ pub trait Services {
 
     /// Microseconds since any fixed point, not going back.
     fn micros(&self) -> u64;
+
+    /// Plugin code of `id` is about to run (`make`, a callback, a token, a
+    /// stage). Only a plugin hosted from a file (`Hosted::new`) is announced,
+    /// not a linked one. `false` refuses the entry: the code does not run, no
+    /// `leave` follows, and the entry fails (a callback with `Error::Refused`,
+    /// `make` as no room). The X4 keeps the id where a reset survives it and
+    /// refuses where its stack's band is not armed. The default allows.
+    fn enter(&self, id: &str) -> bool {
+        let _ = id;
+        true
+    }
+
+    /// The plugin code of `id` that `enter` allowed has returned (the X4
+    /// checks the stack's end here). The destructor is announced the same
+    /// way but never refused: skipping it would leak.
+    fn leave(&self, id: &str) {
+        let _ = id;
+    }
 }
 
 /// The host table's `ctx`: what the shell's entries reach.

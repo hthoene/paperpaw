@@ -6,9 +6,7 @@
 //! `paperpaw_x4::device_facts`, tested on a computer; this is the calls.
 
 use alloc::rc::Rc;
-use paperpaw_core::native_host::device_service::{DEVICE_SERVICES, MAX_NOT_INSTALLED, MemoryFacts};
-use paperpaw_core::native_host::shell::DATA_SERVICES;
-use paperpaw_native::metadata::Service;
+use paperpaw_core::native_host::device_service::{MAX_NOT_INSTALLED, MemoryFacts};
 use paperpaw_platform::firmware::Running;
 use paperpaw_sdk::native::{NotInstalled, SafeMode};
 use paperpaw_sdk::power::Start;
@@ -105,22 +103,56 @@ pub fn make(
     device
 }
 
-/// The services offered to admission: the data services and `core.device`
-/// (this host answers it), built once at compile time.
-pub static OFFERED: [Service<'static>; DATA_SERVICES.len() + DEVICE_SERVICES.len()] = {
-    let mut all = [DATA_SERVICES[0]; DATA_SERVICES.len() + DEVICE_SERVICES.len()];
-    let mut at = 0;
-    while at < DATA_SERVICES.len() {
-        all[at] = DATA_SERVICES[at];
-        at += 1;
+/// Which of the two families the loader wired this start. Reset and written
+/// by the loader's `prepare` hook (before the first plugin is admitted) and
+/// read at each plugin's admission, in the same task: plain loads and stores (no read-modify-write, which the X4's
+/// core does not have).
+static WIRED: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+const WIRED_WORK: u8 = 1;
+const WIRED_CARD: u8 = 2;
+const WIRED_SECRETS: u8 = 4;
+
+/// Forgets what was wired, before a start wires again.
+pub fn reset_wired() {
+    WIRED.store(0, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Records that the wiring of `core.work` (with the network) succeeded.
+pub fn wired_work() {
+    use core::sync::atomic::Ordering::Relaxed;
+    WIRED.store(WIRED.load(Relaxed) | WIRED_WORK, Relaxed);
+}
+
+/// Records that the wiring of `core.document`, `core.library` and
+/// `core.files` succeeded.
+pub fn wired_card() {
+    use core::sync::atomic::Ordering::Relaxed;
+    WIRED.store(WIRED.load(Relaxed) | WIRED_CARD, Relaxed);
+}
+
+/// Records that the wiring of `core.secrets` (the device's sealer, or the one
+/// that does not seal yet) succeeded.
+pub fn wired_secrets() {
+    use core::sync::atomic::Ordering::Relaxed;
+    WIRED.store(WIRED.load(Relaxed) | WIRED_SECRETS, Relaxed);
+}
+
+/// What this start wired, as the lists a linked plugin and a card plugin are
+/// offered are made (`paperpaw_x4::native_offer`): `core.work` with `core.net` and
+/// `core.sockets` (one wiring), the card's three, and `core.secrets`: the groups
+/// the lists are kept in, static. `wifi`:
+/// the kernel has a Wi-Fi model.
+pub fn wired_families(wifi: bool) -> paperpaw_x4::native_offer::Wired {
+    use core::sync::atomic::Ordering::Relaxed;
+    let wired = WIRED.load(Relaxed);
+    let (work, card) = (wired & WIRED_WORK != 0, wired & WIRED_CARD != 0);
+    paperpaw_x4::native_offer::Wired {
+        work,
+        card,
+        secrets: wired & WIRED_SECRETS != 0,
+        wifi,
     }
-    let mut more = 0;
-    while more < DEVICE_SERVICES.len() {
-        all[at + more] = DEVICE_SERVICES[more];
-        more += 1;
-    }
-    all
-};
+}
 
 /// Tells the device what code plugins stand on: the safe mode this start is
 /// in, if it is (no loader is made then, so the room stays 0). The plugins

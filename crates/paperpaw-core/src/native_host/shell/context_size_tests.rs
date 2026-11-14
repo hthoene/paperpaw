@@ -5,9 +5,10 @@ use super::Heap;
 use core::mem::size_of;
 
 /// The bytes a context may take besides its services, on a 64-bit host
-/// (the emulator); the X4 takes about half.
+/// (the emulator); the X4 takes about half. 264: one word for the
+/// entry hooks of a plugin from a file (#2850).
 #[cfg(target_pointer_width = "64")]
-const CONTEXT_BYTES: usize = 256;
+const CONTEXT_BYTES: usize = 264;
 
 #[cfg(target_pointer_width = "64")]
 #[test]

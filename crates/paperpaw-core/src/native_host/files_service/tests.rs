@@ -29,6 +29,8 @@ mod dispatch;
 mod hostile;
 #[path = "tests/oom.rs"]
 mod oom;
+#[path = "tests/peer_code.rs"]
+mod peer_code;
 #[path = "tests/peer_data.rs"]
 mod peer_data;
 #[path = "tests/read.rs"]
@@ -490,6 +492,10 @@ impl FilesHost for TestHost {
             .borrow()
             .iter()
             .any(|have| have.eq_ignore_ascii_case(name))
+    }
+
+    fn host_file(&self, folder: &str, entry: &str) -> bool {
+        crate::native_host::data_plugin_folders::host_file(&*self.card, folder, entry)
     }
 
     fn excluded(&self, root: u32, _parent: &str, first: &str) -> bool {

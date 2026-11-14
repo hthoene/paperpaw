@@ -7,7 +7,7 @@ use crate::native_bar::Handed;
 use crate::native_bar_screen::{BarView, Outcome as BarOutcome};
 use crate::native_data::Reader;
 use crate::native_model::{
-    self as model, Act, Choice, Kind, Row, SettingInfo, SettingKind, Value, with_unit,
+    self as model, Act, Choice, Kind, Row, SettingInfo, SettingKind, Value, said_with_unit,
 };
 use crate::native_panel_screen::{self as panel_screen, Outcome, PanelView};
 use alloc::{string::String, vec::Vec};
@@ -19,6 +19,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         events::{Event, Incoming, kinds},
+        formatting::Arg,
         registrations,
         reply::Reply,
         settings::SettingValue,
@@ -503,7 +504,9 @@ impl NativeMenu {
             let value = match (row.kind, info) {
                 (Kind::Submenu, _) => copy("›")?,
                 (Kind::Setting, Some(info)) => {
-                    let text = value_text(info, &on, &off, &mut |key| messages.copy(host, key))?;
+                    let text = value_text(info, &on, &off, &mut |key, count| {
+                        say(&mut messages, host, key, count)
+                    })?;
                     if editing == Some(index) {
                         concat(&["‹ ", &text, " ›"])?
                     } else {
@@ -744,25 +747,57 @@ pub(crate) fn set_value(
 /// The value of a setting as its row shows it. A choice's value is a translation
 /// key (`Kind::Choice`): `translate` gives its text in the language of the
 /// display, so the row says *Auto*, not `power.mode.auto`. A value that has no text says itself.
+/// A number's unit key is said with the number as its count (*9 pt*), so
+/// `translate` gets the count too.
 pub(crate) fn value_text(
     info: &SettingInfo,
     on: &str,
     off: &str,
-    translate: &mut dyn FnMut(&str) -> Result<String, Error>,
+    translate: &mut Translate<'_>,
 ) -> Result<String, Error> {
     match &info.value {
         Some(Value::Bool(true)) => copy(on),
         Some(Value::Bool(false)) => copy(off),
-        Some(Value::Int(v)) => with_unit(*v, &info.unit),
+        Some(Value::Int(v)) => said_with_unit(*v, &info.unit, &mut |key, count| {
+            translate(key, Some(count))
+        }),
         Some(Value::Text(v)) if info.kind == SettingKind::Choice && !v.is_empty() => {
-            // A value that is no key of the catalogs is said as it is (as `tr` does).
-            match translate(v) {
-                Err(Error::NotFound | Error::Invalid) => copy(v),
-                said => said,
-            }
+            or_as_it_is(translate(v, None), v)
         }
         Some(Value::Text(v)) => copy(v),
         None => copy(""),
+    }
+}
+
+/// Gives the catalog's text for a key, with a count where it has one.
+pub(crate) type Translate<'a> = dyn FnMut(&str, Option<i64>) -> Result<String, Error> + 'a;
+
+/// The catalog's text for `key`, with `count` as its `{count}` (and plural
+/// form) where there is one.
+///
+/// # Errors
+/// The host's refusals and [`Error::NoMemory`].
+pub(crate) fn say(
+    messages: &mut Messages,
+    host: &Host<'_>,
+    key: &str,
+    count: Option<i64>,
+) -> Result<String, Error> {
+    match count {
+        None => messages.copy(host, key),
+        Some(n) => messages.format(host, key, &[Arg::Count(n)]),
+    }
+}
+
+/// A choice's value as `said` translates it; a value that is no key of the
+/// catalogs is said as it is (as `tr` does), never a failure of its row.
+///
+/// # Errors
+/// [`Error::NoMemory`] and the host's refusals other than "no such key".
+pub(crate) fn or_as_it_is(said: Result<String, Error>, value: &str) -> Result<String, Error> {
+    match said {
+        Err(Error::NotFound | Error::Invalid) => copy(value),
+        said => said,
     }
 }
 

@@ -96,9 +96,9 @@ pub struct Firmware {
     /// the random numbers are strong).
     #[cfg(feature = "ppn5")]
     pub secrets: crate::secrets::Secrets,
-    /// The loader's table of handles, for the measurement-only linked-plugin
-    /// probe (`static-native`): one table for the device.
-    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    /// The loader's table of handles, for the linked plugins' hosting
+    /// (`native-on`): one table for the device.
+    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
     pub device_table: Option<crate::native::DeviceTable>,
     pub state: State,
 }
@@ -183,7 +183,7 @@ fn kind(refresh: Refresh) -> usize {
 
 impl Firmware {
     /// Starts the kernel, then runs the main loop.
-    pub fn run(mut self) -> ! {
+    pub fn run(&mut self) -> ! {
         crate::startup::finish(&mut self.panel);
         // Startup released its bands before loading the kernel. Drive the
         // first frame whole instead of comparing its old panel memories.
@@ -192,16 +192,17 @@ impl Firmware {
         for warning in self.kernel.take_warnings() {
             warn!("{warning}");
         }
-        // Never taken: the build carries the host code that hosts a linked
-        // plugin, so the measure includes it, but nothing is registered while
-        // the stack gate holds (`abi/heap-word.md` section 6). Not flashable.
-        // Here, on the kernel in its place: a local in `kernel()` or `start()`
-        // would copy it (+4 KB on the frame).
-        #[cfg(all(feature = "static-native", feature = "esp32c3"))]
-        if core::hint::black_box(false)
-            && let Some(table) = &self.device_table
-        {
-            crate::native::register_linked_probe(&mut self.kernel, table);
+        // The linked plugins of interface 7, hosted only where the stack's band
+        // is armed (`abi/heap-word.md` section 6); else none runs and the log
+        // says so. Here, on the kernel in its place: a local in `kernel()` or
+        // `start()` would copy it (+4 KB on the frame).
+        #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+        if let Some(table) = &self.device_table {
+            if paperpaw_x4::stack_band::host_native_at_start(crate::stack::band_armed()) {
+                crate::native::register_linked(&mut self.kernel, table);
+            } else {
+                warn!("native: the stack's band is not armed: no plugin of interface 7 is hosted");
+            }
         }
         // Interface 6's passwords through the same sealer, before the start.
         #[cfg(feature = "ppn5")]
@@ -311,6 +312,10 @@ impl Firmware {
         power::feed();
         power::mark(power::at::LOOP);
         stack::check();
+        // The test image's high-water log: a comparison of the clock, a sample
+        // only every 30 s.
+        #[cfg(feature = "test-image")]
+        crate::high_water::step(now().0);
         self.io();
         self.watch_card();
         for effects in self.network.step(&mut self.kernel, now()) {
@@ -512,6 +517,7 @@ impl Firmware {
 
     fn restart(&mut self) -> ! {
         info!("restarting");
+        crate::safe_mode::clean_exit();
         self.settle_frame();
         crate::startup::restarting(&mut self.panel, &self.kernel);
         self.pause_trial();
@@ -716,6 +722,7 @@ impl Firmware {
             // Started again: whatever the light sleeps did to the USB link,
             // the computer finds the X4 again.
             power::mark(power::at::TRIED);
+            crate::safe_mode::clean_exit();
             esp_hal::system::software_reset();
         }
         // A press under way: read again soon, awake (the readings stop in
@@ -787,6 +794,9 @@ impl Firmware {
     #[inline(never)]
     fn sleep(&mut self, lightly: bool) {
         self.settle_frame();
+        // The lows of the run are kept before the sleep (test image).
+        #[cfg(feature = "test-image")]
+        crate::high_water::before_sleep();
         // A press over USB that put it to sleep is let go first.
         #[cfg(feature = "remote")]
         self.release_held();
@@ -841,6 +851,8 @@ impl Firmware {
     )]
     #[inline(never)]
     fn power_off(&mut self) -> ! {
+        // Its own choice, maybe before the first frame: not a failed start.
+        crate::safe_mode::clean_exit();
         // The next start ends this sleep: the mark says so, for plugins to
         // hear the device wake (`core.resume`). A switch-off a plugin asked
         // for leaves it too: the start is a cold one, but plugins that

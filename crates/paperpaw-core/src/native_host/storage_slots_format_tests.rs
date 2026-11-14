@@ -47,9 +47,13 @@ fn within_on(
 ) {
     let scope = FormatScope::new();
     let _guard = book.map(|book| scope.enter(OWNER, &book).unwrap());
+    let linked = LinkedPlugins::default();
     let format = Some(Format {
         scope: &scope,
         owner: OWNER,
+        features: AdmittedFeatures::default(),
+        files: None,
+        linked: &linked,
     });
     scoped(backend, |env, kernel| {
         let _running = kernel.shared.meter.enter(FORMAT);
@@ -301,13 +305,16 @@ fn outside_a_format_call_roots_3_4_and_6_are_unsupported_and_so_are_the_others()
     within(
         Some(book("books/a.epub", BookKind::File, CACHE, "style.css")),
         |env, format| {
-            for root in [1, 2, 5, 7, 9] {
+            for root in [1, 5, 7, 9] {
                 assert_eq!(
                     read(env, format, root, "x"),
                     Err(ERR_UNSUPPORTED),
                     "root {root}"
                 );
             }
+            // Root 2 is the plugin's install folder, in a format call too
+            // (`files.md` 1.1); it holds no `x`.
+            assert_eq!(read(env, format, 2, "x"), Err(ERR_NOT_FOUND));
         },
     );
 }
@@ -318,9 +325,13 @@ fn another_plugin_is_not_in_the_call() {
     let _guard = scope
         .enter(OWNER, &book("books/a.epub", BookKind::File, CACHE, ""))
         .unwrap();
+    let linked = LinkedPlugins::default();
     let format = Some(Format {
         scope: &scope,
         owner: OWNER + 1,
+        features: AdmittedFeatures::default(),
+        files: None,
+        linked: &linked,
     });
     scoped(&card(), |env, kernel| {
         let _running = kernel.shared.meter.enter(FORMAT);

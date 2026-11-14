@@ -75,7 +75,7 @@ pub(super) fn invoke_token<S: 'static>(
             // host-produced payload is borrowed only until this returns.
             Ok(status_only(context.run_plugin(|| unsafe {
                 callback(instance.state, token, borrowed(bytes), no_reply())
-            })))
+            })?))
         }
         TokenInvocation::Input(bytes) => {
             let Some(callback) = instance.input else {
@@ -83,8 +83,8 @@ pub(super) fn invoke_token<S: 'static>(
             };
             // SAFETY: the admitted owner retains state and code, and this
             // host-produced input is borrowed only for the callback.
-            let status =
-                context.run_plugin(|| unsafe { callback(instance.state, token, borrowed(bytes)) });
+            let status = context
+                .run_plugin(|| unsafe { callback(instance.state, token, borrowed(bytes)) })?;
             Ok(if status > 1 {
                 host_glue::ERR_INVALID
             } else {
@@ -130,12 +130,15 @@ pub(crate) fn dispatch_token_draw<S: 'static, M>(
                 canvas_scope.scope(canvas, || {
                     // SAFETY: the admitted owner retains state and code. Encoded
                     // bytes and the canvas scope live only for this callback.
-                    status_only(context.run_plugin(|| unsafe {
-                        callback(instance.state, token, borrowed(&bytes[..len]))
-                    }))
+                    context
+                        .run_plugin(|| unsafe {
+                            callback(instance.state, token, borrowed(&bytes[..len]))
+                        })
+                        .map(status_only)
                 })
             })?
-            .map_err(Into::into)
+            .map_err(Error::from)
+            .and_then(|status| status)
     })?
 }
 

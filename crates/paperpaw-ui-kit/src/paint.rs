@@ -189,7 +189,9 @@ pub fn describe(
 pub fn describe_named(
     paint: &mut Vec<Paint>,
     describing: bool,
-    (role, rect, label): (PartRole, Rect, &str),
+    role: PartRole,
+    rect: Rect,
+    label: &str,
     focused: bool,
     disabled: bool,
 ) -> Result<(), Error> {
@@ -457,22 +459,14 @@ mod tests {
     fn a_named_part_keeps_its_name_and_only_where_somebody_asks() {
         let rect = Rect::new(4, 4, 20, 20);
         let mut paint = Vec::new();
-        super::describe_named(&mut paint, true, (PartRole::Button, rect, "+"), true, false)
-            .unwrap();
+        super::describe_named(&mut paint, true, PartRole::Button, rect, "+", true, false).unwrap();
         assert!(matches!(
             paint.as_slice(),
             [Paint::DescribeNamed { role: PartRole::Button, flags, rect: at, label }]
                 if *flags == PartFlags::FOCUSED && *at == rect && label == "+"
         ));
         let mut none = Vec::new();
-        super::describe_named(
-            &mut none,
-            false,
-            (PartRole::Button, rect, "+"),
-            false,
-            false,
-        )
-        .unwrap();
+        super::describe_named(&mut none, false, PartRole::Button, rect, "+", false, false).unwrap();
         assert!(none.is_empty(), "nothing is queued where nobody asks");
     }
 

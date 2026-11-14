@@ -166,6 +166,9 @@ static NATIVE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::
 /// it ([`band_armed`] is false then, so there is no loop).
 fn lost_with_native_plugins() {
     if NATIVE.load(core::sync::atomic::Ordering::Relaxed) {
+        // The start that follows goes without native plugins, not as a clean
+        // one that hosts them again (a nap could end in a reset each time).
+        crate::safe_mode::band_lost();
         panic!("the stack's band was taken while a native plugin runs: starting again without it");
     }
 }
@@ -518,14 +521,26 @@ pub fn dispatch_allowed() -> bool {
     allowed
 }
 
-/// Every call may run where there is no S3 band.
-#[cfg(not(all(target_arch = "xtensa", feature = "ppn5")))]
-#[cfg_attr(
-    not(feature = "ppn5"),
-    allow(
-        dead_code,
-        reason = "its only caller is the interface-7 plugins' hook (ppn5)"
+/// Whether a plugin call may be entered now on the ESP32-C3 (the `call_begin`
+/// hook of the interface-7 plugins): only while the band is armed and has not
+/// been lost (`paperpaw_x4::stack_band::native_call_allowed`). The re-arm after
+/// every light sleep (`power.rs`) runs before any plugin code does, and where
+/// it fails every call is refused from then on, the device starts again
+/// without native plugins ([`lost_with_native_plugins`]).
+#[cfg(all(target_arch = "riscv32", feature = "ppn5"))]
+pub fn dispatch_allowed() -> bool {
+    use core::sync::atomic::Ordering;
+    paperpaw_x4::stack_band::native_call_allowed(
+        ARMED.load(Ordering::Relaxed),
+        LOST.load(Ordering::Relaxed),
     )
+}
+
+/// Every call may run where there is no band (no interface-7 plugin runs).
+#[cfg(not(feature = "ppn5"))]
+#[allow(
+    dead_code,
+    reason = "its only caller is the interface-7 plugins' hook (ppn5)"
 )]
 pub fn dispatch_allowed() -> bool {
     true

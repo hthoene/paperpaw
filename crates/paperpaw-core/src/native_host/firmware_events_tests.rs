@@ -344,3 +344,28 @@ fn an_install_a_stop_aborts_takes_its_steps_before_the_pass_returns_its_effects(
         "its own reason"
     );
 }
+
+#[test]
+fn a_device_that_loads_no_code_takes_plugin_jobs_on_the_firmware_queue() {
+    // Without a plugin host (Boox, desktop before this) none is taken.
+    let mut kernel = kernel();
+    let cell = kernel.firmware.clone().unwrap();
+    assert!(!cell.plugins_accepted());
+    assert!(kernel.set_data_plugin_host());
+    assert!(cell.plugins_accepted());
+    // The same from the builder; without the firmware's queue, nothing.
+    let fake = FakeFirmware::new(
+        "0.5.0",
+        "paperpaw-x4",
+        5,
+        paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
+    );
+    let built = Kernel::builder(crate::tests::DEVICE)
+        .firmware_host(alloc::boxed::Box::new(fake))
+        .data_plugin_host()
+        .build()
+        .unwrap();
+    assert!(built.firmware.as_ref().unwrap().plugins_accepted());
+    let mut bare = Kernel::builder(crate::tests::DEVICE).build().unwrap();
+    assert!(!bare.set_data_plugin_host());
+}

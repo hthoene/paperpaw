@@ -70,6 +70,10 @@ rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"]
 # same sources as the shipped one.
 paperpaw-hyphenation-packs = { path = "../../tools/hyphenation-packs" }
 
+# The lists the X4's firmware offers a linked plugin, to admit every linked plugin
+# against them (`x4_offer_tests`).
+paperpaw-x4.workspace = true
+
 [build-dependencies]
 serde_json = "1"
 # The compiler that builds the emulator, as plugin files name theirs.

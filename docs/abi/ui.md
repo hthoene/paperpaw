@@ -642,7 +642,8 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   join the frame budget of #254 (limit 2,048 bytes per frame), with a device high-water case (home
   with widgets under the sleep screen's widgets) before activation; until the stack gate passes, the
   X4 answers slot 35 and those ops with `ERR_UNSUPPORTED`, unless built with the core feature
-  `x4-nested` (the X4 shell's test image only, never a default feature).
+  `x4-nested` (the X4 shell's test image only, never a default feature). The kernel's own status
+  items run no plugin and are answered there (op 14, slot 35 kind 1; section 5.3).
 
 ### 5.2 Widgets
 
@@ -747,6 +748,15 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   Likewise op 4 for an own widget returns `flags` bit 0 `own`; for such an instance ops 6, 7, 12
   and 13 and slot 35 are `ERR_BUSY` without a call, and the plugin measures, places and draws its
   own widget itself.
+- [D] **The kernel's own items** (`core.status.clock`, `.date`, `.date-short`, `.battery`,
+  `.battery-low`; #257) have no plugin owner: op 14 answers them without a `core.status` call. The
+  clock and the dates are text (cached as above; the minute tick renews them). The battery items
+  come back drawn (`flags` bit 0) with a handle whose owner is the host (owner 0, never a plugin's)
+  and whose token is the kernel item's index, valid in this callback only as any handle; slot 35
+  kind 1 draws it as Beta 3 did (the symbol and the percentage, UI font, size from the rect's
+  height), calling no plugin. Neither needs a nested call, so the X4 answers them while its stack
+  gate is closed (section 5.1); there a plugin's item comes back with no value (`flags` 0, no
+  text, no handle: hidden, as below), not a refusal of the whole op.
 - [D] A status line (whole line drawn by its owner) gets its handle from op 15 `status_line`
   (`line`, `context` → `handle`) and is composed with kind 2.
 - [D] `status.item.tap` is one of the owner's actions, run as the owner with the line's context;
@@ -755,6 +765,7 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   settings that list a line's items (interface 6 `Place`). `status.item.flags` and
   `status.line.flags` bit 1 `private` (section 4.3); other bits `ERR_INVALID`. REG op 21 (new,
   Senior's answer to [Q] 2) lists items and lines, one row type per op; op 19 stays widgets only.
+  It lists the kernel's own items too, after the declared items and before the lines.
 - [D] `draw.frame.purpose` gains 5 `status line`.
 
 ## 6. The service `core.ui` (major 1)
@@ -971,7 +982,8 @@ and every device of that profile (the X3 too), not the model.
 - Composition: no host memory; nesting as `stages-services.md` (depth 2). Ops 7 and 12-15 run one
   stage call each on the host scratch and nest another plugin's callback inside the caller's just
   as slot 35 does: they share slot 35's frame-budget entry and X4 stack gate (section 5.1), and
-  answer `ERR_UNSUPPORTED` on the X4 until it passes.
+  answer `ERR_UNSUPPORTED` on the X4 until it passes, but for the kernel's own status items (op 14
+  and slot 35 kind 1, no plugin called; section 5.3).
 - Widgets: 32 bytes per made instance (the owner's full-width id; 512 bytes at the 16 of the X4),
   at most 32 device-wide (16 on the X4); status handles 40 bytes each, at most 16 (8 on the X4, 320
   bytes); each table is one allocation of its cap, made at its first use. A dropped instance stays

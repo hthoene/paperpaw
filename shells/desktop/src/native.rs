@@ -129,7 +129,9 @@ unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mu
 /// [`DispatchDepth`](paperpaw_core::native_host::DispatchDepth), the device-wide nesting budget.
 #[derive(Debug)]
 pub struct HostLoader {
-    depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
+    /// The table of handles and the dispatch budget this device has, kept
+    /// here for the linked plugins registered with the same kernel too.
+    pool: DevicePool,
     resources: Option<paperpaw_core::native_host::HostResources>,
     /// The memory class the device this loader runs on declares (the
     /// profile's), which sizes the `core.ui` store.
@@ -143,12 +145,87 @@ impl HostLoader {
     /// A loader for a device of the memory class `memory` (a profile's).
     #[must_use]
     pub fn for_device(memory: MemoryClass) -> Self {
+        Self::for_device_in(memory, DevicePool::default())
+    }
+
+    /// A loader whose plugins share `pool` with every other plugin of the
+    /// same kernel (the linked ones): a kernel keeps one pool of resources
+    /// and one dispatch budget, and refuses a plugin that brings another.
+    #[must_use]
+    pub fn for_device_in(memory: MemoryClass, pool: DevicePool) -> Self {
         Self {
-            depth: None,
+            pool,
             resources: None,
             memory,
             read: None,
         }
+    }
+}
+
+/// The table of handles and the dispatch budget of one kernel's interface-7
+/// plugins, made at the first that asks (a card plugin's loader or the linked
+/// plugins' registration) and shared by every later one.
+#[derive(Clone, Debug, Default)]
+pub struct DevicePool(std::rc::Rc<std::cell::RefCell<PoolParts>>);
+
+#[derive(Debug, Default)]
+struct PoolParts {
+    resources: Option<paperpaw_core::native_host::HostResources>,
+    /// The memory class `core.ui` was wired for: later asks name the same.
+    memory: Option<MemoryClass>,
+    /// What card plugins are offered (set by the linked registration, which
+    /// knows what is wired); none until then.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    offer: Option<crate::native_runtime::Offer>,
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
+}
+
+impl DevicePool {
+    /// A handle on the table of handles, `core.ui` wired for a device of
+    /// `memory` when it was made.
+    pub(crate) fn resources(
+        &self,
+        memory: MemoryClass,
+    ) -> Option<paperpaw_core::native_host::HostResources> {
+        let mut parts = self.0.borrow_mut();
+        if parts.resources.is_none() {
+            parts.resources = new_resources(memory);
+            parts.memory = Some(memory);
+        }
+        debug_assert_eq!(
+            parts.memory,
+            Some(memory),
+            "one kernel, one memory class: the table was made for another"
+        );
+        parts
+            .resources
+            .as_ref()
+            .and_then(paperpaw_core::native_host::HostResources::try_clone)
+    }
+
+    /// What card plugins are offered, once the registration has said.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub(crate) fn offer(&self) -> Option<crate::native_runtime::Offer> {
+        self.0.borrow().offer
+    }
+
+    /// The registration says what is wired: the services of the linked
+    /// plugins and, of the features, those a card plugin may reach.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub(crate) fn set_offer(&self, offer: crate::native_runtime::Offer) {
+        self.0.borrow_mut().offer = Some(offer);
+    }
+
+    /// A handle on the one device-wide dispatch budget.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub(crate) fn depth(&self) -> Option<paperpaw_core::native_host::flat::FlatDepth> {
+        use paperpaw_core::native_host::flat::FlatDepth;
+        let mut parts = self.0.borrow_mut();
+        if parts.depth.is_none() {
+            parts.depth = Some(FlatDepth::try_new().ok()?);
+        }
+        parts.depth.as_ref().and_then(FlatDepth::try_clone)
     }
 }
 
@@ -233,7 +310,7 @@ impl CodeLoader for HostLoader {
             return None;
         }
         if self.resources.is_none() {
-            self.resources = new_resources(self.memory);
+            self.resources = self.pool.resources(self.memory);
         }
         // `text.hyphenate` is wired only here, because it needs the card's `Rc`.
         // A plugin's `make` that asks for it earlier gets a one-off
@@ -265,14 +342,7 @@ impl HostLoader {
     fn shared_depth(
         &mut self,
     ) -> Result<paperpaw_core::native_host::flat::FlatDepth, PluginProblem> {
-        use paperpaw_core::native_host::flat::FlatDepth;
-        if self.depth.is_none() {
-            self.depth = Some(FlatDepth::try_new().map_err(|_| PluginProblem::NoRoom)?);
-        }
-        self.depth
-            .as_ref()
-            .and_then(FlatDepth::try_clone)
-            .ok_or(PluginProblem::NoRoom)
+        self.pool.depth().ok_or(PluginProblem::NoRoom)
     }
 
     /// The interface-7 library `bytes` of `code`, checked and hosted for the
@@ -287,22 +357,29 @@ impl HostLoader {
     ) -> Result<Box<dyn paperpaw_core::NativeAdmission>, PluginProblem> {
         use crate::native_runtime::Refusal;
         let id = code.id.as_str();
+        refuse_linked_id(id)?;
         let depth = self.shared_depth()?;
         if self.resources.is_none() {
-            self.resources = Some(new_resources(self.memory).ok_or(PluginProblem::NoRoom)?);
+            self.resources = Some(
+                self.pool
+                    .resources(self.memory)
+                    .ok_or(PluginProblem::NoRoom)?,
+            );
         }
         let resources = self
             .resources
             .as_ref()
             .and_then(paperpaw_core::native_host::HostResources::try_clone)
             .ok_or(PluginProblem::NoRoom)?;
-        crate::native_runtime::admission(id, bytes, resources, depth).map_err(|why| {
-            eprintln!("code plugin {id}: {why}");
-            match why {
-                Refusal::Allocation => PluginProblem::NoRoom,
-                _ => PluginProblem::Damaged,
-            }
-        })
+        crate::native_runtime::admission(id, bytes, resources, depth, self.pool.offer()).map_err(
+            |why| {
+                eprintln!("code plugin {id}: {why}");
+                match why {
+                    Refusal::Allocation => PluginProblem::NoRoom,
+                    _ => PluginProblem::Damaged,
+                }
+            },
+        )
     }
 
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
@@ -313,6 +390,17 @@ impl HostLoader {
     ) -> Result<Box<dyn paperpaw_core::NativeAdmission>, PluginProblem> {
         Err(PluginProblem::Unsupported)
     }
+}
+
+/// A card plugin never takes the id of a linked plugin: the id keys secrets
+/// and files, a card folder is named by whoever made it, and card plugins are
+/// admitted before the linked ones register.
+fn refuse_linked_id(id: &str) -> Result<(), PluginProblem> {
+    if paperpaw_app::is_linked_id(id) {
+        eprintln!("code plugin {id}: a plugin built in has this id; not loaded");
+        return Err(PluginProblem::Mismatch);
+    }
+    Ok(())
 }
 
 /// Whether `bytes` is an interface-7 library (never where that loader is not
@@ -665,6 +753,15 @@ pub fn trust(root: &std::path::Path) -> std::io::Result<Vec<String>> {
     installed.sort();
     Ok(installed)
 }
+
+#[cfg(all(
+    test,
+    feature = "native-linked",
+    target_os = "linux",
+    target_arch = "x86_64"
+))]
+#[path = "native_card_id_tests.rs"]
+mod card_id_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1201,6 +1298,42 @@ static INIT: extern "C" fn() = make_marker;
             .shared_depth()
             .unwrap();
         assert!(!std::ptr::eq(first.as_depth(), other.as_depth()));
+    }
+
+    /// The id of a linked plugin is that plugin's, not a card folder's.
+    #[test]
+    fn a_card_folder_named_like_a_linked_plugin_is_refused() {
+        for id in ["settings", "wifi", "opds", "home"] {
+            assert!(paperpaw_app::is_linked_id(id), "{id} is linked here");
+            assert_eq!(refuse_linked_id(id), Err(PluginProblem::Mismatch), "{id}");
+        }
+        assert!(!paperpaw_app::is_linked_id("a-plugin-of-its-own"));
+        assert_eq!(refuse_linked_id("a-plugin-of-its-own"), Ok(()));
+    }
+
+    /// A kernel takes one table of handles and one dispatch budget: the card
+    /// plugins' loader and the linked plugins' registration get the same ones
+    /// from the pool they share (a second pool was refused with `ERR_STATE`,
+    /// so no linked plugin registered beside an installed card plugin).
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn a_loader_and_the_linked_plugins_share_one_pool_and_one_budget() {
+        use paperpaw_core::native_host::HostWiring;
+        let pool = DevicePool::default();
+        let mut loader = HostLoader::for_device_in(MemoryClass::Small, pool.clone());
+        let card = loader.shared_depth().unwrap();
+        let linked = pool.depth().unwrap();
+        assert!(std::ptr::eq(card.as_depth(), linked.as_depth()));
+        // The table is made once, `core.ui` wired: wiring it again is refused.
+        let table = pool.resources(MemoryClass::Small).unwrap();
+        assert!(
+            table
+                .wire(HostWiring::new().ui(MemoryClass::Small))
+                .is_err()
+        );
+        // Another pool is another kernel's.
+        let other = DevicePool::default().depth().unwrap();
+        assert!(!std::ptr::eq(card.as_depth(), other.as_depth()));
     }
 
     /// The table of handles has `core.ui` from the moment it is made, before

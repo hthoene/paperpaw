@@ -39,17 +39,20 @@ asleep-light = []
 # the shipped firmware reads format-4 files only, and no interface-7 plugin is
 # activated on the X4 until the stack gate (`abi/heap-word.md` section 6) is met.
 ppn5 = ["paperpaw-native/kernel"]
-# The built-in plugins that are interface-7 native plugins already, linked
-# statically (`paperpaw_app::NATIVE_PLUGINS`, ADR 0034 "One path") in place of
-# their interface-6 forms. For measuring the image: they are linked and kept,
-# not activated; no interface-7 plugin runs on the X4 until the stack gate.
-# MEASUREMENT ONLY, NOT FLASHABLE: the interface-6 forms of those plugins are
-# left out and nothing hosts the linked ones, so the image has no Files, Menu,
-# Keyboard, Settings or OPDS. It does not build unless `flash-gate-measure`
-# is set too (`tools/flash-gate.sh --head-features x4,static-native,flash-gate-measure`).
-static-native = ["ppn5", "paperpaw-app/native-linked"]
-# Allows `static-native`, for tools/flash-gate.sh only. Never flash the result.
-flash-gate-measure = []
+# The built-in plugins that are interface-7 native plugins, linked statically
+# (`paperpaw_app::NATIVE_PLUGINS`, ADR 0034 "One path") in place of their
+# interface-6 forms, and hosted by the kernel (`native::register_linked`, once
+# the stack's band is armed, `abi/heap-word.md` section 6): what the firmware
+# ships once the native plugins are on. Home and reader are linked with them
+# (`native-linked-reading`). The store's plugins stay files.
+native-on = ["ppn5", "paperpaw-app/native-linked", "paperpaw-app/native-linked-reading"]
+# The owner TEST image (decision 156): `native-on` with the test gates of
+# #2462, the high-water log every 30 s (`src/high_water.rs`). Never in a
+# release: `release` refuses it at compile time and
+# `tools/checks/tests/test_image_guard.rs` (CI) refuses it in the shipped lists.
+test-image = ["native-on"]
+# Marks a build as a release (beta.1 and later); set by the release build.
+release = []
 # What both ESP32-C3 devices build with; chosen by `x4` or `x3`, not by
 # hand.
 esp32c3 = [
@@ -212,16 +215,95 @@ all = { level = "warn", priority = -1 }
 unwrap_used = "warn"
 expect_used = "warn"
 
+# What each crate is optimised for (#258). The profile's level, "s", stays for
+# every crate from outside (the chip's drivers and run time, the allocator, TLS,
+# Bluetooth, the network stack): none of them changes. PaperPaw's own crates
+# are each named below, hot or cold; a new one must be put in one of the two
+# lists (tools/checks, `firmware_profile`).
+#
+# Generic code gets the level of the crate that uses it with its types, not of
+# the crate it is written in: the card's file system is compiled in the shell
+# (`FatStorage<…Card>`), much of text and pictures in the SDK. A crate that
+# does so for a hot path is hot itself.
+[profile.release.package]
 # The radio's code needs optimising for speed (Espressif: otherwise Wi-Fi
 # may fail to connect).
-[profile.release.package.esp-radio]
-opt-level = 3
+esp-radio = { opt-level = 3 }
 
-# The kernel and the interface-7 host are mostly cold code: small, not fast.
-[profile.release.package.paperpaw-core]
-opt-level = "z"
-[profile.release.package.paperpaw-native]
-opt-level = "z"
+# Hot: what a page turn, a book's opening, text layout, drawing and reading
+# the card run through. As before. With them the SDK (it draws pictures, sets
+# the reading text and reads the hyphenation patterns), the frame's pixels
+# (platform), the texts' catalog and the settings file (read at every start),
+# and the shell (the card and the display are compiled there, see above).
+paperpaw-config = { opt-level = "s" }
+paperpaw-digest = { opt-level = "s" }
+paperpaw-document = { opt-level = "s" }
+paperpaw-epub-family = { opt-level = "s" }
+paperpaw-fat = { opt-level = "s" }
+paperpaw-graphics = { opt-level = "s" }
+paperpaw-hyphen = { opt-level = "s" }
+paperpaw-hyphenation-packs = { opt-level = "s" }
+paperpaw-i18n = { opt-level = "s" }
+paperpaw-image = { opt-level = "s" }
+paperpaw-layout = { opt-level = "s" }
+paperpaw-platform = { opt-level = "s" }
+paperpaw-plugin-format-cbz = { opt-level = "s" }
+paperpaw-plugin-format-epub = { opt-level = "s" }
+paperpaw-plugin-format-fb2 = { opt-level = "s" }
+paperpaw-plugin-format-html = { opt-level = "s" }
+paperpaw-plugin-format-markdown = { opt-level = "s" }
+paperpaw-plugin-format-txt = { opt-level = "s" }
+paperpaw-plugin-format-xtc = { opt-level = "s" }
+paperpaw-plugin-reader = { opt-level = "s" }
+paperpaw-sample-frame-test = { opt-level = "s" }
+paperpaw-sdk = { opt-level = "s" }
+paperpaw-sort = { opt-level = "s" }
+paperpaw-text = { opt-level = "s" }
+paperpaw-x4 = { opt-level = "s" }
+paperpaw-xml = { opt-level = "s" }
+paperpaw-xteink = { opt-level = "s" }
+paperpaw-zip = { opt-level = "s" }
+
+# Cold: the kernel and the interface-7 host, the widgets and every plugin
+# that is menus, lists and forms, with the small crates only they use. Small,
+# not fast ("z": far less is inlined, no loop is unrolled, and repeated
+# instruction runs are shared). Measured before a crate is moved here: the
+# emulator's instruction counts for a start, a book's opening and page turns
+# must not change (the SDK at "z" cost 11 % of a page turn).
+paperpaw-app = { opt-level = "z" }
+paperpaw-core = { opt-level = "z" }
+paperpaw-default-packs = { opt-level = "z" }
+paperpaw-hid = { opt-level = "z" }
+paperpaw-http = { opt-level = "z" }
+paperpaw-json = { opt-level = "z" }
+paperpaw-lang = { opt-level = "z" }
+paperpaw-native = { opt-level = "z" }
+paperpaw-plugin-about = { opt-level = "z" }
+paperpaw-plugin-bluetooth = { opt-level = "z" }
+paperpaw-plugin-dictionary = { opt-level = "z" }
+paperpaw-plugin-file-manager = { opt-level = "z" }
+paperpaw-plugin-files = { opt-level = "z" }
+paperpaw-plugin-fonts-default = { opt-level = "z" }
+paperpaw-plugin-help = { opt-level = "z" }
+paperpaw-plugin-home = { opt-level = "z" }
+paperpaw-plugin-keyboard = { opt-level = "z" }
+paperpaw-plugin-lock = { opt-level = "z" }
+paperpaw-plugin-menu = { opt-level = "z" }
+paperpaw-plugin-opds = { opt-level = "z" }
+paperpaw-plugin-plugin-manager = { opt-level = "z" }
+paperpaw-plugin-power = { opt-level = "z" }
+paperpaw-plugin-settings = { opt-level = "z" }
+paperpaw-plugin-setup = { opt-level = "z" }
+paperpaw-plugin-sleep = { opt-level = "z" }
+paperpaw-plugin-store = { opt-level = "z" }
+paperpaw-plugin-transfer = { opt-level = "z" }
+paperpaw-plugin-update = { opt-level = "z" }
+paperpaw-plugin-wifi = { opt-level = "z" }
+paperpaw-qr = { opt-level = "z" }
+paperpaw-stardict = { opt-level = "z" }
+paperpaw-table = { opt-level = "z" }
+paperpaw-ui-kit = { opt-level = "z" }
+paperpaw-update = { opt-level = "z" }
 
 [profile.release]
 opt-level = "s"

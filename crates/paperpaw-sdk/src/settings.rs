@@ -787,7 +787,7 @@ pub enum SettingError {
     Unknown,
     InvalidValue,
     /// No place is left to keep a changed spec (more than 32,768
-    /// settings of a kind).
+    /// settings of a kind, or no memory for its copy).
     Full,
     /// The setting's check refused the value: the translation key of why
     /// (see [`SettingExtra::check`]).

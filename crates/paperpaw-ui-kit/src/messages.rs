@@ -50,6 +50,26 @@ impl Messages {
     ) -> Result<String, Error> {
         self.format_from(host, key, args)
     }
+    /// `value` with its unit, the unit being a catalog key (what a setting's
+    /// `extra.unit` holds): the catalog picks its plural form by the number
+    /// ("1 page", "6 pages"). A unit the catalog lacks is written after the number
+    /// as it is ([`crate::text::with_unit`]).
+    ///
+    /// # Errors
+    /// Propagates host formatting errors, but not a missing key.
+    pub fn with_unit(&mut self, host: &Host<'_>, value: i64, unit: &str) -> Result<String, Error> {
+        self.with_unit_from(host, value, unit)
+    }
+    /// The two forms of a unit that is a catalog key, as text that holds `{count}`
+    /// (for [`crate::text::with_unit`]): the singular (`unit.one`) and the other
+    /// (`unit.other`). For a screen that has no host where it draws and so cannot
+    /// use [`Self::with_unit`]. A key the catalog lacks is both forms as it is.
+    ///
+    /// # Errors
+    /// Propagates host formatting errors, but not a missing key.
+    pub fn unit_forms(&mut self, host: &Host<'_>, unit: &str) -> Result<(String, String), Error> {
+        self.unit_forms_from(host, unit)
+    }
     /// The number `text` written in the language's digits.
     ///
     /// # Errors
@@ -91,6 +111,44 @@ impl Messages {
             length = source.format(key, args, &mut self.arguments, &mut self.out)?;
         }
         utf8(&self.out, length)
+    }
+    fn with_unit_from(
+        &mut self,
+        source: &impl Source,
+        value: i64,
+        unit: &str,
+    ) -> Result<String, Error> {
+        if unit.is_empty() {
+            return crate::text::with_unit(value, unit);
+        }
+        match self.format_from(source, unit, &[Arg::Count(value)]) {
+            Err(Error::NotFound | Error::Invalid) => crate::text::with_unit(value, unit),
+            other => other,
+        }
+    }
+    fn unit_forms_from(
+        &mut self,
+        source: &impl Source,
+        unit: &str,
+    ) -> Result<(String, String), Error> {
+        let form = |this: &mut Self, suffix: &str| -> Result<Option<String>, Error> {
+            let key = crate::text::concat(&[unit, suffix])?;
+            match this.copy_from(source, &key) {
+                Err(Error::NotFound | Error::Invalid) => Ok(None),
+                other => other.map(Some),
+            }
+        };
+        let other = form(self, ".other")?;
+        let one = form(self, ".one")?;
+        let other = match other {
+            Some(text) => text,
+            None => crate::text::copy(unit)?,
+        };
+        let one = match one {
+            Some(text) => text,
+            None => crate::text::copy(&other)?,
+        };
+        Ok((one, other))
     }
     fn digits_from(&mut self, source: &impl Source, text: &str) -> Result<String, Error> {
         let mut length = source.digits(text, self.out()?)?;
@@ -241,6 +299,70 @@ mod tests {
             self.calls.borrow_mut().push((0, out.len()));
             Ok(self.fill(out))
         }
+    }
+
+    /// A catalog with one unit, `core.unit.pages`, in two plural forms.
+    struct Units;
+
+    impl Source for Units {
+        fn copy<'a>(&self, key: &str, out: &'a mut [u8]) -> Result<&'a str, Error> {
+            let text = match key {
+                "core.unit.pages.one" => "{count} page",
+                "core.unit.pages.other" => "{count} pages",
+                _ => return Err(Error::NotFound),
+            };
+            let out = out.get_mut(..text.len()).ok_or(Error::NoSpace)?;
+            out.copy_from_slice(text.as_bytes());
+            core::str::from_utf8(out).map_err(|_| Error::Utf8)
+        }
+        fn format(
+            &self,
+            key: &str,
+            args: &[Arg<'_>],
+            _: &mut [u8],
+            out: &mut [u8],
+        ) -> Result<usize, Error> {
+            let (Some(Arg::Count(n)), "core.unit.pages") = (args.first(), key) else {
+                return Err(Error::NotFound);
+            };
+            let text = if *n == 1 { "1 page" } else { "6 pages" };
+            out[..text.len()].copy_from_slice(text.as_bytes());
+            Ok(text.len())
+        }
+        fn digits(&self, _: &str, _: &mut [u8]) -> Result<usize, Error> {
+            Err(Error::NotFound)
+        }
+    }
+
+    #[test]
+    fn a_unit_key_says_its_plural_form_and_one_the_catalog_lacks_follows_the_number() {
+        let mut m = Messages::new().unwrap();
+        assert_eq!(
+            m.with_unit_from(&Units, 6, "core.unit.pages").unwrap(),
+            "6 pages"
+        );
+        assert_eq!(
+            m.with_unit_from(&Units, 1, "core.unit.pages").unwrap(),
+            "1 page"
+        );
+        assert_eq!(m.with_unit_from(&Units, 30, "min").unwrap(), "30 min");
+        assert_eq!(
+            m.with_unit_from(&Units, 30, "{count} min").unwrap(),
+            "30 min"
+        );
+        assert_eq!(m.with_unit_from(&Units, -3, "").unwrap(), "-3");
+    }
+
+    #[test]
+    fn the_forms_of_a_unit_key_hold_the_count_and_a_missing_key_is_both_forms_as_it_is() {
+        let mut m = Messages::new().unwrap();
+        let (one, other) = m.unit_forms_from(&Units, "core.unit.pages").unwrap();
+        assert_eq!(
+            (one.as_str(), other.as_str()),
+            ("{count} page", "{count} pages")
+        );
+        let (one, other) = m.unit_forms_from(&Units, "pt").unwrap();
+        assert_eq!((one.as_str(), other.as_str()), ("pt", "pt"));
     }
 
     const MAX: usize = formatting::MAX_MESSAGE_BYTES;

@@ -23,6 +23,7 @@ pub mod native_model;
 mod native_page;
 /// The interface-7 Wikipedia lookup (see `PORTING-7.md`).
 pub mod native_plugin;
+mod native_provider;
 mod native_view;
 #[allow(
     clippy::all,

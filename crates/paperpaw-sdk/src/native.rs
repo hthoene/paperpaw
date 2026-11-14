@@ -385,6 +385,7 @@ pub mod snapshot;
 pub mod sockets;
 pub mod stages;
 pub mod storage;
+pub mod text;
 mod text_part;
 pub mod ui;
 mod wire;

@@ -469,34 +469,7 @@ pub fn stepped(kind: Kind, value: &Val, detail: &Detail, step: i64) -> Option<Va
     }
 }
 
-/// `value` with its unit: a unit that holds `{count}` has the number put in,
-/// any other follows the number.
-pub fn with_unit(value: i64, unit: &str) -> Result<String, Error> {
-    let mut digits = [0; 20];
-    let number = if value < 0 {
-        let positive = paperpaw_ui_kit::text::decimal_u64(value.unsigned_abs(), &mut digits);
-        concat(&["-", positive])?
-    } else {
-        copy(paperpaw_ui_kit::text::decimal_u64(
-            value as u64,
-            &mut digits,
-        ))?
-    };
-    if unit.is_empty() {
-        return Ok(number);
-    }
-    // A byte search and `get`, not `split_once("{count}")`: a `&str` pattern search links
-    // the slice panic that prints a character (Debug and Unicode tables, 4 KB).
-    const MARK: &[u8] = b"{count}";
-    let at = unit
-        .as_bytes()
-        .windows(MARK.len())
-        .position(|window| window == MARK);
-    match at.and_then(|at| Some((unit.get(..at)?, unit.get(at + MARK.len()..)?))) {
-        Some((before, after)) => concat(&[before, &number, after]),
-        None => concat(&[&number, " ", unit]),
-    }
-}
+pub use paperpaw_ui_kit::text::with_unit;
 
 /// `text` in lower case without accents, so "rander" finds "Ränder".
 pub fn fold(text: &str) -> Result<String, Error> {

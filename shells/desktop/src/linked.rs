@@ -190,6 +190,30 @@ fn features(wired: Wired) -> &'static [Feature<'static>] {
     &offer.features[..offer.features_len]
 }
 
+/// The consent features a card plugin may ask for: the network, the card's
+/// files and the library where those are wired, no other (as the firmware's
+/// card path, `paperpaw_x4::native_offer::card_features`, which a test
+/// compares).
+fn card_features(wired: Wired) -> &'static [Feature<'static>] {
+    const fn feature(key: &'static str) -> Feature<'static> {
+        Feature { key, revision: 1 }
+    }
+    static NONE: [Feature<'static>; 0] = [];
+    static NETWORK: [Feature<'static>; 1] = [feature("uses.network")];
+    static CARD: [Feature<'static>; 2] = [feature("uses.storage"), feature("uses.library")];
+    static BOTH: [Feature<'static>; 3] = [
+        feature("uses.network"),
+        feature("uses.storage"),
+        feature("uses.library"),
+    ];
+    match (wired.net || wired.sockets, wired.files && wired.library) {
+        (false, false) => &NONE,
+        (true, false) => &NETWORK,
+        (false, true) => &CARD,
+        (true, true) => &BOTH,
+    }
+}
+
 /// Every feature a shell may offer, with whether `wired` backs it.
 fn features_of(wired: Wired) -> [(&'static str, bool); MAX_FEATURES] {
     [
@@ -271,6 +295,30 @@ pub struct Inputs {
     /// from; `None` where it cannot be opened (none of them is wired then).
     /// Not `storage`: on simulated time that one is private to the run.
     pub card: Option<Rc<dyn Storage>>,
+}
+
+impl Inputs {
+    /// A run on simulated time keeps the native plugins' secrets in memory,
+    /// apart from the card the kernel keeps its own on: the secrets file the
+    /// kernel wrote (a network saved as joined before, sealed as it is) is
+    /// copied there, where the native Wi-Fi plugin looks for the networks it
+    /// joins again. A real run shares the card: nothing to do. Bytes are
+    /// copied as they are; no value is read or logged. The native store's
+    /// whole secrets file is replaced, so a secret a native plugin kept earlier
+    /// in the same run is gone (fine for the fixtures, which save before any
+    /// plugin runs).
+    pub fn share_secrets(&self, kernel: &dyn Storage) {
+        let (true, Some(native)) = (self.simulated, &self.storage) else {
+            return;
+        };
+        let file = paperpaw_core::sdk::secrets::FILE;
+        // Raw bytes: nothing to strip, and no file is nothing to copy.
+        if let Ok(data) = paperpaw_core::sdk::read_file(kernel, file, 1 << 20)
+            && let Err(why) = native.write(file, &data)
+        {
+            eprintln!("the native plugins' secrets could not be seeded: {why:?}");
+        }
+    }
 }
 
 /// The transport of `core.net` on the device and the handle core gave for
@@ -382,7 +430,9 @@ fn teardown_report(
 pub enum Unavailable {
     /// No room for the shared table of handles or the dispatch budget.
     NoRoom,
-    /// The wiring of `core.ui` or `core.device` was refused.
+    /// The wiring of `core.device`, `core.work`, `core.net`, `core.secrets` or
+    /// the card's services was refused (`core.ui` is wired when the pool makes
+    /// its table, [`crate::native::DevicePool`]).
     Wiring(i32),
 }
 
@@ -506,27 +556,55 @@ fn take_plugin_jobs(kernel: &mut Kernel, profile: &Profile, on: Wired) -> bool {
     kernel.set_plugin_host(loader, offered, &[])
 }
 
-/// Registers every plugin of `paperpaw_app::NATIVE_PLUGINS` with `kernel` for
-/// the device of `profile`; the number registered. Call before the kernel
-/// starts, once.
+/// What the services wired for the device are, before the kernel is built:
+/// the card plugins it admits then are offered what is wired
+/// ([`prepare`]), and the registration of the linked plugins goes on from it
+/// ([`register`]).
+pub struct Prepared {
+    resources: paperpaw_core::native_host::HostResources,
+    wired: WiredHosts,
+    on: Wired,
+    net: Option<(
+        Rc<crate::native_net::NativeNet>,
+        Rc<crate::native_sock::NativeSock>,
+    )>,
+}
+
+impl std::fmt::Debug for Prepared {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Prepared").finish_non_exhaustive()
+    }
+}
+
+/// Wires the services of `core.net`, the card, the secrets and the rest for
+/// the device of `profile`, and tells `pool` what card plugins are offered.
+/// Call once, before the kernel is built (a code plugin is admitted while it
+/// is) and then [`register`] with what it returns.
 ///
 /// # Errors
-/// [`Unavailable`] where the shared host views cannot be made; then nothing is
-/// registered.
-pub fn register(
-    kernel: &mut Kernel,
+/// [`Unavailable`] where the shared host views cannot be made.
+pub fn prepare(
     profile: &'static Profile,
-    inputs: Inputs,
-) -> Result<usize, Unavailable> {
-    let resources = HostResources::try_new().map_err(|_| Unavailable::NoRoom)?;
+    inputs: &Inputs,
+    pool: &crate::native::DevicePool,
+) -> Result<Prepared, Unavailable> {
+    // The table of handles and the dispatch budget of the card plugins, if
+    // any were admitted already: a kernel takes one of each.
+    let resources = pool
+        .resources(profile.device.memory)
+        .ok_or(Unavailable::NoRoom)?;
     let device: Rc<DesktopDevice> = Rc::new(DesktopDevice::new(profile));
     let mut wiring = HostWiring::new()
-        .ui(profile.device.memory)
         .device(device)
         .lookup()
         .work(WorkInputs::new(inputs.view.clone(), profile.device.memory));
     // HTTP over the card (saved and sent files); no card, no `core.net`.
+    // The files `core.net` saves, sends and receives are the card's, as
+    // `core.files` has them (a run on simulated time keeps only its secrets in
+    // memory: `inputs.storage`).
+    let net_card = inputs.card.clone();
     let transport = inputs.storage.clone().map(|storage| {
+        let storage = net_card.unwrap_or(storage);
         let transport = Rc::new(crate::native_net::NativeNet::new(
             storage.clone(),
             inputs.view.clone(),
@@ -542,7 +620,7 @@ pub fn register(
                 transport.clone(),
                 // The one pool and its TLS sessions are the same in both
                 // wirings (`SockLimits::large`: 4).
-                NetLimits::new(0, 8).tls_sessions(4),
+                NetLimits::new(0, 8).tls_sessions(4).cable(true),
             ))
             .sockets(
                 SockInputs::new(
@@ -557,14 +635,14 @@ pub fn register(
     });
     // The books, the catalog and the card's files, from the card itself.
     let mut on_card = Wired::default();
-    if let Some(card) = inputs.card {
+    if let Some(card) = inputs.card.clone() {
         wiring = on_the_card(wiring, profile, card, inputs.simulated);
         on_card.documents = true;
         on_card.library = true;
         on_card.files = true;
     }
     on_card.wifi = profile.wifi;
-    match (inputs.storage, sealer(inputs.simulated)) {
+    match (inputs.storage.clone(), sealer(inputs.simulated)) {
         (None, _) => eprintln!("native plugins: no secrets (the card cannot be opened)"),
         (Some(storage), Ok(sealer)) => {
             wiring = wiring.secrets(
@@ -585,13 +663,53 @@ pub fn register(
     {
         eprintln!("native plugins: the secrets file could not be upgraded ({status})");
     }
+    let on = wired_services(&wired, on_card);
+    // Card plugins are offered what the linked ones are, of the features only
+    // those the firmware's card path gives (`card_features`).
+    // `core.lookup` is the desktop's own: the X4's card path has none, so a
+    // card plugin that needs it is refused here as there.
+    let card = Wired {
+        lookup: false,
+        ..on
+    };
+    pool.set_offer(crate::native_runtime::Offer {
+        services: offered(card),
+        features: card_features(card),
+    });
+    Ok(Prepared {
+        resources,
+        wired,
+        on,
+        net: transport,
+    })
+}
+
+/// Registers every plugin of `paperpaw_app::NATIVE_PLUGINS` with `kernel` for
+/// the device of `profile`; the number registered. Call before the kernel
+/// starts, once, with what [`prepare`] returned.
+///
+/// # Errors
+/// [`Unavailable`] where the shared dispatch budget cannot be made; then
+/// nothing is registered.
+pub fn register(
+    kernel: &mut Kernel,
+    profile: &'static Profile,
+    inputs: Inputs,
+    pool: &crate::native::DevicePool,
+    prepared: Prepared,
+) -> Result<usize, Unavailable> {
+    let Prepared {
+        resources,
+        wired,
+        mut on,
+        net: transport,
+    } = prepared;
     // Interface 6's passwords are opened and written through the sealer from
     // here on, whether or not a native plugin is ever admitted (decision 140);
     // before `Kernel::start`, as `Kernel::wire_secrets` asks.
     if let Some(secrets) = wired.secrets() {
         kernel.wire_secrets(secrets);
     }
-    let mut on = wired_services(&wired, on_card);
     on.install = take_plugin_jobs(kernel, profile, on);
     *inputs.net.borrow_mut() =
         transport
@@ -601,7 +719,7 @@ pub fn register(
                 reports,
                 sockets: wired.sockets().cloned().map(|wired| (sockets, wired)),
             });
-    let depth = FlatDepth::try_new().map_err(|_| Unavailable::NoRoom)?;
+    let depth = pool.depth().ok_or(Unavailable::NoRoom)?;
     let host = metadata::Host {
         abi_major: 7,
         minor: paperpaw_native::host_glue::MINOR,
@@ -868,6 +986,90 @@ mod tests {
         );
         // The same combination again is the same list.
         assert!(std::ptr::eq(offered(all), offered(all)));
+    }
+
+    /// `prepare` tells the pool the card path's features, not the linked
+    /// plugins' (`uses.secrets`, `uses.registry`, `uses.power` stay theirs),
+    /// and the services of what is wired, the same as the firmware's
+    /// `card_host` gives for the same combination.
+    #[test]
+    fn prepare_offers_card_plugins_the_card_features() {
+        let profile = crate::profiles::find("xteink-x4").unwrap();
+        let storage: Rc<dyn Storage> = Rc::new(paperpaw_core::sdk::MemoryStorage::new());
+        let inputs = Inputs {
+            storage: Some(storage.clone()),
+            view: Rc::default(),
+            simulated: true,
+            net: Rc::default(),
+            card: Some(storage),
+        };
+        let pool = crate::native::DevicePool::default();
+        let prepared = prepare(profile, &inputs, &pool).expect("wired");
+        let offer = pool.offer().expect("the pool is told");
+        let keys: Vec<&str> = offer.features.iter().map(|f| f.key).collect();
+        assert_eq!(keys, ["uses.network", "uses.storage", "uses.library"]);
+        assert!(keys.len() < features(prepared.on).len());
+        // The services are those of the firmware's card path for the same
+        // wiring (the card's three and the network's three).
+        let firmware = paperpaw_x4::native_offer::Wired {
+            work: prepared.on.work,
+            card: prepared.on.files && prepared.on.library && prepared.on.documents,
+            secrets: prepared.on.secrets,
+            wifi: prepared.on.wifi,
+        };
+        let theirs = paperpaw_x4::native_offer::card_host(
+            firmware,
+            7,
+            paperpaw_native::host_glue::MINOR,
+            crate::native_runtime::host_profile(),
+        );
+        let ours: std::collections::BTreeSet<&str> = offer.services.iter().map(|s| s.key).collect();
+        let firmware_keys: std::collections::BTreeSet<&str> =
+            theirs.services.iter().map(|s| s.key).collect();
+        // The same services, so the emulator never offers a card plugin more
+        // than the X4 does (nor less).
+        assert_eq!(ours, firmware_keys);
+    }
+
+    /// The card path offers a card plugin the same consent features here as
+    /// the firmware does (`paperpaw_x4::native_offer::card_features`), for every
+    /// combination of wired services: the two lists cannot drift apart.
+    #[test]
+    fn card_features_are_the_firmwares_for_every_combination() {
+        for index in 0..Wired::COMBINATIONS {
+            let on = |bit: usize| index >> bit & 1 == 1;
+            let wired = Wired {
+                secrets: on(0),
+                work: on(1),
+                net: on(2),
+                sockets: on(3),
+                documents: on(4),
+                library: on(5),
+                files: on(6),
+                lookup: on(7),
+                wifi: on(8),
+                install: on(9),
+            };
+            assert_eq!(wired.index(), index);
+            // The firmware wires the network's three and the card's three
+            // together; the desktop's rule reads the two that decide.
+            let firmware = paperpaw_x4::native_offer::Wired {
+                work: wired.net || wired.sockets,
+                card: wired.files && wired.library,
+                secrets: wired.secrets,
+                wifi: wired.wifi,
+            };
+            let keys = |list: &[Feature<'_>]| {
+                list.iter()
+                    .map(|feature| (feature.key.to_owned(), feature.revision))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                keys(card_features(wired)),
+                keys(paperpaw_x4::native_offer::card_features(firmware)),
+                "combination {index:#012b}"
+            );
+        }
     }
 
     #[test]

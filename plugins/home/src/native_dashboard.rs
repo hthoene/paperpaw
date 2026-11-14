@@ -64,7 +64,9 @@ struct Cell {
     span: Option<CellSpan>,
 }
 
-/// The footer's actions: each action and its name.
+/// The footer's actions: each action and its name. The names are kept with
+/// the page: finding one again when the screen is described would ask the
+/// registry's menu again (CR on #243, todo 592).
 type Actions = Vec<(String, String)>;
 
 /// The page as laid out: what shows, where, and what the buttons reach.
@@ -127,6 +129,7 @@ enum Next {
 }
 
 mod arrange;
+mod names;
 
 /// The dashboard.
 #[derive(Debug, Default)]
@@ -419,7 +422,15 @@ impl Dashboard {
         }
         let targets = Self::targets(host, ui, cells, footer, buttons)?;
         let mut actions = Vec::new();
-        for (action, name, _) in src.footer.iter().take(footer.actions.len()) {
+        let shown = src.footer.iter().take(footer.actions.len());
+        // A nameless action is told by a word for any action, not as nothing.
+        let unnamed = if shown.clone().any(|(_, name, _)| name.is_empty()) {
+            Messages::new()?.copy(host, names::UNNAMED)?
+        } else {
+            String::new()
+        };
+        for (action, name, _) in shown {
+            let name = names::action_name(name, &unnamed);
             push(&mut actions, (text::copy(action)?, text::copy(name)?))?;
         }
         Ok((targets, actions))
@@ -639,19 +650,25 @@ impl Dashboard {
     /// cell, in the order of the cells that are tools.
     fn tool_lines(
         &self,
+        host: &Host<'_>,
         font: &Font<'_>,
         style: &Style,
         laid: &Laid,
-    ) -> Result<Vec<(u16, Vec<String>)>, Error> {
+    ) -> Result<Vec<(u16, icons::Name)>, Error> {
         let mut lines = Vec::new();
+        let hyphens = icons::Hyphens::of(host);
+        let mut breaks = |word: &str, out: &mut _| hyphens.breaks(host, word, out);
         for cell in &laid.cells {
             if cell.face.is_none() {
                 continue;
             }
             let own = if laid.tool_labels {
-                icons::name_lines(font, style, cell.rect, &cell.name)?
+                icons::name_lines(font, style, cell.rect, &cell.name, &mut breaks)?
             } else {
-                Vec::new()
+                icons::Name {
+                    size: style.small,
+                    lines: Vec::new(),
+                }
             };
             push(&mut lines, (cell.rect.y, own))?;
         }
@@ -671,21 +688,14 @@ impl Dashboard {
             let focused = self.focus.shown() && self.focus.at() == at;
             // The footer's buttons show icons: each is named, as interface 6
             // named them (a cell is named by the text drawn in it).
-            let name = match target.owner {
-                Owner::Button(Button::Pencil) => {
-                    laid.pencil.as_ref().map(|(_, word)| word.as_str())
-                }
-                Owner::Button(Button::Plus) => Some("+"),
-                Owner::Button(Button::Action(index)) => {
-                    laid.actions.get(index).map(|(_, name)| name.as_str())
-                }
-                _ => None,
-            };
-            match name {
+            let pencil = laid.pencil.as_ref().map(|(_, word)| word.as_str());
+            match names::button_name(target.owner, pencil, &laid.actions) {
                 Some(name) => paint::describe_named(
                     below,
                     describing,
-                    (PartRole::Button, target.rect, name),
+                    PartRole::Button,
+                    target.rect,
+                    name,
                     focused,
                     false,
                 )?,
@@ -722,12 +732,12 @@ impl Dashboard {
             icons: icon_font.as_ref(),
             circle: circle.as_ref(),
         };
-        let wrapped = self.tool_lines(font, &style, laid)?;
+        let wrapped = self.tool_lines(host, font, &style, laid)?;
         let mut tops: Vec<(u16, usize)> = Vec::new();
         tops.try_reserve_exact(wrapped.len())
             .map_err(|_| Error::NoMemory)?;
-        for (top, lines) in &wrapped {
-            tops.push((*top, lines.len()));
+        for (top, name) in &wrapped {
+            tops.push((*top, name.lines.len()));
         }
         let row_lines = icons::row_lines(&tops)?;
         let mut tool = 0;
@@ -746,10 +756,10 @@ impl Dashboard {
                 self.corner_mark(&mut below, &style, cell.rect, laid.handle)?;
             }
             if let Some(face) = cell.face {
+                let name = wrapped.get(tool).map(|(_, name)| name);
                 let shown = Tool {
-                    lines: wrapped
-                        .get(tool)
-                        .map_or(&[][..], |(_, lines)| lines.as_slice()),
+                    lines: name.map_or(&[][..], |name| name.lines.as_slice()),
+                    size: name.map_or(style.small, |name| name.size),
                     face,
                     row_lines: row_lines.get(tool).copied().unwrap_or(0),
                 };

@@ -1,6 +1,6 @@
 use super::*;
 use crate::fail_alloc::sweep;
-use crate::native_model::{SETTING_SHOWN, flag};
+use crate::native_model::{SETTING_SHOWN, SETTING_SLIDER, flag};
 use alloc::string::ToString;
 use alloc::vec;
 
@@ -27,6 +27,7 @@ fn geometry() -> Geometry {
         margin: 20,
         rtl: false,
         top: false,
+        touch: false,
     }
 }
 
@@ -435,4 +436,108 @@ fn a_long_menu_is_cut_to_the_cap() {
     let mut few = vec![row("a.one", Kind::Action, "Run")];
     cap_rows(&mut few);
     assert_eq!(few.len(), 1);
+}
+
+fn slider_info() -> SettingInfo {
+    SettingInfo {
+        flags: SETTING_SHOWN | SETTING_SLIDER,
+        min: 0,
+        max: 100,
+        step: 5,
+        ..info(SettingKind::Int, 0)
+    }
+}
+
+#[test]
+fn a_number_that_asks_for_a_slider_gets_a_track_on_a_touch_screen_only() {
+    let slider = slider_info();
+    let rows = [row("a.light", Kind::Setting, "Front light")];
+    let entries = [entry(&rows[0], Some(&slider), &[])];
+    let touch = Geometry {
+        touch: true,
+        ..geometry()
+    };
+    assert_eq!(lines(&entries, &Eight, &touch).unwrap(), [Line::Slider(0)]);
+    // Without touch the keys move it: `−` and `+`, as in interface 6.
+    assert_eq!(
+        lines(&entries, &Eight, &geometry()).unwrap(),
+        [Line::Stepper(0)]
+    );
+    // A slider over one value is not one.
+    let flat = SettingInfo {
+        max: 0,
+        ..slider_info()
+    };
+    let entries = [entry(&rows[0], Some(&flat), &[])];
+    assert_eq!(lines(&entries, &Eight, &touch).unwrap(), [Line::Stepper(0)]);
+}
+
+#[test]
+fn the_track_lies_between_the_minus_and_the_value_before_the_plus() {
+    let g = Geometry {
+        touch: true,
+        ..geometry()
+    };
+    let placed = place(&Line::Slider(0), Rect::new(0, 100, 480, 60), &g).unwrap();
+    let track = placed.track.unwrap();
+    let (minus, plus) = (placed.controls[0].1, placed.controls[1].1);
+    assert_eq!(placed.controls.len(), 2, "the track is not a control");
+    assert!(track.x > minus.x + minus.width);
+    assert!(u32::from(track.x) + u32::from(track.width) < u32::from(plus.x));
+    assert!(track.width > 40, "room to move a finger: {track:?}");
+    // A tap on it is found, on the buttons it is not.
+    let layout = Layout {
+        rows: vec![placed],
+        region: Rect::new(0, 100, 480, 60),
+        pager: None,
+    };
+    let middle = paperpaw_sdk::Point::new(i32::from(track.x) + 20, i32::from(track.y) + 5);
+    assert_eq!(layout.track_at(0, middle).map(|t| t.0), Some(0));
+    let on_plus = paperpaw_sdk::Point::new(i32::from(plus.x) + 5, i32::from(plus.y) + 5);
+    assert_eq!(layout.track_at(0, on_plus), None);
+    assert_eq!(layout.track_at(1, middle), None, "another page");
+}
+
+#[test]
+fn a_tap_sets_the_nearest_step_and_the_ends_are_reached() {
+    let track = Rect::new(100, 0, 260, 60);
+    let radius = i32::from(knob_radius(track));
+    let range = (0, 100, 5);
+    let (first, last) = (100 + radius, 100 + 260 - radius);
+    assert_eq!(value_at(track, first, range), 0);
+    assert_eq!(value_at(track, last, range), 100);
+    // Beyond the ends: the ends.
+    assert_eq!(value_at(track, 0, range), 0);
+    assert_eq!(value_at(track, 480, range), 100);
+    // The middle is the middle, on a step.
+    let mid = (first + last) / 2;
+    let value = value_at(track, mid, range);
+    assert!((45..=55).contains(&value) && value % 5 == 0, "{value}");
+    // The knob stands where a tap on it would set.
+    let at = knob_x(track, 40, (0, 100));
+    assert_eq!(value_at(track, at, range), 40);
+    // A range that does not start at 0, and a step that does not divide it.
+    let odd = value_at(track, (first + last) / 2, (10, 31, 4));
+    assert!((10..=31).contains(&odd) && (odd - 10) % 4 == 0, "{odd}");
+}
+
+#[test]
+fn a_range_of_the_whole_of_i64_does_not_overflow() {
+    let track = Rect::new(100, 0, 260, 60);
+    let wide = (i64::MIN, i64::MAX, 1);
+    for x in [-5, 0, 100, 230, 360, 480] {
+        let value = value_at(track, x, wide);
+        assert!((i64::MIN..=i64::MAX).contains(&value));
+    }
+    assert_eq!(value_at(track, 0, wide), i64::MIN);
+    assert_eq!(value_at(track, 480, wide), i64::MAX);
+    // The knob is on the track for any value, and the ends are the ends.
+    let radius = i32::from(knob_radius(track));
+    for value in [i64::MIN, -1, 0, i64::MAX] {
+        let at = knob_x(track, value, (i64::MIN, i64::MAX));
+        assert!((100 + radius..=360 - radius).contains(&at), "{value}: {at}");
+    }
+    // A step of more than the range, and a range upside down.
+    assert_eq!(value_at(track, 230, (0, 10, i64::MAX)), 0);
+    assert_eq!(value_at(track, 230, (7, 3, 1)), 7);
 }

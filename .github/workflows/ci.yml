@@ -127,6 +127,10 @@ jobs:
       # #243): every format that may sleep is a native plugin there, so its
       # parity cases run and the cycles require it.
       - run: cargo test -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles
+      # Every linked plugin's screens keep the entry of their titles table (#248):
+      # the test is compiled out unless the app's `native-linked*` features are on.
+      - run: cargo test -p paperpaw-app --features native-linked-reading --test linked_settings_tables
+      - run: cargo test -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
 
   check:
     name: Format, lint, test
@@ -389,10 +393,26 @@ jobs:
         # flags of shells/xteink/.cargo/config.toml (no jump tables, frame
         # pointers), which the frame budgets are measured with. Clippy denies
         # the warnings itself; build.rs fails the build if the flags are missing.
+        # The build remaps the runner's paths as the release's does
+        # (tools/ci/firmware-remap.sh): the image here is the released one's
+        # size (shells/xteink/size-budget.txt).
         run: |
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,remote" -- -D warnings
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE" -- -D warnings
-          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE"
+          remap="$("$GITHUB_WORKSPACE/tools/ci/firmware-remap.sh" "$FIRMWARE_TARGET" "$FIRMWARE_TOOLCHAIN")"
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE"
+      # The released build's install image against its size budget
+      # (shells/xteink/size-budget.txt, ticket #258). Measured here, before the
+      # next step rebuilds the same file with `ppn5` and legacy symbol names on
+      # the S3: the later install-image step packs that build, not this one.
+      # Fails when the image is over its line, and when the image or the line
+      # is missing (tools/size-report.py).
+      - name: The install image stays within its size budget
+        uses: ./.github/actions/install-image
+        with:
+          out: ${{ runner.temp }}/released.bin
+      - name: The released image against shells/xteink/size-budget.txt
+        run: python3 -I tools/size-report.py check --device "$DEVICE" --image "$RUNNER_TEMP/released.bin"
       # The loader's S3 code (format-5 files in PSRAM, `ppn5`) is off by
       # default and so not in the lint and build above; the X4's own job
       # (firmware-host-frames) covers the X4. Without the job's RUSTFLAGS,
@@ -697,6 +717,8 @@ jobs:
       # the last release has one (or says no reader sees the change).
       - name: A store plugin that changed has a newer version
         run: python3 tools/plugin-files/versions.py
+      - name: The size gate fails when an image is over its budget or a file is missing
+        run: python3 -m unittest discover -s tools -p "test_size_report.py"
       - name: The handbook holds the SDK and PaperPaw's own plugins, without tests
         run: python3 -m unittest discover -s tools -p "test_handbook.py"
       - name: CI tool setup verifies binaries and keeps its missing-tool fallback

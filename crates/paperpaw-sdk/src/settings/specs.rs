@@ -61,6 +61,13 @@ impl Specs {
         } else if self.owned.len() >= PLACES {
             return Err(SettingError::Full);
         } else {
+            // Room for exactly this copy: the list is kept exactly sized
+            // (`try_reserve`), and a push would double it, briefly holding
+            // twice the made specs (17.8 → 35.6 KiB with a linked plugin's
+            // widget settings, #248). No room is the same refusal as no place.
+            self.owned
+                .try_reserve_exact(1)
+                .map_err(|_| SettingError::Full)?;
             let copy = self.at(place).clone();
             let owned = self.owned.len() as u16;
             self.owned.push(copy);
@@ -193,5 +200,34 @@ impl Specs {
         self.lists.shrink_to_fit();
         self.order.shrink_to_fit();
         self.by_id.shrink_to_fit();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builtin::groups::READING;
+
+    static KEPT: [SettingSpec; 1] = [SettingSpec::switch("t.kept", "t.kept", true, READING)];
+
+    #[test]
+    fn changing_a_kept_spec_grows_the_made_list_by_one_not_by_doubling() {
+        let mut specs = Specs::default();
+        specs.try_reserve(3, 1).unwrap();
+        for id in ["t.a", "t.b", "t.c"] {
+            assert!(specs.insert(SettingSpec::switch(id, id, false, READING)));
+        }
+        assert!(specs.insert_fixed(&KEPT, 0));
+        assert_eq!(specs.owned.capacity(), 3, "made exactly sized");
+        specs.get_mut("t.kept").unwrap().scoped = true;
+        assert_eq!(
+            specs.owned.capacity(),
+            4,
+            "one more place, not twice as many"
+        );
+        assert!(
+            specs.get("t.kept").unwrap().scoped,
+            "the copy is the one changed"
+        );
     }
 }

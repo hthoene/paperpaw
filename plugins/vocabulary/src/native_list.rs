@@ -99,6 +99,8 @@ impl<'s> WordRows<'s> {
             stepper: false,
             disabled: false,
             on: None,
+            field: false,
+            whole: false,
         }))
     }
 
@@ -153,6 +155,8 @@ impl<'s> WordRows<'s> {
                 stepper: false,
                 disabled: false,
                 on: None,
+                field: false,
+                whole: false,
             });
         }
         Ok(rows)

@@ -44,13 +44,13 @@
 
 use alloc::boxed::Box;
 use log::warn;
-use paperpaw_core::CodeFile;
 use paperpaw_core::native_host::HostResources;
 use paperpaw_core::native_host::flat::FlatDepth;
+use paperpaw_core::{CodeFile, NativeAdmission};
 use paperpaw_native::MAGIC;
 use paperpaw_native::header5::{HEADER_LEN, Header5, Host, Refusal};
 use paperpaw_platform::Storage;
-use paperpaw_sdk::{Plugin, PluginProblem};
+use paperpaw_sdk::PluginProblem;
 
 /// What this firmware is, to compare a file with: the X4 (target 5) or the X4
 /// Pro and X4 Classic (target 9) at the interface minor the generated ABI says.
@@ -94,16 +94,23 @@ fn refused(path: &str, head: &[u8], why: Refusal) -> PluginProblem {
     }
 }
 
-/// Loads the format-5 file `code` as far as the core takes it (see the
-/// [module documentation](self)). `place` puts the image where it runs.
-pub fn load(
+/// A format-5 file checked and placed: its header, where it lies, its entry
+/// and what it declares to need, and when its loading began.
+struct Verified {
+    header: Header5,
+    placed: crate::native::Placed5,
+    make: u32,
+    declared: paperpaw_core::native_host::shell::DeclaredServices,
+}
+
+/// Steps 1 to 5 of the [module documentation](self): the header read and
+/// checked against this firmware, the file the installed one, the image
+/// placed and its entry checked. Nothing of the plugin has run.
+fn verify(
     place: &mut super::Place,
-    depth: &FlatDepth,
-    resources: &mut Option<HostResources>,
-    device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     storage: &dyn Storage,
     code: &CodeFile<'_>,
-) -> Result<Box<dyn Plugin>, PluginProblem> {
+) -> Result<Verified, PluginProblem> {
     let path = code.path;
     #[cfg(feature = "esp32s3")]
     if !scanned_table_is_handed() {
@@ -125,16 +132,41 @@ pub fn load(
         return Err(PluginProblem::Changed);
     }
     let (placed, make, declared) = x4::verified(place, storage, code, &header, started)?;
-    x4::run(
-        place, code, &header, &placed, make, depth, resources, device, declared, started,
+    Ok(Verified {
+        header,
+        placed,
+        make,
+        declared,
+    })
+}
+
+/// Hosts the format-5 file `code` for the kernel to admit with everything it
+/// declares (`CodeLoader::load_native`): the checks and placement, then the hosted plugin, not made yet (see [`x4::host`]).
+pub fn host(
+    place: &mut super::Place,
+    depth: &FlatDepth,
+    resources: &mut Option<HostResources>,
+    device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    storage: &dyn Storage,
+    code: &CodeFile<'_>,
+) -> Result<Box<dyn NativeAdmission>, PluginProblem> {
+    let Verified {
+        header,
+        placed,
+        make,
+        declared,
+        ..
+    } = verify(place, storage, code)?;
+    x4::host(
+        place, code, &header, &placed, make, depth, resources, device, declared,
     )
 }
 
-#[cfg(all(feature = "static-native", feature = "esp32c3"))]
-pub(crate) use x4::register_linked_probe;
+#[cfg(all(feature = "native-on", feature = "esp32c3"))]
+pub(crate) use x4::register_linked;
 #[cfg(feature = "esp32s3")]
 pub(super) use x4::scanned_table_is_handed;
-pub(super) use x4::{StorageSource, entry_check_failed};
+pub(super) use x4::{StorageSource, entry_check_failed, heap_word};
 
 /// The loader both chips share (the module keeps its first name): the image is
 /// placed (flash on the ESP32-C3, PSRAM on the ESP32-S3), its entry read, and
@@ -147,17 +179,17 @@ mod x4 {
 
     use log::{info, warn};
     use paperpaw_core::CodeFile;
+    use paperpaw_core::NativeAdmission;
     use paperpaw_core::native_host::HostResources;
-    use paperpaw_core::native_host::flat::{DropReason, FlatDepth, FlatError, FlatPlugin};
-    use paperpaw_core::native_host::shell::instance::{Hooks, Instance};
-    use paperpaw_core::native_host::shell::{self, Make};
+    use paperpaw_core::native_host::flat::FlatDepth;
+    use paperpaw_core::native_host::hosted_admission::HostedAdmission;
+    use paperpaw_core::native_host::shell::{self, Hosted, Make};
     use paperpaw_native::header5::{
         EntryFacts, EntryRefusal, HEADER_LEN, Header5, RawEntry, RecordFacts,
     };
     use paperpaw_native::host_glue::Services;
     use paperpaw_native::metadata;
     use paperpaw_platform::Storage;
-    use paperpaw_sdk::Plugin;
     use paperpaw_sdk::PluginProblem;
 
     use paperpaw_native::stream5::{EntryCheck, ReadError, Source};
@@ -256,16 +288,15 @@ mod x4 {
         // lacks costs no flash. What it declares is kept for the host, which
         // refuses a query of any other service; the prefix facts the header
         // is compared with are the check's own, read once.
-        let offered = metadata::Host {
-            abi_major: HOST.abi_major,
-            minor: HOST.minor,
-            profile: super::PROFILE,
-            services: &crate::device_host::OFFERED,
-            // Nothing is advertised until a family is wired here and its
-            // commands check `features().feature(key)`: a plugin that needs a
-            // feature is refused, and one that merely asks for it keeps no bit.
-            features: X4_FEATURES,
-        };
+        // What a card plugin is offered: the services of every family this
+        // start wired, as the linked plugins' (`paperpaw_x4::native_offer`),
+        // and of the features only the families it may reach
+        // (`card_features`: not `uses.secrets`, which reaches other plugins'
+        // secrets). A plugin that needs more is refused here, costing no flash.
+        // The radio's commands are not offered (`wifi` false).
+        let wired = crate::device_host::wired_families(false);
+        let offered =
+            paperpaw_x4::native_offer::card_host(wired, HOST.abi_major, HOST.minor, super::PROFILE);
         let admitted = shell::admission::admit(&record, &offered)
             .map_err(|why| admission_refused(path, why))?;
         let facts = RecordFacts {
@@ -338,19 +369,13 @@ mod x4 {
         Ok(raw.make)
     }
 
-    /// The features this firmware advertises to plugins (`uses.*`): none yet.
-    /// A feature is listed here in the change that wires its family, with the
-    /// check of `Hosted::features().feature(key)` in front of what it gates;
-    /// admission keeps the bits of the ones a plugin asked for either way.
-    const X4_FEATURES: &[metadata::Feature<'static>] = &[];
-
     /// The program's read-only data in flash as a mapping (address and length),
     /// from the linker's own symbols (`esp-hal`'s `rodata.x`: `.rodata` and
     /// `.srodata`, where the linked plugins' declaration bytes sit). It stays
     /// mapped for the whole run and is never written. `(null, 0)` if the
     /// symbols are not in order (end not after start): the declarations are
     /// then copied, as before.
-    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
     fn flash_rodata() -> (*const u8, usize) {
         unsafe extern "C" {
             static _rodata_start: u8;
@@ -367,6 +392,16 @@ mod x4 {
     /// The X4's heap and clock for a plugin: the firmware's allocator, so a
     /// plugin's allocations count against the heap like everything else.
     pub(super) struct X4Services;
+
+    /// The firmware's `PpHeap` table for the heap word of a plugin's image
+    /// (`abi/heap-word.md` section 3); no `abort`: a plugin panic ends in the
+    /// trap, which the crash slot blames on the frame owner.
+    static HEAP_TABLE: paperpaw_native::host_glue::PpHeap = shell::heap_table::<X4Services>();
+
+    /// The address of [`HEAP_TABLE`], written into a placed image's heap word.
+    pub(crate) fn heap_word() -> u32 {
+        core::ptr::addr_of!(HEAP_TABLE).addr() as u32
+    }
 
     /// The host table of this firmware's services as a named, read-only
     /// static, for `paperpaw-sign frames-s3`: the scan reads a table's function
@@ -434,6 +469,17 @@ mod x4 {
             // is a hang the watchdog resets.
             crate::micros()
         }
+
+        /// A plugin from a card file runs only inside the call hooks that
+        /// name it to safe mode and check the stack's end afterwards (the
+        /// linked plugins are the firmware's own and are not announced).
+        fn enter(&self, id: &str) -> bool {
+            call_begin(id)
+        }
+
+        fn leave(&self, id: &str) {
+            call_end(id);
+        }
     }
 
     /// What the owner keeps alive for a plugin on the X4: nothing to unload.
@@ -442,12 +488,24 @@ mod x4 {
     /// plugin that still runs).
     pub(super) struct FlashModule;
 
+    /// Set while the linked plugins are made (`register_linked`): every call
+    /// into one feeds the watchdogs, so that making them all, with the card
+    /// and the heap busy, is not taken for a hang (test image, Senior's
+    /// condition on #2462). Not set later: a plugin that loops in a call is
+    /// still the watchdog's.
+    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+    static CREATING: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
     fn call_begin(id: &str) -> bool {
         // The ESP32-S3's band needs the call to start at interrupt level 0
-        // on the first core (todo 185): otherwise it is refused, and the
-        // plugin is not run.
+        // on the first core (todo 185); the ESP32-C3's band must be armed and
+        // not lost: otherwise it is refused, and the plugin is not run.
         if !crate::stack::dispatch_allowed() {
             return false;
+        }
+        #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+        if CREATING.load(core::sync::atomic::Ordering::Relaxed) {
+            crate::power::feed();
         }
         crate::safe_mode::calling(id);
         true
@@ -459,64 +517,83 @@ mod x4 {
         crate::safe_mode::returned();
     }
 
-    /// Registers the linked plugins through the kernel (`Kernel::register_linked`)
-    /// so the image carries the host's code that hosts them. MEASUREMENT ONLY
-    /// (`static-native`): the caller never takes this branch, because the stack
-    /// gate (`abi/heap-word.md` section 6) holds every interface-7 plugin back.
-    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    /// Hosts the linked plugins (`paperpaw_app::NATIVE_PLUGINS`): the app's one
+    /// path (`paperpaw_app::register_native_plugins`, the desktop's too), with
+    /// the services and features this start wired (`paperpaw_x4::native_offer`,
+    /// admitted against every linked plugin by the desktop's tests). Called by
+    /// the main loop once the stack's band is armed (`abi/heap-word.md`
+    /// section 6): without it no plugin of interface 7 runs. A plugin the host
+    /// refuses is logged and does not stop the others.
+    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
     #[inline(never)]
-    pub(crate) fn register_linked_probe(
+    pub(crate) fn register_linked(
         kernel: &mut paperpaw_core::Kernel,
         table: &crate::native::DeviceTable,
     ) {
         fn linked_report(_: &X4Services, plugin: &str, tag: u32, status: i32) {
             warn!("native: linked: {plugin}: call {tag} ended with {status}");
         }
+        use paperpaw_x4::native_offer::{features, services};
+        let wired = crate::device_host::wired_families(kernel.wifi_model().is_some());
         let offered = metadata::Host {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
             profile: super::PROFILE,
-            // The table the probe shares has `core.device` wired, but the probe
-            // offers the data services alone: a linked plugin is not given the
-            // device service.
-            services: shell::DATA_SERVICES,
-            features: X4_FEATURES,
+            services: services(wired),
+            features: features(wired),
         };
         // The loader's own table of handles and callback-depth counter (one of
         // each for the device), not a second: the kernel refuses a plugin that
         // brings another counter.
         let (Some(depth), Some(resources)) = (table.depth(), table.share()) else {
+            warn!("native: no room for the linked plugins' table: none hosted");
             return;
         };
-        // The texts the linked plugins bring built in (`screens-input.md` [D]):
-        // none of them is found otherwise.
-        paperpaw_app::add_native_catalogs(kernel);
-        for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
-            let Some(share) = resources.try_clone() else {
-                return;
-            };
-            // SAFETY: `linked` comes from `native_plugin!(..., linked = NAME)` of
-            // a crate linked into this firmware: its factory obeys the SDK's
-            // native factory contract and its code stays for the whole run.
-            let status = unsafe {
-                kernel.register_linked(
-                    linked.entry(),
-                    linked.metadata(),
-                    &offered,
-                    id,
-                    X4Services,
-                    share,
-                    &depth,
-                    report,
-                    linked_report,
-                    // The firmware's read-only data in flash: the declarations
-                    // of a linked plugin are borrowed from it, not copied.
-                    flash_rodata(),
-                    paperpaw_app::fixed_tables(id),
-                )
-            };
-            warn!("native: linked {id}: {status:?}");
+        // This start loads native plugins: counted as one that may fail until
+        // its first frame is shown (`safe_mode::started`); after two in a
+        // row the next goes without them (`paperpaw_x4::start_count`).
+        crate::safe_mode::loading("native-linked");
+        let began = crate::micros();
+        CREATING.store(true, core::sync::atomic::Ordering::Relaxed);
+        // SAFETY: the entries are `native_plugin!(..., linked = NAME)` of crates
+        // linked into this firmware (their code stays for the whole run); the
+        // services offered are the ones wired at this start
+        // (`device_host::wired_families`); the image is the firmware's read-only
+        // data in flash, mapped for the whole run.
+        let outcome = unsafe {
+            paperpaw_app::register_native_plugins(
+                kernel,
+                &offered,
+                &resources,
+                &depth,
+                || X4Services,
+                report,
+                linked_report,
+                |id| paperpaw_app::native_default_on(id, paperpaw_app::StorePlugins::Left),
+                flash_rodata(),
+                // The plugins that may sleep are registered parked (#248, D1).
+                paperpaw_app::sleeps,
+            )
+        };
+        CREATING.store(false, core::sync::atomic::Ordering::Relaxed);
+        let mut hosted = 0_u32;
+        for (id, status) in outcome {
+            match status {
+                Ok(()) => {
+                    hosted += 1;
+                    info!("native: linked {id}: running");
+                }
+                Err(why) => warn!("native: linked {id}: not hosted: {why:?}"),
+            }
         }
+        if hosted > 0 {
+            // A lost band after a sleep now ends in a start without them.
+            crate::stack::native_loaded();
+        }
+        info!(
+            "native: {hosted} linked plugins hosted in {} ms",
+            (crate::micros() - began) / 1000
+        );
     }
 
     /// The owner's fallback report of a teardown step that failed (called
@@ -529,18 +606,6 @@ mod x4 {
         why: paperpaw_core::native_host::Error,
     ) {
         warn!("native: {id}: teardown step {step:?} failed: {why:?}");
-    }
-
-    fn event_dropped(id: &str, tag: u32, why: DropReason) {
-        warn!("native: {id}: event {tag} dropped: {why:?}");
-    }
-
-    fn teardown_failed(id: &str, why: paperpaw_core::native_host::Error) {
-        warn!("native: {id}: unload step failed: {why:?}");
-    }
-
-    fn leaked(id: &str) {
-        warn!("native: {id}: still in use at unload, kept");
     }
 
     /// The steps before `make` with their real allocations
@@ -624,11 +689,22 @@ mod x4 {
     /// Makes the plugin of the placed image and returns it as the core's
     /// flat plugin. Called after `make` is read from the written flash and
     /// checked: from here the layout is never rewound.
+    /// What `make` needs once everything that can still be refused before it
+    /// has been (`paperpaw_x4::premake`), in the order that leaves nothing
+    /// behind.
+    struct Ready {
+        /// The device's one counter, a counted share of it.
+        depth: Option<FlatDepth>,
+        /// A share of the device's table of handles.
+        share: HostResources,
+        make: Make,
+    }
+
     #[allow(
         clippy::too_many_arguments,
-        reason = "the loader's one entry: the flash layout, the image, the device's tables and the start time"
+        reason = "the loader's one entry: the flash layout, the image and the device's tables"
     )]
-    pub(super) fn run(
+    fn ready(
         place: &mut crate::native::Place,
         code: &CodeFile<'_>,
         header: &Header5,
@@ -637,9 +713,7 @@ mod x4 {
         depth: &FlatDepth,
         resources: &mut Option<HostResources>,
         device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
-        declared_services: shell::DeclaredServices,
-        started: u64,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
+    ) -> Result<Ready, PluginProblem> {
         let id = code.id.as_str();
         // The device's one counter, a counted share of it, taken before anything
         // is made: the core's `into_plugin` then never makes a counter of its own
@@ -647,16 +721,13 @@ mod x4 {
         let Some(depth) = depth.try_clone() else {
             return Err(PluginProblem::NoRoom);
         };
-        let mut depth = Some(depth);
+        let depth = Some(depth);
         // Plugin calls into the host's slots are told to the record of calls,
         // so the Power-hold escape never blames a plugin for waiting on the host.
         paperpaw_core::native_host::host_slot::set(
             crate::safe_mode::host_begin,
             crate::safe_mode::host_end,
         );
-        let heap = esp_alloc::HEAP.used();
-        let internal = crate::native::internal_free();
-        let made = crate::micros();
         // Everything that can still be refused before `make`, in the order
         // that leaves nothing behind (`paperpaw_x4::premake`): a refusal gives
         // the flash region back to the layout and lists nothing. Every
@@ -679,88 +750,127 @@ mod x4 {
         // checked there (inside its code, even), so it is the plugin's
         // entry, callable for as long as the image stays placed: all session.
         let make: Make = unsafe { core::mem::transmute::<usize, Make>(make as usize) };
-        let hooks = Hooks {
-            event_dropped,
-            leaked,
-            teardown_failed,
-            call_begin,
-            call_end,
+        Ok(Ready { depth, share, make })
+    }
+
+    /// Hosts the plugin of the placed image, not made yet, for the kernel to
+    /// admit with everything it declares (`CodeLoader::load_native`): `make`
+    /// runs in the kernel's registration transaction, and the declarations
+    /// (screens, settings, actions, fonts, ...) are registered with the
+    /// callbacks it committed, all or none. A refusal there destroys the host
+    /// and says why as the plugin's problem.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the loader's one entry: the flash layout, the image and the device's tables"
+    )]
+    pub(super) fn host(
+        place: &mut crate::native::Place,
+        code: &CodeFile<'_>,
+        header: &Header5,
+        placed: &crate::native::Placed5,
+        make: u32,
+        depth: &FlatDepth,
+        resources: &mut Option<HostResources>,
+        device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+        declared_services: shell::DeclaredServices,
+    ) -> Result<Box<dyn NativeAdmission>, PluginProblem> {
+        let id = code.id.as_str();
+        let (heap, internal, started) = (
+            esp_alloc::HEAP.used(),
+            crate::native::internal_free(),
+            crate::micros(),
+        );
+        let Ready {
+            depth, share, make, ..
+        } = ready(place, code, header, placed, make, depth, resources, device)?;
+        let Some(depth) = depth else {
+            return Err(PluginProblem::NoRoom);
         };
-        // The read-only data is the image's first `code_at` bytes. `Header5::read`
-        // checked `code_at <= image_len` (the whole image is in the placed
-        // room); the length is bounded by it again where the slice is formed,
-        // so the bound is visible here and cannot be passed by a later change.
+        // The image's first `code_at` bytes are the read-only data;
+        // `Header5::read` checked `code_at <= image_len`, and the whole image
+        // lies in the placed room, so the slice cannot pass it.
         let data_len = header.code_at.min(header.image_len) as usize;
-        // The image is flash memory-mapped at a fixed address: the one place
-        // an address becomes a pointer, with the provenance exposed for it.
         let image_ptr = core::ptr::with_exposed_provenance::<u8>(placed.base as usize);
-        // SAFETY: as above; the read-only data [0, code_at) of the image is
-        // mapped at `placed.base` for the session (nothing erases the region
-        // before a restart: it is only written by `put5` into free room).
-        let loaded = unsafe {
-            Instance::load(
+        // SAFETY: `make` was read from the image just placed and checked there,
+        // so it is the plugin's entry, callable all session; the image is
+        // flash (PSRAM on the S3) mapped at `placed.base` for the session:
+        // only `put5` writes the region, and only before `finish`, into free
+        // room, so nothing erases it under the plugin (`FlashModule`).
+        let hosted = unsafe {
+            Hosted::new(
                 X4Services,
                 FlashModule,
                 make,
                 id,
                 (image_ptr, data_len),
                 report,
-                hooks,
                 share,
                 declared_services,
             )
-        };
-        let instance = loaded.map_err(|why| {
-            warn!("native: {id}: format 5: refused while making: {why:?}");
+        }
+        .map_err(|why| {
+            warn!("native: {id}: format 5: refused while hosting: {why:?}");
             match why {
                 shell::Error::Allocation => PluginProblem::NoRoom,
                 _ => PluginProblem::Damaged,
             }
         })?;
-        if instance.declared_records() != 0 {
-            warn!(
-                "native: {id}: declares {} records, which cannot be applied yet: not loaded",
-                instance.declared_records()
+        let hot = if placed.hot == 0 { 0 } else { header.hot_len };
+        Ok(Box::new(Measured {
+            inner: HostedAdmission::new(hosted, depth, admitted_report, refused),
+            before: (heap, internal, started),
+            hot,
+        }))
+    }
+
+    /// The admission with what the plugin cost: the heap and the time from
+    /// placing it through `make` and the registration of everything it
+    /// declares, which the remote's memory page and the log show per plugin.
+    struct Measured {
+        inner: HostedAdmission<X4Services, FlashModule>,
+        /// The heap and internal RAM used, and the time, when hosting began
+        /// (after `verify` placed the image: placing costs flash, not heap).
+        before: (usize, usize, u64),
+        hot: u32,
+    }
+
+    impl NativeAdmission for Measured {
+        fn admit(
+            self: Box<Self>,
+            kernel: &mut paperpaw_core::Kernel,
+            folder: &str,
+        ) -> Result<(), PluginProblem> {
+            let Self { inner, before, hot } = *self;
+            let made = crate::micros();
+            let admitted = inner.admit_in(kernel, folder);
+            let took = crate::native::Took {
+                place_us: made - before.2,
+                make_us: crate::micros() - made,
+                heap: esp_alloc::HEAP.used() as isize - before.0 as isize,
+                internal: before.1 as isize - crate::native::internal_free() as isize,
+                hot,
+            };
+            info!(
+                "native: {folder}: admitted in {} us (placing {} us), heap {:+} B, internal RAM {:+} B, hot code {} B: {admitted:?}",
+                took.make_us, took.place_us, took.heap, took.internal, took.hot
             );
-            return Err(PluginProblem::Unsupported);
-        }
-        // Checked copies of the id and the name; a refusal drops the instance
-        // (the unload, once) as any other post-`make` failure.
-        let manifest = FlatPlugin::try_manifest(code.id, id, paperpaw_sdk::Version::new(0, 0, 0))
-            .map_err(|_| {
-            warn!("native: {id}: no room for the manifest");
-            PluginProblem::NoRoom
-        })?;
-        // The instance box, the device-wide depth (made with the first plugin,
-        // each plugin holds a counted share), the adapter and its box: all
-        // fallible, a full heap is `NoRoom`, never an abort. A refusal drops
-        // the instance exactly once.
-        let plugin = instance
-            .into_plugin(manifest, &mut depth, code.host)
-            .map_err(|why| {
-                warn!("native: {id}: format 5: {why:?}");
-                match why {
-                    FlatError::Allocation => PluginProblem::NoRoom,
-                    _ => PluginProblem::Unsupported,
+            critical_section::with(|cs| {
+                if let Some(image) = crate::native::IMAGES.borrow_ref_mut(cs).last_mut() {
+                    image.took = Some(took);
                 }
-            })?;
-        let took = crate::native::Took {
-            place_us: made - started,
-            make_us: crate::micros() - made,
-            heap: esp_alloc::HEAP.used() as isize - heap as isize,
-            internal: internal as isize - crate::native::internal_free() as isize,
-            hot: if placed.hot == 0 { 0 } else { header.hot_len },
-        };
-        info!(
-            "native: {id}: format 5 made in {} us, heap {:+} B, internal RAM {:+} B, hot code {} B",
-            took.make_us, took.heap, took.internal, took.hot
-        );
-        critical_section::with(|cs| {
-            if let Some(image) = crate::native::IMAGES.borrow_ref_mut(cs).last_mut() {
-                image.took = Some(took);
-            }
-        });
-        Ok(plugin)
+            });
+            admitted
+        }
+    }
+
+    /// What the kernel tells of an admitted plugin's callbacks.
+    fn admitted_report(_: &X4Services, plugin: &str, tag: u32, status: i32) {
+        warn!("native: {plugin}: call {tag} ended with {status}");
+    }
+
+    /// Why the kernel refused a plugin it was handed: nothing of it stays.
+    fn refused(folder: &str, why: &shell::Error) {
+        warn!("native: {folder}: not admitted: {why:?}");
     }
 
     /// `text` copied, or `NoRoom`.

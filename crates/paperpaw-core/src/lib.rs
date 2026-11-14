@@ -469,6 +469,11 @@ impl Kernel {
             let text = String::from(self.shared.translator.tr(trouble.key()));
             self.output.commands.push(Command::Notify(text));
         }
+        // The commands first (home opens, `Started` is queued): the services'
+        // pass inside `finish` then tells native plugins `Started`, and a
+        // book the reader opens at the start is opened before the first frame,
+        // as interface 6 did inside the start. Home is not drawn first.
+        self.run_commands();
         self.finish_started()
     }
 

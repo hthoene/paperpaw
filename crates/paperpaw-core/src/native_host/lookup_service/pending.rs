@@ -43,7 +43,7 @@ const FREE: Entry = Entry {
 /// 64-bit FNV-1a over the length of `language` as one byte, the `language`
 /// bytes and the `text` bytes: the pair maps to one input without ambiguity
 /// (`language` is at most 35 bytes).
-pub(super) fn ask_hash(language: &str, text: &str) -> u64 {
+pub(crate) fn ask_hash(language: &str, text: &str) -> u64 {
     const BASIS: u64 = 0xcbf2_9ce4_8422_2325;
     const PRIME: u64 = 0x0000_0100_0000_01b3;
     let length = [u8::try_from(language.len()).unwrap_or(u8::MAX)];

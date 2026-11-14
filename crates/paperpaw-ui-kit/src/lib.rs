@@ -61,5 +61,5 @@ pub use list::ListRenderer;
 pub use messages::Messages;
 pub use paint::{Page, Paint};
 pub use screens::Screens;
-pub use style::Style;
+pub use style::{Style, StyleCache};
 pub use window::{RowSource, WindowList};

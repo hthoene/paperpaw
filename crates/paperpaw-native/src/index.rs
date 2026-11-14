@@ -677,6 +677,42 @@ mod tests {
         assert_eq!(empty.hot_used(), 0);
     }
 
+    /// What a start places never overlaps an image placed before it at the same
+    /// start (those run from flash and are never erased under the code): a
+    /// replaced plugin, a bigger one, and a refused one whose room the next
+    /// takes, all leave the kept images in ascending, disjoint sectors.
+    #[cfg(feature = "kernel")]
+    #[test]
+    fn what_a_start_places_never_overlaps_an_image_placed_before_it() {
+        let (a, b, c) = (hot(5000, 0, 1), hot(9000, 0, 2), hot(3000, 0, 3));
+        let mut first = Layout::new(region(), FIRMWARE, API, ARENA, None);
+        for h in [&a, &b, &c] {
+            first.place(h).unwrap();
+        }
+        let old = first.index().unwrap();
+        // The next start: `a` replaced by a bigger file, a plugin refused after
+        // it was written, then `b` and `c` as before (now placed anew).
+        let a2 = hot(30_000, 0, 11);
+        let refused = hot(70_000, 0, 9);
+        let mut next = Layout::new(region(), FIRMWARE, API, ARENA, Some(old));
+        let mut kept = Vec::new();
+        kept.push(next.place(&a2).unwrap());
+        let mark = next.mark();
+        next.place(&refused).unwrap();
+        next.rewind(mark);
+        kept.push(next.place(&b).unwrap());
+        kept.push(next.place(&c).unwrap());
+        let len = [30_000u32, 9000, 3000];
+        for (i, (p, l)) in kept.iter().zip(len).enumerate() {
+            assert_eq!(p.at % SECTOR, 0, "image {i} begins at a sector");
+            assert!(!p.present, "image {i} is written anew after a change");
+            for (q, m) in kept.iter().zip(len).take(i) {
+                assert!(p.at >= q.at + m, "image {i} lies over an earlier one");
+            }
+            assert!(p.at + l <= region().end);
+        }
+    }
+
     /// Placing by the four parts is placing by the header.
     #[cfg(feature = "kernel")]
     #[test]
