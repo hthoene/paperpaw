@@ -4185,6 +4185,8 @@ pub mod core_lookup_v1 {
     pub const LOOKUP_ENTRY_TITLE_MAX_BYTES: usize = 256;
     /// Maximum bytes of `lookup.entry.text`.
     pub const LOOKUP_ENTRY_TEXT_MAX_BYTES: usize = 2048;
+    /// Maximum bytes of `lookup.entry.opens`.
+    pub const LOOKUP_ENTRY_OPENS_MAX_BYTES: usize = 128;
 
     /// The `lookup.entry` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4196,6 +4198,8 @@ pub mod core_lookup_v1 {
         pub text: &'a str,
         /// Little-endian u32.
         pub flags: u32,
+        /// UTF-8 text of at most 128 bytes.
+        pub opens: &'a str,
     }
 
     impl<'a> LookupEntry<'a> {
@@ -4205,6 +4209,7 @@ pub mod core_lookup_v1 {
                 title: body.string(LOOKUP_ENTRY_TITLE_MAX_BYTES)?,
                 text: body.string(LOOKUP_ENTRY_TEXT_MAX_BYTES)?,
                 flags: u32::from_le_bytes(body.scalar()?),
+                opens: body.string(LOOKUP_ENTRY_OPENS_MAX_BYTES)?,
             }))
         }
 
@@ -4213,6 +4218,7 @@ pub mod core_lookup_v1 {
             len += blob_len(self.title.len(), LOOKUP_ENTRY_TITLE_MAX_BYTES)?;
             len += blob_len(self.text.len(), LOOKUP_ENTRY_TEXT_MAX_BYTES)?;
             len += 4;
+            len += blob_len(self.opens.len(), LOOKUP_ENTRY_OPENS_MAX_BYTES)?;
             Ok(len)
         }
 
@@ -4220,13 +4226,19 @@ pub mod core_lookup_v1 {
             write_blob(self.title.as_bytes(), out, offset);
             write_blob(self.text.as_bytes(), out, offset);
             write_bytes(&self.flags.to_le_bytes(), out, offset);
+            write_blob(self.opens.as_bytes(), out, offset);
         }
     }
 
     impl<'a> LookupEntry<'a> {
         /// Build a record; encoding validates its bounds.
-        pub const fn new(title: &'a str, text: &'a str, flags: u32) -> Self {
-            Self { title, text, flags }
+        pub const fn new(title: &'a str, text: &'a str, flags: u32, opens: &'a str) -> Self {
+            Self {
+                title,
+                text,
+                flags,
+                opens,
+            }
         }
     }
 

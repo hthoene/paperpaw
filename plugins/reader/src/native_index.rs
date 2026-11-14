@@ -82,6 +82,7 @@ pub fn layout_text(
     reading: &Reading,
     display: (u16, u16, u16),
     whole_pages: bool,
+    filtered: u64,
 ) -> Result<String, Error> {
     let mut text = String::new();
     text.try_reserve(96).map_err(|_| Error::NoMemory)?;
@@ -110,6 +111,10 @@ pub fn layout_text(
         reading.book,
     )
     .map_err(|_| Error::NoMemory)?;
+    // The text filters' rules (none: the name stays as it was).
+    if filtered != 0 {
+        write!(text, "/f{filtered:x}").map_err(|_| Error::NoMemory)?;
+    }
     Ok(text)
 }
 

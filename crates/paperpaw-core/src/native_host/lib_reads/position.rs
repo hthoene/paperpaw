@@ -134,7 +134,7 @@ pub(super) fn stored(
     reads: &CatalogReads,
     book: BookRef<'_>,
 ) -> Result<Option<StoredPosition>, i32> {
-    reads.with_path(book, |path| {
+    reads.with_book_file(book, |path| {
         if positions::try_load(&*reads.storage, path)
             .map_err(fail)?
             .is_none()
@@ -176,7 +176,7 @@ pub(super) fn write(
     from_sync: bool,
     busy: &dyn Fn(&str) -> bool,
 ) -> Result<(), i32> {
-    reads.with_path(book, |path| {
+    reads.with_book_file(book, |path| {
         if busy(path) {
             return Err(ERR_BUSY);
         }

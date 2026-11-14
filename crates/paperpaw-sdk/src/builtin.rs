@@ -670,6 +670,26 @@ pub mod settings {
     pub const FOCUS_FILL: &str = "core.focus.fill";
     pub const FOCUS_RING: &str = "core.focus.ring";
     pub const FOCUS_SOFT: &str = "core.focus.soft";
+    /// Whether sheets, dialogs and chips cast a hard shadow: one of
+    /// [`widgets::SHADOWS`](crate::widgets::SHADOWS). None where a theme
+    /// does not say.
+    pub const UI_SHADOW: Setting<Text> = Setting::new("core.ui-shadow");
+    /// The frame of sheets, dialogs and chips: [`FRAME_OWN`] (each as it
+    /// always was) or one of [`widgets::FRAMES`](crate::widgets::FRAMES).
+    pub const UI_FRAME: Setting<Text> = Setting::new("core.ui-frame");
+    pub const FRAME_OWN: &str = "core.frame.own";
+    /// How much room the interface leaves between and round its parts:
+    /// less, as it was, or more. The size of the text stays.
+    pub const UI_DENSITY: Setting<Text> = Setting::new("core.ui-density");
+    pub const DENSITY_COMPACT: &str = "core.density.compact";
+    pub const DENSITY_REGULAR: &str = "core.density.regular";
+    pub const DENSITY_ROOMY: &str = "core.density.roomy";
+    /// How buttons that are not chosen look: outlined (as they were),
+    /// filled with a card's colour, or flat (the text alone).
+    pub const UI_BUTTON: Setting<Text> = Setting::new("core.ui-button");
+    pub const BUTTON_OUTLINED: &str = "core.button.outlined";
+    pub const BUTTON_FILLED: &str = "core.button.filled";
+    pub const BUTTON_FLAT: &str = "core.button.flat";
     /// The lines between rows: light, faint from the text, none.
     pub const UI_SEPARATORS: Setting<Text> = Setting::new("core.ui-separators");
     pub const SEPARATORS_LINE: &str = "core.separators.line";

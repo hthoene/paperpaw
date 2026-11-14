@@ -70,7 +70,7 @@ impl Pages for Stage<'_, '_> {
             if self.open.page.is_none() {
                 let page = self.open.lay(self.host, self.docs, setup, start)?;
                 self.open.page = Some(page);
-                self.open.laid = Some(setup.key());
+                self.open.laid = Some(self.open.key(setup));
             }
             return self.open.page.as_ref().map(f).ok_or(Error::State);
         }

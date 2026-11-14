@@ -1,17 +1,16 @@
 //! What the device has installed and what goes on with the installs, as the
-//! screens read it (host-free): the rows sorted and looked up in the record of
-//! the store's installs, and the activity put into `Installs`.
+//! screens read it (host-free): the rows as the registry gives them, who put
+//! each version in place included, sorted; and the activity put into
+//! `Installs`.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
     reason = "fixture errors fail the tests"
 )]
-use paperpaw_plugin_store::native_install::INSTALLS_FILE;
 use paperpaw_plugin_store::native_installs::{Activity, HostInstalls, Row, Snapshot};
 use paperpaw_plugin_store::native_page::{Kind, Origin, Trouble};
 use paperpaw_plugin_store::native_queue::{Mark, Queue};
 use paperpaw_plugin_store::native_screens::{Installs, Step};
-use paperpaw_sdk::{MemoryStorage, Storage};
 
 fn row(id: &str, kind: Kind, version: &str) -> Row {
     Row::new(id, kind, true, false, version, None).unwrap()
@@ -36,8 +35,7 @@ fn rows() -> Vec<Row> {
 
 #[test]
 fn the_rows_are_sorted_and_found_by_id() {
-    let card = MemoryStorage::new();
-    let snapshot = Snapshot::settle(rows(), &card).unwrap();
+    let snapshot = Snapshot::settle(rows());
     let ids: Vec<_> = snapshot.rows().iter().map(|r| r.id.as_str()).collect();
     assert_eq!(ids, ["alpha", "beta", "builtin", "zeta"]);
     let beta = snapshot.have("beta").unwrap();
@@ -49,43 +47,35 @@ fn the_rows_are_sorted_and_found_by_id() {
 }
 
 #[test]
-fn without_a_record_the_plugins_installed_are_the_stores_once() {
-    let card = MemoryStorage::new();
-    let snapshot = Snapshot::settle(rows(), &card).unwrap();
-    // Built in ones are no one's install; the others count as the store's.
-    assert_eq!(snapshot.have("builtin").unwrap().origin, Origin::Local);
-    assert_eq!(snapshot.have("alpha").unwrap().origin, Origin::Store);
-    assert_eq!(snapshot.have("zeta").unwrap().release, Some("1.0.0"));
-    assert!(card.exists(INSTALLS_FILE));
-    // A plugin that came by another way later is the reader's own.
-    let mut later = rows();
-    later.push(row("gamma", Kind::Data, "0.1.0"));
-    let snapshot = Snapshot::settle(later, &card).unwrap();
-    assert_eq!(snapshot.have("gamma").unwrap().origin, Origin::Local);
-    assert_eq!(snapshot.have("gamma").unwrap().release, None);
-}
-
-#[test]
-fn a_record_names_the_release_the_store_installed() {
-    let card = MemoryStorage::new();
-    card.write(
-        INSTALLS_FILE,
-        b"alpha\t1.2.0-beta.2\nalpha\t1.1.0\nzeta\t0.9.0\n",
-    )
-    .unwrap();
-    let snapshot = Snapshot::settle(rows(), &card).unwrap();
+fn a_version_a_store_installed_is_the_stores_as_it_named_it() {
+    // Registry flags: bit 0 enabled, bit 1 restart needed, bit 5 installed by
+    // a store.
+    let store = 1 | (1 << 5);
+    let alpha = Row::from_registry("alpha", Kind::Code, store, ("1.2.0-beta.2", ""), 0).unwrap();
+    let zeta = Row::from_registry("zeta", Kind::Data, 1, ("1.0.0", ""), 0).unwrap();
+    // Built-in and linked plugins are never a store's, whatever the bit says.
+    let linked = Row::from_registry("linked", Kind::BuiltIn, store, ("1.0.0", ""), 0).unwrap();
+    // The update waiting for the restart is the version that counts.
+    let beta = Row::from_registry("beta", Kind::Code, store, ("1.0.0", "1.1.0"), 10).unwrap();
+    let snapshot = Snapshot::settle(vec![zeta, linked, beta, alpha]);
     let alpha = snapshot.have("alpha").unwrap();
     assert_eq!(alpha.origin, Origin::Store);
-    // The numbers of 1.2.0 are those of the beta the store named.
+    // The release as the store named it, its pre-release with it.
     assert_eq!(alpha.release, Some("1.2.0-beta.2"));
-    // 1.0.0 is not a version the store installed.
-    assert_eq!(snapshot.have("zeta").unwrap().origin, Origin::Local);
+    assert!(alpha.enabled && !alpha.restart_needed);
+    let zeta = snapshot.have("zeta").unwrap();
+    assert_eq!((zeta.origin, zeta.release), (Origin::Local, None));
+    let linked = snapshot.have("linked").unwrap();
+    assert_eq!((linked.origin, linked.release), (Origin::Local, None));
+    let beta = snapshot.have("beta").unwrap();
+    assert_eq!((beta.origin, beta.release), (Origin::Store, Some("1.1.0")));
+    assert!(beta.restart_needed && beta.version == "1.1.0");
+    assert_eq!(beta.trouble, Some(Trouble::OtherBuild));
 }
 
 #[test]
 fn the_activity_is_what_the_screens_read() {
-    let card = MemoryStorage::new();
-    let snapshot = Snapshot::settle(rows(), &card).unwrap();
+    let snapshot = Snapshot::settle(rows());
     let mut activity = Activity::default();
     let idle = HostInstalls::new(&snapshot, &activity);
     assert_eq!(idle.step("alpha"), Step::Idle);
@@ -145,8 +135,7 @@ fn the_notes_are_kept_once_and_the_job_follows_its_plugin() {
 
 #[test]
 fn the_restart_list_is_the_snapshots_waiting_plugins() {
-    let card = MemoryStorage::new();
-    let snapshot = Snapshot::settle(rows(), &card).unwrap();
+    let snapshot = Snapshot::settle(rows());
     let mut activity = Activity::default();
     activity.set_restart_needed(Some(&snapshot)).unwrap();
     assert_eq!(activity.restart_needed, ["beta"]);

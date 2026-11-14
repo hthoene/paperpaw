@@ -15,9 +15,10 @@ impl Open {
     /// The count of the layout now: the one open is kept if it is this
     /// layout's, else its file is removed and the layout's own is opened.
     pub(super) fn ensure_counter(&mut self, host: &Host<'_>, setup: &Setup) {
-        let key = setup.key();
+        let key = self.key(setup);
         let display = (key.display.0, key.display.1, key.display.2);
-        let Ok(layout) = native_index::layout_text(&setup.reading, display, self.whole_pages)
+        let Ok(layout) =
+            native_index::layout_text(&setup.reading, display, self.whole_pages, key.filtered)
         else {
             return;
         };

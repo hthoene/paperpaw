@@ -19,6 +19,10 @@ use paperpaw_sdk::{
 
 /// The lines a note takes at most.
 pub const NOTE_LINES: usize = 2;
+/// The lines a note takes at most in a row that shows its text whole.
+pub const WHOLE_NOTE_LINES: usize = 4;
+/// The lines a title takes at most in a row that shows its text whole.
+pub const WHOLE_TITLE_LINES: usize = 2;
 
 /// One row of an [`ItemList`]: a title, a value at the right, a note below.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -38,6 +42,13 @@ pub struct RowItem {
     /// A switch: on or off (the row is told as a switch to whoever asks what
     /// is shown); `None` for a row that is no switch.
     pub on: Option<bool>,
+    /// An input field's look: an outline round the row when it has no focus
+    /// (the settings' search), where other rows have a separator.
+    pub field: bool,
+    /// Its text is shown whole where it is long: the title wrapped to
+    /// [`WHOLE_TITLE_LINES`] and the note to [`WHOLE_NOTE_LINES`], not cut
+    /// with "…".
+    pub whole: bool,
 }
 
 /// An entry of an [`ItemList`].
@@ -79,6 +90,36 @@ impl Item {
             stepper: false,
             disabled: false,
             on: None,
+            field: false,
+            whole: false,
+        }))
+    }
+
+    /// A row that looks like a field to type in: outlined while it has no
+    /// focus.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when the text cannot be copied.
+    pub fn field(title: &str) -> Result<Self, Error> {
+        Ok(Self::Row(RowItem {
+            title: text::copy(title)?,
+            field: true,
+            ..RowItem::default()
+        }))
+    }
+
+    /// A row with a note below that shows its text whole: a long title wraps
+    /// to two lines and the note to four, where [`Item::noted`] cuts them.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when the texts cannot be copied.
+    pub fn whole(title: &str, value: &str, note: &str) -> Result<Self, Error> {
+        Ok(Self::Row(RowItem {
+            whole: true,
+            ..match Self::noted(title, value, note)? {
+                Self::Row(row) => row,
+                Self::Heading(_) => RowItem::default(),
+            }
         }))
     }
 
@@ -502,7 +543,7 @@ impl ItemList {
         drop(messages);
         let end = starts.get(page + 1).copied().unwrap_or(self.items.len());
         let mut body = Vec::new();
-        paint::push(&mut body, Paint::Fill(area, style.paper))?;
+        paint::push(&mut body, Paint::Fill(style.page(area), style.paper))?;
         let mut hits = Vec::new();
         let mut steps = Vec::new();
         let mut grip_rects = Vec::new();
@@ -904,18 +945,59 @@ pub(crate) fn item_height(
 ) -> Result<u16, Error> {
     match item {
         Item::Heading(_) => Ok(style.heading),
-        Item::Row(row) if row.note.is_empty() => Ok(style.row),
         Item::Row(row) => {
-            let lines = note_lines(font, style, width, &row.note, row.zone.is_some())?;
+            let (_, band) = title_lines(font, style, width, row)?;
+            if row.note.is_empty() {
+                return Ok(band);
+            }
+            let lines = note_lines(font, style, width, row)?;
             let line = crate::geometry::line_height(font, style.small)?;
             let notes =
                 crate::geometry::px((line * lines.len() as f32).min(crate::geometry::MAX_PX))?;
-            Ok(style
-                .row
-                .saturating_add(notes)
-                .saturating_add(style.gap / 2))
+            Ok(band.saturating_add(notes).saturating_add(style.gap / 2))
         }
     }
+}
+
+/// The lines of a row's title and the height of its first band: one line in
+/// a row, or, where the row shows its text whole and the title is too long
+/// for its column, the lines the title wraps to.
+fn title_lines(
+    font: &Font<'_>,
+    style: &Style,
+    width: u16,
+    row: &RowItem,
+) -> Result<(Vec<String>, u16), Error> {
+    let mut lines = Vec::new();
+    if row.whole && !row.stepper && !row.title.is_empty() {
+        let room = (f32::from(width) - 3.0 * f32::from(style.margin)).max(1.0);
+        let value = font.measure_text(style.text, &row.value)?.min(room * 0.4);
+        let title_room = (room - value).max(1.0);
+        lines = wrap_title(
+            |line| font.measure_text(style.text, line),
+            &row.title,
+            title_room,
+        )?;
+    }
+    if lines.len() < 2 {
+        return Ok((Vec::new(), style.row));
+    }
+    let line = crate::geometry::line_px(font, style.text)?;
+    let block = line.saturating_mul(lines.len() as u16);
+    Ok((lines, style.row.max(block.saturating_add(style.gap))))
+}
+
+/// The lines a title wraps to (at most [`WHOLE_TITLE_LINES`]): none where it
+/// fits on one line.
+fn wrap_title(
+    mut measure: impl FnMut(&str) -> Result<f32, Error>,
+    title: &str,
+    room: f32,
+) -> Result<Vec<String>, Error> {
+    if measure(title)? <= room {
+        return Ok(Vec::new());
+    }
+    text::wrap_with(measure, title, room, WHOLE_TITLE_LINES)
 }
 
 fn note_room(style: &Style, width: u16, zone: bool) -> f32 {
@@ -931,14 +1013,17 @@ fn note_lines(
     font: &Font<'_>,
     style: &Style,
     width: u16,
-    note: &str,
-    zone: bool,
+    row: &RowItem,
 ) -> Result<Vec<String>, Error> {
     text::wrap_with(
         |line| font.measure_text(style.small, line),
-        note,
-        note_room(style, width, zone),
-        NOTE_LINES,
+        &row.note,
+        note_room(style, width, row.zone.is_some()),
+        if row.whole {
+            WHOLE_NOTE_LINES
+        } else {
+            NOTE_LINES
+        },
     )
 }
 
@@ -981,6 +1066,46 @@ pub(crate) fn heading(
     )
 }
 
+/// The title and the value: on one line, or the lines a long title was
+/// wrapped to, centred in the band, the value beside the first.
+fn draw_title(
+    paint: &mut Vec<Paint>,
+    (font, style): (&Font<'_>, &Style),
+    cols: Rect,
+    row: &RowItem,
+    lines: &[String],
+    ink: paperpaw_sdk::Color,
+) -> Result<(), Error> {
+    if lines.is_empty() {
+        return columns(paint, font, style, cols, &row.title, &row.value, ink);
+    }
+    let line = crate::geometry::line_px(font, style.text)?;
+    let block = line.saturating_mul(lines.len() as u16);
+    let top = cols.y.saturating_add(cols.height.saturating_sub(block) / 2);
+    for (index, text) in lines.iter().enumerate() {
+        let at = top.saturating_add(line.saturating_mul(index as u16));
+        let rect = Rect::new(cols.x, at, cols.width, line);
+        let value = if index == 0 { row.value.as_str() } else { "" };
+        columns(paint, font, style, rect, text, value, ink)?;
+    }
+    Ok(())
+}
+
+/// What is behind a row: the focus, the separator, or a field's outline.
+fn row_backdrop(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    rect: Rect,
+    row: &RowItem,
+    focused: bool,
+) -> Result<(), Error> {
+    if row.field && !focused {
+        let (outline, radius, line) = field_outline(style, rect);
+        return paint::push(paint, Paint::Focus(outline, radius, Some(line), style.ink));
+    }
+    backdrop(paint, style, rect, focused)
+}
+
 pub(crate) fn draw_row(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
@@ -989,7 +1114,7 @@ pub(crate) fn draw_row(
     row: &RowItem,
     focused: bool,
 ) -> Result<Option<(Rect, Rect)>, Error> {
-    backdrop(paint, style, rect, focused)?;
+    row_backdrop(paint, style, rect, row, focused)?;
     paint::describe(
         paint,
         style.describing,
@@ -1006,7 +1131,8 @@ pub(crate) fn draw_row(
     } else {
         ink(style, focused)
     };
-    let mut band = Rect::new(rect.x, rect.y, rect.width, style.row.min(rect.height));
+    let (title_block, band_height) = title_lines(font, style, rect.width, row)?;
+    let mut band = Rect::new(rect.x, rect.y, rect.width, band_height.min(rect.height));
     let mut note_at = rect;
     if let Some(zone) = row.zone {
         let shift = zone_room(style).min(rect.width);
@@ -1063,16 +1189,16 @@ pub(crate) fn draw_row(
         }
         buttons = Some((minus, plus));
     }
-    columns(paint, font, style, cols, &row.title, &row.value, ink)?;
+    draw_title(paint, (font, style), cols, row, &title_block, ink)?;
     if row.note.is_empty() {
         return Ok(buttons);
     }
     let color = if focused && !style.ring {
-        style.paper
+        style.on_bar()
     } else {
         style.note
     };
-    let lines = note_lines(font, style, rect.width, &row.note, row.zone.is_some())?;
+    let lines = note_lines(font, style, rect.width, row)?;
     let line = crate::geometry::line_px(font, style.small)?;
     let mut y = band.y.saturating_add(band.height);
     for text in &lines {
@@ -1092,6 +1218,21 @@ pub(crate) fn draw_row(
         y = y.saturating_add(line);
     }
     Ok(buttons)
+}
+
+/// Where a field row's outline goes: its rectangle, corner radius and line
+/// (the focused row's own, drawn thin).
+fn field_outline(style: &Style, rect: Rect) -> (Rect, u32, u32) {
+    let inset = rect.inset(
+        (style.margin / 2).min(rect.width / 8),
+        style.line.min(rect.height / 8),
+    );
+    let radius = if inset.width < inset.height || !style.pill {
+        style.corner
+    } else {
+        u32::from(inset.height) / 2
+    };
+    (inset, radius, u32::from(style.line).max(1))
 }
 
 /// A small 3x3 grid at the left of `rect` with cell `zone` filled: the part of
@@ -1135,231 +1276,4 @@ const _: fn() = || {
 };
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use paperpaw_sdk::native::callbacks::FrameRect;
-
-    /// What a focus step asked of the host, and the areas it refuses.
-    #[derive(Default)]
-    struct Asked {
-        areas: Vec<FrameRect>,
-        whole: usize,
-        refuse_after: Option<usize>,
-    }
-
-    impl crate::list::Redraws for Asked {
-        fn area(&mut self, area: FrameRect) -> Result<(), Error> {
-            if self.refuse_after.is_some_and(|n| self.areas.len() >= n) {
-                return Err(Error::Full);
-            }
-            self.areas.push(area);
-            Ok(())
-        }
-        fn whole(&mut self) -> Result<(), Error> {
-            self.whole += 1;
-            Ok(())
-        }
-    }
-
-    /// A list drawn with rows 1 to 3 of 61 px from y 75 on its page, in a
-    /// region that began 10 px down the screen.
-    fn drawn() -> ItemList {
-        let mut list = ItemList::new(items("hrrrrr"));
-        list.hits = (1..4)
-            .map(|i| (Rect::new(0, 75 + 61 * (i as u16 - 1), 480, 61), i))
-            .collect();
-        list.origin = (0, 10);
-        list
-    }
-
-    #[test]
-    fn a_step_within_the_page_asks_for_its_two_rows() {
-        let mut asked = Asked::default();
-        drawn().redraw_focus_on(&mut asked, 1, 2).unwrap();
-        assert_eq!(
-            asked.areas,
-            [
-                FrameRect::new(0, 65, 480, 61),
-                FrameRect::new(0, 126, 480, 61)
-            ]
-        );
-        assert_eq!(asked.whole, 0);
-    }
-
-    #[test]
-    fn a_step_off_the_page_or_a_refused_area_asks_for_the_screen() {
-        // Row 4 is on the next page: the step turns it.
-        let mut asked = Asked::default();
-        drawn().redraw_focus_on(&mut asked, 3, 4).unwrap();
-        assert_eq!((asked.areas.len(), asked.whole), (0, 1));
-        // The host takes the first area and refuses the second.
-        let mut asked = Asked {
-            refuse_after: Some(1),
-            ..Asked::default()
-        };
-        drawn().redraw_focus_on(&mut asked, 2, 3).unwrap();
-        assert_eq!(asked.whole, 1);
-        // It refuses the first already.
-        let mut asked = Asked {
-            refuse_after: Some(0),
-            ..Asked::default()
-        };
-        drawn().redraw_focus_on(&mut asked, 2, 3).unwrap();
-        assert_eq!((asked.areas.len(), asked.whole), (0, 1));
-    }
-
-    fn items(spec: &str) -> Vec<Item> {
-        spec.chars()
-            .map(|c| {
-                if c == 'h' {
-                    Item::heading("h").unwrap()
-                } else {
-                    Item::row("r", "").unwrap()
-                }
-            })
-            .collect()
-    }
-
-    fn action(action: &str) -> Input<'_> {
-        Input::Action { now_ms: 0, action }
-    }
-
-    #[test]
-    fn a_value_is_replaced_in_place_and_a_heading_has_none() {
-        let mut list = ItemList::new(items("hrr"));
-        list.set_focus(2);
-        assert!(list.set_value(1, "42 %".into()));
-        assert!(!list.set_value(0, "x".into()), "a heading has no value");
-        assert!(!list.set_value(9, "x".into()));
-        assert_eq!(list.focus(), 2);
-        let Item::Row(row) = &list.items()[1] else {
-            panic!("a row")
-        };
-        assert_eq!((row.title.as_str(), row.value.as_str()), ("r", "42 %"));
-    }
-
-    #[test]
-    fn a_wiped_list_is_empty_and_its_focus_is_back_at_the_start() {
-        let mut list = ItemList::new(items("hrrr"));
-        list.set_focus(3);
-        list.wipe();
-        assert!(list.items().is_empty());
-        assert_eq!(list.focus(), 0);
-    }
-
-    #[test]
-    fn the_focus_starts_on_the_first_row_and_skips_headings() {
-        let list = ItemList::new(items("hrrhr"));
-        assert_eq!(list.focus(), 1);
-        assert_eq!(list.decide(&action("core.down")), ItemStep::Focus(2));
-        let mut list = list;
-        list.set_focus(2);
-        assert_eq!(list.decide(&action("core.down")), ItemStep::Focus(4));
-        assert_eq!(list.decide(&action("core.up")), ItemStep::Focus(1));
-        list.set_focus(4);
-        assert_eq!(list.decide(&action("core.down")), ItemStep::Focus(4));
-    }
-
-    #[test]
-    fn faint_rows_are_passed_by_the_focus_and_do_nothing_when_tapped() {
-        let mut spec = items("rrr");
-        if let Item::Row(row) = &mut spec[1] {
-            row.disabled = true;
-        }
-        let mut list = ItemList::new(spec);
-        assert_eq!(list.decide(&action("core.down")), ItemStep::Focus(2));
-        list.set_focus(2);
-        assert_eq!(list.decide(&action("core.up")), ItemStep::Focus(0));
-        // The focus never rests on one.
-        list.set_focus(1);
-        assert_eq!(list.focus(), 0);
-        list.hits = Vec::from([(Rect::new(0, 0, 10, 10), 1)]);
-        list.focus = 2;
-        assert_eq!(
-            list.decide(&Input::Gesture {
-                now_ms: 0,
-                position: Point::new(1, 1),
-                kind: InputGestureKind::Tap,
-            }),
-            ItemStep::Focus(2)
-        );
-    }
-
-    #[test]
-    fn replacing_keeps_the_focus_near_where_it_was() {
-        let mut list = ItemList::new(items("hrrrr"));
-        list.set_focus(4);
-        list.replace(items("hrr"));
-        assert_eq!(list.focus(), 2);
-        list.replace(items("rrrh"));
-        assert_eq!(list.focus(), 2);
-        list.replace(Vec::new());
-        assert_eq!(list.focus(), 0);
-    }
-
-    #[test]
-    fn a_heading_never_ends_a_page_alone() {
-        let list = items("rrhrr");
-        // Three rows fit; the heading would be last of the first page.
-        let starts = paginate(&list, &[10, 10, 10, 10, 10], 30).unwrap();
-        assert_eq!(starts, [0, 2]);
-        // A page that ends before the heading is left as it is.
-        let starts = paginate(&list, &[10, 10, 10, 10, 10], 20).unwrap();
-        assert_eq!(starts, [0, 2, 4]);
-    }
-
-    #[test]
-    fn pagination_survives_every_refused_allocation() {
-        let list = items("rrhrrrhrr");
-        crate::fail_alloc::sweep(|| paginate(&list, &[10; 9], 20).map(|starts| starts.len()));
-    }
-
-    #[test]
-    fn pages_follow_the_heights() {
-        let list = items("rrrr");
-        assert_eq!(paginate(&list, &[10, 25, 10, 10], 30).unwrap(), [0, 1, 2]);
-        assert_eq!(paginate(&items("rr"), &[40, 40], 30).unwrap(), [0, 1]);
-        assert_eq!(paginate(&list, &[40, 40], 30), Err(Error::Invalid));
-        assert_eq!(paginate(&[], &[], 30).unwrap(), [0]);
-    }
-
-    #[test]
-    fn page_actions_go_to_the_first_row_of_the_other_page() {
-        let mut list = ItemList::new(items("hrrhrr"));
-        list.starts = Vec::from([0, 3]);
-        assert_eq!(list.decide(&action("core.next-page")), ItemStep::Focus(4));
-        list.set_focus(5);
-        assert_eq!(list.decide(&action("core.prev-page")), ItemStep::Focus(1));
-        assert_eq!(list.decide(&action("core.confirm")), ItemStep::Chosen(5));
-    }
-
-    #[test]
-    fn a_long_press_holds_the_row_and_never_the_header() {
-        let mut list = ItemList::new(items("hr"));
-        list.hits = Vec::from([(Rect::new(0, 40, 100, 40), 1)]);
-        let press = |y| Input::Gesture {
-            now_ms: 0,
-            position: Point::new(5, y),
-            kind: InputGestureKind::LongPress,
-        };
-        assert_eq!(list.decide(&press(45)), ItemStep::Held(1));
-        assert_eq!(list.decide(&press(5)), ItemStep::Ignored);
-    }
-
-    #[test]
-    fn taps_choose_rows_and_headings_are_not_hit() {
-        let mut list = ItemList::new(items("hrr"));
-        list.hits = Vec::from([
-            (Rect::new(0, 40, 100, 40), 1),
-            (Rect::new(0, 80, 100, 40), 2),
-        ]);
-        let tap = |y| Input::Gesture {
-            now_ms: 0,
-            position: Point::new(5, y),
-            kind: InputGestureKind::Tap,
-        };
-        assert_eq!(list.decide(&tap(45)), ItemStep::Chosen(1));
-        assert_eq!(list.decide(&tap(100)), ItemStep::Chosen(2));
-        assert_eq!(list.decide(&tap(10)), ItemStep::Ignored);
-    }
-}
+mod tests;
