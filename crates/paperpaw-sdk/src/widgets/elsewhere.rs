@@ -83,6 +83,22 @@ impl Widgets {
         }
         offered
     }
+
+    /// Every widget for screens to show, registered here or declared
+    /// elsewhere (a native plugin's): the id, the translation key of the
+    /// name and the kind. For tools that list a build's widgets
+    /// ([`Widgets::iter`] has the registered ones only).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    #[must_use]
+    pub fn everywhere(&self) -> Vec<(Id, String, String)> {
+        let mut all = Vec::new();
+        for (id, title) in self.offered() {
+            let kind = self.kind_of(id.as_str()).unwrap_or_default().into_owned();
+            all.push((id, title, kind));
+        }
+        all
+    }
 }
 
 #[cfg(test)]
@@ -126,6 +142,24 @@ mod tests {
         let offered = widgets.offered();
         assert_eq!(offered.len(), 1);
         assert_eq!(offered[0].0.as_str(), "here.clock");
+    }
+
+    #[test]
+    fn tools_list_the_widgets_registered_and_declared_elsewhere_with_their_kinds() {
+        let mut widgets = widgets();
+        assert_eq!(widgets.everywhere().len(), 1);
+        widgets.set_declared_elsewhere(Box::new(declared));
+        let all = widgets.everywhere();
+        let all: Vec<(&str, &str, &str)> = all
+            .iter()
+            .map(|(id, title, kind)| (id.as_str(), title.as_str(), kind.as_str()))
+            .collect();
+        // The registered one first, as registered; a declaration of its id adds none.
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].0, "here.clock");
+        assert_eq!(all[0].1, "here.clock.title");
+        assert_eq!(all[1], DECLARED[0]);
+        assert_eq!(all[2], DECLARED[1]);
     }
 
     #[test]
