@@ -60,3 +60,27 @@ fn the_empty_start_card_reads_on_a_dark_card_and_on_a_paper_the_reader_chose() {
         assert!(dark > all / 3, "{extra}: no dark card ({dark} of {all})");
     }
 }
+
+/// The status line above the grid (Beta 3 showed the time and the battery there on
+/// every device): its look is read with `core.registry` `setting` for
+/// `home.status.paper`, which answers `NoSpace` in a 2,048 byte reply, so the
+/// strip stays empty (#257).
+#[test]
+#[ignore = "the status line draws nothing: the registry's `setting` answers NoSpace for home.status.paper (#257, Kernel)"]
+fn the_status_line_draws_in_the_strip_above_the_grid() {
+    for memory in [
+        paperpaw_platform::MemoryClass::Small,
+        paperpaw_platform::MemoryClass::Large,
+    ] {
+        let mut app = App::new(X4.with_memory(memory), Shared::memory(BASE_CONFIG, &[]));
+        app.home();
+        app.render();
+        let mut dark = 0;
+        for y in 0..60 {
+            for x in 0..480 {
+                dark += usize::from(app.dark(x, y));
+            }
+        }
+        assert!(dark > 20, "{memory:?}: {dark} dark pixels in the strip");
+    }
+}
