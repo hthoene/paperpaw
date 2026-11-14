@@ -34,35 +34,30 @@ const WARM_UP: usize = 8;
 /// Turns measured; each must stay under every ceiling.
 const MEASURED: usize = 30;
 
-/// `(slot, most entries one turn may make, why)`.
+/// `(slot, most entries one turn may make, why)`, for the sample page at the
+/// default size (the worst of 30 turns on the reader of #1488 in brackets).
 ///
-/// A page of the sample at the default size holds about 117 words. A word is
-/// drawn once per turn; a word that straddles two bands may be drawn twice,
-/// and the page furniture adds a few. `settings_read`: the reader reads its
-/// setup when it changes, not at each turn. The rest is a guard against a
-/// slot that grows without anyone seeing it.
+/// A word, and every other piece of text on the page, is drawn once per turn,
+/// not once per band as before (654 inked draws, 413 settings reads and 1,437
+/// entries in all on integration f19c3494b). The reader reads its setup when
+/// it changes, not at a turn. The rest guards a slot that grows unseen.
 const CEILINGS: &[(&str, u32, &str)] = &[
-    ("settings_read", 40, "read once and refreshed on change"),
-    ("text_draw_inked", 200, "once per word, not once per band"),
+    ("settings_read", 5, "read once and refreshed on change (0)"),
     (
-        "text_measure",
+        "text_draw_inked",
         300,
-        "layout of the next page, once per word (worst 234)",
+        "one per piece of text, not per band (261)",
     ),
+    ("text_measure", 300, "layout of the next page (230)"),
     (
         "storage_read_at",
-        200,
-        "card reads; the worst turn of 40 made N",
+        150,
+        "card reads; a chapter's first page (87)",
     ),
-    (
-        "service_call",
-        50,
-        "document service and status line; worst 28",
-    ),
+    ("service_call", 30, "document service and status line (17)"),
 ];
 
-/// All slots together, one turn: 1,437 before the fixes, of which 413 were
-/// settings and 654 inked words. What is left after them is about 600.
+/// All slots together, one turn (652 now).
 const TOTAL_CEILING: u32 = 800;
 
 fn press(device: &mut Device, state: ButtonState) {
