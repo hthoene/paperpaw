@@ -531,15 +531,14 @@ jobs:
       # made, as the release does.
       # The X3 takes the X4's builds (the same chip and fingerprint).
       - name: The store's first-party plugins fit the firmware
-        if: matrix.device != 'x3'
-        env:
-          FINGERPRINT: ${{ steps.native.outputs.fingerprint }}
+        if: matrix.device == 'x4'
         run: |
+          # Interface 7 (format 5): no fingerprint; the S3's files wait for the
+          # target-9 profile (the step below builds them without packing).
           out="$RUNNER_TEMP/plugins"
-          tools/plugin-files/build.sh "$DEVICE" "$out" --fingerprint "$FINGERPRINT"
           cargo build -q --release -p paperpaw-sign
           target/release/paperpaw-sign key "$RUNNER_TEMP/ci.key" > /dev/null
-          tools/plugin-files/sign.sh "$out" target/release/paperpaw-sign --key "$RUNNER_TEMP/ci.key"
+          tools/plugin-files7/build.sh x4 "$out" --key "$RUNNER_TEMP/ci.key"
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
           python3 tools/plugin-files/catalogue.py "$out" "$version" https://example.invalid/ci
       # Interface 7 (decision 142): every first-party plugin with a native

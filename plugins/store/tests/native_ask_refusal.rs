@@ -7,7 +7,7 @@
 )]
 #[path = "../../test-support/fail_alloc.rs"]
 mod fail_alloc;
-use paperpaw_plugin_store::native_ask::{self as ask, Decision, Faces, Have, Say};
+use paperpaw_plugin_store::native_ask::{self as ask, Decision, Have, Say};
 use paperpaw_plugin_store::native_model::Entry;
 use paperpaw_plugin_store::native_queue::Report;
 use paperpaw_plugin_store::native_request::{Last, REQUEST, Request};
@@ -128,15 +128,9 @@ fn the_requests_survive_refused_allocations() {
 #[test]
 fn the_offers_survive_refused_allocations() {
     let card = Card(MemoryStorage::new());
-    let lacks = Faces {
-        regular: true,
-        bold_built_in: false,
-        bold_from_pack: false,
-        pack_installed: false,
-    };
     fail_alloc::sweep(|| {
         fail_alloc::exempt(|| {
-            for name in ["queue.txt", "offer-chosen.txt", "styles-tries.txt"] {
+            for name in ["queue.txt", "offer-chosen.txt"] {
                 let _ = card.remove(name);
             }
         });
@@ -144,16 +138,13 @@ fn the_offers_survive_refused_allocations() {
         let rows = ask::rows(&have, true)?;
         let chosen = ask::choose(&rows, &have, true)?;
         ask::keep_chosen(&card, &chosen)?;
-        ask::styles_offer(&card, lacks, (true, true, true))?;
-        ask::styles_answered(&card, ask::PACK, 200)?;
-        ask::tries(&card)?;
         ask::without("a, b, c", "b")?;
         ask::name_of(&mut Host, "stats")?;
         let report = fail_alloc::exempt(|| Report {
             done: "A".into(),
             not: "Bold and italic".into(),
         });
-        ask::quiet_notices(&card, &mut Host, &report)?;
+        ask::quiet_notices(&mut Host, &report)?;
         ask::badge_text(&mut Host, ask::Badge::BeingAdded(2))?;
         Ok::<(), Error>(())
     });

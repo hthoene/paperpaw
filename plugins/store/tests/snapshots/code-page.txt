@@ -1,7 +1,0 @@
-Heading "Clock"
-Text "A clock on the home screen."
-Text "Code plugin for PaperPaw 0.4: runs with full access to this device."
-Text "By Someone"
-Text "Key ea4a 6c63 e29c 520a"
-Text "Version 1.0.0, 405 B · Licence: MIT"
-Row "Install, 405 B" (focused)

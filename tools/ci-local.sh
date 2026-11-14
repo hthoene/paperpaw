@@ -409,10 +409,9 @@ g_firmware-build() {
     run "firmware-build: SDK interface-7 entry packs and rejects misalignment" '
         env -u RUSTFLAGS CARGO_TARGET_DIR="$PWD/target/ci-local/abi7-sdk-entry" samples/abi7-sdk-entry/check.sh'
     run "firmware-build: the store's plugins fit the firmware" '
-        fp="$(cargo run -q --release -p paperpaw-sign -- fingerprint shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink)"
         out=target/ci-local/plugins
         rm -rf "$out"
-        tools/plugin-files/build.sh x4 "$out" --fingerprint "$fp"'
+        tools/plugin-files7/build.sh x4 "$out"'
 }
 
 g_release-versions() {
