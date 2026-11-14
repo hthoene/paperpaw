@@ -1322,6 +1322,15 @@ impl Kernel {
                 Err(error) => Err(error),
             };
             if let Err(error) = set {
+                // A widget's font may come with a plugin registered later
+                // (#262): the value waits until the start has hosted all.
+                let waits = self.native_registering
+                    && matches!(error, paperpaw_sdk::SettingError::InvalidValue)
+                    && crate::font_refresh::widget_fonts::is_setting(&id);
+                if waits {
+                    left.push((id, value, line));
+                    continue;
+                }
                 self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
             }
         }

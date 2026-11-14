@@ -10,7 +10,7 @@
 )]
 extern crate std;
 use super::super::shell::tests::FAIL_NTH;
-use super::tests::{add_pack, configured, held, kernel};
+use super::tests::{add_pack, admit_pack, configured, held, kernel};
 use crate::font_refresh::widget_fonts::{ALL, BOOK, GLOBAL, MENUS};
 use paperpaw_plugin_widgets::{NATIVE_GROUPS, NATIVE_SETTINGS};
 use paperpaw_sdk::{FontFace, Id, Instant, MemoryStorage, SettingKind, SettingValue, Settings};
@@ -66,10 +66,13 @@ fn choices(settings: &Settings, id: &str) -> Vec<String> {
 }
 
 #[test]
-fn every_widget_with_settings_gets_a_font_setting_once_the_plugins_are_hosted() {
+fn every_widget_with_settings_gets_a_font_setting_when_its_plugin_is_admitted() {
     for table in [false, true] {
         let mut kernel = kernel(table);
-        assert!(font_settings(&kernel.shared.settings).is_empty());
+        // There before the start: the shell reports the warnings about the
+        // configuration then.
+        let early = font_settings(&kernel.shared.settings);
+        assert_eq!(early.len(), NATIVE_GROUPS.len(), "table {table}");
         let before = held(&kernel.shared.settings);
         let kept = kernel.shared.settings.kept_specs().count();
         kernel.native_hosted();
@@ -124,7 +127,18 @@ fn a_family_the_configuration_has_for_a_widget_is_taken_and_open_at_the_start() 
     let config =
         "[widgets]\nday.font = Slab\nmoon.font = Gone\nnote.font = core.widgets.font.book\n";
     let mut kernel = configured(false, config);
-    // The fonts come with a plugin that registers after the widgets.
+    // The settings are there as the widgets' plugin is admitted, and a value
+    // that fits is set: nothing is "unknown" when the shell reports the
+    // warnings, which it does before the start.
+    assert_eq!(kernel.shared.settings.text("widgets.note.font"), BOOK);
+    let early = kernel.take_warnings();
+    assert!(
+        early.iter().all(|w| !w.message.contains(".font")),
+        "{early:?}"
+    );
+    // The fonts come with a plugin that registers after the widgets: the
+    // value naming one of them waited.
+    assert_eq!(kernel.shared.settings.text("widgets.day.font"), ALL);
     add_families(&mut kernel);
     assert!(kernel.shared.fonts.get("t.slab").is_none());
     kernel.native_hosted();
@@ -202,7 +216,10 @@ fn a_font_setting_the_plugin_declared_itself_is_left_to_it() {
             .iter()
             .all(|spec| !spec.id.as_str().ends_with(".font"))
     );
-    let mut kernel = kernel(false);
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    admit_pack(&mut kernel);
     // As if the pack had declared the day's itself.
     let own = paperpaw_sdk::SettingSpec::switch(
         "widgets.day.font",
@@ -225,7 +242,12 @@ fn a_font_setting_the_plugin_declared_itself_is_left_to_it() {
 fn without_room_the_widgets_left_out_follow_the_setting_for_all_and_a_warning_says_so() {
     let mut tried = 0;
     for nth in 1..256 {
-        let mut kernel = kernel(false);
+        // The pack admitted, its widgets' font settings not given yet.
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        admit_pack(&mut kernel);
+        assert!(font_settings(&kernel.shared.settings).is_empty());
         let _ = kernel.take_warnings();
         FAIL_NTH.with(|fail| fail.set(nth));
         kernel.offer_widget_fonts();

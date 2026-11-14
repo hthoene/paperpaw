@@ -71,6 +71,15 @@ pub(in crate::native_host) fn add_pack(kernel: &mut crate::Kernel, table: bool) 
         .unwrap();
 }
 
+/// The pack admitted and nothing more: without the steps that follow an
+/// admission (the font choices, the widgets' font settings).
+pub(in crate::native_host) fn admit_pack(kernel: &mut crate::Kernel) {
+    let depth = FlatDepth::try_new().unwrap();
+    kernel
+        .admit_native(hosted(), &depth, None, |_, _, _, _| {})
+        .unwrap();
+}
+
 fn ids(settings: &Settings) -> Vec<String> {
     let mut ids = Vec::new();
     settings

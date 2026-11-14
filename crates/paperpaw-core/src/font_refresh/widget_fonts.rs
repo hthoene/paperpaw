@@ -198,10 +198,10 @@ fn described(found: Found, families: &Families) -> Result<DescribedSettings, Des
 
 impl Kernel {
     /// Gives the widgets native plugins declared their font settings, those
-    /// that have none yet: after the plugins were hosted at the start (the
-    /// values the configuration has for them are set by the caller) and
-    /// after one was installed while running. Where the heap has no room a
-    /// warning says so and the widgets left out follow `core.widgets.font`.
+    /// that have none yet: after each plugin was admitted, and once more
+    /// when the start has hosted them all (the values the configuration has
+    /// for them are set by the caller). Where the heap has no room a warning
+    /// says so and the widgets left out follow `core.widgets.font`.
     pub(crate) fn offer_widget_fonts(&mut self) {
         if self.try_offer_widget_fonts().is_none() {
             self.try_warn_runtime(&[
@@ -213,23 +213,24 @@ impl Kernel {
         self.rest_settings();
     }
 
-    /// The start has hosted its native plugins: every widget's font setting,
-    /// now that the widgets and the fonts are known, with the values the
-    /// configuration has for them (kept until here), and their families open.
+    /// The start has hosted its native plugins: the settings a shortage
+    /// left out, the values that waited for a family a later plugin brought
+    /// (now refused with a warning if it is not there), and the families
+    /// chosen open.
     pub(crate) fn widget_fonts_hosted(&mut self) {
+        self.widget_fonts_admitted();
+        self.apply_widget_fonts();
+    }
+
+    /// A native plugin was admitted: its widgets get their font settings and
+    /// the values the configuration has for them. At the start this is
+    /// before the shell reports the warnings, so "unknown setting" is taken
+    /// back in time.
+    pub(crate) fn widget_fonts_admitted(&mut self) {
         self.offer_widget_fonts();
         self.apply_late_config();
         // The specs the values were checked against are not kept.
         self.rest_settings();
-        self.apply_widget_fonts();
-    }
-
-    /// A native plugin was admitted: one installed while running gets its
-    /// widgets' font settings now (at the start all do at once).
-    pub(crate) fn widget_fonts_admitted(&mut self) {
-        if !self.native_registering {
-            self.offer_widget_fonts();
-        }
     }
 
     fn try_offer_widget_fonts(&mut self) -> Option<()> {
