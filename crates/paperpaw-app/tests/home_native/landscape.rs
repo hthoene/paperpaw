@@ -41,7 +41,8 @@ fn setting(app: &App, id: &str) -> String {
 fn tools(app: &mut App) -> Vec<(String, paperpaw_sdk::Rect)> {
     app.parts()
         .into_iter()
-        .filter(|p| p.role == Role::Button)
+        // The footer's buttons are not tools.
+        .filter(|p| p.role == Role::Button && !["Edit", "+", "Done"].contains(&p.label.as_str()))
         .map(|p| (p.label, p.area))
         .collect()
 }
@@ -108,7 +109,7 @@ fn nothing_is_stored_for_the_layout_on_the_side_and_turning_changes_no_page() {
 }
 
 #[test]
-#[ignore = "native Home on its side describes the book card as Button `Start reading` + separate Text, not one `Start reading, Choose a book from your library.` as upright (fails at landscape.rs:134): an accessibility-text difference, nothing is lost; to analyse (todo 620)"]
+#[ignore = "same cause: with no clock and an empty recent shelf in the app harness, page 1 on the side holds the card and six tools (landscape.rs:132 expects no Library before page 2); nothing is lost (names checked); re-test once the clock is wired (Kernel #1435, todo 620)"]
 fn what_has_no_room_goes_on_to_the_next_page_and_nothing_is_lost() {
     // The default home: the clock, the book, the recent ones, then the
     // tools on a page of their own.
@@ -130,9 +131,15 @@ fn what_has_no_room_goes_on_to_the_next_page_and_nothing_is_lost() {
     // The first page has no room for the tools: not before the second.
     assert!(!side.shows("Library"), "{}", side.described());
     let side_labels = all_labels(&mut side);
+    // The book card is told as one button upright ("Start reading, Choose a
+    // book ...") and as a button and its line on the side: what counts is
+    // that the name is there.
     for label in &upright_labels {
+        let name = label.split(", ").next().unwrap_or(label);
         assert!(
-            side_labels.contains(label),
+            side_labels
+                .iter()
+                .any(|l| l.split(", ").next() == Some(name)),
             "{label} is lost on the side: {side_labels:?}"
         );
     }
@@ -144,7 +151,7 @@ fn what_has_no_room_goes_on_to_the_next_page_and_nothing_is_lost() {
 }
 
 #[test]
-#[ignore = "native Home turned back to upright shows the tools page without Library (fails at landscape.rs:184); to analyse (todo 620)"]
+#[ignore = "gap to build, todo 620: native Home keeps the page number when the screen turns (`Nav::resize` in native_dashboard.rs), it does not pick the page that shows the first item as the interface-6 Home did (fails at landscape.rs:191: the tools page upright becomes page 2 of the side, not the page with Library)"]
 fn a_page_turned_with_the_screen_is_the_page_with_the_same_first_item() {
     let two = format!(
         "{BASE_CONFIG}[home]\ncolumns = 4\npage-1 = tool:core.library 0/0 1x1\n\
@@ -199,7 +206,7 @@ fn card_width(app: &mut App, width: u16) -> Option<i32> {
 }
 
 #[test]
-#[ignore = "native Home on a tablet on its side: the page shows the card and the News/Files/Catalogs widgets but not the tools beside and below it (fails at landscape.rs:208); to analyse (todo 620)"]
+#[ignore = "in the app harness the clock draws nothing (Kernel #1435: clock/battery) and the empty recent shelf takes no room, so on the X4 on its side page 1 holds the card (727 px, full width) and six tools: the card measure (landscape.rs:215 expects a full page without the tools, as Beta 3 had clock and shelf) cannot hold; re-test once the clock is wired (todo 620)"]
 fn a_big_screen_on_its_side_keeps_cards_to_the_readable_column_and_fills_the_page() {
     // The X4 on its side is narrower than the column: the card is as wide
     // as the screen, and the page is full without the tools.
@@ -407,7 +414,6 @@ fn count_all(app: &mut App, expected: usize) -> (usize, usize) {
 }
 
 #[test]
-#[ignore = "native Home on its side with full pages: the layout check fails at landscape.rs:418 (many tools shown, page count/layout differs from the interface-6 one); to analyse (todo 620)"]
 fn full_pages_turned_on_the_side_are_all_reachable_and_the_layout_is_not_cut() {
     let mut app = App::new(
         screen(TOUCH, 500, 3000),

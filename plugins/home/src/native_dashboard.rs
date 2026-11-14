@@ -694,11 +694,11 @@ impl Dashboard {
             let pencil = laid.pencil.as_ref().map(|(_, word)| word.as_str());
             // A tool is told by its whole name, not by the first line of it.
             let tool_name = match target.owner {
+                // The index is the cell's, widgets' cells among them.
                 Owner::Tool(n) => laid
                     .cells
-                    .iter()
+                    .get(n)
                     .filter(|cell| cell.face.is_some())
-                    .nth(n)
                     .map(|cell| cell.name.as_str()),
                 _ => None,
             };
@@ -860,6 +860,8 @@ impl Dashboard {
                     }
                     Ok(Handled::Yes)
                 }
+                // Arranging keeps the page: a swipe is not the kernel's page turn.
+                Touch::Pass if self.editing => Ok(Handled::Yes),
                 Touch::Pass => Ok(Handled::No),
             },
             _ => Ok(Handled::No),
