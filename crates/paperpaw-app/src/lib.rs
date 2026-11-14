@@ -621,13 +621,8 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
 
 /// The network settings of every networked first-party plugin the app registers.
 #[cfg(not(feature = "native-linked"))]
-pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
-    "fonts-browser",
-    "mail",
-    "news",
-    "transfer",
-    "vocabulary",
-);
+pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] =
+    paperpaw_core::network_settings!("fonts-browser", "mail", "news", "transfer", "vocabulary",);
 
 /// The indexes of the first-party plugins' translation catalogs, made
 /// when the program was built (see `build.rs`): their catalogs keep none
