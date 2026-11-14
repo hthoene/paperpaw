@@ -1,0 +1,3 @@
+### Changed
+
+- **Mail runs on interface 7 only** (#228). The interface-6 mail is gone: the folders, the list of mails, the reader, the compose window, the five home widgets (unread, latest, starred, mailbox, write a mail) and the IMAP and SMTP sessions are the native plugin's. The texts are the same in English and German. Mail is no longer built into the app or offered as an interface-6 plugin file; no build offers it until the host switches the native plugins on, as for the other ports. Choosing a provider does not fill in the servers yet (it waits for the host's setting-changed event); the servers are typed in.

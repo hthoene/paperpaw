@@ -33,3 +33,4 @@ transfer
 wifi
 widgets
 notes-vault
+mail

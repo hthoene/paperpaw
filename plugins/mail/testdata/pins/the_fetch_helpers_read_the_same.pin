@@ -1,0 +1,14 @@
+""	Some(42)
+""	Some("42")
+""	Some(42)
+""	Some("42")
+""	Some(1000)
+""	Some("1000")
+""	None
+""	None
+""	None
+""	None
+""	None
+""	Some("d")
+""	["\\Seen", "\\Answered", "\\Deleted"]
+""	"SAD"

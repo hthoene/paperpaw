@@ -6,7 +6,7 @@
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 use paperpaw_plugin_mail::native_model::imap::{self as new_imap, Fault};
 use paperpaw_plugin_mail::native_model::smtp as new_smtp;
-use paperpaw_plugin_mail::{imap, smtp};
+mod pin;
 
 /// A small deterministic generator, so that failures repeat.
 struct Rng(u64);
@@ -68,30 +68,23 @@ const LINES: &[&str] = &[
     "*",
 ];
 
-fn old_response(line: &[u8]) -> String {
-    format!("{:?}", imap::response(line))
-}
-
 fn new_response(line: &[u8]) -> String {
     format!("{:?}", new_imap::response(line).unwrap())
 }
 
 #[test]
 fn fixed_lines_are_read_the_same() {
+    let mut pin = pin::Pin::new("fixed_lines_are_read_the_same");
     for line in LINES {
         let bytes = line.as_bytes();
-        assert_eq!(new_response(bytes), old_response(bytes), "{line:?}");
-        assert_eq!(
+        pin.check(format!("{line:?}"), new_response(bytes));
+        pin.check(
+            format!("{line:?}"),
             format!("{:?}", new_imap::tokens(bytes).unwrap()),
-            format!("{:?}", imap::tokens(bytes)),
-            "{line:?}"
         );
-        assert_eq!(
-            new_imap::literal_at_end(bytes),
-            imap::literal_at_end(bytes),
-            "{line:?}"
-        );
+        pin.check(format!("{line:?}"), new_imap::literal_at_end(bytes));
     }
+    pin.finish();
 }
 
 fn random_line(rng: &mut Rng) -> Vec<u8> {
@@ -161,25 +154,25 @@ fn random_line(rng: &mut Rng) -> Vec<u8> {
 
 #[test]
 fn random_lines_are_read_the_same() {
+    let mut pin = pin::Pin::new("random_lines_are_read_the_same");
     let mut rng = Rng(3);
     for _ in 0..6000 {
         let line = random_line(&mut rng);
-        assert_eq!(new_response(&line), old_response(&line), "{line:?}");
-        assert_eq!(
+        pin.fold(format!("{line:?}"), new_response(&line));
+        pin.fold(
+            format!("{line:?}"),
             format!("{:?}", new_imap::tokens(&line).unwrap()),
-            format!("{:?}", imap::tokens(&line)),
-            "{line:?}"
         );
-        assert_eq!(new_imap::literal_at_end(&line), imap::literal_at_end(&line));
+        pin.fold("", new_imap::literal_at_end(&line));
     }
+    pin.finish();
 }
 
 #[test]
 fn the_fetch_helpers_read_the_same() {
+    let mut pin = pin::Pin::new("the_fetch_helpers_read_the_same");
     let line = b"* 12 FETCH (UID 42 FLAGS (\\Seen \\Answered \\Deleted) RFC822.SIZE 1000 INTERNALDATE \"d\")";
-    let (Some(imap::Response::Untagged(imap::Untagged::Fetch { items: old, .. })), Some(new)) =
-        (imap::response(line), new_imap::response(line).unwrap())
-    else {
+    let Some(new) = new_imap::response(line).unwrap() else {
         panic!("not a fetch");
     };
     let new_imap::Response::Untagged(new_imap::Untagged::Fetch { items: new, .. }) = new else {
@@ -193,23 +186,19 @@ fn the_fetch_helpers_read_the_same() {
         "nothing",
         "INTERNALDATE",
     ] {
-        assert_eq!(
-            new_imap::fetch_number(&new, key),
-            imap::fetch_number(&old, key)
-        );
-        assert_eq!(new_imap::fetch_text(&new, key), imap::fetch_text(&old, key));
+        pin.check("", new_imap::fetch_number(&new, key));
+        pin.check("", new_imap::fetch_text(&new, key));
     }
     let flags = new_imap::fetch_flags(&new).unwrap();
-    assert_eq!(flags, imap::fetch_flags(&old));
-    assert_eq!(
-        new_imap::flag_letters(&flags).unwrap(),
-        imap::flag_letters(&flags)
-    );
+    pin.check("", &(flags));
+    pin.check("", new_imap::flag_letters(&flags).unwrap());
     assert_eq!(new_imap::fetch_flags(&[]).unwrap(), Vec::<String>::new());
+    pin.finish();
 }
 
 #[test]
 fn quoting_and_mailbox_names_are_the_same() {
+    let mut pin = pin::Pin::new("quoting_and_mailbox_names_are_the_same");
     for text in [
         "",
         "plain",
@@ -217,11 +206,8 @@ fn quoting_and_mailbox_names_are_the_same() {
         "tab\tand\nnewline\u{7f}",
         "caf\u{e9} \u{4e16}\u{754c}",
     ] {
-        assert_eq!(new_imap::quoted(text).unwrap(), imap::quoted(text));
-        assert_eq!(
-            new_imap::quoted_secret(text).unwrap().as_str(),
-            imap::quoted(text)
-        );
+        pin.fold("", new_imap::quoted(text).unwrap());
+        pin.fold("", new_imap::quoted_secret(text).unwrap().as_str());
     }
     for name in [
         "INBOX",
@@ -240,10 +226,9 @@ fn quoting_and_mailbox_names_are_the_same() {
         "&AOQ,",
         "",
     ] {
-        assert_eq!(
+        pin.fold(
+            format!("{name:?}"),
             new_imap::mailbox_display(name).unwrap(),
-            imap::mailbox_display(name),
-            "{name:?}"
         );
     }
     let mut rng = Rng(8);
@@ -252,16 +237,17 @@ fn quoting_and_mailbox_names_are_the_same() {
         let name: String = (0..rng.below(14))
             .map(|_| alphabet[rng.below(alphabet.len())])
             .collect();
-        assert_eq!(
+        pin.fold(
+            format!("{name:?}"),
             new_imap::mailbox_display(&name).unwrap(),
-            imap::mailbox_display(&name),
-            "{name:?}"
         );
     }
+    pin.finish();
 }
 
 #[test]
 fn the_line_buffer_cuts_lines_and_literals_the_same() {
+    let mut pin = pin::Pin::new("the_line_buffer_cuts_lines_and_literals_the_same");
     let mut rng = Rng(21);
     for _ in 0..200 {
         let mut input = Vec::new();
@@ -270,25 +256,25 @@ fn the_line_buffer_cuts_lines_and_literals_the_same() {
             input.extend_from_slice(&line);
             input.extend_from_slice(["\r\n", "\n", "\r\n", "\r"][rng.below(4)].as_bytes());
         }
-        let (mut old, mut new) = (imap::LineBuffer::default(), new_imap::LineBuffer::default());
+        let mut new = new_imap::LineBuffer::default();
         let mut at = 0;
         while at < input.len() {
             let end = (at + 1 + rng.below(40)).min(input.len());
-            old.push(&input[at..end]);
             new.push(&input[at..end]).unwrap();
             at = end;
             loop {
-                let (a, b) = (old.line().unwrap(), new.line().unwrap());
-                assert_eq!(a, b);
-                if a.is_none() {
+                let line = new.line().unwrap();
+                pin.fold("", &line);
+                if line.is_none() {
                     break;
                 }
             }
             let n = rng.below(6);
-            assert_eq!(old.take(n), new.take(n).unwrap());
-            assert_eq!((old.len(), old.is_empty()), (new.len(), new.is_empty()));
+            pin.fold("", new.take(n).unwrap());
+            pin.fold("", (new.len(), new.is_empty()));
         }
     }
+    pin.finish();
 }
 
 #[test]
@@ -382,26 +368,18 @@ fn a_fetch_line_is_read_from_its_own_bytes() {
     assert_eq!(new_imap::fetch_number(&items(trailing), "UID"), Some(5));
     let broken = b"* 1 FETCH (UID 6 NAME \"\xff\xfe\")";
     assert_eq!(new_imap::fetch_number(&items(broken), "UID"), Some(6));
-    let Some(imap::Response::Untagged(imap::Untagged::Fetch { items: old, .. })) =
-        imap::response(trailing)
-    else {
-        panic!("not a fetch");
-    };
-    assert!(old.is_empty(), "interface 6 was expected to lose the items");
 }
 
 #[test]
 fn a_password_is_quoted_into_a_buffer_that_hides_it() {
+    let mut pin = pin::Pin::new("a_password_is_quoted_into_a_buffer_that_hides_it");
     let secret = new_imap::quoted_secret("pa\"ss\\word").unwrap();
     assert_eq!(secret.as_str(), "\"pa\\\"ss\\\\word\"");
     assert!(!format!("{secret:?}").contains("pa"));
     let line = new_smtp::auth_plain("ada", "hunter2").unwrap();
-    assert_eq!(line.as_str(), smtp::auth_plain("ada", "hunter2"));
+    pin.check("", line.as_str());
     assert!(!format!("{line:?}").contains("hunter2"));
-}
-
-fn old_reply(reply: &Option<smtp::Reply>) -> String {
-    format!("{reply:?}")
+    pin.finish();
 }
 
 fn new_reply(reply: &Option<new_smtp::Reply>) -> String {
@@ -410,6 +388,7 @@ fn new_reply(reply: &Option<new_smtp::Reply>) -> String {
 
 #[test]
 fn replies_are_put_together_the_same() {
+    let mut pin = pin::Pin::new("replies_are_put_together_the_same");
     let scripts: &[&[&str]] = &[
         &[
             "250-mail.example.org",
@@ -443,53 +422,31 @@ fn replies_are_put_together_the_same() {
         ],
     ];
     for script in scripts {
-        let (mut old, mut new) = (
-            smtp::ReplyParser::default(),
-            new_smtp::ReplyParser::default(),
-        );
+        let mut new = new_smtp::ReplyParser::default();
         for line in *script {
-            let (a, b) = (
-                old.line(line.as_bytes()),
-                new.line(line.as_bytes()).unwrap(),
-            );
-            assert_eq!(new_reply(&b), old_reply(&a), "{line:?}");
-            if let (Some(a), Some(b)) = (&a, &b) {
-                assert_eq!(
-                    format!("{:?}", new_smtp::Extensions::of(b)),
-                    format!("{:?}", smtp::Extensions::of(a))
-                );
-                assert_eq!(
-                    (b.is_ok(), b.is_temporary(), b.text()),
-                    (a.is_ok(), a.is_temporary(), a.text())
-                );
+            let b = new.line(line.as_bytes()).unwrap();
+            pin.check(format!("{line:?}"), new_reply(&b));
+            if let Some(b) = &b {
+                pin.check("", format!("{:?}", new_smtp::Extensions::of(b)));
+                pin.check("", (b.is_ok(), b.is_temporary(), b.text()));
             }
         }
     }
     // Too long a line, too long a reply, too many lines.
     let long = "x".repeat(1001);
-    let (mut old, mut new) = (
-        smtp::ReplyParser::default(),
-        new_smtp::ReplyParser::default(),
-    );
-    assert_eq!(
-        new_reply(&new.line(long.as_bytes()).unwrap()),
-        old_reply(&old.line(long.as_bytes()))
-    );
-    let (mut old, mut new) = (
-        smtp::ReplyParser::default(),
-        new_smtp::ReplyParser::default(),
-    );
+    let mut new = new_smtp::ReplyParser::default();
+    pin.check("", new_reply(&new.line(long.as_bytes()).unwrap()));
+    let mut new = new_smtp::ReplyParser::default();
     for _ in 0..200 {
         let line = "250-0123456789012345678901234567890123456789";
-        assert_eq!(
-            new_reply(&new.line(line.as_bytes()).unwrap()),
-            old_reply(&old.line(line.as_bytes()))
-        );
+        pin.check("", new_reply(&new.line(line.as_bytes()).unwrap()));
     }
+    pin.finish();
 }
 
 #[test]
 fn random_replies_are_put_together_the_same() {
+    let mut pin = pin::Pin::new("random_replies_are_put_together_the_same");
     let mut rng = Rng(77);
     const PIECES: &[&str] = &[
         "250",
@@ -513,42 +470,29 @@ fn random_replies_are_put_together_the_same() {
         "999",
     ];
     for _ in 0..400 {
-        let (mut old, mut new) = (
-            smtp::ReplyParser::default(),
-            new_smtp::ReplyParser::default(),
-        );
+        let mut new = new_smtp::ReplyParser::default();
         for _ in 0..rng.below(12) {
             let mut line = String::new();
             for _ in 0..rng.below(6) {
                 line.push_str(PIECES[rng.below(PIECES.len())]);
             }
-            let (a, b) = (
-                old.line(line.as_bytes()),
-                new.line(line.as_bytes()).unwrap(),
-            );
-            assert_eq!(new_reply(&b), old_reply(&a), "{line:?}");
-            if let (Some(a), Some(b)) = (&a, &b) {
-                assert_eq!(
-                    format!("{:?}", new_smtp::Extensions::of(b)),
-                    format!("{:?}", smtp::Extensions::of(a))
-                );
+            let b = new.line(line.as_bytes()).unwrap();
+            pin.fold(format!("{line:?}"), new_reply(&b));
+            if let Some(b) = &b {
+                pin.fold("", format!("{:?}", new_smtp::Extensions::of(b)));
             }
         }
     }
+    pin.finish();
 }
 
 #[test]
 fn smtp_commands_and_data_are_the_same() {
+    let mut pin = pin::Pin::new("smtp_commands_and_data_are_the_same");
     for address in ["a@b.c", "a@b.c>\r\nDATA", "<x y@z>", "caf\u{e9}@x.org", ""] {
-        assert_eq!(
-            new_smtp::mail_from(address).unwrap(),
-            smtp::mail_from(address)
-        );
-        assert_eq!(new_smtp::rcpt_to(address).unwrap(), smtp::rcpt_to(address));
-        assert_eq!(
-            new_smtp::valid_address(address),
-            smtp::valid_address(address)
-        );
+        pin.fold("", new_smtp::mail_from(address).unwrap());
+        pin.fold("", new_smtp::rcpt_to(address).unwrap());
+        pin.fold("", new_smtp::valid_address(address));
     }
     for message in [
         "a\n.b\n..c\n",
@@ -561,11 +505,7 @@ fn smtp_commands_and_data_are_the_same() {
         "\r",
         "\n\n.\n",
     ] {
-        assert_eq!(
-            new_smtp::data(message).unwrap(),
-            smtp::data(message),
-            "{message:?}"
-        );
+        pin.fold(format!("{message:?}"), new_smtp::data(message).unwrap());
     }
     let mut rng = Rng(5);
     let alphabet: Vec<char> = ".\r\nab \u{e9}".chars().collect();
@@ -573,12 +513,9 @@ fn smtp_commands_and_data_are_the_same() {
         let message: String = (0..rng.below(20))
             .map(|_| alphabet[rng.below(alphabet.len())])
             .collect();
-        assert_eq!(
-            new_smtp::data(&message).unwrap(),
-            smtp::data(&message),
-            "{message:?}"
-        );
+        pin.fold(format!("{message:?}"), new_smtp::data(&message).unwrap());
     }
+    pin.finish();
 }
 
 /// What hostile bytes may come to: an answer or a line past a bound, never a
