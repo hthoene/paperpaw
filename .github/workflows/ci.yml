@@ -39,12 +39,16 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  # The dev and test profiles keep only the line tables (function names, files
+  # and lines for backtraces and the heap report, as `profile.dev` says):
+  # less to compile and link, and smaller caches. Release builds are not touched.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   # "Format, lint, test" is the required check and is the job `check` at the
-  # end of this group: it passes only when both parts below passed (not
+  # end of this group: it passes only when all three parts below passed (not
   # skipped, not cancelled). The parts run side by side, which takes the
-  # lint (about 4 minutes) off the path of the tests (about 16).
+  # lint and the feature builds of the tests off the path of the workspace tests.
   lint:
     name: Format, lint, docs
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
@@ -113,6 +117,24 @@ jobs:
           done
           python3 tools/linebreak-table.py "$dir" --check
           PAPERPAW_UCD_TESTS="$dir" PAPERPAW_REQUIRE_UCD=1 cargo test -p paperpaw-text --lib linebreak
+
+  # The feature builds of the tests run beside the workspace run (they were
+  # its tail, about 16 minutes after it): the same commands, a job of their own.
+  test-features:
+    name: Tests (feature builds)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      # Reads the cache the test job saves (shared-key check); never saves.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: check
+          save-if: false
       # Builds without runtime font rendering use bitmap font packs; the plugins of the
       # store that carry a copy of their card files for the apps read the card without it;
       # the kernel without panes is that of the Xteink devices.
@@ -124,7 +146,7 @@ jobs:
       # may sleep (#248): each behaves the same parked as awake, also parked
       # again on standby, and 50 standby cycles leave no heap and no handle
       # behind. All need the app's `native-linked`, which the workspace run
-      # above leaves off.
+      # (job Tests) leaves off.
       - run: cargo test -p paperpaw-app --features native-linked --test flows --test sleep_parity --test sleep_cycles
       # Every linked plugin's screens keep the entry of their titles table (#248):
       # the test is compiled out unless the app's `native-linked*` features are on.
@@ -136,16 +158,17 @@ jobs:
     # Runs whatever the parts did (a failed or cancelled part must not leave
     # this check missing or skipped), but not for a draft pull request.
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    needs: [lint, test]
+    needs: [lint, test, test-features]
     runs-on: ubuntu-latest
     env:
       LINT: ${{ needs.lint.result }}
       TEST: ${{ needs.test.result }}
+      TEST_FEATURES: ${{ needs.test-features.result }}
     steps:
-      - name: Both parts passed
+      - name: All parts passed
         run: |
-          echo "lint: $LINT, test: $TEST"
-          [ "$LINT" = success ] && [ "$TEST" = success ]
+          echo "lint: $LINT, test: $TEST, test-features: $TEST_FEATURES"
+          [ "$LINT" = success ] && [ "$TEST" = success ] && [ "$TEST_FEATURES" = success ]
 
   screens:
     name: Screens checked (paperpaw-dev)
