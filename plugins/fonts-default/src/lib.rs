@@ -17,7 +17,7 @@
 //!   taken from Tabler Icons (MIT licence; see `tools/icons/subset.py`).
 //!
 //! [`DefaultFonts`] ships them as scalable fonts when built with the
-//! `outline` feature, else as bitmap packs. [`DefaultFontPacks`] always uses
+//! `outline` feature, else as bitmap packs. `DefaultFontPacks` always uses
 //! bitmap packs (feature `packs`).
 //!
 //! A lean build (`PAPERPAW_FONT_LEAN=1`, the X4's firmware, whose flash is
@@ -25,7 +25,7 @@
 //! reader chooses another font. Literata is a font of the card there:
 //! `fonts-default.literata` names the pack [`LITERATA_ON_CARD`] of the
 //! data plugin `literata-styles`, read while the reader has chosen
-//! Literata. [`LeanFontPacks`] registers that in any build, to emulate
+//! Literata. `LeanFontPacks` registers that in any build, to emulate
 //! such a device.
 //!
 //! The text fonts are under the SIL Open Font License 1.1. Users can bind
