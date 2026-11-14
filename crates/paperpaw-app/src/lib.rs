@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 11] = [
+pub const STORE_PLUGINS: [&str; 10] = [
     "aids",
     "fonts-browser",
     "format-docx",
@@ -89,7 +89,6 @@ pub const STORE_PLUGINS: [&str; 11] = [
     "notes-vault",
     "picture-home",
     "vocabulary",
-    "widgets",
 ];
 
 /// Whether PaperPaw ran on `storage` before (it keeps its folder or its
@@ -723,10 +722,6 @@ pub fn install_with(
     ))]
     {
         b = offered(b, store, paperpaw_plugin_news::News);
-    }
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-    {
-        b = offered(b, store, paperpaw_plugin_widgets::Widgets);
     }
     #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
     {

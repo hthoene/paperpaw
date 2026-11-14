@@ -58,12 +58,6 @@ path = "src/bin/vocabulary.rs"
 test = false
 bench = false
 
-[[bin]]
-name = "widgets"
-path = "src/bin/widgets.rs"
-test = false
-bench = false
-
 [dependencies]
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault" }
@@ -74,7 +68,6 @@ paperpaw-plugin-format-images = { path = "../../plugins/format-images" }
 paperpaw-plugin-mail = { path = "../../plugins/mail" }
 paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
-paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false }
 
 # As the firmware is built: small code, one unit, no unwinding.
 [profile.release]

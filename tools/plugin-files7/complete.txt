@@ -31,3 +31,4 @@ power
 stats
 transfer
 wifi
+widgets
