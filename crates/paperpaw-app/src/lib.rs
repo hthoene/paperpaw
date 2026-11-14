@@ -364,7 +364,7 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
 }
 
 /// Whether `id` is the id of a plugin linked into this program
-/// ([`NATIVE_PLUGINS`] of this build; none where nothing is linked). A plugin
+/// (`NATIVE_PLUGINS` of this build; none where nothing is linked). A plugin
 /// file on the card never takes such an id: the id keys a plugin's secrets and
 /// files, and a card folder is named by whoever made it.
 #[must_use]

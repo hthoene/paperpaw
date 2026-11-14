@@ -152,6 +152,8 @@ pub const paperpaw_native::host_glue::PLUGIN_PREFIX_BYTES: usize
 pub trait paperpaw_native::host_glue::Services
 pub fn paperpaw_native::host_glue::Services::alloc(&self, usize, usize) -> *mut u8
 pub unsafe fn paperpaw_native::host_glue::Services::dealloc(&self, *mut u8, usize, usize)
+pub fn paperpaw_native::host_glue::Services::enter(&self, &str) -> bool
+pub fn paperpaw_native::host_glue::Services::leave(&self, &str)
 pub fn paperpaw_native::host_glue::Services::micros(&self) -> u64
 pub unsafe fn paperpaw_native::host_glue::Services::realloc(&self, *mut u8, usize, usize, usize) -> *mut u8
 pub unsafe c fn paperpaw_native::host_glue::clock_micros(*mut core::ffi::c_void, *mut u64) -> i32

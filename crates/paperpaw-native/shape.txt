@@ -92,4 +92,4 @@ struct paperpaw_native::signature::BadSignature
 struct paperpaw_native::signature::Signature { signed_len: u32, key: [u8; 32], signature: [u8; 64] }
 struct paperpaw_native::signature::SignatureCheck { state: ed25519_compact::ed25519::VerifyingState, signed: [u8; 44], signed_len: u32, absorbed: u64 }
 trait paperpaw_native::bundle::Source { function read(&mut Self, u32, &mut [u8]) -> bool }
-trait paperpaw_native::host_glue::Services { function alloc(&Self, usize, usize) -> *mut u8, function dealloc(&Self, *mut u8, usize, usize), function realloc(&Self, *mut u8, usize, usize, usize) -> *mut u8, function micros(&Self) -> u64 }
+trait paperpaw_native::host_glue::Services { function alloc(&Self, usize, usize) -> *mut u8, function dealloc(&Self, *mut u8, usize, usize), function realloc(&Self, *mut u8, usize, usize, usize) -> *mut u8, function micros(&Self) -> u64, function enter(&Self, &str) -> bool, function leave(&Self, &str) }
