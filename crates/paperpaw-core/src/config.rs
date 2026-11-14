@@ -521,6 +521,9 @@ impl Kernel {
         if *id == core_settings::READING_FONT {
             self.apply_reading_font();
         }
+        if crate::font_refresh::widget_fonts::is_setting(id.as_str()) {
+            self.apply_widget_fonts();
+        }
         if *id == core_settings::FONT_SIZE {
             self.font_size_changed();
         }

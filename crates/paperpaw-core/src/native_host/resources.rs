@@ -48,6 +48,13 @@ pub(crate) enum FontKey {
         acquired: u64,
     },
     Role(FontRole),
+    /// The font the reader chose for a widget (`widget:<id>`), by the id it
+    /// had when acquired; the menus' font once it is closed or removed, and
+    /// for text larger than it has.
+    Widget {
+        id: Id,
+        acquired: u64,
+    },
     /// A font file of the plugin's own data folder (`data:<path>`), opened
     /// when acquired and owned by the handle (no registry); stale once the
     /// file is changed or removed.

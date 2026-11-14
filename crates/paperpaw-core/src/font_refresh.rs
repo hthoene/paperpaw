@@ -16,6 +16,8 @@ use paperpaw_sdk::{Command, FontError, IdError};
 
 use super::*;
 
+pub(crate) mod widget_fonts;
+
 /// The `parts` one after another, with fallible allocation.
 pub(crate) fn fallible_string(parts: &[&str]) -> Option<String> {
     let mut text = String::new();
@@ -84,8 +86,9 @@ impl Kernel {
         }
     }
 
-    /// The reading font and status font choices: the registered families
-    /// that are there to set text (not one whose pack the card lacks).
+    /// The reading font, status font and widget font choices: the registered
+    /// families that are there to set text (not one whose pack the card
+    /// lacks).
     pub(crate) fn offer_font_choices(&mut self) {
         let Ok(mut families) = self.shared.fonts.try_families() else {
             return self.try_warn_runtime(&[
@@ -102,9 +105,15 @@ impl Kernel {
             ],
             families.iter().copied(),
         );
+        let widgets = choice_list(
+            &[widget_fonts::MENUS, widget_fonts::BOOK],
+            families.iter().copied(),
+        );
         drop(families);
         self.offer_list(core_settings::READING_FONT.as_str(), reading);
         self.offer_list(core_settings::STATUS_FONT.as_str(), status);
+        self.offer_list(widget_fonts::GLOBAL, widgets);
+        self.offer_widget_families();
     }
 
     /// Chooses the reading font family from `core.reading-font` and loads

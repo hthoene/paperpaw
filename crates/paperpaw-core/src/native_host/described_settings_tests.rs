@@ -50,11 +50,17 @@ pub(in crate::native_host) fn kernel(table: bool) -> crate::Kernel {
 
 /// [`kernel`] with `config` as the shell's configuration, read at the build
 /// (before the pack registers).
-fn configured(table: bool, config: &str) -> crate::Kernel {
+pub(in crate::native_host) fn configured(table: bool, config: &str) -> crate::Kernel {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .user_config(config)
         .build()
         .unwrap();
+    add_pack(&mut kernel, table);
+    kernel
+}
+
+/// Registers the pack with `kernel`, as [`kernel`] says.
+pub(in crate::native_host) fn add_pack(kernel: &mut crate::Kernel, table: bool) {
     let depth = FlatDepth::try_new().unwrap();
     let fixed = match table {
         true => FixedTables::new(NATIVE_SETTINGS, NATIVE_GROUPS),
@@ -63,7 +69,6 @@ fn configured(table: bool, config: &str) -> crate::Kernel {
     kernel
         .register_native_fixed(hosted(), &depth, |_, _, _, _| {}, fixed, None)
         .unwrap();
-    kernel
 }
 
 fn ids(settings: &Settings) -> Vec<String> {

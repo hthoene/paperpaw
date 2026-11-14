@@ -121,3 +121,7 @@ pub(super) fn described(
 #[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
 #[path = "described_settings_tests.rs"]
 pub(super) mod tests;
+
+#[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
+#[path = "widget_fonts_tests.rs"]
+mod widget_fonts_tests;

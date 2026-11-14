@@ -712,6 +712,7 @@ impl BuilderParts {
         kernel.restore_timing();
         kernel.apply_reading_font();
         kernel.apply_status_font();
+        kernel.apply_widget_fonts();
         kernel.validate();
         kernel.rebuild_keymap();
         // Memory given back before the language is read in: its catalogs

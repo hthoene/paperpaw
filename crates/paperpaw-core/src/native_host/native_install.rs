@@ -257,7 +257,9 @@ impl crate::Kernel {
             self.offer_font_choices();
             self.apply_reading_font();
             self.apply_status_font();
+            self.apply_widget_fonts();
         }
+        self.widget_fonts_admitted();
         Ok(())
     }
 
@@ -863,6 +865,7 @@ impl crate::Kernel {
         if core::mem::take(&mut self.native_registering) {
             self.add_plugin_choices();
         }
+        self.widget_fonts_hosted();
         // Values for settings no plugin declared are not kept any longer.
         self.late_config = Vec::new();
         self.shrink_to_fit();
