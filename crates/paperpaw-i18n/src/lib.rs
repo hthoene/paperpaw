@@ -57,6 +57,7 @@ mod card;
 mod catalog;
 pub mod check;
 mod format;
+mod messages;
 mod plural;
 
 pub use built::{BuiltCatalogs, BuiltLanguage, BuiltLanguageTable, BuiltTable};
@@ -64,6 +65,7 @@ pub use card::{CatalogFile, MAX_MESSAGE, MAX_READ};
 pub use catalog::{Catalog, CatalogError, FixedIndexes, fingerprint};
 pub use catalog::{calendars, digit_systems};
 pub use format::Arg;
+pub use messages::{BuiltMessages, BuiltMessagesTable};
 pub use paperpaw_lang::{Direction, Lang};
 pub use plural::{PluralCategory, PluralRule, cldr_rules};
 
@@ -165,6 +167,19 @@ impl Translator {
     /// (call it once for each language).
     pub fn built_language(&mut self, table: &'static BuiltLanguage) {
         self.built_in(&table.catalogs, table.language, table.name);
+    }
+
+    /// The messages of one language built into the program without their
+    /// keys, by its build script (call it once for each language): one
+    /// catalog that answers for all their sources, which are not added.
+    /// It takes precedence as a catalog added now does.
+    pub fn built_messages(&mut self, table: &'static BuiltMessages) {
+        if table.keys.is_empty() {
+            return;
+        }
+        if let Some(catalog) = Catalog::messages(table) {
+            self.add(catalog);
+        }
     }
 
     fn built_in(&mut self, table: &'static BuiltCatalogs, language: &str, name: &str) {
