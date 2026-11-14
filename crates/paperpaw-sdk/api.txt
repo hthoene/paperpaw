@@ -3320,6 +3320,7 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::open(&mut self, pa
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::raise_input(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::screen_policy(&mut self, core::option::Option<paperpaw_sdk::native::ui::Instance>, paperpaw_sdk::native::ui::ScreenPolicy) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::screen_ready(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::set_hint(&mut self, paperpaw_sdk::native::ui::ButtonHint<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::set_key_layer(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::show_hints(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::speak(&mut self, paperpaw_sdk::native::ui::SpeechRequest<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
@@ -7294,6 +7295,12 @@ pub paperpaw_sdk::native::ui::TextWrite::Last
 #[non_exhaustive] pub enum paperpaw_sdk::native::ui::WidgetInputKind
 pub paperpaw_sdk::native::ui::WidgetInputKind::LongPress
 pub paperpaw_sdk::native::ui::WidgetInputKind::Tap
+pub struct paperpaw_sdk::native::ui::ButtonHint<'a>
+impl<'a> paperpaw_sdk::native::ui::ButtonHint<'a>
+pub fn paperpaw_sdk::native::ui::ButtonHint<'a>::hidden(&'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::ButtonHint<'a>::icon(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::ButtonHint<'a>::usual(&'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::ButtonHint<'a>::words(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub struct paperpaw_sdk::native::ui::HandoverId(_)
 impl paperpaw_sdk::native::ui::HandoverId
 pub const fn paperpaw_sdk::native::ui::HandoverId::get(self) -> u32
