@@ -1,0 +1,3 @@
+screen home.dashboard
+Button "Start reading, Choose a book from your library."
+Button "Edit"

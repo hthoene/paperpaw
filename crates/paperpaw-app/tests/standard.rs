@@ -332,6 +332,10 @@ fn a_plugin_reaches_the_reader_through_the_standard_ids() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked-reading",
+    ignore = "needs interface-6 page decorators, which the native reader does not host (removed with interface 6, #244)"
+)]
 fn a_decorators_marks_are_chosen_with_the_buttons() {
     let mut app = App::new();
     app.now += 100;

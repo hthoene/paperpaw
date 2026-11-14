@@ -73,6 +73,21 @@ impl Kernel {
         }
     }
 
+    /// [`Self::finish`] for the start: the services' pass and the commands go
+    /// on, up to `passes` times, while the services ask to run again now, and
+    /// only then the frame, so what the start's events open (the book read
+    /// last) is the first frame, not the home under it.
+    pub(crate) fn finish_settled(&mut self, passes: u32) -> Effects {
+        for _ in 0..passes.max(1) {
+            self.native_service_pump();
+            self.finish_commands();
+            if self.service_due().is_none_or(|at| at > self.now) {
+                break;
+            }
+        }
+        self.finish_frame()
+    }
+
     /// The commands, the work and the network of [`Self::finish`], after the
     /// services' pass. Its own frame: its locals are not on the stack while
     /// the services' pumps call the plugins (#250).
@@ -159,7 +174,7 @@ impl Kernel {
                         && region.intersection(&bounds) == Some(bounds)
                 }
             };
-            (whole, top.screen.grays(), top.screen.pictures_in_grays())
+            (whole, top.grays(), top.screen.pictures_in_grays())
         });
         let grays = whole && grays;
         let again = mem::take(&mut self.frame.again);

@@ -73,10 +73,67 @@ fn main() {
     let list = crates.join(",");
     println!("cargo::metadata=crates={list}");
     println!("cargo::rustc-env=PAPERPAW_APP_CRATES={list}");
+    plugin_versions(&crates);
     catalog_indexes(&crates);
     linked.sort_unstable();
     linked.dedup();
     native_catalogs(&linked);
+}
+
+/// Writes `plugin_versions.rs`: `(id, version)` of every plugin crate built,
+/// from the crate's own `Cargo.toml` (the version the plugin's file is named
+/// by), for the plugin manager's list of the linked native plugins.
+fn plugin_versions(crates: &[String]) {
+    let root = Path::new("../..");
+    let mut out = String::from("&[\n");
+    // The same versions as manifests kept in the program (#248, B part b).
+    let mut manifests = String::from("&[\n");
+    for id in crates
+        .iter()
+        .filter_map(|name| name.strip_prefix("paperpaw-plugin-"))
+    {
+        let file = root.join("plugins").join(id).join("Cargo.toml");
+        println!("cargo::rerun-if-changed={}", file.display());
+        let Ok(source) = std::fs::read_to_string(&file) else {
+            println!(
+                "cargo::warning=no {}: `{id}` has no version to list",
+                file.display()
+            );
+            continue;
+        };
+        let source = format!("\n{}", source.replace("\r\n", "\n"));
+        let package = source
+            .split("\n[package]\n")
+            .nth(1)
+            .and_then(|rest| rest.split("\n[").next())
+            .unwrap_or("");
+        let version = package.lines().find_map(|line| {
+            let value = line.strip_prefix("version = \"")?;
+            Some(value.strip_suffix('"')?.to_string())
+        });
+        match version {
+            Some(version) => {
+                let _ = writeln!(out, "    ({id:?}, {version:?}),");
+                let (numbers, pre) = version.split_once('-').unwrap_or((&version, ""));
+                let parts: Vec<&str> = numbers.split('.').collect();
+                if parts.len() == 3 && !version.contains('+') {
+                    let _ = writeln!(
+                        manifests,
+                        "    ({id:?}, paperpaw_core::sdk::Manifest::fixed(paperpaw_core::sdk::Id::new_static({id:?}), {id:?}, \"\", paperpaw_core::sdk::Version::of_package({:?}, {:?}, {:?}, {pre:?}))),",
+                        parts[0], parts[1], parts[2]
+                    );
+                }
+            }
+            None => println!("cargo::warning=`{id}` has no version of its own to list"),
+        }
+    }
+    out.push(']');
+    let dir = std::env::var("OUT_DIR").expect("OUT_DIR");
+    std::fs::write(Path::new(&dir).join("plugin_versions.rs"), out)
+        .expect("plugin_versions.rs written");
+    manifests.push(']');
+    std::fs::write(Path::new(&dir).join("plugin_manifests.rs"), manifests)
+        .expect("plugin_manifests.rs written");
 }
 
 /// Writes `catalog_indexes.rs`: the index of every catalog in the

@@ -65,56 +65,69 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 /// they name (`docs/abi/screens-input.md` section 2).
 #[must_use]
 pub const fn is_event_tag(tag: u32) -> bool {
-    matches!(
-        tag,
-        EVENT_TICK_TAG
-            | EVENT_STARTED_TAG
-            | EVENT_RESUME_TAG
-            | EVENT_SUSPEND_TAG
-            | EVENT_STOPPING_TAG
-            | EVENT_BATTERY_MEASURED_TAG
-            | EVENT_PAGE_TURNED_TAG
-            | EVENT_HTTP_DONE_TAG
-            | EVENT_HTTP_PROGRESS_TAG
-            | EVENT_SERVER_TAG
-            | EVENT_SERVED_REQUEST_TAG
-            | EVENT_SOCKET_TAG
-            | EVENT_BROADCAST_TAG
-            | EVENT_BOOK_OPENED_TAG
-            | EVENT_DOCUMENT_CLOSED_TAG
-            | EVENT_DOCUMENT_CHANGED_TAG
-            | EVENT_IMAGE_READY_TAG
-            | EVENT_LIBRARY_CHANGED_TAG
-            | EVENT_SPOKEN_TAG
-            | EVENT_LOOKUP_READY_TAG
-            | EVENT_BOOK_CLOSED_TAG
-            | EVENT_BOOK_FINISHED_TAG
-            | EVENT_BOOK_MOVED_TAG
-            | EVENT_BOOK_REMOVED_TAG
-            | EVENT_STACK_CHANGED_TAG
-            | EVENT_SETTING_CHANGED_TAG
-            | EVENT_PLUGINS_CHANGED_TAG
-            | EVENT_WIFI_CHANGED_TAG
-            | EVENT_FIRMWARE_CHANGED_TAG
-            | EVENT_INSTALL_DONE_TAG
-            | EVENT_POWER_CHANGED_TAG
-            | EVENT_STATUS_CHANGED_TAG
-            | EVENT_CHARGE_CHANGED_TAG
-            | EVENT_WIDGET_CHANGED_TAG
-            | EVENT_REGISTRY_CHANGED_TAG
-            | EVENT_PREVIEW_CHANGED_TAG
-            | EVENT_SCREEN_READY_TAG
-            | EVENT_WIFI_DONE_TAG
-            | EVENT_WORK_DUE_TAG
-            | EVENT_WORK_REFUSED_TAG
-            | EVENT_WORK_ALLOWED_TAG
-            | EVENT_WIFI_SCANNED_TAG
-            | EVENT_NETWORK_WANTED_TAG
-            | EVENT_NETWORK_IDLE_TAG
-            | EVENT_PLUGINS_REQUESTED_TAG
-            | EVENT_PLUGIN_ANSWERED_TAG
-    )
+    // A bit set, not a `match`: no jump table, which the firmware's frame scan
+    // cannot size where the function is not inlined. Every tag is below 128.
+    tag < 128 && (EVENT_TAG_BITS >> tag) & 1 == 1
 }
+
+const EVENT_TAG_LIST: [u32; 46] = [
+    EVENT_TICK_TAG,
+    EVENT_STARTED_TAG,
+    EVENT_RESUME_TAG,
+    EVENT_SUSPEND_TAG,
+    EVENT_STOPPING_TAG,
+    EVENT_BATTERY_MEASURED_TAG,
+    EVENT_PAGE_TURNED_TAG,
+    EVENT_HTTP_DONE_TAG,
+    EVENT_HTTP_PROGRESS_TAG,
+    EVENT_SERVER_TAG,
+    EVENT_SERVED_REQUEST_TAG,
+    EVENT_SOCKET_TAG,
+    EVENT_BROADCAST_TAG,
+    EVENT_BOOK_OPENED_TAG,
+    EVENT_DOCUMENT_CLOSED_TAG,
+    EVENT_DOCUMENT_CHANGED_TAG,
+    EVENT_IMAGE_READY_TAG,
+    EVENT_LIBRARY_CHANGED_TAG,
+    EVENT_SPOKEN_TAG,
+    EVENT_LOOKUP_READY_TAG,
+    EVENT_BOOK_CLOSED_TAG,
+    EVENT_BOOK_FINISHED_TAG,
+    EVENT_BOOK_MOVED_TAG,
+    EVENT_BOOK_REMOVED_TAG,
+    EVENT_STACK_CHANGED_TAG,
+    EVENT_SETTING_CHANGED_TAG,
+    EVENT_PLUGINS_CHANGED_TAG,
+    EVENT_WIFI_CHANGED_TAG,
+    EVENT_FIRMWARE_CHANGED_TAG,
+    EVENT_INSTALL_DONE_TAG,
+    EVENT_POWER_CHANGED_TAG,
+    EVENT_STATUS_CHANGED_TAG,
+    EVENT_CHARGE_CHANGED_TAG,
+    EVENT_WIDGET_CHANGED_TAG,
+    EVENT_REGISTRY_CHANGED_TAG,
+    EVENT_PREVIEW_CHANGED_TAG,
+    EVENT_SCREEN_READY_TAG,
+    EVENT_WIFI_DONE_TAG,
+    EVENT_WORK_DUE_TAG,
+    EVENT_WORK_REFUSED_TAG,
+    EVENT_WORK_ALLOWED_TAG,
+    EVENT_WIFI_SCANNED_TAG,
+    EVENT_NETWORK_WANTED_TAG,
+    EVENT_NETWORK_IDLE_TAG,
+    EVENT_PLUGINS_REQUESTED_TAG,
+    EVENT_PLUGIN_ANSWERED_TAG,
+];
+
+const EVENT_TAG_BITS: u128 = {
+    let mut bits = 0u128;
+    let mut at = 0;
+    while at < EVENT_TAG_LIST.len() {
+        bits |= 1u128 << EVENT_TAG_LIST[at];
+        at += 1;
+    }
+    bits
+};
 
 /// Whether the event with this tag must skip the per-plugin event queue limit and
 /// is never deferred or dropped (amendment S3): `event.suspend` and `event.stopping`.

@@ -654,6 +654,11 @@ impl crate::Kernel {
                 self.native_command_ready(index);
                 continue;
             }
+            // The policy the screen has already: nothing changes, so nothing is
+            // drawn again (a screen that says it at every show would draw twice).
+            if self.stack[index].policy == Some(change.flags) {
+                continue;
+            }
             let turns_on = change.flags & POLICY_GUARDS != 0 && !self.stack[index].guards();
             if turns_on
                 && crate::native_host::ui_guard::guard_on_allowed(

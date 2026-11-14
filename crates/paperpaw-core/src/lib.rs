@@ -469,7 +469,7 @@ impl Kernel {
             let text = String::from(self.shared.translator.tr(trouble.key()));
             self.output.commands.push(Command::Notify(text));
         }
-        self.finish_started()
+        self.finish_start()
     }
 
     /// Handles an input event.

@@ -8,9 +8,8 @@
 //! events); this moves bytes. A download to a file is written here in 4 KiB
 //! appends to the staged path core made (core renames it over the target); an
 //! upload from a file is read whole (a computer has the memory; the request
-//! still ends when its bytes stop coming). Serving (`listen`) is not backed on
-//! the desktop yet: a plugin that asks to serve is refused (`Refused`). Sockets
-//! are `native_sock`'s.
+//! still ends when its bytes stop coming). Serving (`listen`) is `native_serve`'s,
+//! pumped with the answers. Sockets are `native_sock`'s.
 //!
 //! **Redirects** are followed here by `paperpaw_http::follow`, the rules of
 //! `network.md` 3.1 that the other shells keep (at most 10; never from
@@ -38,7 +37,7 @@ use paperpaw_core::native_host::shell_wiring::{
 };
 use paperpaw_core::sdk::HttpError;
 use paperpaw_core::{HttpCall, HttpResponse};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NOT_FOUND, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NOT_FOUND};
 use paperpaw_platform::Storage;
 
 use crate::http::Http;
@@ -91,6 +90,8 @@ pub struct NativeNet {
     was_up: Cell<bool>,
     /// Redirects to `https` core was too busy to take.
     upgrades: RefCell<Vec<u32>>,
+    /// The servers (`native_serve`).
+    serving: crate::native_serve::Serving,
 }
 
 impl std::fmt::Debug for NativeNet {
@@ -108,12 +109,13 @@ impl NativeNet {
     pub fn new(storage: Rc<dyn Storage>, view: Rc<DeviceView>) -> Self {
         Self {
             http: RefCell::new(Http::new()),
-            storage,
+            storage: storage.clone(),
             view,
             pending: RefCell::new(HashMap::new()),
             demand: Cell::new(false),
             was_up: Cell::new(false),
             upgrades: RefCell::new(Vec::new()),
+            serving: crate::native_serve::Serving::new(storage),
         }
     }
 
@@ -121,6 +123,12 @@ impl NativeNet {
     #[must_use]
     pub fn in_flight(&self) -> usize {
         self.pending.borrow().len()
+    }
+
+    /// Whether a server runs (the loop looks again soon: nothing wakes it).
+    #[must_use]
+    pub fn serving(&self) -> bool {
+        self.serving.any()
     }
 
     /// Whether a network is wanted now (a request or server is open).
@@ -140,6 +148,7 @@ impl NativeNet {
         if lost {
             let _ = reports.network_lost();
         }
+        let served = self.serving.pump(reports);
         let told = self.pump_with(
             wait,
             &|id, done| {
@@ -149,7 +158,7 @@ impl NativeNet {
             &|id| reports.redirected_to_https(id),
         );
         let _ = reports.tick();
-        lost || told
+        lost || served || told
     }
 
     /// [`NativeNet::pump`] with what core is told through `finish` (a
@@ -310,17 +319,26 @@ impl ShellHttp for NativeNet {
         self.pending.borrow_mut().remove(&id);
     }
 
-    fn listen(&self, _server: u32, _port: u32, _address: &mut [u8]) -> Result<usize, ServerReason> {
-        Err(ServerReason::Refused)
+    fn listen(&self, server: u32, port: u32, address: &mut [u8]) -> Result<usize, ServerReason> {
+        // The sockets are the computer's; a plugin is not refused for a
+        // network that is not up (the emulated radio is the device's).
+        if !ShellNetwork::network_up(self) {
+            return Err(ServerReason::NoNetwork);
+        }
+        self.serving.listen(server, port, address)
     }
 
-    fn unlisten(&self, _server: u32) {}
-
-    fn reply(&self, _request: u32, _reply: &ServedReply<'_>) -> Result<(), i32> {
-        Err(ERR_UNSUPPORTED)
+    fn unlisten(&self, server: u32) {
+        self.serving.unlisten(server);
     }
 
-    fn close_served(&self, _request: u32, _status: u32) {}
+    fn reply(&self, request: u32, reply: &ServedReply<'_>) -> Result<(), i32> {
+        self.serving.reply(request, reply)
+    }
+
+    fn close_served(&self, request: u32, status: u32) {
+        self.serving.close_served(request, status);
+    }
 }
 
 impl ShellNetwork for NativeNet {
@@ -742,6 +760,27 @@ mod tests {
             body: body.to_vec(),
             ..HttpResponse::default()
         }
+    }
+
+    /// `core.net` serve on the computer: a plugin's server listens where a
+    /// network is up (it was refused before), and the emulated device that is
+    /// offline has none.
+    #[test]
+    fn a_server_listens_where_a_network_is_up() {
+        let view = Rc::new(DeviceView::default());
+        let net = NativeNet::new(Rc::new(MemoryStorage::new()), view.clone());
+        let mut address = [0u8; 64];
+        view.set(0, false);
+        assert!(matches!(
+            net.listen(1, 19_071, &mut address),
+            Err(ServerReason::NoNetwork)
+        ));
+        view.set(0, true);
+        let used = net.listen(1, 19_071, &mut address).unwrap();
+        assert!(std::str::from_utf8(&address[..used]).unwrap().contains(':'));
+        assert!(net.serving());
+        net.unlisten(1);
+        assert!(!net.serving());
     }
 
     /// Core answers a redirect report by starting the request again within

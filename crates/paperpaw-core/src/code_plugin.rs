@@ -108,6 +108,14 @@ pub trait CodeLoader {
         Ok(None)
     }
 
+    /// Called once per start, before the first plugin is asked
+    /// ([`load_native`](Self::load_native) or [`load`](Self::load)); not in safe
+    /// mode, where no plugin is loaded. A shell that offers host services to
+    /// admission wires them here (`storage`: the card, as an `Rc`), so every
+    /// plugin is admitted against what is wired at this start and not what an
+    /// earlier build left.
+    fn prepare(&mut self, _storage: &alloc::rc::Rc<dyn Storage>) {}
+
     /// Every code plugin of this start is loaded (in safe mode, none
     /// was): e.g. say how much room is left for them
     /// ([`paperpaw_sdk::native::keep_code_room`]).
@@ -205,13 +213,9 @@ impl Kernel {
             safe_mode,
         }) = code
         else {
+            let problem = PluginProblem::Unsupported;
             for plugin in found {
-                self.list_code_plugin(
-                    &plugin,
-                    disabled,
-                    PluginState::Failed,
-                    PluginProblem::Unsupported,
-                );
+                self.list_code_plugin(&plugin, disabled, PluginState::Failed, problem);
             }
             return;
         };
@@ -237,6 +241,7 @@ impl Kernel {
         // not run.
         let revoked = paperpaw_sdk::native::keys::revoked(storage.as_ref());
         let host = self.flat_host();
+        loader.prepare(&storage);
         for plugin in found {
             let manifest = plugin.manifest();
             // Each try says its own why: what was kept of a declaration cap an
@@ -422,7 +427,8 @@ impl Kernel {
 
     /// Lists a code plugin whose code is not loaded, in `state` (when
     /// switched on) and why: its translations only, as for one switched
-    /// off.
+    /// off; for one refused for its id (`Mismatch`) not even those
+    /// (#1424 R1).
     fn list_code_plugin(
         &mut self,
         plugin: &DataPlugin,
@@ -432,7 +438,11 @@ impl Kernel {
     ) {
         let manifest = plugin.manifest();
         let id = manifest.id.clone();
-        self.register_off(plugin, manifest);
+        if problem == PluginProblem::Mismatch {
+            self.list_bare(manifest);
+        } else {
+            self.register_off(plugin, manifest);
+        }
         let on = !disabled.iter().any(|d| d == id.as_str());
         if let Some(info) = self.shared.plugin_mut(id.as_str()) {
             info.enabled = on;
@@ -691,6 +701,46 @@ mod tests {
             (hello.state, hello.enabled, hello.kind),
             (PluginState::Off, false, PluginKind::Code)
         );
+    }
+
+    /// A folder refused for its id (a linked plugin's) loads nothing, not
+    /// its translations; the linked plugin's row takes its place, and
+    /// removing the id never reaches the folder (#1424 R1).
+    #[test]
+    fn a_folder_refused_for_its_id_gives_its_row_to_the_linked_plugin() {
+        let loader = Loader {
+            natives: alloc::vec![("plugins/hello/code.ppn", Err(PluginProblem::Mismatch))],
+            ..loader()
+        };
+        let mut kernel = kernel(&loader, "", None);
+        assert_eq!(
+            info(&kernel, "hello").problem,
+            Some(PluginProblem::Mismatch)
+        );
+        assert_eq!(kernel.shared.translator.get("hello.greeting"), None);
+        let manifest = Manifest::new(Id::new_static("hello"), "Linked", Version::new(2, 0, 0));
+        let manifest = paperpaw_sdk::ManifestRef::try_new(manifest, None).unwrap();
+        let linked = paperpaw_sdk::PluginInfo::new(
+            manifest,
+            PluginState::Running,
+            true,
+            paperpaw_sdk::RequiredFor::default(),
+            PluginKind::BuiltIn,
+            None,
+            None,
+        );
+        assert_eq!(kernel.list_native(linked), Ok(()));
+        let hello = info(&kernel, "hello");
+        assert_eq!((hello.kind, hello.problem), (PluginKind::BuiltIn, None));
+        kernel.apply(paperpaw_sdk::Command::RemovePlugin(Id::new_static("hello")));
+        assert!(
+            kernel
+                .shared
+                .storage
+                .size("plugins/hello/plugin.ini")
+                .is_ok()
+        );
+        assert_eq!(info(&kernel, "hello").kind, PluginKind::BuiltIn);
     }
 
     #[test]

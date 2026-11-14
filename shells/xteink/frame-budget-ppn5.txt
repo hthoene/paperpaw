@@ -30,9 +30,7 @@ each 2047 native::ppn5::x4
 # the files host, and `kind` is in the image already.
 each 2047 paperpaw_platform::tree
 # Around every call into a plugin the shell keeps its id in RTC memory
-# (`safe_mode::calling` / `returned`); the copies are inlined into these two
-# (each about 300 bytes, also on the nested-call path) and `read` is the
-# start's.
-frame 448 x4::call_begin
-frame 448 x4::call_end
+# (`safe_mode::calling` / `returned`): `Services::enter` and `leave` of the X4 (the
+# copies are inlined into the callers, which `each ... native_host` holds under the
+# band); `read` is the start's.
 frame 384 safe_mode::read

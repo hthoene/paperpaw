@@ -12,7 +12,7 @@
 # for shells/xteink and fmt-fuzz for fuzz: rustfmt only), clippy (-D warnings), test,
 # test-linked (the tests of each package that has a `linked` feature, run with
 # it: the hosted tests there are built nowhere else), test-native (the app's
-# flows, sleep_parity and sleep_cycles with `native-linked`, when the core, the
+# flows, sleep_parity and sleep_cycles with the linked reader and formats, when the core, the
 # app, the native layer or a plugin changed, or with --all-linked), doc (-D warnings),
 # changelog, lockfiles, licences, checks (paperpaw-checks), abi-metadata.
 # Every step runs whatever the one before did; each one's own exit code is
@@ -289,7 +289,7 @@ for crate in "${crates[@]}"; do
 done
 if [[ "$native_wanted" == 1 ]]; then
     step test-native bash -c 'set -e
-        cargo test -j"$1" -p paperpaw-app --features native-linked --test flows --test sleep_parity --test sleep_cycles
+        cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles
         cargo test -j"$1" -p paperpaw-app --features native-linked-reading --test linked_settings_tables
         cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables' _ "$jobs"
 elif ! wanted test-native; then

@@ -70,13 +70,17 @@ rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"]
 # same sources as the shipped one.
 paperpaw-hyphenation-packs = { path = "../../tools/hyphenation-packs" }
 
+# The lists the X4's firmware offers a linked plugin, to admit every linked plugin
+# against them (`x4_offer_tests`).
+paperpaw-x4.workspace = true
+
 [build-dependencies]
 serde_json = "1"
 # The compiler that builds the emulator, as plugin files name theirs.
 paperpaw-native.workspace = true
 
 [features]
-default = ["window"]
+default = ["window", "native-linked"]
 # The `paperpaw-emu` window; without it the device model alone, for tools
 # and for the browser (`shells/web`).
 window = ["dep:winit", "dep:softbuffer"]
@@ -84,11 +88,23 @@ hello = ["dep:paperpaw-sample-hello"]
 frame-test = ["dep:paperpaw-sample-frame-test"]
 interlinear = ["dep:paperpaw-sample-interlinear"]
 # The first-party plugins that are interface-7 plugins, linked in and
-# registered by `linked` (Linux x86-64, the one profile they declare; elsewhere
-# the app keeps their interface-6 form). Off until every host service and
-# event the plugins need is wired (#2220): the app without their interface-6
-# form lacks the screens of the ones that cannot register yet.
-native-linked = ["paperpaw-app/native-linked", "dep:aes-gcm", "dep:zeroize"]
+# registered by `linked` (the shell's part: the secrets' sealing). ON by
+# default (#243, the one switch of the flip): `default` names it. What the app
+# does without the interface-6 form of those plugins is on Linux on x86-64
+# only, the one profile they declare (the table below); elsewhere the app
+# keeps their interface-6 form and this feature only compiles what is unused.
+# `cargo build --no-default-features --features window` is the interface-6
+# emulator on Linux too, but not on the app's side: the app features of the
+# table below stay on, so use `default-features = false` only where nothing
+# of the app is needed (the browser, `tools/dev`).
+native-linked = ["dep:aes-gcm", "dep:zeroize"]
+
+# Linked native plugins (`paperpaw-app`'s `native-linked`, and the store's
+# with `native-linked-store`) on the one target they declare. A target-specific
+# dependency, so that the Windows and macOS builds (CI, release) keep the
+# interface-6 app: nothing registers a linked plugin there.
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+paperpaw-app = { workspace = true, features = ["native-linked", "native-linked-store", "native-linked-reading"] }
 
 [lints]
 workspace = true

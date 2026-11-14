@@ -26,8 +26,8 @@ default = ["x4", "remote", "waveform-lab"]
 # the X4 Classic (ESP32-S3, Xtensa: espup's `esp` toolchain of
 # `versions.env`, `cargo +esp x4pro`, `cargo +esp x4classic`). Exactly
 # one.
-x4 = ["esp32c3", "asleep-light"]
-x3 = ["esp32c3", "asleep-light"]
+x4 = ["esp32c3", "asleep-light", "native-on"]
+x3 = ["esp32c3", "asleep-light", "native-on"]
 # The reader sleeps lightly before it switches itself off (`firmware.rs`
 # `sleep_lightly`, `paperpaw_x4::sleeping`): the X4, the X3 and the X4 Pro
 # (#153); the X4 Classic keeps its deep sleep.
@@ -35,21 +35,28 @@ asleep-light = []
 # Loads the X4's interface-7 plugin files (format 5, `abi/ppn5.md`) as far as
 # the core can take them: reads, checks, places and relocates the image and
 # checks its entry (`src/native/ppn5.rs`), makes the plugin through the core's
-# shell (`paperpaw_core::native_host::shell`) and hosts it. Off by default:
-# the shipped firmware reads format-4 files only, and no interface-7 plugin is
-# activated on the X4 until the stack gate (`abi/heap-word.md` section 6) is met.
+# shell (`paperpaw_core::native_host::shell`) and hosts it. On with `native-on`,
+# which the ESP32-C3 devices (x4, x3) have; the ESP32-S3 devices take it with
+# `x4-pro,ppn5` (card plugins, none linked) until their stack gate is met.
 ppn5 = ["paperpaw-native/kernel"]
-# The built-in plugins that are interface-7 native plugins already, linked
-# statically (`paperpaw_app::NATIVE_PLUGINS`, ADR 0034 "One path") in place of
-# their interface-6 forms. For measuring the image: they are linked and kept,
-# not activated; no interface-7 plugin runs on the X4 until the stack gate.
-# MEASUREMENT ONLY, NOT FLASHABLE: the interface-6 forms of those plugins are
-# left out and nothing hosts the linked ones, so the image has no Files, Menu,
-# Keyboard, Settings or OPDS. It does not build unless `flash-gate-measure`
-# is set too (`tools/flash-gate.sh --head-features x4,static-native,flash-gate-measure`).
-static-native = ["ppn5", "paperpaw-app/native-linked"]
-# Allows `static-native`, for tools/flash-gate.sh only. Never flash the result.
-flash-gate-measure = []
+# The built-in plugins that are interface-7 native plugins, linked statically
+# (`paperpaw_app::NATIVE_PLUGINS`, ADR 0034 "One path") in place of their
+# interface-6 forms, and hosted by the kernel (`native::register_linked`, once
+# the stack's band is armed, `abi/heap-word.md` section 6): what the firmware
+# ships (#243). Home and reader are linked with them (`native-linked-reading`).
+# The store's plugins stay files. A feature of the ESP32-C3 devices `x4` and
+# `x3`. Not yet of `x4-pro` and `x4-classic`: they build and link with it, but
+# their frame scans (`frame-budget-s3*.txt`) and the stack paths of the start
+# are not held for the linked plugins, and the owner's device tests S1-S8
+# (the band's trigger on the Xtensa chips) are open.
+native-on = ["ppn5", "paperpaw-app/native-linked", "paperpaw-app/native-linked-reading"]
+# The owner TEST image (decision 156): `native-on` with the test gates of
+# #2462, the high-water log every 30 s (`src/high_water.rs`). Never in a
+# release: `release` refuses it at compile time and
+# `tools/checks/tests/test_image_guard.rs` (CI) refuses it in the shipped lists.
+test-image = ["native-on"]
+# Marks a build as a release (beta.1 and later); set by the release build.
+release = []
 # What both ESP32-C3 devices build with; chosen by `x4` or `x3`, not by
 # hand.
 esp32c3 = [
@@ -245,10 +252,13 @@ paperpaw-image = { opt-level = "s" }
 paperpaw-layout = { opt-level = "s" }
 paperpaw-platform = { opt-level = "s" }
 paperpaw-plugin-format-cbz = { opt-level = "s" }
+paperpaw-plugin-format-docx = { opt-level = "s" }
 paperpaw-plugin-format-epub = { opt-level = "s" }
 paperpaw-plugin-format-fb2 = { opt-level = "s" }
 paperpaw-plugin-format-html = { opt-level = "s" }
+paperpaw-plugin-format-images = { opt-level = "s" }
 paperpaw-plugin-format-markdown = { opt-level = "s" }
+paperpaw-plugin-format-mobi = { opt-level = "s" }
 paperpaw-plugin-format-txt = { opt-level = "s" }
 paperpaw-plugin-format-xtc = { opt-level = "s" }
 paperpaw-plugin-reader = { opt-level = "s" }
@@ -286,6 +296,7 @@ paperpaw-plugin-home = { opt-level = "z" }
 paperpaw-plugin-keyboard = { opt-level = "z" }
 paperpaw-plugin-lock = { opt-level = "z" }
 paperpaw-plugin-menu = { opt-level = "z" }
+paperpaw-plugin-news = { opt-level = "z" }
 paperpaw-plugin-opds = { opt-level = "z" }
 paperpaw-plugin-plugin-manager = { opt-level = "z" }
 paperpaw-plugin-power = { opt-level = "z" }
@@ -295,8 +306,10 @@ paperpaw-plugin-sleep = { opt-level = "z" }
 paperpaw-plugin-store = { opt-level = "z" }
 paperpaw-plugin-transfer = { opt-level = "z" }
 paperpaw-plugin-update = { opt-level = "z" }
+paperpaw-plugin-vocabulary = { opt-level = "z" }
 paperpaw-plugin-wifi = { opt-level = "z" }
 paperpaw-qr = { opt-level = "z" }
+paperpaw-sqlite = { opt-level = "z" }
 paperpaw-stardict = { opt-level = "z" }
 paperpaw-table = { opt-level = "z" }
 paperpaw-ui-kit = { opt-level = "z" }

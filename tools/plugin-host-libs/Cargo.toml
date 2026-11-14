@@ -1,0 +1,33 @@
+[package]
+name = "paperpaw-plugin-host-libs"
+description = "A few of PaperPaw's own interface-7 plugins as x86-64 Linux shared libraries (code-host.so), for the emulator's interface-7 loader: the X4-profile install and heap checks (#2850)"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# A workspace of its own, as tools/plugin-files7 is.
+[workspace]
+
+[dependencies]
+paperpaw-plugin-battery = { path = "../../plugins/battery", features = ["native-entry"] }
+paperpaw-plugin-keys = { path = "../../plugins/keys", features = ["native-entry"] }
+paperpaw-plugin-stats = { path = "../../plugins/stats", features = ["native-entry"] }
+
+[[example]]
+name = "stats"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "battery"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "keys"
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"

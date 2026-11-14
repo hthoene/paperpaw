@@ -840,7 +840,7 @@ impl BuilderParts {
                 again: false,
                 screenshot: None,
                 mark: None,
-                refresh: RefreshPolicy::default(),
+                refresh: RefreshPolicy::after_start(),
                 deferred: None,
                 defers: 0,
                 followup: None,
@@ -947,9 +947,9 @@ impl BuilderParts {
             plugin_defaults: Vec::new(),
             late_device_defaults: Vec::new(),
             late_config: Vec::new(),
-            plugin_choices: Vec::new(),
             native_registering: true,
             native_catalogs_added: false,
+            plugin_choices: Vec::new(),
             now: Instant::default(),
         }
     }

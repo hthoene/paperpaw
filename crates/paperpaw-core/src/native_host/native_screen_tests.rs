@@ -508,6 +508,19 @@ fn a_screen_declared_hints_hidden_says_so_and_another_leaves_it_to_its_plugin() 
     assert!(screen.holds_edges());
 }
 
+#[test]
+fn a_screen_declared_grays_says_so_and_another_does_not() {
+    use paperpaw_sdk::Screen as _;
+    let (screen, _) = screen();
+    assert!(!screen.grays());
+    let screen = screen.with_flags(1 << 9);
+    assert!(screen.grays());
+    // Beside the other policy bits, which are not it.
+    let (screen, _) = self::screen();
+    let screen = screen.with_flags((1 << 8) | (1 << 5));
+    assert!(!screen.grays());
+}
+
 fn fresh() -> (NativeScreen<Rc<Recorder>>, Rc<Recorder>) {
     screen()
 }

@@ -141,9 +141,10 @@ jobs:
       # The app's flows with the linked native plugins, and the plugins that
       # may sleep (#248): each behaves the same parked as awake, also parked
       # again on standby, and 50 standby cycles leave no heap and no handle
-      # behind. All need the app's `native-linked`, which the workspace run
-      # (job Tests) leaves off.
-      - run: cargo test -p paperpaw-app --features native-linked --test flows --test sleep_parity --test sleep_cycles
+      # behind. With the reader and the formats linked (`native-linked-reading`,
+      # #243): every format that may sleep is a native plugin there, so its
+      # parity cases run and the cycles require it.
+      - run: cargo test -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles
       # Every linked plugin's screens keep the entry of their titles table (#248):
       # the test is compiled out unless the app's `native-linked*` features are on.
       - run: cargo test -p paperpaw-app --features native-linked-reading --test linked_settings_tables
@@ -440,10 +441,10 @@ jobs:
           out: ${{ runner.temp }}/released.bin
       - name: The released image against shells/xteink/size-budget.txt
         run: python3 -I tools/size-report.py check --device "$DEVICE" --image "$RUNNER_TEMP/released.bin"
-      # The loader's S3 code (format-5 files in PSRAM, `ppn5`) is off by
-      # default and so not in the lint and build above; the X4's own job
-      # (firmware-host-frames) covers the X4. Without the job's RUSTFLAGS,
-      # as above.
+      # The loader's S3 code (format-5 files in PSRAM, `ppn5`) is not part of
+      # the S3 device features yet and so not in the lint and build above; the
+      # X4's native image has its own job (firmware-host-frames). Without the
+      # job's RUSTFLAGS, as above.
       - name: Lint and build the S3 with interface-7 plugins
         if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
         working-directory: shells/xteink
@@ -911,24 +912,31 @@ jobs:
       - name: Bluetooth host-test dependencies too
         run: cargo deny --manifest-path tools/bluetooth-tests/Cargo.toml --all-features check
 
-  # What a plugin's code can call into on the X4 (the interface-7 host entries,
-  # the dispatch, the loader's x4 module) exists in the firmware built with
-  # `ppn5`, which is off by default and so not in the `firmware` jobs' builds.
-  # Its own job, beside them, builds the X4 with it and holds those functions'
-  # stack frames under the 2 KiB band at the main stack's end
-  # (`shells/xteink/frame-budget-ppn5.txt`).
+  # The native image of the X4 and the X3 (the interface-7 plugins linked and
+  # hosted, the loader for card plugins: what the device features `x4` and `x3`
+  # build, #243). Its own job,
+  # beside the `firmware` jobs, holds the functions a plugin's code can call into
+  # under the 2 KiB band at the main stack's end
+  # (`shells/xteink/frame-budget-ppn5.txt`), the linked plugins' entry frames
+  # (`frame-budget-linked.txt`) and the paths of the start and the main loop
+  # above the band (`tools/check-x4-start-stack.py`).
   firmware-host-frames:
-    name: Firmware interface-7 host frames (x4, ppn5)
+    name: Firmware interface-7 host frames (${{ matrix.device }}, ppn5)
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # The X3 has the X4's chip and code but its own board and features.
+        device: [x4, x3]
     env:
-      DEVICE: x4
+      DEVICE: ${{ matrix.device }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/xteink-tools
         with:
-          device: x4
+          device: ${{ matrix.device }}
           clang-fallback: "true"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -936,7 +944,7 @@ jobs:
           workspaces: |
             shells/xteink
             .
-          key: x4-ppn5
+          key: ${{ matrix.device }}-ppn5
       - name: Lint the X4 with interface-7 plugins
         working-directory: shells/xteink
         # The `ppn5` code sites are not in the other jobs' lint.
@@ -950,6 +958,13 @@ jobs:
           cargo run -q --release -p paperpaw-sign -- frames \
             shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
             --budget shells/xteink/frame-budget-ppn5.txt
+      - name: The linked plugins' entry frames fit under the band
+        run: |
+          cargo run -q --release -p paperpaw-sign -- frames \
+            shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
+            --budget shells/xteink/frame-budget-linked.txt
+      - name: The start's and the main loop's stack paths stay above the band
+        run: python3 -I tools/check-x4-start-stack.py shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink
 
   # After a push to a branch that saves caches: the newest Rust cache entry of
   # each prefix stays, the older ones go. Every Cargo.lock change otherwise

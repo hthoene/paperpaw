@@ -610,6 +610,18 @@ pub fn server_name(server: &str) -> &str {
     name.split('/').next().unwrap_or(name)
 }
 
+/// Whether an update file of `size` bytes (its image and the signature
+/// trailer after it) can go into an app slot of `room` bytes. A size the
+/// server did not say (0) and a room the device did not say (0: no slot of its
+/// own, as beside another firmware) are not a reason to refuse here: the device
+/// checks again before it writes (`Update::fits`).
+#[must_use]
+pub fn fits_slot(size: u64, room: u64) -> bool {
+    size == 0
+        || room == 0
+        || size.saturating_sub(paperpaw_sdk::firmware::TRAILER_LEN as u64) <= room
+}
+
 /// The address of a file the server names: a path on the server is joined.
 ///
 /// # Errors

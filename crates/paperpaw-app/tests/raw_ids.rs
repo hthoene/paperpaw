@@ -58,10 +58,12 @@ impl App {
     /// The standard app in `language`, past its first-run setup.
     fn new(language: &str) -> Self {
         let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
-        let builder = Kernel::builder(DEVICE)
-            .storage(storage)
-            .user_config(format!("[core]\nlanguage = {language}\n"));
-        let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
+        let (builder, card) = native_activation::quiet_on(
+            DEVICE,
+            storage,
+            &format!("[core]\nlanguage = {language}\n"),
+        );
+        let mut kernel = native_activation::build_on(paperpaw_app::install(builder, fonts()), card);
         let effects = kernel.start(Instant(0));
         let mut namespaces: BTreeSet<String> = kernel
             .plugins()
@@ -226,17 +228,77 @@ fn settings_pages_and_choosers_show_names() {
 #[test]
 fn menu_entries_have_names() {
     for language in languages() {
-        let app = App::new(&language);
-        let menus = app.kernel.menus();
-        let i18n = app.kernel.translator();
-        let shown: Vec<String> = menus
-            .menu_ids()
-            .into_iter()
-            .flat_map(|menu| menus.items(menu.as_str()))
-            .map(|item| i18n.tr(item.title).to_string())
-            .collect();
-        assert!(shown.len() > 50, "{language}: the menus have entries");
+        let mut app = App::new(&language);
+        let shown = if cfg!(feature = "native-linked") {
+            app.menus_shown()
+        } else {
+            let menus = app.kernel.menus();
+            let i18n = app.kernel.translator();
+            menus
+                .menu_ids()
+                .into_iter()
+                .flat_map(|menu| menus.items(menu.as_str()))
+                .map(|item| i18n.tr(item.title).to_string())
+                .collect()
+        };
+        assert!(
+            shown.len() > 50,
+            "{language}: the menus have entries: {shown:#?}"
+        );
         let raw = app.raw_ids(&shown);
         assert!(raw.is_empty(), "{language}: menus show ids: {raw:#?}");
+    }
+}
+
+/// The menus the linked native plugins declare entries in, the main menu first.
+const NATIVE_MENUS: [&str; 8] = [
+    "core.main",
+    "core.tools",
+    "core.settings-pages",
+    "core.reader-more",
+    "files.shelves",
+    "files.menu",
+    "home.actions",
+    "plugin-manager.more",
+];
+
+impl App {
+    /// With the native menu plugin the menus are its screens: every menu the
+    /// kernel knows and those the native plugins add to ([`NATIVE_MENUS`]), opened
+    /// on `menu.list` (its id as the hand-over's `menu`) and walked row by row;
+    /// the entries each menu shows (an entry in two menus counts twice, as the
+    /// interface-6 registry listed it), not the note of an empty menu.
+    fn menus_shown(&mut self) -> Vec<String> {
+        let mut ids: BTreeSet<String> = self
+            .kernel
+            .menus()
+            .menu_ids()
+            .into_iter()
+            .map(ToString::to_string)
+            .collect();
+        // The menus the linked native plugins add entries to
+        // (`MenuEntryDecl` in their `declarations.rs`): the kernel's own
+        // registry does not know those it does not hold itself.
+        ids.extend(NATIVE_MENUS.iter().map(ToString::to_string));
+        let mut shown = Vec::new();
+        for id in ids {
+            self.open(
+                Id::new_static("menu.list"),
+                Params::new().with("menu", id.clone()),
+            );
+            assert_eq!(
+                self.kernel.active_screen().map(Id::as_str),
+                Some("menu.list"),
+                "the menu {id} opens"
+            );
+            let empty = self.kernel.translator().tr("menu.empty").to_string();
+            shown.extend(
+                self.walk()
+                    .into_iter()
+                    .filter(|label| !label.is_empty() && *label != empty),
+            );
+            self.run(actions::BACK);
+        }
+        shown
     }
 }

@@ -8,6 +8,13 @@
 //! goes to the details job's own end (`details_job_pump`).
 use super::{doc_service::JobStep, native_host_call::HostRoute};
 
+/// How many passes of the services and the commands the start runs before its
+/// first frame, while the pump asks for another at once: the native reader
+/// hears `Started` in one and opens the last book in the next, so home is not
+/// drawn first. Work still going after them goes on at the next tick (home
+/// stays, as when the start is slow).
+const START_SETTLE_PASSES: u32 = 6;
+
 impl crate::Kernel {
     /// One look at the background job; nothing to do for a pass that finds
     /// none.
@@ -129,11 +136,20 @@ impl crate::Kernel {
         }
     }
 
+    /// The end of `Kernel::start`: the commands first (home opens, `Started` is
+    /// queued), so that the services' pass inside `finish` tells native plugins
+    /// `Started` and a book the reader opens at the start is opened before the
+    /// first frame, as interface 6 did inside the start. Home is not drawn first.
+    pub(crate) fn finish_start(&mut self) -> crate::Effects {
+        self.run_commands();
+        self.finish_started()
+    }
+
     /// The end of `Kernel::start`: its effects, then cover jobs of the library
     /// may begin (a format's crash inside start would count as a failed start,
     /// `doc_cover_job`).
     pub(crate) fn finish_started(&mut self) -> crate::Effects {
-        let effects = self.finish();
+        let effects = self.finish_settled(START_SETTLE_PASSES);
         // The quiet second counts from the start as from an input.
         self.native_cover_input();
         self.native_cover_jobs_allowed();
