@@ -284,11 +284,15 @@ impl crate::Kernel {
                 super::native_declarations::NativeDeclarations::default(),
             )
             .map_err(|_| shell::Error::Allocation)?;
-            // The kernel's own screens name the widgets declared there.
-            let names = directory.try_clone().ok_or(shell::Error::Allocation)?;
+            // The kernel's own screens name the widgets declared there. Held
+            // weakly: the registry alone keeps the directory, and with it the
+            // plugins' code, alive.
+            let names = directory.downgrade().ok_or(shell::Error::Allocation)?;
             let names = shell::try_box(
                 move |only: Option<&str>, each: &mut dyn FnMut(&str, &str, &str)| {
-                    super::registry_service::declared_widget_names(&names, only, each);
+                    if let Ok(Some(names)) = names.upgrade() {
+                        super::registry_service::declared_widget_names(&names, only, each);
+                    }
                 },
             )?;
             self.shared.widgets.set_declared_elsewhere(names);
