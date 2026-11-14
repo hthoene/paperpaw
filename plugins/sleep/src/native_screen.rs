@@ -17,6 +17,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose},
+        canvas::{PartFlags, PartRole},
         commands::CommandSender,
         fonts::{Font, FontRole},
         image::ImageStyle,
@@ -280,20 +281,40 @@ impl Sleeping {
         if let Some(held) = held {
             let room = images::room(content, screen, style.margin);
             let (rect, picture) = match (content, logo) {
-                (Content::Message, Some(rect)) => (rect, ImageStyle::new().small()),
+                // In the panel's grays where it has them, as Beta 3's sleep
+                // screen asked (`Screen::grays`).
+                (Content::Message, Some(rect)) => (rect, ImageStyle::new().small().grays()),
                 (Content::Overlay, _) => match self.over_rect(&font, &style, screen, held)? {
-                    Some((rect, opacity)) => (rect, ImageStyle::new().transparency(255 - opacity)),
+                    Some((rect, opacity)) => {
+                        (rect, ImageStyle::new().transparency(255 - opacity).grays())
+                    }
                     None => (Rect::new(0, 0, 0, 0), ImageStyle::new()),
                 },
-                _ => (images::centred(held, room), ImageStyle::new()),
+                _ => (images::centred(held, room), ImageStyle::new().grays()),
             };
             // A picture the host refuses (an id it ended, no memory) leaves
             // the rest: the message, or the colour it is on.
             if rect.width > 0 && rect.height > 0 {
-                frame
-                    .draw_canvas()?
+                let canvas = frame.draw_canvas()?;
+                canvas
                     .draw_image(held.id, paint::frame_rect(rect), picture)
                     .ok();
+                // Told as Beta 3 told it: the cat, for those who ask
+                // (`canvas.describe`); best effort, as a draw that goes on.
+                // Without memory for the words the cat is drawn, not told.
+                if content == Content::Cat
+                    && let Ok(mut messages) = Messages::new()
+                    && let Ok(what) = messages.copy(host, "sleep.show.cat")
+                {
+                    canvas
+                        .describe_part(
+                            PartRole::Image,
+                            &what,
+                            paint::frame_rect(rect),
+                            PartFlags::NONE,
+                        )
+                        .ok();
+                }
             }
         }
         let all = laid.widgets.iter().chain(laid.over.iter());

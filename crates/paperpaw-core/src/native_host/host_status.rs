@@ -78,14 +78,14 @@ pub(crate) fn value(env: &Env<'_>, item: &str, out: &mut [u8]) -> Option<HostSta
     }
 }
 
-/// The rows REG op 21 lists for the kernel's items: (id, drawn, priority,
-/// least width), in token order. Only those the kernel registered.
-pub(crate) fn rows<'e>(env: &Env<'e>) -> impl Iterator<Item = (&'static str, bool, u8, u32)> + 'e {
+/// The rows REG op 21 lists for the kernel's items: (id, priority, least
+/// width), in token order. Only those the kernel registered.
+pub(crate) fn rows<'e>(env: &Env<'e>) -> impl Iterator<Item = (&'static str, u8, u32)> + 'e {
     let items = env.status_items();
     ITEMS.iter().filter_map(move |(id, drawn)| {
         items.title(id)?;
         let width = if *drawn { DRAWN_WIDTH } else { 0 };
-        Some((*id, *drawn, items.priority(id), width))
+        Some((*id, items.priority(id), width))
     })
 }
 

@@ -48,6 +48,7 @@ use crate::native_pages;
 use crate::native_shown::Shown;
 use crate::native_source::HostSource;
 use crate::native_stage as stage;
+use paperpaw_sdk::native::text::MAX_BREAKS;
 
 /// One item of the page as it shows.
 #[derive(Debug)]
@@ -64,6 +65,9 @@ struct Cell {
     face: Option<Face>,
     /// A widget's instance, where the host made one.
     widget: Option<MadeWidget>,
+    /// The widget shows nothing (it measured no height): no plate is drawn
+    /// for it, as interface 6's widgets drew none.
+    blank: bool,
 }
 
 /// The page as laid out: what shows, where, and what the buttons reach.
@@ -337,6 +341,7 @@ impl Dashboard {
         if let Some(laid) = self.laid.as_mut() {
             laid.targets = targets;
             self.focus.clamp(laid.targets.len());
+            Self::remeasure_blank(host, ui, laid, instance.get())?;
         }
         Ok(Some(Redraw::after(area, moved, self.focus.shown())))
     }
@@ -356,6 +361,32 @@ impl Dashboard {
                 Some(MadeWidget::Widget(w)) if w.instance().get() == instance => Some(cell.rect),
                 _ => None,
             })
+    }
+
+    /// Whether the widget `instance` shows nothing now (the shelf with its
+    /// first book, or none left): its plate comes or goes with it. A refusal
+    /// keeps what was measured.
+    fn remeasure_blank(
+        host: &Host<'_>,
+        ui: &Ui,
+        laid: &mut Laid,
+        instance: u32,
+    ) -> Result<(), Error> {
+        let geometry = laid.frame.geometry;
+        let Some(cell) = laid.cells.iter_mut().find(|cell| {
+            matches!(cell.widget, Some(MadeWidget::Widget(w)) if w.instance().get() == instance)
+        }) else {
+            return Ok(());
+        };
+        let Some(made) = cell.widget else {
+            return Ok(());
+        };
+        match measure::measure_shown(host, ui, made, &geometry) {
+            Ok((_, _, blank)) => cell.blank = blank,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => {}
+        }
+        Ok(())
     }
 
     /// The screen is closed: the picture goes back to the host.
@@ -573,9 +604,15 @@ impl Dashboard {
                                 &mut input,
                                 &mut out,
                             );
-                            if let Err(error) = placed {
-                                drop_widget(host, ui, handle);
-                                return Err(error);
+                            match placed {
+                                // The X4 until its nested callbacks are measured
+                                // (#250): the host lays no other plugin's widget
+                                // out, so its cell stays empty, the page shows.
+                                Ok(()) | Err(Error::Unsupported) => {}
+                                Err(error) => {
+                                    drop_widget(host, ui, handle);
+                                    return Err(error);
+                                }
                             }
                         }
                         (text::copy(Self::widget_title(src, id))?, Some(made))
@@ -595,9 +632,9 @@ impl Dashboard {
                 return Err(error);
             }
         };
-        let least = match widget {
-            Some(made) => match measure::measure_handle(host, ui, made, geometry) {
-                Ok((_, least)) => least,
+        let (least, blank) = match widget {
+            Some(made) => match measure::measure_shown(host, ui, made, geometry) {
+                Ok((_, least, blank)) => (least, blank),
                 Err(Error::NoMemory) => {
                     if let MadeWidget::Widget(handle) = made {
                         drop_widget(host, ui, handle);
@@ -605,9 +642,9 @@ impl Dashboard {
                     return Err(Error::NoMemory);
                 }
                 // A widget the host cannot measure may not be made lower than one.
-                Err(_) => 1,
+                Err(_) => (1, false),
             },
-            None => 1,
+            None => (1, false),
         };
         Ok(Some(Cell {
             what,
@@ -617,6 +654,7 @@ impl Dashboard {
             name,
             face,
             widget,
+            blank,
         }))
     }
 
@@ -645,13 +683,19 @@ impl Dashboard {
                 None => push(&mut targets, tool_target(cell.rect, index))?,
                 Some(MadeWidget::Widget(widget)) => {
                     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                    let found = ui.widget_targets(
+                    let found = match ui.widget_targets(
                         host,
                         widget,
                         paint::frame_rect(cell.rect),
                         &mut input,
                         &mut out,
-                    )?;
+                    ) {
+                        Ok(found) => found,
+                        // A widget the host lays out for no one (the X4's
+                        // closed nested callbacks): nothing to reach in it.
+                        Err(Error::Unsupported) => continue,
+                        Err(error) => return Err(error),
+                    };
                     for target in found {
                         let target = target?;
                         let at = target.rect();
@@ -792,7 +836,16 @@ impl Dashboard {
             icons: icon_font.as_ref(),
             circle: circle.as_ref(),
         };
-        self.paint_page(&mut below, &fonts, &style, (laid, drawing.is_some()))?;
+        // Names hyphenated in the interface language, as Beta 3's grid did.
+        let hyphens = icons::Hyphens::of(host);
+        let mut breaks = |word: &str, out: &mut [u8; MAX_BREAKS]| hyphens.breaks(host, word, out);
+        self.paint_page(
+            &mut below,
+            &fonts,
+            &style,
+            (laid, drawing.is_some()),
+            &mut breaks,
+        )?;
         self.drag_frame(&mut above, &style, laid)?;
         if self.focus.shown()
             && let Some(target) = laid.targets.get(self.focus.at())

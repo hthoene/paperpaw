@@ -73,10 +73,12 @@ runs:
           echo "FIRMWARE_CARGO=--release --target $target --no-default-features"
           echo "PLUGIN_ALIAS=x4"
         } >> "$GITHUB_ENV"
+    # Restored by every run, saved only by a push to abi7/integration or main
+    # (a pull request's copy would be one more of the 10 GB the repository may keep).
     - name: espup's toolchain, kept between runs
       id: esp-cache
       if: inputs.device != 'x4' && inputs.device != 'x3'
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: |
           ~/.rustup/toolchains/esp
@@ -93,6 +95,14 @@ runs:
         cargo install espup --version "$ESPUP_VERSION" --locked
         espup install --targets esp32s3 --toolchain-version "$ESP_RUST_VERSION" \
           --crosstool-toolchain-version "$ESP_GCC_VERSION" --export-file "$HOME/export-esp.sh"
+    - name: Keep espup's toolchain
+      if: inputs.device != 'x4' && inputs.device != 'x3' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/abi7/integration') && steps.esp-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: |
+          ~/.rustup/toolchains/esp
+          ~/export-esp.sh
+        key: ${{ steps.esp-cache.outputs.cache-primary-key }}
     - name: The ESP32-S3's Rust
       if: inputs.device != 'x4' && inputs.device != 'x3'
       shell: bash

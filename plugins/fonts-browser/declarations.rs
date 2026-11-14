@@ -12,6 +12,8 @@ pub const OPEN: u32 = 1;
 pub const OWN: u32 = 2;
 pub const DOWNLOADED: u32 = 3;
 pub const INSTALLED: u32 = 4;
+pub const SETTING: u32 = 5;
+pub const PLUGINS: u32 = 6;
 
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
@@ -56,11 +58,15 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
 }
 
 /// A download goes on while no screen of the plugin is open; one cut off by
-/// a restart is begun anew from the font's page.
+/// a restart is begun anew from the font's page. The pages show a font that
+/// was chosen, installed or removed (the reading font and the status font are
+/// settings of the host, the fonts plugins of the registry).
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::HttpDone, DOWNLOADED)?;
+    d.subscribe_event(EventKind::SettingChanged, SETTING)?;
+    d.subscribe_event(EventKind::PluginsChanged, PLUGINS)?;
     d.submit()?;
     Ok(())
 }

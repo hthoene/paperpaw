@@ -180,10 +180,12 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     // An overlay: the host draws the page below first, which the modes that
     // leave it (`page`, `overlay`) need; the screen never draws it itself. A
     // locked device never shows the page below it (`ui.md` section 1.2).
+    // No row of button hints, as Beta 3's sleep screen had none.
     d.screen(
         ScreenDecl::new("screen", "sleep.title", SCREEN)
             .instances(Instances::Single)
-            .overlay(),
+            .overlay()
+            .hints_hidden(),
     )?;
     d.submit()
 }
