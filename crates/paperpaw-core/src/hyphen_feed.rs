@@ -51,7 +51,25 @@ impl HyphenFeed {
     }
 }
 
+/// What makes the sink of a shell without a code loader, from the card.
+pub(crate) type MakeSink = alloc::boxed::Box<dyn FnOnce(&Rc<dyn Storage>) -> Option<HyphenTables>>;
+
 impl Kernel {
+    /// The sink of a shell without a code loader
+    /// ([`KernelBuilder::hyphenation_sink`](crate::KernelBuilder::hyphenation_sink)):
+    /// kept only where no loader gave one, and given what is declared so far.
+    #[inline(never)]
+    pub(crate) fn attach_hyphenation_sink(&mut self, make: MakeSink) {
+        if self.shared.hyphen_feed.sink.is_some() {
+            return;
+        }
+        let storage = self.shared.storage.clone();
+        if let Some(sink) = make(&storage) {
+            self.shared.hyphen_feed.sink = Some(sink);
+            self.feed_hyphenation(None);
+        }
+    }
+
     /// Asks the shell's loader for its sink; it gets everything declared so
     /// far, and what follows.
     pub(crate) fn ask_hyphenation_sink(

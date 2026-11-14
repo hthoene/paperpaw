@@ -306,7 +306,9 @@ impl CodeLoader for HostLoader {
         storage: &std::rc::Rc<dyn Storage>,
     ) -> Option<paperpaw_core::native_host::HyphenTables> {
         use paperpaw_core::native_host::HostWiring;
-        if !dev_switch() {
+        // The linked plugins (the app's own, `native-linked`) read the tables
+        // as the card ones do, switch or not; as the firmware's sink is.
+        if !dev_switch() && !cfg!(feature = "native-linked") {
             return None;
         }
         if self.resources.is_none() {
@@ -1271,8 +1273,12 @@ static INIT: extern "C" fn() = make_marker;
         let was = crate::native_runtime::enabled();
         crate::native_runtime::set_enabled(false);
         let mut off = HostLoader::for_device(MemoryClass::Small);
-        assert!(off.hyphenation_sink(&storage).is_none());
-        assert!(off.resources.is_none(), "nothing is made, nothing wired");
+        // With the linked plugins built in, the tables are wired switch or not.
+        assert_eq!(
+            off.hyphenation_sink(&storage).is_some(),
+            cfg!(feature = "native-linked")
+        );
+        assert_eq!(off.resources.is_some(), cfg!(feature = "native-linked"));
         crate::native_runtime::set_enabled(true);
         for device in [MemoryClass::Small, MemoryClass::Large] {
             let mut on = HostLoader::for_device(device);
