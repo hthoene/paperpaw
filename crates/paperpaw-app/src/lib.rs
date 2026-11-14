@@ -625,30 +625,17 @@ pub static CATALOG_INDEXES: &[(u64, &[u16])] =
 pub static BUILT_CATALOGS: &[paperpaw_i18n::BuiltLanguage] =
     include!(concat!(env!("OUT_DIR"), "/built_catalogs.rs"));
 
-/// Adds the first-party plugins to `builder`, those the store offers as
-/// files too as `store` says.
-pub fn install_with(
-    builder: KernelBuilder,
-    fonts: Fonts,
-    store: StorePlugins<'_>,
-) -> KernelBuilder {
-    let builder = builder
-        .network_settings(NETWORK_SETTINGS)
-        .catalog_indexes(CATALOG_INDEXES)
-        .built_catalogs(BUILT_CATALOGS);
-    let builder = match fonts {
-        #[cfg(feature = "outline")]
-        Fonts::Outline => builder.plugin(paperpaw_plugin_fonts_default::DefaultFonts),
-        #[cfg(any(feature = "packs", not(feature = "outline")))]
-        Fonts::Packs => builder.plugin(paperpaw_plugin_fonts_default::DefaultFontPacks),
-    };
-    // Nothing is left to `store` without the store's plugins, or where they
-    // and the reader's are all linked.
-    #[cfg(not(all(
-        feature = "store-plugins",
-        not(all(feature = "native-linked-store", feature = "native-linked-reading"))
-    )))]
-    let _ = store;
+/// The interface-6 forms of the formats, the dictionary, the reader and home:
+/// each only where its native form is not linked (`native-linked-reading`).
+#[cfg_attr(
+    feature = "native-linked-reading",
+    allow(clippy::missing_const_for_fn, reason = "nothing is added there")
+)]
+fn interface6_reading(builder: KernelBuilder) -> KernelBuilder {
+    #[allow(
+        unused_mut,
+        reason = "nothing is added where the native forms are linked"
+    )]
     let mut b = builder;
     // The plugins that are native plugins, linked (`NATIVE_PLUGINS`), where the
     // feature says, are not installed here: one plugin, one form.
@@ -679,6 +666,34 @@ pub fn install_with(
             .plugin(paperpaw_plugin_reader::Reader)
             .plugin(paperpaw_plugin_home::Home);
     }
+    b
+}
+
+/// Adds the first-party plugins to `builder`, those the store offers as
+/// files too as `store` says.
+pub fn install_with(
+    builder: KernelBuilder,
+    fonts: Fonts,
+    store: StorePlugins<'_>,
+) -> KernelBuilder {
+    let builder = builder
+        .network_settings(NETWORK_SETTINGS)
+        .catalog_indexes(CATALOG_INDEXES)
+        .built_catalogs(BUILT_CATALOGS);
+    let builder = match fonts {
+        #[cfg(feature = "outline")]
+        Fonts::Outline => builder.plugin(paperpaw_plugin_fonts_default::DefaultFonts),
+        #[cfg(any(feature = "packs", not(feature = "outline")))]
+        Fonts::Packs => builder.plugin(paperpaw_plugin_fonts_default::DefaultFontPacks),
+    };
+    // Nothing is left to `store` without the store's plugins, or where they
+    // and the reader's are all linked.
+    #[cfg(not(all(
+        feature = "store-plugins",
+        not(all(feature = "native-linked-store", feature = "native-linked-reading"))
+    )))]
+    let _ = store;
+    let mut b = interface6_reading(builder);
     #[cfg(not(feature = "native-linked"))]
     {
         b = b.plugin(paperpaw_plugin_menu::Menu);
