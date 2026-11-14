@@ -29,8 +29,10 @@ use alloc::vec::Vec;
 
 use paperpaw_platform::Storage;
 
-/// Pieces a file is read in.
-const CHUNK: usize = 2048;
+/// Pieces a file is read in: three of a card's sectors, on the stack of
+/// [`read_file`], whose frame stays under the firmware's limit of 2,048
+/// bytes with it.
+const CHUNK: usize = 1536;
 /// Strings and other plain values are cut at this many bytes.
 pub const MAX_STRING: usize = 4096;
 /// Objects and arrays nested deeper than this are skipped whole, without
