@@ -58,7 +58,9 @@ impl Open {
         }
         self.status.load(&DataStorage::new(host))?;
         self.with_facts(host, |facts| {
-            native_status::paint(host, ui, frame, (&place, &self.status, facts))
+            native_status::paint(host, ui, frame, (&place, &self.status, facts), |font| {
+                self.settings.status(host, place.display, font)
+            })
         })
     }
 
@@ -85,7 +87,7 @@ impl Open {
             } => (None, Some(true)),
             _ => return Ok(None),
         };
-        let setup = Setup::read(host)?;
+        let setup = self.settings.setup(host)?;
         let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let Some(place) = self.status_place(&setup, &area) else {
             return Ok(None);

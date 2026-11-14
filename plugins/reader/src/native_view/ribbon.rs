@@ -7,8 +7,7 @@
 //! the book opens (8 bytes each, at most [`MAX_MARKS`]), and follow the
 //! toggles made here; the page asks no service as it turns.
 use super::{
-    Body, CommandSender, Error, Handled, Host, Input, Library, Open, RedrawMode, Setup, View, flag,
-    redraw,
+    Body, CommandSender, Error, Handled, Host, Input, Library, Open, RedrawMode, View, flag, redraw,
 };
 use crate::native_bookmark::{self, Done, Range};
 use alloc::vec::Vec;
@@ -83,7 +82,7 @@ impl Open {
     /// Draws the ribbon's place again after a toggle, with a fast refresh
     /// of it only, as Beta 3; the whole page when its box is not known.
     pub(super) fn redraw_ribbon(&self, host: &Host<'_>) -> Result<(), Error> {
-        let setup = Setup::read(host)?;
+        let setup = self.settings.setup(host)?;
         let Some(area) = self.area(&setup) else {
             return redraw(host, RedrawMode::Partial);
         };
@@ -158,7 +157,7 @@ impl View {
         if open.marking.is_active() || !flag(host, "reader.corner-bookmark")? {
             return Ok(None);
         }
-        let setup = Setup::read(host)?;
+        let setup = open.settings.setup(host)?;
         let display = &setup.display;
         if !in_corner(
             (position.x, position.y),
