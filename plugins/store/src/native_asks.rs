@@ -34,9 +34,29 @@ pub(crate) struct Asks {
     waiting: Vec<(PluginRequestId, Vec<String>)>,
     /// The dialog on the screen, if one is.
     dialog: Option<AskId>,
+    /// The screen of a download chosen in the dialog, opened once the dialog
+    /// has closed itself (see [`Asks::defer`]).
+    fetch_after: Option<crate::native_screens::Next>,
 }
 
 impl Asks {
+    /// Keeps `next` (a screen to open) until a download event: a dialog closes
+    /// itself with *Back* after its answer is told, so a screen opened while
+    /// the answer is handled would be what *Back* closes, and the dialog would
+    /// stay. The first answer of the network comes later.
+    pub(crate) fn defer(&mut self, next: crate::native_screens::Next) {
+        self.fetch_after = Some(next);
+    }
+
+    /// The screen kept, when `download_event` (the network spoke).
+    pub(crate) fn released(&mut self, download_event: bool) -> Option<crate::native_screens::Next> {
+        if download_event {
+            self.fetch_after.take()
+        } else {
+            None
+        }
+    }
+
     /// Whether `request` is the dialog of an ask.
     pub(crate) fn is_dialog(&self, request: AskId) -> bool {
         self.dialog == Some(request)
@@ -270,9 +290,23 @@ impl NativeStore {
             Reply::Answer { ids, outcome } => {
                 self.answer_waiting(host, ids.iter().map(String::as_str), outcome)
             }
-            Reply::Fetch(next) => self.carry_fetch(host, next),
+            // The dialog is still open: its screen opens after it has closed.
+            Reply::Fetch(next) => {
+                self.asks.defer(next);
+                self.go_on(host)
+            }
             _ => Ok(()),
         }
+    }
+
+    /// Opens the screen a download chosen in the dialog waits to show.
+    pub(crate) fn open_fetch_after(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if let Some(crate::native_screens::Next::Open { screen, params }) = self.asks.released(true)
+        {
+            let ui = self.ui(host)?;
+            native_glue::open(host, ui, screen, &params)?;
+        }
+        Ok(())
     }
 
     /// The plugins are queued: the queue starts and the screen shows the
@@ -335,5 +369,31 @@ impl NativeStore {
             request.ids.iter().map(String::as_str),
             PluginOutcome::Failed,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::native_screens::Next;
+
+    fn open() -> Next {
+        Next::Open {
+            screen: "store.fetch",
+            params: Vec::new(),
+        }
+    }
+
+    /// The screen of a download waits until the network has spoken: a screen
+    /// opened while the dialog's answer is handled is the one its *Back* closes.
+    #[test]
+    fn the_fetch_screen_of_a_dialog_waits_for_a_download_event() {
+        let mut asks = Asks::default();
+        assert!(asks.released(true).is_none());
+        asks.defer(open());
+        assert!(asks.released(false).is_none());
+        assert!(matches!(asks.released(true), Some(Next::Open { .. })));
+        // Once only.
+        assert!(asks.released(true).is_none());
     }
 }

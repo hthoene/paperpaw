@@ -164,6 +164,25 @@ fn icon_names_in_plugins() -> Vec<(String, String)> {
         .map(|entry| entry.path().join("src"))
         .collect();
     let mut found = Vec::new();
+    // Native plugins name their icons in their declarations (`d.icon(item, name)`).
+    let declarations: Vec<_> = fs::read_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join(".."))
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path().join("declarations.rs"))
+        .filter(|path| path.is_file())
+        .collect();
+    for path in declarations {
+        let text = fs::read_to_string(&path).unwrap();
+        for (at, _) in text.match_indices("d.icon(") {
+            let rest = &text[at..];
+            let Some(end) = rest.find(')').filter(|&end| end < 200) else {
+                continue;
+            };
+            if let Some(name) = rest[..end].rsplit('"').nth(1) {
+                found.push((name.to_string(), path.display().to_string()));
+            }
+        }
+    }
     while let Some(dir) = dirs.pop() {
         let Ok(entries) = fs::read_dir(&dir) else {
             continue;
@@ -218,10 +237,7 @@ const KNOWN_MISSING_ICONS: [&str; 2] = ["notebook", "cloud-upload"];
 fn missing_icons(contributions: &[Contribution]) -> Vec<(String, String)> {
     let icon_font = &font(contributions, &ICONS).font;
     let names = icon_names_in_plugins();
-    // Fewer than before: the interface-6 plugins that named most of them are
-    // gone (#244); native plugins name icons in their declarations, which this
-    // scan of the source does not read.
-    assert!(names.len() > 5, "found the plugins' icons: {names:?}");
+    assert!(names.len() > 20, "found the plugins' icons: {names:?}");
     names
         .into_iter()
         .filter(|(name, _)| !icons::char(name).is_some_and(|c| icon_font.has_char(c)))

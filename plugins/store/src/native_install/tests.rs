@@ -204,12 +204,19 @@ fn what_the_host_refuses_is_said_in_the_stores_words() {
             Some(key) => assert_eq!(
                 outcome,
                 Outcome::Refused {
+                    plugin: "airy-theme".into(),
                     name: "Airy".into(),
                     key
                 },
                 "reason {reason}"
             ),
-            None => assert_eq!(outcome, Outcome::Silent, "reason {reason}"),
+            None => assert_eq!(
+                outcome,
+                Outcome::Silent {
+                    plugin: "airy-theme".into()
+                },
+                "reason {reason}"
+            ),
         }
         // Not installed: the staged files gone, the step idle.
         assert!(!wire.storage.exists("stage/airy-theme/plugin.ini"));
