@@ -765,6 +765,9 @@ jobs:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ${{ matrix.os }}
     strategy:
+      # Each system reports on its own: one failing build must not cancel the
+      # others (Windows showed "cancelled" whenever macOS failed).
+      fail-fast: false
       matrix:
         # A PR runs Linux; Windows and macOS run on main and integration.
         os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","windows-latest","macos-latest"]') }}
