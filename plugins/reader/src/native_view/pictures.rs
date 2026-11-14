@@ -7,7 +7,7 @@
 //! the top). A page laid out only in its draw (a changed setting, a turned
 //! screen) and a page without pictures have one frame; a page turned before
 //! its pictures were drawn never draws them.
-use super::{Open, Setup, redraw};
+use super::{Open, redraw};
 use crate::native_block::picture_path;
 use crate::native_draw::{Pictures, picture_boxes, picture_of};
 use alloc::string::String;
@@ -99,19 +99,17 @@ impl Open {
         Ok(())
     }
 
-    /// The pictures of a page the show of the screen draws (or drew) with
-    /// their places empty are asked for in a frame of their own: the page
-    /// is not drawn a second time (#257, todo 597: an opened book drew its
-    /// page twice before its cover). Where the host takes no boxes, the page
-    /// is drawn again with its pictures.
+    /// A page shown with pending pictures needs a whole redraw and its image
+    /// areas in the same callback: only that batch receives a follow-up frame.
+    /// Area-only redraws are ordinary frames and would keep the places empty.
     ///
     /// # Errors
     /// The host's refusal to redraw.
     pub(super) fn show_pictures(&mut self, host: &Host<'_>, docs: &Documents) -> Result<(), Error> {
-        if self.pictures == Pass::Asked || self.ask_boxes(host, docs) {
+        if self.pictures == Pass::Asked {
             return Ok(());
         }
-        redraw(host, RedrawMode::Partial)
+        self.redraw_page(host, docs, RedrawMode::Partial)
     }
 
     /// The boxes of the page's pictures are asked for again (after any
@@ -127,7 +125,12 @@ impl Open {
         let Some(page) = self.page.as_ref() else {
             return false;
         };
-        let Some(area) = Setup::read(host).ok().and_then(|setup| self.area(&setup)) else {
+        let Some(area) = self
+            .settings
+            .setup(host)
+            .ok()
+            .and_then(|setup| self.area(&setup))
+        else {
             return false;
         };
         // The boxes from the top left of the screen's region, as its draw

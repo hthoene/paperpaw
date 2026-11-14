@@ -558,7 +558,11 @@ impl Dashboard {
     /// The widget of a cell placed at the rectangle it has now.
     fn place_again(host: &Host<'_>, ui: &Ui, cell: &Cell) -> Result<(), Error> {
         match cell.widget.as_ref() {
-            Some(made) => made.place(host, ui, cell.rect),
+            // Refused: the widget stays where it was placed before.
+            Some(made) => match made.place(host, ui, cell.rect) {
+                Err(Error::NoMemory) => Err(Error::NoMemory),
+                _ => Ok(()),
+            },
             None => Ok(()),
         }
     }

@@ -48,6 +48,7 @@ fn input<'a>(e: &'a Entry, m: Option<&'a More>, i: Option<&'a Installed<'a>>) ->
         installed: i,
         revoked: false,
         small: false,
+        free: None,
     }
 }
 
@@ -452,4 +453,44 @@ fn remove_asks_and_only_the_first_option_removes() {
     assert!(!confirms_remove(REMOVE, &Reply::Choice(1)));
     assert!(!confirms_remove(REMOVE, &Reply::Text("0")));
     assert!(!confirms_remove(REMOVE + 1, &Reply::Choice(0)));
+}
+
+/// A data plugin that is not installed says what it takes of the card and what
+/// the card has (Beta 3's *Needs … free*); a code plugin's room is the host's
+/// check, an installed plugin needs nothing more, an unknown card says nothing.
+#[test]
+fn a_data_plugin_not_installed_says_what_it_needs_of_the_card() {
+    let e = entry();
+    let mut i = input(&e, None, None);
+    i.free = Some(7_400_000_000);
+    let f = facts(&i).unwrap();
+    assert_eq!(
+        f.last(),
+        Some(&Fact::Needs {
+            size: 2048,
+            free: 7_400_000_000
+        })
+    );
+    assert!(matches!(f[f.len() - 2], Fact::Version { .. }));
+    let code = Entry {
+        code: true,
+        ..entry()
+    };
+    let mut i = input(&code, None, None);
+    i.free = Some(7_400_000_000);
+    assert!(
+        !facts(&i)
+            .unwrap()
+            .iter()
+            .any(|f| matches!(f, Fact::Needs { .. }))
+    );
+    let have = installed(Kind::Data, true);
+    let mut i = input(&e, None, Some(&have));
+    i.free = Some(7_400_000_000);
+    assert!(
+        !facts(&i)
+            .unwrap()
+            .iter()
+            .any(|f| matches!(f, Fact::Needs { .. }))
+    );
 }

@@ -63,7 +63,7 @@ impl NativeStore {
                 let ui = self.ui(host)?;
                 native_glue::open(host, ui, screen, &params)
             }
-            Next::Close => back(host),
+            Next::Close => close_screen(host),
             Next::FetchList => self.fetch_list(host),
             Next::FetchPage(id) => self.fetch_page(host, &id),
             Next::Install(id) | Next::Update(id) => self.begin(host, &id),
@@ -72,7 +72,7 @@ impl NativeStore {
             Next::UpdateAll => self.update_all(host),
             Next::Notify(key) => self.say(host, key),
             Next::CloseNotify(key) => {
-                back(host)?;
+                close_screen(host)?;
                 self.say(host, key)
             }
             Next::Said { key, name } => self.say_with(host, key, &name),
@@ -136,6 +136,11 @@ impl NativeStore {
                 let result = self.loader.ended(&mut wire, &ended)?;
                 if result == Ended::ListChanged {
                     self.generation = self.generation.wrapping_add(1);
+                }
+                // A list that did not come (no connection, no answer) is said
+                // on the screen that showed it loading.
+                if result == Ended::ListUnchanged {
+                    redraw(host)?;
                 }
                 if result == Ended::Page {
                     self.page_arrived(host)?;
@@ -416,6 +421,7 @@ impl NativeStore {
                 name,
                 updated,
                 restart,
+                requires,
             } => {
                 let key = match (restart, updated) {
                     (true, true) => "store.updated-code",
@@ -424,6 +430,7 @@ impl NativeStore {
                     (false, false) => "store.installed",
                 };
                 self.noted(host, &plugin, &name, key, Result_::Installed)?;
+                self.note_requires(requires);
                 true
             }
             Outcome::Refused { plugin, name, key } => {
@@ -440,6 +447,34 @@ impl NativeStore {
             self.go_on(host)?;
         }
         self.forward(host, event)
+    }
+
+    /// Notes the plugins a plugin just installed requires; they are asked for
+    /// when the queue has ended ([`Self::ask_requires`]), as the request that
+    /// brought this plugin is answered only then.
+    fn note_requires(&mut self, requires: Vec<String>) {
+        for id in requires {
+            if !self.asks.requires.contains(&id) && push(&mut self.asks.requires, id).is_err() {
+                return;
+            }
+        }
+    }
+
+    /// Asks for the plugins noted (the host drops those the device has): the
+    /// store's own dialog offers them with their sizes. A refusal (a full
+    /// table) leaves the plugins installed as they are.
+    fn ask_requires(&mut self, host: &Host<'_>) {
+        let requires = core::mem::take(&mut self.asks.requires);
+        if requires.is_empty() {
+            return;
+        }
+        let mut ids: Vec<&str> = Vec::new();
+        if ids.try_reserve_exact(requires.len()).is_err() {
+            return;
+        }
+        ids.extend(requires.iter().map(String::as_str));
+        let mut scratch = [0; 1_024];
+        let _ = CommandSender::new(host, &mut scratch).request_plugins(&ids);
     }
 
     /// Says what became of plugin `id`, or notes it for the end of a quiet
@@ -540,6 +575,7 @@ impl NativeStore {
                 native_glue::notify(host, &text)?;
             }
         }
+        self.ask_requires(host);
         Ok(())
     }
 
@@ -832,6 +868,17 @@ fn lean(page: &crate::native_list::Page) -> Result<crate::native_list::Page, Err
         rotations,
         more: crate::native_item::More::default(),
     })
+}
+
+/// Closes the screen that asked for it. The host lets a plugin close a screen
+/// only from a screen's own callbacks: an event (the end of an install) is
+/// refused, so the screen is drawn as it ended and closes at the next input or
+/// when it is shown again (`Phase::Done`).
+fn close_screen(host: &Host<'_>) -> Result<(), Error> {
+    match back(host) {
+        Err(Error::Unsupported) => redraw(host),
+        other => other,
+    }
 }
 
 fn back(host: &Host<'_>) -> Result<(), Error> {

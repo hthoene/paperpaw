@@ -6,7 +6,7 @@ use crate::{
     LineMetrics,
     native::{Error, binding::status},
 };
-use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_UNSUPPORTED};
 
 /// Text ink bounds in pixels, relative to the baseline and the pen's start.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,7 +63,9 @@ impl Font<'_> {
     }
 
     /// Query ink bounds at a finite, positive size without drawing or allocating.
-    /// Pixels at least half covered count as ink. Text without ink returns None.
+    /// Pixels at least half covered count as ink. Text without ink returns None,
+    /// and so does a host that has not wired `text.ink` (the X4 until it is
+    /// timed there, `abi/screens-input.md`): place the text by its metrics then.
     /// This operation works outside a draw callback.
     ///
     /// # Errors
@@ -91,7 +93,8 @@ impl Font<'_> {
                 &mut right,
             )
         };
-        if result == ERR_NOT_FOUND {
+        // No ink, or a host that cannot say: the caller's own fallback.
+        if result == ERR_NOT_FOUND || result == ERR_UNSUPPORTED {
             return Ok(None);
         }
         status(result)?;
