@@ -641,8 +641,8 @@ pub static CATALOG_INDEXES: &[(u64, &[u16])] =
 pub static BUILT_CATALOGS: &[paperpaw_i18n::BuiltLanguage] =
     include!(concat!(env!("OUT_DIR"), "/built_catalogs.rs"));
 
-/// The interface-6 forms of plain text and home:
-/// each only where its native form is not linked (`native-linked-reading`).
+/// The interface-6 form of home, only where its native form is not linked
+/// (`native-linked-reading`).
 #[cfg_attr(
     feature = "native-linked-reading",
     allow(clippy::missing_const_for_fn, reason = "nothing is added there")
@@ -653,12 +653,6 @@ fn interface6_reading(builder: KernelBuilder) -> KernelBuilder {
         reason = "nothing is added where the native forms are linked"
     )]
     let mut b = builder;
-    // The plugins that are native plugins, linked (`NATIVE_PLUGINS`), where the
-    // feature says, are not installed here: one plugin, one form.
-    #[cfg(not(feature = "native-linked-reading"))]
-    {
-        b = b.plugin(paperpaw_plugin_format_txt::TxtFormat);
-    }
     // Home is a native plugin, linked (`NATIVE_PLUGINS`), where the feature says
     // (`native-linked-reading`); the reader and Menu are native plugins only.
     #[cfg(not(feature = "native-linked-reading"))]

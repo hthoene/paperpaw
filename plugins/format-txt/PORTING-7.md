@@ -48,20 +48,11 @@ A refused allocation is `NoMemory` end to end: `HostIo` carries it through `Stor
 
 - X4: a UTF-16 conversion takes 1 KiB per `prepare` call (about 50 ms budget per call is not measured); stack and time on the device are not measured. Gate stays open until the device test (owner OK).
 
-## Removal step (one sweep, with the reader port and Core #944)
+## Removal step
 
-Status: **not complete** (the interface-6 form is still beside the native one; nothing registers both
-in a shipped build: `NativeTxt` is not in `paperpaw_app::NATIVE_PLUGINS` yet). Remove together:
-1. `TxtFormat` and its `Plugin` impl, `FORMAT`, the `add_book_cache` and `add_format` registration,
-   the `HOW` table kept for the manifest (the texts move to the native how-to when the host shows it);
-2. `TxtDocument::open`/`utf8_copy` and the plugin-folder UTF-8 cache (`document.rs`): the document is
-   opened by the provider from roots 3 and 6 only;
-3. the app's `install_with` line and the dev-dependencies of reader, files, file-manager and kosync
-   on `TxtFormat` (their tests move to the native host path), `fuzz/fuzz_targets/txt.rs` to the provider;
-4. list `NativeTxt` in `NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt`.
-
-## Left in place (intermediate)
-
-The interface-6 `TxtFormat` registration, `TxtDocument` use of `utf8_copy` and its plugin-folder
-cache stay until the host activates native plugins; they go together then (no shim).
-X4 `.ppn` (`tools/plugin-files7/build.sh x4 --only format-txt`, version 1.0.2): 55,984 bytes; the packer accepts every frame (below 2,048 B). The `linked` hosted tests pass (`cargo test --features linked`).
+Done (#244): `TxtFormat` and its `Plugin` impl, the `HOW` table and the app's `install_with`
+line are gone; the reader's hosted tests register a test-side `TestTxt`
+(`plugins/reader/tests/common/formats.rs`). Still to remove with the reader's removal:
+`TxtDocument::open`/`utf8_copy` and the plugin-folder UTF-8 cache (`document.rs`: the document
+is opened by the provider from roots 3 and 6 only), the reader tests' use of `TxtDocument`, and
+`fuzz/fuzz_targets/txt.rs` moved to the provider.
