@@ -26,9 +26,8 @@ rustflags = [
 # toolchain, `cargo +esp x4pro`, against the core libraries of the PaperPaw
 # release (tools/xtensa-std), as tools/plugin-files does for interface 6. The
 # linker script is the same: the Xtensa-specific parts of it (`.literal`)
-# are already in it. Packing for target 9 waits for the profile of
-# `abi/ppn5.md` (Kernel, decision 142): until then this is built and checked,
-# not packed.
+# are already in it. The files are packed for target 9 (`abi/ppn5.md`, decision
+# 142) by `build.sh`, against each plugin's `metadata.s3.bin`.
 [target.xtensa-esp32s3-none-elf]
 rustflags = [
     "-C", "link-arg=-nostartfiles",
