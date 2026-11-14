@@ -302,4 +302,11 @@ mod tests {
         // Another failure is still one.
         assert_eq!(font_name(Err(Error::NoMemory)), Err(Error::NoMemory));
     }
+
+    #[test]
+    fn the_kept_settings_are_one_pointer_in_the_open_book() {
+        // The open book is built in a frame of `open` (2,048 bytes at most on the
+        // S3): what it keeps of the settings stays off it.
+        assert_eq!(core::mem::size_of::<Kept>(), core::mem::size_of::<usize>());
+    }
 }
