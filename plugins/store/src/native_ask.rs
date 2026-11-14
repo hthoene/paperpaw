@@ -1050,69 +1050,62 @@ pub fn quiet_notices(
     Ok(notices)
 }
 
-/// The native rules give what the interface-6 code did.
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, reason = "fixtures")]
     extern crate std;
 
     use super::*;
-    use crate::native_parity_tests::old_entry;
     use proptest::prelude::*;
 
+    /// What the interface-6 store did, pinned (Beta 3 values).
     #[test]
-    fn the_constants_are_the_old_ones() {
-        assert_eq!(OFFERED, crate::setup::OFFERED);
-        assert_eq!(PACK, crate::styles::PACK);
-        assert_eq!(native_request::DECLINED_MS, crate::request::DECLINED_MS);
+    fn the_constants_are_the_pinned_ones() {
+        assert_eq!(OFFERED, ["stats", "widgets", "calibre", "kosync"]);
+        assert_eq!(PACK, "literata-styles");
+        assert_eq!(native_request::DECLINED_MS, 60_000);
         assert_eq!(MAX_TEXT, 1024);
+    }
+
+    #[test]
+    fn a_list_without_a_name_loses_that_name_only() {
+        let without = |list: &str, name: &str| without(list, name).unwrap();
+        assert_eq!(without("a, b, c", "b").as_deref(), Some("a, c"));
+        assert_eq!(without("a, b, c", "a").as_deref(), Some("b, c"));
+        assert_eq!(without("a", "a").as_deref(), Some(""));
+        assert_eq!(without("a, b", "c"), None);
+        assert_eq!(without("", "a"), None);
+        // Every copy of the name goes.
+        assert_eq!(without("a, b, a", "a").as_deref(), Some("b"));
+    }
+
+    fn listed(names: &[(&str, Option<&str>)]) -> Vec<(String, Option<Entry>)> {
+        names
+            .iter()
+            .map(|(id, name)| {
+                let entry = name.map(|name| Entry {
+                    id: (*id).into(),
+                    name: name.into(),
+                    ..Entry::default()
+                });
+                ((*id).into(), entry)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn names_are_joined_by_name_or_by_id_where_the_library_does_not_list_it() {
+        let list = listed(&[("a", Some("Alpha")), ("b", None), ("c", Some("Gamma"))]);
+        assert_eq!(native_request::names(&list).unwrap(), "Alpha, b, Gamma");
+        assert_eq!(names_up_to(&list, usize::MAX).unwrap(), "Alpha, b, Gamma");
+        assert_eq!(names_up_to(&list, 2).unwrap(), "Alpha, b, …");
+        assert_eq!(names_up_to(&list, 3).unwrap(), "Alpha, b, Gamma");
+        assert_eq!(names_up_to(&[], 2).unwrap(), "");
     }
 
     proptest! {
         #[test]
-        fn a_list_without_a_name_is_what_it_was(
-            list in "[a-c, ]{0,24}",
-            name in "[a-c]{0,3}",
-        ) {
-            prop_assert_eq!(
-                without(&list, &name).unwrap(),
-                crate::styles::without(&list, &name)
-            );
-        }
-
-        #[test]
-        fn names_are_joined_as_they_were(
-            names in proptest::collection::vec("[a-z ]{0,8}", 0..6),
-            listed in proptest::collection::vec(any::<bool>(), 6),
-        ) {
-            let native: Vec<(String, Option<Entry>)> = names
-                .iter()
-                .zip(listed.iter().chain(core::iter::repeat(&false)))
-                .enumerate()
-                .map(|(n, (name, listed))| {
-                    let id = std::format!("id{n}");
-                    let entry = listed.then(|| Entry {
-                        id: id.clone(),
-                        name: name.clone(),
-                        ..Entry::default()
-                    });
-                    (id, entry)
-                })
-                .collect();
-            let old: Vec<_> = native
-                .iter()
-                .map(|(id, e)| (id.clone(), e.as_ref().map(old_entry)))
-                .collect();
-            prop_assert_eq!(
-                native_request::names(&native).unwrap(),
-                crate::request::names(&old)
-            );
-            let all = names_up_to(&native, usize::MAX).unwrap();
-            prop_assert_eq!(all, crate::request::names(&old));
-        }
-
-        #[test]
-        fn sizes_are_written_as_they_were(bytes in any::<u64>(), mark in "[.,]") {
+        fn sizes_are_written_as_the_sdk_writes_them(bytes in any::<u64>(), mark in "[.,]") {
             prop_assert_eq!(
                 size_text(bytes, &mark).unwrap(),
                 paperpaw_sdk::files::size(bytes, &mark)
