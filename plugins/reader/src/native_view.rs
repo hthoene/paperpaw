@@ -1324,8 +1324,7 @@ impl Open {
         let faces = Faces::new(fonts, setup.base(), setup.reading.spacing_factor())?
             .word_spacing(setup.reading.word_factor());
         // A turned screen or a changed reading setting (the host may draw before
-        // the plugin is told): the page is laid out again, and the pages before
-        // it are found anew (their starts were those of another layout).
+        // the plugin is told): the page is laid out again, its trail found anew.
         let key = self.key(setup);
         if self.page.is_some() && self.laid != Some(key) {
             self.page = None;
@@ -1338,6 +1337,9 @@ impl Open {
             self.page = Some(page);
             self.words = Vec::new();
             self.laid = Some(key);
+        }
+        if frame.pictures_only() {
+            return self.draw_pictures_only(host, frame, (setup, fonts, area));
         }
         let page = self.page.as_ref().ok_or(Error::State)?;
         if self.words.is_empty() {
@@ -1358,11 +1360,9 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
-        // The highlights and the search hit: backgrounds behind the words,
-        // lines and frames over them.
+        // The highlights and the search hit: behind the words, over them.
         let hit = self.marks.hit_on(self.at);
-        // A mark never fails the page: no room for it or a refusal of the host
-        // leaves the text drawn without marks (or with the part drawn so far).
+        // A mark never fails the page: a refusal leaves the text without it.
         let gauge = Gauge::of(
             setup.display.display_dpi(),
             setup.display.display_gray_levels(),
