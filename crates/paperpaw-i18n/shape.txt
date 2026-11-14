@@ -9,7 +9,7 @@ const paperpaw_i18n::card::BLOCK_MESSAGES: usize = 32usize
 const paperpaw_i18n::card::MAX_MESSAGE: usize = 4_096usize
 const paperpaw_i18n::card::MAX_READ: usize = 16_384usize
 enum paperpaw_i18n::catalog::CatalogError { Syntax(0: paperpaw_config::ParseError), MissingLanguage, UnknownPluralRule { line: u32 }, UnexpectedSection { line: u32 }, Other(0: u16), Corrupt, TooLarge }
-enum paperpaw_i18n::catalog::Elsewhere { Card(0: paperpaw_i18n::card::Card), Built(0: paperpaw_i18n::built::Built) }
+enum paperpaw_i18n::catalog::Elsewhere { Card(0: paperpaw_i18n::card::Card), Built(0: paperpaw_i18n::built::Built), Messages(0: &'static paperpaw_i18n::messages::BuiltMessages) }
 enum paperpaw_i18n::check::Issue { Missing(0: alloc::string::String), Unknown(0: alloc::string::String), Placeholders(0: alloc::string::String) }
 enum paperpaw_i18n::format::Arg<'a> { Str(0: &'a str), Int(0: i64) }
 enum paperpaw_i18n::plural::PluralCategory { Zero, One, Two, Few, Many, Other }
@@ -27,4 +27,7 @@ struct paperpaw_i18n::catalog::Catalog { source: alloc::borrow::Cow<'static, str
 struct paperpaw_i18n::catalog::Index(0: alloc::borrow::Cow<'static, [u16]>)
 struct paperpaw_i18n::catalog::Parked { source: alloc::borrow::Cow<'static, str>, language: paperpaw_i18n::catalog::Span, name: paperpaw_i18n::catalog::Span, added: u32 }
 struct paperpaw_i18n::catalog::Span { start: u32, len: u32 }
+struct paperpaw_i18n::messages::BuiltMessages { language: &'static str, name: &'static str, keys: &'static [u32], entries: &'static [u32], values: &'static str }
+struct paperpaw_i18n::messages::BuiltMessagesTable { languages: alloc::vec::Vec<paperpaw_i18n::messages::Language>, keys: alloc::vec::Vec<(u64, alloc::string::String, alloc::vec::Vec<core::option::Option<alloc::string::String>>)>, sizes: alloc::vec::Vec<usize> }
+struct paperpaw_i18n::messages::Language { language: alloc::string::String, name: core::option::Option<alloc::string::String>, sources: usize }
 trait paperpaw_i18n::card::CatalogFile { function read_exact_at(&Self, u32, &mut [u8]) -> bool, function size(&Self) -> u32 }
