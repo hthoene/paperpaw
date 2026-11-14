@@ -2,7 +2,7 @@
 //! `move` (op 6). Every one checks root, path, exclusions and the host's
 //! `ERR_BUSY` before it touches anything; a refused call changes nothing.
 use super::{
-    Access, View, encode,
+    Access, View, encode, library_follows,
     target::{self, CARD, DATA, Intent, Target},
 };
 use crate::native_host::{
@@ -155,7 +155,11 @@ pub(super) fn move_entry(view: &View<'_>, record: Record<'_>) -> Result<usize, i
             _ => return Err(ERR_STATE),
         }
     }
-    let library = from.root == CARD && to.root == CARD;
+    // The library follows the user's folders and books (2.6); any other
+    // single file there is the card's rename alone.
+    let library = from.root == CARD
+        && to.root == CARD
+        && library_follows(view.formats, from_kind == Kind::Folder, from_path, to_path);
     view.host
         .rename(storage, from_path, to_path, replace, library)?;
     Ok(0)

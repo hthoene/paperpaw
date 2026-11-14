@@ -255,6 +255,15 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
      it, sends the library's book-moved events, and clears the entry.
   The call so stays bounded however many books the folder holds. Every step of the job is
   idempotent, so it can be replayed from the entry.
+  - **A single file that is no book** has nothing for the job to carry, so the host only renames
+    it, exactly as `storage.rename` does on root 0: no journal entry, no job, no event, and the
+    moves after it are not `ERR_BUSY` because of it (a plugin's save of two renames in one
+    callback: the copy kept, then the new file). No book: no format reads the file under its old
+    or its new name, going by the name alone (its extension, also the one before a `.bak` at its
+    end; a name without an extension counts as a book where a format tells files by their first
+    bytes). A folder is always followed. The power-cut rule is `storage.rename`'s (above); the
+    statuses are the same as for a followed move, and while a job runs it waits like every move.
+    A host that cannot tell (no formats in the callback's frame) follows every move.
   - **At start**, after the FAT repair (`settle_moves`), the host looks at the open entry: only `to`
     exists, it finishes the job; only `from` exists, it drops the entry (nothing moved); **both
     exist** (a cut between FAT's two directory writes), the repair settles them first and the host

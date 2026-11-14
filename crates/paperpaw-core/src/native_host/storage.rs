@@ -30,8 +30,9 @@ use super::format_scope::{BookKind, FormatBook};
 use alloc::borrow::Cow;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE,
-    ERR_NOT_FOUND, ERR_UNSUPPORTED, ERR_UTF8,
+    ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, ERR_UTF8,
 };
+use paperpaw_platform::tree::{Kind, kind};
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::Id;
 
@@ -84,6 +85,9 @@ pub(crate) struct Card<'a> {
     /// `Some` wherever root 1 opens: a shell offers `uses.storage` only where
     /// it wires `core.files` (the desktop's `linked.rs`); `None` only in tests.
     pub(crate) files: Option<&'a dyn FilesHost>,
+    /// The kernel's formats, where the callback's frame has them: what a
+    /// book is, for the renames the library follows (`files.md` 2.6).
+    pub(crate) formats: Option<&'a paperpaw_sdk::Formats>,
 }
 
 impl core::fmt::Debug for StorageAdapter<'_> {
@@ -498,8 +502,8 @@ impl<'a> StorageAdapter<'a> {
                 self.free_of_host_writers(f, Access::Rename)?;
                 self.free_of_host_writers(t, Access::Rename)?;
                 // Root 1: the library follows (`files.md` 2.6).
-                if let Some(files) = self.card.and_then(|card| card.files) {
-                    return self.rename_card(files, f, t);
+                if let Some((card, files)) = self.card.and_then(|card| Some((card, card.files?))) {
+                    return self.rename_card(files, card.formats, f, t);
                 }
                 // What the rename replaces is not in the cache any more.
                 let credit = if root == 6 { self.size_of(t) } else { 0 };
@@ -530,8 +534,19 @@ impl<'a> StorageAdapter<'a> {
     /// folders above `to` are made where they are not there yet; the move job
     /// says the rest (`ERR_STATE` for a folder at `to`, `ERR_INVALID` for a
     /// folder into itself).
+    ///
+    /// A single file no format reads under either name has nothing for the
+    /// library to carry ([`library_follows`](super::files_service::library_follows)):
+    /// its move is the card's rename and starts no job, so a save of two
+    /// renames in one callback is whole (#612).
     #[inline(never)]
-    fn rename_card(&self, files: &dyn FilesHost, f: &str, t: &str) -> Result<(), i32> {
+    fn rename_card(
+        &self,
+        files: &dyn FilesHost,
+        formats: Option<&paperpaw_sdk::Formats>,
+        f: &str,
+        t: &str,
+    ) -> Result<(), i32> {
         if files.moving() {
             return Err(ERR_BUSY);
         }
@@ -546,7 +561,20 @@ impl<'a> StorageAdapter<'a> {
         {
             self.make_parents(t)?;
         }
-        files.rename(self.storage, f, t, true, true)
+        // A single file no format reads is the card's rename alone (2.6),
+        // refused where the job would: below itself, or onto a folder.
+        let folder = !self.storage.exists(f);
+        let library = super::files_service::library_follows(formats, folder, f, t);
+        if !library {
+            let below = files.within(self.storage, t, f);
+            if below && !files.within(self.storage, f, t) {
+                return Err(ERR_INVALID);
+            }
+            if kind(self.storage, t).map_err(status)? == Kind::Folder {
+                return Err(ERR_STATE);
+            }
+        }
+        files.rename(self.storage, f, t, true, library)
     }
 
     /// Slot 25: removes the file; a missing one is fine.
