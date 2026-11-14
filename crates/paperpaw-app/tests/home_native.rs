@@ -38,5 +38,9 @@ mod layouts;
 mod preview;
 #[path = "home_native/shapes.rs"]
 mod shapes;
+#[path = "home_native/widget_font.rs"]
+mod widget_font;
 #[path = "home_native/widget_list.rs"]
 mod widget_list;
+#[path = "home_native/widget_look.rs"]
+mod widget_look;

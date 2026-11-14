@@ -50,11 +50,17 @@ pub(in crate::native_host) fn kernel(table: bool) -> crate::Kernel {
 
 /// [`kernel`] with `config` as the shell's configuration, read at the build
 /// (before the pack registers).
-fn configured(table: bool, config: &str) -> crate::Kernel {
+pub(in crate::native_host) fn configured(table: bool, config: &str) -> crate::Kernel {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .user_config(config)
         .build()
         .unwrap();
+    add_pack(&mut kernel, table);
+    kernel
+}
+
+/// Registers the pack with `kernel`, as [`kernel`] says.
+pub(in crate::native_host) fn add_pack(kernel: &mut crate::Kernel, table: bool) {
     let depth = FlatDepth::try_new().unwrap();
     let fixed = match table {
         true => FixedTables::new(NATIVE_SETTINGS, NATIVE_GROUPS),
@@ -63,7 +69,15 @@ fn configured(table: bool, config: &str) -> crate::Kernel {
     kernel
         .register_native_fixed(hosted(), &depth, |_, _, _, _| {}, fixed, None)
         .unwrap();
+}
+
+/// The pack admitted and nothing more: without the steps that follow an
+/// admission (the font choices, the widgets' font settings).
+pub(in crate::native_host) fn admit_pack(kernel: &mut crate::Kernel) {
+    let depth = FlatDepth::try_new().unwrap();
     kernel
+        .admit_native(hosted(), &depth, None, |_, _, _, _| {})
+        .unwrap();
 }
 
 fn ids(settings: &Settings) -> Vec<String> {
