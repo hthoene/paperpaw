@@ -401,6 +401,10 @@ jobs:
           fi
           espflash save-image --chip "$FIRMWARE_CHIP" --merge --skip-padding --flash-size 16mb \
             --partition-table "$table" "$elf" "$GITHUB_WORKSPACE/dist/paperpaw-$DEVICE-$VERSION.bin"
+      # No release image carries the device tests' build (its never-sleep
+      # defaults and high-water log): refused by its log lines.
+      - name: The image is not a test image
+        run: python3 -I tools/check-owner-image.py --release "dist/paperpaw-$DEVICE-$VERSION.bin"
       # The app alone, unsigned: what another firmware's installer
       # (CrossPoint's menu) takes, and what the signed update is made of.
       - name: The install image
