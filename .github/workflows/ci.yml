@@ -489,6 +489,7 @@ jobs:
       # budgets above: the plain scan stays exact per function (Senior #2897 C2).
       # Report-only until the eight frames of 2,048 B or more it lists are cut
       # (Kernel todo 626, Store list screen, json/epub-family); then drop `continue-on-error`.
+      # MUST become blocking before any S3 image hosts plugins on a device (Manager ruling).
       - name: The S3's linked plugins' frames and calls fit under the band
         if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
         continue-on-error: true
