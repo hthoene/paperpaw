@@ -78,6 +78,7 @@ pub const fn paperpaw_i18n::BuiltMessages::new(&'static str, &'static str, &'sta
 pub struct paperpaw_i18n::BuiltMessagesTable
 impl paperpaw_i18n::BuiltMessagesTable
 pub fn paperpaw_i18n::BuiltMessagesTable::add(&mut self, &str) -> core::result::Result<bool, paperpaw_i18n::CatalogError>
+pub fn paperpaw_i18n::BuiltMessagesTable::clashes(&self) -> &[(alloc::string::String, alloc::string::String)]
 pub fn paperpaw_i18n::BuiltMessagesTable::is_empty(&self) -> bool
 pub fn paperpaw_i18n::BuiltMessagesTable::leak(self) -> &'static [paperpaw_i18n::BuiltMessages]
 pub fn paperpaw_i18n::BuiltMessagesTable::len(&self) -> usize
