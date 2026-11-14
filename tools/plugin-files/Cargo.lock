@@ -113,26 +113,8 @@ version = "0.6.0-beta.3"
 name = "paperpaw-plugin-files"
 version = "0.0.0"
 dependencies = [
- "paperpaw-plugin-news",
- "paperpaw-plugin-picture-home",
  "paperpaw-plugin-vocabulary",
  "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-news"
-version = "1.0.10"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-picture-home"
-version = "1.0.2"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
 ]
 
 [[package]]

@@ -41,6 +41,10 @@ const ALWAYS: [&str; 6] = [
     "store",
 ];
 
+/// The plugins of `STORE_PLUGINS` that still have an interface-6 form: the
+/// others are native only (#244), built in by the native activation.
+const INTERFACE_6_STORE_PLUGINS: [&str; 1] = ["vocabulary"];
+
 fn fonts() -> paperpaw_app::Fonts {
     #[cfg(any(feature = "packs", not(feature = "outline")))]
     return paperpaw_app::Fonts::Packs;
@@ -126,8 +130,9 @@ fn the_crates_listed_are_those_installed() {
     ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
 )]
 fn built_in_store_plugins_are_off_unless_used() {
-    // Any one of them: the plugins leave this list as their interface-6 code goes.
-    let used = [paperpaw_app::STORE_PLUGINS[0]];
+    // Only the plugins that still have an interface-6 form are built in
+    // without the native activation (#244).
+    let used: [&str; 0] = [];
     let kernel = paperpaw_app::install_with(
         builder(),
         fonts(),
@@ -135,7 +140,7 @@ fn built_in_store_plugins_are_off_unless_used() {
     )
     .build_native();
     let plugins = plugins(&kernel);
-    for id in paperpaw_app::STORE_PLUGINS {
+    for id in INTERFACE_6_STORE_PLUGINS {
         let state = plugins
             .iter()
             .find(|(p, _)| p == id)
@@ -188,13 +193,19 @@ fn a_store_plugin_switched_off_before_stays_off() {
         paperpaw_app::StorePlugins::Off(&|_| ran_before),
     )
     .build_native();
-    let plugins = plugins(&kernel);
-    let state = |id: &str| plugins.iter().find(|(p, _)| p == id).map(|(_, s)| *s);
-    assert_eq!(
-        state(paperpaw_app::STORE_PLUGINS[0]),
-        Some(PluginState::Running)
-    );
+    let off = plugins(&kernel);
+    let state = |id: &str| off.iter().find(|(p, _)| p == id).map(|(_, s)| *s);
     assert_eq!(state("vocabulary"), Some(PluginState::Off));
+    // One who did not switch it off has it on.
+    let kernel = paperpaw_app::install_with(
+        builder(),
+        fonts(),
+        paperpaw_app::StorePlugins::Off(&|_| true),
+    )
+    .build_native();
+    let on = plugins(&kernel);
+    let state = |id: &str| on.iter().find(|(p, _)| p == id).map(|(_, s)| *s);
+    assert_eq!(state("vocabulary"), Some(PluginState::Running));
 }
 
 #[cfg(feature = "store-plugins")]
@@ -205,6 +216,11 @@ fn a_store_plugin_switched_off_before_stays_off() {
 )]
 fn every_store_plugin_is_one_of_the_app() {
     // The list the shells use names every plugin the feature builds in.
+    assert!(
+        INTERFACE_6_STORE_PLUGINS
+            .iter()
+            .all(|id| paperpaw_app::STORE_PLUGINS.contains(id))
+    );
     let all = native_activation::build(paperpaw_app::install(builder(), fonts()));
     let lean = paperpaw_app::install_with(builder(), fonts(), paperpaw_app::StorePlugins::Left)
         .build_native();
@@ -215,5 +231,6 @@ fn every_store_plugin_is_one_of_the_app() {
         .filter(|id| !lean.contains(id) && id != "diagnostics")
         .collect();
     offered.sort();
-    assert_eq!(offered, paperpaw_app::STORE_PLUGINS);
+    // Only those with an interface-6 form (the others are native only, #244).
+    assert_eq!(offered, INTERFACE_6_STORE_PLUGINS);
 }

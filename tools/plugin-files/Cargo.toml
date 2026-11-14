@@ -11,18 +11,6 @@ publish = false
 [workspace]
 
 [[bin]]
-name = "news"
-path = "src/bin/news.rs"
-test = false
-bench = false
-
-[[bin]]
-name = "picture-home"
-path = "src/bin/picture-home.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "vocabulary"
 path = "src/bin/vocabulary.rs"
 test = false
@@ -30,8 +18,6 @@ bench = false
 
 [dependencies]
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
-paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
-paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
 
 # As the firmware is built: small code, one unit, no unwinding.

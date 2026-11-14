@@ -3,30 +3,36 @@
 //! headings and paragraphs), at most the articles asked for, and text
 //! within its limits.
 
-extern crate std;
-
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::{MemoryStorage, Storage};
 use proptest::prelude::*;
 
-use super::{HEADLINES, MAX_FIELD, convert};
+use crate::native_convert::{Converted, Converter};
+use crate::native_news::{HEADLINES_SHOWN as HEADLINES, MAX_FIELD};
 
 /// How these tests write a day.
-fn day(year: i32, month: u8, day: u8) -> String {
-    format!("{day}.{month}.{year}")
+fn day(year: i32, month: u8, day: u8) -> Result<String, paperpaw_sdk::native::Error> {
+    Ok(format!("{day}.{month}.{year}"))
 }
 
-/// Converts `feed`; the result and the page.
-fn page(feed: &[u8], articles: usize, text: usize) -> (super::Converted, String) {
-    let storage = MemoryStorage::new();
-    storage.write("feed.xml", feed).unwrap();
-    let converted = convert(&storage, "feed.xml", "out.html", articles, text, &day).unwrap();
-    let data = paperpaw_sdk::read_file(&storage, "out.html", 1 << 24).unwrap();
-    (converted, String::from_utf8(data).unwrap())
+/// Converts `feed` in pieces; the result and the page.
+fn page(feed: &[u8], articles: usize, text: usize) -> (Converted, String) {
+    let mut converter = Converter::new(articles, text, &day);
+    let mut page = Vec::new();
+    for piece in feed.chunks(997) {
+        converter.feed(piece).unwrap();
+        page.extend_from_slice(converter.taken());
+        converter.clear();
+        if converter.is_done() {
+            break;
+        }
+    }
+    let converted = converter.finish().unwrap();
+    page.extend_from_slice(converter.taken());
+    (converted, String::from_utf8(page).unwrap())
 }
 
 /// The tags in `page`, by name.
@@ -183,19 +189,4 @@ fn a_long_channel_title_is_cut_like_other_titles() {
         "{}",
         converted.title.len()
     );
-}
-
-#[test]
-fn storage_that_fails_is_an_error_not_a_panic() {
-    let storage = MemoryStorage::new();
-    storage
-        .write(
-            "feed.xml",
-            b"<rss><channel><item><title>x</title></item></channel></rss>",
-        )
-        .unwrap();
-    // A page that cannot be written (an invalid path).
-    assert!(convert(&storage, "feed.xml", "../out.html", 5, 100, &day).is_err());
-    // A feed that is not there.
-    assert!(convert(&storage, "missing.xml", "out.html", 5, 100, &day).is_err());
 }

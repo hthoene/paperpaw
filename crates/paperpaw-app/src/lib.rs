@@ -686,14 +686,9 @@ pub fn install_with(
     {
         b = b.plugin(paperpaw_plugin_menu::Menu);
     }
-    // Picture home is a native plugin, linked (`NATIVE_PLUGINS`), shipped off
-    // (`native_default_on`), where `native-linked-store` links the store's.
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-    {
-        b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
-    }
-    // Wi-Fi and Transfer are native plugins only (`NATIVE_PLUGINS`, under
-    // `native-linked`): their interface-6 forms are gone (#244).
+    // Wi-Fi, Transfer, News and Picture home are native plugins only
+    // (`NATIVE_PLUGINS`, under `native-linked`): their interface-6 forms are
+    // gone (#244).
     b = b.plugin(paperpaw_plugin_store::Store);
     #[cfg(all(
         feature = "store-plugins",
@@ -703,31 +698,8 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     }
     b = b.plugin(paperpaw_plugin_sleep::Sleep);
-    #[cfg(all(
-        feature = "store-plugins",
-        not(all(feature = "native-linked-store", feature = "native-linked-reading"))
-    ))]
-    {
-        b = offered(b, store, paperpaw_plugin_news::News);
-    }
     // A theme of the app's own, off as it ships, on every device.
     b.plugin_off(Pebble)
-}
-
-/// Adds `plugin`, one the store offers as a file too that takes the place of
-/// a built-in screen (the home screen): as [`offered`], but switched off
-/// where `store` says on for all, so that the tests keep the screen they
-/// test unless one switches the plugin on.
-#[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-fn offered_replacing_home(
-    builder: KernelBuilder,
-    store: StorePlugins<'_>,
-    plugin: impl paperpaw_core::sdk::Plugin + 'static,
-) -> KernelBuilder {
-    match store {
-        StorePlugins::On => builder.plugin_off(plugin),
-        other => offered(builder, other, plugin),
-    }
 }
 
 /// Adds `plugin`, one the store offers as a file too, as `store` says (none

@@ -388,3 +388,14 @@ fn only_its_own_plugin_says_what_an_entry_shows() {
         .unwrap_or_else(|| panic!("{parts:?}"));
     assert_eq!(a.label, "Early A");
 }
+
+/// News has no interface-6 form any more (#244): where the store's plugins
+/// are linked with the reader's, it reaches the user through the native tools
+/// list (and the settings, where it is on by default).
+#[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
+#[test]
+fn the_native_tools_list_has_news() {
+    let mut app = App::new("", |b| b);
+    let tools = app.tools();
+    assert!(tools.iter().any(|l| l.starts_with("News")), "{tools:?}");
+}

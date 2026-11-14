@@ -3,6 +3,5 @@ Text "Start reading"
 Text "Choose a book from your library."
 Row "Vocabulary" (focused)
 Row "Flash cards"
-Row "News"
 Row "Plugin store"
 Row "Screenshot"

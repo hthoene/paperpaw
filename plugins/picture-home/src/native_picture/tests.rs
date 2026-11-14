@@ -2,9 +2,9 @@
 //! same inputs), the cases of the old tests, and refusals of allocation.
 use super::*;
 use crate::fail_alloc::sweep;
-use crate::{bar, orient, picture};
 use alloc::format;
 use alloc::string::ToString;
+use core::fmt::Write;
 use paperpaw_sdk::{MemoryStorage, Storage};
 
 const FITS: [Fitting; 5] = [
@@ -14,16 +14,6 @@ const FITS: [Fitting; 5] = [
     Fitting::Original,
     Fitting::Tile,
 ];
-
-fn legacy_fit(f: Fitting) -> picture::Fitting {
-    match f {
-        Fitting::Fill => picture::Fitting::Fill,
-        Fitting::Whole => picture::Fitting::Whole,
-        Fitting::Stretch => picture::Fitting::Stretch,
-        Fitting::Original => picture::Fitting::Original,
-        Fitting::Tile => picture::Fitting::Tile,
-    }
-}
 
 fn recipe(fitting: Fitting, zoom: u32, across: u8, down: u8, size: (u16, u16)) -> Recipe {
     Recipe {
@@ -44,51 +34,8 @@ fn recipe(fitting: Fitting, zoom: u32, across: u8, down: u8, size: (u16, u16)) -
     }
 }
 
-fn legacy(r: &Recipe) -> picture::Recipe {
-    picture::Recipe {
-        path: r.path.clone(),
-        bytes: r.bytes,
-        modified: r.modified,
-        fitting: legacy_fit(r.fitting),
-        across: r.across,
-        down: r.down,
-        zoom: r.zoom,
-        lighten: r.lighten,
-        brightness: r.brightness,
-        contrast: r.contrast,
-        dotted: r.dotted,
-        width: r.width,
-        height: r.height,
-    }
-}
-
 #[test]
-fn choices_are_read_as_the_interface_6_screen_reads_them() {
-    for value in settings::FITS.iter().chain(&["", "gone"]) {
-        assert_eq!(
-            legacy_fit(Fitting::of(value)),
-            picture::Fitting::of(value),
-            "{value}"
-        );
-    }
-    for value in settings::RENDERS.iter().chain(&["", "gone"]) {
-        assert_eq!(
-            format!("{:?}", Render::of(value)),
-            format!("{:?}", picture::Render::of(value))
-        );
-    }
-    for value in settings::BARS.iter().chain(&["", "gone"]) {
-        assert_eq!(
-            format!("{:?}", Visible::of(value)),
-            format!("{:?}", bar::Visible::of(value))
-        );
-    }
-    for value in settings::BAR_LOOKS.iter().chain(&["", "gone"]) {
-        assert_eq!(
-            format!("{:?}", Look::of(value)),
-            format!("{:?}", bar::Look::of(value))
-        );
-    }
+fn choices_fall_back_when_they_are_gone() {
     assert_eq!(Fitting::of("gone"), Fitting::Fill);
     assert_eq!(Render::of("gone"), Render::Automatic);
     assert_eq!(Visible::of("gone"), Visible::On);
@@ -143,46 +90,11 @@ fn the_recipe_is_what_the_settings_ask() {
 }
 
 #[test]
-fn the_note_is_the_interface_6_note() {
-    for fitting in FITS {
-        let r = recipe(fitting, 150, 2, 1, (480, 800));
-        assert_eq!(r.key().unwrap(), legacy(&r).key());
-    }
+fn the_note_does_not_grow_with_the_path() {
     let mut r = recipe(Fitting::Fill, 100, 0, 0, (480, 800));
     let before = r.key().unwrap();
     r.path = "x".repeat(300);
     assert_eq!(r.key().unwrap().len(), before.len());
-}
-
-#[test]
-fn the_plan_is_the_interface_6_plan() {
-    let sizes = [(480, 800), (800, 480), (1404, 1872), (3, 3), (1, 1)];
-    let sources = [
-        (4000, 3000),
-        (3000, 4000),
-        (1, 1),
-        (0, 0),
-        (480, 800),
-        (9999, 5),
-    ];
-    for fitting in FITS {
-        for size in sizes {
-            for source in sources {
-                for zoom in [100, 133, 300] {
-                    for (across, down) in [(0, 0), (1, 1), (2, 2), (0, 2)] {
-                        let r = recipe(fitting, zoom, across, down, size);
-                        let p = plan(&r, source);
-                        let old = picture::plan(&legacy(&r), source);
-                        assert_eq!(
-                            (p.width, p.height, p.left, p.top),
-                            (old.width, old.height, old.left, old.top),
-                            "{r:?} {source:?}"
-                        );
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[test]
@@ -205,54 +117,6 @@ fn the_old_cases_of_the_plan_hold() {
     // The size is kept in bounds.
     let p = plan(&recipe(Fitting::Original, 300, 1, 1, screen), (9999, 9999));
     assert_eq!((p.width, p.height), (LARGEST, LARGEST));
-}
-
-#[test]
-fn the_crop_is_the_interface_6_crop() {
-    let upright = [(4000, 3000), (3000, 4000), (10, 10), (1, 1)];
-    for fitting in FITS {
-        for orientation in 1..=8u16 {
-            for source in upright {
-                let r = recipe(fitting, 160, 2, 0, (480, 800));
-                let p = plan(&r, source);
-                let old_plan = picture::plan(&legacy(&r), source);
-                let turn = Turn::of(orientation);
-                let old_turn = orient::Turn::of(orientation);
-                assert_eq!(
-                    (turn.transpose, turn.flip_x, turn.flip_y),
-                    (old_turn.transpose, old_turn.flip_x, old_turn.flip_y)
-                );
-                assert_eq!(turn.size(source), old_turn.size(source));
-                let crop = visible(&r, &p, source, turn);
-                let old = picture::visible(&legacy(&r), &old_plan, source, old_turn);
-                assert_eq!(
-                    (crop.x, crop.y, crop.width, crop.height),
-                    (old.x, old.y, old.width, old.height)
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn tone_dots_and_paleness_are_the_interface_6_ones() {
-    for brightness in -2..=2 {
-        for contrast in -1..=1 {
-            let curve = tone(brightness, contrast);
-            assert_eq!(curve, picture::tone(brightness, contrast));
-            assert!(curve.windows(2).all(|w| w[0] <= w[1]));
-        }
-    }
-    let normal = tone(0, 0);
-    assert!((0..=255u8).all(|g| normal[usize::from(g)] == g));
-    for value in 0..=255u8 {
-        for (x, y) in [(0, 0), (1, 2), (7, 5)] {
-            assert_eq!(dotted(value, x, y), picture::dotted(value, x, y));
-        }
-        for percent in [0, 1, 20, 60, 100, 500] {
-            assert_eq!(lighten(value, percent), picture::lighten(value, percent));
-        }
-    }
 }
 
 /// A JPEG's head: an EXIF block of `meta` bytes (with the orientation where
@@ -308,30 +172,7 @@ impl ReadAt for &[u8] {
 }
 
 #[test]
-fn a_jpegs_size_and_turn_are_read_as_on_interface_6() {
-    let mut files: Vec<Vec<u8>> = Vec::new();
-    for little in [true, false] {
-        for meta in [0, 10, 40_000] {
-            for orientation in 0..=9 {
-                files.push(head(meta, orientation, little));
-            }
-        }
-    }
-    files.push(b"not a picture".to_vec());
-    files.push(alloc::vec![0xff, 0xd8, 0xff]);
-    let mut short = head(0, 6, true);
-    short.truncate(20);
-    files.push(short);
-    files.push(Vec::new());
-    for bytes in &files {
-        let storage = MemoryStorage::new().with("a.jpg", bytes.as_slice());
-        let file = bytes.as_slice();
-        assert_eq!(jpeg_size(&file), orient::jpeg_size(&storage, "a.jpg"));
-        assert_eq!(
-            jpeg_orientation(&file),
-            orient::jpeg_orientation(&storage, "a.jpg")
-        );
-    }
+fn a_jpegs_size_and_turn_are_read() {
     let big = head(40_000, 6, false);
     assert_eq!(jpeg_size(&big.as_slice()), Some((4000, 3000)));
     assert_eq!(jpeg_orientation(&big.as_slice()), 6);
@@ -552,47 +393,10 @@ fn listed(card: &MemoryStorage) -> Vec<String> {
 }
 
 #[test]
-fn the_folder_is_listed_as_on_interface_6() {
-    let folders = [
-        card(&[
-            "b.jpg",
-            "A.png",
-            "notes.txt",
-            "a.gif",
-            "Ä.jpg",
-            "ä.JPEG",
-            "Zebra.PNG",
-            ".hidden.jpg",
-            "z.bmp",
-            "ß.png",
-            "Éa.jpg",
-            "éa.jpg",
-        ]),
-        card(&[]),
-        card(&["only.txt"]),
-        // More than the most: the first the card lists are kept, as before.
-        card(
-            &(0..400)
-                .map(|n| format!("p{n:03}.jpg"))
-                .collect::<Vec<_>>()
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>(),
-        ),
-    ];
-    for card in &folders {
-        assert_eq!(listed(card), crate::pick::pictures_in(card, "pictures"));
-    }
-    assert_eq!(listed(&folders[3]).len(), MOST);
-}
-
-#[test]
-fn a_greek_final_sigma_is_the_one_difference_in_the_order() {
-    // `str::to_lowercase` writes a capital sigma ending a word as `ς`,
-    // `char::to_lowercase` as `σ`; a name ending in a sigma and one that
-    // continues it are the only ones whose order could differ. These agree.
-    let card = card(&["ΑΣ.jpg", "ΑΣΑ.jpg", "ΑΑ.jpg"]);
-    assert_eq!(listed(&card), crate::pick::pictures_in(&card, "pictures"));
+fn a_folder_of_more_than_the_most_keeps_the_first_the_card_lists() {
+    let names: Vec<String> = (0..400).map(|n| format!("p{n:03}.jpg")).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    assert_eq!(listed(&card(&names)).len(), MOST);
 }
 
 #[test]
@@ -683,4 +487,187 @@ fn refused_allocations_while_adding_page_by_page() {
         assert_eq!(kept.finish(), ["a.png", "b.jpg", "c.gif"]);
         Ok(())
     });
+}
+
+fn fnv(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3)
+    })
+}
+
+/// A long run of lines, kept as its count and a hash.
+fn sum(out: &mut String, name: &str, body: &str) {
+    writeln!(out, "{name} {} {:016x}", body.lines().count(), fnv(body)).unwrap();
+}
+
+/// What the native code makes of the inputs of `pinned.txt`, in its lines.
+fn decided() -> String {
+    let mut out = String::new();
+    choices_and_notes(&mut out);
+    plans(&mut out);
+    crops(&mut out);
+    tones(&mut out);
+    jpegs(&mut out);
+    folders_listed(&mut out);
+    out
+}
+
+fn choices_and_notes(out: &mut String) {
+    for value in settings::FITS.iter().chain(&["", "gone"]) {
+        writeln!(out, "fit {value} {:?}", Fitting::of(value)).unwrap();
+    }
+    for value in settings::RENDERS.iter().chain(&["", "gone"]) {
+        writeln!(out, "render {value} {:?}", Render::of(value)).unwrap();
+    }
+    for value in settings::BARS.iter().chain(&["", "gone"]) {
+        writeln!(out, "bar {value} {:?}", Visible::of(value)).unwrap();
+    }
+    for value in settings::BAR_LOOKS.iter().chain(&["", "gone"]) {
+        writeln!(out, "look {value} {:?}", Look::of(value)).unwrap();
+    }
+    for fitting in FITS {
+        let r = recipe(fitting, 150, 2, 1, (480, 800));
+        writeln!(out, "{fitting:?} {}", r.key().unwrap()).unwrap();
+    }
+}
+
+fn plans(out: &mut String) {
+    let mut b = String::new();
+    let sizes = [(480, 800), (800, 480), (1404, 1872), (3, 3), (1, 1)];
+    let sources = [
+        (4000, 3000),
+        (3000, 4000),
+        (1, 1),
+        (0, 0),
+        (480, 800),
+        (9999, 5),
+    ];
+    for fitting in FITS {
+        for size in sizes {
+            for source in sources {
+                for zoom in [100, 133, 300] {
+                    for (across, down) in [(0, 0), (1, 1), (2, 2), (0, 2)] {
+                        let p = plan(&recipe(fitting, zoom, across, down, size), source);
+                        writeln!(
+                            b,
+                            "{fitting:?} {size:?} {source:?} {zoom} {across} {down}: {} {} {} {}",
+                            p.width, p.height, p.left, p.top
+                        )
+                        .unwrap();
+                    }
+                }
+            }
+        }
+    }
+    sum(out, "plan", &b);
+}
+
+fn crops(out: &mut String) {
+    let mut b = String::new();
+    for fitting in FITS {
+        for orientation in 1..=8u16 {
+            for source in [(4000, 3000), (3000, 4000), (10, 10), (1, 1)] {
+                let r = recipe(fitting, 160, 2, 0, (480, 800));
+                let p = plan(&r, source);
+                let turn = Turn::of(orientation);
+                let c = visible(&r, &p, source, turn);
+                writeln!(
+                    b,
+                    "{fitting:?} {orientation} {source:?}: {} {} {} | {} {} {} {} 0",
+                    turn.transpose, turn.flip_x, turn.flip_y, c.x, c.y, c.width, c.height
+                )
+                .unwrap();
+                writeln!(b, "size {:?}", turn.size(source)).unwrap();
+            }
+        }
+    }
+    sum(out, "crop", &b);
+}
+
+fn tones(out: &mut String) {
+    let mut b = String::new();
+    for brightness in -2..=2 {
+        for contrast in -1..=1 {
+            let curve = tone(brightness, contrast);
+            assert!(curve.windows(2).all(|w| w[0] <= w[1]));
+            writeln!(b, "tone {brightness} {contrast} {curve:?}").unwrap();
+        }
+    }
+    let normal = tone(0, 0);
+    assert!((0..=255u8).all(|g| normal[usize::from(g)] == g));
+    for value in 0..=255u8 {
+        for (x, y) in [(0, 0), (1, 2), (7, 5)] {
+            writeln!(b, "dot {value} {x} {y} {:?}", dotted(value, x, y)).unwrap();
+        }
+        for percent in [0, 1, 20, 60, 100, 500] {
+            writeln!(b, "lighten {value} {percent} {:?}", lighten(value, percent)).unwrap();
+        }
+    }
+    sum(out, "tone", &b);
+}
+
+fn jpegs(out: &mut String) {
+    let mut files: Vec<Vec<u8>> = Vec::new();
+    for little in [true, false] {
+        for meta in [0, 10, 40_000] {
+            for orientation in 0..=9 {
+                files.push(head(meta, orientation, little));
+            }
+        }
+    }
+    files.push(b"not a picture".to_vec());
+    files.push(alloc::vec![0xff, 0xd8, 0xff]);
+    let mut short = head(0, 6, true);
+    short.truncate(20);
+    files.push(short);
+    files.push(Vec::new());
+    for bytes in &files {
+        let file = bytes.as_slice();
+        writeln!(out, "{:?} {}", jpeg_size(&file), jpeg_orientation(&file)).unwrap();
+    }
+}
+
+fn folders_listed(out: &mut String) {
+    let folders = [
+        card(&[
+            "b.jpg",
+            "A.png",
+            "notes.txt",
+            "a.gif",
+            "Ä.jpg",
+            "ä.JPEG",
+            "Zebra.PNG",
+            ".hidden.jpg",
+            "z.bmp",
+            "ß.png",
+            "Éa.jpg",
+            "éa.jpg",
+        ]),
+        card(&[]),
+        card(&["only.txt"]),
+        card(
+            &(0..400)
+                .map(|n| format!("p{n:03}.jpg"))
+                .collect::<Vec<_>>()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+        ),
+        card(&["ΑΣ.jpg", "ΑΣΑ.jpg", "ΑΑ.jpg"]),
+    ];
+    let mut b = String::new();
+    for card in &folders {
+        writeln!(b, "{:?}", listed(card)).unwrap();
+    }
+    sum(out, "folders", &b);
+}
+
+#[test]
+fn the_values_are_those_interface_6_made() {
+    let want = include_str!("pinned.txt");
+    let got = decided();
+    for (n, (w, g)) in want.lines().zip(got.lines()).enumerate() {
+        assert_eq!(g, w, "line {}", n + 1);
+    }
+    assert_eq!(got.lines().count(), want.lines().count());
 }
