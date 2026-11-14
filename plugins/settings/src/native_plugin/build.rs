@@ -475,15 +475,7 @@ pub(super) fn build_group(
     } else {
         Vec::new()
     };
-    let title = match groups.iter().find(|g| g.id == of) {
-        Some(g) => copy(&g.title)?,
-        None => String::new(),
-    };
-    let title = if view.more {
-        concat(&[&title, " · ", &messages.copy(host, "settings.more")?])?
-    } else {
-        title
-    };
+    let title = page_title(host, &groups, &of, view.more, &mut messages)?;
     // The settings of the page's group, and only those are read.
     let mut mine: Vec<Setting> = Vec::new();
     reader.each_setting(
@@ -529,6 +521,14 @@ pub(super) fn build_group(
         pool,
         (has_more, !specs.is_empty()),
     )?;
+    // What the settings do, above them (a sample of text for the reading
+    // settings): from a widget that previews the group or the group it is a part
+    // of; its room is the list's (`preview.rs`).
+    let preview = if view.more || placement.is_some() {
+        None
+    } else {
+        previewing(reader, &groups, &of)?
+    };
     // Everything is made aside; the view changes once it is whole, so a
     // refusal leaves the rows and the items they belong to as they were.
     let items = view.items_for(host, (&rows, &entries), view.shown_editing())?;
@@ -543,9 +543,14 @@ pub(super) fn build_group(
         .flatten();
     view.group = group;
     view.title = title;
+    view.preview = preview;
     view.rows = rows;
     view.entries = entries;
     view.list.replace(items);
+    if view.preview.is_some() {
+        view.list
+            .set_head(&messages.copy(host, "settings.preview")?)?;
+    }
     if !view.focus.is_empty() {
         if let Some(at) = focus {
             view.list.set_focus(at);
@@ -555,6 +560,41 @@ pub(super) fn build_group(
         view.list.set_focus(at);
     }
     Ok(())
+}
+
+/// The title of the page of group `of`, with "More" after it for its
+/// advanced settings.
+fn page_title(
+    host: &Host<'_>,
+    groups: &[Group],
+    of: &str,
+    more: bool,
+    messages: &mut Messages,
+) -> Result<String, Error> {
+    let title = match groups.iter().find(|g| g.id == of) {
+        Some(g) => copy(&g.title)?,
+        None => String::new(),
+    };
+    if more {
+        concat(&[&title, " · ", &messages.copy(host, "settings.more")?])
+    } else {
+        Ok(title)
+    }
+}
+
+/// The widget that previews `group`, or the group it is a part of.
+fn previewing(
+    reader: &mut Reader<'_, '_>,
+    groups: &[Group],
+    group: &str,
+) -> Result<Option<String>, Error> {
+    if let Some(id) = reader.previewing(group)? {
+        return Ok(Some(id));
+    }
+    match groups.iter().find(|g| g.id == group) {
+        Some(g) if !g.parent.is_empty() => reader.previewing(&g.parent),
+        _ => Ok(None),
+    }
 }
 
 /// The row a page opens its focus on when an action another plugin added

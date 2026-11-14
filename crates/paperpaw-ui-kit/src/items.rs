@@ -54,6 +54,17 @@ pub struct RowItem {
     pub whole: bool,
 }
 
+/// Room above the rows of the first page that the owner fills with something it
+/// composes in (a widget's preview), under a heading. The list reserves it and says
+/// where it is ([`ItemList::head_rect`]); it draws nothing in it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Head {
+    title: String,
+    /// The room's height in pixels, under the heading; 0 takes no room, heading
+    /// included.
+    height: u16,
+}
+
 /// An entry of an [`ItemList`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
@@ -198,6 +209,10 @@ pub struct ItemList {
     /// Where the last frame's region began on the screen: the rows are drawn
     /// in screen pixels, a redraw area is asked for in the region's.
     origin: (i32, i32),
+    /// The room above the first page's rows, if the owner has one.
+    head: Option<Head>,
+    /// Where the head's room was in the last frame.
+    head_at: Option<Rect>,
 }
 
 impl ItemList {
@@ -267,6 +282,39 @@ impl ItemList {
     #[must_use]
     pub fn items(&self) -> &[Item] {
         &self.items
+    }
+
+    /// Keeps room above the rows of the first page, under the heading `title`,
+    /// for something the owner composes in: none until its height is set
+    /// ([`Self::set_head_height`]).
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when the text cannot be copied.
+    pub fn set_head(&mut self, title: &str) -> Result<(), Error> {
+        self.head = Some(Head {
+            title: text::copy(title)?,
+            height: 0,
+        });
+        Ok(())
+    }
+
+    /// Gives the room above the rows `height` pixels (0: none, no heading);
+    /// whether that changed what the list shows.
+    pub fn set_head_height(&mut self, height: u16) -> bool {
+        match &mut self.head {
+            Some(head) if head.height != height => {
+                head.height = height;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The room above the rows as the last frame drew it, in the frame's pixels;
+    /// `None` where there is none or the page shown is not the first.
+    #[must_use]
+    pub const fn head_rect(&self) -> Option<Rect> {
+        self.head_at
     }
 
     /// The focused item.
@@ -510,26 +558,16 @@ impl ItemList {
             area.height = area.height.saturating_sub(rect.height);
             note = Some((rect, lines));
         }
-        let mut heights = Vec::new();
-        heights
-            .try_reserve_exact(self.items.len())
-            .map_err(|_| Error::NoMemory)?;
-        for item in &self.items {
-            heights.push(item_height(&font, &style, width, item)?);
-        }
-        let starts = paginate(&self.items, &heights, area.height)?;
+        let heights = heights_of(&font, &style, width, &self.items)?;
+        let head_high = self.head.as_ref().map_or(0, |h| head_height(&style, h));
+        let starts = paginate_with(&self.items, &heights, area.height, head_high)?;
         let page = starts
             .iter()
             .rposition(|start| *start <= self.focus)
             .unwrap_or(0);
         let mut header = Page::default();
         let mut messages = Messages::new()?;
-        // A title that is a catalog key is translated; text already translated
-        // (a group's name) is not a key and is shown as it is.
-        let title = match messages.copy(host, title) {
-            Err(Error::NotFound | Error::Invalid) => text::copy(title)?,
-            other => other?,
-        };
+        let title = translated(&mut messages, host, title)?;
         header::prepare(
             &mut header,
             host,
@@ -552,6 +590,15 @@ impl ItemList {
         let mut steps = Vec::new();
         let mut grip_rects = Vec::new();
         let mut y = top;
+        let on_page = if page == 0 { head_high } else { 0 };
+        let head_at = match &self.head {
+            Some(head) if on_page > 0 => {
+                let room = Rect::new(0, y, width, on_page);
+                head_room(&mut body, &font, &style, room, head)?
+            }
+            _ => None,
+        };
+        y = y.saturating_add(on_page);
         for (index, &high) in heights.iter().enumerate().take(end).skip(starts[page]) {
             let rect = Rect::new(0, y, width, high);
             let focused = shown && index == self.focus;
@@ -577,14 +624,8 @@ impl ItemList {
         if let Some((rect, lines)) = &note {
             draw_note(&mut body, &font, &style, *rect, lines)?;
         }
-        if let Footer::Empty { title, text } = footer
-            && starts.len() == 1
-        {
-            let area = Rect::new(0, y, width, height.saturating_sub(y));
-            draw_empty(&mut body, &font, &style, area, title, text)?;
-        }
         let below = Rect::new(0, y, width, height.saturating_sub(y));
-        let code = code_footer(&mut body, &font, &style, footer, below, starts.len())?;
+        let code = footer_below(&mut body, &font, &style, footer, (below, starts.len()))?;
         paint::replay_with_icons(host, frame, &font, header.paint.iter().chain(body.iter()))?;
         if let Some((qr, room)) = code {
             paint::draw_code(frame, qr, room)?;
@@ -596,6 +637,7 @@ impl ItemList {
         self.hits = hits;
         self.steps = steps;
         self.grip_rects = grip_rects;
+        self.head_at = head_at;
         self.origin = (frame.rect.x, frame.rect.y);
         Ok(())
     }
@@ -805,6 +847,22 @@ fn draw_note(
 /// A title and a few lines, centred in `area`.
 /// The caption of a code, centred at the bottom of `area` in small letters;
 /// what is left above it for the code.
+/// What a footer draws below the rows: the empty page's words, or the code.
+fn footer_below<'a>(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    footer: Footer<'a>,
+    (area, pages): (Rect, usize),
+) -> Result<Option<(&'a paperpaw_sdk::qr::QrCode, Rect)>, Error> {
+    if let Footer::Empty { title, text } = footer
+        && pages == 1
+    {
+        draw_empty(paint, font, style, area, title, text)?;
+    }
+    code_footer(paint, font, style, footer, area, pages)
+}
+
 /// The caption of a [`Footer::Code`] on a list of one page, and the room left
 /// for the code above it.
 fn code_footer<'a>(
@@ -920,13 +978,27 @@ fn draw_empty(
 /// [`Error::NoMemory`] when a start cannot be recorded. Nothing is returned
 /// partially.
 pub fn paginate(items: &[Item], heights: &[u16], room: u16) -> Result<Vec<usize>, Error> {
+    paginate_with(items, heights, room, 0)
+}
+
+/// [`paginate`] where the first page has `taken` pixels less room (the head above
+/// its rows).
+///
+/// # Errors
+/// As [`paginate`].
+pub fn paginate_with(
+    items: &[Item],
+    heights: &[u16],
+    room: u16,
+    taken: u16,
+) -> Result<Vec<usize>, Error> {
     if items.len() != heights.len() {
         return Err(Error::Invalid);
     }
     let mut starts = Vec::new();
     starts.try_reserve(1).map_err(|_| Error::NoMemory)?;
     starts.push(0);
-    let mut used = 0u32;
+    let mut used = u32::from(taken);
     for (index, high) in heights.iter().enumerate() {
         let first = starts.last().copied().unwrap_or(0);
         if used + u32::from(*high) > u32::from(room) && index > first {
@@ -1083,6 +1155,59 @@ fn note_lines(
             NOTE_LINES
         },
     )
+}
+
+/// The height of each of `items`.
+fn heights_of(
+    font: &Font<'_>,
+    style: &Style,
+    width: u16,
+    items: &[Item],
+) -> Result<Vec<u16>, Error> {
+    let mut heights = Vec::new();
+    heights
+        .try_reserve_exact(items.len())
+        .map_err(|_| Error::NoMemory)?;
+    for item in items {
+        heights.push(item_height(font, style, width, item)?);
+    }
+    Ok(heights)
+}
+
+/// A title that is a catalog key translated; text already translated (a
+/// group's name) is not a key and is shown as it is.
+fn translated(messages: &mut Messages, host: &Host<'_>, title: &str) -> Result<String, Error> {
+    match messages.copy(host, title) {
+        Err(Error::NotFound | Error::Invalid) => text::copy(title),
+        other => other,
+    }
+}
+
+/// The height of the head with its room: none while the room has none.
+fn head_height(style: &Style, head: &Head) -> u16 {
+    if head.height == 0 {
+        0
+    } else {
+        style.heading.saturating_add(head.height)
+    }
+}
+
+/// Draws the heading of the head and gives the room under it.
+fn head_room(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    rect: Rect,
+    head: &Head,
+) -> Result<Option<Rect>, Error> {
+    let top = Rect::new(rect.x, rect.y, rect.width, style.heading.min(rect.height));
+    heading(paint, font, style, top, &head.title)?;
+    Ok(Some(Rect::new(
+        rect.x,
+        rect.y.saturating_add(top.height),
+        rect.width,
+        rect.height.saturating_sub(top.height),
+    )))
 }
 
 pub(crate) fn heading(

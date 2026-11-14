@@ -393,3 +393,27 @@ fn a_switch_row_shows_no_value_beside_its_title() {
     // The title keeps the room before the switch.
     assert!(switch_room(&style()) > switch_size(&style()).0);
 }
+
+#[test]
+fn the_room_above_the_rows_takes_room_from_the_first_page_only() {
+    let items: Vec<Item> = (0..6)
+        .map(|n| Item::row(&alloc::format!("row {n}"), "").unwrap())
+        .collect();
+    let heights = [100u16; 6];
+    // Room for three rows a page; the head's 150 leaves two on the first.
+    assert_eq!(paginate_with(&items, &heights, 300, 0).unwrap(), [0, 3]);
+    assert_eq!(
+        paginate_with(&items, &heights, 300, 150).unwrap(),
+        [0, 2, 5]
+    );
+}
+
+#[test]
+fn a_list_has_no_room_above_its_rows_until_the_owner_keeps_and_sizes_it() {
+    let mut list = ItemList::new(alloc::vec![Item::row("Night mode", "").unwrap()]);
+    assert!(!list.set_head_height(100));
+    list.set_head("Preview").unwrap();
+    assert!(list.set_head_height(100));
+    assert!(!list.set_head_height(100));
+    assert_eq!(list.head_rect(), None);
+}
