@@ -1488,6 +1488,10 @@ fn budget(size: u64) -> u64 {
     clippy::too_many_arguments,
     reason = "what a chapter is converted with, each of it different; a struct would be built for one call"
 )]
+// On the S3 the HTML provider's `converted` took this inline and its frame came to
+// the 2,048 B the packer refuses (#263); apart, this keeps the 1,984 B the epub
+// plugin has. The X4's code is as it was.
+#[cfg_attr(target_arch = "xtensa", inline(never))]
 pub(crate) fn convert(
     storage: &dyn Storage,
     source: &Source<'_>,
