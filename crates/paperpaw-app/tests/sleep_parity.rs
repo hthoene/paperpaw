@@ -95,6 +95,14 @@ struct Run {
     /// again at once, folded into it (the pass that sets the next wake-up
     /// after a parked plugin was made, `service_pump.rs`). Not compared.
     absorbed: Vec<u32>,
+    /// The plugin whose parked state is watched (set after the start).
+    watch: Option<&'static str>,
+    /// Per step (as `absorbed`), whether the watched plugin was parked when
+    /// the step ended: the next step began with it so. `None` before a plugin
+    /// is watched (the start).
+    parked_after: Vec<Option<bool>>,
+    /// Per step (as `absorbed`), its name.
+    names: Vec<String>,
     /// In standby (between `suspend` and `resume`): no timer is ticked.
     in_standby: bool,
     /// Whether the plugin was parked right after the standby in the flow.
@@ -151,6 +159,9 @@ impl Run {
             repeats: Vec::new(),
             again_now: Vec::new(),
             absorbed: Vec::new(),
+            watch: None,
+            parked_after: Vec::new(),
+            names: Vec::new(),
             in_standby: false,
             reparked: None,
         };
@@ -239,6 +250,9 @@ impl Run {
         }
         self.again_now.push(again);
         self.absorbed.push(absorbed);
+        let parked = self.watch.and_then(|p| self.kernel.native_is_parked(p));
+        self.parked_after.push(parked);
+        self.names.push(what.to_string());
         self.raw.push(raw);
         let mut frame = Fnv::default();
         self.kernel.render(&mut |top, rows| {
@@ -290,6 +304,8 @@ impl Run {
         let mut text = self.raw.join("\n");
         let _ = write!(text, "\nrepeats {:?}\n", self.repeats);
         let _ = writeln!(text, "again-now {:?}", self.again_now);
+        let _ = writeln!(text, "folded-tail {:?}", self.absorbed);
+        let _ = writeln!(text, "parked-after {:?}", self.parked_after);
         for ini in [
             ".paperpaw/plugins/widgets/reading.ini",
             ".paperpaw/library/status.log",
@@ -579,6 +595,8 @@ fn same_awake_and_asleep(plugin: &'static str) {
         Some(true),
         "{plugin} is flagged to sleep but runs awake at the start: the case would test nothing"
     );
+    awake.watch = Some(plugin);
+    asleep.watch = Some(plugin);
     flow(&mut awake, plugin);
     flow(&mut asleep, plugin);
     awake.dump(plugin, "awake");
@@ -618,12 +636,28 @@ fn same_awake_and_asleep(plugin: &'static str) {
         );
     }
     // A parked plugin made by an input asks for the next pass at once: the
-    // pass after it (setting the next wake-up) is folded, at most 2 per step
-    // either way (`service_pump.rs`: 3 rounds at most).
+    // pass after it (setting the next wake-up) is folded. At a step that
+    // began with the sleeper parked (the start: it is flagged to sleep) the
+    // runs may differ by 2 either way (`service_pump.rs`: 3 rounds at most);
+    // at any other the sleeper never takes more of them than the awake run,
+    // and the awake run at most 2 more.
     for (index, (a, b)) in awake.absorbed.iter().zip(&asleep.absorbed).enumerate() {
+        let parked_at_begin = index == 0 || asleep.parked_after.get(index - 1) == Some(&Some(true));
+        // The one named exception: the page turn of the EPUB format takes
+        // one more folded tail pass asleep, though the plugin was not parked
+        // at the begin. Cause open: Kernel todo 623 (service_pump.rs); drop
+        // this when it is found.
+        let epub_page_turn =
+            plugin == "format-epub" && asleep.names[index].starts_with("run core.next-page");
+        let fine = if parked_at_begin {
+            a.abs_diff(*b) <= 2
+        } else {
+            a.abs_diff(*b) <= 2 && (b <= a || (epub_page_turn && b - a <= 1))
+        };
         assert!(
-            a.abs_diff(*b) <= 2,
-            "{plugin}: folded tail passes at step {index}: awake {a}, asleep {b}"
+            fine,
+            "{plugin}: folded tail passes at step {index}: awake {a}, asleep {b} (sleeper parked at the begin: {parked_at_begin}, step {:?})",
+            asleep.names[index]
         );
     }
     assert_eq!(
