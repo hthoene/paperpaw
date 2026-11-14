@@ -118,6 +118,59 @@ impl super::Catalog {
         };
         Some(job.as_ref().and_then(CatalogJob::progress_ppm).unwrap_or(0))
     }
+
+    /// Stops the job under way, for one begun anew: what it took is given
+    /// back, a move of the details it cut short is wanted again.
+    // Its own frame, as `start`: each moves a job, and the step's frame
+    // stays under the firmware's frame limit for host code.
+    #[inline(never)]
+    pub(super) fn stop(&self, job: &mut Option<CatalogJob>, storage: &dyn paperpaw_sdk::Storage) {
+        let Some(stopped) = job.take() else {
+            return;
+        };
+        let walk = stopped.is_walk();
+        self.split
+            .set(self.split.get() || matches!(stopped, CatalogJob::Split(_)));
+        stopped.abort(storage);
+        self.give_back(walk);
+    }
+
+    /// Starts the job that is wanted, where none runs: a walk, catching up,
+    /// or sorting the books. `Some` with how the step ends where there is
+    /// nothing to do or the job could not start.
+    #[inline(never)]
+    pub(super) fn start(
+        &self,
+        env: &Env<'_>,
+        job: &mut Option<CatalogJob>,
+        out: &mut paperpaw_sdk::Commands,
+    ) -> Option<paperpaw_sdk::work::Step> {
+        use paperpaw_sdk::work::Step;
+        let fresh = core::mem::take(&mut *self.fresh.borrow_mut());
+        let walk = self.walk.replace(false);
+        let started = if walk {
+            library::catalog::Walk::start(env, fresh.clone()).map(CatalogJob::Walk)
+        } else if !fresh.is_empty() || library::catalog::log_is_long(env.storage()) {
+            library::catalog::Rewrite::start(env, fresh.clone()).map(CatalogJob::Rewrite)
+        } else if let Some(archive) = self.sort_wanted(env) {
+            library::sorted::Build::start(env, &archive).map(CatalogJob::Sort)
+        } else {
+            self.urgent.set(false);
+            return Some(Step::Done);
+        };
+        *self.taken.borrow_mut() = fresh;
+        match started {
+            Ok(started) => {
+                *job = Some(started);
+                None
+            }
+            Err(error) => {
+                self.give_back(walk);
+                out.push(paperpaw_sdk::builtin::events::CATALOG_FAILED.emit(()));
+                Some(Step::Failed(alloc::format!("catalog: {error:?}")))
+            }
+        }
+    }
 }
 
 /// After a step that did not end the job: a first walk that put the books

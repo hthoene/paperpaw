@@ -123,8 +123,17 @@ impl<'a> CommandStage<'a> {
     pub(crate) fn into_ui_output_with_opens(
         mut self,
     ) -> (Vec<Command>, Option<ui::Redraw>, u8, Opens) {
+        self.take_ui_output_with_opens()
+    }
+
+    /// As [`Self::into_ui_output_with_opens`], out of a stage its caller
+    /// keeps (see [`Self::take_ui_output`]). Dropped afterwards, the stage
+    /// rolls nothing back: its claims went with the opens.
+    pub(crate) fn take_ui_output_with_opens(
+        &mut self,
+    ) -> (Vec<Command>, Option<ui::Redraw>, u8, Opens) {
         let opens = self.take_opens();
-        let (commands, redraw, hop) = self.into_ui_output();
+        let (commands, redraw, hop) = self.take_ui_output();
         (commands, redraw, hop, opens)
     }
 
