@@ -22,6 +22,7 @@ use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
 use paperpaw_sdk::{MemoryStorage, OpenOptions, Storage};
 
+const OLD_CACHE: &str = ".paperpaw/plugins/format-mobi/book";
 const CACHE_MADE: u32 = 1 << 6;
 const HAS_TOC: u32 = 1 << 1;
 
@@ -160,7 +161,7 @@ fn a_book_is_prepared_in_steps_and_reads_like_interface_6() {
     assert_eq!((s, status), (0, 0));
     assert_eq!(flags, CACHE_MADE | HAS_TOC);
     let old_io = MemoryStorage::new().with("b.mobi", data);
-    let old = MobiDocument::open(&old_io, "b.mobi", &old_options()).unwrap();
+    let old = MobiDocument::open_converted(&old_io, "b.mobi", OLD_CACHE, &old_options()).unwrap();
     // The blocks, from the first to the last.
     let (mut at, mut count, mut saw_image) = (0u32, 0, false);
     loop {
@@ -377,7 +378,7 @@ fn long_lists_and_blocks_come_in_pages_and_fragments() {
     let mut p = MobiProvider::new();
     assert_eq!(open_ready(&mut p, &io).0, 0);
     let old_io = MemoryStorage::new().with("b.mobi", data);
-    let old = MobiDocument::open(&old_io, "b.mobi", &old_options()).unwrap();
+    let old = MobiDocument::open_converted(&old_io, "b.mobi", OLD_CACHE, &old_options()).unwrap();
     assert_eq!(old.toc_len(&old_io), 150);
     let (mut cursor, mut seen) = (0u32, 0usize);
     loop {

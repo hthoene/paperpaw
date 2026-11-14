@@ -34,3 +34,4 @@ wifi
 widgets
 notes-vault
 mail
+format-mobi
