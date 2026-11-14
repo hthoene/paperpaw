@@ -255,6 +255,46 @@ impl GroupView {
     }
 }
 
+/// A row of the main page before it is sorted: its order, whether it is listed
+/// before the entries of the same order, what it opens (none: a heading), and
+/// its title and icon.
+type Placed = (i32, bool, Option<Link>, (String, String));
+
+/// The items of the main page for the rows `placed` (sorted), with what each
+/// opens: headings with nothing under them go.
+fn main_items(
+    host: &Host<'_>,
+    messages: &mut Messages,
+    placed: Vec<Placed>,
+    advanced: bool,
+) -> Result<(Vec<Item>, Vec<Option<Link>>), Error> {
+    let mut keep: Vec<bool> = Vec::new();
+    keep.try_reserve_exact(placed.len())
+        .map_err(|_| Error::NoMemory)?;
+    for i in 0..placed.len() {
+        keep.push(placed[i].2.is_some() || placed.get(i + 1).is_some_and(|next| next.2.is_some()));
+    }
+    let mut items = Vec::new();
+    let mut links = Vec::new();
+    for (i, (_, _, link, (title, icon))) in placed.into_iter().enumerate() {
+        if !keep[i] {
+            continue;
+        }
+        let item = match &link {
+            None => Item::heading(&title)?,
+            Some(Link::Advanced) => Item::row(&title, &on_off(messages, host, advanced)?)?,
+            // The search looks like the field it opens, as it did in Beta 3.
+            Some(Link::Search) => Item::field(&title)?,
+            Some(Link::Reset | Link::Restart) => Item::row(&title, "")?,
+            Some(_) => Item::row(&title, "›")?,
+        };
+        let item = with_icon(host, item, &icon)?;
+        push(&mut items, item)?;
+        push(&mut links, link)?;
+    }
+    Ok((items, links))
+}
+
 /// Builds the main page.
 pub(super) fn build_list(
     host: &Host<'_>,
@@ -271,7 +311,7 @@ pub(super) fn build_list(
     let widgets = reader.widget_ids()?;
     let mut messages = Messages::new()?;
     // (order, headings before entries of the same order, link or heading, title)
-    let mut placed: Vec<(i32, bool, Option<Link>, (String, String))> = Vec::new();
+    let mut placed: Vec<Placed> = Vec::new();
     for PageRow {
         action,
         section,
@@ -341,32 +381,7 @@ pub(super) fn build_list(
         ),
     )?;
     paperpaw_ui_kit::mem::stable_sort_by(&mut placed, |a, b| (a.0, a.1).cmp(&(b.0, b.1)));
-    // Headings with nothing under them go.
-    let mut keep: Vec<bool> = Vec::new();
-    keep.try_reserve_exact(placed.len())
-        .map_err(|_| Error::NoMemory)?;
-    for i in 0..placed.len() {
-        keep.push(placed[i].2.is_some() || placed.get(i + 1).is_some_and(|next| next.2.is_some()));
-    }
-    let advanced = cx.advanced;
-    let mut items = Vec::new();
-    let mut links = Vec::new();
-    for (i, (_, _, link, (title, icon))) in placed.into_iter().enumerate() {
-        if !keep[i] {
-            continue;
-        }
-        let item = match &link {
-            None => Item::heading(&title)?,
-            Some(Link::Advanced) => Item::row(&title, &on_off(&mut messages, host, advanced)?)?,
-            // The search looks like the field it opens, as it did in Beta 3.
-            Some(Link::Search) => Item::field(&title)?,
-            Some(Link::Reset | Link::Restart) => Item::row(&title, "")?,
-            Some(_) => Item::row(&title, "›")?,
-        };
-        let item = with_icon(host, item, &icon)?;
-        push(&mut items, item)?;
-        push(&mut links, link)?;
-    }
+    let (items, links) = main_items(host, &mut messages, placed, cx.advanced)?;
     // Made aside; the page changes once it is whole.
     view.links = links;
     view.list.replace(items);

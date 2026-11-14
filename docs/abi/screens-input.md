@@ -568,9 +568,10 @@ draw callback tells its parts with this slot.
   heading, a button) is told before the text inside it is drawn: a row with an empty label takes
   the texts drawn inside it as its label, in reading order; a part with a label of its own keeps
   it. A switch told inside a row makes the row on or off.
-- [D] Not told as text yet: text drawn with `text.draw_inked` (slot 41) and icons (glyphs of
-  `role:icons`, which the merge rules drop as saying nothing). A part whose words are drawn that
-  way gives them in its own `label`.
+- [D] Icons are never told as text: text drawn with a `role:icons` font handle (an icon glyph is
+  a picture, and says nothing) is left out, so it is not a part of its own and no word of a row's
+  label. Not told as text yet: text drawn with `text.draw_inked` (slot 41). A part whose words
+  are drawn that way gives them in its own `label`.
 - [D] No reply, no event, no state across draws. The slot announces itself in the X4 frame gate
   like the other canvas slots; it needs no buffer of its own.
 
