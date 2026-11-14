@@ -192,12 +192,53 @@ pub fn english(session: &Session) -> BTreeMap<String, String> {
             plugin.manifest.description.to_string(),
         );
     }
+    // A plugin linked into the app brings its messages without their keys
+    // (`paperpaw_i18n::BuiltMessages`): the keys are in its sources here.
+    for plugin in kernel.plugins().iter() {
+        messages.extend(sources(plugin.manifest.id.as_str()));
+    }
     // Later catalogs win, as in the translator.
     for catalog in kernel.translator().catalogs() {
         if catalog.language() != paperpaw_i18n::FALLBACK_LANGUAGE {
             continue;
         }
         let mut catalog = catalog;
+        catalog.load();
+        for key in catalog.keys() {
+            if let Some(value) = catalog.get(key) {
+                messages.insert(key.to_string(), value.to_string());
+            }
+        }
+    }
+    messages
+}
+
+/// The English messages in the sources of `plugin`, one of PaperPaw's own
+/// with code (`i18n/*.ini` of its folder in this repository), by key; none
+/// of another plugin's.
+fn sources(plugin: &str) -> BTreeMap<String, String> {
+    let mut messages = BTreeMap::new();
+    let Some(folder) = super::sources(plugin) else {
+        return messages;
+    };
+    let Ok(entries) = std::fs::read_dir(folder.join("i18n")) else {
+        return messages;
+    };
+    let mut files: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
+    files.sort();
+    for file in files {
+        if file.extension().is_none_or(|e| e != "ini") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let Ok(mut catalog) = paperpaw_i18n::Catalog::parse(text) else {
+            continue;
+        };
+        if catalog.language() != paperpaw_i18n::FALLBACK_LANGUAGE {
+            continue;
+        }
         catalog.load();
         for key in catalog.keys() {
             if let Some(value) = catalog.get(key) {
