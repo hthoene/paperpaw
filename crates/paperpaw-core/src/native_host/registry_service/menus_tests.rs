@@ -1387,6 +1387,10 @@ fn op_21_rows_of_the_real_kernel_pass_the_sdk_decoders_flag_rule_and_hold_the_cl
     };
     for row in &rows {
         let (kind, flags) = (field(row, "kind"), field(row, "flags"));
-        assert_eq!(flags & 1, kind, "the drawn bit of an item is 0, of a line 1: {row}");
+        assert_eq!(
+            flags & 1,
+            kind,
+            "the drawn bit of an item is 0, of a line 1: {row}"
+        );
     }
 }
