@@ -475,8 +475,10 @@ fn the_store_with_the_devices_tls_stays_within_the_x4_budget() {
 /// for one more plugin the start left (6.2 KiB in all; 19.2 when the list
 /// doubled), a second one grows the list by an eighth, old and new at
 /// once (11.6 KiB; 18.8 when it doubled). The key map is made anew without
-/// the old one beside it.
-const INSTALL_GROWTH_KIB: f64 = 13.0;
+/// the old one beside it. 12.6 KiB with the store's own changes (#1452), 13.4 KiB
+/// with the font change of #1457 beside them (its install peak is 0.8 KiB
+/// higher): the line is that plus a margin of 0.2 KiB.
+const INSTALL_GROWTH_KIB: f64 = 13.6;
 
 /// The store on the X4 step by step (`step:` in the flow): its list, a
 /// group, a plugin's page, its install (download, check, install), its

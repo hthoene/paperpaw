@@ -150,11 +150,19 @@ fn draw_all(device: DeviceInfo, language: &str, read: bool) {
     }
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn every_widget_draws_on_the_x4() {
     draw_all(X4, "en", true);
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn every_widget_draws_on_the_boox() {
     draw_all(BOOX, "de", false);
@@ -194,10 +202,7 @@ fn one_week_start_for_all() {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked-store",
-    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
-)]
+#[ignore = "waits for the host: the store plugins are native only (their interface-6 forms are out) and this test counts the interface-6 vocabulary's widget (#243). To be rewritten on a native widget in the store follow-up PR (T42)"]
 fn a_widget_placed_twice_has_two_looks() {
     let mut app = App::new(X4, "en");
     app.set(
