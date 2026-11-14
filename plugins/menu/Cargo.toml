@@ -34,7 +34,6 @@ paperpaw-native.workspace = true
 paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 paperpaw-i18n.workspace = true
 paperpaw-platform.workspace = true
-paperpaw-plugin-settings.workspace = true
 proptest.workspace = true
 
 [lints]

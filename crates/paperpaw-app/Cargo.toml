@@ -79,6 +79,7 @@ native-linked = [
     "dep:paperpaw-plugin-opds",
     "dep:paperpaw-plugin-plugin-manager",
     "dep:paperpaw-plugin-power",
+    "dep:paperpaw-plugin-settings",
     "dep:paperpaw-plugin-setup",
     "dep:paperpaw-plugin-update",
     "paperpaw-plugin-about/linked",
@@ -174,7 +175,7 @@ paperpaw-plugin-mail = { workspace = true, optional = true }
 paperpaw-plugin-update = { workspace = true, optional = true }
 paperpaw-plugin-news = { workspace = true, optional = true }
 paperpaw-plugin-reader.workspace = true
-paperpaw-plugin-settings.workspace = true
+paperpaw-plugin-settings = { workspace = true, optional = true }
 
 [dev-dependencies]
 # `Kernel::native_is_parked` for the sleep tests (never in a firmware build).

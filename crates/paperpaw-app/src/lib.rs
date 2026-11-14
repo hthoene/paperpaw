@@ -734,9 +734,7 @@ pub fn install_with(
     // A theme of the app's own, off as it ships, on every device.
     let builder = b.plugin_off(Pebble);
     #[cfg(not(feature = "native-linked"))]
-    let builder = builder
-        .plugin(paperpaw_plugin_keyboard::Keyboard)
-        .plugin(paperpaw_plugin_settings::SettingsPlugin);
+    let builder = builder.plugin(paperpaw_plugin_keyboard::Keyboard);
     builder
 }
 

@@ -2370,7 +2370,6 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-settings",
  "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2577,15 +2576,12 @@ dependencies = [
 name = "paperpaw-plugin-settings"
 version = "1.0.7"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-native",
- "paperpaw-platform",
  "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
- "proptest",
 ]
 
 [[package]]

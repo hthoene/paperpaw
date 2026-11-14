@@ -24,17 +24,11 @@ paperpaw-ui-kit.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
-# By path alone: the app has this plugin built in, so a version here
-# would make the two wait for each other on crates.io; cargo publish
-# leaves a dev-dependency without one out.
-paperpaw-app = { path = "../../crates/paperpaw-app" }
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-core.workspace = true
 paperpaw-native.workspace = true
 paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 paperpaw-i18n.workspace = true
-paperpaw-platform.workspace = true
-proptest.workspace = true
 
 [lints]
 workspace = true

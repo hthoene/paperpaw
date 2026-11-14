@@ -367,10 +367,7 @@ impl App {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
+#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
 fn settings_lists_drawn_in_part_show_what_a_whole_frame_does() {
     let mut app = App::new();
     app.run(actions::SETTINGS);
@@ -466,10 +463,7 @@ fn widget_editors() {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
+#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
 fn keyboard() {
     let mut app = App::new();
     app.run(actions::SETTINGS);

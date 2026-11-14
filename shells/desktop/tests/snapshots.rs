@@ -841,13 +841,35 @@ fn draw(case: &Case) -> (u32, u32, Vec<u8>, usize) {
     picture
 }
 
+/// The cases that open the interface-6 Settings (its pages, or a settings slot
+/// as home): left out while the interface-6 Settings plugin is removed, they
+/// return with the native plugin at activation (#228, todo 380).
+const NEEDS_SETTINGS: &[&str] = &[
+    "x4-settings-search",
+    "x4-settings-search-de",
+    "x4-settings-round-strong",
+    "x4-reading-preview",
+    "boox-reading-de",
+    "boox-settings",
+    "x4-settings-display",
+    "x4-settings-controls",
+    "boox-settings-display",
+    "boox-developer-settings",
+    "boox-keyboard",
+    "x4-pro-wifi",
+    "x4-pro-wifi-networks",
+];
+
 #[test]
 fn screens_look_as_before() {
     let bless = std::env::var_os("PAPERPAW_BLESS").is_some();
     let references = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
     let failed_dir = root().join("target/snapshots");
     let mut failures = Vec::new();
-    for case in CASES {
+    for case in CASES
+        .iter()
+        .filter(|case| !NEEDS_SETTINGS.contains(&case.name))
+    {
         let (width, height, gray, colourful) = draw(case);
         if colourful < gray.len() * case.colour / 10_000 {
             failures.push(format!(
@@ -892,6 +914,7 @@ fn screens_look_as_before() {
 }
 
 #[test]
+#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
 fn screens_say_what_they_show() {
     let case = Case {
         name: "describe",
@@ -946,6 +969,7 @@ fn screens_say_what_they_show() {
 /// empty list, are the native `files` plugin's: the emulator does not register
 /// native plugins yet.)
 #[test]
+#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
 fn headers_are_centred_by_their_capitals() {
     // The settings, and a group's page: the first row focused is *Search* in the
     // native settings, so the second row (a group) is chosen.
