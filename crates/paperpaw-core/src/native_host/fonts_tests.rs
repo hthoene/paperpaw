@@ -6,7 +6,7 @@ use paperpaw_platform::Instant;
 use paperpaw_sdk::builtin::fonts as roles;
 use paperpaw_sdk::{Font, FontSpec, Id};
 
-fn bytes(text: &[u8]) -> PpBytes {
+pub(super) fn bytes(text: &[u8]) -> PpBytes {
     PpBytes {
         ptr: text.as_ptr(),
         len: text.len(),
@@ -38,7 +38,7 @@ fn kernel() -> crate::Kernel {
     kernel
 }
 
-fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&EnvironmentScope)) {
+pub(super) fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&EnvironmentScope)) {
     let env = kernel.shared.env(Instant(0));
     let frame = crate::abi7::core_frame::CoreFrame {
         callback: None,
@@ -61,7 +61,7 @@ fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&EnvironmentScope)) {
     scope.as_ref().scope_core(&frame, || call(&scope)).unwrap();
 }
 
-fn get(scope: &EnvironmentScope, owner: &OwnerResources, key: &str) -> u32 {
+pub(super) fn get(scope: &EnvironmentScope, owner: &OwnerResources, key: &str) -> u32 {
     let mut handle = 0;
     // SAFETY: live readable input and exclusive, disjoint scalar output.
     assert_eq!(

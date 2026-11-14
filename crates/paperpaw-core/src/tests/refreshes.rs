@@ -447,6 +447,50 @@ fn two_small_items_far_apart_are_no_page_and_keep_a_picture_in_place() {
     assert_eq!(mode(kernel.finish()).map(|m| m.1), Some(RefreshMode::Full));
 }
 
+/// A page's pictures drawn after its text (`command.redraw_area`) are no
+/// page turned, however large: their frame is not counted, nor is it the
+/// one made the full refresh of the whole screen that is due.
+#[test]
+fn a_followup_of_most_of_the_screen_is_no_page_turned() {
+    let (mut kernel, seen) = refreshing();
+    kernel
+        .set_setting(Instant(1), settings::FULL_REFRESH_INTERVAL.as_str(), "3")
+        .unwrap();
+    render(&mut kernel);
+    let screen = kernel.framebuffer.bounds();
+    kernel.frame.refresh.done(
+        RefreshMode::Clear,
+        screen,
+        screen,
+        crate::refresh::Intervals::default(),
+    );
+    // Two pages turned: the third is the full one.
+    for at in [10, 20] {
+        kernel.run_action(Instant(at), TURN);
+        render(&mut kernel);
+    }
+    assert_eq!(kernel.frame.refresh.since_full(), 2);
+    // The second page's pictures, three quarters of the screen.
+    let key = kernel.shared.stack.last().unwrap().key;
+    let (width, height) = (u32::from(screen.width), u32::from(screen.height) * 3 / 4);
+    let area = crate::native_host::commands::Area::new(0, 0, width, height).unwrap();
+    kernel.frame.followup = Some(crate::native_host::commands::Followup {
+        screen: key,
+        mode: Some(RefreshMode::Partial),
+        areas: alloc::vec![area],
+    });
+    seen.borrow_mut().clear();
+    let (region, mode) = kernel.tick(Instant(30)).refresh().unwrap();
+    assert_eq!(mode, RefreshMode::Partial);
+    assert_eq!(u32::from(region.height), height, "the pictures' box only");
+    assert!(!seen.borrow()[0].periodic);
+    render(&mut kernel);
+    assert_eq!(kernel.frame.refresh.since_full(), 2);
+    // The page turned next is.
+    let (region, mode) = kernel.run_action(Instant(40), TURN).refresh().unwrap();
+    assert_eq!((region, mode), (screen, RefreshMode::Full));
+}
+
 /// A follow-up of `command.redraw_area` held back by a filter is drawn as
 /// the follow-up when it is drawn at last: its screen's draws are marked.
 #[test]

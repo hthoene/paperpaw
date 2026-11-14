@@ -84,13 +84,16 @@ impl Kernel {
         }
     }
 
-    /// The reading font and status font choices: the registered families.
+    /// The reading font and status font choices: the registered families
+    /// that are there to set text (not one whose pack the card lacks).
     pub(crate) fn offer_font_choices(&mut self) {
-        let Ok(families) = self.shared.fonts.try_families() else {
+        let Ok(mut families) = self.shared.fonts.try_families() else {
             return self.try_warn_runtime(&[
                 "not enough memory to update the font choices; they stay as they were",
             ]);
         };
+        let storage = self.shared.storage.as_ref();
+        families.retain(|family| self.shared.fonts.family_there(family, storage));
         let reading = choice_list(&[core_settings::DEFAULT_FONT], families.iter().copied());
         let status = choice_list(
             &[
@@ -119,8 +122,9 @@ impl Kernel {
             .shared
             .settings
             .text(core_settings::READING_FONT.as_str());
+        let storage = self.shared.storage.as_ref();
         let family = (chosen != core_settings::DEFAULT_FONT
-            && self.shared.fonts.has_family(chosen))
+            && self.shared.fonts.family_there(chosen, storage))
         .then_some(chosen);
         let previous = self.shared.fonts.try_set_family(family)?;
         match self.shared.fonts.try_load(&self.shared.storage) {
