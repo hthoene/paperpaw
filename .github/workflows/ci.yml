@@ -474,7 +474,7 @@ jobs:
             shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink
       # As the release makes it: the build fails when CrossPoint's menu
       # could no longer install it.
-      - name: The install image fits CrossPoint's slot
+      - name: The install image fits the app partition
         uses: ./.github/actions/install-image
         with:
           out: ${{ runner.temp }}/install.bin
