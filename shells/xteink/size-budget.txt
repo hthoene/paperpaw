@@ -39,7 +39,13 @@
 # Beyond the installer slot (6,553,600 bytes, CrossPoint's): x4-pro and
 # x4-classic (they fit `ota_0`, 8,323,072 bytes: install by flashing only,
 # Decision 179). Lower the lines again as the images shrink (the plan of #258).
-image x4 6493952
-image x3 6505744
-image x4-pro 7062560
-image x4-classic 6612704
+#
+# Train t41 (levers of #258 and the interface-6 removals): measured on
+# `train/t41` (db1e6c619), local build of the release-like image, as above: x4
+# 6,220,480, x3 6,232,464, x4-pro 6,789,312, x4-classic 6,338,896 (all four
+# 270,000 bytes or so below t40); the lines are those plus 16,000. They still
+# exceed stage 1 (Decision 184).
+image x4 6236480
+image x3 6248464
+image x4-pro 6805312
+image x4-classic 6354896
