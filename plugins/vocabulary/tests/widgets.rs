@@ -78,7 +78,6 @@ fn home_on(storage: MemoryStorage, page: &str, config: &str, device: Device) -> 
         .storage(storage)
         .user_config(user)
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        .plugin(paperpaw_plugin_home::Home)
         .plugin(paperpaw_plugin_vocabulary::Vocabulary)
         .build()
         .unwrap();
@@ -119,6 +118,7 @@ fn home_on(storage: MemoryStorage, page: &str, config: &str, device: Device) -> 
 }
 
 #[test]
+#[ignore = "the interface-6 Home these tests host is removed (#244); the widgets and cards are covered natively by scripted_widgets.rs and the native Home tests; the interface-6 Vocabulary goes with the store work (#2898)"]
 fn the_word_of_the_day_shows_its_sentence() {
     let (shown, _) = home(card(), "vocabulary.widget.word 0/0 4x2", "");
     assert!(shown.contains("Word of the day"), "{shown}");
@@ -147,6 +147,7 @@ fn the_word_of_the_day_shows_its_sentence() {
 /// Without a clock the word of the day is not stuck on the oldest word:
 /// one drawn at random, else the newest.
 #[test]
+#[ignore = "the interface-6 Home these tests host is removed (#244); the widgets and cards are covered natively by scripted_widgets.rs and the native Home tests; the interface-6 Vocabulary goes with the store work (#2898)"]
 fn without_a_clock_the_word_of_the_day_still_changes() {
     let page = "vocabulary.widget.word 0/0 4x2";
     let (shown, _) = home_on(card(), page, "", Device::Nothing);
@@ -168,6 +169,7 @@ fn without_a_clock_the_word_of_the_day_still_changes() {
 }
 
 #[test]
+#[ignore = "the interface-6 Home these tests host is removed (#244); the widgets and cards are covered natively by scripted_widgets.rs and the native Home tests; the interface-6 Vocabulary goes with the store work (#2898)"]
 fn the_words_saved_are_counted() {
     let (shown, _) = home(
         card(),
@@ -181,6 +183,7 @@ fn the_words_saved_are_counted() {
 }
 
 #[test]
+#[ignore = "the interface-6 Home these tests host is removed (#244); the widgets and cards are covered natively by scripted_widgets.rs and the native Home tests; the interface-6 Vocabulary goes with the store work (#2898)"]
 fn without_words_they_say_where_words_come_from() {
     for widget in ["vocabulary.widget.word", "vocabulary.widget.saved"] {
         let (shown, _) = home(MemoryStorage::new(), &format!("{widget} 0/0 4x2"), "");
@@ -189,6 +192,7 @@ fn without_words_they_say_where_words_come_from() {
 }
 
 #[test]
+#[ignore = "the interface-6 Home these tests host is removed (#244); the widgets and cards are covered natively by scripted_widgets.rs and the native Home tests; the interface-6 Vocabulary goes with the store work (#2898)"]
 fn both_draw_in_every_frame() {
     let (_, empty) = home(card(), "", "");
     for widget in ["word", "saved"] {
@@ -211,6 +215,7 @@ fn both_draw_in_every_frame() {
 /// Without words, a cell too small for where words come from says there
 /// are none yet, rather than a sentence cut short.
 #[test]
+#[ignore = "the interface-6 Home these tests host is removed (#244); the widgets and cards are covered natively by scripted_widgets.rs and the native Home tests; the interface-6 Vocabulary goes with the store work (#2898)"]
 fn a_small_cell_says_there_are_no_words() {
     for widget in ["vocabulary.widget.word", "vocabulary.widget.saved"] {
         let (shown, _) = home(MemoryStorage::new(), &format!("{widget} 0/0 2x1"), "");
