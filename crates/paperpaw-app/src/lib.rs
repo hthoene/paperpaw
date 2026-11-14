@@ -647,27 +647,6 @@ pub static CATALOG_INDEXES: &[(u64, &[u16])] =
 pub static BUILT_CATALOGS: &[paperpaw_i18n::BuiltLanguage] =
     include!(concat!(env!("OUT_DIR"), "/built_catalogs.rs"));
 
-/// The interface-6 form of home, only where its native form is not linked
-/// (`native-linked-reading`).
-#[cfg_attr(
-    feature = "native-linked-reading",
-    allow(clippy::missing_const_for_fn, reason = "nothing is added there")
-)]
-fn interface6_reading(builder: KernelBuilder) -> KernelBuilder {
-    #[allow(
-        unused_mut,
-        reason = "nothing is added where the native forms are linked"
-    )]
-    let mut b = builder;
-    // Home is a native plugin, linked (`NATIVE_PLUGINS`), where the feature says
-    // (`native-linked-reading`); the reader and Menu are native plugins only.
-    #[cfg(not(feature = "native-linked-reading"))]
-    {
-        b = b.plugin(paperpaw_plugin_home::Home);
-    }
-    b
-}
-
 /// Adds the first-party plugins to `builder`, those the store offers as
 /// files too as `store` says.
 pub fn install_with(
@@ -690,7 +669,6 @@ pub fn install_with(
     // Wi-Fi, Transfer, Menu, News, Picture home and the rest of the store's
     // plugins are native plugins only (`NATIVE_PLUGINS`, under `native-linked`):
     // their interface-6 forms are gone (#244).
-    let b = interface6_reading(builder);
     // A theme of the app's own, off as it ships, on every device.
-    b.plugin_off(Pebble)
+    builder.plugin_off(Pebble)
 }
