@@ -48,7 +48,8 @@ fn place_hint_text(
     let near = |w: f32| {
         let least = f32::from(span.x);
         let most = (f32::from(span.x) + f32::from(span.width) - w).max(least);
-        (middle - w / 2.0).clamp(least, most)
+        // Not `clamp`, which brings `core`'s formatter of floats (#258).
+        (middle - w / 2.0).min(most).max(least)
     };
     let placed = |size: f32, text: &str, at: Rect| Placed {
         size,
