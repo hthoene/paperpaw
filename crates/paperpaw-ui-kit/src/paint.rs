@@ -333,6 +333,29 @@ pub fn draw_code(
     Ok(())
 }
 
+/// [`replay`], with the icon font bound for the draw where `ops` has an icon
+/// run (and released after it): the way a list of rows with icons is drawn.
+///
+/// # Errors
+/// Propagates canvas, font and allocation errors.
+pub fn replay_with_icons<'a>(
+    host: &paperpaw_sdk::native::Host<'_>,
+    frame: &mut DrawFrame<'_>,
+    font: &Font<'_>,
+    ops: impl Iterator<Item = &'a Paint> + Clone,
+) -> Result<(), Error> {
+    let icons = if ops.clone().any(|op| matches!(op, Paint::Icon { .. })) {
+        crate::icons::font(host)?
+    } else {
+        None
+    };
+    let drawn = replay_icons(frame, font, icons.as_ref(), ops);
+    if let Some(icons) = icons {
+        icons.release()?;
+    }
+    drawn
+}
+
 /// [`replay`] with the icon font for [`Paint::Icon`] runs: an icon is left
 /// out where there is no icon font (the callers gave a name the host knows only
 /// with one).
