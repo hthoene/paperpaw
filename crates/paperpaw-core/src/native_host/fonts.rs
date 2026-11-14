@@ -352,7 +352,10 @@ mod ink_unwired {
     }
 }
 
-#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+#[cfg(any(
+    feature = "x4-ink",
+    not(any(target_arch = "riscv32", target_arch = "xtensa"))
+))]
 fn ink_of(font: &FontHandle<'_>, size: f32, text: &str, threshold: u8) -> Result<[i32; 4], i32> {
     let bounds = font.ink_drawn(size, text, threshold).ok_or(ERR_NOT_FOUND)?;
     Ok([bounds.top, bounds.bottom, bounds.left, bounds.right])
@@ -364,7 +367,10 @@ fn ink_of(font: &FontHandle<'_>, size: f32, text: &str, threshold: u8) -> Result
 /// Text must be readable and unchanged. All outputs must be writable, exclusive
 /// and disjoint from text and host state. They may be uninitialized.
 #[allow(clippy::too_many_arguments, reason = "matches the ABI ink scalars")]
-#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+#[cfg(any(
+    feature = "x4-ink",
+    not(any(target_arch = "riscv32", target_arch = "xtensa"))
+))]
 pub(crate) unsafe fn ink(
     scope: &EnvironmentScope,
     owner: &OwnerResources,
