@@ -148,7 +148,9 @@ pub fn draw(
         return empty(cx, out, icons, &look);
     };
     let covered = if cx.settings.shows("cover").unwrap_or(true) {
-        native_recent::with_library(host, |library| native_recent::cover(host, library, &book))?
+        native_recent::with_library(host, |library| {
+            native_recent::cover_known(host, known, library, &book)
+        })?
     } else {
         Covered::None
     };

@@ -154,6 +154,11 @@ impl<'h, 'cb> Reader<'h, 'cb> {
     /// # Errors
     /// The registry's refusals other than "not found", and `NoMemory`.
     pub fn setting_row(&mut self, key: &str, fields: Fields) -> Result<Option<Setting>, Error> {
+        // No setting has an empty key: the registry refuses to look for one
+        // (`Invalid`), which is no failure here.
+        if key.is_empty() {
+            return Ok(None);
+        }
         match self
             .registry
             .setting(self.host, key, &mut self.input, &mut self.output)

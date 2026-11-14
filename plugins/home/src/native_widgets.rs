@@ -191,10 +191,16 @@ impl Mine {
         // (it ended the id for room) or cannot draw is left out: the next draw asks
         // for it again.
         for (image, at) in &pictures.placed {
-            frame
-                .draw_canvas()?
-                .draw_image(*image, paint::frame_rect(*at), ImageStyle::new().small())
-                .ok();
+            let drawn = frame.draw_canvas()?.draw_image(
+                *image,
+                paint::frame_rect(*at),
+                ImageStyle::new().small(),
+            );
+            if drawn.is_err() {
+                // The host ended the id: the next tick draws it, asked for anew.
+                self.known.forget_covers();
+                self.waiting.set(true);
+            }
         }
         Ok(())
     }
@@ -368,6 +374,10 @@ impl Widgets {
                 item.mine.known.forget();
             }
             let waited = item.mine.waiting.replace(false);
+            if waited {
+                // A cover that was being made is asked about anew.
+                item.mine.known.forget_covers();
+            }
             if (waited || item.shown.is_some_and(|before| before != now))
                 && commands.widget_changed(instance).is_err()
             {

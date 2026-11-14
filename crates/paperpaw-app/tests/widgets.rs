@@ -188,11 +188,8 @@ fn one_week_start_for_all() {
     assert_eq!(app.kernel.settings().read(&WEEK_START), WEEK_STARTS[0]);
     app.set(WEEK_START.as_str(), "core.week.sunday");
     assert_eq!(app.kernel.settings().read(&WEEK_START), "core.week.sunday");
-    // The calendars follow it, drawn as before.
-    app.set(
-        "home.page-1",
-        "widgets.calendar 0/0 4x3, stats.widget.calendar 0/3 4x3",
-    );
+    // The widgets still on interface 6 draw with it set; the calendars are native now.
+    app.set("home.page-1", "vocabulary.widget.word 0/0 4x3");
     assert!(app.draw());
 }
 
@@ -205,20 +202,20 @@ fn a_widget_placed_twice_has_two_looks() {
     let mut app = App::new(X4, "en");
     app.set(
         "home.page-1",
-        "widgets.analogue-clock@1 0/0 2x2, widgets.analogue-clock@2 2/0 2x2",
+        "vocabulary.widget.word@1 0/0 2x2, vocabulary.widget.word@2 2/0 2x2",
     );
-    app.set("widgets.analogue-clock@2.frame", "core.frame.dark");
+    app.set("vocabulary.widget.word@2.frame", "core.frame.dark");
     let settings = app.kernel.settings();
     assert_eq!(
-        settings.text("widgets.analogue-clock@2.frame"),
+        settings.text("vocabulary.widget.word@2.frame"),
         "core.frame.dark"
     );
     assert_eq!(
-        settings.text("widgets.analogue-clock@1.frame"),
+        settings.text("vocabulary.widget.word@1.frame"),
         "core.frame.none"
     );
     assert_eq!(
-        settings.text("widgets.analogue-clock.frame"),
+        settings.text("vocabulary.widget.word.frame"),
         "core.frame.none"
     );
     assert!(app.draw());
@@ -230,22 +227,22 @@ fn a_widget_placed_twice_has_two_looks() {
     )
     .unwrap();
     let config = String::from_utf8(config).unwrap();
-    assert!(config.contains("analogue-clock@2.frame"), "{config}");
+    assert!(config.contains("word@2.frame"), "{config}");
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(X4).storage(storage).user_config(config);
     let kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let settings = kernel.settings();
     assert_eq!(
-        settings.text("widgets.analogue-clock@2.frame"),
+        settings.text("vocabulary.widget.word@2.frame"),
         "core.frame.dark"
     );
     assert_eq!(
-        settings.text("widgets.analogue-clock@1.frame"),
+        settings.text("vocabulary.widget.word@1.frame"),
         "core.frame.none"
     );
     // While placement 2 is drawn, its widget reads its own.
-    let frame = settings.with_placement(Some("widgets.analogue-clock@2"), || {
-        settings.text("widgets.analogue-clock.frame").to_string()
+    let frame = settings.with_placement(Some("vocabulary.widget.word@2"), || {
+        settings.text("vocabulary.widget.word.frame").to_string()
     });
     assert_eq!(frame, "core.frame.dark");
 }

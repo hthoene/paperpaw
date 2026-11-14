@@ -212,7 +212,7 @@ impl DevicePool {
 
     /// The registration says what is wired: the services of the linked
     /// plugins and, of the features, those a card plugin may reach.
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
     pub(crate) fn set_offer(&self, offer: crate::native_runtime::Offer) {
         self.0.borrow_mut().offer = Some(offer);
     }

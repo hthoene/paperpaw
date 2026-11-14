@@ -200,7 +200,7 @@ pub fn registered(
         }
     }
     let widgets = kernel.widgets();
-    for (id, title) in widgets.iter() {
+    for (id, title, _) in widgets.everywhere() {
         let Some(plugin) = ours(id.as_str()) else {
             continue;
         };

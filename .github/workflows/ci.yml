@@ -149,10 +149,19 @@ jobs:
       # X4 links (`native-on`: no store plugins, `packs`): the build works out
       # which plugins are linked from the manifest, and a slip there shows keys.
       - run: cargo test -p paperpaw-app --no-default-features --features native-linked-reading,packs --test linked_catalogs
+      # The reading record is kept by Widgets, a native plugin only (#244).
+      - run: cargo test -p paperpaw-app --features native-linked,native-linked-reading,native-linked-store --test sleep_parity a_book_ready_at_once_has_its_pages_counted
       # Every linked plugin's screens keep the entry of their titles table (#248):
       # the test is compiled out unless the app's `native-linked*` features are on.
       - run: cargo test -p paperpaw-app --features native-linked-reading --test linked_settings_tables
       - run: cargo test -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
+      # The menu is native only (#244): its entries and the tools list are tested linked.
+      - run: cargo test -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last
+      # The Settings and the menu its tests open are native: the app's own plugins, as the lean
+      # firmware has them (#244).
+      - run: cargo test -p paperpaw-app --features native-linked-reading --test sets --test standard
+      - run: cargo test -p paperpaw-app --features native-linked-reading --test readers
+      - run: cargo test -p paperpaw-app --features native-linked-reading --test partial_redraw -- --exact table_of_contents
 
   check:
     name: Format, lint, test

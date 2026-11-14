@@ -1,0 +1,741 @@
+lines 0 bytes 0 -> 0 lines hash 09612b07b5ecb5a5 first None; stopping after two: 0
+lines 1 bytes 1 -> 1 lines hash 2b288c997252f102 first Some("\"a\""); stopping after two: 1
+lines 2 bytes 2 -> 1 lines hash 2b288c997252f102 first Some("\"a\""); stopping after two: 1
+lines 3 bytes 10 -> 4 lines hash 76955f5230cc218e first Some("\"a\""); stopping after two: 2
+lines 4 bytes 2 -> 2 lines hash 88bf275279b38d01 first Some("\"\""); stopping after two: 2
+lines 5 bytes 2 -> 1 lines hash eeb72e8f754acbe7 first Some("\"x\\r\""); stopping after two: 1
+lines 6 bytes 5007 -> 2 lines hash 298e24d5aec00237 first Some("<1024 bytes 51bfc41078b37325>"); stopping after two: 2
+lines 7 bytes 3000 -> 1 lines hash ed8cc26f1b8c40f9 first Some("<1024 bytes 0817ea91a5534b25>"); stopping after two: 1
+lines 8 bytes 0 -> 0 lines hash 09612b07b5ecb5a5 first None; stopping after two: 0
+lines 9 bytes 0 -> 0 lines hash 09612b07b5ecb5a5 first None; stopping after two: 0
+lines 10 bytes 0 -> 0 lines hash 09612b07b5ecb5a5 first None; stopping after two: 0
+lines 11 bytes 0 -> 0 lines hash 09612b07b5ecb5a5 first None; stopping after two: 0
+lines 12 bytes 0 -> 0 lines hash 09612b07b5ecb5a5 first None; stopping after two: 0
+lines 13 bytes 0 -> 0 lines hash 09612b07b5ecb5a5 first None; stopping after two: 0
+lines 14 bytes 0 -> 0 lines hash 09612b07b5ecb5a5 first None; stopping after two: 0
+lines 15 bytes 0 -> 0 lines hash 09612b07b5ecb5a5 first None; stopping after two: 0
+lines 16 bytes 0 -> 0 lines hash 09612b07b5ecb5a5 first None; stopping after two: 0
+lines 17 bytes 0 -> 0 lines hash 09612b07b5ecb5a5 first None; stopping after two: 0
+lines 18 bytes 1 -> 1 lines hash eec16066295540f9 first Some("\"\""); stopping after two: 1
+lines 19 bytes 1 -> 1 lines hash aadd50534e4db9e4 first Some("\"�\""); stopping after two: 1
+lines 20 bytes 1 -> 1 lines hash 150259249e773ee9 first Some("\"\\t\""); stopping after two: 1
+lines 21 bytes 1 -> 1 lines hash aadd50534e4db9e4 first Some("\"�\""); stopping after two: 1
+lines 22 bytes 1 -> 1 lines hash 48ed0b24bbdaa7ff first Some("\"\\r\""); stopping after two: 1
+lines 23 bytes 1 -> 1 lines hash 48ed0b24bbdaa7ff first Some("\"\\r\""); stopping after two: 1
+lines 24 bytes 1 -> 1 lines hash f82de3983376ca09 first Some("\" \""); stopping after two: 1
+lines 25 bytes 1 -> 1 lines hash aadd50534e4db9e4 first Some("\"�\""); stopping after two: 1
+lines 26 bytes 1 -> 1 lines hash 11505a9841752c7c first Some("\"#\""); stopping after two: 1
+lines 27 bytes 1 -> 1 lines hash ae0740989a72e7a6 first Some("\"5\""); stopping after two: 1
+lines 28 bytes 2 -> 1 lines hash 88613d9728900066 first Some("\"�\\r\""); stopping after two: 1
+lines 29 bytes 2 -> 1 lines hash 3b4c377a7f9337a5 first Some("\"a�\""); stopping after two: 1
+lines 30 bytes 2 -> 1 lines hash 7dcdeb15e9649b08 first Some("\"a\\r\""); stopping after two: 1
+lines 31 bytes 2 -> 1 lines hash 88613d9728900066 first Some("\"�\\r\""); stopping after two: 1
+lines 32 bytes 2 -> 1 lines hash 81d71ed1a066b883 first Some("\"\\r\\u{1d}\""); stopping after two: 1
+lines 33 bytes 2 -> 1 lines hash 5ff27f8cc5cb6ea9 first Some("\"�a\""); stopping after two: 1
+lines 34 bytes 2 -> 1 lines hash ec032528d7e718a4 first Some("\"�\\u{5}\""); stopping after two: 1
+lines 35 bytes 2 -> 1 lines hash b5c3886a09dc74fc first Some("\"\\ra\""); stopping after two: 1
+lines 36 bytes 2 -> 1 lines hash 5ff27f8cc5cb6ea9 first Some("\"�a\""); stopping after two: 1
+lines 37 bytes 2 -> 1 lines hash ac1f426e0dc802b4 first Some("\"\\t�\""); stopping after two: 1
+lines 38 bytes 5 -> 1 lines hash ead4fb788e3edc00 first Some("\"�5#a#\""); stopping after two: 1
+lines 39 bytes 5 -> 1 lines hash bb7b31aa54b19100 first Some("\"�����\""); stopping after two: 1
+lines 40 bytes 5 -> 2 lines hash 7215c3e98a47a370 first Some("\"\\t\""); stopping after two: 2
+lines 41 bytes 5 -> 1 lines hash 5b5f451ac258cd03 first Some("\"a�\\r�a\""); stopping after two: 1
+lines 42 bytes 5 -> 1 lines hash e2dac2a3a7f68c39 first Some("\"a\\r���\""); stopping after two: 1
+lines 43 bytes 5 -> 3 lines hash 9d89517098f8fc66 first Some("\"a\""); stopping after two: 2
+lines 44 bytes 5 -> 3 lines hash 8eca17f8cc60aed4 first Some("\"�\""); stopping after two: 2
+lines 45 bytes 5 -> 1 lines hash 7349c322aff37a07 first Some("\"5s�\\t#\""); stopping after two: 1
+lines 46 bytes 5 -> 1 lines hash 05a1ee69120aefa5 first Some("\"é��\\r\""); stopping after two: 1
+lines 47 bytes 5 -> 5 lines hash 4d4c8e42376983bc first Some("\"\""); stopping after two: 2
+lines 48 bytes 40 -> 7 lines hash 65f5243d2c1d57c2 first Some("\"I�\""); stopping after two: 2
+lines 49 bytes 40 -> 6 lines hash af31a672b54eb8c9 first Some("\"\\r\\t\\t#\""); stopping after two: 2
+lines 50 bytes 40 -> 3 lines hash 007c600989aea105 first Some("\"##��\\ra�a�\\u{12}\\r#\\t\\r�#\\t\\t��a\""); stopping after two: 2
+lines 51 bytes 40 -> 4 lines hash e9b9e3161c251e00 first Some("\"�d�#�#���\\r�\\t�\\t�\""); stopping after two: 2
+lines 52 bytes 40 -> 9 lines hash 34bc30ee26b9326c first Some("\"aa\""); stopping after two: 2
+lines 53 bytes 40 -> 4 lines hash 96cc51e030f442ae first Some("\"�I�ac#aï#\\t*\""); stopping after two: 2
+lines 54 bytes 40 -> 5 lines hash 7f023d61ce773d96 first Some("\"�\\t#�aÏ\\t�\\t\""); stopping after two: 2
+lines 55 bytes 40 -> 4 lines hash f54a07d3fc846a9f first Some("\"\\t�\\t�é#�a\\ra\\u{3}\""); stopping after two: 2
+lines 56 bytes 40 -> 4 lines hash 5b26e9986dd2372b first Some("\"\\t\""); stopping after two: 2
+lines 57 bytes 40 -> 8 lines hash d5e40cabdbf86c36 first Some("\"�\""); stopping after two: 2
+lines 58 bytes 300 -> 23 lines hash 15c9ee319a209971 first Some("\"\\r\\t�Â�D��$�\\t\\t��\\t��#\\t�G\\t#�\""); stopping after two: 2
+lines 59 bytes 300 -> 42 lines hash 9d8b9ab6d124b37b first Some("\"aa\\t\\ta\\r�##\""); stopping after two: 2
+lines 60 bytes 300 -> 22 lines hash 1721c4056f21941e first Some("\"\\r�\\t�a��#U\\r\\t�\""); stopping after two: 2
+lines 61 bytes 300 -> 26 lines hash 5488d1222b18cdf1 first Some("\"ca\\r#�\\u{1a}a��4�a�\\t\""); stopping after two: 2
+lines 62 bytes 300 -> 25 lines hash b55cb1af421f6011 first Some("\"#\\t���\\rF��խ��)\\t\""); stopping after two: 2
+lines 63 bytes 300 -> 22 lines hash 94ffc25300eaf083 first Some("\"\\r\\t#��v�\\ra��\\t�驅�###a#a#\\t��\""); stopping after two: 2
+lines 64 bytes 300 -> 25 lines hash 4c74c2ba27e160d0 first Some("\"�#�\\tc���\""); stopping after two: 2
+lines 65 bytes 300 -> 27 lines hash 9b648289d6969baf first Some("\"\\t\\r\\t��\\t\""); stopping after two: 2
+lines 66 bytes 300 -> 28 lines hash a61152fa5a6f45cf first Some("\"Ж\""); stopping after two: 2
+lines 67 bytes 300 -> 25 lines hash ee595002adc87d3c first Some("\"�*#\\r\\t\\t\\t\\t�Ga�##\\t�\\t7\\ré����\\u{1f}�\""); stopping after two: 2
+lines 68 bytes 3000 -> 289 lines hash 0f40784882524a9e first Some("\"\""); stopping after two: 2
+lines 69 bytes 3000 -> 260 lines hash 60fd797d5a50242f first Some("\"X#a����\\t�#a�a\""); stopping after two: 2
+lines 70 bytes 3000 -> 293 lines hash 8bcab5bd2c66706c first Some("\"1\""); stopping after two: 2
+lines 71 bytes 3000 -> 297 lines hash f62927e63a5a96a6 first Some("\"\\rê7\\r�\\r��#b\\t\\r#\\u{1b}Sa�\\u{14}\\t�_�\""); stopping after two: 2
+lines 72 bytes 3000 -> 276 lines hash c6aed66d6b6abdb0 first Some("\"��a �\\t\""); stopping after two: 2
+lines 73 bytes 3000 -> 282 lines hash b6edccfaf7c2e370 first Some("\"2#���a�#�\\t�\""); stopping after two: 2
+lines 74 bytes 3000 -> 305 lines hash 0f864e9314fd8962 first Some("\"��W\\t�\""); stopping after two: 2
+lines 75 bytes 3000 -> 299 lines hash 2e137d318b30e88b first Some("\"#\\t#\\r\\u{1}#\""); stopping after two: 2
+lines 76 bytes 3000 -> 263 lines hash 2ee479fd452e2c41 first Some("\"\\u{7f}\\t#�#�\""); stopping after two: 2
+lines 77 bytes 3000 -> 262 lines hash 253accfbd18d676f first Some("\"�\\r��#�\\ra\\ta##\""); stopping after two: 2
+name "a.md" note true hidden false
+name "A.MD" note true hidden false
+name "b c.markdown" note true hidden false
+name ".md" note false hidden true
+name "a.txt" note false hidden false
+name "md" note false hidden false
+name "a.mdx" note false hidden false
+name "" note false hidden false
+title "v/Projects/Plan.md" "Plan"
+folder "v/Projects/Plan.md" in "v" "Projects"
+folder "v/Projects/Plan.md" in "v/" "Projects"
+folder "v/Projects/Plan.md" in "" "v/Projects"
+folder "v/Projects/Plan.md" in "/" "v/Projects"
+folder "v/Projects/Plan.md" in "vault" "v/Projects"
+folder "v/Projects/Plan.md" in "a" "v/Projects"
+title "Plan.v2.md" "Plan.v2"
+folder "Plan.v2.md" in "v" ""
+folder "Plan.v2.md" in "v/" ""
+folder "Plan.v2.md" in "" ""
+folder "Plan.v2.md" in "/" ""
+folder "Plan.v2.md" in "vault" ""
+folder "Plan.v2.md" in "a" ""
+title "noending" "noending"
+folder "noending" in "v" ""
+folder "noending" in "v/" ""
+folder "noending" in "" ""
+folder "noending" in "/" ""
+folder "noending" in "vault" ""
+folder "noending" in "a" ""
+title "a/b/" ""
+folder "a/b/" in "v" "a/b"
+folder "a/b/" in "v/" "a/b"
+folder "a/b/" in "" "a/b"
+folder "a/b/" in "/" "a/b"
+folder "a/b/" in "vault" "a/b"
+folder "a/b/" in "a" "b"
+title "/" ""
+folder "/" in "v" ""
+folder "/" in "v/" ""
+folder "/" in "" ""
+folder "/" in "/" ""
+folder "/" in "vault" ""
+folder "/" in "a" ""
+title "" ""
+folder "" in "v" ""
+folder "" in "v/" ""
+folder "" in "" ""
+folder "" in "/" ""
+folder "" in "vault" ""
+folder "" in "a" ""
+excerpt 0 <122 bytes 080425ed1f7c9f18> -> "Bold and a link with x code. More of it."
+excerpt 1 "# Only a heading\n\n---\n" -> ""
+excerpt 2 "```\ncode\n```\ntext" -> "text"
+excerpt 3 "---\nno end\nreally" -> "no end really"
+excerpt 4 "---\n---\n---\nbody" -> "body"
+excerpt 5 "---\r\nx\r\n---\r\nbody\r\n" -> "body"
+excerpt 6 <500 bytes f8c2c51c7e1127ed> -> "word word word word word word word word word word word word word word word word word word word word word word word word word word word word …"
+excerpt 7 <2000 bytes 7f4d856687a055d5> -> "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[…"
+excerpt 8 <200 bytes 4f5ac33dbaddc025> -> ""
+excerpt 9 "---\n" -> ""
+excerpt 10 "[[" -> "[["
+excerpt 11 "# Heading\n" -> ""
+excerpt 12 "---\n" -> ""
+excerpt 13 "plain words " -> "plain words"
+excerpt 14 "](" -> "]("
+excerpt 15 "---\n" -> ""
+excerpt 16 "~~~\n" -> ""
+excerpt 17 "- item\n" -> "item"
+excerpt 18 "> quote " -> "quote"
+excerpt 19 "#12 " -> "#12"
+excerpt 20 "**bold** " -> "bold"
+excerpt 21 "x" -> "x"
+excerpt 22 "[[Other#part]] " -> "Other"
+excerpt 23 "\n" -> ""
+excerpt 24 "**bold** " -> "bold"
+excerpt 25 "* * *\n" -> ""
+excerpt 26 "](" -> "]("
+excerpt 27 "tags: [a, \"b c\"]\n" -> "tags: [a, \"b c\"]"
+excerpt 28 "- two\n" -> "two"
+excerpt 29 "  - one\n" -> "one"
+excerpt 30 "> quote " -> "quote"
+excerpt 31 "**bold** " -> "bold"
+excerpt 32 "é ü ß " -> "é ü ß"
+excerpt 33 "[[Link|label]] " -> "label"
+excerpt 34 "~~~\n" -> ""
+excerpt 35 "...\n" -> "..."
+excerpt 36 "a#b " -> "a#b"
+excerpt 37 "\n" -> ""
+excerpt 38 "\n" -> ""
+excerpt 39 "# Heading\n" -> ""
+excerpt 40 "---\n" -> ""
+excerpt 41 "- two\n" -> "two"
+excerpt 42 "**bold** " -> "bold"
+excerpt 43 "#" -> "#"
+excerpt 44 "plain words " -> "plain words"
+excerpt 45 "## Sub\n" -> ""
+excerpt 46 "**bold** " -> "bold"
+excerpt 47 "\n" -> ""
+excerpt 48 "\n" -> ""
+excerpt 49 "#12   - one\n#tag " -> "#12   - one #tag"
+excerpt 50 "tags:\n  - one\n> quote " -> "tags: one quote"
+excerpt 51 "\r\n[[Link|label]] tags: [a, \"b c\"]\n" -> "label tags: [a, \"b c\"]"
+excerpt 52 "tags: [a, \"b c\"]\n日本語 \n" -> "tags: [a, \"b c\"] 日本語"
+excerpt 53 "tags: [a, \"b c\"]\n`#code` # Heading\n" -> "tags: [a, \"b c\"] #code # Heading"
+excerpt 54 "## Sub\n# Heading\n[[Link|label]] " -> "label"
+excerpt 55 "...\né ü ß x" -> "... é ü ß x"
+excerpt 56 "a#b [[[[Link|label]] " -> "a#b label"
+excerpt 57 "[[Link|label]] ...\n## Sub\n" -> "label ..."
+excerpt 58 "> quote `#code` ```\n" -> "quote #code "
+excerpt 59 "## Sub\n> quote tags: [a, \"b c\"]\n" -> "quote tags: [a, \"b c\"]"
+excerpt 60 "#12 [[`#code` " -> "#12 [[#code"
+excerpt 61 "`#code` #Tag/Nested ...\n" -> "#code #Tag/Nested ..."
+excerpt 62 "x> quote [[Link|label]] " -> "x> quote label"
+excerpt 63 "é ü ß * * *\n[text](https://x.org) " -> "é ü ß    text"
+excerpt 64 "* * *\n`#code` #tag " -> "#code #tag"
+excerpt 65 "[[Other#part]] a#b 日本語 " -> "Other a#b 日本語"
+excerpt 66 "...\n#12 ](" -> "... #12 ]("
+excerpt 67 "#[[Other#part]] **bold** " -> "#Other bold"
+excerpt 68 "`#code` 日本語 tags: [a, \"b c\"]\n" -> "#code 日本語 tags: [a, \"b c\"]"
+excerpt 69 "[[Link|label]] #12 é ü ß " -> "label #12 é ü ß"
+excerpt 70 "#---\n#Tag/Nested " -> "#--- #Tag/Nested"
+excerpt 71 "\n...\n\n" -> "..."
+excerpt 72 "x[[tags: [a, \"b c\"]\n" -> "x[[tags: [a, \"b c\"]"
+excerpt 73 "> quote #**bold** " -> "quote #bold"
+excerpt 74 "...\n`#code` 日本語 " -> "... #code 日本語"
+excerpt 75 "~~~\n#> quote " -> ""
+excerpt 76 "日本語 [[# Heading\n" -> "日本語 [[# Heading"
+excerpt 77 "[[Link|label]] ](\r\n" -> "label ]("
+excerpt 78 "  - one\n---\n#Tag/Nested " -> "one #Tag/Nested"
+excerpt 79 "```\n`#code` ## Sub\n" -> ""
+excerpt 80 "- item\n#tag \r\n" -> "item #tag"
+excerpt 81 "# Heading\n- item\n...\n" -> "item ..."
+excerpt 82 "`#code` # Heading\n](" -> "#code # Heading ]("
+excerpt 83 "#12 \r\na#b " -> "#12 a#b"
+excerpt 84 "plain words #12 \n" -> "plain words #12"
+excerpt 85 "| a | b |\n\n\r\n" -> ""
+excerpt 86 "\r\n[[[[" -> "[[[["
+excerpt 87 "\r\n](  - one\n" -> "](  - one"
+excerpt 88 "##tag **bold** " -> ""
+excerpt 89 "tags:\n~~~\n#tag 日本語 [[Link|label]] [[Link|label]] \n```\n" -> "tags:"
+excerpt 90 <71 bytes 0c45aa42f4a21eb8> -> "... #Tag/Nested | a | b | ](#code Other"
+excerpt 91 "* * *\n]([[Other#part]] plain words \n- item\n#12 tag: x\n" -> "](Other plain words item #12 tag: x"
+excerpt 92 "日本語 #tag * * *\n# Heading\n  - one\nxx# Heading\n" -> "日本語 #tag    one xx# Heading"
+excerpt 93 "a#b   - one\n[[| a | b |\n\r\n- two\n[[* * *\n" -> "a#b   - one [[| a | b |"
+excerpt 94 <65 bytes 234ee38a41944d4a> -> "text 日本語 tags: [a, \"b c\"]"
+excerpt 95 <68 bytes 59b771ad3aadd249> -> "two #Tag/Nested label 日本語 label [[  "
+excerpt 96 <67 bytes 75418d950f869b3d> -> "#code x   tag: x item text  #Tag/Nested"
+excerpt 97 "~~~\n* * *\n* * *\na#b plain words [[- item\n# Heading\n" -> ""
+excerpt 98 <81 bytes 2e3161af65e0fbb3> -> "item label tag: x item bold text > quote"
+excerpt 99 <67 bytes 14a8ac9c0561e511> -> "one #code label   - one Other x"
+excerpt 100 <67 bytes 8b986b4a4f41fae7> -> "text [[[[tags: text quote"
+excerpt 101 "`#code` #Tag/Nested > quote a#b - item\ntag: x\n* * *\n~~~\n" -> "#code #Tag/Nested > quote a#b - item tag: x"
+excerpt 102 "[[- two\n| a | b |\n#Tag/Nested ...\n[[#  - one\n" -> "[[- two #Tag/Nested ... [[#  - one"
+excerpt 103 "#Tag/Nested   - one\n#- two\n#tag # Heading\ntags: [a, \"b c\"]\nx" -> "#Tag/Nested   - one #- two #tag # Heading tags: [a, \"b c\"] x"
+excerpt 104 <68 bytes bd7dcf2ea43025cf> -> "text #   é ü ß é ü ß # Heading"
+excerpt 105 "[[Other#part]] #tag #tag plain words a#b \r\nx[[Link|label]] " -> "Other #tag #tag plain words a#b xlabel"
+excerpt 106 "`#code` ...\n#12 ```\nx  - one\né ü ß | a | b |\n" -> "#code ... #12  x  - one é ü ß | a | b |"
+excerpt 107 "#12 plain words xtags:\nplain words ## Sub\n[[Other#part]] tags:\n" -> "#12 plain words xtags: plain words ## Sub Other tags:"
+excerpt 108 <79 bytes a61a616d79ae5cb5> -> "text  text #tag ](é ü ß ## Sub one"
+excerpt 109 "**bold** #12 > quote a#b * * *\ntag: x\n#12 ```\n" -> "bold #12 > quote a#b    tag: x #12 "
+excerpt 110 "](  - one\né ü ß tag: x\n**bold** ~~~\nplain words ---\n" -> "](  - one é ü ß tag: x bold  plain words ---"
+excerpt 111 "\n---\n- two\né ü ß tags: [a, \"b c\"]\na#b ```\n---\n" -> "two é ü ß tags: [a, \"b c\"] a#b "
+excerpt 112 "  - one\n  - one\n## Sub\n```\n- two\né ü ß - two\n| a | b |\n" -> "one one"
+excerpt 113 "[text](https://x.org) | a | b |\n[[Link|label]] #12 #12 #\nx" -> "text | a | b | label #12 #12 # x"
+excerpt 114 <73 bytes 7bb114da9a97fa0f> -> "tags: [a, \"b c\"] label bold | a | b | tag: x #"
+excerpt 115 "# Heading\n\n#tag | a | b |\n* * *\n#Tag/Nested 日本語 ---\n" -> "#tag | a | b | #Tag/Nested 日本語 ---"
+excerpt 116 "- two\n\n\nplain words tag: x\n](plain words # Heading\n" -> "two"
+excerpt 117 "> quote **bold** [text](https://x.org) x# Heading\n---\n\ntag: x\n" -> "quote bold text x# Heading"
+excerpt 118 "\r\n日本語 | a | b |\n# Heading\n```\n`#code` \r\n[[Link|label]] " -> "日本語 | a | b |"
+excerpt 119 "```\n[[\r\n[[Other#part]] `#code`   - one\na#b tags: [a, \"b c\"]\n" -> ""
+excerpt 120 "#tag \n[[`#code` **bold** [[Other#part]] #Tag/Nested ---\n" -> "#tag ` #Tag/Nested ---"
+excerpt 121 <90 bytes 3b91f2cea65f7734> -> "bold tags: [a, \"b c\"] bold tags: [a, \"b c\"] label   "
+excerpt 122 <76 bytes 6666948684bbb187> -> "tags: tag: x label text é ü ß ... plain words"
+excerpt 123 <82 bytes 49239dc795da836e> -> "é ü ß text label é ü ß # Heading 日本語 #tag"
+excerpt 124 "x- two\n> quote #- item\n...\n](`#code` " -> "x- two quote #- item ... ](#code"
+excerpt 125 "`#code` ## Sub\n#tag * * *\n日本語 | a | b |\na#b tag: x\n" -> "#code ## Sub #tag    日本語 | a | b | a#b tag: x"
+excerpt 126 <70 bytes 4a1d84046dd0e455> -> "#é ü ß text #code #Tag/Nested #code a#b"
+excerpt 127 "[[Link|label]] \n日本語 - item\n```\n[[Other#part]] #12 ~~~\n" -> "label 日本語 - item"
+excerpt 128 "#tag [[Link|label]] `#code` ](plain words ##Tag/Nested ```\n" -> "#tag label #code ](plain words ##Tag/Nested "
+excerpt 129 <118 bytes fb3cc69b69563306> -> "日本語 # Heading ](- two label   - one"
+excerpt 130 <123 bytes 744a8d22591c1678> -> "#12 tag: x x- item ..."
+excerpt 131 <124 bytes 1ab657d6a7ea501e> -> "bold ](- two #> quote x tags: [a, \"b c\"] a#b ]([[ two plain words  text a#b # Heading"
+excerpt 132 <169 bytes 2674663954efe8e8> -> "日本語 Other - two item 日本語 plain words Other  tags: [a, \"b c\"] a#b #Tag/Nested #12 plain words --- one quote ](> quote"
+excerpt 133 <172 bytes b862b228273a9b47> -> "[[#code a#b --- tag: x #Tag/Nested plain words label Other - two Other label ](  - one #code tag: x plain words Other"
+excerpt 134 <148 bytes de69980c9637be79> -> "item ](- two"
+excerpt 135 <126 bytes e5e5a023ba18bdd4> -> "é ü ß > quote [[Other a#b ]( plain words é ü ß label a#b [[   one #12 tags: #tag"
+excerpt 136 <150 bytes 94dfd20d3c9a1987> -> "plain words | a | b | #12 ... tag: x two tags: [a, \"b c\"] tags: #Tag/Nested - item #12 bold bold #12  #tag - item one quote"
+excerpt 137 <121 bytes 9657c3ce2d590022> -> "plain words tag: x xx #Tag/Nested   - one [[ 日本語 bold Other #tags:"
+excerpt 138 <113 bytes 2feb58cc46e31d36> -> "#tag #12 #12 | a | b | two #tag tags: a#b #é ü ß #Tag/Nested #code"
+excerpt 139 <110 bytes 220d0cf2267f93cb> -> ""
+excerpt 140 <111 bytes b6096c57ae748e86> -> "a#b 日本語 ... #[[[[tags:"
+excerpt 141 <168 bytes 87b882ef49637975> -> "text 日本語 - item tags: #12 tags: [a, \"b c\"] plain words #code #tag - item item two tags: #12 - item plain words"
+excerpt 142 <136 bytes 6455ffe72c429f8d> -> "日本語 [[- two"
+excerpt 143 <197 bytes 4e883ace06ac85b0> -> "text #tag #tag é ü ß #](#code a#b text text #code text #tag #code bold Other tags: 日本語 "
+excerpt 144 <132 bytes 0fac65352b3b94e9> -> "tags: [a, \"b c\"] two 日本語 #12  a#b - item #tag ]( #Tag/Nested é ü ß ](Other #tag ... 日本語 ... #12 "
+excerpt 145 <135 bytes 4d6f2c99316085e4> -> "quote ](text tags: #12 bold tags: [[x](#日本語 [[  - one #tag    日本語 tag: x"
+excerpt 146 <149 bytes fb9bddd4bc842c02> -> "#]( text #12 日本語  bold #tag plain words 日本語 日本語 a#b a#b #12 tag: x text a#b bold ]("
+excerpt 147 <155 bytes 9c0bba8048617128> -> "quote    label bold > quote #code --- é ü ß tags: [a, \"b c\"] two"
+excerpt 148 <119 bytes 51f3944bc6cfd026> -> "日本語 bold - item x #Tag/Nested #12  tags: #Tag/Nested   - one tag: x one"
+excerpt 149 <150 bytes 5ae5ff841133e53c> -> "a#b two Other é ü ß #code #--- tags: [a, \"b c\"] #code bold a#b a#b | a | b | two #Tag/Nested # Heading"
+excerpt 150 <149 bytes 06cf06be28330aab> -> "item plain words é ü ß ... #code  two"
+excerpt 151 <178 bytes 55595b5a42850d14> -> "bold bold é ü ß text plain words 日本語 #code > quote # Heading"
+excerpt 152 <176 bytes ab48bd05ee2bd813> -> "tags: [a, \"b c\"] #code é ü ß plain words label bold #tag  one"
+excerpt 153 <106 bytes 5d244fffeae4e309> -> "x é ü ß #tag bold"
+excerpt 154 <164 bytes d637d27d48a022ce> -> "](text | a | b |"
+excerpt 155 <140 bytes b540eae2bfcccea2> -> ""
+excerpt 156 <139 bytes 2e575a7311ec782d> -> "two a#b Other #Tag/Nested #code ... 日本語 tags: [a, \"b c\"] item"
+excerpt 157 <176 bytes 132ced87278a48b2> -> "tag: x"
+excerpt 158 <142 bytes e7e93a51091c20a4> -> "... ](- two bold tags: [a, \"b c\"] item plain words  ... label [[- two #code plain words 日本語   - one item"
+excerpt 159 <162 bytes 81742a5a74404039> -> "tags: [a, \"b c\"] text a#b plain words tags: [a, \"b c\"] xbold tags: label #tag"
+excerpt 160 <165 bytes ac248355ad64854a> -> "é ü ß tags: [a, \"b c\"] tags: [a, \"b c\"] a#b   - one tag: x"
+excerpt 161 <106 bytes 9455d1e38525cf60> -> "tag: x bold ]( #- two"
+excerpt 162 <204 bytes ab710535aeb7eb4e> -> "日本語 > quote Other > quote Other tags: [a, \"b c\"] text tag: x one"
+excerpt 163 <178 bytes 95dd4436904204b9> -> "日本語 bold ]( plain words | a | b | tags: [a, \"b c\"] é ü ß  Other - item bold label > quote x日本語 label tag: x"
+excerpt 164 <164 bytes b3572b41a7f4dced> -> "two #12 #Tag/Nested  #tag 日本語 Other tags: [a, \"b c\"]"
+excerpt 165 <118 bytes dd5339012a690a09> -> "日本語 bold 日本語"
+excerpt 166 <138 bytes d3d3bb2e438dd251> -> "#code tag: x tag: x"
+excerpt 167 <139 bytes 4aab4c5f2f58913d> -> ""
+excerpt 168 <133 bytes d19d9b4713b133a4> -> "#tag é ü ß ..."
+excerpt 169 <474 bytes 34c01df94c547236> -> "plain words --- label   - one"
+excerpt 170 <463 bytes 9c75ca49064035a0> -> "x- item Other    bold tag: x plain words - item two"
+excerpt 171 <463 bytes b836f5084cbeb824> -> "#tag é ü ß tags: quote ## Sub bold --- bold tags: tags: x> quote tag: x"
+excerpt 172 <362 bytes eac7a9f965a4ad28> -> "text [[é ü ß #12 #tag # Heading label ... x é ü ß ](..."
+excerpt 173 <447 bytes c3fc3cb56d51100a> -> "plain words #code a#b #code Other   - one quote ... é ü ß - two bold   - one tags: two tags: [a, \"b c\"] label    one Other tags:"
+excerpt 174 <482 bytes bbd4192c8d556407> -> "](- item a#b   - one item text tags: [a, \"b c\"] a#b Other plain words > quote   - one text ## Sub"
+excerpt 175 <413 bytes 64ea70f9a2f9849d> -> "two tags:"
+excerpt 176 <400 bytes ad42b1be01dda5c6> -> "a#b #tags: plain words é ü ß  two tag: x x  - one tags: [a, \"b c\"] bold label ### Sub item tag: x #Tag/Nested > quote > quote ... one é ü ß …"
+excerpt 177 <397 bytes 1a04e4a840f4205b> -> "label --- #Tag/Nested text  two label #code #tag plain words [["
+excerpt 178 <408 bytes 735bf1bafb02c1ab> -> "#12 [[#code #12 #Tag/Nested plain words Other a#b ---"
+excerpt 179 <440 bytes 1ab7ba5b36d286c8> -> "#12 > quote ... #tag bold bold tags:"
+excerpt 180 <376 bytes 6cb476d87e2ea2d2> -> "#12 # 日本語 #Tag/Nested - two a#b #tag [[  - one ](tags: #x#tag Other a#b [[Other  quote ](--- label ](## Sub"
+excerpt 181 <395 bytes c92d227e61cfee50> -> "text bold #Tag/Nested ... two one one #code x"
+excerpt 182 <479 bytes b98d397a2235c532> -> "#tag text  #12 #Other  one text tags: [a, \"b c\"] #Other #12"
+excerpt 183 <469 bytes 45ce9b186accac07> -> "tags:"
+excerpt 184 <447 bytes 6778f1e1bed73abc> -> "bold tags: item one"
+excerpt 185 <412 bytes a40456be61533db4> -> "##code tags: [a, \"b c\"] #tag xé ü ß --- 日本語 > quote x [[#Tag/Nested # Heading #code tags: [a, \"b c\"]"
+excerpt 186 <461 bytes 0d7fd8988b3a6c5f> -> "日本語 tags: text 日本語    xtext #code #code   "
+excerpt 187 <415 bytes 730e231049b7cf48> -> "#Tag/Nested text ## Sub one"
+excerpt 188 <484 bytes 2226253e607da423> -> "é ü ß #tag é ü ß tags: [a, \"b c\"] xtag: x text "
+excerpt 189 <374 bytes 8663207e949eb3d3> -> "text x- two bold 日本語 plain words tags: #12 - two #Tag/Nested #  - one bold - item quote   - one #--- #Tag/Nested --- [[... #tag tags: ]( #ta…"
+excerpt 190 <447 bytes a333269b3ac5881a> -> "tags: Other #tag two #Tag/Nested #code # Heading text x日本語  #code - item"
+excerpt 191 <462 bytes 4a77181dde774153> -> "日本語 #  - one Other é ü ß text #tag - two tags: ..."
+excerpt 192 <414 bytes cd6163fe2677e2b2> -> "bold    quote ## Sub one #code #12 #Tag/Nested - item ..."
+excerpt 193 <434 bytes 54f6ab9951b122e9> -> "Other a#b > quote > quote > quote Other tag: x two bold --- 日本語 #label bold #Tag/Nested  a#b tags: [a, \"b c\"] é ü ß - two ](bold ## Sub [[é …"
+excerpt 194 <393 bytes d76008542bf5611b> -> "#code one Other #tag   - one"
+excerpt 195 <432 bytes 71f9e38a24b5234f> -> "#Tag/Nested tags: quote | a | b | #code 日本語 one tags: [a, \"b c\"] text ## Sub quote ##code - two Other ](##12   - one"
+excerpt 196 <491 bytes e3bdcafa27865004> -> "xtext  ..."
+excerpt 197 <351 bytes 1dfb37712255908e> -> "#- item [[tags: #12 bold | a | b | a#b [[ tags: item"
+excerpt 198 <512 bytes 31233eabcd64f115> -> "item bold - item"
+excerpt 199 <404 bytes a3511e9148849c4a> -> "item é ü ß #12 é ü ß Other ... label x- item plain words   - one tags: [a, \"b c\"] two plain words é ü ß > quote [[- item tag: x #12 one bold…"
+excerpt 200 <419 bytes ce136d29aaa8595c> -> "#tag: x tag: x text 日本語 #code "
+excerpt 201 <500 bytes 5565e4b9658b3c5f> -> "日本語 日本語 text #tag  bold text bold tags: [a, \"b c\"] Other"
+excerpt 202 <512 bytes f0b6901db9d83675> -> "label tags: [a, \"b c\"] quote   - one ](tag: x quote ](   two"
+excerpt 203 <519 bytes d5055e44da154807> -> "quote #tag label tags: Other a#b é ü ß plain words tag: x #Tag/Nested label é ü ß #code 日本語  one bold x> quote #tag item one #code Other é ü…"
+excerpt 204 <404 bytes 20a03dadc41bcf8c> -> "#---"
+excerpt 205 <398 bytes bfa7bdd585644240> -> "tag: x"
+excerpt 206 <408 bytes e784097198083ac8> -> "label é ü ß xplain words --- bold --- xé ü ß 日本語 ---"
+excerpt 207 <418 bytes 53309910b1aec7d8> -> "text [[ ... é ü ß #code #text #12  tags: [a, \"b c\"] two #code - two #12 #Tag/Nested "
+excerpt 208 <448 bytes 3daef0f9a8a4fd53> -> "... 日本語 plain words bold --- #tag    tag: x item quote - two x> quote "
+excerpt of file "n.md" -> "��\u{1c}\u{14}� � é��na #j��\r#�\r\t\t��"
+excerpt of file "m.md" -> "hello world"
+excerpt of file "missing.md" -> ""
+tags 0 <74 bytes 24a238db93f24778> -> ["a", "b", "c", "inline", "nested/tag"]
+tags 1 "---\ntags:\n  - one\n  - two\nother: x\n---\nbody #three" -> ["one", "two", "three"]
+tags 2 <69 bytes 27e6095bb6b0b5f0> -> ["Real"]
+tags 3 "---\ntags: x\n#t" -> ["t"]
+tags 4 "#A #a #b" -> ["A", "b"]
+tags 5 "" -> []
+tags 6 <30000 bytes f126fc2d2724c675> -> ["t"]
+tags 7 <2890 bytes 3c5697b0413f25a9> -> ["t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9", "t10", "t11", "t12", "t13", "t14", "t15"]
+tags 8 <10000 bytes c5ba9809330911f5> -> []
+tags 9 <4000 bytes 3caf738886b92725> -> []
+tags 10 <201 bytes f7a281628bf0c832> -> []
+tags 11 <197 bytes c824ffa3e4ebdb2a> -> ["f", "g"]
+tags 12 "\n" -> []
+tags 13 "](" -> []
+tags 14 "- item\n" -> []
+tags 15 "é ü ß " -> []
+tags 16 "* * *\n" -> []
+tags 17 "[text](https://x.org) " -> []
+tags 18 "```\n" -> []
+tags 19 "tags:\n" -> []
+tags 20 "...\n" -> []
+tags 21 "[text](https://x.org) " -> []
+tags 22 "\n" -> []
+tags 23 "\r\n" -> []
+tags 24 "~~~\n" -> []
+tags 25 "...\n" -> []
+tags 26 "\r\n" -> []
+tags 27 "](" -> []
+tags 28 "](" -> []
+tags 29 "tag: x\n" -> []
+tags 30 "#12 " -> []
+tags 31 "\r\n" -> []
+tags 32 "- item\n" -> []
+tags 33 "#Tag/Nested " -> ["Tag/Nested"]
+tags 34 "- item\n" -> []
+tags 35 "`#code` " -> []
+tags 36 "```\n" -> []
+tags 37 "#12 " -> []
+tags 38 "...\n" -> []
+tags 39 "#tag " -> ["tag"]
+tags 40 "## Sub\n" -> []
+tags 41 "  - one\n" -> []
+tags 42 "## Sub\n" -> []
+tags 43 "[[" -> []
+tags 44 "- two\n" -> []
+tags 45 "#" -> []
+tags 46 "| a | b |\n" -> []
+tags 47 "tags: [a, \"b c\"]\n" -> []
+tags 48 "](" -> []
+tags 49 "[[Link|label]] " -> []
+tags 50 "* * *\n" -> []
+tags 51 "#12 " -> []
+tags 52 "[[Link|label]] " -> []
+tags 53 "#12 " -> []
+tags 54 "  - one\n" -> []
+tags 55 "~~~\n" -> []
+tags 56 "\n" -> []
+tags 57 "](" -> []
+tags 58 "[text](https://x.org) " -> []
+tags 59 "#" -> []
+tags 60 "#" -> []
+tags 61 "a#b " -> []
+tags 62 "tag: x\n" -> []
+tags 63 "  - one\n" -> []
+tags 64 "...\n" -> []
+tags 65 "tag: x\n" -> []
+tags 66 "\r\n" -> []
+tags 67 "tags:\n" -> []
+tags 68 "| a | b |\n" -> []
+tags 69 "~~~\n" -> []
+tags 70 "[[" -> []
+tags 71 "[[Link|label]] " -> []
+tags 72 "日本語 > quote ##tag " -> []
+tags 73 "]([text](https://x.org) | a | b |\n\n" -> []
+tags 74 "## Sub\n[text](https://x.org) tags: [a, \"b c\"]\nx" -> []
+tags 75 "](é ü ß [text](https://x.org) é ü ß " -> []
+tags 76 "  - one\n~~~\ntags:\n## Sub\n" -> []
+tags 77 "  - one\n[text](https://x.org) [text](https://x.org) | a | b |\n" -> []
+tags 78 "日本語 ](\n\n" -> []
+tags 79 "tags:\n[text](https://x.org) ```\n...\n" -> []
+tags 80 "tags: [a, \"b c\"]\n[[](## Sub\n" -> []
+tags 81 "- item\n#tag ---\n[text](https://x.org) " -> ["tag"]
+tags 82 "\n日本語 [text](https://x.org) [[" -> []
+tags 83 "\n\ntags:\n# Heading\n" -> []
+tags 84 "日本語 #tag ](~~~\n" -> ["tag"]
+tags 85 "* * *\n[[[[Other#part]] ## Sub\n" -> []
+tags 86 "#Tag/Nested ...\n---\nplain words " -> ["Tag/Nested"]
+tags 87 "~~~\n```\n- two\nplain words " -> []
+tags 88 "plain words ](#tag tag: x\n" -> []
+tags 89 "tag: x\n> quote * * *\n`#code` " -> []
+tags 90 "**bold** é ü ß **bold** [[" -> []
+tags 91 "- item\n```\n\n- two\n" -> []
+tags 92 "> quote #[[日本語 " -> []
+tags 93 "**bold** tags:\nplain words `#code` " -> []
+tags 94 "---\nplain words [[Other#part]] ~~~\n" -> []
+tags 95 "tags:\n# Heading\n#12 # Heading\n" -> []
+tags 96 "[[Link|label]] - item\nx\n" -> []
+tags 97 "\n* * *\n[[Other#part]] é ü ß " -> []
+tags 98 "tags: [a, \"b c\"]\n## Sub\n\n> quote " -> []
+tags 99 "- item\n[[tags: [a, \"b c\"]\ntags: [a, \"b c\"]\n" -> []
+tags 100 "#tags: [a, \"b c\"]\n[[a#b " -> ["tags"]
+tags 101 "](\n[text](https://x.org) tags: [a, \"b c\"]\n" -> []
+tags 102 "- item\n...\n> quote [text](https://x.org) " -> []
+tags 103 "#tag plain words tags: [a, \"b c\"]\n...\n" -> ["tag"]
+tags 104 "~~~\nx- item\n[[Other#part]] " -> []
+tags 105 "](* * *\n**bold** [[" -> []
+tags 106 "日本語   - one\né ü ß   - one\n" -> []
+tags 107 "* * *\nplain words **bold** **bold** " -> []
+tags 108 "[[Other#part]] # Heading\na#b \n" -> []
+tags 109 "~~~\ntag: x\n**bold** ](" -> []
+tags 110 "é ü ß > quote \r\n> quote " -> []
+tags 111 "[[## Sub\n- item\n\n" -> []
+tags 112 "tags: [a, \"b c\"]\n](```\n[text](https://x.org) " -> []
+tags 113 "\n[[#plain words " -> []
+tags 114 "a#b \n```\n\n" -> []
+tags 115 "```\n[[Other#part]] a#b `#code` " -> []
+tags 116 "- two\n## Sub\n~~~\n> quote " -> []
+tags 117 "...\n\na#b `#code` " -> []
+tags 118 "x* * *\n# Heading\n## Sub\n" -> []
+tags 119 "#```\n---\n| a | b |\n" -> []
+tags 120 "é ü ß [[Link|label]] ...\n```\n" -> []
+tags 121 "  - one\nplain words \r\n#Tag/Nested " -> ["Tag/Nested"]
+tags 122 "](...\ntags:\n```\n" -> []
+tags 123 "---\n~~~\n| a | b |\n* * *\n" -> []
+tags 124 <68 bytes 676c9b5ebfbc5eb5> -> []
+tags 125 "é ü ß | a | b |\ntags:\n**bold** " -> []
+tags 126 "| a | b |\n[[Other#part]] [[Link|label]] ```\n" -> []
+tags 127 "- item\n- item\n\ntags: [a, \"b c\"]\n" -> []
+tags 128 "tag: x\nx# Heading\n- two\n" -> []
+tags 129 "  - one\n\n#Tag/Nested ## Sub\n" -> ["Tag/Nested"]
+tags 130 "**bold** | a | b |\n\r\n```\n" -> []
+tags 131 "#tag ](  - one\n#12 " -> ["tag"]
+tags 132 "\né ü ß \n- two\n#**bold** [[#tag [[Other#part]] [[#12 tags:\n" -> []
+tags 133 <135 bytes b77659595d011452> -> []
+tags 134 <119 bytes 2329e007d6f97389> -> []
+tags 135 <91 bytes 1a3cae4a9591c208> -> ["Tag/Nested", "tag"]
+tags 136 <80 bytes 52862acd51c7e023> -> []
+tags 137 "> quote # Heading\n#\r\n\r\n](a#b \ntag: x\n日本語 \r\n[[Link|label]] " -> []
+tags 138 <68 bytes 6c52b7e46c7af620> -> []
+tags 139 <72 bytes 844d0f1d5dbb1d54> -> []
+tags 140 <90 bytes c3b0025f81869316> -> []
+tags 141 <111 bytes 7166579d0c5426af> -> []
+tags 142 <80 bytes 71c75d753a15d829> -> []
+tags 143 <131 bytes 50e7bd9fa81b56d2> -> []
+tags 144 <103 bytes 9dea4686451f56e4> -> []
+tags 145 <79 bytes f5c8c9a33dc880c7> -> ["Tag/Nested", "a"]
+tags 146 <99 bytes 488d6019e0adca6d> -> ["Tag/Nested"]
+tags 147 <112 bytes d737b908039b003e> -> ["Tag/Nested"]
+tags 148 <83 bytes 0e3be259c284695b> -> ["tag"]
+tags 149 <76 bytes ed48d809e6b56ad9> -> ["tag"]
+tags 150 <68 bytes f9e4574b82fcb1ff> -> ["tag", "Tag/Nested"]
+tags 151 <70 bytes 6b5dc4ba886f1abf> -> []
+tags 152 <76 bytes ded8233db70fc6b2> -> ["Tag/Nested"]
+tags 153 <81 bytes d84a036f1f93286f> -> ["tag", "Tag/Nested"]
+tags 154 <98 bytes e37a5fd9a68ee3cb> -> ["tag", "Tag/Nested"]
+tags 155 <96 bytes 297d125490154e75> -> ["tag"]
+tags 156 "- two\n\n](\nplain words é ü ß #12 \n#Tag/Nested é ü ß \n- two\n" -> ["Tag/Nested"]
+tags 157 "a#b # Heading\n\n](* * *\n```\n\n#tag   - one\n  - one\né ü ß ---\n" -> []
+tags 158 <81 bytes 2ffd9f72b46853e4> -> []
+tags 159 <74 bytes e419394b10b4737d> -> []
+tags 160 <82 bytes bc31c1839eca34b8> -> []
+tags 161 <102 bytes 8cb1e1fc122bcf97> -> ["tag"]
+tags 162 <81 bytes 6f52d364acc7b750> -> ["Tag/Nested", "tag"]
+tags 163 <86 bytes 2fdfc30f26e5a908> -> []
+tags 164 <69 bytes 04ecd3bc7cfe5806> -> ["tag"]
+tags 165 <79 bytes 08f2c19bab13cb3f> -> []
+tags 166 <80 bytes 3890c22649254eac> -> ["Tag/Nested"]
+tags 167 "```\n\ntags:\n#```\nplain words a#b * * *\n](](\r\n- two\n" -> []
+tags 168 <92 bytes bb3168a10e13e3cd> -> ["Tag/Nested"]
+tags 169 <72 bytes f0ca07184be8087f> -> []
+tags 170 <87 bytes b04415a50b3351b9> -> []
+tags 171 <91 bytes a6d1a503b1b29def> -> ["Tag/Nested", "tag"]
+tags 172 <80 bytes 4980d6bd00a418e0> -> []
+tags 173 <96 bytes 4eaa17844275bd1d> -> ["Tag/Nested"]
+tags 174 <74 bytes 8839faeacf54f01c> -> []
+tags 175 <120 bytes 2dce3d6d595b9cfa> -> ["tag"]
+tags 176 <77 bytes b0fab0731a2bfd53> -> []
+tags 177 <88 bytes ce902a82a4225842> -> []
+tags 178 <85 bytes f581221c746b5d07> -> []
+tags 179 <92 bytes bd906f63eb069cb1> -> ["tags", "tag"]
+tags 180 <89 bytes 218b1dae519f8c48> -> []
+tags 181 <113 bytes 05409c586bd94742> -> ["Tag/Nested"]
+tags 182 <91 bytes 94cca84c1102ac63> -> []
+tags 183 <69 bytes 83a8d5c75f69550e> -> ["日本語", "tag"]
+tags 184 <71 bytes 2eb29f1ced3ba6b7> -> ["tag"]
+tags 185 <111 bytes b6128bb31c5eab4a> -> ["Tag/Nested"]
+tags 186 <80 bytes 1b2d21a74b2fe748> -> []
+tags 187 <97 bytes a7ef5a3fe5316913> -> []
+tags 188 <81 bytes 77dca98a58d15d6a> -> ["Tag/Nested"]
+tags 189 <103 bytes 9d1502dc0cb9462f> -> ["Tag/Nested"]
+tags 190 <67 bytes d84268920aa68e8b> -> []
+tags 191 <130 bytes c22b44d66e4768a1> -> ["Tag/Nested"]
+tags 192 <300 bytes 8607d6a073c7a19a> -> ["Tag/Nested", "tag"]
+tags 193 <300 bytes f6f26eafdb08c5b2> -> ["tag"]
+tags 194 <286 bytes 0f621ce64746d485> -> ["tag", "Tag/Nested"]
+tags 195 <340 bytes 4bdd473e4a24501d> -> ["Tag/Nested", "tag"]
+tags 196 <303 bytes c1d55e26e0379833> -> []
+tags 197 <277 bytes da76818a597b111f> -> []
+tags 198 <274 bytes 89cc0a6518e17d0e> -> ["Tag/Nested", "tag"]
+tags 199 <247 bytes ae8c0e9071531aed> -> []
+tags 200 <278 bytes 5ecf7b17a6610577> -> ["tag", "plain", "Tag/Nested"]
+tags 201 <262 bytes 40fe4b8db06dc04e> -> ["tag", "Tag/Nested"]
+tags 202 <307 bytes c0ce60166009edcd> -> ["Tag/Nested"]
+tags 203 <271 bytes 74a805d07df851d2> -> ["é"]
+tags 204 <280 bytes d2ce85551e2ad3c1> -> []
+tags 205 <301 bytes 73ab3adab247d662> -> ["tag"]
+tags 206 <270 bytes e1683ad25dd56ba8> -> ["tag"]
+tags 207 <317 bytes 6eb2a9550c2eb719> -> []
+tags 208 <271 bytes 3a3fc6ef5d3e916d> -> ["plain", "tag", "Tag/Nested"]
+tags 209 <302 bytes f69f45fc68a4a588> -> ["Tag/Nested", "x-", "tag"]
+tags 210 <333 bytes 9ce043fd09fe72c1> -> ["Tag/Nested"]
+tags 211 <267 bytes 86897ef86f1ec628> -> []
+tags 212 <314 bytes 965540ab7d5c9d42> -> []
+tags 213 <250 bytes 5d5c724376263c3a> -> ["tag", "Tag/Nested"]
+tags 214 <281 bytes 098a4f3689b70570> -> []
+tags 215 <319 bytes bd810cbbbae333ef> -> []
+tags 216 <372 bytes e8dc4f65faad2ba6> -> []
+tags 217 <314 bytes 5b21c60be7847e36> -> ["Tag/Nested"]
+tags 218 <311 bytes 94fdb86a5780fa5b> -> ["tag", "Tag/Nested"]
+tags 219 <295 bytes 25bdeb7bc0b69fed> -> []
+tags 220 <274 bytes c4e72a30abdc98c4> -> ["Tag/Nested"]
+tags 221 <290 bytes f0659e40875388b2> -> ["tag"]
+tags 222 <301 bytes 541325190e6d3b29> -> ["Tag/Nested"]
+tags 223 <313 bytes 44466147a23e2238> -> []
+tags 224 <252 bytes 3c3329b9110629a7> -> ["Tag/Nested"]
+tags 225 <320 bytes 78629c28e09b7937> -> ["Tag/Nested", "a", "tag"]
+tags 226 <261 bytes 0405bf75c2cd0471> -> ["tag"]
+tags 227 <287 bytes eb9db4952dba86a5> -> ["tag"]
+tags 228 <279 bytes 92ef6fbad1f10638> -> ["tag"]
+tags 229 <257 bytes 39b870efd4fead9c> -> ["tag"]
+tags 230 <334 bytes 1155e347fc84d137> -> ["Tag/Nested", "tag"]
+tags 231 <224 bytes cd1592aa28ef6cfc> -> ["tags"]
+tags 232 <286 bytes 6bdad0c6d0c5f853> -> ["tag", "Tag/Nested"]
+tags 233 <246 bytes 50d100d330dffe45> -> ["Tag/Nested", "tag", "x"]
+tags 234 <310 bytes 089554443f43a733> -> ["Tag/Nested"]
+tags 235 <276 bytes 8fbed74c73f0454c> -> ["a"]
+tags 236 <329 bytes 5ba86143f07a005f> -> ["Tag/Nested"]
+tags 237 <291 bytes 6c7199e5684eb11f> -> []
+tags 238 <295 bytes 971b15294631232a> -> ["Tag/Nested"]
+tags 239 <301 bytes f4d1a03e2ee555a6> -> ["tag"]
+tags 240 <253 bytes aaff579ba79b6b96> -> ["Tag/Nested"]
+tags 241 <278 bytes 488933e728a782ac> -> ["tag", "Tag/Nested"]
+tags 242 <335 bytes 61d93aa533c43156> -> ["tag"]
+tags 243 <321 bytes 9fbd274109e4866b> -> []
+tags 244 <289 bytes 1bf8f5baaededa1e> -> ["Tag/Nested", "tag"]
+tags 245 <291 bytes d0818b9ec5b34954> -> ["Tag/Nested"]
+tags 246 <323 bytes 07077c0262d430e3> -> ["Tag/Nested"]
+tags 247 <243 bytes e51bfa64d5941275> -> ["x", "tag"]
+tags 248 <301 bytes de8f3d1dbc65776f> -> ["Tag/Nested"]
+tags 249 <299 bytes 10d4211f664f2ff7> -> ["Tag/Nested", "tag"]
+tags 250 <302 bytes 4975af2c3e231082> -> ["Tag/Nested"]
+tags 251 <311 bytes a59c775cacbaf774> -> ["tag"]
+tags 252 <785 bytes ad8574bf0417a852> -> ["tag", "Tag/Nested", "a"]
+tags 253 <869 bytes ab99865195f2d2ed> -> ["Tag/Nested"]
+tags 254 <863 bytes 849ffaf045aa4657> -> ["tag", "Tag/Nested"]
+tags 255 <904 bytes 0ba277852081ba89> -> ["tag", "Tag/Nested"]
+tags 256 <927 bytes 0ee9ccb997d5a142> -> ["Tag/Nested", "tag"]
+tags 257 <812 bytes fb61b569da74aaf7> -> ["tag"]
+tags 258 <869 bytes 169c6dc179624e07> -> ["Tag/Nested", "tag"]
+tags 259 <847 bytes f56bca8bd2e86045> -> ["tag", "Tag/Nested"]
+tags 260 <827 bytes 866cb601399e8f90> -> ["Tag/Nested", "tag"]
+tags 261 <773 bytes 0038e3023c00740b> -> []
+tags 262 <896 bytes 9d831fe3309edb30> -> ["Tag/Nested", "tag"]
+tags 263 <867 bytes 96a74efefc0f993f> -> []
+tags 264 <744 bytes f669e514fdd5706c> -> ["Tag/Nested", "tag"]
+tags 265 <890 bytes 17101fa5903e0479> -> ["tag", "Tag/Nested", "plain"]
+tags 266 <994 bytes 1bdb4d616b81905a> -> ["tag", "Tag/Nested"]
+tags 267 <854 bytes c317a0024ee9105f> -> ["Tag/Nested", "tag"]
+tags 268 <841 bytes 2a7ec3d8bc1fa76e> -> ["tag"]
+tags 269 <875 bytes daaeb98632362596> -> ["Tag/Nested", "tags", "tag"]
+tags 270 <948 bytes 624c4f49990cdc58> -> ["tag", "Tag/Nested"]
+tags 271 <783 bytes 028112021713e752> -> ["tag"]
+tags 272 <929 bytes c91a0cf6a8e3f8f4> -> ["tag"]
+tags 273 <874 bytes b4796893f538bc96> -> []
+tags 274 <915 bytes 3e5567f50b9fa6e9> -> ["Tag/Nested", "tag"]
+tags 275 <878 bytes 31667a12fa5170ab> -> ["Tag/Nested", "tag"]
+tags 276 <887 bytes a353634e09f1a5a1> -> ["tag", "Tag/Nested"]
+tags 277 <774 bytes 5da3619776bad191> -> ["tag", "tags", "Tag/Nested"]
+tags 278 <827 bytes ebf0c396ddbf7548> -> ["tag", "Tag/Nested"]
+tags 279 <904 bytes bcdaa5652fbbe0db> -> ["Tag/Nested", "tag"]
+tags 280 <965 bytes 4d19549f9b3ed5f4> -> ["Tag/Nested", "tag", "tags", "é"]
+tags 281 <885 bytes a389538dba6e0136> -> ["Tag/Nested", "tag"]
+tags 282 <777 bytes 88b57f8c300cc1bd> -> ["Tag/Nested"]
+tags 283 <919 bytes 0f40935d32249d47> -> ["Tag/Nested", "tag"]
+tags 284 <787 bytes 7992634c88cc5c01> -> ["tag", "日本語"]
+tags 285 <891 bytes da32b9af28d1033f> -> ["tag", "a"]
+tags 286 <803 bytes 90c19105759b1d66> -> ["tag", "tags", "Tag/Nested"]
+tags 287 <772 bytes fd74588db5ed85dd> -> ["tag", "Tag/Nested"]
+tags 288 <833 bytes 5ea0a8f669cc9e2e> -> ["Tag/Nested", "tag"]
+tags 289 <838 bytes 880b6a52214debba> -> ["tag", "tags", "Tag/Nested"]
+tags 290 <827 bytes 59ad294d1df036bd> -> ["x", "a", "b", "c", "Tag/Nested"]
+tags 291 <901 bytes 76178c1348240d2c> -> []
+tags 292 <847 bytes 6a39b1ba5ec72325> -> ["tag", "Tag/Nested"]
+tags 293 <745 bytes e4caebea8459aecb> -> ["tag", "Tag/Nested"]
+tags 294 <846 bytes 0ae205a7d0e9b0a5> -> ["x", "a", "b", "c", "tags", "tag", "Tag/Nested"]
+tags 295 <814 bytes 9fab3cdf7c08b6b4> -> ["Tag/Nested", "tag"]
+tags 296 <812 bytes ef6a3c8aae074530> -> ["Tag/Nested", "é", "tag", "日本語"]
+tags 297 <908 bytes 52926c81964fc317> -> ["Tag/Nested", "tag"]
+tags 298 <963 bytes 33022458c5937660> -> ["tag", "Tag/Nested"]
+tags 299 <877 bytes 16b7314b5b5b7b73> -> ["tag", "Tag/Nested"]
+tags 300 <876 bytes 5c89521f502ba3c8> -> ["tag"]
+tags 301 <893 bytes 77ec20ff4f411873> -> ["tag", "Tag/Nested"]
+tags 302 <823 bytes 159fe1e19ada9127> -> ["Tag/Nested", "tag"]
+tags 303 <871 bytes e55176bf5b5e70c3> -> ["Tag/Nested", "tag", "a"]
+tags 304 <805 bytes 7edbfea3be7d622a> -> ["tag", "Tag/Nested"]
+tags 305 <898 bytes 14c4fe16f02c5195> -> ["tag", "Tag/Nested"]
+tags 306 <787 bytes 8c404f529a8a8b64> -> []
+tags 307 <931 bytes 518d0fc4900da632> -> ["Tag/Nested", "plain", "tag"]
+tags 308 <881 bytes 34e0c323bda315a3> -> ["Tag/Nested", "tag"]
+tags 309 <894 bytes bb488db2b376660c> -> ["tag", "Tag/Nested"]
+tags 310 <841 bytes 5738058dde855258> -> ["tag", "Tag/Nested"]
+tags 311 <831 bytes 8f65d7944503e575> -> ["tag", "Tag/Nested"]
+tags of file "a.md" -> ["x", "y"]
+tags of file "big.md" -> []
+tags of file "bad.md" -> ["ai", "aa", "a", "i", "H", "Z", "aaasܩ", "é", "ú", "/S", "aQ", "F", "k", "a5", "q", "S"]
+tags of file "none.md" -> []
+window size 0 recent false step 0 more false: 0 first None last None hash 09612b07b5ecb5a5
+window size 0 recent true step 0 more false: 0 first None last None hash 09612b07b5ecb5a5
+window size 1 recent false step 0 more false: 1 first Some(("Beta0", "v/0/Beta0", false, 21)) last Some(("Beta0", "v/0/Beta0", false, 21)) hash e72bb3ee1e364c10
+window size 1 recent true step 0 more false: 1 first Some(("Beta0", "v/0/Beta0", false, 21)) last Some(("Beta0", "v/0/Beta0", false, 21)) hash e72bb3ee1e364c10
+window size 7 recent false step 0 more false: 7 first Some(("Alpha1", "v/0/Alpha1", true, 8)) last Some(("ÉCLAIR0", "v/2/ÉCLAIR0", false, 33)) hash 36d19cae2ff2d2f9
+window size 7 recent true step 0 more false: 7 first Some(("Alpha1", "v/0/Alpha1", true, 8)) last Some(("Alpha0", "v/1/Alpha0", false, 14)) hash 13769a5dcc288589
+window size 99 recent false step 0 more false: 92 first Some(("Alpha15", "v/1/Alpha15", true, 26)) last Some(("ÉCLAIR5", "v/2/ÉCLAIR5", false, 21)) hash 30ed686586fd5fd7
+window size 99 recent true step 0 more false: 99 first Some(("zeta47", "v/0/zeta47", true, 48)) last Some(("ÉCLAIR23", "v/1/ÉCLAIR23", false, 1)) hash 782509c4c7784f60
+window size 100 recent false step 0 more false: 95 first Some(("Alpha19", "v/1/Alpha19", true, 25)) last Some(("ÉCLAIR7", "v/2/ÉCLAIR7", false, 4)) hash 680a9871b8bb31db
+window size 100 recent true step 0 more false: 99 first Some(("ÉCLAIR49", "v/2/ÉCLAIR49", true, 45)) last Some(("alpha46", "v/1/alpha46", false, 0)) hash bce710e9a1518d3b
+window size 101 recent false step 0 more false: 95 first Some(("alpha16", "v/1/alpha16", true, 44)) last Some(("ÉCLAIR9", "v/2/ÉCLAIR9", false, 2)) hash f77cce99ee7206ec
+window size 101 recent true step 0 more true: 100 first Some(("alpha16", "v/1/alpha16", true, 44)) last Some(("zeta47", "v/0/zeta47", false, 0)) hash 54f34540929f2c39
+window size 101 recent true step 1 more false: 1 first Some(("zeta8", "v/2/zeta8", false, 0)) last Some(("zeta8", "v/2/zeta8", false, 0)) hash 780ee5a425a331f5
+window size 250 recent false step 0 more true: 100 first Some(("alpha102", "v/1/alpha102", true, 17)) last Some(("alpha6", "v/1/alpha6", false, 15)) hash d863f0c774657857
+window size 250 recent false step 1 more true: 100 first Some(("Alpha62", "v/0/Alpha62", false, 16)) last Some(("zeta81", "v/0/zeta81", false, 19)) hash 967c09fb5f949fe0
+window size 250 recent false step 2 more false: 38 first Some(("zeta87", "v/2/zeta87", false, 37)) last Some(("ÉCLAIR92", "v/2/ÉCLAIR92", false, 14)) hash c1caa128d8dc0bcb
+window size 250 recent true step 0 more true: 100 first Some(("Alpha13", "v/2/Alpha13", true, 45)) last Some(("zeta87", "v/2/zeta87", false, 37)) hash 0881f230399ed55a
+window size 250 recent true step 1 more true: 100 first Some(("alpha16", "v/0/alpha16", false, 36)) last Some(("ÉCLAIR87", "v/1/ÉCLAIR87", false, 12)) hash fa94611a9ec26a45
+window size 250 recent true step 2 more false: 50 first Some(("Alpha12", "v/0/Alpha12", false, 11)) last Some(("ÉCLAIR57", "v/2/ÉCLAIR57", false, 0)) hash c6753658c807ff8b
+window size 340 recent false step 0 more true: 100 first Some(("Alpha102", "v/0/Alpha102", true, 40)) last Some(("Alpha37", "v/1/Alpha37", false, 41)) hash 7d4d5e7bd15f5939
+window size 340 recent false step 1 more true: 100 first Some(("alpha42", "v/1/alpha42", false, 29)) last Some(("Beta44", "v/2/Beta44", false, 23)) hash 1d0b6680a2e7f508
+window size 340 recent false step 2 more true: 100 first Some(("Beta45", "v/2/Beta45", false, 0)) last Some(("ÉCLAIR32", "v/0/ÉCLAIR32", false, 39)) hash 69c269f894855665
+window size 340 recent false step 3 more false: 24 first Some(("ÉCLAIR33", "v/0/ÉCLAIR33", false, 9)) last Some(("ÉCLAIR99", "v/1/ÉCLAIR99", false, 36)) hash 8170801447bf3bd0
+window size 340 recent true step 0 more true: 100 first Some(("Alpha141", "v/1/Alpha141", true, 49)) last Some(("Beta104", "v/1/Beta104", false, 39)) hash 50c3edc51ec937cd
+window size 340 recent true step 1 more true: 100 first Some(("zeta107", "v/1/zeta107", false, 39)) last Some(("alpha157", "v/1/alpha157", false, 22)) hash 1cf3ee74189fe238
+window size 340 recent true step 2 more true: 100 first Some(("Alpha42", "v/2/Alpha42", false, 22)) last Some(("ÉCLAIR31", "v/2/ÉCLAIR31", false, 7)) hash f5d85a2122b3679a
+window size 340 recent true step 3 more false: 40 first Some(("Alpha69", "v/1/Alpha69", false, 6)) last Some(("ÉCLAIR64", "v/1/ÉCLAIR64", false, 0)) hash 53906fdb40000334
+walk 0 notes: folder "v" notes 0 stamp 0 tagged false done 0
+walk 0: index Some(14695981039346656037) tags Some(14695981039346656037)
+walk 0: counts 0 left false hash 230da8e2740603e5; notes 0 hash 09612b07b5ecb5a5
+walk 0: list 0: 0 first None last None hash 09612b07b5ecb5a5
+walk 0: list 1: 0 first None last None hash 09612b07b5ecb5a5
+walk 0: list 2: 0 first None last None hash 09612b07b5ecb5a5
+walk 0: list 3: 0 first None last None hash 09612b07b5ecb5a5
+walk 0: list 4: 0 first None last None hash 09612b07b5ecb5a5
+walk 0: list 5: 0 first None last None hash 09612b07b5ecb5a5
+walk 1 notes: folder "v" notes 0 stamp 0 tagged false done 0
+walk 1: index Some(14695981039346656037) tags Some(14695981039346656037)
+walk 1: counts 0 left false hash 230da8e2740603e5; notes 0 hash 09612b07b5ecb5a5
+walk 1: list 0: 0 first None last None hash 09612b07b5ecb5a5
+walk 1: list 1: 0 first None last None hash 09612b07b5ecb5a5
+walk 1: list 2: 0 first None last None hash 09612b07b5ecb5a5
+walk 1: list 3: 0 first None last None hash 09612b07b5ecb5a5
+walk 1: list 4: 0 first None last None hash 09612b07b5ecb5a5
+walk 1: list 5: 0 first None last None hash 09612b07b5ecb5a5
+walk 9 notes: folder "v" notes 8 stamp 1281762124036111660 tagged false done 8
+walk 9: index Some(751483997516307359) tags Some(2271216689590031458)
+walk 9: counts 1 left false hash 258700996a3029e5; notes 8 hash 7cceaacd7e64e947
+walk 9: list 0: 4 first Some(("Note 2", "v/Note 2.markdown", false, 0)) last Some(("C d", "v/C d", true, 0)) hash 560a76c4ed43765d
+walk 9: list 1: 3 first Some(("Note 0", "v/A/Note 0.md", false, 0)) last Some(("B", "v/A/B", true, 0)) hash d6b277b209fe67e9
+walk 9: list 2: 8 first Some(("Note 2", "v/Note 2.markdown", false, 0)) last Some(("Note 8", "v/C d/Note 8.md", false, 0)) hash 064b1ea9712bfe6c
+walk 9: list 3: 0 first None last None hash 09612b07b5ecb5a5
+walk 9: list 4: 0 first None last None hash 09612b07b5ecb5a5
+walk 9: list 5: 0 first None last None hash 09612b07b5ecb5a5
+walk 70 notes: folder "v" notes 40 stamp 11146472480604691034 tagged false done 40
+walk 70: index Some(2136474428458572370) tags Some(18348213193557421397)
+walk 70: counts 2 left false hash f865e68b50cbc4fc; notes 40 hash aca0f01af7e43d76
+walk 70: list 0: 9 first Some(("Note 13", "v/Note 13.MD", false, 0)) last Some(("Z", "v/Z", true, 0)) hash 66b7ec1b60ccb873
+walk 70: list 1: 11 first Some(("Note 12", "v/A/Note 12.MD", false, 0)) last Some(("B", "v/A/B", true, 0)) hash 22b397758e68cb53
+walk 70: list 2: 40 first Some(("Note 13", "v/Note 13.MD", false, 0)) last Some(("Note 64", "v/Z/Note 64.MD", false, 0)) hash 098d380c411b337b
+walk 70: list 3: 4 first Some(("Note 12", "v/A/Note 12.MD", false, 0)) last Some(("Note 14", "v/A/B/C/D/Note 14.markdown", false, 0)) hash c8606c2584da6618
+walk 70: list 4: 6 first Some(("Note 12", "v/A/Note 12.MD", false, 0)) last Some(("Note 64", "v/Z/Note 64.MD", false, 0)) hash 152dbf8b85969a2c
+walk 70: list 5: 0 first None last None hash 09612b07b5ecb5a5
+walk 150 notes: folder "v" notes 101 stamp 14859799427377751708 tagged false done 101
+walk 150: index Some(14518681503241629849) tags Some(7941425392146048899)
+walk 150: counts 3 left false hash aa704d063b28e49d; notes 101 hash dc2bb7efadcfc601
+walk 150: list 0: 19 first Some(("Note 108", "v/Note 108.md", false, 0)) last Some(("Z", "v/Z", true, 0)) hash fb2c59f5ceae9037
+walk 150: list 1: 19 first Some(("Note 102", "v/A/Note 102.markdown", false, 0)) last Some(("B", "v/A/B", true, 0)) hash 0f04955d07bec0c3
+walk 150: list 2: 101 first Some(("Note 108", "v/Note 108.md", false, 0)) last Some(("Note 99", "v/Z/Note 99.markdown", false, 0)) hash d209dc6fb2faf925
+walk 150: list 3: 27 first Some(("Note 102", "v/A/Note 102.markdown", false, 0)) last Some(("Note 81", "v/A/B/C/D/Note 81.md", false, 0)) hash 4a1101a4d32a6bce
+walk 150: list 4: 12 first Some(("Note 135", "v/Note 135.md", false, 0)) last Some(("Note 58", "v/Z/Note 58.md", false, 0)) hash 0b2bc3f0f4e4266e
+walk 150: list 5: 0 first None last None hash 09612b07b5ecb5a5
+state file "notes-vault 1\nv w\n-5\n3\n18446744073709551615\n1\n"
+search "οδος" ["ΟΔΟΣ", "οδος"]
+search "ΟΔΟΣ" ["ΟΔΟΣ", "οδος"]
+search "ΟΔ" ["ΟΔΟΣ", "οδος"]
+search "οδ" ["ΟΔΟΣ", "οδος"]
+search "σο" ["ΣΟΦΟΣ", "σοφος"]
+search "ΣΟ" ["ΣΟΦΟΣ", "σοφος"]
+search "σοφος" ["ΣΟΦΟΣ", "σοφος"]
+search "ΣΟΦΟΣ" ["ΣΟΦΟΣ", "σοφος"]
+search "σι" []
+search "plain" ["Plain"]
+search "PLAIN" ["Plain"]
+search "" ["ΟΔΟΣ", "οδος", "ΣΟΦΟΣ", "σοφος", "Σίσυφος", "Plain"]

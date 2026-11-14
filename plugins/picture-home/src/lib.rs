@@ -66,9 +66,6 @@ pub static NATIVE_IDS: &[paperpaw_sdk::Id] = &native_settings::IDS;
 /// kept in the program like [`NATIVE_SETTINGS`].
 #[cfg(feature = "linked")]
 pub static NATIVE_TITLES: &[paperpaw_sdk::TitleEntry] = &native_settings::TITLES;
-mod add;
-mod bar;
-mod dashboard;
 pub mod native_add;
 pub mod native_add_screen;
 pub use paperpaw_ui_kit::dashboard::arrange as native_arrange;
@@ -88,99 +85,15 @@ pub mod native_plugin;
 pub mod native_shown;
 pub mod native_source;
 pub mod native_stage;
-mod orient;
-mod pages;
-mod pick;
-mod picture;
 mod settings;
 
-use alloc::borrow::Cow;
-use alloc::boxed::Box;
-use alloc::format;
-use alloc::string::String;
-
-use paperpaw_sdk::builtin::slots;
-use paperpaw_sdk::{
-    Env, FixedScreen, Id, Manifest, Plugin, Priority, RegisterError, Registrar, SettingGroupSpec,
-    widgets,
-};
+use paperpaw_sdk::Id;
 
 pub const PLUGIN: Id = Id::new_static("picture-home");
 /// The home screen.
 pub const SCREEN: Id = Id::new_static("picture-home.dashboard");
 /// Its settings' group (Settings, Customise, Picture home screen).
 pub const GROUP: Id = Id::new_static("picture-home.group");
-/// Adding a widget or tool to a page.
-pub(crate) const ADD_SCREEN: Id = Id::new_static("picture-home.add");
-/// Choosing the picture.
-pub(crate) const PICK_SCREEN: Id = Id::new_static("picture-home.pick");
-
-/// How it works, by language (see `Manifest::how`).
-static HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/en.txt")),
-    ("de", include_str!("../how/de.txt")),
-];
-
-static SCREENS: [FixedScreen; 3] = [
-    FixedScreen::new(SCREEN, "picture-home.title", |env, params| {
-        Box::new(dashboard::Dashboard::new(env, params))
-    }),
-    FixedScreen::new(ADD_SCREEN, "picture-home.add", |env, params| {
-        Box::new(add::AddScreen::new(env, params))
-    }),
-    FixedScreen::new(PICK_SCREEN, "picture-home.setting.picture", |env, _| {
-        Box::new(pick::Picker::new(env))
-    }),
-];
-
-/// The pages as a place of widgets in a grid.
-const PLACE: widgets::WidgetPlace = widgets::WidgetPlace::new(
-    Id::new_static("picture-home.pages"),
-    "picture-home.title",
-    settings::PAGE_SETTINGS,
-    widgets::PlaceKind::Grid,
-);
-
-/// The file a plugin keeps in its folder.
-pub(crate) fn data(name: &str) -> String {
-    format!("{}/{name}", Env::plugin_dir(PLUGIN.as_str()))
-}
-
-/// The picture home screen plugin.
-#[derive(Debug, Default)]
-pub struct PictureHome;
-
-impl Plugin for PictureHome {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(PLUGIN, "Picture home screen", paperpaw_sdk::package_version!())
-            .description(
-                "A home screen with your own picture behind the widgets, and a status bar you configure.",
-            )
-            .how(&HOW)
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // Its settings on a page of their own (Settings, Customise).
-        r.add_setting_group({
-            static SPEC: SettingGroupSpec =
-                SettingGroupSpec::new(GROUP, "picture-home.title").order(221);
-            &SPEC
-        })?;
-        r.add_icon(GROUP, Cow::Borrowed("layout-grid"))?;
-        r.add_settings(&settings::SETTINGS)?;
-        r.set_menu_need(settings::FOCUS_AT_ONCE, paperpaw_sdk::MenuNeed::NoTouch)?;
-        r.add_widget_place(PLACE)?;
-        r.add_status_place(bar::PLACE)?;
-        r.add_screens(&SCREENS)?;
-        // The built-in home screen's keys and its *Edit home screen* entry
-        // reach this one, which is bound to the same slot.
-        r.bind_slot(slots::HOME, SCREEN, Priority::PREFERRED)?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
-        Ok(())
-    }
-}
 
 #[cfg(test)]
 mod tests {

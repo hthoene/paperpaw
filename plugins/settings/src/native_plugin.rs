@@ -1001,9 +1001,10 @@ impl NativeSettings {
         Ok(())
     }
 
-    /// The buttons while a number is changed: left and right change it, confirm
-    /// keeps it, back goes back to the value before. The state changes only
-    /// once everything that can be refused went through.
+    /// The buttons while a number is changed: right and up raise it, left and
+    /// down lower it (as in Beta 3), confirm keeps it, back goes back to the
+    /// value before. The state changes only once everything that can be refused
+    /// went through.
     fn edit_input(
         host: &Host<'_>,
         v: &mut GroupView,
@@ -1013,8 +1014,8 @@ impl NativeSettings {
             return Ok(None);
         };
         let direction = match action {
-            "core.right" | "core.down" | "core.next" | "core.next-page" => 1,
-            "core.left" | "core.up" | "core.previous" | "core.prev-page" => -1,
+            "core.right" | "core.up" | "core.next" | "core.next-page" => 1,
+            "core.left" | "core.down" | "core.previous" | "core.prev-page" => -1,
             "core.confirm" | "core.back" => 0,
             _ => return Ok(None),
         };

@@ -793,8 +793,8 @@ fn format_xtc_is_the_same_asleep() {
 /// (#248: the open path asked before the screen was on top).
 #[test]
 #[cfg_attr(
-    not(feature = "native-linked-reading"),
-    ignore = "needs the linked formats (`native-linked-reading`) (the book's format is a native plugin with the flip, #243)"
+    not(all(feature = "native-linked-reading", feature = "native-linked-store")),
+    ignore = "needs the linked formats (`native-linked-reading`) and the widgets that keep the reading record (`native-linked-store`; Widgets is a native plugin only, #244)"
 )]
 fn a_book_ready_at_once_has_its_pages_counted() {
     let book = book_of("format-txt").expect("a txt book");

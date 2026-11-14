@@ -1,4 +1,6 @@
-//! The native declarations name what the interface-6 registration names:
+//! The native declarations are the pinned ones (`tests/pinned/*.txt`, written
+//! while the interface-6 registration was still compared with them, record by
+//! record). They name what the interface-6 registration named:
 //! the eight settings (kinds, defaults, bounds, titles, help, groups,
 //! units, steps), the six screens and the slots they fill, the 29 actions,
 //! the 34 menu entries, the 13 icons, the device needs, the key bindings
@@ -15,14 +17,22 @@ use paperpaw_core::native_host::{
     declarations::validate_batch,
     registrations::{Record, records_decode},
 };
-use paperpaw_plugin_reader::Reader;
 use paperpaw_sdk::native::declare::{Declarations, ScreenDecl};
-use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
 
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("reader"));
-    Reader.register(&mut r).unwrap();
-    r.into_contributions()
+/// `lines` against `tests/pinned/<name>.txt` (`PAPERPAW_BLESS=1` writes it).
+fn pinned_lines(name: &str, lines: &[String]) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/pinned")
+        .join(format!("{name}.txt"));
+    let now = lines.join("\n") + "\n";
+    if std::env::var_os("PAPERPAW_BLESS").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &now).unwrap();
+        return;
+    }
+    let pinned = std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| panic!("{} is missing: PAPERPAW_BLESS=1 makes it", path.display()));
+    assert_eq!(now, pinned, "{} differs", path.display());
 }
 
 fn batches(
@@ -52,45 +62,17 @@ fn all() -> Vec<Vec<u8>> {
 }
 
 /// Every field of every record, decoded and checked by the host's rules, is
-/// what the registration says.
+/// the pinned one (the status settings keep the lists' editors, the kernel's
+/// `core.status-lines` and `core.status-items`, out: `PORTING-7.md`, R2b-2).
 #[test]
-fn the_decoded_batches_say_what_the_registration_says() {
+fn the_decoded_batches_are_the_pinned_ones() {
     let native = declared::native("reader", &all());
-    let old = declared::legacy("reader", "", legacy());
-    // The status settings (`status.rs`): the same eleven, with the lists' editors
-    // left out (the kernel's `core.status-lines` and `core.status-items` screens
-    // are not slots of the native host: `PORTING-7.md`, R2b-2).
-    let status = |line: &&String| line.starts_with("status.");
-    assert_eq!(old.specs.iter().filter(status).count(), 11);
-    let unedited = |lines: &[String]| -> Vec<String> {
-        let mut out: Vec<String> = lines
-            .iter()
-            .map(|l| {
-                l.replace("|1:core.status-lines|", "|0:|")
-                    .replace("|1:core.status-items|", "|0:|")
-            })
-            .collect();
-        out.sort();
-        out
-    };
+    declared::assert_pinned("declarations", &native);
     assert_eq!(native.specs.len(), 19);
-    assert_eq!(unedited(&native.specs), unedited(&old.specs));
-    assert_eq!(unedited(&native.extras), unedited(&old.extras));
     assert_eq!(native.extras.len(), 2 + 10);
-    // The screens are fixed ones: the slot offers carry the same screens.
-    assert_eq!(native.screens, old.screens);
     assert_eq!(native.screens.len(), 6);
     // The instance policy, decoded: one for each set of parameters (flags 0),
-    // as every fixed screen of interface 6 is.
-    for contribution in legacy() {
-        if let Contribution::FixedScreens(list) = contribution {
-            assert_eq!(list.len(), 6);
-            assert!(
-                list.iter()
-                    .all(|s| s.how_many() == paperpaw_sdk::Instances::PER_PARAMS)
-            );
-        }
-    }
+    // the note and the skim bar overlays (bit 2): the page shows above them.
     let flags: Vec<u32> = batches(|d| declarations::screens(d).unwrap())
         .iter()
         .flat_map(|batch| {
@@ -104,50 +86,17 @@ fn the_decoded_batches_say_what_the_registration_says() {
                 .collect::<Vec<_>>()
         })
         .collect();
-    // The note and the skim bar are overlays (bit 2): the page shows above them.
     assert_eq!(flags, [0, 0, 0, 4, 4, 0]);
-    assert_eq!(native.slots, old.slots);
     assert_eq!(native.slots.len(), 6);
-    assert_eq!(native.actions, old.actions);
     assert_eq!(native.actions.len(), 29);
-    // All 34 entries, also those of the kernel's items (`declared` leaves
-    // out entries that name nothing of the plugin's own).
-    let mut entries: Vec<String> = legacy()
-        .into_iter()
-        .flat_map(|c| match c {
-            Contribution::FixedMenuEntries(list) => list
-                .iter()
-                .map(|e| format!("{}|{}|{}", e.menu, e.item, e.order))
-                .collect(),
-            _ => Vec::new(),
-        })
-        .collect();
-    entries.sort();
-    assert_eq!(native.menu_entries, entries);
     assert_eq!(native.menu_entries.len(), 34);
-    assert!(
-        old.menu_entries
-            .iter()
-            .all(|e| native.menu_entries.contains(e))
-    );
-    assert_eq!(native.icons, old.icons);
     assert_eq!(native.icons.len(), 13);
-    assert_eq!(native.needs, old.needs);
     assert_eq!(native.needs.len(), 10);
-    assert_eq!(native.keys, old.keys);
     assert_eq!(native.keys.len(), 6);
-    // Nothing else is declared in these batches, and the native side hears
-    // the start, a moved book, sleep, stop and the quiet time that save the
-    // place, a changed setting that lays the page out again and a changed screen
-    // stack that ends reading aloud, the host's answer to a spoken sentence, a
-    // document that moved in its preparation, a library whose annotations
-    // changed, and the store's answer for a pack of letters asked for (the
-    // last nine are new in interface 7).
     assert!(native.groups.is_empty() && native.widget_places.is_empty());
-    assert_eq!(native.status_places, old.status_places);
     assert_eq!(native.status_places.len(), 2);
-    // The reading app (`the_reading_app_is_the_one_of_interface_6`), and the four
-    // items and the two lines of the reader, declared for its lists.
+    // The reading app, and the four items and the two lines of the reader,
+    // declared for its lists.
     assert_eq!(
         native.others,
         [
@@ -163,34 +112,9 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.events.len(), 11);
 }
 
-/// The key bindings that hold while a switch is on: the registration's
-/// conditional key map, decoded.
+/// The key bindings that hold while a switch is on, decoded.
 #[test]
-fn the_keys_that_hold_while_a_switch_is_on_match() {
-    let mut old = Vec::new();
-    for contribution in legacy() {
-        if let Contribution::KeymapWhen {
-            setting, source, ..
-        } = contribution
-        {
-            let mut layer = String::new();
-            for line in source.lines().map(str::trim).filter(|l| !l.is_empty()) {
-                if let Some(name) = line
-                    .strip_prefix("[keymap.")
-                    .and_then(|l| l.strip_suffix(']'))
-                {
-                    layer = name.to_string();
-                } else if let Some((input, action)) = line.split_once('=') {
-                    old.push(format!(
-                        "{layer}|{}|{}|{}",
-                        input.trim(),
-                        action.trim(),
-                        setting.as_str()
-                    ));
-                }
-            }
-        }
-    }
+fn the_keys_that_hold_while_a_switch_is_on_are_the_pinned_ones() {
     let mut native = Vec::new();
     for batch in batches(|d| declarations::hold_keys(d).unwrap()) {
         let records = records_decode(&batch).unwrap();
@@ -206,7 +130,7 @@ fn the_keys_that_hold_while_a_switch_is_on_match() {
         }
     }
     assert_eq!(native.len(), 2);
-    assert_eq!(native, old);
+    pinned_lines("hold-keys", &native);
 }
 
 /// The timer's choices are the ones the interface-6 code reads minutes from.
@@ -313,8 +237,6 @@ fn the_reading_app_is_the_one_of_interface_6() {
         })
         .map(|(n, s, f, flags)| (n.to_string(), s.to_string(), f.to_string(), flags))
         .collect();
-    let old = paperpaw_plugin_reader::APP;
-    assert_eq!(old.as_str(), "reader.app");
     assert_eq!(
         specs,
         [(
@@ -335,50 +257,14 @@ fn first_run() -> Vec<Vec<u8>> {
     batches
 }
 
-/// The reading screen's help hints are interface 6's (`help::add`), in its
-/// order, with the same inputs and tap zones. Interface 6 also had them wait
+/// The reading screen's help hints are interface 6's (`help::add`, pinned), in
+/// its order, with the same inputs and tap zones. Interface 6 also had them wait
 /// for the book (`help::wait`); the native counterpart, the screen's
 /// `waits_ready` bit, is refused by the host yet, so the reader cannot declare
 /// it (it says the book shows already: `native_ready`). When the host admits
 /// the bit, this test fails: declare it then (`PORTING-7.md`).
 #[test]
-fn the_help_hints_are_the_ones_of_interface_6() {
-    use paperpaw_sdk::help::{HelpHint, Input, POINT};
-    let mut old = Vec::new();
-    let mut waits = false;
-    for contribution in legacy() {
-        if let Contribution::ToPoint { point, text, .. } = contribution
-            && point.as_str() == POINT
-        {
-            for line in text.lines() {
-                if line == "reader.screen wait" {
-                    waits = true;
-                } else if let Some((
-                    screen,
-                    HelpHint {
-                        text, input, zone, ..
-                    },
-                )) = HelpHint::parse(line)
-                {
-                    let input = match input {
-                        Input::Touch => 1,
-                        Input::Buttons => 2,
-                        _ => 0,
-                    };
-                    let zone = zone.map_or((0, 0, 0, 0), |z| {
-                        (
-                            u32::from(z.x),
-                            u32::from(z.y),
-                            u32::from(z.w),
-                            u32::from(z.h),
-                        )
-                    });
-                    old.push(format!("{screen}|{input}|{zone:?}|{text}"));
-                }
-            }
-        }
-    }
-    assert!(waits);
+fn the_help_hints_are_the_pinned_ones() {
     let waiting = batches(|d| {
         d.screen(ScreenDecl::new("screen", "reader.title", declarations::SCREEN).waits_ready())
             .unwrap();
@@ -396,7 +282,7 @@ fn the_help_hints_are_the_ones_of_interface_6() {
         }
     }
     assert_eq!(native.len(), 9);
-    assert_eq!(native, old);
+    pinned_lines("help-hints", &native);
     // Three zones side by side across the page, between the top and the bottom
     // bands (the quick panel's and the quick settings').
     assert_eq!(
@@ -424,103 +310,48 @@ fn the_help_hints_are_the_ones_of_interface_6() {
 /// (order 30), titled as that setting is (interface 6's empty title said so;
 /// a native step needs a title). It has no help and applies everywhere.
 #[test]
-fn the_setup_step_is_the_text_size_of_interface_6() {
-    let old: Vec<_> = legacy()
-        .into_iter()
-        .filter_map(|c| match c {
-            Contribution::SetupStep(step) => Some(step),
-            _ => None,
-        })
-        .collect();
-    let [old] = old.as_slice() else {
-        panic!("one step in interface 6");
-    };
-    assert_eq!(old.id.as_str(), "reader.setup.font-size");
-    assert_eq!((old.title.as_ref(), old.help.as_ref()), ("", ""));
-    let paperpaw_sdk::setup::SetupPage::Setting(setting) = &old.page else {
-        panic!("a setting's page");
-    };
+fn the_setup_step_is_the_pinned_text_size() {
     let mut steps = Vec::new();
     for batch in first_run() {
         for record in records_decode(&batch).unwrap().iter() {
             if let Record::SetupStep(step) = record {
-                steps.push((
-                    format!("reader.{}", step.name),
-                    step.title.to_string(),
-                    step.help.to_string(),
+                steps.push(format!(
+                    "reader.{}|{}|{}|{}|{}|{}|{}|{}",
+                    step.name,
+                    step.title,
+                    step.help,
                     step.order,
                     step.page_kind,
-                    step.page.to_string(),
+                    step.page,
                     step.applies_key.is_empty(),
-                    step.flags,
+                    step.flags
                 ));
             }
         }
     }
-    assert_eq!(
-        steps,
-        [(
-            old.id.to_string(),
-            "core.setting.font-size".to_string(),
-            String::new(),
-            old.order,
-            0,
-            setting.to_string(),
-            true,
-            1
-        )]
-    );
-    assert_eq!(setting.as_str(), "core.font-size");
+    assert_eq!(steps.len(), 1);
+    pinned_lines("setup-step", &steps);
 }
 
-/// The sample widget: interface 6's id, title and kind (the default, other),
-/// previewing the reading group, with the token its draws and stage calls come
+/// The sample widget: its id, title and kind (the default, other, pinned from
+/// interface 6), previewing the reading group, with the token its draws and stage calls come
 /// with; not live (only settings change it) and of no fixed size.
 #[test]
 fn the_sample_widget_previews_the_reading_settings() {
-    let old: Vec<_> = legacy()
-        .into_iter()
-        .filter_map(|c| match c {
-            Contribution::Widget(widget) => Some(widget),
-            _ => None,
-        })
-        .collect();
-    let [old] = old.as_slice() else {
-        panic!("one widget in interface 6");
-    };
     let mut widgets = Vec::new();
     for batch in first_run() {
         for record in records_decode(&batch).unwrap().iter() {
             if let Record::WidgetSpec(w) = record {
-                widgets.push((
-                    format!("reader.{}", w.name),
-                    w.title.to_string(),
-                    w.category.to_string(),
-                    w.previews.to_string(),
-                    w.cells,
-                    w.token,
-                    w.flags,
+                widgets.push(format!(
+                    "reader.{}|{}|{}|{}|{}|{}|{}",
+                    w.name, w.title, w.category, w.previews, w.cells, w.token, w.flags
                 ));
             }
         }
     }
-    assert_eq!(
-        widgets,
-        [(
-            old.id.to_string(),
-            old.title.to_string(),
-            old.category.to_string(),
-            old.previews.as_ref().unwrap().to_string(),
-            0,
-            declarations::SAMPLE,
-            0
-        )]
-    );
-    assert_eq!(
-        old.previews.as_ref().unwrap().as_str(),
-        "core.group.reading"
-    );
-    assert!(old.cells.is_none());
+    assert_eq!(widgets.len(), 1);
+    assert!(widgets[0].contains("|core.group.reading|0|"), "{widgets:?}");
+    pinned_lines("sample-widget", &widgets);
 }
 
 /// Interface 6 showed the row of button hints of the reading screen only on a
@@ -529,17 +360,6 @@ fn the_sample_widget_previews_the_reading_settings() {
 /// row shows as on any screen until the SDK has the flag (`PORTING-7.md`).
 #[test]
 fn the_screen_hints_on_press_are_not_declared_yet() {
-    let on_press = legacy().into_iter().any(|c| {
-        matches!(
-            c,
-            Contribution::ScreenHints {
-                ref screen,
-                hints: paperpaw_sdk::HintVisibility::OnPress,
-                ..
-            } if screen.as_str() == "reader.screen"
-        )
-    });
-    assert!(on_press);
     for batch in batches(|d| declarations::screens(d).unwrap()) {
         for record in records_decode(&batch).unwrap().iter() {
             if let Record::ScreenSpec(s) = record {

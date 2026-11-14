@@ -1,8 +1,15 @@
-# Mail on interface 7 (slices 1 to 5, partly ported)
+# Mail on interface 7 (slices 1 to 6, complete in code)
 
-Status: **not complete.** The interface-6 plugin (`plugin.rs`, the sessions, the screens, the
-store and the widgets) is still in place beside the native one. It is removed in the PR that
-finishes the port. Nothing of Mail runs on the native host yet except the declarations.
+Status: **complete in code, with one piece waiting for the host.** The plugin is native only: the
+interface-6 mail (`plugin.rs`, the sessions, the screens, the store, the widgets, the provider fill-in)
+is gone, and with it the app's built-in offer of it and its interface-6 plugin file. The native plugin
+declares its settings, screens, actions, widgets and sockets, and runs its sessions over `core.sockets`
+(TLS from the start and STARTTLS). What waits for the host is under "Not ported yet": the cases are
+ignored ones in `tests/acceptance_pending.rs`. No host with `core.ui`, storage and sockets runs a native
+plugin end to end yet (#944), so nothing of what the screens do with the host is run end to end. The
+interface-6 code that the native tests compared with is gone: the tests check the native code against the
+answers interface 6 (Beta 3) gave, kept in `testdata/pins/` (`tests/pin/mod.rs`); a change of an answer
+fails a test and is reviewed, `PAPERPAW_BLESS=1 cargo test -p paperpaw-plugin-mail` writes the files anew.
 
 ## Ported in slice 1
 
@@ -11,7 +18,7 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   `3`, the 13 settings of each account and the three for all (42), all with their en/de texts
   unchanged. The password of an account is declared as a **secret**. The settings, the groups,
   the actions *open* and *write*, the Tools entry (order 47), the icons and the four screens are
-  compared field by field with what the interface-6 plugin registers (`tests/parity.rs`); the
+  compared field by field with what the interface-6 plugin registers (`tests/parity.rs`, against the pinned interface-6 values); the
   settings are also a golden (`testdata/declarations.bin.v1`).
 - The actions, the entry, the icons and the screens are built by `declarations::ui` and
   `declarations::screens` and are **not in the image**: they would open nothing.
@@ -187,7 +194,7 @@ finishes the port. Nothing of Mail runs on the native host yet except the declar
   `Question::confirm` (Trust, Don't trust) and the key is kept as the account's pin setting (`set_setting`) when the reader
   trusts it; a provider's server or a changed key is only said, as in interface 6. The Tools entry opens *Mail*.
 - *Write a mail* opens the compose window of slice 9. **Mail stays out of `NATIVE_PLUGINS` and `complete.txt`** until the
-  provider fill-in, the widgets and the removal of interface 6 are done. No host with `core.ui`, storage and sockets runs
+  provider fill-in and the removal of interface 6 are done. No host with `core.ui`, storage and sockets runs
   a native plugin end to end yet (#944), so what the screens do with the host is an ignored case; the lines, the tasks,
   the words and the times are tested without one.
 - A reader or the compose window that meets an untrusted server says what `account::offer` allows, as Beta 3 did: *open the
@@ -247,18 +254,28 @@ cache is read or comes again from the server, and the plugin needs no `uses.stor
 the first native start would lose mail not yet sent. A test (`tests/native_render_store.rs`) holds the
 draft and outbox paths equal to interface 6's `store::draft_file` and `store::outbox_file` under that folder.
 
-## Still interface 6
+## Ported in slice 6: the home widgets (`src/native_widgets.rs`, `declarations::widgets`)
 
-- `driver.rs`, `job.rs`, `session.rs`, `account.rs` (the interface-6 ones stay until the screens that use them are replaced; the native ones are slices 4 to 6), `render.rs` and `store.rs` (likewise), then the screens. They are the next slices; the pieces above are what they will call.
+- *Unread mail*, *Latest mail*, *Starred mail*, *Mailbox* and *Write a mail* are declared with the shared look and their
+  own settings (account, folder, count, the parts caption, subject, time, newest, total), without `.previews` (#861). The
+  host makes an instance per placement (`event.widget_made`), asks its height through the `core.widget` stage and calls
+  the plugin to draw it (`DrawPurpose::Widget`). A tap (one target: the whole widget) opens the folder, the list of
+  folders, or a new mail.
+- They read what the card holds of the mail checked last (the index and the counts of the store), never the network. On
+  the tick the plugin compares a stamp of what the widget reads (the index's writes, the counts, the day) with the last
+  one and tells the host (`widget_changed`) when it changed; a setting change or a check's end tells every instance.
+- The frames are X4-safe: the rows are sorted with the SDK's `sort_by` (the std unstable sort took a 3,952 B frame on the
+  X4); the packed file `mail-1.0.4-x4.ppn` is 338,272 B and the packer accepts it (no frame over 2,048 B).
+- Not measured: the heap peak of a measure on the X4; no scripted-host test of the stage and the draw yet (the lines
+  the widgets read are the store's, tested in `native_render_store.rs`).
 
 ## Not ported yet (each is an ignored case in `tests/acceptance_pending.rs`)
 
 | Piece | Waits for |
 | --- | --- |
 | A connection started by a screen and ending with it (the list screens do it) | a scripted host with `core.ui`, sockets and storage (#944) |
-| Choosing a provider fills in the servers (`provider.rs`) | the settings write and the `SettingChanged` event on the native side |
+| Choosing a provider fills in the servers (`native_provider.rs` holds the table; interface 6's `provider.rs` is gone) | the host's `SettingChanged` event for plugins (#763); until then the servers are typed in |
+| TLS on the desktop shell (mail runs over `core.sockets` with TLS; the desktop shell has none yet) | the desktop TLS of Firmware's #990 (approved, not merged) |
 | The store of what was fetched is called by the sessions and the screens (done) | a scripted host (#944) |
-| The five home widgets and their settings | the widget host call (Core todo 76) |
 | The question *Trust this server?* (asked by the list screens) | a scripted host with `core.ui` (#944) |
 
-Every interface-6 module that is not listed above as made fallible stays as it is.

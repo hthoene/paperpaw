@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-dictionary"
 description = "PaperPaw dictionary: looks up words in StarDict dictionaries from the device's storage"
-version = "1.0.3"
+version = "1.0.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

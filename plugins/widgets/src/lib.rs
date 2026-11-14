@@ -1,10 +1,8 @@
-//! The widget pack: many more widgets for the home screen (and any screen
-//! that shows widgets), each with settings of its own and the shared look
-//! of `paperpaw_sdk::widgets` (its frame, size and alignment):
-//!
-//! - time: clocks of several kinds, a calendar, the year so far (`time`);
-//! - words and pictures: quotes, notes, to-dos, pictures (`words`);
-//! - books: covers, progress, what to read next, highlights (`books`).
+//! The widget pack on interface 7: many more widgets for the home screen (and
+//! any screen that shows widgets), each with settings of its own and the shared
+//! look of the SDK's widgets (its frame, size and alignment): clocks of several
+//! kinds, a calendar, the year so far, quotes, notes, to-dos, pictures, covers,
+//! progress, what to read next, highlights.
 //!
 //! The parts share one catalog a language (`i18n/<language>.ini`), as one
 //! namespace.
@@ -15,7 +13,6 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
-mod books;
 mod native_analogue;
 mod native_battery;
 mod native_battery_shapes;
@@ -56,20 +53,6 @@ mod native_todo_screen;
 mod native_word_clock;
 mod native_world;
 mod native_year;
-mod showings;
-mod time;
-mod words;
-
-#[cfg(test)]
-mod draw_tests;
-#[cfg(test)]
-mod harness;
-#[cfg(test)]
-mod refusals_tests;
-
-use alloc::borrow::Cow;
-
-use paperpaw_sdk::{Env, Id, Manifest, Plugin, RegisterError, Registrar};
 
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
@@ -113,46 +96,16 @@ pub static NATIVE_TITLES: &[paperpaw_sdk::TitleEntry] = &native_settings::TITLES
 )]
 mod declarations;
 
-pub const PLUGIN: Id = Id::new_static("widgets");
-
-/// The widget pack.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct Widgets;
-
-/// How it works, by language (see `Manifest::how`).
-static HOW: [(&str, &str); 2] = [
+/// Help text published by the host during atomic native admission.
+pub static HOW: [(&str, &str); 2] = [
     ("en", include_str!("../how/en.txt")),
     ("de", include_str!("../how/de.txt")),
 ];
-
-impl Plugin for Widgets {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(PLUGIN, "Widget pack", paperpaw_sdk::package_version!()).description(
-                "Many more widgets for the home screen: clocks, a calendar, quotes, books, notes and more.",
-            ).how(&HOW).uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
-        time::register(r)?;
-        words::register(r)?;
-        books::register(r)?;
-        Ok(())
-    }
-}
-
-/// The height `id`'s frame takes (the SDK's).
-pub(crate) fn frame_height(env: &Env<'_>, id: &str) -> u16 {
-    paperpaw_sdk::widgets::frame_height(env, id)
-}
-
-/// Today as days since 1970 in the local time zone; 0 where the device
-/// does not know the date.
-pub(crate) fn today(env: &Env<'_>) -> i64 {
-    use paperpaw_sdk::time::{local_seconds, unix_seconds};
-    unix_seconds(env).map_or(0, |unix| local_seconds(env, unix).div_euclid(86_400))
-}
+/// Catalog sources published before native callbacks.
+pub static CATALOGS: [(&str, &str); 2] = [
+    ("en", include_str!("../i18n/en.ini")),
+    ("de", include_str!("../i18n/de.ini")),
+];
 
 #[cfg(test)]
 mod tests {

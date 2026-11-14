@@ -4,26 +4,26 @@
 # out (crates/paperpaw-app, feature `store-plugins`). The two are no longer
 # kept in step, by design: a plugin that became a data plugin (data.toml)
 # leaves this list and stays in `store-plugins` until its code is removed.
-aids reading
+# aids reading  (no file until the store build moves to interface 7, #228)
 # battery system  (no file until the store build moves to interface 7, #228)
 # browser news  (no file until the store build moves to interface 7, #228)
 # calibre library  (no file until the store build moves to interface 7, #228)
 # diagnostics system  (no file until the store build moves to interface 7, #228)
 # end-of-book reading  (no file until the store build moves to interface 7, #228)
-fonts-browser look
-format-mobi reading
-format-docx reading
-format-images reading
+# fonts-browser look  (no file until the store build moves to interface 7, #228)
+# format-mobi reading  (no file until the store build moves to interface 7, #228)
+# format-docx reading  (no file until the store build moves to interface 7, #228)
+# format-images reading  (no file until the store build moves to interface 7, #228)
 # joplin notes  (no file until the store build moves to interface 7, #228)
 # keys system  (no file until the store build moves to interface 7, #228)
 # kosync sync  (no file until the store build moves to interface 7, #228)
 # koreader sync  (no file until the store build moves to interface 7, #228)
-mail news
+# mail news  (no file until the store build moves to interface 7, #228)
 # menu-editor look  (no file until the store build moves to interface 7, #228)
-news news
+# news news  (removed with interface 6; its store file comes with the interface-7 store build, #244)
 # notes-overview notes  (no file until the store build moves to interface 7, #228)
-notes-vault notes
-picture-home look
+# notes-vault notes  (no file until the store build moves to interface 7, #228)
+# picture-home look  (removed with interface 6; its store file comes with the interface-7 store build, #244)
 # profiles reading  (no file until the store build moves to interface 7, #228)
 # reading-goal reading  (no file until the store build moves to interface 7, #228)
 # readwise notes  (no file until the store build moves to interface 7, #228)
@@ -34,4 +34,4 @@ picture-home look
 vocabulary learning
 # wallabag news  (no file until the store build moves to interface 7, #228)
 # weather home  (no file until the store build moves to interface 7, #228)
-widgets home
+# widgets home  (no file until the store build moves to interface 7, #228)

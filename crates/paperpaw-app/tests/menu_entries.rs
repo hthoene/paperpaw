@@ -3,8 +3,10 @@
 //! entry before them), but not where it was redefined before that was
 //! kept; entries placed beside others or taken out by a plugin; and
 //! entries that show what they are now (a switch, faint, hidden) with a
-//! line under them, said only by the plugin they belong to.
+//! line under them, said only by the plugin they belong to. They run with the
+//! native menu (`native-linked`): the interface-6 menu is gone (#244).
 
+#![cfg(feature = "native-linked")]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -229,6 +231,17 @@ impl App {
         self.kernel.describe()
     }
 
+    /// The labels of the main menu (the menu button).
+    fn main_menu(&mut self) -> Vec<String> {
+        self.run(paperpaw_sdk::builtin::actions::MENU);
+        self.kernel.render(&mut |_, _| {});
+        self.kernel
+            .describe()
+            .into_iter()
+            .map(|p| p.label)
+            .collect()
+    }
+
     /// The labels of the tools' menu.
     fn tools(&mut self) -> Vec<String> {
         self.now += 100;
@@ -264,10 +277,6 @@ impl App {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
 fn a_redefined_menu_shows_the_entries_of_plugins_installed_since() {
     let mut app = App::new("", |b| b.plugin(Early));
     app.run(CUSTOMIZE);
@@ -285,10 +294,21 @@ fn a_redefined_menu_shows_the_entries_of_plugins_installed_since() {
     let kept = config.replace("[core]\nlanguage = en\n", "");
     let mut later = App::new(&kept, |b| b.plugin(Early).plugin(Late));
     let entries = later.entries();
-    // The user's B and A, C after A, the plugin's last ones last.
+    // The user's B and A, C after A, the plugin's last ones last. The entries
+    // installed since join the user's list (`Menus::ids`), and a row the user
+    // listed is never hidden by its state (`registry_service/menus.rs`, `row`),
+    // so the one that hides itself is listed here (it is not in a menu that was
+    // not redefined: `entries_show_what_they_are_now_with_a_line_under_them`).
     assert_eq!(
         entries,
-        ["Early B", "Early A", "Late C", "Late on", "Not now"]
+        [
+            "Early B",
+            "Early A",
+            "Late C",
+            "Late on",
+            "Not now",
+            "Late gone"
+        ]
     );
     // A list kept before entries were known stays as it is.
     let mut old = App::new("[menus]\nearly.menu = early.b, early.a\n", |b| {
@@ -298,10 +318,6 @@ fn a_redefined_menu_shows_the_entries_of_plugins_installed_since() {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
 fn entries_go_where_plugins_place_them_and_are_taken_out() {
     let mut app = App::new("", |b| b.plugin(Early).plugin(Late).plugin(Hider));
     let entries = app.entries();
@@ -314,10 +330,6 @@ fn entries_go_where_plugins_place_them_and_are_taken_out() {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
 fn entries_show_what_they_are_now_with_a_line_under_them() {
     let mut app = App::new("", |b| b.plugin(Early).plugin(Late));
     let parts = app.menu();
@@ -338,10 +350,6 @@ fn entries_show_what_they_are_now_with_a_line_under_them() {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
 fn what_there_is_to_open_is_a_submenu_of_the_tools_where_there_is_some() {
     let mut without = App::new("", |b| b.plugin(Early));
     assert!(!without.tools().iter().any(|l| l.starts_with("Apps")));
@@ -351,10 +359,6 @@ fn what_there_is_to_open_is_a_submenu_of_the_tools_where_there_is_some() {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
 fn entries_removed_or_renamed_since_a_menu_was_redefined_are_handled() {
     let mut app = App::new("", |b| b.plugin(Early).plugin(Late));
     app.run(CUSTOMIZE);
@@ -375,10 +379,6 @@ fn entries_removed_or_renamed_since_a_menu_was_redefined_are_handled() {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
 fn only_its_own_plugin_says_what_an_entry_shows() {
     let mut app = App::new("", |b| b.plugin(Early).plugin(Meddler));
     let parts = app.menu();
@@ -387,4 +387,28 @@ fn only_its_own_plugin_says_what_an_entry_shows() {
         .find(|p| p.label.starts_with("Early A"))
         .unwrap_or_else(|| panic!("{parts:?}"));
     assert_eq!(a.label, "Early A");
+}
+
+/// News has no interface-6 form any more (#244): where the store's plugins
+/// are linked with the reader's, it reaches the user through the native tools
+/// list (and the settings, where it is on by default).
+#[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
+#[test]
+fn the_native_tools_list_has_news() {
+    let mut app = App::new("", |b| b);
+    let tools = app.tools();
+    assert!(tools.iter().any(|l| l.starts_with("News")), "{tools:?}");
+}
+
+/// The home screen's own entry in the main menu (the interface-6 Home's test
+/// of it needed the interface-6 menu, which is gone, #244).
+#[cfg(feature = "native-linked-reading")]
+#[test]
+fn the_native_main_menu_offers_edit_home_screen() {
+    let mut app = App::new("", |b| b);
+    let labels = app.main_menu();
+    assert!(
+        labels.iter().any(|l| l.starts_with("Edit home screen")),
+        "{labels:?}"
+    );
 }

@@ -1,6 +1,6 @@
 //! The plugin is constructed in the real registered scope of the kernel's
-//! native host. `make` submits the format declaration, which the host checks
-//! and admits (the format broker admits formats).
+//! native host: `make` submits the format declaration, which the host checks
+//! and admits, and the teardown is clean.
 #![cfg(feature = "linked")]
 #![allow(
     clippy::unwrap_used,
@@ -10,15 +10,12 @@
 #[path = "../../test-support/hosted.rs"]
 mod hosted;
 
-fn construct() -> Result<(), String> {
+#[test]
+fn make_runs_in_a_real_registered_scope() {
     hosted::try_construct(
         paperpaw_plugin_format_mobi::NATIVE_ENTRY.entry(),
         "format-mobi",
         &[],
     )
-}
-
-#[test]
-fn make_runs_in_a_real_registered_scope() {
-    construct().expect("construction");
+    .expect("construction");
 }

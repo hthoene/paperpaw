@@ -377,16 +377,36 @@ pub fn main_groups(
     Ok(found)
 }
 
-/// The settings a reset of `group` (empty: all) puts back are chosen one at a
-/// time by [`reset_step`], in the order they are sent, and "only this book" is
-/// added last by [`reset_end`]: clearing it first would send the later resets
-/// to the global settings instead of the book's values.
+/// The settings a reset of `group` (empty: all) puts back, in the order they
+/// are sent, and "only this book" last: clearing it first would send the
+/// later resets to the global settings instead of the book's values.
 ///
 /// Left alone: what is kept on reset (accounts, folders), secrets, settings
 /// already at their default outside a book scope (nothing to reload), the
 /// language on a reset of all, and on a page what that page does not show.
 ///
-/// One setting of the reset plan: its key is added where the reset takes it.
+/// A reset of all sends one command per key in one callback, and the host
+/// caps the commands of a callback at 8 (open ruling #422): the caller must
+/// split the plan across callbacks before that cap is enforced.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the list cannot be built.
+pub fn reset_plan(
+    groups: &[Group],
+    cx: Context,
+    all: &[Setting],
+    group: &str,
+) -> Result<Vec<String>, Error> {
+    let mut keys: Vec<String> = Vec::new();
+    for setting in all {
+        reset_step(&mut keys, groups, cx, setting, group)?;
+    }
+    reset_end(&mut keys)?;
+    Ok(keys)
+}
+
+/// One setting of the reset plan: its key is added where the reset takes it
+/// (settings may be given one at a time, then [`reset_end`]).
 ///
 /// # Errors
 /// [`Error::NoMemory`] when the list cannot grow.

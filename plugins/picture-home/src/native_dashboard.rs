@@ -1375,13 +1375,13 @@ mod tests {
         };
         assert_eq!(plate_of(&src("")), Some(Color::WHITE));
         for (value, colour) in [
-            (crate::settings::PLATES[0], Some(Color::WHITE)),
-            (crate::settings::PLATES[2], None),
+            (paperpaw_sdk::widgets::PAPER_NORMAL, Some(Color::WHITE)),
+            (paperpaw_sdk::widgets::PAPER_NONE, None),
         ] {
             assert_eq!(plate_of(&src(value)), colour, "{value}");
         }
         // The gray the setting names is the one the SDK's grid paints.
-        let gray = plate_of(&src(crate::settings::PLATES[1]));
+        let gray = plate_of(&src(paperpaw_sdk::widgets::PAPER_LIGHT_GRAY));
         assert!(gray.is_some() && gray != Some(Color::WHITE));
         assert_eq!(
             plate_of(&src("#808080")),

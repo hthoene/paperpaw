@@ -108,6 +108,15 @@ impl Kernel {
         !self.battery_low() && self.shared.settings.read(&core_settings::AWAKE_HOLDS)
     }
 
+    /// What ends when the device goes to sleep: Bluetooth, a firmware
+    /// question, and the values shown while a setting is chosen
+    /// (`docs/abi/registry.md` 4.4; the kept ones show after the sleep).
+    pub(crate) fn end_at_suspend(&mut self) {
+        self.bluetooth_suspend();
+        self.firmware_suspend();
+        self.preview_settings(alloc::vec::Vec::new());
+    }
+
     /// The sleep is due at `now`: whether something puts it off (reading
     /// aloud, a download, a server, the library's walk). The caller sets
     /// the activity to `now` after, to look again one "Sleep after" later.

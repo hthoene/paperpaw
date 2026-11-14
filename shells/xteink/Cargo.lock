@@ -2465,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-dictionary"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-stardict",
@@ -2474,7 +2474,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-file-manager"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2559,7 +2559,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-txt"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2581,7 +2581,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2605,7 +2605,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-menu"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2652,7 +2652,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-settings"
-version = "1.0.7"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2668,7 +2668,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-sleep"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2701,7 +2701,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-vocabulary"
-version = "1.1.6"
+version = "1.1.7"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",

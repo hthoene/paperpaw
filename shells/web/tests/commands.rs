@@ -16,6 +16,7 @@ fn hex(text: &str) -> String {
 }
 
 #[test]
+#[ignore = "re-enable at native activation (#228, todo 380): the interface-6 Settings is removed (#1011) and the web emulator has no native one yet"]
 fn commands_open_screens_set_settings_and_say_what_is_shown() {
     let mut x4 = Emulator::new("xteink-x4", "en", false).unwrap();
     x4.start().unwrap();

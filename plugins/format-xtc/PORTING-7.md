@@ -1,6 +1,11 @@
 # Interface-7 port
 
-Version 1.0.2. Slice 2 of the format ports (#228, assignment #1344), with format-images.
+Version 1.0.2 (Beta 3: 1.0.1, so no further bump). Slice 2 of the format ports (#228, assignment #1344), with
+format-images.
+
+Status: **complete** (native only, #228, ticket 228): the interface-6 form is removed (see "Removal step", done).
+`NativeXtc` is in `paperpaw_app::NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt`. Until the shells activate
+native plugins, the interface-6 app opens no XTC or XTCH book (held until activation).
 
 ## Ported
 
@@ -12,7 +17,9 @@ Version 1.0.2. Slice 2 of the format ports (#228, assignment #1344), with format
 owns the cache stamp, so the interface-6 `source` stamp is not written (`XtcDocument::open_native`).
 Ops 11-13 and 15 answer `NotFound`, 14 and 16 an empty list, anything else (3 prepare, 19 progress)
 `Unsupported`. A refused allocation is `NoMemory` end to end and an open that hits it leaves no document.
-`tests/provider.rs` compares the pages' pixels, sizes, chapters and metadata with the interface-6 reader.
+`tests/provider.rs` compares the pages' pixels, sizes, chapters and metadata with the reader (`XtcDocument::open_native`
+on a cache of its own); `src/lib.rs` (unit tests) and `tests/hostile.rs` pin what a page, the metadata and the chapters
+are and that hostile and damaged books fail cleanly, on the provider's roots (book root 3, cache root 6).
 
 ## Native entry (slice 3)
 
@@ -36,16 +43,32 @@ that name). `tools/plugin-files7` builds it as a file.
 
 `tests/provider_allocation.rs` refuses every allocation of open, meta, sections, toc, block (decoding a page), cover and image in turn: each refusal is `NoMemory`, and the same provider reads on afterwards. A failure of memory or the card while a page is decoded is passed on by `block_at` and `cover` (not turned into a named page); only a damaged page is named. A chapter that cannot be read makes the toc call fail (an error, never a gap that would shift the list).
 
-## Removal step (one sweep, with the reader port and Core #944)
+## Removal step (done: native only)
 
-Status: **not complete** (the interface-6 form is still beside the native one; nothing registers both in a
-shipped build: `NativeXtc` is not in `paperpaw_app::NATIVE_PLUGINS` yet). Remove together:
-1. `XtcFormat` and its `Plugin` impl (`FORMAT`, `add_book_cache`, `add_format` with its `sniff`, the `HOW` table kept for the manifest);
-2. `XtcDocument::open` and the plugin-folder cache with the interface-6 `source` stamp (`XtcDocument::open_native` stays);
-3. the app's `install_with` line and the other plugins' tests that register `XtcFormat`;
-4. list `NativeXtc` in `NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt`.
+Removed with the interface-6 form:
+1. `XtcFormat` and its `Plugin` impl (`FORMAT`, `PLUGIN`, the manifest, `add_book_cache`, `add_format` with its
+   `sniff`). The `HOW` and `CATALOGS` statics are gone too: nothing in the native registry reads them (the texts in
+   `how/` and `i18n/` stay for the native how-to and the built catalogs);
+2. `XtcDocument::open` (and `open_in`, `fingerprint`) with the plugin-folder cache and the interface-6 `source` stamp
+   (`XtcDocument::open_native` is the one opener; the pages are `p<n>.gray` in the host's cache, root 6). The title
+   fallback to the file name went with it (see below);
+3. the app's `install_with` line; the dependency is optional and belongs to `native-linked` now (`dep:` and
+   `paperpaw-plugin-format-xtc/linked`). XTC was never offered in the store or as an interface-6 plugin file;
+4. `NativeXtc` is listed in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt`.
 
-## Left in place (intermediate)
+Tests: the unit tests of `src/lib.rs`, `tests/hostile.rs`, `tests/provider.rs` and the fuzz target (`fuzz/fuzz_targets/xtc.rs`)
+open through `open_native` on the provider's roots instead of `XtcDocument::open`. Two tests of the stamp (a changed book
+of the same size, or any change, is decoded anew) are dropped: the stamp is the host's. No test of the app or the shells
+opens an XTC book, so none is ignored.
 
-The interface-6 `XtcFormat` registration and `XtcDocument::open` stay until the host activates native plugins.
-X4 `.ppn` (`tools/plugin-files7/build.sh x4 --only format-xtc`, version 1.0.2): 49,408 bytes; the packer accepts every frame (below 2,048 B). The `linked` hosted tests pass (`cargo test --features linked`).
+## Still blocked on the host
+
+- **Activation:** the shells do not register native plugins yet; until then no XTC or XTCH book opens in the app.
+  `tests/hosted_construction.rs` and the two cases of `tests/provider_pending.rs` stay ignored (Core #944; Host #417).
+- **Title from the file name** belongs to the library (root 3 has no name): a book without a title in its metadata
+  has none here (interface 6 named it by its file).
+- X4: decoding a page writes up to a page's gray picture per `block` call; time and stack are not measured.
+
+- **Beta 3 caches stay on cards.** The interface-6 plugin-folder caches (`.paperpaw/plugins/format-xtc/<hash>/`) of
+  books opened with Beta 3 are no longer read or written after this removal; they stay on the card until a cleanup
+  (follow-up, not part of this PR: the host or the library removes them, or the owner deletes `.paperpaw/plugins`).

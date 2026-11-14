@@ -1,8 +1,11 @@
 # Interface-7 port (slice 1: declarations, last book, reading aloud rules)
 
-Version 1.0.10. Partial: what the reader declares and the host-free rules it has. No native screen
-and no `NATIVE_ENTRY` yet; the interface-6 `Reader` and everything of it stays until the host
-activates native plugins (then it goes together, no shim). Owner decision 131 stands: the user's
+Version 1.0.11. **The interface-6 `Reader` is removed (#244):** its screens, search, table of
+contents, selection, skim, status, aloud and footnote modules and its hosted suites (`reading`,
+`navigation`, `turning`, `text_look`, `hands_free`, `notes`, `selecting`, `resize`, `script_hint`,
+`status_refresh`, `status_taps`) are gone. The declarations are pinned in `tests/pinned/*.txt`
+(written while the registration was still compared with them). Text below that speaks of the
+interface-6 code describes how the native code was checked while it still existed. Owner decision 131 stands: the user's
 reading settings (font, size, spacing, margins, justification, hyphenation, publisher styles) are
 the kernel's settings (`core.*`); the reader declares none of them and adds no default over them.
 
