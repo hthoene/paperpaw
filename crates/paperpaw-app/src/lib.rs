@@ -641,6 +641,43 @@ pub static CATALOG_INDEXES: &[(u64, &[u16])] =
 pub static BUILT_CATALOGS: &[paperpaw_i18n::BuiltLanguage] =
     include!(concat!(env!("OUT_DIR"), "/built_catalogs.rs"));
 
+/// The interface-6 forms of plain text, the dictionary, the reader and home:
+/// each only where its native form is not linked (`native-linked-reading`).
+#[cfg_attr(
+    feature = "native-linked-reading",
+    allow(clippy::missing_const_for_fn, reason = "nothing is added there")
+)]
+fn interface6_reading(builder: KernelBuilder) -> KernelBuilder {
+    #[allow(
+        unused_mut,
+        reason = "nothing is added where the native forms are linked"
+    )]
+    let mut b = builder;
+    // The plugins that are native plugins, linked (`NATIVE_PLUGINS`), where the
+    // feature says, are not installed here: one plugin, one form.
+    #[cfg(not(feature = "native-linked-reading"))]
+    {
+        b = b.plugin(paperpaw_plugin_format_txt::TxtFormat);
+    }
+    // Dictionary is a native plugin, linked (`NATIVE_PLUGINS`), where the
+    // native reader asks it (`native-linked-reading`): the interface-6
+    // reader looks words up through the interface-6 form.
+    #[cfg(not(feature = "native-linked-reading"))]
+    {
+        b = b.plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
+    }
+    // Reader and Home keep their order; they are native plugins, linked
+    // (`NATIVE_PLUGINS`), where the feature says (`native-linked-reading`);
+    // Menu is a native plugin only.
+    #[cfg(not(feature = "native-linked-reading"))]
+    {
+        b = b
+            .plugin(paperpaw_plugin_reader::Reader)
+            .plugin(paperpaw_plugin_home::Home);
+    }
+    b
+}
+
 /// Adds the first-party plugins to `builder`, those the store offers as
 /// files too as `store` says.
 pub fn install_with(
@@ -665,31 +702,10 @@ pub fn install_with(
         not(all(feature = "native-linked-store", feature = "native-linked-reading"))
     )))]
     let _ = store;
-    let mut b = builder;
-    // The plugins that are native plugins, linked (`NATIVE_PLUGINS`), where the
-    // feature says, are not installed here: one plugin, one form.
-    #[cfg(not(feature = "native-linked-reading"))]
-    {
-        b = b.plugin(paperpaw_plugin_format_txt::TxtFormat);
-    }
-    // Dictionary is a native plugin, linked (`NATIVE_PLUGINS`), where the
-    // native reader asks it (`native-linked-reading`).
-    #[cfg(not(feature = "native-linked-reading"))]
-    {
-        b = b.plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
-    }
-    // Reader and Home keep their order; they are native plugins, linked
-    // (`NATIVE_PLUGINS`), where the feature says (`native-linked-reading`);
-    // Menu is a native plugin only.
-    #[cfg(not(feature = "native-linked-reading"))]
-    {
-        b = b
-            .plugin(paperpaw_plugin_reader::Reader)
-            .plugin(paperpaw_plugin_home::Home);
-    }
-    // Wi-Fi, Transfer, News and Picture home are native plugins only
-    // (`NATIVE_PLUGINS`, under `native-linked`): their interface-6 forms are
-    // gone (#244).
+    // Wi-Fi, Transfer, Menu, News, Picture home and the rest of the store's
+    // plugins are native plugins only (`NATIVE_PLUGINS`, under `native-linked`):
+    // their interface-6 forms are gone (#244).
+    let mut b = interface6_reading(builder);
     b = b.plugin(paperpaw_plugin_store::Store);
     #[cfg(all(
         feature = "store-plugins",

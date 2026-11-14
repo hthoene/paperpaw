@@ -24,6 +24,9 @@ pub struct Wired {
     pub card: bool,
     /// `core.secrets` (the device's, sealed with its key).
     pub secrets: bool,
+    /// `core.lookup` (the dictionaries' query service): offered to the plugins
+    /// linked into the firmware, never to a plugin file on the card.
+    pub lookup: bool,
     /// The radio's commands (`uses.wifi`): the kernel answers them from its
     /// Wi-Fi model, which a device with a radio has.
     pub wifi: bool,
@@ -35,6 +38,7 @@ impl Wired {
         work: true,
         card: true,
         secrets: true,
+        lookup: true,
         wifi: true,
     };
 }
@@ -54,10 +58,11 @@ const fn feature(key: &'static str) -> Feature<'static> {
 
 /// How many services a list holds: the data services, `core.device`, the
 /// kernel's own `core.ui` and `core.registry`, and the wired families.
-const fn services_len(secrets: bool, work: bool, card: bool) -> usize {
+const fn services_len(secrets: bool, work: bool, card: bool, lookup: bool) -> usize {
     DATA_SERVICES.len()
         + DEVICE_SERVICES.len()
         + 2
+        + lookup as usize
         + secrets as usize
         + 3 * work as usize
         + 3 * card as usize
@@ -68,6 +73,7 @@ const fn build_services<const N: usize>(
     secrets: bool,
     work: bool,
     card: bool,
+    lookup: bool,
 ) -> [Service<'static>; N] {
     let mut list = [service("core.ui"); N];
     let mut at = 0;
@@ -83,9 +89,10 @@ const fn build_services<const N: usize>(
         at += 1;
         i += 1;
     }
-    let keys: [(bool, &str); 9] = [
+    let keys: [(bool, &str); 10] = [
         (true, "core.ui"),
         (true, "core.registry"),
+        (lookup, "core.lookup"),
         (secrets, "core.secrets"),
         (work, "core.work"),
         (work, "core.net"),
@@ -146,21 +153,31 @@ const fn build_features<const N: usize>(
 
 /// One static list for each combination of the three service groups.
 macro_rules! service_lists {
-    ($(($name:ident, $secrets:expr, $work:expr, $card:expr)),* $(,)?) => {
-        $(static $name: [Service<'static>; services_len($secrets, $work, $card)] =
-            build_services::<{ services_len($secrets, $work, $card) }>($secrets, $work, $card);)*
+    ($(($name:ident, $secrets:expr, $work:expr, $card:expr, $lookup:expr)),* $(,)?) => {
+        $(static $name: [Service<'static>; services_len($secrets, $work, $card, $lookup)] =
+            build_services::<{ services_len($secrets, $work, $card, $lookup) }>(
+                $secrets, $work, $card, $lookup,
+            );)*
     };
 }
 
 service_lists!(
-    (S000, false, false, false),
-    (S001, false, false, true),
-    (S010, false, true, false),
-    (S011, false, true, true),
-    (S100, true, false, false),
-    (S101, true, false, true),
-    (S110, true, true, false),
-    (S111, true, true, true),
+    (S0000, false, false, false, false),
+    (S0010, false, false, true, false),
+    (S0100, false, true, false, false),
+    (S0110, false, true, true, false),
+    (S1000, true, false, false, false),
+    (S1010, true, false, true, false),
+    (S1100, true, true, false, false),
+    (S1110, true, true, true, false),
+    (S0001, false, false, false, true),
+    (S0011, false, false, true, true),
+    (S0101, false, true, false, true),
+    (S0111, false, true, true, true),
+    (S1001, true, false, false, true),
+    (S1011, true, false, true, true),
+    (S1101, true, true, false, true),
+    (S1111, true, true, true, true),
 );
 
 /// One static list for each combination of the four feature groups.
@@ -197,15 +214,41 @@ feature_lists!(
 /// A list in the program's read-only data (no heap).
 #[must_use]
 pub fn services(wired: Wired) -> &'static [Service<'static>] {
+    match (wired.secrets, wired.work, wired.card, wired.lookup) {
+        (false, false, false, false) => &S0000,
+        (false, false, true, false) => &S0010,
+        (false, true, false, false) => &S0100,
+        (false, true, true, false) => &S0110,
+        (true, false, false, false) => &S1000,
+        (true, false, true, false) => &S1010,
+        (true, true, false, false) => &S1100,
+        (true, true, true, false) => &S1110,
+        (false, false, false, true) => &S0001,
+        (false, false, true, true) => &S0011,
+        (false, true, false, true) => &S0101,
+        (false, true, true, true) => &S0111,
+        (true, false, false, true) => &S1001,
+        (true, false, true, true) => &S1011,
+        (true, true, false, true) => &S1101,
+        (true, true, true, true) => &S1111,
+    }
+}
+
+/// The services a plugin file on the card is offered: those of `services`
+/// without `core.lookup` (a card plugin does not query the dictionaries). Its
+/// own match, so that a firmware that links no plugin (the S3 devices) keeps
+/// only these lists.
+#[must_use]
+pub fn card_services(wired: Wired) -> &'static [Service<'static>] {
     match (wired.secrets, wired.work, wired.card) {
-        (false, false, false) => &S000,
-        (false, false, true) => &S001,
-        (false, true, false) => &S010,
-        (false, true, true) => &S011,
-        (true, false, false) => &S100,
-        (true, false, true) => &S101,
-        (true, true, false) => &S110,
-        (true, true, true) => &S111,
+        (false, false, false) => &S0000,
+        (false, false, true) => &S0010,
+        (false, true, false) => &S0100,
+        (false, true, true) => &S0110,
+        (true, false, false) => &S1000,
+        (true, false, true) => &S1010,
+        (true, true, false) => &S1100,
+        (true, true, true) => &S1110,
     }
 }
 
@@ -252,7 +295,7 @@ pub fn card_host(
         abi_major,
         minor,
         profile,
-        services: services(wired),
+        services: card_services(wired),
         features: card_features(wired),
     }
 }
@@ -291,11 +334,12 @@ mod tests {
 
     /// Every combination of what a start wires, as the four groups.
     fn every_combination() -> impl Iterator<Item = Wired> {
-        (0..16).map(|bits: u8| Wired {
+        (0..32).map(|bits: u8| Wired {
             work: bits & 1 != 0,
             card: bits & 2 != 0,
             secrets: bits & 4 != 0,
             wifi: bits & 8 != 0,
+            lookup: bits & 16 != 0,
         })
     }
 
@@ -310,6 +354,9 @@ mod tests {
         services.extend(DEVICE_SERVICES.iter().map(|s| (s.key, s.major)));
         services.push(("core.ui", 1));
         services.push(("core.registry", 1));
+        if wired.lookup {
+            services.push(("core.lookup", 1));
+        }
         for (on, keys) in [
             (wired.secrets, &["core.secrets"][..]),
             (wired.work, &["core.work", "core.net", "core.sockets"][..]),
@@ -354,7 +401,7 @@ mod tests {
     fn nothing_wired_offers_no_family_and_every_one_wired_offers_all() {
         let bare = services(Wired::default());
         let all = services(Wired::ALL);
-        assert_eq!(all.len(), bare.len() + 7);
+        assert_eq!(all.len(), bare.len() + 8);
         assert!(bare.iter().any(|s| s.key == "core.ui"));
         assert!(!bare.iter().any(|s| s.key == "core.secrets"));
         assert!(all.iter().any(|s| s.key == "core.library"));
@@ -364,6 +411,23 @@ mod tests {
                 .iter()
                 .any(|f| f.key == "uses.secrets")
         );
+    }
+
+    #[test]
+    fn a_card_plugin_is_never_offered_the_lookup() {
+        for wired in every_combination() {
+            let card = card_services(wired);
+            assert!(!card.iter().any(|s| s.key == "core.lookup"), "{wired:?}");
+            let without = Wired {
+                lookup: false,
+                ..wired
+            };
+            let (listed, by_hand): (Vec<_>, Vec<_>) = (
+                card.iter().map(|s| s.key).collect(),
+                services(without).iter().map(|s| s.key).collect(),
+            );
+            assert_eq!(listed, by_hand, "{wired:?}");
+        }
     }
 
     #[test]

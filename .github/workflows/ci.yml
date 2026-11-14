@@ -39,10 +39,6 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
-  # The dev and test profiles keep only the line tables (function names, files
-  # and lines for backtraces and the heap report, as `profile.dev` says):
-  # less to compile and link, and smaller caches. Release builds are not touched.
-  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   # "Format, lint, test" is the required check and is the job `check` at the

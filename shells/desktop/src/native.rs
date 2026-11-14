@@ -395,6 +395,10 @@ impl HostLoader {
 /// A card plugin never takes the id of a linked plugin: the id keys secrets
 /// and files, a card folder is named by whoever made it, and card plugins are
 /// admitted before the linked ones register.
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    allow(dead_code, reason = "called from the Linux x86-64 loader only")
+)]
 fn refuse_linked_id(id: &str) -> Result<(), PluginProblem> {
     if paperpaw_app::is_linked_id(id) {
         eprintln!("code plugin {id}: a plugin built in has this id; not loaded");

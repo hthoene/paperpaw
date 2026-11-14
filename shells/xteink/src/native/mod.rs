@@ -605,6 +605,27 @@ impl Loader {
         }
     }
 
+    /// Wires `core.lookup`: the dictionaries' query service. It reads what the
+    /// plugins declared and keeps nothing of its own; offered to the linked
+    /// plugins only where it succeeded (`device_host::wired_lookup`), and
+    /// never to a card plugin (`native_offer::card_services`).
+    #[cfg(feature = "native-on")]
+    fn wire_lookup(&self) {
+        use paperpaw_core::native_host::HostWiring;
+        let Ok(table) = self.resources.0.try_borrow() else {
+            warn!("native: core.lookup not wired (table busy)");
+            return;
+        };
+        let Some(resources) = table.as_ref() else {
+            warn!("native: core.lookup not wired (no table)");
+            return;
+        };
+        match resources.wire(HostWiring::new().lookup()) {
+            Ok(_) => crate::device_host::wired_lookup(),
+            Err(status) => warn!("native: core.lookup not wired ({status})"),
+        }
+    }
+
     /// Wires `core.secrets`: the card's file, sealed with the device key.
     /// Before the first plugin is admitted, as the families above, so a card
     /// plugin that declares it is admitted at this start; offered to plugins
@@ -657,6 +678,8 @@ impl CodeLoader for Loader {
         }
         self.wire_network(storage);
         self.wire_card(storage);
+        #[cfg(feature = "native-on")]
+        self.wire_lookup();
         self.wire_secrets(storage);
     }
 

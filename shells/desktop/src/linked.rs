@@ -733,14 +733,6 @@ pub fn register(
     Ok(registered)
 }
 
-/// Where `core.net` and `core.sockets` save and send files: the card, which
-/// the plugins read their data folders from. Not `storage`: on simulated time
-/// that one is the secrets' store in memory, where a saved answer would be
-/// out of the plugin's reach.
-fn net_storage(inputs: &Inputs) -> Option<Rc<dyn Storage>> {
-    inputs.card.clone()
-}
-
 /// Registers the app's linked plugins: the ones `paperpaw_app::sleeps` names
 /// parked, every other one awake (#248, D1).
 fn register_linked(
@@ -769,6 +761,14 @@ fn register_linked(
             paperpaw_app::sleeps,
         )
     }
+}
+
+/// Where `core.net` and `core.sockets` save and send files: the card, which
+/// the plugins read their data folders from. Not `storage`: on simulated time
+/// that one is the secrets' store in memory, where a saved answer would be
+/// out of the plugin's reach.
+fn net_storage(inputs: &Inputs) -> Option<Rc<dyn Storage>> {
+    inputs.card.clone()
 }
 
 #[cfg(test)]
@@ -1043,6 +1043,7 @@ mod tests {
             work: prepared.on.work,
             card: prepared.on.files && prepared.on.library && prepared.on.documents,
             secrets: prepared.on.secrets,
+            lookup: false,
             wifi: prepared.on.wifi,
         };
         let theirs = paperpaw_x4::native_offer::card_host(
@@ -1085,6 +1086,7 @@ mod tests {
                 work: wired.net || wired.sockets,
                 card: wired.files && wired.library,
                 secrets: wired.secrets,
+                lookup: false,
                 wifi: wired.wifi,
             };
             let keys = |list: &[Feature<'_>]| {
