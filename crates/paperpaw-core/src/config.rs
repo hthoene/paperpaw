@@ -552,10 +552,6 @@ impl Kernel {
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than the limit from before it was set; split it when it is next changed"
-    )]
     pub(crate) fn apply_user_config(&mut self, source: &str) {
         let ids = entries(source);
         // Secret settings kept in the file before: moved to the secrets.
@@ -627,39 +623,13 @@ impl Kernel {
                     line,
                     "settings belong in a [<plugin-id>] section".into(),
                 ),
-                section => {
-                    let id = format!("{section}.{}", entry.key);
-                    let (id, value) = match moved(&id, &value, &ids) {
-                        Some((now, value)) => (now.to_string(), Cow::Owned(value)),
-                        // Moved, and set under its new id as well.
-                        None if MOVED.iter().any(|(old, _)| *old == id) => continue,
-                        None => (id, value),
-                    };
-                    let value =
-                        Cow::<str>::Owned(renamed(&self.shared.settings, &id, value.into_owned()));
-                    if self.shared.settings.defines_secret(&id) {
-                        secrets_moved.push((id, value.to_string()));
-                        continue;
-                    }
-                    match self.shared.settings.set_from_text(&id, &value) {
-                        // The reading app of a format with one reader now
-                        // (another was removed): nothing to choose, nothing
-                        // to tell.
-                        Err(paperpaw_sdk::SettingError::Unknown)
-                            if id.starts_with(&format!(
-                                "{}.",
-                                paperpaw_sdk::builtin::settings::READING_APP.as_str()
-                            )) => {}
-                        Err(error) => {
-                            if matches!(error, paperpaw_sdk::SettingError::Unknown) {
-                                // A native plugin may declare it later.
-                                self.keep_config_value(&id, &value, line);
-                            }
-                            self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
-                        }
-                        Ok(()) => {}
-                    }
-                }
+                section => self.apply_config_setting(
+                    (section, entry.key),
+                    value,
+                    line,
+                    &ids,
+                    &mut secrets_moved,
+                ),
             }
         }
         self.move_secrets(secrets_moved);
@@ -671,6 +641,62 @@ impl Kernel {
                 problem.message.into_owned(),
             );
         }
+    }
+
+    /// A setting of the configuration file, `key` of `[section]`: set under
+    /// the id it has now (where it moved) and with the value's name of now.
+    /// A secret goes on `secrets`, to be moved; what is refused is said.
+    fn apply_config_setting(
+        &mut self,
+        (section, key): (&str, &str),
+        value: Cow<'_, str>,
+        line: Option<u32>,
+        ids: &[String],
+        secrets: &mut Vec<(String, String)>,
+    ) {
+        use paperpaw_sdk::SettingError;
+        let id = format!("{section}.{key}");
+        let (id, value) = match moved(&id, &value, ids) {
+            Some((now, value)) => (now.to_string(), value),
+            // Moved, and set under its new id as well.
+            None if MOVED.iter().any(|(old, _)| *old == id) => return,
+            None => (id, value.into_owned()),
+        };
+        let value = renamed(&self.shared.settings, &id, value);
+        if self.shared.settings.defines_secret(&id) {
+            secrets.push((id, value));
+            return;
+        }
+        let Err(error) = self.shared.settings.set_from_text(&id, &value) else {
+            return;
+        };
+        // The reading app of a format with one reader now (another was
+        // removed): nothing to choose, nothing to tell.
+        let reading_app = paperpaw_sdk::builtin::settings::READING_APP;
+        let app = id.strip_prefix(reading_app.as_str());
+        if matches!(error, SettingError::Unknown) && app.is_some_and(|key| key.starts_with('.')) {
+            return;
+        }
+        if matches!(error, SettingError::Unknown) {
+            // A native plugin may declare it later.
+            self.keep_config_value(&id, &value, line);
+        }
+        // A font chosen that a plugin of the card brings (Literata, where
+        // the firmware has no room for it) and the card lacks: the file
+        // keeps the choice for the start that finds it.
+        let fonts = [core_settings::READING_FONT, core_settings::STATUS_FONT];
+        let missing = matches!(error, SettingError::InvalidValue)
+            && fonts.iter().any(|font| font.as_str() == id)
+            && self.shared.fonts.has_family(&value);
+        let message = if missing {
+            format!(
+                "`{id}`: the font {value} is not on the card (install the plugin that brings \
+                 it); the default is used until then"
+            )
+        } else {
+            format!("`{id}`: {error}")
+        };
+        self.warn(WarningSource::UserConfig, line, message);
     }
 
     /// Secret settings the configuration file kept: moved to the secrets and

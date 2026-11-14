@@ -55,22 +55,14 @@ fn a_plugin_wrong_everywhere_is_caught() {
     let text = report.text(Level::Info);
     // As files: a font pack in fonts/ is taken, but this one does not
     // load on the device.
+    for pack in ["fonts/cyrillic.ppfp", "fonts/greek.ppfp"] {
+        assert!(
+            !has(&report, "package.website", pack, Level::Error),
+            "{text}"
+        );
+    }
     assert!(
-        !has(
-            &report,
-            "package.website",
-            "fonts/cyrillic.ppfp",
-            Level::Error
-        ),
-        "{text}"
-    );
-    assert!(
-        has(
-            &report,
-            "package.device",
-            "fonts/cyrillic.ppfp",
-            Level::Error
-        ),
+        has(&report, "package.device", "fonts/greek.ppfp", Level::Error),
         "{text}"
     );
     assert!(
@@ -113,8 +105,11 @@ fn a_plugin_wrong_everywhere_is_caught() {
         has(&report, "package.fonts", "plugin.ini:9", Level::Error),
         "{text}"
     );
+    // The pack of a font that is not there extends nothing (the error
+    // above): the device opens a pack only for a font it has or wants, so
+    // it says nothing of this one.
     assert!(
-        has(
+        !has(
             &report,
             "package.device",
             "fonts/cyrillic.ppfp",

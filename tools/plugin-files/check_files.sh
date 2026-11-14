@@ -7,7 +7,9 @@
 #
 # <dir> holds <file-name> (<id>-<version>-<device>.ppn) alone, for the chip
 # <chip-id> (5: the X4's, 9: the X4 Pro's and the X4 Classic's), with the
-# firmware's <fingerprint> (the base release's): anything else fails.
+# firmware's <fingerprint> (the base release's): anything else fails. A file of
+# interface 7 (format 5, abi/ppn5.md) has no fingerprint: with `none` it must say
+# "format: 5" and the chip.
 set -euo pipefail
 
 [[ $# -eq 5 ]] || { echo "usage: $0 <dir> <paperpaw-sign> <chip-id> <fingerprint> <file-name>" >&2; exit 2; }
@@ -30,6 +32,15 @@ if ! grep -Eq "^chip: .*\($chip\)\$" <<< "$shown"; then
     echo "$name: not for chip $chip" >&2
     echo "$shown" >&2
     exit 1
+fi
+if [[ "$fingerprint" == none ]]; then
+    if ! grep -Eq '^format: +5 ' <<< "$shown"; then
+        echo "$name: not a file of interface 7 (format 5)" >&2
+        echo "$shown" >&2
+        exit 1
+    fi
+    echo "$name: chip $chip, format 5"
+    exit 0
 fi
 if ! grep -Eq "^fingerprint: +$fingerprint\$" <<< "$shown"; then
     echo "$name does not fit the firmware (fingerprint $fingerprint)" >&2

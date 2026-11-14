@@ -141,6 +141,7 @@
   ],
   "services": [
     "core.device",
+    "core.files",
     "core.net",
     "core.registry",
     "core.ui"
@@ -152,6 +153,10 @@
     },
     {
       "key": "uses.network",
+      "required": false
+    },
+    {
+      "key": "uses.power",
       "required": false
     }
   ]

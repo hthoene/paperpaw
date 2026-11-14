@@ -68,6 +68,12 @@
 //! allow indirect <caller> <count> <why>
 //!                                     exactly this many calls through a
 //!                                     register in the caller
+//! frames-in <family> <why>            every function of the crate (`prefix*`
+//!                                     for several, or a module path such as
+//!                                     `paperpaw_core::chrome`) in the image is
+//!                                     held to the frame limit, whether the
+//!                                     roots reach it or not; fails when it
+//!                                     matches no function
 //! allow rom <callee> <why>            any function may call this routine
 //!                                     outside the image (the chip's ROM)
 //! allow indirect-in <crate> <max> <why>
@@ -262,6 +268,12 @@ pub struct Budget {
     pub tables: Vec<String>,
     /// Each `allow` line with its reason.
     pub allow: Vec<(Allow, String)>,
+    /// `frames-in <crate|prefix*|path> <why>`: every function of the family in
+    /// the image is held to the frame limit, reached or not.
+    pub frames_in: Vec<(String, String)>,
+    /// `allow frame <function> <max> <why>`: a frame of the limit or more that
+    /// is known (see [`family::frames_in_problems`]).
+    pub frame_exceptions: Vec<(String, u32, String)>,
 }
 
 impl Budget {
@@ -316,6 +328,12 @@ impl Budget {
                         why.join(" "),
                     ))
                 }
+                ["frames-in", family, why @ ..] if !why.is_empty() => budget
+                    .frames_in
+                    .push(((*family).to_string(), why.join(" "))),
+                ["allow", "frame", ..] => budget
+                    .frame_exceptions
+                    .push(family::parse_frame(&words).ok_or_else(bad)?),
                 ["allow", "rom" | "indirect-in", ..] => budget
                     .allow
                     .push(family::parse_line(&words).ok_or_else(bad)?),
@@ -550,11 +568,15 @@ fn read_function(code: &[u8], start_addr: u32, around: &Around<'_>) -> Reads {
                 wide: true,
             });
             if let Some(size) = entry_frame(w) {
-                // The frame is taken from the stack pointer only by `entry a1`.
-                if (w >> 8) & 0xF != 1 {
-                    reads.entry_other.get_or_insert(pc);
+                // The frame is taken from the stack pointer only by `entry a1`, and from
+                // a function's first instruction only: C code keeps literal pools between
+                // its instructions, and their bytes can read as an `entry`.
+                if at == 0 {
+                    if (w >> 8) & 0xF != 1 {
+                        reads.entry_other.get_or_insert(pc);
+                    }
+                    reads.frame = Some(reads.frame.map_or(size, |f| f.max(size)));
                 }
-                reads.frame = Some(reads.frame.map_or(size, |f| f.max(size)));
             } else if w & 0xF == 5 {
                 // CALLn: n in bits 5:4, the target a word offset from the next word.
                 let target = ((i64::from(pc >> 2) + 1 + sext18(w)) << 2) as u32;
@@ -1248,12 +1270,16 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
         if report.largest.as_ref().is_none_or(|(b, _)| frame > *b) {
             report.largest = Some((frame, f.path.clone()));
         }
-        if frame >= budget.limit {
+        if frame >= budget.limit && !family::frame_excused(budget, f, frame) {
             report.problems.push(format!(
                 "`{}` takes a frame of {frame} bytes (limit {})",
                 f.shown, budget.limit
             ));
         }
+    } else if reads.unreadable.is_none()
+        && let Some(problem) = family::frameless_problem(budget, f)
+    {
+        report.problems.push(problem);
     }
     if let Some(pc) = reads.writes_sp
         && !allowed(
@@ -1396,6 +1422,9 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     report
         .problems
         .extend(family::ceilings_exceeded(budget, &family_sites));
+    report
+        .problems
+        .extend(family::frames_in_problems(&image, &around, budget));
     for (n, (allow, _)) in budget.allow.iter().enumerate() {
         if !used[n] {
             report.problems.push(format!(
@@ -1442,3 +1471,5 @@ pub fn run(elf: &str, budget: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_frames;
