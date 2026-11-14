@@ -68,11 +68,4 @@ frames-in alloc the allocator's collections: every function under the 2,048 B fr
 # why. Release check for the S3 images (todo 639, Beta 4 MUST): no `allow frame` line left here
 # except `main` (not a callback frame).
 allow frame _ZN88_$LT$paperpaw_plugin_store..list..ListScreen$u20$as$u20$paperpaw_sdk..screen..Screen$GT$8on_event 2064 owner: Store Engineer (the list screen's on_event, 2,064 B on both devices); todo 639
-allow frame paperpaw_json::stream::read_file 2240 owner: Kernel todo 626 (json read_file, 2,240/2,224 B); todo 639
-allow frame _ZN20paperpaw_epub_family7convert7convert 2112 owner: Kernel todo 626 (epub-family convert, 2,112/2,096 B); todo 639
-allow frame paperpaw_core::native_host::event_call::native_event_call 2192 owner: Kernel todo 626 (2,192/2,176 B); todo 639
-allow frame paperpaw_core::native_host::event_call::deliver_action 2176 owner: Kernel todo 626 (2,176/2,160 B); todo 639
-allow frame paperpaw_core::native_host::widget_inputs::deliver_one_widget_input 2272 owner: Kernel todo 626 (2,272/2,256 B); todo 639
-allow frame paperpaw_core::chrome::sync_chromes 2256 owner: Kernel todo 626 (2,256/2,240 B); todo 639
-allow frame _ZN13paperpaw_core11core_plugin16register_library28_$u7b$$u7b$closure$u7d$$u7d$ 2096 owner: Kernel todo 626 (the register_library closure, 2,096/2,080 B); todo 639
 allow frame main 8768 the firmware's entry on the main task's stack, not a callback frame: the start-stack check (`check-x4-start-stack.py --s3`) already counts it in every route (8,768/8,672 B); owner: Firmware
