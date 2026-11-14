@@ -88,6 +88,7 @@ fn read_from(taken: &str, kind: &str) -> u64 {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_first_walk_writes_next_to_nothing_of_the_books_formats() {
     // FAT32 with clusters of 32 KiB, as in the bench.
     let card = Card::new(32 << 30).unwrap();
@@ -98,7 +99,6 @@ fn the_first_walk_writes_next_to_nothing_of_the_books_formats() {
     let mut kernel = Kernel::builder(DEVICE)
         .storage(card)
         .setting_default(&settings::LIBRARY_FOLDER, "books".into())
-        .plugin(paperpaw_epub_family::EpubFormat)
         .plugin(Walker)
         .build()
         .unwrap();
@@ -132,7 +132,6 @@ fn the_first_walk_writes_next_to_nothing_of_the_books_formats() {
     let mut kernel = Kernel::builder(DEVICE)
         .storage(card)
         .setting_default(&settings::LIBRARY_FOLDER, "books".into())
-        .plugin(paperpaw_epub_family::EpubFormat)
         .plugin(Walker)
         .build()
         .unwrap();

@@ -665,12 +665,7 @@ pub fn install_with(
     #[cfg(not(feature = "native-linked-reading"))]
     {
         b = b
-            .plugin(paperpaw_plugin_format_txt::TxtFormat)
-            .plugin(paperpaw_epub_family::EpubFormat)
-            .plugin(paperpaw_epub_family::HtmlFormat)
-            .plugin(paperpaw_epub_family::Fb2Format)
-            .plugin(paperpaw_epub_family::MarkdownFormat)
-            .plugin(paperpaw_epub_family::CbzFormat);
+            .plugin(paperpaw_plugin_format_txt::TxtFormat);
     }
     b = b.plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
     // Reader and Home keep their order; they are native plugins, linked

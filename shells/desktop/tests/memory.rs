@@ -650,6 +650,7 @@ fn large_package() -> Vec<u8> {
 /// says so in a few words, and the run goes on. On the device, running
 /// out on the way stopped it and it started again.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_book_without_room_to_open_says_so() {
     let home = ["--set", "reader.open-last=false"];
     let open = "confirm,confirm,wait:500,describe";

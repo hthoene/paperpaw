@@ -38,3 +38,8 @@ notes-vault
 mail
 format-mobi
 format-images
+format-html
+format-fb2
+format-cbz
+format-markdown
+format-epub

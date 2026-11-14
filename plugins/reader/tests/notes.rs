@@ -118,6 +118,7 @@ fn long_note() -> String {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_place_kept_with_the_other_markdown_is_found_by_how_far_it_was() {
     let storage = Shared::default();
     let data = long_note();

@@ -1,23 +1,19 @@
-//! EPUB 2 and 3 support for PaperPaw.
+//! The shared conversion of the EPUB, HTML, FictionBook, Markdown and comic
+//! book plugins (`format-epub`, `format-html`, `format-fb2`, `format-markdown`,
+//! `format-cbz`), with their `core.format` providers ([`provider`]). Each
+//! plugin is a crate of its own (`plugins/format-*`) that declares its format
+//! and calls [`serve`] with its provider.
 //!
-//! - Metadata (title, authors, language) from the package document.
-//! - Reading order from the spine; table of contents from the EPUB 3
-//!   navigation document or the EPUB 2 NCX.
-//! - Chapters are converted on first use, streamed from the ZIP archive
-//!   through an XHTML tokenizer, into a compact block format stored in the
-//!   plugin's cache. Reading afterwards needs only the block at hand, so
+//! - EPUB: metadata from the package document; reading order from the spine;
+//!   table of contents from the EPUB 3 navigation document or the EPUB 2 NCX.
+//!   Chapters are converted on first use, streamed from the ZIP archive
+//!   through an XHTML tokenizer, into a compact block format in the cache, so
 //!   books of any size work on small devices.
-//!
-//! Supported markup: paragraphs, headings, lists, block quotes, line
-//! breaks, preformatted text, anchors and links, styles and images.
-//!
-//! HTML files (`.html`, `.htm`, `.xhtml`), e.g. saved web pages, open
-//! the same way, showing only a page's reading matter (see
-//! [`HtmlDocument`]), Markdown (`.md`, see [`MarkdownDocument`]),
-//! FictionBooks (`.fb2`, see [`Fb2Document`]) and comic book archives
-//! (`.cbz`, see [`CbzDocument`]): each a plugin of its own, so that it can
-//! be switched off or replaced alone ([`HtmlFormat`], [`MarkdownFormat`],
-//! [`Fb2Format`], [`CbzFormat`]).
+//! - Supported markup: paragraphs, headings, lists, block quotes, line breaks,
+//!   preformatted text, anchors and links, styles and images.
+//! - HTML files show only a page's reading matter ([`HtmlDocument`]); also
+//!   Markdown ([`MarkdownDocument`]), FictionBooks ([`Fb2Document`]) and comic
+//!   book archives ([`CbzDocument`]).
 
 #![no_std]
 
@@ -41,13 +37,9 @@ pub mod provider;
 mod providers;
 mod woff;
 
-use alloc::borrow::Cow;
-use alloc::boxed::Box;
-use alloc::rc::Rc;
 use alloc::vec;
 
-use paperpaw_sdk::document::Document;
-use paperpaw_sdk::{FormatSpec, Id, Manifest, Plugin, RegisterError, Registrar};
+use paperpaw_sdk::Id;
 
 pub use cbz::CbzDocument;
 pub use document::EpubDocument;
@@ -58,271 +50,6 @@ pub use native_io::{NativeIo, serve};
 pub use providers::{cbz_provider, epub_provider, fb2_provider, html_provider, markdown_provider};
 
 pub const PLUGIN: Id = Id::new_static("format-epub");
-pub const FORMAT: Id = Id::new_static("format-epub.epub");
-
-/// HTML files, e.g. web pages: the plugin and its format.
-pub const HTML_PLUGIN: Id = Id::new_static("format-html");
-pub const HTML: Id = Id::new_static("format-html.html");
-/// FictionBook 2.
-pub const FB2_PLUGIN: Id = Id::new_static("format-fb2");
-pub const FB2: Id = Id::new_static("format-fb2.fb2");
-/// Comic book archives.
-pub const CBZ_PLUGIN: Id = Id::new_static("format-cbz");
-pub const CBZ: Id = Id::new_static("format-cbz.cbz");
-/// Markdown.
-pub const MARKDOWN_PLUGIN: Id = Id::new_static("format-markdown");
-pub const MARKDOWN: Id = Id::new_static("format-markdown.markdown");
-
-/// A plugin's manifest: its id, its name and what it does.
-fn manifest(
-    id: Id,
-    name: &'static str,
-    description: &'static str,
-    how: &'static [(&'static str, &'static str)],
-) -> Manifest {
-    Manifest::new(id, name, paperpaw_sdk::package_version!())
-        .description(description)
-        .how(how)
-        .uses(paperpaw_sdk::Uses::NOTHING)
-}
-
-/// How each works, by language (see `Manifest::how`).
-static EPUB_HOW: [(&str, &str); 2] = [
-    (
-        "en",
-        include_str!("../../../plugins/format-epub/how/en.txt"),
-    ),
-    (
-        "de",
-        include_str!("../../../plugins/format-epub/how/de.txt"),
-    ),
-];
-static HTML_HOW: [(&str, &str); 2] = [
-    (
-        "en",
-        include_str!("../../../plugins/format-html/how/en.txt"),
-    ),
-    (
-        "de",
-        include_str!("../../../plugins/format-html/how/de.txt"),
-    ),
-];
-static FB2_HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../../../plugins/format-fb2/how/en.txt")),
-    ("de", include_str!("../../../plugins/format-fb2/how/de.txt")),
-];
-static MARKDOWN_HOW: [(&str, &str); 2] = [
-    (
-        "en",
-        include_str!("../../../plugins/format-markdown/how/en.txt"),
-    ),
-    (
-        "de",
-        include_str!("../../../plugins/format-markdown/how/de.txt"),
-    ),
-];
-static CBZ_HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../../../plugins/format-cbz/how/en.txt")),
-    ("de", include_str!("../../../plugins/format-cbz/how/de.txt")),
-];
-
-/// EPUB books. HTML, FictionBook, Markdown and comic books are plugins of
-/// their own ([`HtmlFormat`], [`Fb2Format`], [`MarkdownFormat`],
-/// [`CbzFormat`]), so each can be switched off or replaced alone; they
-/// share the conversion of this crate.
-#[derive(Debug, Default)]
-pub struct EpubFormat;
-
-impl Plugin for EpubFormat {
-    fn manifest(&self) -> Manifest {
-        manifest(
-            PLUGIN,
-            "EPUB",
-            "Opens EPUB books with their styles, table of contents and images.",
-            &EPUB_HOW,
-        )
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // What is converted of each book, moved and removed with it.
-        r.add_book_cache(paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str()), "")?;
-        // One's own stylesheets as found to tell whether a book opens at
-        // once, for opening it.
-        let kept = Rc::new(document::PreparedCss::default());
-        let prepared = Rc::clone(&kept);
-        r.add_format(
-            FormatSpec::new(
-                FORMAT,
-                "format-epub.title",
-                vec![Cow::Borrowed("epub")],
-                Box::new(move |storage, path, options| {
-                    EpubDocument::open_prepared(storage, path, options, &kept)
-                        .map(|d| Box::new(d) as Box<dyn Document>)
-                }),
-            )
-            .prepared(Box::new(move |storage, path, options| {
-                EpubDocument::prepared_keeping(storage, path, options, &prepared)
-            }))
-            .sniff(is_epub),
-        )?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-epub/i18n/en.ini"
-        )))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-epub/i18n/de.ini"
-        )))?;
-        Ok(())
-    }
-}
-
-/// HTML files (`.html`, `.htm`, `.xhtml`), e.g. saved web pages: only a
-/// page's reading matter (see [`HtmlDocument`]).
-#[derive(Debug, Default)]
-pub struct HtmlFormat;
-
-impl Plugin for HtmlFormat {
-    fn manifest(&self) -> Manifest {
-        manifest(
-            HTML_PLUGIN,
-            "HTML",
-            "Opens web pages saved as files, showing only what is to be read.",
-            &HTML_HOW,
-        )
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // What is converted of each book, moved and removed with it.
-        r.add_book_cache(paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str()), "html-")?;
-        r.add_format(FormatSpec::new(
-            HTML,
-            "format-html.title",
-            vec![
-                Cow::Borrowed("html"),
-                Cow::Borrowed("htm"),
-                Cow::Borrowed("xhtml"),
-            ],
-            Box::new(|storage, path, options| {
-                HtmlDocument::open(storage, path, options.publisher_styles)
-                    .map(|d| Box::new(d) as Box<dyn Document>)
-            }),
-        ))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-html/i18n/en.ini"
-        )))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-html/i18n/de.ini"
-        )))?;
-        Ok(())
-    }
-}
-
-/// FictionBooks (`.fb2`, `.fb2.zip`, see [`Fb2Document`]).
-#[derive(Debug, Default)]
-pub struct Fb2Format;
-
-impl Plugin for Fb2Format {
-    fn manifest(&self) -> Manifest {
-        manifest(
-            FB2_PLUGIN,
-            "FictionBook",
-            "Opens FictionBook books (.fb2, also zipped).",
-            &FB2_HOW,
-        )
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // What is converted of each book, moved and removed with it.
-        r.add_book_cache(paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str()), "fb2-")?;
-        r.add_format(FormatSpec::new(
-            FB2,
-            "format-fb2.title",
-            vec![Cow::Borrowed("fb2"), Cow::Borrowed("fb2.zip")],
-            Box::new(|storage, path, options| {
-                Fb2Document::open_options(storage, path, options)
-                    .map(|d| Box::new(d) as Box<dyn Document>)
-            }),
-        ))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-fb2/i18n/en.ini"
-        )))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-fb2/i18n/de.ini"
-        )))?;
-        Ok(())
-    }
-}
-
-/// Markdown (`.md`, `.markdown`, see [`MarkdownDocument`]).
-#[derive(Debug, Default)]
-pub struct MarkdownFormat;
-
-impl Plugin for MarkdownFormat {
-    fn manifest(&self) -> Manifest {
-        manifest(
-            MARKDOWN_PLUGIN,
-            "Markdown",
-            "Opens Markdown files (.md), e.g. notes.",
-            &MARKDOWN_HOW,
-        )
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // What is converted of each book, moved and removed with it.
-        r.add_book_cache(paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str()), "md-")?;
-        r.add_format(FormatSpec::new(
-            MARKDOWN,
-            "format-markdown.title",
-            vec![Cow::Borrowed("md"), Cow::Borrowed("markdown")],
-            Box::new(|storage, path, options| {
-                MarkdownDocument::open(storage, path, options.publisher_styles)
-                    .map(|d| Box::new(d) as Box<dyn Document>)
-            }),
-        ))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-markdown/i18n/en.ini"
-        )))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-markdown/i18n/de.ini"
-        )))?;
-        Ok(())
-    }
-}
-
-/// Comic book archives (`.cbz`, see [`CbzDocument`]).
-#[derive(Debug, Default)]
-pub struct CbzFormat;
-
-impl Plugin for CbzFormat {
-    fn manifest(&self) -> Manifest {
-        manifest(
-            CBZ_PLUGIN,
-            "Comic books",
-            "Opens comic book archives (.cbz), a picture a page.",
-            &CBZ_HOW,
-        )
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // What is converted of each book, moved and removed with it.
-        r.add_book_cache(paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str()), "cbz-")?;
-        r.add_format(FormatSpec::new(
-            CBZ,
-            "format-cbz.title",
-            vec![Cow::Borrowed("cbz")],
-            Box::new(|storage, path, options| {
-                CbzDocument::open_options(storage, path, options)
-                    .map(|d| Box::new(d) as Box<dyn Document>)
-            }),
-        ))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-cbz/i18n/en.ini"
-        )))?;
-        r.add_translations(Cow::Borrowed(include_str!(
-            "../../../plugins/format-cbz/i18n/de.ini"
-        )))?;
-        Ok(())
-    }
-}
 
 /// Bytes at each end of a file that tell it from another of its size.
 const ENDS: usize = 4096;
@@ -402,41 +129,10 @@ mod tests {
     use super::*;
     use alloc::string::String;
     use alloc::vec::Vec;
-    use paperpaw_i18n::{Catalog, check};
     use paperpaw_sdk::MemoryStorage;
-    use paperpaw_sdk::document::{Align, Block, BlockKind, Locator, TextStyle};
+    use paperpaw_sdk::document::{Align, Block, BlockKind, Document, Locator, TextStyle};
     use paperpaw_sdk::lang::{Direction, Lang};
     use paperpaw_zip::testing::ZipBuilder;
-
-    #[test]
-    fn translations_are_complete() {
-        for (en, de) in [
-            (
-                include_str!("../../../plugins/format-epub/i18n/en.ini"),
-                include_str!("../../../plugins/format-epub/i18n/de.ini"),
-            ),
-            (
-                include_str!("../../../plugins/format-html/i18n/en.ini"),
-                include_str!("../../../plugins/format-html/i18n/de.ini"),
-            ),
-            (
-                include_str!("../../../plugins/format-fb2/i18n/en.ini"),
-                include_str!("../../../plugins/format-fb2/i18n/de.ini"),
-            ),
-            (
-                include_str!("../../../plugins/format-markdown/i18n/en.ini"),
-                include_str!("../../../plugins/format-markdown/i18n/de.ini"),
-            ),
-            (
-                include_str!("../../../plugins/format-cbz/i18n/en.ini"),
-                include_str!("../../../plugins/format-cbz/i18n/de.ini"),
-            ),
-        ] {
-            let (en, de) = (Catalog::parse(en).unwrap(), Catalog::parse(de).unwrap());
-            let issues = check::compare(&en, &de);
-            assert!(issues.is_empty(), "{issues:?}");
-        }
-    }
 
     const CONTAINER: &str = r#"<?xml version="1.0"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
