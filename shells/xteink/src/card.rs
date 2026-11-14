@@ -93,7 +93,16 @@ impl Blocks for Card {
         let blocks = data.as_chunks_mut::<BLOCK>().0;
         #[cfg(feature = "remote")]
         crate::traced::blocks(index, blocks.len() as u32, 0);
-        self.sd.read(index, blocks).map_err(|_| DiskError)
+        #[cfg(feature = "test-image")]
+        let t0 = crate::micros();
+        let result = self.sd.read(index, blocks).map_err(|_| DiskError);
+        #[cfg(feature = "test-image")]
+        crate::hoststat::card(
+            false,
+            blocks.len() as u32,
+            crate::micros().saturating_sub(t0),
+        );
+        result
     }
 
     fn write_blocks(&mut self, index: u32, data: &[u8]) -> Result<(), DiskError> {
@@ -101,7 +110,16 @@ impl Blocks for Card {
         let blocks = data.as_chunks::<BLOCK>().0;
         #[cfg(feature = "remote")]
         crate::traced::blocks(index, 0, blocks.len() as u32);
-        self.sd.write(index, blocks).map_err(|_| DiskError)
+        #[cfg(feature = "test-image")]
+        let t0 = crate::micros();
+        let result = self.sd.write(index, blocks).map_err(|_| DiskError);
+        #[cfg(feature = "test-image")]
+        crate::hoststat::card(
+            true,
+            blocks.len() as u32,
+            crate::micros().saturating_sub(t0),
+        );
+        result
     }
 
     fn blocks(&mut self) -> Result<u32, DiskError> {
