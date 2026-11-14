@@ -334,3 +334,153 @@ fn free_space_follows_the_clusters_taken_ahead_and_given_back() {
     storage.sync().unwrap();
     assert_eq!(free(storage), from_fat(), "after removing the file");
 }
+
+/// Every way an appended file leaves the open files gives back the clusters it took ahead:
+/// evicted by the seventeenth open file, renamed, removed. After each, the clusters taken are
+/// those the files need (and the folder's), and nothing links into a free cluster.
+#[test]
+fn every_way_out_of_the_open_files_gives_back_the_clusters_taken_ahead() {
+    // The same steps with the clusters taken one at a time are the measure: what the files
+    // and the folder need, whatever a rename does to the folder.
+    assert_eq!(leaving_the_open_files(false), leaving_the_open_files(true));
+}
+
+/// The clusters taken (beyond the first state) after eviction, after the rename, after the
+/// removal.
+fn leaving_the_open_files(ahead: bool) -> [usize; 3] {
+    let cluster = 4096usize;
+    let (storage, counted) = card(cluster as u32, cluster * 70_000);
+    storage.set_append_reservation(ahead);
+    storage.create_dir("cache").unwrap();
+    storage.sync().unwrap();
+    let base = used_clusters(&counted.bytes.borrow());
+    let piece = vec![0x3Cu8; 4096];
+    // 20 files (more than `OPEN_FILES`) of 24 pieces each, appended in turn: the first are
+    // evicted while the later ones grow.
+    for round in 0..24 {
+        for f in 0..20 {
+            storage
+                .append(&format!("cache/f{f}.gray"), &piece)
+                .unwrap_or_else(|e| panic!("round {round} file {f}: {e:?}"));
+        }
+    }
+    storage.sync().unwrap();
+    let bytes = counted.bytes.borrow().clone();
+    check_chains(&bytes, "after eviction");
+    let mut taken = [used_clusters(&bytes) - base, 0, 0];
+    assert_eq!(taken[0], 20 * 24, "evicted files");
+    for f in 0..20 {
+        assert_eq!(
+            storage.size(&format!("cache/f{f}.gray")).unwrap(),
+            24 * 4096
+        );
+    }
+    // Renamed while open and not written back.
+    storage.append("cache/f19.gray", &piece).unwrap();
+    storage
+        .rename("cache/f19.gray", "cache/moved.gray")
+        .unwrap();
+    storage.sync().unwrap();
+    let bytes = counted.bytes.borrow().clone();
+    check_chains(&bytes, "after rename");
+    taken[1] = used_clusters(&bytes) - base;
+    assert!(taken[1] <= 20 * 24 + 2, "renamed file: {}", taken[1]);
+    assert_eq!(storage.size("cache/moved.gray").unwrap(), 25 * 4096);
+    // Removed while open: every cluster is free again, those taken ahead too.
+    storage.append("cache/f3.gray", &piece).unwrap();
+    for f in 0..19 {
+        storage.remove(&format!("cache/f{f}.gray")).unwrap();
+    }
+    storage.remove("cache/moved.gray").unwrap();
+    storage.sync().unwrap();
+    let bytes = counted.bytes.borrow().clone();
+    check_chains(&bytes, "after removing");
+    taken[2] = used_clusters(&bytes) - base;
+    // The folder keeps the cluster its entries grew into, as it did.
+    assert!(taken[2] <= 1, "after removing everything: {}", taken[2]);
+    taken
+}
+
+/// A card nearly full: a file that took clusters ahead on a roomy card must not fail for want
+/// of space while a cluster is free. Appends go on until the very last cluster is used, then
+/// fail; what was written reads back and the free space is what the FAT says.
+#[test]
+fn a_nearly_full_card_is_filled_to_the_last_cluster() {
+    let cluster = 4096u32;
+    // FAT16, as many clusters as the free space we want plus the ones taken before.
+    let bytes = Rc::new(RefCell::new(vec![0u8; 24 << 20]));
+    let counted = Counted {
+        bytes: bytes.clone(),
+        counts: Rc::default(),
+    };
+    {
+        let mut disk = BlockDisk::new(counted.clone()).unwrap();
+        paperpaw_fat::fatfs::format_volume(
+            &mut disk,
+            FormatVolumeOptions::new()
+                .fat_type(FatType::Fat16)
+                .bytes_per_cluster(cluster),
+        )
+        .unwrap();
+        disk.flush().unwrap();
+    }
+    let storage = {
+        let mut disk = BlockDisk::new(counted.clone()).unwrap();
+        disk.seek(SeekFrom::Start(0)).unwrap();
+        let shared = SharedDisk::new(disk);
+        let fs = FileSystem::new(shared.clone(), FsOptions::new()).unwrap();
+        FatStorage::new(Box::leak(Box::new(fs))).with_disk(shared)
+    };
+    storage.create_dir("cache").unwrap();
+    let piece = vec![0xC3u8; cluster as usize];
+    // A file that has grown (takes runs), and a filler that leaves 37 clusters free, in
+    // pieces so that the free clusters are not one run but the filler's own runs hold them.
+    for _ in 0..8 {
+        storage.append("cache/a.gray", &piece).unwrap();
+    }
+    storage.sync().unwrap();
+    let free_now = (fat_entries(&bytes.borrow())
+        .iter()
+        .filter(|&&v| v == 0)
+        .count()) as u64;
+    let leave = 37u64;
+    let filler = vec![0x11u8; cluster as usize];
+    let mut left = free_now;
+    while left > leave {
+        storage.append("cache/filler.bin", &filler).unwrap();
+        left -= 1;
+        if left.is_multiple_of(500) {
+            storage.sync().unwrap();
+        }
+    }
+    storage.sync().unwrap();
+    let free_start = (fat_entries(&bytes.borrow())
+        .iter()
+        .filter(|&&v| v == 0)
+        .count()) as u64;
+    assert!(free_start <= leave + 2 * 16, "{free_start} free");
+    let mut written = 0u64;
+    while storage.append("cache/a.gray", &piece).is_ok() {
+        written += 1;
+        assert!(written <= free_start, "appends past the free space");
+    }
+    storage.sync().unwrap();
+    let after = bytes.borrow().clone();
+    check_chains(&after, "after filling");
+    let free_after = fat_entries(&after).iter().filter(|&&v| v == 0).count() as u64;
+    assert!(
+        free_after <= 1,
+        "{free_after} clusters free after the append failed with {written} of {free_start} written"
+    );
+    assert_eq!(
+        storage.size("cache/a.gray").unwrap(),
+        (8 + written) * u64::from(cluster)
+    );
+    // Whatever was left (a cluster the append failed on at most) is what the storage says.
+    let free = loop {
+        if let Some(n) = storage.free_space() {
+            break n;
+        }
+    };
+    assert_eq!(free, free_after * u64::from(cluster));
+}

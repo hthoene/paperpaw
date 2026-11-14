@@ -362,6 +362,10 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC> {
 
 impl<IO: ReadWriteSeek, TP, OCC> Drop for File<'_, IO, TP, OCC> {
     fn drop(&mut self) {
+        // Modified for PaperPaw: what was taken ahead of an append is given back first.
+        if let Err(err) = self.trim_ahead() {
+            error!("trim failed {:?}", err);
+        }
         if let Err(err) = self.flush() {
             error!("flush failed {:?}", err);
         }
