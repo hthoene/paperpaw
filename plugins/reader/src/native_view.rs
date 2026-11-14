@@ -262,7 +262,8 @@ impl View {
         let root = found.root();
         let state = {
             let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
-            let colour = Setup::read(host).is_ok_and(|setup| setup.display.display_is_colour());
+            let colour =
+                snapshot::capture_snapshot(host).is_ok_and(|display| display.display_is_colour());
             let book = open_request(&found.path, root, colour);
             match docs.open_book(host, &book, &mut input, &mut out) {
                 Ok(state) => (
