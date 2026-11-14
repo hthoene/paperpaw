@@ -144,11 +144,11 @@ def open_port(name):
 
 
 def plugin_digest(data):
-    """The stored digest in a supported native plugin header (formats 2, 3 and 4)."""
+    """The stored digest in a supported native plugin header (formats 2 to 5; in format 5 the last 32 bytes of its 96-byte header)."""
     if len(data) < 6 or data[:4] != b"PPNP":
         raise ValueError("not a plugin file")
     format_version = int.from_bytes(data[4:6], "little")
-    digest_at = {2: 48, 3: 60, 4: 84}.get(format_version)
+    digest_at = {2: 48, 3: 60, 4: 84, 5: 64}.get(format_version)
     if digest_at is None:
         raise ValueError(f"unsupported plugin format {format_version}")
     if len(data) < digest_at + 32:

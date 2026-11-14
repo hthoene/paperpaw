@@ -20,7 +20,7 @@
 
 mod native_activation;
 
-use paperpaw_core::{Effects, HttpResponse, Io, Kernel};
+use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, FrameView, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
@@ -132,23 +132,6 @@ fn storage() -> MemoryStorage {
     storage
 }
 
-/// The store's list: plugins of a few groups.
-fn catalogue() -> String {
-    let groups = ["reading", "library", "tools", "looks"];
-    let entries: Vec<String> = (0..40)
-        .map(|n| {
-            let group = groups[n % groups.len()];
-            format!(
-                r#"{{"id": "plugin-{n:02}", "name": "Plugin {n:02}", "summary": "Does {n}.",
-  "group": "{group}", "author": "Someone", "licence": "MIT", "kind": "data",
-  "added": "2026-01-01", "latest": {{"version": "1.0.0", "sdk": "0.4", "formats": 1,
-  "size": 1000, "date": "2026-01-01"}}}}"#
-            )
-        })
-        .collect();
-    format!(r#"{{"format": 2, "plugins": [{}]}}"#, entries.join(", "))
-}
-
 impl App {
     fn new() -> Self {
         // The help's hints off; built without the X4's Wi-Fi (`build`, not
@@ -204,36 +187,6 @@ impl App {
         self.now += 100;
         let effects = self.kernel.open_slot(Instant(self.now), slot, params);
         self.settle(effects);
-    }
-
-    /// Answers every web request asked for now: the store's list with
-    /// [`catalogue`], anything else not found.
-    fn answer(&mut self) {
-        let calls: Vec<_> = self
-            .kernel
-            .take_io()
-            .into_iter()
-            .filter_map(|io| match io {
-                Io::Http(call) => Some(call),
-                _ => None,
-            })
-            .collect();
-        for call in calls {
-            let list = call.url.contains("/api/v1/plugins.json");
-            let response = HttpResponse {
-                id: call.id,
-                status: if list { 200 } else { 404 },
-                body: if list {
-                    catalogue().into_bytes()
-                } else {
-                    Vec::new()
-                },
-                ..HttpResponse::default()
-            };
-            self.now += 100;
-            let effects = self.kernel.http_response(Instant(self.now), response);
-            self.settle(effects);
-        }
     }
 
     /// The parts the screen shows, and whether each has the focus.
@@ -430,22 +383,9 @@ fn table_of_contents() {
     app.walk(14, "table of contents");
 }
 
-#[test]
-#[ignore = "the store is a native plugin only (#244) and its list comes over core.net, which this harness wires offline (`native_activation`: Offline); the install and list flows run in shells/desktop/tests/store_native.rs. To be ported or replaced in the store follow-up PR (T42)"]
-fn store() {
-    let mut app = App::new();
-    app.run(Id::new_static("store.open"));
-    app.answer();
-    app.opened("the store");
-    app.walk(10, "store");
-    // A group of it, past the search and the new ones.
-    app.run(actions::DOWN);
-    app.run(actions::DOWN);
-    app.run(actions::CONFIRM);
-    app.answer();
-    app.opened("a part of the store");
-    app.walk(10, "a part of the store");
-}
+// The store's list drawn in part is covered by
+// `the_list_of_the_store_is_drawn_in_part_as_it_is_drawn_whole` in
+// `shells/desktop/tests/store_native.rs` (this harness wires the network offline).
 
 #[cfg_attr(
     not(feature = "native-linked-reading"),

@@ -1488,6 +1488,10 @@ fn budget(size: u64) -> u64 {
     clippy::too_many_arguments,
     reason = "what a chapter is converted with, each of it different; a struct would be built for one call"
 )]
+// On the S3 the HTML provider's `converted` took this inline and its frame came to
+// the 2,048 B the packer refuses (#263); apart, this keeps the 1,984 B the epub
+// plugin has. The X4's code is as it was.
+#[cfg_attr(target_arch = "xtensa", inline(never))]
 pub(crate) fn convert(
     storage: &dyn Storage,
     source: &Source<'_>,
@@ -1641,18 +1645,7 @@ pub(crate) fn convert(
             }
         }
         Source::Html { path, .. } => {
-            let mut chunk = [0u8; 1024];
-            let mut at = 0u64;
-            while !full.get() {
-                let n = storage.read_at(path, at, &mut chunk)?;
-                if n == 0 {
-                    break;
-                }
-                tokenizer
-                    .try_feed(&chunk[..n], &mut handle)
-                    .map_err(|_| DocumentError::OutOfMemory)?;
-                at += n as u64;
-            }
+            feed_html(storage, path, &full, &mut tokenizer, &mut handle)?;
         }
         Source::Fb2 { path, encoding } => {
             crate::fb2::feed(storage, path, *encoding, &mut tokenizer, &mut handle)?;
@@ -1688,6 +1681,33 @@ pub(crate) fn convert(
         storage.write(&paths.end, &length.to_le_bytes())?;
     }
     Ok(length)
+}
+
+/// Feeds the HTML file at `path` to the tokenizer, a piece at a time,
+/// until `full` says the budget is spent.
+// Its own frame, as a FictionBook's (`fb2::feed`): the piece read is not
+// in `convert`'s, which stays under the firmware's frame limit.
+#[inline(never)]
+fn feed_html(
+    storage: &dyn Storage,
+    path: &str,
+    full: &core::cell::Cell<bool>,
+    tokenizer: &mut Tokenizer,
+    emit: &mut dyn FnMut(Token<'_>),
+) -> Result<(), DocumentError> {
+    let mut chunk = [0u8; 1024];
+    let mut at = 0u64;
+    while !full.get() {
+        let n = storage.read_at(path, at, &mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        tokenizer
+            .try_feed(&chunk[..n], emit)
+            .map_err(|_| DocumentError::OutOfMemory)?;
+        at += n as u64;
+    }
+    Ok(())
 }
 
 /// Pictures noted or decoded together, so the list of noted ones (or a

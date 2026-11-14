@@ -37,6 +37,9 @@ pub(crate) struct Asks {
     /// The screen of a download chosen in the dialog, opened once the dialog
     /// has closed itself (see [`Asks::defer`]).
     fetch_after: Option<crate::native_screens::Next>,
+    /// The plugins plugins just installed require, asked for once the queue
+    /// has ended (a request still open would take the ask for a repeat).
+    pub(crate) requires: Vec<String>,
 }
 
 impl Asks {

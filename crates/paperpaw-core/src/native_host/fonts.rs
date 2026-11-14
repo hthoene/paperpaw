@@ -6,6 +6,8 @@ use super::{
     resources::{FontKey, FontRole, OwnerResources},
 };
 use crate::abi7::{context::Frame, graphics};
+#[cfg(any(test, feature = "testing"))]
+use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, OK, PpBuffer, PpBytes,
     buffers,
@@ -324,6 +326,32 @@ pub(crate) unsafe fn metrics(
     })())
 }
 
+/// For tests: slot 30 answers as on the X4, whose host table leaves it
+/// unwired (`shell::table`), on this thread from now on. Not part of any
+/// interface: the `testing` feature only.
+#[cfg(any(test, feature = "testing"))]
+pub fn answer_text_ink_as_the_x4(unwired: bool) {
+    ink_unwired::set(unwired);
+}
+
+#[cfg(any(test, feature = "testing"))]
+mod ink_unwired {
+    extern crate std;
+    use core::cell::Cell;
+
+    std::thread_local! {
+        static UNWIRED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(super) fn get() -> bool {
+        UNWIRED.try_with(Cell::get).unwrap_or(false)
+    }
+
+    pub(super) fn set(unwired: bool) {
+        let _ = UNWIRED.try_with(|cell| cell.set(unwired));
+    }
+}
+
 #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
 fn ink_of(font: &FontHandle<'_>, size: f32, text: &str, threshold: u8) -> Result<[i32; 4], i32> {
     let bounds = font.ink_drawn(size, text, threshold).ok_or(ERR_NOT_FOUND)?;
@@ -349,6 +377,10 @@ pub(crate) unsafe fn ink(
     right: *mut i32,
 ) -> i32 {
     status((|| {
+        #[cfg(any(test, feature = "testing"))]
+        if ink_unwired::get() {
+            return Err(ERR_UNSUPPORTED);
+        }
         outputs([top, bottom, left, right])?;
         size_check(size)?;
         // SAFETY: the caller provides live readable input.
@@ -404,6 +436,12 @@ pub(crate) unsafe fn draw(
         let color = Color::rgb(red, green, blue);
         // SAFETY: the caller provides live readable input.
         let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
+        // An icon is a picture, not a word: it is not told as text.
+        let icon = owner
+            .with_font(handle, |key| {
+                Ok(matches!(key, FontKey::Role(FontRole::Icons)))
+            })
+            .unwrap_or(false);
         let width = with_bold(scope, owner, handle, Some(size), |font, faux| {
             canvas.with_canvas(|canvas| {
                 let line = i64::from(baseline);
@@ -416,7 +454,7 @@ pub(crate) unsafe fn draw(
                 .map_err(|_| ERR_INVALID)?;
                 // Told as text where somebody asks, as a legacy label is
                 // (`screens-input.md` 6.1); nothing is done otherwise.
-                if canvas.is_describing() {
+                if canvas.is_describing() && !icon {
                     let line = font.line_metrics(size);
                     #[allow(
                         clippy::cast_precision_loss,
