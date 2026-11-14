@@ -320,6 +320,11 @@ key and text bytes within the stage budget.
   dismissed, or no answer within 10 minutes all change nothing; if the plugin that asked stops
   first, the pending request is discarded. The submitter learns the outcome from event 64 (an
   empty key: read again) or its absence.
+- [D] **Until the host has that question** both mass resets are refused: bit 1 naming another
+  plugin and bit 2 are `ERR_UNSUPPORTED`, with the feature or without. A plugin that resets many
+  after its own question (the Settings screen's "Reset all") sends one reset per setting. Flags
+  that name no one kind (two of bits 0 to 3, an unknown bit, bit 2 with a key, bit 3 without a
+  placement) are `ERR_INVALID`. The settings a group or plugin reset skips are not logged yet.
 - [D] `set_scope`: the book scope for scoped settings, by a path on root 1, while the submitting
   screen stays open; empty ends it. The screen identity is stamped at submit (as `command.redraw`):
   not the submitter's own top screen gives `ERR_STATE` (so does a work run; outside a screen's

@@ -53,6 +53,8 @@ mod lookup;
 mod preset;
 #[path = "commands_preview.rs"]
 mod preview;
+#[path = "commands_reset.rs"]
+mod reset;
 #[cfg(test)]
 pub(crate) use preset::{covers as preset_covers, plan as preset_plan, walk as preset_walk};
 pub(crate) use preview::PreviewHeld;
@@ -300,19 +302,7 @@ impl<'a> CommandStage<'a> {
     /// Registered, non-secret settings may belong to any plugin. Foreign
     /// guarded settings require the host-known editor or kernel identity.
     fn admitted(&self, key: &str) -> Result<&'a SettingSpec, i32> {
-        // No room to read what its plugin describes of it is told as that.
-        let spec = self.settings.try_spec(key).map_err(|_| ERR_NO_MEMORY)?;
-        let spec = spec.ok_or(ERR_INVALID)?;
-        if spec.extra().secret {
-            return Err(ERR_UNSUPPORTED);
-        }
-        if spec.guarded
-            && !self.guarded_exempt
-            && key.split('.').next() != Some(self.owner.as_str())
-        {
-            return Err(ERR_INVALID);
-        }
-        Ok(spec)
+        admitted(self.settings, self.owner, self.guarded_exempt, key)
     }
 
     /// Validate an entire decoded batch, then stage it, or stage nothing.
@@ -353,7 +343,12 @@ impl<'a> CommandStage<'a> {
             return error;
         }
         let image_commands = self.image_count(batch, images.is_some());
-        let stored = Self::stored_count(batch) - image_commands;
+        // Each reset is as many `Command`s as settings it resets.
+        let resets = match self.reset_count(batch) {
+            Ok(resets) => resets,
+            Err(error) => return error,
+        };
+        let stored = Self::stored_count(batch) - image_commands + resets;
         if self.staged.try_reserve(stored).is_err()
             || self.staged_images.try_reserve(image_commands).is_err()
             || self.reserve_kept(&kept).is_err()
@@ -487,6 +482,7 @@ impl<'a> CommandStage<'a> {
                     || Self::is_answer(&command)
                     || Self::is_lookup_ready(&command)
                     || Self::is_preview(&command)
+                    || Self::is_reset(&command)
                 {
                     Ok(0)
                 } else {
@@ -535,6 +531,7 @@ impl<'a> CommandStage<'a> {
                     && !Self::is_preset(command)
                     && !Self::is_answer(command)
                     && !Self::is_lookup_ready(command)
+                    && !Self::is_reset(command)
             })
             .count()
     }
@@ -629,6 +626,11 @@ impl<'a> CommandStage<'a> {
             if images && self.stage_image(&command)? {
                 continue;
             }
+            // As many `Command`s as settings it resets; room is reserved.
+            if let WireCommand::ResetSetting { key, flags } = command {
+                self.stage_reset(key, flags)?;
+                continue;
+            }
             self.stage_owned(&command)?;
         }
         self.dev_commit(dev_start)
@@ -701,6 +703,26 @@ impl<'a> CommandStage<'a> {
             ui::copy_id(key)
         }
     }
+}
+
+/// [`CommandStage::admitted`] for plugin `owner`, which the settings editor
+/// and the kernel are not (`guarded_exempt`).
+fn admitted<'a>(
+    settings: &'a Settings,
+    owner: &Id,
+    guarded_exempt: bool,
+    key: &str,
+) -> Result<&'a SettingSpec, i32> {
+    // No room to read what its plugin describes of it is told as that.
+    let spec = settings.try_spec(key).map_err(|_| ERR_NO_MEMORY)?;
+    let spec = spec.ok_or(ERR_INVALID)?;
+    if spec.extra().secret {
+        return Err(ERR_UNSUPPORTED);
+    }
+    if spec.guarded && !guarded_exempt && key.split('.').next() != Some(owner.as_str()) {
+        return Err(ERR_INVALID);
+    }
+    Ok(spec)
 }
 
 /// What a batch stages beside its `Command`s, checked before anything is
@@ -900,6 +922,10 @@ mod hint_tests;
 #[cfg(test)]
 #[path = "commands_grant_tests.rs"]
 mod grant_tests;
+
+#[cfg(test)]
+#[path = "commands_reset_tests.rs"]
+mod reset_tests;
 
 #[cfg(test)]
 #[path = "commands_preview_tests.rs"]

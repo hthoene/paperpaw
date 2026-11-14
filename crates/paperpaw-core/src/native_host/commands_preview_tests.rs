@@ -93,7 +93,12 @@ const END: WireCommand<'static> = WireCommand::PreviewEnd { flags: 0 };
 
 /// One batch of a callback of `owner` for the screen on top (a work run's
 /// when `quiet`): staged, and applied by the kernel when it was accepted.
-fn submit(kernel: &mut crate::Kernel, owner: &str, quiet: bool, batch: &[WireCommand<'_>]) -> i32 {
+pub(super) fn submit(
+    kernel: &mut crate::Kernel,
+    owner: &str,
+    quiet: bool,
+    batch: &[WireCommand<'_>],
+) -> i32 {
     let owner = Id::parse(owner).unwrap();
     let held = kernel.preview_held(owner.as_str());
     let (status, commands, redraw) = {
