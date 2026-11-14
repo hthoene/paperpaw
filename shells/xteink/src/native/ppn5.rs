@@ -557,6 +557,10 @@ mod x4 {
         // its first frame is shown (`safe_mode::started`); after two in a
         // row the next goes without them (`paperpaw_x4::start_count`).
         crate::safe_mode::loading("native-linked");
+        // Measurement build: the timing of the host slots (the card loader's own
+        // hooks, set later, count them too).
+        #[cfg(feature = "test-image")]
+        paperpaw_core::native_host::host_slot::set(crate::hoststat::begin, crate::hoststat::end);
         let began = crate::micros();
         CREATING.store(true, core::sync::atomic::Ordering::Relaxed);
         // SAFETY: the entries are `native_plugin!(..., linked = NAME)` of crates

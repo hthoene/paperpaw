@@ -65,6 +65,8 @@ mod firmware;
 mod gray_test;
 #[cfg(feature = "test-image")]
 mod high_water;
+#[cfg(feature = "test-image")]
+mod hoststat;
 #[cfg(feature = "ppn5")]
 mod host_net;
 mod http;

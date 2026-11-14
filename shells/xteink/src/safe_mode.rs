@@ -326,12 +326,16 @@ pub fn running_call() -> Option<paperpaw_x4::escape::Running> {
 /// waits for the host, so the escape does not blame it meanwhile.
 #[cfg(feature = "ppn5")]
 pub fn host_begin() {
+    #[cfg(feature = "test-image")]
+    crate::hoststat::begin();
     with_inflight(Inflight::host_enter);
 }
 
 /// The host slot returned.
 #[cfg(feature = "ppn5")]
 pub fn host_end() {
+    #[cfg(feature = "test-image")]
+    crate::hoststat::end();
     with_inflight(Inflight::host_leave);
 }
 
