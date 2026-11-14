@@ -59,3 +59,39 @@ fn the_release_build_sets_the_release_feature() {
     );
     assert!(read("shells/xteink/Cargo.toml").contains("\nrelease = []"));
 }
+
+/// The device tests' never-sleep defaults (no idle sleep, awake on the cable, no
+/// switch-off) exist only in a statement behind `cfg(feature = "test-image")`:
+/// sleeping is the normal default of every other build.
+#[test]
+fn the_never_sleep_defaults_are_behind_the_test_image() {
+    let main = read("shells/xteink/src/main.rs");
+    let lines: Vec<&str> = main.lines().collect();
+    for (at, line) in lines.iter().enumerate() {
+        let sets_sleep = line.contains("settings::SLEEP_AFTER")
+            || line.contains("STAY_AWAKE_USB")
+            || line.contains("x4.power-off-after");
+        if sets_sleep && line.contains("setting_default") {
+            let behind = lines[at.saturating_sub(6)..at]
+                .iter()
+                .any(|before| before.contains(r#"#[cfg(feature = "test-image")]"#));
+            assert!(behind, "main.rs:{}: a sleep default outside the test image: {line}", at + 1);
+        }
+    }
+}
+
+/// The nested-gate test feature brings the test image (which `release` refuses).
+#[test]
+fn a_test_feature_that_opens_gates_brings_the_test_image() {
+    let manifest = read("shells/xteink/Cargo.toml");
+    for line in manifest.lines().filter(|l| l.starts_with("test-nested")) {
+        assert!(line.contains("\"test-image\""), "{line}");
+    }
+}
+
+/// A release is checked on the image itself: no test-image build gets through.
+#[test]
+fn the_release_checks_its_images_for_the_test_build() {
+    let workflow = read(".github/workflows/release.yml");
+    assert!(workflow.contains("check-owner-image.py --release"));
+}
