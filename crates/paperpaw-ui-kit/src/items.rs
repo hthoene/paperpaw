@@ -1149,6 +1149,57 @@ fn draw_title(
     Ok(())
 }
 
+/// The title's band and the note's area of a row with `shift` pixels taken at
+/// their start (for a picture or an icon).
+fn shifted(rect: Rect, band: Rect, shift: u16) -> (Rect, Rect) {
+    (
+        Rect::new(
+            band.x.saturating_add(shift),
+            band.y,
+            band.width.saturating_sub(shift),
+            band.height,
+        ),
+        Rect::new(
+            rect.x.saturating_add(shift),
+            rect.y,
+            rect.width.saturating_sub(shift),
+            rect.height,
+        ),
+    )
+}
+
+/// Draws the icon of a row at the start of its first line (`band`) and tells
+/// how far the title moves: the icon and a gap, before the title's own margin.
+fn row_icon(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    (rect, band): (Rect, Rect),
+    glyph: paperpaw_sdk::native::fonts::IconGlyph,
+    ink: paperpaw_sdk::Color,
+) -> Result<u16, Error> {
+    let size = style.text * 1.2;
+    let side = size as u16;
+    let at = style.flip(
+        rect,
+        Rect::new(
+            rect.x.saturating_add(style.margin),
+            band.y.saturating_add(band.height.saturating_sub(side) / 2),
+            side,
+            side,
+        ),
+    );
+    paint::push(
+        paint,
+        Paint::Icon {
+            glyph,
+            size,
+            origin: TextOrigin::new(f32::from(at.x), i32::from(at.y) + (size * 0.86) as i32),
+            color: ink,
+        },
+    )?;
+    Ok(side.saturating_add(style.margin / 2))
+}
+
 /// The value a row shows at the right: none for a switch, which shows its state.
 fn shown_value(row: &RowItem) -> &str {
     if row.on.is_some() { "" } else { &row.value }
@@ -1205,54 +1256,10 @@ pub(crate) fn draw_row(
     if let Some(zone) = row.zone {
         let shift = zone_room(style).min(rect.width);
         zone_picture(paint, style, band, zone, ink)?;
-        band = Rect::new(
-            band.x.saturating_add(shift),
-            band.y,
-            band.width.saturating_sub(shift),
-            band.height,
-        );
-        note_at = Rect::new(
-            rect.x.saturating_add(shift),
-            rect.y,
-            rect.width.saturating_sub(shift),
-            rect.height,
-        );
-    }
-    if let (Some(glyph), None) = (row.icon, row.zone) {
-        let size = style.text * 1.2;
-        let side = size as u16;
-        // The title's own margin follows: the icon, a gap and the margin.
-        let shift = side.saturating_add(style.margin / 2);
-        let at = style.flip(
-            rect,
-            Rect::new(
-                rect.x.saturating_add(style.margin),
-                band.y.saturating_add(band.height.saturating_sub(side) / 2),
-                side,
-                side,
-            ),
-        );
-        paint::push(
-            paint,
-            Paint::Icon {
-                glyph,
-                size,
-                origin: TextOrigin::new(f32::from(at.x), i32::from(at.y) + (size * 0.86) as i32),
-                color: ink,
-            },
-        )?;
-        band = Rect::new(
-            band.x.saturating_add(shift),
-            band.y,
-            band.width.saturating_sub(shift),
-            band.height,
-        );
-        note_at = Rect::new(
-            rect.x.saturating_add(shift),
-            rect.y,
-            rect.width.saturating_sub(shift),
-            rect.height,
-        );
+        (band, note_at) = shifted(rect, band, shift);
+    } else if let Some(glyph) = row.icon {
+        let shift = row_icon(paint, style, (rect, band), glyph, ink)?;
+        (band, note_at) = shifted(rect, band, shift);
     }
     // Laid out left to right; where the interface runs right to left the
     // parts are where their mirror images are.
