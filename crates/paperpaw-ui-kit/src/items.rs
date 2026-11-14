@@ -28,10 +28,10 @@ use stepper::draw_stepper;
 pub const NOTE_LINES: usize = 2;
 /// The lines a note takes at most in a row that shows its text whole.
 pub const WHOLE_NOTE_LINES: usize = 4;
-/// The lines a title takes at most in a small row that shows its text whole.
+/// The lines a title takes at most in a row that shows its text whole.
 pub const WHOLE_TITLE_LINES: usize = 2;
-/// The lines the title of a row of body text takes at most where it shows its
-/// text whole (what a plugin's page says it does).
+/// The lines the title of a row of body text (`plain`, not `small`) takes at
+/// most where it shows its text whole (what a plugin's page says it does).
 pub const WHOLE_BODY_LINES: usize = 4;
 
 /// One row of an [`ItemList`]: a title, a value at the right, a note below.
@@ -59,7 +59,7 @@ pub struct RowItem {
     /// (the settings' search), where other rows have a separator.
     pub field: bool,
     /// Its text is shown whole where it is long: the title wrapped to
-    /// [`WHOLE_BODY_LINES`] ([`WHOLE_TITLE_LINES`] in a small row) and the note
+    /// [`WHOLE_TITLE_LINES`] ([`WHOLE_BODY_LINES`] in a `plain` row) and the note
     /// to [`WHOLE_NOTE_LINES`], not cut with "…".
     pub whole: bool,
     /// A line of what a page says, not a row to choose: its title and icon in
@@ -936,8 +936,13 @@ fn title_lines(
 ) -> Result<(Vec<String>, u16), Error> {
     let mut lines = Vec::new();
     if row.whole && !row.stepper && !row.title.is_empty() {
-        // Both margins and, with a value, the gap before it.
-        let margins = if row.value.is_empty() { 2.0 } else { 3.0 };
+        // Text a page reads out takes both margins; any other row also the gap
+        // before its value.
+        let margins = if page_text(row) && row.value.is_empty() {
+            2.0
+        } else {
+            3.0
+        };
         let room = (f32::from(width) - margins * f32::from(style.margin)).max(1.0);
         let room = if row.icon.is_some() {
             (room - f32::from(icon_room(style))).max(1.0)
@@ -946,11 +951,7 @@ fn title_lines(
         };
         let value = font.measure_text(style.text, &row.value)?.min(room * 0.4);
         let title_room = (room - value).max(1.0);
-        let most = if row.small {
-            WHOLE_TITLE_LINES
-        } else {
-            WHOLE_BODY_LINES
-        };
+        let most = title_most(row);
         lines = wrap_title(
             |line| font.measure_text(style.text, line),
             &row.title,
@@ -964,6 +965,21 @@ fn title_lines(
     let line = crate::geometry::line_px(font, style.text)?;
     let block = line.saturating_mul(lines.len() as u16);
     Ok((lines, style.row.max(block.saturating_add(style.gap))))
+}
+
+/// Whether a row is text a page reads out (or small print), not a row to choose.
+fn page_text(row: &RowItem) -> bool {
+    row.plain || row.small
+}
+
+/// The lines a title of a row that shows its text whole takes at most: four for
+/// text a page reads out, two for a row to choose and for small print.
+fn title_most(row: &RowItem) -> usize {
+    if row.plain && !row.small {
+        WHOLE_BODY_LINES
+    } else {
+        WHOLE_TITLE_LINES
+    }
 }
 
 /// The lines a title wraps to (at most `most`): none where it fits on one line.
@@ -1179,8 +1195,8 @@ fn draw_title(
     lines: &[String],
     ink: paperpaw_sdk::Color,
 ) -> Result<(), Error> {
-    // Text shown whole with no value takes the room of both margins, no more.
-    let alone = row.whole && row.value.is_empty();
+    // Text a page reads out takes the room of both margins, no more.
+    let alone = row.whole && page_text(row) && row.value.is_empty();
     let line_of = |paint: &mut Vec<Paint>, rect: Rect, text: &str, value: &str| {
         if alone {
             let x = f32::from(rect.x) + f32::from(style.margin);
