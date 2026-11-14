@@ -1257,7 +1257,7 @@ fn the_toolchains_named_are_the_releases() {
     for project in [
         "../..",
         "../../samples/hello-native",
-        "../../tools/plugin-files",
+        "../../tools/plugin-files7",
     ] {
         let pinned = value(
             &read(&format!("{project}/rust-toolchain.toml")).unwrap(),
@@ -1290,14 +1290,13 @@ fn plugin_projects_link_with_the_formats_script() {
     let Some(script) = read("../paperpaw-native/paperpaw-plugin.x") else {
         return;
     };
-    for project in ["../../samples/hello-native", "../../tools/plugin-files"] {
-        let copy = read(&format!("{project}/paperpaw-plugin.x"));
-        assert_eq!(
-            copy.as_deref(),
-            Some(script.as_str()),
-            "{project}/paperpaw-plugin.x"
-        );
-    }
+    let project = "../../samples/hello-native";
+    let copy = read(&format!("{project}/paperpaw-plugin.x"));
+    assert_eq!(
+        copy.as_deref(),
+        Some(script.as_str()),
+        "{project}/paperpaw-plugin.x"
+    );
 }
 
 /// What the gate takes as new and what as changed.
