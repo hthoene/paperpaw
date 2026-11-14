@@ -107,7 +107,7 @@ impl BrowseView {
             let x = row.x.saturating_add(style.margin);
             let y = row.y.saturating_add(band.saturating_sub(side) / 2);
             let ground = if i + first == self.list.focus() && !style.ring {
-                paperpaw_sdk::Color::BLACK
+                style.ink
             } else {
                 style.paper
             };

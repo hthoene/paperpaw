@@ -5,7 +5,7 @@ use crate::layout::{self, ZoneHint};
 use crate::seen;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
-    Color, Handled, Point, Rect,
+    Handled, Point, Rect,
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
@@ -478,18 +478,13 @@ impl Overlay {
         for hint in &laid.zones {
             paint::push(
                 &mut ops,
-                Paint::Focus(hint.frame, 0, Some(line_w), Color::BLACK),
+                Paint::Focus(hint.frame, 0, Some(line_w), style.ink),
             )?;
             let label = hint.label;
-            paint::push(&mut ops, Paint::Fill(label, Color::WHITE))?;
+            paint::push(&mut ops, Paint::Fill(label, style.paper))?;
             paint::push(
                 &mut ops,
-                Paint::Focus(
-                    label,
-                    style.corner,
-                    Some(u32::from(style.line)),
-                    Color::BLACK,
-                ),
+                Paint::Focus(label, style.corner, Some(u32::from(style.line)), style.ink),
             )?;
             let width = f32::from(label.width.saturating_sub(style.gap.saturating_mul(2)));
             let wrapped =
@@ -499,16 +494,7 @@ impl Overlay {
                 let wide = font.measure_text(style.small, part)?;
                 let x = f32::from(label.x) + (f32::from(label.width) - wide).max(0.0) / 2.0;
                 let row = Rect::new(label.x, y, label.width, small);
-                text::label(
-                    &mut ops,
-                    &font,
-                    part,
-                    style.small,
-                    x,
-                    row,
-                    Color::BLACK,
-                    None,
-                )?;
+                text::label(&mut ops, &font, part, style.small, x, row, style.ink, None)?;
                 y = y.saturating_add(small);
             }
         }

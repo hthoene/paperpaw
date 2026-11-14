@@ -14,7 +14,7 @@
 //! grid, and what the host lacks to run any of it (H1, H4).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
-    Color, Handled, Point, Rect,
+    Handled, Point, Rect,
     keys::InputMode,
     native::{
         Error, Host,
@@ -1198,7 +1198,7 @@ pub(crate) fn ring(paint: &mut Vec<Paint>, target: Rect, style: &Style) -> Resul
             rect,
             style.corner,
             Some(u32::from(style.line).max(2)),
-            Color::BLACK,
+            style.ink,
         ),
     )
 }
