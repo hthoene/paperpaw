@@ -448,7 +448,10 @@ fn open_with_lists_the_readers_of_the_book_and_keeps_the_one_chosen() {
 }
 
 #[test]
-#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
+#[cfg_attr(
+    not(all(feature = "native-linked", not(feature = "native-linked-reading"))),
+    ignore = "the Settings and the menu it opens are native plugins (`native-linked`); the interface-6 reader and its resolver are not linked with `native-linked-reading` (#244)"
+)]
 fn by_touch_a_reading_app_is_tapped_in_the_list_and_in_the_settings() {
     let mut app = App::on(BOOX, books(), "", true);
     assert_eq!(app.opens("plain.ask-book"), "core.choice-dialog");

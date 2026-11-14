@@ -78,7 +78,14 @@ fn crate_of(id: &str) -> Option<String> {
 }
 
 #[test]
-#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
+#[cfg_attr(
+    not(all(
+        feature = "native-linked",
+        not(feature = "native-linked-reading"),
+        not(feature = "native-linked-store")
+    )),
+    ignore = "the app's own plugins are the native ones with `native-linked` only: the store plugins and the reader are not linked then (#244)"
+)]
 fn the_lean_set_keeps_what_a_beginner_needs() {
     let kernel = paperpaw_app::install_with(builder(), fonts(), paperpaw_app::StorePlugins::Left)
         .build_native();
@@ -108,8 +115,12 @@ fn the_lean_set_keeps_what_a_beginner_needs() {
 
 #[test]
 #[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+    not(all(
+        feature = "native-linked",
+        feature = "native-linked-reading",
+        feature = "native-linked-store"
+    )),
+    ignore = "every plugin crate is installed only with `native-linked`, `native-linked-reading` and `native-linked-store` (#244)"
 )]
 fn the_crates_listed_are_those_installed() {
     let kernel = native_activation::build(paperpaw_app::install(builder(), fonts()));

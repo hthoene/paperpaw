@@ -231,7 +231,7 @@ impl App {
 }
 
 #[test]
-#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
+#[ignore = "the host does not admit command.preview_setting / command.preview_end yet (ERR_UNSUPPORTED, Kernel todo 619; docs/abi/registry.md 4.4), so a number changed with the buttons shows no previe; and the native quick panel has no slider (todo 618) (#244)"]
 fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     let mut app = App::new();
     let effects = app.kernel.run_action(Instant(100), actions::QUICK_PANEL);

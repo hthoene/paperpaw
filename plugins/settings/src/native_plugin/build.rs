@@ -501,6 +501,12 @@ pub(super) fn build_group(
             .is_some_and(|e| e.setting.key == view.focus),
         _ => false,
     });
+    // The first time a page is shown, focus starts on its first setting, not
+    // on an action a plugin added above them (as Discover fonts).
+    let first_setting = rows
+        .iter()
+        .position(|r| matches!(r, Row::Setting(_)))
+        .filter(|_| view.rows.is_empty() && matches!(rows.first(), Some(Row::Action(..))));
     view.group = group;
     view.title = title;
     view.rows = rows;
@@ -511,6 +517,8 @@ pub(super) fn build_group(
             view.list.set_focus(at);
         }
         view.focus = String::new();
+    } else if let Some(at) = first_setting {
+        view.list.set_focus(at);
     }
     Ok(())
 }

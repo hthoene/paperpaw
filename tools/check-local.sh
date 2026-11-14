@@ -292,7 +292,8 @@ if [[ "$native_wanted" == 1 ]]; then
         cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles
         cargo test -j"$1" -p paperpaw-app --features native-linked-reading --test linked_settings_tables
         cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
-        cargo test -j"$1" -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers' _ "$jobs"
+        cargo test -j"$1" -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets
+        cargo test -j"$1" -p paperpaw-app --features native-linked --test sets --test readers --test standard' _ "$jobs"
 elif ! wanted test-native; then
     skipped+=("test-native (left out by --only/--skip)")
 else
