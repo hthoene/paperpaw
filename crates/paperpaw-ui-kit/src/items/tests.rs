@@ -93,6 +93,7 @@ fn style() -> Style {
         button: crate::style::ButtonLook::Outlined,
         mono: false,
         roles: crate::style::Roles::default(),
+        separator_dither: false,
         separator_ink: paperpaw_sdk::Color::BLACK,
         text: 22.0,
         small: 17.0,

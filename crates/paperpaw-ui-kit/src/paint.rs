@@ -17,6 +17,8 @@ use paperpaw_sdk::{
 pub enum Paint {
     /// A filled rectangle.
     Fill(Rect, Color),
+    /// A light separator on a monochrome display, ordered dithered.
+    Stipple(Rect, Color),
     /// A rounded rectangle: bounds, radius, stroke thickness (`None`: filled), colour.
     Focus(Rect, u32, Option<u32>, Color),
     /// A straight line from one point to the other, `width` pixels thick.
@@ -368,6 +370,8 @@ pub fn replay_icons<'a>(
     icons: Option<&Font<'_>>,
     ops: impl IntoIterator<Item = &'a Paint>,
 ) -> Result<(), Error> {
+    let clip_top = frame.clip_top - frame.rect.y;
+    let clip_bottom = frame.clip_bottom - frame.rect.y;
     let mut canvas = frame.draw_canvas()?;
     // Whether anybody asks what is drawn; once not, no more is told.
     let mut asked = true;
@@ -397,6 +401,19 @@ pub fn replay_icons<'a>(
                 }
             }
             Paint::Fill(rect, color) => canvas.fill_rectangle(frame_rect(*rect), *color)?,
+            Paint::Stipple(rect, color) => {
+                for y in rect.y..rect.y.saturating_add(rect.height) {
+                    if i32::from(y) < clip_top || i32::from(y) >= clip_bottom {
+                        continue;
+                    }
+                    for x in rect.x..rect.x.saturating_add(rect.width) {
+                        if stipple_ink(x, y, *color) {
+                            canvas
+                                .fill_rectangle(frame_rect(Rect::new(x, y, 1, 1)), Color::BLACK)?;
+                        }
+                    }
+                }
+            }
             Paint::Focus(rect, radius, thickness, color) => match thickness {
                 Some(thickness) => {
                     canvas.stroke_rounded_rectangle(
@@ -528,5 +545,27 @@ mod tests {
         ] {
             assert_eq!(bold_extra(size), extra, "size {size}");
         }
+    }
+}
+
+// The same 4 × 4 ordered threshold used for Beta 3's tinted separators.
+fn stipple_ink(x: u16, y: u16, color: Color) -> bool {
+    const BAYER: [[i32; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+    let offset = (2 * BAYER[usize::from(y % 4)][usize::from(x % 4)] - 15) * 255 / 32;
+    i32::from(color.luma()) + offset < 128
+}
+
+#[cfg(test)]
+mod stipple_tests {
+    use super::*;
+
+    #[test]
+    fn faint_mono_separators_keep_ink_instead_of_rounding_to_white() {
+        let pixels: alloc::vec::Vec<_> = (0..4)
+            .flat_map(|y| (0..4).map(move |x| stipple_ink(x, y, Color::gray(210))))
+            .collect();
+        assert_eq!(pixels.iter().filter(|ink| **ink).count(), 3);
+        assert!((0..4).all(|x| !stipple_ink(x, 0, Color::WHITE)));
+        assert!((0..4).all(|x| stipple_ink(x, 0, Color::BLACK)));
     }
 }

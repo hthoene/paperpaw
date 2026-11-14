@@ -209,6 +209,8 @@ pub struct Style {
     /// The colours a theme gave the parts beyond the palette's grays.
     pub roles: Roles,
     pub separator_ink: Color,
+    /// Dither separator tints for the monochrome UI of grayscale panels.
+    pub separator_dither: bool,
     pub text: f32,
     pub small: f32,
     pub title: f32,
@@ -305,6 +307,7 @@ impl Style {
             } else {
                 Roles::read(&palette)
             },
+            separator_dither: !display.display_is_colour(),
             separator_ink: if setting_text(host, UI_SEPARATORS)? == "core.separators.inset" {
                 color("line-faint", Color::gray(210))
             } else {
@@ -764,6 +767,7 @@ impl Style {
             button: ButtonLook::Outlined,
             mono: false,
             roles: Roles::default(),
+            separator_dither: false,
             separator_ink: Color::rgb(3, 4, 5),
             text: 22.0,
             small: 17.0,

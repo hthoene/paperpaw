@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-bluetooth"
 description = "PaperPaw Bluetooth: pairs remotes, keyboards and sensors, forgets them, and says when remotes connect"
-version = "1.0.3"
+version = "1.0.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
