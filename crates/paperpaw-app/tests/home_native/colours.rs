@@ -61,12 +61,11 @@ fn the_empty_start_card_reads_on_a_dark_card_and_on_a_paper_the_reader_chose() {
     }
 }
 
-/// The status line above the grid (Beta 3 showed the time and the battery there on
-/// every device): its look is read with `core.registry` `setting` for
-/// `home.status.paper`, which answers `NoSpace` in a 2,048 byte reply, so the
-/// strip stays empty (#257).
+/// The status line above the grid shows the time and the battery on every device,
+/// as in Beta 3. Its look is read with the registry's `setting` for
+/// `home.status.paper`, which the host answers only in a reply of 4,096 bytes
+/// (2,048 made it `NoSpace` and left the strip empty, #257).
 #[test]
-#[ignore = "the status line draws nothing: the registry's `setting` answers NoSpace for home.status.paper (#257, Kernel)"]
 fn the_status_line_draws_in_the_strip_above_the_grid() {
     for memory in [
         paperpaw_platform::MemoryClass::Small,
@@ -74,6 +73,17 @@ fn the_status_line_draws_in_the_strip_above_the_grid() {
     ] {
         let mut app = App::new(X4.with_memory(memory), Shared::memory(BASE_CONFIG, &[]));
         app.home();
+        // The device tells the time and the charge, as a shell does.
+        let status = paperpaw_platform::SystemStatus::new(
+            Some(paperpaw_platform::WallClock::new(
+                paperpaw_platform::Instant(0),
+                1_791_967_260_000,
+                Some(120),
+            )),
+            Some(paperpaw_platform::Battery::new(80, false, None)),
+        );
+        let effects = app.kernel.set_status(paperpaw_platform::Instant(0), status);
+        app.settle(effects);
         app.render();
         let mut dark = 0;
         for y in 0..60 {
