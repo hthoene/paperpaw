@@ -684,4 +684,3 @@ pub fn install_with(
     // A theme of the app's own, off as it ships, on every device.
     b.plugin_off(Pebble)
 }
-

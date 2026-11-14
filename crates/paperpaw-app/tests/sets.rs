@@ -139,8 +139,8 @@ fn the_crates_listed_are_those_installed() {
 #[cfg(feature = "store-plugins")]
 #[test]
 #[cfg_attr(
-    feature = "native-linked-store",
-    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
+    feature = "native-linked",
+    ignore = "the store plugins are native-linked only (their interface-6 forms are out) and these tests count the interface-6 ones (#244)"
 )]
 fn built_in_store_plugins_are_off_unless_used() {
     // Only the plugins that still have an interface-6 form are built in
@@ -188,8 +188,8 @@ fn a_reader_who_ran_paperpaw_before_keeps_the_plugins_as_they_were() {
 #[cfg(feature = "store-plugins")]
 #[test]
 #[cfg_attr(
-    feature = "native-linked-store",
-    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
+    feature = "native-linked",
+    ignore = "the store plugins are native-linked only (their interface-6 forms are out) and these tests count the interface-6 ones (#244)"
 )]
 fn a_store_plugin_switched_off_before_stays_off() {
     // Android, for a reader who ran PaperPaw before and switched one off.
@@ -224,8 +224,8 @@ fn a_store_plugin_switched_off_before_stays_off() {
 #[cfg(feature = "store-plugins")]
 #[test]
 #[cfg_attr(
-    feature = "native-linked-store",
-    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
+    feature = "native-linked",
+    ignore = "the store plugins are native-linked only (their interface-6 forms are out) and these tests count the interface-6 ones (#244)"
 )]
 fn every_store_plugin_is_one_of_the_app() {
     // The list the shells use names every plugin the feature builds in.

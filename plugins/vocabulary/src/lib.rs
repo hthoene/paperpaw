@@ -2,7 +2,7 @@
 //! and book, to go over later.
 //!
 //! The reader announces every word looked up
-//! ([`events::WORD_LOOKED_UP`]); this plugin keeps it (setting
+//! (`events::WORD_LOOKED_UP`); this plugin keeps it (setting
 //! `vocabulary.collect`, on at first), newest first. *Vocabulary* in the
 //! main menu lists them: a tap looks the word up again, holding it offers
 //! to go to its place in the book or to delete it. The last row exports

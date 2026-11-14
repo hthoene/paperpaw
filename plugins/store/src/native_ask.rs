@@ -1,10 +1,9 @@
 //! What the store asks, and how it reads the answers (slice 7, host-light):
 //! the dialog of plugins another plugin asks for (events 77 and 78), the
-//! first-run offer of a few plugins and the offer of Literata's bold and
-//! italic. Each is a pure function of what the plugin read (the card, the
+//! first-run offer of a few plugins. Each is a pure function of what the plugin read (the card, the
 //! answer, a few facts of the device) giving data or a [`Next`]; the plugin
 //! executes the host calls (`Ui::ask`, `answer_plugin`, the queue's start).
-//! The interface-6 rules of `request.rs`, `setup.rs` and `styles.rs`, the same
+//! The interface-6 rules of `request.rs` and `setup.rs`, the same
 //! words (`i18n/{en,de}.ini`), the same files (a Beta 3 card is read as it is).
 //!
 //! Texts come through [`Say`] (the host's catalog in [`Words`], a table in
@@ -32,7 +31,7 @@ use paperpaw_ui_kit::{
 
 use crate::native_index::Index;
 use crate::native_model::Entry;
-use crate::native_queue::{Mark, Queue, Report, join_names, read_text};
+use crate::native_queue::{Mark, Queue, Report, join_names};
 use crate::native_request::{self, Finished, Last, Request, Verdict};
 use crate::native_screens::Next;
 
@@ -890,109 +889,6 @@ pub fn name_of(say: &mut dyn Say, id: &str) -> Result<String, Error> {
     copy(id)
 }
 
-// ---------------------------------------------------------------------------
-// The styles offer (Literata's bold and italic)
-// ---------------------------------------------------------------------------
-
-/// The plugin with the faces.
-pub const PACK: &str = "literata-styles";
-/// How often the store may answer for it at most (it came, or it did not
-/// install), over all starts.
-pub const TRIES: u32 = 3;
-/// How often the store answered for it, and that the hint was said.
-pub const TRIES_FILE: &str = "styles-tries.txt";
-pub const HINTED_FILE: &str = "styles-hinted.txt";
-
-/// What the firmware has of the faces.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "four facts of the device, read apart"
-)]
-pub struct Faces {
-    /// The firmware's regular face: where it is, Literata is the default.
-    pub regular: bool,
-    /// The faces built in (`fonts-default.literata-bold`).
-    pub bold_built_in: bool,
-    /// The faces of the pack (`literata-styles.bold`).
-    pub bold_from_pack: bool,
-    /// The pack is on the device.
-    pub pack_installed: bool,
-}
-
-impl Faces {
-    /// Whether this firmware has Literata but not its bold, and the plugin is not
-    /// on the card.
-    #[must_use]
-    pub const fn lacks_styles(self) -> bool {
-        self.regular && !self.bold_built_in && !self.bold_from_pack && !self.pack_installed
-    }
-}
-
-/// How often the store answered for the pack (0 where nothing is kept).
-///
-/// # Errors
-/// `NoMemory`.
-pub fn tries(storage: &dyn Storage) -> Result<u32, Error> {
-    Ok(read_text(storage, TRIES_FILE, 16)?
-        .and_then(|text| text.trim().parse().ok())
-        .unwrap_or(0))
-}
-
-/// Puts the pack in the quiet queue if it is wanted at this start: the
-/// firmware lacks it, the first-run setup is over (`setup_done`, the setup's
-/// own folder), the network is there, the device and the library are known
-/// (`device_known`), it is not queued and tried fewer than [`TRIES`] times.
-/// Whether it was put in (then the caller starts the queue).
-///
-/// # Errors
-/// `NoMemory`; `Io` where the card refuses the queue.
-pub fn styles_offer(
-    storage: &dyn Storage,
-    faces: Faces,
-    (setup_done, online, device_known): (bool, bool, bool),
-) -> Result<bool, Error> {
-    if !faces.lacks_styles() || !setup_done || !online || !device_known {
-        return Ok(false);
-    }
-    let mut queue = Queue::read(storage)?;
-    if queue.lines().iter().any(|line| line.id == PACK) || tries(storage)? >= TRIES {
-        return Ok(false);
-    }
-    queue.add([PACK], Mark::Quiet)?;
-    queue.keep(storage)?;
-    Ok(true)
-}
-
-/// Keeps that the store answered for plugin `id` (with `status`, 0 where there
-/// was no connection at all): only an answer is a try.
-///
-/// # Errors
-/// `NoMemory`.
-pub fn styles_answered(storage: &dyn Storage, id: &str, status: u16) -> Result<(), Error> {
-    if id != PACK || status == 0 {
-        return Ok(());
-    }
-    let mut digits = [0; 20];
-    let next = tries(storage)?.saturating_add(1);
-    let text = decimal_u64(u64::from(next), &mut digits);
-    // A try not kept is none: the offer may be made once more.
-    match storage.write(TRIES_FILE, text.as_bytes()) {
-        Ok(()) | Err(_) => Ok(()),
-    }
-}
-
-/// Whether the hint to connect once is to be said now: the first time only, as
-/// it is kept.
-pub fn hint_due(storage: &dyn Storage) -> bool {
-    if storage.exists(HINTED_FILE) {
-        return false;
-    }
-    match storage.write(HINTED_FILE, b"1") {
-        Ok(()) | Err(_) => true,
-    }
-}
-
 /// The names of `list` (joined with `, `) without `name`, if it is one.
 ///
 /// # Errors
@@ -1011,33 +907,15 @@ pub fn without(list: &str, name: &str) -> Result<Option<String>, Error> {
 }
 
 /// What is said once no quiet plugin waits any more and the notes are read
-/// (`native_queue::report`): the faces of Literata have a hint of their own
-/// (what helps is the network, not the store; said once), then what was added
-/// and what could not be.
+/// (`native_queue::report`): what was added and what could not be.
 ///
 /// # Errors
 /// `NoMemory`, or what the host refuses.
-pub fn quiet_notices(
-    storage: &dyn Storage,
-    say: &mut dyn Say,
-    report: &Report,
-) -> Result<Vec<String>, Error> {
+pub fn quiet_notices(say: &mut dyn Say, report: &Report) -> Result<Vec<String>, Error> {
     let mut notices = Vec::new();
-    let mut not = copy(&report.not)?;
-    let styles = name_of(say, PACK)?;
-    if let Some(rest) = without(&not, &styles)? {
-        not = rest;
-        if hint_due(storage) {
-            let name = Arg::Text {
-                name: "name",
-                value: &styles,
-            };
-            push(&mut notices, say.format("store.styles.later", &[name])?)?;
-        }
-    }
     for (key, names) in [
         ("store.offer.done", report.done.as_str()),
-        ("store.offer.not-done", not.as_str()),
+        ("store.offer.not-done", report.not.as_str()),
     ] {
         if !names.is_empty() {
             let arg = Arg::Text {
@@ -1062,7 +940,6 @@ mod tests {
     #[test]
     fn the_constants_are_the_pinned_ones() {
         assert_eq!(OFFERED, ["stats", "widgets", "calibre", "kosync"]);
-        assert_eq!(PACK, "literata-styles");
         assert_eq!(native_request::DECLINED_MS, 60_000);
         assert_eq!(MAX_TEXT, 1024);
     }

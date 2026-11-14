@@ -7,3 +7,7 @@
 ### Added
 
 - **Discover fonts is back on the Text page of the reading settings** (#244). It opens the fonts browser's list, or says why it cannot (not installed, switched off, waiting for a restart, could not start) and offers the one thing to do about it, in English and German.
+
+### Changed
+
+- **The Plugin store no longer fetches Literata's bold and italic at the first start** (#258, Decision 186). The lean firmware has no Literata of its own any more; `literata-styles` is in the store like any other plugin.
