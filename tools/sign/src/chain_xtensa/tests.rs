@@ -4,17 +4,17 @@ use super::*;
 use crate::elf::ET_EXEC;
 use crate::elf::build::Builder;
 
-const BASE: u32 = 0x4200_0000;
-const RETW_N: [u8; 2] = [0x1d, 0xf0];
+pub(super) const BASE: u32 = 0x4200_0000;
+pub(super) const RETW_N: [u8; 2] = [0x1d, 0xf0];
 
 /// `entry a1, <frame>` (frame in bytes, a multiple of 8).
-fn entry(frame: u32) -> [u8; 3] {
+pub(super) fn entry(frame: u32) -> [u8; 3] {
     let w = 0x36 | 1 << 8 | (frame / 8) << 12;
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
 }
 
 /// `call<n>` from `at` to `target` (n = 0, 4, 8 or 12).
-fn call(n: u32, at: u32, target: u32) -> [u8; 3] {
+pub(super) fn call(n: u32, at: u32, target: u32) -> [u8; 3] {
     let offset = ((i64::from(target >> 2) - i64::from(at >> 2) - 1) as u32) & 0x3_FFFF;
     let w = 0x05 | (n / 4) << 4 | offset << 6;
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
@@ -56,7 +56,7 @@ fn firmware(funcs: &[(&str, Vec<u8>)]) -> (Vec<u8>, Vec<u32>) {
     (b.build(), starts)
 }
 
-fn run(funcs: &[(&str, Vec<u8>)], roots: &[&str], extra: &str) -> Report {
+pub(super) fn run(funcs: &[(&str, Vec<u8>)], roots: &[&str], extra: &str) -> Report {
     let (bytes, _) = firmware(funcs);
     let elf = Elf::parse(&bytes).unwrap();
     let text = format!(
@@ -69,7 +69,7 @@ fn run(funcs: &[(&str, Vec<u8>)], roots: &[&str], extra: &str) -> Report {
     check(&elf, &Budget::parse(&text).unwrap()).unwrap()
 }
 
-fn f(parts: &[&[u8]]) -> Vec<u8> {
+pub(super) fn f(parts: &[&[u8]]) -> Vec<u8> {
     parts.concat()
 }
 
@@ -1287,7 +1287,7 @@ fn a_symbol_loses_its_hash_and_local_copy_suffix_and_nothing_else() {
 }
 
 /// `_ZN<len>krate<len>name17h<hash>E`.
-fn sym(krate: &str, name: &str, hash: u32) -> String {
+pub(super) fn sym(krate: &str, name: &str, hash: u32) -> String {
     format!(
         "_ZN{}{krate}{}{name}17h{hash:016x}E",
         krate.len(),
@@ -1415,4 +1415,45 @@ fn an_include_line_brings_in_a_file_beside_the_budget_and_nothing_deeper() {
     assert!(expand_includes("include deep.txt\n", &base).is_err());
     assert!(expand_includes("include missing.txt\n", &base).is_err());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_frames_in_line_holds_every_function_of_the_family_reached_or_not() {
+    let a = BASE;
+    let root = f(&[&entry(32), &call(8, a + 3, a + 16), &RETW_N]);
+    let (x, y, z) = (
+        sym("paperpaw_plugin_one", "run", 1),
+        sym("paperpaw_plugin_two", "idle", 2),
+        sym("paperpaw_other", "big", 3),
+    );
+    // `y` and `z` are reached by no root; their frames are 2,048 (the limit) and 2,056.
+    let funcs = [
+        ("root", root),
+        (x.as_str(), f(&[&entry(64), &RETW_N])),
+        (y.as_str(), f(&[&entry(2032), &RETW_N])),
+        (z.as_str(), f(&[&entry(2040), &RETW_N])),
+    ];
+    let none = run(&funcs, &["root"], "");
+    assert!(none.problems.is_empty(), "{:?}", none.problems);
+    let held = run(
+        &funcs,
+        &["root"],
+        "frames-in paperpaw_plugin_* the plugins\n",
+    );
+    assert_eq!(held.problems.len(), 1, "{:?}", held.problems);
+    assert!(
+        held.problems[0].contains("paperpaw_plugin_two::idle")
+            && held.problems[0].contains("takes a frame")
+    );
+    // A module path, an exact crate and a line that matches nothing.
+    let path = run(&funcs, &["root"], "frames-in paperpaw_other::big the one\n");
+    assert_eq!(path.problems.len(), 1, "{:?}", path.problems);
+    let exact = run(&funcs, &["root"], "frames-in paperpaw_plugin_one fine\n");
+    assert!(exact.problems.is_empty(), "{:?}", exact.problems);
+    let gone = run(&funcs, &["root"], "frames-in paperpaw_gone why\n");
+    assert!(
+        gone.problems[0].contains("matches no function"),
+        "{:?}",
+        gone.problems
+    );
 }
