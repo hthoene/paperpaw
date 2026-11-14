@@ -435,7 +435,7 @@ allow indirect paperpaw_core::native_host::lease_slot::Slot::running 1 new in tr
 allow indirect _ZN4core3ptr110drop_glue$LT$alloc..boxed..Box$LT$dyn$u20$paperpaw_core..native_host..native_instances..NativeInstance$GT$$GT$ 1 new in train 23: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::found::lookup_with 2 new in train 25: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect stage_run 3 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect status_ask 8 the inlining moved with the stack of #1452 and #1465 (drift, not a new frame): a call through a register the scan does not follow (a closure or a `&dyn` call); its callees are covered by device test S4
+allow indirect status_ask 7 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect call_native 1 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect compose 1 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect dropped 1 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
