@@ -48,6 +48,7 @@ use crate::native_pages;
 use crate::native_shown::Shown;
 use crate::native_source::HostSource;
 use crate::native_stage as stage;
+use paperpaw_sdk::native::text::MAX_BREAKS;
 
 /// One item of the page as it shows.
 #[derive(Debug)]
@@ -792,7 +793,16 @@ impl Dashboard {
             icons: icon_font.as_ref(),
             circle: circle.as_ref(),
         };
-        self.paint_page(&mut below, &fonts, &style, (laid, drawing.is_some()))?;
+        // Names hyphenated in the interface language, as Beta 3's grid did.
+        let hyphens = icons::Hyphens::of(host);
+        let mut breaks = |word: &str, out: &mut [u8; MAX_BREAKS]| hyphens.breaks(host, word, out);
+        self.paint_page(
+            &mut below,
+            &fonts,
+            &style,
+            (laid, drawing.is_some()),
+            &mut breaks,
+        )?;
         self.drag_frame(&mut above, &style, laid)?;
         if self.focus.shown()
             && let Some(target) = laid.targets.get(self.focus.at())
