@@ -1,0 +1,336 @@
+//! What a stream of appends costs the card, in commands: the picture cache
+//! of a book is written by appending 4 KB pieces to one growing file (#250).
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "tests panic on purpose when something is wrong"
+)]
+
+mod common;
+
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use paperpaw_fat::fatfs::{
+    FatType, FileSystem, FormatVolumeOptions, FsOptions, Seek, SeekFrom, Write,
+};
+use paperpaw_fat::{BLOCK, BlockDisk, Blocks, DiskError, FatStorage, SharedDisk};
+use paperpaw_platform::Storage;
+
+#[derive(Default)]
+struct Counts {
+    log: Vec<(u32, usize)>,
+    /// Every write command's blocks, in order, kept while `keep` is set.
+    kept: Vec<(u32, Vec<u8>)>,
+    keep: bool,
+    write_commands: usize,
+    write_blocks: usize,
+    read_commands: usize,
+}
+
+#[derive(Clone)]
+struct Counted {
+    bytes: Rc<RefCell<Vec<u8>>>,
+    counts: Rc<RefCell<Counts>>,
+}
+
+impl Blocks for Counted {
+    fn read_block(&mut self, index: u32, block: &mut [u8; BLOCK]) -> Result<(), DiskError> {
+        self.read_blocks(index, block)
+    }
+    fn read_blocks(&mut self, index: u32, data: &mut [u8]) -> Result<(), DiskError> {
+        self.counts.borrow_mut().read_commands += 1;
+        let at = index as usize * BLOCK;
+        data.copy_from_slice(
+            self.bytes
+                .borrow()
+                .get(at..at + data.len())
+                .ok_or(DiskError)?,
+        );
+        Ok(())
+    }
+    fn write_block(&mut self, index: u32, block: &[u8; BLOCK]) -> Result<(), DiskError> {
+        self.write_blocks(index, block)
+    }
+    fn write_blocks(&mut self, index: u32, data: &[u8]) -> Result<(), DiskError> {
+        {
+            let mut c = self.counts.borrow_mut();
+            c.write_commands += 1;
+            c.write_blocks += data.len() / BLOCK;
+            c.log.push((index, data.len() / BLOCK));
+            if c.keep {
+                c.kept.push((index, data.to_vec()));
+            }
+        }
+        let at = index as usize * BLOCK;
+        self.bytes
+            .borrow_mut()
+            .get_mut(at..at + data.len())
+            .ok_or(DiskError)?
+            .copy_from_slice(data);
+        Ok(())
+    }
+    fn blocks(&mut self) -> Result<u32, DiskError> {
+        Ok((self.bytes.borrow().len() / BLOCK) as u32)
+    }
+}
+
+type Fat = FatStorage<SharedDisk<Counted>>;
+
+fn card(cluster: u32, size: usize) -> (&'static Fat, Counted) {
+    let bytes = Rc::new(RefCell::new(vec![0u8; size]));
+    let counted = Counted {
+        bytes,
+        counts: Rc::default(),
+    };
+    let mut disk = BlockDisk::new(counted.clone()).unwrap();
+    paperpaw_fat::fatfs::format_volume(
+        &mut disk,
+        FormatVolumeOptions::new()
+            .fat_type(FatType::Fat32)
+            .bytes_per_cluster(cluster),
+    )
+    .unwrap();
+    disk.flush().unwrap();
+    let mut disk = BlockDisk::new(counted.clone()).unwrap();
+    disk.seek(SeekFrom::Start(0)).unwrap();
+    let shared = SharedDisk::new(disk);
+    let fs = FileSystem::new(shared.clone(), FsOptions::new()).unwrap();
+    let storage = FatStorage::new(Box::leak(Box::new(fs))).with_disk(shared);
+    (Box::leak(Box::new(storage)), counted)
+}
+
+/// 4 KB pieces appended to one file, as a decoded picture is written: about one
+/// write command each, where it took five (the FAT block of the new cluster and its
+/// copy, written twice each in order, and the data).
+#[test]
+fn picture_sized_appends_cost_about_one_command_each() {
+    for cluster in [4096u32, 8192, 16384, 32768] {
+        let (storage, counted) = card(cluster, cluster as usize * 70_000);
+        storage.create_dir("cache").unwrap();
+        storage.sync().unwrap();
+        let before = counted.counts.borrow().write_commands;
+        let data = vec![0xA5u8; 4096];
+        for _ in 0..100 {
+            storage.append("cache/img.gray", &data).unwrap();
+        }
+        storage.sync().unwrap();
+        let commands = counted.counts.borrow().write_commands - before;
+        assert!(
+            commands <= 135,
+            "cluster {cluster} B: {commands} write commands for 100 appends of 4096 B"
+        );
+    }
+}
+
+/// The FAT of a card's bytes: its first copy's entries, for the clusters (index 0 is
+/// cluster 2), and the clusters' count.
+fn fat_entries(bytes: &[u8]) -> Vec<u32> {
+    let u16_at = |at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]) as usize;
+    let u32_at = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+    let sector = u16_at(11);
+    let per_cluster = bytes[13] as usize;
+    let reserved = u16_at(14);
+    let fats = bytes[16] as usize;
+    let root = u16_at(17);
+    let total = match u16_at(19) {
+        0 => u32_at(32),
+        n => n,
+    };
+    let fat32 = u16_at(22) == 0;
+    let per_fat = if fat32 { u32_at(36) } else { u16_at(22) };
+    let data = total - reserved - fats * per_fat - (root * 32).div_ceil(sector);
+    let clusters = data / per_cluster;
+    let at = reserved * sector;
+    (2..clusters + 2)
+        .map(|n| {
+            if fat32 {
+                (u32_at(at + n * 4) & 0x0FFF_FFFF) as u32
+            } else {
+                u16_at(at + n * 2) as u32
+            }
+        })
+        .collect()
+}
+
+/// The FAT of `bytes` must hold no link into a free cluster and no two links to one.
+fn check_chains(bytes: &[u8], when: &str) {
+    let entries = fat_entries(bytes);
+    let end = |v: u32| v >= 0xFFF8 && v != 0x0FFF_FFF7 && v != 0xFFF7 || v >= 0x0FFF_FFF8;
+    let mut pointed = vec![0u8; entries.len() + 2];
+    for (i, &v) in entries.iter().enumerate() {
+        if v == 0 || end(v) || v == 0xFFF7 || v == 0x0FFF_FFF7 {
+            continue;
+        }
+        let n = v as usize;
+        assert!(
+            n >= 2 && n < entries.len() + 2,
+            "{when}: cluster {} links to {n}, outside",
+            i + 2
+        );
+        assert!(
+            entries[n - 2] != 0,
+            "{when}: cluster {} links into free cluster {n}",
+            i + 2
+        );
+        pointed[n] += 1;
+        assert!(pointed[n] == 1, "{when}: two links to cluster {n}");
+    }
+}
+
+/// How many clusters the FAT of `bytes` holds taken.
+fn used_clusters(bytes: &[u8]) -> usize {
+    fat_entries(bytes).iter().filter(|&&v| v != 0).count()
+}
+
+/// Cut off before any write command of a stream of appends (of sizes that cross FAT
+/// blocks, on a small cluster so that they do), and after it: the FAT never links into a
+/// free cluster or twice to one, the file reads as a prefix of what was appended, the next
+/// append goes on from there, and removing the file gives all its clusters back.
+#[test]
+fn a_cut_in_a_stream_of_appends_leaves_a_sound_volume() {
+    // FAT16 with clusters of 512 B: a run crosses blocks of the FAT every 256 clusters.
+    let bytes = Rc::new(RefCell::new(vec![0u8; 24 << 20]));
+    let counted = Counted {
+        bytes: bytes.clone(),
+        counts: Rc::default(),
+    };
+    {
+        let mut disk = BlockDisk::new(counted.clone()).unwrap();
+        paperpaw_fat::fatfs::format_volume(
+            &mut disk,
+            FormatVolumeOptions::new()
+                .fat_type(FatType::Fat16)
+                .bytes_per_cluster(512),
+        )
+        .unwrap();
+        disk.flush().unwrap();
+    }
+    let before_stream = bytes.borrow().clone();
+    let used_before = used_clusters(&before_stream);
+    counted.counts.borrow_mut().keep = true;
+    let storage = {
+        let mut disk = BlockDisk::new(counted.clone()).unwrap();
+        disk.seek(SeekFrom::Start(0)).unwrap();
+        let shared = SharedDisk::new(disk);
+        let fs = FileSystem::new(shared.clone(), FsOptions::new()).unwrap();
+        FatStorage::new(Box::leak(Box::new(fs))).with_disk(shared)
+    };
+    storage.create_dir("cache").unwrap();
+    let mut whole = Vec::new();
+    for (i, size) in [
+        700usize, 3000, 4096, 900, 8192, 12_000, 2500, 40_000, 5000, 70_000, 3000, 9000, 20_000,
+    ]
+    .iter()
+    .enumerate()
+    {
+        let piece: Vec<u8> = (0..*size).map(|k| (k * 7 + i * 13) as u8).collect();
+        storage.append("cache/img.gray", &piece).unwrap();
+        whole.extend_from_slice(&piece);
+    }
+    storage.sync().unwrap();
+    let log = std::mem::take(&mut counted.counts.borrow_mut().kept);
+    assert!(log.len() > 150, "{} commands", log.len());
+    // Clean end: the file is whole and takes the clusters it needs, no more.
+    let end_bytes = bytes.borrow().clone();
+    check_chains(&end_bytes, "after the stream");
+    let used_after = used_clusters(&end_bytes);
+    assert_eq!(
+        used_after - used_before,
+        whole.len().div_ceil(512) + 1,
+        "clusters taken (and the folder's)"
+    );
+
+    let mut image = before_stream.clone();
+    for (k, (index, data)) in log.iter().enumerate() {
+        // Before command k.
+        let copy = Rc::new(RefCell::new(image.clone()));
+        check_chains(&copy.borrow(), &format!("before command {k}"));
+        let card = common::Card::mount(common::Bytes(copy));
+        let size = card.storage.size("cache/img.gray").unwrap_or(0) as usize;
+        assert!(size <= whole.len(), "before command {k}: size {size}");
+        if size > 0 {
+            assert_eq!(
+                common::read(card.storage, "cache/img.gray"),
+                whole[..size],
+                "before command {k}: what is read is not what was appended"
+            );
+        }
+        // The next append goes on from there, and removing frees every cluster.
+        if k % 9 == 0 {
+            let rest = &whole[size..];
+            if !rest.is_empty() {
+                card.storage
+                    .append("cache/img.gray", &rest[..rest.len().min(5000)])
+                    .unwrap();
+            }
+            card.storage.sync().unwrap();
+            let got = common::read(card.storage, "cache/img.gray");
+            assert_eq!(
+                got,
+                whole[..got.len()],
+                "before command {k}: after one append more"
+            );
+            card.storage.remove("cache/img.gray").unwrap();
+            card.storage.sync().unwrap();
+            let after = card.bytes.0.borrow().clone();
+            check_chains(&after, &format!("after removing, cut at {k}"));
+            // A file whose entry holds a size has its whole chain freed, the clusters
+            // taken ahead of its end too. Where the cut came before the entry was
+            // written (the entry is written when the file is written back), the
+            // chain written so far is not reachable from anywhere: a card check takes
+            // those clusters back, as it did when clusters were taken one at a time
+            // (then it was the whole chain so far, now it is that and a run more).
+            let leaked = used_clusters(&after) - (used_before + 1);
+            if size > 0 {
+                assert_eq!(
+                    leaked, 0,
+                    "removing the file after a cut at command {k} leaves clusters taken"
+                );
+            } else {
+                assert!(
+                    leaked <= whole.len().div_ceil(512) + 128,
+                    "removing the file after a cut at command {k}: {leaked} clusters lost"
+                );
+            }
+        }
+        let at = *index as usize * BLOCK;
+        image[at..at + data.len()].copy_from_slice(data);
+    }
+    check_chains(&image, "the end");
+}
+
+/// The free space the storage reports (it follows the clusters the file system marks taken
+/// and free) is what the FAT says, after a stream of appends written back and after the
+/// file is removed: the clusters taken ahead and given back are all counted.
+#[test]
+fn free_space_follows_the_clusters_taken_ahead_and_given_back() {
+    let cluster = 4096u32;
+    let (storage, counted) = card(cluster, cluster as usize * 70_000);
+    let free = |storage: &Fat| loop {
+        if let Some(n) = storage.free_space() {
+            return n;
+        }
+    };
+    let from_fat = || {
+        let bytes = counted.bytes.borrow();
+        let entries = fat_entries(&bytes);
+        (entries.iter().filter(|&&v| v == 0).count() as u64) * u64::from(cluster)
+    };
+    storage.create_dir("cache").unwrap();
+    storage.sync().unwrap();
+    assert_eq!(free(storage), from_fat());
+    let data = vec![0x5Au8; 3000];
+    for _ in 0..90 {
+        storage.append("cache/img.gray", &data).unwrap();
+    }
+    storage.sync().unwrap();
+    assert_eq!(free(storage), from_fat(), "after the appends");
+    storage.append("cache/img.gray", &data).unwrap();
+    storage.remove("cache/img.gray").unwrap();
+    storage.sync().unwrap();
+    assert_eq!(free(storage), from_fat(), "after removing the file");
+}
