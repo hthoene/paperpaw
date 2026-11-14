@@ -1,7 +1,7 @@
 //! Keeping the bands of a frame as they are sent takes the heap of their
 //! packed bytes and nothing of a band's size beside them, while the rest
 //! of the frame is drawn: the X4 has about 240 KiB of heap in all, a band
-//! of its frame is 9,600 bytes, and a frame's drawing is where the heap is
+//! of its frame is 11,520 bytes, and a frame's drawing is where the heap is
 //! at its fullest (#248).
 
 #![allow(
@@ -60,7 +60,8 @@ fn growth<T>(run: impl FnOnce() -> T) -> (usize, usize, T) {
     (PEAK.get() - before, NOW.get().saturating_sub(before), out)
 }
 
-/// The X4's frame: 480 by 800 at a bit a pixel, in five bands.
+/// A frame of the X4's size: 480 by 800 at a bit a pixel, in five bands
+/// (of 160 rows here; the X4's own are of 192 rows, the last one shorter).
 const STRIDE: usize = 60;
 const ROWS: u16 = 160;
 const BAND: usize = STRIDE * ROWS as usize;
