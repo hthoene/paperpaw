@@ -1179,7 +1179,7 @@ fn map_declarations(
     result?;
     if !entries.is_empty() {
         // In the table's order, which is the order they were declared in.
-        entries.sort_unstable();
+        paperpaw_sort::sort_unstable(&mut entries);
         owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         owned.push(Owned::FixedSettings(fixed, entries));
     }

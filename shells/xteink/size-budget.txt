@@ -29,7 +29,17 @@
 # change that makes the image smaller lowers the line to its measured size plus
 # 8,192 again. Measure anew when a branch with more crates lands (native
 # activation adds some); the target for Beta 4 is 6,400,000 bytes at most.
-image x4 5254816
-image x3 5266624
-image x4-pro 5709168
-image x4-classic 5265424
+#
+# Native activation (train t40, Decision 184: the owner allowed the native
+# images to exceed size stage 1, 6,400,000 bytes, until they are shrunk; the
+# target before Beta 4 stays stage 1): the first line to measure with the
+# plugins linked in on all four devices. Measured on `train/t40` (697fdda79),
+# local build of the release-like image, as above: x4 6,477,952, x3 6,489,744,
+# x4-pro 7,046,560, x4-classic 6,596,704; the lines are those plus 16,000.
+# Beyond the installer slot (6,553,600 bytes, CrossPoint's): x4-pro and
+# x4-classic (they fit `ota_0`, 8,323,072 bytes: install by flashing only,
+# Decision 179). Lower the lines again as the images shrink (the plan of #258).
+image x4 6493952
+image x3 6505744
+image x4-pro 7062560
+image x4-classic 6612704

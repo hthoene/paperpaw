@@ -1,0 +1,17 @@
+# The chip's ROM routines the firmware calls, for every function that calls them (`allow rom`,
+# todo 624): the memory routines and the soft-float / 64-bit helpers of libgcc that the S3's ROM
+# has. They are leaf code outside the image the scan cannot read; their frames are not counted
+# here (device test S4), as the per-site lines this replaced said one by one. A call to a routine
+# not named here, or to code of the image with no symbol, is still a finding. Included by both S3
+# budgets (`include frame-budget-s3-rom.txt`).
+allow rom memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow rom memset the chip's ROM `memset`: not scanned here (device test S4)
+allow rom memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow rom memmove the chip's ROM `memmove`: not scanned here (device test S4)
+allow rom __udivdi3 the chip's ROM `__udivdi3`: not scanned here (device test S4)
+allow rom __divdi3 the chip's ROM `__divdi3`: not scanned here (device test S4)
+allow rom __umoddi3 the chip's ROM `__umoddi3`: not scanned here (device test S4)
+allow rom __moddi3 the chip's ROM `__moddi3`: not scanned here (device test S4)
+allow rom __divsf3 the chip's ROM `__divsf3`: not scanned here (device test S4)
+allow rom __fixsfdi the chip's ROM `__fixsfdi`: not scanned here (device test S4)
+allow rom __floatdisf the chip's ROM `__floatdisf`: not scanned here (device test S4)

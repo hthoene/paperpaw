@@ -306,7 +306,9 @@ impl CodeLoader for HostLoader {
         storage: &std::rc::Rc<dyn Storage>,
     ) -> Option<paperpaw_core::native_host::HyphenTables> {
         use paperpaw_core::native_host::HostWiring;
-        if !dev_switch() {
+        // The linked plugins (the app's own, `native-linked`) read the tables
+        // as the card ones do, switch or not; as the firmware's sink is.
+        if !dev_switch() && !cfg!(feature = "native-linked") {
             return None;
         }
         if self.resources.is_none() {
@@ -417,6 +419,26 @@ fn is_interface7(bytes: &[u8]) -> bool {
         let _ = bytes;
         false
     }
+}
+
+/// Code plugins built for this computer, from the card (`on`: `device::set_code_plugins`).
+pub fn code_plugins(
+    builder: paperpaw_core::KernelBuilder,
+    on: bool,
+    memory: MemoryClass,
+    pool: &DevicePool,
+) -> paperpaw_core::KernelBuilder {
+    if !on {
+        // No code is loaded (and so no code device): the linked plugins'
+        // `text.hyphenate` still reads the hyphenation packs on the card (todo 613).
+        let mut loader = HostLoader::for_device_in(memory, pool.clone());
+        return builder
+            .hyphenation_sink(move |card| CodeLoader::hyphenation_sink(&mut loader, card));
+    }
+    builder.code_plugins(
+        native(),
+        Box::new(HostLoader::for_device_in(memory, pool.clone())),
+    )
 }
 
 /// [`load`] with its memory not counted against the budget (the file read
@@ -1271,8 +1293,12 @@ static INIT: extern "C" fn() = make_marker;
         let was = crate::native_runtime::enabled();
         crate::native_runtime::set_enabled(false);
         let mut off = HostLoader::for_device(MemoryClass::Small);
-        assert!(off.hyphenation_sink(&storage).is_none());
-        assert!(off.resources.is_none(), "nothing is made, nothing wired");
+        // With the linked plugins built in, the tables are wired switch or not.
+        assert_eq!(
+            off.hyphenation_sink(&storage).is_some(),
+            cfg!(feature = "native-linked")
+        );
+        assert_eq!(off.resources.is_some(), cfg!(feature = "native-linked"));
         crate::native_runtime::set_enabled(true);
         for device in [MemoryClass::Small, MemoryClass::Large] {
             let mut on = HostLoader::for_device(device);

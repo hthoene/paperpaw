@@ -193,7 +193,7 @@ pub(super) fn governing<'s>(sources: &Sources<'_>, all: &'s Settings) -> Option<
             ids.push(of);
         }
     });
-    ids.sort_unstable();
+    paperpaw_sort::sort_unstable(&mut ids);
     ids.dedup();
     Some(ids)
 }

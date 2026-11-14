@@ -301,7 +301,7 @@ impl<R: FilterRunner> FilterRunner for Watching<R> {
 /// [`super::ui_input::MAX_FILTERS`]. Reserved fallibly.
 pub(crate) fn subscriptions(store: &DeclarationStore) -> Result<Vec<Subscription<'static>>, i32> {
     let mut found = store.stage_subscribers(stage::KEY)?;
-    found.sort_unstable_by(|a, b| (a.order, a.plugin, a.index).cmp(&(b.order, b.plugin, b.index)));
+    paperpaw_sort::sort_unstable_by_key(&mut found, |s| (s.order, s.plugin, s.index));
     found.truncate(super::ui_input::MAX_FILTERS);
     let mut rows = Vec::new();
     rows.try_reserve_exact(found.len())

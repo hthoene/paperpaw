@@ -5,11 +5,24 @@
 //! flash in more than fifty copies. The sorts here compile **one** sort,
 //! driven through a type-erased `less(i, j)` / `swap(i, j)` pair, and the thin
 //! generic wrappers ([`sort`], [`sort_by`], [`sort_by_key`],
-//! [`sort_by_cached_key`]) hold no sort of their own.
+//! [`sort_by_cached_key`] and the three `sort_unstable` ones) hold no sort of
+//! their own.
 //!
-//! **Order.** Every function is **stable**: equal items keep their order, so
-//! a result equals that of the standard library's `sort`, `sort_by` and
+//! **Order.** [`sort`], [`sort_by`], [`sort_by_key`] and
+//! [`sort_by_cached_key`] are **stable**: equal items keep their order, so a
+//! result equals that of the standard library's `sort`, `sort_by` and
 //! `sort_by_key` (and, for a total order, that of the unstable sorts).
+//!
+//! **Unstable.** [`sort_unstable`], [`sort_unstable_by`] and
+//! [`sort_unstable_by_key`] (#258) take no memory at any length: one compiled
+//! heapsort on the items themselves, `O(n log n)`. Equal items may change
+//! places, so they are for lists where that cannot show (no two items equal,
+//! or equal ones alike), and for long lists whose `4 * n` bytes of positions
+//! would be too much: use them instead of `slice::sort_unstable` and its kin,
+//! which compile about 3 KB per element type. On plain numbers about 7 to 12
+//! times the time of the standard library's unstable sort (x86,
+//! `tests/speed.rs`: 10,000 `u64` in 0.8 ms), as every comparison and swap is
+//! an indirect call: where a long list is sorted often, measure first.
 //!
 //! **How.** Up to 2,048 items, the positions `0..n` (as `u32`) are sorted by the items they
 //! stand for (ties by position, which makes the order stable), with one
@@ -134,6 +147,25 @@ pub fn sort<T: Ord>(items: &mut [T]) {
     sort_by(items, T::cmp);
 }
 
+/// Sorts `items` by `compare`, in place and without memory; equal items may
+/// change places. Where `compare` is no total order the order is not said,
+/// but no item is lost or repeated and nothing panics.
+pub fn sort_unstable_by<T>(items: &mut [T], compare: impl FnMut(&T, &T) -> Ordering) {
+    let len = items.len();
+    unstable(len, &mut ByCompare { items, compare });
+}
+
+/// Sorts `items` by `key`, in place and without memory; equal items may
+/// change places. `key` is called again for every comparison.
+pub fn sort_unstable_by_key<T, K: Ord>(items: &mut [T], mut key: impl FnMut(&T) -> K) {
+    sort_unstable_by(items, |a, b| key(a).cmp(&key(b)));
+}
+
+/// Sorts `items`, in place and without memory; equal items may change places.
+pub fn sort_unstable<T: Ord>(items: &mut [T]) {
+    sort_unstable_by(items, T::cmp);
+}
+
 /// The sort through positions: `u32` positions ordered by the (unmoved) items,
 /// ties by position, then the items moved by the cycles of the permutation.
 fn by_positions(len: usize, ops: &mut dyn Ops) -> bool {
@@ -216,6 +248,49 @@ fn stable(len: usize, ops: &mut dyn Ops) {
         insertion(ops, 0, len);
     } else if len > POSITIONS_MAX || !by_positions(len, ops) {
         in_place(len, ops);
+    }
+}
+
+/// The one unstable sort: a heapsort on the items themselves. It keeps to its
+/// indices, so a comparison that is no total order gives some order of the
+/// same items and never a panic.
+fn unstable(len: usize, ops: &mut dyn Ops) {
+    if len <= BLOCK {
+        insertion(ops, 0, len);
+        return;
+    }
+    for root in (0..len / 2).rev() {
+        sink(ops, root, len);
+    }
+    for end in (1..len).rev() {
+        ops.swap(0, end);
+        sink(ops, 0, end);
+    }
+}
+
+/// Lets the item at `top` sink in the max-heap of the first `end` items,
+/// bottom-up (Floyd): down the path of the larger children to a leaf, back up
+/// to where the item belongs, then the path moves up one place. About one
+/// comparison per level, where the plain way takes two.
+fn sink(ops: &mut dyn Ops, top: usize, end: usize) {
+    let mut at = top;
+    loop {
+        let child = 2 * at + 1;
+        if child >= end {
+            break;
+        }
+        at = if child + 1 < end && ops.less(child, child + 1) {
+            child + 1
+        } else {
+            child
+        };
+    }
+    while at > top && ops.less(at, top) {
+        at = (at - 1) / 2;
+    }
+    while at > top {
+        ops.swap(top, at);
+        at = (at - 1) / 2;
     }
 }
 
@@ -427,6 +502,54 @@ mod tests {
                 item.wrapping_mul(calls)
             });
             assert!(same_items(&cached), "cached key, len {len}");
+            // The unstable sorts: the same promise.
+            let mut unstable = items.clone();
+            sort_unstable_by(&mut unstable, cycle);
+            assert!(same_items(&unstable), "unstable cycle, len {len}");
+            let mut flips = 0_u32;
+            let mut coins = items.clone();
+            sort_unstable_by(&mut coins, |_, _| {
+                flips = flips.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                if (flips >> 16) & 1 == 0 {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            });
+            assert!(same_items(&coins), "unstable coins, len {len}");
+            let mut unstable_key = items.clone();
+            sort_unstable_by_key(&mut unstable_key, |item| {
+                calls += 1;
+                item.wrapping_mul(calls)
+            });
+            assert!(same_items(&unstable_key), "unstable key, len {len}");
+        }
+    }
+
+    /// Lists around the block size and long ones, with and without equal
+    /// items: sorted, as the standard library's unstable sort leaves them.
+    #[test]
+    fn the_unstable_sorts_equal_the_standard_ones_at_every_length() {
+        for len in [0_usize, 1, 2, 11, 12, 13, 14, 25, 100, 1_000, 2_049, 6_000] {
+            let items: Vec<(u32, u32)> = (0..len as u32)
+                .map(|at| (at.wrapping_mul(2_654_435_761) % 97, at))
+                .collect();
+            let mut expected = items.clone();
+            expected.sort_unstable();
+            let mut plain = items.clone();
+            sort_unstable(&mut plain);
+            assert_eq!(plain, expected, "len {len}");
+            let mut by = items.clone();
+            sort_unstable_by(&mut by, |a, b| b.cmp(a));
+            expected.reverse();
+            assert_eq!(by, expected, "reversed, len {len}");
+            // By a key that many items share: sorted by it, the same items.
+            let mut by_key = items.clone();
+            sort_unstable_by_key(&mut by_key, |item| item.0);
+            assert!(by_key.windows(2).all(|pair| pair[0].0 <= pair[1].0));
+            sort_unstable(&mut by_key);
+            expected.reverse();
+            assert_eq!(by_key, expected, "by key, len {len}");
         }
     }
 
@@ -474,6 +597,18 @@ mod tests {
             let mut place = items.clone();
             in_place_by(&mut place, |a, b| a.0.cmp(&b.0));
             prop_assert_eq!(&place, &by_key);
+            // The unstable sorts: the one order of a total order.
+            let mut unstable = items.clone();
+            sort_unstable(&mut unstable);
+            prop_assert_eq!(&unstable, &plain);
+            let mut unstable_by = items.clone();
+            sort_unstable_by(&mut unstable_by, |a, b| b.cmp(a));
+            plain.reverse();
+            prop_assert_eq!(&unstable_by, &plain);
+            let mut unstable_key = items.clone();
+            sort_unstable_by_key(&mut unstable_key, |item| (item.0, item.1));
+            plain.reverse();
+            prop_assert_eq!(&unstable_key, &plain);
         }
 
         #[test]

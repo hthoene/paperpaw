@@ -1,6 +1,9 @@
 //! The sorts when the heap refuses memory: the same order as the standard
 //! library's, never an abort.
-use paperpaw_sort::{sort, sort_by, sort_by_cached_key, sort_by_key};
+use paperpaw_sort::{
+    sort, sort_by, sort_by_cached_key, sort_by_key, sort_unstable, sort_unstable_by,
+    sort_unstable_by_key,
+};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
@@ -150,4 +153,31 @@ fn up_to_twelve_items_are_sorted_in_place_without_any_allocation() {
     // The counter sees allocations: a longer list needs its positions.
     let mut longer = list(13);
     assert!(allocations(|| sort(&mut longer)) > 0);
+}
+
+#[test]
+fn the_unstable_sorts_allocate_nothing_at_any_length() {
+    for len in [0, 1, 12, 13, 100, 2_049, 6_000] {
+        let items = list(len);
+        let mut expected = items.clone();
+        expected.sort();
+
+        let mut plain = items.clone();
+        assert_eq!(allocations(|| sort_unstable(&mut plain)), 0, "{len} items");
+        assert_eq!(plain, expected);
+        let mut by = items.clone();
+        assert_eq!(
+            allocations(|| sort_unstable_by(&mut by, |a, b| a.cmp(b))),
+            0,
+            "sort_unstable_by, {len} items"
+        );
+        assert_eq!(by, expected);
+        let mut by_key = items.clone();
+        assert_eq!(
+            allocations(|| sort_unstable_by_key(&mut by_key, |item| (item.0, item.1))),
+            0,
+            "sort_unstable_by_key, {len} items"
+        );
+        assert_eq!(by_key, expected);
+    }
 }
