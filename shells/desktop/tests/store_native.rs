@@ -88,6 +88,20 @@ impl Offered {
         }
     }
 
+    /// A data plugin that requires `requires` (plugin ids apart by commas).
+    fn requiring(
+        id: &'static str,
+        name: &'static str,
+        version: &'static str,
+        requires: &str,
+    ) -> Self {
+        let mut plugin = Self::data(id, name, version);
+        plugin
+            .manifest
+            .push_str(&format!("requires = {requires}\n"));
+        plugin
+    }
+
     fn entry(&self) -> String {
         format!(
             r#"{{"id": "{}", "name": "{}", "summary": "A pack.", "group": "reading",
@@ -327,4 +341,133 @@ fn files_a_power_cut_left_staged_are_removed_at_the_start() {
             .card
             .exists(".paperpaw/plugins/store/stage/pack-a/plugin.ini")
     );
+}
+
+/// Chooses `label` in the dialog the store asks: its input guard is over first.
+fn answer_dialog(shop: &mut Shop, label: &str) {
+    shop.settle(1500);
+    shop.choose(label);
+    shop.settle(3000);
+}
+
+/// Installs plugin `id` from its page and confirms the host's question.
+fn install_and_confirm(shop: &mut Shop, id: &str) {
+    // Through the list, as the user comes: the plugins' names are known then.
+    shop.run("store.open");
+    shop.settle(2000);
+    shop.keys(&format!("open:store.plugin:id={id}"));
+    shop.settle(3000);
+    shop.choose("Install");
+    shop.settle(3000);
+    assert_eq!(confirm_screen(shop), "core.firmware-confirm");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+}
+
+/// A plugin that requires one the device lacks (Arabic menus need the Arabic
+/// letters): once installed the store offers it with its size.
+#[test]
+fn what_the_installed_plugin_requires_is_offered_and_fetched_on_download() {
+    let mut shop = Shop::new(&[
+        Offered::requiring("language-ar", "Arabic menus", "1.0.0", "script-arabic"),
+        Offered::data("script-arabic", "Arabic letters", "1.0.0"),
+    ]);
+    install_and_confirm(&mut shop, "language-ar");
+    assert!(shop.card.exists("plugins/language-ar/plugin.ini"));
+    let shown = shop.shown();
+    assert!(shown.contains("The plugin just installed also"), "{shown}");
+    assert!(shown.contains("Arabic letters"), "{shown}");
+    // Nothing is fetched before the reader says so.
+    assert!(!shop.card.exists("plugins/script-arabic/plugin.ini"));
+    answer_dialog(&mut shop, "Download");
+    // The host asks to confirm the second install too.
+    assert_eq!(confirm_screen(&mut shop), "core.firmware-confirm");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    assert!(shop.card.exists("plugins/script-arabic/plugin.ini"));
+    let shown = shop.shown();
+    assert!(!shown.contains("just installed also"), "{shown}");
+}
+
+#[test]
+fn not_now_leaves_the_plugin_installed_and_fetches_nothing() {
+    let mut shop = Shop::new(&[
+        Offered::requiring("language-ar", "Arabic menus", "1.0.0", "script-arabic"),
+        Offered::data("script-arabic", "Arabic letters", "1.0.0"),
+    ]);
+    install_and_confirm(&mut shop, "language-ar");
+    assert!(shop.shown().contains("just installed also"));
+    answer_dialog(&mut shop, "Not now");
+    assert!(shop.card.exists("plugins/language-ar/plugin.ini"));
+    assert!(!shop.card.exists("plugins/script-arabic/plugin.ini"));
+    assert!(!shop.shown().contains("just installed also"));
+    assert!(
+        !shop
+            .library
+            .asked()
+            .iter()
+            .any(|url| url.contains("script-arabic/1.0.0")),
+        "{:?}",
+        shop.library.asked()
+    );
+}
+
+#[test]
+fn what_is_on_the_device_or_not_in_the_library_is_not_asked_for() {
+    let have = MemoryStorage::new().with(
+        "plugins/script-arabic/plugin.ini",
+        "[plugin]\nid = script-arabic\nname = Arabic letters\nversion = 1.0.0\nformats = 4\n",
+    );
+    let mut shop = Shop::on(
+        have,
+        &[Offered::requiring(
+            "language-ar",
+            "Arabic menus",
+            "1.0.0",
+            "script-arabic, not-in-the-library",
+        )],
+    );
+    install_and_confirm(&mut shop, "language-ar");
+    assert!(shop.card.exists("plugins/language-ar/plugin.ini"));
+    let shown = shop.shown();
+    assert!(!shown.contains("just installed also"), "{shown}");
+}
+
+/// Alpha requires Beta, Beta requires Gamma: a dialog for each step.
+#[test]
+fn a_chain_of_requirements_is_a_dialog_for_each_step() {
+    let mut shop = Shop::new(&[
+        Offered::requiring("alpha", "Alpha", "1.0.0", "beta"),
+        Offered::requiring("beta", "Beta", "1.0.0", "gamma"),
+        Offered::data("gamma", "Gamma", "1.0.0"),
+    ]);
+    install_and_confirm(&mut shop, "alpha");
+    assert!(shop.shown().contains("Beta"), "{}", shop.shown());
+    answer_dialog(&mut shop, "Download");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    let shown = shop.shown();
+    assert!(shown.contains("just installed also"), "{shown}");
+    assert!(shown.contains("Gamma"), "{shown}");
+    assert!(shop.card.exists("plugins/beta/plugin.ini"));
+}
+
+/// Alpha and Beta require each other: nothing is asked after the second.
+#[test]
+fn two_plugins_requiring_each_other_end_after_the_second() {
+    let mut shop = Shop::new(&[
+        Offered::requiring("alpha", "Alpha", "1.0.0", "beta"),
+        Offered::requiring("beta", "Beta", "1.0.0", "alpha"),
+    ]);
+    install_and_confirm(&mut shop, "alpha");
+    answer_dialog(&mut shop, "Download");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    assert!(shop.card.exists("plugins/beta/plugin.ini"));
+    let shown = shop.shown();
+    assert!(!shown.contains("just installed also"), "{shown}");
 }

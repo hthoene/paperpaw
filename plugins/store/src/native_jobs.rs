@@ -416,6 +416,7 @@ impl NativeStore {
                 name,
                 updated,
                 restart,
+                requires,
             } => {
                 let key = match (restart, updated) {
                     (true, true) => "store.updated-code",
@@ -424,6 +425,7 @@ impl NativeStore {
                     (false, false) => "store.installed",
                 };
                 self.noted(host, &plugin, &name, key, Result_::Installed)?;
+                self.offer_requires(host, &requires);
                 true
             }
             Outcome::Refused { plugin, name, key } => {
@@ -440,6 +442,22 @@ impl NativeStore {
             self.go_on(host)?;
         }
         self.forward(host, event)
+    }
+
+    /// Asks for the plugins a plugin just installed requires (the host drops
+    /// those the device has): the store's own dialog offers them with their sizes.
+    /// A refusal (a full table) leaves the plugin installed as it is.
+    fn offer_requires(&mut self, host: &Host<'_>, requires: &[String]) {
+        if requires.is_empty() {
+            return;
+        }
+        let mut ids: Vec<&str> = Vec::new();
+        if ids.try_reserve_exact(requires.len()).is_err() {
+            return;
+        }
+        ids.extend(requires.iter().map(String::as_str));
+        let mut scratch = [0; 1_024];
+        let _ = CommandSender::new(host, &mut scratch).request_plugins(&ids);
     }
 
     /// Says what became of plugin `id`, or notes it for the end of a quiet
