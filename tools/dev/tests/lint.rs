@@ -67,6 +67,42 @@ fn the_settings_list_in_the_pseudo_language() {
     let _ = std::fs::remove_dir_all(&context.out);
 }
 
+/// A plugin linked into the app has its messages there as tables without
+/// keys (#258); the lint has the keys from the plugin's sources, so it
+/// compares its languages and knows the keys it registers with.
+#[test]
+fn a_linked_plugin_has_its_messages_by_key() {
+    let mut context = Context::new(
+        Target {
+            plugins: vec!["settings".into()],
+            ..Target::default()
+        },
+        out("linked"),
+    );
+    context.in_memory = true;
+    context.profiles.truncate(1);
+    context.languages = Some(vec!["en".into(), "de".into()]);
+    let session = Session::new(&context, &Variant::x4()).unwrap();
+    let languages = lint::languages(&session.device.kernel);
+    for code in ["en", "de"] {
+        let language = languages.iter().find(|l| l.code == code).expect(code);
+        assert!(language.has("settings.title"), "{code}: no settings.title");
+    }
+    drop(session);
+    let mut report = Report::default();
+    lint::run(&context, &mut report).unwrap();
+    let lacking: Vec<&str> = report
+        .findings
+        .iter()
+        .filter(|f| f.check == "lint.missing-key")
+        .map(|f| f.place.as_str())
+        .collect();
+    assert!(
+        lacking.is_empty(),
+        "keys English is said to lack: {lacking:?}"
+    );
+}
+
 /// The fixture data plugin, dashes put in (the repository has none).
 fn wanting() -> DataPlugin {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/lint/data-plugin");

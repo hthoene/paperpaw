@@ -74,39 +74,67 @@ fn book_styles(host: &Host<'_>) -> Result<u16, Error> {
     Ok(book.bits())
 }
 
+/// The reading font's name as read, or none where it is no text or too long
+/// for the buffer: the page is then set in the default font, not refused.
+fn font_name<'a>(read: Result<SettingValue<'a>, Error>) -> Result<&'a str, Error> {
+    match read {
+        Ok(SettingValue::Text(font)) => Ok(font),
+        Ok(_) | Err(Error::NoSpace) => Ok(""),
+        Err(other) => Err(other),
+    }
+}
+
+/// `reading` with the reading font and the hyphenation settings it is laid
+/// out with (`Reading::with_text`).
+fn text_of(host: &Host<'_>, reading: Reading) -> Result<Reading, Error> {
+    let mut name = [0; 96];
+    let font = font_name(settings::read_setting(host, "core.reading-font", &mut name))?;
+    Ok(reading.with_text(
+        font,
+        (
+            flag(host, "core.hyphenate")?,
+            integer(host, "core.hyphen-min-left")?,
+            integer(host, "core.hyphen-min-right")?,
+        ),
+    ))
+}
+
 impl Setup {
     pub(super) fn read(host: &Host<'_>) -> Result<Self, Error> {
         let display = snapshot::capture_snapshot(host)?;
         let room = native_status::room(host, display.display_dpi())?;
         let (top, bottom) = room.reserved();
         Ok(Self {
-            reading: Reading::new(
-                integer(host, "core.font-size")?,
-                integer(host, "core.line-spacing")?,
-                integer(host, "core.word-spacing")?,
-                integer(host, "core.margin")?,
-                integer(host, "core.margin-ends")?,
-                flag(host, "core.justify")?,
-            )
-            .with_status(top, bottom)
-            .with_paragraphs(
-                (
-                    flag(host, "core.indent")?,
-                    integer(host, "core.indent-size")?,
+            reading: text_of(
+                host,
+                Reading::new(
+                    integer(host, "core.font-size")?,
+                    integer(host, "core.line-spacing")?,
+                    integer(host, "core.word-spacing")?,
+                    integer(host, "core.margin")?,
+                    integer(host, "core.margin-ends")?,
+                    flag(host, "core.justify")?,
+                )
+                .with_status(top, bottom)
+                .with_paragraphs(
+                    (
+                        flag(host, "core.indent")?,
+                        integer(host, "core.indent-size")?,
+                    ),
+                    (
+                        flag(host, "core.paragraph-spacing")?,
+                        integer(host, "core.paragraph-space")?,
+                    ),
+                )
+                .with_lines(
+                    (
+                        integer(host, "core.widows")?,
+                        integer(host, "core.orphans")?,
+                    ),
+                    balanced(host)?,
+                    book_styles(host)?,
                 ),
-                (
-                    flag(host, "core.paragraph-spacing")?,
-                    integer(host, "core.paragraph-space")?,
-                ),
-            )
-            .with_lines(
-                (
-                    integer(host, "core.widows")?,
-                    integer(host, "core.orphans")?,
-                ),
-                balanced(host)?,
-                book_styles(host)?,
-            ),
+            )?,
             display,
             room,
         })
@@ -134,5 +162,23 @@ impl Setup {
     /// `line` height (`Reading::style`).
     pub(super) fn style(&self, line: f32) -> Style {
         self.reading.style(self.base(), line)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_font_name_too_long_for_the_buffer_is_the_default_font() {
+        assert_eq!(
+            font_name(Ok(SettingValue::Text("Literata"))),
+            Ok("Literata")
+        );
+        assert_eq!(font_name(Ok(SettingValue::Int(3))), Ok(""));
+        // The host says the whole name does not fit: no refusal of the page.
+        assert_eq!(font_name(Err(Error::NoSpace)), Ok(""));
+        // Another failure is still one.
+        assert_eq!(font_name(Err(Error::NoMemory)), Err(Error::NoMemory));
     }
 }
