@@ -1,0 +1,16 @@
+[groups]
+[specs]
+catalog|3|0|core.group.developer|store.setting.catalog|store.setting.catalog.help|t:https://paperpaw.org/api/v1/plugins.json|0|0|""
+community|0|2|core.group.system|store.setting.community|store.setting.community.help|b:0|0|0|""
+[extras]
+[screens]
+[slots]
+[widget_places]
+[status_places]
+[keys]
+[menu_entries]
+[icons]
+[needs]
+[actions]
+[events]
+[others]

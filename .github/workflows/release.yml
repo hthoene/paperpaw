@@ -427,10 +427,11 @@ jobs:
       # Not for the X3 yet: the plugin library does not list it.
       - name: The store's first-party plugins
         if: matrix.device != 'x3'
-        env:
-          FINGERPRINT: ${{ steps.native.outputs.fingerprint }}
         run: |
-          tools/plugin-files/build.sh "$DEVICE" dist/plugins --fingerprint "$FINGERPRINT"
+          # Interface 7 (format 5, no fingerprint): the X4's files are target 5,
+          # the X4 Pro's and X4 Classic's target 9.
+          mkdir -p dist/plugins
+          tools/plugin-files7/build.sh "$DEVICE" dist/plugins
           # The signing tool, built before the key comes near the disk.
           cargo build -q --release -p paperpaw-sign
       # A dry run signs with keys made for the job (the real ones are for a

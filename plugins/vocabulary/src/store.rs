@@ -11,35 +11,13 @@
 //! The layer works on any [`Storage`]: on the host's data folder (root 0,
 //! through [`crate::files::DataFolder`]) as on a card.
 
-use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::cell::Cell;
 use core::ops::ControlFlow;
 
 use paperpaw_sdk::{Storage, StorageError};
 
 use crate::lines::{self, copy, folded, push, push_number};
-
-/// The changes made to the words since PaperPaw started: what the marks
-/// in books depend on, known without reading the file. Shared by the
-/// plugin's handlers, screen and decorator (on the heap: a plugin file
-/// has no writable data of its own, ADR 0024).
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Changes(Rc<Cell<u32>>);
-
-impl Changes {
-    /// How many times the words changed since PaperPaw started.
-    pub(crate) fn count(&self) -> u32 {
-        self.0.get()
-    }
-
-    /// The words changed (by [`add`] or [`remove`], whether or not they
-    /// could write all).
-    pub(crate) fn changed(&self) {
-        self.0.set(self.0.get().wrapping_add(1));
-    }
-}
 
 /// Words kept at most; the oldest go.
 pub(crate) const MAX_WORDS: usize = 2000;

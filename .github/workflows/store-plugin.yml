@@ -36,8 +36,8 @@ name: Store plugin update
 #
 # A code plugin the base does not have (a new one, first published between
 # releases) takes the same path with the version its manifest has. The
-# plugin file must have the base firmware's fingerprint, which build.sh and,
-# before the signing, check_files.sh check.
+# plugin file is of interface 7 (format 5: no fingerprint, abi/ppn5.md), which
+# build.sh and, before the signing, check_files.sh check.
 #
 # The version of each plugin is checked against what is published
 # (store_release.py versions): not published already, not older than a
@@ -254,7 +254,10 @@ jobs:
         run: |
           # The source's script; the signing job checks the files again.
           for id in $(jq -r '.[] | select(.kind == "code") | .id' <<< "$LIST"); do
-            tools/plugin-files/build.sh "$DEVICE" dist/plugins --fingerprint "$FINGERPRINT" --only "$id"
+            # Interface 7 (format 5, no fingerprint): target 5 on the X4, target 9
+            # on the X4 Pro and the X4 Classic.
+            mkdir -p dist/plugins
+            tools/plugin-files7/build.sh "$DEVICE" dist/plugins --only "$id"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -291,18 +294,14 @@ jobs:
           rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
           cargo build -q --release -p paperpaw-sign
           base="${BASE#v}"
+          # Interface 7: the X4's files are chip 5, the X4 Pro's and X4 Classic's
+          # chip 9; a format-5 file has no fingerprint to compare.
           for device in x4 x4-pro x4-classic; do
-            # The X4 Classic has the X4 Pro's chip: its plugins are the
-            # Pro's, fingerprint and all, and a release names the Pro's only.
-            abi="$device" chip=9
+            chip=9
             [[ "$device" == x4 ]] && chip=5
-            [[ "$device" == x4-classic ]] && abi=x4-pro
-            dir="$RUNNER_TEMP/abi-$device"
-            gh release download "$BASE" -R "$GITHUB_REPOSITORY" -D "$dir" -p "paperpaw-$abi-$base-abi.txt"
-            fingerprint="$(awk 'NR == 1 { print $1 }' "$dir/paperpaw-$abi-$base-abi.txt")"
             while read -r id version; do
               tools/plugin-files/check_files.sh "dist/unsigned/unsigned-$device" target/release/paperpaw-sign \
-                "$chip" "$fingerprint" "$id-$version-$device.ppn"
+                "$chip" none "$id-$version-$device.ppn"
             done < <(jq -r '.[] | select(.kind == "code") | "\(.id) \(.version)"' <<< "$LIST")
           done
       # A dry run signs with keys made for the job (the real one is for a

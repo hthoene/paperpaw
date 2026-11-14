@@ -402,7 +402,8 @@ fn the_store_stays_within_the_x4_budget() {
 }
 
 /// Opens the store's list, the group *Reading* and a plugin's page of it,
-/// presses *Install*, looks at the page's screenshots and goes home. The
+/// presses *Install*, answers the host's confirmation (*Install*, the
+/// focus starts on *Cancel*), looks at the page's screenshots and goes home. The
 /// plugin is a data plugin of the emulator's catalogue: the download of
 /// its files, their check and their install run as on a device (the
 /// shell's installer and the plugin folder on the card).
@@ -411,7 +412,7 @@ fn installing_flow() -> String {
         "run:store.open,wait:3000",
         "run:core.down,run:core.down,run:core.confirm,wait:2000",
         "run:core.down,run:core.down,run:core.confirm,wait:3000",
-        "run:core.confirm,wait:5000",
+        "run:core.confirm,wait:5000,run:core.up,run:core.confirm,wait:3000",
         "run:core.down,run:core.confirm,wait:3000",
         "run:core.back,run:core.back,run:core.back,run:core.back,run:core.home,wait:300",
     ]
@@ -495,7 +496,7 @@ fn each_step_of_the_store_stays_within_the_x4_budget() {
         "run:store.open,wait:3000",
         "run:core.down,run:core.down,run:core.confirm,wait:2000",
         "run:core.down,run:core.down,run:core.confirm,wait:3000",
-        "run:core.confirm,wait:5000",
+        "run:core.confirm,wait:5000,run:core.up,run:core.confirm,wait:3000",
         "run:core.down,run:core.confirm,wait:3000",
         // Home (not one `back`: the store's page stays on the stack under
         // the native store, `back` goes to it, as the old store went home),
@@ -504,7 +505,7 @@ fn each_step_of_the_store_stays_within_the_x4_budget() {
         "run:core.home,wait:500,run:store.open,wait:3000,\
          run:core.down,run:core.down,run:core.confirm,wait:2000,\
          run:core.confirm,wait:3000",
-        "run:core.confirm,wait:5000",
+        "run:core.confirm,wait:5000,run:core.up,run:core.confirm,wait:3000",
     ];
     let mut flow = String::from("wait:300,step:start");
     for (step, part) in steps.iter().zip(parts) {

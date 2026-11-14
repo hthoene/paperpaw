@@ -455,7 +455,7 @@ echo "fingerprint: $(head -1 "$2")"; echo "interface: 6"; echo "compiler: abc"
     def released_with_a_dependency(self):
         """A release (`v0.5.0-beta.3`) whose store files are built by a fake build.sh from
         the plugin and a crate it depends on."""
-        self.write("tools/plugin-files/build.sh", self.BUILD)
+        self.write("tools/plugin-files7/build.sh", self.BUILD)
         self.write("fingerprint.txt", "fp1\n")
         self.write("crates/dep/lib.rs", "// the SDK, one\n")
         self.commit("a dependency and a builder")

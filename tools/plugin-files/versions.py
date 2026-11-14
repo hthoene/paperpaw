@@ -410,7 +410,7 @@ def build_store(root, out, device, target=None):
     env = {k: v for k, v in os.environ.items() if k not in ("RUSTFLAGS", "PAPERPAW_ALLOW_UNREMAPPED")}
     if target:
         env["CARGO_TARGET_DIR"] = str(target)
-    done = subprocess.run(["bash", "tools/plugin-files/build.sh", device, str(out)], cwd=root,
+    done = subprocess.run(["bash", "tools/plugin-files7/build.sh", device, str(out)], cwd=root,
                           env=env, capture_output=True, text=True, encoding="utf-8")
     if done.returncode != 0:
         tail = "\n".join((done.stdout + done.stderr).strip().splitlines()[-25:])
@@ -522,7 +522,7 @@ def main():
             continue  # new since the release
         before = max(versions.values(), key=semver)
         now = version_in((ROOT / manifest).read_text(encoding="utf-8"), workspace_now)
-        paths = [f"plugins/{plugin}", f"tools/plugin-files/src/bin/{plugin}.rs"]
+        paths = [f"plugins/{plugin}", f"tools/plugin-files7/src/bin/{plugin}.rs"]
         # A plugin released alone from a branch beside this one (its tag
         # not in HEAD's history) with the files HEAD has: nothing new.
         if now == before and any(

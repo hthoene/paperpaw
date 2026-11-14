@@ -298,7 +298,7 @@ cargo run -p paperpaw-emulator -- --headless --profile boox-go-7 --set core.lang
 | `tools/fontgen` | Converts fonts into bitmap font packs for small devices; each release has it built for Windows, macOS and Linux (`paperpaw-fontgen-<version>-<computer>.zip`) |
 | `tools/dev` | `paperpaw-dev`, which checks plugins on emulated devices |
 | `tools/sign` | `paperpaw-sign`, which signs updates, makes keys, and packs and signs plugin files |
-| `tools/plugin-files` | Builds PaperPaw's own store plugins as files for each release |
+| `tools/plugin-files` | The release scripts for the store: catalogue, versions, data plugins (the plugin files themselves are built by `tools/plugin-files7`)  |
 | `tools/publish-workspace.py` | Plans, verifies and resumes crate publication ([release procedure](docs/releases.md)) |
 | `tools/xtensa-std` | The X4 Pro's core libraries for code plugins |
 | `tools/x4-remote.py` | Drives an X4 over USB with developer firmware |

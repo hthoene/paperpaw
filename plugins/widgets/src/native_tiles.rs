@@ -96,7 +96,23 @@ fn localised(cx: &mut Cx<'_>, parts: Vec<String>) -> Result<Vec<String>, Error> 
 
 /// Each tile `w` wide (pairs wider), `w * 1.4` high.
 fn tile_w(text: &str) -> f32 {
-    if text.chars().count() > 1 { 1.55 } else { 1.0 }
+    if text.chars().count() > 1 {
+        wide()
+    } else {
+        1.0
+    }
+}
+
+/// A pair's width. Apart on the S3: LLVM's Xtensa backend cannot select the
+/// constant pool of two floats it makes of `1.55` and `1.0` ("Cannot select:
+/// XtensaISD::PCREL_WRAPPER ... [2 x float]"), which stops the plugin building (#263).
+#[cfg_attr(target_arch = "xtensa", inline(never))]
+fn wide() -> f32 {
+    // `black_box`: without it the compiler sees the constant through the call.
+    #[cfg(target_arch = "xtensa")]
+    return core::hint::black_box(1.55);
+    #[cfg(not(target_arch = "xtensa"))]
+    1.55
 }
 
 /// The measures of the row of tiles in an area.

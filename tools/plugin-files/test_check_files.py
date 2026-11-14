@@ -38,6 +38,18 @@ class CheckFiles(unittest.TestCase):
         self.assertEqual(self.run_check(fingerprint=""), 1)
         self.assertEqual(self.run_check(name="y-1.0.0-x4.ppn"), 1)
 
+    def test_a_file_of_interface_7_has_no_fingerprint_but_says_its_format(self):
+        sign5 = self.sign.parent / "sign5"
+        sign5.write_text('#!/bin/sh\nprintf "format:      5 (interface 7)\\nchip:        ESP32-C3 (5)\\n"\n')
+        sign5.chmod(0o755)
+        def check(sign, chip="5"):
+            return subprocess.run([str(SCRIPT), str(self.dir), str(sign), chip, "none", "x-1.0.0-x4.ppn"],
+                                  capture_output=True, text=True).returncode
+        self.assertEqual(check(sign5), 0)
+        self.assertEqual(check(sign5, chip="9"), 1)
+        # A file of the old format, or a tool that says no format: refused.
+        self.assertEqual(check(self.sign), 1)
+
     def test_a_second_file_or_a_link_fails(self):
         (self.dir / "extra.ppn").write_bytes(b"more")
         self.assertEqual(self.run_check(), 1)
