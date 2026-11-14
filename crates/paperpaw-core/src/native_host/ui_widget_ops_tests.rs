@@ -519,7 +519,10 @@ fn values_are_cached_until_the_status_changes_and_private_ones_hidden_under_a_gu
 }
 
 #[test]
-#[cfg_attr(feature = "x4-nested", ignore = "x4-nested opens the X4 gate (#250)")]
+#[cfg_attr(
+    not(feature = "x4-gate-closed"),
+    ignore = "the X4 gate is open by default (#250); run with x4-gate-closed"
+)]
 fn ops_14_and_15_are_depth_one_only_and_a_plugins_items_go_without_value_on_the_x4() {
     world(|w| {
         w.depth.set(2);

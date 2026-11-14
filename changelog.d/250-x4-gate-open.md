@@ -1,0 +1,3 @@
+### Changed
+
+- **The X4's nested-callback stack gate is open by default** (#250). `stage.run`, `ui.compose`, the widget ops 7 and 12-15 and op 14 now run another plugin's callback inside the caller's on the X4 too, so a Home page with widgets of other plugins (battery, progress, news ...), the status items and the aids' text rules work on the X4 as on the emulator. Measured on the real X4 (test image, gate open): lowest stack left 14,720 B in the main menu, 15,012 B on Home, Settings and the reader (limit 8,888 B). The core feature `x4-nested` is replaced by `x4-gate-closed`, which closes the gate again; off by default.

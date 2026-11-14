@@ -640,9 +640,9 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
 - [D] **X4 stack.** Two plugin frames and the host frame between them share the main stack, for slot
   35 and for ops 7 and 12-15 alike (each runs another plugin's callback inside the caller's): they
   join the frame budget of #254 (limit 2,048 bytes per frame), with a device high-water case (home
-  with widgets under the sleep screen's widgets) before activation; until the stack gate passes, the
-  X4 answers slot 35 and those ops with `ERR_UNSUPPORTED`, unless built with the core feature
-  `x4-nested` (the X4 shell's test image only, never a default feature). The kernel's own status
+  with widgets under the sleep screen's widgets) before activation; the stack gate passed on the
+  X4 (#250) and is open by default; the core feature `x4-gate-closed` closes it again (the X4 then
+  answers slot 35 and those ops with `ERR_UNSUPPORTED`). The kernel's own status
   items run no plugin and are answered there (op 14, slot 35 kind 1; section 5.3).
 
 ### 5.2 Widgets
