@@ -152,7 +152,7 @@ jobs:
       - run: cargo test -p paperpaw-app --features native-linked-reading --test linked_settings_tables
       - run: cargo test -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
       # The menu is native only (#244): its entries and the tools list are tested linked.
-      - run: cargo test -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets
+      - run: cargo test -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native
       # The Settings and the menu its tests open are native: the app's own plugins, as the lean
       # firmware has them (#244).
       - run: cargo test -p paperpaw-app --features native-linked --test sets --test readers --test standard

@@ -1688,6 +1688,7 @@ dependencies = [
  "paperpaw-plugin-wifi",
  "paperpaw-sdk",
  "paperpaw-zip",
+ "proptest",
 ]
 
 [[package]]

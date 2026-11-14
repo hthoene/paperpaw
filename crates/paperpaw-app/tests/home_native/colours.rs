@@ -8,9 +8,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod common;
-
-use common::*;
+use crate::common::*;
 
 /// The home screen with `extra` set for the start card.
 fn start_card(extra: &str) -> App {

@@ -501,12 +501,9 @@ pub(super) fn build_group(
             .is_some_and(|e| e.setting.key == view.focus),
         _ => false,
     });
-    // The first time a page is shown, focus starts on its first setting, not
-    // on an action a plugin added above them (as Discover fonts).
-    let first_setting = rows
-        .iter()
-        .position(|r| matches!(r, Row::Setting(_)))
-        .filter(|_| view.rows.is_empty() && matches!(rows.first(), Some(Row::Action(..))));
+    let first_setting = (view.rows.is_empty())
+        .then(|| first_real_setting(&group, &rows))
+        .flatten();
     view.group = group;
     view.title = title;
     view.rows = rows;
@@ -521,6 +518,22 @@ pub(super) fn build_group(
         view.list.set_focus(at);
     }
     Ok(())
+}
+
+/// The row a page opens its focus on when an action another plugin added
+/// stands above its settings (as Discover fonts): its first setting. A group's
+/// own action (Mail's *Open mail*) is the page's first row, so none then.
+fn first_real_setting(group: &str, rows: &[Row]) -> Option<usize> {
+    let own = group.split('.').next().unwrap_or_default();
+    let foreign_first = matches!(
+        rows.first(),
+        Some(Row::Action(action, ..)) if action.split('.').next().unwrap_or_default() != own
+    );
+    if foreign_first {
+        rows.iter().position(|r| matches!(r, Row::Setting(_)))
+    } else {
+        None
+    }
 }
 
 /// The rows of a group's page from its settings: parts, actions, themes, the

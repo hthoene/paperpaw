@@ -7,9 +7,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod common;
-
-use common::*;
+use crate::common::*;
 
 /// The home screen with the clock and the start card, `extra` set.
 fn two_widgets(core: &str, home: &str) -> App {
