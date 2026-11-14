@@ -147,6 +147,23 @@ impl<'h, 'cb> Reader<'h, 'cb> {
         }
     }
 
+    /// One setting by its key: its row, copied as `fields` says (`None`: the
+    /// registry knows no such setting). One call, where finding it among the
+    /// list's rows walks them all.
+    ///
+    /// # Errors
+    /// The registry's refusals other than "not found", and `NoMemory`.
+    pub fn setting_row(&mut self, key: &str, fields: Fields) -> Result<Option<Setting>, Error> {
+        match self
+            .registry
+            .setting(self.host, key, &mut self.input, &mut self.output)
+        {
+            Ok(detail) => setting(&detail.setting(), fields).map(Some),
+            Err(Error::NotFound) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Every group, parts included.
     pub fn groups(&mut self) -> Result<Vec<Group>, Error> {
         let mut found: Vec<Group> = Vec::new();
