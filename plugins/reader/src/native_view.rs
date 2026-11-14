@@ -30,7 +30,7 @@ use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
     document::{DocumentError, Locator},
-    layout::{LayoutContext, Page, layout_page},
+    layout::{Hyphenate, LayoutContext, Page, layout_page},
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input},
@@ -39,7 +39,7 @@ use paperpaw_sdk::{
         document::{DocId, DocPosition, Documents, OpenBook, Preparation, Report, Root},
         fonts::{Font, FontRole},
         library::Library,
-        snapshot,
+        snapshot, text as host_text,
         ui::{HandoverId, Notify, Open as NavOpen, Param, Ui},
     },
     reading::WordBox,
@@ -1274,7 +1274,15 @@ impl Open {
         let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?
             .filtered(&self.filters, &self.path);
         let style = setup.style(faces.line_height());
-        let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces);
+        let (on, left, right) = setup.reading.hyphens;
+        let hyphenate = |word: &str, out: &mut dyn FnMut(usize)| {
+            let mut places = [0u8; host_text::MAX_BREAKS];
+            let (left, right) = (u32::from(left), u32::from(right));
+            let asked = host_text::hyphenate(host, &self.language, word, left, right, &mut places);
+            native_pages::break_places(asked, &places, out);
+        };
+        let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces)
+            .hyphenate(on.then_some(&hyphenate as Hyphenate<'_>));
         layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
             match document_error_kind(&error) {
                 Some(kind) => kind,
