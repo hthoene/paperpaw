@@ -376,12 +376,10 @@ impl NativeStore {
             self.removed(host, done)?;
             return self.forward(host, event);
         }
+        use crate::native_install::Outcome;
         let reason = reason_of(done);
         let flags = u32::from(done.data_kept()) | (u32::from(done.at_next_start()) << 1);
         let end = End::new(request, reason, flags);
-        // The host's end names no plugin where it was declined or refused.
-        let plugin =
-            crate::native_glue::own(self.installer.going_plugin(request).unwrap_or(done.id()))?;
         let outcome = {
             let mut wire = InstallWire::new(host);
             self.installer.done(
@@ -391,8 +389,16 @@ impl NativeStore {
                 self.activity.flash_hint,
             )?
         };
+        // The host's end names no plugin where it was declined or refused: the
+        // outcome holds the one that was going.
+        let plugin: &str = match &outcome {
+            Outcome::Installed { plugin, .. }
+            | Outcome::Refused { plugin, .. }
+            | Outcome::Silent { plugin } => plugin,
+            Outcome::Other => done.id(),
+        };
         self.forget_snapshot();
-        self.sync_step(&plugin);
+        self.sync_step(plugin);
         // A page the queue or the offer installed from is not kept for nobody.
         if !self.has_page_screen() {
             self.loader.forget_page();
@@ -400,11 +406,10 @@ impl NativeStore {
         // No room (the code room, the card) and a withdrawn key are what the
         // page of the plugin says of it afterwards.
         match reason_of(done) {
-            7 => self.activity.note_revoked(&plugin)?,
-            13 | 17 => self.activity.note_no_room(&plugin)?,
+            7 => self.activity.note_revoked(plugin)?,
+            13 | 17 => self.activity.note_no_room(plugin)?,
             _ => {}
         }
-        use crate::native_install::Outcome;
         let said = match outcome {
             Outcome::Installed {
                 plugin,
@@ -421,11 +426,11 @@ impl NativeStore {
                 self.noted(host, &plugin, &name, key, Result_::Installed)?;
                 true
             }
-            Outcome::Refused { name, key } => {
+            Outcome::Refused { plugin, name, key } => {
                 self.noted(host, &plugin, &name, key, Result_::NotInstalled)?;
                 true
             }
-            Outcome::Silent => {
+            Outcome::Silent { plugin } => {
                 self.noted(host, &plugin, "", "", Result_::NotInstalled)?;
                 true
             }
@@ -691,9 +696,16 @@ impl NativeStore {
             let mut wire = DownloadWire::new(host, &mut self.handles);
             self.download.cancel(&mut wire);
         }
+        // Nothing is going on at the start: what a power cut left staged after
+        // the hand-over to the host (the job's file is gone by then) goes too.
+        let _ = crate::native_folders::Folders::new(host)
+            .remove_dir_all(crate::native_download::STAGE_DIR);
         let quiet = queue.has_quiet();
         drop(queue);
-        let state = self.setup_state(host);
+        // What the offer's step is, from the card alone: whether the device can
+        // add anything is read later (the start is where the heap peaks, #248).
+        let state = self.setup_state(host, false);
+        self.setup_stale = true;
         if quiet {
             self.go_on(host)?;
         }
@@ -704,17 +716,21 @@ impl NativeStore {
     /// Whether the setup's step applies, and what it says of the plugins chosen
     /// (`command.set_item_state`).
     #[inline(never)]
-    pub(crate) fn setup_state(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    pub(crate) fn setup_state(&mut self, host: &Host<'_>, device: bool) -> Result<(), Error> {
         use crate::native_ask::{Badge, CHOSEN, OFFERED, badge, waiting_offered};
         use paperpaw_sdk::native::commands::ItemState;
         let storage = DataStorage::new(host);
-        // The start reads the rows of the plugins the offer names, not what the
-        // device has, and none of it is kept.
-        let present = crate::native_installs::Snapshot::read_some(host, &OFFERED)?;
-        self.activity.read_facts(host, &storage, Some(&present))?;
+        // The rows of the plugins the offer name, not what the device has, and
+        // none of it is kept. Without `device` the step is taken to apply.
+        let applies = if device {
+            let present = crate::native_installs::Snapshot::read_some(host, &OFFERED)?;
+            self.activity.read_facts(host, &storage, Some(&present))?;
+            let installs = HostInstalls::new(&present, &self.activity);
+            crate::native_screen_offer::applies(&installs)
+        } else {
+            true
+        };
         let queue = Queue::read(&storage)?;
-        let installs = HostInstalls::new(&present, &self.activity);
-        let applies = crate::native_screen_offer::applies(&installs);
         let how = badge(waiting_offered(&queue), storage.exists(CHOSEN));
         let mut scratch = [0; 256];
         let mut args = [0; 64];

@@ -95,6 +95,9 @@ pub struct NativeStore {
     pub(crate) fonts: Option<(AskId, crate::native_fonts::Then)>,
     /// What is kept from ask to ask of plugins other plugins want.
     pub(crate) asks: crate::native_asks::Asks,
+    /// The offer's step was set from the card alone at the start: what the
+    /// device can add is read with the next event after it.
+    pub(crate) setup_stale: bool,
 }
 
 impl Plugin for NativeStore {
@@ -122,6 +125,10 @@ impl Plugin for NativeStore {
         else {
             return Ok(());
         };
+        if self.setup_stale && !matches!(event, Event::Started { .. }) {
+            self.setup_stale = false;
+            let _ = self.setup_state(host, true);
+        }
         match &event {
             Event::ActionRun { .. } if token == OPEN_TOKEN => {
                 let mut scratch = [0; 128];

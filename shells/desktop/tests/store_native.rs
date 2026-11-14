@@ -1,9 +1,11 @@
 //! The native plugin store, run end to end in the emulator: the real kernel with
 //! the linked store, the card in memory and the plugin library answered from
 //! recorded answers (the route the emulator sends its requests through instead
-//! of the network). What the interface-6 store tests drove on a hosted kernel
-//! is driven here through the buttons: the list, a plugin's page, the install,
-//! the update, the removal, what other plugins ask for, *Discover fonts*.
+//! of the network). Driven through the buttons: the list, the install of a
+//! plugin (download, the host's confirmation, the install), a declined install
+//! and the stage a power cut left. Not run here (gaps, see the PR's coverage
+//! table): the update, the removal, what other plugins ask for, *Discover
+//! fonts*; they are tested on the pieces (`tests/native_*.rs`).
 #![cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
 #![allow(
     clippy::unwrap_used,
@@ -307,6 +309,19 @@ fn a_declined_install_leaves_the_card_as_it_was() {
     assert_eq!(shop.screen(), "store.plugin", "{shown}");
     assert!(shown.contains("*Install"), "{shown}");
     assert!(!shop.card.exists("plugins/pack-a/plugin.ini"));
+    assert!(
+        !shop
+            .card
+            .exists(".paperpaw/plugins/store/stage/pack-a/plugin.ini")
+    );
+}
+
+#[test]
+fn files_a_power_cut_left_staged_are_removed_at_the_start() {
+    // The hand-over to the host had removed the download's job file: only the
+    // staged folder was left.
+    let card = MemoryStorage::new().with(".paperpaw/plugins/store/stage/pack-a/plugin.ini", "x");
+    let shop = Shop::on(card, &[Offered::data("pack-a", "Pack A", "1.0.0")]);
     assert!(
         !shop
             .card
