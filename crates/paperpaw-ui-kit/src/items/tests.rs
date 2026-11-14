@@ -416,6 +416,7 @@ fn a_list_has_no_room_above_its_rows_until_the_owner_keeps_and_sizes_it() {
     assert!(list.set_head_height(100));
     assert!(!list.set_head_height(100));
     assert_eq!(list.head_rect(), None);
+}
 
 #[test]
 fn a_faint_row_has_ink_on_a_panel_of_two_grays() {
