@@ -182,84 +182,102 @@ impl crate::Kernel {
             return Err(ERR_BUSY);
         }
         let id = instances.id(owner).ok_or(ERR_STATE)?;
-        let (status, staged) = {
-            let env = self.shared.env(self.now);
-            let mut stage = CommandStage::new(
-                id,
-                env.settings(),
-                Some(self.command_settings_authority(id)),
-                CALLBACK_COMMANDS,
-                CALLBACK_COMMAND_BYTES,
-            )
-            .with_ui(&env, self.event_screen(id), 0, self.screen_keys_remaining())
-            .with_widgets(instances.ui_services(), owner)
-            .with_handover_store(instances.ui_services().map(|ui| &ui.store));
-            // An event's or an action's callback sets its items' states too, as
-            // a screen's does (`update` marks its menu item).
-            if let Some(directory) = self.shared.registry.native_declarations.as_ref() {
-                stage = stage.with_item_states(super::commands::ItemAdmit { directory });
-            }
-            stage.set_images_held(self.image_held(owner));
-            stage.set_speech_held(self.io.speech.owned_texts(id.as_str()));
-            stage.set_requests_open(
-                self.native_requests_open(),
-                self.native_requests_open_by(id.as_str()),
-            );
-            stage.set_answer_view(self.native_answer_view(owner));
-            stage.set_preview_held(self.preview_held(id.as_str()));
-            // A run's callback is quiet (`work.md` section 2).
-            stage.set_quiet(
-                instances
-                    .work_services()
-                    .is_some_and(|work| work.sched.quiet(owner)),
-            );
-            let mut status = call(&env, &mut stage);
-            let staged = if matches!(status, Ok(0 | 1)) {
-                let images = stage.take_image_commands();
-                // The widgets it said changed; their makers hear of it from
-                // the pump. The table is not held across a callback, so a
-                // failed borrow is a host fault: the callback fails
-                // (`ERR_BUSY`, as in the shell path) and its batch is dropped.
-                let widgets = stage.take_widget_changes();
-                let item_states = stage.take_item_states();
-                let answers = stage.take_answers();
-                let lookups = stage.take_lookup_readies();
-                // Its power and Wi-Fi commands, in the box their submit made.
-                let dev = stage.take_dev_boxed();
-                let marked = match instances.ui_services() {
-                    Some(ui) if !widgets.is_empty() => ui.widgets_changed(owner, &widgets),
-                    _ => Ok(()),
-                };
-                if let Err(error) = marked {
-                    status = Err(error);
-                    None
-                } else {
-                    let (commands, redraw, _hop, opens) = stage.into_ui_output_with_opens();
-                    (!commands.is_empty()
-                        || dev.is_some()
-                        || redraw.is_some()
-                        || !images.is_empty()
-                        || !item_states.0.is_empty()
-                        || !answers.is_empty()
-                        || !lookups.is_empty())
-                    .then(|| {
-                        let mut staged = Staged::new(owner, commands, redraw, images);
-                        staged.screen.item_states = item_states;
-                        staged.screen.answers = answers;
-                        staged.screen.lookups = lookups;
-                        staged.opens = opens;
-                        staged.dev = dev;
-                        staged
-                    })
-                }
-            } else {
-                // An error drops the whole batch with the stage.
-                None
-            };
-            (status, staged)
+        let env = self.shared.env(self.now);
+        let mut stage = self.callback_stage(owner, id, &env);
+        let status = call(&env, &mut stage);
+        self.callback_staged(owner, status, stage)
+    }
+
+    /// The command stage a callback of `owner` (`id`) stages into. Its own
+    /// frame, gone before the callback runs: making the stage copies it, and
+    /// the callback's frame stays under the firmware's limit for host code.
+    #[inline(never)]
+    fn callback_stage<'a>(
+        &'a self,
+        owner: u64,
+        id: &'a paperpaw_sdk::Id,
+        env: &'a paperpaw_sdk::Env<'a>,
+    ) -> CommandStage<'a> {
+        let instances = &self.shared.native_instances;
+        let mut stage = CommandStage::new(
+            id,
+            env.settings(),
+            Some(self.command_settings_authority(id)),
+            CALLBACK_COMMANDS,
+            CALLBACK_COMMAND_BYTES,
+        )
+        .with_ui(env, self.event_screen(id), 0, self.screen_keys_remaining())
+        .with_widgets(instances.ui_services(), owner)
+        .with_handover_store(instances.ui_services().map(|ui| &ui.store));
+        // An event's or an action's callback sets its items' states too, as
+        // a screen's does (`update` marks its menu item).
+        if let Some(directory) = self.shared.registry.native_declarations.as_ref() {
+            stage = stage.with_item_states(super::commands::ItemAdmit { directory });
+        }
+        stage.set_images_held(self.image_held(owner));
+        stage.set_speech_held(self.io.speech.owned_texts(id.as_str()));
+        stage.set_requests_open(
+            self.native_requests_open(),
+            self.native_requests_open_by(id.as_str()),
+        );
+        stage.set_answer_view(self.native_answer_view(owner));
+        stage.set_preview_held(self.preview_held(id.as_str()));
+        // A run's callback is quiet (`work.md` section 2).
+        stage.set_quiet(
+            instances
+                .work_services()
+                .is_some_and(|work| work.sched.quiet(owner)),
+        );
+        stage
+    }
+
+    /// What the callback of `owner` staged, into the outbox when it returned
+    /// `0` or `1` (an error drops the whole batch with the stage); the
+    /// callback's status, or why its batch could not be kept. Its own frame,
+    /// after the callback returned (see [`Self::callback_stage`]).
+    #[inline(never)]
+    fn callback_staged(
+        &self,
+        owner: u64,
+        status: Result<i32, i32>,
+        mut stage: CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        let instances = &self.shared.native_instances;
+        if !matches!(status, Ok(0 | 1)) {
+            return status;
+        }
+        let images = stage.take_image_commands();
+        // The widgets it said changed; their makers hear of it from the
+        // pump. The table is not held across a callback, so a failed borrow
+        // is a host fault: the callback fails (`ERR_BUSY`, as in the shell
+        // path) and its batch is dropped.
+        let widgets = stage.take_widget_changes();
+        let item_states = stage.take_item_states();
+        let answers = stage.take_answers();
+        let lookups = stage.take_lookup_readies();
+        // Its power and Wi-Fi commands, in the box their submit made.
+        let dev = stage.take_dev_boxed();
+        let marked = match instances.ui_services() {
+            Some(ui) if !widgets.is_empty() => ui.widgets_changed(owner, &widgets),
+            _ => Ok(()),
         };
-        if let Some(staged) = staged {
-            // Empty and checked above: this cannot refuse.
+        marked?;
+        let (commands, redraw, _hop, opens) = stage.into_ui_output_with_opens();
+        if !commands.is_empty()
+            || dev.is_some()
+            || redraw.is_some()
+            || !images.is_empty()
+            || !item_states.0.is_empty()
+            || !answers.is_empty()
+            || !lookups.is_empty()
+        {
+            let mut staged = Staged::new(owner, commands, redraw, images);
+            staged.screen.item_states = item_states;
+            staged.screen.answers = answers;
+            staged.screen.lookups = lookups;
+            staged.opens = opens;
+            staged.dev = dev;
+            // Empty, checked before the callback: this cannot refuse.
             instances.outbox.put(staged)?;
         }
         status
