@@ -924,3 +924,4 @@ allow call _ZN12paperpaw_sdk6native5files5Files4call -> memcpy the chip's ROM `m
 allow call paperpaw_sdk::time::civil_from_days -> __divdi3 the chip's ROM `__divdi3`: not scanned here (device test S4)
 allow call paperpaw_sdk::settings::described::Blocks::find_named -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_sdk::settings::specs::Specs::get -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow indirect paperpaw_core::abi7::settings_visibility::SettingIdentity::secret 1 new with the linked plugins (native-on, #243), in this build only (the two S3 builds inline differently): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are not scanned here (device test S4)

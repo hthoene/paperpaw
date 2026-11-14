@@ -78,9 +78,9 @@ def symbols(elf):
 def frames(elf, *extra):
     if S3:
         objdump = glob.glob(str(Path.home() / ".rustup/toolchains/esp/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32s3-elf-objdump"))
-        if not objdump:
-            sys.exit("no xtensa-esp32s3-elf-objdump in the esp toolchain")
-        extra = (*extra, "--objdump", objdump[0])
+        # Else `stack-frames.py` looks for espup's own (it reads the ELF's arch).
+        if objdump:
+            extra = (*extra, "--objdump", objdump[0])
     out = subprocess.run(
         [sys.executable, str(HERE / "stack-frames.py"), elf, "--paths", "0", *extra],
         capture_output=True, text=True, check=True,

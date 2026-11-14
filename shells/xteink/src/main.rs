@@ -186,11 +186,15 @@ const X4_BAND_KB: usize = if cfg!(all(target_arch = "riscv32", feature = "ppn5")
     0
 };
 /// The ESP32-S3's band at the stack's end and its reserve, in KB, where
-/// interface-7 plugins are built in (`ppn5`): the stack grows by as much (the
-/// heap gives it, `build.rs` checks the stack's size). 16 KB: 14,336 bytes of
-/// reserve and the band's 2,048 (`paperpaw_x4::s3_band::SPARE`).
+/// interface-7 plugins are built in (`ppn5`), and 4 KB more above them: the
+/// stack grows by as much (the heap gives it, `build.rs` checks the stack's
+/// size). 16 KB: 14,336 bytes of reserve and the band's 2,048
+/// (`paperpaw_x4::s3_band::SPARE`); the 4 KB are what the start's path through
+/// the kernel's build needs to keep 2 KB above the band (`tools/check-x4-start-stack.py
+/// --s3 --margin 2048`, static: it had 1,616 B on the X4 Pro, 608 B on the Classic
+/// with 2 KB more).
 const S3_BAND_KB: usize = if cfg!(all(target_arch = "xtensa", feature = "ppn5")) {
-    (paperpaw_x4::s3_band::SPARE / 1024) as usize
+    (paperpaw_x4::s3_band::SPARE / 1024) as usize + 4
 } else {
     0
 };
