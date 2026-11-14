@@ -957,7 +957,7 @@ jobs:
   prune-caches:
     name: Old Rust caches removed
     if: ${{ always() && github.event_name == 'push' }}
-    needs: [check, screens, msrv, sdk, abi7, embedded, firmware, update-path, native, table-compat, architecture, emulator, android, fuzz, deny, firmware-host-frames]
+    needs: [check, test, screens, msrv, sdk, abi7, embedded, firmware, update-path, native, table-compat, architecture, emulator, android, fuzz, deny, firmware-host-frames]
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
