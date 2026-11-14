@@ -1,4 +1,4 @@
-"""Fails if the X4's start can run into the stack's band (#2556).
+"""Fails if the X4's (or with --s3 the ESP32-S3 devices') start can run into the stack's band (#2556).
 
 The owner's first test image boot-looped because `main` -> `start` ->
 `prepare` -> a flash read reached the band at the main stack's end while only
@@ -16,7 +16,9 @@ the device's high-water log gives the rest. Against what lies above the band: th
 (`crates/paperpaw-x4/src/stack_band.rs`: the first BAND-aligned region at or
 above `end + RESERVE`).
 
-Usage: tools/check-x4-start-stack.py <elf> [--margin BYTES]
+Usage: tools/check-x4-start-stack.py <elf> [--margin BYTES] [--s3]
+With --s3 the ELF is an ESP32-S3 firmware (X4 Pro, X4 Classic): its band and reserve are
+`crates/paperpaw-x4/src/s3_band.rs`'s, its frames are read with the Xtensa objdump.
 Exit 0: the paths fit with the margin left; 1: they do not; 2: bad input.
 """
 
@@ -31,7 +33,21 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 
+S3 = False
+
+
 def constants():
+    if S3:
+        text = (HERE.parent / "crates/paperpaw-x4/src/s3_band.rs").read_text()
+
+        def const(name):
+            m = re.search(rf"pub const {name}: u32 = (\d+);", text)
+            if not m:
+                sys.exit(f"s3_band.rs: no literal `{name}`")
+            return int(m.group(1))
+        windows = const("WINDOWS_BELOW")
+        depth = max(const("HANDLER"), const("INTERRUPT"))
+        return const("BAND"), windows * const("LIMIT") + depth
     text = (HERE.parent / "crates/paperpaw-x4/src/stack_band.rs").read_text()
     def const(name):
         m = re.search(rf"pub const {name}: u32 = (\d+);", text)
@@ -60,6 +76,11 @@ def symbols(elf):
 
 
 def frames(elf, *extra):
+    if S3:
+        objdump = glob.glob(str(Path.home() / ".rustup/toolchains/esp/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32s3-elf-objdump"))
+        if not objdump:
+            sys.exit("no xtensa-esp32s3-elf-objdump in the esp toolchain")
+        extra = (*extra, "--objdump", objdump[0])
     out = subprocess.run(
         [sys.executable, str(HERE / "stack-frames.py"), elf, "--paths", "0", *extra],
         capture_output=True, text=True, check=True,
@@ -81,7 +102,7 @@ def frame_of(table, name):
 # counted whole (the run path below); at the start the kernel's build replays
 # only a removal, which asks for none of that. Taken to be confirmed by
 # Kernel (#2556): a start that does reach it overflows.
-START_CUTS = [r"^<paperpaw_core::Kernel>::apply$"]
+START_CUTS = [r"Kernel>::apply$"]
 
 
 def chain_from(elf, root, cuts=()):
@@ -98,13 +119,16 @@ def main():
     ap.add_argument("elf")
     ap.add_argument("--margin", type=int, default=512,
                     help="bytes that must be left above the band for what the paths do not follow")
+    ap.add_argument("--s3", action="store_true", help="an ESP32-S3 firmware (X4 Pro, X4 Classic)")
     a = ap.parse_args()
+    global S3
+    S3 = a.s3
     if not os.path.exists(a.elf):
         print(f"no such file: {a.elf}", file=sys.stderr)
         return 2
     band, reserve = constants()
     end, top = symbols(a.elf)
-    start = (end + reserve + band - 1) & ~(band - 1)
+    start = (end + reserve + (15 if S3 else band - 1)) & ~(15 if S3 else band - 1)
     usable = top - (start + band)
     table = frames(a.elf, "--top", "40000")
     main_f = frame_of(table, "main")
@@ -112,7 +136,7 @@ def main():
     paths = {
         "start: main + start + prepare": main_f + start_f + chain_from(a.elf, "paperpaw_xteink::prepare"),
         "start: main + start + kernel + build and what it calls": main_f + start_f + chain_from(a.elf, "paperpaw_xteink::kernel", START_CUTS),
-        "main loop: main + run and what it calls": main_f + chain_from(a.elf, "<paperpaw_xteink::firmware::Firmware>::run"),
+        "main loop: main + run and what it calls": main_f + chain_from(a.elf, "paperpaw_xteink::firmware::Firmware::run" if S3 else "<paperpaw_xteink::firmware::Firmware>::run"),
     }
     print(f"stack {top - end} B (end {end:#x}, top {top:#x}); band {start:#x}..{start + band:#x}; "
           f"{usable} B above it, margin {a.margin} B")
