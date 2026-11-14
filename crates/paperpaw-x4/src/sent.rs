@@ -27,50 +27,88 @@ struct Band {
     packed: Vec<u8>,
 }
 
+impl Band {
+    /// Its bytes unpacked.
+    fn bytes(&self) -> usize {
+        usize::from(self.view.1) * self.view.3
+    }
+}
+
 #[derive(Debug)]
 pub struct Sent {
     /// The heap's free bytes now.
     heap_free: fn() -> usize,
     bands: Vec<Band>,
     size: usize,
-    /// A band packed, before it is kept at its size.
-    scratch: Vec<u8>,
     /// It did not fit: the frame is drawn anew.
     lost: bool,
 }
 
-/// Packs `bytes` onto `out`.
-fn pack(bytes: &[u8], out: &mut Vec<u8>) {
-    let mut at = 0;
-    while at < bytes.len() {
-        let byte = bytes[at];
-        let run = bytes[at..]
-            .iter()
-            .take(130)
-            .take_while(|&&b| b == byte)
-            .count();
-        // Runs of three on (shorter ones cost more as runs than as bytes
-        // between them).
-        if run >= 3 {
-            out.push(0x80 | (run - 3) as u8);
-            out.push(byte);
-            at += run;
-        } else {
-            // As they are, until a run starts.
-            let start = at;
-            at += 1;
-            while at < bytes.len() && at - start < 128 && !run_at(bytes, at) {
-                at += 1;
-            }
-            out.push((at - start - 1) as u8);
-            out.extend_from_slice(&bytes[start..at]);
-        }
+/// Where a band's packed bytes go: onto the bytes kept, or nowhere when
+/// they are only counted (`Count`), so that a band is kept in memory of
+/// exactly its packed size and no second band's worth is held for packing.
+trait Packed {
+    fn push(&mut self, byte: u8);
+    fn extend_from_slice(&mut self, bytes: &[u8]);
+}
+
+impl Packed for Vec<u8> {
+    fn push(&mut self, byte: u8) {
+        Vec::push(self, byte);
+    }
+    fn extend_from_slice(&mut self, bytes: &[u8]) {
+        Vec::extend_from_slice(self, bytes);
     }
 }
 
-/// Whether a run of three starts at `at`.
-fn run_at(bytes: &[u8], at: usize) -> bool {
-    bytes.get(at + 1) == Some(&bytes[at]) && bytes.get(at + 2) == Some(&bytes[at])
+/// How many bytes went in.
+struct Count(usize);
+
+impl Packed for Count {
+    fn push(&mut self, _: u8) {
+        self.0 += 1;
+    }
+    fn extend_from_slice(&mut self, bytes: &[u8]) {
+        self.0 += bytes.len();
+    }
+}
+
+/// Packs `bytes` onto `out`. A frame is packed twice, to count and to keep,
+/// so the bytes are walked without a check at each (#248).
+fn pack(bytes: &[u8], out: &mut impl Packed) {
+    let mut rest = bytes;
+    while let Some(&byte) = rest.first() {
+        // A run is 130 bytes at most; so are the bytes that tell where the
+        // bytes between runs end (128 of them and two more).
+        let ahead = &rest[..rest.len().min(130)];
+        let run = ahead.iter().position(|&b| b != byte).unwrap_or(ahead.len());
+        // Runs of three on (shorter ones cost more as runs than as bytes
+        // between them).
+        let len = if run >= 3 {
+            out.push(0x80 | (run - 3) as u8);
+            out.push(byte);
+            run
+        } else {
+            // As they are, until a run starts.
+            let mut len = ahead.len().min(128);
+            let mut same = 1;
+            for (at, (a, b)) in ahead.iter().zip(&ahead[1..]).enumerate() {
+                if a != b {
+                    same = 1;
+                } else if same == 2 {
+                    // `b` is the third alike: the run started before `a`.
+                    len = at.saturating_sub(1).max(1);
+                    break;
+                } else {
+                    same = 2;
+                }
+            }
+            out.push((len - 1) as u8);
+            out.extend_from_slice(&rest[..len]);
+            len
+        };
+        rest = &rest[len..];
+    }
 }
 
 /// Unpacks `packed` onto `out`.
@@ -97,7 +135,6 @@ impl Sent {
             heap_free,
             bands: Vec::new(),
             size: 0,
-            scratch: Vec::new(),
             lost: false,
         }
     }
@@ -108,17 +145,11 @@ impl Sent {
             return;
         }
         let bytes = &rows.data[..(usize::from(rows.height) * rows.stride).min(rows.data.len())];
-        // At most a byte more for every 128.
-        self.scratch.clear();
-        if self
-            .scratch
-            .try_reserve(bytes.len() + bytes.len() / 128 + 1)
-            .is_err()
-        {
-            return self.lose();
-        }
-        pack(bytes, &mut self.scratch);
-        let size = self.scratch.len();
+        // Counted first, then packed into memory of that size: nothing of
+        // a band's size is held beside what is kept (#248).
+        let mut count = Count(0);
+        pack(bytes, &mut count);
+        let size = count.0;
         let mut packed = Vec::new();
         if self.size + size > MAX_BYTES
             || (self.heap_free)() < size + SPARE
@@ -127,7 +158,7 @@ impl Sent {
         {
             return self.lose();
         }
-        packed.extend_from_slice(&self.scratch);
+        pack(bytes, &mut packed);
         self.size += size;
         self.bands.push(Band {
             top,
@@ -139,7 +170,6 @@ impl Sent {
     fn lose(&mut self) {
         self.lost = true;
         self.bands = Vec::new();
-        self.scratch = Vec::new();
         self.size = 0;
     }
 
@@ -149,14 +179,16 @@ impl Sent {
         if self.lost {
             return false;
         }
-        // The scratch band's memory, for unpacking.
-        let mut data = core::mem::take(&mut self.scratch);
+        // A band's memory for unpacking, taken once for the tallest before
+        // any band goes out: without it nothing was sent twice.
+        let most = self.bands.iter().map(Band::bytes).max().unwrap_or(0);
+        let mut data = Vec::new();
+        if data.try_reserve_exact(most).is_err() {
+            return false;
+        }
         for band in &self.bands {
             let (width, height, format, stride) = band.view;
             data.clear();
-            if data.try_reserve(usize::from(height) * stride).is_err() {
-                return false;
-            }
             unpack(&band.packed, &mut data);
             out(
                 band.top,
@@ -231,6 +263,140 @@ mod tests {
         let mut unpacked = Vec::new();
         unpack(&packed, &mut unpacked);
         assert_eq!(unpacked, mixed);
+    }
+
+    /// A band as a page of text packs it: white, with rows of mixed bytes.
+    fn text_band() -> Vec<u8> {
+        (0..9_600u32)
+            .map(|i| {
+                if i / 60 % 8 < 3 && i % 60 > 6 && i % 60 < 52 {
+                    (i.wrapping_mul(2_654_435_761) >> 13) as u8
+                } else {
+                    0xFF
+                }
+            })
+            .collect()
+    }
+
+    /// Packing as it was before a band was counted and then packed (#248):
+    /// what the bytes kept are compared with.
+    fn pack_as_before(bytes: &[u8], out: &mut Vec<u8>) {
+        let run_at = |at: usize| {
+            bytes.get(at + 1) == Some(&bytes[at]) && bytes.get(at + 2) == Some(&bytes[at])
+        };
+        let mut at = 0;
+        while at < bytes.len() {
+            let byte = bytes[at];
+            let run = bytes[at..]
+                .iter()
+                .take(130)
+                .take_while(|&&b| b == byte)
+                .count();
+            if run >= 3 {
+                out.push(0x80 | (run - 3) as u8);
+                out.push(byte);
+                at += run;
+            } else {
+                let start = at;
+                at += 1;
+                while at < bytes.len() && at - start < 128 && !run_at(at) {
+                    at += 1;
+                }
+                out.push((at - start - 1) as u8);
+                out.extend_from_slice(&bytes[start..at]);
+            }
+        }
+    }
+
+    #[test]
+    fn packs_to_the_bytes_it_always_packed_to() {
+        // Bytes alike in runs of every length around the limits (3, 128,
+        // 130), single bytes, and mixes of them.
+        let mut x: u32 = 12_345;
+        let mut next = move || {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            x
+        };
+        for case in 0..4_000u32 {
+            let len = (next() % 700) as usize;
+            let mut bytes = Vec::with_capacity(len);
+            while bytes.len() < len {
+                let byte = (next() % if case % 5 == 0 { 256 } else { 3 }) as u8;
+                let run = match case % 5 {
+                    0 => 1,
+                    1 => 1 + next() % 4,
+                    2 => 1 + next() % 140,
+                    3 => 1 + next() % 3,
+                    _ => 120 + next() % 20,
+                } as usize;
+                bytes.resize(bytes.len() + run.min(len - bytes.len()), byte);
+            }
+            let (mut before, mut now, mut count) = (Vec::new(), Vec::new(), Count(0));
+            pack_as_before(&bytes, &mut before);
+            pack(&bytes, &mut now);
+            pack(&bytes, &mut count);
+            assert_eq!(now, before, "case {case}: {bytes:?}");
+            assert_eq!(count.0, before.len(), "case {case}");
+        }
+        let pages: [Vec<u8>; 3] = [text_band(), [0xFF; 9_600].to_vec(), (0..=255).collect()];
+        for bytes in pages {
+            let (mut before, mut now) = (Vec::new(), Vec::new());
+            pack_as_before(&bytes, &mut before);
+            pack(&bytes, &mut now);
+            assert_eq!(now, before);
+        }
+    }
+
+    #[test]
+    fn counting_says_the_size_packing_takes() {
+        let noise: Vec<u8> = (0..9_600u32)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 11) as u8)
+            .collect();
+        let runs: Vec<u8> = (0..2_000u32).map(|i| (i / 131) as u8).collect();
+        let cases: [&[u8]; 8] = [
+            &[],
+            &[7],
+            &[1, 1],
+            &[5; 130],
+            &[5; 131],
+            &runs,
+            &noise,
+            &text_band(),
+        ];
+        for bytes in cases {
+            let mut packed = Vec::new();
+            pack(bytes, &mut packed);
+            let mut count = Count(0);
+            pack(bytes, &mut count);
+            assert_eq!(count.0, packed.len());
+        }
+    }
+
+    #[test]
+    fn a_band_is_kept_as_it_packs_in_memory_of_that_size() {
+        // The bytes a band packs to, as they have been since the bands
+        // were first kept.
+        let bytes = [
+            1, 1, 2, 2, 2, 3, 4, 4, 4, 4, 0xFF, 9, 9, 9, 9, 9, 9, 9, 9, 9,
+        ];
+        let mut sent = Sent::new(plenty);
+        sent.keep(0, &band(&bytes));
+        let kept = &sent.bands[0].packed;
+        assert_eq!(
+            kept[..],
+            [1, 1, 1, 0x80, 2, 0, 3, 0x81, 4, 0, 0xFF, 0x86, 9]
+        );
+        assert_eq!(kept.capacity(), kept.len());
+        // And a band of a page, against packing it whole.
+        let text = text_band();
+        let mut whole = Vec::new();
+        pack(&text, &mut whole);
+        let mut sent = Sent::new(plenty);
+        sent.keep(0, &FrameView::new(480, 160, PixelFormat::Mono1, 60, &text));
+        assert_eq!(sent.bands[0].packed, whole);
+        assert_eq!(sent.size, whole.len());
     }
 
     #[test]
