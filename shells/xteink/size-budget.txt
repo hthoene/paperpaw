@@ -46,7 +46,15 @@
 # 270,000 bytes or so below t40); the lines are those plus 16,000. The x4, the
 # x3 and the x4-classic are inside stage 1 (6,400,000 bytes) now; only the
 # x4-pro exceeds it, and the installer slot (6,553,600 bytes), by Decision 184.
-image x4 6236480
-image x3 6248464
-image x4-pro 6805312
-image x4-classic 6354896
+#
+# Train t43 (#1488/#1491, #1492, #1494, #1485, #1483, #1484, #1489, #1493, #1487
+# on t42's base): measured on `train/t43` (10ba216ea), local build of the
+# release-like image, as above: x4 6,248,400, x3 6,260,416, x4-pro 6,817,648,
+# x4-classic 6,367,232 (against train t42: x4 +15,120, x3 +15,168, x4-pro
+# +22,224, x4-classic +21,520); the lines are those plus 16,000. x4, x3 and
+# x4-classic are inside stage 1 (6,400,000 bytes); the x4-pro exceeds it and the
+# installer slot (Decision 184, Decision 179).
+image x4 6264400
+image x3 6276416
+image x4-pro 6833648
+image x4-classic 6383232
