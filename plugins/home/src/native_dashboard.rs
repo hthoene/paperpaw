@@ -18,7 +18,7 @@ use paperpaw_sdk::{
     keys::InputMode,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, FrameRect, Input, InputGestureKind},
+        callbacks::{DrawFrame, Input, InputGestureKind},
         canvas::PartRole,
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
@@ -128,8 +128,10 @@ enum Next {
     Options(usize),
 }
 
+mod area;
 mod arrange;
 mod names;
+use area::focus_area;
 
 /// The dashboard.
 #[derive(Debug, Default)]
@@ -1258,8 +1260,6 @@ fn paintpush(paint: &mut Vec<Paint>, op: Paint) -> Result<(), Error> {
     paint::push(paint, op)
 }
 
-/// Where target `rect` and its ring (`room` round it) are, from the top left
-/// of the screen's region at `origin`.
 /// How far [`ring`] reaches outside its target: the air around it and its line.
 fn ring_room(style: &Style) -> i32 {
     ring_room_of(style.gap, style.line)
@@ -1267,22 +1267,6 @@ fn ring_room(style: &Style) -> i32 {
 
 fn ring_room_of(gap: u16, line: u16) -> i32 {
     i32::from(gap / 2).saturating_add(i32::from(line.max(2)))
-}
-
-fn focus_area(rect: Rect, room: i32, origin: (i32, i32)) -> FrameRect {
-    let grown = |size: u16| {
-        u32::from(size).saturating_add(u32::try_from(room).unwrap_or(0).saturating_mul(2))
-    };
-    FrameRect::new(
-        i32::from(rect.x)
-            .saturating_sub(room)
-            .saturating_sub(origin.0),
-        i32::from(rect.y)
-            .saturating_sub(room)
-            .saturating_sub(origin.1),
-        grown(rect.width),
-        grown(rect.height),
-    )
 }
 
 pub(crate) fn redraw(host: &Host<'_>) -> Result<(), Error> {
