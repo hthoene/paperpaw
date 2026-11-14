@@ -315,8 +315,73 @@ paperpaw-table = { opt-level = "z" }
 paperpaw-ui-kit = { opt-level = "z" }
 paperpaw-update = { opt-level = "z" }
 
-[profile.release]
+# Small, not fast, for everything that is not on a page turn, a book's
+# opening, the start or the radio (#2575: 410 KB under "s"). The hot crates
+# keep "s": the text, layout, picture and archive code a page is made of,
+# the FAT and the card, the allocator and the drivers, the plugin files'
+# checks at the start (hash, signature) and the reader. The S3 builds share
+# this profile (one per workspace); their budgets are scanned for it.
+[profile.release.package.paperpaw-xteink]
 opt-level = "s"
+[profile.release.package.paperpaw-text]
+opt-level = "s"
+[profile.release.package.paperpaw-layout]
+opt-level = "s"
+[profile.release.package.paperpaw-fat]
+opt-level = "s"
+[profile.release.package.paperpaw-image]
+opt-level = "s"
+[profile.release.package.paperpaw-epub-family]
+opt-level = "s"
+[profile.release.package.paperpaw-zip]
+opt-level = "s"
+[profile.release.package.paperpaw-graphics]
+opt-level = "s"
+[profile.release.package.paperpaw-xml]
+opt-level = "s"
+[profile.release.package.paperpaw-x4]
+opt-level = "s"
+[profile.release.package.paperpaw-sort]
+opt-level = "s"
+[profile.release.package.paperpaw-hyphen]
+opt-level = "s"
+[profile.release.package.paperpaw-i18n]
+opt-level = "s"
+[profile.release.package.paperpaw-digest]
+opt-level = "s"
+[profile.release.package.paperpaw-plugin-reader]
+opt-level = "s"
+[profile.release.package.paperpaw-plugin-format-txt]
+opt-level = "s"
+[profile.release.package.paperpaw-plugin-format-xtc]
+opt-level = "s"
+[profile.release.package.fatfs]
+opt-level = "s"
+[profile.release.package.miniz_oxide]
+opt-level = "s"
+[profile.release.package.smoltcp]
+opt-level = "s"
+[profile.release.package.esp-hal]
+opt-level = "s"
+[profile.release.package.esp-alloc]
+opt-level = "s"
+[profile.release.package.esp-sync]
+opt-level = "s"
+[profile.release.package.esp-storage]
+opt-level = "s"
+[profile.release.package.esp-rtos]
+opt-level = "s"
+[profile.release.package.ed25519-compact]
+opt-level = "s"
+[profile.release.package.sha2]
+opt-level = "s"
+[profile.release.package.aes]
+opt-level = "s"
+[profile.release.package.hmac]
+opt-level = "s"
+
+[profile.release]
+opt-level = "z"
 lto = "fat"
 codegen-units = 1
 debug = 2
