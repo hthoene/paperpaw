@@ -242,12 +242,7 @@ impl Kernel {
             changed.push(old);
             let resized = now.is_none_or(|s| (s.width, s.height) != (old.width, old.height));
             if resized && self.chromes[index].screen.is_some() {
-                self.with_chrome(index, |screen, cx| {
-                    screen.on_close(cx);
-                    Handled::Yes
-                });
-                self.chromes[index].screen = None;
-                self.chromes[index].timer = None;
+                self.close_chrome(index);
             }
         }
         let old = mem::replace(&mut self.chrome_strips, strips);
@@ -259,18 +254,9 @@ impl Kernel {
             if self.chromes[index].screen.is_some() {
                 continue;
             }
-            let base = self.shared.env(self.now);
-            let device = base.device_within(strip);
-            let env = base.within(&device, strip);
-            let chrome = &mut self.chromes[index];
-            let running = self.shared.meter.enter(chrome.spec.id.namespace());
-            chrome.screen = Some((chrome.spec.factory)(&env, &Params::new()));
-            drop(running);
+            self.make_chrome(index, strip);
             changed.push(strip);
-            self.with_chrome(index, |screen, cx| {
-                screen.on_show(cx);
-                Handled::Yes
-            });
+            self.show_chrome(index);
         }
         // Bars not shown are let go.
         for (index, chrome) in self.chromes.iter_mut().enumerate() {
@@ -283,6 +269,40 @@ impl Kernel {
             self.invalidate(strip);
         }
         self.lay_out_shown();
+    }
+
+    /// Closes bar `index` ([`Screen::on_close`]) and lets it go.
+    // Its own frame, as the two below: each has a bar's environment, and
+    // `sync_chromes` stays under the firmware's frame limit for host code.
+    #[inline(never)]
+    fn close_chrome(&mut self, index: usize) {
+        self.with_chrome(index, |screen, cx| {
+            screen.on_close(cx);
+            Handled::Yes
+        });
+        self.chromes[index].screen = None;
+        self.chromes[index].timer = None;
+    }
+
+    /// Makes bar `index` for its `strip`.
+    #[inline(never)]
+    fn make_chrome(&mut self, index: usize, strip: Rect) {
+        let base = self.shared.env(self.now);
+        let device = base.device_within(strip);
+        let env = base.within(&device, strip);
+        let chrome = &mut self.chromes[index];
+        let running = self.shared.meter.enter(chrome.spec.id.namespace());
+        chrome.screen = Some((chrome.spec.factory)(&env, &Params::new()));
+        drop(running);
+    }
+
+    /// Shows bar `index`, just made ([`Screen::on_show`]).
+    #[inline(never)]
+    fn show_chrome(&mut self, index: usize) {
+        self.with_chrome(index, |screen, cx| {
+            screen.on_show(cx);
+            Handled::Yes
+        });
     }
 
     /// Makes the screens shown anew where the part of the screen they
