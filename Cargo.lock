@@ -1687,6 +1687,7 @@ dependencies = [
  "paperpaw-plugin-widgets",
  "paperpaw-plugin-wifi",
  "paperpaw-sdk",
+ "paperpaw-text",
  "paperpaw-zip",
  "proptest",
 ]

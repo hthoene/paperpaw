@@ -183,6 +183,8 @@ paperpaw-plugin-settings.workspace = true
 paperpaw-core = { workspace = true, features = ["testing"] }
 paperpaw-platform.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
+# Font packs made in the tests (a card font for widgets, #262).
+paperpaw-text.workspace = true
 # Comic books for the sleep tests (#248).
 paperpaw-zip = { workspace = true, features = ["testing"] }
 # The home layouts' property tests (moved from the Home plugin, #244).
