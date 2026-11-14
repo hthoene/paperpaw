@@ -79,6 +79,38 @@ pub fn own(plugin: &str, folder: Option<&Path>) -> bool {
     }
 }
 
+/// The catalogs in the sources of PaperPaw's own plugins with code, by
+/// plugin, as they were when this tool was built (`build.rs`).
+const OWN_CATALOGS: &[(&str, &[&str])] = include!(concat!(env!("OUT_DIR"), "/own_catalogs.rs"));
+
+/// The catalogs of the app's plugins that are PaperPaw's own with code,
+/// from their sources: the app has those of a plugin linked into it as
+/// tables without keys (`paperpaw_i18n::BuiltMessages`), which name no
+/// message to compare or to write in the pseudo-language.
+fn own_catalogs(kernel: &paperpaw_core::Kernel) -> Vec<paperpaw_i18n::Catalog> {
+    let mut catalogs = Vec::new();
+    for plugin in kernel.plugins().iter() {
+        let id = plugin.manifest.id.as_str();
+        let sources = OWN_CATALOGS.iter().find(|(own, _)| *own == id);
+        for source in sources.map_or(&[][..], |(_, sources)| sources) {
+            // One that does not parse is the files' check to find.
+            catalogs.extend(paperpaw_i18n::Catalog::parse(*source));
+        }
+    }
+    catalogs
+}
+
+/// The messages of every language the app has but the pseudo-language, by
+/// key: those of its plugins' sources (`own_catalogs`), then the
+/// translator's catalogs, which win as they do in the app.
+pub fn languages(kernel: &paperpaw_core::Kernel) -> Vec<Language> {
+    let mut all = own_catalogs(kernel);
+    all.extend(kernel.translator().catalogs());
+    let mut languages = catalogs::merge(&all);
+    languages.retain(|l| l.code != PSEUDO);
+    languages
+}
+
 /// The files of a data plugin that adds the pseudo-language, as `(path,
 /// bytes)` in the library: put in by sessions whose language is
 /// [`PSEUDO`]. Its catalogs hold every English text of the app, plugins'
@@ -156,7 +188,7 @@ pub fn run(context: &Context, report: &mut Report) -> Result<(), String> {
         .into_iter()
         .filter(|l| l != PSEUDO)
         .collect();
-    let mut languages = catalogs::languages(kernel.translator());
+    let mut languages = languages(kernel);
     languages.retain(|l| l.code == paperpaw_i18n::FALLBACK_LANGUAGE || wanted.contains(&l.code));
     let english = languages
         .iter()
