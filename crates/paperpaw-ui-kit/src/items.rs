@@ -1249,6 +1249,10 @@ fn row_backdrop(
         let (outline, radius, line) = field_outline(style, rect);
         return paint::push(paint, Paint::Focus(outline, radius, Some(line), style.ink));
     }
+    // Text the page reads out has no line under it.
+    if row.small || row.plain {
+        return Ok(());
+    }
     backdrop(paint, style, rect, focused)
 }
 
