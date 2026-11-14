@@ -470,9 +470,16 @@ jobs:
           cargo run -q --release -p paperpaw-sign -- frames-s3 \
             shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink \
             --budget "$budget"
+      # The S3's start and main-loop paths keep 2 KB above the band (the team's
+      # rule for a route), as the X4's job below keeps 512 B for its own.
+      - name: The S3's start and main-loop stack paths stay above the band
+        if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
+        run: |
+          python3 -I tools/check-x4-start-stack.py --s3 --margin 2048 \
+            shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink
       # As the release makes it: the build fails when CrossPoint's menu
       # could no longer install it.
-      - name: The install image fits CrossPoint's slot
+      - name: The install image fits the app partition
         uses: ./.github/actions/install-image
         with:
           out: ${{ runner.temp }}/install.bin
