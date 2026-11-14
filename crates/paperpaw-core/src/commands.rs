@@ -57,11 +57,13 @@ impl Kernel {
         let effects = self.finish_frame();
         // The specs this round made of settings their plugins describe are
         // let go: none stays on the heap between rounds (#248). One left out
-        // for lack of room was taken as not there by who asked: said here.
-        if self.shared.settings.went_short() {
+        // for lack of room was taken as not there by who asked: said here,
+        // once the specs are gone (the warning's text needs room too).
+        let short = self.shared.settings.went_short();
+        self.shared.settings.rest();
+        if short {
             self.warn_runtime("no room to read a setting from its plugin; taken as not there");
         }
-        self.shared.settings.rest();
         effects
     }
 
