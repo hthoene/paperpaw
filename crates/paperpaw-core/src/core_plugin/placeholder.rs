@@ -31,7 +31,9 @@ pub(super) struct PlaceholderScreen;
 
 impl Screen for PlaceholderScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        let area = canvas.clip();
+        // The room of the screen, not the canvas's clip: a kernel that
+        // draws in bands (the X4) lends each band as the clip.
+        let area = room(env);
         let margin = env.metrics().mm(4);
         let line = env.metrics().tenth_mm(5);
         let (w, h) = (u32::from(area.width), u32::from(area.height));
@@ -65,10 +67,16 @@ impl Screen for PlaceholderScreen {
     }
 }
 
+/// The room the screen is drawn into, from its own corner.
+fn room(env: &Env<'_>) -> Rect {
+    let content = env.content();
+    Rect::new(0, 0, content.width, content.height)
+}
+
 /// The safe-mode title and `text` (a catalog key), wrapped and centred
 /// inside the frame. The catalog's texts are borrowed: nothing is kept.
 fn draw_safe_mode(canvas: &mut Canvas<'_>, env: &Env<'_>, text: &str, frame: u32) {
-    let area = canvas.clip();
+    let area = room(env);
     let style = UiStyle::new(env);
     let mut ui = ui::Ui::new(canvas, env, &style);
     let (gap, row) = (style.gap(), style.row());
@@ -150,6 +158,45 @@ mod tests {
         assert!(held.contains("a key was held"), "{held}");
         let normal = shown(None);
         assert!(!normal.contains("Safe mode"), "{normal}");
+    }
+
+    /// The gray of each pixel of the frame a kernel started as in `shown`
+    /// draws, in bands of `rows` rows or (`None`) all at once.
+    fn frame(safe_mode: Option<SafeMode>, rows: Option<u16>) -> alloc::vec::Vec<u8> {
+        let mut builder = crate::Kernel::builder(crate::tests::DEVICE)
+            .plugin(crate::tests::FontPlugin)
+            .code_plugins(Native::new("code.ppn"), Box::new(NoCode));
+        if let Some(safe_mode) = safe_mode {
+            builder = builder.safe_mode(safe_mode);
+        }
+        if let Some(rows) = rows {
+            builder = builder.frame_rows(rows);
+        }
+        let mut kernel = builder.build().unwrap();
+        kernel.start(paperpaw_sdk::Instant(0));
+        let display = crate::tests::DEVICE.display;
+        let width = usize::from(display.width);
+        let mut frame = alloc::vec![0xff; width * usize::from(display.height)];
+        kernel.render(&mut |top, rows| {
+            for y in 0..rows.height {
+                for x in 0..rows.width {
+                    frame[usize::from(top + y) * width + usize::from(x)] = rows.pixel(x, y).g;
+                }
+            }
+        });
+        frame
+    }
+
+    #[test]
+    fn drawn_in_bands_it_is_the_frame_drawn_at_once() {
+        for safe_mode in [None, Some(SafeModeReason::FailedStarts)] {
+            let whole = frame(safe_mode.map(SafeMode::new), None);
+            assert!(whole.iter().any(|gray| *gray < 0x80), "something is drawn");
+            for rows in [8, 24, 45] {
+                let bands = frame(safe_mode.map(SafeMode::new), Some(rows));
+                assert!(bands == whole, "bands of {rows} rows, {safe_mode:?}");
+            }
+        }
     }
 
     #[test]
