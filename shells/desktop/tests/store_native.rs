@@ -386,6 +386,12 @@ fn what_the_installed_plugin_requires_is_offered_and_fetched_on_download() {
     shop.keys("run:core.up");
     shop.keys("run:core.confirm");
     shop.settle(3000);
+    // The host lets no plugin close a screen from an event: the fetch screen
+    // shows the end and a key closes it.
+    assert_eq!(shop.screen(), "store.fetch");
+    assert!(shop.shown().contains("100 %"), "{}", shop.shown());
+    shop.keys("run:core.confirm");
+    assert_ne!(shop.screen(), "store.fetch", "{}", shop.shown());
     assert!(shop.card.exists("plugins/script-arabic/plugin.ini"));
     let shown = shop.shown();
     assert!(!shown.contains("just installed also"), "{shown}");
@@ -446,6 +452,8 @@ fn a_chain_of_requirements_is_a_dialog_for_each_step() {
     install_and_confirm(&mut shop, "alpha");
     assert!(shop.shown().contains("Beta"), "{}", shop.shown());
     answer_dialog(&mut shop, "Download");
+    // The host asks to confirm the second install too.
+    assert_eq!(confirm_screen(&mut shop), "core.firmware-confirm");
     shop.keys("run:core.up");
     shop.keys("run:core.confirm");
     shop.settle(3000);
@@ -464,6 +472,8 @@ fn two_plugins_requiring_each_other_end_after_the_second() {
     ]);
     install_and_confirm(&mut shop, "alpha");
     answer_dialog(&mut shop, "Download");
+    // The host asks to confirm the second install too.
+    assert_eq!(confirm_screen(&mut shop), "core.firmware-confirm");
     shop.keys("run:core.up");
     shop.keys("run:core.confirm");
     shop.settle(3000);
