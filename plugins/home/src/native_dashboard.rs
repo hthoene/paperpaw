@@ -369,7 +369,11 @@ impl Dashboard {
                 Ok(()) => Ok(Some((made, rect))),
                 Err(error) => {
                     made.release(host, ui);
-                    Err(error)
+                    // Refused (the nested gate on the X4): an empty strip.
+                    if error == Error::NoMemory {
+                        return Err(error);
+                    }
+                    Ok(None)
                 }
             },
             Err(Error::NotFound | Error::Denied) => Ok(None),
@@ -460,7 +464,14 @@ impl Dashboard {
                 Ok(made) => {
                     if let Err(error) = made.place(host, ui, rect) {
                         made.release(host, ui);
-                        return Err(error);
+                        // A host that will not place another plugin's widget
+                        // here (the X4 until its nested gate is open, #250)
+                        // leaves it out of the page, as one that is gone.
+                        return if error == Error::NoMemory {
+                            Err(error)
+                        } else {
+                            Ok(None)
+                        };
                     }
                     match text::copy(Self::widget_title(src, id)) {
                         Ok(name) => (name, Some(made)),
