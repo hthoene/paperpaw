@@ -1008,6 +1008,37 @@ fn a_pressed_hint_keeps_its_words_in_its_box() {
     }
 }
 
+/// The text the kernel makes of an icon's character (for an icon a native
+/// plugin named) draws as the icon named does, pressed or not; other
+/// texts stay words.
+#[test]
+fn an_icons_text_draws_as_the_icon_named() {
+    use paperpaw_sdk::icons;
+    let h = Harness::new(Device::BUTTONS);
+    let env = h.env();
+    let height = ui::button_hints_height(&env);
+    let area = Rect::new(0, 800 - height, 480, height);
+    let text = icons::char("arrow-left").and_then(icons::as_text).unwrap();
+    let row = |shown: Hint, pressed| {
+        let hints = [Hint::Text("Back".into()), shown, Hint::Hidden];
+        let mut drawn = frame(480, 800);
+        ui::draw_button_hints(&mut drawn.canvas(), &env, area, &hints, pressed);
+        let view = drawn.view();
+        (area.y..area.bottom() as u16)
+            .flat_map(|y| (160..320).map(move |x| (x, y)))
+            .filter(|&(x, y)| view.pixel(x, y) != Color::WHITE)
+            .collect::<Vec<_>>()
+    };
+    for pressed in [None, Some(1)] {
+        let named = row(Hint::Icon("arrow-left"), pressed);
+        assert!(named.len() > 20, "the icon is drawn: {}", named.len());
+        assert_eq!(row(Hint::Text(text.clone()), pressed), named);
+        // Not an icon's text: more after the character, or no mark before.
+        assert_ne!(row(Hint::Text(format!("{text}a")), pressed), named);
+        assert_ne!(row(Hint::Text(text[3..].to_string()), pressed), named);
+    }
+}
+
 #[test]
 fn an_empty_screen_shows_its_icon_when_there_is_room() {
     let h = Harness::new(Device::TOUCH);

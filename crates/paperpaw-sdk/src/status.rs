@@ -731,7 +731,10 @@ impl<'a> StatusLine<'a> {
         let gap = if gaps == 0 {
             size
         } else {
-            ((f32::from(area.width) - inked) / gaps as f32).clamp(size * 0.4, size)
+            // Not `clamp`, which brings `core`'s formatter of floats (#258).
+            ((f32::from(area.width) - inked) / gaps as f32)
+                .min(size)
+                .max(size * 0.4)
         };
         let width = |items: &[Listed<'_>]| -> f32 {
             items.iter().map(measure).sum::<f32>() + gap * items.len().saturating_sub(1) as f32
