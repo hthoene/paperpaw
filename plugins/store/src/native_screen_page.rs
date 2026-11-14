@@ -15,7 +15,7 @@
 //! [`short_key`], [`progress_text`], [`how_text`].
 //!
 //! **What differs on purpose** (an [`ItemList`] draws the page, not the text
-//! and icons of Beta 3): the summary shows in two lines under the name, each
+//! and icons of Beta 3): the summary shows in up to four lines under the name, each
 //! fact is a faint row of one line, the notice before the first code plugin
 //! shows under its two rows; the room a code plugin needs is the host's check
 //! (`Installs::no_room`), so the fact with its sizes is gone and *Not enough
@@ -105,6 +105,11 @@ pub enum Fact<'a> {
         licence: &'a str,
         built_in: bool,
     },
+    /// What a data plugin takes of the card, and what the card has free.
+    Needs {
+        size: u64,
+        free: u64,
+    },
     Heap {
         bytes: u64,
         tight: bool,
@@ -124,6 +129,8 @@ pub struct FactInput<'a> {
     pub revoked: bool,
     /// The device has little memory.
     pub small: bool,
+    /// The bytes free on the card, where the host says.
+    pub free: Option<u64>,
 }
 
 /// Whether the plugin is a built-in one switched off: *Switch on* is what the
@@ -188,6 +195,12 @@ pub fn facts<'a>(input: &FactInput<'a>) -> Result<Vec<Fact<'a>>, Error> {
         licence: &entry.licence,
         built_in: off,
     });
+    if let (false, None, Some(free)) = (entry.code, input.installed, input.free) {
+        out.push(Fact::Needs {
+            size: entry.size,
+            free,
+        });
+    }
     if let Some(bytes) = more.and_then(|m| m.heap) {
         out.push(Fact::Heap {
             bytes,
@@ -535,6 +548,9 @@ fn faint(item: Item) -> Item {
     match item {
         Item::Row(mut row) => {
             row.disabled = true;
+            // What the page says of the plugin shows whole where it is long
+            // (summary four lines, a fact two), as Beta 3's page did.
+            row.whole = true;
             Item::Row(row)
         }
         other => other,
@@ -690,6 +706,7 @@ impl View {
     ) -> Result<(), Error> {
         let entry = input.entry;
         let page = ctx.loader.page(&self.id);
+        // The summary shows whole (four lines), as Beta 3's page did.
         push(items, faint(Item::noted(&entry.name, "", &entry.summary)?))?;
         push(targets, None)?;
         let facts = facts(&FactInput {
@@ -698,6 +715,7 @@ impl View {
             installed: input.installed,
             revoked: ctx.installs.revoked(&self.id),
             small: ctx.loader.small_memory(),
+            free: ctx.installs.free_space(),
         })?;
         for fact in &facts {
             let text = fact_text(ctx.host, say, fact, mark)?;
@@ -1030,6 +1048,15 @@ fn fact_text(
             }
             let licence = say.format(host, "store.licence", &[text("licence", licence)])?;
             concat(&[&line, DOT, &licence])
+        }
+        Fact::Needs { size, free } => {
+            let size = say.digits(host, &size_text(size, mark)?)?;
+            let free = say.digits(host, &size_text(free, mark)?)?;
+            say.format(
+                host,
+                "store.needs",
+                &[text("size", &size), text("free", &free)],
+            )
         }
         Fact::Heap { bytes, tight } => {
             let size = say.digits(host, &size_text(bytes, mark)?)?;

@@ -137,6 +137,11 @@ impl NativeStore {
                 if result == Ended::ListChanged {
                     self.generation = self.generation.wrapping_add(1);
                 }
+                // A list that did not come (no connection, no answer) is said
+                // on the screen that showed it loading.
+                if result == Ended::ListUnchanged {
+                    redraw(host)?;
+                }
                 if result == Ended::Page {
                     self.page_arrived(host)?;
                 }

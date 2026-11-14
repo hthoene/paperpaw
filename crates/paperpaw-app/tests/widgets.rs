@@ -203,29 +203,19 @@ fn one_week_start_for_all() {
 
 #[test]
 #[cfg_attr(
-    feature = "native-linked-store",
-    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home and widgets pack (`native-linked-reading`)"
 )]
 fn a_widget_placed_twice_has_two_looks() {
     let mut app = App::new(X4, "en");
-    app.set(
-        "home.page-1",
-        "vocabulary.widget.word@1 0/0 2x2, vocabulary.widget.word@2 2/0 2x2",
-    );
-    app.set("vocabulary.widget.word@2.frame", "core.frame.dark");
+    // A widget of the native widgets pack, linked in every build.
+    let id = "widgets.day".to_string();
+    app.set("home.page-1", &format!("{id}@1 0/0 2x2, {id}@2 2/0 2x2"));
+    app.set(&format!("{id}@2.frame"), "core.frame.dark");
     let settings = app.kernel.settings();
-    assert_eq!(
-        settings.text("vocabulary.widget.word@2.frame"),
-        "core.frame.dark"
-    );
-    assert_eq!(
-        settings.text("vocabulary.widget.word@1.frame"),
-        "core.frame.none"
-    );
-    assert_eq!(
-        settings.text("vocabulary.widget.word.frame"),
-        "core.frame.none"
-    );
+    assert_eq!(settings.text(&format!("{id}@2.frame")), "core.frame.dark");
+    assert_eq!(settings.text(&format!("{id}@1.frame")), "core.frame.none");
+    assert_eq!(settings.text(&format!("{id}.frame")), "core.frame.none");
     assert!(app.draw());
     // Kept in the configuration, as other settings are, and read back.
     let config = paperpaw_sdk::read_file(
@@ -235,22 +225,17 @@ fn a_widget_placed_twice_has_two_looks() {
     )
     .unwrap();
     let config = String::from_utf8(config).unwrap();
-    assert!(config.contains("word@2.frame"), "{config}");
+    assert!(config.contains("@2.frame"), "{config}");
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(X4).storage(storage).user_config(config);
     let kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let settings = kernel.settings();
-    assert_eq!(
-        settings.text("vocabulary.widget.word@2.frame"),
-        "core.frame.dark"
-    );
-    assert_eq!(
-        settings.text("vocabulary.widget.word@1.frame"),
-        "core.frame.none"
-    );
+    assert_eq!(settings.text(&format!("{id}@2.frame")), "core.frame.dark");
+    assert_eq!(settings.text(&format!("{id}@1.frame")), "core.frame.none");
     // While placement 2 is drawn, its widget reads its own.
-    let frame = settings.with_placement(Some("vocabulary.widget.word@2"), || {
-        settings.text("vocabulary.widget.word.frame").to_string()
+    let second = format!("{id}@2");
+    let frame = settings.with_placement(Some(second.as_str()), || {
+        settings.text(&format!("{id}.frame")).to_string()
     });
     assert_eq!(frame, "core.frame.dark");
 }

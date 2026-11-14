@@ -250,15 +250,15 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    // The plugin store on the X4, its list kept from before (the library
-    // asked for does not answer): search, the newest, then the groups with
-    // how many plugins for the X4 each has.
+    // The plugin store on the X4 with no library that answers (a refused
+    // connection): the store waits 30 s for a network, then says there is no
+    // connection and how to try again.
     Case {
         name: "x4-store",
         profile: "xteink-x4",
         book: None,
         sets: &["store.catalog=http://127.0.0.1:9/plugins.json"],
-        script: "run:store.open,wait:6000",
+        script: "run:store.open,wait:35000",
         colour: 0,
         fixtures: false,
     },
