@@ -798,7 +798,7 @@ unsafe extern "C" fn env_snapshot<S: 'static>(ctx: *mut c_void, out: PpBuffer) -
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("env_snapshot");
     // SAFETY: generated slot 4 requires exclusive writable output, disjoint
     // from host state and borrowed inputs. The scope keeps no output pointer.
     unsafe { context.environment.copy(out.ptr, out.cap) }
@@ -814,7 +814,7 @@ unsafe extern "C" fn settings_read<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("settings_read");
     let caller = match context.resources.bound_caller() {
         Ok(caller) => caller,
         Err(error) => return error,
@@ -841,7 +841,7 @@ unsafe extern "C" fn canvas_fill_rect<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("canvas_fill_rect");
     context.canvas.fill_rect_raw(x, y, width, height, color)
 }
 
@@ -1067,7 +1067,7 @@ unsafe extern "C" fn canvas_draw_line<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("canvas_draw_line");
     context.canvas.draw_line(x0, y0, x1, y1, width, color)
 }
 
@@ -1085,7 +1085,7 @@ unsafe extern "C" fn canvas_fill_round<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("canvas_fill_round");
     context
         .canvas
         .fill_round(x, y, width, height, radius, color)
@@ -1106,7 +1106,7 @@ unsafe extern "C" fn canvas_stroke_round<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("canvas_stroke_round");
     context
         .canvas
         .stroke_round(x, y, width, height, radius, thickness, color)
@@ -1124,7 +1124,7 @@ unsafe extern "C" fn canvas_clip<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("canvas_clip");
     context.canvas.clip(x, y, width, height)
 }
 
@@ -1147,7 +1147,7 @@ unsafe extern "C" fn canvas_describe<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("canvas_describe");
     // SAFETY: the slot contract supplies live readable input for the call.
     match unsafe { host_glue::buffers::text_in(label, DESCRIBE_LABEL_MAX) } {
         Ok(label) => context
@@ -1167,7 +1167,7 @@ unsafe extern "C" fn font_acquire<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("font_acquire");
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe { super::fonts::acquire(&context.environment, &context.resources, key, out) }
 }
@@ -1178,7 +1178,7 @@ unsafe extern "C" fn handle_release<S: 'static>(ctx: *mut c_void, handle: u32) -
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("handle_release");
     super::fonts::release(&context.resources, handle)
 }
 
@@ -1194,7 +1194,7 @@ unsafe extern "C" fn text_measure<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("text_measure");
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe {
         super::fonts::measure(
@@ -1221,7 +1221,7 @@ unsafe extern "C" fn text_metrics<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("text_metrics");
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe {
         super::fonts::metrics(
@@ -1253,7 +1253,7 @@ unsafe extern "C" fn text_ink<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("text_ink");
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe {
         super::fonts::ink(
@@ -1286,7 +1286,7 @@ unsafe extern "C" fn text_draw<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("text_draw");
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe {
         super::fonts::draw(
@@ -1323,7 +1323,7 @@ unsafe extern "C" fn text_draw_inked<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("text_draw_inked");
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe {
         super::fonts::draw_inked(
@@ -1359,7 +1359,7 @@ unsafe extern "C" fn services_query<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("services_query");
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe {
         super::service_slots::query(
@@ -1384,7 +1384,7 @@ unsafe extern "C" fn blob_read<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("blob_read");
     // SAFETY: slot contracts supply live, disjoint output storage.
     unsafe {
         super::service_slots::read(&context.environment, &context.resources, blob, offset, out)
@@ -1396,7 +1396,7 @@ unsafe extern "C" fn blob_release<S: 'static>(ctx: *mut c_void, blob: u32) -> i3
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("blob_release");
     super::service_slots::release(&context.environment, &context.resources, blob)
 }
 
@@ -1414,7 +1414,7 @@ unsafe extern "C" fn commands_submit<S: 'static>(ctx: *mut c_void, batch: PpByte
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("commands_submit");
     // SAFETY: the slot contract supplies stable, readable batch bytes.
     unsafe { context.commands.submit(batch.ptr, batch.len) }
 }
@@ -1435,7 +1435,7 @@ unsafe extern "C" fn service_open<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("service_open");
     // SAFETY: generated slot contracts supply live and disjoint pairs.
     unsafe {
         super::call_services::open(
@@ -1462,7 +1462,7 @@ unsafe extern "C" fn service_call<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as("service_call");
     // SAFETY: generated slot contracts supply live and disjoint pairs.
     unsafe {
         super::call_services::call(

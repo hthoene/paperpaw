@@ -40,8 +40,25 @@ pub(super) struct Slot(());
 /// Begins a host slot: hold the result until the slot returns. The call is
 /// noted where the plugin's frame records them (its `make`, #248).
 pub(super) fn enter() -> Slot {
+    #[cfg(feature = "slot-counts")]
+    slot_counts::note("other");
+    begin_slot()
+}
+
+fn begin_slot() -> Slot {
     super::frame_owner::note_host_call();
     enter_registration()
+}
+
+/// As [`enter`], naming the slot: counted with the `slot-counts` feature
+/// (a host-cost guard of the tests), a plain [`enter`] without it.
+#[inline(always)]
+pub(super) fn enter_as(name: &'static str) -> Slot {
+    #[cfg(feature = "slot-counts")]
+    slot_counts::note(name);
+    #[cfg(not(feature = "slot-counts"))]
+    let _ = name;
+    begin_slot()
 }
 
 /// As [`enter`], for `registrations.submit`: the one call `make` is meant to
@@ -54,6 +71,36 @@ pub(super) fn enter_registration() -> Slot {
 impl Drop for Slot {
     fn drop(&mut self) {
         call(&END);
+    }
+}
+
+/// How often each host slot was entered on this thread, for a test that
+/// guards the cost of a user action in host crossings (the device spends
+/// about a millisecond or more on each). Off by default; no shell turns it on.
+#[cfg(feature = "slot-counts")]
+pub mod slot_counts {
+    extern crate std;
+    use alloc::vec::Vec;
+    use core::cell::RefCell;
+    use std::collections::BTreeMap;
+
+    std::thread_local! {
+        static COUNTS: RefCell<BTreeMap<&'static str, u32>> = const { RefCell::new(BTreeMap::new()) };
+    }
+
+    pub(super) fn note(name: &'static str) {
+        COUNTS.with(|counts| *counts.borrow_mut().entry(name).or_default() += 1);
+    }
+
+    /// Forgets the counts of this thread.
+    pub fn reset() {
+        COUNTS.with(|counts| counts.borrow_mut().clear());
+    }
+
+    /// The counts of this thread since `reset`, by slot name.
+    #[must_use]
+    pub fn snapshot() -> Vec<(&'static str, u32)> {
+        COUNTS.with(|counts| counts.borrow().iter().map(|(k, v)| (*k, *v)).collect())
     }
 }
 
@@ -103,6 +150,7 @@ mod tests {
                 if signature.contains("ctx: *mut c_void") && !FAST.contains(&name.as_str()) {
                     seen += 1;
                     let guarded = function.contains("host_slot::enter()")
+                        || function.contains("host_slot::enter_as(\"")
                         || (name == "registrations_submit"
                             && function.contains("host_slot::enter_registration()"));
                     if !guarded {
