@@ -362,9 +362,14 @@ impl View {
         };
         let progress =
             Progress::read(host, docs, id, sections, (&mut input, &mut out)).map_err(fail)?;
-        let (at, stored_ppm) =
-            Self::starting_place(host, library, &found, (sections, conversion), &mut out)
-                .map_err(fail)?;
+        let (at, stored_ppm) = Self::starting_place(
+            host,
+            library,
+            &found,
+            (sections, conversion, progress.as_ref()),
+            &mut out,
+        )
+        .map_err(fail)?;
         // The highlights of the book; a book the library does not know has none.
         let marks = match library.map(|l| native_marks::load(host, l, &found.path, conversion)) {
             Some(Ok(spans)) => Marks::new(spans),
@@ -437,7 +442,7 @@ impl View {
         host: &Host<'_>,
         library: Option<&Library>,
         found: &Handover,
-        (sections, conversion): (u32, u64),
+        (sections, conversion, progress): (u32, u64, Option<&Progress>),
         out: &mut [u8],
     ) -> Result<((u32, u32), u32), Error> {
         Ok(
@@ -455,10 +460,15 @@ impl View {
                             (&mut ask, out),
                         )
                     });
-                    (
-                        stored.and_then(|s| s.at).unwrap_or((0, 0)),
-                        stored.map_or(0, |s| s.ppm),
-                    )
+                    // A place of another conversion is found again by its
+                    // progress; the file stays as it is until the next save.
+                    let at = stored.and_then(|s| {
+                        s.at.or_else(|| {
+                            s.other
+                                .and_then(|other| native_place::relocate(other, s.ppm, progress))
+                        })
+                    });
+                    (at.unwrap_or((0, 0)), stored.map_or(0, |s| s.ppm))
                 }
                 _ => ((0, 0), 0),
             },
