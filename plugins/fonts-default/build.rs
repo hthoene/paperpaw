@@ -29,14 +29,15 @@ const FONTS: &[(&str, &str, f32)] = &[
     ("paperpaw-sans", "fonts/SourceSans3.ttf", 430.0),
 ];
 
-/// The packs a lean build does not carry: the styles of Literata, which
-/// the data plugin `literata-styles` supplies.
-const LEAN_LEAVES_OUT: &[&str] = &["literata-bold", "literata-italic", "literata-bold-italic"];
-
-/// The largest size of the reading faces in a lean build: larger ones
-/// come from a plugin that extends them (the font library's), drawn by
-/// it where text is asked larger.
-const LEAN_READING_MAX: f32 = 32.0;
+/// The packs a lean build does not carry: Literata. There the UI font
+/// sets book text too, and the data plugin `literata-styles` supplies
+/// Literata from the card for whoever chooses it.
+const LEAN_LEAVES_OUT: &[&str] = &[
+    "literata",
+    "literata-bold",
+    "literata-italic",
+    "literata-bold-italic",
+];
 
 /// The pack of the UI font, which gets [`DISPLAY_SIZES`].
 const UI: &str = "paperpaw-sans";
@@ -96,15 +97,10 @@ fn main() {
         let ligatures = charset(paperpaw_text::charset::named("ligatures").unwrap_or(&[]))
             .filter(|ch| font.has_char(*ch));
         let chars = charset(paperpaw_text::charset::named("latin").unwrap_or(&[])).chain(ligatures);
-        let reading: Vec<f32> = sizes
-            .iter()
-            .copied()
-            .filter(|size| !lean || *size <= LEAN_READING_MAX)
-            .collect();
         let pack = if name == UI {
             with_display(&font, &sizes, chars, hinting)
         } else {
-            paperpaw_text::build_pack_hinted(&font, &reading, chars, hinting)
+            paperpaw_text::build_pack_hinted(&font, &sizes, chars, hinting)
         };
         write(&out.join(format!("{name}.ppfp")), &pack);
     }

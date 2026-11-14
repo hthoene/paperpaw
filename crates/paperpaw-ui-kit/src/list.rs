@@ -303,7 +303,11 @@ pub fn backdrop(
         };
         paint::push(
             paint,
-            Paint::Fill(
+            if style.separator_dither {
+                Paint::Stipple
+            } else {
+                Paint::Fill
+            }(
                 Rect::new(
                     rect.x + style.margin,
                     rect.y + rect.height.saturating_sub(style.line),

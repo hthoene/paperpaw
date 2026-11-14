@@ -152,6 +152,7 @@ fn style() -> Style {
         button: paperpaw_ui_kit::style::ButtonLook::Outlined,
         mono: false,
         roles: paperpaw_ui_kit::style::Roles::default(),
+        separator_dither: false,
         separator_ink: Color::BLACK,
         text: 22.0,
         small: 17.0,

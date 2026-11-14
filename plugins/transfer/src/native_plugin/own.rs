@@ -75,24 +75,15 @@ impl NativeTransfer {
         let mut messages = Messages::new()?;
         let mut items = Vec::new();
         items.try_reserve_exact(2).map_err(|_| Error::NoMemory)?;
-        match view {
-            View::Offline => {
-                items.push(Item::row(
-                    &messages.copy(host, "core.offline.go-online")?,
-                    "",
-                )?);
-                items.push(Item::row(
-                    &messages.copy(host, "core.offline.not-now")?,
-                    "",
-                )?);
-            }
-            View::NoNetwork(true) => {
-                items.push(Item::row(
-                    &messages.copy(host, "transfer.without-router")?,
-                    "",
-                )?);
-            }
-            _ => {}
+        if let View::Offline = view {
+            items.push(Item::row(
+                &messages.copy(host, "core.offline.go-online")?,
+                "",
+            )?);
+            items.push(Item::row(
+                &messages.copy(host, "core.offline.not-now")?,
+                "",
+            )?);
         }
         Ok(items)
     }

@@ -73,6 +73,7 @@ fn the_decoded_batches_are_the_pinned_ones() {
     assert_eq!(native.screens.len(), 6);
     // The instance policy, decoded: one for each set of parameters (flags 0),
     // the note and the skim bar overlays (bit 2): the page shows above them.
+    // The reading page has its button-hint row hidden (bit 8, 256).
     let flags: Vec<u32> = batches(|d| declarations::screens(d).unwrap())
         .iter()
         .flat_map(|batch| {
@@ -86,7 +87,7 @@ fn the_decoded_batches_are_the_pinned_ones() {
                 .collect::<Vec<_>>()
         })
         .collect();
-    assert_eq!(flags, [0, 0, 0, 4, 4, 0]);
+    assert_eq!(flags, [256, 0, 0, 4, 4, 0]);
     assert_eq!(native.slots.len(), 6);
     assert_eq!(native.actions.len(), 29);
     assert_eq!(native.menu_entries.len(), 34);
@@ -355,16 +356,21 @@ fn the_sample_widget_previews_the_reading_settings() {
 }
 
 /// Interface 6 showed the row of button hints of the reading screen only on a
-/// press (`HintVisibility::OnPress`). A native screen can declare its row
-/// hidden (bit 8) and no other visibility: the reader declares neither, so the
-/// row shows as on any screen until the SDK has the flag (`PORTING-7.md`).
+/// press (`HintVisibility::OnPress`), and Beta 3's page of the book never had
+/// the row. A native screen can declare its row hidden (bit 8): the reading
+/// page does (`hints_hidden`), the other screens of the reader show it as on
+/// any screen.
 #[test]
-fn the_screen_hints_on_press_are_not_declared_yet() {
+fn only_the_reading_page_hides_its_row_of_hints() {
+    let mut hidden = Vec::new();
     for batch in batches(|d| declarations::screens(d).unwrap()) {
         for record in records_decode(&batch).unwrap().iter() {
-            if let Record::ScreenSpec(s) = record {
-                assert_eq!(s.flags & 256, 0, "{}", s.name);
+            if let Record::ScreenSpec(s) = record
+                && s.flags & 256 != 0
+            {
+                hidden.push(s.name.to_string());
             }
         }
     }
+    assert_eq!(hidden, ["screen"]);
 }

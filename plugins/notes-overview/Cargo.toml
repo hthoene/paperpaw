@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-notes-overview"
 description = "PaperPaw notes overview: the bookmarks and highlights of all books, and an export in Kindle's My Clippings.txt form"
-version = "1.0.3"
+version = "1.0.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

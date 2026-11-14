@@ -648,8 +648,8 @@ impl View {
         {
             // Opened with pictures, or shown again while they waited (the
             // host dropped their follow-up when the screen left the top): they
-            // are asked for now. The show draws the page itself, its pictures'
-            // places empty: only their boxes follow.
+            // are asked for together with a whole redraw, so the host schedules
+            // a follow-up frame that draws the pictures in their places.
             open.show_pictures(host, docs).ok();
         }
     }

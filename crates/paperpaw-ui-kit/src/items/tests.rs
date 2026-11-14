@@ -93,6 +93,7 @@ fn style() -> Style {
         button: crate::style::ButtonLook::Outlined,
         mono: false,
         roles: crate::style::Roles::default(),
+        separator_dither: false,
         separator_ink: paperpaw_sdk::Color::BLACK,
         text: 22.0,
         small: 17.0,
@@ -348,4 +349,48 @@ fn a_tall_row_takes_the_corner_of_the_style_not_a_pill_that_cuts_its_text() {
     // One band: a pill. Two bands (a title over two lines, a note): the corner.
     assert!(radius_of(Rect::new(0, 0, 480, pill.row)) > pill.corner);
     assert_eq!(radius_of(Rect::new(0, 0, 480, pill.row * 2)), pill.corner);
+}
+
+/// The pill and the knob a switch is drawn with, as (bounds, filled).
+fn switch_parts(on: bool) -> (Rect, bool, Rect) {
+    let mut paint = Vec::new();
+    let band = Rect::new(0, 100, 480, 60);
+    let colours = (paperpaw_sdk::Color::BLACK, paperpaw_sdk::Color::WHITE);
+    switch_pill(&mut paint, &style(), band, on, colours).unwrap();
+    let mut shapes = paint.iter().filter_map(|op| match op {
+        Paint::Focus(rect, _, stroke, _) => Some((*rect, stroke.is_none())),
+        _ => None,
+    });
+    let (pill, filled) = shapes.next().unwrap();
+    let (knob, _) = shapes.next().unwrap();
+    assert!(shapes.next().is_none());
+    (pill, filled, knob)
+}
+
+#[test]
+fn a_switch_is_a_pill_with_its_knob_at_the_end_it_is_on_or_off_at() {
+    let (pill, filled, knob) = switch_parts(true);
+    // On: filled, the knob in the right half, inside the pill.
+    assert!(filled);
+    assert!(knob.x >= pill.x + pill.width / 2 && knob.x + knob.width <= pill.x + pill.width);
+    assert!(knob.y >= pill.y && knob.y + knob.height <= pill.y + pill.height);
+    let (pill, filled, knob) = switch_parts(false);
+    // Off: an outline, the knob in the left half.
+    assert!(!filled);
+    assert!(knob.x >= pill.x && knob.x + knob.width <= pill.x + pill.width / 2);
+    // At the row's end, within its margin, and centred on its line.
+    assert_eq!(pill.x + pill.width, 480 - style().margin);
+    assert_eq!(pill.y * 2 + pill.height, 100 * 2 + 60);
+}
+
+#[test]
+fn a_switch_row_shows_no_value_beside_its_title() {
+    let Item::Row(mut row) = Item::noted("Night mode", "Off", "").unwrap() else {
+        panic!("a row");
+    };
+    assert_eq!(shown_value(&row), "Off");
+    row.on = Some(false);
+    assert_eq!(shown_value(&row), "");
+    // The title keeps the room before the switch.
+    assert!(switch_room(&style()) > switch_size(&style()).0);
 }
