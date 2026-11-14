@@ -95,6 +95,44 @@ fn the_tables_answer_as_the_catalogs_would_in_each_language() {
     assert_eq!(built.get("clock.empty"), Some(""));
 }
 
+/// A catalog added before the tables takes precedence over them as one
+/// added later does (a plugin on the card is read before a shell adds the
+/// tables), in the language in use and in one chosen later; among
+/// themselves the other catalogs keep their order.
+#[test]
+fn a_catalog_added_before_the_tables_takes_precedence_too() {
+    let card =
+        "[meta]\nlanguage = en\n[messages]\nclock.title = Card clock\nnotes.title = Card notes\n";
+    let card_de = "[meta]\nlanguage = de\n[messages]\nclock.title = Kartenuhr\n";
+    let later = "[meta]\nlanguage = en\n[messages]\nnotes.title = Later notes\n";
+    let mut translator = Translator::new();
+    translator.add(Catalog::parse(card).unwrap());
+    translator.add(Catalog::parse(card_de).unwrap());
+    for language in table() {
+        translator.built_messages(language);
+    }
+    assert_eq!(translator.get("clock.title"), Some("Card clock"));
+    assert_eq!(translator.get("notes.title"), Some("Card notes"));
+    assert_eq!(translator.get("notes.hello"), Some("Hello, {name}!"));
+    translator.add(Catalog::parse(later).unwrap());
+    assert_eq!(translator.get("notes.title"), Some("Later notes"));
+    assert_eq!(translator.get("clock.title"), Some("Card clock"));
+    translator.set_language("de");
+    assert_eq!(translator.get("clock.title"), Some("Kartenuhr"));
+    assert_eq!(translator.get("notes.title"), Some("Notizen"));
+    assert_eq!(translator.get("clock.only-en"), Some("English only"));
+    translator.set_language("en");
+    assert_eq!(translator.get("clock.title"), Some("Card clock"));
+    // The tables are listed first, in their order, then the others in
+    // theirs.
+    let added: Vec<_> = translator
+        .catalogs()
+        .iter()
+        .map(|catalog| catalog.language().to_string())
+        .collect();
+    assert_eq!(added, ["en", "de", "en", "de", "en"]);
+}
+
 #[test]
 fn a_catalog_added_later_takes_precedence_over_the_tables() {
     let mut translator = built();
@@ -136,6 +174,13 @@ fn a_source_the_tables_cannot_hold_is_left_out_whole() {
         assert!(!table.add(source).unwrap(), "{source}");
         assert_eq!((table.len(), table.size()), (2, size), "{source}");
     }
+    // Only the keys under one hash are a clash, each pair named.
+    let clash = |held: &str, refused: &str| (held.to_string(), refused.to_string());
+    assert_eq!(
+        table.clashes(),
+        [clash("clash.key239602", "clash.key34869")],
+        "in one source"
+    );
     assert!(
         table
             .add("[meta]\nlanguage = en\nname = English\n[messages]\nclash.key34869 = a\n")
@@ -145,6 +190,11 @@ fn a_source_the_tables_cannot_hold_is_left_out_whole() {
         !table
             .add("[meta]\nlanguage = de\nname = Deutsch\n[messages]\nclash.key239602 = b\n")
             .unwrap()
+    );
+    assert_eq!(
+        table.clashes()[1..],
+        [clash("clash.key34869", "clash.key239602")],
+        "against a key the table holds"
     );
     assert!(table.add("not a catalog = \n[").is_err());
     let rust = table.to_rust();

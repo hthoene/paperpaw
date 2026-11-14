@@ -172,14 +172,36 @@ impl Translator {
     /// The messages of one language built into the program without their
     /// keys, by its build script (call it once for each language): one
     /// catalog that answers for all their sources, which are not added.
-    /// It takes precedence as a catalog added now does.
+    /// Every other catalog takes precedence over it, one added before as
+    /// one added later: what a plugin on the card or the user says anew
+    /// is heard whenever the tables come.
     pub fn built_messages(&mut self, table: &'static BuiltMessages) {
         if table.keys.is_empty() {
             return;
         }
-        if let Some(catalog) = Catalog::messages(table) {
-            self.add(catalog);
+        let Some(mut catalog) = Catalog::messages(table) else {
+            return;
+        };
+        // The tables are the first added, in their order, and so the
+        // first kept (they are never parked); every other catalog moves
+        // up by one.
+        let under = self.catalogs.iter().filter(|c| c.is_messages()).count();
+        let others = self.catalogs.iter_mut().map(|c| &mut c.added);
+        for added in others.chain(self.parked.iter_mut().map(|p| &mut p.added)) {
+            if *added as usize >= under {
+                *added = added.wrapping_add(1);
+            }
         }
+        self.added = self.added.wrapping_add(1);
+        catalog.added = under as u32;
+        if self.chain().contains(&catalog.language()) {
+            catalog.load();
+            catalog.use_fixed(self.fixed);
+        } else {
+            catalog.unload();
+        }
+        self.catalogs.insert(under, catalog);
+        self.rebuild_order();
     }
 
     fn built_in(&mut self, table: &'static BuiltCatalogs, language: &str, name: &str) {

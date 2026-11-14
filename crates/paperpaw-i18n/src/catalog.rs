@@ -802,6 +802,12 @@ impl Catalog {
         )
     }
 
+    /// Whether it is the messages of a language built in without their
+    /// keys.
+    pub(crate) fn is_messages(&self) -> bool {
+        matches!(self.card.as_deref(), Some(Elsewhere::Messages(_)))
+    }
+
     /// Takes `source` into the built catalogs' slot for it, where this is
     /// that catalog and holds it.
     pub(crate) fn take_built(&mut self, print: u64, source: &'static str) -> bool {

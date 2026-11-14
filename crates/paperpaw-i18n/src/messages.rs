@@ -117,6 +117,9 @@ pub struct BuiltMessagesTable {
     keys: Vec<(u64, String, Vec<Option<String>>)>,
     /// The bytes of each language's values so far.
     sizes: Vec<usize>,
+    /// Keys of sources left out for a key the table holds under the same
+    /// hash: the key held, the key refused.
+    clashes: Vec<(String, String)>,
 }
 
 impl BuiltMessagesTable {
@@ -134,6 +137,7 @@ impl BuiltMessagesTable {
                 .collect(),
             keys: Vec::new(),
             sizes: alloc::vec![0; languages.len()],
+            clashes: Vec::new(),
         }
     }
 
@@ -148,8 +152,8 @@ impl BuiltMessagesTable {
     /// source did, it has another plural rule than one and other or a
     /// direction, script, digits or calendar of its own (the table says
     /// none), it holds a key another source of its language holds, a key
-    /// whose hash is taken for another's, a message with a NUL, or its
-    /// messages would not fit.
+    /// whose hash is taken for another's ([`clashes`](Self::clashes) then
+    /// names both), a message with a NUL, or its messages would not fit.
     pub fn add(&mut self, source: &str) -> Result<bool, CatalogError> {
         let catalog = Catalog::parse(String::from(source))?;
         let Some(at) = self
@@ -171,17 +175,26 @@ impl BuiltMessagesTable {
         for key in catalog.keys() {
             let message = catalog.get(key).unwrap_or_default();
             let hash = fingerprint(key);
-            let taken = match self.place(hash) {
-                Ok(place) => {
-                    let (_, theirs, messages) = &self.keys[place];
-                    theirs != key || messages[at].is_some()
-                }
-                Err(_) => false,
+            let held = match self.place(hash) {
+                Ok(place) => Some(&self.keys[place]),
+                Err(_) => None,
             };
-            let twice = added
-                .iter()
-                .any(|(other, ..): &(u64, &str, &str)| low_of(*other) == low_of(hash));
-            if taken || twice || message.contains(END) {
+            // Another key under this one's hash: the table's, or one of
+            // this source.
+            let clash = match held {
+                Some((_, theirs, _)) if theirs != key => Some(theirs.as_str()),
+                _ => added
+                    .iter()
+                    .find(|(other, ..): &&(u64, &str, &str)| low_of(*other) == low_of(hash))
+                    .map(|(_, other, _)| *other),
+            };
+            if let Some(other) = clash {
+                let clash = (String::from(other), String::from(key));
+                self.clashes.push(clash);
+                return Ok(false);
+            }
+            let taken = held.is_some_and(|(.., messages)| messages[at].is_some());
+            if taken || message.contains(END) {
                 return Ok(false);
             }
             size += message.len() + END.len_utf8();
@@ -298,6 +311,14 @@ impl BuiltMessagesTable {
             })
             .collect();
         Box::leak(made.into_boxed_slice())
+    }
+
+    /// The keys of sources left out because the table cannot tell them
+    /// from a key it holds (their hashes share the half it keeps): the
+    /// key held and the one refused. A build script fails on any, so that
+    /// one of the two is renamed.
+    pub fn clashes(&self) -> &[(String, String)] {
+        &self.clashes
     }
 
     /// Sources added.
