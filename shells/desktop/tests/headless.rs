@@ -345,6 +345,10 @@ fn text_is_typed_into_the_keyboard_shown() {
 /// answers (`open` its screen) is done in the call that ran it: the transfer
 /// plugin's `transfer.open` opens its screen as `core.menu` opens the menu.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "needs native activation (#228, todo 380): transfer is native only, linked under native-linked"
+)]
 fn an_action_a_native_plugin_declares_opens_its_screen() {
     let opened = run(
         "native-action",

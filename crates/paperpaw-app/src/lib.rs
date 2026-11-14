@@ -706,13 +706,8 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
     }
-    // Wi-Fi is a native plugin only (`NATIVE_PLUGINS`, under `native-linked`:
-    // the interface-6 form is gone, HELD until native activation, #244);
-    // Transfer is linked where the feature says.
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_transfer::Transfer);
-    }
+    // Wi-Fi and Transfer are native plugins only (`NATIVE_PLUGINS`, under
+    // `native-linked`): their interface-6 forms are gone (#244).
     // Fonts browser is a native plugin, linked (`NATIVE_PLUGINS`), where
     // `native-linked-store` links the store's plugins.
     #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]

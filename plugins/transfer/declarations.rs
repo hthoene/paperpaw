@@ -1,5 +1,4 @@
-//! What the transfer declares, compared with the interface-6 registration by
-//! the declaration tests: its three screens, the action that opens the
+//! What the transfer declares, checked by the declaration tests: its three screens, the action that opens the
 //! transfer, its place in the tools and icon, and the two slots its screens
 //! are offered for (typing on a phone, the cable). The native plugin submits
 //! the transfer screen, the phone's screen with its slot, the cable's screen
