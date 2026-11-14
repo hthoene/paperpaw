@@ -231,6 +231,17 @@ impl App {
         self.kernel.describe()
     }
 
+    /// The labels of the main menu (the menu button).
+    fn main_menu(&mut self) -> Vec<String> {
+        self.run(paperpaw_sdk::builtin::actions::MENU);
+        self.kernel.render(&mut |_, _| {});
+        self.kernel
+            .describe()
+            .into_iter()
+            .map(|p| p.label)
+            .collect()
+    }
+
     /// The labels of the tools' menu.
     fn tools(&mut self) -> Vec<String> {
         self.now += 100;
@@ -378,4 +389,17 @@ fn the_native_tools_list_has_news() {
     let mut app = App::new("", |b| b);
     let tools = app.tools();
     assert!(tools.iter().any(|l| l.starts_with("News")), "{tools:?}");
+}
+
+/// The home screen's own entry in the main menu (the interface-6 Home's test
+/// of it needed the interface-6 menu, which is gone, #244).
+#[cfg(feature = "native-linked-reading")]
+#[test]
+fn the_native_main_menu_offers_edit_home_screen() {
+    let mut app = App::new("", |b| b);
+    let labels = app.main_menu();
+    assert!(
+        labels.iter().any(|l| l.starts_with("Edit home screen")),
+        "{labels:?}"
+    );
 }

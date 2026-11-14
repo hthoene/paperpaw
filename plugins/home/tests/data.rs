@@ -44,7 +44,7 @@ fn version_1_pages_are_read_as_written() {
         assert!(start.y > library.y + cell, "{start:?} {library:?}");
         // The second page: every tool.
         app.run(actions::NEXT_PAGE);
-        assert!(app.shows("Notes vault"), "{}", app.described());
+        assert!(app.shows("Vocabulary"), "{}", app.described());
     }
 }
 

@@ -154,14 +154,16 @@ fn a_tool_on_the_page_runs_by_buttons_and_by_touch() {
     for device in DEVICES {
         let mut app = App::new(device, Shared::memory(PAGE, &[]));
         if device.input.touch {
-            app.tap_on("Settings");
+            app.tap_on("Plugin store");
         } else {
-            // The first press shows the focus, on the first tool.
+            // The first press shows the focus, on the first tool; the store
+            // is the third (Settings, the second, is native only now).
+            app.run(actions::RIGHT);
             app.run(actions::RIGHT);
             app.run(actions::RIGHT);
             app.run(actions::CONFIRM);
         }
-        assert_eq!(app.screen(), "settings.list", "{}", app.described());
+        assert_eq!(app.screen(), "store.list", "{}", app.described());
     }
 }
 
@@ -406,11 +408,11 @@ fn a_tool_is_added_into_the_first_free_cell() {
         choose(&mut app, "Tools");
         // Those on the page already are not offered.
         assert!(!app.shows("Library"), "{}", app.described());
-        choose(&mut app, "News");
+        choose(&mut app, "Vocabulary");
         assert_eq!(app.screen(), HOME, "{}", app.described());
         let added = page(&app, 1)
             .split(", ")
-            .find(|i| i.starts_with("tool:news"))
+            .find(|i| i.starts_with("tool:vocabulary.open"))
             .map(String::from);
         assert_eq!(
             added.as_deref().and_then(|i| i.split(' ').nth(1)),
@@ -418,7 +420,7 @@ fn a_tool_is_added_into_the_first_free_cell() {
             "{}",
             page(&app, 1)
         );
-        assert!(app.shows("News"), "{}", app.described());
+        assert!(app.shows("Vocabulary"), "{}", app.described());
     }
 }
 
@@ -485,7 +487,7 @@ fn a_full_page_says_there_is_no_room() {
     edit(&mut app);
     open_add(&mut app);
     choose(&mut app, "Tools");
-    choose(&mut app, "News");
+    choose(&mut app, "Vocabulary");
     // Told (a notice), the list stays for another choice.
     assert_eq!(app.screen(), "home.add-widget");
     assert_eq!(page(&app, 1), before);
@@ -536,6 +538,7 @@ fn the_layout_arranged_is_the_same_after_a_restart() {
 }
 
 #[test]
+#[ignore = "needs the main menu, which is native only now (#244): the native main menu offering Edit home screen is tested by `the_native_main_menu_offers_edit_home_screen` in the app's menu_entries.rs; the editing it opens is tested by the other tests of this file"]
 fn edit_home_screen_in_the_main_menu_opens_editing_from_elsewhere() {
     for device in DEVICES {
         let storage = Shared::memory(PAGE, &[("books/a.txt", b"Some text.")]);

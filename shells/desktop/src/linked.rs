@@ -599,7 +599,7 @@ pub fn prepare(
         .lookup()
         .work(WorkInputs::new(inputs.view.clone(), profile.device.memory));
     // HTTP over the card (saved and sent files); no card, no `core.net`.
-    let transport = net_storage(&inputs).map(|storage| {
+    let transport = net_storage(inputs).map(|storage| {
         let transport = Rc::new(crate::native_net::NativeNet::new(
             storage.clone(),
             inputs.view.clone(),

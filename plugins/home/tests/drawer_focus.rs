@@ -113,7 +113,7 @@ fn the_focus_ring_is_clear_of_the_icon_and_the_name_with_4_5_and_6_columns() {
     // Upright, a squarish screen, and on its side.
     for (width, height, expected) in [(480, 800, 4), (800, 680, 5), (800, 480, 6)] {
         for language in ["en", "ar"] {
-            let mut app = App::new(screen(width, height), card(language));
+            let mut app = App::with_more_tools(screen(width, height), card(language));
             app.open_screen(Id::new_static(DRAWER), Params::new());
             assert_eq!(app.screen(), DRAWER);
             let (all, cell) = cells(&mut app);
