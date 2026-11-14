@@ -524,39 +524,21 @@ jobs:
             --profile minimal --target riscv32imc-unknown-none-elf
           tools/plugin-files/anywhere.sh x4 "$RUNNER_TEMP/anywhere-x4"
           tools/plugin-files/anywhere.sh x4-pro "$RUNNER_TEMP/anywhere-x4-pro"
-      # PaperPaw's own plugins that the store offers, as the release
-      # builds them (unsigned here): each packs, for this chip, with the
-      # firmware's fingerprint.
-      # Signed with a key made for this run, and their catalogue entries
-      # made, as the release does.
-      # The X3 takes the X4's builds (the same chip and fingerprint).
+      # PaperPaw's own plugins that the store offers, as the release builds them:
+      # interface 7 (format 5, no fingerprint), each packed for this chip (the X4's
+      # target 5; the X4 Pro's and X4 Classic's target 9, built with espup's
+      # compiler and the release's core libraries), signed with a key made for
+      # this run, and their catalogue entries made, as the release does.
+      # The X3 takes the X4's builds (the same chip).
       - name: The store's first-party plugins fit the firmware
-        if: matrix.device == 'x4'
+        if: matrix.device != 'x3'
         run: |
-          # Interface 7 (format 5): no fingerprint; the S3's files wait for the
-          # target-9 profile (the step below builds them without packing).
           out="$RUNNER_TEMP/plugins"
           cargo build -q --release -p paperpaw-sign
           target/release/paperpaw-sign key "$RUNNER_TEMP/ci.key" > /dev/null
-          tools/plugin-files7/build.sh x4 "$out" --key "$RUNNER_TEMP/ci.key"
+          tools/plugin-files7/build.sh "$DEVICE" "$out" --key "$RUNNER_TEMP/ci.key"
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
           python3 tools/plugin-files/catalogue.py "$out" "$version" https://example.invalid/ci
-      # Interface 7 (decision 142): every first-party plugin with a native
-      # entry builds and links for the ESP32-S3 (espup's compiler, the
-      # release's core libraries). Packing waits for the target-9 profile of
-      # abi/ppn5.md; until then this is the build, not the file. The X4 Classic
-      # runs the X4 Pro's code, so one device builds it.
-      - name: The interface-7 plugins build for the S3
-        if: matrix.device == 'x4-pro'
-        run: |
-          # Exit 4 is "pending": the S3's generated ABI metadata does not exist
-          # yet. Shown as a notice, never as a pass; every other failure fails.
-          rc=0
-          tools/plugin-files7/build.sh x4-pro "$RUNNER_TEMP/plugins7-s3" || rc=$?
-          if [[ $rc = 4 ]]; then
-            echo "::notice title=S3 interface-7 plugins::NOT BUILT: the target-9 metadata profile is not there yet (decision 142)"
-          fi
-          [[ $rc = 0 || $rc = 4 ]]
       # espup's toolchain is cached between runs (xteink-tools): the core
       # libraries installed into it go again, so that no run finds those
       # of another commit.

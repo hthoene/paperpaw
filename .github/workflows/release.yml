@@ -428,12 +428,10 @@ jobs:
       - name: The store's first-party plugins
         if: matrix.device != 'x3'
         run: |
-          # Interface 7 (format 5, no fingerprint). The S3 devices have no file
-          # until the target-9 profile exists (build.sh says so with exit 4).
+          # Interface 7 (format 5, no fingerprint): the X4's files are target 5,
+          # the X4 Pro's and X4 Classic's target 9.
           mkdir -p dist/plugins
-          rc=0
-          tools/plugin-files7/build.sh "$DEVICE" dist/plugins || rc=$?
-          [[ $rc = 0 || $rc = 4 ]]
+          tools/plugin-files7/build.sh "$DEVICE" dist/plugins
           # The signing tool, built before the key comes near the disk.
           cargo build -q --release -p paperpaw-sign
       # A dry run signs with keys made for the job (the real ones are for a
@@ -442,7 +440,7 @@ jobs:
       # Apart from every build: the key is on the disk only while the
       # files are signed (audit O-17).
       - name: Sign the store's first-party plugins
-        if: matrix.device == 'x4'
+        if: matrix.device != 'x3'
         env:
           PAPERPAW_PLUGIN_KEY: ${{ github.event_name == 'push' && secrets.PAPERPAW_PLUGIN_KEY || env.PAPERPAW_PLUGIN_KEY }}
         run: |
