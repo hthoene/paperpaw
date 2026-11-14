@@ -257,6 +257,10 @@ fn reading_and_home_keep_the_book_opened() {
 /// changed with the buttons are written to `paperpaw.ini`; a kernel
 /// started anew on the same card reads them back.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native Settings, home and reader (`native-linked-reading`): the interface-6 ones are removed (#244)"
+)]
 fn settings_changed_in_the_ui_are_saved_and_read_back_after_a_restart() {
     let card = Card::new(true);
 

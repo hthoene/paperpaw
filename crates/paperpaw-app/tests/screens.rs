@@ -390,6 +390,10 @@ fn home_shows_the_book_read_last() {
 /// A group's advanced settings, a page one level down, stay that page
 /// when one of them changes.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native Settings, home and reader (`native-linked-reading`): the interface-6 ones are removed (#244)"
+)]
 fn a_groups_advanced_page_stays_when_a_setting_changes() {
     let mut app = App::new();
     app.now += 100;
