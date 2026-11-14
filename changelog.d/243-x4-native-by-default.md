@@ -1,0 +1,1 @@
+The X4 and X3 firmware now link and host the built-in plugins as interface-7 native plugins by default and load plugin files of the new format (#243, Beta 4). The install image is about 1.3 MB larger. The X4 Pro and X4 Classic keep the interface-6 plugins for now.

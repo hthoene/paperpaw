@@ -252,10 +252,13 @@ paperpaw-image = { opt-level = "s" }
 paperpaw-layout = { opt-level = "s" }
 paperpaw-platform = { opt-level = "s" }
 paperpaw-plugin-format-cbz = { opt-level = "s" }
+paperpaw-plugin-format-docx = { opt-level = "s" }
 paperpaw-plugin-format-epub = { opt-level = "s" }
 paperpaw-plugin-format-fb2 = { opt-level = "s" }
 paperpaw-plugin-format-html = { opt-level = "s" }
+paperpaw-plugin-format-images = { opt-level = "s" }
 paperpaw-plugin-format-markdown = { opt-level = "s" }
+paperpaw-plugin-format-mobi = { opt-level = "s" }
 paperpaw-plugin-format-txt = { opt-level = "s" }
 paperpaw-plugin-format-xtc = { opt-level = "s" }
 paperpaw-plugin-reader = { opt-level = "s" }
@@ -293,6 +296,7 @@ paperpaw-plugin-home = { opt-level = "z" }
 paperpaw-plugin-keyboard = { opt-level = "z" }
 paperpaw-plugin-lock = { opt-level = "z" }
 paperpaw-plugin-menu = { opt-level = "z" }
+paperpaw-plugin-news = { opt-level = "z" }
 paperpaw-plugin-opds = { opt-level = "z" }
 paperpaw-plugin-plugin-manager = { opt-level = "z" }
 paperpaw-plugin-power = { opt-level = "z" }
@@ -302,8 +306,10 @@ paperpaw-plugin-sleep = { opt-level = "z" }
 paperpaw-plugin-store = { opt-level = "z" }
 paperpaw-plugin-transfer = { opt-level = "z" }
 paperpaw-plugin-update = { opt-level = "z" }
+paperpaw-plugin-vocabulary = { opt-level = "z" }
 paperpaw-plugin-wifi = { opt-level = "z" }
 paperpaw-qr = { opt-level = "z" }
+paperpaw-sqlite = { opt-level = "z" }
 paperpaw-stardict = { opt-level = "z" }
 paperpaw-table = { opt-level = "z" }
 paperpaw-ui-kit = { opt-level = "z" }
