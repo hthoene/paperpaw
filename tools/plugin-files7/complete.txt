@@ -37,3 +37,4 @@ widgets
 notes-vault
 mail
 format-mobi
+format-images

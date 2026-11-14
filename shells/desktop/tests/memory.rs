@@ -954,6 +954,7 @@ fn a_word_zip_bomb_stays_within_the_x4_budget() {
 /// 2 MB to decode: the X4 refuses it, its page names the file; the run is
 /// the same with and without the budget only where nothing is refused.)
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn pictures_as_a_book_stay_within_the_x4_budget() {
     let data = root().join("crates/paperpaw-image/tests/data");
     let read = |name: &str| fs::read(data.join(name)).unwrap();

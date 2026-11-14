@@ -115,7 +115,6 @@ differently; a plugin must keep that mapping.
 | Files | Owner | Stamp |
 |-------|-------|-------|
 | `.paperpaw/plugins/format-epub/<hash>/` | format-epub | `CACHE_VERSION` and the book's size and start; HTML, Markdown, FB2 and CBZ in folders of their own, `html-<hash>/`, `md-<hash>/`, `fb2-<hash>/` and `cbz-<hash>/` |
-| `.paperpaw/plugins/format-images/<hash>/` | format-images | the pictures of a book decoded on their pages, `p<page>-<hash>.gray` or `.rgb` (the hash tells the file's name and size), `.bad` for one that cannot be decoded; `cover-<size>.*` |
 | `.paperpaw/plugins/format-txt/<hash>.txt` | format-txt | a UTF-16 book as UTF-8; `<hash>.source`: the book's size and a hash of its first and last 4 KiB |
 | `.paperpaw/plugins/widgets/picture.pixels` | widgets | `picture.stamp`: the picture's path and size, the screen's size and colour |
 | `.paperpaw/logo.pixels` | SDK `logo` | `logo.stamp`: the picture's path and size, the size drawn, colour or not |
