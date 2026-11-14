@@ -260,9 +260,8 @@ fn install_pack_a(shop: &mut Shop) {
     shop.settle(3000);
 }
 
-/// Wakes the kernel and waits out the dialog's input guard (`device.md` 5.0).
+/// The host's confirmation is open; its input guard (`device.md` 5.0) is over.
 fn confirm_screen(shop: &mut Shop) -> String {
-    shop.device.call(|kernel, now| kernel.tick(now));
     shop.settle(1500);
     shop.screen()
 }
