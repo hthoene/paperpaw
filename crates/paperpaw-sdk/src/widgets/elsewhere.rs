@@ -33,10 +33,7 @@ impl Widgets {
     /// widget its first argument names only, where it names one.
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn set_declared_elsewhere(
-        &mut self,
-        lookup: Box<dyn Fn(Option<&str>, &mut dyn FnMut(&str, &str, &str))>,
-    ) {
+    pub fn set_declared_elsewhere(&mut self, lookup: Box<Lookup>) {
         self.elsewhere = Elsewhere(Some(lookup));
     }
 
