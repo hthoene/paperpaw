@@ -8,6 +8,11 @@
 //! no interface-6 aids fills the kernel's text filters, so only the native
 //! aids (`native-linked-store`) can change the page, through the native
 //! reader.
+//!
+//! The device is the large memory class: on the X4's class the kernel keeps
+//! `stage.run` closed until its nested-callback stack gate passes (feature
+//! `x4-nested`, #250; `native_host/ui_store.rs`), so no rule reaches the
+//! reader there yet (#257).
 #![cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
 #![allow(
     clippy::unwrap_used,
@@ -31,7 +36,7 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
     "Test X4",
     DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
     InputCaps::new(true, false, false, &["back", "confirm", "left", "right"]),
-    MemoryClass::Small,
+    MemoryClass::Large,
 );
 
 const BOOK: &str = "books/aids.txt";
@@ -102,7 +107,6 @@ fn first_page(aids: &str) -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "needs native activation (#243; the native reader runs reader.filter and applies native_filter: Plugin wires it after #1284, #257)"]
 fn bold_word_beginnings_change_the_page() {
     let plain = first_page("bold-beginnings = false\n");
     assert_eq!(
@@ -114,7 +118,6 @@ fn bold_word_beginnings_change_the_page() {
 }
 
 #[test]
-#[ignore = "needs native activation (#243; the native reader runs reader.filter and applies native_filter: Plugin wires it after #1284, #257)"]
 fn replaced_words_change_the_page() {
     let plain = first_page("");
     assert_ne!(plain, first_page("replace = \"Alice = Bob\"\n"));
