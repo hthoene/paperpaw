@@ -712,6 +712,7 @@ impl BuilderParts {
         kernel.restore_timing();
         kernel.apply_reading_font();
         kernel.apply_status_font();
+        kernel.apply_widget_fonts();
         kernel.validate();
         kernel.rebuild_keymap();
         // Memory given back before the language is read in: its catalogs
@@ -1321,6 +1322,15 @@ impl Kernel {
                 Err(error) => Err(error),
             };
             if let Err(error) = set {
+                // A widget's font may come with a plugin registered later
+                // (#262): the value waits until the start has hosted all.
+                let waits = self.native_registering
+                    && matches!(error, paperpaw_sdk::SettingError::InvalidValue)
+                    && crate::font_refresh::widget_fonts::is_setting(&id);
+                if waits {
+                    left.push((id, value, line));
+                    continue;
+                }
                 self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
             }
         }

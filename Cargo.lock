@@ -1687,6 +1687,7 @@ dependencies = [
  "paperpaw-plugin-widgets",
  "paperpaw-plugin-wifi",
  "paperpaw-sdk",
+ "paperpaw-text",
  "paperpaw-zip",
  "proptest",
 ]
@@ -2512,7 +2513,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "paperpaw-core",
  "paperpaw-epub-family",

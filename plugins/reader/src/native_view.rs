@@ -12,7 +12,6 @@ use crate::{
     native_draw::{HostInk, draw_page},
     native_index::Counter,
     native_links::DocRef,
-    native_look::Look,
     native_marking::{Book, Ctx, Marking, Outcome},
     native_marks::{self, CanvasPen, Gauge, Marks, Painted},
     native_open::{self, Place, Start},
@@ -165,6 +164,8 @@ struct Open {
     ask_marks: bool,
     /// The packs of letters this book asked for while open (`native_script_hint`).
     packs_asked: crate::native_script_hint::Asked,
+    /// The reading settings as last read, until one changes (`setup::Kept`).
+    settings: Kept,
 }
 
 /// One open reading screen.
@@ -408,6 +409,7 @@ impl View {
             filters: Vec::new(),
             ask_marks: false,
             packs_asked: 0,
+            settings: Kept::default(),
         };
         open.ask_filters(host);
         open.begin(host, root == Root::Library);
@@ -508,12 +510,19 @@ impl View {
             open.laid = None;
             open.trail.clear();
             open.pictures = pictures::Pass::Whole;
-            if let Ok(setup) = Setup::read(host) {
+            if let Ok(setup) = open.settings.setup(host) {
                 open.ensure_counter(host, &setup);
             }
             open.announce(host, docs);
         }
         redraw(host, RedrawMode::Full)
+    }
+
+    /// A setting changed: the reading settings are read again at the next use.
+    pub fn forget_settings(&self) {
+        if let Body::Open(open) = &self.body {
+            open.settings.forget();
+        }
     }
 
     /// Only the way the text is inked changed: the page is drawn again.
@@ -902,7 +911,7 @@ impl Open {
     ) -> Result<(), Error> {
         let from = if forward {
             if self.page.is_none() {
-                let setup = Setup::read(host)?;
+                let setup = self.settings.setup(host)?;
                 self.page = Some(self.lay(host, docs, &setup, self.at)?);
             }
             let Some(page) = &self.page else {
@@ -1002,7 +1011,7 @@ impl Open {
     /// pages left in it come from `native_chapter`, the page numbers from the
     /// count, once it is complete (`PORTING-7.md`).
     fn announce(&mut self, host: &Host<'_>, docs: &Documents) {
-        let Ok(setup) = Setup::read(host) else {
+        let Ok(setup) = self.settings.setup(host) else {
             return;
         };
         if self.page.is_none() {
@@ -1107,7 +1116,7 @@ impl Open {
         if self.page.is_none() {
             return Ok(Outcome::Ignored);
         }
-        let setup = Setup::read(host)?;
+        let setup = self.settings.setup(host)?;
         let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
@@ -1135,7 +1144,7 @@ impl Open {
     /// Follows the link `href` of the book (*Go to the note*): goes to its
     /// target, the page left kept for *Back*; whether the page moved.
     fn follow(&mut self, host: &Host<'_>, docs: &Documents, href: &str) -> Result<bool, Error> {
-        let setup = Setup::read(host)?;
+        let setup = self.settings.setup(host)?;
         let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
@@ -1172,7 +1181,7 @@ impl Open {
             return Ok(false);
         };
         let end = (page.end.section, page.end.offset);
-        let Ok(setup) = Setup::read(host) else {
+        let Ok(setup) = self.settings.setup(host) else {
             return self.next();
         };
         match onto(self.lay(host, docs, &setup, end)) {
@@ -1219,7 +1228,7 @@ impl Open {
                 } else {
                     (self.at.0, 0)
                 };
-                let setup = Setup::read(host)?;
+                let setup = self.settings.setup(host)?;
                 let at = self.at;
                 native_pages::page_before(from, at, BACK_LIMIT, |start| {
                     let page = self.lay(host, docs, &setup, start)?;
@@ -1297,7 +1306,7 @@ impl Open {
         (docs, ui): (&Documents, Option<&Ui>),
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
-        let setup = Setup::read(host)?;
+        let setup = self.settings.setup(host)?;
         let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let fonts = HostFonts::acquire(host)?;
         let drawn = self.draw_with(host, (docs, ui), frame, (&setup, &fonts, area));
@@ -1337,11 +1346,14 @@ impl Open {
         }
         let page = self.page.as_ref().ok_or(Error::State)?;
         let rect = frame.rect;
+        let band = (frame.clip_top, frame.clip_bottom);
         let follow_up = pictures::follow_up(frame);
         let canvas = frame.draw_canvas()?;
         canvas.fill_rectangle(rect, Color::WHITE)?;
-        let look = Look::read(host, setup.display.display_gray_levels())?;
-        let mut ink = HostInk::new(fonts, &canvas, Color::BLACK, look);
+        let look = self
+            .settings
+            .look(host, setup.display.display_gray_levels())?;
+        let mut ink = HostInk::new(fonts, &canvas, Color::BLACK, look).clipped(band.0, band.1);
         let origin = (
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
@@ -1444,7 +1456,7 @@ mod ribbon;
 mod script_hint;
 mod setup;
 use preparing::{Preparing, open_request};
-use setup::{LayoutKey, Setup, flag, integer};
+use setup::{Kept, LayoutKey, Setup, flag, integer};
 
 /// The language a book is read in: its own, or the UI language where the
 /// format names none (a text file), as in Beta 3, so the voice reading aloud

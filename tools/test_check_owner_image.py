@@ -48,6 +48,26 @@ class OwnerImage(unittest.TestCase):
     def test_a_reference_that_is_not_a_full_image_is_refused(self):
         self.assertIn("the reference is not a full image", tool.problems(full_image(), b"\xe9" * 100))
 
+    def test_a_test_image_is_refused_in_release_mode_and_a_release_is_not(self):
+        marked = full_image() + b"x high-water: stack left {} B y"
+        self.assertEqual(len(tool.test_image_problems(marked)), 1)
+        both = marked + b" high-water: the run before: z"
+        self.assertEqual(len(tool.test_image_problems(both)), 2)
+        self.assertEqual(tool.test_image_problems(full_image()), [])
+
+    def test_release_mode_exit_codes(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name, data, code in (
+                ("good", full_image(), 0),
+                ("test", full_image() + b"high-water: the run before: ", 1),
+            ):
+                p = os.path.join(d, name)
+                with open(p, "wb") as f:
+                    f.write(data)
+                run = subprocess.run([sys.executable, "-I", TOOL, "--release", p], capture_output=True, text=True)
+                self.assertEqual(run.returncode, code, run.stdout)
+                self.assertIn(f"RELEASE_IMAGE_CHECK_EXIT={code}", run.stdout)
+
     def run_tool(self, img, ref):
         with tempfile.TemporaryDirectory() as d:
             paths = []
