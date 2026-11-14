@@ -602,6 +602,9 @@ fn prepare() -> Ready {
     if let Some(message) = &panicked {
         crash::keep(storage.as_ref(), message);
     }
+    // The run before's lows, a line on the card (test image).
+    #[cfg(feature = "test-image")]
+    high_water::note_to_card(storage.as_ref());
     #[cfg(feature = "remote")]
     remote::note_panic(panicked);
     let mut panel = board.panel;

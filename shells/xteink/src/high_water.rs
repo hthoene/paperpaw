@@ -17,6 +17,9 @@ use paperpaw_x4::high_water::{Sample, Tracker, WORDS, seal, unseal};
 #[esp_hal::ram(unstable(rtc_fast, persistent))]
 static mut KEPT: [u32; WORDS] = [0; WORDS];
 
+/// What the run before kept, read at start, for the card (`note_to_card`).
+static mut BEFORE: Option<Sample> = None;
+
 /// The tracker of this run (one core, only the main loop and `before_sleep`,
 /// which runs in it, touch it).
 static mut TRACKER: Option<Tracker> = None;
@@ -58,7 +61,39 @@ pub fn start() {
             low.largest
         );
     }
+    // SAFETY: as `tracker`; written once at start.
+    unsafe { core::ptr::addr_of_mut!(BEFORE).write(kept) };
     let _ = tracker();
+}
+
+/// Where the lows of the run before are written, one line a start.
+const FILE: &str = paperpaw_sdk::data_path!("high-water.txt");
+/// The file starts anew once it is this large.
+const MAX_FILE: u64 = 4 * 1024;
+
+/// Appends the run before's lows (the log line's figures) to the card, a
+/// line for each start, so that they can be read without the serial log
+/// (the owner's sleep and USB probes: the link does not survive a sleep).
+pub fn note_to_card(storage: &dyn paperpaw_platform::Storage) {
+    // SAFETY: as `tracker`; read once at start.
+    let kept = unsafe { core::ptr::addr_of!(BEFORE).read() };
+    let line = match kept {
+        Some(low) => alloc::format!(
+            "{}\tthe run before: stack left {} B, heap free {} B, largest block {} B\n",
+            env!("PAPERPAW_VERSION"),
+            low.stack_left,
+            low.heap_free,
+            low.largest
+        ),
+        None => alloc::format!("{}\tthe run before: nothing kept\n", env!("PAPERPAW_VERSION")),
+    };
+    let _ = storage.create_dir(paperpaw_sdk::data::DIR);
+    let full = storage.size(FILE).is_ok_and(|size| size > MAX_FILE);
+    let _ = if full {
+        storage.write(FILE, line.as_bytes())
+    } else {
+        storage.append(FILE, line.as_bytes())
+    };
 }
 
 /// The main loop's turn: a sample and a log line when one is due.
