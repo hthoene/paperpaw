@@ -243,3 +243,29 @@ fn paragraphs_are_set_apart_by_parts_of_the_size_and_of_the_line() {
         .style(20.0, 27.0);
     assert!(off.indent.abs() < 1e-6 && off.paragraph_spacing.abs() < 1e-6);
 }
+
+#[test]
+fn the_hyphenation_settings_are_kept_to_what_the_host_takes() {
+    let reading = Reading::new(12, 120, 100, 4, 4, true);
+    // Off until the settings say.
+    assert_eq!(reading.hyphens, (false, 0, 0));
+    // 0 is the table's own; the host takes at most 16 letters.
+    let set = reading.with_hyphens(true, (0, 99));
+    assert_eq!(set.hyphens, (true, 0, 16));
+    assert_eq!(reading.with_hyphens(true, (-3, 2)).hyphens, (true, 0, 2));
+    // Another setting is another page: the key tells it from the other.
+    assert_ne!(reading, set);
+}
+
+#[test]
+fn the_layout_is_told_the_places_the_host_gave_and_none_where_it_refused() {
+    let mut told = alloc::vec::Vec::new();
+    // `asked` places of the buffer; what lies beyond them is not told.
+    break_places(Ok(2), &[3, 6, 9], &mut |at| told.push(at));
+    assert_eq!(told, [3, 6]);
+    for refused in [Err(Error::NotFound), Err(Error::Invalid), Ok(0)] {
+        let mut told = alloc::vec::Vec::new();
+        break_places(refused, &[3, 6, 9], &mut |at| told.push(at));
+        assert!(told.is_empty());
+    }
+}

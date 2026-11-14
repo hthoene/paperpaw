@@ -11,6 +11,15 @@ use paperpaw_sdk::{
     native::{Error, callbacks::Input},
 };
 
+/// Tells the layout where a word may break: the `places` the host gave (the
+/// first `asked` of them), none where it refused (a language with no table, a
+/// word it could not read: the word stays whole).
+pub fn break_places(asked: Result<usize, Error>, places: &[u8], out: &mut dyn FnMut(usize)) {
+    for place in places.iter().take(asked.unwrap_or(0)) {
+        out(usize::from(*place));
+    }
+}
+
 /// The reading settings a page is set with, in the units the settings use.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
@@ -43,6 +52,10 @@ pub struct Reading {
     /// Which of the book's own styles are followed (`core.book-…`, the bits of
     /// `paperpaw_layout::BookStyles`).
     pub book: u16,
+    /// Words broken at line ends (`core.hyphenate`), keeping at least so many
+    /// letters before and after the break (`core.hyphen-min-left`, `-right`;
+    /// 0: the table's own), 0 to 16.
+    pub hyphens: (bool, u8, u8),
 }
 
 impl Reading {
@@ -80,7 +93,17 @@ impl Reading {
             lines_kept: (1, 1),
             balanced: false,
             book: u16::MAX,
+            hyphens: (false, 0, 0),
         }
+    }
+
+    /// The same breaking words at line ends where `on`, keeping `left` and
+    /// `right` letters at least (0 to 16; 0 leaves it to the language's table).
+    #[must_use]
+    pub fn with_hyphens(mut self, on: bool, (left, right): (i64, i64)) -> Self {
+        let kept = |v: i64| u8::try_from(v.clamp(0, 16)).unwrap_or(0);
+        self.hyphens = (on, kept(left), kept(right));
+        self
     }
 
     /// The same with paragraphs set apart as the settings say: the indent

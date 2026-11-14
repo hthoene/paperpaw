@@ -106,6 +106,13 @@ impl Setup {
                 ),
                 balanced(host)?,
                 book_styles(host)?,
+            )
+            .with_hyphens(
+                flag(host, "core.hyphenate")?,
+                (
+                    integer(host, "core.hyphen-min-left")?,
+                    integer(host, "core.hyphen-min-right")?,
+                ),
             ),
             display,
             room,
