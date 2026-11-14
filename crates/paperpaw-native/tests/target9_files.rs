@@ -2,8 +2,9 @@
 //! 9") through the loader's own code: the header, the lists, the write pass and
 //! the entry check. `target9-aids.ppn` is `aids` packed by
 //! `tools/plugin-files7/build.sh x4-pro`; the tests hold for any such file, so a
-//! newer one may replace it. The device's flash and PSRAM are the sink here.
-//! Nothing on the device itself is shown by them.
+//! newer one may replace it (where it came from: `data/target9-aids.source.txt`).
+//! The device's flash and PSRAM are the sink here. Nothing on the device itself
+//! is shown by them.
 
 #![cfg(feature = "kernel")]
 
@@ -16,6 +17,9 @@ const FILE: &[u8] = include_bytes!("data/target9-aids.ppn");
 const MINOR: u16 = 255;
 /// Where the loader places an image (any multiple of the file's alignment).
 const BASE: u32 = 0x3C10_0000;
+/// The address of the host's heap table, as the loader tells the plugin (the
+/// heap word, `abi/heap-word.md`).
+const TABLE: u32 = 0x3FC8_1230;
 
 fn host() -> Host {
     Host::x4_pro(MINOR)
@@ -29,7 +33,9 @@ fn header_of(file: &[u8]) -> Result<Header5, Refusal> {
 /// `placed`, check the entry. `Err` names where it was refused.
 fn load(file: &[u8], placed: &mut Vec<u8>) -> Result<(), String> {
     let header = header_of(file).map_err(|e| format!("header: {e:?}"))?;
-    let relocator = Relocator5::new(&header, file, BASE).map_err(|e| format!("lists: {e:?}"))?;
+    let relocator = Relocator5::new(&header, file, BASE)
+        .map_err(|e| format!("lists: {e:?}"))?
+        .heap_word(TABLE);
     let mut block = [0u8; 256];
     placed.clear();
     placed.resize(header.image_len as usize, 0);
@@ -64,6 +70,48 @@ fn a_real_target_9_file_loads() {
     assert_eq!(placed.len() as u32, header.image_len);
     // The words were relocated: the image is not the file's bytes.
     assert_ne!(&placed[..], &FILE[HEADER_LEN..HEADER_LEN + placed.len()]);
+}
+
+/// The relocation is exactly this: each listed word of the file plus the
+/// distance the image moved, the heap word the table's address, and every other
+/// byte as the file has it.
+#[test]
+fn the_listed_words_move_with_the_base_the_heap_word_is_the_table_and_the_rest_is_unchanged() {
+    let header = header_of(FILE).unwrap();
+    let mut placed = Vec::new();
+    assert_eq!(load(FILE, &mut placed), Ok(()));
+    let word = |bytes: &[u8], at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let from = header.relocs_at() as usize;
+    let listed: Vec<usize> = (0..header.relocs as usize)
+        .map(|i| word(FILE, from + 4 * i) as usize)
+        .collect();
+    assert_eq!(listed.len(), 125, "the fixture lists 125 words");
+    let delta = BASE.wrapping_sub(header.base);
+    let image = &FILE[HEADER_LEN..HEADER_LEN + header.image_len as usize];
+    let heap = header.heap_at.expect("aids has a heap word") as usize;
+    assert!(
+        !listed.contains(&heap),
+        "the heap word is no relocation word"
+    );
+    let mut expected = image.to_vec();
+    for &at in &listed {
+        let moved = word(image, at).wrapping_add(delta);
+        expected[at..at + 4].copy_from_slice(&moved.to_le_bytes());
+    }
+    expected[heap..heap + 4].copy_from_slice(&TABLE.to_le_bytes());
+    assert_eq!(
+        word(&placed, heap),
+        TABLE,
+        "the heap word is the table's address"
+    );
+    for &at in &listed {
+        assert_eq!(
+            word(&placed, at),
+            word(image, at).wrapping_add(delta),
+            "word at {at}"
+        );
+    }
+    assert_eq!(placed, expected, "every other byte is the file's");
 }
 
 #[test]
