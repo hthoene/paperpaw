@@ -3011,6 +3011,7 @@ version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide 0.9.1",
  "paperpaw-platform",
+ "paperpaw-sort",
  "paperpaw-zip",
  "proptest",
 ]

@@ -1119,7 +1119,7 @@ impl Converter<'_> {
         used.extend(self.origin.iter().map(|(node, _)| *node));
         used.extend(self.space_origin.iter().map(|(node, _)| *node));
         used.extend(self.origins.iter().map(|origin| origin.node));
-        used.sort_unstable();
+        paperpaw_sdk::sort::sort_unstable(&mut used);
         used.dedup();
         let mut kept = Vec::new();
         fallible::reserve(&mut kept, used.len())?;
