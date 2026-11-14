@@ -6,7 +6,9 @@
   *Literata bold and italic*) now brings the regular face too, version 1.1.0: with it on the
   card, choose Literata in Settings, under Reading, as Font. Until then Literata is not
   offered, and a card with the plugin of before keeps its bold and italic closed rather than
-  mixing them into the menus' font. Other devices keep Literata as the book's font.
+  mixing them into the menus' font. The plugin installed while the reader runs offers
+  Literata at once; book text changes to it when you choose it, or at the next start where
+  it was chosen before. Other devices keep Literata as the book's font.
 - **Bold and italic book text comes from the family of the regular book text only.** A bold
   or italic face a plugin proposes, or of a chosen family, is used where regular book text
   is in the same family; else the regular face stands in, as where no bold is bound. A
