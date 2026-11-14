@@ -80,9 +80,10 @@ impl Target {
         match self {
             Target::Setting(id) => env
                 .settings
-                .specs()
-                .find(|s| s.id.as_str() == id)
-                .map_or(id.clone(), |s| env.i18n().tr(&s.title).to_string()),
+                .with_spec(id, |s| env.i18n().tr(&s.title).to_string())
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| id.clone()),
         }
     }
 }

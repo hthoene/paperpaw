@@ -7,10 +7,16 @@ use core::fmt;
 use crate::collections::VecMap;
 use crate::id::Id;
 use crate::plugin::RegisterError;
+#[cfg(any(test, feature = "kernel"))]
+pub use described::{DescribeError, Described, DescribedSettings};
 #[cfg(feature = "kernel")]
 pub use fixed_table::{
     fixed_groups_source, fixed_ids_source, fixed_settings_source, fixed_titles_source,
 };
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use specs::Pick;
+#[cfg(any(test, feature = "kernel"))]
+pub use specs::Pick;
 use specs::Specs;
 
 /// A setting's value.
@@ -786,8 +792,10 @@ impl From<SettingGroupSpec> for SettingGroup {
 pub enum SettingError {
     Unknown,
     InvalidValue,
-    /// No place is left to keep a changed spec (more than 32,768
-    /// settings of a kind, or no memory for its copy).
+    /// No place is left to keep a changed spec (more than 16,384 made at
+    /// run time, or no memory for its copy), or the heap has no room now
+    /// for the spec of a setting of a plugin loaded from the card: the
+    /// setting is there, and the same may work later.
     Full,
     /// The setting's check refused the value: the translation key of why
     /// (see [`SettingExtra::check`]).
@@ -895,10 +903,10 @@ impl Settings {
     pub fn set_preview(&mut self, values: Vec<(Id, Option<SettingValue>)>) {
         self.preview = VecMap::default();
         for (id, value) in values {
-            let fits = self
-                .spec(id.as_str())
-                .is_some_and(|spec| value.as_ref().is_none_or(|value| spec.accepts(value)));
-            if fits {
+            let fits = self.with_spec(id.as_str(), |spec| {
+                value.as_ref().is_none_or(|value| spec.accepts(value))
+            });
+            if fits == Ok(Some(true)) {
                 self.preview.insert(id, value);
             }
         }
@@ -923,20 +931,14 @@ impl Settings {
         self.limits = VecMap::default();
         self.released.clear();
         for (id, value) in values {
-            if self
-                .spec(id.as_str())
-                .is_some_and(|spec| spec.accepts(&value))
-            {
+            if self.with_spec(id.as_str(), |spec| spec.accepts(&value)) == Ok(Some(true)) {
                 touched.push(id.clone());
                 self.worn.insert(id, value);
             }
         }
         for (id, limit) in limits {
             let value = SettingValue::Int(limit);
-            if self
-                .spec(id.as_str())
-                .is_some_and(|spec| spec.accepts(&value))
-            {
+            if self.with_spec(id.as_str(), |spec| spec.accepts(&value)) == Ok(Some(true)) {
                 touched.push(id.clone());
                 self.limits.insert(id, value);
             }
@@ -1064,7 +1066,7 @@ impl Settings {
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn define(&mut self, spec: SettingSpec) -> Result<(), RegisterError> {
-        if self.specs.get(spec.id.as_str()).is_some() {
+        if self.specs.has(spec.id.as_str()) {
             return Err(RegisterError::Duplicate { id: spec.id });
         }
         if !spec.kind.accepts(&spec.default) {
@@ -1093,7 +1095,7 @@ impl Settings {
         let Some(spec) = list.get(at) else {
             return Ok(());
         };
-        if self.specs.get(spec.id.as_str()).is_some() {
+        if self.specs.has(spec.id.as_str()) {
             return Err(RegisterError::Duplicate {
                 id: spec.id.clone(),
             });
@@ -1129,22 +1131,49 @@ impl Settings {
     }
 
     /// The spec of setting `id`; for a placement's (`widgets.clock@2.face`)
-    /// the setting's own (`widgets.clock.face`).
+    /// the setting's own (`widgets.clock.face`). The spec of a setting of
+    /// a plugin loaded from the card is made for this and kept for a while:
+    /// `None` too where the heap has no room for it now.
     pub fn spec(&self, id: &str) -> Option<&SettingSpec> {
+        self.spec_or_full(id).unwrap_or_else(|_| {
+            self.specs.note_short();
+            None
+        })
+    }
+
+    /// [`Settings::spec`], telling an unknown setting (`None`) from one the
+    /// heap has no room for now ([`SettingError::Full`]).
+    fn spec_or_full(&self, id: &str) -> Result<Option<&SettingSpec>, SettingError> {
         match crate::id::unplaced(id) {
             Some(plain) => self.specs.get(&plain),
             None => self.specs.get(id),
         }
     }
 
+    /// Gives `f` the spec of setting `id` as [`Settings::spec`] finds it;
+    /// one made for it is let go again.
+    pub(crate) fn with_spec<R>(
+        &self,
+        id: &str,
+        f: impl FnOnce(&SettingSpec) -> R,
+    ) -> Result<Option<R>, SettingError> {
+        match crate::id::unplaced(id) {
+            Some(plain) => self.specs.with(&plain, f),
+            None => self.specs.with(id, f),
+        }
+    }
+
     /// The id a value of `id` is kept under: the spec's, or the
     /// placement's own.
     fn value_id(&self, id: &str) -> Result<Id, SettingError> {
-        let spec = self.spec(id).ok_or(SettingError::Unknown)?;
-        if id == spec.id.as_str() {
-            Ok(spec.id.clone())
-        } else {
-            Id::parse(id).map_err(|_| SettingError::Unknown)
+        let plain = crate::id::unplaced(id);
+        let at = self.specs.where_is(plain.as_deref().unwrap_or(id));
+        match at.ok_or(SettingError::Unknown)? {
+            specs::At::Spec(spec) if id == spec.id.as_str() => Ok(spec.id.clone()),
+            _ => Id::try_parse(id).map_err(|error| match error {
+                crate::id::IdError::NoMemory => SettingError::Full,
+                _ => SettingError::Unknown,
+            }),
         }
     }
 
@@ -1152,12 +1181,21 @@ impl Settings {
     /// ([`SettingExtra::shown_if`]): screens listing settings make
     /// themselves anew when it changes.
     pub fn governs(&self, id: &str) -> bool {
-        self.specs().any(|spec| {
-            spec.extra()
+        let mut governs = false;
+        // Settings with an extra are kept as they are: nothing is made.
+        let walked = self.specs.walk(Pick::WithExtra, &mut |spec| {
+            governs = spec
+                .extra()
                 .shown_if
                 .as_ref()
-                .is_some_and(|(of, _)| of == id)
-        })
+                .is_some_and(|(of, _)| of == id);
+            if governs {
+                core::ops::ControlFlow::Break(())
+            } else {
+                core::ops::ControlFlow::Continue(())
+            }
+        });
+        walked.is_ok() && governs
     }
 
     /// Whether `spec` shows now: not while the setting its
@@ -1168,26 +1206,31 @@ impl Settings {
         };
         // The value read as that setting reads it (`on`, `true` …); a
         // setting not there does not hide this one.
-        let Some(condition) = self.spec(id.as_str()) else {
+        let Ok(Some(value)) = self.with_spec(id.as_str(), |condition| condition.kind.parse(value))
+        else {
             return true;
         };
-        condition
-            .kind
-            .parse(value)
-            .is_some_and(|value| self.get(id.as_str()) == Some(&value))
+        value.is_some_and(|value| self.get(id.as_str()) == Some(&value))
     }
 
     /// Sets a value after validating it.
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    ///
+    /// # Errors
+    /// Also [`SettingError::Full`] where the heap has no room to read what
+    /// a plugin loaded from the card describes of it: nothing is set.
     pub fn set(&mut self, id: &str, value: SettingValue) -> Result<(), SettingError> {
-        let spec = self.spec(id).ok_or(SettingError::Unknown)?;
-        if !spec.accepts(&value) {
-            return Err(SettingError::InvalidValue);
-        }
-        if let Some(SettingCheck(check)) = spec.extra().check {
-            check(self, &value).map_err(SettingError::Refused)?;
-        }
+        self.with_spec(id, |spec| {
+            if !spec.accepts(&value) {
+                return Err(SettingError::InvalidValue);
+            }
+            match spec.extra().check {
+                Some(SettingCheck(check)) => check(self, &value).map_err(SettingError::Refused),
+                None => Ok(()),
+            }
+        })?
+        .ok_or(SettingError::Unknown)??;
         let id = self.value_id(id)?;
         // The reader's change wins over a mode's value until the next mode.
         self.release(&id);
@@ -1263,8 +1306,10 @@ impl Settings {
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn set_from_text(&mut self, id: &str, text: &str) -> Result<(), SettingError> {
-        let spec = self.spec(id).ok_or(SettingError::Unknown)?;
-        let value = spec.parse(text).ok_or(SettingError::InvalidValue)?;
+        let value = self
+            .with_spec(id, |spec| spec.parse(text))?
+            .ok_or(SettingError::Unknown)?
+            .ok_or(SettingError::InvalidValue)?;
         let id = self.value_id(id)?;
         self.values.insert(id, value);
         Ok(())
@@ -1293,7 +1338,7 @@ impl Settings {
             return match (shown, crate::id::unplaced(id)) {
                 (Some(value), _) => Some(value),
                 (None, Some(plain)) => self.get(&plain),
-                (None, None) => self.specs.get(id).map(|spec| &spec.default),
+                (None, None) => self.specs.where_is(id).map(specs::At::default_now),
             };
         }
         if let Some(plain) = crate::id::unplaced(id) {
@@ -1334,12 +1379,13 @@ impl Settings {
         id: &str,
         set: impl FnOnce(&str) -> Option<&'s SettingValue>,
     ) -> Option<&'s SettingValue> {
-        let spec = self.specs.get(id)?;
-        let followed = spec.extra().follows.as_ref().and_then(|other| {
+        // The default is kept for every setting: no spec is made for it.
+        let at = self.specs.where_is(id)?;
+        let followed = at.followed().and_then(|other| {
             let other = other.as_str();
-            set(other).or_else(|| self.specs.get(other).map(|spec| &spec.default))
+            set(other).or_else(|| self.specs.where_is(other).map(specs::At::default_now))
         });
-        followed.or(Some(&spec.default))
+        followed.or(Some(at.default_now()))
     }
 
     /// The value outside any scope, or the default if none was set; for a
@@ -1364,7 +1410,7 @@ impl Settings {
             return None;
         }
         let value = scope.get(id)?;
-        self.specs.get(id).filter(|spec| spec.scoped)?;
+        self.specs.where_is(id).filter(|at| at.scoped_flag())?;
         Some(value)
     } @ data::SETTINGS_SCOPED_VALUE as for<'s> fn(&'s Self, &str) -> Option<&'s SettingValue>
     }
@@ -1374,46 +1420,6 @@ impl Settings {
     /// outside any scope.
     pub fn scope(&self) -> Option<&VecMap<Id, SettingValue>> {
         self.scope.as_ref()
-    }
-
-    /// Activates a scope with its values (only valid scoped ones are
-    /// kept), or ends it.
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn set_scope(&mut self, values: Option<VecMap<Id, SettingValue>>) {
-        self.scope = values.map(|mut values| {
-            let ids: Vec<Id> = values.keys().cloned().collect();
-            for id in ids {
-                let valid = match (self.specs.get(id.as_str()), values.get(id.as_str())) {
-                    (Some(spec), Some(value)) => spec.scoped && spec.accepts(value),
-                    _ => false,
-                };
-                if !valid {
-                    values.remove(id.as_str());
-                }
-            }
-            values
-        });
-    }
-
-    /// Sets a scoped setting in the active scope. Switching the scope off
-    /// ([`SCOPE_ONLY`](crate::builtin::settings::SCOPE_ONLY)) drops its
-    /// values.
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn set_in_scope(&mut self, id: &str, value: SettingValue) -> Result<(), SettingError> {
-        let spec = self.specs.get(id).ok_or(SettingError::Unknown)?;
-        if !spec.scoped || !spec.accepts(&value) {
-            return Err(SettingError::InvalidValue);
-        }
-        let id = spec.id.clone();
-        let scope = self.scope.as_mut().ok_or(SettingError::Unknown)?;
-        if id == crate::builtin::settings::SCOPE_ONLY && value == SettingValue::Bool(false) {
-            scope.clear();
-            return Ok(());
-        }
-        scope.insert(id, value);
-        Ok(())
     }
 
     /// Whether `id` is set in the active scope rather than globally, e.g.
@@ -1428,7 +1434,7 @@ impl Settings {
             return false;
         };
         let only = crate::builtin::settings::SCOPE_ONLY;
-        let scoped = self.specs.get(id).is_some_and(|spec| spec.scoped);
+        let scoped = self.specs.where_is(id).is_some_and(|at| at.scoped_flag());
         scoped
             && (id == only.as_str() || scope.get(only.as_str()) == Some(&SettingValue::Bool(true)))
     }
@@ -1466,17 +1472,24 @@ impl Settings {
     }
 
     /// All settings in registration order: plugins registered first come
-    /// first, each in the order it declared its settings.
+    /// first, each in the order it declared its settings. The specs of
+    /// the settings of plugins loaded from the card are made for this and
+    /// kept for a while; one the heap has no room for now is left out.
     pub fn specs(&self) -> impl Iterator<Item = &SettingSpec> {
         self.specs.iter()
     }
 }
 
 mod declared;
+mod described;
+#[cfg(test)]
+mod described_tests;
 #[cfg(feature = "kernel")]
 mod fixed_table;
 #[cfg(any(test, feature = "kernel"))]
 mod same;
+#[cfg(any(test, feature = "kernel"))]
+mod scope;
 mod specs;
 #[cfg(test)]
 mod tests;

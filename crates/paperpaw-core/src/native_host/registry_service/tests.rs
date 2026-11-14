@@ -125,6 +125,24 @@ pub(super) fn call_in(
     input: &[u8],
     room: usize,
 ) -> Result<Vec<u8>, i32> {
+    call_failing(kernel, directory, id, input, room, 0).0
+}
+
+/// [`call_in`] whose `nth` allocation inside the op fails (0: none), and
+/// whether one did.
+#[cfg_attr(
+    not(all(target_arch = "x86_64", target_os = "linux")),
+    allow(dead_code, reason = "the tests with a plugin's image use it")
+)]
+pub(super) fn call_failing(
+    kernel: &crate::Kernel,
+    directory: Option<&crate::native_host::native_declarations::NativeDeclarations>,
+    id: u32,
+    input: &[u8],
+    room: usize,
+    nth: u32,
+) -> (Result<Vec<u8>, i32>, bool) {
+    use crate::native_host::shell::tests::FAIL_NTH;
     let env = kernel.shared.env(Instant(0));
     let view = View {
         env: &env,
@@ -143,9 +161,11 @@ pub(super) fn call_in(
         hosts: &view.hosts,
     };
     let mut out = std::vec![0xaa; room];
-    let used = backend(&view, &caller, op(id), input, &mut out)?;
-    out.truncate(used);
-    Ok(out)
+    FAIL_NTH.with(|fail| fail.set(nth));
+    let used = backend(&view, &caller, op(id), input, &mut out);
+    let fired = nth != 0 && FAIL_NTH.with(|fail| fail.replace(0)) == 0;
+    out.truncate(used.unwrap_or(0));
+    (used.map(|_| out), fired)
 }
 
 fn query(scope: &str, cursor: u32, generation: u32) -> Vec<u8> {

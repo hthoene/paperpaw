@@ -15,7 +15,8 @@ use crate::{
     },
 };
 use core::ops::ControlFlow;
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED};
+use paperpaw_sdk::Pick;
 use paperpaw_sdk::presets::Preset;
 
 /// The most bytes of `reg_value.value`.
@@ -224,7 +225,7 @@ fn values(
             && !number.is_empty()
             && number.bytes().all(|byte| byte.is_ascii_digit())
         {
-            placement(sources, scope, plain, asker, visit);
+            placement(sources, scope, plain, asker, visit)?;
         }
         return Ok(());
     }
@@ -314,28 +315,29 @@ fn placement(
     plain: &str,
     asker: &Asker<'_>,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
-) {
+) -> Result<(), i32> {
     let settings = sources.env.settings();
-    for spec in settings.specs() {
+    // The widget's plugin alone, one spec at a time (#248).
+    let plugin = plain.split('.').next().unwrap_or_default();
+    let walked = settings.walk(Pick::Of(plugin), &mut |spec| {
         let Some(rest) = spec
             .id
             .as_str()
             .strip_prefix(plain)
             .filter(|rest| rest.starts_with('.'))
         else {
-            continue;
+            return ControlFlow::Continue(());
         };
         let Some(key) = Fixed::<{ caps::ID }>::of(&[placement, rest]) else {
-            continue;
+            return ControlFlow::Continue(());
         };
         if !settings.is_set(key.as_str()) {
-            continue;
+            return ControlFlow::Continue(());
         }
         let Some(value) = settings.global(key.as_str()) else {
-            continue;
+            return ControlFlow::Continue(());
         };
-        if put(sources, asker, key.as_str(), spec, value, visit).is_break() {
-            break;
-        }
-    }
+        put(sources, asker, key.as_str(), spec, value, visit)
+    });
+    walked.map_err(|_| ERR_NO_MEMORY)
 }

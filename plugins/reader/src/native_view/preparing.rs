@@ -10,12 +10,20 @@
 use paperpaw_sdk::native::commands::RedrawMode;
 use paperpaw_sdk::native::{
     Error, Host,
-    document::{DocId, Documents, Preparation},
+    document::{DocId, Documents, OpenBook, Preparation, Root},
     library::Library,
 };
 use paperpaw_ui_kit::mem::buffer;
 
 use super::{Body, Handover, View};
+
+/// The request that opens a book for reading: the publisher's styles, and
+/// colour pictures where the display shows colour (Beta 3 showed a Kobo
+/// colour screen's covers in colour; without this the host gives grays).
+pub(super) fn open_request(path: &str, root: Root, colour: bool) -> OpenBook<'_> {
+    let book = OpenBook::new(path).root(root).publisher_styles();
+    if colour { book.color() } else { book }
+}
 
 /// A book whose document the format is preparing, and what opens it then.
 #[derive(Debug)]
@@ -153,6 +161,17 @@ impl View {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_colour_display_opens_the_book_for_colour_pictures() {
+        // Bit 0 publisher styles, bit 1 colour (`document.md` 2.1).
+        let flags = |colour| {
+            let text = alloc::format!("{:?}", open_request("a.epub", Root::Library, colour));
+            text.contains("flags: 3")
+        };
+        assert!(flags(true));
+        assert!(!flags(false));
+    }
 
     #[test]
     fn a_document_failed_for_want_of_memory_says_so_others_say_it_could_not_open() {
