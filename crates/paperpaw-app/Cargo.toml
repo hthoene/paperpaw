@@ -44,8 +44,12 @@ native-linked-reading = [
 # shell takes them (Android, the emulator, tests), left out of the X4's
 # and the X4 Pro's firmware (see `StorePlugins`).
 store-plugins = [
+    "dep:paperpaw-plugin-widgets",
     "dep:paperpaw-plugin-news",
     "dep:paperpaw-plugin-vocabulary",
+    "dep:paperpaw-plugin-fonts-browser",
+    "dep:paperpaw-plugin-aids",
+    "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-picture-home",
     "dep:paperpaw-plugin-format-mobi",
     "dep:paperpaw-plugin-format-docx",
@@ -71,12 +75,10 @@ native-linked = [
     "dep:paperpaw-plugin-file-manager",
     "dep:paperpaw-plugin-files",
     "dep:paperpaw-plugin-help",
-    "dep:paperpaw-plugin-keyboard",
     "dep:paperpaw-plugin-lock",
     "dep:paperpaw-plugin-opds",
     "dep:paperpaw-plugin-plugin-manager",
     "dep:paperpaw-plugin-power",
-    "dep:paperpaw-plugin-settings",
     "dep:paperpaw-plugin-setup",
     "dep:paperpaw-plugin-update",
     "paperpaw-plugin-about/linked",
@@ -132,6 +134,7 @@ paperpaw-i18n.workspace = true
 paperpaw-plugin-dictionary.workspace = true
 paperpaw-plugin-files = { workspace = true, optional = true }
 paperpaw-plugin-fonts-default = { workspace = true, default-features = false }
+paperpaw-plugin-fonts-browser = { workspace = true, optional = true }
 paperpaw-plugin-store.workspace = true
 paperpaw-epub-family.workspace = true
 # The five plugins' crates, listed here for the plugin list and the catalog
@@ -145,17 +148,20 @@ paperpaw-plugin-format-cbz.workspace = true
 paperpaw-plugin-format-txt.workspace = true
 paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true
-paperpaw-plugin-keyboard = { workspace = true, optional = true }
+paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
+paperpaw-plugin-notes-vault = { workspace = true, optional = true }
 paperpaw-plugin-picture-home = { workspace = true, optional = true }
 paperpaw-plugin-format-mobi = { workspace = true, optional = true }
 paperpaw-plugin-format-docx = { workspace = true, optional = true }
 paperpaw-plugin-format-images = { workspace = true, optional = true }
+paperpaw-plugin-widgets = { workspace = true, optional = true }
 paperpaw-plugin-wifi.workspace = true
 paperpaw-plugin-file-manager = { workspace = true, optional = true }
 paperpaw-plugin-transfer.workspace = true
 paperpaw-plugin-opds = { workspace = true, optional = true }
 paperpaw-plugin-lock = { workspace = true, optional = true }
+paperpaw-plugin-aids = { workspace = true, optional = true }
 paperpaw-plugin-vocabulary = { workspace = true, optional = true }
 paperpaw-plugin-sleep.workspace = true
 paperpaw-plugin-about = { workspace = true, optional = true }
@@ -168,7 +174,7 @@ paperpaw-plugin-mail = { workspace = true, optional = true }
 paperpaw-plugin-update = { workspace = true, optional = true }
 paperpaw-plugin-news = { workspace = true, optional = true }
 paperpaw-plugin-reader.workspace = true
-paperpaw-plugin-settings = { workspace = true, optional = true }
+paperpaw-plugin-settings.workspace = true
 
 [dev-dependencies]
 # `Kernel::native_is_parked` for the sleep tests (never in a firmware build).

@@ -20,7 +20,8 @@ use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
-use paperpaw_sdk::{MemoryStorage, SettingKind};
+use paperpaw_sdk::builtin::actions;
+use paperpaw_sdk::{Id, MemoryStorage, Params, SettingKind};
 
 /// An X4 Pro as the emulator has it: buttons, no touch.
 const DEVICE: DeviceInfo = DeviceInfo::new(
@@ -35,6 +36,9 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
     ),
     MemoryClass::Small,
 );
+
+/// The most rows a list is walked through: more than any has.
+const MOST_ROWS: usize = 120;
 
 fn fonts() -> paperpaw_app::Fonts {
     #[cfg(any(feature = "packs", not(feature = "outline")))]
@@ -88,6 +92,44 @@ impl App {
             self.now = self.now.max(at.0);
             effects = self.kernel.tick(Instant(self.now));
         }
+    }
+
+    fn run(&mut self, action: Id) {
+        self.now += 100;
+        let effects = self.kernel.run_action(Instant(self.now), action);
+        self.settle(effects);
+    }
+
+    fn open(&mut self, screen: Id, params: Params) {
+        self.now += 100;
+        let effects = self.kernel.open_screen(Instant(self.now), screen, params);
+        self.settle(effects);
+    }
+
+    /// The labels the screen shows, and which is focused.
+    fn shown(&mut self) -> (Vec<String>, Option<String>) {
+        self.kernel.render(&mut |_, _| {});
+        let parts = self.kernel.describe();
+        let focused = parts.iter().find(|p| p.focused).map(|p| p.label.clone());
+        (parts.into_iter().map(|p| p.label).collect(), focused)
+    }
+
+    /// Every label of the screen's list, page by page: down until the
+    /// focus comes back or stays.
+    fn walk(&mut self) -> BTreeSet<String> {
+        let (labels, first) = self.shown();
+        let mut seen: BTreeSet<String> = labels.into_iter().collect();
+        let mut last = first.clone();
+        for _ in 0..MOST_ROWS {
+            self.run(actions::DOWN);
+            let (labels, focused) = self.shown();
+            seen.extend(labels);
+            if focused.is_none() || focused == first || focused == last {
+                break;
+            }
+            last = focused;
+        }
+        seen
     }
 
     /// The ids among `labels`: a part of a label (between ` › `, `/` or

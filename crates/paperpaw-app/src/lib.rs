@@ -687,8 +687,6 @@ pub fn install_with(
     {
         b = b.plugin(paperpaw_plugin_menu::Menu);
     }
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-    {
     // Picture home is a native plugin, linked (`NATIVE_PLUGINS`), shipped off
     // (`native_default_on`), where `native-linked-store` links the store's.
     #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]

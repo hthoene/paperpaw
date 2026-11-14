@@ -641,7 +641,7 @@ impl Widgets {
         let lines = self.lines(&mut cx, at)?;
         let mut out = Vec::new();
         draw(&mut cx, &mut out, area_of(frame.rect), kind, lines)?;
-        paint::replay_with(&mut frame, &cx.font, None, &out)
+        paint::replay_icons(&mut frame, &cx.font, None, &out)
     }
 
     /// What `input` is, if a tap on a line of one of the widgets.
