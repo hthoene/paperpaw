@@ -34,6 +34,8 @@ mod foreign_widgets;
 mod landscape;
 #[path = "home_native/layouts.rs"]
 mod layouts;
+#[path = "home_native/preview.rs"]
+mod preview;
 #[path = "home_native/shapes.rs"]
 mod shapes;
 #[path = "home_native/widget_list.rs"]
