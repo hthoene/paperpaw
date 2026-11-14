@@ -111,6 +111,7 @@ static WIRED: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0
 const WIRED_WORK: u8 = 1;
 const WIRED_CARD: u8 = 2;
 const WIRED_SECRETS: u8 = 4;
+const WIRED_LOOKUP: u8 = 8;
 
 /// Forgets what was wired, before a start wires again.
 pub fn reset_wired() {
@@ -137,6 +138,14 @@ pub fn wired_secrets() {
     WIRED.store(WIRED.load(Relaxed) | WIRED_SECRETS, Relaxed);
 }
 
+#[cfg(feature = "native-on")]
+/// Records that the wiring of `core.lookup` (the dictionaries' query service,
+/// kept in the host's table; it holds nothing of its own) succeeded.
+pub fn wired_lookup() {
+    use core::sync::atomic::Ordering::Relaxed;
+    WIRED.store(WIRED.load(Relaxed) | WIRED_LOOKUP, Relaxed);
+}
+
 /// What this start wired, as the lists a linked plugin and a card plugin are
 /// offered are made (`paperpaw_x4::native_offer`): `core.work` with `core.net` and
 /// `core.sockets` (one wiring), the card's three, and `core.secrets`: the groups
@@ -150,6 +159,7 @@ pub fn wired_families(wifi: bool) -> paperpaw_x4::native_offer::Wired {
         work,
         card,
         secrets: wired & WIRED_SECRETS != 0,
+        lookup: wired & WIRED_LOOKUP != 0,
         wifi,
     }
 }

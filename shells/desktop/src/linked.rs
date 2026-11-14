@@ -599,7 +599,7 @@ pub fn prepare(
         .lookup()
         .work(WorkInputs::new(inputs.view.clone(), profile.device.memory));
     // HTTP over the card (saved and sent files); no card, no `core.net`.
-    let transport = net_storage(&inputs).map(|storage| {
+    let transport = net_storage(inputs).map(|storage| {
         let transport = Rc::new(crate::native_net::NativeNet::new(
             storage.clone(),
             inputs.view.clone(),
@@ -1043,6 +1043,7 @@ mod tests {
             work: prepared.on.work,
             card: prepared.on.files && prepared.on.library && prepared.on.documents,
             secrets: prepared.on.secrets,
+            lookup: false,
             wifi: prepared.on.wifi,
         };
         let theirs = paperpaw_x4::native_offer::card_host(
@@ -1085,6 +1086,7 @@ mod tests {
                 work: wired.net || wired.sockets,
                 card: wired.files && wired.library,
                 secrets: wired.secrets,
+                lookup: false,
                 wifi: wired.wifi,
             };
             let keys = |list: &[Feature<'_>]| {
