@@ -318,6 +318,10 @@ fn settings_changed_in_the_ui_are_saved_and_read_back_after_a_restart() {
 /// With the help's first-time hints on, as on a new device: the start shows
 /// home, a hint the first button closes takes nothing with it, and home and
 /// the reader still open without a warning.
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn the_first_start_with_the_help_hints_on_reaches_home_and_a_book() {
     let card = Card::new(true);
@@ -599,11 +603,19 @@ fn open_every_screen(device: DeviceInfo) {
     assert_eq!(app.screen(), "home.dashboard");
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn every_screen_opens_and_closes_with_the_buttons() {
     open_every_screen(BUTTONS);
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn every_screen_opens_and_closes_by_touch() {
     open_every_screen(TOUCH);

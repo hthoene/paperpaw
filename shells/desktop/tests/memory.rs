@@ -402,7 +402,8 @@ fn the_store_stays_within_the_x4_budget() {
 }
 
 /// Opens the store's list, the group *Reading* and a plugin's page of it,
-/// presses *Install*, looks at the page's screenshots and goes home. The
+/// presses *Install*, answers the host's confirmation (*Install*, the
+/// focus starts on *Cancel*), looks at the page's screenshots and goes home. The
 /// plugin is a data plugin of the emulator's catalogue: the download of
 /// its files, their check and their install run as on a device (the
 /// shell's installer and the plugin folder on the card).
@@ -411,7 +412,7 @@ fn installing_flow() -> String {
         "run:store.open,wait:3000",
         "run:core.down,run:core.down,run:core.confirm,wait:2000",
         "run:core.down,run:core.down,run:core.confirm,wait:3000",
-        "run:core.confirm,wait:5000",
+        "run:core.confirm,wait:5000,run:core.up,run:core.confirm,wait:3000",
         "run:core.down,run:core.confirm,wait:3000",
         "run:core.back,run:core.back,run:core.back,run:core.back,run:core.home,wait:300",
     ]
@@ -474,8 +475,10 @@ fn the_store_with_the_devices_tls_stays_within_the_x4_budget() {
 /// for one more plugin the start left (6.2 KiB in all; 19.2 when the list
 /// doubled), a second one grows the list by an eighth, old and new at
 /// once (11.6 KiB; 18.8 when it doubled). The key map is made anew without
-/// the old one beside it.
-const INSTALL_GROWTH_KIB: f64 = 13.0;
+/// the old one beside it. 12.6 KiB with the store's own changes (#1452), 13.4 KiB
+/// with the font change of #1457 beside them (its install peak is 0.8 KiB
+/// higher): the line is that plus a margin of 0.2 KiB.
+const INSTALL_GROWTH_KIB: f64 = 13.6;
 
 /// The store on the X4 step by step (`step:` in the flow): its list, a
 /// group, a plugin's page, its install (download, check, install), its
@@ -495,7 +498,7 @@ fn each_step_of_the_store_stays_within_the_x4_budget() {
         "run:store.open,wait:3000",
         "run:core.down,run:core.down,run:core.confirm,wait:2000",
         "run:core.down,run:core.down,run:core.confirm,wait:3000",
-        "run:core.confirm,wait:5000",
+        "run:core.confirm,wait:5000,run:core.up,run:core.confirm,wait:3000",
         "run:core.down,run:core.confirm,wait:3000",
         // Home (not one `back`: the store's page stays on the stack under
         // the native store, `back` goes to it, as the old store went home),
@@ -504,7 +507,7 @@ fn each_step_of_the_store_stays_within_the_x4_budget() {
         "run:core.home,wait:500,run:store.open,wait:3000,\
          run:core.down,run:core.down,run:core.confirm,wait:2000,\
          run:core.confirm,wait:3000",
-        "run:core.confirm,wait:5000",
+        "run:core.confirm,wait:5000,run:core.up,run:core.confirm,wait:3000",
     ];
     let mut flow = String::from("wait:300,step:start");
     for (step, part) in steps.iter().zip(parts) {
