@@ -277,7 +277,6 @@ impl App {
 }
 
 #[test]
-#[ignore = "an interface-6 fixture's `set_item_state` closure is not on the native menu's rows (native plugins push item states with `command.set_item_state`, tested in the core): needs a native fixture (#244)"]
 fn a_redefined_menu_shows_the_entries_of_plugins_installed_since() {
     let mut app = App::new("", |b| b.plugin(Early));
     app.run(CUSTOMIZE);
@@ -295,10 +294,21 @@ fn a_redefined_menu_shows_the_entries_of_plugins_installed_since() {
     let kept = config.replace("[core]\nlanguage = en\n", "");
     let mut later = App::new(&kept, |b| b.plugin(Early).plugin(Late));
     let entries = later.entries();
-    // The user's B and A, C after A, the plugin's last ones last.
+    // The user's B and A, C after A, the plugin's last ones last. The entries
+    // installed since join the user's list (`Menus::ids`), and a row the user
+    // listed is never hidden by its state (`registry_service/menus.rs`, `row`),
+    // so the one that hides itself is listed here (it is not in a menu that was
+    // not redefined: `entries_show_what_they_are_now_with_a_line_under_them`).
     assert_eq!(
         entries,
-        ["Early B", "Early A", "Late C", "Late on", "Not now"]
+        [
+            "Early B",
+            "Early A",
+            "Late C",
+            "Late on",
+            "Not now",
+            "Late gone"
+        ]
     );
     // A list kept before entries were known stays as it is.
     let mut old = App::new("[menus]\nearly.menu = early.b, early.a\n", |b| {
@@ -320,7 +330,6 @@ fn entries_go_where_plugins_place_them_and_are_taken_out() {
 }
 
 #[test]
-#[ignore = "an interface-6 fixture's `set_item_state` closure is not on the native menu's rows (native plugins push item states with `command.set_item_state`, tested in the core): needs a native fixture (#244)"]
 fn entries_show_what_they_are_now_with_a_line_under_them() {
     let mut app = App::new("", |b| b.plugin(Early).plugin(Late));
     let parts = app.menu();

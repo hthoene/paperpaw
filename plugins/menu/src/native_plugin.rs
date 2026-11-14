@@ -526,6 +526,11 @@ impl NativeMenu {
                 {
                     r.on = Some(*on);
                 }
+                // An entry that says it is on (a plugin's state) is told as a
+                // switch that is on.
+                if row.kind == Kind::Action && row.checked() {
+                    r.on = Some(true);
+                }
             }
             items.push(item);
         }
