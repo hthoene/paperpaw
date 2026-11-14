@@ -60,6 +60,13 @@ const CEILINGS: &[(&str, u32, &str)] = &[
 /// All slots together, one turn (652 now).
 const TOTAL_CEILING: u32 = 800;
 
+/// Floors, so that a turn which does nothing cannot pass: every measured turn
+/// enters at least this many slots (the quietest, a page with one picture,
+/// made 100), and the turns together draw at least this many inked pieces of
+/// text per turn on average (about 205 measured).
+const TURN_FLOOR: u32 = 50;
+const INKED_PER_TURN_FLOOR: u32 = 100;
+
 fn press(device: &mut Device, state: ButtonState) {
     device.call(|kernel, now| {
         kernel.handle(
@@ -115,6 +122,8 @@ fn a_page_turn_stays_within_its_host_crossings() {
     }
     let mut worst = vec![0_u32; CEILINGS.len()];
     let mut total = 0_u32;
+    let mut quietest = u32::MAX;
+    let mut inked = 0_u32;
     for _ in 0..MEASURED {
         slot_counts::reset();
         press(&mut device, ButtonState::Pressed);
@@ -127,7 +136,10 @@ fn a_page_turn_stays_within_its_host_crossings() {
             count_of(&counts, "settings_read"),
             count_of(&counts, "text_draw_inked"),
         );
-        total = total.max(counts.iter().map(|(_, n)| *n).sum());
+        let turn: u32 = counts.iter().map(|(_, n)| *n).sum();
+        total = total.max(turn);
+        quietest = quietest.min(turn);
+        inked += count_of(&counts, "text_draw_inked");
         for (at, (slot, ..)) in CEILINGS.iter().enumerate() {
             worst[at] = worst[at].max(count_of(&counts, slot));
         }
@@ -142,6 +154,17 @@ fn a_page_turn_stays_within_its_host_crossings() {
     eprintln!("page turn: all slots together: most {total} (ceiling {TOTAL_CEILING})");
     if total > TOTAL_CEILING {
         over.push(format!("all slots together: {total} > {TOTAL_CEILING}"));
+    }
+    if quietest < TURN_FLOOR {
+        over.push(format!(
+            "a turn made only {quietest} slot entries, under {TURN_FLOOR}: it did nothing"
+        ));
+    }
+    if inked < INKED_PER_TURN_FLOOR * MEASURED as u32 {
+        over.push(format!(
+            "{inked} inked draws in {MEASURED} turns, under {} : the pages were not drawn",
+            INKED_PER_TURN_FLOOR * MEASURED as u32
+        ));
     }
     assert!(
         over.is_empty(),
