@@ -217,6 +217,7 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
     ("sleep", &paperpaw_plugin_sleep::NATIVE_ENTRY),
+    ("store", &paperpaw_plugin_store::NATIVE_ENTRY),
     ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
@@ -351,6 +352,7 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         #[cfg(feature = "native-linked-reading")]
         "reader" => tables!(paperpaw_plugin_reader),
         "settings" => tables!(paperpaw_plugin_settings),
+        "store" => tables!(paperpaw_plugin_store),
         #[cfg(feature = "native-linked-store")]
         "aids" => tables!(paperpaw_plugin_aids),
         #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
@@ -690,7 +692,10 @@ pub fn install_with(
     // plugins are native plugins only (`NATIVE_PLUGINS`, under `native-linked`):
     // their interface-6 forms are gone (#244).
     let mut b = interface6_reading(builder);
-    b = b.plugin(paperpaw_plugin_store::Store);
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b.plugin(paperpaw_plugin_store::Store);
+    }
     #[cfg(all(
         feature = "store-plugins",
         not(all(feature = "native-linked-store", feature = "native-linked-reading"))

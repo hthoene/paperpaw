@@ -68,6 +68,7 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
         "settings",
         "file-manager",
         "sleep",
+        "store",
     ];
     #[cfg(feature = "native-linked-store")]
     with_settings.extend(["aids", "fonts-browser", "picture-home"]);

@@ -22,6 +22,11 @@
       "key": "uses.network",
       "required": false,
       "revision": 1
+    },
+    {
+      "key": "uses.power",
+      "required": false,
+      "revision": 1
     }
   ],
   "flags": 0,
@@ -64,5 +69,5 @@
     }
   ],
   "target": "esp32c3-riscv32imc-ilp32-soft-le",
-  "total_bytes": 215
+  "total_bytes": 233
 }

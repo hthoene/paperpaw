@@ -153,6 +153,10 @@
     {
       "key": "uses.network",
       "required": false
+    },
+    {
+      "key": "uses.power",
+      "required": false
     }
   ]
 }

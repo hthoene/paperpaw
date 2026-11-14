@@ -26,8 +26,9 @@ use paperpaw_sdk::native::{
 use paperpaw_ui_kit::{read_event, screens::Screens};
 
 use crate::declarations::{
-    FETCH_SCREEN, HTTP_TOKEN, INSTALL_TOKEN, LETTERS_SCREEN, LIST_SCREEN, OFFER_SCREEN, OPEN_TOKEN,
-    PLUGIN_SCREEN, PLUGINS_TOKEN, SHOTS_SCREEN, SOURCE_SCREEN, STARTED_TOKEN, VIEW_SCREEN,
+    DISCOVER_TOKEN, FETCH_SCREEN, HTTP_TOKEN, INSTALL_TOKEN, LETTERS_SCREEN, LIST_SCREEN,
+    OFFER_SCREEN, OPEN_TOKEN, PLUGIN_SCREEN, PLUGINS_TOKEN, SHOTS_SCREEN, SOURCE_SCREEN,
+    STARTED_TOKEN, VIEW_SCREEN,
 };
 use crate::native_download::Download;
 use crate::native_glue::{self, Reply as Typed};
@@ -90,6 +91,8 @@ pub struct NativeStore {
     /// A value a screen handed to the one below it, which is not on top yet.
     pub(crate) returned: Option<(String, String)>,
     asking: Option<Asking>,
+    /// The question *Discover fonts* asked, and what a yes does.
+    pub(crate) fonts: Option<(AskId, crate::native_fonts::Then)>,
     /// What is kept from ask to ask of plugins other plugins want.
     pub(crate) asks: crate::native_asks::Asks,
 }
@@ -124,6 +127,14 @@ impl Plugin for NativeStore {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch)
                     .open(paperpaw_sdk::native::ui::Open::screen(ids::LIST)?)
+            }
+            Event::ActionRun { .. } if token == DISCOVER_TOKEN => self.discover_fonts(host),
+            Event::Answered { answer, .. }
+                if self
+                    .fonts
+                    .is_some_and(|(request, _)| request == answer.request()) =>
+            {
+                self.fonts_answered(host, answer)
             }
             Event::ScreenOpened {
                 screen,
