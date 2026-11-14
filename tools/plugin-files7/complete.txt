@@ -30,3 +30,4 @@ diagnostics
 power
 stats
 transfer
+wifi

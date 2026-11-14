@@ -710,10 +710,7 @@ fn the_configuration_file_is_read_and_set_wins_over_it() {
 /// in it when nothing uses it, and Wi-Fi switches off and on in the
 /// settings as on a device. Without it the radio starts off.
 #[test]
-#[cfg_attr(
-    all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"),
-    ignore = "native Wi-Fi: switched on again it stays \"On, not connected\" (#243, to fix)"
-)]
+#[ignore = "needs native activation (Wi-Fi is a native-only plugin since #244 and the desktop does not offer uses.wifi: the Wi-Fi page is not there)"]
 fn online_from_the_start_with_wifi_online() {
     let connected = "Wi-Fi, Connected to Workshop Wi-Fi";
     let online = run(
@@ -752,6 +749,7 @@ fn online_from_the_start_with_wifi_online() {
 /// devices it starts are online; the help names it so the workshop can
 /// tell.
 #[test]
+#[ignore = "needs native activation (Wi-Fi is a native-only plugin since #244 and the desktop does not offer uses.wifi: the Wi-Fi page is not there)"]
 fn wifi_online_holds_for_the_devices_stdio_starts() {
     use std::io::Write;
     let help = emulator(&["--help"]);

@@ -49,6 +49,11 @@ struct Case {
     fixtures: bool,
 }
 
+/// Cases that need native activation: Wi-Fi is a native-only plugin since
+/// #244 and the desktop does not offer `uses.wifi`, so the interface-6 app has
+/// no Wi-Fi page to draw. Their references stay; they run again then.
+const NEEDS_NATIVE_ACTIVATION: [&str; 2] = ["x4-pro-wifi", "x4-pro-wifi-networks"];
+
 const CASES: &[Case] = &[
     Case {
         name: "x4-settings-search",
@@ -870,6 +875,9 @@ fn screens_look_as_before() {
         .iter()
         .filter(|case| !NEEDS_SETTINGS.contains(&case.name))
     {
+        if NEEDS_NATIVE_ACTIVATION.contains(&case.name) {
+            continue;
+        }
         let (width, height, gray, colourful) = draw(case);
         if colourful < gray.len() * case.colour / 10_000 {
             failures.push(format!(

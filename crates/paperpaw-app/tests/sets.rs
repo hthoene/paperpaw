@@ -30,16 +30,15 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 );
 
 /// What a beginner needs on a fresh device, and what gets the rest back.
-/// (The library, `files`, the settings and the update are native plugins: the app registers
-/// none until the host activates them, `NATIVE_PLUGINS`.)
-const ALWAYS: [&str; 10] = [
+/// (The library, `files`, the update and Wi-Fi are native plugins: the app
+/// registers none until the host activates them, `NATIVE_PLUGINS`.)
+const ALWAYS: [&str; 9] = [
     "fonts-default",
     "format-epub",
     "format-txt",
     "reader",
     "home",
     "menu",
-    "wifi",
     "keyboard",
     "store",
     "transfer",
@@ -120,6 +119,9 @@ fn the_crates_listed_are_those_installed() {
         .iter()
         .filter_map(|(id, _)| crate_of(id))
         .collect();
+    // Wi-Fi is native only (#244): the build has its crate, the interface-6 app
+    // does not register it.
+    installed.push(String::from("paperpaw-plugin-wifi"));
     installed.sort();
     installed.dedup();
     let listed: Vec<&str> = paperpaw_app::CRATES.split(',').collect();
