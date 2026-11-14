@@ -177,7 +177,7 @@ impl<'a, 'cb> Settings<'a, 'cb> {
 
     fn chosen_in(&self, registry: &Registry, key: &str) -> Result<bool, Error> {
         let mut input = crate::mem::buffer(192)?;
-        let mut out = crate::mem::buffer(4096)?;
+        let mut out = crate::mem::buffer(2048)?;
         let id = Key::join(base(self.widget), key)?;
         match registry.setting(self.host, id.as_str(), &mut input, &mut out) {
             Ok(detail) => {
