@@ -38,15 +38,16 @@ pub(crate) struct Preparing {
 /// `ERR_NO_MEMORY`, the status of a document that failed for want of memory
 /// (`DocState::status` gives the ABI's number; a test pins it).
 const NO_MEMORY: i32 = -4;
+const NOT_FOUND: i32 = -10;
 
 /// What a failed document says: no room says so in a few words, as when the
 /// open itself found none (#248: a format made late fails its open with
 /// `ERR_NO_MEMORY` in the document's state, not in the open's answer).
 pub(crate) const fn failed_message(status: i32) -> &'static str {
-    if status == NO_MEMORY {
-        "reader.no-memory"
-    } else {
-        "reader.error"
+    match status {
+        NO_MEMORY => "reader.no-memory",
+        NOT_FOUND => "reader.missing",
+        _ => "reader.error",
     }
 }
 
@@ -177,6 +178,8 @@ mod tests {
     fn a_document_failed_for_want_of_memory_says_so_others_say_it_could_not_open() {
         assert_eq!(NO_MEMORY, paperpaw_native::host_glue::ERR_NO_MEMORY);
         assert_eq!(failed_message(NO_MEMORY), "reader.no-memory");
+        assert_eq!(NOT_FOUND, paperpaw_native::host_glue::ERR_NOT_FOUND);
+        assert_eq!(failed_message(NOT_FOUND), "reader.missing");
         assert_eq!(
             failed_message(paperpaw_native::host_glue::ERR_CANCELLED),
             "reader.error"

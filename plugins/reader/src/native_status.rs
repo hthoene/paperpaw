@@ -7,6 +7,7 @@
 //! drawing: the items line through the kit's `status_line` (other plugins'
 //! items come composed by the host), the progress bar (`bar`), a line of
 //! another plugin composed whole, or nothing.
+use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -248,6 +249,10 @@ impl Texts {
 pub struct State {
     chosen: [String; 2],
     loaded: bool,
+    /// What the registry says of the items of the top and the bottom line,
+    /// kept between draws ([`State::forget_known`]); made at the first draw, off
+    /// the frame of the open book (two memos are some 200 bytes).
+    known: core::cell::RefCell<Vec<status_line::Memo>>,
 }
 
 impl State {
@@ -258,6 +263,26 @@ impl State {
             self.loaded = true;
         }
         Ok(())
+    }
+
+    /// The registry is asked for the lines' items again at the next draw:
+    /// when the screen is shown again and at an input, a plugin with a status
+    /// item may have come or gone.
+    pub fn forget_known(&self) {
+        self.known
+            .borrow_mut()
+            .iter_mut()
+            .for_each(status_line::Memo::forget);
+    }
+
+    /// The memos of the two lines, made where there are none yet.
+    fn memos(&self) -> Result<core::cell::RefMut<'_, Vec<status_line::Memo>>, Error> {
+        let mut memos = self.known.borrow_mut();
+        if memos.len() < 2 {
+            memos.try_reserve_exact(2).map_err(|_| Error::NoMemory)?;
+            memos.resize_with(2, status_line::Memo::default);
+        }
+        Ok(memos)
     }
 
     /// The line showing at the top (or bottom) among `list`.
@@ -331,6 +356,7 @@ pub fn paint(
     ui: &Ui,
     frame: &mut DrawFrame<'_>,
     (place, state, facts): (&Place<'_>, &State, &Facts<'_>),
+    shown: impl FnOnce(&Font<'_>) -> Result<Rc<Shown>, Error>,
 ) -> Result<(), Error> {
     let (from, to) = (frame.clip_top, frame.clip_bottom);
     let wanted = |top: bool| {
@@ -342,19 +368,41 @@ pub fn paint(
     if strips.iter().all(Option::is_none) {
         return Ok(());
     }
-    let config = Config::read(host)?;
     let texts = Texts::new(host, facts)?;
     let font = Font::acquire_role(host, FontRole::Status)?;
-    let drawn = paint_each(
-        host,
-        ui,
-        frame,
-        &font,
-        (place, &config, state, (&texts, facts)),
-        strips,
-    );
+    let drawn = shown(&font).and_then(|shown| {
+        paint_each(
+            host,
+            ui,
+            frame,
+            &font,
+            (place, &shown, state, (&texts, facts)),
+            strips,
+        )
+    });
     let released = font.release();
     drawn.and(released)
+}
+
+/// What a paint of the lines reads from the settings: the lists of the lines
+/// and the colour of the notes. Kept by the screen until a setting changes.
+#[derive(Debug)]
+pub struct Shown {
+    pub config: Config,
+    note: Color,
+}
+
+impl Shown {
+    /// Reads the settings and the status font's colour.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] and the host's refusals.
+    pub fn read(host: &Host<'_>, display: &Snapshot, font: &Font<'_>) -> Result<Self, Error> {
+        Ok(Self {
+            config: Config::read(host)?,
+            note: Style::read(host, display, font)?.note,
+        })
+    }
 }
 
 fn paint_each(
@@ -362,10 +410,10 @@ fn paint_each(
     ui: &Ui,
     frame: &mut DrawFrame<'_>,
     font: &Font<'_>,
-    (place, config, state, (texts, facts)): (&Place<'_>, &Config, &State, (&Texts, &Facts<'_>)),
+    (place, shown, state, (texts, facts)): (&Place<'_>, &Shown, &State, (&Texts, &Facts<'_>)),
     strips: [Option<Rect>; 2],
 ) -> Result<(), Error> {
-    let color = Style::read(host, place.display, font)?.note;
+    let (config, color) = (&shown.config, shown.note);
     for (at, strip) in strips.iter().enumerate() {
         let Some(strip) = *strip else { continue };
         let showing = state.showing(at == 0, &config.lines[at]);
@@ -377,6 +425,7 @@ fn paint_each(
             font,
             (ink, place.room.size),
             (&config.parts[at], showing, (texts, facts)),
+            &mut state.memos()?[at],
         )?;
     }
     Ok(())
@@ -389,6 +438,7 @@ fn paint_one(
     font: &Font<'_>,
     ((strip, color), size): ((Rect, Color), u16),
     (parts, showing, (texts, facts)): (&Lists, &str, (&Texts, &Facts<'_>)),
+    known: &mut status_line::Memo,
 ) -> Result<(), Error> {
     let size = f32::from(size);
     let mut ops = Vec::new();
@@ -414,7 +464,8 @@ fn paint_one(
         if lists.line.is_empty() {
             buffers = [mem::buffer(SERVICE_BUFFER)?, mem::buffer(SERVICE_BUFFER)?];
         }
-        let drawn = status_line::draw_own(
+        let drawn = status_line::draw_kept(
+            known,
             (&face, lists),
             ui,
             (&mut ops, &mut placed),
