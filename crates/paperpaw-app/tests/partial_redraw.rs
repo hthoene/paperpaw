@@ -427,7 +427,7 @@ fn table_of_contents() {
 }
 
 #[test]
-#[ignore = "the store is a native plugin only (#244) and its list comes over core.net, which this harness wires offline (`native_activation`: Offline); the install and list flows run in shells/desktop/tests/store_native.rs"]
+#[ignore = "the store is a native plugin only (#244) and its list comes over core.net, which this harness wires offline (`native_activation`: Offline); the install and list flows run in shells/desktop/tests/store_native.rs. To be ported or replaced in the store follow-up PR (T42)"]
 fn store() {
     let mut app = App::new();
     app.run(Id::new_static("store.open"));
