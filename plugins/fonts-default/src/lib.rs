@@ -17,8 +17,16 @@
 //!   taken from Tabler Icons (MIT licence; see `tools/icons/subset.py`).
 //!
 //! [`DefaultFonts`] ships them as scalable fonts when built with the
-//! `outline` feature, else as bitmap packs. [`DefaultFontPacks`] always uses
-//! bitmap packs (feature `packs`), e.g. to emulate small devices.
+//! `outline` feature, else as bitmap packs. `DefaultFontPacks` always uses
+//! bitmap packs (feature `packs`).
+//!
+//! A lean build (`PAPERPAW_FONT_LEAN=1`, the X4's firmware, whose flash is
+//! short) carries no Literata: the UI font sets book text too, until the
+//! reader chooses another font. Literata is a font of the card there:
+//! `fonts-default.literata` names the pack [`LITERATA_ON_CARD`] of the
+//! data plugin `literata-styles`, read while the reader has chosen
+//! Literata. `LeanFontPacks` registers that in any build, to emulate
+//! such a device.
 //!
 //! The text fonts are under the SIL Open Font License 1.1. Users can bind
 //! other fonts to the roles:
@@ -35,7 +43,9 @@ extern crate alloc;
 use alloc::borrow::Cow;
 
 use paperpaw_sdk::builtin::fonts;
-use paperpaw_sdk::{Font, FontSpec, Id, Manifest, Plugin, Priority, RegisterError, Registrar};
+use paperpaw_sdk::{
+    Font, FontFace, FontSpec, Id, Manifest, Plugin, Priority, RegisterError, Registrar,
+};
 
 pub const PLUGIN: Id = Id::new_static("fonts-default");
 pub const LITERATA: Id = Id::new_static("fonts-default.literata");
@@ -56,6 +66,10 @@ pub const SOURCE_SANS_FAMILY: &str = "Source Sans 3";
 pub const PAPERPAW_SANS_FAMILY: &str = "PaperPaw Sans";
 /// The UI font's family in this build.
 pub const UI_FAMILY: &str = preferred::UI_FAMILY;
+
+/// Where a lean build finds Literata's regular face: a pack of the data
+/// plugin `literata-styles` on the card (`tools/literata-packs.py`).
+pub const LITERATA_ON_CARD: &str = "plugins/literata-styles/fonts/literata.ppfp";
 
 /// The faces: id, role, font data and weight (for variable fonts).
 type Faces = &'static [(Id, Id, &'static [u8], f32)];
@@ -102,36 +116,47 @@ mod packs {
 
     pub const ICONS: &[u8] = pack!("icons");
     pub const UI_FAMILY: &str = super::PAPERPAW_SANS_FAMILY;
+    /// One copy of the UI font's pack, whichever faces name it.
+    static SANS: &[u8] = pack!("paperpaw-sans");
 
+    /// The UI font alone: what a lean build (the firmware) carries, where
+    /// it sets book text too. Literata comes from the card there, with
+    /// the data plugin `literata-styles`, for whoever chooses it.
+    pub fn lean_faces() -> super::Faces {
+        use super::*;
+        static FACES: super::Faces = &[(SOURCE_SANS, fonts::UI, SANS, UI_WEIGHT)];
+        FACES
+    }
+
+    #[cfg(paperpaw_lean_fonts)]
+    pub fn faces() -> super::Faces {
+        lean_faces()
+    }
+
+    #[cfg(not(paperpaw_lean_fonts))]
     pub fn faces() -> super::Faces {
         use super::*;
         static FACES: super::Faces = &[
             (LITERATA, fonts::READING, pack!("literata"), 400.0),
-            // The lean build (the firmware) leaves out the styles: the data
-            // plugin `literata-styles` brings bold and italic from the card,
-            // and until it is there regular text stands in for them.
-            #[cfg(not(paperpaw_lean_fonts))]
             (
                 LITERATA_BOLD,
                 fonts::READING_BOLD,
                 pack!("literata-bold"),
                 700.0,
             ),
-            #[cfg(not(paperpaw_lean_fonts))]
             (
                 LITERATA_ITALIC,
                 fonts::READING_ITALIC,
                 pack!("literata-italic"),
                 400.0,
             ),
-            #[cfg(not(paperpaw_lean_fonts))]
             (
                 LITERATA_BOLD_ITALIC,
                 fonts::READING_BOLD_ITALIC,
                 pack!("literata-bold-italic"),
                 700.0,
             ),
-            (SOURCE_SANS, fonts::UI, pack!("paperpaw-sans"), UI_WEIGHT),
+            (SOURCE_SANS, fonts::UI, SANS, UI_WEIGHT),
         ];
         FACES
     }
@@ -151,6 +176,13 @@ pub struct DefaultFonts;
 #[derive(Debug, Default)]
 pub struct DefaultFontPacks;
 
+/// The fonts of a lean build, whatever this build is: the UI font, which
+/// sets book text too, and the icons. What the X4's firmware comes with,
+/// so an emulator shows that device with it.
+#[cfg(any(feature = "packs", not(feature = "outline")))]
+#[derive(Debug, Default)]
+pub struct LeanFontPacks;
+
 /// How it works, by language (see `Manifest::how`).
 static HOW: [(&str, &str); 2] = [
     ("en", include_str!("../how/en.txt")),
@@ -159,7 +191,7 @@ static HOW: [(&str, &str); 2] = [
 
 fn manifest() -> Manifest {
     Manifest::new(PLUGIN, "Default fonts", paperpaw_sdk::package_version!())
-        .description("Literata for reading and Source Sans for menus.")
+        .description("The fonts and icons PaperPaw comes with.")
         .how(&HOW)
         .uses(paperpaw_sdk::Uses::NOTHING)
 }
@@ -185,6 +217,19 @@ fn register(
         let italic = role == fonts::READING_ITALIC || role == fonts::READING_BOLD_ITALIC;
         r.add_font(FontSpec::new(id.clone(), font).family(family, weight >= 600.0, italic))?;
         r.bind_font(role, id, Priority::DEFAULT)?;
+    }
+    // Without a reading font of its own (a lean build) book text is in
+    // the UI font until the reader chooses another. Literata keeps its
+    // name as a face of the card, so that what extends it still does.
+    if !faces.iter().any(|(_, role, _, _)| *role == fonts::READING) {
+        r.bind_font(fonts::READING, SOURCE_SANS, Priority::DEFAULT)?;
+        r.add_font_face(FontFace::new(
+            LITERATA,
+            LITERATA_ON_CARD,
+            "Literata",
+            false,
+            false,
+        ))?;
     }
     // Outside any family, so it is never offered for text.
     let font = Font::from_data(icons, &[]).map_err(|e| RegisterError::Invalid {
@@ -218,6 +263,17 @@ impl Plugin for DefaultFontPacks {
 
     fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
         register(r, packs::faces(), packs::ICONS, packs::UI_FAMILY)
+    }
+}
+
+#[cfg(any(feature = "packs", not(feature = "outline")))]
+impl Plugin for LeanFontPacks {
+    fn manifest(&self) -> Manifest {
+        manifest()
+    }
+
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        register(r, packs::lean_faces(), packs::ICONS, packs::UI_FAMILY)
     }
 }
 

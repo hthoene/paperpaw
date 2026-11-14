@@ -17,7 +17,9 @@ pub(super) fn batch(
             name: "serif",
             path,
             family,
-            style: 1,
+            // The family's regular face (a family is offered where it has
+            // one); bold where the weight is to differ from the bit.
+            style: u32::from(res == 5),
             weight,
             role: "core.font-ui",
             priority: 5,
