@@ -9,11 +9,9 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod common;
+use crate::common::*;
 
-use common::*;
-
-const V1: &str = include_str!("../testdata/pages.ini.v1");
+const V1: &str = include_str!("../../../../plugins/home/testdata/pages.ini.v1");
 
 fn page(app: &App, n: usize) -> String {
     app.kernel
@@ -71,11 +69,15 @@ fn what_the_current_writer_keeps_is_read_back_the_same() {
             app.repeat(actions::RIGHT, 2);
             for step in [actions::LEFT, actions::RIGHT] {
                 app.run(actions::CONFIRM);
-                if app.screen() != "core.choice-dialog" {
+                if !app.parts().iter().any(|p| p.role == Role::Dialog) {
                     // Back on the page, the first press shows the focus.
                     app.run(actions::CONFIRM);
                 }
-                assert_eq!(app.screen(), "core.choice-dialog", "{}", app.described());
+                assert!(
+                    app.parts().iter().any(|p| p.role == Role::Dialog),
+                    "{}",
+                    app.described()
+                );
                 // Move is the first option.
                 app.run(actions::CONFIRM);
                 let left = step == actions::LEFT;

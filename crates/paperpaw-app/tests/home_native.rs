@@ -17,6 +17,8 @@ mod common;
 mod arrange;
 #[path = "home_native/colours.rs"]
 mod colours;
+#[path = "home_native/data.rs"]
+mod data;
 #[path = "home_native/drawer_focus.rs"]
 mod drawer_focus;
 #[path = "home_native/drawer_rtl.rs"]
