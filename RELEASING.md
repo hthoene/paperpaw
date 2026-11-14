@@ -40,3 +40,9 @@ decision, in one pull request that:
    (`tools/abi-gen.py --check` then holds it), so every append-only check of the lock runs again.
 
 `tools/abi-reference-check.py` refuses a frozen interface 7 whose lock is not released.
+
+## The firmware's size budget
+
+CI holds each device's install image to `shells/xteink/size-budget.txt` (`tools/size-report.py`, #258).
+Measure the lines again when native activation (#243) lands; a raise needs the Manager's OK (up to
+4 KB the reviewer, up to 32 KB the Manager, more the owner). Beta 4 stays at 6,400,000 bytes or less.

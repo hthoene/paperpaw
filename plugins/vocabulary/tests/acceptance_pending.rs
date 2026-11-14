@@ -52,9 +52,7 @@ const PHONE: Case = Case {
     name: "vocabulary-phone-page",
     golden: None,
     blocked_by: &[
-        "core.net #351",
-        "core.sockets",
-        "secrets (Services todo 79)",
+        "a scripted host that serves with core.net and draws the screen (hosted construction, #944)",
     ],
 };
 /// The card folder's files update the decks.
@@ -131,7 +129,7 @@ fn the_words_are_marked_in_books_of_their_language() {
 }
 
 #[test]
-#[ignore = "BLOCKED #351/core.sockets/Services todo 79: the phone page (phone.rs)"]
+#[ignore = "BLOCKED a scripted host with core.net serve and core.secrets (hosted construction, #944): the page is native (native_phone*.rs; requests, key and every refused allocation tested there); the screen is the headless case in shells/desktop"]
 fn the_phone_page_edits_decks_and_cards() {
     PHONE.refuse().unwrap();
 }

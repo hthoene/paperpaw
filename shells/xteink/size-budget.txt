@@ -10,9 +10,10 @@
 #
 # The budget is the measured size plus 8,192 bytes of room, so that a small
 # change passes and a large one is seen. Measured on `abi7/integration` after
-# stage 1 (cold crates at "z", paths without the build folder, the 4-bit
-# sleeping cat): x4 5,329,376, x3 5,341,168, x4-pro 5,768,304, x4-classic
-# 5,320,128. The image measured is the one of the "Lint and build" step
+# stage 1 and train 36 (cold crates at "z", paths without the build folder, the
+# 4-bit sleeping cat): x4 5,329,536, x3 5,341,360, x4-pro 5,775,536, x4-classic
+# 5,324,928 (the largest of two local builds of the same code, which differed by
+# up to 9,696 bytes; CI's own numbers are in its notices). The image measured is the one of the "Lint and build" step
 # (`--features <device>`, paths remapped by `tools/ci/firmware-remap.sh`), not
 # the `ppn5` build of the frame scans.
 #
@@ -21,7 +22,7 @@
 # change that makes the image smaller lowers the line to its measured size plus
 # 8,192 again. Measure anew when a branch with more crates lands (native
 # activation adds some); the target for Beta 4 is 6,400,000 bytes at most.
-image x4 5337568
-image x3 5349360
-image x4-pro 5776496
-image x4-classic 5328320
+image x4 5337728
+image x3 5349552
+image x4-pro 5783728
+image x4-classic 5333120
