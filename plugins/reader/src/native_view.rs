@@ -271,13 +271,16 @@ impl View {
                     state.preparation(),
                     state.whole_pages(),
                     state.conversion(),
+                    state.status(),
                 ),
                 Err(Error::NoMemory) => return Err(Error::NoMemory),
                 Err(Error::Busy) => return Ok(Self::message("reader.not-ready")),
+                // The file is gone from the card (Beta 3's "no longer there").
+                Err(Error::NotFound) => return Ok(Self::message("reader.missing")),
                 Err(_) => return Ok(Self::message("reader.error")),
             }
         };
-        let (id, preparation, whole_pages, conversion) = state;
+        let (id, preparation, whole_pages, conversion, status) = state;
         let book = Preparing {
             id,
             found,
@@ -294,9 +297,11 @@ impl View {
                 speaker: Speaker::new(0),
                 aloud_kept: false,
             }),
+            // Failed in the open: the document's status says why (no room, the
+            // file gone), as it does when it fails later.
             _ => {
                 Self::forget(host, docs, id);
-                Ok(Self::message("reader.error"))
+                Ok(Self::message(preparing::failed_message(status)))
             }
         }
     }
