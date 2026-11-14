@@ -19,8 +19,10 @@ use paperpaw_sdk::{
 
 mod empty;
 mod grip;
+mod stepper;
 use empty::draw_empty;
 use grip::{draw_drag, draw_row_with_grip};
+use stepper::draw_stepper;
 
 /// The lines a note takes at most.
 pub const NOTE_LINES: usize = 2;
@@ -577,6 +579,26 @@ impl ItemList {
         self.draw_with(host, frame, title, shown, Footer::None)
     }
 
+    /// The height of the head on the first page, kept to the page.
+    fn head_high(&self, style: &Style, room: u16, first_row: Option<u16>) -> u16 {
+        let high = self.head.as_ref().map_or(0, |h| head_height(style, h));
+        head_fit(high, room, first_row)
+    }
+
+    /// Draws the head's heading in `room` (none: nothing) and gives the room under
+    /// it.
+    fn draw_head(
+        &self,
+        body: &mut Vec<Paint>,
+        (font, style): (&Font<'_>, &Style),
+        room: Rect,
+    ) -> Result<Option<Rect>, Error> {
+        match &self.head {
+            Some(head) if room.height > 0 => head_room(body, font, style, room, head),
+            _ => Ok(None),
+        }
+    }
+
     /// As [`Self::draw`], with a [`Footer`].
     ///
     /// # Errors
@@ -606,8 +628,7 @@ impl ItemList {
             note = Some((rect, lines));
         }
         let heights = heights_of(&font, &style, width, &self.items)?;
-        let head_high = self.head.as_ref().map_or(0, |h| head_height(&style, h));
-        let head_high = head_fit(head_high, area.height, heights.first().copied());
+        let head_high = self.head_high(&style, area.height, heights.first().copied());
         let starts = paginate_with(&self.items, &heights, area.height, head_high)?;
         let page = starts
             .iter()
@@ -639,13 +660,8 @@ impl ItemList {
         let mut grip_rects = Vec::new();
         let mut y = top;
         let on_page = if page == 0 { head_high } else { 0 };
-        let head_at = match &self.head {
-            Some(head) if on_page > 0 => {
-                let room = Rect::new(0, y, width, on_page);
-                head_room(&mut body, &font, &style, room, head)?
-            }
-            _ => None,
-        };
+        let head_at =
+            self.draw_head(&mut body, (&font, &style), Rect::new(0, y, width, on_page))?;
         y = y.saturating_add(on_page);
         for (index, &high) in heights.iter().enumerate().take(end).skip(starts[page]) {
             let rect = Rect::new(0, y, width, high);
@@ -920,7 +936,9 @@ fn title_lines(
 ) -> Result<(Vec<String>, u16), Error> {
     let mut lines = Vec::new();
     if row.whole && !row.stepper && !row.title.is_empty() {
-        let room = (f32::from(width) - 3.0 * f32::from(style.margin)).max(1.0);
+        // Both margins and, with a value, the gap before it.
+        let margins = if row.value.is_empty() { 2.0 } else { 3.0 };
+        let room = (f32::from(width) - margins * f32::from(style.margin)).max(1.0);
         let room = if row.icon.is_some() {
             (room - f32::from(icon_room(style))).max(1.0)
         } else {
@@ -1161,8 +1179,29 @@ fn draw_title(
     lines: &[String],
     ink: paperpaw_sdk::Color,
 ) -> Result<(), Error> {
+    // Text shown whole with no value takes the room of both margins, no more.
+    let alone = row.whole && row.value.is_empty();
+    let line_of = |paint: &mut Vec<Paint>, rect: Rect, text: &str, value: &str| {
+        if alone {
+            let x = f32::from(rect.x) + f32::from(style.margin);
+            text::label_in(
+                paint,
+                font,
+                style.rtl,
+                rect,
+                text,
+                style.text,
+                x,
+                rect,
+                ink,
+                Some(rect),
+            )
+        } else {
+            columns(paint, font, style, rect, text, value, ink)
+        }
+    };
     if lines.is_empty() {
-        return columns(paint, font, style, cols, &row.title, shown_value(row), ink);
+        return line_of(paint, cols, &row.title, shown_value(row));
     }
     let line = crate::geometry::line_px(font, style.text)?;
     let block = line.saturating_mul(lines.len() as u16);
@@ -1171,7 +1210,7 @@ fn draw_title(
         let at = top.saturating_add(line.saturating_mul(index as u16));
         let rect = Rect::new(cols.x, at, cols.width, line);
         let value = if index == 0 { shown_value(row) } else { "" };
-        columns(paint, font, style, rect, text, value, ink)?;
+        line_of(paint, rect, text, value)?;
     }
     Ok(())
 }
@@ -1325,38 +1364,9 @@ pub(crate) fn draw_row(
         cols = Rect::new(band.x, band.y, band.width.saturating_sub(room), band.height);
     }
     if row.stepper {
-        // Square buttons at the right end of the row's first line; the value
-        // sits to their left.
-        let side = band.height.min(band.width / 4);
-        let right = band
-            .x
-            .saturating_add(band.width)
-            .saturating_sub(style.margin / 2);
-        let plus = Rect::new(right.saturating_sub(side), band.y, side, band.height);
-        let minus = Rect::new(plus.x.saturating_sub(side), band.y, side, band.height);
-        let room = band;
-        // Mirrored as a whole where the interface runs right to left: the
-        // buttons at the left end and the value to their right.
-        let free = Rect::new(band.x, band.y, minus.x.saturating_sub(band.x), band.height);
-        cols = style.flip(room, free);
-        let (minus, plus) = (style.flip(room, minus), style.flip(room, plus));
-        for (rect, glyph) in [(minus, "\u{2212}"), (plus, "+")] {
-            // Named by its sign: a sign alone is not told as text.
-            paint::describe_named(
-                paint,
-                style.describing,
-                PartRole::Button,
-                rect,
-                glyph,
-                false,
-                row.disabled,
-            )?;
-            let size = style.text;
-            let x =
-                f32::from(rect.x) + (f32::from(rect.width) - font.measure_text(size, glyph)?) / 2.0;
-            text::label(paint, font, glyph, size, x, rect, ink, Some(rect))?;
-        }
-        buttons = Some((minus, plus));
+        let (free, pair) = draw_stepper(paint, (font, style), band, row, ink)?;
+        cols = free;
+        buttons = Some(pair);
     }
     draw_title(paint, (font, style), cols, row, &title_block, ink)?;
     if row.note.is_empty() {
