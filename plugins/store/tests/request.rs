@@ -205,7 +205,7 @@ fn what_is_asked_is_taken_once_without_what_is_there_and_at_most_32() {
 
     // Only what is there: nothing is missing and no dialog opens.
     let (mut shopping, answers) = Shopping::asked_for(&list(), true);
-    shopping.ask("store fonts-browser");
+    shopping.ask("store menu");
     assert_eq!(
         told(&answers),
         [(String::new(), String::new(), false, String::new())]

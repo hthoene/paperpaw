@@ -1,124 +1,99 @@
-//! The native declarations name what the interface-6 registration names: the
-//! screens, the catalog setting, the actions with their menu places and
-//! icons, and the events. Callbacks are a later slice (`PORTING-7.md`).
+//! What the native plugin declares: the screens, the catalog setting, the actions with
+//! their menu places and icons, and the events, as the host decodes them. (They were
+//! compared with the interface-6 registration before it was removed; the expectations
+//! below are what that comparison showed.)
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 mod declarations;
-#[path = "../../test-support/native_navigation.rs"]
-mod navigation;
-use paperpaw_plugin_fonts_browser::FontsBrowser;
-use paperpaw_sdk::native::declare::{Declarations, Instances, ScreenDecl};
-use paperpaw_sdk::{Contribution, Id, Plugin, Registrar, SettingKind};
+use paperpaw_core::native_host::registrations::records_decode;
+use paperpaw_sdk::native::declare::Declarations;
 
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("fonts-browser"));
-    FontsBrowser.register(&mut r).unwrap();
-    r.into_contributions()
-}
-
-fn batches(
+/// The records of every batch `declare` submits, as text.
+fn shown(
     declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>),
-) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
+) -> Vec<String> {
+    let mut batches: Vec<Vec<u8>> = Vec::new();
     {
         let mut sink = |b: &[u8]| -> Result<(), i32> {
-            out.push(b.to_vec());
+            batches.push(b.to_vec());
             Ok(())
         };
         let mut d = Declarations::new(&mut sink as &mut dyn FnMut(&[u8]) -> Result<(), i32>);
         declare(&mut d);
     }
-    out
+    batches
+        .iter()
+        .flat_map(|b| {
+            records_decode(b)
+                .unwrap()
+                .iter()
+                .map(|r| format!("{r:?}"))
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 #[test]
 fn screens_match() {
-    let mut expected = Vec::new();
-    for contribution in legacy() {
-        if let Contribution::FixedScreens(list) = contribution {
-            for (token, s) in (10..).zip(list.iter()) {
-                let instances = if s.how_many() == paperpaw_sdk::Instances::SINGLE {
-                    Instances::Single
-                } else if s.how_many() == paperpaw_sdk::Instances::MANY {
-                    Instances::Many
-                } else {
-                    assert_eq!(s.how_many(), paperpaw_sdk::Instances::PER_PARAMS);
-                    Instances::PerParams
-                };
-                expected.push((
-                    s.id()
-                        .as_str()
-                        .strip_prefix("fonts-browser.")
-                        .unwrap()
-                        .to_string(),
-                    s.title().to_string(),
-                    token,
-                    instances,
-                ));
-            }
-        }
-    }
-    let mut want = Vec::new();
-    {
-        let mut d = Declarations::new(|b: &[u8]| {
-            want.push(b.to_vec());
-            Ok(())
-        });
-        for (name, title, token, instances) in &expected {
-            d.screen(ScreenDecl::new(name, title, *token).instances(*instances))
-                .unwrap();
-        }
-        d.submit().unwrap();
-    }
-    assert_eq!(batches(|d| declarations::screens(d).unwrap()), want);
+    assert_eq!(
+        shown(|d| declarations::screens(d).unwrap()),
+        [
+            r#"ScreenSpec(ScreenSpec { name: "font", title: "fonts-browser.title", token: 10, flags: 0 })"#,
+            // Flags 64: a single instance.
+            r#"ScreenSpec(ScreenSpec { name: "list", title: "fonts-browser.title", token: 11, flags: 64 })"#,
+        ]
+    );
 }
 
 #[test]
 fn the_catalog_setting_matches() {
-    let mut found = Vec::new();
-    for contribution in legacy() {
-        if let Contribution::FixedSettings(settings) = contribution {
-            for spec in settings.iter() {
-                assert!(matches!(spec.kind, SettingKind::Text));
-                found.push((
-                    spec.id.as_str().to_string(),
-                    spec.title.to_string(),
-                    spec.description.as_deref().map(str::to_string),
-                    spec.group.as_str().to_string(),
-                    format!("{:?}", spec.default),
-                ));
-            }
-        }
+    let shown = shown(|d| declarations::settings(d).unwrap());
+    assert_eq!(shown.len(), 1);
+    // A text in the developer group, with its help; the default is the library's address.
+    for part in [
+        r#"name: "catalog", kind: 3, flags: 0, group: "core.group.developer""#,
+        r#"title: "fonts-browser.setting.catalog", help: "fonts-browser.setting.catalog.help""#,
+    ] {
+        assert!(shown[0].contains(part), "{}", shown[0]);
     }
-    assert_eq!(
-        found,
-        [(
-            "fonts-browser.catalog".to_string(),
-            "fonts-browser.setting.catalog".to_string(),
-            Some("fonts-browser.setting.catalog.help".to_string()),
-            "core.group.developer".to_string(),
-            "Text(\"https://paperpaw.org/api/v1/fonts.json\")".to_string(),
-        )]
-    );
-    assert_eq!(batches(|d| declarations::settings(d).unwrap()).len(), 1);
+    let address = b"https://paperpaw.org/api/v1/fonts.json";
+    let bytes: Vec<String> = address.iter().map(|b| b.to_string()).collect();
+    assert!(shown[0].contains(&bytes.join(", ")), "{}", shown[0]);
 }
 
 #[test]
 fn actions_menus_and_icons_match() {
-    let expected = navigation::encode("fonts-browser", legacy());
-    assert_eq!(batches(|d| declarations::navigation(d).unwrap()), expected);
+    assert_eq!(
+        shown(|d| declarations::navigation(d).unwrap()),
+        [
+            r#"ActionSpec(ActionSpec { name: "open", title: "fonts-browser.more", token: 1, flags: 0 })"#,
+            r#"ActionSpec(ActionSpec { name: "own", title: "fonts-browser.own", token: 2, flags: 0 })"#,
+            r#"MenuEntry(MenuEntry { menu: "core.reading-font", item: "fonts-browser.open", order: 0, place: 0, anchor: "" })"#,
+            r#"MenuEntry(MenuEntry { menu: "core.reading-font", item: "fonts-browser.own", order: 0, place: 0, anchor: "" })"#,
+            r#"MenuEntry(MenuEntry { menu: "core.status-font", item: "fonts-browser.open", order: 0, place: 0, anchor: "" })"#,
+            r#"MenuEntry(MenuEntry { menu: "core.status-font", item: "fonts-browser.own", order: 0, place: 0, anchor: "" })"#,
+            r#"IconSpec(IconSpec { item: "fonts-browser.open", icon: "typography" })"#,
+            r#"IconSpec(IconSpec { item: "fonts-browser.own", icon: "folder-open" })"#,
+        ]
+    );
 }
 
 #[test]
 fn the_events_are_the_download() {
-    // Interface 6: `install::DOWNLOADED` (and `events::STARTED`, which cancels a download
-    // cut off by a restart: it comes back with the download, `PORTING-7.md`).
-    assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 1);
+    // Interface 6 had the download's end (and `started`, which cancelled a download cut off
+    // by a restart: `make` clears the staging folder now, `PORTING-7.md`): `http_done`, 99.
+    assert_eq!(
+        shown(|d| declarations::events(d).unwrap()),
+        ["Registration(Event { event_tag: 99, token: 3 })"]
+    );
 }
 
 #[test]
 fn the_end_of_an_install_is_heard() {
-    // Not in interface 6 (the kernel said it was done): `install_done` ends the install and
-    // the removal the plugin asked the host for.
-    assert_eq!(batches(|d| declarations::installs(d).unwrap()).len(), 1);
+    // Not in interface 6 (the kernel said it was done): `install_done` (97) ends the install
+    // and the removal the plugin asked the host for.
+    assert_eq!(
+        shown(|d| declarations::installs(d).unwrap()),
+        ["Registration(Event { event_tag: 97, token: 4 })"]
+    );
 }

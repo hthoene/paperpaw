@@ -11,12 +11,6 @@ publish = false
 [workspace]
 
 [[bin]]
-name = "fonts-browser"
-path = "src/bin/fonts-browser.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "mail"
 path = "src/bin/mail.rs"
 test = false
@@ -77,7 +71,6 @@ paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
 paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi" }
 paperpaw-plugin-format-docx = { path = "../../plugins/format-docx" }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images" }
-paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
 paperpaw-plugin-mail = { path = "../../plugins/mail" }
 paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }

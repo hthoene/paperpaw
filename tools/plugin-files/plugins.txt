@@ -10,7 +10,7 @@
 # calibre library  (no file until the store build moves to interface 7, #228)
 # diagnostics system  (no file until the store build moves to interface 7, #228)
 # end-of-book reading  (no file until the store build moves to interface 7, #228)
-fonts-browser look
+# fonts-browser look  (no file until the store build moves to interface 7, #228)
 format-mobi reading
 format-docx reading
 format-images reading
