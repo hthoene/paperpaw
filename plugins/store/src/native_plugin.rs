@@ -129,6 +129,10 @@ impl Plugin for NativeStore {
             self.setup_stale = false;
             let _ = self.setup_state(host, true);
         }
+        // What a download chosen in a dialog shows opens once the dialog is gone.
+        if matches!(event, Event::HttpDone(_) | Event::HttpProgress(_)) {
+            let _ = self.open_fetch_after(host);
+        }
         match &event {
             Event::ActionRun { .. } if token == OPEN_TOKEN => {
                 let mut scratch = [0; 128];
