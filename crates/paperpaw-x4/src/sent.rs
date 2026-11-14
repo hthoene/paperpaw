@@ -350,6 +350,54 @@ mod tests {
     }
 
     #[test]
+    fn bytes_up_to_the_look_ahead_then_a_run_pack_as_they_always_did() {
+        // Bytes with no three alike, as many as the look-ahead takes at once
+        // or one or two fewer or more, then a run: one that ends the data or
+        // not, of a byte that is the last one before it or another.
+        let plain = |n: usize| -> Vec<u8> { (0..n).map(|i| 1 + (i % 2) as u8).collect() };
+        for n in 124..=132 {
+            for run in [0, 3, 4, 130, 131] {
+                for byte in [9, plain(n)[n - 1]] {
+                    for after in [0, 1, 2, 5] {
+                        let mut bytes = plain(n);
+                        bytes.resize(n + run, byte);
+                        bytes.extend((0..after).map(|i| 20 + (i % 2) as u8));
+                        let (mut before, mut now, mut count) = (Vec::new(), Vec::new(), Count(0));
+                        pack_as_before(&bytes, &mut before);
+                        pack(&bytes, &mut now);
+                        pack(&bytes, &mut count);
+                        assert_eq!(now, before, "{n} plain, {run} of {byte}, {after} after");
+                        assert_eq!(count.0, before.len());
+                        let mut unpacked = Vec::new();
+                        unpack(&now, &mut unpacked);
+                        assert_eq!(unpacked, bytes);
+                    }
+                }
+            }
+        }
+        // And as bytes: 126, 127 and 128 of them go as one piece before a run
+        // of three that ends the data; 129 as 128 and one.
+        for n in [126usize, 127, 128] {
+            let mut bytes = plain(n);
+            bytes.resize(n + 3, 9);
+            let mut packed = Vec::new();
+            pack(&bytes, &mut packed);
+            let mut expected = Vec::from([(n - 1) as u8]);
+            expected.extend_from_slice(&bytes[..n]);
+            expected.extend_from_slice(&[0x80, 9]);
+            assert_eq!(packed, expected, "{n}");
+        }
+        let mut bytes = plain(129);
+        bytes.resize(132, 9);
+        let mut packed = Vec::new();
+        pack(&bytes, &mut packed);
+        let mut expected = Vec::from([127]);
+        expected.extend_from_slice(&bytes[..128]);
+        expected.extend_from_slice(&[0, bytes[128], 0x80, 9]);
+        assert_eq!(packed, expected);
+    }
+
+    #[test]
     fn counting_says_the_size_packing_takes() {
         let noise: Vec<u8> = (0..9_600u32)
             .map(|i| (i.wrapping_mul(2_654_435_761) >> 11) as u8)
