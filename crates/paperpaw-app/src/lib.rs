@@ -691,6 +691,7 @@ pub fn install_with(
     // Wi-Fi, Transfer, Menu, News, Picture home and the rest of the store's
     // plugins are native plugins only (`NATIVE_PLUGINS`, under `native-linked`):
     // their interface-6 forms are gone (#244).
+    #[allow(unused_mut, reason = "only some builds add plugins below")]
     let mut b = interface6_reading(builder);
     #[cfg(not(feature = "native-linked"))]
     {
