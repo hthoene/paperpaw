@@ -1,0 +1,1 @@
+- Reader: a book whose file is gone from the card says "The book's file is no longer there." again, instead of calling the file damaged (#257).
