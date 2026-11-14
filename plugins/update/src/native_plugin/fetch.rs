@@ -288,6 +288,7 @@ impl NativeUpdate {
     }
 
     /// The end of an install this flow asked for: on to the next build.
+    #[inline(never)]
     pub(super) fn fetch_install_done(
         &mut self,
         host: &Host<'_>,
