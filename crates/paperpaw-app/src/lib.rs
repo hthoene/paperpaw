@@ -672,7 +672,12 @@ pub fn install_with(
     {
         b = b.plugin(paperpaw_plugin_format_txt::TxtFormat);
     }
-    b = b.plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
+    // Dictionary is a native plugin, linked (`NATIVE_PLUGINS`), where the
+    // native reader asks it (`native-linked-reading`).
+    #[cfg(not(feature = "native-linked-reading"))]
+    {
+        b = b.plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
+    }
     // Reader and Home keep their order; they are native plugins, linked
     // (`NATIVE_PLUGINS`), where the feature says (`native-linked-reading`);
     // Menu is a native plugin only.
@@ -693,7 +698,12 @@ pub fn install_with(
     {
         b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     }
-    b = b.plugin(paperpaw_plugin_sleep::Sleep);
+    // Sleep is a native plugin, linked (`NATIVE_PLUGINS`), where the feature
+    // says.
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b.plugin(paperpaw_plugin_sleep::Sleep);
+    }
     // A theme of the app's own, off as it ships, on every device.
     b.plugin_off(Pebble)
 }
