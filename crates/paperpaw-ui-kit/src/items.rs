@@ -5,7 +5,7 @@ use crate::{
     paint, text,
 };
 use alloc::{string::String, vec::Vec};
-use paperpaw_sdk::native::canvas::PartRole;
+use paperpaw_sdk::native::{canvas::PartRole, fonts::TextOrigin};
 use paperpaw_sdk::{
     Handled, Point, Rect,
     native::{
@@ -35,6 +35,9 @@ pub struct RowItem {
     pub note: String,
     /// A 3x3 picture of the screen with this zone (0..9) filled, at the left.
     pub zone: Option<u8>,
+    /// A named icon at the left (what [`crate::icons::glyph`] found for it);
+    /// `None` for a row without one, or where no icon font is bound.
+    pub icon: Option<paperpaw_sdk::native::fonts::IconGlyph>,
     /// A number: − and + buttons at the right (touch screens), each a tap target.
     pub stepper: bool,
     /// Shown faint, passed by the focus and not chosen by a tap.
@@ -87,6 +90,7 @@ impl Item {
             value: text::copy(value)?,
             note: text::copy(note)?,
             zone: None,
+            icon: None,
             stepper: false,
             disabled: false,
             on: None,
@@ -581,7 +585,7 @@ impl ItemList {
         }
         let below = Rect::new(0, y, width, height.saturating_sub(y));
         let code = code_footer(&mut body, &font, &style, footer, below, starts.len())?;
-        paint::replay(frame, &font, header.paint.iter().chain(body.iter()))?;
+        paint::replay_with_icons(host, frame, &font, header.paint.iter().chain(body.iter()))?;
         if let Some((qr, room)) = code {
             paint::draw_code(frame, qr, room)?;
         }
@@ -1005,6 +1009,60 @@ fn note_room(style: &Style, width: u16, zone: bool) -> f32 {
     f32::from(width.saturating_sub(2 * style.margin + lead)).max(1.0)
 }
 
+/// The room a switch takes at the end of a row: its width and the margin.
+fn switch_room(style: &Style) -> u16 {
+    switch_size(style).0.saturating_add(style.margin)
+}
+
+/// The width and the height of a switch: a pill about twice as wide as it is
+/// tall, as tall as the text.
+fn switch_size(style: &Style) -> (u16, u16) {
+    let high = (style.text * 0.95) as u16;
+    (high.saturating_mul(2).saturating_add(high / 5), high)
+}
+
+/// A switch at the right end of `band`: on, a filled pill with the knob at the
+/// right; off, an outline with the knob at the left. `ink` draws it, `ground`
+/// is what the row is drawn on.
+fn switch_pill(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    band: Rect,
+    on: bool,
+    (ink, ground): (paperpaw_sdk::Color, paperpaw_sdk::Color),
+) -> Result<(), Error> {
+    let (width, high) = switch_size(style);
+    let x = band
+        .x
+        .saturating_add(band.width)
+        .saturating_sub(style.margin)
+        .saturating_sub(width);
+    let y = band.y.saturating_add(band.height.saturating_sub(high) / 2);
+    let pill = Rect::new(x, y, width, high);
+    let line = u32::from(style.line).max(2);
+    let radius = u32::from(high) / 2;
+    let knob = high.saturating_sub(high / 3) & !1;
+    let gap = high.saturating_sub(knob) / 2;
+    let (shape, knob_color) = if on {
+        (None, ground)
+    } else {
+        (Some(line), ink)
+    };
+    paint::push(paint, Paint::Focus(pill, radius, shape, ink))?;
+    let knob_x = if on {
+        x.saturating_add(width)
+            .saturating_sub(gap)
+            .saturating_sub(knob)
+    } else {
+        x.saturating_add(gap)
+    };
+    let knob_rect = Rect::new(knob_x, y.saturating_add(gap), knob, knob);
+    paint::push(
+        paint,
+        Paint::Focus(knob_rect, u32::from(knob) / 2, None, knob_color),
+    )
+}
+
 fn zone_room(style: &Style) -> u16 {
     style.row.max(4) / 2 + style.margin
 }
@@ -1077,7 +1135,7 @@ fn draw_title(
     ink: paperpaw_sdk::Color,
 ) -> Result<(), Error> {
     if lines.is_empty() {
-        return columns(paint, font, style, cols, &row.title, &row.value, ink);
+        return columns(paint, font, style, cols, &row.title, shown_value(row), ink);
     }
     let line = crate::geometry::line_px(font, style.text)?;
     let block = line.saturating_mul(lines.len() as u16);
@@ -1085,10 +1143,66 @@ fn draw_title(
     for (index, text) in lines.iter().enumerate() {
         let at = top.saturating_add(line.saturating_mul(index as u16));
         let rect = Rect::new(cols.x, at, cols.width, line);
-        let value = if index == 0 { row.value.as_str() } else { "" };
+        let value = if index == 0 { shown_value(row) } else { "" };
         columns(paint, font, style, rect, text, value, ink)?;
     }
     Ok(())
+}
+
+/// The title's band and the note's area of a row with `shift` pixels taken at
+/// their start (for a picture or an icon).
+fn shifted(rect: Rect, band: Rect, shift: u16) -> (Rect, Rect) {
+    (
+        Rect::new(
+            band.x.saturating_add(shift),
+            band.y,
+            band.width.saturating_sub(shift),
+            band.height,
+        ),
+        Rect::new(
+            rect.x.saturating_add(shift),
+            rect.y,
+            rect.width.saturating_sub(shift),
+            rect.height,
+        ),
+    )
+}
+
+/// Draws the icon of a row at the start of its first line (`band`) and tells
+/// how far the title moves: the icon and a gap, before the title's own margin.
+fn row_icon(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    (rect, band): (Rect, Rect),
+    glyph: paperpaw_sdk::native::fonts::IconGlyph,
+    ink: paperpaw_sdk::Color,
+) -> Result<u16, Error> {
+    let size = style.text * 1.2;
+    let side = size as u16;
+    let at = style.flip(
+        rect,
+        Rect::new(
+            rect.x.saturating_add(style.margin),
+            band.y.saturating_add(band.height.saturating_sub(side) / 2),
+            side,
+            side,
+        ),
+    );
+    paint::push(
+        paint,
+        Paint::Icon {
+            glyph,
+            size,
+            origin: TextOrigin::new(f32::from(at.x), i32::from(at.y) + (size * 0.86) as i32),
+            color: ink,
+        },
+    )?;
+    Ok(side.saturating_add(style.margin / 2))
+}
+
+/// The value a row shows at the right: none for a switch, which shows its state.
+fn shown_value(row: &RowItem) -> &str {
+    if row.on.is_some() { "" } else { &row.value }
 }
 
 /// What is behind a row: the focus, the separator, or a field's outline.
@@ -1126,6 +1240,11 @@ pub(crate) fn draw_row(
     if let Some(on) = row.on {
         paint::describe_switch(paint, style.describing, rect, on, row.disabled)?;
     }
+    let ground = if focused && !style.ring {
+        style.ink
+    } else {
+        style.paper
+    };
     let ink = if row.disabled {
         style.disabled
     } else {
@@ -1137,18 +1256,10 @@ pub(crate) fn draw_row(
     if let Some(zone) = row.zone {
         let shift = zone_room(style).min(rect.width);
         zone_picture(paint, style, band, zone, ink)?;
-        band = Rect::new(
-            band.x.saturating_add(shift),
-            band.y,
-            band.width.saturating_sub(shift),
-            band.height,
-        );
-        note_at = Rect::new(
-            rect.x.saturating_add(shift),
-            rect.y,
-            rect.width.saturating_sub(shift),
-            rect.height,
-        );
+        (band, note_at) = shifted(rect, band, shift);
+    } else if let Some(glyph) = row.icon {
+        let shift = row_icon(paint, style, (rect, band), glyph, ink)?;
+        (band, note_at) = shifted(rect, band, shift);
     }
     // Laid out left to right; where the interface runs right to left the
     // parts are where their mirror images are.
@@ -1157,6 +1268,13 @@ pub(crate) fn draw_row(
     let mut buttons = None;
     // Where the title and the value go: the row less the stepper's buttons.
     let mut cols = band;
+    if let Some(on) = row.on {
+        // The switch at the end of the row's first line; the title keeps the
+        // room before it, and the value of such a row is not shown.
+        let room = switch_room(style);
+        switch_pill(paint, style, band, on, (ink, ground))?;
+        cols = Rect::new(band.x, band.y, band.width.saturating_sub(room), band.height);
+    }
     if row.stepper {
         // Square buttons at the right end of the row's first line; the value
         // sits to their left.

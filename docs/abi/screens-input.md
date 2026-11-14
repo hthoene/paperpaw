@@ -368,6 +368,13 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   stale. Bolder or monospaced text is a font the plugin acquires by id (a font pack), or text
   drawn bolder with slot 41, not a role: there is no `role:ui-bold` or `role:mono`
   (`ERR_NOT_FOUND`, as every unknown role).
+- [D] **Faux bold** (#258): while the family of the regular book text has no bold face, so that
+  `role:reading-bold` is `role:reading` (and `role:reading-bold-italic` with it), the host draws
+  the text of that role bolder itself: `text.draw` and `text.draw_inked` widen every glyph to the
+  right by one pixel for every 24 px of `size` (rounded, at least 1, at most 16), on top of the
+  call's own `extra`, and `text.ink` counts it. The advances, `text.measure` and the metrics stay
+  those of the regular face, so a layout need not know. A family with its bold face, every other
+  role and a font acquired by id are never widened.
 - [D] Handles: at most 8 font handles per plugin, roles and font ids together (`ERR_FULL`
   beyond; a reading plugin holds five roles). This cap is the font family's own: blobs and
   operations count against their families' caps, not against it (section 7). X4 cost: a role
@@ -568,9 +575,10 @@ draw callback tells its parts with this slot.
   heading, a button) is told before the text inside it is drawn: a row with an empty label takes
   the texts drawn inside it as its label, in reading order; a part with a label of its own keeps
   it. A switch told inside a row makes the row on or off.
-- [D] Not told as text yet: text drawn with `text.draw_inked` (slot 41) and icons (glyphs of
-  `role:icons`, which the merge rules drop as saying nothing). A part whose words are drawn that
-  way gives them in its own `label`.
+- [D] Icons are never told as text: text drawn with a `role:icons` font handle (an icon glyph is
+  a picture, and says nothing) is left out, so it is not a part of its own and no word of a row's
+  label. Not told as text yet: text drawn with `text.draw_inked` (slot 41). A part whose words
+  are drawn that way gives them in its own `label`.
 - [D] No reply, no event, no state across draws. The slot announces itself in the X4 frame gate
   like the other canvas slots; it needs no buffer of its own.
 

@@ -12,16 +12,16 @@
 # folder, catalogue.py into the entry).
 
 [literata-styles]
-version = "1.0.0"
+version = "1.1.0"
 group = "look"
 licence = "OFL-1.1"
 devices = ["x4", "x4-pro", "x4-classic"]
 build = "tools/literata-packs.py"
 inputs = ["plugins/fonts-default/fonts/Literata.ttf", "plugins/fonts-default/fonts/Literata-Italic.ttf", "tools/fontgen", "tools/plugin-files/literata-styles.ini"]
-name = "Literata bold and italic"
-description = "Bold and italic book text in Literata. Without it, bold and italic words show as regular text."
-de.name = "Literata Fett und Kursiv"
-de.description = "Fett und kursiv gesetzter Buchtext in Literata. Ohne ihn erscheinen fette und kursive Wörter in normaler Schrift."
+name = "Literata"
+description = "Literata for book text: regular, bold and italic. Choose it in Settings, under Reading, as Font."
+de.name = "Literata"
+de.description = "Literata für Buchtext: normal, fett und kursiv. Wähle sie in den Einstellungen unter Lesen als Schriftart."
 
 [literata-large]
 version = "1.1.0"
@@ -32,9 +32,9 @@ off_by_default = true
 build = "tools/literata-packs.py"
 inputs = ["plugins/fonts-default/fonts/Literata.ttf", "plugins/fonts-default/fonts/Literata-Italic.ttf", "tools/fontgen", "tools/plugin-files/literata-large.ini"]
 name = "Literata, larger sizes"
-description = "Book text in Literata larger than the firmware's sizes."
+description = "Book text in Literata larger than the firmware's sizes. Choose Literata as the reading font to use them."
 de.name = "Literata, größere Schriftgrade"
-de.description = "Buchtext in Literata größer als in der Firmware."
+de.description = "Buchtext in Literata größer als in der Firmware. Wähle Literata als Schriftart, um sie zu nutzen."
 
 [literata-bold-italic]
 version = "1.0.1"

@@ -67,13 +67,55 @@ fn with_font<R>(
     handle: u32,
     call: impl FnOnce(&FontHandle<'_>) -> Result<R, i32>,
 ) -> Result<R, i32> {
+    with_bold(scope, owner, handle, None, |font, _| call(font))
+}
+
+/// The widest faux bold (as slot 41's `extra`).
+const FAUX_MAX: u32 = 16;
+
+/// Faux bold (`screens-input.md` 4): the pixels a bold reading role is drawn
+/// wider at `size` where the reading family has no bold face and the role is
+/// its regular face: one for every 24 px, rounded, at least one. 0 for every
+/// other key and for a family that has its bold face.
+fn faux_bold(frame: &dyn Frame, key: &FontKey, size: f32) -> u16 {
+    let FontKey::Role(role @ (FontRole::ReadingBold | FontRole::ReadingBoldItalic)) = key else {
+        return 0;
+    };
+    let Some(fonts) = frame.fonts() else {
+        return 0;
+    };
+    if fonts.bound(roles::READING_BOLD.as_str()).is_some()
+        || (matches!(role, FontRole::ReadingBoldItalic)
+            && fonts.bound(roles::READING_BOLD_ITALIC.as_str()).is_some())
+    {
+        return 0;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a checked positive size; the cast saturates"
+    )]
+    let pixels = (size + 12.0) as u32 / 24;
+    u16::try_from(pixels.clamp(1, FAUX_MAX)).unwrap_or(1)
+}
+
+/// [`with_font`] for a drawing call at `size`: `call` is also given the
+/// call's [`faux_bold`] (0 where no size is given).
+fn with_bold<R>(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    handle: u32,
+    size: Option<f32>,
+    call: impl FnOnce(&FontHandle<'_>, u16) -> Result<R, i32>,
+) -> Result<R, i32> {
     scope.with_frame(|frame| {
         owner.with_font(handle, |key| {
             if let FontKey::Data(font) = key {
                 // Once the file is changed or removed the handle is stale.
                 font.check(owner, frame.callback_epoch().ok())?;
             }
-            call(&resolve(frame, key)?)
+            let faux = size.map_or(0, |size| faux_bold(frame, key, size));
+            call(&resolve(frame, key)?, faux)
         })
     })?
 }
@@ -314,7 +356,10 @@ pub(crate) unsafe fn ink(
         let values = scope.with_frame(|frame| {
             owner.with_font(handle, |key| {
                 let font = resolve(frame, key)?;
-                ink_of(&font, size, text, frame.ink_threshold()?)
+                let mut ink = ink_of(&font, size, text, frame.ink_threshold()?)?;
+                // Faux bold widens every glyph to the right.
+                ink[3] = ink[3].saturating_add(i32::from(faux_bold(frame, key, size)));
+                Ok(ink)
             })
         })??;
         // SAFETY: all outputs were checked before any write.
@@ -359,14 +404,25 @@ pub(crate) unsafe fn draw(
         let color = Color::rgb(red, green, blue);
         // SAFETY: the caller provides live readable input.
         let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
-        let width = with_font(scope, owner, handle, |font| {
+        // An icon is a picture, not a word: it is not told as text.
+        let icon = owner
+            .with_font(handle, |key| {
+                Ok(matches!(key, FontKey::Role(FontRole::Icons)))
+            })
+            .unwrap_or(false);
+        let width = with_bold(scope, owner, handle, Some(size), |font, faux| {
             canvas.with_canvas(|canvas| {
-                let width =
-                    graphics::text_draw(canvas, font, size, x, i64::from(baseline), text, color)
-                        .map_err(|_| ERR_INVALID)?;
+                let line = i64::from(baseline);
+                let width = if faux == 0 {
+                    graphics::text_draw(canvas, font, size, x, line, text, color)
+                } else {
+                    let tone = font.text_ink().tone();
+                    graphics::text_draw_toned(canvas, font, size, x, line, text, color, faux, tone)
+                }
+                .map_err(|_| ERR_INVALID)?;
                 // Told as text where somebody asks, as a legacy label is
                 // (`screens-input.md` 6.1); nothing is done otherwise.
-                if canvas.is_describing() {
+                if canvas.is_describing() && !icon {
                     let line = font.line_metrics(size);
                     #[allow(
                         clippy::cast_precision_loss,
@@ -445,8 +501,9 @@ pub(crate) unsafe fn draw_inked(
             .map(paperpaw_sdk::text::ToneCurve::from_alphas);
         // Widening is clamped; it never refuses.
         let extra = u16::try_from(extra.min(EXTRA_MAX)).unwrap_or(0);
-        let width = with_font(scope, owner, handle, |font| {
+        let width = with_bold(scope, owner, handle, Some(size), |font, faux| {
             canvas.with_canvas(|canvas| {
+                let extra = extra.saturating_add(faux);
                 let curve = given.unwrap_or_else(|| font.text_ink().tone());
                 let curve = if flags & INKED_SHARP != 0 {
                     curve.sharp(canvas.mono_coverage())
@@ -480,6 +537,10 @@ mod tests;
 #[cfg(test)]
 #[path = "fonts_inked_tests.rs"]
 mod inked_tests;
+
+#[cfg(test)]
+#[path = "fonts_faux_tests.rs"]
+mod faux_tests;
 
 /// The longest text slot 39 reads (`screens-input.md` section 4).
 const COVERS_MAX: usize = 1024;

@@ -362,7 +362,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -427,7 +427,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-menu"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-settings"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -572,7 +572,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-vocabulary"
-version = "1.1.7"
+version = "1.1.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
@@ -639,7 +639,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wifi"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-qr",
  "paperpaw-sdk",

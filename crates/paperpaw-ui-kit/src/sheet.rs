@@ -188,7 +188,7 @@ impl ItemList {
                 touch,
             )?;
         }
-        paint::replay(frame, &font, body.iter())?;
+        paint::replay_with_icons(host, frame, &font, body.iter())?;
         font.release()?;
         self.header = header;
         self.starts = starts;

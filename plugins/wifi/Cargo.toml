@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-wifi"
 description = "PaperPaw Wi-Fi: joins networks when needed, switches the radio off after, and the page to choose networks"
-version = "1.0.4"
+version = "1.0.5"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
