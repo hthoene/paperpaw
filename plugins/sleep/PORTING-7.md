@@ -1,12 +1,10 @@
 # Interface-7 port (slices 1 to 5: the decisions, the declarations, the native entry and screen, the pictures, the picker, the custom logo)
 
-Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **not complete**: the native
+Version 1.0.5. Status: the interface-6 form is removed (#244, see the removal step); the native
 entry (`NativeSleep`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin) shows the screen and, since
 slice 3, its pictures (`src/native_screen/images.rs`); since slice 4 (#257) the picker (item 4,
 `src/native_pick.rs`, `src/native_picker.rs`); since slice 5 (#257) the custom logo of `core.logo` (item 3); the steps
-named below are open, so it is not in
-`tools/plugin-files7/complete.txt`. The interface-6 `Sleep` and everything of it stays until the host activates native
-plugins (then it goes together, no shim; see the removal step).
+named below are open.
 
 ## Native entry and screen (slice 2)
 
@@ -200,11 +198,10 @@ that is not running (items 2 and 3, a root for another plugin's files); the imag
 draw for the fallbacks decided at draw time (item 3); the production loader and the qualification of screen commands,
 composition and input (the acceptance cases in `tests/acceptance_pending.rs`, H1, H3, H4).
 
-## Removal step (one sweep, with the reader port and Core #944)
+## Removal step
 
-1. `Sleep` and its `Plugin` impl, `SleepScreen`, the `cat` module's interface-6 drawing, `overlay`'s `Canvas` code
-   (`native_sleep` and the decisions stay), the `HOW` table kept for the manifest;
-2. the app's store-offer line and the other plugins' tests that register `Sleep`;
-3. ~~list `NativeSleep` in `NATIVE_PLUGINS`~~ (done, #2769: under `native-linked` the app lists the native entry with
-   its settings tables kept in the program, `fixed_tables`, and no longer installs the interface-6 `Sleep`); list it in
-   `tools/plugin-files7/complete.txt` with step 1 (that list is for plugins with no interface-6 part left).
+Done (#244): `Sleep` and its `Plugin` impl, `SleepScreen`, `overlay` (the interface-6 picker and
+over-page screen), the `HOW` table, and the hosted suites `sleep_screen.rs` and `over_page.rs`. The
+declarations are pinned in `tests/pinned/declarations.txt` (written while the interface-6
+registration was still compared with them); the `cat` module keeps only the built-in drawing.
+The app no longer installs `Sleep` anywhere; a build without `native-linked` has no sleep screen.

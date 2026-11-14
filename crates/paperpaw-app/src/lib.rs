@@ -714,12 +714,6 @@ pub fn install_with(
     {
         b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     }
-    // Sleep is a native plugin, linked (`NATIVE_PLUGINS`), where the feature
-    // says.
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_sleep::Sleep);
-    }
     // A theme of the app's own, off as it ships, on every device.
     b.plugin_off(Pebble)
 }

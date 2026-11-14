@@ -87,16 +87,13 @@ impl Reader {
 
     fn built(device: DeviceInfo, storage: MemoryStorage, config: &str, sleeps: bool) -> Self {
         let user = format!("[core]\nlanguage = en\n[home]\ngesture-tips = false\n{config}\n");
-        let mut builder = Kernel::builder(device)
+        let builder = Kernel::builder(device)
             .storage(storage)
             .user_config(user)
             .sleep(sleeps)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
             .plugin(paperpaw_plugin_home::Home)
             .plugin(paperpaw_plugin_vocabulary::Vocabulary);
-        if sleeps {
-            builder = builder.plugin(paperpaw_plugin_sleep::Sleep);
-        }
         let mut kernel = builder.build().unwrap();
         kernel.set_status(
             Instant(0),
@@ -340,6 +337,7 @@ impl Reader {
 /// A flash card due as the sleep screen: its front while asleep, and on
 /// waking the review with that card, its back on Select.
 #[test]
+#[ignore = "the interface-6 sleep screen is gone (#244); the card as the sleep screen is covered by native_sleep_card_tests.rs and the native review"]
 fn a_card_due_is_the_sleep_screen_and_answered_on_waking() {
     let mut reader = Reader::sleeping(card(), "[sleep]\nshow = vocabulary.sleep-card");
     let asleep = reader.sleep_and_wake();

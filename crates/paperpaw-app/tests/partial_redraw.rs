@@ -456,7 +456,15 @@ fn widget_editors() {
     app.run(Id::new_static("home.edit-pages"));
     app.opened("home, edited");
     app.walk_grid(6, "home, edited");
-    app.run(actions::BACK);
+}
+
+#[test]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the sleep screen, which offers the place of widgets, is a native plugin only (#244): run it with `native-linked`"
+)]
+fn sleep_widget_editor() {
+    let mut app = App::new();
     app.open_slot(
         slots::EDIT_WIDGETS,
         Params::new().with(params::ID, "sleep.widgets"),
