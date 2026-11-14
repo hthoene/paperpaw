@@ -185,7 +185,7 @@ impl crate::Kernel {
         let env = self.shared.env(self.now);
         let mut stage = self.callback_stage(owner, id, &env);
         let status = call(&env, &mut stage);
-        self.callback_staged(owner, status, stage)
+        self.callback_staged(owner, status, &mut stage)
     }
 
     /// The command stage a callback of `owner` (`id`) stages into. Its own
@@ -240,7 +240,7 @@ impl crate::Kernel {
         &self,
         owner: u64,
         status: Result<i32, i32>,
-        mut stage: CommandStage<'_>,
+        stage: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
         let instances = &self.shared.native_instances;
         if !matches!(status, Ok(0 | 1)) {
@@ -262,7 +262,7 @@ impl crate::Kernel {
             _ => Ok(()),
         };
         marked?;
-        let (commands, redraw, _hop, opens) = stage.into_ui_output_with_opens();
+        let (commands, redraw, _hop, opens) = stage.take_ui_output_with_opens();
         if !commands.is_empty()
             || dev.is_some()
             || redraw.is_some()

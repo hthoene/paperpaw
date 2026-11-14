@@ -226,6 +226,12 @@ impl<'a> CommandStage<'a> {
 
     /// UI callers drain this form so redraw-only never becomes a refresh.
     pub(crate) fn into_ui_output(mut self) -> (Vec<Command>, Option<Redraw>, u8) {
+        self.take_ui_output()
+    }
+
+    /// As [`Self::into_ui_output`], out of a stage its caller keeps: it is
+    /// emptied where it is, not moved (a move copies it, some 500 bytes).
+    pub(crate) fn take_ui_output(&mut self) -> (Vec<Command>, Option<Redraw>, u8) {
         let screen = self.ui.as_ref().and_then(|ui| ui.screen);
         let whole = self.redraw.is_some();
         let areas = core::mem::take(&mut self.areas);
