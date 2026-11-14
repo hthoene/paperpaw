@@ -430,3 +430,13 @@ fn a_faint_row_has_ink_on_a_panel_of_two_grays() {
     let many = style();
     assert_eq!(disabled_ink(&many), many.disabled);
 }
+
+#[test]
+fn a_head_as_high_as_the_page_leaves_room_for_the_first_row() {
+    assert_eq!(head_fit(150, 700, Some(80)), 150);
+    // Taller than the page: cut to what the first row leaves.
+    assert_eq!(head_fit(900, 700, Some(80)), 620);
+    assert_eq!(head_fit(700, 700, Some(80)), 620);
+    // No rows: nothing to keep.
+    assert_eq!(head_fit(900, 700, None), 700);
+}
