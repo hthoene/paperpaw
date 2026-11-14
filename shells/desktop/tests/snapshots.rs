@@ -414,6 +414,15 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    Case {
+        name: "x4-transfer-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:transfer.open,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
     // The flash cards before any deck: how to bring cards in (a phone,
     // CSV, TSV or Anki), in English and German.
     Case {
@@ -625,6 +634,15 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    Case {
+        name: "x4-quick-panel-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:core.quick-panel,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
     // The reader's panel on the X4, the row that opens the fonts focused:
     // its whole name and value on the focus bar, aligned with the rows
     // below.
@@ -718,12 +736,15 @@ fn root() -> PathBuf {
         .to_path_buf()
 }
 
+static NEXT_LIBRARY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// A library with only the sample books (and the book to reopen).
 fn library(case: &Case) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "paperpaw-snapshot-{}-{}",
+        "paperpaw-snapshot-{}-{}-{}",
         case.name,
-        std::process::id()
+        std::process::id(),
+        NEXT_LIBRARY.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let _ = fs::remove_dir_all(&dir);
     let books = dir.join("books");
@@ -924,8 +945,9 @@ fn screens_say_what_they_show() {
     );
     // The pages tapped by their names, the rows with their title, value and text.
     assert!(text.contains("Heading \"Display\""), "{text}");
+    // A switch is told as one, its state after the text, not as a word in it.
     assert!(
-        text.contains("Row \"Night mode, Off, White text on black.\""),
+        text.contains("Row \"Night mode, White text on black.\" (focused) (off)"),
         "{text}"
     );
     // A number says its unit in words, not as the catalog's key.
@@ -1058,4 +1080,48 @@ fn headers_are_centred_by_their_capitals() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn standalone_picture_book_is_not_blank() {
+    let case = CASES
+        .iter()
+        .find(|case| case.name == "x4-pictures-book")
+        .unwrap();
+    let (_, _, gray, _) = draw(case);
+    assert!(
+        gray.iter().filter(|pixel| **pixel < 128).count() > gray.len() / 10,
+        "standalone picture book must draw its picture"
+    );
+}
+
+fn helper_screen_cases(names: &[&str]) {
+    let references = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
+    for name in names {
+        let case = CASES.iter().find(|case| case.name == *name).unwrap();
+        let (width, height, gray, _) = draw(case);
+        let reference = references.join(format!("{name}.png"));
+        if std::env::var_os("PAPERPAW_BLESS").is_some() {
+            write_gray(&reference, width, height, &gray);
+        } else {
+            let (w, h, expected) = grays(&reference);
+            assert_eq!((width, height), (w, h));
+            assert!(gray == expected, "{name}: screen changed");
+        }
+    }
+}
+
+#[test]
+fn transfer_offline_has_icon_and_bottom_button() {
+    helper_screen_cases(&["x4-transfer", "x4-transfer-de"]);
+}
+
+#[test]
+fn quick_panel_values_use_the_row_text_size() {
+    helper_screen_cases(&[
+        "x4-quick-panel",
+        "x4-quick-panel-de",
+        "x4-pro-quick-panel",
+        "boox-quick-panel",
+    ]);
 }
