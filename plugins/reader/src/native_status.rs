@@ -7,6 +7,7 @@
 //! drawing: the items line through the kit's `status_line` (other plugins'
 //! items come composed by the host), the progress bar (`bar`), a line of
 //! another plugin composed whole, or nothing.
+use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -331,6 +332,7 @@ pub fn paint(
     ui: &Ui,
     frame: &mut DrawFrame<'_>,
     (place, state, facts): (&Place<'_>, &State, &Facts<'_>),
+    shown: impl FnOnce(&Font<'_>) -> Result<Rc<Shown>, Error>,
 ) -> Result<(), Error> {
     let (from, to) = (frame.clip_top, frame.clip_bottom);
     let wanted = |top: bool| {
@@ -342,19 +344,41 @@ pub fn paint(
     if strips.iter().all(Option::is_none) {
         return Ok(());
     }
-    let config = Config::read(host)?;
     let texts = Texts::new(host, facts)?;
     let font = Font::acquire_role(host, FontRole::Status)?;
-    let drawn = paint_each(
-        host,
-        ui,
-        frame,
-        &font,
-        (place, &config, state, (&texts, facts)),
-        strips,
-    );
+    let drawn = shown(&font).and_then(|shown| {
+        paint_each(
+            host,
+            ui,
+            frame,
+            &font,
+            (place, &shown, state, (&texts, facts)),
+            strips,
+        )
+    });
     let released = font.release();
     drawn.and(released)
+}
+
+/// What a paint of the lines reads from the settings: the lists of the lines
+/// and the colour of the notes. Kept by the screen until a setting changes.
+#[derive(Debug)]
+pub struct Shown {
+    pub config: Config,
+    note: Color,
+}
+
+impl Shown {
+    /// Reads the settings and the status font's colour.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] and the host's refusals.
+    pub fn read(host: &Host<'_>, display: &Snapshot, font: &Font<'_>) -> Result<Self, Error> {
+        Ok(Self {
+            config: Config::read(host)?,
+            note: Style::read(host, display, font)?.note,
+        })
+    }
 }
 
 fn paint_each(
@@ -362,10 +386,10 @@ fn paint_each(
     ui: &Ui,
     frame: &mut DrawFrame<'_>,
     font: &Font<'_>,
-    (place, config, state, (texts, facts)): (&Place<'_>, &Config, &State, (&Texts, &Facts<'_>)),
+    (place, shown, state, (texts, facts)): (&Place<'_>, &Shown, &State, (&Texts, &Facts<'_>)),
     strips: [Option<Rect>; 2],
 ) -> Result<(), Error> {
-    let color = Style::read(host, place.display, font)?.note;
+    let (config, color) = (&shown.config, shown.note);
     for (at, strip) in strips.iter().enumerate() {
         let Some(strip) = *strip else { continue };
         let showing = state.showing(at == 0, &config.lines[at]);

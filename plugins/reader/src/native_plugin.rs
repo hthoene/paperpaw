@@ -750,6 +750,10 @@ impl NativeReader {
     /// setting of the layout) or draws it again (a setting of the ink). A refusal
     /// of one screen costs the others nothing.
     fn setting_changed(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
+        // What the screens kept of the settings is out of date.
+        for view in self.screens.all() {
+            view.forget_settings();
+        }
         if key == "core.smooth-text" {
             let instances: alloc::vec::Vec<Instance> = self
                 .screens
