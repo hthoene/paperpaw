@@ -182,59 +182,184 @@ pub(super) fn image_places(
     ControlFlow::Continue(())
 }
 
-/// The first record of `kind` of the image-only `owner` whose key fields are
-/// `parts`, in declaration order, given to `visit`: as a lookup through
+/// The first record of `kind` of the image-only `owner` (its batches start at
+/// `starts`) whose key fields are `parts`, in declaration order, given to
+/// `visit`: as a lookup through
 /// [`DeclarationStore::with_record`](super::DeclarationStore::with_record)
-/// would find it, but each record is decoded once and only the one that
-/// matches is validated (`declarations::validate_record`): a key press or a
-/// menu's open looks up names among every record of the kind (#248, R1).
-/// Whether one was found; a record that does not decode or validate is said
-/// to the plugin and is no match.
+/// would find it. The image is held once and each batch's frames are walked
+/// once; only a record that [`may_match`] is decoded, and only the one that
+/// matches is validated (`declarations::validate_record`): a key press, a
+/// menu's open or a settings page looks up names among every record of the
+/// kind (#248, R1). Whether one was found; a batch whose frames do not walk
+/// and a decoded record that does not decode or validate are said to the
+/// plugin and are no match.
 pub(super) fn find_in_image(
     owner: &super::StoredOwner,
+    starts: &super::Starts,
     kind: Kind,
     parts: &[&str],
     visit: &mut dyn for<'a> FnMut(super::Record<'a>),
+) -> bool {
+    let category = kind.category();
+    let wanted = |body: &[u8]| may_match(body, category, parts);
+    walk_image(owner, starts, kind, &wanted, &mut |record| {
+        if !super::super::declaration_index::matches_parts(record, category, parts) {
+            return Ok(false);
+        }
+        super::super::declarations::validate_record(owner.id.as_str(), &record)?;
+        visit(record);
+        Ok(true)
+    })
+}
+
+/// Every record of `kind` of the image-only `owner` whose frame body is
+/// `wanted`, in declaration order, validated and given to `visit`: what
+/// [`DeclarationStore::keys`](super::DeclarationStore::keys) and `with_record`
+/// give for those records, with the image held once, each batch's frames
+/// walked once and no other record decoded (a settings row asks which
+/// declared extra names it, among every extra of the device: #248).
+pub(super) fn each_in_image(
+    owner: &super::StoredOwner,
+    starts: &super::Starts,
+    kind: Kind,
+    wanted: &dyn Fn(&[u8]) -> bool,
+    visit: &mut dyn for<'a> FnMut(super::Record<'a>),
+) {
+    walk_image(owner, starts, kind, wanted, &mut |record| {
+        super::super::declarations::validate_record(owner.id.as_str(), &record)?;
+        visit(record);
+        Ok(false)
+    });
+}
+
+/// The records of `kind` of the image-only `owner` whose frame body is
+/// `wanted`, decoded in declaration order and given to `on` until it answers
+/// `true` (whether it did). An error of `on`, a batch whose frames do not
+/// walk and a record that does not decode are said to the plugin and passed.
+fn walk_image(
+    owner: &super::StoredOwner,
+    starts: &super::Starts,
+    kind: Kind,
+    wanted: &dyn Fn(&[u8]) -> bool,
+    on: &mut dyn for<'a> FnMut(super::Record<'a>) -> Result<bool, i32>,
 ) -> bool {
     // A stale owner (a later generation of its plugin) answers nothing, as
     // `with_record` checks it for every key.
     if owner.source.generation() != owner.generation {
         return false;
     }
-    let category = kind.category();
+    let bit = 1_u64 << kind as u32;
     let mut found = false;
-    let _ = owner.places(kind, &mut |batch, record| {
-        owner.source.with_image(&mut |image| {
-            let Some(image) = image else {
-                return;
-            };
-            let decoded = owner
-                .batches
-                .bytes(usize::from(batch), image)
-                .and_then(|bytes| {
-                    super::super::raw_declarations::record_at(bytes, usize::from(record))
-                })
-                .and_then(super::super::registrations::host_decode_prefix);
-            let result = decoded.and_then(|(record, _)| {
-                if !super::super::declaration_index::matches_parts(record, category, parts) {
-                    return Ok(());
-                }
-                super::super::declarations::validate_record(owner.id.as_str(), &record)?;
-                found = true;
-                visit(record);
-                Ok(())
-            });
-            if let Err(error) = result {
-                owner.source.invalid_declaration(error);
+    owner.source.with_image(&mut |image| {
+        let Some(image) = image else {
+            return;
+        };
+        for at in 0..starts.len() {
+            if starts.kinds(at) & bit == 0 {
+                continue;
             }
-        });
-        if found {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
+            let Some(start) = starts.start(at) else {
+                break;
+            };
+            match walk_batch(owner, image, start, kind, wanted, on) {
+                Ok(false) => {}
+                Ok(true) => {
+                    found = true;
+                    break;
+                }
+                Err(error) => owner.source.invalid_declaration(error),
+            }
         }
     });
     found
+}
+
+/// [`walk_image`] in the batch that starts at `start` in `image`. Its
+/// frames are walked to its end first, so that a batch with a broken frame
+/// answers nothing (`ERR_INVALID`, as [`batch_at`]); then the records that
+/// are wanted are decoded in their order.
+fn walk_batch(
+    owner: &super::StoredOwner,
+    image: &[u8],
+    start: u32,
+    kind: Kind,
+    wanted: &dyn Fn(&[u8]) -> bool,
+    on: &mut dyn for<'a> FnMut(super::Record<'a>) -> Result<bool, i32>,
+) -> Result<bool, i32> {
+    let start = usize::try_from(start).map_err(|_| ERR_INVALID)?;
+    let rest = image.get(start..).ok_or(ERR_INVALID)?;
+    let mut cursor = 0;
+    let count = varint(rest, &mut cursor)? as usize;
+    if count > REGISTRATION_MAX_RECORDS {
+        return Err(ERR_INVALID);
+    }
+    // Where the wanted frames start: at most a batch's records.
+    let mut frames = [0_usize; REGISTRATION_MAX_RECORDS];
+    let mut waiting = 0;
+    for _ in 0..count {
+        let frame = cursor;
+        let tag = varint(rest, &mut cursor)?;
+        let len = usize::try_from(varint(rest, &mut cursor)?).map_err(|_| ERR_INVALID)?;
+        let end = cursor.checked_add(len).ok_or(ERR_INVALID)?;
+        let body = rest.get(cursor..end).ok_or(ERR_INVALID)?;
+        cursor = end;
+        if Kind::of_tag(tag) != Some(kind) || !wanted(body) {
+            continue;
+        }
+        if let Some(slot) = frames.get_mut(waiting) {
+            *slot = frame;
+            waiting += 1;
+        }
+    }
+    let batch = rest.get(..cursor).ok_or(ERR_INVALID)?;
+    for frame in frames.iter().take(waiting) {
+        // From the record's frame to the batch's end, as `record_at` gives it.
+        let result = batch
+            .get(*frame..)
+            .ok_or(ERR_INVALID)
+            .and_then(super::super::registrations::host_decode_prefix)
+            .and_then(|(record, _)| on(record));
+        match result {
+            Ok(false) => {}
+            Ok(true) => return Ok(true),
+            Err(error) => owner.source.invalid_declaration(error),
+        }
+    }
+    Ok(false)
+}
+
+/// Whether the record in the frame body `body` may have the key fields
+/// `parts`, without decoding it. A record's first key field is text its
+/// decoded form borrows from the frame (`declaration_index::key`), so a body
+/// without those bytes cannot match; names that compare without case are
+/// always decoded.
+fn may_match(body: &[u8], category: u8, parts: &[&str]) -> bool {
+    if super::super::declaration_index::folds_case(category) {
+        return true;
+    }
+    let Some((first, tail)) = parts.first().and_then(|name| name.as_bytes().split_first()) else {
+        return true;
+    };
+    holds_from(body, *first, tail)
+}
+
+/// Whether `bytes` hold the text `name` (an empty one is held by all).
+pub(in super::super) fn holds(bytes: &[u8], name: &str) -> bool {
+    name.as_bytes()
+        .split_first()
+        .is_none_or(|(first, tail)| holds_from(bytes, *first, tail))
+}
+
+fn holds_from(bytes: &[u8], first: u8, tail: &[u8]) -> bool {
+    let mut rest = bytes;
+    while let Some(at) = rest.iter().position(|byte| *byte == first) {
+        let after = rest.get(at + 1..).unwrap_or_default();
+        if after.starts_with(tail) {
+            return true;
+        }
+        rest = after;
+    }
+    false
 }
 
 #[cfg(test)]

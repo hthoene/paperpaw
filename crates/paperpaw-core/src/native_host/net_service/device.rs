@@ -73,8 +73,9 @@ pub(crate) struct NetDevice {
     /// What the user allows (`net_policy`).
     policy: Rc<NetPolicy>,
     /// The transport of the cable's server (port 0), where the profile has
-    /// the cable (`cable_link`).
-    cable: Option<Rc<super::cable_link::CableLink>>,
+    /// the cable (`cable_link`). Held in the device's own block: making the
+    /// device stays one allocation, the one that may be refused.
+    cable: Option<super::cable_link::CableLink>,
 }
 
 /// The staged name of a saved answer's target (`.pp-staged`, core's one name).
@@ -112,7 +113,7 @@ impl NetDevice {
 
     /// The device with the cable's server served over `link` (`cable_link`).
     #[must_use]
-    pub(crate) fn with_cable(mut self, link: Rc<super::cable_link::CableLink>) -> Self {
+    pub(crate) fn with_cable(mut self, link: super::cable_link::CableLink) -> Self {
         self.cable = Some(link);
         self
     }
@@ -123,13 +124,13 @@ impl NetDevice {
     }
 
     /// The cable's link, where the profile has the cable.
-    pub(crate) fn cable(&self) -> Option<&Rc<super::cable_link::CableLink>> {
+    pub(crate) fn cable(&self) -> Option<&super::cable_link::CableLink> {
         self.cable.as_ref()
     }
 
     /// The cable's request `request`, if the cable carries it.
     fn on_cable(&self, request: u32) -> Option<&super::cable_link::CableLink> {
-        self.cable.as_deref().filter(|link| link.carries(request))
+        self.cable.as_ref().filter(|link| link.carries(request))
     }
 
     fn remove_best_effort(&self, joined: &str) {

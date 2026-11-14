@@ -6,6 +6,7 @@
 
 extern crate alloc;
 
+mod floats;
 pub mod stream;
 
 use alloc::string::String;
@@ -248,7 +249,7 @@ impl Parser<'_> {
                         break;
                     }
                 }
-                number.parse().ok().map(Value::Num)
+                floats::number(&number).map(Value::Num)
             }
             _ => {
                 // true, false, null

@@ -2,11 +2,13 @@
 //! bound to [`fonts::ICONS`](crate::builtin::fonts::ICONS).
 //!
 //! The names are those of [Tabler Icons](https://tabler.io/icons), all of
-//! them known here; the icon font holds the drawings of those PaperPaw
-//! uses (see `tools/icons/subset.py`), icon packs add others (font packs
-//! that extend it, see `tools/icons/pack.py`). An icon theme is a font
-//! with other drawings at the same code points, bound to the role in
-//! place of the default.
+//! them known here by their hashes (the firmware shows no name, so it
+//! does not carry them: [`names`] is for tools and tests);
+//! the icon font holds the drawings of those PaperPaw uses (see
+//! `tools/icons/subset.py`), icon packs add others (font packs that
+//! extend it, see `tools/icons/pack.py`). An icon theme is a font with
+//! other drawings at the same code points, bound to the role in place of
+//! the default.
 //!
 //! Plugins give their menu entries icons by name
 //! ([`Registrar::add_icon`](crate::Registrar::add_icon)); an icon without
@@ -58,21 +60,13 @@ pub fn default_of(name: &str) -> Option<&'static str> {
     }
 }
 
-/// The name of icon `index` (in the order of [`STARTS`]).
-fn name(index: usize) -> &'static str {
-    let start = usize::from(STARTS[index]);
-    let length = usize::from(LENGTHS[index] & ((1 << LENGTH_BITS) - 1));
-    NAMES.get(start..start + length).unwrap_or("")
-}
-
-/// The character of icon `index` (in the order of [`STARTS`]).
-#[cfg_attr(
-    all(paperpaw_plugin, target_os = "none"),
-    allow(dead_code, reason = "a plugin file asks the firmware")
-)]
-fn code(index: usize) -> Option<char> {
-    let high = u32::from(LENGTHS[index] >> LENGTH_BITS) << 16;
-    char::from_u32(CODE_BASE + (high | u32::from(CODES[index])))
+/// A name's hash, as `tools/icons/subset.py` counts it for [`HASHES`]
+/// (FNV-1a, 32 bits).
+#[cfg(not(all(paperpaw_plugin, target_os = "none")))]
+fn hash(name: &str) -> u32 {
+    name.bytes().fold(0x811c_9dc5, |hash: u32, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    })
 }
 
 /// The character of icon `name` in the icon font; a name `U+F8000` is
@@ -114,24 +108,48 @@ pub fn char(name: &str) -> Option<char> {
     core::char::from_u32(code).filter(|&c| c != '\0')
 }
 
-/// The character of icon `name`, from the names of all icons.
+/// The character of the icon whose name's hash is that of `name`: the
+/// names are not kept (#258), so one that is no icon's is taken for an
+/// icon where the 32 bits happen to be the same (about one in a million).
 #[cfg(not(all(paperpaw_plugin, target_os = "none")))]
 fn by_name(name: &str) -> Option<char> {
-    let (mut low, mut high) = (0, STARTS.len());
-    while low < high {
-        let middle = (low + high) / 2;
-        match self::name(middle).cmp(name) {
-            core::cmp::Ordering::Less => low = middle + 1,
-            core::cmp::Ordering::Greater => high = middle,
-            core::cmp::Ordering::Equal => return code(middle),
-        }
-    }
-    None
+    let at = HASHES.binary_search(&hash(name)).ok()?;
+    char::from_u32(CODE_BASE + u32::from(*CODES.get(at)?))
 }
 
-/// The names of all icons, sorted.
+/// What goes before an icon's character in the text `as_text` makes: a
+/// private-use character no words begin with.
+const AS_TEXT: char = '\u{e000}';
+
+/// An icon's character as the text of a [`Hint::Text`](crate::Hint::Text)
+/// the row of hints shows as that icon: for an icon whose name does not
+/// live as long as [`Hint::Icon`](crate::Hint::Icon) asks, one a native
+/// plugin named. `None` where there is no memory for it.
+#[cfg(feature = "kernel")]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub fn as_text(icon: char) -> Option<alloc::string::String> {
+    let mut text = alloc::string::String::new();
+    text.try_reserve_exact(AS_TEXT.len_utf8() + icon.len_utf8())
+        .ok()?;
+    text.push(AS_TEXT);
+    text.push(icon);
+    Some(text)
+}
+
+/// The icon a text of `as_text` is; `None` for any other text.
+pub(crate) fn of_text(text: &str) -> Option<char> {
+    let mut rest = text.strip_prefix(AS_TEXT)?.chars();
+    let icon = rest.next()?;
+    rest.next().is_none().then_some(icon)
+}
+
+/// The names of all icons, sorted: 64 KB, for tools and tests. The
+/// firmware never calls it, so its image is without them (#258).
 pub fn names() -> impl Iterator<Item = &'static str> {
-    (0..STARTS.len()).map(name)
+    STARTS.iter().zip(&LENGTHS).map(|(&start, &length)| {
+        let start = usize::from(start);
+        NAMES.get(start..start + usize::from(length)).unwrap_or("")
+    })
 }
 
 #[cfg(test)]
@@ -140,13 +158,8 @@ mod tests {
 
     #[test]
     fn icons_are_found_by_name() {
-        let all: alloc::vec::Vec<&str> = names().collect();
-        assert!(all.windows(2).all(|w| w[0] < w[1]), "sorted");
         assert_eq!(char("home"), Some('\u{eac1}'));
         assert!(char("books").is_some());
-        // The first and the last.
-        assert_eq!(char(all[0]), code(0));
-        assert_eq!(char(all[all.len() - 1]), code(all.len() - 1));
         assert_eq!(char("no-such-icon"), None);
         assert_eq!(char(""), None);
         // Icons of one's own by their code point.
@@ -154,6 +167,29 @@ mod tests {
         assert_eq!(char("U+ZZ"), None);
         assert_eq!(char("U+D800"), None);
         assert_eq!(by_name("home"), char("home"));
-        assert!(all.len() > 5000);
+    }
+
+    /// What the lookup rests on: each hash once, ascending, and a code
+    /// point for each.
+    #[test]
+    fn the_hashes_ascend_and_each_has_its_code_point() {
+        assert!(HASHES.len() > 5000);
+        assert_eq!(HASHES.len(), CODES.len());
+        assert!(
+            HASHES.windows(2).all(|w| w[0] < w[1]),
+            "ascending, each once"
+        );
+        assert_eq!(hash(""), 0x811c_9dc5);
+        assert_eq!(hash("a"), 0xe40c_292c);
+    }
+
+    /// The names that say what an icon means are no icons' names, nor do
+    /// their hashes happen to be an icon's: PaperPaw draws those itself.
+    #[test]
+    fn what_an_icon_means_is_no_icon() {
+        for name in [BACK, PREV, NEXT, HOLD, BUSY, SHIFT, DELETE, SPACE] {
+            assert_eq!(char(name), None, "{name}");
+        }
+        assert!(char(PAW).is_some());
     }
 }

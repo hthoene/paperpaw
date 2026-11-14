@@ -354,8 +354,13 @@ impl PageType {
         let fonts = env.fonts().ids().fold(0u64, |sum, id| {
             sum.wrapping_add(paperpaw_digest::fnv1a64(id.as_str()))
         });
-        let key = format!(
-            "{:016x}",
+        let key = {
+            // Floats as `Display` writes them, without `core`'s formatter
+            // of them (#258): the keys stay what they were.
+            use crate::float_text::Shown;
+            let (size, line_height) = (Shown(size), Shown(line_height));
+            let (width, height) = (Shown(width), Shown(height));
+            let (word_spacing, letter_spacing) = (Shown(word_spacing), Shown(letter_spacing));
             paperpaw_digest::fnv1a64(format!(
                 "{}|{}|{}|{}|{}|{size}|{line_height}|{}|{}|{justify}|{width}x{height}|{}|{}|{}|{word_spacing}|{}|{whole_pages}|{stylesheets:x}|{widows}:{orphans}|{:x}|{letter_spacing}|{balanced}|{kerning}|{ligatures}|{:x}:{:x}:{:?}|{fonts:x}",
                 crate::layout::VERSION,
@@ -363,8 +368,8 @@ impl PageType {
                 face_id(env, &fonts::READING_BOLD),
                 face_id(env, &fonts::READING_ITALIC),
                 face_id(env, &fonts::READING_BOLD_ITALIC),
-                style.indent,
-                style.paragraph_spacing,
+                Shown(style.indent),
+                Shown(style.paragraph_spacing),
                 hyphenation_key,
                 s.read(&settings::PUBLISHER_STYLES),
                 uses_book_fonts(env),
@@ -375,7 +380,8 @@ impl PageType {
                 style.options.bits(),
                 style.values,
             ))
-        );
+        };
+        let key = format!("{key:016x}");
         // Pages without layers' rooms or a frame keep their key (and their
         // page indexes).
         let key = match layers {

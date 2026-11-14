@@ -455,6 +455,9 @@ pub(super) struct TestHost {
     pub(super) built_in: RefCell<Vec<&'static str>>,
     /// Folders (below `plugins/`) of the running data plugins.
     pub(super) data_folders: RefCell<Vec<&'static str>>,
+    /// The frame has the kernel's formats (`.epub` is a book), as core's own
+    /// frame; without them every root-1 move is the library's.
+    pub(super) formats: Cell<bool>,
 }
 
 impl TestHost {
@@ -468,6 +471,7 @@ impl TestHost {
             library_moves: Cell::new(0),
             built_in: RefCell::default(),
             data_folders: RefCell::default(),
+            formats: Cell::new(false),
         })
     }
 
@@ -621,6 +625,8 @@ pub(super) struct TestFrame<'a> {
     plugin: &'static str,
     hosts: crate::native_host::host_services::HostServices,
     pub(super) granted: bool,
+    /// Whether the frame gives the kernel's `Env` (its formats).
+    kernel: bool,
 }
 
 impl Frame for TestFrame<'_> {
@@ -632,6 +638,9 @@ impl Frame for TestFrame<'_> {
     }
     fn storage(&self) -> Option<&dyn Storage> {
         self.card.map(|card| card as &dyn Storage)
+    }
+    fn kernel_env(&self) -> Option<&Env<'_>> {
+        self.kernel.then_some(self.env)
     }
 }
 
@@ -678,9 +687,23 @@ pub(super) fn with<R>(
     setup: Setup,
     body: impl FnOnce(&TestFrame<'_>) -> R,
 ) -> R {
-    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
+    if host.formats.get() {
+        kernel
+            .shared
+            .formats
+            .add(paperpaw_sdk::FormatSpec::new(
+                paperpaw_sdk::Id::new_static("test.epub"),
+                "EPUB",
+                std::vec![alloc::borrow::Cow::Borrowed("epub")],
+                alloc::boxed::Box::new(|_, _, _| {
+                    Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat)
+                }),
+            ))
+            .unwrap();
+    }
     let env = kernel.shared.env(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     if setup.wired {
@@ -692,6 +715,7 @@ pub(super) fn with<R>(
         plugin: setup.plugin,
         hosts,
         granted: setup.granted,
+        kernel: host.formats.get(),
     };
     let _guard = setup.book.map(|(kind, path, opened)| {
         frame

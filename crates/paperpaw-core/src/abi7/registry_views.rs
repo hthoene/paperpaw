@@ -14,6 +14,20 @@ pub(crate) trait Row {
     fn framed_len(&self) -> Result<usize, i32>;
     /// Frames it at the front of `out`; the length written.
     fn encode(&self, out: &mut [u8]) -> Result<usize, i32>;
+    /// Whether it can be framed at all. A list asks this of every row, to
+    /// count them and to pass those before its cursor: a row that costs much
+    /// to build answers without building itself.
+    fn frames(&self) -> bool {
+        self.framed_len().is_ok()
+    }
+    /// Frames it at the front of `out` where it fits there (`None` where it
+    /// is longer), building it once.
+    fn encode_within(&self, out: &mut [u8]) -> Result<Option<usize>, i32> {
+        if self.framed_len()? > out.len() {
+            return Ok(None);
+        }
+        self.encode(out).map(Some)
+    }
 }
 
 /// Who asks: what the rows that depend on the caller (values it may read)
