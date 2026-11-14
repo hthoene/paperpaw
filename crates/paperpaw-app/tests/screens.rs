@@ -193,6 +193,10 @@ impl App {
     }
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn home() {
     let mut app = App::new();
