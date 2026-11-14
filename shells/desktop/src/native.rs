@@ -423,6 +423,26 @@ fn is_interface7(bytes: &[u8]) -> bool {
 
 /// [`load`] with its memory not counted against the budget (the file read
 /// here, then loaded as an interface-6 library).
+/// Code plugins built for this computer, from the card (`on`: `device::set_code_plugins`).
+pub fn code_plugins(
+    builder: paperpaw_core::KernelBuilder,
+    on: bool,
+    memory: MemoryClass,
+    pool: &DevicePool,
+) -> paperpaw_core::KernelBuilder {
+    if !on {
+        // No code is loaded (and so no code device): the linked plugins'
+        // `text.hyphenate` still reads the hyphenation packs on the card (todo 613).
+        let mut loader = HostLoader::for_device_in(memory, pool.clone());
+        return builder
+            .hyphenation_sink(move |card| CodeLoader::hyphenation_sink(&mut loader, card));
+    }
+    builder.code_plugins(
+        native(),
+        Box::new(HostLoader::for_device_in(memory, pool.clone())),
+    )
+}
+
 #[cfg(test)]
 fn load_installed(
     storage: &dyn Storage,
