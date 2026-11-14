@@ -1,0 +1,3 @@
+### Changed
+
+- **The interface-6 form of thirteen first-party plugins is gone** (#244). Settings, Wi-Fi, Transfer, Keyboard, Aids, Fonts browser, Widgets, Notes vault, Mail, and the formats MOBI, XTC, Word, Pictures, EPUB, HTML, FB2, Markdown and CBZ are native (interface 7) plugins only: their `Plugin` implementations, the old screens and the tests that covered only those are removed, the app no longer registers them and `tools/plugin-files` no longer builds files for them. The native plugins, their screens, texts and settings are unchanged. Reader, Home, Menu, plain text, News, Picture home, Vocabulary, Dictionary, Sleep and Store keep their interface-6 form for now.
