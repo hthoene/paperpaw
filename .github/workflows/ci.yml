@@ -767,6 +767,8 @@ jobs:
         run: python3 tools/plugin-files/versions.py
       - name: The size gate fails when an image is over its budget or a file is missing
         run: python3 -m unittest discover -s tools -p "test_size_report.py"
+      - name: The owner-image check refuses an app-only image and a changed partition table
+        run: python3 -m unittest discover -s tools -p "test_check_owner_image.py"
       - name: The handbook holds the SDK and PaperPaw's own plugins, without tests
         run: python3 -m unittest discover -s tools -p "test_handbook.py"
       - name: CI tool setup verifies binaries and keeps its missing-tool fallback
