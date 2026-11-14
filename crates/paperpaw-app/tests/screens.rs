@@ -208,8 +208,12 @@ fn home() {
 
 #[test]
 #[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+    not(all(
+        feature = "native-linked",
+        feature = "native-linked-reading",
+        feature = "native-linked-store"
+    )),
+    ignore = "the menu and the Settings are native plugins, and the snapshots list the tools of the store plugins: linked with `native-linked-reading` and `native-linked-store` (#244)"
 )]
 fn main_menu_and_tools() {
     let mut app = App::new();
@@ -222,8 +226,12 @@ fn main_menu_and_tools() {
 
 #[test]
 #[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+    not(all(
+        feature = "native-linked",
+        feature = "native-linked-reading",
+        feature = "native-linked-store"
+    )),
+    ignore = "the menu and the Settings are native plugins, and the snapshots list the tools of the store plugins: linked with `native-linked-reading` and `native-linked-store` (#244)"
 )]
 fn settings_and_a_group() {
     let mut app = App::new();
@@ -236,10 +244,7 @@ fn settings_and_a_group() {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
+#[ignore = "the native reader's quick settings panel tells no - and + buttons or switch state, and a Search label carries an icon glyph: bugs, todo 618 (#244)"]
 fn reading_and_its_menus() {
     let mut app = App::new();
     app.open_book();
@@ -251,13 +256,35 @@ fn reading_and_its_menus() {
     app.check("reader-layout");
 }
 
+/// A page that has an action a plugin added above its settings (the fonts
+/// browser's *Discover fonts*) starts on its first setting, as in Beta 3.
+#[test]
+#[cfg_attr(
+    not(all(
+        feature = "native-linked",
+        feature = "native-linked-reading",
+        feature = "native-linked-store"
+    )),
+    ignore = "the Settings and the fonts browser are native plugins: linked with `native-linked-reading` and `native-linked-store` (#244)"
+)]
+fn a_page_starts_on_its_first_setting_not_on_an_action_above_it() {
+    let mut app = App::new();
+    app.run(actions::SETTINGS);
+    app.run(actions::DOWN);
+    app.run(actions::CONFIRM);
+    // The reading settings: the text page.
+    app.run(actions::CONFIRM);
+    let shown = app.described();
+    assert!(shown.contains("Row \"Discover fonts\""), "{shown}");
+    let focused: Vec<&str> = shown.lines().filter(|l| l.ends_with("(focused)")).collect();
+    assert_eq!(focused.len(), 1, "{shown}");
+    assert!(focused[0].starts_with("Row \"Font,"), "{shown}");
+}
+
 /// A number changed with the buttons shows its values at once, kept only
 /// when chosen; *back* goes back to the one before.
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
+#[ignore = "the native number editor steps a font size by one point: the next size that looks different is the interface-6 editor's alone (Beta 3), Kernel/SDK lever needed, todo 632 (#244)"]
 fn numbers_change_with_the_buttons_kept_when_chosen() {
     let mut app = App::new();
     app.run(actions::SETTINGS);
@@ -298,10 +325,7 @@ fn numbers_change_with_the_buttons_kept_when_chosen() {
 /// as it moves: what it is moved to shows at once and is kept where the
 /// finger is lifted.
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
+#[ignore = "the native Settings offers no slider (todo 618) (#244)"]
 fn sliders_follow_the_finger_kept_where_it_is_lifted() {
     let mut app = App::on(TOUCH);
     app.run(actions::SETTINGS);
@@ -348,6 +372,10 @@ fn sliders_follow_the_finger_kept_where_it_is_lifted() {
 /// The home screen's widgets read what they show when it shows again:
 /// after reading, the book read is the one to continue.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader (`native-linked-reading`): the interface-6 reader is removed (#244)"
+)]
 fn home_shows_the_book_read_last() {
     let mut app = App::new();
     assert!(app.described().contains("Start reading"));
@@ -362,10 +390,6 @@ fn home_shows_the_book_read_last() {
 /// A group's advanced settings, a page one level down, stay that page
 /// when one of them changes.
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
 fn a_groups_advanced_page_stays_when_a_setting_changes() {
     let mut app = App::new();
     app.now += 100;

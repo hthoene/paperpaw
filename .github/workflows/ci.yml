@@ -145,10 +145,19 @@ jobs:
       # #243): every format that may sleep is a native plugin there, so its
       # parity cases run and the cycles require it.
       - run: cargo test -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles
+      # The reading record is kept by Widgets, a native plugin only (#244).
+      - run: cargo test -p paperpaw-app --features native-linked,native-linked-reading,native-linked-store --test sleep_parity a_book_ready_at_once_has_its_pages_counted
       # Every linked plugin's screens keep the entry of their titles table (#248):
       # the test is compiled out unless the app's `native-linked*` features are on.
       - run: cargo test -p paperpaw-app --features native-linked-reading --test linked_settings_tables
       - run: cargo test -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
+      # The menu is native only (#244): its entries and the tools list are tested linked.
+      - run: cargo test -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last
+      # The Settings and the menu its tests open are native: the app's own plugins, as the lean
+      # firmware has them (#244).
+      - run: cargo test -p paperpaw-app --features native-linked-reading --test sets --test standard
+      - run: cargo test -p paperpaw-app --features native-linked-reading --test readers
+      - run: cargo test -p paperpaw-app --features native-linked-reading --test partial_redraw -- --exact table_of_contents
 
   check:
     name: Format, lint, test
@@ -424,6 +433,11 @@ jobs:
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE" -- -D warnings
           remap="$("$GITHUB_WORKSPACE/tools/ci/firmware-remap.sh" "$FIRMWARE_TARGET" "$FIRMWARE_TOOLCHAIN")"
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE"
+      # `core`'s parser and formatter of floats stay out of the image
+      # (36 KB, ticket #258): tools/firmware-symbols.sh says what brings
+      # them in and what to write instead.
+      - name: The firmware links no float parser or formatter
+        run: tools/firmware-symbols.sh "shells/xteink/target/$FIRMWARE_TARGET/release/paperpaw-xteink"
       # The released build's install image against its size budget
       # (shells/xteink/size-budget.txt, ticket #258). Measured here, before the
       # next step rebuilds the same file with `ppn5` and legacy symbol names on
@@ -766,6 +780,9 @@ jobs:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ${{ matrix.os }}
     strategy:
+      # Each system reports on its own: one failing build must not cancel the
+      # others (Windows showed "cancelled" whenever macOS failed).
+      fail-fast: false
       matrix:
         # A PR runs Linux; Windows and macOS run on main and integration.
         os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","windows-latest","macos-latest"]') }}

@@ -247,8 +247,13 @@ pub(crate) fn matches_parts(record: Record<'_>, kind: u8, wanted: &[&str]) -> bo
             .all(|(a, b)| same_name(kind, a, b))
 }
 
+/// Whether names of `kind` compare without ASCII case: language tags do.
+pub(crate) const fn folds_case(kind: u8) -> bool {
+    kind == 3
+}
+
 pub(crate) fn same_name(kind: u8, a: &str, b: &str) -> bool {
-    if kind == 3 {
+    if folds_case(kind) {
         a.eq_ignore_ascii_case(b)
     } else {
         a == b
@@ -268,7 +273,7 @@ pub(crate) fn composite_hash(kind: u8, parts: &[&str]) -> u32 {
             hash = (hash ^ u32::from(COMPOSITE_SEPARATOR)).wrapping_mul(16_777_619);
         }
         for byte in part.bytes() {
-            let byte = if kind == 3 {
+            let byte = if folds_case(kind) {
                 byte.to_ascii_lowercase()
             } else {
                 byte

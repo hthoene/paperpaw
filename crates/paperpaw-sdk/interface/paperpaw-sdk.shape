@@ -518,7 +518,7 @@ const paperpaw_sdk::native::CODE_FILES: &[&str] = &[ "code.ppn", "code.so", "cod
 const paperpaw_sdk::native::DRAFT: u16 = 36u16
 const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint = Fingerprint::of(INTERFACE, { let mut hash = layout::Fnv::new()
 const paperpaw_sdk::native::INTERFACE: u16 = 7u16
-const paperpaw_sdk::native::LAYOUT: u64 = 9_909_754_725_280_860_399u64
+const paperpaw_sdk::native::LAYOUT: u64 = 18_274_061_776_900_477_695u64
 const paperpaw_sdk::native::TOOLCHAIN: &str = if cfg!(target_arch = "riscv32") { "rustc 1.99.0, riscv32imc-unknown-none-elf" } else if cfg!(target_arch = "xtensa") { "esp 1.97.0.0, xtensa-esp32s3-none-elf" } else { "the compiler of PaperPaw's release, for this computer" }
 const paperpaw_sdk::native::binding::heap::ABORT_ALLOCATION: i32 = 2i32
 const paperpaw_sdk::native::binding::heap::ABORT_MESSAGE_BYTES: usize = 96usize
@@ -3677,7 +3677,8 @@ struct paperpaw_sdk::widgets::WidgetContext<'a> { placement: core::option::Optio
 struct paperpaw_sdk::widgets::WidgetPlace { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, settings: alloc::borrow::Cow<'static, [paperpaw_sdk::id::Id]>, kind: paperpaw_sdk::widgets::PlaceKind, shown_if: core::option::Option<(paperpaw_sdk::id::Id, &'static str)> }
 struct paperpaw_sdk::widgets::WidgetSpec { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, factory: paperpaw_sdk::widgets::WidgetFactory, category: alloc::borrow::Cow<'static, str>, previews: core::option::Option<paperpaw_sdk::id::Id>, cells: core::option::Option<paperpaw_sdk::widgets::CellSpan>, spare: u32 }
 struct paperpaw_sdk::widgets::WidgetTarget { area: paperpaw_platform::geometry::Rect, command: paperpaw_sdk::command::Command, touch: bool, hold: core::option::Option<paperpaw_sdk::command::Command> }
-struct paperpaw_sdk::widgets::Widgets { widgets: alloc::vec::Vec<paperpaw_sdk::widgets::Entry>, places: alloc::vec::Vec<paperpaw_sdk::widgets::WidgetPlace>, categories: alloc::vec::Vec<paperpaw_sdk::widgets::WidgetCategory> }
+struct paperpaw_sdk::widgets::Widgets { widgets: alloc::vec::Vec<paperpaw_sdk::widgets::Entry>, places: alloc::vec::Vec<paperpaw_sdk::widgets::WidgetPlace>, categories: alloc::vec::Vec<paperpaw_sdk::widgets::WidgetCategory>, elsewhere: paperpaw_sdk::widgets::elsewhere::Elsewhere }
+struct paperpaw_sdk::widgets::elsewhere::Elsewhere(0: core::option::Option<alloc::boxed::Box<dyn core::ops::function::Fn(core::option::Option<&str>, &mut dyn core::ops::function::FnMut(&str, &str, &str))>>)
 struct paperpaw_sdk::widgets::grid::Cells { col: u8, row: u8, w: u8, h: u8 }
 struct paperpaw_sdk::widgets::grid::Geometry { columns: u8, rows: u8, area: paperpaw_platform::geometry::Rect, cell_w: u16, cell_h: u16, gap: u16 }
 struct paperpaw_sdk::widgets::grid::Item { what: paperpaw_sdk::widgets::grid::What, at: core::option::Option<paperpaw_sdk::widgets::grid::Cells> }

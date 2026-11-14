@@ -185,6 +185,8 @@ paperpaw-platform.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 # Comic books for the sleep tests (#248).
 paperpaw-zip = { workspace = true, features = ["testing"] }
+# The home layouts' property tests (moved from the Home plugin, #244).
+proptest.workspace = true
 
 # One check in its own process, no test harness: its allocator counts every
 # allocation, and libtest's captured output would grow the heap it measures.

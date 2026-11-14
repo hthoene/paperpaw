@@ -1,12 +1,23 @@
 # Interface-7 port (slices 1 to 6, linked into the app)
 
-Version 1.0.4. **Status: not complete** (ticket #244): the native plugin (`native_plugin::NativeWifi`,
-`NATIVE_ENTRY`, feature `linked`) is the whole Wi-Fi plugin and is **linked into the app**
-(`paperpaw_app::NATIVE_PLUGINS`, under `native-linked`, where the interface-6 `Wifi` is not registered any more
-as with `menu`); what stays is the interface-6 `Wifi` of the default build (`src/lib.rs`, `networks.rs`,
-`page.rs`, `phone.rs`, `policy.rs`, `phone.html`), which goes together with its tests and app wiring when the
-host activates native plugins (#243): held until then, because the app would lose Wi-Fi before. Then this
-becomes "complete, native only" and the plugin joins `tools/plugin-files7/complete.txt`.
+Version 1.0.4. **Status: complete, native only** (ticket #244): the native plugin (`native_plugin::NativeWifi`,
+`NATIVE_ENTRY`, feature `linked`) is the whole Wi-Fi plugin and is linked into the app
+(`paperpaw_app::NATIVE_PLUGINS`, under `native-linked`). The interface-6 `Wifi` is **removed** (`src/lib.rs`'s
+`Plugin` impl with its settings, screens, status item and registrations, `networks.rs`, `page.rs`, `phone.rs`,
+`policy.rs`, the HOW texts `how/{en,de}.txt`, the registration of `Wifi` in `paperpaw_app::install_with`, and the
+tests that ran it on a kernel: `tests/{radio,networks,phone,native_phone_parity}.rs`, the old-vs-new comparisons in
+`native_policy/tests.rs`, `native_ini` and `native_phone/tests.rs`). **This PR is HELD until native activation
+(#243):** until the host activates native plugins the interface-6 app (without `native-linked`) has no Wi-Fi page and
+no radio policy. The plugin joins `tools/plugin-files7/complete.txt`. `WHILE_CHARGING` stays as the key the X4's
+firmware sets the default of (`shells/xteink`).
+
+What was pinned by the removed tests is now held by: `native_policy/tests.rs` (the policy's own cases),
+`native_radio/tests.rs` (the five scenarios of the old `tests/radio.rs` on a simulated host), `native_phone/tests.rs`
+(the four scenarios of the old `tests/phone.rs`; the form and the `wifi.ini` readings run on the old code's samples,
+written out), `tests/scripted_*.rs` (the screens and the radio on the scripted host), `tests/abi7_declarations.rs`
+(every declaration, as the interface-6 registration declared it, and admitted by the host's rules). The byte-for-byte
+comparison of the served pages with the interface-6 screen (`tests/native_phone_parity.rs`) was made while that code
+existed and is not repeated; the random old-vs-new policy runs (200 runs of 40 events) likewise.
 
 ## Ported
 

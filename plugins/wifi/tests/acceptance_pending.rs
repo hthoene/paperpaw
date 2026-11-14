@@ -1,7 +1,7 @@
 //! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! Wi-Fi plugin is pinned by `radio.rs`, `networks.rs` and `phone.rs` on a
-//! kernel; these cases are the same behaviours through the production loader
-//! with the native plugin. They never pass by themselves. (The Wi-Fi page and the
+//! Wi-Fi plugin (pinned by `radio.rs`, `networks.rs` and `phone.rs` on a
+//! kernel, removed with its code) is what these cases hold the native plugin
+//! to: the same behaviours through the production loader. They never pass by themselves. (The Wi-Fi page and the
 //! networks in reach are no case any more: `tests/scripted_networks.rs` draws
 //! them from the plugin's own catalogs on the scripted host, which answers
 //! `i18n.copy` and `i18n.format`.)
@@ -13,7 +13,7 @@ use pending::Case;
 const CASES: [Case; 5] = [
     // The setup with a phone: the device's own network and a page it serves
     // at port 80 (`core.net` `serve` / `respond`). Its decisions and pages are
-    // `native_phone` (compared with the old screen); serving them and
+    // `native_phone` (tested on the old screen's forms); serving them and
     // answering are run in `tests/scripted_phone.rs`. Drawing the screen with
     // its codes (the ui kit's `Footer::Code`) waits for the host's compose.
     Case {
@@ -25,7 +25,7 @@ const CASES: [Case; 5] = [
     // `wifi.ini` on the card read once at a start. What the plugin keeps and
     // asks for is `native_known`; the screens read the names kept (run in
     // `tests/scripted_networks.rs`); the `wifi.ini` is read at a start and its
-    // networks kept (`native_ini`, compared with the old reading); keeping a
+    // networks kept (`native_ini`, tested on the old reading's samples); keeping a
     // password once the device is in the network is wired (`native_plugin::events`); its typed-password
     // path is not run over the scripted dialogs yet.
     Case {

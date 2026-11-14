@@ -17,8 +17,7 @@ native-entry = []
 
 [dependencies]
 paperpaw-qr.workspace = true
-# Installs plugins sent from a computer (kernel).
-paperpaw-sdk = { workspace = true, features = ["kernel"] }
+paperpaw-sdk.workspace = true
 paperpaw-ui-kit.workspace = true
 
 [build-dependencies]

@@ -207,6 +207,10 @@ impl App {
 /// the app registers neither until the host activates native plugins: the
 /// pending cases of `plugins/files` and `plugins/setup`.)
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
 fn reading_and_home_keep_the_book_opened() {
     let card = Card::new(true);
     let mut app = App::start(BUTTONS, &card);
@@ -253,10 +257,6 @@ fn reading_and_home_keep_the_book_opened() {
 /// changed with the buttons are written to `paperpaw.ini`; a kernel
 /// started anew on the same card reads them back.
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
 fn settings_changed_in_the_ui_are_saved_and_read_back_after_a_restart() {
     let card = Card::new(true);
 
@@ -341,6 +341,10 @@ fn the_first_start_with_the_help_hints_on_reaches_home_and_a_book() {
 /// a word broken at the end of a line is whole in it, not
 /// "restric- tions" with the hyphen and the line break of the page.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
 fn bookmarks_keep_words_broken_across_lines_whole() {
     let card = Card::new(true);
     let mut app = App::start(BUTTONS, &card);
@@ -376,6 +380,10 @@ fn bookmarks_keep_words_broken_across_lines_whole() {
 /// after it. Bookmarks land in the book on show,
 /// nothing says the book could not be opened, nothing warns.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
 fn a_book_opened_while_the_reader_shows_one() {
     fn open(app: &mut App, path: &str) {
         app.now += 100;
@@ -427,6 +435,10 @@ fn a_book_opened_while_the_reader_shows_one() {
 /// its own committed transaction of the library (with the native reader, ops
 /// 15, 17, 18 and 20 on the host); the other page's bookmark stays.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
 fn a_bookmark_toggled_twice_is_gone_and_the_others_stay() {
     let card = Card::new(true);
     let mut app = App::start(BUTTONS, &card);
@@ -455,6 +467,13 @@ fn a_bookmark_toggled_twice_is_gone_and_the_others_stay() {
     assert!(warnings.is_empty(), "{warnings:?}");
 }
 
+/// A row's label without the state a switch row tells at its end.
+fn unswitched(row: &str) -> &str {
+    row.strip_suffix(", On")
+        .or_else(|| row.strip_suffix(", Off"))
+        .unwrap_or(row)
+}
+
 /// Opens each row of the menu that `open` shows, one after the other,
 /// with the buttons (`buttons`) or by touch, and goes home after each:
 /// every entry leads somewhere, and nothing it opens panics or warns.
@@ -468,7 +487,16 @@ fn walk_menu(device: DeviceInfo, open: Id, buttons: bool) -> Vec<(String, String
     for (index, row) in rows.iter().enumerate() {
         app.run(actions::HOME);
         app.run(open.clone());
-        assert_eq!(app.rows(), rows, "{open} shows the same rows again");
+        // The walk pressed the Night mode row, a switch, so it has switched
+        // (as in interface 6); its row now tells the other state.
+        assert_eq!(
+            app.rows()
+                .iter()
+                .map(|row| unswitched(row))
+                .collect::<Vec<_>>(),
+            rows.iter().map(|row| unswitched(row)).collect::<Vec<_>>(),
+            "{open} shows the same rows again"
+        );
         if buttons {
             for _ in 0..index {
                 app.run(actions::DOWN);
@@ -494,8 +522,8 @@ fn walk_menu(device: DeviceInfo, open: Id, buttons: bool) -> Vec<(String, String
 
 #[test]
 #[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+    not(all(feature = "native-linked", feature = "native-linked-reading")),
+    ignore = "the menu and the Settings are native plugins: linked with `native-linked` and `native-linked-reading` only (#244)"
 )]
 fn every_entry_of_the_main_menu_and_the_tools_opens_with_the_buttons() {
     let menu = walk_menu(BUTTONS, actions::MENU, true);
@@ -511,8 +539,8 @@ fn every_entry_of_the_main_menu_and_the_tools_opens_with_the_buttons() {
 
 #[test]
 #[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+    not(all(feature = "native-linked", feature = "native-linked-reading")),
+    ignore = "the menu and the Settings are native plugins: linked with `native-linked` and `native-linked-reading` only (#244)"
 )]
 fn every_entry_of_the_main_menu_and_the_tools_opens_by_touch() {
     let menu = walk_menu(TOUCH, actions::MENU, false);

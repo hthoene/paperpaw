@@ -41,6 +41,8 @@ fn main() -> Result<(), String> {
     emit!(source, all, "SETTINGS", declarations::settings);
     emit!(source, all, "UI", declarations::ui);
     emit!(source, all, "FORMATS", declarations::formats);
+    emit!(source, all, "WIDGETS", declarations::widgets);
+    emit!(source, all, "EVENTS", declarations::events);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     // The settings, setting groups and ids as tables the kernel keeps in the
     // program (a linked build only), made of the very records declared above.

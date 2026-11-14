@@ -32,7 +32,7 @@ fn the_screens_read_and_write_mail_from_the_cards_cache() {
 }
 
 #[test]
-#[ignore = "needs the widget host call (Core todo 76): unread, latest, starred, mailbox and write widgets"]
+#[ignore = "needs a scripted host with the widget stage (#944): unread, latest, starred, mailbox and write widgets are native and drawn by `native_widgets`, but no host runs them end to end"]
 fn the_home_widgets_show_the_mail_checked_last() {
     unreachable!("they read the store, never the network");
 }

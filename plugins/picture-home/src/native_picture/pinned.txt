@@ -1,0 +1,97 @@
+fit picture-home.fit.fill Fill
+fit picture-home.fit.fit Whole
+fit picture-home.fit.stretch Stretch
+fit picture-home.fit.original Original
+fit picture-home.fit.tile Tile
+fit  Fill
+fit gone Fill
+render picture-home.render.auto Automatic
+render picture-home.render.grays Grays
+render picture-home.render.dither Dithered
+render  Automatic
+render gone Automatic
+bar picture-home.bar.off Off
+bar picture-home.bar.auto Auto
+bar picture-home.bar.on On
+bar  On
+bar gone On
+look picture-home.look.normal Normal
+look picture-home.look.inverted Inverted
+look picture-home.look.light Light
+look picture-home.look.dark Dark
+look picture-home.look.clear Clear
+look  Normal
+look gone Normal
+Fill 47940a1d1738eaff|1234|-5|Fill|21|150|20|-11|true|480x800
+Whole 47940a1d1738eaff|1234|-5|Whole|21|150|20|-11|true|480x800
+Stretch 47940a1d1738eaff|1234|-5|Stretch|21|150|20|-11|true|480x800
+Original 47940a1d1738eaff|1234|-5|Original|21|150|20|-11|true|480x800
+Tile 47940a1d1738eaff|1234|-5|Tile|21|150|20|-11|true|480x800
+plan 1800 fdaecb1f425dce70
+crop 320 bec7664aa1b01fc1
+tone 2319 01992759e774baf1
+Some((4000, 3000)) 1
+Some((4000, 3000)) 1
+Some((4000, 3000)) 2
+Some((4000, 3000)) 3
+Some((4000, 3000)) 4
+Some((4000, 3000)) 5
+Some((4000, 3000)) 6
+Some((4000, 3000)) 7
+Some((4000, 3000)) 8
+Some((4000, 3000)) 1
+Some((4000, 3000)) 1
+Some((4000, 3000)) 1
+Some((4000, 3000)) 2
+Some((4000, 3000)) 3
+Some((4000, 3000)) 4
+Some((4000, 3000)) 5
+Some((4000, 3000)) 6
+Some((4000, 3000)) 7
+Some((4000, 3000)) 8
+Some((4000, 3000)) 1
+Some((4000, 3000)) 1
+Some((4000, 3000)) 1
+Some((4000, 3000)) 2
+Some((4000, 3000)) 3
+Some((4000, 3000)) 4
+Some((4000, 3000)) 5
+Some((4000, 3000)) 6
+Some((4000, 3000)) 7
+Some((4000, 3000)) 8
+Some((4000, 3000)) 1
+Some((4000, 3000)) 1
+Some((4000, 3000)) 1
+Some((4000, 3000)) 2
+Some((4000, 3000)) 3
+Some((4000, 3000)) 4
+Some((4000, 3000)) 5
+Some((4000, 3000)) 6
+Some((4000, 3000)) 7
+Some((4000, 3000)) 8
+Some((4000, 3000)) 1
+Some((4000, 3000)) 1
+Some((4000, 3000)) 1
+Some((4000, 3000)) 2
+Some((4000, 3000)) 3
+Some((4000, 3000)) 4
+Some((4000, 3000)) 5
+Some((4000, 3000)) 6
+Some((4000, 3000)) 7
+Some((4000, 3000)) 8
+Some((4000, 3000)) 1
+Some((4000, 3000)) 1
+Some((4000, 3000)) 1
+Some((4000, 3000)) 2
+Some((4000, 3000)) 3
+Some((4000, 3000)) 4
+Some((4000, 3000)) 5
+Some((4000, 3000)) 6
+Some((4000, 3000)) 7
+Some((4000, 3000)) 8
+Some((4000, 3000)) 1
+None 1
+None 1
+None 1
+None 1
+folders 5 50df53bdf92ba260

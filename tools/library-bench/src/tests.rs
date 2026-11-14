@@ -14,6 +14,34 @@ use paperpaw_zip::testing::ZipBuilder;
 
 const BOOKS: usize = 60;
 
+/// EPUB as a format plugin of the kernel under test: it is a native plugin
+/// only now (interface 6 is removed, #244), which this kernel does not host.
+struct TestEpub;
+
+impl Plugin for TestEpub {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(
+            paperpaw_epub_family::PLUGIN,
+            "EPUB",
+            paperpaw_sdk::package_version!(),
+        )
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        r.add_book_cache(Env::plugin_dir("format-epub"), "")?;
+        r.add_format(paperpaw_sdk::FormatSpec::new(
+            Id::new_static("format-epub.epub"),
+            "format-epub.title",
+            vec![std::borrow::Cow::Borrowed("epub")],
+            Box::new(|storage, path, options| {
+                paperpaw_epub_family::EpubDocument::open_options(storage, path, options)
+                    .map(|d| Box::new(d) as Box<dyn paperpaw_sdk::document::Document>)
+            }),
+        ))
+    }
+}
+
 /// A small EPUB without a cover, as the X4 test's books are.
 fn epub(n: usize) -> Vec<u8> {
     let opf = format!(
@@ -98,7 +126,7 @@ fn the_first_walk_writes_next_to_nothing_of_the_books_formats() {
     let mut kernel = Kernel::builder(DEVICE)
         .storage(card)
         .setting_default(&settings::LIBRARY_FOLDER, "books".into())
-        .plugin(paperpaw_epub_family::EpubFormat)
+        .plugin(TestEpub)
         .plugin(Walker)
         .build()
         .unwrap();
@@ -132,7 +160,7 @@ fn the_first_walk_writes_next_to_nothing_of_the_books_formats() {
     let mut kernel = Kernel::builder(DEVICE)
         .storage(card)
         .setting_default(&settings::LIBRARY_FOLDER, "books".into())
-        .plugin(paperpaw_epub_family::EpubFormat)
+        .plugin(TestEpub)
         .plugin(Walker)
         .build()
         .unwrap();

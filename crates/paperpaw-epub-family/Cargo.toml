@@ -16,7 +16,6 @@ paperpaw-sdk = { workspace = true, features = ["unstable"] }
 miniz_oxide = { version = "0.9", default-features = false, features = ["with-alloc"] }
 
 [dev-dependencies]
-paperpaw-i18n.workspace = true
 paperpaw-layout.workspace = true
 paperpaw-zip = { workspace = true, features = ["testing"] }
 proptest.workspace = true

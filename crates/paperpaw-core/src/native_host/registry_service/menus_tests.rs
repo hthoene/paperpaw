@@ -981,6 +981,41 @@ fn op_19_lists_widgets_with_kind_icon_cells_and_whether_a_place_shows_them() {
 }
 
 #[test]
+fn the_kernels_own_screens_are_told_the_declared_widgets_to_add() {
+    let directory = declarations(&[
+        widget("quote", "core.widgets.words", 0, 0, ""),
+        widget("preview", "core.widgets.words", 0, 0, "demo.top"),
+        widget("round", "nat.own-kind", 0, 0, ""),
+    ]);
+    let names = |only: Option<&str>| {
+        let mut found = Vec::new();
+        super::widgets::declared_names(&directory, only, &mut |id, title, kind| {
+            found.push(format!("{id} {title} {kind}"));
+        });
+        found
+    };
+    // Not the one that previews settings.
+    assert_eq!(
+        names(None),
+        [
+            "nat.quote nat.widget core.widgets.words",
+            "nat.round nat.widget nat.own-kind"
+        ]
+    );
+    // One alone, also by a placement of it.
+    assert_eq!(
+        names(Some("nat.round@2")),
+        ["nat.round nat.widget nat.own-kind"]
+    );
+    assert!(names(Some("nat.preview")).is_empty());
+    assert!(names(Some("nat.nobody")).is_empty());
+    // Nothing while the store is being written.
+    let writing = directory.store.borrow_mut();
+    assert!(names(None).is_empty());
+    drop(writing);
+}
+
+#[test]
 fn op_19_with_flags_bit_0_lists_the_widgets_that_preview_a_group() {
     let kernel = kernel();
     let directory = declarations(&[

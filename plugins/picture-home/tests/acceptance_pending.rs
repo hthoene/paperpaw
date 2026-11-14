@@ -1,7 +1,7 @@
-//! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! screen is pinned by `home.rs` on a kernel and by the goldens; these cases are
-//! the same behaviours through the production loader with the native plugin.
-//! They never pass by themselves.
+//! Acceptance of the interface-7 port, pending on the host. The native
+//! behaviours are pinned by the unit tests of the `native_*` modules and
+//! `tests/hosted_page.rs`; these cases are the same behaviours through the
+//! production loader with the native plugin. They never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;

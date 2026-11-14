@@ -11,7 +11,8 @@
 # Steps, in this order: fmt (and, for changed .rs files there, fmt-shells
 # for shells/xteink and fmt-fuzz for fuzz: rustfmt only), clippy (-D warnings), test,
 # test-linked (the tests of each package that has a `linked` feature, run with
-# it: the hosted tests there are built nowhere else), test-native (the app's
+# it: the hosted tests there are built nowhere else), clippy-native (the app's
+# tests behind the native-linked features, -D warnings), test-native (the app's
 # flows, sleep_parity and sleep_cycles with the linked reader and formats, when the core, the
 # app, the native layer or a plugin changed, or with --all-linked), doc (-D warnings),
 # changelog, lockfiles, licences, checks (paperpaw-checks), abi-metadata.
@@ -61,7 +62,7 @@ base="origin/abi7/integration"
 jobs=4
 crates=()
 all_linked=0
-known=" fmt fmt-shells fmt-fuzz clippy clippy-features test test-features test-linked test-native doc changelog lockfiles licences checks abi-metadata "
+known=" fmt fmt-shells fmt-fuzz clippy clippy-features clippy-native test test-features test-linked test-native doc changelog lockfiles licences checks abi-metadata "
 
 check_names() { # LIST OPTION: every name must be a known step
     local name
@@ -288,10 +289,17 @@ for crate in "${crates[@]}"; do
     esac
 done
 if [[ "$native_wanted" == 1 ]]; then
+    # The tests behind the native-linked features are compiled out of the plain
+    # clippy run above (the CI workspace run unifies the features and sees them).
+    step clippy-native cargo clippy -j"$jobs" -p paperpaw-app --all-targets --features native-linked,native-linked-reading,native-linked-store -- -D warnings
     step test-native bash -c 'set -e
         cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles
         cargo test -j"$1" -p paperpaw-app --features native-linked-reading --test linked_settings_tables
-        cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables' _ "$jobs"
+        cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
+        cargo test -j"$1" -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last
+        cargo test -j"$1" -p paperpaw-app --features native-linked-reading --test sets --test standard
+        cargo test -j"$1" -p paperpaw-app --features native-linked-reading --test readers
+        cargo test -j"$1" -p paperpaw-app --features native-linked-reading --test partial_redraw -- --exact table_of_contents' _ "$jobs"
 elif ! wanted test-native; then
     skipped+=("test-native (left out by --only/--skip)")
 else

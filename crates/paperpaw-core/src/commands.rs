@@ -55,16 +55,22 @@ impl Kernel {
         self.native_service_pump();
         self.finish_commands();
         let effects = self.finish_frame();
-        // The specs this round made of settings their plugins describe are
-        // let go: none stays on the heap between rounds (#248). One left out
-        // for lack of room was taken as not there by who asked: said here,
-        // once the specs are gone (the warning's text needs room too).
+        // None stays on the heap between rounds (#248).
+        self.rest_settings();
+        effects
+    }
+
+    /// Lets go of the specs made of settings their plugins describe (#248):
+    /// at the end of a round, and of a plugin's publication (what its
+    /// configured values made it read is not kept while the next registers).
+    /// One left out for lack of room was taken as not there by who asked: said
+    /// here, once the specs are gone (the warning's text needs room too).
+    pub(crate) fn rest_settings(&mut self) {
         let short = self.shared.settings.went_short();
         self.shared.settings.rest();
         if short {
             self.warn_runtime("no room to read a setting from its plugin; taken as not there");
         }
-        effects
     }
 
     /// [`Self::finish`] for the start: the services' pass and the commands go

@@ -41,6 +41,8 @@ pub(crate) struct StageInputs {
     pub(crate) own_requests: usize,
     /// What the table of requests held, and whether the plugin may answer.
     pub(crate) answers: super::plugin_requests::AnswerView,
+    /// Whose the device's one preview of settings is.
+    pub(crate) preview: super::commands::PreviewHeld,
 }
 
 /// The device-wide hand-off between the kernel and the screens' dispatch.
@@ -216,6 +218,7 @@ pub(crate) fn build_stage<'a>(parts: StageParts<'a>) -> CommandStage<'a> {
     stage.set_speech_held(inputs.speech_held);
     stage.set_requests_open(inputs.requests_open, inputs.own_requests);
     stage.set_answer_view(inputs.answers);
+    stage.set_preview_held(inputs.preview);
     if let Some(directory) = directory {
         stage = stage.with_item_states(super::commands::ItemAdmit { directory });
     }
@@ -372,6 +375,7 @@ mod tests {
             requests_open: 0,
             own_requests: 0,
             answers: crate::native_host::plugin_requests::AnswerView::default(),
+            preview: crate::native_host::commands::PreviewHeld::Nobody,
         };
         assert!(queue.inputs().is_none());
         let outer = queue.arm(inputs(1));

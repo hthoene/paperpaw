@@ -62,3 +62,29 @@ impl Values for HostValues<'_> {
         found
     }
 }
+
+/// The settings of this plugin alone, for what needs no secret (which
+/// accounts are set up, a provider's servers): a secret is never asked for.
+pub(crate) struct SettingsValues<'h>(pub(crate) &'h Host<'h>);
+
+impl Values for SettingsValues<'_> {
+    fn text(&self, id: &str) -> Result<String, Error> {
+        let mut bytes = [0u8; TEXT];
+        match settings::read_setting(self.0, id, &mut bytes)? {
+            SettingValue::Text(text) => copy(text),
+            _ => Ok(String::new()),
+        }
+    }
+
+    fn int(&self, id: &str) -> Result<i64, Error> {
+        let mut bytes = [0u8; 64];
+        match settings::read_setting(self.0, id, &mut bytes)? {
+            SettingValue::Int(value) => Ok(value),
+            _ => Ok(0),
+        }
+    }
+
+    fn secret(&self, _: &str) -> Result<Option<Secret>, Error> {
+        Ok(None)
+    }
+}

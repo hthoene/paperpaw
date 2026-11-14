@@ -8,6 +8,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+#[path = "../../test-support/notice_box.rs"]
+mod notice_box;
 use paperpaw_core::Kernel;
 use paperpaw_i18n::Arg;
 use paperpaw_platform::{
@@ -87,7 +89,7 @@ fn shown(device: DeviceInfo, language: &str, ui_size: Option<i64>) -> Vec<(Strin
         .storage(MemoryStorage::new())
         .user_config(format!("[core]\nlanguage = {language}\n"))
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        .plugin(paperpaw_plugin_menu::Menu)
+        .plugin(notice_box::NoticeBox)
         .plugin(Store)
         .plugin(Probe);
     let builder = match ui_size {

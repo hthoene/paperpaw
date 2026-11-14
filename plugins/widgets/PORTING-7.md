@@ -1,4 +1,21 @@
-# Interface-7 port (in progress)
+# Interface-7 port (native only; the blocked cases wait for host pieces)
+
+Version 1.0.9 (Beta 3: 1.0.7, so no further bump). Status: complete in code. Native only: the interface-6 pack
+(`books`, `time`, `words`, `showings`, the `Widgets` plugin and its drawing, refusal and property tests, and
+`tests/{drawing,books,words,todo,declarations,settings_parity,todo_declarations}.rs`) is gone (no shim, #228);
+the comparisons with it are pinned values or acceptance cases (`tests/acceptance_pending.rs`, H1/H3). `HOW`
+and `CATALOGS` (en/de) are the statics the host publishes at admission. Not linked into the app (it is no longer
+in `paperpaw_app::STORE_PLUGINS`) and listed in `tools/plugin-files7/complete.txt`. Lost with the interface-6
+tests, until the host draws native widgets: the drawing sweep (every widget at every cell size, every setting
+value, hostile files), the settings-parity comparison. The settings are pinned instead by Beta 3's batches
+(`testdata/declarations.bin.v1`, kept): `tests/abi7_declarations.rs` requires every setting of it to be declared as it
+was (group, kind, default, range, choices, title, help), new ones allowed.
+
+**Held until native activation.** With the interface-6 pack gone the app registers no widgets, and `widgets` is not
+yet in `paperpaw_app::NATIVE_PLUGINS`: kernels without native activation (Android, emulator, web, test kernels)
+show none of the pack's widgets until it is. Activation adds `widgets` to `NATIVE_PLUGINS` (with its optional
+dependency and `paperpaw-plugin-widgets/linked` in the `native-linked` feature) together with the shells' size and
+memory measurement of the linked plugin (the plugin file packs to about 480 KB, so this is not done blind here).
 
 Native plugin: `src/native_plugin.rs` (`NativeWidgets`): the host makes an
 instance when a screen shows a widget (`event.widget_made`), asks for its
@@ -94,11 +111,7 @@ interface-7 port uses it, none builds its own.
 
 ## Not ported yet (explicit)
 
-Nothing: with the picture widget (this slice) every widget of the families has a native port. The interface-6 pack stays in `src/`
-until activation; then the last
-commit deletes it, its app wiring and its tests together (no shim).
-Ported from the words family so far: greeting (by time of day) and
-note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4).
+Nothing: every widget of the pack is native and the interface-6 code is gone.
 
 ## Gaps and differences
 

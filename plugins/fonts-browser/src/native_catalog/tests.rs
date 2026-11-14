@@ -43,14 +43,25 @@ fn read(json: &[u8], outlines: bool) -> Vec<Font> {
     Catalog::read(BASE, outlines, json).unwrap().unwrap()
 }
 
-/// What the interface-6 reader makes of `json`, as comparable text.
-fn legacy(json: &[u8], outlines: bool) -> Vec<String> {
-    let storage = MemoryStorage::new().with("catalog.json", json.to_vec());
-    crate::catalog::read(&storage, "catalog.json", BASE, outlines)
-        .unwrap_or_default()
-        .iter()
-        .map(|f| format!("{}|{}", f.to_param(), f.size()))
-        .collect()
+/// What the interface-6 reader made of the same catalogs, built from its rules:
+/// the font's line and the files it keeps (`plugin.ini` first, then the
+/// `pack`s or `outline`s of the fixture), and the size they add up to.
+fn expected(id: &str, pack: &str, files: usize) -> String {
+    let mut out =
+        format!("{id}\tFont {id}\tsans\tA\tOFL-1.1\t1.0\t2\thttps://fonts.example/{id}/sample");
+    for k in 0..files {
+        let path = if k == 0 {
+            String::from("plugin.ini")
+        } else {
+            format!("fonts/{pack}{k}")
+        };
+        out.push_str(&format!(
+            "\n{path}\t{}\t0123456789abcdef0123456789abcdef01234567\thttps://fonts.example/{id}/{k}",
+            k + 1
+        ));
+    }
+    out.push_str(&format!("|{}", files * (files + 1) / 2));
+    out
 }
 
 fn ported(fonts: &[Font]) -> Vec<String> {
@@ -61,7 +72,7 @@ fn ported(fonts: &[Font]) -> Vec<String> {
 }
 
 #[test]
-fn the_catalog_reads_as_the_interface_6_reader_does() {
+fn the_catalog_reads_as_the_interface_6_reader_did() {
     let mut fonts = vec![font("a000", MAX_FILES + 3, false)];
     fonts.extend((1..MAX_FONTS + 5).map(|n| font(&format!("a{n:03}"), 3, false)));
     let many = catalog(&fonts);
@@ -77,13 +88,32 @@ fn the_catalog_reads_as_the_interface_6_reader_does() {
         font("../x", 2, false),
         font("d", 0, false),
     ]);
-    for json in [&many, &mixed] {
-        for outlines in [false, true] {
-            let got = ported(&read(json, outlines));
-            assert!(!got.is_empty());
-            assert_eq!(got, legacy(json, outlines), "outlines {outlines}");
-        }
+    // The interface-6 reader kept the first MAX_FONTS fonts and the first
+    // MAX_FILES files of each, on either kind of device.
+    let mut want = vec![expected("a000", "pack", MAX_FILES)];
+    want.extend((1..MAX_FONTS).map(|n| expected(&format!("a{n:03}"), "pack", 3)));
+    for outlines in [false, true] {
+        assert_eq!(ported(&read(&many, outlines)), want, "outlines {outlines}");
     }
+    // A duplicate id, an id that leaves the folder and a font of size 0 are
+    // left out; a font whose outline files lack `plugin.ini` (c) is taken by its
+    // packs; the outline files are the ones a device that draws outlines takes.
+    assert_eq!(
+        ported(&read(&mixed, false)),
+        [
+            expected("a", "pack", 2),
+            expected("b", "pack", 2),
+            expected("c", "pack", 2)
+        ]
+    );
+    assert_eq!(
+        ported(&read(&mixed, true)),
+        [
+            expected("a", "outline", 2),
+            expected("b", "pack", 2),
+            expected("c", "pack", 2)
+        ]
+    );
     assert_eq!(read(&many, false).len(), MAX_FONTS);
     assert_eq!(read(&many, false)[0].files.len(), MAX_FILES);
 }
@@ -92,7 +122,7 @@ fn the_catalog_reads_as_the_interface_6_reader_does() {
 fn a_catalog_cut_short_keeps_the_font_it_ends_in() {
     let json = catalog(&[font("a", 2, false), font("b", 2, false)]);
     let cut = &json[..json.len() - 12];
-    assert_eq!(ported(&read(cut, false)), legacy(cut, false));
+    assert_eq!(ported(&read(cut, false)), [expected("a", "pack", 2)]);
     assert_eq!(read(cut, false).len(), 1);
 }
 

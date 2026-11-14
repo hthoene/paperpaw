@@ -201,9 +201,10 @@ fn room_for(
 
 /// Every item with its index and place: those placed where they are (if they
 /// fit the grid and nothing before took the cells); those whose place lies
-/// outside the grid as near it as the grid allows, narrower or lower where
-/// they must be, else in the first free cells; the others in the first free
-/// cells. Items without any room are left out.
+/// outside the grid, or whose cells an item before took, as near it as the
+/// grid allows, narrower or lower where they must be, else in the first free
+/// cells; the others in the first free cells. Items without any room are left
+/// out.
 fn places(
     sizes: &impl Sizes,
     geometry: &Geometry,
@@ -232,10 +233,14 @@ fn places(
             placed.push((index, c));
         }
     }
-    // Those whose place the grid no longer holds: moved inside it as little
-    // as can be, narrower or lower where they are wider or higher than it.
+    // Those whose place the grid no longer holds, or an item before took:
+    // moved inside it as little as can be, narrower or lower where they are
+    // wider or higher than it.
     for (index, item) in items.iter().enumerate() {
-        let Some(c) = item.at.filter(|c| !c.fits(geometry.columns, geometry.rows)) else {
+        let Some(c) = item
+            .at
+            .filter(|_| !placed.iter().any(|(placed, _)| *placed == index))
+        else {
             continue;
         };
         let (w, h) = (

@@ -1,7 +1,6 @@
 //! What the transfer decides without the host: the address a server is opened
 //! at, which names a book may be put under, which file is read-only, and what
-//! an offer from a computer over the cable says. The same rules as the
-//! interface-6 plugin (`link.rs`, `web.rs`, `cable.rs`), with fallible
+//! an offer from a computer over the cable says, with fallible
 //! allocation and the text given by the caller instead of read from a
 //! storage. Serving, the screens and the installs are the native plugin's
 //! (see `PORTING-7.md`).
@@ -252,3 +251,7 @@ fn digest(hex: &str) -> Option<[u8; 32]> {
     }
     Some(out)
 }
+
+#[cfg(test)]
+#[path = "native_transfer_tests.rs"]
+mod tests;

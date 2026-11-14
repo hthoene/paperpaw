@@ -19,7 +19,7 @@ use paperpaw_sdk::native::{Error, Host, Plugin, registrations, reply::Reply};
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 use paperpaw_ui_kit::{Messages, Screens, read_event, uitext};
 
-use crate::declarations::{HOME, LIST, OPEN, TAGS, WORK_DUE};
+use crate::declarations::{HOME, LIST, OPEN, SETTING_CHANGED, TAGS, WORK_DUE};
 use crate::fallible;
 use crate::native_card::with_card_or_none;
 use crate::native_format;
@@ -27,6 +27,7 @@ use crate::native_home::{self, Home, Next as HomeNext, Slice};
 use crate::native_list::{self, List, MODE, Next as ListNext, WHAT};
 use crate::native_notice::{Notice, Why};
 use crate::native_tags::Tags;
+use crate::native_widgets::{Tap, Widgets};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/notes_vault_declarations.rs"));
@@ -73,6 +74,8 @@ pub struct NativeNotesVault {
     asked: Option<(RequestId, Asked)>,
     /// The Markdown format's documents, kept between `core.format` calls.
     format: Option<FormatProvider>,
+    /// The home widgets made for screens.
+    widgets: Widgets,
 }
 
 impl Plugin for NativeNotesVault {
@@ -89,6 +92,15 @@ impl Plugin for NativeNotesVault {
                 Err(error) => return Err(error),
             }
         }
+        // The home widgets, and the subscription to the settings that change
+        // (the widgets show them anew): a host that does not admit a part of
+        // them yet answers `Unsupported`, and the plugin goes on without it.
+        for batch in image::WIDGETS.iter().chain(image::EVENTS) {
+            match registrations::submit(host, batch) {
+                Ok(()) | Err(Error::Unsupported) => {}
+                Err(error) => return Err(error),
+            }
+        }
         // `core.ui` is opened by the first callback: opening needs a live frame.
         Ok(Self::default())
     }
@@ -100,7 +112,7 @@ impl Plugin for NativeNotesVault {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::WorkDue, kinds::Answered, kinds::StageCall)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::WorkDue, kinds::Answered, kinds::SettingChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
         else {
             return Ok(());
         };
@@ -111,6 +123,23 @@ impl Plugin for NativeNotesVault {
                 payload,
                 ..
             } => return self.format_call(host, payload, reply),
+            Event::StageCall {
+                stage: "core.widget",
+                payload,
+                ..
+            } => return self.widgets.stage(host, payload, reply),
+            Event::WidgetMade {
+                widget, instance, ..
+            } => return self.widgets.made(widget, instance),
+            Event::WidgetDropped { instance, .. } => {
+                self.widgets.dropped(instance);
+                return Ok(());
+            }
+            // A setting changed: the widgets show it anew.
+            Event::SettingChanged { .. } if token == SETTING_CHANGED => {
+                self.widgets.refresh(host);
+                return Ok(());
+            }
             other => other,
         };
         self.ensure_ui(host)?;
@@ -164,6 +193,9 @@ impl Plugin for NativeNotesVault {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if frame.purpose == DrawPurpose::Widget {
+            return self.widgets.draw(host, frame);
+        }
         if !matches!(frame.purpose, DrawPurpose::Screen) {
             return Ok(());
         }
@@ -177,6 +209,11 @@ impl Plugin for NativeNotesVault {
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         self.ensure_ui(host)?;
+        // A tap on a line of a home widget.
+        if let Some(tap) = self.widgets.tapped(host, &input)? {
+            self.tapped(host, tap)?;
+            return Ok(Handled::Yes);
+        }
         match self.screens.top(token) {
             Some(Slot::Home(home)) => {
                 let (handled, next) = home.input(host, &input)?;
@@ -231,6 +268,19 @@ impl NativeNotesVault {
             native_format::call(provider, &base, card, payload, &mut out)
         })?;
         reply.write(out.get(..written).ok_or(Error::NoSpace)?)
+    }
+
+    /// What a tap on a widget's line opens.
+    fn tapped(&mut self, host: &Host<'_>, tap: Tap) -> Result<(), Error> {
+        match tap {
+            Tap::Note(path) => self.open_note(host, &path),
+            Tap::Tag(tag) => self.open_list(host, "tag", &tag),
+            Tap::Page => {
+                let mut scratch = [0; 128];
+                CommandSender::new(host, &mut scratch).open(Open::screen("notes-vault.screen")?)
+            }
+            Tap::Search => self.ask_search(host),
+        }
     }
 
     /// Opens `core.ui` in the first live callback; the handle serves later ones.
@@ -358,6 +408,8 @@ impl NativeNotesVault {
             return Ok(());
         };
         let slice = home.work(host);
+        // The widgets show what the index holds now.
+        self.widgets.refresh(host);
         redraw(host)?;
         if slice? == Slice::More {
             self.declare_work(host)?;

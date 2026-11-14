@@ -87,6 +87,7 @@ fn page(config: &str) -> Vec<u8> {
 }
 
 #[test]
+#[ignore = "needs interface-6 page layers and text filters, which the native reader does not host (removed with interface 6, #244)"]
 fn both_ways_draw_and_change_the_page() {
     let plain = page("[interlinear]\nabove = off\nparallel = off\n");
     let above = page("[interlinear]\nabove = on\nparallel = off\n");
