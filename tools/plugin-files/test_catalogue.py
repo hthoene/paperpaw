@@ -164,7 +164,7 @@ class DataPlugins(unittest.TestCase):
                 self.assertTrue(z.read("fonts/literata-bold-italic.ppfp").startswith(b"PPFP"))
             first = dist.joinpath(f"literata-bold-italic-{BI}.zip").read_bytes()
             sums = dist.joinpath("SHA256SUMS").read_text(encoding="utf-8")
-            self.assertIn("literata-styles-1.0.0.zip", sums)
+            self.assertIn("literata-styles-1.1.0.zip", sums)
             # The same bytes again.
             with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 catalogue.main()
