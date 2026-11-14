@@ -1318,7 +1318,13 @@ fn code_plugins(
     pool: &crate::native::DevicePool,
 ) -> KernelBuilder {
     if !CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed) {
-        return builder;
+        // No code is loaded (and so no code device): the linked plugins'
+        // `text.hyphenate` still reads the hyphenation packs on the card (todo 613).
+        let mut loader =
+            crate::native::HostLoader::for_device_in(profile.device.memory, pool.clone());
+        return builder.hyphenation_sink(move |card| {
+            paperpaw_core::CodeLoader::hyphenation_sink(&mut loader, card)
+        });
     }
     builder.code_plugins(
         crate::native::native(),
