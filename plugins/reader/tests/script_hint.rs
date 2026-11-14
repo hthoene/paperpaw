@@ -154,6 +154,7 @@ fn opened_with(
     let mut builder = Kernel::builder(BUTTONS)
         .storage(storage.clone())
         .plugin(fonts)
+        .plugin(common::formats::TestEpub)
         .plugin(Reader)
         .plugin(StoreAndNotices(log.clone(), Rc::new(RefCell::new(answer))));
     for id in present {
@@ -189,7 +190,6 @@ fn asked_in(book: (&str, &str), storage: &Shared) -> Vec<String> {
 }
 
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn a_book_in_greek_asks_for_the_pack_once() {
     let storage = Shared::default();
     assert_eq!(asked("el", &storage), ["script-greek"]);
@@ -198,7 +198,6 @@ fn a_book_in_greek_asks_for_the_pack_once() {
 }
 
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn each_script_asks_for_its_own_pack() {
     for (language, pack) in [
         ("ru", "script-cyrillic"),
@@ -223,7 +222,6 @@ fn books_in_latin_script_or_with_no_language_ask_for_nothing() {
 /// The text says more than the language: a book that mixes scripts asks
 /// for each pack (in one request), also where it declares none.
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn a_book_asks_for_the_packs_its_text_needs() {
     let mixed = "Words, then Καλημέρα and שלום and مرحبا, and Привет.";
     let storage = Shared::default();
@@ -253,7 +251,6 @@ fn a_book_asks_for_the_packs_its_text_needs() {
 /// Cyrillic, as an installed pack does for its script): nothing is asked
 /// for. The script it lacks still is.
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn a_font_with_the_letters_asks_for_nothing() {
     use paperpaw_plugin_fonts_default::DefaultFonts;
     for language in ["el", "ru"] {
@@ -275,7 +272,6 @@ fn a_font_with_the_letters_asks_for_nothing() {
 /// asked for at the next opening; *Not now* and a pack installed are not
 /// asked for again.
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn what_the_store_could_not_get_is_asked_for_again() {
     let by = Id::new_static("reader");
     let answers = |installed: &str, missing: &str, declined: bool, error: &str| {
@@ -313,7 +309,6 @@ fn what_the_store_could_not_get_is_asked_for_again() {
 /// The rare Hangul syllables are asked for only where the Korean letters
 /// are there already and the book has syllables the fonts still lack.
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn the_rare_hangul_syllables_are_asked_for_only_when_they_are_needed() {
     let rare = "한국어 똠방각하 뷁";
     // Without the Korean letters, only those are asked for.

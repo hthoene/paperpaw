@@ -367,7 +367,10 @@ impl App {
 }
 
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn settings_lists_drawn_in_part_show_what_a_whole_frame_does() {
     let mut app = App::new();
     app.run(actions::SETTINGS);
@@ -395,7 +398,10 @@ fn home_grid() {
 }
 
 #[test]
-#[ignore = "needs the menu, which is native only now (#244); the native run waits for the native settings, help, lock, files and file-manager plugins (#925)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn main_menu_and_tools() {
     let mut app = App::new();
     app.run(actions::MENU);
@@ -460,7 +466,10 @@ fn widget_editors() {
 }
 
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn keyboard() {
     let mut app = App::new();
     app.run(actions::SETTINGS);

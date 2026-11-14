@@ -9,6 +9,8 @@
     reason = "shared by the tests; not every test file uses every helper"
 )]
 
+pub mod formats;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -317,14 +319,14 @@ impl Reading {
             .user_config(format!("{CONFIG}{config}"))
             .speech(speech)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(paperpaw_plugin_format_txt::TxtFormat);
-        // EPUB and Markdown are native plugins only (format removal): the tests
-        // that read such a book are ignored until native activation.
-        // Later: its Markdown, with wikilinks, is the one used.
+            .plugin(paperpaw_plugin_format_txt::TxtFormat)
+            .plugin(formats::TestEpub);
+        // The built-in Markdown, or later the vault's, with wikilinks, which is
+        // the one used.
         let builder = if vault {
             builder.plugin(VaultMarkdown)
         } else {
-            builder
+            builder.plugin(formats::TestMarkdown)
         };
         let kernel = builder
             .plugin(paperpaw_plugin_reader::Reader)

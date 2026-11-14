@@ -80,7 +80,6 @@ fn moved_text(storage: &Shared) -> ((Locator, Locator), (Locator, Locator), Stri
 /// they are switched off, and again once they are back on: it is found
 /// by its XPointer in each conversion, never left at offsets of another.
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn a_highlight_keeps_its_text_when_the_books_styles_are_switched() {
     let epub = &styled_epub();
     let storage = Shared::default();

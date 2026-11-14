@@ -430,7 +430,6 @@ fn larger_then_smaller_text_comes_back_to_the_same_place() {
 }
 
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn pages_that_go_right_to_left_turn_on_with_a_tap_on_the_left() {
     let book = epub_with(
         &[("c1.xhtml", filler("manga", 6))],
@@ -449,7 +448,6 @@ fn pages_that_go_right_to_left_turn_on_with_a_tap_on_the_left() {
 }
 
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn pages_that_go_left_to_right_turn_on_with_a_tap_on_the_right() {
     let book = epub(&[("c1.xhtml", filler("novel", 6))], &[]);
     let mut reading = Reading::new(TOUCH, Shared::default(), "books/novel.epub", &book, "");
@@ -460,7 +458,6 @@ fn pages_that_go_left_to_right_turn_on_with_a_tap_on_the_right() {
 }
 
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn a_swipe_in_from_the_left_edge_turns_on_where_pages_go_right_to_left() {
     use paperpaw_platform::PointerPhase;
     let book = epub_with(

@@ -231,7 +231,10 @@ impl App {
 }
 
 #[test]
-#[ignore = "needs the menu, which is native only now (#244); the native run waits for the native settings, help, lock, files and file-manager plugins (#925)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     let mut app = App::new();
     let effects = app.kernel.run_action(Instant(100), actions::QUICK_PANEL);

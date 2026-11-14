@@ -78,7 +78,10 @@ fn crate_of(id: &str) -> Option<String> {
 }
 
 #[test]
-#[ignore = "waits for the native settings, help, lock, files, file-manager and transfer plugins (transfer is native only now: no interface-6 one to install): core.secrets, document/library/files services (desktop) and event 87 (#925); re-enable at native activation (todo 380)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn the_lean_set_keeps_what_a_beginner_needs() {
     let kernel = paperpaw_app::install_with(builder(), fonts(), paperpaw_app::StorePlugins::Left)
         .build_native();
@@ -107,7 +110,10 @@ fn the_lean_set_keeps_what_a_beginner_needs() {
 }
 
 #[test]
-#[ignore = "waits for the native settings, help, lock, files, file-manager and transfer plugins (transfer is native only now: no interface-6 one to install): core.secrets, document/library/files services (desktop) and event 87 (#925); re-enable at native activation (todo 380)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn the_crates_listed_are_those_installed() {
     let kernel = native_activation::build(paperpaw_app::install(builder(), fonts()));
     let mut installed: Vec<String> = plugins(&kernel)

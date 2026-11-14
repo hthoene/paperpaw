@@ -650,7 +650,6 @@ fn large_package() -> Vec<u8> {
 /// says so in a few words, and the run goes on. On the device, running
 /// out on the way stopped it and it started again.
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn a_book_without_room_to_open_says_so() {
     let home = ["--set", "reader.open-last=false"];
     let open = "confirm,confirm,wait:500,describe";
@@ -932,19 +931,16 @@ fn word_stays_within_budget(name: &str, document: Vec<u8>) -> Heap {
 }
 
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn a_long_word_document_stays_within_the_x4_budget() {
     word_stays_within_budget("x4-docx-long", long_word_document());
 }
 
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn a_hostile_word_document_stays_within_the_x4_budget() {
     word_stays_within_budget("x4-docx-hostile", hostile_word_document());
 }
 
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn a_word_zip_bomb_stays_within_the_x4_budget() {
     word_stays_within_budget("x4-docx-bomb", bomb_word_document());
 }
@@ -955,7 +951,6 @@ fn a_word_zip_bomb_stays_within_the_x4_budget() {
 /// 2 MB to decode: the X4 refuses it, its page names the file; the run is
 /// the same with and without the budget only where nothing is refused.)
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn pictures_as_a_book_stay_within_the_x4_budget() {
     let data = root().join("crates/paperpaw-image/tests/data");
     let read = |name: &str| fs::read(data.join(name)).unwrap();

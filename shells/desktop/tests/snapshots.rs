@@ -49,11 +49,6 @@ struct Case {
     fixtures: bool,
 }
 
-/// Cases that need native activation: Wi-Fi is a native-only plugin since
-/// #244 and the desktop does not offer `uses.wifi`, so the interface-6 app has
-/// no Wi-Fi page to draw. Their references stay; they run again then.
-const NEEDS_NATIVE_ACTIVATION: [&str; 2] = ["x4-pro-wifi", "x4-pro-wifi-networks"];
-
 const CASES: &[Case] = &[
     Case {
         name: "x4-settings-search",
@@ -186,9 +181,24 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    // `x4-pictures-caption` and `x4-pictures-hidden` set aids.pictures, which the
-    // interface-6 aids plugin registered; they return when the reader applies the
-    // `reader.filter` stage at native activation (#228, todo 380).
+    Case {
+        name: "x4-pictures-caption",
+        profile: "xteink-x4",
+        book: Some("books/pictures.epub"),
+        sets: &["aids.pictures=aids.pictures.caption"],
+        script: "wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-pictures-hidden",
+        profile: "xteink-x4",
+        book: Some("books/pictures.epub"),
+        sets: &["aids.pictures=aids.pictures.hide"],
+        script: "wait:300",
+        colour: 0,
+        fixtures: false,
+    },
     Case {
         name: "boox-settings",
         profile: "boox-go-7",
@@ -292,15 +302,13 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    // The keyboard (`boox-keyboard`) is gone with the interface-6 keyboard; it returns with the
-    // native keyboard when the host runs native plugins (#228).
     // The screen lock's PIN keypad (`boox-lock-pin`) is gone with the interface-6 lock; it
     // returns with the native lock screen when the host runs native plugins (#228).
     // The screens one passes through most, on the X4 (buttons alone,
     // black and white) and on the Boox (touch): the main menu and the
     // tools, the library, the reader's menus, the contents, the
     // bookmarks, settings pages, statistics, the file manager, the
-    // sleep screen, a book's menu. (Not the about page: it shows the
+    // sleep screen, the keyboard, a book's menu. (Not the about page: it shows the
     // version, which would need a new picture at every release.)
     Case {
         name: "x4-main-menu",
@@ -574,6 +582,16 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    Case {
+        // The settings searched: the keyboard below the field.
+        name: "boox-keyboard",
+        profile: "boox-go-7",
+        book: None,
+        sets: &[],
+        script: "run:core.settings,wait:300,tap-on:Search,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
     // The quick panel while reading, its sliders a fingertip high and
     // across the screen: on the X4 Pro while a finger moves the light's
     // colour (down far from the knob, which moves as far as the finger,
@@ -628,6 +646,16 @@ const CASES: &[Case] = &[
         colour: 1_000,
         fixtures: false,
     },
+    // A picture as a book: its page, the picture fit to the screen.
+    Case {
+        name: "x4-pictures-book",
+        profile: "xteink-x4",
+        book: Some("books/alice-cover.jpg"),
+        sets: &[],
+        script: "wait:1500",
+        colour: 0,
+        fixtures: false,
+    },
     Case {
         name: "x4-mobi-reading",
         profile: "xteink-x4",
@@ -670,21 +698,6 @@ const CASES: &[Case] = &[
         book: Some("books/report.docx"),
         sets: &[],
         script: "wait:1500,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-];
-
-/// Screens of a book in a format that only a native plugin reads (interface 6
-/// is removed): they need the native plugins activated in the shell.
-const NATIVE_ONLY_CASES: &[Case] = &[
-    // A picture as a book: its page, the picture fit to the screen.
-    Case {
-        name: "x4-pictures-book",
-        profile: "xteink-x4",
-        book: Some("books/alice-cover.jpg"),
-        sets: &[],
-        script: "wait:1500",
         colour: 0,
         fixtures: false,
     },
@@ -828,48 +841,13 @@ fn draw(case: &Case) -> (u32, u32, Vec<u8>, usize) {
     picture
 }
 
-/// The cases that open the interface-6 Settings (its pages, or a settings slot
-/// as home): left out while the interface-6 Settings plugin is removed, they
-/// return with the native plugin at activation (#228, todo 380).
-const NEEDS_SETTINGS: &[&str] = &[
-    "x4-settings-search",
-    "x4-settings-search-de",
-    "x4-settings-round-strong",
-    "x4-reading-preview",
-    "boox-reading-de",
-    "boox-settings",
-    "x4-settings-display",
-    "x4-settings-controls",
-    "boox-settings-display",
-    "boox-developer-settings",
-    "boox-keyboard",
-    "x4-pro-wifi",
-    "x4-pro-wifi-networks",
-];
-
 #[test]
 fn screens_look_as_before() {
-    check_screens(CASES);
-}
-
-#[test]
-#[ignore = "needs native activation (format removal)"]
-fn screens_of_native_only_formats_look_as_before() {
-    check_screens(NATIVE_ONLY_CASES);
-}
-
-fn check_screens(cases: &[Case]) {
     let bless = std::env::var_os("PAPERPAW_BLESS").is_some();
     let references = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
     let failed_dir = root().join("target/snapshots");
     let mut failures = Vec::new();
-    for case in cases
-        .iter()
-        .filter(|case| !NEEDS_SETTINGS.contains(&case.name))
-    {
-        if NEEDS_NATIVE_ACTIVATION.contains(&case.name) {
-            continue;
-        }
+    for case in CASES {
         let (width, height, gray, colourful) = draw(case);
         if colourful < gray.len() * case.colour / 10_000 {
             failures.push(format!(
@@ -914,7 +892,6 @@ fn check_screens(cases: &[Case]) {
 }
 
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
 fn screens_say_what_they_show() {
     let case = Case {
         name: "describe",
@@ -969,7 +946,6 @@ fn screens_say_what_they_show() {
 /// empty list, are the native `files` plugin's: the emulator does not register
 /// native plugins yet.)
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
 fn headers_are_centred_by_their_capitals() {
     // The settings, and a group's page: the first row focused is *Search* in the
     // native settings, so the second row (a group) is chosen.

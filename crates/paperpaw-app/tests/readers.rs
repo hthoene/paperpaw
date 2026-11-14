@@ -448,7 +448,10 @@ fn open_with_lists_the_readers_of_the_book_and_keeps_the_one_chosen() {
 }
 
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn by_touch_a_reading_app_is_tapped_in_the_list_and_in_the_settings() {
     let mut app = App::on(BOOX, books(), "", true);
     assert_eq!(app.opens("plain.ask-book"), "core.choice-dialog");

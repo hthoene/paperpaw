@@ -207,7 +207,10 @@ fn home() {
 }
 
 #[test]
-#[ignore = "needs the menu, which is native only now (#244); the native run waits for the native settings, help, lock, files and file-manager plugins (#925)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn main_menu_and_tools() {
     let mut app = App::new();
     app.run(actions::MENU);
@@ -218,7 +221,10 @@ fn main_menu_and_tools() {
 }
 
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn settings_and_a_group() {
     let mut app = App::new();
     app.run(actions::SETTINGS);
@@ -230,7 +236,10 @@ fn settings_and_a_group() {
 }
 
 #[test]
-#[ignore = "needs the menu, which is native only now (#244); the native run waits for the native settings, help, lock, files and file-manager plugins (#925)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn reading_and_its_menus() {
     let mut app = App::new();
     app.open_book();
@@ -245,7 +254,10 @@ fn reading_and_its_menus() {
 /// A number changed with the buttons shows its values at once, kept only
 /// when chosen; *back* goes back to the one before.
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn numbers_change_with_the_buttons_kept_when_chosen() {
     let mut app = App::new();
     app.run(actions::SETTINGS);
@@ -286,7 +298,10 @@ fn numbers_change_with_the_buttons_kept_when_chosen() {
 /// as it moves: what it is moved to shows at once and is kept where the
 /// finger is lifted.
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn sliders_follow_the_finger_kept_where_it_is_lifted() {
     let mut app = App::on(TOUCH);
     app.run(actions::SETTINGS);
@@ -347,7 +362,10 @@ fn home_shows_the_book_read_last() {
 /// A group's advanced settings, a page one level down, stay that page
 /// when one of them changes.
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn a_groups_advanced_page_stays_when_a_setting_changes() {
     let mut app = App::new();
     app.now += 100;

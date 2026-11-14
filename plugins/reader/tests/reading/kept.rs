@@ -148,7 +148,6 @@ fn old_annotations_never_replace_those_kept_now() {
 /// content, its size and KOReader's partial MD5, a text and an EPUB
 /// alike; taken when the book opens, as the book is.
 #[test]
-#[ignore = "needs native activation (format removal)"]
 fn positions_and_annotations_say_which_book_they_are_of() {
     let text = include_str!("../../../../samples/library/books/alice-in-wonderland.txt");
     let epub = include_bytes!("../../../../samples/library/books/alice-in-wonderland.epub");

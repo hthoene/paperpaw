@@ -284,7 +284,10 @@ fn answers_come_from_files_in_the_device_s_folder() {
 /// Version 2's requests, as x4-remote has them: slots, settings,
 /// events, the screens and actions there are, waiting for what shows.
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): opens the interface-6 Settings, removed here (held until activation)"]
+#[cfg_attr(
+    all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"),
+    ignore = "the native settings plugin is not registered on the desktop yet (it needs core.secrets and event 75/76, #916); this test opens its page: enable it with that wiring"
+)]
 fn the_device_is_asked_and_waited_for_over_lines() {
     let _one = crate::one_device_at_a_time();
     let folder = crate::private::dir("paperpaw-stdio2").unwrap();
@@ -427,7 +430,6 @@ fn ready_says_the_protocol_and_profiles() {
 /// `"wifi": "online"` starts the device in the workshop's network, as
 /// `--wifi online` does; anything else but `off` is an error.
 #[test]
-#[ignore = "needs native activation (Wi-Fi is a native-only plugin since #244 and the desktop does not offer uses.wifi: the Wi-Fi page is not there)"]
 fn a_device_starts_online_where_asked() {
     assert!(parse(r#"{"op": "start", "profile": "p", "library": "l", "wifi": "maybe"}"#).is_err());
     let _one = crate::one_device_at_a_time();

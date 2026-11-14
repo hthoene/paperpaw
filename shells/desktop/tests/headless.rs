@@ -329,7 +329,6 @@ fn power_sleeps_and_only_power_wakes() {
 /// `type:` types into the keyboard shown as if on its keys, umlauts and
 /// all; `type-enter:` confirms what was typed, and the keyboard closes.
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): the keyboard is native only and this headless run does not type into the native keyboard yet"]
 fn text_is_typed_into_the_keyboard_shown() {
     let typed = run(
         "type",
@@ -346,10 +345,6 @@ fn text_is_typed_into_the_keyboard_shown() {
 /// answers (`open` its screen) is done in the call that ran it: the transfer
 /// plugin's `transfer.open` opens its screen as `core.menu` opens the menu.
 #[test]
-#[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "needs native activation (#228, todo 380): transfer is native only, linked under native-linked"
-)]
 fn an_action_a_native_plugin_declares_opens_its_screen() {
     let opened = run(
         "native-action",
@@ -364,7 +359,6 @@ fn an_action_a_native_plugin_declares_opens_its_screen() {
 /// The screen turned, by the configuration at start or chosen in the
 /// settings while running: the panel trades width and height.
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
 fn turning_the_screen_trades_the_panels_width_and_height() {
     let library = library("turned");
     let shot = library.join("shot.png");
@@ -715,7 +709,10 @@ fn the_configuration_file_is_read_and_set_wins_over_it() {
 /// in it when nothing uses it, and Wi-Fi switches off and on in the
 /// settings as on a device. Without it the radio starts off.
 #[test]
-#[ignore = "needs native activation (Wi-Fi is a native-only plugin since #244 and the desktop does not offer uses.wifi: the Wi-Fi page is not there)"]
+#[cfg_attr(
+    all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"),
+    ignore = "native Wi-Fi: switched on again it stays \"On, not connected\" (#243, to fix)"
+)]
 fn online_from_the_start_with_wifi_online() {
     let connected = "Wi-Fi, Connected to Workshop Wi-Fi";
     let online = run(
@@ -754,7 +751,6 @@ fn online_from_the_start_with_wifi_online() {
 /// devices it starts are online; the help names it so the workshop can
 /// tell.
 #[test]
-#[ignore = "needs native activation (Wi-Fi is a native-only plugin since #244 and the desktop does not offer uses.wifi: the Wi-Fi page is not there)"]
 fn wifi_online_holds_for_the_devices_stdio_starts() {
     use std::io::Write;
     let help = emulator(&["--help"]);
@@ -827,7 +823,6 @@ fn settings_rows(size: Option<u32>) -> (u32, usize) {
 /// made the rows of 8 pt (73 px on the X4) taller than those of 9 pt (63),
 /// and the list show fewer rows with smaller text (#119).
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
 fn rows_do_not_grow_as_the_interface_text_gets_smaller() {
     let rows: Vec<(u32, (u32, usize))> = (7..=24).map(|n| (n, settings_rows(Some(n)))).collect();
     for pair in rows.windows(2) {

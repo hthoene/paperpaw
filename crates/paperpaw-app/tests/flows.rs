@@ -253,7 +253,10 @@ fn reading_and_home_keep_the_book_opened() {
 /// changed with the buttons are written to `paperpaw.ini`; a kernel
 /// started anew on the same card reads them back.
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn settings_changed_in_the_ui_are_saved_and_read_back_after_a_restart() {
     let card = Card::new(true);
 
@@ -490,7 +493,10 @@ fn walk_menu(device: DeviceInfo, open: Id, buttons: bool) -> Vec<(String, String
 }
 
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn every_entry_of_the_main_menu_and_the_tools_opens_with_the_buttons() {
     let menu = walk_menu(BUTTONS, actions::MENU, true);
     let library = menu.iter().find(|(row, _)| row == "Library").unwrap();
@@ -504,7 +510,10 @@ fn every_entry_of_the_main_menu_and_the_tools_opens_with_the_buttons() {
 }
 
 #[test]
-#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn every_entry_of_the_main_menu_and_the_tools_opens_by_touch() {
     let menu = walk_menu(TOUCH, actions::MENU, false);
     let settings = menu.iter().find(|(row, _)| row == "Settings").unwrap();
