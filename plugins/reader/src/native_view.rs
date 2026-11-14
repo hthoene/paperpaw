@@ -36,7 +36,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input},
         clock,
         commands::{CommandSender, RedrawMode},
-        document::{DocId, DocPosition, Documents, OpenBook, Preparation, Report, Root},
+        document::{DocId, DocPosition, Documents, Preparation, Report, Root},
         fonts::{Font, FontRole},
         library::Library,
         snapshot,
@@ -262,7 +262,8 @@ impl View {
         let root = found.root();
         let state = {
             let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
-            let book = OpenBook::new(&found.path).root(root).publisher_styles();
+            let colour = Setup::read(host).is_ok_and(|setup| setup.display.display_is_colour());
+            let book = open_request(&found.path, root, colour);
             match docs.open_book(host, &book, &mut input, &mut out) {
                 Ok(state) => (
                     state.id(),
@@ -1435,7 +1436,7 @@ mod preparing;
 mod ribbon;
 mod script_hint;
 mod setup;
-use preparing::Preparing;
+use preparing::{Preparing, open_request};
 use setup::{LayoutKey, Setup, flag, integer};
 
 /// The language a book is read in: its own, or the UI language where the
