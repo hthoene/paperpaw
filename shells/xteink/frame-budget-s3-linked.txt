@@ -24,7 +24,6 @@ allow indirect-in paperpaw_qr 20 calls through a register the scan does not foll
 allow indirect-in paperpaw_text 18 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
 allow indirect-in paperpaw_digest 14 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
 allow indirect-in paperpaw_epub_family 14 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_json 11 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
 allow indirect-in paperpaw_sort 11 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
 allow indirect-in paperpaw_xml 11 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
 allow indirect-in alloc 6 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
@@ -76,5 +75,4 @@ allow frame paperpaw_core::native_host::event_call::deliver_action 2176 owner: K
 allow frame paperpaw_core::native_host::widget_inputs::deliver_one_widget_input 2272 owner: Kernel todo 626 (2,272/2,256 B); todo 639
 allow frame paperpaw_core::chrome::sync_chromes 2256 owner: Kernel todo 626 (2,256/2,240 B); todo 639
 allow frame _ZN13paperpaw_core11core_plugin16register_library28_$u7b$$u7b$closure$u7d$$u7d$ 2096 owner: Kernel todo 626 (the register_library closure, 2,096/2,080 B); todo 639
-allow frame core::fmt::float::float_to_decimal_common_exact 2048 owner: Firmware (exactly the limit: core's float formatting, `{:.N}` of an f64; find the caller on a plugin path or confirm it is not reached); todo 639
 allow frame main 8768 the firmware's entry on the main task's stack, not a callback frame: the start-stack check (`check-x4-start-stack.py --s3`) already counts it in every route (8,768/8,672 B); owner: Firmware
