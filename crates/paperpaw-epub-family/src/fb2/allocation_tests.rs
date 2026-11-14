@@ -52,8 +52,9 @@ static ALLOCATOR: Allocator = Allocator;
 
 #[test]
 fn archive_open_and_entry_allocation_refusals_stay_out_of_memory() {
-    // ZIP opening reads the 46-byte central record once; enumeration rereads it.
-    for failure in [(0, 0), (46, 1)] {
+    // ZIP opening allocates first; enumeration reads a record with its
+    // name into 128 bytes.
+    for failure in [(0, 0), (128, 0)] {
         let storage = MemoryStorage::new().with(
             "book.zip",
             ZipBuilder::new()
