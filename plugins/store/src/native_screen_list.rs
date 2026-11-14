@@ -328,6 +328,16 @@ pub fn empty_words(trouble: Trouble, touch: bool) -> (&'static str, &'static str
     }
 }
 
+/// The picture over what the screen says when it has no rows.
+#[must_use]
+pub const fn empty_icon(trouble: Trouble) -> &'static str {
+    match trouble {
+        Trouble::Offline => "wifi-off",
+        Trouble::Failed | Trouble::Unsupported => "cloud",
+        _ => "cloud-download",
+    }
+}
+
 /// Whether *Select* (or a tap) tries again: nothing to show for want of the
 /// list.
 #[must_use]
@@ -428,6 +438,7 @@ impl Screen for View {
             say.copy(help)?
         };
         drop(say);
+        self.list.set_empty_icon(ctx.host, empty_icon(trouble))?;
         self.list.draw_with(
             ctx.host,
             frame,

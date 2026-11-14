@@ -89,6 +89,75 @@ pub(crate) fn full_id(id: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// How the row of button hints labels the button bound to one action while the
+/// plugin's own top screen shows (`command.set_hint`, `docs/abi/ui.md`). It
+/// goes with the screen instance and ends when that closes; a second hint for
+/// an action replaces the first; an instance keeps at most eight.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ButtonHint<'a> {
+    action: &'a str,
+    kind: u32,
+    label: &'a str,
+}
+impl<'a> ButtonHint<'a> {
+    /// The action's usual name again: removes an earlier hint for `action`
+    /// (a full action id, as key maps name it: `core.back`, the plugin's own).
+    ///
+    /// # Errors
+    /// Invalid for an id that is not a full id, NoSpace above 128 bytes.
+    pub fn usual(action: &'a str) -> Result<Self, Error> {
+        Self::checked(action, 0, "")
+    }
+    /// The plugin's own words, already translated: not empty, at most 64 bytes.
+    /// The host draws them by its own rules (smaller, two lines, then shortened).
+    ///
+    /// # Errors
+    /// As [`Self::usual`]; Invalid for empty words, NoSpace above 64 bytes.
+    pub fn words(action: &'a str, words: &'a str) -> Result<Self, Error> {
+        Self::labelled(action, 1, words)
+    }
+    /// An icon by its name (an `icon.spec` name or a host icon); the host
+    /// answers NotFound for a name it does not know.
+    ///
+    /// # Errors
+    /// As [`Self::usual`]; Invalid for an empty name, NoSpace above 64 bytes.
+    pub fn icon(action: &'a str, icon: &'a str) -> Result<Self, Error> {
+        Self::labelled(action, 2, icon)
+    }
+    /// No hint: the button does nothing here. The host answers Denied for the
+    /// user's ways out (`core.back`, the pinned actions, the Power key's escape).
+    ///
+    /// # Errors
+    /// As [`Self::usual`].
+    pub fn hidden(action: &'a str) -> Result<Self, Error> {
+        Self::checked(action, 3, "")
+    }
+    fn labelled(action: &'a str, kind: u32, label: &'a str) -> Result<Self, Error> {
+        if label.is_empty() {
+            return Err(Error::Invalid);
+        }
+        if label.len() > crate::native::wire::commands_wire::COMMAND_SET_HINT_LABEL_MAX_BYTES {
+            return Err(Error::NoSpace);
+        }
+        Self::checked(action, kind, label)
+    }
+    fn checked(action: &'a str, kind: u32, label: &'a str) -> Result<Self, Error> {
+        full_id(action)?;
+        Ok(Self {
+            action,
+            kind,
+            label,
+        })
+    }
+    pub(crate) const fn command(self) -> Command<'a> {
+        Command::SetHint {
+            action: self.action,
+            kind: self.kind,
+            label: self.label,
+        }
+    }
+}
+
 /// One formatted display message, checked without truncation.
 #[derive(Clone, Copy, Debug)]
 pub struct Notify<'a> {

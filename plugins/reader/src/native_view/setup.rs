@@ -1,6 +1,7 @@
 //! The reading settings and display a page is laid out with (`Setup`), and
 //! the key that says when a laid-out page is stale (`LayoutKey`).
 use crate::{native_look::Look, native_pages::Reading, native_status};
+use alloc::boxed::Box;
 use alloc::rc::Rc;
 use paperpaw_sdk::{
     layout::{BookStyles, Style},
@@ -36,8 +37,11 @@ pub(super) struct Setup {
 /// draws (#250). It is read again after any setting changed
 /// ([`Kept::forget`], told by the `setting_changed` event) and where the screen
 /// is another (a turned display); the display is taken anew every time.
+///
+/// Behind a `Box`: the open book is built in a frame of `open`, which must stay
+/// under 2,048 bytes on the S3, and a `Setup` is large.
 #[derive(Debug, Default)]
-pub(super) struct Kept(core::cell::RefCell<State>);
+pub(super) struct Kept(Box<core::cell::RefCell<State>>);
 
 #[derive(Debug, Default)]
 struct State {
@@ -53,6 +57,9 @@ impl Kept {
     ///
     /// # Errors
     /// What reading a setting refuses.
+    // Out of line: a Setup is large, and its copies in the callers' frames made
+    // the frames of `open` and `screen_shown` pass the limit of 2,048 bytes.
+    #[inline(never)]
     pub(super) fn setup(&self, host: &Host<'_>) -> Result<Setup, Error> {
         let display = snapshot::capture_snapshot(host)?;
         let kept = self.0.borrow().setup;
@@ -74,6 +81,9 @@ impl Kept {
     ///
     /// # Errors
     /// What reading a setting refuses.
+    // Out of line: a Setup is large, and its copies in the callers' frames made
+    // the frames of `open` and `screen_shown` pass the limit of 2,048 bytes.
+    #[inline(never)]
     pub(super) fn look(&self, host: &Host<'_>, grays: Option<u16>) -> Result<Look, Error> {
         let kept = self.0.borrow().look;
         if let Some((at, look)) = kept
@@ -90,6 +100,9 @@ impl Kept {
     ///
     /// # Errors
     /// What reading a setting refuses.
+    // Out of line: a Setup is large, and its copies in the callers' frames made
+    // the frames of `open` and `screen_shown` pass the limit of 2,048 bytes.
+    #[inline(never)]
     pub(super) fn status(
         &self,
         host: &Host<'_>,
@@ -188,6 +201,9 @@ impl Setup {
     }
 
     /// The setup of the settings now on `display`.
+    // Out of line: a Setup is large, and its copies in the callers' frames made
+    // the frames of `open` and `screen_shown` pass the limit of 2,048 bytes.
+    #[inline(never)]
     fn read_on(host: &Host<'_>, display: Snapshot) -> Result<Self, Error> {
         let room = native_status::room(host, display.display_dpi())?;
         let (top, bottom) = room.reserved();
@@ -285,5 +301,12 @@ mod tests {
         assert_eq!(font_name(Err(Error::NoSpace)), Ok(""));
         // Another failure is still one.
         assert_eq!(font_name(Err(Error::NoMemory)), Err(Error::NoMemory));
+    }
+
+    #[test]
+    fn the_kept_settings_are_one_pointer_in_the_open_book() {
+        // The open book is built in a frame of `open` (2,048 bytes at most on the
+        // S3): what it keeps of the settings stays off it.
+        assert_eq!(core::mem::size_of::<Kept>(), core::mem::size_of::<usize>());
     }
 }

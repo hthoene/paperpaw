@@ -250,8 +250,9 @@ pub struct State {
     chosen: [String; 2],
     loaded: bool,
     /// What the registry says of the items of the top and the bottom line,
-    /// kept between draws ([`State::forget_known`]).
-    known: core::cell::RefCell<[status_line::Memo; 2]>,
+    /// kept between draws ([`State::forget_known`]); made at the first draw, off
+    /// the frame of the open book (two memos are some 200 bytes).
+    known: core::cell::RefCell<Vec<status_line::Memo>>,
 }
 
 impl State {
@@ -272,6 +273,16 @@ impl State {
             .borrow_mut()
             .iter_mut()
             .for_each(status_line::Memo::forget);
+    }
+
+    /// The memos of the two lines, made where there are none yet.
+    fn memos(&self) -> Result<core::cell::RefMut<'_, Vec<status_line::Memo>>, Error> {
+        let mut memos = self.known.borrow_mut();
+        if memos.len() < 2 {
+            memos.try_reserve_exact(2).map_err(|_| Error::NoMemory)?;
+            memos.resize_with(2, status_line::Memo::default);
+        }
+        Ok(memos)
     }
 
     /// The line showing at the top (or bottom) among `list`.
@@ -414,7 +425,7 @@ fn paint_each(
             font,
             (ink, place.room.size),
             (&config.parts[at], showing, (texts, facts)),
-            &mut state.known.borrow_mut()[at],
+            &mut state.memos()?[at],
         )?;
     }
     Ok(())

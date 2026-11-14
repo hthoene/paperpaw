@@ -182,7 +182,7 @@ pub fn setting_text(host: &Host<'_>, key: &str) -> Result<String, Error> {
     })
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "the stock look is a set of switches"
