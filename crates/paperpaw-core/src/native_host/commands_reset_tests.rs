@@ -169,12 +169,14 @@ fn what_a_placement_set_goes_with_it() {
         OK
     );
     assert_eq!(kept(&kernel), left);
-    // No placement.
+    // A widget placed by its own id: what it set, not its placements'.
     assert_eq!(
         submit(&mut kernel, "probe", false, &[reset("probe.clock", 8)]),
-        ERR_INVALID
+        OK
     );
+    left.retain(|id| *id != "probe.clock.face");
     assert_eq!(kept(&kernel), left);
+    assert!(left.contains(&"probe.clock@3.face"));
 }
 
 #[test]
@@ -224,7 +226,7 @@ fn a_plugin_resets_its_own_settings() {
 #[test]
 fn what_is_no_reset_or_needs_the_readers_consent_is_refused() {
     let mut kernel = kernel();
-    let cases: [(&str, u32, i32, &str); 11] = [
+    let cases: [(&str, u32, i32, &str); 13] = [
         ("probe.none", 0, ERR_INVALID, "no setting"),
         ("other.guarded", 0, ERR_INVALID, "another's guarded setting"),
         ("probe.pin", 0, ERR_UNSUPPORTED, "a secret"),
@@ -235,6 +237,8 @@ fn what_is_no_reset_or_needs_the_readers_consent_is_refused() {
         ("probe.size", 2, ERR_INVALID, "no plugin"),
         ("probe.look", 3, ERR_INVALID, "two kinds at once"),
         ("probe.clock@2", 9, ERR_INVALID, "a group and a placement"),
+        ("probe", 8, ERR_INVALID, "a plugin as a placement"),
+        ("probe.", 8, ERR_INVALID, "no placement"),
         ("probe.size", 16, ERR_INVALID, "an unknown flag"),
     ];
     for (key, flags, status, what) in cases {

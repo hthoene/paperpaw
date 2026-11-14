@@ -323,8 +323,11 @@ key and text bytes within the stage budget.
 - [D] **Until the host has that question** both mass resets are refused: bit 1 naming another
   plugin and bit 2 are `ERR_UNSUPPORTED`, with the feature or without. A plugin that resets many
   after its own question (the Settings screen's "Reset all") sends one reset per setting. Flags
-  that name no one kind (two of bits 0 to 3, an unknown bit, bit 2 with a key, bit 3 without a
-  placement) are `ERR_INVALID`. The settings a group or plugin reset skips are not logged yet.
+  that name no one kind (two of bits 0 to 3, an unknown bit, bit 2 with a key) are `ERR_INVALID`.
+  The settings a group or plugin reset skips are not logged yet.
+- [D] **Bit 3 by prefix.** `key` is a placement (`home.clock@2`) or a widget placed by its own id
+  (`home.clock`): every value whose id starts with `key.` goes, kept on reset or not, as interface
+  6 `placement_values` listed them. A key of one segment (a whole plugin) is `ERR_INVALID`.
 - [D] `set_scope`: the book scope for scoped settings, by a path on root 1, while the submitting
   screen stays open; empty ends it. The screen identity is stamped at submit (as `command.redraw`):
   not the submitter's own top screen gives `ERR_STATE` (so does a work run; outside a screen's

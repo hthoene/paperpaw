@@ -20,7 +20,7 @@ const GROUP: u32 = 1;
 const PLUGIN: u32 = 1 << 1;
 /// `flags` bit 2: every setting (`key` empty).
 const ALL: u32 = 1 << 2;
-/// `flags` bit 3: every value placement `key` sets.
+/// `flags` bit 3: every value placement `key` sets (ids that go on `key.`).
 const PLACEMENT: u32 = 1 << 3;
 
 /// Whose reset it is: what [`CommandStage::admitted`] goes by.
@@ -80,7 +80,7 @@ impl Who<'_> {
                 super::admitted(settings, self.owner, self.guarded_exempt, key)?;
                 each(key)
             }
-            PLACEMENT if key.contains('@') => {
+            PLACEMENT if is_place(key) => {
                 let placed = |id: &&Id| {
                     let rest = id.as_str().strip_prefix(key);
                     rest.is_some_and(|rest| rest.starts_with('.'))
@@ -121,6 +121,12 @@ impl Who<'_> {
             _ => Err(ERR_INVALID),
         }
     }
+}
+
+/// Whether `key` may name a widget's place: a placement (`home.clock@2`) or
+/// a widget placed by its own id (`home.clock`), never a whole plugin.
+fn is_place(key: &str) -> bool {
+    key.contains('.') && key.split('.').all(|part| !part.is_empty())
 }
 
 /// Whether `key` is formed as a plugin's id is: one segment.
