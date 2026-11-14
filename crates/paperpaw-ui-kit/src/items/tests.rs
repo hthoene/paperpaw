@@ -156,18 +156,18 @@ fn a_title_that_fits_stays_on_one_line_and_a_long_one_wraps_to_two_at_most() {
     // Ten units a letter.
     let measure = |line: &str| Ok(line.chars().count() as f32 * 10.0);
     assert!(
-        wrap_title(measure, "Short title", 200.0)
+        wrap_title(measure, "Short title", 200.0, WHOLE_TITLE_LINES)
             .unwrap()
             .is_empty()
     );
     let long = "Spanish: cards missing from the file, kept or removed";
-    let lines = wrap_title(measure, long, 200.0).unwrap();
+    let lines = wrap_title(measure, long, 200.0, WHOLE_TITLE_LINES).unwrap();
     assert_eq!(lines.len(), WHOLE_TITLE_LINES);
     assert!(lines.iter().all(|line| measure(line).unwrap() <= 200.0));
     assert!(lines[0].starts_with("Spanish: cards"));
     // More than two lines of text: the second ends in an ellipsis.
     let longer = "one two three four five six seven eight nine ten eleven twelve thirteen";
-    let cut = wrap_title(measure, longer, 200.0).unwrap();
+    let cut = wrap_title(measure, longer, 200.0, WHOLE_TITLE_LINES).unwrap();
     assert_eq!(cut.len(), 2);
     assert!(cut[1].ends_with('…'));
 }

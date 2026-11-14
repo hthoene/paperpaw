@@ -24,8 +24,11 @@ use grip::{draw_drag, draw_row_with_grip};
 pub const NOTE_LINES: usize = 2;
 /// The lines a note takes at most in a row that shows its text whole.
 pub const WHOLE_NOTE_LINES: usize = 4;
-/// The lines a title takes at most in a row that shows its text whole.
+/// The lines a title takes at most in a small row that shows its text whole.
 pub const WHOLE_TITLE_LINES: usize = 2;
+/// The lines the title of a row of body text takes at most where it shows its
+/// text whole (what a plugin's page says it does).
+pub const WHOLE_BODY_LINES: usize = 4;
 
 /// One row of an [`ItemList`]: a title, a value at the right, a note below.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -52,9 +55,15 @@ pub struct RowItem {
     /// (the settings' search), where other rows have a separator.
     pub field: bool,
     /// Its text is shown whole where it is long: the title wrapped to
-    /// [`WHOLE_TITLE_LINES`] and the note to [`WHOLE_NOTE_LINES`], not cut
-    /// with "…".
+    /// [`WHOLE_BODY_LINES`] ([`WHOLE_TITLE_LINES`] in a small row) and the note
+    /// to [`WHOLE_NOTE_LINES`], not cut with "…".
     pub whole: bool,
+    /// A line of what a page says, not a row to choose: its title and icon in
+    /// the small size, in a row as high as its lines.
+    pub small: bool,
+    /// Text the page reads out, not a row to choose: passed by the focus and
+    /// not chosen by a tap, but in the full ink, not faint like `disabled`.
+    pub plain: bool,
 }
 
 /// Room above the rows of the first page that the owner fills with something it
@@ -110,7 +119,23 @@ impl Item {
             on: None,
             field: false,
             whole: false,
+            small: false,
+            plain: false,
         }))
+    }
+
+    /// This item with the icon named `name` at the start of its row; as it was
+    /// where the name is empty, the item is a heading, or no icon font has it.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] only.
+    pub fn with_icon(mut self, host: &Host<'_>, name: &str) -> Result<Self, Error> {
+        if !name.is_empty()
+            && let Self::Row(row) = &mut self
+        {
+            row.icon = crate::icons::glyph(host, name)?;
+        }
+        Ok(self)
     }
 
     /// A row that looks like a field to type in: outlined while it has no
@@ -144,7 +169,7 @@ impl Item {
     /// Whether focus can rest on it.
     #[must_use]
     pub const fn selectable(&self) -> bool {
-        matches!(self, Self::Row(row) if !row.disabled)
+        matches!(self, Self::Row(row) if !row.disabled && !row.plain)
     }
 }
 
@@ -216,6 +241,8 @@ pub struct ItemList {
     head: Option<Head>,
     /// Where the head's room was in the last frame.
     head_at: Option<Rect>,
+    /// A picture over the words of an empty list ([`Footer::Empty`]).
+    empty_icon: Option<paperpaw_sdk::native::fonts::IconGlyph>,
 }
 
 impl ItemList {
@@ -311,6 +338,20 @@ impl ItemList {
             }
             _ => false,
         }
+    }
+
+    /// Puts the icon named `name` over the words of an empty list
+    /// ([`Footer::Empty`]); none where no icon font has it.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] only.
+    pub fn set_empty_icon(&mut self, host: &Host<'_>, name: &str) -> Result<(), Error> {
+        self.empty_icon = if name.is_empty() {
+            None
+        } else {
+            crate::icons::glyph(host, name)?
+        };
+        Ok(())
     }
 
     /// The room above the rows as the last frame drew it, in the frame's pixels;
@@ -628,7 +669,14 @@ impl ItemList {
             draw_note(&mut body, &font, &style, *rect, lines)?;
         }
         let below = Rect::new(0, y, width, height.saturating_sub(y));
-        let code = footer_below(&mut body, &font, &style, footer, (below, starts.len()))?;
+        let code = footer_below(
+            &mut body,
+            &font,
+            &style,
+            footer,
+            (below, starts.len()),
+            self.empty_icon,
+        )?;
         paint::replay_with_icons(host, frame, &font, header.paint.iter().chain(body.iter()))?;
         if let Some((qr, room)) = code {
             paint::draw_code(frame, qr, room)?;
@@ -714,21 +762,20 @@ fn draw_note(
     Ok(())
 }
 
-/// A title and a few lines, centred in `area`.
-/// The caption of a code, centred at the bottom of `area` in small letters;
-/// what is left above it for the code.
-/// What a footer draws below the rows: the empty page's words, or the code.
+/// What a footer draws below the rows: the empty page's words (over `icon`), or
+/// the code.
 fn footer_below<'a>(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
     style: &Style,
     footer: Footer<'a>,
     (area, pages): (Rect, usize),
+    icon: Option<paperpaw_sdk::native::fonts::IconGlyph>,
 ) -> Result<Option<(&'a paperpaw_sdk::qr::QrCode, Rect)>, Error> {
     if let Footer::Empty { title, text } = footer
         && pages == 1
     {
-        draw_empty(paint, font, style, area, title, text)?;
+        draw_empty(paint, font, style, area, (title, text), icon)?;
     }
     code_footer(paint, font, style, footer, area, pages)
 }
@@ -796,17 +843,37 @@ fn draw_empty(
     font: &Font<'_>,
     style: &Style,
     area: Rect,
-    title: &str,
-    text: &str,
+    (title, text): (&str, &str),
+    icon: Option<paperpaw_sdk::native::fonts::IconGlyph>,
 ) -> Result<(), Error> {
     let room = f32::from(area.width.saturating_sub(4 * style.margin)).max(1.0);
     let lines = text::wrap_with(|line| font.measure_text(style.small, line), text, room, 6)?;
     let head = crate::geometry::line_px(font, style.title)?;
     let line = crate::geometry::line_px(font, style.small)?;
+    // The icon over the title, twice as large as it, with a gap under it.
+    let size = style.title * 2.0;
+    let above = icon.map_or(0, |_| (size as u16).saturating_add(style.gap));
     let total = crate::geometry::clamp_u16(
-        i64::from(head) + i64::from(style.gap) + i64::from(line) * lines.len() as i64,
+        i64::from(above)
+            + i64::from(head)
+            + i64::from(style.gap)
+            + i64::from(line) * lines.len() as i64,
     );
     let mut y = area.y.saturating_add(area.height.saturating_sub(total) / 2);
+    if let Some(glyph) = icon {
+        let side = size as u16;
+        let x = area.x.saturating_add(area.width.saturating_sub(side) / 2);
+        paint::push(
+            paint,
+            Paint::Icon {
+                glyph,
+                size,
+                origin: TextOrigin::new(f32::from(x), i32::from(y) + (size * 0.86) as i32),
+                color: style.ink,
+            },
+        )?;
+        y = y.saturating_add(above);
+    }
     let centred = |font: &Font<'_>, size: f32, text: &str| -> Result<f32, Error> {
         Ok((f32::from(area.width) - font.measure_text(size, text)?).max(0.0) / 2.0)
     };
@@ -892,6 +959,8 @@ pub(crate) fn item_height(
     match item {
         Item::Heading(_) => Ok(style.heading),
         Item::Row(row) => {
+            let own = looked(style, row);
+            let style = own.as_ref().unwrap_or(style);
             let (_, band) = title_lines(font, style, width, row)?;
             if row.note.is_empty() {
                 return Ok(band);
@@ -917,12 +986,23 @@ fn title_lines(
     let mut lines = Vec::new();
     if row.whole && !row.stepper && !row.title.is_empty() {
         let room = (f32::from(width) - 3.0 * f32::from(style.margin)).max(1.0);
+        let room = if row.icon.is_some() {
+            (room - f32::from(icon_room(style))).max(1.0)
+        } else {
+            room
+        };
         let value = font.measure_text(style.text, &row.value)?.min(room * 0.4);
         let title_room = (room - value).max(1.0);
+        let most = if row.small {
+            WHOLE_TITLE_LINES
+        } else {
+            WHOLE_BODY_LINES
+        };
         lines = wrap_title(
             |line| font.measure_text(style.text, line),
             &row.title,
             title_room,
+            most,
         )?;
     }
     if lines.len() < 2 {
@@ -933,17 +1013,28 @@ fn title_lines(
     Ok((lines, style.row.max(block.saturating_add(style.gap))))
 }
 
-/// The lines a title wraps to (at most [`WHOLE_TITLE_LINES`]): none where it
-/// fits on one line.
+/// The lines a title wraps to (at most `most`): none where it fits on one line.
 fn wrap_title(
     mut measure: impl FnMut(&str) -> Result<f32, Error>,
     title: &str,
     room: f32,
+    most: usize,
 ) -> Result<Vec<String>, Error> {
     if measure(title)? <= room {
         return Ok(Vec::new());
     }
-    text::wrap_with(measure, title, room, WHOLE_TITLE_LINES)
+    text::wrap_with(measure, title, room, most)
+}
+
+/// The style a row is laid out and drawn in where it differs from the list's:
+/// a small row has the small size for its text and a band as high as one line
+/// of it; `None` for any other row.
+fn looked(style: &Style, row: &RowItem) -> Option<Style> {
+    row.small.then(|| Style {
+        text: style.small,
+        row: (style.small * 1.5) as u16,
+        ..style.clone()
+    })
 }
 
 fn note_room(style: &Style, width: u16, zone: bool) -> f32 {
@@ -1192,7 +1283,12 @@ fn row_icon(
             color: ink,
         },
     )?;
-    Ok(side.saturating_add(style.margin / 2))
+    Ok(icon_room(style))
+}
+
+/// How far an icon at the start of a row moves its title: the icon and a gap.
+fn icon_room(style: &Style) -> u16 {
+    ((style.text * 1.2) as u16).saturating_add(style.margin / 2)
 }
 
 /// The value a row shows at the right: none for a switch, which shows its state.
@@ -1234,6 +1330,8 @@ pub(crate) fn draw_row(
     row: &RowItem,
     focused: bool,
 ) -> Result<Option<(Rect, Rect)>, Error> {
+    let own = looked(style, row);
+    let style = own.as_ref().unwrap_or(style);
     row_backdrop(paint, style, rect, row, focused)?;
     paint::describe(
         paint,
