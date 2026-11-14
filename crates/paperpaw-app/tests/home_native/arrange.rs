@@ -85,20 +85,10 @@ fn choose(app: &mut App, option: &str) {
     panic!("no option {option}:\n{}", app.described());
 }
 
-/// The title of the choice shown: the text right before its options
-/// (the last rows told, the home screen's widgets told before them).
-fn choice_title(app: &mut App) -> Option<String> {
-    let parts = app.parts();
-    let mut first_row = parts.iter().rposition(|p| p.role == Role::Row)?;
-    while first_row > 0 && parts[first_row - 1].role == Role::Row {
-        first_row -= 1;
-    }
-    parts[..first_row].last().map(|p| p.label.clone())
-}
-
-/// The options of the item whose text says `label`, while editing:
-/// tapped, or with the buttons the focus moved from item to item until
-/// confirm offers that one's.
+/// The options of the item whose text says `label`, while editing: tapped,
+/// or with the buttons the focus moved from item to item until confirm offers
+/// that one's. The native options are a dialog over the page (the screen stays
+/// the dashboard), told as a dialog with a button for each option.
 fn options_of(app: &mut App, label: &str) {
     if app.kernel.device().input.touch {
         app.tap_on(label);
@@ -106,19 +96,22 @@ fn options_of(app: &mut App, label: &str) {
         // The first press shows the focus (again after another screen).
         app.run(actions::RIGHT);
         for _ in 0..12 {
-            app.run(actions::CONFIRM);
-            if app.screen() == "core.choice-dialog" && choice_title(app).as_deref() == Some(label) {
+            if app
+                .focused()
+                .is_some_and(|f| f.split(", ").next() == Some(label))
+            {
+                app.run(actions::CONFIRM);
                 break;
-            }
-            if app.screen() != HOME {
-                app.run(actions::BACK);
-                app.run(actions::RIGHT);
             }
             app.run(actions::RIGHT);
         }
     }
-    assert_eq!(app.screen(), "core.choice-dialog", "{}", app.described());
-    assert_eq!(choice_title(app).as_deref(), Some(label));
+    assert_eq!(app.screen(), HOME, "{}", app.described());
+    assert!(
+        app.parts().iter().any(|p| p.role == Role::Dialog),
+        "no options for {label}:\n{}",
+        app.described()
+    );
 }
 
 #[test]
@@ -166,7 +159,6 @@ fn a_tool_on_the_page_runs_by_buttons_and_by_touch() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at arrange.rs:183); to analyse (#244, Home removal)"]
 fn editing_begins_and_back_ends_it_without_changing_the_page() {
     for device in DEVICES {
         let mut app = App::new(device, Shared::memory(PAGE, &[]));
@@ -179,15 +171,12 @@ fn editing_begins_and_back_ends_it_without_changing_the_page() {
         // Ended: back no longer means "done", the tools run again.
         if device.input.touch {
             app.tap_on("Library");
-            // The library is the native `files` plugin's slot filler, which these
-            // kernel tests do not register: the slot shows its placeholder.
-            assert_eq!(app.screen(), "core.placeholder");
+            assert_eq!(app.screen(), "files.browser");
         }
     }
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at arrange.rs:120); to analyse (#244, Home removal)"]
 fn an_item_moves_by_buttons_and_is_kept() {
     let mut app = App::new(X4, Shared::memory(PAGE, &[]));
     edit(&mut app);
@@ -228,7 +217,6 @@ fn an_item_moves_by_buttons_and_is_kept() {
 /// update on trial) is not shown, and stays on the page when another
 /// item moves or one is added: it shows again once its plugin is back.
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at arrange.rs:120); to analyse (#244, Home removal)"]
 fn widgets_of_plugins_not_loaded_stay_when_the_page_is_edited() {
     let config = PAGE.replace(
         "home.continue 0/3 4x2",
@@ -259,7 +247,6 @@ fn widgets_of_plugins_not_loaded_stay_when_the_page_is_edited() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at arrange.rs:120); to analyse (#244, Home removal)"]
 fn an_item_is_sized_by_buttons_and_is_kept() {
     let mut app = App::new(X4, Shared::memory(PAGE, &[]));
     edit(&mut app);
@@ -361,7 +348,6 @@ fn an_item_is_sized_by_its_corner_by_touch() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at arrange.rs:120); to analyse (#244, Home removal)"]
 fn an_item_is_removed_by_buttons_and_by_touch() {
     for device in DEVICES {
         let mut app = App::new(device, Shared::memory(PAGE, &[]));
@@ -383,17 +369,12 @@ fn open_add(app: &mut App) {
         let at = middle_of_ink(app, 0, 700, 160, 800).expect("a plus");
         app.tap(at);
     } else {
-        // Past the items, the plus comes first (then the check that ends
-        // editing).
+        // Past the items: the focus moves item by item to the plus.
         app.run(actions::RIGHT);
-        for _ in 0..20 {
-            app.run(actions::CONFIRM);
-            if app.screen() == "home.add-widget" {
-                return;
-            }
-            if app.screen() != HOME {
-                app.run(actions::BACK);
-                app.run(actions::RIGHT);
+        for _ in 0..40 {
+            if app.focused().as_deref() == Some("+") {
+                app.run(actions::CONFIRM);
+                break;
             }
             app.run(actions::RIGHT);
         }
@@ -402,7 +383,6 @@ fn open_add(app: &mut App) {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at arrange.rs:410); to analyse (#244, Home removal)"]
 fn a_tool_is_added_into_the_first_free_cell() {
     for device in DEVICES {
         let mut app = App::new(device, Shared::memory(PAGE, &[]));
@@ -429,7 +409,6 @@ fn a_tool_is_added_into_the_first_free_cell() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at arrange.rs:445); to analyse (#244, Home removal)"]
 fn a_widget_added_gets_a_placement_of_its_own() {
     for device in DEVICES {
         let mut app = App::new(device, Shared::memory(PAGE, &[]));
@@ -480,7 +459,6 @@ fn a_widget_added_gets_a_placement_of_its_own() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at arrange.rs:396); to analyse (#244, Home removal)"]
 fn a_full_page_says_there_is_no_room() {
     let full: String = (0..4)
         .flat_map(|row| (0..4).map(move |col| (col, row)))
@@ -500,7 +478,7 @@ fn a_full_page_says_there_is_no_room() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at arrange.rs:506); to analyse (#244, Home removal)"]
+#[ignore = "real native bug, Kernel todo 621: the host admits no `command.reset_setting` (`native_host/commands_ui.rs` owned_ui answers ERR_UNSUPPORTED), so Remove this page fails (todo 620)"]
 fn pages_are_added_and_removed() {
     for device in DEVICES {
         let mut app = App::new(device, Shared::memory("", &[]));
@@ -523,7 +501,6 @@ fn pages_are_added_and_removed() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at arrange.rs:120); to analyse (#244, Home removal)"]
 fn the_layout_arranged_is_the_same_after_a_restart() {
     for device in DEVICES {
         let storage = Shared::memory(PAGE, &[]);
@@ -533,7 +510,8 @@ fn the_layout_arranged_is_the_same_after_a_restart() {
         choose(&mut app, "Remove");
         app.run(actions::BACK);
         let kept = page(&app, 1);
-        let shown = app.described();
+        // The focus is not kept over a restart.
+        let shown = app.described().replace(" (focused)", "");
         assert!(
             storage.config().contains(&format!("page-1 = {kept}")),
             "{}",
@@ -541,12 +519,12 @@ fn the_layout_arranged_is_the_same_after_a_restart() {
         );
         let mut app = app.restart();
         assert_eq!(page(&app, 1), kept);
-        assert_eq!(app.described(), shown);
+        assert_eq!(app.described().replace(" (focused)", ""), shown);
     }
 }
 
 #[test]
-#[ignore = "needs the main menu, which is native only now (#244): the native main menu offering Edit home screen is tested by `the_native_main_menu_offers_edit_home_screen` in the app's menu_entries.rs; the editing it opens is tested by the other tests of this file"]
+
 fn edit_home_screen_in_the_main_menu_opens_editing_from_elsewhere() {
     for device in DEVICES {
         let storage = Shared::memory(PAGE, &[("books/a.txt", b"Some text.")]);
@@ -566,7 +544,11 @@ fn edit_home_screen_in_the_main_menu_opens_editing_from_elsewhere() {
         // Editing: a tap on a tool offers its options instead of running it.
         if device.input.touch {
             app.tap_on("Library");
-            assert_eq!(app.screen(), "core.choice-dialog", "{}", app.described());
+            assert!(
+                app.parts().iter().any(|p| p.role == Role::Dialog),
+                "{}",
+                app.described()
+            );
         } else {
             options_of(&mut app, "Library");
         }

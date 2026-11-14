@@ -108,7 +108,7 @@ fn nothing_is_stored_for_the_layout_on_the_side_and_turning_changes_no_page() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at landscape.rs:130); to analyse (#244, Home removal)"]
+#[ignore = "native Home on its side describes the book card as Button `Start reading` + separate Text, not one `Start reading, Choose a book from your library.` as upright (fails at landscape.rs:134): an accessibility-text difference, nothing is lost; to analyse (todo 620)"]
 fn what_has_no_room_goes_on_to_the_next_page_and_nothing_is_lost() {
     // The default home: the clock, the book, the recent ones, then the
     // tools on a page of their own.
@@ -144,7 +144,7 @@ fn what_has_no_room_goes_on_to_the_next_page_and_nothing_is_lost() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at landscape.rs:182); to analyse (#244, Home removal)"]
+#[ignore = "native Home turned back to upright shows the tools page without Library (fails at landscape.rs:184); to analyse (todo 620)"]
 fn a_page_turned_with_the_screen_is_the_page_with_the_same_first_item() {
     let two = format!(
         "{BASE_CONFIG}[home]\ncolumns = 4\npage-1 = tool:core.library 0/0 1x1\n\
@@ -199,7 +199,7 @@ fn card_width(app: &mut App, width: u16) -> Option<i32> {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at landscape.rs:205); to analyse (#244, Home removal)"]
+#[ignore = "native Home on a tablet on its side: the page shows the card and the News/Files/Catalogs widgets but not the tools beside and below it (fails at landscape.rs:208); to analyse (todo 620)"]
 fn a_big_screen_on_its_side_keeps_cards_to_the_readable_column_and_fills_the_page() {
     // The X4 on its side is narrower than the column: the card is as wide
     // as the screen, and the page is full without the tools.
@@ -407,7 +407,7 @@ fn count_all(app: &mut App, expected: usize) -> (usize, usize) {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at landscape.rs:414); to analyse (#244, Home removal)"]
+#[ignore = "native Home on its side with full pages: the layout check fails at landscape.rs:418 (many tools shown, page count/layout differs from the interface-6 one); to analyse (todo 620)"]
 fn full_pages_turned_on_the_side_are_all_reachable_and_the_layout_is_not_cut() {
     let mut app = App::new(
         screen(TOUCH, 500, 3000),

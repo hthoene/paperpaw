@@ -634,6 +634,7 @@ impl Dashboard {
     ) -> Result<(), Error> {
         self.ensure(host, ui)?;
         self.ensure_dialog(host)?;
+        self.describe_dialog(paint::asking(frame));
         self.origin = (frame.rect.x, frame.rect.y);
         let Some(laid) = self.laid.as_ref() else {
             return Ok(());
@@ -998,7 +999,12 @@ impl Dashboard {
             self.next(host, ui, next)?;
             return Ok(Handled::Yes);
         }
-        Ok(Handled::No)
+        // Arranging: a tap on nothing is not for the menu the kernel opens.
+        Ok(if self.editing {
+            Handled::Yes
+        } else {
+            Handled::No
+        })
     }
 
     /// Does what a target is for: runs a tool or a footer action, tells a
