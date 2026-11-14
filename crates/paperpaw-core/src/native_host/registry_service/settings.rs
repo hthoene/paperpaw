@@ -339,7 +339,12 @@ impl Row for Listed<'_, '_> {
     }
 
     fn encode_within(&self, out: &mut [u8]) -> Result<Option<usize>, i32> {
-        self.built(|row| row.encode_within(out))
+        self.built(|row| {
+            // `frames` says the framing rule again by hand: the built row
+            // must agree with it.
+            debug_assert_eq!(row.framed_len().is_ok(), self.frames());
+            row.encode_within(out)
+        })
     }
 }
 
