@@ -173,6 +173,26 @@ fn a_title_that_fits_stays_on_one_line_and_a_long_one_wraps_to_two_at_most() {
 }
 
 #[test]
+fn only_text_a_page_reads_out_shows_four_lines_whole() {
+    let whole = RowItem {
+        whole: true,
+        ..RowItem::default()
+    };
+    // A row to choose (a bookmark's quote) keeps two lines.
+    assert_eq!(title_most(&whole), WHOLE_TITLE_LINES);
+    let page = RowItem {
+        plain: true,
+        ..whole.clone()
+    };
+    assert_eq!(title_most(&page), WHOLE_BODY_LINES);
+    let small = RowItem {
+        small: true,
+        ..page
+    };
+    assert_eq!(title_most(&small), WHOLE_TITLE_LINES);
+}
+
+#[test]
 fn a_field_is_outlined_inside_its_row_with_the_corner_of_the_style() {
     let style = style();
     let (outline, radius, line) = field_outline(&style, Rect::new(0, 100, 480, 60));
