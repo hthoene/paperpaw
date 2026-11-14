@@ -103,3 +103,31 @@ fn a_book_is_read_through_with_one_read_a_block_and_a_few_for_its_index() {
         );
     }
 }
+
+#[test]
+fn the_last_block_of_a_section_is_the_one_whose_end_is_the_sections_length() {
+    // The provider says a block is the last without reading the next one: it
+    // must say what asking for the next block would.
+    for name in ["alice-in-wonderland", "die-verwandlung"] {
+        let path = format!(
+            "{}/../../samples/library/books/{name}.epub",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let storage = MemoryStorage::new().with("book.epub", std::fs::read(path).unwrap());
+        let doc = EpubDocument::open(&storage, "book.epub").unwrap();
+        let mut lasts = 0;
+        for (section, block) in blocks(&doc, &storage) {
+            let past = doc
+                .block_at(&storage, Locator::new(section, block.end))
+                .unwrap()
+                .is_none();
+            assert_eq!(
+                block.end >= doc.section_len(section),
+                past,
+                "{name} {section}"
+            );
+            lasts += usize::from(past);
+        }
+        assert!(lasts > 1, "{name}: {lasts} sections end");
+    }
+}
