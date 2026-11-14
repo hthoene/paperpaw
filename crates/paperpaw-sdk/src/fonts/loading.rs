@@ -7,7 +7,7 @@ use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_platform::Storage;
+use paperpaw_platform::{Storage, StorageError};
 use paperpaw_text::{Font, FontError, StoredPack};
 
 use super::{Fonts, Stored, is_pack, read_font};
@@ -30,11 +30,15 @@ impl Fonts {
     }
 
     /// Whether `family` can set text now: it has a regular face that is
-    /// built in or open, or in a file of the plugin that named it (taken
-    /// as there, as ever), or in a file of another plugin's folder that
-    /// is on `storage`. A family of styles alone, or one whose regular
-    /// face another plugin has yet to bring, is not offered or taken for
-    /// reading: its letters would be another font's.
+    /// built in, or in a file of the plugin that named it (taken as
+    /// there, as ever), or in a file of another plugin's folder that is
+    /// on `storage`, open or not: a face open whose plugin was removed
+    /// reads no letter more. A family of styles alone, or one whose
+    /// regular face another plugin has yet to bring, is not offered or
+    /// taken for reading: its letters would be another font's. Only a
+    /// card that says the file is not there counts: one that cannot say
+    /// just now (busy, a read fault) leaves the family, so no choice of
+    /// it is given up for a card's bad moment.
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn family_there(&self, family: &str, storage: &dyn Storage) -> bool {
@@ -47,12 +51,19 @@ impl Fonts {
                 .and_then(|rest| rest.split('/').next());
             folder.is_none_or(|folder| folder == entry.id.namespace())
         };
+        let lacking = |file: &str| {
+            let size = storage.size(file);
+            matches!(
+                size,
+                Err(StorageError::NotFound | StorageError::InvalidPath)
+            )
+        };
         self.entries.iter().any(|entry| {
-            let there = |file: &str| own(entry, file) || storage.size(file).is_ok();
-            entry.family.as_deref() == Some(family)
-                && !entry.bold
-                && !entry.italic
-                && (entry.font.is_some() || entry.file.as_deref().is_some_and(there))
+            let there = match entry.file.as_deref() {
+                Some(file) => own(entry, file) || !lacking(file),
+                None => entry.font.is_some(),
+            };
+            entry.family.as_deref() == Some(family) && !entry.bold && !entry.italic && there
         })
     }
 

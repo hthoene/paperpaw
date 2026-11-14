@@ -980,6 +980,21 @@ fn a_family_is_there_once_another_plugins_file_of_its_regular_face_is() {
     assert!(!fonts.family_there("Other", &empty));
     let card = MemoryStorage::new().with(path, pack("a"));
     assert!(fonts.family_there("Serif", &card));
+    // A card that cannot say (a read fault, busy) has not said no: the
+    // family stays, and a choice of it with it.
+    let failing = crate::memory_storage::Unreadable(card);
+    assert!(fonts.family_there("Serif", &failing));
+    let failing = crate::memory_storage::Unreadable(MemoryStorage::new());
+    assert!(!fonts.family_there("Serif", &failing));
+    // Open, the face reads its letters from the file still: the other
+    // plugin removed, the family is not there.
+    let card = Rc::new(MemoryStorage::new().with(path, pack("a")));
+    let storage: Rc<dyn Storage> = card.clone();
+    fonts.set_family(Some("Serif"));
+    fonts.load(&storage);
+    assert!(fonts.family_there("Serif", card.as_ref()));
+    card.remove(path).unwrap();
+    assert!(!fonts.family_there("Serif", card.as_ref()));
 }
 
 /// A plugin's bold for book text (a card's Literata styles) counts only
