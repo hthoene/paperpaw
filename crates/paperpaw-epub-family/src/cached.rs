@@ -31,53 +31,93 @@ pub(crate) fn u32_at(storage: &dyn Storage, path: &str, offset: u64) -> Result<u
 /// An index entry as stored.
 type Entry = [u8; INDEX as usize];
 
+/// How many index entries are read at once (and kept for the blocks that
+/// follow): 32 of 24 bytes, 768 bytes of heap per open book.
+const WINDOW: u32 = 32;
+
+/// Where reading blocks one after the other is: the block found last, and
+/// the index entries around it, read at once (a page is laid out a block at a
+/// time: one read of the index serves 32 blocks, #250).
+#[derive(Debug, Default)]
+pub(crate) struct Seek {
+    last: Option<u32>,
+    /// The index entries from block `first` on.
+    window: Vec<u8>,
+    first: u32,
+}
+
+impl Seek {
+    /// The entries of `blocks` kept for block `i` and, where there is one, the
+    /// one after it: the entry and the start of the next block.
+    fn kept(&self, blocks: u32, i: u32) -> Option<(Entry, Option<u32>)> {
+        let want = if i + 1 < blocks { 2 } else { 1 };
+        let at = usize::try_from(i.checked_sub(self.first)?).ok()? * INDEX as usize;
+        let bytes = self.window.get(at..at + want * INDEX as usize)?;
+        let mut entry: Entry = [0; INDEX as usize];
+        entry.copy_from_slice(&bytes[..INDEX as usize]);
+        let next = (want == 2).then(|| {
+            let n = INDEX as usize;
+            u32::from_le_bytes([bytes[n], bytes[n + 1], bytes[n + 2], bytes[n + 3]])
+        });
+        Some((entry, next))
+    }
+}
+
 /// Index entry `i` of a chapter and the start of the next one, if there
-/// is one, read at once as they lie side by side; `None` where fewer
-/// bytes came back (then they are read one by one, as that tells).
+/// is one: from the window kept, or read with the entries after them at
+/// once; `None` where fewer bytes came back (then they are read one by one,
+/// as that tells).
 fn entry_and_next(
     storage: &dyn Storage,
     paths: &CachePaths,
     blocks: u32,
+    seek: &mut Seek,
     i: u32,
-) -> Result<Option<(Entry, Option<u32>)>, StorageError> {
-    let mut both = [0u8; INDEX as usize + 4];
-    let has_next = i + 1 < blocks;
-    let want = if has_next { both.len() } else { INDEX as usize };
-    let read = storage.read_at(&paths.index, u64::from(i * INDEX), &mut both[..want])?;
-    if read < want {
-        return Ok(None);
+) -> Result<Option<(Entry, Option<u32>)>, DocumentError> {
+    if let Some(found) = seek.kept(blocks, i) {
+        return Ok(Some(found));
     }
-    let mut entry: Entry = [0; INDEX as usize];
-    entry.copy_from_slice(&both[..INDEX as usize]);
-    let at = INDEX as usize;
-    let next =
-        has_next.then(|| u32::from_le_bytes([both[at], both[at + 1], both[at + 2], both[at + 3]]));
-    Ok(Some((entry, next)))
+    let count = WINDOW.min(blocks.saturating_sub(i));
+    let bytes = (count * INDEX) as usize;
+    seek.window.clear();
+    crate::fallible::reserve_exact(&mut seek.window, bytes)?;
+    seek.window.resize(bytes, 0);
+    let read = storage.read_at(&paths.index, u64::from(i * INDEX), &mut seek.window)?;
+    // Whole entries only.
+    seek.window.truncate(read / INDEX as usize * INDEX as usize);
+    seek.first = i;
+    Ok(seek.kept(blocks, i))
 }
 
 /// Reads block `i` of a chapter.
 fn read_block(
     storage: &dyn Storage,
     paths: &CachePaths,
-    length: u32,
-    blocks: u32,
-    i: u32,
-    color: bool,
+    (length, blocks): (u32, u32),
+    seek: &mut Seek,
+    (i, color): (u32, bool),
 ) -> Result<Block, DocumentError> {
-    let (entry, end) = match entry_and_next(storage, paths, blocks, i)? {
-        Some((entry, next)) => (entry, next.unwrap_or(length)),
+    let (entry, end, stop) = match entry_and_next(storage, paths, blocks, seek, i)? {
+        Some((entry, next)) => (entry, next.unwrap_or(length), record_end(next, length)),
         None => {
             let mut entry = [0u8; INDEX as usize];
             storage.read_at(&paths.index, u64::from(i * INDEX), &mut entry)?;
-            let end = if i + 1 < blocks {
-                u32_at(storage, &paths.index, u64::from((i + 1) * INDEX))?
+            let next = if i + 1 < blocks {
+                Some(u32_at(storage, &paths.index, u64::from((i + 1) * INDEX))?)
             } else {
-                length
+                None
             };
-            (entry, end)
+            (entry, next.unwrap_or(length), record_end(next, length))
         }
     };
-    read_entry(storage, paths, entry, end, color)
+    read_entry(storage, paths, entry, (end, stop), color)
+}
+
+/// Where the record of a block ends in the text file: where the next record
+/// begins, which is its header before the next block's start; the end of
+/// the file for the last block.
+fn record_end(next: Option<u32>, length: u32) -> Option<u32> {
+    Some(next.map_or(length, |start| start.saturating_sub(HEADER)))
 }
 
 /// The runs and the inline languages a record holds after its text.
@@ -112,12 +152,62 @@ fn decode_lists(
     Ok((runs, inline_langs))
 }
 
-/// Reads the block of index entry `entry`, ending at `end`.
+/// The most a record of the text file takes: its header, the text, a run of
+/// each of its bytes at worst, and the inline languages.
+const MAX_RECORD: usize = HEADER as usize
+    + convert::LIMIT
+    + convert::LIMIT * convert::RUN
+    + paperpaw_sdk::document::MAX_INLINE_LANGS as usize * 4;
+
+/// What a record's header and its index entry say: the length of its text, of
+/// its runs, and the number of its inline languages. A record the converter
+/// cannot have written means the cache is damaged.
+fn record_sizes(
+    header: &[u8; HEADER as usize],
+    entry: Entry,
+) -> Result<(usize, usize, usize), DocumentError> {
+    let len = usize::from(u16::from_le_bytes([header[4], header[5]]));
+    let run_count = usize::from(u16::from_le_bytes([header[6], header[7]]));
+    let langs = usize::from(entry[21]);
+    if len > convert::LIMIT
+        || run_count > len
+        || langs > usize::from(paperpaw_sdk::document::MAX_INLINE_LANGS)
+    {
+        return Err(DocumentError::Malformed(alloc::borrow::Cow::Borrowed(
+            "cache record",
+        )));
+    }
+    Ok((len, run_count * convert::RUN, langs))
+}
+
+/// The record `len` bytes long at `at` of the text file, in one read: its
+/// header, text, runs and languages. `None` where the file gave fewer bytes.
+fn whole_record(
+    storage: &dyn Storage,
+    path: &str,
+    at: u32,
+    len: usize,
+) -> Result<Option<Vec<u8>>, DocumentError> {
+    let mut record = crate::fallible::zeroed(len)?;
+    let mut filled = 0;
+    while filled < len {
+        let n = storage.read_at(path, u64::from(at) + filled as u64, &mut record[filled..])?;
+        if n == 0 {
+            return Ok(None);
+        }
+        filled += n;
+    }
+    Ok(Some(record))
+}
+
+/// Reads the block of index entry `entry`, ending at `end`. `record_end` is
+/// where its record ends in the text file, where it is known (the next
+/// record begins there): the record is then read whole, with one read.
 fn read_entry(
     storage: &dyn Storage,
     paths: &CachePaths,
     entry: Entry,
-    end: u32,
+    (end, record_end): (u32, Option<u32>),
     color: bool,
 ) -> Result<Block, DocumentError> {
     let start = u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]);
@@ -128,36 +218,42 @@ fn read_entry(
             .ok_or(DocumentError::Malformed(alloc::borrow::Cow::Borrowed(
                 "cache index",
             )))?;
-    storage.read_at(&paths.text, u64::from(at), &mut header)?;
-    let len = usize::from(u16::from_le_bytes([header[4], header[5]]));
-    let run_count = usize::from(u16::from_le_bytes([header[6], header[7]]));
-    // A record the converter cannot have written: the cache is damaged.
-    if len > convert::LIMIT || run_count > len {
-        return Err(DocumentError::Malformed(alloc::borrow::Cow::Borrowed(
-            "cache record",
-        )));
-    }
-    let langs = usize::from(entry[21]);
-    if langs > usize::from(paperpaw_sdk::document::MAX_INLINE_LANGS) {
-        return Err(DocumentError::Malformed(alloc::borrow::Cow::Borrowed(
-            "cache record",
-        )));
-    }
-    // The text, its runs and its inline languages after it, read at once.
-    let runs_len = run_count * convert::RUN;
-    let mut text = crate::fallible::zeroed(len + runs_len + langs * 4)?;
-    let mut filled = 0;
-    while filled < text.len() {
-        let n = storage.read_at(
-            &paths.text,
-            u64::from(start) + filled as u64,
-            &mut text[filled..],
-        )?;
-        if n == 0 {
-            break;
+    let whole = match record_end {
+        Some(stop) if stop > at && (stop - at) as usize <= MAX_RECORD => {
+            whole_record(storage, &paths.text, at, (stop - at) as usize)?
         }
-        filled += n;
-    }
+        _ => None,
+    };
+    let whole = whole.filter(|record| record.len() >= header.len());
+    let (text, filled, len, runs_len) = match whole {
+        Some(mut record) => {
+            header.copy_from_slice(&record[..HEADER as usize]);
+            record.drain(..HEADER as usize);
+            let (len, runs_len, langs) = record_sizes(&header, entry)?;
+            let filled = record.len().min(len + runs_len + langs * 4);
+            record.truncate(filled);
+            (record, filled, len, runs_len)
+        }
+        None => {
+            storage.read_at(&paths.text, u64::from(at), &mut header)?;
+            let (len, runs_len, langs) = record_sizes(&header, entry)?;
+            // The text, its runs and its inline languages after it, read at once.
+            let mut text = crate::fallible::zeroed(len + runs_len + langs * 4)?;
+            let mut filled = 0;
+            while filled < text.len() {
+                let n = storage.read_at(
+                    &paths.text,
+                    u64::from(start) + filled as u64,
+                    &mut text[filled..],
+                )?;
+                if n == 0 {
+                    break;
+                }
+                filled += n;
+            }
+            (text, filled, len, runs_len)
+        }
+    };
     let (runs, inline_langs) = decode_lists(&text, len, runs_len, filled)?;
     // The block keeps its text, not the room the runs took: a copy of
     // exactly its size where the buffer held more.
@@ -214,7 +310,7 @@ fn read_entry(
 }
 
 /// The block of a converted chapter containing `offset`, or the first
-/// after it; `None` past its end. `last` is the block found the time
+/// after it; `None` past its end. `seek` holds the block found the time
 /// before, and becomes this one: read on, the next is mostly the one right
 /// after it, found with two reads where a search takes a dozen.
 pub(crate) fn block_at(
@@ -224,7 +320,7 @@ pub(crate) fn block_at(
     blocks: u32,
     offset: u32,
     color: bool,
-    last: &mut Option<u32>,
+    seek: &mut Seek,
 ) -> Result<Option<Block>, DocumentError> {
     if blocks == 0 || offset >= length {
         return Ok(None);
@@ -238,17 +334,23 @@ pub(crate) fn block_at(
     // The block after the last one, or the last one again: its entry and
     // the next start read at once, and kept for reading the block.
     let mut found = None;
-    if let Some(before) = *last {
+    if let Some(before) = seek.last {
         for block in [before + 1, before] {
             if block >= blocks {
                 continue;
             }
-            if let Some((entry, next)) = entry_and_next(storage, paths, blocks, block)? {
+            if let Some((entry, next)) = entry_and_next(storage, paths, blocks, seek, block)? {
                 let from = u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]);
                 if from <= offset && offset < next.unwrap_or(u32::MAX) {
-                    *last = Some(block);
-                    return read_entry(storage, paths, entry, next.unwrap_or(length), color)
-                        .map(Some);
+                    seek.last = Some(block);
+                    return read_entry(
+                        storage,
+                        paths,
+                        entry,
+                        (next.unwrap_or(length), record_end(next, length)),
+                        color,
+                    )
+                    .map(Some);
                 }
             } else if start(block)? <= offset && offset < start(block + 1)? {
                 found = Some(block);
@@ -272,8 +374,8 @@ pub(crate) fn block_at(
             low.saturating_sub(1)
         }
     };
-    *last = Some(block);
-    read_block(storage, paths, length, blocks, block, color).map(Some)
+    seek.last = Some(block);
+    read_block(storage, paths, (length, blocks), seek, (block, color)).map(Some)
 }
 
 /// Longer lines of cache files are cut: nothing sensible is that long.

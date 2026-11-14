@@ -142,7 +142,7 @@ struct Known {
     paths: CachePaths,
     length: u32,
     blocks: u32,
-    last: Option<u32>,
+    seek: cached::Seek,
 }
 
 /// The printed pages of a section: where each begins and where its line
@@ -1138,7 +1138,7 @@ impl Document for EpubDocument {
                 paths,
                 length,
                 blocks,
-                last: None,
+                seek: cached::Seek::default(),
             });
         }
         let Some(k) = known.as_mut() else {
@@ -1151,7 +1151,7 @@ impl Document for EpubDocument {
             k.blocks,
             at.offset,
             self.color,
-            &mut k.last,
+            &mut k.seek,
         )
     }
 
