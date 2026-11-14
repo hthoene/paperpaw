@@ -103,20 +103,58 @@ fn the_packed_table_holds_the_same_names_and_characters() {
     assert_eq!(hash, 0x8a8d_e240_0cd5_330a);
 }
 
+/// A name's hash as the table keeps it in place of the name (FNV-1a, 32
+/// bits; `tools/icons/subset.py`).
+fn name_hash(name: &str) -> u32 {
+    name.bytes().fold(0x811c_9dc5, |hash: u32, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    })
+}
+
+/// Whether `name` is taken for an icon: its hash is an icon name's. The
+/// table holds no names (#258), so that is all it can tell.
+fn hashes_as_an_icon(name: &str) -> bool {
+    static HASHES: std::sync::OnceLock<std::collections::BTreeSet<u32>> =
+        std::sync::OnceLock::new();
+    HASHES
+        .get_or_init(|| icons::names().map(name_hash).collect())
+        .contains(&name_hash(name))
+}
+
+/// No two icons' names hash alike, and names that are no icon's (near
+/// ones, none at all, what an icon means) are not found.
+#[test]
+fn names_are_told_apart_by_their_hashes() {
+    let hashes: std::collections::BTreeSet<u32> = icons::names().map(name_hash).collect();
+    assert_eq!(hashes.len(), 5934);
+    for name in [
+        "",
+        "no-such-icon",
+        "book-",
+        "books2",
+        "Books",
+        "arrow",
+        icons::BACK,
+    ] {
+        assert_eq!(icons::char(name), None, "{name}");
+    }
+    assert_eq!(icons::char("U+F8000"), Some('\u{f8000}'));
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(std::env::var("PROPTEST_CASES").ok().and_then(|n| n.parse().ok()).unwrap_or(256)))]
 
     /// Any name at all is looked up without a panic: an icon's own, or
-    /// none.
+    /// none (but for one whose hash is an icon name's).
     #[test]
     fn any_name_is_looked_up_safely(name in "\\PC{0,30}") {
         let found = icons::char(&name);
-        prop_assert_eq!(found.is_some(), icons::names().any(|n| n == name));
+        prop_assert_eq!(found.is_some(), hashes_as_an_icon(&name));
     }
 
     /// Names next to real ones (cut short or longer, as `a-b` is of
-    /// `a-b-2`, whose letters the table shares) are found exactly when
-    /// they are icons' names.
+    /// `a-b-2`) are found exactly when their hash is an icon name's, and
+    /// an icon's own name gives its own character.
     #[test]
     fn names_next_to_real_ones_are_told_apart(
         index in 0..5934usize,
@@ -126,7 +164,10 @@ proptest! {
         let real = icons::names().nth(index).unwrap();
         let name = format!("{}{tail}", &real[..cut.min(real.len())]);
         let found = icons::char(&name);
-        prop_assert_eq!(found.is_some(), icons::names().any(|n| n == name));
+        prop_assert_eq!(found.is_some(), hashes_as_an_icon(&name));
+        if icons::names().any(|n| n == name) {
+            prop_assert!(found.is_some(), "{}", name);
+        }
     }
 }
 

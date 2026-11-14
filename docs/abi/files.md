@@ -255,6 +255,24 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
      it, sends the library's book-moved events, and clears the entry.
   The call so stays bounded however many books the folder holds. Every step of the job is
   idempotent, so it can be replayed from the entry.
+  - **Rule: one file that is no book moves without the library.** For a root-1 `move` or
+    `storage.rename` of a single file that is no book, the host renames it exactly as
+    `storage.rename` does on root 0 and does nothing else:
+    - no journal entry and no job, so the moves after it are not `ERR_BUSY` because of it (a
+      plugin's save of two renames in one callback: the copy kept, then the new file);
+    - **no event**: neither `event.book_moved` (68) nor `event.library_changed` (91) is sent;
+    - **nothing kept by the file's path is carried** (details, cover, position, annotations,
+      plugins' book data): a plugin that keeps data by the path of such a file moves it itself.
+
+    A file **is a book**, and its move is followed as above, when any of these holds: a format
+    reads it under its old or its new name, going by the name alone (its extension, also the one
+    before a `.bak` at its end; a name without an extension counts where a format tells files by
+    their first bytes); or the library keeps details for its old name (it read the book or the
+    book was opened: such a file is followed even while its format plugin is off or not loaded).
+    A folder is always followed. The power-cut rule of the plain rename is `storage.rename`'s
+    (above); the statuses are the same as for a followed move, and while a job runs it waits
+    like every move. A host that cannot tell (no formats in the callback's frame) follows every
+    move.
   - **At start**, after the FAT repair (`settle_moves`), the host looks at the open entry: only `to`
     exists, it finishes the job; only `from` exists, it drops the entry (nothing moved); **both
     exist** (a cut between FAT's two directory writes), the repair settles them first and the host

@@ -48,7 +48,8 @@ fn place_hint_text(
     let near = |w: f32| {
         let least = f32::from(span.x);
         let most = (f32::from(span.x) + f32::from(span.width) - w).max(least);
-        (middle - w / 2.0).clamp(least, most)
+        // Not `clamp`, which brings `core`'s formatter of floats (#258).
+        (middle - w / 2.0).min(most).max(least)
     };
     let placed = |size: f32, text: &str, at: Rect| Placed {
         size,
@@ -84,6 +85,21 @@ fn place_hint_text(
     alloc::vec![placed(size, &fit(font, size, text, room), span)]
 }
 
+/// The icon a hint shows, with the icon font: the one it names, or the one
+/// its text is (`icons::as_text`); nothing in it for an icon without a
+/// drawing, `None` for a hint that shows words or nothing.
+fn icon_of<'f>(env: &Env<'f>, hint: &Hint) -> Option<Option<(FontHandle<'f>, char)>> {
+    match hint {
+        Hint::Icon(name) => Some(icon(env, name)),
+        Hint::Text(text) => {
+            let ch = crate::icons::of_text(text)?;
+            let font = env.fonts().bound(crate::builtin::fonts::ICONS.as_str());
+            Some(font.filter(|font| font.has_char(ch)).map(|font| (font, ch)))
+        }
+        Hint::Default | Hint::Hidden | Hint::Other(_) => None,
+    }
+}
+
 /// What the row's hints take of it, each from its start to its end and
 /// whether that is all it may use (none for those that show nothing):
 /// their own ink where it fits in their share less a gap at each side;
@@ -115,12 +131,14 @@ fn reaches(
             let (left, right) = share(i);
             let room = (right - left).saturating_sub(2 * style.gap) as f32;
             let middle = (left + right) as f32 / 2.0;
-            let ink = match hint {
-                Hint::Text(text) => font.as_ref()?.measure(style.small, text),
-                Hint::Icon(name) => icon_width(env, name, style.text),
-                Hint::Default | Hint::Hidden | Hint::Other(_) => return None,
+            let shown = icon_of(env, hint);
+            let ink = match (&shown, hint) {
+                (Some(Some((icons, ch))), _) => icons.advance(style.text, *ch),
+                (Some(None), _) => 0.0,
+                (None, Hint::Text(text)) => font.as_ref()?.measure(style.small, text),
+                (None, _) => return None,
             };
-            if ink <= room + 1.0 || matches!(hint, Hint::Icon(_)) {
+            if ink <= room + 1.0 || shown.is_some() {
                 return Some((
                     (middle - ink / 2.0) as u32,
                     (middle + ink / 2.0) as u32,
@@ -234,6 +252,20 @@ pub fn draw_button_hints(
             Color::BLACK
         };
         let mut boxed = cell.inset(style.gap as u16 / 2, style.gap as u16 / 4);
+        if let Some(shown) = icon_of(env, hint) {
+            if is_pressed {
+                let radius = style.radius(u32::from(boxed.height));
+                canvas.fill_round(boxed, radius, Color::BLACK);
+            }
+            if let Some((icons, ch)) = shown {
+                let width = icons.advance(style.text, ch);
+                let mut text = [0u8; 4];
+                let text = ch.encode_utf8(&mut text);
+                let x = middle - width / 2.0;
+                draw_text(canvas, &icons, None, style.text, x, cell, text, ink);
+            }
+            continue;
+        }
         // The label alone, in the middle: no mark beside it.
         match hint {
             Hint::Text(text) => {
@@ -268,27 +300,11 @@ pub fn draw_button_hints(
                     );
                 }
             }
-            Hint::Icon(name) => {
-                if is_pressed {
-                    let radius = style.radius(u32::from(boxed.height));
-                    canvas.fill_round(boxed, radius, Color::BLACK);
-                }
-                let width = icon_width(env, name, style.text);
-                draw_icon(
-                    canvas,
-                    env,
-                    name,
-                    style.text,
-                    middle - width / 2.0,
-                    cell,
-                    ink,
-                );
-            }
-            Hint::Default | Hint::Hidden | Hint::Other(_) if is_pressed => {
+            Hint::Icon(_) | Hint::Default | Hint::Hidden | Hint::Other(_) if is_pressed => {
                 let radius = style.radius(u32::from(boxed.height));
                 canvas.fill_round(boxed, radius, Color::BLACK);
             }
-            Hint::Default | Hint::Hidden | Hint::Other(_) => {}
+            Hint::Icon(_) | Hint::Default | Hint::Hidden | Hint::Other(_) => {}
         }
     }
 }

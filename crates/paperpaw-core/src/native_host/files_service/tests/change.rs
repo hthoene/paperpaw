@@ -2,7 +2,7 @@
 //! removals, a folder that needs several calls), and the statuses.
 use super::*;
 use paperpaw_native::host_glue::{
-    ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NOT_FOUND, ERR_STATE,
+    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NOT_FOUND, ERR_STATE,
 };
 
 fn make_dir(host: &Rc<TestHost>, root: u32, p: &str) -> Result<(), i32> {
@@ -468,4 +468,69 @@ fn the_library_follows_moves_of_the_users_files_only() {
     assert!(host.moves.active());
     host.finish_job();
     assert!(!host.moves.active() && host.journal.borrow().is_none());
+}
+
+/// #612: a plugin's export, a flash card list and its `.part` are no books;
+/// their move on root 1 is the card's rename, and a second one right after it
+/// is not `ERR_BUSY` behind the first one's job.
+#[test]
+fn a_file_that_is_no_book_moves_without_the_librarys_job() {
+    let (card, host) = fixture();
+    host.formats.set(true);
+    card.file("Books/a.epub", 1);
+    card.file("Notes/Vocabulary.tsv.part", 3);
+    card.file("Notes/Vocabulary.tsv", 2);
+    card.file("Notes/Old.tsv.part", 2);
+    card.dir("Notes/Kept");
+    // The call alone: `do_move` would run a job out before the next one.
+    let mv = |from: &str, to: &str, flags: u32| {
+        call(&host, 6, move_record(1, from, 1, to, flags)).map(|reply| assert!(reply.is_empty()))
+    };
+    for (from, to) in [
+        ("Notes/Old.tsv.part", "Notes/Old.tsv"),
+        ("Notes/Vocabulary.tsv.part", "Notes/Vocabulary.tsv"),
+    ] {
+        assert_eq!(mv(from, to, 1), Ok(()), "{from}");
+        assert!(!host.moves.active(), "no job after {from}");
+    }
+    assert_eq!(host.library_moves.get(), 0);
+    assert!(host.journal.borrow().is_none(), "nothing to replay");
+    assert_eq!(card.size("Notes/Vocabulary.tsv"), Ok(3));
+    assert!(!card.exists("Notes/Vocabulary.tsv.part"));
+    // The service's refusals are the same for it.
+    assert_eq!(
+        mv("Notes/Old.tsv", "Notes/Vocabulary.tsv", 0),
+        Err(ERR_STATE)
+    );
+    assert_eq!(mv("Notes/Old.tsv", "Notes/Kept", 1), Err(ERR_STATE));
+    // A folder, a book and a book's `.bak` are the library's as before.
+    for (from, to) in [
+        ("Notes/Kept", "Notes/Shelf"),
+        ("Books/a.epub", "Books/a.epub.bak"),
+        ("Books/a.epub.bak", "Books/a.old"),
+    ] {
+        let before = host.library_moves.get();
+        assert_eq!(mv(from, to, 0), Ok(()), "{from}");
+        assert_eq!(host.library_moves.get(), before + 1, "{from}");
+        // One move at a time: a file that is no book waits too.
+        assert_eq!(
+            mv("Notes/Old.tsv", "Notes/Older.tsv", 0),
+            Err(ERR_BUSY),
+            "{from}"
+        );
+        host.finish_job();
+    }
+    // So is a file the library keeps details for, whatever its name (a book
+    // whose format is off): `.paperpaw/library/details/<h>/<key>.ini`.
+    card.file("Books/b.mobi", 4);
+    card.file("Books/c.mobi", 4);
+    let key = paperpaw_sdk::library::key("Books/b.mobi");
+    let details = alloc::format!(".paperpaw/library/details/{}/{key}.ini", &key[..2]);
+    card.file(&details, 9);
+    let before = host.library_moves.get();
+    assert_eq!(mv("Books/b.mobi", "Books/b.old", 0), Ok(()));
+    assert_eq!(host.library_moves.get(), before + 1, "kept by the library");
+    host.finish_job();
+    assert_eq!(mv("Books/c.mobi", "Books/c.old", 0), Ok(()));
+    assert_eq!(host.library_moves.get(), before + 1, "nothing kept");
 }

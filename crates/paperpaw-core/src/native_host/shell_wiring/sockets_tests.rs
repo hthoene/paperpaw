@@ -383,6 +383,29 @@ fn the_network_services_are_made_at_their_first_call_and_one_without_room_tries_
 }
 
 #[test]
+fn a_device_with_the_cable_is_made_in_the_one_block_that_may_be_refused() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    // The allocations of the device's first call, counted by a refusal set
+    // too far away to happen.
+    let made = |cable: bool| {
+        let resources = HostResources::try_new().unwrap();
+        let shell = Rc::new(Shell::default());
+        let limits = NetLimits::new(49_152, 1).cable(cable);
+        let wiring = HostWiring::new().net(net_inputs(&shell, limits));
+        let _wired = resources.wire(wiring).unwrap();
+        FAIL_NTH.with(|n| n.set(1_000));
+        let made = resources.hosts().net_for_call().is_ok();
+        let left = FAIL_NTH.with(|n| n.replace(0));
+        assert!(made && resources.hosts().net().is_some());
+        1_000 - left
+    };
+    // `Later::make` refuses the device's block and nothing else: a second
+    // allocation in it (the cable's link) would end the firmware instead of
+    // answering `ERR_NO_MEMORY`.
+    assert_eq!((made(false), made(true)), (1, 1));
+}
+
+#[test]
 fn reports_before_the_first_call_answer_as_the_empty_device_does() {
     // One device made by a call, one not: the shell's reports for ids that
     // cannot exist answer the same on both.

@@ -390,6 +390,7 @@ g_firmware-build() {
         return
     fi
     run "firmware-build: x4 release build" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4"
+    run "firmware-build: no float parser or formatter in the image" "tools/firmware-symbols.sh shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink"
     run "firmware-build: sample plugin fits the firmware" '
         fp="$(cargo run -q --release -p paperpaw-sign -- fingerprint shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink)"
         (cd samples/hello-native && env -u RUSTFLAGS cargo +'"$x4_toolchain"' x4)

@@ -192,6 +192,7 @@ fn a_host_without_the_feature_offers_no_root_one() {
         plugin: PLUGIN,
         hosts,
         granted: true,
+        kernel: false,
     };
     let caller = crate::native_host::host_services::Caller {
         owner: OWNER,
