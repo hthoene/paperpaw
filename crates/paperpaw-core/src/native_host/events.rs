@@ -66,8 +66,12 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 #[must_use]
 pub const fn is_event_tag(tag: u32) -> bool {
     // A bit set, not a `match`: no jump table, which the firmware's frame scan
-    // cannot size where the function is not inlined. Every tag is below 128.
-    tag < 128 && (EVENT_TAG_BITS >> tag) & 1 == 1
+    // cannot size where the function is not inlined. A tag the set has no
+    // bit for (128 and above) shifts to `None`: exact, no range of tags.
+    match EVENT_TAG_BITS.checked_shr(tag) {
+        Some(bits) => bits & 1 == 1,
+        None => false,
+    }
 }
 
 const EVENT_TAG_LIST: [u32; 46] = [
