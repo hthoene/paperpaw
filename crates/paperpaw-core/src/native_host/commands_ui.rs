@@ -233,9 +233,10 @@ impl<'a> CommandStage<'a> {
     /// emptied where it is, not moved (a move copies it, some 500 bytes).
     pub(crate) fn take_ui_output(&mut self) -> (Vec<Command>, Option<Redraw>, u8) {
         let screen = self.ui.as_ref().and_then(|ui| ui.screen);
-        let whole = self.redraw.is_some();
+        let asked = self.redraw.take();
+        let whole = asked.is_some();
         let areas = core::mem::take(&mut self.areas);
-        let mode = self.redraw.max(areas.mode);
+        let mode = asked.max(areas.mode);
         let redraw = mode.zip(screen).map(|(mode, screen)| Redraw {
             screen,
             mode: super::redraw::refresh_mode(mode),
@@ -1067,6 +1068,9 @@ mod tests {
             ERR_BUSY
         );
         assert_eq!(submit(&mut stage, &[WireCommand::Redraw { mode: 0 }]), OK);
+        // A stage its caller keeps is emptied where it is: no redraw twice.
+        assert!(stage.take_ui_output().1.is_some());
+        assert!(stage.take_ui_output().1.is_none());
     }
     #[test]
     fn an_area_redraw_marks_only_its_areas_weighed_one_by_one() {
