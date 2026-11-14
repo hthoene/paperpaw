@@ -2,8 +2,8 @@
 //! group, the nine settings (kinds, defaults, choices, titles, help, editors,
 //! units; the picker as the editor of the picture and the widget over the
 //! page), the screens (the picker and the sleep screen), the slot, the icon,
-//! the needs and the two places of widgets. The hidden hints of the sleep
-//! screen are not declared yet.
+//! the needs and the two places of widgets, and the sleep screen's hidden
+//! button hints.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses later")]
@@ -229,4 +229,27 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.actions, old.actions);
     assert!(native.events.is_empty());
     assert!(native.others.is_empty(), "{:?}", native.others);
+}
+
+/// The sleep screen shows no row of button hints, as Beta 3's had none
+/// (`ScreenDecl::hints_hidden`, flag bit 8); the picker keeps its hints.
+#[test]
+fn the_sleep_screen_hides_the_button_hints_and_the_picker_keeps_them() {
+    use paperpaw_core::native_host::registrations::{Record, records_decode};
+    const HINTS_HIDDEN: u32 = 1 << 8;
+    let mut flags = Vec::new();
+    for batch in batches(|d| declarations::screens(d).unwrap()) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::ScreenSpec(spec) = record {
+                flags.push((spec.name.to_string(), spec.flags & HINTS_HIDDEN != 0));
+            }
+        }
+    }
+    assert_eq!(
+        flags,
+        [
+            ("pick-overlay".to_string(), false),
+            ("screen".to_string(), true)
+        ]
+    );
 }
