@@ -1075,14 +1075,14 @@ fn op_19_shown_follows_the_settings_a_place_lists() {
 #[test]
 fn op_21_lists_the_kernels_items_between_the_declared_items_and_lines() {
     let kernel = kernel();
-    // The kernel's own (todo 598): Beta 3's priorities, the battery drawn
-    // with room for its symbol and percentage.
+    // The kernel's own (todo 598): Beta 3's priorities, the battery with room
+    // for its symbol and percentage. Items: never the drawn bit (a line's).
     let kernels = [
         "status core.status.clock core kind=0 flags=0 priority=160 size=0 tap= Time",
         "status core.status.date core kind=0 flags=0 priority=128 size=0 tap= Date",
         "status core.status.date-short core kind=0 flags=0 priority=128 size=0 tap= Date, short",
-        "status core.status.battery core kind=0 flags=1 priority=192 size=4200 tap= Battery",
-        "status core.status.battery-low core kind=0 flags=1 priority=128 size=4200 tap= Battery when low",
+        "status core.status.battery core kind=0 flags=0 priority=192 size=4200 tap= Battery",
+        "status core.status.battery-low core kind=0 flags=0 priority=128 size=4200 tap= Battery when low",
     ];
     for scope in ["", "item"] {
         assert_eq!(rows_of(&kernel, None, schema::OP_STATUS, scope, 0), kernels);
@@ -1127,6 +1127,42 @@ fn op_21_lists_the_kernels_items_between_the_declared_items_and_lines() {
     let lines = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "line", 0);
     assert_eq!(lines, &all[6..]);
     assert!(rows_of(&kernel, Some(&directory), schema::OP_STATUS, "other", 0).is_empty());
+}
+
+/// `registry.md` 3, `reg_status.flags` bit 0: always set for a line, never
+/// for an item. The SDK refuses a page with a row that says otherwise, so a
+/// status line that reads its items (reader, home, picture-home) stays empty.
+#[test]
+fn op_21_marks_lines_and_no_item_as_drawn_by_their_owner() {
+    let kernel = kernel();
+    let directory = declarations(&[
+        Record::StatusItem(wire::StatusItem {
+            name: "steps",
+            title: "nat.status.steps",
+            tap: "",
+            priority: 10,
+            min_width: 0,
+            token: 0,
+            flags: 2,
+        }),
+        Record::StatusLine(wire::StatusLine {
+            name: "reading",
+            title: "nat.status.reading",
+            height: 1000,
+            token: 0,
+            flags: 0,
+        }),
+    ]);
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "", 0);
+    assert_eq!(rows.len(), 7);
+    for row in &rows {
+        let flags = row
+            .split(' ')
+            .find_map(|part| part.strip_prefix("flags="))
+            .and_then(|flags| flags.parse::<u32>().ok())
+            .unwrap();
+        assert_eq!(flags & 1 != 0, row.contains(" kind=1 "), "{row}");
+    }
 }
 
 #[test]
