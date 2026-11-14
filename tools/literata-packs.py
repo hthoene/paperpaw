@@ -1,9 +1,10 @@
-"""Builds the data plugins of Literata that the X4's firmware leaves out
-to keep room for updates: its bold and italic faces (`literata-styles`,
-which the store fetches by itself where they are missing), its larger
-sizes (36, 40 and 48 px) as packs that extend the faces, and its bold
-italic face at every size, bound to the reading role. All are read from
-the card a glyph at a time.
+"""Builds the data plugins of Literata, which the X4's firmware leaves out
+to keep room for updates: its regular, bold and italic faces
+(`literata-styles`; the regular one is the file the firmware names as
+`fonts-default.literata`, plugins/fonts-default), its larger sizes (36,
+40 and 48 px) as packs that extend the faces, and its bold italic face
+at every size, bound to the reading role. All are read from the card a
+glyph at a time, while the reader has chosen Literata.
 
 Usage:
     python tools/literata-packs.py OUT_DIR
@@ -30,8 +31,8 @@ FONTS = ROOT / "plugins/fonts-default/fonts"
 # crates/paperpaw-app read the same files.
 DATA = ROOT / "tools/plugin-files"
 
-# Sizes the firmware leaves out of the reading faces (it keeps up to
-# 32 px, plugins/fonts-default/build.rs), the sizes it keeps, and all.
+# The larger sizes, the sizes of `literata-styles` (the firmware's own
+# font has them too, plugins/fonts-default/build.rs), and all.
 LARGE = "36,40,48"
 SMALL = "20,24,28,32"
 ALL = "20,24,28,32,36,40,48"
@@ -78,6 +79,8 @@ def main():
     out = base / "literata-styles"
     shutil.rmtree(out, ignore_errors=True)
     (out / "fonts").mkdir(parents=True)
+    # The regular face: its name is in the firmware, not in plugin.ini.
+    pack("Literata.ttf", 400, SMALL, out / "fonts" / "literata.ppfp")
     pack("Literata.ttf", 700, SMALL, out / "fonts" / "literata-bold.ppfp")
     pack("Literata-Italic.ttf", 400, SMALL, out / "fonts" / "literata-italic.ppfp")
     plugin(out, "literata-styles", (DATA / "literata-styles.ini").read_text(encoding="utf-8"))
