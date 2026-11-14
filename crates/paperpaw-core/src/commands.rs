@@ -229,6 +229,8 @@ impl Kernel {
             // A page's pictures drawn after its text are no page turned,
             // however large: not counted, nor made the full refresh of the
             // whole screen that is due (leaving them refreshes in full).
+            // What a filter deferred rides along uncounted too (above); no
+            // filter of this tree defers (todo: count it apart).
             let counted = if followup { 0 } else { weight };
             self.frame.refresh.weigh(Some(counted));
             let (mode, region) = self.frame.refresh.decide(requested, dirty, screen, every);

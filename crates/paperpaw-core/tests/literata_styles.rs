@@ -14,6 +14,10 @@
 //!   and its faces are not mixed into the UI font's text.
 //! - The larger sizes (`literata-large`) extend Literata's faces, and are
 //!   harmless without them.
+//! - While running: Literata chosen before stays chosen in the file as
+//!   plugins come and go, the plugin installed over the one of before
+//!   brings it, and a card that cannot say whether its file is there
+//!   takes no choice away.
 
 #![allow(
     clippy::unwrap_used,
@@ -23,14 +27,17 @@
 
 mod common;
 
-use common::DEVICE;
+use std::cell::Cell;
+use std::rc::Rc;
+
+use common::{DEVICE, Harness};
 use paperpaw_core::Kernel;
 use paperpaw_core::sdk::builtin::fonts;
 use paperpaw_core::sdk::{
-    Font, FontFace, FontSpec, Id, Manifest, MemoryStorage, Plugin, Priority, RegisterError,
-    Registrar, SettingKind, Version,
+    Command, Font, FontFace, FontSpec, Id, Manifest, MemoryStorage, Plugin, Priority,
+    RegisterError, Registrar, SettingKind, SettingValue, Version,
 };
-use paperpaw_platform::Instant;
+use paperpaw_platform::{DirEntry, Instant, Storage, StorageError};
 use paperpaw_text::{Glyph, LineMetrics, PackBuilder};
 
 const STYLES: &str = include_str!("../../../tools/plugin-files/literata-styles.ini");
@@ -39,6 +46,9 @@ const LARGE: &str = include_str!("../../../tools/plugin-files/literata-large.ini
 const SANS: &str = "fonts-default.source-sans";
 const LITERATA: &str = "fonts-default.literata";
 const CHOSEN: &str = "[core]\nreading-font = Literata\n";
+/// What is said of Literata chosen where the card lacks it.
+const MISSING: &str = "`core.reading-font`: the font Literata is not on the card (install the \
+                       plugin that brings it); the default is used until then";
 
 /// A pack of `sizes`, its `a` `advance` wide: the advance tells the
 /// faces apart.
@@ -167,16 +177,13 @@ fn started_warned(card: MemoryStorage, config: &str) -> (Kernel, Vec<String>) {
     (kernel, warnings)
 }
 
-/// Literata chosen where the card lacks its regular face is as any font
-/// chosen that is not there: said once as a setting that does not hold,
-/// and the default stands (the choice is kept for when the font comes).
+/// Literata chosen where the card lacks its regular face: said once, by
+/// the font's name and that its plugin is missing, and the default
+/// stands (the file keeps the choice for the start that finds the font).
 fn assert_choice_gives_way(card: MemoryStorage) {
     let (kernel, warnings) = started_warned(card, CHOSEN);
     assert_ui_font_sets_the_book(&kernel);
-    assert_eq!(
-        warnings,
-        ["`core.reading-font`: invalid value for this setting"]
-    );
+    assert_eq!(warnings, [MISSING]);
 }
 
 /// Whether Literata is among the fonts the reading font setting offers.
@@ -337,4 +344,217 @@ fn a_proposal_without_a_font_gives_way_to_the_next() {
     assert_eq!(regular.id().as_str(), LITERATA);
     let bold = kernel.fonts().bound(fonts::READING_BOLD.as_str()).unwrap();
     assert_eq!(bold.id().as_str(), "literata-styles.bold");
+}
+
+/// The card, shared with the test (which writes to it and starts anew
+/// on it). While `busy` it cannot say whether Literata's file is there.
+struct Shared {
+    card: Rc<MemoryStorage>,
+    busy: Rc<Cell<bool>>,
+}
+
+impl Storage for Shared {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.card.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        if self.busy.get() && path.ends_with("/literata.ppfp") {
+            return Err(StorageError::Io);
+        }
+        self.card.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.card.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.card.append(path, data)
+    }
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.card.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.card.remove(path)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        self.card.rename(from, to)
+    }
+    fn create_dir(&self, path: &str) -> Result<(), StorageError> {
+        self.card.create_dir(path)
+    }
+    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
+        self.card.remove_dir_all(path)
+    }
+}
+
+/// A device running on a card the test keeps: commands go through the
+/// harness, as a plugin's would.
+struct Running {
+    kernel: Kernel,
+    harness: Harness,
+    card: Rc<MemoryStorage>,
+    busy: Rc<Cell<bool>>,
+    at: u64,
+}
+
+impl Running {
+    /// Started on `card` with the configuration file `config`; what the
+    /// start warned of.
+    fn on(card: MemoryStorage, config: &str) -> (Self, Vec<String>) {
+        let card = Rc::new(card.with("paperpaw.ini", config.as_bytes().to_vec()));
+        Self::again(card)
+    }
+
+    /// A start on `card` as it is now.
+    fn again(card: Rc<MemoryStorage>) -> (Self, Vec<String>) {
+        let harness = Harness::new();
+        let busy = Rc::new(Cell::new(false));
+        let shared = Shared {
+            card: card.clone(),
+            busy: busy.clone(),
+        };
+        let mut kernel = Kernel::builder(DEVICE)
+            .plugin(Lean)
+            .plugin(harness.plugin())
+            .storage(shared)
+            .build()
+            .unwrap();
+        kernel.start(Instant(0));
+        let warnings = kernel.take_warnings();
+        let warnings = warnings.iter().map(|w| w.message.to_string()).collect();
+        let running = Self {
+            kernel,
+            harness,
+            card,
+            busy,
+            at: 0,
+        };
+        (running, warnings)
+    }
+
+    /// Carries `command` out; nothing may be warned of.
+    fn run(&mut self, command: Command) {
+        self.at += 10;
+        self.harness.run(&mut self.kernel, self.at, [command]);
+        let warnings = self.kernel.take_warnings();
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    /// Another data plugin comes to the card and is loaded.
+    fn another_comes(&mut self) {
+        let ini = plugin_ini("other", "Other", "");
+        self.card
+            .write("plugins/other/plugin.ini", ini.as_bytes())
+            .unwrap();
+        self.run(Command::LoadPlugin("plugins/other".into()));
+        assert!(self.kernel.plugins().get("other").is_some());
+    }
+
+    /// The reading font chosen, and the face book text is in.
+    fn reads_in(&self) -> (&str, String) {
+        let fonts = self.kernel.fonts();
+        let face = fonts.role(fonts::READING.as_str()).unwrap().id();
+        let chosen = self.kernel.settings().text("core.reading-font");
+        (chosen, face.to_string())
+    }
+
+    /// Whether the configuration file names Literata as the reading font.
+    fn kept_in_the_file(&self) -> bool {
+        let file = paperpaw_core::sdk::read_file(&*self.card, "paperpaw.ini", 4096).unwrap();
+        let file = String::from_utf8(file).unwrap();
+        file.contains("reading-font = Literata")
+    }
+}
+
+/// The plugin with the regular face, version 1.1.0, in `folder`.
+fn write_literata(card: &MemoryStorage, folder: &str) {
+    let ini = plugin_ini("literata-styles", "Literata", STYLES).replace("1.0.0", "1.1.0");
+    let files = [
+        ("plugin.ini", ini.into_bytes()),
+        ("fonts/literata.ppfp", pack(&[20.0, 32.0], 10.0)),
+        ("fonts/literata-bold.ppfp", pack(&[20.0, 32.0], 12.0)),
+        ("fonts/literata-italic.ppfp", pack(&[20.0, 32.0], 8.0)),
+    ];
+    for (file, data) in files {
+        card.write(&format!("{folder}/{file}"), &data).unwrap();
+    }
+}
+
+/// Literata chosen on a firmware that had it (Beta 3), on a card without
+/// the plugin: the UI font sets the book and the file keeps the choice,
+/// whatever other plugins come and go, so the start after the plugin
+/// came reads in Literata again.
+#[test]
+fn literata_chosen_before_stays_in_the_file_until_its_plugin_comes() {
+    let (mut device, warnings) = Running::on(card(Styles::None, false), CHOSEN);
+    assert_eq!(warnings, [MISSING]);
+    assert_ui_font_sets_the_book(&device.kernel);
+    device.another_comes();
+    assert!(device.kept_in_the_file());
+    device.run(Command::RemovePlugin(Id::new_static("other")));
+    assert!(device.kernel.plugins().get("other").is_none());
+    assert!(device.kept_in_the_file());
+    assert_ui_font_sets_the_book(&device.kernel);
+
+    // The plugin comes: Literata is offered, and the next start takes it.
+    write_literata(&device.card, "plugins/.literata-styles.part");
+    device.run(Command::InstallPlugin(
+        Id::new_static("literata-styles"),
+        "plugins/.literata-styles.part".into(),
+    ));
+    assert!(offered(&device.kernel));
+    assert!(device.kept_in_the_file());
+    let (device, warnings) = Running::again(device.card);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(device.reads_in(), ("Literata", LITERATA.to_string()));
+}
+
+/// The plugin with the regular face installed over the one of before
+/// (bold and italic alone) while the device runs: Literata is offered at
+/// once, and chosen its three faces come from the card.
+#[test]
+fn the_plugin_installed_over_the_one_of_before_brings_literata() {
+    let (mut device, warnings) = Running::on(card(Styles::Before, false), "");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(!offered(&device.kernel));
+    write_literata(&device.card, "plugins/.literata-styles.part");
+    device.run(Command::InstallPlugin(
+        Id::new_static("literata-styles"),
+        "plugins/.literata-styles.part".into(),
+    ));
+    let plugin = device.kernel.plugins().get("literata-styles").unwrap();
+    assert_eq!(plugin.manifest.version.minor, 1);
+    assert!(offered(&device.kernel));
+    assert_ui_font_sets_the_book(&device.kernel);
+    device.run(Command::SetSetting(
+        Id::new_static("core.reading-font"),
+        SettingValue::Text("Literata".into()),
+    ));
+    assert_eq!(device.reads_in(), ("Literata", LITERATA.to_string()));
+    let fonts = device.kernel.fonts();
+    let bold = fonts.bound(fonts::READING_BOLD.as_str()).unwrap();
+    let italic = fonts.bound(fonts::READING_ITALIC.as_str()).unwrap();
+    assert_eq!(bold.measure(20.0, "a"), 12.0);
+    assert_eq!(italic.measure(20.0, "a"), 8.0);
+    assert!(device.kept_in_the_file());
+}
+
+/// A card that cannot say whether Literata's file is there (busy, a read
+/// fault) while the plugins change has not said that it is gone: the
+/// choice stays, in the settings and in the file, and so does the font.
+#[test]
+fn a_card_that_cannot_say_takes_no_choice_of_literata_away() {
+    let (mut device, warnings) = Running::on(card(Styles::All, false), CHOSEN);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(device.reads_in(), ("Literata", LITERATA.to_string()));
+    device.busy.set(true);
+    device.another_comes();
+    assert_eq!(device.reads_in(), ("Literata", LITERATA.to_string()));
+    assert!(offered(&device.kernel));
+    assert!(device.kept_in_the_file());
+    // Gone for good, the choice gives way as ever.
+    device.busy.set(false);
+    device.run(Command::RemovePlugin(Id::new_static("literata-styles")));
+    assert_eq!(device.reads_in().0, "core.font.default");
+    assert!(!device.kept_in_the_file());
+    assert_ui_font_sets_the_book(&device.kernel);
 }

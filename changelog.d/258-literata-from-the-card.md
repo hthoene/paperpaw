@@ -16,6 +16,11 @@
   headings and bold words stand out on a reader that has no Literata on its card.
 - **A font family is offered for reading and for the status lines only where it has a
   regular face that is there.** A family of bold and italic alone is no longer listed.
+- **A font chosen stays chosen while the card cannot say whether its file is there** (busy,
+  a read fault); only a file that is gone gives the choice up, also for a font in use whose
+  plugin is removed. Literata chosen before, on a card without the plugin, stays in
+  `paperpaw.ini` for the start that finds it, and the log names the font and the missing
+  plugin rather than an invalid value.
 - **A pack that extends a font (a script's letters, larger sizes) is open only while that
   font is**, so packs made for Literata take no memory while another font sets the book.
 - **paperpaw-plugin-fonts-default:** new `LeanFontPacks` (the fonts of a lean build, in any
