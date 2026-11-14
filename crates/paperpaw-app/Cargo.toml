@@ -105,8 +105,11 @@ native-linked = [
 native-linked-store = [
     "native-linked",
     "dep:paperpaw-plugin-aids",
+    "dep:paperpaw-plugin-battery",
     "dep:paperpaw-plugin-mail",
+    "dep:paperpaw-plugin-notes-overview",
     "dep:paperpaw-plugin-notes-vault",
+    "dep:paperpaw-plugin-stats",
     "dep:paperpaw-plugin-widgets",
     "dep:paperpaw-plugin-news",
     "dep:paperpaw-plugin-vocabulary",
@@ -116,10 +119,13 @@ native-linked-store = [
     "dep:paperpaw-plugin-picture-home",
     "dep:paperpaw-plugin-fonts-browser",
     "paperpaw-plugin-aids/linked",
+    "paperpaw-plugin-battery/linked",
     "paperpaw-plugin-fonts-browser/linked",
     "paperpaw-plugin-mail/linked",
+    "paperpaw-plugin-notes-overview/linked",
     "paperpaw-plugin-notes-vault/linked",
     "paperpaw-plugin-picture-home/linked",
+    "paperpaw-plugin-stats/linked",
     "paperpaw-plugin-widgets/linked",
 ]
 
@@ -150,7 +156,10 @@ paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true
 paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
+paperpaw-plugin-battery = { workspace = true, optional = true }
+paperpaw-plugin-notes-overview = { workspace = true, optional = true }
 paperpaw-plugin-notes-vault = { workspace = true, optional = true }
+paperpaw-plugin-stats = { workspace = true, optional = true }
 paperpaw-plugin-picture-home = { workspace = true, optional = true }
 paperpaw-plugin-format-mobi = { workspace = true, optional = true }
 paperpaw-plugin-format-docx = { workspace = true, optional = true }

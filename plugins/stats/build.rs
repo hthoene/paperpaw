@@ -33,6 +33,21 @@ fn emit(
     Ok(framed)
 }
 
+/// The batches of length-framed bytes.
+fn unframe(mut rest: &[u8]) -> Result<Vec<&[u8]>, String> {
+    let mut batches = Vec::new();
+    while let Some((size, tail)) = rest.split_first_chunk::<4>() {
+        let size = usize::try_from(u32::from_le_bytes(*size)).map_err(|_| "batch size")?;
+        let (batch, tail) = tail.split_at_checked(size).ok_or("truncated batch")?;
+        batches.push(batch);
+        rest = tail;
+    }
+    if !rest.is_empty() {
+        return Err("bytes left after the last batch".into());
+    }
+    Ok(batches)
+}
+
 fn main() -> Result<(), String> {
     println!("cargo:rerun-if-changed=declarations.rs");
     println!("cargo:rerun-if-changed=testdata/declarations.bin.v1");
@@ -67,10 +82,24 @@ fn main() -> Result<(), String> {
                 .map_err(|e| format!("invalid Stats stage declarations: {e:?}"))
         }),
     ];
+    // Every family in the order the plugin submits them: the widgets declare
+    // settings of their own.
+    let mut framed = settings.clone();
     for (name, build) in emits {
-        emit(&mut source, name, build)?;
+        framed.extend(emit(&mut source, name, build)?);
     }
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
+    // The settings, setting groups, ids and titles as tables the kernel keeps
+    // in the program (a linked build only), made of the very records declared
+    // above (the length-framed batches).
+    let batches = unframe(&framed)?;
+    let table =
+        paperpaw_sdk::native::declare::fixed_settings_source("stats", "SETTINGS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_groups_source("stats", "GROUPS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_ids_source("stats", "IDS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_titles_source("stats", "TITLES", &batches)?;
+    std::fs::write(out.join("stats_settings.rs"), table)
+        .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("stats_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))?;
     Ok(())

@@ -156,6 +156,8 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("aids", &paperpaw_plugin_aids::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("battery", &paperpaw_plugin_battery::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
@@ -201,6 +203,11 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
     ("news", &paperpaw_plugin_news::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
+    (
+        "notes-overview",
+        &paperpaw_plugin_notes_overview::NATIVE_ENTRY,
+    ),
+    #[cfg(feature = "native-linked-store")]
     ("notes-vault", &paperpaw_plugin_notes_vault::NATIVE_ENTRY),
     ("opds", &paperpaw_plugin_opds::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
@@ -214,6 +221,8 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("reader", &paperpaw_plugin_reader::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("stats", &paperpaw_plugin_stats::NATIVE_ENTRY),
     ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
@@ -328,6 +337,12 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         "mail" => tables!(paperpaw_plugin_mail),
         #[cfg(feature = "native-linked-store")]
         "notes-vault" => tables!(paperpaw_plugin_notes_vault),
+        #[cfg(feature = "native-linked-store")]
+        "stats" => tables!(paperpaw_plugin_stats),
+        #[cfg(feature = "native-linked-store")]
+        "battery" => tables!(paperpaw_plugin_battery),
+        #[cfg(feature = "native-linked-store")]
+        "notes-overview" => tables!(paperpaw_plugin_notes_overview),
         #[cfg(feature = "native-linked-store")]
         "picture-home" => tables!(paperpaw_plugin_picture_home),
         "bluetooth" => tables!(paperpaw_plugin_bluetooth),

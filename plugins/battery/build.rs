@@ -31,7 +31,9 @@ fn main() -> Result<(), String> {
     }
     source.push_str("];\n");
     let mut ui_count = 0;
+    let mut ui_batches: Vec<Vec<u8>> = Vec::new();
     declarations::ui(|batch| {
+        ui_batches.push(batch.to_vec());
         writeln!(
             source,
             "pub static UI_{ui_count}: [u8; {}] = {batch:?};",
@@ -66,6 +68,26 @@ fn main() -> Result<(), String> {
     }
     source.push_str("];\n");
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
+    // The settings, setting groups, ids and titles as tables the kernel keeps
+    // in the program (a linked build only), made of the very records declared
+    // above (the golden's length-framed batches).
+    let mut batches: Vec<&[u8]> = Vec::new();
+    let mut rest = framed.as_slice();
+    while let Some((size, tail)) = rest.split_first_chunk::<4>() {
+        let size = usize::try_from(u32::from_le_bytes(*size)).map_err(|_| "batch size")?;
+        let (batch, tail) = tail.split_at_checked(size).ok_or("truncated batch")?;
+        batches.push(batch);
+        rest = tail;
+    }
+    let mut named = batches.clone();
+    named.extend(ui_batches.iter().map(Vec::as_slice));
+    let table =
+        paperpaw_sdk::native::declare::fixed_settings_source("battery", "SETTINGS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_groups_source("battery", "GROUPS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_ids_source("battery", "IDS", &named)?
+            + &paperpaw_sdk::native::declare::fixed_titles_source("battery", "TITLES", &named)?;
+    std::fs::write(out.join("battery_settings.rs"), table)
+        .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("battery_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))?;
     Ok(())
