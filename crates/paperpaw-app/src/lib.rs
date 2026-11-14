@@ -364,7 +364,7 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
 }
 
 /// Whether `id` is the id of a plugin linked into this program
-/// ([`NATIVE_PLUGINS`] of this build; none where nothing is linked). A plugin
+/// (`NATIVE_PLUGINS` of this build; none where nothing is linked). A plugin
 /// file on the card never takes such an id: the id keys a plugin's secrets and
 /// files, and a card folder is named by whoever made it.
 #[must_use]
@@ -641,7 +641,7 @@ pub static CATALOG_INDEXES: &[(u64, &[u16])] =
 pub static BUILT_CATALOGS: &[paperpaw_i18n::BuiltLanguage] =
     include!(concat!(env!("OUT_DIR"), "/built_catalogs.rs"));
 
-/// The interface-6 forms of plain text, the dictionary, the reader and home:
+/// The interface-6 forms of plain text, the reader and home:
 /// each only where its native form is not linked (`native-linked-reading`).
 #[cfg_attr(
     feature = "native-linked-reading",
@@ -658,13 +658,6 @@ fn interface6_reading(builder: KernelBuilder) -> KernelBuilder {
     #[cfg(not(feature = "native-linked-reading"))]
     {
         b = b.plugin(paperpaw_plugin_format_txt::TxtFormat);
-    }
-    // Dictionary is a native plugin, linked (`NATIVE_PLUGINS`), where the
-    // native reader asks it (`native-linked-reading`): the interface-6
-    // reader looks words up through the interface-6 form.
-    #[cfg(not(feature = "native-linked-reading"))]
-    {
-        b = b.plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
     }
     // Reader and Home keep their order; they are native plugins, linked
     // (`NATIVE_PLUGINS`), where the feature says (`native-linked-reading`);
@@ -713,12 +706,6 @@ pub fn install_with(
     ))]
     {
         b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
-    }
-    // Sleep is a native plugin, linked (`NATIVE_PLUGINS`), where the feature
-    // says.
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_sleep::Sleep);
     }
     // A theme of the app's own, off as it ships, on every device.
     b.plugin_off(Pebble)
