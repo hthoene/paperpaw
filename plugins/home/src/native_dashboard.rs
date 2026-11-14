@@ -689,7 +689,17 @@ impl Dashboard {
             // The footer's buttons show icons: each is named, as interface 6
             // named them (a cell is named by the text drawn in it).
             let pencil = laid.pencil.as_ref().map(|(_, word)| word.as_str());
-            match names::button_name(target.owner, pencil, &laid.actions) {
+            // A tool is told by its whole name, not by the first line of it.
+            let tool_name = match target.owner {
+                Owner::Tool(n) => laid
+                    .cells
+                    .iter()
+                    .filter(|cell| cell.face.is_some())
+                    .nth(n)
+                    .map(|cell| cell.name.as_str()),
+                _ => None,
+            };
+            match names::button_name(target.owner, pencil, &laid.actions).or(tool_name) {
                 Some(name) => paint::describe_named(
                     below,
                     describing,

@@ -136,7 +136,6 @@ fn the_focus_ring_is_clear_of_the_icon_and_the_name_with_4_5_and_6_columns() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at drawer_focus.rs:56); to analyse (#244, Home removal)"]
 fn the_focus_ring_stays_inside_its_cell_sideways() {
     for (width, height) in [(480, 800), (800, 480)] {
         let mut app = App::new(screen(width, height), card("en"));

@@ -1,0 +1,3 @@
+### Fixed
+
+- **The tools drawer and the home screen's tools are told as buttons by their whole name, and the drawer is mirrored where the interface runs right to left.** The drawer told its tools as plain text, with no button and no focus, and the home screen split a long tool name ("Plugin store") into a button and a loose word, so a screen reader and the tests could not find them. Each tool is now one button named by its whole name, with the focus on the one that has it. In a right-to-left language (Arabic) the drawer starts at the right, a tap finds the tool where it is drawn, and *left* goes on to the next tool, as in Beta 3.

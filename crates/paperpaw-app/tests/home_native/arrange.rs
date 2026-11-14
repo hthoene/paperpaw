@@ -148,7 +148,6 @@ fn pages_turn_by_buttons_and_by_swipes() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at common.rs:448); to analyse (#244, Home removal)"]
 fn a_tool_on_the_page_runs_by_buttons_and_by_touch() {
     for device in DEVICES {
         let mut app = App::new(device, Shared::memory(PAGE, &[]));
@@ -287,7 +286,6 @@ fn an_item_is_sized_by_buttons_and_is_kept() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at arrange.rs:41); to analyse (#244, Home removal)"]
 fn an_item_is_dragged_to_another_place_by_touch() {
     let mut app = App::new(TOUCH, Shared::memory(PAGE, &[]));
     let (w, h) = cell(&mut app);
@@ -348,7 +346,6 @@ fn corner_of(app: &mut App, label: &str, cell: (i32, i32)) -> Point {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at arrange.rs:41); to analyse (#244, Home removal)"]
 fn an_item_is_sized_by_its_corner_by_touch() {
     let mut app = App::new(TOUCH, Shared::memory(PAGE, &[]));
     let (w, h) = cell(&mut app);

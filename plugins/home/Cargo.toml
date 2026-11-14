@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-home"
 description = "PaperPaw home screen: continue reading, recently read books, shortcuts"
-version = "1.0.6"
+version = "1.0.7"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
