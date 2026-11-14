@@ -45,9 +45,15 @@ ppn5 = ["paperpaw-native/kernel"]
 # the stack's band is armed, `abi/heap-word.md` section 6): what the firmware
 # ships (#243). Home and reader are linked with them (`native-linked-reading`).
 # The store's plugins stay files. A feature of every device. On the S3 devices
-# (`x4-pro`, `x4-classic`) the frame scans (`frame-budget-s3*.txt`) hold for the
-# linked plugins; the owner's device tests S1-S8 (the band's monitor on the
-# Xtensa chips) are open and gate the S3 release, not the build.
+# (`x4-pro`, `x4-classic`) the frame scans (`frame-budget-s3*.txt`) do NOT yet cover
+# the linked plugins' own code: they root the host table and the trait impls, not
+# the plugins' entry points, so frames of 2,048 B or more inside a plugin
+# (`NativeReader::screen_opened`, `NativeUpdate::event`, json `read_file`, the
+# epub `convert`) are not caught there. Todos 624 (a rooted S3 scan, before
+# Beta 4), 625 (the plugins' frames) and 626 (json, epub convert, four core
+# frames). The X4's `frame-budget-linked.txt` does cover them. The owner's
+# device tests S1-S8 (the band's monitor on the Xtensa chips) are open and gate
+# the S3 release, not the build.
 native-on = ["ppn5", "paperpaw-app/native-linked", "paperpaw-app/native-linked-reading"]
 # The owner TEST image (decision 156): `native-on` with the test gates of
 # #2462, the high-water log every 30 s (`src/high_water.rs`). Never in a

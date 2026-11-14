@@ -27,6 +27,14 @@ runs:
     - name: The versions
       shell: bash
       run: grep -E '^[A-Z_]+=' shells/xteink/versions.env >> "$GITHUB_ENV"
+    # tools/check-x4-start-stack.py reads the firmware's symbols with rustup's
+    # llvm-nm, which is in the `llvm-tools` component of the repository's
+    # toolchain (rust-toolchain.toml); no step of any device adds it otherwise.
+    - name: The llvm tools the stack checks read symbols with
+      shell: bash
+      run: |
+        toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+        rustup toolchain install "$toolchain" --profile minimal --component llvm-tools
     # The runner image has no clang-18, and Ubuntu's Azure mirror has stalled
     # for most of an hour (#876): the packages' .deb files are kept here, so a
     # run that finds them downloads nothing. Where the mirror stays slow, the
