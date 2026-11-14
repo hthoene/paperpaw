@@ -1207,7 +1207,7 @@ impl Kernel {
         text: &str,
     ) -> Result<Effects, &'static str> {
         // A placement's too (`widgets.clock@2.face`).
-        let spec = self.shared.settings.spec(id).ok_or("no such setting")?;
+        let spec = config::spec_to_set(&self.shared.settings, id)?;
         let value = spec.parse(text).ok_or("not a value of this setting")?;
         let id = Id::parse(id).map_err(|_| "no such setting")?;
         let _running = self.shared.meter.enter(meter::CORE);

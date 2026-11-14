@@ -772,6 +772,31 @@ fn register_linked(
 mod tests {
     use super::*;
 
+    /// A script's run (simulated time) keeps its secrets in memory, but a
+    /// download saved to a file lands on the card, where the plugin that asked
+    /// for it reads it.
+    #[test]
+    fn downloads_are_saved_on_the_card_also_on_simulated_time() {
+        let secrets: Rc<dyn Storage> = Rc::new(paperpaw_sdk::MemoryStorage::new());
+        let card: Rc<dyn Storage> = Rc::new(paperpaw_sdk::MemoryStorage::new());
+        let inputs = Inputs {
+            storage: Some(secrets.clone()),
+            view: Rc::default(),
+            simulated: true,
+            net: Rc::default(),
+            card: Some(card.clone()),
+        };
+        let net = net_storage(&inputs).unwrap();
+        assert!(Rc::ptr_eq(&net, &card));
+        assert!(!Rc::ptr_eq(&net, &secrets));
+        // No card: no `core.net` (nor a store that loses what is saved).
+        let none = Inputs {
+            card: None,
+            ..inputs
+        };
+        assert!(net_storage(&none).is_none());
+    }
+
     /// A linked plugin's declaration bytes are read-only statics like its
     /// metadata; if the metadata lay outside the image found here the
     /// declarations would be copied again, unseen, so none may.

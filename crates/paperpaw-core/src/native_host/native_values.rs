@@ -215,7 +215,7 @@ fn callback(
     })
 }
 
-fn setting(
+pub(super) fn setting(
     owner: &str,
     spec: wire::SettingSpec<'_>,
     id: &mut impl Source,

@@ -54,7 +54,17 @@ impl Kernel {
         // The events of the host services, between callbacks.
         self.native_service_pump();
         self.finish_commands();
-        self.finish_frame()
+        let effects = self.finish_frame();
+        // The specs this round made of settings their plugins describe are
+        // let go: none stays on the heap between rounds (#248). One left out
+        // for lack of room was taken as not there by who asked: said here,
+        // once the specs are gone (the warning's text needs room too).
+        let short = self.shared.settings.went_short();
+        self.shared.settings.rest();
+        if short {
+            self.warn_runtime("no room to read a setting from its plugin; taken as not there");
+        }
+        effects
     }
 
     /// [`Self::finish`] for the start: the services' pass and the commands go
@@ -904,11 +914,7 @@ impl Kernel {
         match command {
             // A secret setting's value goes to the secrets.
             Command::SetSetting(id, paperpaw_sdk::SettingValue::Text(text))
-                if self
-                    .shared
-                    .settings
-                    .spec(id.as_str())
-                    .is_some_and(|spec| spec.extra().secret) =>
+                if self.shared.settings.defines_secret(id.as_str()) =>
             {
                 let label = self
                     .shared
@@ -1316,11 +1322,12 @@ pub(crate) fn vet_reserved(
         }
     }
     let editor = reserved.guarded_exempt(owner);
-    let foreign = |id: &str, kept: fn(&paperpaw_sdk::SettingSpec) -> bool| {
-        id.split('.').next() != Some(owner) && reserved.settings.spec(id).is_some_and(kept)
-    };
-    let kept = |spec: &paperpaw_sdk::SettingSpec| spec.guarded || spec.extra().secret;
-    let guarded = |id: &Id| foreign(id.as_str(), kept);
+    // Asked without the setting's spec: no lack of room for one lets a
+    // guarded setting or a secret through (#248).
+    let kept =
+        |id: &str| reserved.settings.defines_guarded(id) || reserved.settings.defines_secret(id);
+    let foreign = |id: &str| id.split('.').next() != Some(owner) && kept(id);
+    let guarded = |id: &Id| foreign(id.as_str());
     let keyboard = reserved.keyboard == Some(owner);
     let before = out.len();
     let mut index = 0;
@@ -1343,7 +1350,7 @@ pub(crate) fn vet_reserved(
                             typed_for(command).flatten().is_none_or(|params| {
                                 params
                                     .get(paperpaw_sdk::builtin::params::ID)
-                                    .is_some_and(|id| foreign(id, kept))
+                                    .is_some_and(foreign)
                             })
                         }
                         // The sleep screen shows over the lock; the settings

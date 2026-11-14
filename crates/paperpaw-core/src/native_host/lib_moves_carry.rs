@@ -175,7 +175,8 @@ impl<'a> EnvCarry<'a> {
     /// Settings that name folder `from` or one in it, chosen as folders,
     /// name it at `to` now.
     fn follow_folders(&self, from: &str, to: &str) -> Result<(), i32> {
-        for spec in self.settings.specs() {
+        // An editor is in a setting's extra: those are kept as they are.
+        for spec in self.settings.kept_specs() {
             let folder = spec
                 .extra()
                 .editor

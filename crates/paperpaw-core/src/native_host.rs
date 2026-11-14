@@ -525,6 +525,9 @@ mod native_ui_directory;
 #[path = "native_host/widget_drops.rs"]
 mod widget_drops;
 
+/// A plugin's settings described from its own records, none kept on the heap.
+#[path = "native_host/described_settings.rs"]
+mod described_settings;
 #[path = "native_host/fixed_settings.rs"]
 mod fixed_settings;
 #[path = "native_host/native_enable.rs"]

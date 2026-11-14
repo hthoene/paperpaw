@@ -19,6 +19,9 @@ pub const TICK: u32 = 14;
 /// A widget of the page says it shows something new (`event.widget_changed`):
 /// its cell is drawn anew.
 pub const WIDGET_CHANGED: u32 = 15;
+/// A picture the host prepared (`event.image_ready`, which the host sends only
+/// to a plugin that subscribes): the backdrop or a picture cell is drawn.
+pub const IMAGE_READY: u32 = 16;
 
 /// Pages at most.
 pub const MAX_PAGES: usize = 4;
@@ -493,9 +496,10 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The minute tick, for the status bar, and a widget that says it shows
+/// The minute tick, for the status bar, a widget that says it shows
 /// something new (`event.widget_changed`, which the host sends only to a maker
-/// that subscribes), for its cell.
+/// that subscribes), for its cell, and a picture the host prepared
+/// (`event.image_ready`, likewise only to a subscriber), for the backdrop.
 ///
 /// # Errors
 /// The declaration is refused.
@@ -504,5 +508,6 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Tick, TICK)?;
     d.subscribe_event(EventKind::WidgetChanged, WIDGET_CHANGED)?;
+    d.subscribe_event(EventKind::ImageReady, IMAGE_READY)?;
     d.submit()
 }

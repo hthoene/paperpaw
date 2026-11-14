@@ -14,7 +14,7 @@ use crate::native_words::HostWords;
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::{
-    Color, Handled, Point, Rect,
+    Handled, Point, Rect,
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
@@ -682,7 +682,7 @@ fn draw_buttons(
             style.small,
             x,
             rect,
-            Color::BLACK,
+            style.ink,
             Some(rect),
         )?;
     }

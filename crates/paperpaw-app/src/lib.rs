@@ -157,6 +157,8 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     #[cfg(feature = "native-linked-store")]
     ("aids", &paperpaw_plugin_aids::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-reading")]
+    ("dictionary", &paperpaw_plugin_dictionary::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
@@ -214,6 +216,7 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("reader", &paperpaw_plugin_reader::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
+    ("sleep", &paperpaw_plugin_sleep::NATIVE_ENTRY),
     ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
@@ -321,6 +324,7 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         "files" => tables!(paperpaw_plugin_files),
         "plugin-manager" => tables!(paperpaw_plugin_plugin_manager),
         "setup" => tables!(paperpaw_plugin_setup),
+        "sleep" => tables!(paperpaw_plugin_sleep),
         "transfer" => tables!(paperpaw_plugin_transfer),
         "update" => tables!(paperpaw_plugin_update),
         "wifi" => tables!(paperpaw_plugin_wifi),
@@ -331,6 +335,8 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         #[cfg(feature = "native-linked-store")]
         "picture-home" => tables!(paperpaw_plugin_picture_home),
         "bluetooth" => tables!(paperpaw_plugin_bluetooth),
+        #[cfg(feature = "native-linked-reading")]
+        "dictionary" => tables!(paperpaw_plugin_dictionary),
         "file-manager" => tables!(paperpaw_plugin_file_manager),
         #[cfg(feature = "native-linked-store")]
         "fonts-browser" => tables!(paperpaw_plugin_fonts_browser),

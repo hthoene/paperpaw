@@ -27,6 +27,10 @@ pub(super) enum Owned {
     /// (`fixed_settings`). One place for all of them, not one of a spec's size
     /// for each.
     FixedSettings(&'static [paperpaw_sdk::SettingSpec], Vec<u16>),
+    /// The settings whose records lie at these places of the plugin's image:
+    /// no copy of them is kept, a spec is made from its record when asked
+    /// for (`described_settings`). One place for all of them.
+    Described(Vec<u32>),
     Group(alloc::boxed::Box<paperpaw_sdk::SettingGroupSpec>),
     /// A group equal to an entry of the plugin's table in the program: no
     /// copy of it is kept.
@@ -681,6 +685,12 @@ impl crate::Kernel {
                 Owned::FixedSettings(list, entries) => staging
                     .native_fixed_entries(list, entries)
                     .map_err(shell::Error::Status)?,
+                Owned::Described(places) => {
+                    staging.described = Some(
+                        super::described_settings::described(owner, instance, places)
+                            .map_err(shell::Error::Status)?,
+                    );
+                }
                 Owned::FixedGroup(group) => staging
                     .native_group(owner, paperpaw_sdk::SettingGroup::from(group))
                     .map_err(shell::Error::Status)?,
@@ -874,6 +884,9 @@ impl crate::Kernel {
                 });
             }
         }
+        if let Some(described) = &staging.described {
+            self.shared.settings.check_described(described)?;
+        }
         for group in &staging.setting_groups {
             if self
                 .shared
@@ -886,6 +899,10 @@ impl crate::Kernel {
         }
         let (actions, settings, groups) = staging.native_counts();
         let fixed = staging.native_fixed_count();
+        let described = staging
+            .described
+            .as_ref()
+            .map_or(0, paperpaw_sdk::DescribedSettings::len);
         let no_room = || RegisterError::Invalid {
             message: crate::registry::NATIVE_CAPACITY_UNAVAILABLE.into(),
         };
@@ -906,6 +923,12 @@ impl crate::Kernel {
             .settings
             .try_reserve_with_fixed(settings, fixed, groups)
             .map_err(|_| no_room())?;
+        if described > 0 {
+            self.shared
+                .settings
+                .try_reserve_described(described, settings.saturating_add(fixed))
+                .map_err(|_| no_room())?;
+        }
         // The choices it adds to other plugins' settings, with the plugin's
         // name, and the room for them in the kernel's list (nothing fails
         // for lack of either once publication starts).
@@ -943,6 +966,9 @@ impl crate::Kernel {
             // Checked above (no duplicate, a default that fits, a place
             // and the room); an error here would be a mistake in those.
             setting.define_in(&mut self.shared.settings)?;
+        }
+        if let Some(described) = staging.described.take() {
+            self.shared.settings.define_described(described)?;
         }
         for group in staging.setting_groups.drain(..) {
             self.shared.settings.add_group(group)?;
@@ -1053,8 +1079,12 @@ fn map_declarations(
     // table in the program stands for takes a place only for a run of them.
     let mut upcoming = usize::from(!fixed.is_empty());
     let mut declared_settings = 0;
-    view.visit(&mut |record| match record {
+    // Without a table, a setting whose record lies in the plugin's image is
+    // described from there on demand: one place for all of those, too.
+    let mut described = 0;
+    view.visit_placed(&mut |record, place| match record {
         Record::SettingSpec(_) if !fixed.is_empty() => declared_settings += 1,
+        Record::SettingSpec(_) if place.is_some() => described += 1,
         Record::ScreenSpec(_)
         | Record::ActionSpec(_)
         | Record::SettingSpec(_)
@@ -1066,7 +1096,11 @@ fn map_declarations(
         _ => {}
     })?;
     owned
-        .try_reserve_exact(upcoming)
+        .try_reserve_exact(upcoming + usize::from(described > 0))
+        .map_err(|_| ERR_NO_MEMORY)?;
+    let mut placed: Vec<super::raw_declarations::Place> = Vec::new();
+    placed
+        .try_reserve_exact(described)
         .map_err(|_| ERR_NO_MEMORY)?;
     // The tokens of what the plugin draws itself (screens, widgets, status
     // items and status lines), which draws may name.
@@ -1078,7 +1112,7 @@ fn map_declarations(
         .try_reserve_exact(fixed.len().min(declared_settings))
         .map_err(|_| ERR_NO_MEMORY)?;
     let mut result: Result<(), i32> = Ok(());
-    view.visit(&mut |record| {
+    view.visit_placed(&mut |record, place| {
         if result.is_err() {
             return;
         }
@@ -1101,6 +1135,14 @@ fn map_declarations(
                     // in the table's order below. A setting that matches
                     // none stays a copy and is published before them.
                     entries.push(u16::try_from(at).map_err(|_| ERR_INVALID)?);
+                    return Ok(());
+                }
+                if let (Owned::Setting(_), Some(place), true) = (&value, place, fixed.is_empty()) {
+                    // Mapped, so that whatever refuses it is told as ever,
+                    // and let go: its record describes it from now on.
+                    placed.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+                    placed.push(place);
+                    any = true;
                     return Ok(());
                 }
                 let value = match value {
@@ -1126,6 +1168,11 @@ fn map_declarations(
         owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         owned.push(Owned::FixedSettings(fixed, entries));
     }
+    if !placed.is_empty() {
+        let places = super::described_settings::declared_order(placed)?;
+        owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        owned.push(Owned::Described(places));
+    }
     // Whether it declared anything is told with the result: a library that only
     // registers callbacks (an event, a tick) is admitted too; one with neither
     // is refused where the registrations are known ([`Kernel::admit_native`]).
@@ -1144,26 +1191,26 @@ fn merge_status(error: &RegisterError) -> i32 {
     }
 }
 
-/// How many settings `fixed` (a plugin's table) takes in place of a copy, and
-/// how many stay owned copies, for the declarations in `view`.
+/// How many settings `fixed` (a plugin's table) takes in place of a copy, how
+/// many stay owned copies and how many their records describe, for the
+/// declarations in `view`.
 #[cfg(test)]
 pub(super) fn settings_paths(
     view: &super::declaration_checks::View<'_>,
     fixed: &'static [paperpaw_sdk::SettingSpec],
-) -> Result<(usize, usize), i32> {
+) -> Result<(usize, usize, usize), i32> {
     let (_, owned, _, _) = map_declarations(view, super::FixedTables::new(fixed, &[]))?;
-    let kept = owned
-        .iter()
-        .map(|value| match value {
-            Owned::FixedSettings(_, entries) => entries.len(),
-            _ => 0,
-        })
-        .sum();
-    let copied = owned
-        .iter()
-        .filter(|value| matches!(value, Owned::Setting(_)))
-        .count();
-    Ok((kept, copied))
+    let count = |of: fn(&Owned) -> usize| owned.iter().map(of).sum();
+    let kept = count(|value| match value {
+        Owned::FixedSettings(_, entries) => entries.len(),
+        _ => 0,
+    });
+    let copied = count(|value| usize::from(matches!(value, Owned::Setting(_))));
+    let described = count(|value| match value {
+        Owned::Described(places) => places.len(),
+        _ => 0,
+    });
+    Ok((kept, copied, described))
 }
 
 /// How many groups `groups` (a plugin's table) takes in place of a copy, and

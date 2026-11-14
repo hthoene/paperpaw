@@ -280,20 +280,18 @@ fn format_settings(env: &crate::Env<'_>) -> Vec<(String, String)> {
         .collect();
     paperpaw_sort::sort(&mut owners);
     owners.dedup();
-    env.settings()
-        .specs()
-        .filter(|spec| {
+    let mut values = Vec::new();
+    // Only the format plugins' own specs are read, one at a time. Without
+    // room for one its value is left out: the book opens as by default.
+    let _ = env
+        .settings()
+        .each_spec(crate::settings::Pick::OfAny(&owners), |spec| {
             let id = spec.id.as_str();
-            owners
-                .iter()
-                .any(|o| id.strip_prefix(o).is_some_and(|rest| rest.starts_with('.')))
-        })
-        .filter_map(|spec| {
-            let id = spec.id.as_str();
-            let value = env.settings().get(id)?.to_config_text();
-            Some((id.to_string(), value))
-        })
-        .collect()
+            if let Some(value) = env.settings().get(id) {
+                values.push((id.to_string(), value.to_config_text()));
+            }
+        });
+    values
 }
 
 /// Which conversion of a book [`open_options`] make: places

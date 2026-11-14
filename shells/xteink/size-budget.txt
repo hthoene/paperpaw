@@ -15,14 +15,16 @@
 # 5,324,928 (the largest of two local builds of the same code, which differed by
 # up to 9,696 bytes; CI's own numbers are in its notices). The image measured is the one of the "Lint and build" step
 # (`--features <device>`, paths remapped by `tools/ci/firmware-remap.sh`), not
-# the `ppn5` build of the frame scans.
+# the `ppn5` build of the frame scans. Settings described in place (#248, lazy
+# specs) add to those, before and after built at one path: x4 11,904, x3 11,904,
+# x4-pro 11,856, x4-classic 11,936; the lines below hold both.
 #
 # Raising a line: say in the pull request what grew and why. Up to 4 KB the
 # reviewer decides, up to 32 KB the Manager, more than that the owner. A
 # change that makes the image smaller lowers the line to its measured size plus
 # 8,192 again. Measure anew when a branch with more crates lands (native
 # activation adds some); the target for Beta 4 is 6,400,000 bytes at most.
-image x4 5337728
-image x3 5349552
-image x4-pro 5783728
-image x4-classic 5333120
+image x4 5349632
+image x3 5361456
+image x4-pro 5795584
+image x4-classic 5345056

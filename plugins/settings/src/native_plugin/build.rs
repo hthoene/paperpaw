@@ -82,6 +82,46 @@ pub(super) fn holding(
     Ok(found)
 }
 
+/// The registry scope that asks for the settings shown in group `of` and no
+/// others (op 1: a group's own settings, not its parts'); empty where `of` is
+/// no group, so that nothing is taken for a plugin's name.
+pub(super) fn scope_of<'a>(groups: &[Group], of: &'a str) -> &'a str {
+    if of == model::OTHER_GROUP || groups.iter().any(|g| g.id == of) {
+        of
+    } else {
+        ""
+    }
+}
+
+/// Whether group `part` or any part of it holds a listed setting: asked of the
+/// registry one group at a time, and no more once one is found, where the
+/// whole list was walked for it.
+pub(super) fn holds(
+    reader: &mut Reader<'_, '_>,
+    groups: &[Group],
+    cx: Context,
+    part: &str,
+) -> Result<bool, Error> {
+    let mut found = false;
+    for g in groups.iter().filter(|g| model::within(groups, &g.id, part)) {
+        reader.each_setting(
+            &g.id,
+            Fields::Light,
+            |_| true,
+            |reader, setting| {
+                if !found && listed(reader, groups, cx, &setting, true)? {
+                    found = true;
+                }
+                Ok(())
+            },
+        )?;
+        if found {
+            break;
+        }
+    }
+    Ok(found)
+}
+
 /// A catalog text; a key the catalog lacks is shown as it is.
 pub(super) fn translate(
     messages: &mut Messages,
@@ -361,18 +401,8 @@ fn focus_group(
     groups: &[Group],
     focus: &str,
 ) -> Result<String, Error> {
-    let mut own: Option<String> = None;
-    reader.each_setting(
-        "",
-        Fields::Light,
-        |row| row.key() == focus,
-        |_, s| {
-            own = Some(copy(listed_in(groups, &s))?);
-            Ok(())
-        },
-    )?;
-    match own {
-        Some(group) => Ok(group),
+    match reader.setting_row(focus, Fields::Light)? {
+        Some(s) => copy(listed_in(groups, &s)),
         None => copy(model::OTHER_GROUP),
     }
 }
@@ -420,7 +450,7 @@ pub(super) fn build_group(
     // The settings of the page's group, and only those are read.
     let mut mine: Vec<Setting> = Vec::new();
     reader.each_setting(
-        "",
+        scope_of(&groups, &of),
         Fields::Full,
         |row| model::in_group(&groups, row.group(), &of),
         |_, s| push(&mut mine, s),
@@ -501,9 +531,8 @@ pub(super) fn page_rows(
     // A placement's page has no parts, actions or themes: those are the group's.
     if !view.more && model::unplaced(&view.group).is_none() {
         // Its parts, each a page of its own, where they hold something.
-        let held = holding(reader, groups, cx, true)?;
         for g in groups.iter().filter(|g| g.parent == of) {
-            if held.iter().any(|h| model::within(groups, h, &g.id)) {
+            if holds(reader, groups, cx, &g.id)? {
                 push(&mut rows, Row::Part(copy(&g.id)?, copy(&g.title)?))?;
             }
         }
@@ -594,17 +623,7 @@ pub(super) fn build_choose(
         Some(base) => base,
         None => copy(&view.key)?,
     };
-    let mut named: Option<String> = None;
-    reader.each_setting(
-        "",
-        Fields::Full,
-        |row| row.key() == base,
-        |_, s| {
-            named = Some(s.title);
-            Ok(())
-        },
-    )?;
-    let Some(title) = named else {
+    let Some(title) = reader.setting_row(&base, Fields::Full)?.map(|s| s.title) else {
         return Ok(());
     };
     let options = reader.choices(&base)?;

@@ -167,36 +167,20 @@ fn hostile_values_leave_fonts_unfit_not_broken() {
 }
 
 #[test]
-fn a_font_goes_to_its_page_whole() {
-    let mut font = read(&catalog(&[font("a", 3, false)]), false).remove(0);
-    assert_eq!(
-        Font::from_param(&font.to_param().unwrap())
-            .unwrap()
-            .as_ref(),
-        Some(&font)
-    );
-    font.name = String::from("Two\tWords\n");
-    let back = Font::from_param(&font.to_param().unwrap())
-        .unwrap()
-        .unwrap();
-    assert_eq!(back.name, "Two Words ");
-    assert_eq!(back.files, font.files);
-    for text in [
-        "",
-        "\n\n",
-        "../a\tA\t\t\t\t1.0\t1\t",
-        "a\tA\t\t\t\t1.0\tx\t",
-        "a\tA\t\t\t\t1.0\t1\t\nonly\tthree\tfields",
-        "a\tA\t\t\t\t1.0\t1\t\np\tNaN\ts\tu",
-        "a\tA\t\t\t\t1.0\t1\t",
-    ] {
-        assert_eq!(Font::from_param(text).unwrap(), None, "{text:?}");
-    }
-    let many = "a\tA\t\t\t\t1.0\t1\t".to_string() + &"\nplugin.ini\t1\ts\tu".repeat(100);
-    assert_eq!(
-        Font::from_param(&many).unwrap().unwrap().files.len(),
-        MAX_FILES
-    );
+fn a_font_goes_to_its_page_by_its_id_within_the_hosts_limit() {
+    // The most files a font may list, each with a long address: the whole
+    // entry is far over the 1,024 bytes the host takes a hand-over (the X4's
+    // packs went over it and the page never opened); its id is not.
+    let json = catalog(&[font("a", 2, false), font("b", MAX_FILES - 1, false)]);
+    let fonts = read(&json, false);
+    let big = &fonts[1];
+    assert!(big.to_param().unwrap().len() > 1_024 - 4);
+    let param = big.page_param();
+    assert!(param.len() + "font".len() <= 1_024);
+    // The page finds that very font in the kept catalog, and none for an id
+    // it no longer lists.
+    assert_eq!(Font::find(read(&json, false), param).as_ref(), Some(big));
+    assert_eq!(Font::find(read(&json, false), "gone"), None);
 }
 
 #[test]
@@ -267,9 +251,7 @@ fn refused_allocations_end_in_no_memory_and_recover() {
     let fonts = read(&json, true);
     sweep(|| fonts[0].try_clone().map(|f| f.files.len()));
     sweep(|| fonts[0].plugin().map(|p| p.len()));
-    let param = fonts[0].to_param().unwrap();
     sweep(|| fonts[0].to_param().map(|p| p.len()));
-    sweep(|| Font::from_param(&param).map(|f| f.map(|f| f.files.len())));
     for (base, href) in [
         ("https://h/a/b", "../c?d#e"),
         ("https://h", "//x/y"),

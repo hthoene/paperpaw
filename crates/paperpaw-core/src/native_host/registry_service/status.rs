@@ -53,16 +53,18 @@ pub(super) fn rows(
     Ok(())
 }
 
-/// The kernel's own items (`host_status`); `true` when `visit` stopped.
+/// The kernel's own items (`host_status`); `true` when `visit` stopped. An
+/// item's row never has the drawn bit (`registry.md` 3: a line's only): that
+/// the battery is drawn is what its value says (op 14, `flags` bit 0).
 fn kernels(sources: &Sources<'_>, visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>) -> bool {
     let translator = sources.env.i18n();
-    for (id, drawn, priority, size) in host_status::rows(sources.env) {
+    for (id, priority, size) in host_status::rows(sources.env) {
         let title = sources.env.status_items().title(id).unwrap_or(id);
         let row = Record::ServiceRegStatus(wire::ServiceRegStatus {
             id,
             plugin: host_status::PLUGIN,
             kind: ITEM,
-            flags: if drawn { DRAWN } else { 0 },
+            flags: 0,
             priority: u32::from(priority),
             size,
             tap: "",
