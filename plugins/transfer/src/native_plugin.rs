@@ -10,7 +10,7 @@ use crate::{
         CABLE, INSTALL_DONE, OPEN_TOKEN, PHONE, SCREEN, SERVED_REQUEST, SERVER_EVENT, WIFI_DONE,
         WORK,
     },
-    native_draw::{Join, draw_address},
+    native_draw::{Join, draw_address, draw_no_network},
     native_files::HostCard,
     native_install::{self, Installs},
     native_install_host::{self, HostPlugins},
@@ -25,7 +25,7 @@ use paperpaw_sdk::{
     Handled, Instant,
     native::{
         Error, Host, Plugin,
-        callbacks::{DrawFrame, Input},
+        callbacks::{DrawFrame, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         device::{Device, DeviceOutcome, InstallKind, WifiState},
         events::{Event, Incoming, InstallDone, kinds},
@@ -93,6 +93,7 @@ struct Page {
     view: View,
     /// The empty list under the header: its back arrow and its draw.
     list: ItemList,
+    router: Option<paperpaw_sdk::Rect>,
     /// The key of this time of serving and the wrong ones tried.
     guard: Option<Guard>,
     /// What happened last, as said on the screen.
@@ -195,6 +196,7 @@ impl Plugin for NativeTransfer {
                 let page = Page {
                     view: View::Starting,
                     list: ItemList::new(alloc::vec::Vec::new()),
+                    router: None,
                     guard: None,
                     last: None,
                     started: false,
@@ -290,12 +292,10 @@ impl Plugin for NativeTransfer {
             }
             View::Starting => ("transfer.starting", String::new()),
             View::NoNetwork(managed) => {
-                let help = if *managed {
-                    "transfer.no-network"
-                } else {
-                    "transfer.no-network.system"
-                };
-                ("transfer.no-network.title", messages.copy(host, help)?)
+                page.list
+                    .draw_with(host, &mut frame, title, true, Footer::None)?;
+                page.router = draw_no_network(host, &mut frame, *managed)?;
+                return Ok(());
             }
             View::Failed(words) => ("transfer.failed.title", own(words)?),
         };
@@ -319,6 +319,24 @@ impl Plugin for NativeTransfer {
         let Some(page) = self.screens.top(token) else {
             return Ok(Handled::No);
         };
+        if token == SCREEN && matches!(page.view, View::NoNetwork(true)) {
+            let choose = match input {
+                Input::Action {
+                    action: "core.select" | "core.confirm",
+                    ..
+                } => true,
+                Input::Gesture {
+                    position,
+                    kind: InputGestureKind::Tap,
+                    ..
+                } => page.router.is_some_and(|rect| rect.contains(position)),
+                _ => false,
+            };
+            if choose {
+                self.chosen(host, 0)?;
+                return Ok(Handled::Yes);
+            }
+        }
         let step = page.list.input(host, &input)?;
         if let ItemStep::Chosen(index) = step
             && token == SCREEN
@@ -469,6 +487,7 @@ impl NativeTransfer {
             alloc::vec::Vec::new()
         };
         if let Some(page) = self.screens.top(token) {
+            page.router = None;
             page.view = view;
             page.list.replace(rows);
             redraw(host, RedrawMode::Partial)?;

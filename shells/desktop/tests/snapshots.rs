@@ -414,6 +414,15 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    Case {
+        name: "x4-transfer-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:transfer.open,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
     // The flash cards before any deck: how to bring cards in (a phone,
     // CSV, TSV or Anki), in English and German.
     Case {
@@ -1072,4 +1081,25 @@ fn standalone_picture_book_is_not_blank() {
         gray.iter().filter(|pixel| **pixel < 128).count() > gray.len() / 10,
         "standalone picture book must draw its picture"
     );
+}
+
+fn helper_screen_cases(names: &[&str]) {
+    let references = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
+    for name in names {
+        let case = CASES.iter().find(|case| case.name == *name).unwrap();
+        let (width, height, gray, _) = draw(case);
+        let reference = references.join(format!("{name}.png"));
+        if std::env::var_os("PAPERPAW_BLESS").is_some() {
+            write_gray(&reference, width, height, &gray);
+        } else {
+            let (w, h, expected) = grays(&reference);
+            assert_eq!((width, height), (w, h));
+            assert!(gray == expected, "{name}: screen changed");
+        }
+    }
+}
+
+#[test]
+fn transfer_offline_has_icon_and_bottom_button() {
+    helper_screen_cases(&["x4-transfer", "x4-transfer-de"]);
 }
