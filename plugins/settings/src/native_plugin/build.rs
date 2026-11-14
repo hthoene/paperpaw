@@ -147,9 +147,9 @@ pub(super) fn value_text(
 ) -> Result<String, Error> {
     let setting = &entry.setting;
     let text = match (&setting.value, editing) {
-        (_, Some(now)) => model::with_unit(now, &entry.detail.unit)?,
+        (_, Some(now)) => messages.with_unit(host, now, &entry.detail.unit)?,
         (Some(Val::Bool(on)), _) => on_off(messages, host, *on)?,
-        (Some(Val::Int(v)), _) => model::with_unit(*v, &entry.detail.unit)?,
+        (Some(Val::Int(v)), _) => messages.with_unit(host, *v, &entry.detail.unit)?,
         (Some(Val::Text(v)), _) => match entry.options.iter().find(|(value, _)| value == v) {
             Some((_, name)) => copy(name)?,
             None => copy(v)?,
@@ -501,6 +501,9 @@ pub(super) fn build_group(
             .is_some_and(|e| e.setting.key == view.focus),
         _ => false,
     });
+    let first_setting = (view.rows.is_empty())
+        .then(|| first_real_setting(&group, &rows))
+        .flatten();
     view.group = group;
     view.title = title;
     view.rows = rows;
@@ -511,8 +514,26 @@ pub(super) fn build_group(
             view.list.set_focus(at);
         }
         view.focus = String::new();
+    } else if let Some(at) = first_setting {
+        view.list.set_focus(at);
     }
     Ok(())
+}
+
+/// The row a page opens its focus on when an action another plugin added
+/// stands above its settings (as Discover fonts): its first setting. A group's
+/// own action (Mail's *Open mail*) is the page's first row, so none then.
+fn first_real_setting(group: &str, rows: &[Row]) -> Option<usize> {
+    let own = group.split('.').next().unwrap_or_default();
+    let foreign_first = matches!(
+        rows.first(),
+        Some(Row::Action(action, ..)) if action.split('.').next().unwrap_or_default() != own
+    );
+    if foreign_first {
+        rows.iter().position(|r| matches!(r, Row::Setting(_)))
+    } else {
+        None
+    }
 }
 
 /// The rows of a group's page from its settings: parts, actions, themes, the

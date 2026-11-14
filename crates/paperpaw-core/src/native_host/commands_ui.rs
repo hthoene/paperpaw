@@ -608,6 +608,14 @@ impl crate::Kernel {
             self.warn_runtime("native notify dropped: the plugin shows no screen");
             return;
         }
+        // A preview is shown for a screen of the owner on top; an end ends
+        // the owner's own (`commands_preview.rs`).
+        if let Command::PreviewSettings(values) = &command
+            && !self.native_preview_applies(owner, values.is_empty())
+        {
+            self.warn_runtime("native preview dropped: it is no longer the plugin's");
+            return;
+        }
         // A key map layer is laid for the owner's own screen on top, the one
         // that asked, if it still is.
         if let Command::SetKeyLayer(key, layer) = command {
@@ -652,6 +660,11 @@ impl crate::Kernel {
             if change.ready {
                 // Not a policy: the screen says it is ready (ui.md 7).
                 self.native_command_ready(index);
+                continue;
+            }
+            // The policy the screen has already: nothing changes, so nothing is
+            // drawn again (a screen that says it at every show would draw twice).
+            if self.stack[index].policy == Some(change.flags) {
                 continue;
             }
             let turns_on = change.flags & POLICY_GUARDS != 0 && !self.stack[index].guards();

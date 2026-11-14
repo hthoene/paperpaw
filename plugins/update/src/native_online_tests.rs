@@ -284,3 +284,22 @@ fn hostile_answers_of_the_server_offer_nothing_or_something_sane() {
         assert!(offer.missing.is_empty());
     }
 }
+
+#[test]
+fn an_update_past_the_slot_is_not_downloaded() {
+    // CrossPoint's slots are 6,553,600 bytes; PaperPaw's own 8,323,072.
+    const SMALL: u64 = 0x64_0000;
+    const OWN: u64 = 8_323_072;
+    // An update of about 7 MB fits PaperPaw's own layout, not the small one.
+    assert!(fits_slot(7_000_000, OWN));
+    assert!(!fits_slot(7_000_000, SMALL));
+    // The file is the image and the trailer: the image that fills the slot
+    // fits, a byte more does not.
+    let trailer = paperpaw_sdk::firmware::TRAILER_LEN as u64;
+    assert!(fits_slot(SMALL + trailer, SMALL));
+    assert!(!fits_slot(SMALL + trailer + 1, SMALL));
+    // A size the server did not say, or a device with no slot of its own, is
+    // for the device's own check at the install.
+    assert!(fits_slot(0, SMALL));
+    assert!(fits_slot(9_000_000, 0));
+}

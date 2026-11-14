@@ -405,7 +405,7 @@ pub fn targets_own(
     ];
     let line = lay_out(face, lists, ui, area, own, &mut buffers)?;
     let mut tappable = tapped(&line);
-    tappable.sort_unstable_by(|a, b| a.0.x.total_cmp(&b.0.x));
+    paperpaw_sdk::sort::sort_unstable_by(&mut tappable, |a, b| a.0.x.total_cmp(&b.0.x));
     let reach = face.small * 0.2;
     let (left, right) = (f32::from(area.x), f32::from(area.x) + f32::from(area.width));
     let mut found = Vec::new();
@@ -473,7 +473,7 @@ pub fn action_own(
     ];
     let line = lay_out(face, lists, ui, area, own, &mut buffers)?;
     let mut tappable = tapped(&line);
-    tappable.sort_unstable_by(|a, b| a.0.x.total_cmp(&b.0.x));
+    paperpaw_sdk::sort::sort_unstable_by(&mut tappable, |a, b| a.0.x.total_cmp(&b.0.x));
     let at = usize::try_from(target).unwrap_or(0).saturating_sub(1);
     tappable.get(at).map(|(_, tap)| copy(tap)).transpose()
 }

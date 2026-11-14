@@ -469,7 +469,7 @@ impl Kernel {
             let text = String::from(self.shared.translator.tr(trouble.key()));
             self.output.commands.push(Command::Notify(text));
         }
-        self.finish_started()
+        self.finish_start()
     }
 
     /// Handles an input event.
@@ -1226,8 +1226,7 @@ impl Kernel {
         self.suspended_at = Some(now);
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
         self.output.commands.push(events::SUSPEND.emit(()));
-        self.bluetooth_suspend();
-        self.firmware_suspend();
+        self.end_at_suspend();
         let effects = self.finish();
         // Standby: the plugins that may sleep and run idle are parked again
         // (#248, D3, Decision 166); each is made again at its next use.

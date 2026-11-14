@@ -41,6 +41,7 @@
 # To refresh the lines after a change: run the scan, read what it reports, and decide for
 # each site (a new indirect call needs its reason, not a number changed).
 
+include frame-budget-s3-rom.txt
 root trait paperpaw_core::abi7::context::Frame
 table PAPERPAW_HOST_TABLE_ANCHOR
 root trait paperpaw_platform::storage::Storage
@@ -56,345 +57,12 @@ root trait core::fmt::Write
 root esp_alloc
 
 # Calls into the chip's ROM: not in the image, so not scanned here. Each is named by its symbol.
-allow call esp_alloc::EspHeap::add_region -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call esp_alloc::EspHeap::stats -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call esp_alloc::EspHeap::stats -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call esp_alloc::malloc::realloc_with_caps -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$10free_space -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$10same_entry -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$10same_entry28_$u7b$$u7b$closure$u7d$$u7d$ -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$12list_bounded -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$13remove_listed -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$4list -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$4list28_$u7b$$u7b$closure$u7d$$u7d$ -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$4size -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$4size -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$6rename -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$6rename -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$7read_at -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$7read_at -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$8modified -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$9list_from -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$4size -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN76_$LT$paperpaw_text..stored..Paged$u20$as$u20$paperpaw_text..stored..Pack$GT$7advance -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call render -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call glyph -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call glyph -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call anchors -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_text::font::Font::largest_size -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_text::font::Font::anchors -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_text::font::Font::anchors -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN78_$LT$paperpaw_image..gray..GrayWriter$u20$as$u20$paperpaw_image..ImageSink$GT$3row -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN80_$LT$paperpaw_image..color..ColorWriter$u20$as$u20$paperpaw_image..ImageSink$GT$3row -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN79_$LT$paperpaw_sdk..ui..thumbnail..Pack$u20$as$u20$paperpaw_image..ImageSink$GT$5start -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN88_$LT$paperpaw_epub_family..convert..decode..Headed$u20$as$u20$paperpaw_image..Source$GT$4read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN64_$LT$paperpaw_x4..probe..Probe$u20$as$u20$core..fmt..Display$GT$3fmt -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN64_$LT$paperpaw_xteink..crash..Cut$u20$as$u20$core..fmt..Write$GT$9write_str -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN86_$LT$core..net..display_buffer..DisplayBuffer$LT$_$GT$$u20$as$u20$core..fmt..Write$GT$9write_str -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN4core3fmt5Write10write_char -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::settings_read -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::settings_read -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::settings_read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::font_acquire -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::font_acquire -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::handle_release -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::text_measure -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::text_draw -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::commands_submit -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::registrations_submit -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::services_query -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::services_query -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::blob_release -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::text_metrics -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::stage_slot::run -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::service_open -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::service_open -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::service_call -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::doc_slots::image_info -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::doc_slots::text_hyphenate -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::doc_slots::text_hyphenate -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::doc_slots::text_hyphenate -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::doc_slots::text_hyphenate -> __umoddi3 the ROM's 64-bit unsigned modulo (libgcc): not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::text_covers::covers -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::doc_slots::icon_glyph -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::create_dirs -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::free::Free::geometry -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::free::Free::geometry -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_fat::dir -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::found::lookup_with -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::begins_entry -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call fatfs::dir::iter_from -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call fatfs::dir::iter_from -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN12paperpaw_fat6listed8visit_on -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir_entry::to_dir -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN4core4iter6traits8iterator8Iterator4find -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::close -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::remove_tree -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::remove_tree -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN12paperpaw_fat4walk52_$LT$impl$u20$paperpaw_fat..FatStorage$LT$IO$GT$$GT$9walk_tree -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::set_note -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::set_note -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
-allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$6remove -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$6remove -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
-allow call paperpaw_fat::find_file -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call alloc::slice::to_owned -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::write_whole -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN74_$LT$fatfs..file..File$LT$IO$C$TP$C$OCC$GT$$u20$as$u20$fatfs..io..Seek$GT$4seek -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call paperpaw_fat::remove_entry -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::settled -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::Temps::of -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::rename_in -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::replace -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call core::slice::copy_from_slice_impl -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN132_$LT$alloc..vec..Vec$LT$T$C$A$GT$$u20$as$u20$alloc..vec..spec_extend..SpecExtend$LT$$RF$T$C$core..slice..iter..Iter$LT$T$GT$$GT$$GT$11spec_extend -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_text::bitmap::BitmapFont::glyph -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_text::cache::Lru::shrink_to -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_text::cache::Lru::shrink_to -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
-allow call paperpaw_text::anchors::Anchors::read -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_text::anchors::Anchors::read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_zip::EntryReader::read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::id::Text::try_copy -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::fonts::resolve_role -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::abi7::handles::insert_limited -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::abi7::handles::remove -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_graphics::canvas::Canvas::draw_line -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call paperpaw_core::native_host::fonts::resolve -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::abi7::commands_wire::commands_decode -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::open::named -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::open::named -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::presets::Presets::get -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::env::Env::has_slot -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$11extend_with -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN13paperpaw_core11native_host13storage_slots3put -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_i18n::Translator::lookup_plural -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_i18n::Translator::lookup_plural -> __umoddi3 the ROM's 64-bit unsigned modulo (libgcc): not scanned here (device test S4)
-allow call _ZN13paperpaw_core11native_host10formatting14format_message28_$u7b$$u7b$closure$u7d$$u7d$ -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN13paperpaw_core11native_host10formatting14format_message -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN13paperpaw_core11native_host10formatting14format_message28_$u7b$$u7b$closure$u7d$$u7d$ -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN13paperpaw_core11native_host10formatting14format_message28_$u7b$$u7b$closure$u7d$$u7d$ -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::Fonts::bound -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$6resize -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN4core6option15Option$LT$T$GT$3map -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN67_$LT$alloc..vec..Vec$LT$T$C$A$GT$$u20$as$u20$core..clone..Clone$GT$5clone -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::settle::write_move -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::unlink -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::settle::point_up -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN81_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..Searcher$GT$10next_match -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call fatfs::dir::create_dir -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::create_dir -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_fat::settle::settle_folder -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
-allow call _ZN84_$LT$fatfs..dir..DirRawStream$LT$IO$C$TP$C$OCC$GT$$u20$as$u20$core..clone..Clone$GT$5clone -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::is_old_temp -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN4core4iter8adapters7flatten17and_then_or_clear -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir_entry::DirEntryEditor::flush -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call fatfs::dir::seek_from -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call fatfs::dir_entry::ShortName::new -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN99_$LT$fatfs..dir..DirIter$LT$IO$C$TP$C$OCC$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::remove_found -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::damaged::is_damaged -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_fat::damaged::unlink_damaged -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::remove_in -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::damaged::sweep -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::damaged::sweep -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
-allow call paperpaw_fat::walk::open_tree -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::walk::descend -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::walk::work -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::walk::finish_tree -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir_entry::to_file -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::create_file -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN4core6result19Result$LT$T$C$E$GT$8and_then -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::remove -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::rename -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::settle::clean_old -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
-allow call paperpaw_fat::settle::clean_old -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::settle::clean_old -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_fat::settle::clean_old -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_fat::fnv -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::rename_found -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::find_entry -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::ShortNameGenerator::new -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::ShortNameGenerator::add_existing -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call fatfs::dir::ShortNameGenerator::generate -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::write_entry -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::write_entry -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN75_$LT$paperpaw_fat..disk..SharedDisk$LT$B$GT$$u20$as$u20$fatfs..io..Read$GT$4read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call core::alloc::global::GlobalAlloc::realloc -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_zip::EntryReader::more -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_xteink::micros -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call _ZN4core3str21_$LT$impl$u20$str$GT$11starts_with -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::settings::Settings::placed_value -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_i18n::catalog::Catalog::get -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_i18n::catalog::Catalog::get -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::Fonts::index_of -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::Fonts::handle -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::Fonts::handle -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_graphics::framebuffer::Framebuffer::fill_clipped -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_graphics::round::corner_inset -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::FontHandle::larger_for -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::FontHandle::measure_in -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::FontHandle::measure_in -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN104_$LT$core..iter..adapters..copied..Copied$LT$I$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN4core5slice3cmp81_$LT$impl$u20$core..cmp..PartialEq$LT$$u5b$U$u5d$$GT$$u20$for$u20$$u5b$T$u5d$$GT$2eq -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN53_$LT$T$u20$as$u20$core..slice..cmp..SliceContains$GT$14slice_contains -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::action::Actions::find -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::action::Actions::find_fixed -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::ui_store::UiStore::free -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::ui_store::UiStore::free -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
-allow call _ZN4core3str21_$LT$impl$u20$str$GT$12strip_prefix -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN4core3str21_$LT$impl$u20$str$GT$12strip_suffix -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN90_$LT$core..str..iter..Split$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call core::num::div_ceil -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::Fonts::family_face -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::Fonts::family_face -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::Fonts::proposed -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_xteink::crash::handle -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_xteink::crash::handle -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::damaged::is_whole -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::point_up -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::check_for_existence -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::create_sfn_entry -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call write_blocks -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call write_blocks -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call write_blocks -> Cache_Suspend_DCache_Autoload the ROM's data-cache autoload suspend (SD/PSRAM access): not scanned here (device test S4)
 allow call write_blocks -> rom_Cache_WriteBack_Addr the ROM's data-cache write-back by address: not scanned here (device test S4)
 allow call write_blocks -> Cache_Resume_DCache_Autoload the ROM's data-cache autoload resume (SD/PSRAM access): not scanned here (device test S4)
-allow call write_blocks -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call core::str::pattern::StrSearcher::new -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_fat::walk::child -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN76_$LT$paperpaw_fat..disk..SharedDisk$LT$B$GT$$u20$as$u20$fatfs..io..Write$GT$5write -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN114_$LT$core..iter..adapters..flatten..FlatMap$LT$I$C$U$C$F$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir_entry::DirEntryData::deserialize -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call fatfs::dir_entry::DirEntryData::deserialize -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::ShortNameGenerator::build_prefixed_name -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir::find_free_entries -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call fatfs::dir_entry::DirLfnEntryData::serialize -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call fatfs::dir_entry::DirFileEntryData::serialize -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$4find -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::settings::Settings::scoped_value -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::settings::specs::Specs::find -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_i18n::catalog::Catalog::cmp_key -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_i18n::built::Built::key_cmp -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN5alloc3vec9from_elem -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_text::bidi::reset_line_end -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_text::around::measure_in -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::FontHandle::draw_toned -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::settings::Choices::position -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::ui::image::draw_picture -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::Fonts::best_face -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call esp_backtrace::arch::backtrace -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call esp_hal::system::software_reset -> software_reset the ROM's reset (does not return): not scanned here (device test S4)
-allow call paperpaw_xteink::power::working -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
 allow call esp_hal::sdmmc::EngineSession::select_and_apply -> ets_delay_us the ROM's busy-wait delay (`ets_delay_us`): not scanned here (device test S4)
-allow call esp_hal::delay::Delay::delay -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call _ZN74_$LT$paperpaw_xteink..card..Card$u20$as$u20$paperpaw_fat..disk..Blocks$GT$11read_blocks -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call _ZN74_$LT$paperpaw_xteink..card..Card$u20$as$u20$paperpaw_fat..disk..Blocks$GT$11read_blocks -> Cache_Invalidate_Addr the ROM's data-cache invalidate by address: not scanned here (device test S4)
-allow call _ZN74_$LT$paperpaw_xteink..card..Card$u20$as$u20$paperpaw_fat..disk..Blocks$GT$11read_blocks -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call miniz_oxide::inflate::core::init_tree -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call miniz_oxide::inflate::core::transfer -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_text::bidi::walk::Carry::new -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5level -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::storage::reserve -> __udivdi3 the ROM's 64-bit unsigned division (libgcc): not scanned here (device test S4)
-allow call paperpaw_graphics::canvas::Canvas::take_diffusion -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_graphics::canvas::Canvas::take_diffusion -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
-allow call paperpaw_sdk::ui::image::load -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_graphics::canvas::Canvas::keep_diffusion -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$4peek -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$14entry_identity -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::formatting::Arguments::decode -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN63_$LT$paperpaw_sdk..id..Text$u20$as$u20$core..cmp..PartialEq$GT$2eq -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN4core3cmp5impls69_$LT$impl$u20$core..cmp..PartialEq$LT$$RF$B$GT$$u20$for$u20$$RF$A$GT$2eq -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_fat::disk::load -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$4push -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::keymap::Zone::from_id -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call core::slice::cmp::cmp -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN80_$LT$paperpaw_image..alpha..AlphaWriter$u20$as$u20$paperpaw_image..ImageSink$GT$3row -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN80_$LT$paperpaw_image..alpha..AlphaWriter$u20$as$u20$paperpaw_image..ImageSink$GT$9row_alpha -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN114_$LT$paperpaw_core..native_host..image_service..recipe..ToneSink$LT$S$GT$$u20$as$u20$paperpaw_image..ImageSink$GT$9row_alpha -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN59_$LT$$RF$$u5b$u8$u5d$$u20$as$u20$paperpaw_image..Source$GT$4read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::storage_externs::storage_size -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::storage_externs::storage_size -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::storage_externs::storage_read_at -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::storage_externs::storage_read_at -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::storage_externs::storage_rename -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::storage_externs::storage_rename -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::storage_externs::storage_remove -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::storage_externs::storage_remove -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::storage_externs::storage_sync -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::storage_externs::storage_sync -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::open::validate_handovers -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::items::validate_item_states -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::ui::reserve_hints -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::open::claim_handovers -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::CommandStage::push_batch -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::dev::dev_commit -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::dev::dev_commit -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::storage_slots::size -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::storage_slots::read_at -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN13paperpaw_core11native_host13storage_slots3put -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::storage_slots::rename -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::storage_slots::remove -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_xteink::safe_mode::reset -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::CommandStage::stage_image -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::CommandStage::stage_owned -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN13paperpaw_core11native_host7storage14StorageAdapter14resolve_format -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN13paperpaw_core11native_host7storage14StorageAdapter6rename28_$u7b$$u7b$closure$u7d$$u7d$ -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN15paperpaw_xteink5crash6handle -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::formatting::format_into -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::CommandStage::owned -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN73_$LT$paperpaw_digest..sha256..Sha256$u20$as$u20$core..ops..drop..Drop$GT$4drop -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN73_$LT$paperpaw_digest..sha256..Sha256$u20$as$u20$core..ops..drop..Drop$GT$4drop -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call stage_run -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call stage_run -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call status_ask -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call widget_call -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call plugin_name -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call work_note -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call snapshot -> __divdi3 the chip's ROM `__divdi3`: not scanned here (device test S4)
-allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$6retain28_$u7b$$u7b$closure$u7d$$u7d$ -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN4core5slice4sort6shared9smallsort11insert_tail -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN4core5slice29_$LT$impl$u20$$u5b$T$u5d$$GT$11copy_within -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::stack_rows::StackRows::instance -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::device_log::DeviceLog::line -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_sdk::plugins::Plugins::get -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::time::local_time -> __divdi3 the chip's ROM `__divdi3`: not scanned here (device test S4)
-allow call _ZN4core5slice4sort8unstable9quicksort9quicksort -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN4core5slice4sort8unstable9quicksort9quicksort -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::stages_wire::core_status_v1::decode_body -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::meter::Meter::index -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_sdk::time::zone_offset -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::time::LocalTime::from_seconds -> __divdi3 the chip's ROM `__divdi3`: not scanned here (device test S4)
-allow call paperpaw_sdk::time::LocalTime::from_seconds -> __moddi3 the chip's ROM `__moddi3`: not scanned here (device test S4)
-allow call _ZN13paperpaw_core11native_host13storage_slots3put28_$u7b$$u7b$closure$u7d$$u7d$28_$u7b$$u7b$closure$u7d$$u7d$ -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN4core5slice4sort8unstable9quicksort34partition_lomuto_branchless_cyclic28_$u7b$$u7b$closure$u7d$$u7d$ -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
-allow call _ZN4core5slice4sort8unstable9quicksort34partition_lomuto_branchless_cyclic28_$u7b$$u7b$closure$u7d$$u7d$ -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::time::Rule::local_seconds -> __moddi3 the chip's ROM `__moddi3`: not scanned here (device test S4)
-allow call paperpaw_sdk::time::Rule::local_seconds -> __divdi3 the chip's ROM `__divdi3`: not scanned here (device test S4)
-allow call paperpaw_sdk::time::days_from_civil -> __divdi3 the chip's ROM `__divdi3`: not scanned here (device test S4)
-allow call _ZN114_$LT$paperpaw_core..native_host..image_service..recipe..ToneSink$LT$S$GT$$u20$as$u20$paperpaw_image..ImageSink$GT$3row -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN114_$LT$paperpaw_core..native_host..image_service..recipe..ToneSink$LT$S$GT$$u20$as$u20$paperpaw_image..ImageSink$GT$5start -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN114_$LT$paperpaw_core..native_host..image_service..recipe..ToneSink$LT$S$GT$$u20$as$u20$paperpaw_image..ImageSink$GT$7row_rgb -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call alloc::rc::new -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_text::stored::StoredPack::open_within -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_text::stored::StoredPack::open_within -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::items::validate_item_states -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_text::stored::read_records -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_text::stored::index::IndexBuilder::finish -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call realloc -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::ui::owned_ui -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::params::Params::try_set -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::fonts::draw -> __fixsfdi the chip's ROM `__fixsfdi`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::fonts::draw -> __floatdisf the chip's ROM `__floatdisf`: not scanned here (device test S4)
-allow call paperpaw_graphics::canvas::bounded::try_describe -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call miniz_oxide::inflate::core::decompress -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call miniz_oxide::inflate::core::decompress -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::text_draw_inked -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::fonts::draw_inked -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::action::Actions::find_native -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::dev::dev_reserve -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 
 # Privileged forms of the critical-section code (esp-hal's `critical_section`/`esp_sync`).
 # `rsil aN, 5` raises the interrupt level and saves PS in aN; `wsr.scompare1` sets the compare
@@ -527,8 +195,6 @@ allow indirect _ZN85_$LT$$RF$T$u20$as$u20$paperpaw_core..native_host..registrati
 allow indirect _ZN78_$LT$paperpaw_image..gray..GrayWriter$u20$as$u20$paperpaw_image..ImageSink$GT$3row 1 vtable or fn-pointer call at image/gray.rs:148: a trait-object or function-pointer call
 allow indirect _ZN78_$LT$paperpaw_image..gray..GrayWriter$u20$as$u20$paperpaw_image..ImageSink$GT$5start 1 vtable or fn-pointer call at image/gray.rs:129: a trait-object or function-pointer call
 allow indirect _ZN80_$LT$paperpaw_image..color..ColorWriter$u20$as$u20$paperpaw_image..ImageSink$GT$5start 1 vtable or fn-pointer call at image/color.rs:130: a trait-object or function-pointer call
-allow indirect _ZN79_$LT$paperpaw_sdk..ui..thumbnail..Pack$u20$as$u20$paperpaw_image..ImageSink$GT$3row 1 1 call(s) through a register reloaded from this function's own stack at alloc/vec/mod.rs:1041: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
-allow indirect _ZN79_$LT$paperpaw_sdk..ui..thumbnail..Pack$u20$as$u20$paperpaw_image..ImageSink$GT$7row_rgb 1 literal call not proven on every path
 allow indirect _ZN105_$LT$paperpaw_core..native_host..image_service..prepare..FileSource$u20$as$u20$paperpaw_image..Source$GT$4read 1 vtable or fn-pointer call at core/native_host/image_service/prepare.rs:339: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables)
 allow indirect _ZN95_$LT$paperpaw_epub_family..convert..decode..StorageSource$u20$as$u20$paperpaw_image..Source$GT$4read 1 vtable or fn-pointer call at crates/paperpaw-epub-family/convert/decode.rs:28: a trait-object or function-pointer call
 allow indirect _ZN88_$LT$paperpaw_epub_family..convert..decode..Headed$u20$as$u20$paperpaw_image..Source$GT$4read 1 vtable or fn-pointer call at crates/paperpaw-epub-family/convert/decode.rs:111: a trait-object or function-pointer call
@@ -539,7 +205,6 @@ allow indirect _ZN44_$LT$$RF$T$u20$as$u20$core..fmt..Display$GT$3fmt 3 vtable or
 allow indirect _ZN43_$LT$char$u20$as$u20$core..fmt..Display$GT$3fmt 1 vtable or fn-pointer call at core/fmt/mod.rs:2845: `core::fmt`: `Display`/`Write` of the values formatted
 allow indirect _ZN66_$LT$paperpaw_config..ParseError$u20$as$u20$core..fmt..Display$GT$3fmt 1 jump table of a `match` at config/lib.rs:182
 allow indirect _ZN61_$LT$paperpaw_core..Warning$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at core/lib.rs:175
-allow indirect _ZN71_$LT$paperpaw_document..DocumentError$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at document/lib.rs:993
 allow indirect _ZN71_$LT$paperpaw_hyphen..InvalidPatterns$u20$as$u20$core..fmt..Display$GT$3fmt 1 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted
 allow indirect _ZN75_$LT$paperpaw_i18n..catalog..CatalogError$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:?: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at i18n/catalog.rs:515
 allow indirect _ZN65_$LT$paperpaw_image..ImageError$u20$as$u20$core..fmt..Display$GT$3fmt 2 vtable or fn-pointer call at core/fmt/mod.rs:2100: `core::fmt`: `Display`/`Write` of the values formatted; jump table of a `match` at image/lib.rs:75
@@ -664,7 +329,6 @@ allow indirect paperpaw_sdk::fonts::FontHandle::draw_toned 2 1 call(s) through a
 allow indirect _ZN5alloc2rc15Rc$LT$T$C$A$GT$9drop_slow 1 vtable or fn-pointer call at core/ptr/mod.rs:825: drop glue of a trait object (the destructor held in its vtable)
 allow indirect paperpaw_core::native_host::storage::check_room 1 vtable or fn-pointer call at core/native_host/storage.rs:310: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect _ZN88_$LT$core..str..pattern..CharSearcher$u20$as$u20$core..str..pattern..ReverseSearcher$GT$15next_match_back 1 2 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:157, core/str/pattern.rs:509: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
-allow indirect paperpaw_sdk::ui::image::draw_picture 2 1 call(s) through a register reloaded from this function's own stack at sdk/ui/image.rs:762: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); jump table of a `match` at platform/pixel.rs:74
 allow indirect fatfs::table::find_free_cluster 2 2 call(s) through a register reloaded from this function's own stack at patches/fatfs/io.rs:254, patches/fatfs/table.rs:330: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect fatfs::table::write_fat 3 jump table of a `match` at patches/fatfs/table.rs:280
 allow indirect esp_hal::sdmmc::EngineSession::transfer_blocking 1 1 call(s) through a register reloaded from this function's own stack at esp-hal/sdmmc/mod.rs:2233: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
@@ -678,7 +342,6 @@ allow indirect _ZN102_$LT$core..iter..adapters..map..Map$LT$I$C$F$GT$$u20$as$u20
 allow indirect paperpaw_text::draw_text 3 vtable or fn-pointer call at text/cache.rs:143, text/lib.rs:261: `paperpaw_text` font/strike trait objects (the font packs in use); 2 call(s) through a register reloaded from this function's own stack at text/lib.rs:261, text/lib.rs:265: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_core::native_host::storage::reserve 1 vtable or fn-pointer call at core/native_host/storage.rs:296: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_sdk::ui::image::ImageSource::read_rows 1 1 call(s) through a register reloaded from this function's own stack at sdk/ui/image.rs:343: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
-allow indirect paperpaw_graphics::canvas::Canvas::draw_rgb_row 1 literal call not proven on every path
 allow indirect paperpaw_graphics::canvas::Canvas::draw_gray_row 1 vtable or fn-pointer call at graphics/framebuffer.rs:684, graphics/framebuffer.rs:685: `paperpaw_graphics` canvas/framebuffer dispatch; 1 call(s) through a register reloaded from this function's own stack at graphics/framebuffer.rs:684: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_graphics::canvas::Canvas::keep_diffusion 1 vtable or fn-pointer call at alloc/raw_vec/mod.rs:424, core/ptr/mod.rs:551: the global allocator (`GlobalAlloc` of esp-alloc's heap); 1 call(s) through a register reloaded from this function's own stack at core/ptr/mod.rs:551: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect _ZN70_$LT$fatfs..fs..DiskSlice$LT$B$C$S$GT$$u20$as$u20$fatfs..io..Write$GT$5write 3 3 call(s) through a register reloaded from this function's own stack at patches/fatfs/fs.rs:1012, patches/fatfs/fs.rs:896: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
@@ -697,32 +360,23 @@ allow indirect paperpaw_core::abi7::context::ui_guard::guard_owner 1 new in trai
 allow indirect paperpaw_core::abi7::context::ui_guard::topmost_guard 2 new in train 6: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN5alloc3fmt6format 1 new in train 6: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::settled 4 1 call(s) through a register reloaded from this function's own stack at fat/found.rs:37: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); jump table of a `match` at core/result.rs:966; literal call not proven on every path
-allow indirect paperpaw_core::native_host::shell::registrations_submit 6 vtable or fn-pointer call at core/native_host/registration_scope.rs:152, core/native_host/registration_scope.rs:206: the registration sink's `reject` (a `dyn` trait object); jump table of a `match` at core/native_host/registrations.rs:328
 allow indirect paperpaw_core::native_host::commands::dev::area 1 new in train 8: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::declaration_store::DeclarationStore::find 1 new in train 8: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::firmware_install::FirmwareInstall::forget 1 new in train 8: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN4core3ptr147drop_glue$LT$alloc..boxed..Box$LT$dyn$u20$core..ops..function..Fn$LT$$LP$$RF$paperpaw_sdk..env..Env$C$$RP$$GT$$u2b$Output$u20$$u3d$$u20$u64$GT$$GT$ 1 new in train 8: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN80_$LT$paperpaw_image..alpha..AlphaWriter$u20$as$u20$paperpaw_image..ImageSink$GT$5start 1 new in train 8: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_graphics::canvas::Canvas::draw_gray_alpha_row 1 new in train 8: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::shell::storage_externs::storage_size 2 vtable or fn-pointer call at core/native_host/storage.rs:184, core/native_host/storage_slots.rs:35: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
-allow indirect paperpaw_core::native_host::shell::storage_externs::storage_read_at 2 vtable or fn-pointer call at core/native_host/storage.rs:204, core/native_host/storage_slots.rs:35: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
-allow indirect paperpaw_core::native_host::shell::storage_externs::storage_rename 2 vtable or fn-pointer call at core/native_host/storage.rs:161, core/native_host/storage.rs:258: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink); jump table of a `match` at core/native_host/storage.rs:258
-allow indirect paperpaw_core::native_host::shell::storage_externs::storage_remove 2 vtable or fn-pointer call at core/native_host/storage.rs:161, core/native_host/storage.rs:278: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_core::native_host::shell::storage_externs::storage_sync 2 vtable or fn-pointer call at core/native_host/storage.rs:290, core/native_host/storage_slots.rs:35: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_core::native_host::commands::CommandStage::refused_before_checks 1 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::commands::open::validate_handovers 1 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::commands::dev::validate_dev 3 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::commands::items::validate_item_states 2 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN13paperpaw_core11native_host8commands6preset68_$LT$impl$u20$paperpaw_core..native_host..commands..CommandStage$GT$16validate_presets 2 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::commands::ui::reserve_hints 2 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::format_scope::FormatScope::current 1 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect _ZN13paperpaw_core11native_host13storage_slots3put 2 vtable or fn-pointer call at core/native_host/storage.rs:215, core/native_host/storage.rs:225: `&dyn Storage` methods (the card's storage; the X4's impl is in shells/xteink)
 allow indirect paperpaw_core::native_host::commands::dev::firmware::validate_firmware 1 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::firmware_driver::Driver::cancel 5 new in train 8: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::storage::StorageAdapter::size 1 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::storage::StorageAdapter::read_at 1 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::storage::StorageAdapter::remove 2 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::commands::CommandStage::owned 2 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN13paperpaw_core11native_host7storage14StorageAdapter6rename28_$u7b$$u7b$closure$u7d$$u7d$28_$u7b$$u7b$closure$u7d$$u7d$ 4 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_xteink::native::attribute 1 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect miniz_oxide::inflate::core::transfer 4 jump table of a `match` at miniz_oxide/inflate/core.rs:1132
@@ -743,7 +397,6 @@ allow indirect paperpaw_core::meter::Meter::begin 1 new in train 9: a call throu
 allow indirect paperpaw_core::meter::Meter::leave 1 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN126_$LT$paperpaw_core..native_host..ui_compose_host..StackGuard$u20$as$u20$paperpaw_core..native_host..ui_handles..GuardState$GT$12guard_plugin 1 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN126_$LT$paperpaw_core..native_host..ui_compose_host..StackGuard$u20$as$u20$paperpaw_core..native_host..ui_handles..GuardState$GT$11below_guard 1 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect _ZN4core5slice4sort8unstable9quicksort9quicksort 3 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_sdk::time::Parser::offset 1 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::shell::text_measure 1 vtable call at core/native_host/fonts.rs:74: `frame.callback_epoch()` on the host's `&dyn Frame` (`abi7::context::Frame`), whose impls are roots of this budget (`root trait Frame`)
 allow indirect paperpaw_core::native_host::shell::text_draw 1 vtable call at core/native_host/fonts.rs:74: `frame.callback_epoch()` on the host's `&dyn Frame` (`abi7::context::Frame`), whose impls are roots of this budget (`root trait Frame`)
@@ -752,14 +405,12 @@ allow indirect paperpaw_core::native_host::shell::text_metrics 1 vtable call at 
 allow indirect paperpaw_core::native_host::fonts_data::Stamp::of 3 vtable calls at core/native_host/fonts_data.rs:49, core/native_host/fonts_data.rs:50, core/native_host/fonts_data.rs:51: `size`, `modified` and `entry_identity` on the `&dyn Storage` the card is held by
 allow indirect _ZN4core3ptr64drop_glue$LT$paperpaw_core..native_host..resources..Resource$GT$ 1 new in train 10: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN4core3ptr65drop_glue$LT$paperpaw_core..native_host..fonts_data..DataFont$GT$ 1 new in train 10: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect release 1 new in train 10: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::commands::CommandStage::push_batch 3 new in train 9 (more until #1289 (#248) gave the DEV commit its own frame): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN105_$LT$paperpaw_core..native_host..resources..Resource$u20$as$u20$paperpaw_core..abi7..handles..Release$GT$7release 1 new in train 10: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect core::str::pattern::Searcher::next_match 2 2 call(s) through a register reloaded from this function's own stack at core/str/pattern.rs:648, core/str/pattern.rs:696: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_text::stored::read_records 1 vtable call at paperpaw_text/stored.rs:308: `source.read_at` on the `&dyn PackSource` of a font pack's records (the card's storage)
 allow indirect paperpaw_text::stored::index::IndexBuilder::grow_to 2 new in train 10: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN4core3ptr68drop_glue$LT$paperpaw_core..native_host..plugin_jobs..PluginJobs$GT$ 2 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::commands::answers::validate_answers 2 new in train 12: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::commands::ui::owned_ui 3 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::shell::canvas_describe 1 new in train 13: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect miniz_oxide::inflate::core::decompress 3 jump table of a `match` at miniz_oxide/inflate/core.rs:1461
 allow indirect paperpaw_core::native_host::commands::open::claim_handovers 3 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
@@ -771,29 +422,15 @@ allow indirect paperpaw_fat::fnv 1 vtable or fn-pointer call at core/char/method
 allow indirect _ZN91_$LT$core..str..iter..SplitN$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next 1 new in train 15: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::radio_requests::RadioRequests::discard_reserved 1 new in train 15: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$13remove_listed 3 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call paperpaw_fat::settle::settle_recorded -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow indirect paperpaw_fat::found::lookup_with 2 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::settle::recorded 1 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call paperpaw_fat::settle::recorded -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::settle::finish_move -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::kept_dir -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::dir_below_kept -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow indirect paperpaw_fat::found::quick_lookup 3 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call paperpaw_fat::found::quick_lookup -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::open_dir -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow indirect paperpaw_fat::settle::settle_files 2 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::settle::temps_in 1 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call paperpaw_fat::settle::temps_in -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow indirect paperpaw_fat::settle::files_of_temps 1 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call paperpaw_fat::settle::files_of_temps -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_fat::settle::files_of_temps -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow indirect paperpaw_core::native_host::commands::CommandStage::validate_each 6 new in train 21: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call paperpaw_core::native_host::firmware_cell::FirmwareCell::make -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::firmware_cell::FirmwareCell::make -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow indirect paperpaw_core::native_host::firmware_cell::FirmwareCell::make 2 new in train 22 (#1318 lazy firmware driver): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN4core3ptr65drop_glue$LT$paperpaw_core..native_host..firmware_cell..State$GT$ 1 new in train 22 (#1318 lazy firmware driver): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call paperpaw_core::native_host::shell::i18n::format -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::shell::i18n::digits -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow indirect paperpaw_core::native_host::shell::i18n::copy 1 new in train 23: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::shell::i18n::format 1 new in train 23: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::shell::i18n::digits 1 new in train 23: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
@@ -808,34 +445,16 @@ allow indirect status_ask 7 new in train 27: a call through a register the scan 
 allow indirect call_native 1 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect compose 1 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect dropped 1 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect _ZN93_$LT$paperpaw_core..native_host..shared..Shared$LT$T$GT$$u20$as$u20$core..ops..drop..Drop$GT$4drop 1 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::declaration_store::StoredOwner::places 6 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::damaged::sweep 8 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::declaration_store::OwnerRef::with_image 2 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_sdk::fonts::FontHandle::measure_in 1 new in train 29: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call _ZN57_$LT$paperpaw_sdk..id..Text$u20$as$u20$core..cmp..Ord$GT$3cmp -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow indirect _ZN104_$LT$core..iter..sources..from_fn..FromFn$LT$F$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next 1 new in train 30: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call paperpaw_core::native_host::commands::dev::firmware::submit_op -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::dev::firmware::submit_plugin_job -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::dev::firmware::submit_plugin_job -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::firmware_install::Job::make -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::firmware_driver::Driver::submit_plugin -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::firmware_driver::Driver::accept -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN17paperpaw_platform8firmware13Text$LT$_$GT$3new -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN17paperpaw_platform8firmware13Text$LT$_$GT$3new -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN13paperpaw_core11native_host6shared7try_box -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::firmware_driver::Driver::take_slot -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
 allow indirect paperpaw_core::native_host::commands::dev::dev_commit 2 new in train t32: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::commands::dev::firmware::submit_op 2 new in train t32: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::firmware_driver::Driver::submit_plugin 1 new in train t32: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::firmware_driver::Driver::take_slot 1 new in train t32: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call _ZN128_$LT$paperpaw_core..native_host..stages_wire..core_widget_v1..RecordStream$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::widget_drops::tell_made -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow indirect paperpaw_core::native_host::stages_wire::core_widget_v1::decode_body 1 new in train t33: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect event 1 new in train t33: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN129_$LT$paperpaw_core..native_host..native_instances..NativeLease$u20$as$u20$paperpaw_core..native_host..native_screen..Dispatch$GT$5event 1 new in train t33: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::widget_drops::made_told 1 new in train t33: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call paperpaw_core::native_host::commands::CommandStage::validate_kept -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::storage_files::exists_in -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow indirect paperpaw_core::native_host::storage_slots::size 1 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::storage_slots::read_at 1 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::storage_slots::remove 1 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
@@ -843,26 +462,7 @@ allow indirect paperpaw_core::native_host::commands::lookup::validate_lookup_rea
 allow indirect _ZN13paperpaw_core11native_host13storage_slots3put28_$u7b$$u7b$closure$u7d$$u7d$28_$u7b$$u7b$closure$u7d$$u7d$ 3 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::storage_files::exists_in 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::storage::StorageAdapter::free_of_host_writers 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect _ZN13paperpaw_core11native_host7storage14StorageAdapter11rename_card 5 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN13paperpaw_core11native_host7storage14StorageAdapter11rename_card28_$u7b$$u7b$closure$u7d$$u7d$ 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call host_status -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::status::StatusItems::item -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::ui_widget_ops::host_status::draw -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::ui_widget_ops::host_status::draw -> __divsf3 the chip's ROM `__divsf3`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::Fonts::role -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::Fonts::role -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::status::StatusLine::draw -> __divsf3 the chip's ROM `__divsf3`: not scanned here (device test S4)
-allow call paperpaw_sdk::fonts::Fonts::status_family -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN12paperpaw_sdk6status10StatusLine6layout -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN12paperpaw_sdk6status10StatusLine6layout -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
-allow call _ZN12paperpaw_sdk6status10StatusLine6layout -> __divsf3 the chip's ROM `__divsf3`: not scanned here (device test S4)
-allow call paperpaw_sdk::ui::text::draw_icon_centred -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN102_$LT$core..iter..adapters..map..Map$LT$I$C$F$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$8try_fold -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::ui::text::icon -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_sdk::ui::text::icon -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_i18n::Translator::localize_digits -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::menus::Menus::icon -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$3get -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow indirect host_status 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN4core3ptr50drop_glue$LT$paperpaw_sdk..status..StatusValue$GT$ 2 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_sdk::status::StatusLine::draw 3 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
@@ -877,22 +477,67 @@ allow indirect _ZN89_$LT$alloc..string..String$u20$as$u20$core..iter..traits..co
 allow indirect _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$3get 1 new in train t34: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN81_$LT$core..str..iter..Chars$u20$as$u20$core..iter..traits..iterator..Iterator$GT$5count 1 literal call not proven on every path
 allow indirect _ZN4core3str21_$LT$impl$u20$str$GT$12trim_matches 2 2 call(s) through a register reloaded from this function's own stack at core/str/pattern.rs:699, core/str/pattern.rs:719 (the instance with a closure pattern: core/str/iter.rs:184, core/ops/function.rs:166): the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
-allow indirect _ZN4core3ptr107drop_glue$LT$core..option..Option$LT$alloc..boxed..Box$LT$dyn$u20$paperpaw_sdk..widgets..Widget$GT$$GT$$GT$ 1 vtable or fn-pointer call at core/ptr/mod.rs:825: drop glue of a trait object (the destructor held in its vtable)
-allow call paperpaw_core::abi7::settings_visibility::SettingIdentity::secret -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_sdk::settings::described::Blocks::find -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow indirect _ZN12paperpaw_sdk8settings9described5Block4find 1 new in train t38: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call paperpaw_sdk::settings::described::Blocks::spec -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow indirect paperpaw_sdk::settings::described::Block::make 1 new in train t38: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call paperpaw_sdk::settings::described::Block::make -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_sdk::settings::described::Block::make -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow indirect _ZN70_$LT$paperpaw_sdk..float_text..Shown$u20$as$u20$core..fmt..Display$GT$3fmt 8 new in train t39 (#1443, #1445, #1446): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_sdk::float_text::shortest 8 new in train t39 (#1443, #1445, #1446): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::files_service::follows::library_follows 1 new in train t39 (#1443, #1445, #1446): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect _ZN17paperpaw_platform4tree4kind 2 new in train t39 (#1443, #1445, #1446): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow call paperpaw_sdk::float_text::shortest -> __extendsfdf2 the chip's ROM `__extendsfdf2`: not scanned here (device test S4)
-allow call paperpaw_sdk::float_text::shortest -> __gedf2 the chip's ROM `__gedf2`: not scanned here (device test S4)
-allow call paperpaw_sdk::float_text::scaled -> __muldf3 the chip's ROM `__muldf3`: not scanned here (device test S4)
-allow call paperpaw_sdk::float_text::scaled -> __divdf3 the chip's ROM `__divdf3`: not scanned here (device test S4)
-allow call paperpaw_sdk::float_text::reads_back -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call paperpaw_sdk::float_text::reads_back -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::files_service::follows::library_follows -> memset the chip's ROM `memset`: not scanned here (device test S4)
+
+# Linked plugins on the S3 (`native-on`, #243): the plugin code is part of the firmware. Calls the scan cannot follow, one line each;
+# what stands behind them is the rooted traits above and the host table, and device test S4 covers the rest.
+allow indirect _ZN97_$LT$paperpaw_epub_family..native_io..NativeIo$u20$as$u20$paperpaw_platform..storage..Storage$GT$7read_at 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN97_$LT$paperpaw_epub_family..native_io..NativeIo$u20$as$u20$paperpaw_platform..storage..Storage$GT$5write 3 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN97_$LT$paperpaw_epub_family..native_io..NativeIo$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append 2 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN103_$LT$paperpaw_plugin_dictionary..native_disk..Routed$u20$as$u20$paperpaw_platform..storage..Storage$GT$5write 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN103_$LT$paperpaw_plugin_dictionary..native_disk..Routed$u20$as$u20$paperpaw_platform..storage..Storage$GT$7read_at 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN103_$LT$paperpaw_plugin_dictionary..native_disk..Routed$u20$as$u20$paperpaw_platform..storage..Storage$GT$4size 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN103_$LT$paperpaw_plugin_dictionary..native_disk..Routed$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN103_$LT$paperpaw_plugin_dictionary..native_disk..Routed$u20$as$u20$paperpaw_platform..storage..Storage$GT$4list 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN103_$LT$paperpaw_plugin_dictionary..native_disk..Routed$u20$as$u20$paperpaw_platform..storage..Storage$GT$6remove 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN17paperpaw_platform7storage7Storage16remove_tree_step 1 new with the linked plugins (native-on, #243): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are not scanned here (device test S4)
+allow indirect _ZN105_$LT$paperpaw_plugin_dictionary..native_disk..HostRoot$u20$as$u20$paperpaw_platform..storage..Storage$GT$5write 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN105_$LT$paperpaw_plugin_dictionary..native_disk..HostRoot$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN112_$LT$paperpaw_plugin_file_manager..card..CardStorage$LT$C$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN112_$LT$paperpaw_plugin_file_manager..card..CardStorage$LT$C$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$4list 2 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN100_$LT$paperpaw_plugin_format_txt..provider..HostIo$u20$as$u20$paperpaw_platform..storage..Storage$GT$7read_at 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN100_$LT$paperpaw_plugin_format_xtc..provider..HostIo$u20$as$u20$paperpaw_platform..storage..Storage$GT$7read_at 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN100_$LT$paperpaw_plugin_format_xtc..provider..HostIo$u20$as$u20$paperpaw_platform..storage..Storage$GT$5write 3 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN100_$LT$paperpaw_plugin_format_xtc..provider..HostIo$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append 2 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN98_$LT$paperpaw_sdk..native..storage..DataStorage$u20$as$u20$paperpaw_platform..storage..Storage$GT$4sync 1 the plugin SDK's storage call goes through the host table's function pointer: the callee is a host entry, a root (`table PAPERPAW_HOST_TABLE_ANCHOR`)
+allow indirect _ZN98_$LT$paperpaw_sdk..native..storage..DataStorage$u20$as$u20$paperpaw_platform..storage..Storage$GT$5write 1 the plugin SDK's storage call goes through the host table's function pointer: the callee is a host entry, a root (`table PAPERPAW_HOST_TABLE_ANCHOR`)
+allow indirect _ZN98_$LT$paperpaw_sdk..native..storage..DataStorage$u20$as$u20$paperpaw_platform..storage..Storage$GT$6append 1 the plugin SDK's storage call goes through the host table's function pointer: the callee is a host entry, a root (`table PAPERPAW_HOST_TABLE_ANCHOR`)
+allow indirect paperpaw_core::native_host::shell::registrations_submit 5 vtable or fn-pointer call at core/native_host/registration_scope.rs:152, core/native_host/registration_scope.rs:206: the registration sink's `reject` (a `dyn` trait object); jump table of a `match` at core/native_host/registrations.rs:328
+allow indirect paperpaw_sdk::native::storage::size 1 the plugin SDK's storage call goes through the host table's function pointer: the callee is a host entry, a root (`table PAPERPAW_HOST_TABLE_ANCHOR`)
+allow indirect paperpaw_sdk::native::storage::read_at 1 the plugin SDK's storage call goes through the host table's function pointer: the callee is a host entry, a root (`table PAPERPAW_HOST_TABLE_ANCHOR`)
+allow indirect paperpaw_sdk::native::storage::write 1 the plugin SDK's storage call goes through the host table's function pointer: the callee is a host entry, a root (`table PAPERPAW_HOST_TABLE_ANCHOR`)
+allow indirect paperpaw_sdk::native::storage::sync 1 the plugin SDK's storage call goes through the host table's function pointer: the callee is a host entry, a root (`table PAPERPAW_HOST_TABLE_ANCHOR`)
+allow indirect _ZN4core3str21_$LT$impl$u20$str$GT$11rsplit_once 1 a pattern or predicate closure of the caller (`core::str` splitting/trimming): a call through a register, not followed here (device test S4)
+allow indirect _ZN17paperpaw_platform7storage21remove_listed_by_path 1 a linked plugin's `Storage` impl forwards to the storage it wraps (`&dyn Storage`/`Box<dyn Storage>`): the callees are impls of the rooted trait `paperpaw_platform::storage::Storage`
+allow indirect _ZN4core3str4iter22SplitInternal$LT$P$GT$9next_back 2 a pattern or predicate closure of the caller (`core::str` splitting/trimming): a call through a register, not followed here (device test S4)
+allow indirect paperpaw_sdk::native::storage::remove_raw 1 the plugin SDK's storage call goes through the host table's function pointer: the callee is a host entry, a root (`table PAPERPAW_HOST_TABLE_ANCHOR`)
+allow indirect paperpaw_sdk::native::storage::append_raw 1 the plugin SDK's storage call goes through the host table's function pointer: the callee is a host entry, a root (`table PAPERPAW_HOST_TABLE_ANCHOR`)
+allow indirect paperpaw_sdk::native::storage::rename_raw 1 the plugin SDK's storage call goes through the host table's function pointer: the callee is a host entry, a root (`table PAPERPAW_HOST_TABLE_ANCHOR`)
+allow indirect paperpaw_native::host_glue::heap_alloc 1 a plugin-side call into the host through the table's function pointer: the callee is a host entry, a root
+allow indirect paperpaw_native::host_glue::heap_realloc 1 a plugin-side call into the host through the table's function pointer: the callee is a host entry, a root
+allow indirect paperpaw_core::native_host::declaration_store::OwnerRef::with_image 1 new in train 27: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN4core3ptr63drop_glue$LT$paperpaw_core..native_host..lease_slot..Parked$GT$ 1 the drop of a boxed trait object (`Box<dyn ..>`): the callee is the object's `Drop`, not scanned here (device test S4)
+allow indirect paperpaw_sdk::native::declare::records_wire::record_encode_of 3 a `WireEncode` call on a `&dyn`: the impls are the rooted trait `WireEncode`
+allow indirect paperpaw_sdk::native::services::call::Service::call 1 a plugin-side call into the host through the table's function pointer: the callee is a host entry, a root
+allow indirect paperpaw_sdk::ui::image::draw_picture 3 1 call(s) through a register reloaded from this function's own stack at sdk/ui/image.rs:762: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself); jump table of a `match` at platform/pixel.rs:74
+allow indirect paperpaw_sdk::settings::described::Blocks::find_named 1 new with the linked plugins (native-on, #243): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are not scanned here (device test S4)
+allow indirect paperpaw_sdk::native::declare::records_wire::record_framed_len_of 2 a `WireEncode` call on a `&dyn`: the impls are the rooted trait `WireEncode`
+allow indirect _ZN4core3ptr131drop_glue$LT$core..option..Option$LT$alloc..boxed..Box$LT$dyn$u20$paperpaw_core..native_host..plugin_job..InstallGrants$GT$$GT$$GT$ 1 the drop of a boxed trait object (`Box<dyn ..>`): the callee is the object's `Drop`, not scanned here (device test S4)
+allow indirect paperpaw_sdk::ui::image::draw_row 1 a call on the picture's sink or source (`&mut dyn ImageSink`/`dyn Source`): the impls are rooted traits
+allow indirect paperpaw_core::native_host::shell::storage_externs::storage_size 2 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::shell::storage_externs::storage_read_at 2 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::shell::storage_externs::storage_rename 2 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::shell::storage_externs::storage_remove 2 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_sort::unstable 4 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::commands::ui::reserve_hints 2 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::commands::CommandStage::push_batch 1 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN13paperpaw_core11native_host13storage_slots3put 2 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_sort::sink 3 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::commands::preview::validate_preview 2 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::commands::reset::Who::walk 12 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::declaration_store::StoredOwner::places 6 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::commands::CommandStage::owned_value 2 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN102_$LT$core..iter..adapters..map..Map$LT$I$C$F$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$8try_fold 1 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN13paperpaw_core11native_host7storage14StorageAdapter11rename_card 5 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::files_service::follows::library_follows 1 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN17paperpaw_platform4tree4kind 2 new in train t40: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4

@@ -138,6 +138,18 @@ impl Kernel {
         self.list_plugin(manifest, PluginState::Off, false);
     }
 
+    /// Lists a plugin switched off with nothing of its folder loaded, not
+    /// even its translations: one refused for its id (#1424 R1).
+    pub(crate) fn list_bare(&mut self, manifest: Manifest) {
+        let id = &manifest.id;
+        if id.as_str() != id.namespace() || self.shared.plugins.get(id.as_str()).is_some() {
+            return;
+        }
+        if let Some(manifest) = self.copy_manifest(manifest) {
+            self.list_plugin(manifest, PluginState::Off, false);
+        }
+    }
+
     /// The copy of `manifest` the plugin list holds, made before anything
     /// of the plugin is registered: where the heap has no room for it, the
     /// plugin is refused with a warning, not loaded unlisted, which would let
@@ -640,6 +652,16 @@ impl Kernel {
         match registry::catalog(alloc::borrow::Cow::Borrowed(source)) {
             Ok(catalog) => self.shared.translator.add(catalog),
             Err(error) => self.warn_runtime(format!("a built-in catalog: {error}")),
+        }
+    }
+
+    /// Adds the catalogs of the linked native plugins built into the program
+    /// without their keys, a table a language
+    /// ([`BuiltMessages`](paperpaw_i18n::BuiltMessages)): each is one
+    /// catalog that answers for all their sources, which are not added.
+    pub fn add_built_messages(&mut self, tables: &'static [paperpaw_i18n::BuiltMessages]) {
+        for table in tables {
+            self.shared.translator.built_messages(table);
         }
     }
 

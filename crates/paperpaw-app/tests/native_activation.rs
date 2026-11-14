@@ -15,7 +15,7 @@
 )]
 
 use paperpaw_core::{Kernel, KernelBuilder};
-use paperpaw_platform::Storage;
+use paperpaw_platform::{DirEntry, Storage, StorageError};
 use paperpaw_sdk::MemoryStorage;
 use std::rc::Rc;
 
@@ -85,7 +85,27 @@ impl BuildNative for KernelBuilder {
 /// test cannot go on then). A plugin the host refuses is named on stderr and
 /// its screens are missing, which the test that needs them reports.
 pub fn build(builder: KernelBuilder) -> Kernel {
-    build_with(builder, Rc::new(MemoryStorage::new()), false, app_sleeps)
+    build_full(
+        builder,
+        paperpaw_app::default_store(),
+        Rc::new(MemoryStorage::new()),
+        false,
+        app_sleeps,
+    )
+}
+
+/// [`build`] where the plugins the store offers are as `store` says.
+///
+/// # Panics
+/// As [`build`].
+pub fn build_with(builder: KernelBuilder, store: paperpaw_app::StorePlugins<'static>) -> Kernel {
+    build_full(
+        builder,
+        store,
+        Rc::new(MemoryStorage::new()),
+        false,
+        app_sleeps,
+    )
 }
 
 /// [`build`] where the linked plugins' files, library and documents are on
@@ -95,7 +115,123 @@ pub fn build(builder: KernelBuilder) -> Kernel {
 /// # Panics
 /// As [`build`].
 pub fn build_on(builder: KernelBuilder, card: Rc<dyn Storage>) -> Kernel {
-    build_with(builder, card, true, app_sleeps)
+    build_full(
+        builder,
+        paperpaw_app::default_store(),
+        card,
+        true,
+        app_sleeps,
+    )
+}
+
+/// The native help's first-time hints off, as `flows.rs` and the headless
+/// tests start (#2411): with `native-linked` the help's first hint lies over
+/// the first screen and takes the next button. `help.show` is a setting of the
+/// native help only, so the line is added only where it is linked.
+pub const QUIET: &str = if cfg!(feature = "native-linked") {
+    "[help]\nshow = false\n"
+} else {
+    ""
+};
+
+/// One card, seen by the kernel and by the linked plugins' host families
+/// (files, library, documents) alike, as a shell wires them: a book a test puts
+/// on the kernel's card is there for the native reader too.
+#[derive(Clone)]
+pub struct SharedCard(Rc<dyn Storage>);
+
+impl std::fmt::Debug for SharedCard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SharedCard")
+    }
+}
+
+impl SharedCard {
+    /// `storage` as a card shared by the kernel and the host.
+    pub fn new(storage: impl Storage + 'static) -> Self {
+        Self(Rc::new(storage))
+    }
+
+    /// A second handle on the card, for [`build_on`].
+    pub fn handle(&self) -> Rc<dyn Storage> {
+        Rc::new(self.clone())
+    }
+}
+
+impl Storage for SharedCard {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.0.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.0.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove(path)
+    }
+    fn exists(&self, path: &str) -> bool {
+        self.0.exists(path)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        self.0.rename(from, to)
+    }
+    fn create_dir(&self, path: &str) -> Result<(), StorageError> {
+        self.0.create_dir(path)
+    }
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        self.0.write_at(path, offset, data)
+    }
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        self.0.truncate(path, len)
+    }
+    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove_dir_all(path)
+    }
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.0.entry_identity(path)
+    }
+    fn sync(&self) -> Result<(), StorageError> {
+        self.0.sync()
+    }
+    fn modified(&self, path: &str) -> Option<i64> {
+        self.0.modified(path)
+    }
+    fn ignores_case(&self) -> bool {
+        self.0.ignores_case()
+    }
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.0.same_entry(a, b)
+    }
+    fn free_space(&self) -> Option<u64> {
+        self.0.free_space()
+    }
+    fn total_space(&self) -> Option<u64> {
+        self.0.total_space()
+    }
+}
+
+/// A test's kernel builder for `device` on `storage`, with the user's
+/// `config` and the native help's hints off ([`QUIET`]), and the handle on its
+/// card to build it with: `build_on(paperpaw_app::install(builder, ..), card)`.
+pub fn quiet_on(
+    device: paperpaw_platform::DeviceInfo,
+    storage: impl Storage + 'static,
+    config: &str,
+) -> (KernelBuilder, Rc<dyn Storage>) {
+    let card = SharedCard::new(storage);
+    let handle = card.handle();
+    let builder = Kernel::builder(device)
+        .storage(card)
+        .user_config(format!("{config}\n{QUIET}"));
+    (builder, handle)
 }
 
 /// [`build_on`] with the linked plugins `sleep` says yes for registered to
@@ -108,7 +244,7 @@ pub fn build_on_sleeping(
     card: Rc<dyn Storage>,
     sleep: fn(&str) -> bool,
 ) -> Kernel {
-    build_with(builder, card, true, sleep)
+    build_full(builder, paperpaw_app::default_store(), card, true, sleep)
 }
 
 thread_local! {
@@ -142,9 +278,11 @@ fn app_sleeps(id: &str) -> bool {
 /// [`build_on`], with the X4's Wi-Fi (managed by PaperPaw and on) where `wifi`
 /// says so: the native Wi-Fi plugin's list of networks closes itself where
 /// there is no radio to choose with. The screens measured without it (the
-/// store's partial redraws) stay as they were.
-fn build_with(
+/// store's partial redraws) stay as they were. `store`: the plugins the store
+/// offers.
+fn build_full(
     builder: KernelBuilder,
+    store: paperpaw_app::StorePlugins<'static>,
     card: Rc<dyn Storage>,
     wifi: bool,
     sleep: fn(&str) -> bool,
@@ -155,7 +293,7 @@ fn build_with(
     let mut kernel = builder.build().unwrap();
     #[cfg(feature = "native-linked")]
     {
-        linked::register_with(&mut kernel, card, sleep);
+        linked::register_with(&mut kernel, card, store, sleep);
         if wifi {
             let _ = kernel.wifi_event(
                 paperpaw_platform::Instant(0),
@@ -164,7 +302,7 @@ fn build_with(
         }
     }
     #[cfg(not(feature = "native-linked"))]
-    let _ = (card, wifi, sleep);
+    let _ = (card, wifi, store, sleep);
     kernel
 }
 
@@ -380,8 +518,12 @@ mod linked {
         Box::leak(all.into_boxed_slice())
     }
 
-    pub fn register(kernel: &mut Kernel, card: Rc<dyn paperpaw_platform::Storage>) {
-        register_with(kernel, card, paperpaw_app::sleeps);
+    pub fn register(
+        kernel: &mut Kernel,
+        card: Rc<dyn paperpaw_platform::Storage>,
+        store: paperpaw_app::StorePlugins<'static>,
+    ) {
+        register_with(kernel, card, store, paperpaw_app::sleeps);
     }
 
     /// [`register`] with the plugins `sleep` says yes for registered to
@@ -389,6 +531,7 @@ mod linked {
     pub fn register_with(
         kernel: &mut Kernel,
         card: Rc<dyn paperpaw_platform::Storage>,
+        store: paperpaw_app::StorePlugins<'static>,
         sleep: fn(&str) -> bool,
     ) {
         let resources = HostResources::try_new().expect("the table of handles");
@@ -425,6 +568,7 @@ mod linked {
                 || Heap,
                 teardown,
                 report,
+                |id| paperpaw_app::native_default_on(id, store),
                 rodata_image(),
                 sleep,
             )

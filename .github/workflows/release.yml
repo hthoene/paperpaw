@@ -381,7 +381,7 @@ jobs:
         # a little flash is saved. CI builds its image the same way.
         run: |
           remap="$("$GITHUB_WORKSPACE/tools/ci/firmware-remap.sh" "$FIRMWARE_TARGET" "$FIRMWARE_TOOLCHAIN")"
-          cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE"
+          cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE,release"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           elf="target/$FIRMWARE_TARGET/release/paperpaw-xteink"
           table=partitions.csv

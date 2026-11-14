@@ -648,8 +648,9 @@ impl View {
         {
             // Opened with pictures, or shown again while they waited (the
             // host dropped their follow-up when the screen left the top): they
-            // are asked for now.
-            open.redraw_page(host, docs, RedrawMode::Partial).ok();
+            // are asked for now. The show draws the page itself, its pictures'
+            // places empty: only their boxes follow.
+            open.show_pictures(host, docs).ok();
         }
     }
 

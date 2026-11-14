@@ -1,4 +1,4 @@
-//! Mobipocket books through the plugin's own opener: metadata, blocks,
+//! Mobipocket books through the document's own reading of a converted cache: metadata, blocks,
 //! styles, links, contents, pictures, and what is refused.
 
 #![allow(
@@ -13,9 +13,10 @@ use common::{Builder, png};
 use paperpaw_plugin_format_mobi::MobiDocument;
 use paperpaw_sdk::document::{BlockKind, Document, DocumentError, Locator};
 use paperpaw_sdk::image::Fit;
-use paperpaw_sdk::{MemoryStorage, OpenOptions, Storage};
+use paperpaw_sdk::{MemoryStorage, OpenOptions};
 
 const PATH: &str = "books/test.mobi";
+const CACHE: &str = ".paperpaw/plugins/format-mobi/book";
 
 fn options() -> OpenOptions {
     OpenOptions::default().image_fit(Fit::screen(480, 800))
@@ -23,7 +24,7 @@ fn options() -> OpenOptions {
 
 fn open(builder: &Builder) -> (MemoryStorage, MobiDocument) {
     let storage = MemoryStorage::new().with(PATH, builder.build());
-    let document = MobiDocument::open(&storage, PATH, &options()).unwrap();
+    let document = MobiDocument::open_converted(&storage, PATH, CACHE, &options()).unwrap();
     (storage, document)
 }
 
@@ -313,7 +314,7 @@ fn a_picture_that_cannot_be_decoded_is_tried_once() {
 
 fn refused(builder: &Builder) -> String {
     let storage = MemoryStorage::new().with(PATH, builder.build());
-    match MobiDocument::open(&storage, PATH, &options()) {
+    match MobiDocument::open_converted(&storage, PATH, CACHE, &options()) {
         Err(DocumentError::Malformed(why)) => why.into_owned(),
         Err(other) => format!("{other}"),
         Ok(_) => String::from("opened"),
@@ -335,23 +336,9 @@ fn books_that_cannot_be_read_say_why() {
     odd.compression = Some(7);
     assert!(refused(&odd).contains("compression"));
     let storage = MemoryStorage::new().with(PATH, b"just some text".to_vec());
-    assert!(MobiDocument::open(&storage, PATH, &options()).is_err());
+    assert!(MobiDocument::open_converted(&storage, PATH, CACHE, &options()).is_err());
     let storage = MemoryStorage::new().with(PATH, Vec::new());
-    assert!(MobiDocument::open(&storage, PATH, &options()).is_err());
-}
-
-#[test]
-fn a_changed_file_is_converted_again() {
-    let storage = MemoryStorage::new().with(PATH, Builder::new("<p>First text</p>").build());
-    let document = MobiDocument::open(&storage, PATH, &options()).unwrap();
-    assert_eq!(blocks(&storage, &document)[0].1, "First text");
-    let again = MobiDocument::open(&storage, PATH, &options()).unwrap();
-    assert_eq!(blocks(&storage, &again)[0].1, "First text");
-    storage
-        .write(PATH, &Builder::new("<p>Second text, longer</p>").build())
-        .unwrap();
-    let changed = MobiDocument::open(&storage, PATH, &options()).unwrap();
-    assert_eq!(blocks(&storage, &changed)[0].1, "Second text, longer");
+    assert!(MobiDocument::open_converted(&storage, PATH, CACHE, &options()).is_err());
 }
 
 #[test]

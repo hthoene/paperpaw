@@ -16,8 +16,10 @@ use alloc::string::String;
 use paperpaw_core::native_host::shell::inflight::Inflight;
 use paperpaw_sdk::native::{SafeMode, SafeModeReason};
 
-/// Failed starts with code plugins before one goes without them.
-pub const FAILED_STARTS: u8 = 2;
+/// Failed starts with code plugins before one goes without them
+/// (`paperpaw_x4::start_count`, where the rules are tested).
+#[allow(dead_code, reason = "named for the docs; the rules read it")]
+pub const FAILED_STARTS: u8 = paperpaw_x4::start_count::FAILED_STARTS;
 /// The key held at power-on for a start without code plugins: *Back* on
 /// the devices with the X4's buttons, *Home* on the X4 Pro.
 #[cfg(not(feature = "x4-pro"))]
@@ -72,6 +74,32 @@ const EMPTY: Record = Record {
 #[esp_hal::ram(unstable(rtc_fast, persistent))]
 static mut RECORD: Record = EMPTY;
 
+/// The starts that did not reach their first frame, counted from the first
+/// instruction (`paperpaw_x4::start_count::early`): the record above counts
+/// from the loading of native plugins, too late for a start that dies before.
+#[esp_hal::ram(unstable(rtc_fast, persistent))]
+static mut EARLY: u32 = 0;
+
+/// What [`begin`] read: the starts before this one that failed early.
+static EARLIER: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+/// The first thing of a start, before the stack's band, the board or the
+/// card: counts this start as one that may fail, and says how many before it
+/// did. Where that is [`FAILED_STARTS`] or more, this start goes without the
+/// band and without native plugins (`main`, [`check`]).
+pub fn begin() -> u8 {
+    // SAFETY: one core, before anything else runs; written here, at the
+    // first frame (`started`) and by `check`, never at once.
+    let word = unsafe { core::ptr::addr_of!(EARLY).read_volatile() };
+    let earlier = paperpaw_x4::start_count::early::previous(word);
+    // SAFETY: as above.
+    unsafe {
+        core::ptr::addr_of_mut!(EARLY).write_volatile(paperpaw_x4::start_count::early::next(word));
+    }
+    EARLIER.store(earlier, core::sync::atomic::Ordering::Relaxed);
+    earlier
+}
+
 // The record is copied whole; one copy of that code, not one per caller.
 #[cfg_attr(feature = "ppn5", inline(never))]
 fn read() -> Record {
@@ -120,6 +148,13 @@ fn set(field: &mut [u8; ID_LEN], id: &str) {
 /// anew from it.
 pub fn check(key_held: bool) -> Option<SafeMode> {
     let mut record = read();
+    let earlier = EARLIER.load(core::sync::atomic::Ordering::Relaxed);
+    let early = paperpaw_x4::start_count::early::refuses(earlier);
+    let mut count = paperpaw_x4::start_count::Count {
+        // Starts that died before the loading of native plugins count too.
+        failed: record.failed.max(if early { FAILED_STARTS } else { 0 }),
+        counted: false,
+    };
     record.counted = 0;
     // A reset in the middle of a call into a plugin (cutting the power clears
     // this record, so it was not that): that plugin is switched off now, not
@@ -127,14 +162,21 @@ pub fn check(key_held: bool) -> Option<SafeMode> {
     // plugin that crashes on its first event after the first frame is shown
     // would otherwise crash every start.
     let inflight = running(&record);
-    let reason = if key_held {
-        SafeModeReason::KeyHeld
-    } else if record.failed >= FAILED_STARTS || inflight.is_some() {
-        SafeModeReason::FailedStarts
-    } else {
-        write(record);
-        return None;
+    let reason = match count.decide(key_held, inflight.is_some()) {
+        Some(paperpaw_x4::start_count::Refusal::KeyHeld) => SafeModeReason::KeyHeld,
+        Some(paperpaw_x4::start_count::Refusal::FailedStarts) => SafeModeReason::FailedStarts,
+        None => {
+            write(record);
+            return None;
+        }
     };
+    if early {
+        // This start counts as the first anew (it goes without the band).
+        // SAFETY: as in `begin`.
+        unsafe {
+            core::ptr::addr_of_mut!(EARLY).write_volatile(paperpaw_x4::start_count::early::anew());
+        }
+    }
     let mut safe_mode = SafeMode::new(reason);
     safe_mode.last_loaded = text(&record.loaded);
     safe_mode.crashed = text(&record.crashed).or(inflight);
@@ -146,18 +188,61 @@ pub fn check(key_held: bool) -> Option<SafeMode> {
 /// it as one that may fail.
 pub fn loading(id: &str) {
     let mut record = read();
-    if record.counted == 0 {
+    let mut count = paperpaw_x4::start_count::Count {
+        failed: record.failed,
+        counted: record.counted != 0,
+    };
+    if count.loading() {
         record.counted = 1;
-        record.failed = record.failed.saturating_add(1);
+        record.failed = count.failed;
         record.crashed = [0; ID_LEN];
     }
     set(&mut record.loaded, id);
     write(record);
 }
 
+/// The stack's band was lost while native plugins run (a re-arm after a sleep
+/// failed): written before the restart that follows, so that the next start
+/// goes without native plugins (`paperpaw_x4::start_count::Count::lost_the_band`)
+/// instead of hosting them again at once.
+pub fn band_lost() {
+    let mut record = read();
+    let mut count = paperpaw_x4::start_count::Count {
+        failed: record.failed,
+        counted: record.counted != 0,
+    };
+    count.lost_the_band();
+    record.failed = count.failed;
+    write(record);
+}
+
 /// The first frame is shown: the start with its code plugins went well.
 pub fn started() {
     write(EMPTY);
+    // SAFETY: as in `begin`.
+    unsafe {
+        core::ptr::addr_of_mut!(EARLY).write_volatile(paperpaw_x4::start_count::early::CLEARED);
+    }
+}
+
+/// The firmware restarts or switches off by its own choice (a plugin's
+/// power-off, a pending restart), maybe before the first frame: the start it
+/// ends did not fail, so it counts for neither counter (`start_count`).
+pub fn clean_exit() {
+    let mut record = read();
+    let mut count = paperpaw_x4::start_count::Count {
+        failed: record.failed,
+        counted: record.counted != 0,
+    };
+    count.clean_exit();
+    record.failed = count.failed;
+    record.counted = u8::from(count.counted);
+    write(record);
+    // SAFETY: as in `begin`.
+    unsafe {
+        core::ptr::addr_of_mut!(EARLY)
+            .write_volatile(paperpaw_x4::start_count::early::clean_exit());
+    }
 }
 
 /// The panic going on was in the code of plugin `id` (from the panic

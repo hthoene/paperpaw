@@ -334,10 +334,10 @@ impl ZipArchive {
             index.push((hash_lossy(&name), at as u32));
             at += RECORD as u64 + name_len + field(30)? + field(32)?;
         }
-        // In place: the shared sorter's stable path would add a 4-byte position
-        // per entry on top of this index (6,000 entries: 24 KB more). The
-        // (hash, offset) pairs are unique, so an unstable sort gives the same order.
-        index.sort_unstable();
+        // The shared sorter's unstable sort, in place: its stable one would add
+        // a 4-byte position per entry on top of this index (2,000 entries:
+        // 8 KB more). The (hash, offset) pairs are unique, so the order is the same.
+        paperpaw_sort::sort_unstable(&mut index);
         let mut owned = String::new();
         owned
             .try_reserve_exact(path.len())

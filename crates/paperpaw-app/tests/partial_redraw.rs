@@ -151,11 +151,11 @@ fn catalogue() -> String {
 
 impl App {
     fn new() -> Self {
-        let builder = Kernel::builder(DEVICE)
-            .storage(storage())
-            .network(true)
-            .catalog_device("x4")
-            .user_config("[core]\nlanguage = en\n");
+        // The help's hints off; built without the X4's Wi-Fi (`build`, not
+        // `build_on`): the store's partial redraws are measured without it.
+        let (builder, _card) =
+            native_activation::quiet_on(DEVICE, storage(), "[core]\nlanguage = en\n");
+        let builder = builder.network(true).catalog_device("x4");
         let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
         let effects = kernel.start(Instant(0));
         let pixels = usize::from(DEVICE.display.width) * usize::from(DEVICE.display.height);
@@ -181,6 +181,8 @@ impl App {
                 break;
             }
             self.now = self.now.max(at.0);
+            // The native host's work clock: declared work falls due with it.
+            native_activation::set_clock(self.now);
             effects = self.kernel.tick(Instant(self.now));
         }
         let panel = &mut self.panel;
@@ -366,8 +368,8 @@ impl App {
 
 #[test]
 #[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
 )]
 fn settings_lists_drawn_in_part_show_what_a_whole_frame_does() {
     let mut app = App::new();
@@ -397,8 +399,8 @@ fn home_grid() {
 
 #[test]
 #[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
 )]
 fn main_menu_and_tools() {
     let mut app = App::new();
@@ -412,6 +414,10 @@ fn main_menu_and_tools() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader (`native-linked-reading`): the interface-6 reader is removed (#244)"
+)]
 fn table_of_contents() {
     let mut app = App::new();
     app.open_slot(slots::READER, Params::new().with(params::PATH, BOOK));
@@ -454,7 +460,15 @@ fn widget_editors() {
     app.run(Id::new_static("home.edit-pages"));
     app.opened("home, edited");
     app.walk_grid(6, "home, edited");
-    app.run(actions::BACK);
+}
+
+#[test]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the sleep screen, which offers the place of widgets, is a native plugin only (#244): run it with `native-linked`"
+)]
+fn sleep_widget_editor() {
+    let mut app = App::new();
     app.open_slot(
         slots::EDIT_WIDGETS,
         Params::new().with(params::ID, "sleep.widgets"),
@@ -465,8 +479,8 @@ fn widget_editors() {
 
 #[test]
 #[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
 )]
 fn keyboard() {
     let mut app = App::new();

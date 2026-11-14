@@ -130,6 +130,8 @@ pub struct Context<S: 'static> {
     declared_services: DeclaredServices,
     /// The shell's heap and clock.
     pub services: S,
+    /// `Services::enter` and `leave`, once admission announces the plugin.
+    entry: Cell<Option<&'static heap_table::Entry<S>>>,
     instance: Cell<Option<PluginOutput>>,
     attempted: Cell<bool>,
     /// What the plugin's own code called the host for (#248, [`parked`]).
@@ -344,6 +346,7 @@ impl<S: Services + 'static, M> Hosted<S, M> {
             resources,
             declared_services,
             services,
+            entry: Cell::new(None),
             instance: Cell::new(None),
             attempted: Cell::new(false),
             calls: parked::HostCalls::default(),
@@ -452,16 +455,16 @@ impl<S: Services + 'static, M> Hosted<S, M> {
             let scope = unsafe { context.map_unchecked(|value| &value.registrations) };
             scope
                 .scope(staging, || self.invoke_make(context))
-                .map_err(Into::into)
+                .map_err(Error::from)?
         })
     }
 
-    fn invoke_make(&self, context: Pin<&Context<S>>) -> MakeOutput {
+    fn invoke_make(&self, context: Pin<&Context<S>>) -> Result<MakeOutput, Error> {
         let mut out = ptr::null();
         let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast();
         // SAFETY: the owner is pinned, owns services and module, and `out` is writable.
-        let status = context.run_make(|| unsafe { (self.make)(context.table(), ctx, &mut out) });
-        (status, out)
+        let status = context.run_make(|| unsafe { (self.make)(context.table(), ctx, &mut out) })?;
+        Ok((status, out))
     }
 
     /// The output stays loader-owned until commit succeeds. A failed factory
@@ -702,7 +705,7 @@ fn destroy_context<S: 'static>(context: Pin<&Context<S>>) {
     if let Some(instance) = context.instance.take() {
         // SAFETY: validated successful output has exactly one drop obligation;
         // its pinned context, table, services and module are all still alive.
-        context.run_plugin(|| unsafe { (instance.destroy)(instance.state) });
+        context.run_destroy(|| unsafe { (instance.destroy)(instance.state) });
     }
 }
 
@@ -904,7 +907,7 @@ fn invoke_registration<S: 'static>(
             // alias host state.
             Ok(status_only(context.run_plugin(|| unsafe {
                 callback(instance.state, token, borrowed(bytes), no_reply())
-            })))
+            })?))
         }
         (Registration::Event { token, .. }, Invocation::Event(bytes)) => {
             let callback = instance
@@ -914,7 +917,7 @@ fn invoke_registration<S: 'static>(
             // borrowed for this call only and does not alias host state.
             Ok(status_only(context.run_plugin(|| unsafe {
                 callback(instance.state, token, borrowed(bytes), no_reply())
-            })))
+            })?))
         }
         (Registration::Draw { token }, Invocation::Draw(frame)) => {
             let callback = instance
@@ -924,7 +927,7 @@ fn invoke_registration<S: 'static>(
             // for this call only and does not alias host state.
             Ok(status_only(context.run_plugin(|| unsafe {
                 callback(instance.state, token, borrowed(frame))
-            })))
+            })?))
         }
         _ => Err(Error::Status(host_glue::ERR_UNSUPPORTED)),
     }

@@ -182,6 +182,8 @@ struct Running {
     version: String,
     project: String,
     chip: u32,
+    /// The bytes of the app slot an update goes into.
+    room: u64,
     state: FirmwareState,
     done: u64,
     total: u64,
@@ -346,6 +348,7 @@ impl NativeUpdate {
                 version: copy(info.version())?,
                 project: copy(info.project())?,
                 chip: info.chip(),
+                room: info.room(),
                 state: info.state(),
                 done: info.done(),
                 total: info.total(),

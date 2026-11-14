@@ -1,6 +1,8 @@
-//! The Word documents `core.format` provider against the interface-6 reader
-//! on the same documents: the same blocks, runs, offsets, contents, links and
-//! pictures, the preparation, and the refusals a hostile call or document gets.
+//! The Word documents `core.format` provider against the reader
+//! (`DocxDocument`, converted and read on a cache of its own) on the same
+//! documents: the same blocks, runs, offsets, contents, links and pictures, the
+//! preparation, and the refusals a hostile call or document gets. What the text
+//! of such a document should be is pinned by `tests/docx.rs`.
 
 #![allow(
     clippy::unwrap_used,
@@ -15,11 +17,11 @@ use native::{Roots, SIDE, call, docx, docx_with, heading, open_call, open_ready,
 use native::{rows, run, state};
 use paperpaw_plugin_format_docx::DocxDocument;
 use paperpaw_plugin_format_docx::provider::{DocxProvider, MAX_DOCUMENTS};
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{BlockKind, Document, Locator};
 use paperpaw_sdk::image::Fit;
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
-use paperpaw_sdk::{MemoryStorage, OpenOptions, Storage};
 
 const CACHE_MADE: u32 = 1 << 6;
 const HAS_TOC: u32 = 1 << 1;
@@ -108,8 +110,13 @@ fn block(
     }
 }
 
-fn old_options() -> OpenOptions {
-    OpenOptions::default().image_fit(Fit::side(SIDE))
+/// The reader on a cache of its own (the book is root 3, the cache root 6, as
+/// the provider has them), at the side the tests decode to.
+fn reader(data: Vec<u8>) -> (Roots, DocxDocument) {
+    let io = Roots::new(data);
+    DocxDocument::convert(&io, "", "").unwrap();
+    let doc = DocxDocument::native(&io, Fit::side(SIDE), false).unwrap();
+    (io, doc)
 }
 
 fn kind_of(kind: BlockKind) -> (u32, u32) {
@@ -121,13 +128,13 @@ fn kind_of(kind: BlockKind) -> (u32, u32) {
     }
 }
 
-/// All blocks of the provider against interface 6's: how many, and the
+/// All blocks of the provider against the reader's: how many, and the
 /// pictures' indexes and flags seen.
 fn compare(
     p: &mut DocxProvider,
     io: &Roots,
     old: &DocxDocument,
-    old_io: &MemoryStorage,
+    old_io: &Roots,
 ) -> (usize, Vec<(String, u32, u32)>) {
     let (mut at, mut count, mut images) = (0u32, 0, Vec::new());
     loop {
@@ -179,22 +186,21 @@ fn last_page(end: &stage::FmtEnd) -> bool {
 }
 
 #[test]
-fn a_document_is_prepared_and_reads_like_interface_6() {
+fn a_document_is_prepared_and_reads_like_the_reader() {
     let data = docx(&rich_body());
     let io = Roots::new(data.clone());
     let mut p = DocxProvider::new();
     let (s, status, flags) = open_ready(&mut p, &io);
     assert_eq!((s, status), (0, 0));
     assert_eq!(flags, CACHE_MADE | HAS_TOC);
-    let old_io = MemoryStorage::new().with("d.docx", data);
-    let old = DocxDocument::open(&old_io, "d.docx", &old_options()).unwrap();
+    let (old_io, old) = reader(data);
     // The blocks, from the first to the last; the pictures are not decoded yet.
     let (count, images) = compare(&mut p, &io, &old, &old_io);
     assert!(count >= 12, "{count}");
     assert_eq!(images.len(), 2, "{images:?}");
     assert!(images.iter().all(|(_, _, flags)| *flags == 1));
     // The host asks for each (op 18); the fine one is the picture
-    // interface 6 decodes, pixel for pixel; the damaged one is not found.
+    // the reader decodes, pixel for pixel; the damaged one is not found.
     let wanted = old.block_at(&old_io, Locator::new(0, 0)).unwrap().unwrap();
     assert!(matches!(wanted.kind, BlockKind::Heading(1)));
     let mut decoded = 0;
@@ -238,12 +244,12 @@ fn a_document_is_prepared_and_reads_like_interface_6() {
     contents_links_and_metadata(&mut p, &io, &old, &old_io);
 }
 
-/// Contents, links and the metadata against interface 6.
+/// Contents, links and the metadata against the reader.
 fn contents_links_and_metadata(
     p: &mut DocxProvider,
     io: &Roots,
     old: &DocxDocument,
-    old_io: &MemoryStorage,
+    old_io: &Roots,
 ) {
     let reply = run(p, io, &call(9, 1, |_| {})).unwrap();
     let r = rows(&reply);
@@ -395,8 +401,7 @@ fn long_lists_and_blocks_come_in_pages_and_fragments() {
     let io = Roots::new(data.clone());
     let mut p = DocxProvider::new();
     assert_eq!(open_ready(&mut p, &io).0, 0);
-    let old_io = MemoryStorage::new().with("d.docx", data);
-    let old = DocxDocument::open(&old_io, "d.docx", &old_options()).unwrap();
+    let (old_io, old) = reader(data);
     assert_eq!(old.toc_len(&old_io), 150);
     let (mut cursor, mut seen) = (0u32, 0usize);
     loop {

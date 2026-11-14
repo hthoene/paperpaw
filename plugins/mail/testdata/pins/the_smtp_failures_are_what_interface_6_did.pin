@@ -1,0 +1,40 @@
+"no starttls: events"	["Stage(Connecting)", "Failed(Unsafe)"]
+"no starttls: lines sent"	["EHLO localhost"]
+"no starttls: closed"	true
+"no starttls: TLS switches"	0
+"no starttls: the message"	None
+"login only: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Sending)", "Done"]
+"login only: lines sent"	["EHLO localhost", "AUTH LOGIN", "YWRh", "c2VjcmV0", "MAIL FROM:<ada@example.org>", "RCPT TO:<bob@example.org>", "RCPT TO:<carol@example.org>", "DATA", "QUIT"]
+"login only: closed"	true
+"login only: TLS switches"	0
+"login only: the message"	#372:7416abe520c1eda2
+"login only starttls: events"	["Stage(Connecting)", "Failed(Unsafe)"]
+"login only starttls: lines sent"	["EHLO localhost"]
+"login only starttls: closed"	true
+"login only starttls: TLS switches"	0
+"login only starttls: the message"	None
+"wrong login password: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Failed(Login(\"bad\"))"]
+"wrong login password: lines sent"	["EHLO localhost", "AUTH LOGIN", "YWRh", "c2VjcmV0"]
+"wrong login password: closed"	true
+"wrong login password: TLS switches"	0
+"wrong login password: the message"	None
+"refused recipient: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Failed(Recipient(\"carol@example.org\", \"5.1.1 no such user\"))"]
+"refused recipient: lines sent"	["EHLO localhost", "AUTH PLAIN AGFkYQBzZWNyZXQ=", "MAIL FROM:<ada@example.org>", "RCPT TO:<bob@example.org>", "RCPT TO:<carol@example.org>"]
+"refused recipient: closed"	true
+"refused recipient: TLS switches"	0
+"refused recipient: the message"	None
+"too large: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Failed(Refused(\"the message is larger than the server takes\"))"]
+"too large: lines sent"	["EHLO localhost", "AUTH PLAIN AGFkYQBzZWNyZXQ="]
+"too large: closed"	true
+"too large: TLS switches"	0
+"too large: the message"	None
+"untrusted: events"	["Stage(Connecting)", "Untrusted(UnknownIssuer)"]
+"untrusted: lines sent"	[]
+"untrusted: closed"	true
+"untrusted: TLS switches"	0
+"untrusted: the message"	None
+"no clock: events"	["Stage(Connecting)", "Failed(ClockNotSet)"]
+"no clock: lines sent"	[]
+"no clock: closed"	true
+"no clock: TLS switches"	0
+"no clock: the message"	None

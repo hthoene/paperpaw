@@ -61,7 +61,7 @@ const PIECE: usize = 4096;
 /// word is not loaded (as on the X4: `flash::heap_table`).
 #[cfg(feature = "ppn5")]
 fn heap_table() -> Option<u32> {
-    None
+    Some(super::ppn5::heap_word())
 }
 
 /// Places images in PSRAM.
@@ -70,6 +70,9 @@ pub struct Psram {
     /// Bytes the images placed at this start take, and how many.
     used: u64,
     placed: u32,
+    /// [`Psram::finish`] ran: a hosted image stays until a restart, so nothing
+    /// is placed or freed from here.
+    finished: bool,
 }
 
 impl Psram {
@@ -78,6 +81,7 @@ impl Psram {
             sha: Sha::new(sha),
             used: 0,
             placed: 0,
+            finished: false,
         }
     }
 
@@ -142,6 +146,10 @@ impl Psram {
         path: &str,
         header: &Header5,
     ) -> Result<Placed5, PluginProblem> {
+        if self.finished {
+            warn!("native: {path}: placed after the start's last one: not loaded");
+            return Err(PluginProblem::NoRoom);
+        }
         #[cfg(feature = "remote")]
         super::set_room(super::Room::Psram);
         let table = heap_table();
@@ -238,6 +246,9 @@ impl Psram {
     /// all (its entry or what it needs before `make`).
     #[cfg(feature = "ppn5")]
     pub fn take_back(&mut self, placed: Placed5) {
+        if self.finished {
+            return;
+        }
         if let Ok(layout) = Layout::from_size_align(placed.size, placed.align) {
             // SAFETY: the block `put5` allocated with this layout; the caller
             // refused it before `make`, so nothing runs from it or holds it.
@@ -250,7 +261,9 @@ impl Psram {
     }
 
     /// Nothing to do once all are placed.
-    pub fn finish(&mut self) {}
+    pub fn finish(&mut self) {
+        self.finished = true;
+    }
 
     /// The room for plugins at this start: what they took, and the PSRAM
     /// free beside it (shared with everything else kept there).

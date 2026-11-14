@@ -7,8 +7,12 @@ in `src/native_model.rs` (visibility, groups, sections, stepping, units, search 
 `build.rs`, metadata in `native/` (regenerate with `python3 tools/abi-metadata.py --schema
 abi/abi.def --input native/metadata.json --bytes native/metadata.bin --json
 native/metadata.inspected.json`, likewise `metadata.host.*`). Drawing uses `paperpaw-ui-kit`.
-The interface-6 `SettingsPlugin` and its suites stay: `paperpaw-app` and other plugins' tests still
-link them until the host activates native plugins; then they go together (no shim).
+The interface-6 plugin is removed: `SettingsPlugin`, its pages, chooser, search, themes, secrets
+and tracking code, and the kernel suites that pinned it (`pages`, `groups`, `search`, `secrets`,
+`frames`, `font_slider`, `covered`, `resize`, the shared `tests/common`). The app no longer
+registers it (the settings pages run in the app only where the native plugin is linked,
+`native-linked`), and the tests of other crates that needed it stand in their own screens
+(no shim). `how/` stays: the store's page reads it.
 
 ## Ported
 
@@ -21,7 +25,7 @@ link them until the host activates native plugins; then they go together (no shi
 
 - *Passwords and keys* (`src/native_secrets.rs`, screens `settings.secrets` and `settings.secret`, the
   action `settings.secrets.open`, its entry in `core.settings-pages` at order 95 and the icon `key`,
-  as in interface 6; parity in `tests/abi7_declarations.rs`). On `core.secrets` with the feature
+  as in interface 6; declarations in `tests/abi7_declarations.rs`). On `core.secrets` with the feature
   `uses.secrets` (not required: the device may not let the settings list; the list is then empty and
   the main page's row stays hidden): the list of every plugin's secrets by label (the owner's text for
   a label that is a catalogue key, else the label as it is, else the name), the value never shown, in
@@ -88,8 +92,8 @@ link them until the host activates native plugins; then they go together (no shi
 ## Tests
 
 `native_model`: group membership, offered/visible levels, main-page order, sections, stepping and
-ends, units, placements, search folding, theme in use. Declaration parity with the interface-6
-registration, linked entry, construction in the kernel's registered scope (refused as `Unsupported`
+ends, units, placements, search folding, theme in use. Declarations (the image holds what the builders make; names, titles, slots, the
+passwords-and-keys action, entry and icon; the host admits the screens), linked entry, construction in the kernel's registered scope (refused as `Unsupported`
 until the host admits every declaration family, #944). No desktop golden: pages need host input
 (H1/H4). `tests/acceptance_pending.rs`: refusals that never pass (pages, number preview, reset,
 search, secrets, restart).
@@ -119,6 +123,85 @@ chips, the sheet's pager; `Style::flip`, `flip_x` and `text::label_in` for the r
 draws itself is not mirrored yet, so its screens are left to right in those parts for `ar` until it
 takes the kit's helpers (and, where it keeps its own keys, swaps left and right as `Chips::step` does).
 
+## Interface-6 suites replaced (#228)
+
+The interface-6 suites in `tests/` (`pages`, `groups`, `search`, `secrets`, `covered`, `resize`,
+`frames`, `font_slider`, `common/`; 42 tests) drove the removed screens through a kernel test
+harness. Each is replaced by a native test or an ignored acceptance case that names what it waits
+for. Native tests: `src/native_model/tests.rs` (model), `tests/scripted_pages.rs` and
+`tests/scripted_secrets.rs` (the plugin over the scripted host, with the registry and `core.ui`
+scripted in `tests/scripted_world/`), `src/native_secrets.rs` (unit). Ignored cases are in
+`tests/acceptance_pending.rs`. The scripted host has no screen stack: `open`, `run_action`, `redraw`,
+`close` and `reset_setting` are refused (BLOCKED H1), so only the first such command a callback
+submits is seen (read from its batches), and the focus starts on the first row or where a hand-over
+puts it (`focus`); moving it is a redraw.
+
+| Interface-6 test | Native test / ignored case |
+|---|---|
+| pages: `search_finds_settings_by_words_in_english` | `scripted_pages::search_finds_settings_by_words_in_english`; model `every_word_counts` |
+| pages: `search_finds_settings_by_words_in_german_with_or_without_accents` | `scripted_pages::search_finds_settings_by_words_in_german_with_or_without_accents` |
+| pages: `a_hit_opens_its_page_with_the_setting_focused` | `scripted_pages::a_hit_opens_its_page_with_the_setting_focused` (back to results: H1, `settings-search`) |
+| pages: `search_finds_the_pages_of_other_plugins_and_opens_them` | `scripted_pages::search_finds_the_pages_of_other_plugins_and_opens_them` |
+| pages: `a_search_without_hits_says_so_and_an_empty_one_opens_nothing` | `scripted_pages::a_search_without_hits_opens_nothing`, `the_search_asks_for_words_and_a_blank_answer_opens_nothing`; the words said on screen: `settings-search` |
+| pages: `advanced_settings_are_found_only_once_shown` | `scripted_pages::advanced_settings_are_found_only_once_shown`; model `advanced_settings_are_found_only_once_shown` |
+| pages: `a_choice_with_nothing_to_choose_is_not_listed` | `scripted_pages::a_choice_with_nothing_to_choose_is_not_listed`; model `a_choice_with_nothing_to_choose_is_not_offered` |
+| pages: `a_choice_of_more_than_two_opens_its_list_and_the_value_is_kept` | `scripted_pages::a_choice_of_more_than_two_opens_its_list`, `a_value_chosen_in_the_list_is_kept` (closes the list; the value set after it: `settings-choose-value`) |
+| pages: `the_language_chosen_shows_at_once_and_after_a_restart` | `settings-choose-value` (host) |
+| pages: `a_choice_opened_for_no_setting_shows_nothing_to_choose` | `scripted_pages::a_choice_opened_for_no_setting_shows_nothing_to_choose` |
+| pages: `text_typed_for_a_setting_is_kept_trimmed` | `scripted_pages::text_typed_for_a_setting_is_kept_trimmed` (starts from the value it had) |
+| pages: `a_page_reset_asks_first_and_sets_its_settings_back` | the question and the answer: `settings-reset` (H1/H2/H4); the settings it resets: model `a_page_reset_keeps_the_account_and_its_password`, `a_page_reset_leaves_what_the_page_does_not_show` |
+| pages: `everything_reset_keeps_the_language` | model `everything_reset_keeps_accounts_folders_passwords_and_the_language` |
+| pages: `a_page_reset_keeps_the_account_and_its_password` | model `a_page_reset_keeps_the_account_and_its_password` (a password is a secret, never listed) |
+| pages: `everything_reset_keeps_accounts_folders_and_passwords` | model `everything_reset_keeps_accounts_folders_passwords_and_the_language` |
+| pages: `resetting_a_books_values_does_not_fall_through_to_global_values` | model `resetting_a_books_values_clears_the_scope_last_so_none_fall_to_global_values` (the keys and the order); the host honouring it: `settings-reset-scope` |
+| pages: `reset_all_does_not_reload_unchanged_defaults_or_reread_the_card_for_them` | model `reset_all_does_not_reload_unchanged_defaults`; the card reads: `settings-reset-scope` |
+| pages: `restart_now_asks_then_restarts` | `settings-restart` (H2/H4); the focus that wraps to the last row: `settings-resize` (moving it is a redraw) |
+| pages: `the_settings_open_on_a_setting_focused` | `scripted_pages::the_settings_open_on_a_setting_focused` |
+| pages: `plugin_management_and_plugin_settings_have_distinct_names_and_destinations` (ignored there) | `settings-plugin-rows` (ignored, #944) |
+| pages: `a_theme_is_chosen_at_the_top_of_the_appearance_settings` | `scripted_pages::a_theme_is_chosen_at_the_top_of_the_appearance_settings`, `none_gives_the_appearance_back_its_defaults_but_keeps_the_text_size`, `a_theme_in_use_has_the_focus_and_choosing_one_applies_its_preset`; model `a_theme_is_in_use_when_its_values_are_set_and_the_rest_is_default` |
+| pages: `the_rows_of_a_choice_stand_in_the_readable_column_on_a_wide_screen` | `settings-wide-column` (ignored, drawing) |
+| groups: `groups_without_an_order_come_last_among_those_for_customising` | model `the_main_page_lists_groups_by_order_then_name` |
+| groups: `an_action_of_a_group_is_its_first_row_with_its_state` | `scripted_pages::a_group_action_is_its_first_row_and_the_settings_follow`; the state at the right: `settings-group-action-state` (**not shown yet**) |
+| search: `any_words_search_without_a_panic_and_case_does_not_matter` | model `any_words_search_without_a_panic_and_case_does_not_matter` (2,000 made-up queries), `a_blank_search_finds_nothing_to_open` |
+| secrets: `the_entry_shows_only_once_there_are_secrets` | `scripted_pages::the_secrets_are_asked_of_the_service_only_for_the_page_that_lists_them`; the row on screen: `settings-secrets` |
+| secrets: `a_secret_is_listed_by_its_label_never_its_value` | `native_secrets::tests::rows_name_the_secret_and_hide_the_value` |
+| secrets: `typed_anew_as_a_password_without_the_old_value` | `scripted_secrets::typing_a_secret_anew_keeps_what_was_typed_and_nothing_typed_leaves_it` (masked, nothing written, never in a command) |
+| secrets: `nothing_typed_keeps_the_secret_as_it_was` | the same test, second case |
+| secrets: `removing_a_secret_asks_first` | `scripted_secrets::removing_a_secret_asks_first_and_removes_only_on_yes` |
+| secrets: `a_secret_removed_is_gone_with_its_file_and_entry` | the same test (the removal is the service's; its file and entry are the host's) |
+| secrets: `a_secret_that_cannot_be_typed_anew_offers_only_removing` | the same test (first row is Remove); `native_secrets::tests::what_can_be_done_follows_who_may_change_it` |
+| secrets: `a_secret_page_for_a_secret_not_kept_only_goes_back` | `scripted_secrets::a_secret_that_is_not_kept_any_more_is_removed_without_asking` |
+| secrets: `many_secrets_are_all_reached_and_none_shown` | `scripted_secrets::the_list_asks_for_every_plugins_secrets_a_page_at_a_time`; `native_secrets::tests::rows_name_the_secret_and_hide_the_value` |
+| covered: `a_covered_group_page_is_made_anew_once_it_shows` | `scripted_pages::a_covered_group_page_is_made_anew_once_it_shows`, `a_covered_page_is_made_anew_for_a_registry_change_once_it_shows` (a page below another of the same screen); covered by another plugin's screen: `settings-covered-by-foreign-screen` |
+| covered: `a_covered_group_list_does_nothing_for_a_change` | `settings-covered-by-foreign-screen` |
+| resize: `the_main_page_keeps_its_focus_when_turned` | `settings-resize` (laying out inside the new size and the moved focus) |
+| resize: `a_settings_page_keeps_its_focus_when_turned` | `scripted_pages::a_page_keeps_its_focus_when_shown_again_at_another_size` |
+| resize: `the_chooser_and_the_search_keep_their_focus_when_turned` | the chooser: the same test; the search's moved focus: `settings-resize` |
+| frames: `opening_a_group_does_not_draw_it_aside_for_pictures` | `settings-frames` (ignored: the host's frame) |
+| font_slider: `the_sizes_are_spread_evenly_along_the_track` | `settings-font-slider` (ignored: the native plugin has no slider) |
+| font_slider: `the_slider_runs_from_the_right_in_a_right_to_left_language` | `settings-font-slider` |
+
+**Differences found.** (1) A group action's row does not show the state of its item (a badge such as
+*New*) at the right: `Row::Action` takes none from the registry's menu row
+(`settings-group-action-state`). (2) The host sends no "covered" event, so the page on top of its
+token (the main page below a group's page included) is made anew for every setting changed, where
+interface 6 made a covered page anew once when it showed again; only a page below another of the
+same screen waits (`settings-covered-by-foreign-screen`).
+
+## Held removal: to settle at activation (review remarks on the removal PR)
+
+- `crates/paperpaw-app/tests/raw_ids.rs` checks only the registry's titles, notes and choice options
+  for every language, not rendered rows: add the rendered native settings screens (every page and
+  chooser, in every language) to the activation list, with the tests set aside by the removal.
+- The catalogue keys `settings.theme.own` and `settings.theme.none.help`, and the theme descriptions the
+  interface-6 chooser showed, are not used by the native plugin (the native chooser shows the preset
+  titles only). **Difference from interface 6:** those texts are not shown; restore them in the
+  native chooser or drop the keys at activation.
+- A reset of all (`reset_plan`) submits one command per key in a single callback; the host caps the
+  commands of a callback at 8 (open ruling #422), so the caller must split the plan then.
+- While the removal is held, a build without `native-linked` has no Settings page: merge right after
+  native activation.
+
 ## Heap of the open pages (#248, X4)
 
 - The registry is read **a page at a time** (`Reader::each_setting`): a page of 250 settings is never held
@@ -134,6 +217,7 @@ takes the kit's helpers (and, where it keeps its own keys, swaps left and right 
   end); the TXT reading flow's peak (`memory.rs`) from 234.1 to 168.0 KiB, which the start and the book now
   set (168.0 KiB at the first page, 136.2 KiB live), not Settings. The gate of #248 (108.5 KiB) is not met
   by the Settings change alone: what native plugins keep resident at start is Core's.
+- Set aside again at activation (todo 380): `shells/web/tests/commands.rs` (opens `core.settings`, expects `settings.list`) and `shells/web/tests/emulator.rs` `the_settings_open_from_the_menu_and_the_quick_panel`.
 
 ## Peak of the main page (#248)
 

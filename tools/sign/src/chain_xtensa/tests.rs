@@ -1285,3 +1285,134 @@ fn a_symbol_loses_its_hash_and_local_copy_suffix_and_nothing_else() {
         assert_eq!(stable(symbol), name, "{symbol}");
     }
 }
+
+/// `_ZN<len>krate<len>name17h<hash>E`.
+fn sym(krate: &str, name: &str, hash: u32) -> String {
+    format!(
+        "_ZN{}{krate}{}{name}17h{hash:016x}E",
+        krate.len(),
+        name.len()
+    )
+}
+
+#[test]
+fn an_allow_rom_line_covers_any_caller_of_that_routine_outside_the_image_only() {
+    let a = BASE;
+    let rom = BASE + 0x1000;
+    let one = f(&[&entry(32), &call(8, a + 3, rom), &RETW_N]);
+    let funcs = [("root", one)];
+    let line = "allow rom 0x42001000 the ROM's memcpy\n";
+    assert!(run(&funcs, &["root"], line).problems.is_empty());
+    // Another routine, or none called, is not covered; a stale line fails.
+    let other = f(&[&entry(32), &call(8, a + 3, rom + 4), &RETW_N]);
+    let report = run(&[("root", other)], &["root"], line);
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.contains("outside the image"))
+    );
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.contains("matches nothing"))
+    );
+}
+
+#[test]
+fn an_indirect_in_line_is_a_ceiling_for_the_crates_functions_and_must_match_one() {
+    let a = BASE;
+    let two = f(&[&entry(32), &callx(8), &callx(12), &RETW_N]);
+    let root = f(&[
+        &entry(32),
+        &call(8, a + 3, a + 16),
+        &call(8, a + 6, a + 32),
+        &RETW_N,
+    ]);
+    let (x, y) = (
+        sym("paperpaw_plugin_one", "run", 1),
+        sym("paperpaw_plugin_two", "go", 2),
+    );
+    let funcs = [
+        ("root", root),
+        (x.as_str(), two.clone()),
+        (y.as_str(), f(&[&entry(32), &callx(8), &RETW_N])),
+    ];
+    let why = " device test S4\n";
+    // 3 sites in two crates: a prefix covers both, up to its ceiling.
+    let both = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect-in paperpaw_plugin_* 3{why}"),
+    );
+    assert!(both.problems.is_empty(), "{:?}", both.problems);
+    let over = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect-in paperpaw_plugin_* 2{why}"),
+    );
+    assert!(
+        over.problems.iter().any(|p| p.contains("have 3 call(s)")),
+        "{:?}",
+        over.problems
+    );
+    // A crate by its exact name covers that crate only: the other is reported.
+    let one = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect-in paperpaw_plugin_one 2{why}"),
+    );
+    assert_eq!(one.problems.len(), 1, "{:?}", one.problems);
+    assert!(one.problems[0].contains("1 call(s) through a register"));
+    // A line no function matches is stale; a function's own line comes first.
+    let stale = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect-in paperpaw_other 9{why}"),
+    );
+    assert!(stale.problems.iter().any(|p| p.contains("matches nothing")));
+    let own = run(
+        &funcs,
+        &["root"],
+        &format!(
+            "allow indirect-in paperpaw_plugin_* 1{why}allow indirect paperpaw_plugin_one::run 2{why}"
+        ),
+    );
+    assert!(own.problems.is_empty(), "{:?}", own.problems);
+}
+
+#[test]
+fn the_crate_of_a_function_is_read_from_its_path_or_the_type_of_its_impl() {
+    use super::family::{crate_of_symbol, family_matches};
+    assert_eq!(
+        crate_of_symbol(&sym("paperpaw_sdk", "x", 1)).as_deref(),
+        Some("paperpaw_sdk")
+    );
+    let imp = "_ZN62_$LT$paperpaw_plugin_update..native_plugin..NativeUpdate$u20$as$u20$a$GT$5event17h0000000000000001E";
+    assert_eq!(
+        crate_of_symbol(imp).as_deref(),
+        Some("paperpaw_plugin_update")
+    );
+    assert_eq!(crate_of_symbol("memcpy"), None);
+    assert!(family_matches(
+        "paperpaw_plugin_*",
+        "paperpaw_plugin_update"
+    ));
+    assert!(!family_matches("paperpaw_plugin_*", "paperpaw_sdk"));
+    assert!(family_matches("core", "core") && !family_matches("core", "core_x"));
+}
+
+#[test]
+fn an_include_line_brings_in_a_file_beside_the_budget_and_nothing_deeper() {
+    let dir = std::env::temp_dir().join(format!("paperpaw-sign-include-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("shared.txt"), "root shared_root\n").unwrap();
+    std::fs::write(dir.join("deep.txt"), "include shared.txt\n").unwrap();
+    let base = dir.join("budget.txt");
+    let text = expand_includes("root a\ninclude shared.txt # why\n", &base).unwrap();
+    assert_eq!(Budget::parse(&text).unwrap().roots, ["a", "shared_root"]);
+    assert!(expand_includes("include deep.txt\n", &base).is_err());
+    assert!(expand_includes("include missing.txt\n", &base).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -30,21 +30,20 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 );
 
 /// What a beginner needs on a fresh device, and what gets the rest back.
-/// (The library, `files`, and the update are native plugins: the app registers
-/// none until the host activates them, `NATIVE_PLUGINS`.)
-const ALWAYS: [&str; 11] = [
+/// (The library, `files`, the update and Wi-Fi are native plugins: the app
+/// registers none until the host activates them, `NATIVE_PLUGINS`.)
+const ALWAYS: [&str; 6] = [
     "fonts-default",
-    "format-epub",
     "format-txt",
     "reader",
     "home",
     "menu",
-    "settings",
-    "wifi",
-    "keyboard",
     "store",
-    "transfer",
 ];
+
+/// The plugins of `STORE_PLUGINS` that still have an interface-6 form: the
+/// others are native only (#244), built in by the native activation.
+const INTERFACE_6_STORE_PLUGINS: [&str; 1] = ["vocabulary"];
 
 fn fonts() -> paperpaw_app::Fonts {
     #[cfg(any(feature = "packs", not(feature = "outline")))]
@@ -80,8 +79,11 @@ fn crate_of(id: &str) -> Option<String> {
 
 #[test]
 #[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+    not(all(
+        feature = "native-linked-reading",
+        not(feature = "native-linked-store")
+    )),
+    ignore = "the lean firmware set is the native plugins with `native-linked-reading`, without the store's plugins (#244)"
 )]
 fn the_lean_set_keeps_what_a_beginner_needs() {
     let kernel = paperpaw_app::install_with(builder(), fonts(), paperpaw_app::StorePlugins::Left)
@@ -112,8 +114,12 @@ fn the_lean_set_keeps_what_a_beginner_needs() {
 
 #[test]
 #[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+    not(all(
+        feature = "native-linked",
+        feature = "native-linked-reading",
+        feature = "native-linked-store"
+    )),
+    ignore = "every plugin crate is installed only with `native-linked`, `native-linked-reading` and `native-linked-store` (#244)"
 )]
 fn the_crates_listed_are_those_installed() {
     let kernel = native_activation::build(paperpaw_app::install(builder(), fonts()));
@@ -121,6 +127,9 @@ fn the_crates_listed_are_those_installed() {
         .iter()
         .filter_map(|(id, _)| crate_of(id))
         .collect();
+    // Wi-Fi is native only (#244): the build has its crate, the interface-6 app
+    // does not register it.
+    installed.push(String::from("paperpaw-plugin-wifi"));
     installed.sort();
     installed.dedup();
     let listed: Vec<&str> = paperpaw_app::CRATES.split(',').collect();
@@ -129,9 +138,14 @@ fn the_crates_listed_are_those_installed() {
 
 #[cfg(feature = "store-plugins")]
 #[test]
+#[cfg_attr(
+    feature = "native-linked-store",
+    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
+)]
 fn built_in_store_plugins_are_off_unless_used() {
-    // Any one of them: the plugins leave this list as their interface-6 code goes.
-    let used = [paperpaw_app::STORE_PLUGINS[0]];
+    // Only the plugins that still have an interface-6 form are built in
+    // without the native activation (#244).
+    let used: [&str; 0] = [];
     let kernel = paperpaw_app::install_with(
         builder(),
         fonts(),
@@ -139,7 +153,7 @@ fn built_in_store_plugins_are_off_unless_used() {
     )
     .build_native();
     let plugins = plugins(&kernel);
-    for id in paperpaw_app::STORE_PLUGINS {
+    for id in INTERFACE_6_STORE_PLUGINS {
         let state = plugins
             .iter()
             .find(|(p, _)| p == id)
@@ -173,6 +187,10 @@ fn a_reader_who_ran_paperpaw_before_keeps_the_plugins_as_they_were() {
 
 #[cfg(feature = "store-plugins")]
 #[test]
+#[cfg_attr(
+    feature = "native-linked-store",
+    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
+)]
 fn a_store_plugin_switched_off_before_stays_off() {
     // Android, for a reader who ran PaperPaw before and switched one off.
     let storage = MemoryStorage::new()
@@ -188,20 +206,34 @@ fn a_store_plugin_switched_off_before_stays_off() {
         paperpaw_app::StorePlugins::Off(&|_| ran_before),
     )
     .build_native();
-    let plugins = plugins(&kernel);
-    let state = |id: &str| plugins.iter().find(|(p, _)| p == id).map(|(_, s)| *s);
-    assert_eq!(state("aids"), Some(PluginState::Running));
-    assert_eq!(
-        state(paperpaw_app::STORE_PLUGINS[0]),
-        Some(PluginState::Running)
-    );
+    let off = plugins(&kernel);
+    let state = |id: &str| off.iter().find(|(p, _)| p == id).map(|(_, s)| *s);
     assert_eq!(state("vocabulary"), Some(PluginState::Off));
+    // One who did not switch it off has it on.
+    let kernel = paperpaw_app::install_with(
+        builder(),
+        fonts(),
+        paperpaw_app::StorePlugins::Off(&|_| true),
+    )
+    .build_native();
+    let on = plugins(&kernel);
+    let state = |id: &str| on.iter().find(|(p, _)| p == id).map(|(_, s)| *s);
+    assert_eq!(state("vocabulary"), Some(PluginState::Running));
 }
 
 #[cfg(feature = "store-plugins")]
 #[test]
+#[cfg_attr(
+    feature = "native-linked-store",
+    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
+)]
 fn every_store_plugin_is_one_of_the_app() {
     // The list the shells use names every plugin the feature builds in.
+    assert!(
+        INTERFACE_6_STORE_PLUGINS
+            .iter()
+            .all(|id| paperpaw_app::STORE_PLUGINS.contains(id))
+    );
     let all = native_activation::build(paperpaw_app::install(builder(), fonts()));
     let lean = paperpaw_app::install_with(builder(), fonts(), paperpaw_app::StorePlugins::Left)
         .build_native();
@@ -212,5 +244,6 @@ fn every_store_plugin_is_one_of_the_app() {
         .filter(|id| !lean.contains(id) && id != "diagnostics")
         .collect();
     offered.sort();
-    assert_eq!(offered, paperpaw_app::STORE_PLUGINS);
+    // Only those with an interface-6 form (the others are native only, #244).
+    assert_eq!(offered, INTERFACE_6_STORE_PLUGINS);
 }

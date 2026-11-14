@@ -13,7 +13,7 @@ mod native_activation;
 
 use std::fmt::Write as _;
 
-use paperpaw_core::{Effects, Kernel};
+use paperpaw_core::Effects;
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
@@ -60,8 +60,8 @@ fn started_with_state(state: Option<&str>, config: &str) -> (String, Option<Stri
     if let Some(state) = state {
         storage = storage.with(STATE, state);
     }
-    let builder = Kernel::builder(DEVICE).storage(storage).user_config(config);
-    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
+    let (builder, card) = native_activation::quiet_on(DEVICE, storage, config);
+    let mut kernel = native_activation::build_on(paperpaw_app::install(builder, fonts()), card);
     let mut now = 0;
     let mut effects: Effects = kernel.start(Instant(now));
     for _ in 0..10_000 {
@@ -88,6 +88,10 @@ fn started_with_state(state: Option<&str>, config: &str) -> (String, Option<Stri
 const LANGUAGE: &str = "[core]\nlanguage = en\n";
 
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader (`native-linked-reading`): the interface-6 reader is removed (#244)"
+)]
 fn the_last_book_opens_at_the_start() {
     let shown = started(
         Some("[reader]\nlast = books/alice-in-wonderland.txt\n"),
@@ -104,7 +108,10 @@ fn a_book_gone_from_the_card_leaves_the_home_screen() {
 
 /// The book is forgotten once it is found gone: the next start has nothing to look for.
 #[test]
-#[ignore = "needs native activation (the reader in NATIVE_PLUGINS, Core #944): the interface-6 reader keeps the path"]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader (`native-linked-reading`): the interface-6 reader keeps the path"
+)]
 fn a_book_gone_from_the_card_is_forgotten() {
     let (shown, kept) = started_with_state(Some("[reader]\nlast = books/gone.txt\n"), LANGUAGE);
     assert_eq!(shown, "home.dashboard");

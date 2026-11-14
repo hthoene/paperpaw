@@ -28,6 +28,16 @@ native-linked-reading = [
     "paperpaw-plugin-dictionary/linked",
     "paperpaw-plugin-home/linked",
     "paperpaw-plugin-reader/linked",
+    "paperpaw-plugin-format-txt/linked",
+    "paperpaw-plugin-format-xtc/linked",
+    "paperpaw-plugin-format-epub/linked",
+    "paperpaw-plugin-format-html/linked",
+    "paperpaw-plugin-format-fb2/linked",
+    "paperpaw-plugin-format-markdown/linked",
+    "paperpaw-plugin-format-cbz/linked",
+    "paperpaw-plugin-format-docx?/linked",
+    "paperpaw-plugin-format-images?/linked",
+    "paperpaw-plugin-format-mobi?/linked",
     "paperpaw-plugin-news?/linked",
     "paperpaw-plugin-vocabulary?/linked",
 ]
@@ -102,11 +112,16 @@ native-linked-store = [
     "dep:paperpaw-plugin-widgets",
     "dep:paperpaw-plugin-news",
     "dep:paperpaw-plugin-vocabulary",
+    "dep:paperpaw-plugin-format-docx",
+    "dep:paperpaw-plugin-format-images",
+    "dep:paperpaw-plugin-format-mobi",
+    "dep:paperpaw-plugin-picture-home",
     "dep:paperpaw-plugin-fonts-browser",
     "paperpaw-plugin-aids/linked",
     "paperpaw-plugin-fonts-browser/linked",
     "paperpaw-plugin-mail/linked",
     "paperpaw-plugin-notes-vault/linked",
+    "paperpaw-plugin-picture-home/linked",
     "paperpaw-plugin-widgets/linked",
 ]
 
@@ -170,6 +185,8 @@ paperpaw-platform.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 # Comic books for the sleep tests (#248).
 paperpaw-zip = { workspace = true, features = ["testing"] }
+# The home layouts' property tests (moved from the Home plugin, #244).
+proptest.workspace = true
 
 # One check in its own process, no test harness: its allocator counts every
 # allocation, and libtest's captured output would grow the heap it measures.

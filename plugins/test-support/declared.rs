@@ -45,6 +45,57 @@ pub struct Lines {
     pub others: Vec<String>,
 }
 
+impl Lines {
+    /// Every field as a text, one line a fact, under a heading for each field.
+    #[must_use]
+    pub fn pinned(&self) -> String {
+        let mut out = String::new();
+        let sections: [(&str, &Vec<String>); 14] = [
+            ("groups", &self.groups),
+            ("specs", &self.specs),
+            ("extras", &self.extras),
+            ("screens", &self.screens),
+            ("slots", &self.slots),
+            ("widget_places", &self.widget_places),
+            ("status_places", &self.status_places),
+            ("keys", &self.keys),
+            ("menu_entries", &self.menu_entries),
+            ("icons", &self.icons),
+            ("needs", &self.needs),
+            ("actions", &self.actions),
+            ("events", &self.events),
+            ("others", &self.others),
+        ];
+        for (name, lines) in sections {
+            out.push_str(&format!("[{name}]\n"));
+            for line in lines {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        out
+    }
+}
+
+/// Compares what the plugin declares with the pinned text in
+/// `tests/pinned/<name>.txt` of the plugin (made while the interface-6
+/// registration was still compared with it, line for line, apart from the
+/// differences the plugin's `PORTING-7.md` names). `PAPERPAW_BLESS=1` writes it.
+pub fn assert_pinned(name: &str, lines: &Lines) {
+    let path = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
+        .join("tests/pinned")
+        .join(format!("{name}.txt"));
+    let now = lines.pinned();
+    if std::env::var_os("PAPERPAW_BLESS").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &now).unwrap();
+        return;
+    }
+    let pinned = std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| panic!("{} is missing: PAPERPAW_BLESS=1 makes it", path.display()));
+    assert_eq!(now, pinned, "{} differs", path.display());
+}
+
 const NEEDS: [&str; 12] = [
     "Speech",
     "Sleep",

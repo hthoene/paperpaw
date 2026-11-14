@@ -66,7 +66,7 @@ fn hashed_list(storage: &dyn Storage, path: &str) -> Result<Vec<u32>, StorageErr
         }
         true
     })?;
-    hashes.sort_unstable();
+    paperpaw_sort::sort_unstable(&mut hashes);
     hashes.dedup();
     Ok(hashes)
 }
@@ -1026,7 +1026,7 @@ impl Rewrite {
     /// Starts catching up, the books `fresh` taken from their details; an
     /// error where what it needs cannot be read.
     pub fn start(env: &Env<'_>, mut fresh: Vec<String>) -> Result<Rewrite, StorageError> {
-        fresh.sort_unstable();
+        paperpaw_sort::sort_unstable(&mut fresh);
         fresh.dedup();
         Ok(Rewrite {
             making: Making::start(env, false)?,

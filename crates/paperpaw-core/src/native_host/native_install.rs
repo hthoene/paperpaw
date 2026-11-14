@@ -280,12 +280,23 @@ impl crate::Kernel {
     fn admission_tables(&mut self, depth: &FlatDepth) -> Result<FlatDepth, shell::Error> {
         self.attach_native_hosts();
         if self.shared.registry.native_declarations.is_none() {
-            self.shared.registry.native_declarations = Some(
-                super::shared::Shared::try_new(
-                    super::native_declarations::NativeDeclarations::default(),
-                )
-                .map_err(|_| shell::Error::Allocation)?,
-            );
+            let directory = super::shared::Shared::try_new(
+                super::native_declarations::NativeDeclarations::default(),
+            )
+            .map_err(|_| shell::Error::Allocation)?;
+            // The kernel's own screens name the widgets declared there. Held
+            // weakly: the registry alone keeps the directory, and with it the
+            // plugins' code, alive.
+            let names = directory.downgrade().ok_or(shell::Error::Allocation)?;
+            let names = shell::try_box(
+                move |only: Option<&str>, each: &mut dyn FnMut(&str, &str, &str)| {
+                    if let Ok(Some(names)) = names.upgrade() {
+                        super::registry_service::declared_widget_names(&names, only, each);
+                    }
+                },
+            )?;
+            self.shared.widgets.set_declared_elsewhere(names);
+            self.shared.registry.native_declarations = Some(directory);
         }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
         // The first plugin's depth is the shell's device-wide one, and every
@@ -1168,7 +1179,7 @@ fn map_declarations(
     result?;
     if !entries.is_empty() {
         // In the table's order, which is the order they were declared in.
-        entries.sort_unstable();
+        paperpaw_sort::sort_unstable(&mut entries);
         owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         owned.push(Owned::FixedSettings(fixed, entries));
     }

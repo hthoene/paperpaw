@@ -4,23 +4,31 @@
 //! The settings are the interface-6 ones: the group *Mail* with a page for each
 //! of the three accounts, and three settings for all of them. The group is
 //! `mail.group` (interface 6: `mail`), as every ported plugin names its group.
-//! The home widgets' settings come with the widgets (host call: Core todo 76).
+//! The five home widgets with their settings are declared by [`widgets`].
 //! The actions, the Tools entry, the icons and the screens are declared by
 //! [`ui`] and [`screens`], and are in the image. The lists work (slice 7); the
 //! reader and the compose window follow (see `PORTING-7.md`).
 use paperpaw_sdk::builtin::menus;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Instances, Kind,
-    MenuEntryDecl, ScreenDecl, SpecDecl,
+    MenuEntryDecl, ScreenDecl, SpecDecl, WidgetDecl,
 };
+use paperpaw_ui_kit::widget::options::{Opt, declare_all, shared_look};
 
 /// Callback tokens are stable within this plugin image.
 pub const OPEN_TOKEN: u32 = 10;
 pub const WRITE_TOKEN: u32 = 11;
 /// The token of the socket's events (the connection to a server).
 pub const SOCKET_TOKEN: u32 = 2;
+/// The token of the settings that changed (a provider chosen, an address
+/// typed, a widget's setting).
+pub const SETTING_TOKEN: u32 = 3;
+/// The token of the minute tick (the widgets show what the card holds).
+pub const TICK_TOKEN: u32 = 4;
 /// The first token of the screens.
 pub const SCREEN_TOKEN: u32 = 20;
+/// The first token of the widgets, in the order of [`WIDGETS`].
+pub const WIDGET_TOKEN: u32 = 40;
 
 /// The group of the plugin, and the parts of it for each account.
 pub const GROUP: &str = "mail.group";
@@ -269,5 +277,128 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
 pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
     declarations.subscribe_event(EventKind::Socket, SOCKET_TOKEN)?;
+    declarations.subscribe_event(EventKind::SettingChanged, SETTING_TOKEN)?;
+    declarations.subscribe_event(EventKind::Tick, TICK_TOKEN)?;
     declarations.submit()
+}
+
+/// A widget: its name (the settings' key without `mail.`), the group's and the
+/// widget's title, where it sits in the widget picker, and where its text sits
+/// by default.
+#[derive(Debug, Clone, Copy)]
+pub struct WidgetSpec {
+    pub name: &'static str,
+    pub title: &'static str,
+    pub align: &'static str,
+    pub options: &'static [Opt],
+}
+
+const ACCOUNT_HELP: &str = "mail.widget.account.help";
+const CAPTION: Opt = Opt::Part("caption", "mail.part.caption", true);
+const SIZE: Opt = Opt::Size("core.size.medium", true);
+const ACCOUNT_ALL: Opt = Opt::Number("account", "mail.widget.account", 0, 3, 0, ACCOUNT_HELP);
+const FOLDER: Opt = Opt::Text(
+    "folder",
+    "mail.widget.folder",
+    "INBOX",
+    "mail.widget.folder.help",
+);
+const COUNT: Opt = Opt::Number("count", "mail.widget.count", 1, 8, 3, "");
+
+/// The five widgets, in the order of their tokens ([`WIDGET_TOKEN`] and up).
+pub const WIDGETS: [WidgetSpec; 5] = [
+    WidgetSpec {
+        name: "widget.unread",
+        title: "mail.widget.unread",
+        align: "core.align.left",
+        options: &[
+            SIZE,
+            CAPTION,
+            ACCOUNT_ALL,
+            Opt::Part("newest", "mail.part.newest", true),
+        ],
+    },
+    WidgetSpec {
+        name: "widget.latest",
+        title: "mail.widget.latest",
+        align: "core.align.left",
+        options: &[
+            SIZE,
+            CAPTION,
+            ACCOUNT_ALL,
+            FOLDER,
+            COUNT,
+            Opt::Part("subject", "mail.part.subject", true),
+            Opt::Part("time", "mail.part.time", true),
+        ],
+    },
+    WidgetSpec {
+        name: "widget.flagged",
+        title: "mail.widget.flagged",
+        align: "core.align.left",
+        options: &[
+            SIZE,
+            CAPTION,
+            ACCOUNT_ALL,
+            COUNT,
+            Opt::Part("subject", "mail.part.subject", true),
+        ],
+    },
+    WidgetSpec {
+        name: "widget.folder",
+        title: "mail.widget.folder",
+        align: "core.align.left",
+        options: &[
+            SIZE,
+            CAPTION,
+            Opt::Number("account", "mail.widget.account", 1, 3, 1, ""),
+            FOLDER,
+            Opt::Part("total", "mail.part.total", true),
+        ],
+    },
+    WidgetSpec {
+        name: "widget.write",
+        title: "mail.widget.write",
+        align: "core.align.center",
+        options: &[
+            SIZE,
+            CAPTION,
+            Opt::Number(
+                "account",
+                "mail.widget.account",
+                0,
+                3,
+                0,
+                "mail.widget.write.account.help",
+            ),
+        ],
+    },
+];
+
+/// The five widgets: a group each with the shared look and what the widget
+/// shows, and the widget itself.
+pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    for (index, widget) in WIDGETS.iter().enumerate() {
+        let token =
+            WIDGET_TOKEN + u32::try_from(index).map_err(|_| DeclareError::TooLong("widget"))?;
+        let group = ["mail.", widget.name].concat();
+        d.group(GroupDecl::new(widget.name, widget.title))?;
+        let declared = WidgetDecl::new(widget.name, widget.title, "core.widgets.personal", token)
+            .map_err(|_| DeclareError::TooLong("widget"))?;
+        // No `previews`: a widget that previews a settings group is never
+        // offered in the Add picker (Kernel ruling, #228), and Beta 3 declared
+        // none.
+        d.widget(declared)?;
+        let look = shared_look(widget.align);
+        declare_all(
+            d,
+            widget.name,
+            &group,
+            look.into_iter().chain(widget.options.iter().copied()),
+        )?;
+        d.submit()?;
+    }
+    Ok(())
 }

@@ -41,10 +41,11 @@ fn is_native(plugin: &str) -> bool {
     return paperpaw_app::NATIVE_PLUGINS
         .iter()
         .any(|(id, _)| *id == plugin);
+    // Without `native-linked` only the plugins that still have an
+    // interface-6 form are registered (the others went in #244).
     #[cfg(not(feature = "native-linked"))]
     {
-        let _ = plugin;
-        false
+        !["store", "vocabulary"].contains(&plugin)
     }
 }
 
@@ -58,10 +59,6 @@ fn app(config: &str) -> Kernel {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "needs native activation (#228, Services #894): a native plugin with admitted uses.network gets core.network.<id> and core.saving.<id> at admission; transfer is native now"
-)]
 fn fixed_network_settings_cover_the_plugins() {
     let kernel = app("");
     let mut networked: Vec<&str> = kernel
@@ -84,10 +81,6 @@ fn fixed_network_settings_cover_the_plugins() {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "needs native activation (#228, Services #894): a native plugin with admitted uses.network gets core.network.<id> and core.saving.<id> at admission; transfer is native now"
-)]
 fn network_settings_keep_their_ids_defaults_and_values() {
     let kernel = app("");
     for (plugin, _) in paperpaw_app::NETWORK_SETTINGS {
@@ -100,11 +93,11 @@ fn network_settings_keep_their_ids_defaults_and_values() {
         assert!(settings.bool(&network), "{network}");
         assert_eq!(settings.text(&saving), "core.saving.follow", "{saving}");
     }
-    let kernel = app("[core]\nnetwork.transfer = false\nsaving.news = core.saving.manual\n");
-    assert!(!kernel.settings().bool("core.network.transfer"));
+    let kernel = app("[core]\nnetwork.store = false\nsaving.vocabulary = core.saving.manual\n");
+    assert!(!kernel.settings().bool("core.network.store"));
     assert_eq!(
-        kernel.settings().text("core.saving.news"),
+        kernel.settings().text("core.saving.vocabulary"),
         "core.saving.manual"
     );
-    assert!(kernel.settings().bool("core.network.news"));
+    assert!(kernel.settings().bool("core.network.vocabulary"));
 }

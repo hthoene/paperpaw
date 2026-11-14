@@ -3,7 +3,6 @@
 //! first shown and kept in the cache.
 
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -11,20 +10,16 @@ use paperpaw_sdk::document::{
     Align, Block, BlockKind, Document, DocumentError, ImageRef, Locator, Metadata, OffsetMap,
 };
 use paperpaw_sdk::image::Fit;
-use paperpaw_sdk::{Env, OpenOptions, Storage};
+use paperpaw_sdk::{OpenOptions, Storage};
 
 use crate::names::{Page, copy, is_picture, pages_from};
-use crate::{PLUGIN, pictures};
+use crate::pictures;
 
 /// An open picture, as a book of the pictures from it on.
 #[derive(Debug)]
 pub struct ImagesDocument {
-    /// The folder the pictures are in (empty for the library's own).
-    dir: String,
     /// The pages: the file's name and size.
     pages: Vec<Page>,
-    /// Where the decoded pictures are kept, with the book.
-    cache: String,
     metadata: Metadata,
     color: bool,
     image_fit: Fit,
@@ -36,17 +31,6 @@ fn malformed(why: &'static str) -> DocumentError {
 }
 
 impl ImagesDocument {
-    /// Opens the picture at `path` as the first page of a book of it and
-    /// the pictures after it in its folder.
-    pub fn open(
-        storage: &dyn Storage,
-        path: &str,
-        options: &OpenOptions,
-    ) -> Result<Self, DocumentError> {
-        let cache = paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "", path);
-        Self::open_in(storage, path, options, cache)
-    }
-
     /// Opens the picture `name` of the book's folder (root 3) as the first
     /// page, its decoded pictures in the document cache (root 6, reached by
     /// the paths that start with [`pictures::CACHE`]): the native provider's
@@ -59,43 +43,20 @@ impl ImagesDocument {
         if name.contains('/') || name.contains(':') {
             return Err(malformed("not a name in the book's folder"));
         }
-        Self::open_in(storage, name, options, copy(pictures::CACHE)?)
-    }
-
-    fn open_in(
-        storage: &dyn Storage,
-        path: &str,
-        options: &OpenOptions,
-        cache: String,
-    ) -> Result<Self, DocumentError> {
-        let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
         if !is_picture(name) {
             return Err(malformed("not a picture"));
         }
-        let first = (copy(name)?, storage.size(path)?);
-        let pages = pages_from(storage, dir, &first)?;
+        let first = (copy(name)?, storage.size(name)?);
+        let pages = pages_from(storage, "", &first)?;
         let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
         let metadata = Metadata::default().title(copy(stem)?);
         Ok(Self {
-            dir: copy(dir)?,
             pages,
-            cache,
             metadata,
             color: options.color,
             image_fit: options.image_fit,
             cover_fit: options.cover_fit,
         })
-    }
-
-    fn path(&self, index: usize) -> Result<Option<String>, DocumentError> {
-        let Some((name, _)) = self.pages.get(index) else {
-            return Ok(None);
-        };
-        if self.dir.is_empty() {
-            copy(name).map(Some)
-        } else {
-            pictures::text(&[&self.dir, "/", name]).map(Some)
-        }
     }
 
     /// Page `index` as shown in its page, decoded now if it is not yet.
@@ -114,7 +75,7 @@ impl ImagesDocument {
         let Some((name, size)) = self.pages.get(index) else {
             return Ok(None);
         };
-        let base = pictures::base(&self.cache, index, name, *size)?;
+        let base = pictures::base(pictures::CACHE, index, name, *size)?;
         self.picture(storage, index, &base, fit)
     }
 
@@ -126,11 +87,10 @@ impl ImagesDocument {
         base: &str,
         fit: Fit,
     ) -> Result<Option<ImageRef>, DocumentError> {
-        let Some(path) = self.path(index)? else {
+        let Some((name, size)) = self.pages.get(index) else {
             return Ok(None);
         };
-        let size = self.pages[index].1;
-        pictures::shown(storage, &path, size, base, fit, self.color)
+        pictures::shown(storage, name, *size, base, fit, self.color)
     }
 }
 
@@ -159,7 +119,7 @@ impl Document for ImagesDocument {
         if at.offset >= 1 {
             return Ok(None);
         }
-        let base = pictures::base(&self.cache, index, name, *size)?;
+        let base = pictures::base(pictures::CACHE, index, name, *size)?;
         let image = self.picture(storage, index, &base, self.image_fit)?;
         // A picture that cannot be shown is named instead.
         let (kind, text) = match &image {
@@ -188,16 +148,7 @@ impl ImagesDocument {
     ) -> Result<Option<ImageRef>, DocumentError> {
         let mut digits = [0u8; 20];
         let long = pictures::decimal(u64::from(fit.long), &mut digits);
-        let base = pictures::join(&self.cache, &["cover-", long])?;
+        let base = pictures::join(pictures::CACHE, &["cover-", long])?;
         self.picture(storage, 0, &base, fit)
     }
-}
-
-/// A picture opened for the library.
-pub(crate) fn opener(
-    storage: &dyn Storage,
-    path: &str,
-    options: &OpenOptions,
-) -> Result<Box<dyn Document>, DocumentError> {
-    ImagesDocument::open(storage, path, options).map(|d| Box::new(d) as Box<dyn Document>)
 }

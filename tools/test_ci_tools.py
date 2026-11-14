@@ -626,7 +626,7 @@ class FirmwareRemap(unittest.TestCase):
         for workflow in ["release.yml", "ci.yml"]:
             text = (HERE.parent / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
             self.assertIn('tools/ci/firmware-remap.sh" "$FIRMWARE_TARGET" "$FIRMWARE_TOOLCHAIN")', text)
-            self.assertIn('--config "$remap" --features "$DEVICE"', text)
+            self.assertIn('--config "$remap" --features "$DEVICE', text)
 
 
 if __name__ == "__main__":

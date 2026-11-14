@@ -14,7 +14,9 @@
 //! the kernel's and the app's, kept in the program
 //! (`paperpaw_i18n::FixedIndexes`): their catalogs then keep none on the
 //! heap; and indexes their English catalogs together
-//! (`paperpaw_i18n::BuiltCatalogs`): one catalog for all of them.
+//! (`paperpaw_i18n::BuiltCatalogs`): one catalog for all of them. The
+//! catalogs of the plugins a feature links are kept without their keys
+//! (`paperpaw_i18n::BuiltMessages`).
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -42,6 +44,12 @@ fn main() {
     // The plugins a feature links (`"paperpaw-plugin-…/linked"`): the ones whose
     // catalogs the program carries for them (`native_catalogs`).
     let mut linked: Vec<String> = Vec::new();
+    // Linked only where a feature that links plugins builds the crate too
+    // (`"…?/linked"`, its `"dep:…"` in a `native-linked…` feature): built
+    // for another reason, the app registers the crate's interface-6 form.
+    let mut linked_if_built: Vec<String> = Vec::new();
+    let mut built_to_link: Vec<String> = Vec::new();
+    let mut links = false;
     for line in section("features").lines() {
         if let Some((name, _)) = line.split_once(" = [") {
             let variable = format!(
@@ -49,13 +57,16 @@ fn main() {
                 name.trim().to_uppercase().replace('-', "_")
             );
             on = std::env::var_os(variable).is_some();
+            links = name.trim().starts_with("native-linked");
         }
         if on {
             for part in line.split('"') {
-                if let Some(name) = part.strip_suffix("/linked") {
-                    let name = name.trim_end_matches('?');
-                    if name.starts_with("paperpaw-plugin-") {
-                        linked.push(String::from(name));
+                if let Some(name) = part.strip_suffix("/linked")
+                    && name.starts_with("paperpaw-plugin-")
+                {
+                    match name.strip_suffix('?') {
+                        Some(name) => linked_if_built.push(String::from(name)),
+                        None => linked.push(String::from(name)),
                     }
                 }
             }
@@ -64,6 +75,9 @@ fn main() {
                     && name.starts_with("paperpaw-plugin-")
                 {
                     crates.push(String::from(name));
+                    if links {
+                        built_to_link.push(String::from(name));
+                    }
                 }
             }
         }
@@ -73,15 +87,78 @@ fn main() {
     let list = crates.join(",");
     println!("cargo::metadata=crates={list}");
     println!("cargo::rustc-env=PAPERPAW_APP_CRATES={list}");
-    catalog_indexes(&crates);
+    plugin_versions(&crates);
+    // Not the catalogs of a plugin this build leaves out: the X4's firmware
+    // builds none of the store's plugins (about 42 KB of texts, #258).
+    linked_if_built.retain(|name| built_to_link.contains(name));
+    linked.append(&mut linked_if_built);
     linked.sort_unstable();
     linked.dedup();
-    native_catalogs(&linked);
+    let held = native_messages(&linked);
+    catalog_indexes(&crates, &held);
+    native_catalogs(&linked, &held);
+}
+
+/// Writes `plugin_versions.rs`: `(id, version)` of every plugin crate built,
+/// from the crate's own `Cargo.toml` (the version the plugin's file is named
+/// by), for the plugin manager's list of the linked native plugins.
+fn plugin_versions(crates: &[String]) {
+    let root = Path::new("../..");
+    let mut out = String::from("&[\n");
+    // The same versions as manifests kept in the program (#248, B part b).
+    let mut manifests = String::from("&[\n");
+    for id in crates
+        .iter()
+        .filter_map(|name| name.strip_prefix("paperpaw-plugin-"))
+    {
+        let file = root.join("plugins").join(id).join("Cargo.toml");
+        println!("cargo::rerun-if-changed={}", file.display());
+        let Ok(source) = std::fs::read_to_string(&file) else {
+            println!(
+                "cargo::warning=no {}: `{id}` has no version to list",
+                file.display()
+            );
+            continue;
+        };
+        let source = format!("\n{}", source.replace("\r\n", "\n"));
+        let package = source
+            .split("\n[package]\n")
+            .nth(1)
+            .and_then(|rest| rest.split("\n[").next())
+            .unwrap_or("");
+        let version = package.lines().find_map(|line| {
+            let value = line.strip_prefix("version = \"")?;
+            Some(value.strip_suffix('"')?.to_string())
+        });
+        match version {
+            Some(version) => {
+                let _ = writeln!(out, "    ({id:?}, {version:?}),");
+                let (numbers, pre) = version.split_once('-').unwrap_or((&version, ""));
+                let parts: Vec<&str> = numbers.split('.').collect();
+                if parts.len() == 3 && !version.contains('+') {
+                    let _ = writeln!(
+                        manifests,
+                        "    ({id:?}, paperpaw_core::sdk::Manifest::fixed(paperpaw_core::sdk::Id::new_static({id:?}), {id:?}, \"\", paperpaw_core::sdk::Version::of_package({:?}, {:?}, {:?}, {pre:?}))),",
+                        parts[0], parts[1], parts[2]
+                    );
+                }
+            }
+            None => println!("cargo::warning=`{id}` has no version of its own to list"),
+        }
+    }
+    out.push(']');
+    let dir = std::env::var("OUT_DIR").expect("OUT_DIR");
+    std::fs::write(Path::new(&dir).join("plugin_versions.rs"), out)
+        .expect("plugin_versions.rs written");
+    manifests.push(']');
+    std::fs::write(Path::new(&dir).join("plugin_manifests.rs"), manifests)
+        .expect("plugin_manifests.rs written");
 }
 
 /// Writes `catalog_indexes.rs`: the index of every catalog in the
-/// `i18n` folders of the kernel, the app and the plugin crates built.
-fn catalog_indexes(crates: &[String]) {
+/// `i18n` folders of the kernel, the app and the plugin crates built, but
+/// for the files of `held` (`native_messages`: nobody adds their sources).
+fn catalog_indexes(crates: &[String], held: &[PathBuf]) {
     let root = Path::new("../..");
     let mut folders = vec![
         root.join("crates/paperpaw-core/i18n"),
@@ -107,6 +184,9 @@ fn catalog_indexes(crates: &[String]) {
     ];
     for file in files {
         println!("cargo::rerun-if-changed={}", file.display());
+        if std::fs::canonicalize(&file).is_ok_and(|file| held.contains(&file)) {
+            continue;
+        }
         let source = std::fs::read_to_string(&file).expect("a catalog");
         let print = paperpaw_i18n::fingerprint(&source);
         // Catalogs of a language together; one that cannot be (a key another
@@ -161,33 +241,75 @@ fn ini_files(folder: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-/// Writes `native_catalogs.rs`: for each plugin crate a feature links that has catalogs
-/// (`plugins/<id>/i18n/<language>.ini`), its id and its catalogs as texts
-/// built into the program, for a linked native plugin that brings them built
-/// in (`screens-input.md` [D] Translations).
-fn native_catalogs(crates: &[String]) {
-    let root = Path::new("../..");
+/// The catalogs of plugin `id` (`plugins/<id>/i18n/<language>.ini`), sorted,
+/// each by its full path.
+fn plugin_catalogs(id: &str) -> Vec<PathBuf> {
+    let folder = Path::new("../..").join("plugins").join(id).join("i18n");
+    let Ok(entries) = std::fs::read_dir(&folder) else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|e| e == "ini"))
+        .map(|file| std::fs::canonicalize(&file).expect("a catalog"))
+        .collect();
+    files.sort();
+    files
+}
+
+/// Writes `native_messages.rs`: the catalogs of the plugin crates a feature
+/// links, English and German, without their keys
+/// (`paperpaw_i18n::BuiltMessages`: a hash for each key, no comments; about
+/// 40 % of their bytes less, #258). Gives the files the tables hold: those
+/// need neither their text in the program (`native_catalogs`) nor an index
+/// or a slot (`catalog_indexes`).
+fn native_messages(crates: &[String]) -> Vec<PathBuf> {
+    let mut table = paperpaw_i18n::BuiltMessagesTable::new(&["en", "de"]);
+    let mut held = Vec::new();
+    for id in crates
+        .iter()
+        .filter_map(|name| name.strip_prefix("paperpaw-plugin-"))
+    {
+        for file in plugin_catalogs(id) {
+            println!("cargo::rerun-if-changed={}", file.display());
+            let source = std::fs::read_to_string(&file).expect("a catalog");
+            // One the tables cannot hold (a key another has) stays a text.
+            if table.add(&source).unwrap_or(false) {
+                held.push(file);
+            }
+        }
+    }
+    // Two keys the tables cannot tell apart: one is renamed, rather than
+    // a plugin's texts kept whole beside the tables without a word.
+    assert!(
+        table.clashes().is_empty(),
+        "message keys of the linked plugins whose hashes clash (rename one of each pair): {:?}",
+        table.clashes()
+    );
+    let dir = std::env::var("OUT_DIR").expect("OUT_DIR");
+    std::fs::write(Path::new(&dir).join("native_messages.rs"), table.to_rust())
+        .expect("native_messages.rs written");
+    held
+}
+
+/// Writes `native_catalogs.rs`: for each plugin crate a feature links, its
+/// id and those of its catalogs the tables of `native_messages` do not hold
+/// (`held`), as texts built into the program, for a linked native plugin
+/// that brings them built in (`screens-input.md` [D] Translations).
+fn native_catalogs(crates: &[String], held: &[PathBuf]) {
     let mut out = String::from("&[\n");
     for id in crates
         .iter()
         .filter_map(|name| name.strip_prefix("paperpaw-plugin-"))
     {
-        let folder = root.join("plugins").join(id).join("i18n");
-        let Ok(entries) = std::fs::read_dir(&folder) else {
-            continue;
-        };
-        let mut files: Vec<PathBuf> = entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.is_file() && path.extension().is_some_and(|e| e == "ini"))
-            .collect();
-        files.sort();
+        let mut files = plugin_catalogs(id);
+        files.retain(|file| !held.contains(file));
         if files.is_empty() {
             continue;
         }
         let _ = write!(out, "    ({id:?}, &[");
         for file in files {
-            let file = std::fs::canonicalize(&file).expect("a catalog");
             println!("cargo::rerun-if-changed={}", file.display());
             let _ = write!(out, "include_str!({:?}), ", file.display().to_string());
         }

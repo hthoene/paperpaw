@@ -217,7 +217,7 @@ pub fn draw(
             look.faint,
         )?;
     }
-    let covers = covers(cx, &books, &parts, pictures)?;
+    let covers = covers(cx, known, &books, &parts, pictures)?;
     for ((place, row), (book, covered)) in parts.places.iter().zip(books.iter().zip(&covers)) {
         match covered {
             // Covers too small to tell: the titles alone.
@@ -247,6 +247,7 @@ pub fn draw(
 /// The covers of the books whose places have room for one.
 fn covers(
     cx: &Cx<'_>,
+    known: &Known,
     books: &[Book],
     parts: &Parts,
     pictures: &mut Pictures,
@@ -256,7 +257,7 @@ fn covers(
     native_recent::with_library(host, |library| {
         for (book, (place, _)) in books.iter().zip(&parts.places) {
             let covered = if place.height > 0 {
-                native_recent::cover(host, library, book)?
+                native_recent::cover_known(host, known, library, book)?
             } else {
                 Covered::None
             };

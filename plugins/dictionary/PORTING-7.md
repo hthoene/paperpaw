@@ -1,7 +1,7 @@
 # Dictionary on interface 7 (slices 1 to 3, partly ported)
 
-Status: **not complete.** The interface-6 plugin (registration, panel, background indexing, providers
-list) is still in place beside the native one. It is removed in the PR that finishes the port.
+Status: the interface-6 plugin (registration, panel, background indexing, providers list) is removed
+(#244); the native plugin is the dictionary.
 
 ## Ported in slice 1 (`declarations.rs`, `src/native_model.rs`, `src/native_plugin.rs`, `src/native_entry.rs`)
 

@@ -922,12 +922,18 @@ fn screens_say_what_they_show() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    // The pages tapped by their names, the rows with their text and state.
+    // The pages tapped by their names, the rows with their title, value and text.
     assert!(text.contains("Heading \"Display\""), "{text}");
     assert!(
-        text.contains("Row \"Night mode, White text on black.\" (off)"),
+        text.contains("Row \"Night mode, Off, White text on black.\""),
         "{text}"
     );
+    // A number says its unit in words, not as the catalog's key.
+    assert!(text.contains("Row \"Full refresh, 6 pages, "), "{text}");
+    assert!(!text.contains("core.unit."), "{text}");
+    // Every button is named, the stepper's signs too (#243).
+    assert!(!text.contains("Button \"\""), "{text}");
+    assert!(text.contains("Button \"+\""), "{text}");
 }
 
 /// The titles of headers stand in their middle by their capitals: the
@@ -941,9 +947,11 @@ fn screens_say_what_they_show() {
 /// native plugins yet.)
 #[test]
 fn headers_are_centred_by_their_capitals() {
+    // The settings, and a group's page: the first row focused is *Search* in the
+    // native settings, so the second row (a group) is chosen.
     let screens = [
         "run:core.settings,wait:300",
-        "run:core.settings,wait:300,run:core.confirm,wait:300",
+        "run:core.settings,wait:300,run:core.down,run:core.confirm,wait:300",
     ];
     let mut failures = Vec::new();
     for profile in ["xteink-x4", "xteink-x4-pro", "boox-go-7"] {

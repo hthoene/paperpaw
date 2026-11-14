@@ -8,9 +8,9 @@
 //! draws and takes input; what a draw laid out is kept as hit geometry only
 //! (cells and the header's regions) for the input that follows.
 //!
-//! Not here (`PORTING-7.md`): the mirrored grid where the interface runs right
-//! to left (no native home screen does it yet) and drawing/input through a host
-//! (H1/H4).
+//! Where the interface runs right to left the grid is mirrored: the first tool
+//! at the right, *left* going on to the next one. Not here (`PORTING-7.md`):
+//! drawing/input through a host (H1/H4).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled, Point, Rect,
@@ -18,6 +18,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
+        canvas::PartRole,
         commands::CommandSender,
         fonts::{Font, FontRole},
         snapshot,
@@ -48,6 +49,9 @@ pub struct Grid {
     columns: usize,
     cell_height: u16,
     per_page: usize,
+    /// Where the interface runs right to left: the grid is mirrored, the
+    /// first tool at the right.
+    rtl: bool,
 }
 
 impl Grid {
@@ -70,7 +74,16 @@ impl Grid {
             columns,
             cell_height,
             per_page: columns * rows,
+            rtl: false,
         }
+    }
+
+    /// The same grid mirrored where `rtl`: its cells, the places a tap finds
+    /// and the sides the buttons mean.
+    #[must_use]
+    pub const fn mirrored(mut self, rtl: bool) -> Self {
+        self.rtl = rtl;
+        self
     }
 
     /// Tools side by side.
@@ -97,7 +110,7 @@ impl Grid {
         let columns = u16::try_from(self.columns).unwrap_or(1);
         let wide = self.area.width / columns;
         let (column, row) = (slot % self.columns, slot / self.columns);
-        Rect::new(
+        let cell = Rect::new(
             self.area
                 .x
                 .saturating_add(wide.saturating_mul(u16::try_from(column).unwrap_or(0))),
@@ -107,7 +120,8 @@ impl Grid {
             ),
             wide,
             self.cell_height,
-        )
+        );
+        paperpaw_ui_kit::style::flip_rect(self.rtl, self.area, cell)
     }
 
     /// The place of the tool `index` and the page it is on.
@@ -131,6 +145,10 @@ impl Grid {
     #[must_use]
     pub fn moved(&self, at: usize, press: Press, len: usize) -> usize {
         let to = match press {
+            // Left and right are where the tools are: from the right, the
+            // next one is to the left.
+            Press::Left if self.rtl => at.saturating_add(1),
+            Press::Right if self.rtl => at.saturating_sub(1),
             Press::Left | Press::Previous => at.saturating_sub(1),
             Press::Right | Press::Next => at.saturating_add(1),
             Press::Up => at.saturating_sub(self.columns),
@@ -221,6 +239,35 @@ impl Drawer {
         Ok(())
     }
 
+    /// Every tool's name in lines, and the most lines any name takes: every
+    /// tool keeps room for them, so that icons and names line up.
+    fn wrap_names(
+        &self,
+        host: &Host<'_>,
+        font: &Font<'_>,
+        style: &Style,
+        src: &HostSource,
+        area: Rect,
+        air: u16,
+    ) -> Result<(Vec<icons::Name>, usize), Error> {
+        let probe = Grid::new(area, style.row, 0, air);
+        let probe_cell = probe.cell(0);
+        let mut wrapped = Vec::new();
+        wrapped
+            .try_reserve_exact(self.tools.len())
+            .map_err(|_| Error::NoMemory)?;
+        let mut most = 0;
+        let hyphens = icons::Hyphens::of(host);
+        let mut breaks = |word: &str, out: &mut _| hyphens.breaks(host, word, out);
+        for action in &self.tools {
+            let name = src.tool_name(action);
+            let name = icons::name_lines(font, style, probe_cell, name, &mut breaks)?;
+            most = most.max(name.lines.len());
+            wrapped.push(name);
+        }
+        Ok((wrapped, most))
+    }
+
     fn paint(
         &self,
         host: &Host<'_>,
@@ -239,26 +286,10 @@ impl Drawer {
             height.saturating_sub(top),
         );
         let air = style.gap / 2 + style.line * 3;
-        let probe = Grid::new(area, style.row, 0, air);
-        let probe_cell = probe.cell(0);
-        // The most lines any name takes: every tool keeps room for them, so
-        // that icons and names line up.
-        let mut wrapped = Vec::new();
-        wrapped
-            .try_reserve_exact(self.tools.len())
-            .map_err(|_| Error::NoMemory)?;
-        let mut most = 0;
-        let hyphens = icons::Hyphens::of(host);
-        let mut breaks = |word: &str, out: &mut _| hyphens.breaks(host, word, out);
-        for action in &self.tools {
-            let name = src.tool_name(action);
-            let name = icons::name_lines(font, &style, probe_cell, name, &mut breaks)?;
-            most = most.max(name.lines.len());
-            wrapped.push(name);
-        }
+        let (wrapped, most) = self.wrap_names(host, font, &style, &src, area, air)?;
         let step = paperpaw_ui_kit::geometry::line_px(font, style.small)?;
         let extra = if most > 1 { step } else { 0 };
-        let grid = Grid::new(area, style.row, extra, air);
+        let grid = Grid::new(area, style.row, extra, air).mirrored(style.rtl);
         let len = self.tools.len();
         let page = grid.place(self.focus.min(len.saturating_sub(1))).0;
         let mut header_page = Page::default();
@@ -286,6 +317,7 @@ impl Drawer {
         let mut below = Vec::new();
         paint::push(&mut below, Paint::Fill(area, style.paper))?;
         let first = page * grid.per_page();
+        let describing = paint::asking(frame);
         for slot in 0..grid.per_page().min(len.saturating_sub(first)) {
             let index = first + slot;
             let (Some(action), Some(name)) = (self.tools.get(index), wrapped.get(index)) else {
@@ -299,6 +331,16 @@ impl Drawer {
                 row_lines: most,
             };
             let cell = grid.cell(slot).inset(0, air);
+            // Told as a button by its whole name, not by the first line of it.
+            paint::describe_named(
+                &mut below,
+                describing,
+                PartRole::Button,
+                cell,
+                src.tool_name(action),
+                self.shown && index == self.focus,
+                false,
+            )?;
             icons::draw_tool(&mut below, &fonts, &style, cell, &tool)?;
         }
         let mut above = Vec::new();
@@ -457,6 +499,24 @@ mod tests {
         // Room kept for a second line of a name and for a focus ring.
         let roomy = Grid::new(Rect::new(0, 0, 400, 400), 20, 10, 5);
         assert_eq!(roomy.cell(4).y, 100);
+    }
+
+    #[test]
+    fn a_mirrored_grid_starts_at_the_right_and_left_goes_on_to_the_next_tool() {
+        let grid = grid().mirrored(true);
+        assert_eq!(grid.cell(0), Rect::new(310, 50, 100, 80));
+        assert_eq!(grid.cell(3), Rect::new(10, 50, 100, 80));
+        assert_eq!(grid.cell(4), Rect::new(310, 130, 100, 80));
+        // A tap finds the tool where it is drawn.
+        assert_eq!(grid.hit(Point::new(315, 55), 0, 30), Some(0));
+        assert_eq!(grid.hit(Point::new(15, 55), 0, 30), Some(3));
+        // Left and right are where the tools are; next and previous are not.
+        assert_eq!(grid.moved(0, Press::Left, 30), 1);
+        assert_eq!(grid.moved(1, Press::Right, 30), 0);
+        assert_eq!(grid.moved(0, Press::Next, 30), 1);
+        assert_eq!(grid.moved(1, Press::Previous, 30), 0);
+        // Not mirrored: as before.
+        assert_eq!(self::grid().moved(1, Press::Left, 30), 0);
     }
 
     #[test]

@@ -1,14 +1,12 @@
 //! The screens, the action, the Tools entry and the icons the native plugin
 //! declares are what the image holds, the host admits them, and they say what
-//! interface 6 registered.
+//! interface 6 registered (kept here as the values it registered).
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 #![allow(dead_code, reason = "the declaration test uses part of the builders")]
 use paperpaw_core::native_host::{
     declarations::validate_batch,
     registrations::{Record, records_decode},
 };
-use paperpaw_plugin_notes_vault::NotesVault;
-use paperpaw_sdk::{Action, Contribution, Id, Plugin, Registrar};
 
 #[path = "../declarations.rs"]
 mod declarations;
@@ -71,16 +69,6 @@ fn the_host_checks_the_format_and_admits_it() {
 
 #[test]
 fn the_format_is_as_interface_6_registered_it() {
-    let mut registrar = Registrar::new(Id::new_static("notes-vault"));
-    NotesVault.register(&mut registrar).unwrap();
-    let old = registrar
-        .into_contributions()
-        .into_iter()
-        .find_map(|c| match c {
-            Contribution::Format(spec) => Some(spec),
-            _ => None,
-        })
-        .unwrap();
     let batch = format_batches().remove(0);
     let records = records_decode(&batch).unwrap();
     let spec = records
@@ -90,10 +78,13 @@ fn the_format_is_as_interface_6_registered_it() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(format!("notes-vault.{}", spec.name), old.id.as_str());
-    assert_eq!(spec.title, old.title);
-    let wanted: Vec<&str> = old.extensions.iter().map(|e| &**e).collect();
-    assert_eq!(spec.extensions.split('\n').collect::<Vec<_>>(), wanted);
+    // Beta 3 registered `notes-vault.markdown` for `md` and `markdown`.
+    assert_eq!(format!("notes-vault.{}", spec.name), "notes-vault.markdown");
+    assert_eq!(spec.title, "notes-vault.markdown");
+    assert_eq!(
+        spec.extensions.split('\n').collect::<Vec<_>>(),
+        ["md", "markdown"]
+    );
 }
 
 #[test]
@@ -106,37 +97,19 @@ fn the_host_admits_the_declarations() {
 
 #[test]
 fn the_screens_action_menu_entry_and_icons_are_as_interface_6_registered_them() {
-    let mut registrar = Registrar::new(Id::new_static("notes-vault"));
-    NotesVault.register(&mut registrar).unwrap();
-    let (mut screens, mut actions, mut menus, mut icons) = (vec![], vec![], vec![], vec![]);
-    for c in registrar.into_contributions() {
-        match c {
-            Contribution::Screen(s) => {
-                screens.push((s.id.as_str().to_string(), s.title.to_string()));
-            }
-            Contribution::FixedActions(list) => {
-                for a in list {
-                    let a = Action::Fixed(a);
-                    actions.push((a.id().as_str().to_string(), a.title().to_string()));
-                }
-            }
-            Contribution::FixedMenuEntries(list) => {
-                for e in list {
-                    menus.push((
-                        e.menu.as_str().to_string(),
-                        e.item.as_str().to_string(),
-                        i32::from(e.order),
-                    ));
-                }
-            }
-            Contribution::FixedIcons(list) => {
-                for (item, icon) in list {
-                    icons.push((item.as_str().to_string(), (*icon).to_string()));
-                }
-            }
-            _ => {}
-        }
-    }
+    let s = |a: &str, b: &str| (a.to_string(), b.to_string());
+    // What Beta 3 registered.
+    let mut screens = vec![
+        s("notes-vault.screen", "notes-vault.title"),
+        s("notes-vault.list", "notes-vault.title"),
+        s("notes-vault.tags", "notes-vault.tags"),
+    ];
+    let actions = vec![s("notes-vault.open", "notes-vault.title")];
+    let menus = vec![("core.tools".to_string(), "notes-vault.open".to_string(), 38)];
+    let mut icons = vec![
+        s("notes-vault.open", "note"),
+        s("notes-vault.group", "note"),
+    ];
     let (mut dscreens, mut dactions, mut dmenus, mut dicons) = (vec![], vec![], vec![], vec![]);
     let mut registrations = 0;
     for batch in batches() {

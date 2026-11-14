@@ -1,10 +1,12 @@
 screen menu.list
-Text "Start reading"
-Text "Choose a book from your library."
+Button "Start reading, Choose a book from your library."
+Button "Edit"
+Dialog ""
 Row "Vocabulary" (focused)
 Row "Flash cards"
-Row "Notes vault"
 Row "News"
+Row "Files"
+Row "Catalogs"
 Row "Wi-Fi transfer"
 Row "Plugin store"
 Row "Screenshot"

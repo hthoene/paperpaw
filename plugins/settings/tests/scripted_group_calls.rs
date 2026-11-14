@@ -104,6 +104,13 @@ fn host(asked: &Asked, params: &'static [(&'static str, &'static str)]) -> Scrip
     bytes[36..38].copy_from_slice(&220_u16.to_le_bytes());
     bytes[42] = 1;
     host.set_env(&bytes);
+    answer_registry(&host, asked);
+    answer_ui(&host, params);
+    host
+}
+
+/// The registry's lists, noting each page of settings asked for in `asked`.
+fn answer_registry(host: &ScriptedHost, asked: &Asked) {
     let registry = host.registry();
     let seen = asked.clone();
     registry.on(1, move |input| {
@@ -194,6 +201,10 @@ fn host(asked: &Asked, params: &'static [(&'static str, &'static str)]) -> Scrip
     });
     // No page of a plugin adds a row to a group.
     registry.on(12, |_| Ok(stream(&[end(0, 0)])));
+}
+
+/// The hand-over of the opened screen: its handle and `params`.
+fn answer_ui(host: &ScriptedHost, params: &'static [(&'static str, &'static str)]) {
     host.service("core.ui", 1, 0, move |op, _| match op {
         16 => Ok(stream(&[Record::ServiceUiHandle(ServiceUiHandle {
             handle: 9,
@@ -214,7 +225,6 @@ fn host(asked: &Asked, params: &'static [(&'static str, &'static str)]) -> Scrip
         }
         _ => Err(-1),
     });
-    host
 }
 
 /// Opens `screen` with the hand-over's `params`, and what the list of
@@ -249,8 +259,7 @@ fn opened(
     }))
     .unwrap();
     assert_eq!(plugin.event(token, &shown).unwrap().status, 0);
-    let asked = asked.borrow().clone();
-    asked
+    asked.borrow().clone()
 }
 
 #[test]

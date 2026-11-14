@@ -1,0 +1,9 @@
+""	"7\tSF\t1793696400\t1234\tAda, L\tada@x.org\tTab here ä\t<a@x>\n"
+""	(true, true, 1793696400, 1234)
+"none"	"1\t\t9\t10\t\t\t\t\n"
+"\"7\\tSF\\t55\\t1234\\tAda\\tada@x.org\\tSubject\\t<a@x>\""	Some("7\tSF\t55\t1234\tAda\tada@x.org\tSubject\t<a@x>\n")
+"\"7\\tS\\t55\\t1234\\tAda\\tada@x.org\\tSubject\""	Some("7\tS\t55\t1234\tAda\tada@x.org\tSubject\t\n")
+"\"x\\tS\\t55\\t1234\\tAda\\tada@x.org\\tSubject\""	None
+"\"7\\tS\\t55\\tbig\\tAda\\tada@x.org\\tSubject\""	None
+"\"7\\tS\\t55\""	None
+"\"\""	None

@@ -377,16 +377,36 @@ pub fn main_groups(
     Ok(found)
 }
 
-/// The settings a reset of `group` (empty: all) puts back are chosen one at a
-/// time by [`reset_step`], in the order they are sent, and "only this book" is
-/// added last by [`reset_end`]: clearing it first would send the later resets
-/// to the global settings instead of the book's values.
+/// The settings a reset of `group` (empty: all) puts back, in the order they
+/// are sent, and "only this book" last: clearing it first would send the
+/// later resets to the global settings instead of the book's values.
 ///
 /// Left alone: what is kept on reset (accounts, folders), secrets, settings
 /// already at their default outside a book scope (nothing to reload), the
 /// language on a reset of all, and on a page what that page does not show.
 ///
-/// One setting of the reset plan: its key is added where the reset takes it.
+/// A reset of all sends one command per key in one callback, and the host
+/// caps the commands of a callback at 8 (open ruling #422): the caller must
+/// split the plan across callbacks before that cap is enforced.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the list cannot be built.
+pub fn reset_plan(
+    groups: &[Group],
+    cx: Context,
+    all: &[Setting],
+    group: &str,
+) -> Result<Vec<String>, Error> {
+    let mut keys: Vec<String> = Vec::new();
+    for setting in all {
+        reset_step(&mut keys, groups, cx, setting, group)?;
+    }
+    reset_end(&mut keys)?;
+    Ok(keys)
+}
+
+/// One setting of the reset plan: its key is added where the reset takes it
+/// (settings may be given one at a time, then [`reset_end`]).
 ///
 /// # Errors
 /// [`Error::NoMemory`] when the list cannot grow.
@@ -469,34 +489,7 @@ pub fn stepped(kind: Kind, value: &Val, detail: &Detail, step: i64) -> Option<Va
     }
 }
 
-/// `value` with its unit: a unit that holds `{count}` has the number put in,
-/// any other follows the number.
-pub fn with_unit(value: i64, unit: &str) -> Result<String, Error> {
-    let mut digits = [0; 20];
-    let number = if value < 0 {
-        let positive = paperpaw_ui_kit::text::decimal_u64(value.unsigned_abs(), &mut digits);
-        concat(&["-", positive])?
-    } else {
-        copy(paperpaw_ui_kit::text::decimal_u64(
-            value as u64,
-            &mut digits,
-        ))?
-    };
-    if unit.is_empty() {
-        return Ok(number);
-    }
-    // A byte search and `get`, not `split_once("{count}")`: a `&str` pattern search links
-    // the slice panic that prints a character (Debug and Unicode tables, 4 KB).
-    const MARK: &[u8] = b"{count}";
-    let at = unit
-        .as_bytes()
-        .windows(MARK.len())
-        .position(|window| window == MARK);
-    match at.and_then(|at| Some((unit.get(..at)?, unit.get(at + MARK.len()..)?))) {
-        Some((before, after)) => concat(&[before, &number, after]),
-        None => concat(&[&number, " ", unit]),
-    }
-}
+pub use paperpaw_ui_kit::text::with_unit;
 
 /// `text` in lower case without accents, so "rander" finds "Ränder".
 pub fn fold(text: &str) -> Result<String, Error> {

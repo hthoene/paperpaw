@@ -104,7 +104,7 @@ pub(super) fn run(host: &LibEdits, request: &CommitRequest) -> Result<Committed,
             })
             .map(|i| i.id),
     );
-    drops.sort_unstable();
+    paperpaw_sort::sort_unstable(&mut drops);
     let mut news = table::<u32>(items.len())?;
     news.extend((0..items.len() as u32).filter(|i| items[*i as usize].action != REMOVE));
     paperpaw_sort::sort_by_key(&mut news, |i| {
@@ -195,7 +195,7 @@ fn check(
             named.push((item.id, n as u32));
         }
     }
-    named.sort_unstable();
+    paperpaw_sort::sort_unstable(&mut named);
     if named.windows(2).any(|pair| pair[0].0 == pair[1].0) {
         return Err(ERR_INVALID);
     }
@@ -206,7 +206,7 @@ fn check(
             keyed.push((item.key_hash, n as u32));
         }
     }
-    keyed.sort_unstable();
+    paperpaw_sort::sort_unstable(&mut keyed);
     for pair in keyed.windows(2) {
         if pair[0].0 == pair[1].0 && same_key(host, request, items, pair[0].1, pair[1].1)? {
             return Err(ERR_INVALID);

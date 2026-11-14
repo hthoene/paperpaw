@@ -21,7 +21,7 @@ use paperpaw_ui_kit::{
     text::concat,
 };
 
-/// How it works, by language: the interface-6 manifest's and this page's.
+/// How it works, by language: the part this page shows is taken from it.
 pub(crate) static HOW: [(&str, &str); 2] = [
     ("en", include_str!("../how/en.txt")),
     ("de", include_str!("../how/de.txt")),

@@ -226,6 +226,7 @@ fn host_library<M: 'static>(
     id: &str,
     bytes: &[u8],
     resources: HostResources,
+    offer: Option<crate::native_runtime::Offer>,
     module: impl FnOnce(HeldLibrary, &Path) -> M,
 ) -> Result<(std::path::PathBuf, shared_shell::Hosted<DesktopServices, M>), Refusal> {
     if !is_id(id) {
@@ -255,7 +256,8 @@ fn host_library<M: 'static>(
             &copy,
             &digest,
             &table,
-            crate::device_host::offered_services(),
+            offer.map_or(crate::device_host::offered_services(), |o| o.services),
+            offer.map_or(crate::native_runtime::WIRED_FEATURES, |o| o.features),
         )
     }
     .map_err(|why| {
@@ -289,14 +291,13 @@ pub(crate) fn admission(
     bytes: &[u8],
     resources: HostResources,
     depth: paperpaw_core::native_host::flat::FlatDepth,
+    offer: Option<crate::native_runtime::Offer>,
 ) -> Result<Box<dyn paperpaw_core::NativeAdmission>, Refusal> {
-    let (_, hosted) = host_library(id, bytes, resources, |library, copy| CopyModule {
+    let (_, hosted) = host_library(id, bytes, resources, offer, |library, copy| CopyModule {
         library: Some(library),
         copy: copy.to_path_buf(),
     })?;
-    Ok(Box::new(super::super::admit::DesktopAdmission::new(
-        hosted, depth,
-    )))
+    Ok(Box::new(super::super::admit::admission(hosted, depth)))
 }
 
 /// One loaded plugin. Field order is the order of release: the batch (the
@@ -336,7 +337,7 @@ impl Loaded {
         bytes: &[u8],
         resources: HostResources,
     ) -> Result<Self, Refusal> {
-        let (copy, plugin) = host_library(id, bytes, resources, |library, _| library)?;
+        let (copy, plugin) = host_library(id, bytes, resources, None, |library, _| library)?;
         let plugin = checked_box(plugin)?;
         let mut transaction = plugin.begin::<Registration>()?;
         // SAFETY: the slice borrows `plugin`, whose owner keeps the library

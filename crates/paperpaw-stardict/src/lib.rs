@@ -68,6 +68,10 @@ impl fmt::Display for Error {
     }
 }
 
+// Not inlined: with the message a known constant, the Xtensa backend turns the
+// copy of it into a constant-pool access it cannot select (`PCREL_WRAPPER`,
+// rustc-LLVM ERROR in the S3 native image, #243), so the pointer stays opaque.
+#[inline(never)]
 pub(crate) fn malformed(message: &'static str) -> Error {
     Error::Malformed(Cow::Borrowed(message))
 }

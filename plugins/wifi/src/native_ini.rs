@@ -182,21 +182,31 @@ mod tests {
         );
     }
 
+    /// What the interface-6 plugin read of these (fixed when its code went).
     #[test]
-    fn it_reads_what_the_interface_6_plugin_reads() {
-        let samples = [
-            "",
-            "ssid = A",
-            "ssid = A\npassword = p\nssid = B\n",
-            "  ssid  =  A b  \n password=  p q \n",
-            "ssid = A = B\npassword = x = y\n",
-            "ssid = Ünï\npassword = pässword\r\nssid = C\r\n",
-            "junk\nssid\npassword\n=\nssid = D\n",
-            "SSID = A\nssid = E\nPassword = no\n",
+    fn it_reads_what_the_interface_6_plugin_read() {
+        let samples: [(&str, &[(&str, &str)]); 8] = [
+            ("", &[]),
+            ("ssid = A", &[("A", "")]),
+            (
+                "ssid = A\npassword = p\nssid = B\n",
+                &[("A", "p"), ("B", "")],
+            ),
+            ("  ssid  =  A b  \n password=  p q \n", &[("A b", "p q")]),
+            ("ssid = A = B\npassword = x = y\n", &[("A = B", "x = y")]),
+            (
+                "ssid = Ünï\npassword = pässword\r\nssid = C\r\n",
+                &[("Ünï", "pässword"), ("C", "")],
+            ),
+            ("junk\nssid\npassword\n=\nssid = D\n", &[("D", "")]),
+            ("SSID = A\nssid = E\nPassword = no\n", &[("E", "")]),
         ];
-        for text in samples {
-            let old = crate::wifi_file_networks(text.as_bytes());
-            assert_eq!(pairs(text.as_bytes()), old, "{text:?}");
+        for (text, expected) in samples {
+            let expected: Vec<(String, String)> = expected
+                .iter()
+                .map(|(ssid, password)| ((*ssid).to_string(), (*password).to_string()))
+                .collect();
+            assert_eq!(pairs(text.as_bytes()), expected, "{text:?}");
         }
     }
 

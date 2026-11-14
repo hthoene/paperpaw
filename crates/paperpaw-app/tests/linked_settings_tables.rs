@@ -70,7 +70,7 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
         "sleep",
     ];
     #[cfg(feature = "native-linked-store")]
-    with_settings.extend(["aids", "fonts-browser"]);
+    with_settings.extend(["aids", "fonts-browser", "picture-home"]);
     #[cfg(feature = "native-linked-reading")]
     with_settings.extend(["home", "reader", "dictionary"]);
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
@@ -92,7 +92,7 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
     )]
     let mut with_groups = vec!["bluetooth", "keyboard", "lock", "power"];
     #[cfg(feature = "native-linked-store")]
-    with_groups.push("widgets");
+    with_groups.extend(["widgets", "picture-home"]);
     #[cfg(feature = "native-linked-reading")]
     // (Reader declares no group of its own: its settings sit in core groups.)
     with_groups.push("home");
@@ -198,7 +198,6 @@ fn every_linked_plugins_screen_keeps_the_entry_of_its_titles_table() {
 /// kept in the program, not a copy on the heap (#248, B; Senior M1, #1372).
 /// The flip lists them so (`list`, with the build's table of manifests).
 #[test]
-#[ignore = "needs native activation (the flip's list() with kept manifests, handoff to Firmware)"]
 fn every_linked_plugins_row_points_to_its_kept_manifest() {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(DEVICE).storage(storage);

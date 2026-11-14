@@ -32,6 +32,9 @@ struct BuilderParts {
     /// What plugin checks, installs and removals compare a plugin with.
     plugin_host: Option<crate::native_host::plugin_job::PluginHost>,
     code: Option<crate::code_plugin::CodePlugins>,
+    /// A shell without a code loader that serves `text.hyphenate`
+    /// ([`KernelBuilder::hyphenation_sink`]).
+    hyphenation: Option<crate::hyphen_feed::MakeSink>,
     /// What the firmware takes, told once an update on trial is kept
     /// ([`KernelBuilder::native_after_trial`]).
     after_trial: Option<Native>,
@@ -369,6 +372,22 @@ impl KernelBuilder {
         self
     }
 
+    /// The shell serves `text.hyphenate` without loading code plugins (the
+    /// desktop emulator without `--trust-code`): `make` is called once with the
+    /// card at the end of the build, as [`CodeLoader::hyphenation_sink`] is, and
+    /// its tables get what the data plugins declare. Ignored where a code
+    /// loader gave a sink. It does not make the device a code device
+    /// ([`KernelBuilder::code_plugins`] does).
+    #[must_use]
+    pub fn hyphenation_sink(
+        mut self,
+        make: impl FnOnce(&alloc::rc::Rc<dyn Storage>) -> Option<crate::native_host::HyphenTables>
+        + 'static,
+    ) -> Self {
+        self.0.hyphenation = Some(Box::new(make));
+        self
+    }
+
     /// This start loads no code plugins, because an update is on trial (it
     /// must show it starts by itself, and the plugins before must stay as
     /// the firmware before finds them): what the firmware takes is told to
@@ -669,6 +688,9 @@ impl BuilderParts {
                     ..code
                 }),
         );
+        if let Some(make) = self.hyphenation.take() {
+            kernel.attach_hyphenation_sink(make);
+        }
         // Every plugin's network, before the values kept for it are read.
         kernel.define_network_settings(self.network_settings);
         if let Some(source) = self.device_keymap.take() {
@@ -840,7 +862,7 @@ impl BuilderParts {
                 again: false,
                 screenshot: None,
                 mark: None,
-                refresh: RefreshPolicy::default(),
+                refresh: RefreshPolicy::after_start(),
                 deferred: None,
                 defers: 0,
                 followup: None,
@@ -947,9 +969,9 @@ impl BuilderParts {
             plugin_defaults: Vec::new(),
             late_device_defaults: Vec::new(),
             late_config: Vec::new(),
-            plugin_choices: Vec::new(),
             native_registering: true,
             native_catalogs_added: false,
+            plugin_choices: Vec::new(),
             now: Instant::default(),
         }
     }
@@ -1347,6 +1369,7 @@ impl Kernel {
             firmware_host: None,
             plugin_host: None,
             code: None,
+            hyphenation: None,
             after_trial: None,
             safe_mode: None,
             staged: Vec::new(),

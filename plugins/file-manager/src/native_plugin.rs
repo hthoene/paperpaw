@@ -214,6 +214,17 @@ impl NativeFileManager {
         host: &Host<'_>,
         work: impl FnOnce(&mut Browser, &dyn Storage) -> T,
     ) -> Result<Option<T>, Error> {
+        self.browse_if(host, work, |_| true)
+    }
+
+    /// As [`Self::browse`], drawn anew only where `changed` says the work
+    /// changed what is shown.
+    fn browse_if<T>(
+        &mut self,
+        host: &Host<'_>,
+        work: impl FnOnce(&mut Browser, &dyn Storage) -> T,
+        changed: impl FnOnce(&T) -> bool,
+    ) -> Result<Option<T>, Error> {
         let Some(view) = self.screens.top(BROWSER) else {
             return Ok(None);
         };
@@ -222,7 +233,9 @@ impl NativeFileManager {
             // The browser kept it as a storage error ("that did not work").
             view.browser.lacked_memory();
         }
-        redraw(host)?;
+        if ran_out || changed(&done) {
+            redraw(host)?;
+        }
         Ok(Some(done))
     }
 
@@ -298,8 +311,9 @@ impl NativeFileManager {
 
     /// Back goes up a folder first, then leaves.
     fn back(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        // Past the top folder the screen closes: nothing is drawn for it.
         let up = self
-            .browse(host, |browser, card| browser.up(card))?
+            .browse_if(host, |browser, card| browser.up(card), |up| *up)?
             .unwrap_or(false);
         if !up {
             let mut scratch = [0; 64];

@@ -338,11 +338,13 @@ impl AddScreen {
         }
         let mut scratch = [0; OVERHEAD];
         let mut sender = CommandSender::new(host, &mut scratch);
-        sender.back()?;
+        // Two backs would both close the same top screen: from a kind's list
+        // the way is back to the page itself.
         if self.kind.is_some() {
-            sender.back()?;
+            sender.back_to(crate::SCREEN.as_str())
+        } else {
+            sender.back()
         }
-        Ok(())
     }
 }
 

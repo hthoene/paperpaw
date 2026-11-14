@@ -47,14 +47,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-epub-family"
-version = "1.0.5"
-dependencies = [
- "miniz_oxide",
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-graphics"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -118,108 +110,21 @@ name = "paperpaw-platform"
 version = "0.6.0-beta.3"
 
 [[package]]
-name = "paperpaw-plugin-aids"
-version = "1.1.5"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-plugin-files"
 version = "0.0.0"
 dependencies = [
- "paperpaw-plugin-aids",
- "paperpaw-plugin-fonts-browser",
- "paperpaw-plugin-format-docx",
- "paperpaw-plugin-format-images",
- "paperpaw-plugin-format-mobi",
- "paperpaw-plugin-mail",
- "paperpaw-plugin-news",
- "paperpaw-plugin-notes-vault",
- "paperpaw-plugin-picture-home",
  "paperpaw-plugin-vocabulary",
- "paperpaw-plugin-widgets",
  "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-fonts-browser"
-version = "1.0.8"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-format-docx"
-version = "1.0.3"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-format-images"
-version = "1.0.4"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-format-mobi"
-version = "1.0.3"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-mail"
-version = "1.0.4"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-news"
-version = "1.0.10"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-notes-vault"
-version = "1.0.4"
-dependencies = [
- "paperpaw-epub-family",
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-picture-home"
-version = "1.0.2"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-vocabulary"
-version = "1.1.6"
+version = "1.1.7"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
  "paperpaw-ui-kit",
  "paperpaw-zip",
-]
-
-[[package]]
-name = "paperpaw-plugin-widgets"
-version = "1.0.9"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -304,4 +209,5 @@ version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",
+ "paperpaw-sort",
 ]

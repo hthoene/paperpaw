@@ -253,6 +253,8 @@ pub struct Device {
     /// The kernel's warnings since start (the last `KEPT_WARNINGS`),
     /// besides printed: for tools that check there are none.
     pub warnings: Vec<Warning>,
+    /// The last `KEPT_FRAMES` frames shown (region, mode), for tests of a start.
+    pub shown: Vec<(paperpaw_platform::Rect, RefreshMode)>,
     /// Requests are answered from the emulator's fixtures
     /// ([`Device::use_fixtures`]).
     fixtures: bool,
@@ -307,6 +309,9 @@ fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
 }
 #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
 fn linked_inputs(_: &Library, _: bool) -> LinkedInputs {}
+
+/// How many frames [`Device::shown`] keeps.
+const KEPT_FRAMES: usize = 64;
 
 /// How many of the kernel's warnings [`Device::warnings`] keeps.
 const KEPT_WARNINGS: usize = 1000;
@@ -411,6 +416,7 @@ impl Device {
             bluetooth: crate::bluetooth::Bluetooth::default(),
             speech: std::collections::VecDeque::new(),
             warnings: Vec::new(),
+            shown: Vec::new(),
             fixtures: false,
             wifi_online: WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed),
             #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
@@ -488,6 +494,7 @@ impl Device {
             // network, as a device of the reader's would.
             let keep = paperpaw_core::sdk::wifi::keep(crate::wifi::TEST_NETWORK, "fixtures");
             self.kernel.set_secret(keep);
+            self.share_secrets_with_native();
         }
         if self.wifi_online && self.profile.wifi {
             self.go_online(now);
@@ -505,12 +512,19 @@ impl Device {
         self.wifi_online = online;
     }
 
+    /// A network saved as joined before, for the native Wi-Fi plugin (simulated time only).
+    fn share_secrets_with_native(&self) {
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        self.linked.share_secrets(self.kernel.storage());
+    }
+
     fn go_online(&mut self, now: Instant) {
         let keep = paperpaw_core::sdk::wifi::keep(
             crate::wifi::WORKSHOP_NETWORK,
             crate::wifi::WORKSHOP_PASSWORD,
         );
         self.kernel.set_secret(keep);
+        self.share_secrets_with_native();
         self.wifi.online(now);
         // On USB: what keeps the radio on, as on a device.
         let status = self.status(now);
@@ -784,6 +798,20 @@ impl Device {
     #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
     fn poll_native_net(&mut self, _wait: Option<std::time::Duration>) {}
 
+    /// Whether the native plugins' servers run (the loop looks again soon).
+    #[must_use]
+    pub fn native_serving(&self) -> bool {
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        return self
+            .linked
+            .net
+            .borrow()
+            .as_ref()
+            .is_some_and(|net| net.transport.serving());
+        #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+        false
+    }
+
     /// The native plugins' requests started and not answered yet.
     #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
     fn native_in_flight(&self) -> usize {
@@ -944,6 +972,10 @@ impl Device {
         let colors = self.profile.colors.then(|| self.kernel.colors());
         self.panel
             .refresh(self.controller.view(), region, mode, colors);
+        if self.shown.len() >= KEPT_FRAMES {
+            self.shown.remove(0);
+        }
+        self.shown.push((region, mode));
         // Shown as soon as drawn: plugins that pace themselves by the
         // panel go as fast as they can here.
         let drawn = core::time::Duration::from_micros(crate::host::micros() - started);
@@ -1170,6 +1202,9 @@ fn build_kernel(
     #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
     let _ = linked;
     budget::track(|| {
+        // What this kernel's card plugins and linked plugins share.
+        #[cfg(not(target_arch = "wasm32"))]
+        let pool = crate::native::DevicePool::default();
         let fonts = if profile.font_packs {
             paperpaw_app::Fonts::Packs
         } else {
@@ -1226,12 +1261,13 @@ fn build_kernel(
         if let Some(light) = profile.light {
             builder = builder.plugin(crate::light::Emulated(light));
         }
-        // Code plugins built for this computer, from the card.
         #[cfg(not(target_arch = "wasm32"))]
-        if CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed) {
-            builder = builder.code_plugins(
-                crate::native::native(),
-                Box::new(crate::native::HostLoader::for_device(profile.device.memory)),
+        {
+            builder = crate::native::code_plugins(
+                builder,
+                CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed),
+                profile.device.memory,
+                &pool,
             );
         }
         // Plugin installs from the card share the firmware's queue: the
@@ -1257,13 +1293,19 @@ fn build_kernel(
         if let Some(config) = user_config {
             builder = builder.user_config(config);
         }
+        // What is wired is known before the kernel is built: a card plugin is
+        // admitted in `build`, and is offered what the linked ones are.
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        let prepared = crate::linked::prepare(profile, linked, &pool);
         let kernel = builder.build()?;
         // The first-party plugins that are interface-7 plugins (the app built
         // without their interface-6 form), before the first start.
         #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
         let kernel = {
             let mut kernel = kernel;
-            match crate::linked::register(&mut kernel, profile, linked.clone()) {
+            match prepared.and_then(|prepared| {
+                crate::linked::register(&mut kernel, profile, linked.clone(), &pool, prepared)
+            }) {
                 Ok(_) => {}
                 Err(why) => eprintln!("native plugins: none registered ({why:?})"),
             }
