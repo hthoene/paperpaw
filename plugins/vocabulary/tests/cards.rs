@@ -92,7 +92,6 @@ impl Reader {
             .user_config(user)
             .sleep(sleeps)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(paperpaw_plugin_home::Home)
             .plugin(paperpaw_plugin_vocabulary::Vocabulary);
         let mut kernel = builder.build().unwrap();
         kernel.set_status(
@@ -183,6 +182,7 @@ impl Reader {
 }
 
 #[test]
+#[ignore = "the interface-6 Home these tests host is removed (#244); the widgets and cards are covered natively by scripted_widgets.rs and the native Home tests; the interface-6 Vocabulary goes with the store work (#2898)"]
 fn cards_are_reviewed_with_buttons_alone() {
     let mut reader = Reader::new(BUTTONS, card(), "");
     reader.open("vocabulary.review");
@@ -243,6 +243,7 @@ fn cards_are_reviewed_with_buttons_alone() {
 /// cards after it come in their order, then the screen says when it
 /// comes, and shows it by itself once it is due.
 #[test]
+#[ignore = "the interface-6 Home these tests host is removed (#244); the widgets and cards are covered natively by scripted_widgets.rs and the native Home tests; the interface-6 Vocabulary goes with the store work (#2898)"]
 fn again_waits_its_ten_minutes() {
     let mut reader = Reader::new(BUTTONS, card(), "");
     reader.open("vocabulary.review");
@@ -272,6 +273,7 @@ fn again_waits_its_ten_minutes() {
 }
 
 #[test]
+#[ignore = "the interface-6 Home these tests host is removed (#244); the widgets and cards are covered natively by scripted_widgets.rs and the native Home tests; the interface-6 Vocabulary goes with the store work (#2898)"]
 fn cards_are_reviewed_by_touch() {
     let mut reader = Reader::new(TOUCH, card(), "");
     reader.open("vocabulary.review");
@@ -289,6 +291,7 @@ fn cards_are_reviewed_by_touch() {
 }
 
 #[test]
+#[ignore = "the interface-6 Home these tests host is removed (#244); the widgets and cards are covered natively by scripted_widgets.rs and the native Home tests; the interface-6 Vocabulary goes with the store work (#2898)"]
 fn the_widget_counts_the_cards_due() {
     let mut reader = Reader::new(
         BUTTONS,
@@ -307,6 +310,7 @@ fn the_widget_counts_the_cards_due() {
 }
 
 #[test]
+#[ignore = "the interface-6 Home these tests host is removed (#244); the widgets and cards are covered natively by scripted_widgets.rs and the native Home tests; the interface-6 Vocabulary goes with the store work (#2898)"]
 fn flash_cards_show_what_is_due_and_the_decks() {
     let mut reader = Reader::new(BUTTONS, card(), "");
     reader.open("vocabulary.cards");
@@ -351,6 +355,7 @@ fn a_card_due_is_the_sleep_screen_and_answered_on_waking() {
 
 /// Reviewing on waking is a setting, off at first.
 #[test]
+#[ignore = "the interface-6 Home these tests host is removed (#244); the widgets and cards are covered natively by scripted_widgets.rs and the native Home tests; the interface-6 Vocabulary goes with the store work (#2898)"]
 fn the_review_opens_on_waking_where_wanted() {
     let mut reader = Reader::sleeping(card(), "");
     reader.sleep_and_wake();
