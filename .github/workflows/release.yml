@@ -97,6 +97,17 @@ jobs:
           persist-credentials: false
       - name: Release notes were collected before tagging
         run: python3 tools/changelog.py check --release
+      # A release gate (todo 639): no callback frame of 2,048 B or more may be
+      # left as an exception in the S3 linked budget but `main`. A dry run only warns.
+      - name: No S3 exception frame is left but main
+        run: |
+          if ! python3 -I tools/check-s3-release-exceptions.py; then
+            if [[ "$DRY_RUN" == true ]]; then
+              echo "::warning::S3 exception frames are still left (a real release stops here)"
+            else
+              exit 1
+            fi
+          fi
 
   android:
     name: Android app
