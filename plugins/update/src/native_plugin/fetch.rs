@@ -131,7 +131,7 @@ fn clear(storage: &dyn Storage, package: &Package) {
             }
         }
     }
-    folders.sort_unstable_by_key(|f| core::cmp::Reverse(f.len()));
+    paperpaw_sdk::sort::sort_unstable_by_key(&mut folders, |f| core::cmp::Reverse(f.len()));
     for folder in folders {
         storage.remove(&folder).ok();
     }

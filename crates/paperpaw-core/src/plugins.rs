@@ -655,6 +655,16 @@ impl Kernel {
         }
     }
 
+    /// Adds the catalogs of the linked native plugins built into the program
+    /// without their keys, a table a language
+    /// ([`BuiltMessages`](paperpaw_i18n::BuiltMessages)): each is one
+    /// catalog that answers for all their sources, which are not added.
+    pub fn add_built_messages(&mut self, tables: &'static [paperpaw_i18n::BuiltMessages]) {
+        for table in tables {
+            self.shared.translator.built_messages(table);
+        }
+    }
+
     /// `true` the first time it is asked, `false` after: the linked plugins'
     /// catalogs are added once, whoever asks first (`add_native_catalogs`),
     /// so a shell that adds them after `register_native_plugins` has

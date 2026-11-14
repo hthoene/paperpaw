@@ -181,8 +181,7 @@ fn choose(
 fn freeze(store: &DeclarationStore, settings: &Settings, stage: &str) -> Result<Vec<Member>, i32> {
     let mut subscribers = store.stage_subscribers(stage)?;
     subscribers.retain(|subscriber| !switched_off(settings, stage, subscriber.plugin));
-    subscribers
-        .sort_unstable_by(|a, b| (a.order, a.plugin, a.index).cmp(&(b.order, b.plugin, b.index)));
+    paperpaw_sort::sort_unstable_by_key(&mut subscribers, |s| (s.order, s.plugin, s.index));
     subscribers.truncate(SUBSCRIBERS);
     let mut members = Vec::new();
     members
