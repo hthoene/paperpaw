@@ -139,7 +139,7 @@ impl Kernel {
         if self.frame.unrendered.is_none() {
             self.frame.followup_frame = None;
         }
-        self.run_followup();
+        let followup = self.run_followup();
         if mem::take(&mut self.output.redraw)
             && let Some(top) = self.stack.len().checked_sub(1)
         {
@@ -226,7 +226,11 @@ impl Kernel {
                         .settings
                         .bool(core_settings::PICTURES_IN_GRAYS.as_str())
                     && self.pictures_drawn());
-            self.frame.refresh.weigh(Some(weight));
+            // A page's pictures drawn after its text are no page turned,
+            // however large: not counted, nor made the full refresh of the
+            // whole screen that is due (leaving them refreshes in full).
+            let counted = if followup { 0 } else { weight };
+            self.frame.refresh.weigh(Some(counted));
             let (mode, region) = self.frame.refresh.decide(requested, dirty, screen, every);
             let top = self.stack.last();
             let mut refresh =
