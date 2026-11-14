@@ -723,9 +723,9 @@ impl FormatProvider {
             .block_at(io, at)
             .map_err(|e| document_error(&e))?
             .ok_or(Error::NotFound)?;
-        // The pictures of a book are decoded when a page shows them: the
-        // file of this one may not be there yet (`decoded`).
-        block.image = decoded(document, io, block.image.take());
+        // The pictures of a book are decoded when a page shows them (op 18),
+        // not when their block is read: the page count reads every block.
+        let pending = settle(document, io, &mut block);
         let generation = generation(call.section, block.start, call.conversion);
         if call.cursor != 0 && call.generation != generation {
             return Err(Error::State);
@@ -747,7 +747,8 @@ impl FormatProvider {
         } else {
             block.start
         };
-        records(&block, cache, &weights, &mut tags, image_index, &mut list)?;
+        let picture = (image_index, u32::from(pending));
+        records(&block, cache, &weights, &mut tags, picture, &mut list)?;
         // The last of its section: nothing begins at its end. The section's length
         // is known once a block was read from it (asking for the next block read
         // and decoded it only to learn that, #250).
@@ -767,6 +768,30 @@ fn decoded(document: &dyn Document, io: &dyn Storage, image: Option<ImageRef>) -
     let image = document.prepare_image(io, &image).unwrap_or(image);
     let served = ImageFile::try_open(io, &image.path).ok().flatten();
     served.is_some().then_some(image)
+}
+
+/// The longest side of a picture the host passes on before it is decoded
+/// (`document.md` section 5).
+const PENDING_SIDE_MAX: u32 = 1_600;
+
+/// Whether the picture of a block that was read goes out as "not decoded yet"
+/// (`fmt.image` flags bit 0): its cache file is not whole and the document says
+/// the size it decodes to, so the reader keeps a box and asks for it when a page
+/// shows it (op 18). A document of whole pages and a picture of a size the host
+/// would not pass on are decoded here, as before.
+fn settle(document: &dyn Document, io: &dyn Storage, block: &mut Block) -> bool {
+    let Some(image) = block.image.as_ref() else {
+        return false;
+    };
+    if matches!(ImageFile::try_open(io, &image.path), Ok(Some(_))) {
+        return false;
+    }
+    let sides = 1..=PENDING_SIDE_MAX;
+    if !document.whole_pages() && sides.contains(&image.width) && sides.contains(&image.height) {
+        return true;
+    }
+    block.image = decoded(document, io, block.image.take());
+    false
 }
 
 /// `path` as a path in the document cache (root 6), if it lies in `cache`.
@@ -819,7 +844,7 @@ fn records<'a>(
     cache: &'a str,
     weights: &'a [u8],
     tags: &'a mut [[u8; 16]; 16],
-    image_index: u32,
+    (image_index, image_flags): (u32, u32),
     list: &mut Vec<Record<'a>>,
 ) -> Result<(), Error> {
     let (first, others) = tags.split_first_mut().ok_or(Error::Invalid)?;
@@ -910,7 +935,7 @@ fn records<'a>(
             image_index,
             image.width,
             image.height,
-            0,
+            image_flags,
         )));
     }
     table_records(block, weights, list);

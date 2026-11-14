@@ -331,7 +331,7 @@ fn pictures_match_kind(reply: &[u8]) {
 }
 
 #[test]
-fn a_picture_the_document_decodes_late_is_decoded_before_its_block_goes_out() {
+fn a_picture_the_document_decodes_late_goes_out_undecoded_and_is_decoded_when_asked_for() {
     let (mut p, io) = opened();
     let reply = block_at(&mut p, &io, 20);
     pictures_match_kind(&reply);
@@ -340,10 +340,19 @@ fn a_picture_the_document_decodes_late_is_decoded_before_its_block_goes_out() {
         panic!("block")
     };
     assert_eq!(block.kind, 3);
+    // "Not decoded yet" (flags bit 0), at the size the document says.
     assert!(rows.iter().any(|r| matches!(
         r,
-        stage::Record::FmtImage(i) if i.path == "decoded.gray" && (i.width, i.height) == (30, 40)
+        stage::Record::FmtImage(i)
+            if i.path == "lazy.gray" && (i.width, i.height, i.flags) == (30, 40, 1)
     )));
+    // Asked for by its number (the page shows it), it is decoded.
+    let reply = run(&mut p, &io, &call(18, |c| c.index = 20)).unwrap();
+    assert!(matches!(
+        self::rows(&reply)[0],
+        stage::Record::FmtImage(i)
+            if i.path == "decoded.gray" && (i.width, i.height, i.flags) == (30, 40, 0)
+    ));
 }
 
 #[test]
@@ -362,18 +371,23 @@ fn a_picture_that_cannot_be_served_costs_the_picture_only_never_the_book() {
         r,
         stage::Record::FmtTextPart(t) if t.text == "a cat on a mat"
     )));
-    // A picture of the cache with no file, and none to be made, goes the same way.
+    // A picture of the cache with no file goes out not decoded yet: whether
+    // it can be made shows when a page asks for it, and then costs only itself.
     let reply = block_at(&mut p, &io, 40);
     pictures_match_kind(&reply);
     let dog = rows(&reply);
     let stage::Record::FmtBlock(block) = dog[0] else {
         panic!("block")
     };
-    assert_eq!(block.kind, 0);
+    assert_eq!(block.kind, 3);
     assert!(dog.iter().any(|r| matches!(
         r,
-        stage::Record::FmtTextPart(t) if t.text == "a dog"
+        stage::Record::FmtImage(i) if i.path == "missing.gray" && i.flags == 1
     )));
+    assert!(matches!(
+        run(&mut p, &io, &call(18, |c| c.index = 40)),
+        Err(Error::NotFound)
+    ));
     // The ones with their pictures in the cache are unchanged.
     pictures_match_kind(&block_at(&mut p, &io, 10));
     // The same picture asked for by number is not found, as before.
