@@ -6,9 +6,9 @@ use super::{
     resources::{FontKey, FontRole, OwnerResources},
 };
 use crate::abi7::{context::Frame, graphics};
+use crate::font_refresh::widget_fonts;
 #[cfg(any(test, feature = "testing"))]
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
-use crate::font_refresh::widget_fonts;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, OK, PpBuffer, PpBytes,
     buffers,
