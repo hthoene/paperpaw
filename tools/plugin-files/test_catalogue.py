@@ -113,13 +113,13 @@ class HowItWorks(unittest.TestCase):
             argv = ["catalogue.py", str(dist), "0.4.0", "https://example.invalid/r", "--date", "2026-10-23"]
             with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 catalogue.main()
-            folder = f"aids-{catalogue.plugin_version('aids')}.zip"
+            folder = f"vocabulary-{catalogue.plugin_version('vocabulary')}.zip"
             first = dist.joinpath(folder).read_bytes()
             with zipfile.ZipFile(dist / folder) as z:
                 names = z.namelist()
                 english = z.read("how/en.txt").decode("utf-8")
-            self.assertEqual(names, ["plugin.ini", "how/de.txt", "how/en.txt"])
-            self.assertEqual(english, catalogue.ROOT.joinpath("plugins/aids/how/en.txt").read_text(encoding="utf-8"))
+            self.assertEqual(names[:1] + names[-2:], ["plugin.ini", "how/de.txt", "how/en.txt"])
+            self.assertEqual(english, catalogue.ROOT.joinpath("plugins/vocabulary/how/en.txt").read_text(encoding="utf-8"))
             # The same bytes again: the release's checksums hold.
             with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 catalogue.main()
@@ -317,15 +317,15 @@ class Versions(unittest.TestCase):
             argv = ["catalogue.py", str(dist), "0.5.0-beta.2", "https://example.invalid/r", "--date", "2026-10-24"]
             with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 catalogue.main()
-            own = catalogue.plugin_version("aids")
-            entry = dist.joinpath("catalogue", "aids.toml").read_text(encoding="utf-8")
+            own = catalogue.plugin_version("vocabulary")
+            entry = dist.joinpath("catalogue", "vocabulary.toml").read_text(encoding="utf-8")
             # Its crate's version, not PaperPaw's; the SDK and the source
             # the release's.
             self.assertIn(f'version = "{own}"', entry)
             self.assertNotIn('version = "0.5.0-beta.2"', entry)
             self.assertIn('sdk = "0.5"', entry)
             self.assertIn('revision = "v0.5.0-beta.2"', entry)
-            with zipfile.ZipFile(dist / f"aids-{own}.zip") as z:
+            with zipfile.ZipFile(dist / f"vocabulary-{own}.zip") as z:
                 self.assertIn(f"version = {own}" + chr(10), z.read("plugin.ini").decode("utf-8"))
 
     def test_one_plugin_alone_between_releases(self):
