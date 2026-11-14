@@ -93,7 +93,6 @@ fn style() -> Style {
         button: crate::style::ButtonLook::Outlined,
         mono: false,
         roles: crate::style::Roles::default(),
-        separator_dither: false,
         separator_ink: paperpaw_sdk::Color::BLACK,
         text: 22.0,
         small: 17.0,
@@ -157,18 +156,18 @@ fn a_title_that_fits_stays_on_one_line_and_a_long_one_wraps_to_two_at_most() {
     // Ten units a letter.
     let measure = |line: &str| Ok(line.chars().count() as f32 * 10.0);
     assert!(
-        wrap_title(measure, "Short title", 200.0)
+        wrap_title(measure, "Short title", 200.0, WHOLE_TITLE_LINES)
             .unwrap()
             .is_empty()
     );
     let long = "Spanish: cards missing from the file, kept or removed";
-    let lines = wrap_title(measure, long, 200.0).unwrap();
+    let lines = wrap_title(measure, long, 200.0, WHOLE_TITLE_LINES).unwrap();
     assert_eq!(lines.len(), WHOLE_TITLE_LINES);
     assert!(lines.iter().all(|line| measure(line).unwrap() <= 200.0));
     assert!(lines[0].starts_with("Spanish: cards"));
     // More than two lines of text: the second ends in an ellipsis.
     let longer = "one two three four five six seven eight nine ten eleven twelve thirteen";
-    let cut = wrap_title(measure, longer, 200.0).unwrap();
+    let cut = wrap_title(measure, longer, 200.0, WHOLE_TITLE_LINES).unwrap();
     assert_eq!(cut.len(), 2);
     assert!(cut[1].ends_with('…'));
 }
@@ -351,19 +350,6 @@ fn a_tall_row_takes_the_corner_of_the_style_not_a_pill_that_cuts_its_text() {
     assert_eq!(radius_of(Rect::new(0, 0, 480, pill.row * 2)), pill.corner);
 }
 
-#[test]
-fn a_faint_row_has_ink_on_a_panel_of_two_grays() {
-    let two = Style {
-        mono: true,
-        ..style()
-    };
-    // The grey 160 is paper on such a panel: the ink is the notes'.
-    assert_eq!(disabled_ink(&two), two.note);
-    assert_ne!(disabled_ink(&two), two.paper);
-    let many = style();
-    assert_eq!(disabled_ink(&many), many.disabled);
-}
-
 /// The pill and the knob a switch is drawn with, as (bounds, filled).
 fn switch_parts(on: bool) -> (Rect, bool, Rect) {
     let mut paint = Vec::new();
@@ -430,4 +416,27 @@ fn a_list_has_no_room_above_its_rows_until_the_owner_keeps_and_sizes_it() {
     assert!(list.set_head_height(100));
     assert!(!list.set_head_height(100));
     assert_eq!(list.head_rect(), None);
+}
+
+#[test]
+fn a_faint_row_has_ink_on_a_panel_of_two_grays() {
+    let two = Style {
+        mono: true,
+        ..style()
+    };
+    // The grey 160 is paper on such a panel: the ink is the notes'.
+    assert_eq!(disabled_ink(&two), two.note);
+    assert_ne!(disabled_ink(&two), two.paper);
+    let many = style();
+    assert_eq!(disabled_ink(&many), many.disabled);
+}
+
+#[test]
+fn a_head_as_high_as_the_page_leaves_room_for_the_first_row() {
+    assert_eq!(head_fit(150, 700, Some(80)), 150);
+    // Taller than the page: cut to what the first row leaves.
+    assert_eq!(head_fit(900, 700, Some(80)), 620);
+    assert_eq!(head_fit(700, 700, Some(80)), 620);
+    // No rows: nothing to keep.
+    assert_eq!(head_fit(900, 700, None), 700);
 }
