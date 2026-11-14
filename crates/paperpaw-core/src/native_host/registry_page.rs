@@ -69,16 +69,16 @@ impl<'a> RegistryPage<'a> {
         if self.rows == self.max_rows {
             return Ok(ControlFlow::Break(()));
         }
-        let length = record.framed_len()?;
-        let available = self.out.len() - self.used - self.end_bytes;
-        if length > available {
+        // The room before the end record, which `new` saw to.
+        let limit = self.out.len() - self.end_bytes;
+        let room = self.out.get_mut(self.used..limit).ok_or(ERR_NO_SPACE)?;
+        let Some(written) = record.encode_within(room)? else {
             return if self.rows == 0 {
                 Err(ERR_NO_SPACE)
             } else {
                 Ok(ControlFlow::Break(()))
             };
-        }
-        let written = record.encode(&mut self.out[self.used..])?;
+        };
         self.used += written;
         self.rows += 1;
         self.cursor += 1;

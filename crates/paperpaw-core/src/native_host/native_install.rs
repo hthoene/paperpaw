@@ -987,6 +987,10 @@ impl crate::Kernel {
         self.add_plugin_choices();
         // After the choices: a configured value can name one.
         self.apply_late_config();
+        // The three steps above read specs their plugins describe (one per
+        // default, choice or configured value): not kept through the start,
+        // where plugin after plugin registers with no round between.
+        self.rest_settings();
         self.publish_fonts(owner, resources)
     }
 }

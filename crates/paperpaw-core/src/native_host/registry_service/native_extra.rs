@@ -163,11 +163,14 @@ pub(super) fn shows(settings: &Settings, shown: &Shown<'_>) -> bool {
 }
 
 /// Hands `f` the id of each setting a native plugin's declared `shown_if`
-/// names (once per record, as `all` spells it). Nothing while the store is
-/// being changed.
+/// names (once per record, as `all` spells it). With `named`, only the
+/// records that may name that setting are read: a declared id is spelled as
+/// `all` spells it (`declarations::full_id`: no placement), so a record that
+/// names the setting holds its id. Nothing while the store is being changed.
 pub(super) fn each_governing<'s>(
     sources: &Sources<'_>,
     all: &'s Settings,
+    named: Option<&str>,
     f: &mut dyn FnMut(&'s str),
 ) {
     let Some(directory) = sources.directory else {
@@ -176,20 +179,23 @@ pub(super) fn each_governing<'s>(
     let Ok(store) = directory.store.try_borrow() else {
         return;
     };
-    store.keys(Kind::Extra, &mut |key| {
-        store.with_record(key, &mut |record| {
-            if let Record::SettingExtra(extra) = record
-                && let Some(spec) = all.spec(extra.shown_id)
-            {
-                f(spec.id.as_str());
-            }
-        });
+    let wanted = |bytes: &[u8]| {
+        named.is_none_or(|id| crate::native_host::declaration_store::holds(bytes, id))
+    };
+    store.each_wanted(Kind::Extra, &wanted, &mut |record| {
+        if let Record::SettingExtra(extra) = record
+            && let Some(spec) = all.spec(extra.shown_id)
+        {
+            f(spec.id.as_str());
+        }
     });
 }
 
-/// Whether a native plugin's declared `shown_if` names setting `id`.
+/// Whether a native plugin's declared `shown_if` names setting `id`: asked
+/// for one row alone, so only the declared extras that may name it are read
+/// (every extra of the device was, a row: #248).
 pub(super) fn governs(sources: &Sources<'_>, all: &Settings, id: &str) -> bool {
     let mut found = false;
-    each_governing(sources, all, &mut |of| found |= of == id);
+    each_governing(sources, all, Some(id), &mut |of| found |= of == id);
     found
 }
