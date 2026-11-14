@@ -7,6 +7,8 @@
 
 ### Added
 
+- **The store offers the plugins a plugin needs** (#244). A plugin that names others in `requires` has them offered after its install, with their sizes: *Download* or *Not now*, as in Beta 3.
+
 - **Discover fonts is back on the Text page of the reading settings** (#244). It opens the fonts browser's list, or says why it cannot (not installed, switched off, waiting for a restart, could not start) and offers the one thing to do about it, in English and German.
 
 ### Changed

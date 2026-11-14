@@ -493,14 +493,8 @@ impl Catalog {
             }
             return Step::WaitFor(events::SCREEN_SHOWN.id().clone());
         }
-        if self.restart.replace(false)
-            && let Some(stopped) = job.take()
-        {
-            let walk = stopped.is_walk();
-            self.split
-                .set(self.split.get() || matches!(stopped, CatalogJob::Split(_)));
-            stopped.abort(storage);
-            self.give_back(walk);
+        if self.restart.replace(false) {
+            self.stop(&mut job, storage);
         }
         if job.is_none() && self.split.replace(false) {
             *job = Some(CatalogJob::Split(library::split::Split::new()));
@@ -508,28 +502,10 @@ impl Catalog {
         if matches!(*job, Some(CatalogJob::Split(_))) {
             return self.split_step(env, &mut job);
         }
-        if job.is_none() {
-            let fresh = core::mem::take(&mut *self.fresh.borrow_mut());
-            let walk = self.walk.replace(false);
-            let started = if walk {
-                library::catalog::Walk::start(env, fresh.clone()).map(CatalogJob::Walk)
-            } else if !fresh.is_empty() || library::catalog::log_is_long(storage) {
-                library::catalog::Rewrite::start(env, fresh.clone()).map(CatalogJob::Rewrite)
-            } else if let Some(archive) = self.sort_wanted(env) {
-                library::sorted::Build::start(env, &archive).map(CatalogJob::Sort)
-            } else {
-                self.urgent.set(false);
-                return Step::Done;
-            };
-            *self.taken.borrow_mut() = fresh;
-            match started {
-                Ok(started) => *job = Some(started),
-                Err(error) => {
-                    self.give_back(walk);
-                    out.push(events::CATALOG_FAILED.emit(()));
-                    return Step::Failed(alloc::format!("catalog: {error:?}"));
-                }
-            }
+        if job.is_none()
+            && let Some(ended) = self.start(env, &mut job, out)
+        {
+            return ended;
         }
         let walk = job.as_ref().is_some_and(CatalogJob::is_walk);
         let result = job.as_mut().map_or(Ok(true), |job| job.step(env));

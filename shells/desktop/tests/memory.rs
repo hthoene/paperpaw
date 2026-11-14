@@ -477,8 +477,14 @@ fn the_store_with_the_devices_tls_stays_within_the_x4_budget() {
 /// once (11.6 KiB; 18.8 when it doubled). The key map is made anew without
 /// the old one beside it. 12.6 KiB with the store's own changes (#1452), 13.4 KiB
 /// with the font change of #1457 beside them (its install peak is 0.8 KiB
-/// higher): the line is that plus a margin of 0.2 KiB.
+/// higher): the line is that plus a margin of 0.2 KiB. The second install
+/// measures 13.6 KiB since T41: on the line.
 const INSTALL_GROWTH_KIB: f64 = 13.6;
+
+/// The run prints tenths of a KiB, and the difference of two of them is not
+/// exact as a float (137.3 - 123.7 is 13.600000000000009): half a tenth is
+/// let through, so that the line holds for what is printed.
+const PRINTED_TENTH_KIB: f64 = 0.05;
 
 /// The store on the X4 step by step (`step:` in the flow): its list, a
 /// group, a plugin's page, its install (download, check, install), its
@@ -551,7 +557,7 @@ fn each_step_of_the_store_stays_within_the_x4_budget() {
         );
         if name.starts_with("install") {
             assert!(
-                peak - before <= INSTALL_GROWTH_KIB,
+                peak - before <= INSTALL_GROWTH_KIB + PRINTED_TENTH_KIB,
                 "installing grew the heap by {:.1} KiB, more than {INSTALL_GROWTH_KIB} KiB",
                 peak - before
             );

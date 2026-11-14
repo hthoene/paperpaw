@@ -445,3 +445,17 @@ fn the_bar_has_room_to_spare_or_goes_close_below_the_message() {
     });
     assert!(small.bar.y >= small.message.y);
 }
+
+/// The host lets a plugin close a screen only from the screen's own callbacks,
+/// so a download that ended in an event leaves its screen drawn at the end,
+/// not at 99 %, until a key or the next showing closes it.
+#[test]
+fn a_fetch_that_ended_is_drawn_whole_until_it_closes() {
+    let going = Going::default();
+    going.set("pack-a", Step::Installed);
+    going.set("pack-b", Step::Installed);
+    let mut core = request("reader");
+    core.refresh(&going, Trouble::None);
+    assert_eq!((core.phase, core.permille), (Phase::Done, 1000));
+    assert_eq!(core.refresh(&going, Trouble::None), Next::Close);
+}

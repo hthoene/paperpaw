@@ -92,25 +92,29 @@ impl<'a> SettingIdentity<'a> {
     /// (`plugin.widget@2.token`) names the setting of its plugin
     /// (`plugin.widget.token`). `None` for a key nothing defines. Nothing is
     /// allocated or made, also where its plugin describes the setting (#248).
+    /// Found by the settings' index, not by a walk of them: every read of a
+    /// setting asks this (#250).
     pub(crate) fn secret(&self, settings: &paperpaw_sdk::Settings) -> Option<bool> {
-        // Only a setting kept as it is can be a secret: one its plugin
-        // describes has no extra.
-        let kept = settings
-            .kept_specs()
-            .find(|spec| self.matches(spec.id.as_str()));
-        if let Some(spec) = kept {
-            return Some(spec.extra().secret);
-        }
+        let of = |plain: &str| {
+            settings
+                .defines(plain)
+                .then(|| settings.defines_secret(plain))
+        };
         if self.tail.is_empty() {
-            return settings.defines(self.head).then_some(false);
+            return of(self.head);
         }
-        // No id a plugin describes is longer than this.
+        // No id a plugin describes is longer than this: a longer one can
+        // only be a setting kept as it is, found by the walk.
         let mut plain = [0; 128];
         let (head, tail) = (self.head.as_bytes(), self.tail.as_bytes());
-        let room = plain.get_mut(..head.len() + tail.len())?;
+        let Some(room) = plain.get_mut(..head.len() + tail.len()) else {
+            return settings
+                .kept_specs()
+                .find(|spec| self.matches(spec.id.as_str()))
+                .map(|spec| spec.extra().secret);
+        };
         room[..head.len()].copy_from_slice(head);
         room[head.len()..].copy_from_slice(tail);
-        let plain = core::str::from_utf8(room).ok()?;
-        settings.defines(plain).then_some(false)
+        of(core::str::from_utf8(room).ok()?)
     }
 }
