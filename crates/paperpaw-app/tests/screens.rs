@@ -256,6 +256,31 @@ fn reading_and_its_menus() {
     app.check("reader-layout");
 }
 
+/// A page that has an action a plugin added above its settings (the fonts
+/// browser's *Discover fonts*) starts on its first setting, as in Beta 3.
+#[test]
+#[cfg_attr(
+    not(all(
+        feature = "native-linked",
+        feature = "native-linked-reading",
+        feature = "native-linked-store"
+    )),
+    ignore = "the Settings and the fonts browser are native plugins: linked with `native-linked-reading` and `native-linked-store` (#244)"
+)]
+fn a_page_starts_on_its_first_setting_not_on_an_action_above_it() {
+    let mut app = App::new();
+    app.run(actions::SETTINGS);
+    app.run(actions::DOWN);
+    app.run(actions::CONFIRM);
+    // The reading settings: the text page.
+    app.run(actions::CONFIRM);
+    let shown = app.described();
+    assert!(shown.contains("Row \"Discover fonts\""), "{shown}");
+    let focused: Vec<&str> = shown.lines().filter(|l| l.ends_with("(focused)")).collect();
+    assert_eq!(focused.len(), 1, "{shown}");
+    assert!(focused[0].starts_with("Row \"Font,"), "{shown}");
+}
+
 /// A number changed with the buttons shows its values at once, kept only
 /// when chosen; *back* goes back to the one before.
 #[test]
