@@ -99,19 +99,17 @@ impl Open {
         Ok(())
     }
 
-    /// The pictures of a page the show of the screen draws (or drew) with
-    /// their places empty are asked for in a frame of their own: the page
-    /// is not drawn a second time (#257, todo 597: an opened book drew its
-    /// page twice before its cover). Where the host takes no boxes, the page
-    /// is drawn again with its pictures.
+    /// A page shown with pending pictures needs a whole redraw and its image
+    /// areas in the same callback: only that batch receives a follow-up frame.
+    /// Area-only redraws are ordinary frames and would keep the places empty.
     ///
     /// # Errors
     /// The host's refusal to redraw.
     pub(super) fn show_pictures(&mut self, host: &Host<'_>, docs: &Documents) -> Result<(), Error> {
-        if self.pictures == Pass::Asked || self.ask_boxes(host, docs) {
+        if self.pictures == Pass::Asked {
             return Ok(());
         }
-        redraw(host, RedrawMode::Partial)
+        self.redraw_page(host, docs, RedrawMode::Partial)
     }
 
     /// The boxes of the page's pictures are asked for again (after any

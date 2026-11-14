@@ -199,6 +199,12 @@ impl GroupView {
                 let editing = editing.filter(|e| e.0 == index).map(|e| e.1);
                 let value = value_text(messages, host, entry, editing)?;
                 let mut item = Item::noted(&entry.setting.title, &value, &entry.detail.help)?;
+                // A switch is drawn as one, with its state told as the item's.
+                if let (Kind::Bool, Some(Val::Bool(on)), Item::Row(row)) =
+                    (entry.setting.kind, &entry.setting.value, &mut item)
+                {
+                    row.on = Some(*on);
+                }
                 if self.touch
                     && entry.setting.kind == Kind::Int
                     && entry.detail.editor_kind == 0
@@ -249,6 +255,46 @@ impl GroupView {
     }
 }
 
+/// A row of the main page before it is sorted: its order, whether it is listed
+/// before the entries of the same order, what it opens (none: a heading), and
+/// its title and icon.
+type Placed = (i32, bool, Option<Link>, (String, String));
+
+/// The items of the main page for the rows `placed` (sorted), with what each
+/// opens: headings with nothing under them go.
+fn main_items(
+    host: &Host<'_>,
+    messages: &mut Messages,
+    placed: Vec<Placed>,
+    advanced: bool,
+) -> Result<(Vec<Item>, Vec<Option<Link>>), Error> {
+    let mut keep: Vec<bool> = Vec::new();
+    keep.try_reserve_exact(placed.len())
+        .map_err(|_| Error::NoMemory)?;
+    for i in 0..placed.len() {
+        keep.push(placed[i].2.is_some() || placed.get(i + 1).is_some_and(|next| next.2.is_some()));
+    }
+    let mut items = Vec::new();
+    let mut links = Vec::new();
+    for (i, (_, _, link, (title, icon))) in placed.into_iter().enumerate() {
+        if !keep[i] {
+            continue;
+        }
+        let item = match &link {
+            None => Item::heading(&title)?,
+            Some(Link::Advanced) => Item::row(&title, &on_off(messages, host, advanced)?)?,
+            // The search looks like the field it opens, as it did in Beta 3.
+            Some(Link::Search) => Item::field(&title)?,
+            Some(Link::Reset | Link::Restart) => Item::row(&title, "")?,
+            Some(_) => Item::row(&title, "›")?,
+        };
+        let item = with_icon(host, item, &icon)?;
+        push(&mut items, item)?;
+        push(&mut links, link)?;
+    }
+    Ok((items, links))
+}
+
 /// Builds the main page.
 pub(super) fn build_list(
     host: &Host<'_>,
@@ -265,13 +311,13 @@ pub(super) fn build_list(
     let widgets = reader.widget_ids()?;
     let mut messages = Messages::new()?;
     // (order, headings before entries of the same order, link or heading, title)
-    let mut placed: Vec<(i32, bool, Option<Link>, String)> = Vec::new();
+    let mut placed: Vec<Placed> = Vec::new();
     for PageRow {
         action,
         section,
         order,
         title,
-        ..
+        icon,
     } in pages
     {
         // Passwords and keys show once there are some.
@@ -279,7 +325,7 @@ pub(super) fn build_list(
             continue;
         }
         let link = (!section).then_some(Link::Page(action));
-        push(&mut placed, (order, !section, link, title))?;
+        push(&mut placed, (order, !section, link, (title, icon)))?;
     }
     for index in model::main_groups(&groups, &held, |id| widgets.iter().any(|w| w == id))? {
         let g = &groups[index];
@@ -292,7 +338,10 @@ pub(super) fn build_list(
             id: copy(&g.id)?,
             page: copy(&g.page)?,
         };
-        push(&mut placed, (order, true, Some(link), copy(&g.title)?))?;
+        push(
+            &mut placed,
+            (order, true, Some(link), (copy(&g.title)?, String::new())),
+        )?;
     }
     push(
         &mut placed,
@@ -300,7 +349,7 @@ pub(super) fn build_list(
             i32::MIN,
             true,
             Some(Link::Search),
-            messages.copy(host, "settings.search")?,
+            (messages.copy(host, "settings.search")?, copy("search")?),
         ),
     )?;
     push(
@@ -309,7 +358,7 @@ pub(super) fn build_list(
             i32::MAX,
             true,
             Some(Link::Advanced),
-            messages.copy(host, "settings.advanced")?,
+            (messages.copy(host, "settings.advanced")?, copy("eye")?),
         ),
     )?;
     push(
@@ -318,7 +367,7 @@ pub(super) fn build_list(
             i32::MAX,
             true,
             Some(Link::Reset),
-            messages.copy(host, "settings.reset-all")?,
+            (messages.copy(host, "settings.reset-all")?, copy("refresh")?),
         ),
     )?;
     // Last: what plugins saved goes along, as when the device goes off.
@@ -328,39 +377,27 @@ pub(super) fn build_list(
             i32::MAX,
             true,
             Some(Link::Restart),
-            messages.copy(host, "settings.restart")?,
+            (messages.copy(host, "settings.restart")?, copy("power")?),
         ),
     )?;
     paperpaw_ui_kit::mem::stable_sort_by(&mut placed, |a, b| (a.0, a.1).cmp(&(b.0, b.1)));
-    // Headings with nothing under them go.
-    let mut keep: Vec<bool> = Vec::new();
-    keep.try_reserve_exact(placed.len())
-        .map_err(|_| Error::NoMemory)?;
-    for i in 0..placed.len() {
-        keep.push(placed[i].2.is_some() || placed.get(i + 1).is_some_and(|next| next.2.is_some()));
-    }
-    let advanced = cx.advanced;
-    let mut items = Vec::new();
-    let mut links = Vec::new();
-    for (i, (_, _, link, title)) in placed.into_iter().enumerate() {
-        if !keep[i] {
-            continue;
-        }
-        let item = match &link {
-            None => Item::heading(&title)?,
-            Some(Link::Advanced) => Item::row(&title, &on_off(&mut messages, host, advanced)?)?,
-            // The search looks like the field it opens, as it did in Beta 3.
-            Some(Link::Search) => Item::field(&title)?,
-            Some(Link::Reset | Link::Restart) => Item::row(&title, "")?,
-            Some(_) => Item::row(&title, "›")?,
-        };
-        push(&mut items, item)?;
-        push(&mut links, link)?;
-    }
+    let (items, links) = main_items(host, &mut messages, placed, cx.advanced)?;
     // Made aside; the page changes once it is whole.
     view.links = links;
     view.list.replace(items);
     Ok(())
+}
+
+/// `item` with the icon named `name` at the start of its row, where the host
+/// has an icon font with that icon; a heading or a name that is empty is left
+/// as it is.
+pub(super) fn with_icon(host: &Host<'_>, mut item: Item, name: &str) -> Result<Item, Error> {
+    if !name.is_empty()
+        && let Item::Row(row) = &mut item
+    {
+        row.icon = paperpaw_ui_kit::icons::glyph(host, name)?;
+    }
+    Ok(item)
 }
 
 /// The entry of a page's setting. On a placement's page (`of`, the placement

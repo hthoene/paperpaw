@@ -77,6 +77,7 @@ pub fn items(name: &str, help: &str) -> Result<Vec<Item>, Error> {
             value: String::new(),
             note: text::copy(help)?,
             zone: None,
+            icon: None,
             stepper: false,
             disabled: true,
             on: None,

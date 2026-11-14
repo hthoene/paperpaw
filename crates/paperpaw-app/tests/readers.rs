@@ -114,3 +114,21 @@ fn a_reading_app_that_is_gone_is_passed_over_silently() {
     assert!(warnings.is_empty(), "{warnings:?}");
     assert_eq!(app.book(TEXT), SHIPPED);
 }
+
+/// A book whose file is gone from the card says so, as Beta 3 did, instead of
+/// calling the file damaged.
+#[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
+fn a_book_gone_from_the_card_says_its_file_is_no_longer_there() {
+    let mut app = App::new(books(), "");
+    assert_eq!(app.book("books/gone.txt"), SHIPPED);
+    app.kernel.render(&mut |_, _| {});
+    let labels: Vec<String> = app.kernel.describe().into_iter().map(|p| p.label).collect();
+    assert!(
+        labels.iter().any(|l| l.contains("no longer there")),
+        "{labels:?}"
+    );
+}

@@ -32,9 +32,9 @@ off_by_default = true
 build = "tools/literata-packs.py"
 inputs = ["plugins/fonts-default/fonts/Literata.ttf", "plugins/fonts-default/fonts/Literata-Italic.ttf", "tools/fontgen", "tools/plugin-files/literata-large.ini"]
 name = "Literata, larger sizes"
-description = "Book text in Literata larger than the firmware's sizes."
+description = "Book text in Literata larger than the firmware's sizes. Choose Literata as the reading font to use them."
 de.name = "Literata, größere Schriftgrade"
-de.description = "Buchtext in Literata größer als in der Firmware."
+de.description = "Buchtext in Literata größer als in der Firmware. Wähle Literata als Schriftart, um sie zu nutzen."
 
 [literata-bold-italic]
 version = "1.0.1"

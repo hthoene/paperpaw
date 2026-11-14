@@ -222,6 +222,8 @@ pub use shell_wiring::{HostWiring, HyphenTables, WiredHosts};
 
 #[path = "native_host/fonts.rs"]
 mod fonts;
+#[cfg(any(test, feature = "testing"))]
+pub use fonts::answer_text_ink_as_the_x4;
 #[path = "native_host/fonts_data.rs"]
 mod fonts_data;
 
