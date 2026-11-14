@@ -11,7 +11,7 @@
 )]
 use paperpaw_core::{
     Kernel, KernelBuilder,
-    native_host::{HostResources, HostWiring, flat::FlatDepth},
+    native_host::{FixedTables, HostResources, HostWiring, flat::FlatDepth},
 };
 use paperpaw_native::host_glue::{PpEntry, Services};
 use paperpaw_native::metadata::{Feature, Host as AdmissionHost, Profile, Service};
@@ -126,6 +126,10 @@ fn teardown(
 pub struct Installed {
     kernel: Option<Kernel>,
     heap: Heap,
+    /// The device table every plugin of the kernel shares, as in a shell.
+    resources: Option<HostResources>,
+    /// The device's one callback depth counter, shared the same way.
+    depth: Option<FlatDepth>,
 }
 
 impl Installed {
@@ -152,6 +156,8 @@ impl Installed {
 impl Drop for Installed {
     fn drop(&mut self) {
         drop(self.kernel.take());
+        drop(self.resources.take());
+        drop(self.depth.take());
         if std::thread::panicking() {
             return;
         }
@@ -224,6 +230,23 @@ impl Setup {
         }
     }
 
+    /// The X4's screen and buttons with the memory of a larger reader
+    /// (`MemoryClass::Large`): where the host keeps no X4 limits, e.g. its
+    /// nested callbacks open.
+    pub fn large() -> Self {
+        let x4 = Self::x4();
+        Self {
+            device: DeviceInfo::new(
+                "large",
+                "A larger reader",
+                x4.device.display,
+                x4.device.input,
+                MemoryClass::Large,
+            ),
+            ..x4
+        }
+    }
+
     /// Builds the kernel further with `step`, e.g. `|b| b.plugin(DefaultFontPacks)` for the
     /// fonts a screen draws with, or `|b| b.storage(..)` for files it reads. Steps run in the
     /// order given.
@@ -279,6 +302,66 @@ pub fn install_with(
     services: &[&'static str],
     features: &'static [Feature<'static>],
 ) -> Result<Installed, String> {
+    let heap = Heap::default();
+    // Held from here on, so a refused install is checked for leaks as well.
+    let mut installed = Installed {
+        kernel: Some(
+            setup
+                .kernel
+                .iter()
+                .fold(
+                    Kernel::builder(setup.device).user_config(setup.config.clone()),
+                    |builder, step| step(builder),
+                )
+                .build()
+                .map_err(|e| format!("{e:?}"))?,
+        ),
+        heap,
+        resources: None,
+        depth: None,
+    };
+    register(
+        &mut installed,
+        setup,
+        entry,
+        name,
+        services,
+        features,
+        FixedTables::NONE,
+    )?;
+    Ok(installed)
+}
+
+/// Installs one more linked plugin `name` in the kernel of `installed`, on the
+/// same counted heap and device table (a page of one plugin that shows
+/// another's widgets), with the fixed `tables` its build script made.
+pub fn also(
+    installed: &mut Installed,
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+    tables: FixedTables,
+) -> Result<(), String> {
+    register(
+        installed,
+        &Setup::default(),
+        entry,
+        name,
+        services,
+        FEATURES,
+        tables,
+    )
+}
+
+fn register(
+    installed: &mut Installed,
+    setup: &Setup,
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+    features: &'static [Feature<'static>],
+    tables: FixedTables,
+) -> Result<(), String> {
     let services: &'static [Service<'static>] = Box::leak(
         services
             .iter()
@@ -304,30 +387,29 @@ pub fn install_with(
     };
     // SAFETY: a linked entry's metadata view is its own static bytes.
     let metadata = unsafe { std::slice::from_raw_parts(entry.metadata.ptr, entry.metadata.len) };
-    let heap = Heap::default();
-    let resources = HostResources::try_new().map_err(|e| format!("{e:?}"))?;
-    if !setup.wiring.is_empty() {
-        let wiring = setup
-            .wiring
-            .iter()
-            .fold(HostWiring::new(), |wiring, step| step(wiring));
-        resources.wire(wiring).map_err(|e| format!("wire: {e:?}"))?;
-    }
-    // Held from here on, so a refused install is checked for leaks as well.
-    let mut installed = Installed {
-        kernel: Some(
-            setup
-                .kernel
-                .iter()
-                .fold(
-                    Kernel::builder(setup.device).user_config(setup.config.clone()),
-                    |builder, step| step(builder),
-                )
-                .build()
-                .map_err(|e| format!("{e:?}"))?,
-        ),
-        heap: heap.clone(),
+    let heap = installed.heap.clone();
+    let resources = match installed.resources.as_ref() {
+        Some(shared) => shared.try_clone().ok_or("no memory for the device table")?,
+        None => {
+            let resources = HostResources::try_new().map_err(|e| format!("{e:?}"))?;
+            if !setup.wiring.is_empty() {
+                let wiring = setup
+                    .wiring
+                    .iter()
+                    .fold(HostWiring::new(), |wiring, step| step(wiring));
+                resources.wire(wiring).map_err(|e| format!("wire: {e:?}"))?;
+            }
+            installed.resources = resources.try_clone();
+            resources
+        }
     };
+    let depth = match installed.depth.as_ref() {
+        Some(shared) => shared
+            .try_clone()
+            .ok_or("no memory for the depth counter")?,
+        None => FlatDepth::try_new().map_err(|e| format!("{e:?}"))?,
+    };
+    installed.depth = depth.try_clone();
     // The kernel keeps a linked plugin's id as the firmware does, for the run.
     let name: &'static str = Box::leak(Box::from(name));
     // SAFETY: statically linked code and metadata live for the whole test.
@@ -337,17 +419,16 @@ pub fn install_with(
             metadata,
             &host,
             name,
-            heap.clone(),
+            heap,
             resources,
-            &FlatDepth::try_new().map_err(|e| format!("{e:?}"))?,
+            &depth,
             teardown,
             report,
             (core::ptr::null(), 0),
-            paperpaw_core::native_host::FixedTables::NONE,
+            tables,
         )
     }
-    .map_err(|e| format!("{e:?}"))?;
-    Ok(installed)
+    .map_err(|e| format!("{e:?}"))
 }
 
 /// [`install`] and tear the plugin down again: `make` ran in a real

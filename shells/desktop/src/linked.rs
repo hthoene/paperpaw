@@ -599,12 +599,7 @@ pub fn prepare(
         .lookup()
         .work(WorkInputs::new(inputs.view.clone(), profile.device.memory));
     // HTTP over the card (saved and sent files); no card, no `core.net`.
-    // The files `core.net` saves, sends and receives are the card's, as
-    // `core.files` has them (a run on simulated time keeps only its secrets in
-    // memory: `inputs.storage`).
-    let net_card = inputs.card.clone();
-    let transport = inputs.storage.clone().map(|storage| {
-        let storage = net_card.unwrap_or(storage);
+    let transport = net_storage(&inputs).map(|storage| {
         let transport = Rc::new(crate::native_net::NativeNet::new(
             storage.clone(),
             inputs.view.clone(),
@@ -768,9 +763,42 @@ fn register_linked(
     }
 }
 
+/// Where `core.net` and `core.sockets` save and send files: the card, which
+/// the plugins read their data folders from. Not `storage`: on simulated time
+/// that one is the secrets' store in memory, where a saved answer would be
+/// out of the plugin's reach.
+fn net_storage(inputs: &Inputs) -> Option<Rc<dyn Storage>> {
+    inputs.card.clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A script's run (simulated time) keeps its secrets in memory, but a
+    /// download saved to a file lands on the card, where the plugin that asked
+    /// for it reads it.
+    #[test]
+    fn downloads_are_saved_on_the_card_also_on_simulated_time() {
+        let secrets: Rc<dyn Storage> = Rc::new(paperpaw_sdk::MemoryStorage::new());
+        let card: Rc<dyn Storage> = Rc::new(paperpaw_sdk::MemoryStorage::new());
+        let inputs = Inputs {
+            storage: Some(secrets.clone()),
+            view: Rc::default(),
+            simulated: true,
+            net: Rc::default(),
+            card: Some(card.clone()),
+        };
+        let net = net_storage(&inputs).unwrap();
+        assert!(Rc::ptr_eq(&net, &card));
+        assert!(!Rc::ptr_eq(&net, &secrets));
+        // No card: no `core.net` (nor a store that loses what is saved).
+        let none = Inputs {
+            card: None,
+            ..inputs
+        };
+        assert!(net_storage(&none).is_none());
+    }
 
     /// A linked plugin's declaration bytes are read-only statics like its
     /// metadata; if the metadata lay outside the image found here the

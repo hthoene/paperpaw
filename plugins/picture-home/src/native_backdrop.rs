@@ -8,8 +8,8 @@
 //! reaches: the fitting, the place and the zoom are the rectangle (the same
 //! `native_picture::plan`), the paleness is the blend with the paper below it
 //! (transparency), tiles are the one picture drawn again and again, only those
-//! in the rows a draw may change. What the facade cannot do is named in
-//! `PORTING-7.md`: tiles past [`TILES_MAX`] (or [`TILES_ACROSS_MAX`] in a row).
+//! in the rows a draw may change. A tile smaller than [`TILE_SIDE_MIN`] is
+//! not drawn (`PORTING-7.md`).
 use alloc::string::String;
 use paperpaw_sdk::Rect;
 use paperpaw_sdk::native::{
@@ -21,18 +21,13 @@ use crate::native_picture::{Fitting, Plan, Recipe, lighten, plan, tone};
 
 /// The first cookie of the requests of this screen (the rest count up from it).
 const COOKIE: u32 = 0x5048_0000;
-/// Tiles on the screen at most. Each tile a draw meets is one call of the host,
-/// which opens the picture's file on the card again (also for a tile outside the
-/// rows it may change, so those are not asked for: [`Tiles::within`]). A host that
-/// draws the screen whole makes at most this many calls; the X4, which draws in
-/// bands, about this many over a frame plus [`TILES_ACROSS_MAX`] for each band
-/// edge a row of tiles crosses. A picture that would repeat more often is not
-/// drawn (a host-side tiled draw would lift it, `PORTING-7.md`). It was 64 while
-/// every draw asked for every tile and the places were kept in a list.
-pub const TILES_MAX: i64 = 256;
-/// Tiles in a row at most: what a band of the X4 meets once for each row of
-/// tiles in it.
-pub const TILES_ACROSS_MAX: i64 = 32;
+/// The smallest side of a tile drawn: the one floor against a degenerate
+/// picture. Each tile a draw meets is one call of the host, which takes a
+/// small tile from the kernel's cache once a frame (Services measured it), and
+/// only the tiles in the rows a draw may change are asked for
+/// ([`Tiles::within`]). On the X4's 480 by 800 that is 6,000 tiles at most.
+/// Interface 6 had no floor; it was 256 tiles (32 in a row) before.
+pub const TILE_SIDE_MIN: i64 = 8;
 
 /// The side of the host's grid of brightness (8 by 8 cells).
 const GRID: i64 = 8;
@@ -450,7 +445,7 @@ pub fn transparency(percent: u32) -> u8 {
 
 /// The places of the picture `plan` puts on the screen: one, or the tiles that
 /// cover it (the first starting where the place says, as interface 6 made it);
-/// none for more tiles than [`TILES_MAX`] or [`TILES_ACROSS_MAX`] across.
+/// none for a tile narrower or lower than [`TILE_SIDE_MIN`].
 fn tiles(recipe: &Recipe, plan: Plan) -> Option<Tiles> {
     let one = |x: i32, y: i32| Place {
         x,
@@ -462,15 +457,15 @@ fn tiles(recipe: &Recipe, plan: Plan) -> Option<Tiles> {
         return Some(Tiles::one(one(plan.left, plan.top)));
     }
     let (w, h) = (i64::from(recipe.width), i64::from(recipe.height));
-    let (pw, ph) = (i64::from(plan.width.max(1)), i64::from(plan.height.max(1)));
+    let (pw, ph) = (i64::from(plan.width), i64::from(plan.height));
+    if pw < TILE_SIDE_MIN || ph < TILE_SIDE_MIN {
+        return None;
+    }
     // The tile before the first edge shows its end.
     let x0 = i64::from(plan.left).rem_euclid(pw) - pw;
     let y0 = i64::from(plan.top).rem_euclid(ph) - ph;
     let across = (w - x0 + pw - 1) / pw;
     let down = (h - y0 + ph - 1) / ph;
-    if across * down > TILES_MAX || across > TILES_ACROSS_MAX {
-        return None;
-    }
     Some(Tiles {
         first: one(i32::try_from(x0).ok()?, i32::try_from(y0).ok()?),
         across: u32::try_from(across).ok()?,

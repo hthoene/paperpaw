@@ -33,6 +33,7 @@
 use super::{CommandAuthority, CommandBatch, CommandStage, WireCommand};
 use crate::Kernel;
 use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
+use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::{
     Command, Id, IdError, SettingKind, SettingSpec, SettingValue, Settings,
@@ -209,15 +210,22 @@ pub(crate) fn walk(
 ) -> Result<(), i32> {
     let kind = preset.kind.as_str();
     if covering(kind) {
-        for spec in settings.specs() {
+        // One spec at a time: none a plugin describes is kept for this.
+        let mut refused = Ok(());
+        let walked = settings.walk(paperpaw_sdk::Pick::All, &mut |spec| {
             let key = spec.id.as_str();
             if !covers(kind, settings, widgets, spec) || untouchable(key, spec) {
-                continue;
+                return ControlFlow::Continue(());
             }
             let value = last_value(preset, key).and_then(|text| Given::of(spec, text));
-            each(key, spec, value)?;
-        }
-        return Ok(());
+            refused = each(key, spec, value);
+            match refused {
+                Ok(()) => ControlFlow::Continue(()),
+                Err(_) => ControlFlow::Break(()),
+            }
+        });
+        refused?;
+        return walked.map_err(|_| ERR_NO_MEMORY);
     }
     for (key, text) in preset.values() {
         let Some(spec) = settings.spec(key) else {

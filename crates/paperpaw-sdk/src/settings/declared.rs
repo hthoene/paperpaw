@@ -88,15 +88,24 @@ impl Settings {
             {
                 continue;
             }
-            let Ok(spec) = self.specs.get_mut(setting.as_str()) else {
-                continue;
-            };
-            let below = set
+            let mut below = set
                 .layers
                 .iter()
                 .rev()
                 .filter(|layer| layer.by.namespace() != plugin)
-                .map(|layer| &layer.value)
+                .map(|layer| &layer.value);
+            if self.specs.is_described(setting.as_str()) {
+                // Its kind is as it was when each layer was checked (changed,
+                // it would be described no more): nothing is made to check.
+                if let Ok(default) = self.specs.default_mut(setting.as_str()) {
+                    *default = below.next().unwrap_or(&set.was).clone();
+                }
+                continue;
+            }
+            let Ok(spec) = self.specs.get_mut(setting.as_str()) else {
+                continue;
+            };
+            let below = below
                 .find(|value| spec.kind.accepts(value))
                 .unwrap_or(&set.was);
             if spec.kind.accepts(below) {
@@ -124,6 +133,16 @@ impl Settings {
     /// a shell). The user's own values still take precedence.
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn set_default_from_text(&mut self, id: &str, text: &str) -> Result<(), SettingError> {
+        if self.specs.is_described(id) {
+            // Read once to check the text; the default kept is what counts.
+            let value = self
+                .specs
+                .with(id, |spec| spec.parse(text))?
+                .ok_or(SettingError::Unknown)?
+                .ok_or(SettingError::InvalidValue)?;
+            *self.specs.default_mut(id)? = value;
+            return Ok(());
+        }
         let spec = self.specs.get_mut(id)?;
         spec.default = spec.parse(text).ok_or(SettingError::InvalidValue)?;
         Ok(())
@@ -135,10 +154,14 @@ impl Settings {
     /// setting is another plugin's).
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn set_default_by(&mut self, id: &str, text: &str, by: Id) -> Result<(), SettingError> {
-        let was = self.specs.get(id).map(|spec| spec.default.clone());
-        let spec = self.specs.get(id).ok_or(SettingError::Unknown)?;
-        let value = spec.parse(text).ok_or(SettingError::InvalidValue)?;
-        let foreign = spec.id.namespace() != by.as_str();
+        let was = self.specs.where_is(id).map(|at| at.default_now().clone());
+        let (value, setting) = self
+            .specs
+            .with(id, |spec| (spec.parse(text), spec.id.try_clone()))?
+            .ok_or(SettingError::Unknown)?;
+        let value = value.ok_or(SettingError::InvalidValue)?;
+        let setting = setting.ok_or(SettingError::Full)?;
+        let foreign = setting.namespace() != by.as_str();
         // All room first, so that a refusal changes nothing. Exactly what is
         // needed: a plain reserve would take four places on the X4.
         let mut first = None;
@@ -163,7 +186,6 @@ impl Settings {
             }
         }
         self.set_default_from_text(id, text)?;
-        let setting = self.specs.get_mut(id)?.id.clone();
         if !foreign {
             // A plugin's own settings: their own default, nothing to tell.
             self.defaults_by.remove(&setting);

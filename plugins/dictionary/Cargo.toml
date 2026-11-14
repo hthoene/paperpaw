@@ -21,7 +21,9 @@ paperpaw-stardict.workspace = true
 paperpaw-ui-kit.workspace = true
 
 [build-dependencies]
-paperpaw-sdk.workspace = true
+# `kernel` only for the build script (not unified with the plugin's own use of
+# the SDK): it makes the table of settings a linked build keeps in the program.
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
 paperpaw-core.workspace = true
@@ -30,6 +32,7 @@ paperpaw-i18n.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 proptest.workspace = true
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 
 [lints]
 workspace = true

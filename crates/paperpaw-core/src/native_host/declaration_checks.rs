@@ -73,8 +73,22 @@ pub(crate) struct View<'a> {
     pub(crate) refused: core::cell::Cell<Option<Cap>>,
 }
 impl<'a> View<'a> {
+    /// [`Self::visit`], each record with its place in the image (`None` for
+    /// one the host keeps a copy of, or decoded itself).
+    pub(crate) fn visit_placed(
+        &self,
+        visit: &mut dyn FnMut(Record<'a>, Option<super::raw_declarations::Place>),
+    ) -> Result<(), i32> {
+        self.raw.visit_placed(self.plugin, self.image, visit)?;
+        self.visit_decoded(&mut |record| visit(record, None));
+        Ok(())
+    }
     pub(crate) fn visit(&self, visit: &mut dyn FnMut(Record<'a>)) -> Result<(), i32> {
         self.raw.visit(self.plugin, self.image, visit)?;
+        self.visit_decoded(visit);
+        Ok(())
+    }
+    fn visit_decoded(&self, visit: &mut dyn FnMut(Record<'a>)) {
         // Decoded host submissions have no raw batch.
         for r in self.owned.groups() {
             visit(Record::SettingGroup(SettingGroup {
@@ -138,7 +152,6 @@ impl<'a> View<'a> {
                 extends: &r.extends,
             }));
         }
-        Ok(())
     }
     fn group(&self, name: &str) -> Result<Option<&'a str>, i32> {
         if let Some(Record::SettingGroup(group)) = self.raw.find(self.image, 0, name)? {

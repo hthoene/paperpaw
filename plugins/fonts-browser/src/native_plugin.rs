@@ -4,8 +4,9 @@
 //! native yet: downloading and installing a font, removing it, the font's own
 //! face in the list). *Your own fonts* is `native_own`.
 //!
-//! The font a page shows is handed over as the screen's one parameter
-//! (`Font::to_param`), so that the page does not read the catalog again.
+//! The font a page shows is handed over by its id (`Font::page_param`), and the
+//! page finds it in the kept catalog: the host takes at most 1,024 bytes a
+//! hand-over, less than a font's whole entry where it lists packs (the X4).
 use crate::{
     declarations::{DOWNLOADED, FONT, INSTALLED, LIST, OPEN, OWN, PLUGINS, SETTING},
     native_catalog::{Catalog, Font},
@@ -687,8 +688,7 @@ impl NativeFontsBrowser {
             if ui.is_none() {
                 *ui = Some(Ui::open(host)?);
             }
-            let param = font.to_param()?;
-            let params = [Param::new(FONT_PARAM, &param)?];
+            let params = [Param::new(FONT_PARAM, font.page_param())?];
             let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
             let handover = ui
                 .as_ref()
@@ -720,7 +720,17 @@ impl NativeFontsBrowser {
                 }
             }
         }
-        let font = Font::from_param(&text)?;
+        // The font the list handed over, as the kept catalog has it; none
+        // without one, or where the catalog cannot be read (the page says so).
+        let font = if text.is_empty() {
+            None
+        } else {
+            match self.kept(host) {
+                Ok(fonts) => Font::find(fonts, &text),
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => None,
+            }
+        };
         let installed = self.installed(host)?;
         let running = self.running()?;
         let mut view = Self::font_view(host, font, &installed, running.as_ref(), false)?;

@@ -44,6 +44,8 @@ mod plugins;
 mod presets;
 pub(in crate::native_host) mod rules;
 mod settings;
+#[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
+mod settings_described_tests;
 #[cfg(test)]
 mod settings_native_tests;
 #[cfg(test)]

@@ -453,10 +453,13 @@ impl PanelView {
             }
             let color = if on && !faint { style.paper } else { ink };
             let room = f32::from(button_room(rect.width, style.margin)).max(1.0);
-            let fitted = text::fit(font, style.small, label, room)?;
-            let wide = font.measure_text(style.small, &fitted)?;
+            let size = label_size(style.small, room, &mut |size| {
+                font.measure_text(size, label)
+            })?;
+            let fitted = text::fit(font, size, label, room)?;
+            let wide = font.measure_text(size, &fitted)?;
             let x = f32::from(rect.x) + (f32::from(rect.width) - wide).max(0.0) / 2.0;
-            text::label(body, font, &fitted, style.small, x, rect, color, Some(rect))
+            text::label(body, font, &fitted, size, x, rect, color, Some(rect))
         };
         match control {
             Control::Toggle(_) => {
@@ -852,11 +855,35 @@ impl PanelView {
     }
 }
 
-/// The room for a button's label: its width less the margin on each side,
-/// but a small round button (`−`, `+`) keeps most of its width, so its sign
+/// The room for a button's label: its width less the margin on each side
+/// (at most a sixteenth of the width: the X4's UI font has one size, so a
+/// label that is a little too wide cannot be drawn smaller there, and
+/// "Refresh the screen" was cut to "Refresh the scr…" in a 200 px button),
+/// so a small round button (`−`, `+`) keeps most of its width and its sign
 /// is never cut to `…`.
 fn button_room(width: u16, margin: u16) -> u16 {
-    width.saturating_sub(margin.min(width / 8).saturating_mul(2))
+    width.saturating_sub(margin.min(width / 16).saturating_mul(2))
+}
+
+/// The size a button's label is drawn at: the normal one, or smaller in
+/// steps of 5 % (never under three quarters) until `measure` says it fits
+/// the button's room, so "Refresh the screen" is not cut to "Refresh the
+/// scr…" (#257; Beta 3 drew these labels smaller). Only what still does not
+/// fit at that size is cut with "…".
+///
+/// # Errors
+/// What `measure` answers.
+fn label_size(
+    size: f32,
+    room: f32,
+    measure: &mut dyn FnMut(f32) -> Result<f32, Error>,
+) -> Result<f32, Error> {
+    let floor = size * 0.75;
+    let mut now = size;
+    while now > floor && measure(now)? > room {
+        now = (now * 0.95).max(floor);
+    }
+    Ok(now)
 }
 
 /// The labels of a choice's `values`, as `translate` says them; a value
@@ -899,10 +926,29 @@ mod tests {
     }
 
     #[test]
+    fn a_label_wider_than_its_button_is_drawn_smaller_before_it_is_cut() {
+        // 0.6 of the size a letter: "Refresh the screen" is 18 letters.
+        let mut wide = |size: f32| Ok(18.0 * size * 0.6);
+        // At 17 it is 183 px in a 150 px room: smaller, and measured to fit.
+        let now = label_size(17.0, 150.0, &mut wide).unwrap();
+        assert!((12.75..17.0).contains(&now));
+        assert!(wide(now).unwrap() <= 150.0);
+        // A label that fits keeps its size.
+        assert_eq!(label_size(17.0, 200.0, &mut wide).unwrap(), 17.0);
+        // Never under three quarters of the size: the rest is cut with "…".
+        assert_eq!(label_size(17.0, 20.0, &mut wide).unwrap(), 12.75);
+        // A refusal of the measure is passed on.
+        let mut refused = |_: f32| Err(Error::NoMemory);
+        assert_eq!(label_size(17.0, 20.0, &mut refused), Err(Error::NoMemory));
+    }
+
+    #[test]
     fn a_small_step_button_keeps_room_for_its_sign() {
         // X4: a 44 px round button and a 20 px margin left 4 px, so `−`
         // and `+` were drawn as `…`.
-        assert_eq!(button_room(44, 20), 34);
+        assert_eq!(button_room(44, 20), 40);
+        // A 200 px button keeps 176 px: "Refresh the screen" (154 px) fits.
+        assert_eq!(button_room(200, 20), 176);
         // A wide button keeps its margins.
         assert_eq!(button_room(400, 20), 360);
         assert_eq!(button_room(0, 20), 0);

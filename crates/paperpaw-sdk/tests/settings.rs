@@ -634,12 +634,12 @@ fn vec_maps_collect_with_the_last_value_winning() {
     assert!(map.is_empty());
 }
 
-/// Specs are found by places of 15 bits, the 16th marking those kept in
-/// the program: the 32,769th setting built at run time is refused instead
-/// of taking the place of the first kept in the program, and those before
-/// it are found as they were.
+/// Specs are found by places of 14 bits, the two above marking those kept
+/// in the program and those a plugin describes: the 16,385th setting built
+/// at run time is refused instead of taking the place of the first of
+/// those, and the ones before it are found as they were.
 #[test]
-fn more_than_32768_settings_are_refused_not_mixed_up() {
+fn more_than_16384_settings_are_refused_not_mixed_up() {
     let mut s = Settings::new();
     let define = |s: &mut Settings, i: u32| {
         let id = Id::parse(&format!("a.s{i}")).unwrap();
@@ -651,12 +651,12 @@ fn more_than_32768_settings_are_refused_not_mixed_up() {
             paperpaw_sdk::builtin::groups::OTHER,
         ))
     };
-    for i in 0..32_768u32 {
+    for i in 0..16_384u32 {
         define(&mut s, i).unwrap();
     }
-    assert!(define(&mut s, 32_768).is_err());
-    assert!(s.spec("a.s32768").is_none());
-    for i in [0, 1, 32_767] {
+    assert!(define(&mut s, 16_384).is_err());
+    assert!(s.spec("a.s16384").is_none());
+    for i in [0, 1, 16_383] {
         let id = format!("a.s{i}");
         assert_eq!(s.spec(&id).unwrap().id.as_str(), id);
     }
@@ -676,7 +676,7 @@ fn a_full_store_says_so_when_a_fixed_setting_is_changed() {
     );
     let mut s = Settings::new();
     s.define_fixed(core::slice::from_ref(&LOOK), 0).unwrap();
-    for i in 0..32_768u32 {
+    for i in 0..16_384u32 {
         let id = Id::parse(&format!("a.s{i}")).unwrap();
         s.define(SettingSpec::new(
             id,

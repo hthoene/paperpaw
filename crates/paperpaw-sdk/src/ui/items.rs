@@ -183,9 +183,10 @@ impl Screen for ItemsScreen {
         let style = self.style;
         let title = self.setting.as_ref().map_or(String::new(), |s| {
             env.settings()
-                .specs()
-                .find(|spec| spec.id == *s)
-                .map_or(String::new(), |spec| env.i18n().tr(&spec.title).to_string())
+                .with_spec(s.as_str(), |spec| env.i18n().tr(&spec.title).to_string())
+                .ok()
+                .flatten()
+                .unwrap_or_default()
         });
         let len = self.items.len();
         let mut ui = ui::Ui::new(canvas, env, &style);

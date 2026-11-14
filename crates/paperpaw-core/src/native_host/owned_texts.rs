@@ -37,7 +37,8 @@ impl crate::Kernel {
                 matches!(titled.title_key(), Cow::Borrowed(_)),
             );
         }
-        for spec in shared.settings.specs().filter(|spec| native(&spec.id)) {
+        // Those kept only: what a plugin describes of its own is not on the heap.
+        for spec in shared.settings.kept_specs().filter(|spec| native(&spec.id)) {
             note("setting", &spec.id, spec.title.kept().is_some());
         }
         for group in shared.settings.groups().filter(|group| native(&group.id)) {
