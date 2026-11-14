@@ -573,7 +573,7 @@ impl Widgets {
         let shown = read(&mut cx, item.kind)?;
         let mut out = Vec::new();
         draw(&mut cx, &mut out, area_of(frame.rect), item.kind, &shown)?;
-        paint::replay_with(&mut frame, &cx.font, None, &out)
+        paint::replay_icons(&mut frame, &cx.font, None, &out)
     }
 
     /// What `input` is, if a tap on one of the widgets.

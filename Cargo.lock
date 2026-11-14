@@ -1668,6 +1668,7 @@ dependencies = [
  "paperpaw-plugin-home",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-lock",
+ "paperpaw-plugin-mail",
  "paperpaw-plugin-menu",
  "paperpaw-plugin-news",
  "paperpaw-plugin-notes-vault",
