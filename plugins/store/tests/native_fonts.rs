@@ -19,15 +19,14 @@ const DE: &str = include_str!("../i18n/de.ini");
 
 struct Words(Translator);
 
-fn words(language: &str, manager: bool) -> Words {
-    let mut translator = Translator::new();
-    translator.add(Catalog::parse(if language == "de" { DE } else { EN }).unwrap());
+fn say_in(language: &str, manager: bool) -> Words {
+    let mut text = String::from(if language == "de" { DE } else { EN });
     if manager {
-        translator.add(
-            Catalog::parse("plugin-manager.code.other-build = Built for another PaperPaw.\n")
-                .unwrap(),
-        );
+        // The plugin manager's word, which the host merges into the same catalog.
+        text.push_str("\nplugin-manager.code.other-build = Built for another PaperPaw.\n");
     }
+    let mut translator = Translator::new();
+    translator.add(Catalog::parse(text).unwrap());
     translator.set_language(language);
     Words(translator)
 }
@@ -140,7 +139,7 @@ fn every_question_is_said_in_both_languages_with_two_words() {
         for manager in [false, true] {
             for row in &rows {
                 let words = asked(fonts::decide(false, row.as_ref()));
-                let mut say = words(language, manager);
+                let mut say = say_in(language, manager);
                 let texts = fonts::texts(&mut say, &words).unwrap();
                 texts.question().unwrap();
                 assert!(!texts.title().is_empty(), "{language} {words:?}");
@@ -154,12 +153,12 @@ fn every_question_is_said_in_both_languages_with_two_words() {
 
 #[test]
 fn the_reason_is_the_plugin_managers_word_or_the_stores_own() {
-    let without = fonts::reason(&mut words("en", false), Trouble::OtherBuild).unwrap();
+    let without = fonts::reason(&mut say_in("en", false), Trouble::OtherBuild).unwrap();
     assert!(without.starts_with("It could not be loaded."), "{without}");
     assert!(without.contains("Manage plugins"), "{without}");
-    let with = fonts::reason(&mut words("en", true), Trouble::OtherBuild).unwrap();
+    let with = fonts::reason(&mut say_in("en", true), Trouble::OtherBuild).unwrap();
     assert!(with.starts_with("Built for another PaperPaw."), "{with}");
     // Any other trouble has no word of the manager here.
-    let other = fonts::reason(&mut words("en", true), Trouble::Other).unwrap();
+    let other = fonts::reason(&mut say_in("en", true), Trouble::Other).unwrap();
     assert!(other.starts_with("It could not be loaded."), "{other}");
 }
