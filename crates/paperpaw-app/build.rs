@@ -280,6 +280,13 @@ fn native_messages(crates: &[String]) -> Vec<PathBuf> {
             }
         }
     }
+    // Two keys the tables cannot tell apart: one is renamed, rather than
+    // a plugin's texts kept whole beside the tables without a word.
+    assert!(
+        table.clashes().is_empty(),
+        "message keys of the linked plugins whose hashes clash (rename one of each pair): {:?}",
+        table.clashes()
+    );
     let dir = std::env::var("OUT_DIR").expect("OUT_DIR");
     std::fs::write(Path::new(&dir).join("native_messages.rs"), table.to_rust())
         .expect("native_messages.rs written");

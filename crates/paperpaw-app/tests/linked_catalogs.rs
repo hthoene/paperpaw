@@ -113,18 +113,7 @@ fn a_plugin_the_build_does_not_link_has_no_text_in_the_tables() {
 
 #[test]
 fn the_kernel_finds_the_texts_of_a_linked_plugin() {
-    use paperpaw_core::Kernel;
-    use paperpaw_platform::{
-        DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation,
-    };
-    let device = DeviceInfo::new(
-        "test-x4",
-        "Test X4",
-        DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
-        InputCaps::new(true, false, false, &["back"]),
-        MemoryClass::Small,
-    );
-    let mut kernel = Kernel::builder(device).build().unwrap();
+    let mut kernel = paperpaw_core::Kernel::builder(device()).build().unwrap();
     assert_eq!(kernel.translator().tr("keyboard.done"), "keyboard.done");
     paperpaw_app::add_native_catalogs(&mut kernel);
     assert_ne!(kernel.translator().tr("keyboard.done"), "keyboard.done");
@@ -133,4 +122,74 @@ fn the_kernel_finds_the_texts_of_a_linked_plugin() {
     let before = kernel.translator().tr("keyboard.done").to_string();
     paperpaw_app::add_native_catalogs(&mut kernel);
     assert_eq!(kernel.translator().tr("keyboard.done"), before);
+}
+
+fn device() -> paperpaw_platform::DeviceInfo {
+    use paperpaw_platform::{
+        DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation,
+    };
+    DeviceInfo::new(
+        "test-x4",
+        "Test X4",
+        DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+        InputCaps::new(true, false, false, &["back"]),
+        MemoryClass::Small,
+    )
+}
+
+/// Through the kernel, as a screen asks: once the tables are added every
+/// key of every linked plugin's files reads what the file says, in English
+/// and in German, and none did before.
+#[test]
+fn the_kernel_reads_every_text_of_the_linked_plugins_as_their_files_say() {
+    let mut checked = 0;
+    for language in ["en", "de"] {
+        let mut kernel = paperpaw_core::Kernel::builder(device())
+            .setting_default_text("core.language", language)
+            .build()
+            .unwrap();
+        assert_eq!(kernel.translator().language(), language);
+        let files: Vec<_> = paperpaw_app::NATIVE_PLUGINS
+            .iter()
+            .flat_map(|(id, _)| catalogs_of(id).into_iter().map(move |file| (id, file)))
+            .filter(|(_, file)| file.language() == language)
+            .collect();
+        for (id, file) in &files {
+            for key in file.keys() {
+                assert_eq!(kernel.translator().get(key), None, "{id} {key}");
+            }
+        }
+        paperpaw_app::add_native_catalogs(&mut kernel);
+        for (id, file) in &files {
+            for key in file.keys() {
+                assert_eq!(kernel.translator().get(key), file.get(key), "{id} {key}");
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 1_000, "{checked} texts checked");
+}
+
+/// A plugin on the card that says a linked plugin's text anew is heard, as
+/// it was while those texts were catalogs: the card's plugins are read
+/// when the kernel is built, before a shell adds the tables.
+#[test]
+fn a_card_plugin_s_text_wins_over_the_tables() {
+    let storage = paperpaw_sdk::MemoryStorage::new()
+        .with("plugins/mine/plugin.ini", "[plugin]\nname = Mine\n")
+        .with(
+            "plugins/mine/i18n/en.ini",
+            "[meta]\nlanguage = en\nname = English\n\n[messages]\nkeyboard.done = Card done\n",
+        );
+    let mut kernel = paperpaw_core::Kernel::builder(device())
+        .storage(storage)
+        .build()
+        .unwrap();
+    assert_eq!(kernel.translator().tr("keyboard.done"), "Card done");
+    paperpaw_app::add_native_catalogs(&mut kernel);
+    assert_eq!(kernel.translator().tr("keyboard.done"), "Card done");
+    kernel.start(paperpaw_platform::Instant(0));
+    assert_eq!(kernel.translator().tr("keyboard.done"), "Card done");
+    // What the card does not say is the tables'.
+    assert_eq!(kernel.translator().tr("keyboard.space"), "Space");
 }
