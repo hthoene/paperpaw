@@ -387,6 +387,10 @@ fn settings_lists_drawn_in_part_show_what_a_whole_frame_does() {
     app.walk(14, "a part of Reading");
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn home_grid() {
     let mut app = App::new();
@@ -446,6 +450,10 @@ fn store() {
     app.walk(10, "a part of the store");
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 #[cfg_attr(
     feature = "native-linked",
@@ -458,6 +466,10 @@ fn quick_panel() {
     app.walk_grid(6, "quick panel");
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn widget_editors() {
     let mut app = App::new();
@@ -505,6 +517,10 @@ const NOT_SWEPT: &[&str] = &["reader.screen", "reader.app"];
 /// Every screen the app's plugins add, opened alone and stepped through
 /// with the buttons: what the panel shows stays what a whole frame does,
 /// and a step within a page draws little.
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 #[cfg_attr(
     feature = "native-linked",
