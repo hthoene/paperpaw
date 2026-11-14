@@ -2,6 +2,11 @@
 //! native plugins only now (interface 6 is removed, #244) and the kernel does
 //! not host those here, so the tests register the formats themselves.
 
+#![allow(
+    dead_code,
+    reason = "shared by the tests; not every test file uses every format"
+)]
+
 /// EPUB as a format plugin of the kernel under test: EPUB is a native plugin
 /// only now (interface 6 is removed, #244) and the kernel does not host
 /// those here, so the tests register the format (`EpubDocument`) themselves.
