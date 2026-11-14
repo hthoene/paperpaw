@@ -1090,6 +1090,12 @@ impl Screen for View {
         self.build(ctx, false)
     }
 
+    /// On top for the first time: the page is asked for where it is not here
+    /// (the host tells the plugin once, `started`, not through `event`).
+    fn started(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        self.start(ctx)
+    }
+
     fn draw(&mut self, ctx: &Ctx<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
         let footer = match self.below {
             Below::Empty => Footer::Empty {

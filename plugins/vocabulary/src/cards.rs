@@ -48,7 +48,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::ControlFlow;
 
-use paperpaw_sdk::{Env, Storage, StorageError};
+use paperpaw_sdk::{Storage, StorageError};
 
 use crate::files::{part_of, put_in_place};
 use crate::fsrs::{self, Fx, Grade, Memory};

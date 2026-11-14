@@ -6,25 +6,23 @@
 #
 #   tools/plugin-files7/build.sh <device> <out-dir> [--key <file>] [--only <id>]
 #
-# <device> is x4 (the ESP32-C3), x4-pro or x4-classic (the ESP32-S3, Xtensa).
-# For the S3 devices the plugins are only BUILT (linked, ELF checked) so far,
-# not packed: format 5 has no target-9 profile yet (decision 142; the profile
-# is Kernel's, `abi/ppn5.md`), so no file is made and <out-dir> stays empty.
-# Until every plugin has the S3's generated ABI metadata
-# (plugins/<id>/native/$S3_METADATA, from the target-9 profile; without it a
-# plugin's native_entry.rs refuses to compile), the S3 build says so and exits
-# 4 ("pending"): CI shows that as a notice, never as a pass. Some but not all
-# present is a broken tree (3).
+# <device> is x4 (the ESP32-C3), x4-pro or x4-classic (the ESP32-S3, Xtensa). The
+# S3 devices' files are target 9 (abi/ppn5.md, "Target 9"): built with espup's
+# compiler, packed by the same `paperpaw-sign pack` (its Xtensa branch) against
+# each plugin's `native/metadata.s3.bin`, which `s3-metadata.py` writes (and
+# `--check`s, here) from the plugin's own metadata. The X4 Classic takes the
+# X4 Pro's file; the file name carries the device asked for.
 # The files are <out-dir>/<id>-<version>-<device>.ppn,
 # <version> the plugin's own (its crate's). With --only, one plugin alone.
 # Run from anywhere; paperpaw-sign is built from this repository. A plugin that
 # does not build or pack is named on standard error, after the others were
 # tried. Exit status: 0 all built; 1 the packer refused some (a plugin that is
 # not ready to be a file: writable data, a frame of 2,048 B or more; the others
-# are built); 4 the S3's metadata profile is not there yet (pending, see above); 3 anything else that is wrong: a pre-flight failure (no
-# version, no complete.txt, a linker script that differs), a plugin or the signer that
-# did not BUILD, a file not for the X4, a complete.txt entry that fails; never to be
-# waved through; 2 usage.
+# are built); 3 anything else that is wrong: a pre-flight failure (no
+# version, no complete.txt, a linker script that differs, S3 metadata missing or
+# out of date), a plugin or the signer that did not BUILD, a file not for the
+# chip asked for, a complete.txt entry that fails; never to be waved through;
+# 2 usage.
 # `complete.txt` (it must exist) lists the plugins whose port is complete (one id a
 # line); each must have a file and a PORTING-7.md that does not say "Status: **not
 # complete". A plugin without a PORTING-7.md is accepted only with an explicit
@@ -52,9 +50,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 case "$device" in
-    x4) target=riscv32imc-unknown-none-elf; build=(cargo x4 --locked -q); pack=1 ;;
+    x4) target=riscv32imc-unknown-none-elf; build=(cargo x4 --locked -q); chip=5 ;;
     # espup's `esp` toolchain with the release's core libraries in it (tools/xtensa-std).
-    x4-pro | x4-classic) target=xtensa-esp32s3-none-elf; build=(cargo +esp x4pro --locked -q); pack=0 ;;
+    x4-pro | x4-classic) target=xtensa-esp32s3-none-elf; build=(cargo +esp x4pro --locked -q); chip=9 ;;
     *) usage ;;
 esac
 
@@ -69,20 +67,11 @@ version_of() {
 for id in $ids; do
     [[ -n "$(version_of "$id")" ]] || { echo "plugins/$id/Cargo.toml: no version of its own" >&2; exit 3; }
 done
-# The S3's generated metadata is named by the target-9 profile (Kernel's, decision 142).
-S3_METADATA=metadata.s3.bin
-if [[ $pack = 0 ]]; then
-    have=0 lack=()
-    for id in $ids; do
-        if [[ -e "$root/plugins/$id/native/$S3_METADATA" ]]; then have=$((have + 1)); else lack+=("$id"); fi
-    done
-    if ((have == 0)); then
-        echo "S3 build PENDING: no plugin has native/$S3_METADATA yet (the target-9 profile of abi/ppn5.md); nothing was built" >&2
-        exit 4
-    elif ((${#lack[@]})); then
-        echo "native/$S3_METADATA is missing for: ${lack[*]}" >&2
-        exit 3
-    fi
+# The S3's metadata (the target-9 profile) is generated from each plugin's own:
+# a missing or stale file is a broken tree, never a skipped plugin.
+if [[ $chip = 9 ]]; then
+    # shellcheck disable=SC2086
+    python3 "$here/s3-metadata.py" --check ${only:+$only} || { echo "native/metadata.s3.bin: run tools/plugin-files7/s3-metadata.py" >&2; exit 3; }
 fi
 cmp -s "$here/paperpaw-plugin7.x" "$root/crates/paperpaw-native/paperpaw-plugin7.x" ||
     { echo "paperpaw-plugin7.x differs from the crate's" >&2; exit 3; }
@@ -119,9 +108,7 @@ if [[ $remappable = 1 ]]; then
     esac
 fi
 # The signer is built first: a build failure of it is a broken build (3), not a refusal.
-if [[ $pack = 1 ]]; then
-    (cd "$root" && cargo build -q --release -p paperpaw-sign) || { echo "paperpaw-sign did not build" >&2; exit 3; }
-fi
+(cd "$root" && cargo build -q --release -p paperpaw-sign) || { echo "paperpaw-sign did not build" >&2; exit 3; }
 sign() { (cd "$root" && cargo run -q --release -p paperpaw-sign -- "$@"); }
 
 mkdir -p "$out"
@@ -134,34 +121,21 @@ for id in $ids; do
         echo "BUILD FAILED $id" >&2
         continue
     fi
-    if [[ $pack = 0 ]]; then
-        # No target-9 profile yet: built and linked, not packed. The ELF must
-        # exist and be Xtensa (machine 94) so that a silent fallback to
-        # another target cannot pass.
-        elf="$target_dir/$target/release/$id"
-        if [[ ! -s "$elf" ]] || [[ "$(od -An -tu2 -j18 -N2 "$elf" | tr -d ' ')" != 94 ]]; then
-            broken+=("$id")
-            echo "BUILD FAILED $id: no Xtensa ELF at $elf" >&2
-            continue
-        fi
-        echo "$id: built for $device ($(wc -c < "$elf") bytes of ELF), not packed (no target-9 profile yet)"
-        continue
-    fi
     if ! sign pack "$target_dir/$target/release/$id" "$file" "${key[@]}"; then
         refused+=("$id")
         echo "REFUSED $id (the packer)" >&2
         continue
     fi
     shown="$(sign plugin "$file")" || { broken+=("$id"); echo "BUILD FAILED $id (the file does not check)" >&2; continue; }
-    if ! grep -Eq "^chip: .*\(5\)\$" <<< "$shown"; then
+    if ! grep -Eq "^chip: .*\($chip\)\$" <<< "$shown"; then
         broken+=("$id")
-        echo "BUILD FAILED $id: not for chip 5" >&2
+        echo "BUILD FAILED $id: not for chip $chip" >&2
         continue
     fi
     echo "$id: $(wc -c < "$file") bytes"
 done
 # The plugins whose port is complete (complete.txt) must all be files, and say so.
-if [[ -z "$only" && $pack = 1 ]]; then
+if [[ -z "$only" ]]; then
     while read -r id mark _; do
         notes="$root/plugins/$id/PORTING-7.md"
         if [[ -e "$notes" ]]; then

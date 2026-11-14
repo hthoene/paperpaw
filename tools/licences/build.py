@@ -39,7 +39,7 @@ CHIPS = ["riscv32imc-unknown-none-elf", "xtensa-esp32s3-none-elf"]
 PRODUCTS = {
     "firmware": [
         ("shells/xteink/Cargo.toml", None, CHIPS),
-        ("tools/plugin-files/Cargo.toml", None, CHIPS),
+        ("tools/plugin-files7/Cargo.toml", None, CHIPS),
     ],
     "app": [
         ("Cargo.toml", ["paperpaw-emulator", "paperpaw-android", "paperpaw-web"], [
