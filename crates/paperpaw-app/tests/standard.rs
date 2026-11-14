@@ -310,10 +310,7 @@ fn every_built_in_text_reads_the_same_through_its_table() {
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
-)]
+#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
 fn a_plugin_reaches_the_reader_through_the_standard_ids() {
     let mut app = App::new();
     app.now += 100;

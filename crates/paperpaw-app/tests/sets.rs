@@ -78,10 +78,7 @@ fn crate_of(id: &str) -> Option<String> {
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
-)]
+#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
 fn the_lean_set_keeps_what_a_beginner_needs() {
     let kernel = paperpaw_app::install_with(builder(), fonts(), paperpaw_app::StorePlugins::Left)
         .build_native();

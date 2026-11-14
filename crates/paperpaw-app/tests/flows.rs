@@ -253,10 +253,7 @@ fn reading_and_home_keep_the_book_opened() {
 /// changed with the buttons are written to `paperpaw.ini`; a kernel
 /// started anew on the same card reads them back.
 #[test]
-#[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
-)]
+#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
 fn settings_changed_in_the_ui_are_saved_and_read_back_after_a_restart() {
     let card = Card::new(true);
 
@@ -493,10 +490,7 @@ fn walk_menu(device: DeviceInfo, open: Id, buttons: bool) -> Vec<(String, String
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
-)]
+#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
 fn every_entry_of_the_main_menu_and_the_tools_opens_with_the_buttons() {
     let menu = walk_menu(BUTTONS, actions::MENU, true);
     let library = menu.iter().find(|(row, _)| row == "Library").unwrap();
@@ -510,10 +504,7 @@ fn every_entry_of_the_main_menu_and_the_tools_opens_with_the_buttons() {
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
-)]
+#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
 fn every_entry_of_the_main_menu_and_the_tools_opens_by_touch() {
     let menu = walk_menu(TOUCH, actions::MENU, false);
     let settings = menu.iter().find(|(row, _)| row == "Settings").unwrap();

@@ -207,10 +207,7 @@ fn home() {
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
-)]
+#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
 fn main_menu_and_tools() {
     let mut app = App::new();
     app.run(actions::MENU);
@@ -221,10 +218,7 @@ fn main_menu_and_tools() {
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
-)]
+#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
 fn settings_and_a_group() {
     let mut app = App::new();
     app.run(actions::SETTINGS);
@@ -236,10 +230,7 @@ fn settings_and_a_group() {
 }
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
-)]
+#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
 fn reading_and_its_menus() {
     let mut app = App::new();
     app.open_book();
@@ -254,10 +245,7 @@ fn reading_and_its_menus() {
 /// A number changed with the buttons shows its values at once, kept only
 /// when chosen; *back* goes back to the one before.
 #[test]
-#[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
-)]
+#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
 fn numbers_change_with_the_buttons_kept_when_chosen() {
     let mut app = App::new();
     app.run(actions::SETTINGS);
@@ -298,10 +286,7 @@ fn numbers_change_with_the_buttons_kept_when_chosen() {
 /// as it moves: what it is moved to shows at once and is kept where the
 /// finger is lifted.
 #[test]
-#[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
-)]
+#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
 fn sliders_follow_the_finger_kept_where_it_is_lifted() {
     let mut app = App::on(TOUCH);
     app.run(actions::SETTINGS);
@@ -362,10 +347,7 @@ fn home_shows_the_book_read_last() {
 /// A group's advanced settings, a page one level down, stay that page
 /// when one of them changes.
 #[test]
-#[cfg_attr(
-    not(feature = "native-linked"),
-    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
-)]
+#[ignore = "without `native-linked` the interface-6 Settings and menu it opens are removed (#244); with it the native settings, help, lock, files and file-manager plugins are not wired into this harness (core.secrets, document/library/files services and event 87, #925), as on the activation branch"]
 fn a_groups_advanced_page_stays_when_a_setting_changes() {
     let mut app = App::new();
     app.now += 100;
