@@ -74,14 +74,21 @@ fn book_styles(host: &Host<'_>) -> Result<u16, Error> {
     Ok(book.bits())
 }
 
+/// The reading font's name as read, or none where it is no text or too long
+/// for the buffer: the page is then set in the default font, not refused.
+fn font_name<'a>(read: Result<SettingValue<'a>, Error>) -> Result<&'a str, Error> {
+    match read {
+        Ok(SettingValue::Text(font)) => Ok(font),
+        Ok(_) | Err(Error::NoSpace) => Ok(""),
+        Err(other) => Err(other),
+    }
+}
+
 /// `reading` with the reading font and the hyphenation settings it is laid
 /// out with (`Reading::with_text`).
 fn text_of(host: &Host<'_>, reading: Reading) -> Result<Reading, Error> {
     let mut name = [0; 96];
-    let font = match settings::read_setting(host, "core.reading-font", &mut name)? {
-        SettingValue::Text(font) => font,
-        _ => "",
-    };
+    let font = font_name(settings::read_setting(host, "core.reading-font", &mut name))?;
     Ok(reading.with_text(
         font,
         (
@@ -155,5 +162,23 @@ impl Setup {
     /// `line` height (`Reading::style`).
     pub(super) fn style(&self, line: f32) -> Style {
         self.reading.style(self.base(), line)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_font_name_too_long_for_the_buffer_is_the_default_font() {
+        assert_eq!(
+            font_name(Ok(SettingValue::Text("Literata"))),
+            Ok("Literata")
+        );
+        assert_eq!(font_name(Ok(SettingValue::Int(3))), Ok(""));
+        // The host says the whole name does not fit: no refusal of the page.
+        assert_eq!(font_name(Err(Error::NoSpace)), Ok(""));
+        // Another failure is still one.
+        assert_eq!(font_name(Err(Error::NoMemory)), Err(Error::NoMemory));
     }
 }
