@@ -100,6 +100,10 @@ fn the_last_book_opens_at_the_start() {
     assert_eq!(shown, "reader.screen");
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn a_book_gone_from_the_card_leaves_the_home_screen() {
     let shown = started(Some("[reader]\nlast = books/gone.txt\n"), LANGUAGE);
@@ -125,6 +129,10 @@ fn a_book_gone_from_the_card_is_forgotten() {
     assert!(kept.is_some_and(|text| text.contains("alice-in-wonderland")));
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn nothing_remembered_leaves_the_home_screen() {
     assert_eq!(started(None, LANGUAGE), "home.dashboard");
@@ -135,6 +143,10 @@ fn nothing_remembered_leaves_the_home_screen() {
     );
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn the_setting_off_leaves_the_home_screen() {
     let shown = started(

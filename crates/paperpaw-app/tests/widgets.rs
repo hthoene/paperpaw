@@ -150,11 +150,19 @@ fn draw_all(device: DeviceInfo, language: &str, read: bool) {
     }
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn every_widget_draws_on_the_x4() {
     draw_all(X4, "en", true);
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn every_widget_draws_on_the_boox() {
     draw_all(BOOX, "de", false);
