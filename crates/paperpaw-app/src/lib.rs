@@ -641,7 +641,7 @@ pub static CATALOG_INDEXES: &[(u64, &[u16])] =
 pub static BUILT_CATALOGS: &[paperpaw_i18n::BuiltLanguage] =
     include!(concat!(env!("OUT_DIR"), "/built_catalogs.rs"));
 
-/// The interface-6 forms of plain text, the dictionary, the reader and home:
+/// The interface-6 forms of plain text, the reader and home:
 /// each only where its native form is not linked (`native-linked-reading`).
 #[cfg_attr(
     feature = "native-linked-reading",
@@ -658,13 +658,6 @@ fn interface6_reading(builder: KernelBuilder) -> KernelBuilder {
     #[cfg(not(feature = "native-linked-reading"))]
     {
         b = b.plugin(paperpaw_plugin_format_txt::TxtFormat);
-    }
-    // Dictionary is a native plugin, linked (`NATIVE_PLUGINS`), where the
-    // native reader asks it (`native-linked-reading`): the interface-6
-    // reader looks words up through the interface-6 form.
-    #[cfg(not(feature = "native-linked-reading"))]
-    {
-        b = b.plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
     }
     // Reader and Home keep their order; they are native plugins, linked
     // (`NATIVE_PLUGINS`), where the feature says (`native-linked-reading`);
