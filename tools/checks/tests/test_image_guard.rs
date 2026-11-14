@@ -75,7 +75,11 @@ fn the_never_sleep_defaults_are_behind_the_test_image() {
             let behind = lines[at.saturating_sub(6)..at]
                 .iter()
                 .any(|before| before.contains(r#"#[cfg(feature = "test-image")]"#));
-            assert!(behind, "main.rs:{}: a sleep default outside the test image: {line}", at + 1);
+            assert!(
+                behind,
+                "main.rs:{}: a sleep default outside the test image: {line}",
+                at + 1
+            );
         }
     }
 }
