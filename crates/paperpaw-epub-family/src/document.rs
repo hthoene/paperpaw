@@ -58,7 +58,7 @@ enum Held {
 /// 8 bytes per archive entry and 12 per chapter.
 #[derive(Debug)]
 pub struct EpubDocument {
-    archive: ZipArchive,
+    archive: LazyArchive,
     /// The spine: archive record and uncompressed size per chapter.
     spine: Vec<Chapter>,
     /// Length of each converted chapter's text, once known.
@@ -132,6 +132,34 @@ impl Styled {
             remove_other_css(storage, cache, &chapters);
         }
         Ok(Styled { chapters, user_css })
+    }
+}
+
+/// The book's zip, opened where it is first needed (#250): a book opened again
+/// is read from its cache and never reads the archive's directory (51 reads for
+/// Alice), unless it is to convert a chapter, decode a picture or find a link.
+#[derive(Debug)]
+struct LazyArchive {
+    path: String,
+    opened: OnceCell<ZipArchive>,
+}
+
+impl LazyArchive {
+    fn new(path: &str) -> Result<Self, DocumentError> {
+        Ok(Self {
+            path: fallible::string(path)?,
+            opened: OnceCell::new(),
+        })
+    }
+
+    /// The archive, opened if it was not. A zip that cannot be read is an error
+    /// of this call, not of the book's opening.
+    fn get(&self, storage: &dyn Storage) -> Result<&ZipArchive, DocumentError> {
+        if let Some(archive) = self.opened.get() {
+            return Ok(archive);
+        }
+        let archive = ZipArchive::open(storage, &self.path).map_err(package::error)?;
+        Ok(self.opened.get_or_init(|| archive))
     }
 }
 
@@ -368,6 +396,7 @@ impl EpubDocument {
             .ok_or(DocumentError::Malformed(Cow::Borrowed("no such font")))?;
         let entry = self
             .archive
+            .get(storage)?
             .entry(storage, &font.path)
             .map_err(package::error)?
             .ok_or(DocumentError::Malformed(Cow::Borrowed("font file missing")))?;
@@ -380,26 +409,29 @@ impl EpubDocument {
         let mut written = 0usize;
         let mut woff = false;
         let mut failure: Option<DocumentError> = None;
-        let streamed = self.archive.stream(storage, &entry, &mut |chunk| {
-            // The chunk is the zip reader's own window: revealed in a small
-            // buffer, a part at a time.
-            let mut part = [0u8; 512];
-            for piece in chunk.chunks(part.len()) {
-                let buf = &mut part[..piece.len()];
-                buf.copy_from_slice(piece);
-                obfuscation::reveal_at(buf, written, font.method, &identifier);
-                if written == 0 && buf.starts_with(crate::woff::SIGNATURE) {
-                    woff = true;
-                    return false;
+        let streamed = self
+            .archive
+            .get(storage)?
+            .stream(storage, &entry, &mut |chunk| {
+                // The chunk is the zip reader's own window: revealed in a small
+                // buffer, a part at a time.
+                let mut part = [0u8; 512];
+                for piece in chunk.chunks(part.len()) {
+                    let buf = &mut part[..piece.len()];
+                    buf.copy_from_slice(piece);
+                    obfuscation::reveal_at(buf, written, font.method, &identifier);
+                    if written == 0 && buf.starts_with(crate::woff::SIGNATURE) {
+                        woff = true;
+                        return false;
+                    }
+                    if let Err(e) = storage.append(&temp, buf) {
+                        failure = Some(e.into());
+                        return false;
+                    }
+                    written += buf.len();
                 }
-                if let Err(e) = storage.append(&temp, buf) {
-                    failure = Some(e.into());
-                    return false;
-                }
-                written += buf.len();
-            }
-            true
-        });
+                true
+            });
         let outcome = match (streamed, failure) {
             (_, Some(error)) => Err(error),
             (Err(error), None) => Err(package::error(error)),
@@ -521,7 +553,7 @@ impl EpubDocument {
         color: bool,
         (image_fit, cover_fit): (Fit, Fit),
     ) -> Result<Self, DocumentError> {
-        let archive = ZipArchive::open(storage, path).map_err(package::error)?;
+        let archive = LazyArchive::new(path)?;
         let cache = book_cache(path)?;
         let book = fallible::fingerprint(storage, path)?;
         let (package, state) = match package::load(storage, &cache, &book)? {
@@ -531,7 +563,10 @@ impl EpubDocument {
             None if !package::cached(storage, &cache)
                 && package::stamped(storage, &cache, &book) =>
             {
-                (package::read(storage, &archive)?, Held::Stamped)
+                (
+                    package::read(storage, archive.get(storage)?)?,
+                    Held::Stamped,
+                )
             }
             None => {
                 // Another book, file version or cache format, or what a
@@ -545,7 +580,7 @@ impl EpubDocument {
                     Err(e) if left_in(storage, &cache) => Held::Uncleared(e),
                     Err(_) => Held::Nothing,
                 };
-                (package::read(storage, &archive)?, state)
+                (package::read(storage, archive.get(storage)?)?, state)
             }
         };
         let styled = OnceCell::new();
@@ -601,7 +636,9 @@ impl EpubDocument {
                 "contents cannot be read",
             )));
         }
-        match package::build(storage, &self.archive, &self.cache, &self.book) {
+        match (self.archive.get(storage))
+            .and_then(|archive| package::build(storage, archive, &self.cache, &self.book))
+        {
             Ok(package) => {
                 self.toc_len.set(package.toc_len);
                 self.state.set(Held::Package);
@@ -685,8 +722,8 @@ impl EpubDocument {
                 // What this book once converted is not matched against the
                 // files of a conversion begun now (and refused midway).
                 slot.set(UNKNOWN);
-                let entry = self
-                    .archive
+                let archive = self.archive.get(storage)?;
+                let entry = archive
                     .entry_by_record(storage, chapter.record)
                     .map_err(package::error)?;
                 let mut rules = if self.styles {
@@ -700,7 +737,7 @@ impl EpubDocument {
                     rules.add_own(own);
                 }
                 let source = convert::Source::Zip {
-                    archive: &self.archive,
+                    archive,
                     entry: &entry,
                 };
                 let converted = convert::convert(
@@ -857,7 +894,7 @@ impl Document for EpubDocument {
         let file = crate::pictures::file(base, self.color);
         convert::decode_image(
             storage,
-            &self.archive,
+            self.archive.get(storage).ok()?,
             &source,
             &file,
             dir,
@@ -889,9 +926,17 @@ impl Document for EpubDocument {
             return Some(decoded);
         }
         let file = crate::pictures::file(&larger, self.color);
-        convert::decode_image(storage, &self.archive, &source, &file, dir, fit, self.color)
-            .inspect_err(|e| crate::pictures::note_failure(storage, &larger, e))
-            .ok()?;
+        convert::decode_image(
+            storage,
+            self.archive.get(storage).ok()?,
+            &source,
+            &file,
+            dir,
+            fit,
+            self.color,
+        )
+        .inspect_err(|e| crate::pictures::note_failure(storage, &larger, e))
+        .ok()?;
         crate::pictures::open(storage, &larger, self.color)
     }
 
@@ -912,7 +957,7 @@ impl Document for EpubDocument {
             self.stamped(storage)?;
             convert::decode_image(
                 storage,
-                &self.archive,
+                self.archive.get(storage)?,
                 source,
                 &crate::pictures::file(&base, self.color),
                 &self.cache,
@@ -1066,6 +1111,7 @@ impl Document for EpubDocument {
             .ok_or(DocumentError::Malformed(Cow::Borrowed("no such font")))?;
         let entry = self
             .archive
+            .get(storage)?
             .entry(storage, &font.path)
             .map_err(package::error)?
             .ok_or(DocumentError::Malformed(Cow::Borrowed("font file missing")))?;
@@ -1076,6 +1122,7 @@ impl Document for EpubDocument {
         data.try_reserve_exact(entry.size as usize)
             .map_err(|_| DocumentError::OutOfMemory)?;
         self.archive
+            .get(storage)?
             .stream(storage, &entry, &mut |chunk| {
                 data.extend_from_slice(chunk);
                 true
@@ -1170,7 +1217,12 @@ impl Document for EpubDocument {
             Some((path, fragment)) => (path, Some(fragment)),
             None => (href, None),
         };
-        let entry = self.archive.entry(storage, path).ok()??;
+        let entry = self
+            .archive
+            .get(storage)
+            .ok()?
+            .entry(storage, path)
+            .ok()??;
         let section = self.spine.iter().position(|c| c.record == entry.record())? as u32;
         let offset = fragment
             .and_then(|id| self.anchor(storage, section, id))
