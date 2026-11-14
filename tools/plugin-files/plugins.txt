@@ -12,7 +12,7 @@
 # end-of-book reading  (no file until the store build moves to interface 7, #228)
 # fonts-browser look  (no file until the store build moves to interface 7, #228)
 # format-mobi reading  (no file until the store build moves to interface 7, #228)
-format-docx reading
+# format-docx reading  (no file until the store build moves to interface 7, #228)
 format-images reading
 # joplin notes  (no file until the store build moves to interface 7, #228)
 # keys system  (no file until the store build moves to interface 7, #228)

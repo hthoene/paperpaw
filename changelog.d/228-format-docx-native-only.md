@@ -1,0 +1,3 @@
+### Changed
+
+- **Word documents run on interface 7 only** (#228). The interface-6 `format-docx` is gone: the plugin that opened `.docx` files in the app, its cache in the plugin's folder and its plugin file. Word documents are opened by the native format plugin, which converts them into the cache the host keeps; the pages, contents, links and pictures are the same, the texts are unchanged in English and German. A document without a title is named by its file, as the library names every book. The format is no longer built into the app or offered as an interface-6 plugin file: it comes with the native plugins when they are switched on.

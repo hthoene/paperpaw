@@ -10,6 +10,7 @@ end-of-book
 file-manager
 files
 format-xtc
+format-docx
 joplin
 keys
 menu-editor

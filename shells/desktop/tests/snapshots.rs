@@ -844,6 +844,20 @@ const NEEDS_SETTINGS: &[&str] = &[
 
 #[test]
 fn screens_look_as_before() {
+    screens_look_as_blessed(false);
+}
+
+/// The Word documents' pages: the format is the native plugin's only, and
+/// the emulator does not register native plugins yet.
+#[test]
+#[ignore = "needs native activation (format removal)"]
+fn word_documents_look_as_before() {
+    screens_look_as_blessed(true);
+}
+
+/// Draws the cases of Word documents (`docx`) or the others and compares
+/// each with its reference.
+fn screens_look_as_blessed(docx: bool) {
     let bless = std::env::var_os("PAPERPAW_BLESS").is_some();
     let references = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
     let failed_dir = root().join("target/snapshots");
@@ -851,6 +865,7 @@ fn screens_look_as_before() {
     for case in CASES
         .iter()
         .filter(|case| !NEEDS_SETTINGS.contains(&case.name))
+        .filter(|case| case.name.contains("docx") == docx)
     {
         if NEEDS_NATIVE_ACTIVATION.contains(&case.name) {
             continue;

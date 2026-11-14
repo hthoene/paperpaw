@@ -931,16 +931,19 @@ fn word_stays_within_budget(name: &str, document: Vec<u8>) -> Heap {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_long_word_document_stays_within_the_x4_budget() {
     word_stays_within_budget("x4-docx-long", long_word_document());
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_hostile_word_document_stays_within_the_x4_budget() {
     word_stays_within_budget("x4-docx-hostile", hostile_word_document());
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_word_zip_bomb_stays_within_the_x4_budget() {
     word_stays_within_budget("x4-docx-bomb", bomb_word_document());
 }

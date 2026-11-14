@@ -78,10 +78,9 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 11] = [
+pub const STORE_PLUGINS: [&str; 10] = [
     "aids",
     "fonts-browser",
-    "format-docx",
     "format-images",
     "format-mobi",
     "mail",
@@ -697,7 +696,6 @@ pub fn install_with(
         not(all(feature = "native-linked-store", feature = "native-linked-reading"))
     ))]
     {
-        b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
     }
     // Wi-Fi and Transfer are native plugins only (`NATIVE_PLUGINS`, under

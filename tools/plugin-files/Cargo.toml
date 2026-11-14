@@ -23,12 +23,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "format-docx"
-path = "src/bin/format-docx.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "format-images"
 path = "src/bin/format-images.rs"
 test = false
@@ -43,7 +37,6 @@ bench = false
 [dependencies]
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
 paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
-paperpaw-plugin-format-docx = { path = "../../plugins/format-docx" }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images" }
 paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
