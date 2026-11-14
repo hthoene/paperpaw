@@ -639,7 +639,7 @@ fn format_cbz_is_the_same_asleep() {
 )]
 #[cfg_attr(
     feature = "native-linked-reading",
-    ignore = "with the reader linked a cover is still pending when the parked epub opens the book, and the parked plugin takes one extra timer pass (reading.ini counts one more page turn); seen since the start settles its passes at once (#243); waiting 2 s after the start does not remove it; cause not yet found, todo 617""
+    ignore = "with the reader linked a cover is still pending when the parked epub opens the book, and the parked plugin takes one extra timer pass (reading.ini counts one more page turn); seen since the start settles its passes at once (#243); waiting 2 s after the start does not remove it; cause not yet found, todo 617"
 )]
 fn format_epub_is_the_same_asleep() {
     same_awake_and_asleep("format-epub");
