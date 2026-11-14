@@ -222,21 +222,14 @@ fn settings_pages_and_choosers_show_names() {
 
 /// Every entry of every menu, as the menus show it: its title.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the menus are native plugins: linked with `native-linked-reading` and `native-linked-store` (#244)"
+)]
 fn menu_entries_have_names() {
     for language in languages() {
         let mut app = App::new(&language);
-        let shown = if cfg!(feature = "native-linked") {
-            app.menus_shown()
-        } else {
-            let menus = app.kernel.menus();
-            let i18n = app.kernel.translator();
-            menus
-                .menu_ids()
-                .into_iter()
-                .flat_map(|menu| menus.items(menu.as_str()))
-                .map(|item| i18n.tr(item.title).to_string())
-                .collect()
-        };
+        let shown = app.menus_shown();
         assert!(
             shown.len() > 50,
             "{language}: the menus have entries: {shown:#?}"

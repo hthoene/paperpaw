@@ -5,4 +5,3 @@
 1903 crates/paperpaw-core/src/core_plugin.rs
 1891 crates/paperpaw-epub-family/src/convert.rs
 1925 crates/paperpaw-sdk/src/widgets/grid/view.rs
-1667 plugins/reader/tests/reading.rs

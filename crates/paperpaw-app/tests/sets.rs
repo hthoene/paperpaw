@@ -80,11 +80,10 @@ fn crate_of(id: &str) -> Option<String> {
 #[test]
 #[cfg_attr(
     not(all(
-        feature = "native-linked",
-        not(feature = "native-linked-reading"),
+        feature = "native-linked-reading",
         not(feature = "native-linked-store")
     )),
-    ignore = "the app's own plugins are the native ones with `native-linked` only: the store plugins and the reader are not linked then (#244)"
+    ignore = "the lean firmware set is the native plugins with `native-linked-reading`, without the store's plugins (#244)"
 )]
 fn the_lean_set_keeps_what_a_beginner_needs() {
     let kernel = paperpaw_app::install_with(builder(), fonts(), paperpaw_app::StorePlugins::Left)

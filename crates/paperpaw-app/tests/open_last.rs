@@ -88,6 +88,10 @@ fn started_with_state(state: Option<&str>, config: &str) -> (String, Option<Stri
 const LANGUAGE: &str = "[core]\nlanguage = en\n";
 
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader (`native-linked-reading`): the interface-6 reader is removed (#244)"
+)]
 fn the_last_book_opens_at_the_start() {
     let shown = started(
         Some("[reader]\nlast = books/alice-in-wonderland.txt\n"),

@@ -207,6 +207,10 @@ impl App {
 /// the app registers neither until the host activates native plugins: the
 /// pending cases of `plugins/files` and `plugins/setup`.)
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
 fn reading_and_home_keep_the_book_opened() {
     let card = Card::new(true);
     let mut app = App::start(BUTTONS, &card);
@@ -338,6 +342,10 @@ fn the_first_start_with_the_help_hints_on_reaches_home_and_a_book() {
 /// a word broken at the end of a line is whole in it, not
 /// "restric- tions" with the hyphen and the line break of the page.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
 fn bookmarks_keep_words_broken_across_lines_whole() {
     let card = Card::new(true);
     let mut app = App::start(BUTTONS, &card);
@@ -373,6 +381,10 @@ fn bookmarks_keep_words_broken_across_lines_whole() {
 /// after it. Bookmarks land in the book on show,
 /// nothing says the book could not be opened, nothing warns.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
 fn a_book_opened_while_the_reader_shows_one() {
     fn open(app: &mut App, path: &str) {
         app.now += 100;
@@ -424,6 +436,10 @@ fn a_book_opened_while_the_reader_shows_one() {
 /// its own committed transaction of the library (with the native reader, ops
 /// 15, 17, 18 and 20 on the host); the other page's bookmark stays.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
 fn a_bookmark_toggled_twice_is_gone_and_the_others_stay() {
     let card = Card::new(true);
     let mut app = App::start(BUTTONS, &card);

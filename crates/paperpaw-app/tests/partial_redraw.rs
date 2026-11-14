@@ -414,6 +414,10 @@ fn main_menu_and_tools() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader (`native-linked-reading`): the interface-6 reader is removed (#244)"
+)]
 fn table_of_contents() {
     let mut app = App::new();
     app.open_slot(slots::READER, Params::new().with(params::PATH, BOOK));

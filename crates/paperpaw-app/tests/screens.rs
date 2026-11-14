@@ -372,6 +372,10 @@ fn sliders_follow_the_finger_kept_where_it_is_lifted() {
 /// The home screen's widgets read what they show when it shows again:
 /// after reading, the book read is the one to continue.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader (`native-linked-reading`): the interface-6 reader is removed (#244)"
+)]
 fn home_shows_the_book_read_last() {
     let mut app = App::new();
     assert!(app.described().contains("Start reading"));
