@@ -74,39 +74,60 @@ fn book_styles(host: &Host<'_>) -> Result<u16, Error> {
     Ok(book.bits())
 }
 
+/// `reading` with the reading font and the hyphenation settings it is laid
+/// out with (`Reading::with_text`).
+fn text_of(host: &Host<'_>, reading: Reading) -> Result<Reading, Error> {
+    let mut name = [0; 96];
+    let font = match settings::read_setting(host, "core.reading-font", &mut name)? {
+        SettingValue::Text(font) => font,
+        _ => "",
+    };
+    Ok(reading.with_text(
+        font,
+        (
+            flag(host, "core.hyphenate")?,
+            integer(host, "core.hyphen-min-left")?,
+            integer(host, "core.hyphen-min-right")?,
+        ),
+    ))
+}
+
 impl Setup {
     pub(super) fn read(host: &Host<'_>) -> Result<Self, Error> {
         let display = snapshot::capture_snapshot(host)?;
         let room = native_status::room(host, display.display_dpi())?;
         let (top, bottom) = room.reserved();
         Ok(Self {
-            reading: Reading::new(
-                integer(host, "core.font-size")?,
-                integer(host, "core.line-spacing")?,
-                integer(host, "core.word-spacing")?,
-                integer(host, "core.margin")?,
-                integer(host, "core.margin-ends")?,
-                flag(host, "core.justify")?,
-            )
-            .with_status(top, bottom)
-            .with_paragraphs(
-                (
-                    flag(host, "core.indent")?,
-                    integer(host, "core.indent-size")?,
+            reading: text_of(
+                host,
+                Reading::new(
+                    integer(host, "core.font-size")?,
+                    integer(host, "core.line-spacing")?,
+                    integer(host, "core.word-spacing")?,
+                    integer(host, "core.margin")?,
+                    integer(host, "core.margin-ends")?,
+                    flag(host, "core.justify")?,
+                )
+                .with_status(top, bottom)
+                .with_paragraphs(
+                    (
+                        flag(host, "core.indent")?,
+                        integer(host, "core.indent-size")?,
+                    ),
+                    (
+                        flag(host, "core.paragraph-spacing")?,
+                        integer(host, "core.paragraph-space")?,
+                    ),
+                )
+                .with_lines(
+                    (
+                        integer(host, "core.widows")?,
+                        integer(host, "core.orphans")?,
+                    ),
+                    balanced(host)?,
+                    book_styles(host)?,
                 ),
-                (
-                    flag(host, "core.paragraph-spacing")?,
-                    integer(host, "core.paragraph-space")?,
-                ),
-            )
-            .with_lines(
-                (
-                    integer(host, "core.widows")?,
-                    integer(host, "core.orphans")?,
-                ),
-                balanced(host)?,
-                book_styles(host)?,
-            ),
+            )?,
             display,
             room,
         })
