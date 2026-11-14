@@ -248,9 +248,9 @@ pkg_step clippy cargo clippy -j"$jobs" "${pkgs[@]}" --all-targets -- -D warnings
 if [[ -n "$features" ]]; then
     pkg_step clippy-features cargo clippy -j"$jobs" "${pkgs[@]}" --features "$features" --all-targets -- -D warnings
 fi
-pkg_step test cargo test -j"$jobs" "${pkgs[@]}"
+pkg_step test cargo test --no-fail-fast -j"$jobs" "${pkgs[@]}"
 if [[ -n "$features" ]]; then
-    pkg_step test-features cargo test -j"$jobs" "${pkgs[@]}" --features "$features"
+    pkg_step test-features cargo test --no-fail-fast -j"$jobs" "${pkgs[@]}" --features "$features"
 fi
 # The hosted tests of the plugins (tests/hosted_*.rs, test-support/hosted.rs)
 # are built only with --features linked, and CI does not build them: run every
@@ -272,7 +272,7 @@ PY
     )
 fi
 if ((${#linked_pkgs[@]} > 0)); then
-    step test-linked cargo test -j"$jobs" "${linked_pkgs[@]}" --features linked
+    step test-linked cargo test --no-fail-fast -j"$jobs" "${linked_pkgs[@]}" --features linked
 elif ! wanted test-linked; then
     skipped+=("test-linked (left out by --only/--skip)")
 else
@@ -288,10 +288,13 @@ for crate in "${crates[@]}"; do
     esac
 done
 if [[ "$native_wanted" == 1 ]]; then
-    step test-native bash -c 'set -e
-        cargo test -j"$1" -p paperpaw-app --features native-linked --test flows --test sleep_parity --test sleep_cycles
-        cargo test -j"$1" -p paperpaw-app --features native-linked-reading --test linked_settings_tables
-        cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables' _ "$jobs"
+    # Every command runs, so that one run lists every red; the step fails if
+    # any of them did.
+    step test-native bash -c 'rc=0
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked --test flows --test sleep_parity --test sleep_cycles || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading --test linked_settings_tables || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables || rc=1
+        exit $rc' _ "$jobs"
 elif ! wanted test-native; then
     skipped+=("test-native (left out by --only/--skip)")
 else
@@ -304,7 +307,7 @@ step lockfiles python3 tools/check-lockfiles.py $lock_args
 step licences python3 tools/licences/build.py --check
 # paperpaw-checks bakes the repository path: no compiler cache for it.
 touch tools/checks/src/lib.rs 2> /dev/null || true
-step checks env SCCACHE_DISABLE=1 cargo test -j"$jobs" -p paperpaw-checks
+step checks env SCCACHE_DISABLE=1 cargo test --no-fail-fast -j"$jobs" -p paperpaw-checks
 if [[ -f tools/tests/test_abi_plugin_metadata.py ]]; then
     step abi-metadata python3 tools/tests/test_abi_plugin_metadata.py
 fi
