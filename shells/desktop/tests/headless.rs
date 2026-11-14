@@ -153,6 +153,58 @@ fn size(path: &Path) -> (u32, u32) {
     (info.width, info.height)
 }
 
+/// How many pixels of the PNG are dark (a page of text alone has a few
+/// thousand, a picture of rings some tens of thousands more).
+fn dark_pixels(path: &Path) -> usize {
+    let decoder = png::Decoder::new(std::io::BufReader::new(File::open(path).unwrap()));
+    let mut reader = decoder.read_info().unwrap();
+    let mut bytes = vec![0; reader.output_buffer_size().unwrap()];
+    let frame = reader.next_frame(&mut bytes).unwrap();
+    let step = frame.color_type.samples();
+    bytes[..frame.buffer_size()]
+        .chunks(step)
+        .filter(|pixel| pixel[0] < 128)
+        .count()
+}
+
+/// A font size smaller by a few steps brings a picture onto the first page
+/// that no page showed before, so it is not decoded yet (#250): the reader asks
+/// for it where it lays the page out again, and the picture is drawn.
+#[test]
+fn a_picture_a_font_change_brings_onto_the_page_is_asked_for_and_drawn() {
+    let library = library("reflow-picture");
+    let fixtures = root().join("shells/desktop/tests/fixtures-pictures/pictures.epub");
+    fs::copy(fixtures, library.join("books/pictures.epub")).unwrap();
+    let reader = library.join(".paperpaw/plugins/reader");
+    fs::create_dir_all(&reader).unwrap();
+    fs::write(
+        reader.join("state.ini"),
+        "[reader]\nlast = books/pictures.epub\n",
+    )
+    .unwrap();
+    let shot = library.join("shot.png");
+    let mut script = String::from("wait:600");
+    for _ in 0..6 {
+        script.push_str(",run:reader.font-smaller,wait:400");
+    }
+    let run = run_in(
+        &library,
+        "xteink-x4",
+        &script,
+        &[
+            "--set",
+            "core.font-size=30",
+            "--screenshot",
+            shot.to_str().unwrap(),
+        ],
+    );
+    assert!(run.ok, "{}", run.stderr);
+    let dark = dark_pixels(&shot);
+    let _ = fs::remove_dir_all(&library);
+    // The page's text alone: about 17,700; with the picture drawn: about 81,900.
+    assert!(dark > 40_000, "the picture is missing: {dark} dark pixels");
+}
+
 #[test]
 fn help_and_the_profiles_are_printed() {
     let help = emulator(&["--help"]);
