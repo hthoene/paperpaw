@@ -74,4 +74,5 @@ def main(argv: list[str]) -> int:
     return 1 if bad else 0
 
 
-sys.exit(main(sys.argv[1:]))
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
