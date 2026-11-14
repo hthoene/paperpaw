@@ -159,6 +159,10 @@ fn difference(whole: &[u8], banded: &[u8], width: usize) -> Option<String> {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native Settings, home and reader (`native-linked-reading`): the interface-6 ones are removed (#244)"
+)]
 fn a_screen_drawn_in_bands_is_the_screen_drawn_at_once() {
     let width = usize::from(DEVICE.display.width);
     let whole = screens(None);
