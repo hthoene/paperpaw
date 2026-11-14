@@ -459,6 +459,10 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
         // `ActiveScreen::grays` takes the place of it once one is set.
         self.flags & super::declarations::SCREEN_GRAYS != 0
     }
+    fn dims_below(&self) -> bool {
+        // Declared (`screen.spec.flags` bit 10); only an overlay has a below.
+        self.flags & super::declarations::SCREEN_DIMS_BELOW != 0
+    }
     fn region(&self, env: &Env<'_>) -> Option<Rect> {
         (self.flags & (1 << 2) != 0)
             .then(|| Rect::new(0, 0, env.content().width, env.content().height))

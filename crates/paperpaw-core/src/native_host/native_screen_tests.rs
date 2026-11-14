@@ -509,6 +509,19 @@ fn a_screen_declared_hints_hidden_says_so_and_another_leaves_it_to_its_plugin() 
 }
 
 #[test]
+fn a_screen_declared_to_dim_what_is_below_says_so_and_another_does_not() {
+    use paperpaw_sdk::Screen as _;
+    let (screen, _) = screen();
+    assert!(!screen.dims_below());
+    let screen = screen.with_flags((1 << 10) | (1 << 2));
+    assert!(screen.dims_below());
+    // The other policy bits are not it: an overlay alone does not dim.
+    let (screen, _) = self::screen();
+    let screen = screen.with_flags((1 << 9) | (1 << 8) | (1 << 5) | (1 << 2));
+    assert!(!screen.dims_below());
+}
+
+#[test]
 fn a_screen_declared_grays_says_so_and_another_does_not() {
     use paperpaw_sdk::Screen as _;
     let (screen, _) = screen();
