@@ -423,6 +423,11 @@ jobs:
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE" -- -D warnings
           remap="$("$GITHUB_WORKSPACE/tools/ci/firmware-remap.sh" "$FIRMWARE_TARGET" "$FIRMWARE_TOOLCHAIN")"
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE"
+      # `core`'s parser and formatter of floats stay out of the image
+      # (36 KB, ticket #258): tools/firmware-symbols.sh says what brings
+      # them in and what to write instead.
+      - name: The firmware links no float parser or formatter
+        run: tools/firmware-symbols.sh "shells/xteink/target/$FIRMWARE_TARGET/release/paperpaw-xteink"
       # The released build's install image against its size budget
       # (shells/xteink/size-budget.txt, ticket #258). Measured here, before the
       # next step rebuilds the same file with `ppn5` and legacy symbol names on
@@ -765,6 +770,9 @@ jobs:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ${{ matrix.os }}
     strategy:
+      # Each system reports on its own: one failing build must not cancel the
+      # others (Windows showed "cancelled" whenever macOS failed).
+      fail-fast: false
       matrix:
         # A PR runs Linux; Windows and macOS run on main and integration.
         os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","windows-latest","macos-latest"]') }}

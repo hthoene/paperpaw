@@ -23,14 +23,16 @@ impl Measure {
         let (start, end) = match style.book.has(BookStyles::MARGINS) {
             true => {
                 let em = block_em(block, style);
-                let side = |m: u16| (f32::from(m) / 100.0 * em).clamp(0.0, width / 4.0);
+                // Not `clamp`: what it says of bounds the wrong way round
+                // brings `core`'s formatter of floats (#258).
+                let side = |m: u16| (f32::from(m) / 100.0 * em).min(width / 4.0).max(0.0);
                 (side(block.margins.0), side(block.margins.1))
             }
             false => (0.0, 0.0),
         };
         let rest = (start, (width - start - end).max(1.0));
         // Indented by half a line at most, so a narrow page keeps room.
-        let first_x = (start + indent).clamp(0.0, start + rest.1 / 2.0);
+        let first_x = (start + indent).min(start + rest.1 / 2.0).max(0.0);
         Measure {
             first: (first_x, (width - end - first_x).max(1.0)),
             rest,

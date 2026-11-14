@@ -25,6 +25,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use paperpaw_sdk::builtin::{fonts, params, screens};
+use paperpaw_sdk::event::ParamValue;
 use paperpaw_sdk::status::{Place, StatusFrame, StatusTarget, StatusValue, context, item_ids};
 use paperpaw_sdk::ui::UiStyle;
 use paperpaw_sdk::{
@@ -330,7 +331,7 @@ pub(crate) fn register(r: &mut Registrar) -> Result<(), RegisterError> {
         items::PROGRESS,
         "reader.status.item.progress",
         Box::new(|env, cx| {
-            let percent: f32 = cx.get(params::PROGRESS)?.parse().ok()?;
+            let percent = f32::from_param(cx.get(params::PROGRESS)?)?;
             Some(StatusValue::Text(env.i18n().format(
                 "reader.percent",
                 &[("percent", Arg::Int(percent as i64))],
@@ -449,7 +450,7 @@ fn draw_progress(canvas: &mut Canvas<'_>, env: &Env<'_>, frame: &StatusFrame<'_>
     let progress = frame
         .context
         .get(params::PROGRESS)
-        .and_then(|p| p.parse::<f32>().ok())
+        .and_then(f32::from_param)
         .unwrap_or(0.0)
         .clamp(0.0, 100.0)
         / 100.0;

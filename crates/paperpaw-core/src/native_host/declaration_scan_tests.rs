@@ -7,7 +7,7 @@ extern crate std;
 use super::super::super::raw_declarations::varint;
 use super::super::super::registrations::*;
 use super::super::*;
-use alloc::{rc::Rc, vec, vec::Vec};
+use alloc::{rc::Rc, string::String, vec, vec::Vec};
 use core::cell::{Cell, RefCell};
 
 struct Image {
@@ -17,6 +17,8 @@ struct Image {
     generation: Cell<u32>,
     /// The module is being unloaded: its image cannot be read.
     gone: Cell<bool>,
+    /// How often the image was asked for.
+    reads: Cell<usize>,
 }
 impl ImageOwner for Image {
     fn plugin_id(&self) -> &str {
@@ -26,6 +28,7 @@ impl ImageOwner for Image {
         self.generation.get()
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        self.reads.set(self.reads.get() + 1);
         if self.gone.get() {
             visit(None);
             return;
@@ -85,6 +88,7 @@ fn image(read_only: bool) -> (Rc<Image>, [core::ops::Range<usize>; 2]) {
         errors: Cell::new(0),
         generation: Cell::new(1),
         gone: Cell::new(false),
+        reads: Cell::new(0),
     });
     (image, ranges)
 }
@@ -377,6 +381,7 @@ fn each_batch_keeps_the_kinds_it_declares_and_only_those_are_walked() {
         errors: Cell::new(0),
         generation: Cell::new(1),
         gone: Cell::new(false),
+        reads: Cell::new(0),
     });
     let mut allocations = Allocations::default();
     let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source.clone());
@@ -444,4 +449,286 @@ fn a_matching_record_that_does_not_validate_is_said_and_no_match() {
     assert_eq!(order_of(&store, Kind::Group, "missing"), None);
     assert_eq!(order_of(&store, Kind::Group, "alpha"), Some(2));
     assert_eq!(source.errors.get(), 1);
+}
+
+/// A store of one owner whose image is `batches` one after the other:
+/// image-only where `read_only`, indexed otherwise.
+fn store_of(batches: &[Vec<u8>], read_only: bool) -> (DeclarationStore, Rc<Image>) {
+    let source = Rc::new(Image {
+        bytes: RefCell::new(batches.concat()),
+        read_only,
+        errors: Cell::new(0),
+        generation: Cell::new(1),
+        gone: Cell::new(false),
+        reads: Cell::new(0),
+    });
+    let mut allocations = Allocations::default();
+    let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source.clone());
+    let mut start = 0;
+    for batch in batches {
+        let image = source.bytes.borrow();
+        pending
+            .stage_batch(&image[start..start + batch.len()], &mut allocations)
+            .unwrap();
+        start += batch.len();
+    }
+    let mut store = DeclarationStore::default();
+    store.prepare(pending, &mut allocations).unwrap().commit();
+    assert_eq!(store.owners[0].as_ref().unwrap().image_only(), read_only);
+    (store, source)
+}
+
+/// What a lookup by `parts` gives: the record as text.
+fn found(store: &DeclarationStore, kind: Kind, parts: &[&str]) -> Option<String> {
+    let mut found = None;
+    let hit = store.find_parts("fixture", kind, parts, &mut |record| {
+        found = Some(alloc::format!("{record:?}"));
+    });
+    assert_eq!(hit, found.is_some());
+    found
+}
+
+fn titled(name: &'static str, title: &'static str, order: i32) -> Record<'static> {
+    Record::SettingGroup(SettingGroup {
+        name,
+        title,
+        order,
+        page: "",
+        parent: "",
+    })
+}
+
+fn language(language: &'static str, path: &'static str) -> Record<'static> {
+    Record::ResourceHyphenation(ResourceHyphenation { language, path })
+}
+
+fn entry(menu: &'static str, item: &'static str, order: i32) -> Record<'static> {
+    Record::MenuEntry(MenuEntry {
+        menu,
+        item,
+        order,
+        place: 0,
+        anchor: "",
+    })
+}
+
+/// Names in other fields, names inside longer names, repeated first letters,
+/// keys of two fields and names without case, over three batches.
+fn crowded_records() -> [Vec<Record<'static>>; 3] {
+    [
+        vec![
+            titled("x", "alpha", 1),
+            titled("alphabet", "aab", 2),
+            action("alpha", 3),
+            titled("alpha", "Alpha", 4),
+            titled("aaab", "x", 5),
+            entry("core.home", "fixture.alpha", 6),
+        ],
+        vec![
+            language("de-DE", "hyph/de.pphp"),
+            entry("core.home", "fixture.zed", 7),
+            entry("core.quick", "fixture.alpha", 8),
+            action("zed", 9),
+        ],
+        vec![titled("omega", "alpha", 10), language("en", "hyph/en.pphp")],
+    ]
+}
+
+/// [`crowded_records`], each batch as its bytes.
+fn crowded() -> [Vec<u8>; 3] {
+    crowded_records().map(|records| encode(&records))
+}
+
+/// Lookups the crowded fixture answers, and ones it does not.
+const LOOKUPS: [(Kind, &[&str]); 22] = [
+    (Kind::Group, &["alpha"]),
+    (Kind::Group, &["alphabet"]),
+    (Kind::Group, &["alph"]),
+    (Kind::Group, &["lpha"]),
+    (Kind::Group, &["Alpha"]),
+    (Kind::Group, &["x"]),
+    (Kind::Group, &["aab"]),
+    (Kind::Group, &["aaab"]),
+    (Kind::Group, &["omega"]),
+    (Kind::Group, &["zed"]),
+    (Kind::Group, &[""]),
+    (Kind::Group, &[]),
+    (Kind::Group, &["alpha", "Alpha"]),
+    (Kind::Action, &["alpha"]),
+    (Kind::Action, &["zed"]),
+    (Kind::MenuEntry, &["core.home", "fixture.zed"]),
+    (Kind::MenuEntry, &["core.quick", "fixture.alpha"]),
+    (Kind::MenuEntry, &["core.quick", "fixture.zed"]),
+    (Kind::MenuEntry, &["core.home"]),
+    (Kind::Hyphenation, &["DE-de"]),
+    (Kind::Hyphenation, &["EN"]),
+    (Kind::Hyphenation, &["fr"]),
+];
+
+#[test]
+fn a_lookup_in_an_image_answers_as_an_index_whatever_else_holds_the_name() {
+    let batches = crowded();
+    let (scanned, source) = store_of(&batches, true);
+    let (indexed, _) = store_of(&batches, false);
+    let mut hits = 0;
+    for (kind, parts) in LOOKUPS {
+        let answer = found(&scanned, kind, parts);
+        assert_eq!(answer, found(&indexed, kind, parts), "{kind:?} {parts:?}");
+        hits += usize::from(answer.is_some());
+    }
+    assert_eq!(hits, 11);
+    // The record itself, not one that only holds the name somewhere.
+    let alpha = found(&scanned, Kind::Group, &["alpha"]).unwrap();
+    assert!(alpha.contains("order: 4"), "{alpha}");
+    let german = found(&scanned, Kind::Hyphenation, &["DE-de"]).unwrap();
+    assert!(german.contains("hyph/de.pphp"), "{german}");
+    assert_eq!(source.errors.get(), 0);
+}
+
+#[test]
+fn a_lookup_in_an_image_asks_for_the_image_once() {
+    let (store, source) = store_of(&crowded(), true);
+    for (kind, parts) in LOOKUPS {
+        let before = source.reads.get();
+        let _ = found(&store, kind, parts);
+        assert_eq!(source.reads.get() - before, 1, "{kind:?} {parts:?}");
+    }
+    // A stale owner's image is not asked for at all.
+    source.generation.set(2);
+    let before = source.reads.get();
+    assert_eq!(found(&store, Kind::Group, &["alpha"]), None);
+    assert_eq!(source.reads.get(), before);
+}
+
+#[test]
+fn a_lookup_in_an_image_decodes_only_records_that_may_hold_the_name() {
+    let (store, source) = store(true, false);
+    {
+        // The title of group "beta" stops being text; its frame still walks.
+        let mut bytes = source.bytes.borrow_mut();
+        let at = bytes
+            .windows(4)
+            .position(|window| window == b"beta")
+            .unwrap();
+        assert_eq!(&bytes[at + 5..at + 10], b"Group");
+        bytes[at + 7] = 0xff;
+    }
+    // A lookup of another name walks past it and says nothing.
+    assert_eq!(order_of(&store, Kind::Group, "alpha"), Some(2));
+    assert_eq!(order_of(&store, Kind::Group, "gamma"), Some(3));
+    assert_eq!(order_of(&store, Kind::Group, "missing"), None);
+    assert_eq!(source.errors.get(), 0);
+    // Its own name finds no record, and that is said.
+    assert_eq!(order_of(&store, Kind::Group, "beta"), None);
+    assert_eq!(source.errors.get(), 1);
+    // A visit of every group still says it.
+    let mut groups = 0;
+    store.keys(Kind::Group, &mut |key| {
+        groups += usize::from(store.with_record(key, &mut |_| {}));
+    });
+    assert_eq!(groups, 2);
+    assert_eq!(source.errors.get(), 2);
+}
+
+/// What `each_wanted` gives of `kind`, and what `keys` with `with_record`
+/// does, as text.
+fn each(store: &DeclarationStore, kind: Kind, wanted: &dyn Fn(&[u8]) -> bool) -> Vec<String> {
+    let mut records = Vec::new();
+    store.each_wanted(kind, wanted, &mut |record| {
+        records.push(alloc::format!("{record:?}"));
+    });
+    records
+}
+
+fn by_keys(store: &DeclarationStore, kind: Kind) -> Vec<String> {
+    let mut records = Vec::new();
+    store.keys(kind, &mut |key| {
+        store.with_record(key, &mut |record| {
+            records.push(alloc::format!("{record:?}"));
+        });
+    });
+    records
+}
+
+#[test]
+fn every_record_wanted_is_given_as_its_key_gives_it() {
+    let batches = crowded();
+    let (scanned, source) = store_of(&batches, true);
+    let (indexed, _) = store_of(&batches, false);
+    let mut given = 0;
+    for kind in [
+        Kind::Group,
+        Kind::Action,
+        Kind::MenuEntry,
+        Kind::Hyphenation,
+    ] {
+        let all = each(&scanned, kind, &|_| true);
+        assert_eq!(all, by_keys(&scanned, kind), "{kind:?}");
+        // An owner with an index gives the same records (in its index's
+        // order) and is not asked what is wanted.
+        let (mut sorted, mut of_index) = (all.clone(), each(&indexed, kind, &|_| false));
+        sorted.sort();
+        of_index.sort();
+        assert_eq!(sorted, of_index, "{kind:?}");
+        given += all.len();
+        // Of an image, the wanted ones alone: the image asked for once.
+        let before = source.reads.get();
+        let named = each(&scanned, kind, &|bytes| super::holds(bytes, "alpha"));
+        assert_eq!(source.reads.get() - before, 1, "{kind:?}");
+        let holding: Vec<_> = all
+            .iter()
+            .filter(|r| r.contains("alpha"))
+            .cloned()
+            .collect();
+        assert_eq!(named, holding, "{kind:?}");
+    }
+    assert!(given > 8, "{given}");
+    assert_eq!(source.errors.get(), 0);
+    // A stale owner gives nothing and its image is not asked for.
+    source.generation.set(2);
+    let before = source.reads.get();
+    assert!(each(&scanned, Kind::Group, &|_| true).is_empty());
+    assert_eq!(source.reads.get(), before);
+}
+
+#[test]
+fn a_record_that_is_not_wanted_is_not_decoded() {
+    let (store, source) = store(true, false);
+    {
+        // The title of group "beta" stops being text; its frame still walks.
+        let mut bytes = source.bytes.borrow_mut();
+        let at = bytes
+            .windows(4)
+            .position(|window| window == b"beta")
+            .unwrap();
+        bytes[at + 7] = 0xff;
+    }
+    let alpha = each(&store, Kind::Group, &|bytes| super::holds(bytes, "alpha"));
+    assert_eq!(alpha.len(), 1, "{alpha:?}");
+    assert_eq!(source.errors.get(), 0, "passed by, not read");
+    // Wanted, it is read: said to its plugin, and not given.
+    assert_eq!(each(&store, Kind::Group, &|_| true).len(), 2);
+    assert_eq!(source.errors.get(), 1);
+    assert!(super::holds(b"xaab", "aab") && super::holds(b"", ""));
+    assert!(!super::holds(b"aaba", "aabb") && !super::holds(b"", "a"));
+}
+
+#[test]
+fn a_frame_without_the_name_is_never_one_that_may_match() {
+    // Every key's first field is borrowed from the record's frame: the frame
+    // of a record holds the name it is found by.
+    for record in crowded_records().iter().flatten() {
+        let (category, name) = super::super::super::declaration_index::key(*record).unwrap();
+        let wire = encode(core::slice::from_ref(record));
+        assert!(super::may_match(&wire, category, &[name]), "{record:?}");
+    }
+    assert!(super::may_match(b"xaab", 0, &["aab"]));
+    assert!(super::may_match(b"aaab", 0, &["aab"]));
+    assert!(!super::may_match(b"aaba", 0, &["aabb"]));
+    assert!(!super::may_match(b"", 0, &["a"]));
+    assert!(!super::may_match(b"ALPHA", 0, &["alpha"]));
+    // Names without case are always decoded; so is a lookup without a name.
+    assert!(super::may_match(b"ALPHA", 3, &["alpha"]));
+    assert!(super::may_match(b"", 0, &[""]));
+    assert!(super::may_match(b"", 0, &[]));
 }

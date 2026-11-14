@@ -7,6 +7,7 @@ use alloc::format;
 use alloc::string::String;
 
 use paperpaw_sdk::builtin::events;
+use paperpaw_sdk::event::ParamValue;
 use paperpaw_sdk::{Cx, Env};
 
 use super::book::Book;
@@ -28,7 +29,7 @@ impl Book {
         let reading = self.reading(env);
         match (reading.page, reading.pages) {
             (Some(page), Some(pages)) => format!("{page} / {pages}"),
-            _ => format!("{} %", reading.progress),
+            _ => format!("{} %", reading.progress.to_param()),
         }
     }
 }

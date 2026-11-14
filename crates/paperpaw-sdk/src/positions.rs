@@ -92,9 +92,12 @@ impl Position {
     /// As a position file's text.
     pub fn text(&self) -> String {
         let mut text = format!(
-            "[position]\nsection = {}\noffset = {}\npercent = {:.1}\n",
-            self.at.section, self.at.offset, self.percent
+            "[position]\nsection = {}\noffset = {}\npercent = ",
+            self.at.section, self.at.offset
         );
+        // As `{:.1}` writes it, without `core`'s formatter of floats (#258).
+        let _ = crate::float_text::write_tenths(&mut text, self.percent);
+        text.push('\n');
         if let Some(conversion) = self.conversion {
             text.push_str(&format!("conversion = {conversion:016x}\n"));
         }
@@ -169,7 +172,7 @@ fn try_parse(text: &str, limit: Option<usize>) -> Result<Option<Position>, Error
         match entry.key {
             "section" => section = entry.value.as_u32(),
             "offset" => offset = entry.value.as_u32(),
-            "percent" => percent = entry.value.raw().parse().unwrap_or(0.0),
+            "percent" => percent = crate::float_text::parse_f32(entry.value.raw()).unwrap_or(0.0),
             "conversion" => position.conversion = u64::from_str_radix(entry.value.raw(), 16).ok(),
             "xpointer" => {
                 if limit.is_some_and(|limit| entry.value.raw().len() > limit) {
