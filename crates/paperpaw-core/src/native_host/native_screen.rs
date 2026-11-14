@@ -19,6 +19,10 @@ use paperpaw_sdk::{
 /// 1,024 bytes); the contract fixes only the event's own 1,024.
 const TYPED_TOTAL_MAX: usize = 64 * 1024;
 
+/// `draw.frame.id` bit of a screen's draw that only counts its pictures
+/// (`screens-input.md` 6): drawn aside, nothing of it is shown.
+pub(crate) const PICTURES_ONLY_ID: u32 = 1 << 1;
+
 /// The owner/runtime supplies admission and the callback-scoped host views.
 /// Implementations keep no input, frame, canvas or environment borrow.
 pub(crate) trait Dispatch {
@@ -432,6 +436,13 @@ impl<D: Dispatch> NativeScreen<D> {
             u32::from(pane.height),
             (top, top + i32::from(clip.height)),
         );
+        // Drawn aside for the count of its pictures (the grays of a page),
+        // nothing shown: `id` bit 1. Not where its parts are asked for.
+        let counted = canvas.is_blind() && !canvas.is_describing();
+        let frame = wire::DrawFrame {
+            id: if counted { PICTURES_ONLY_ID } else { 0 },
+            ..frame
+        };
         let result =
             self.dispatch
                 .screen_draw(self.key, self.token, &frame, env, &mut canvas.clipped(pane));

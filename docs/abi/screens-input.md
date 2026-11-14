@@ -539,7 +539,11 @@ draw(state: pointer, token: u32, input: bytes) -> i32
 - [D] `id` and `payload` are defined by the owner of the purpose, for example the reader's insert
   id. A screen gets an empty payload and `id = 0`, but for bit 0: set on every draw of the frame
   that draws the follow-up of its `redraw_area` rectangles (section 3), on each band of it and
-  when that frame is sent again (the X4 sends a frame twice). Other bits are 0.
+  when that frame is sent again (the X4 sends a frame twice). Bit 1 `pictures_only`: the host
+  draws the screen aside, whole, to count the pictures it draws (whether the page is shown in
+  grays), and shows nothing of the draw. A screen may leave out all but its pictures in it
+  (text, lines, status items); one that ignores the bit draws as always and is counted the
+  same. Not set on a draw whose parts are asked for (6.1). Other bits are 0.
 - [D] Drawing outside the clip is clipped by the canvas slots, not refused.
 
 ### 6.1 Telling what is drawn (slot 42, #243)
