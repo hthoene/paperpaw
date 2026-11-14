@@ -153,6 +153,49 @@ fn size(path: &Path) -> (u32, u32) {
     (info.width, info.height)
 }
 
+/// What a frame of a book with status lines takes of the heap beyond what is
+/// live: its status line makes one reply buffer of 4 KiB, after the registry's
+/// answer is read, and a small request buffer (#248); it made two of 4 KiB and
+/// a third of 4 KiB for the request, while the answer was read: 16.9 KiB above
+/// the live heap before, 9.0 after. Measured by `redraw` between `reset-peak`
+/// and `step:` on an X4.
+#[test]
+fn a_frame_of_a_book_with_status_lines_takes_little_heap() {
+    let library = library("status-frame");
+    let reader = library.join(".paperpaw/plugins/reader");
+    fs::create_dir_all(&reader).unwrap();
+    fs::write(
+        reader.join("state.ini"),
+        "[reader]\nlast = books/die-verwandlung.txt\n",
+    )
+    .unwrap();
+    let run = run_in(
+        &library,
+        "xteink-x4",
+        "wait:6000,reset-peak,redraw,wait:300,step:frame",
+        &[],
+    );
+    let _ = fs::remove_dir_all(&library);
+    assert!(run.ok, "{}", run.stderr);
+    let line = run
+        .stdout
+        .lines()
+        .find(|line| line.starts_with("step frame:"))
+        .unwrap_or_else(|| panic!("no step line in {}", run.stdout));
+    let number = |after: &str| -> f64 {
+        line.split(after)
+            .nth(1)
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("no number after {after:?} in {line}"))
+    };
+    let above_live = number("peak ") - number("live ");
+    assert!(
+        above_live < 12.0,
+        "a frame peaks {above_live} KiB above live: {line}"
+    );
+}
+
 #[test]
 fn help_and_the_profiles_are_printed() {
     let help = emulator(&["--help"]);
