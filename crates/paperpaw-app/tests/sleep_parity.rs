@@ -97,6 +97,19 @@ struct Run {
     reparked: Option<bool>,
 }
 
+/// Whether `effects` ask for nothing but another pass at `now`.
+fn only_wakes_now(effects: &Effects, now: u64) -> bool {
+    effects.refresh().is_none()
+        && !effects.grays()
+        && !effects.restart()
+        && !effects.sleep()
+        && !effects.power_off()
+        && !effects.usb_drive()
+        && !effects.proceed()
+        && effects.pace().is_none()
+        && effects.wake_at() == Some(Instant(now))
+}
+
 impl Run {
     fn start(sleep: fn(&str) -> bool, book: Option<&Book>) -> Self {
         native_activation::set_clock(0);
@@ -141,8 +154,10 @@ impl Run {
         let mut raw = format!("{what}: @{} {last}", self.now);
         let mut folded = 0u32;
         let mut again = 0u32;
+        let mut settled = false;
         for _ in 0..10_000 {
             let Some(at) = effects.wake_at() else {
+                settled = true;
                 break;
             };
             // In standby the device ticks no timer: only the passes the
@@ -153,19 +168,19 @@ impl Run {
                 self.now + 1000
             };
             if at.0 > horizon {
+                settled = true;
                 break;
             }
             self.now = self.now.max(at.0);
             native_activation::set_clock(self.now);
             effects = self.kernel.tick(Instant(self.now));
             let now = format!("{effects:?}");
-            // A quiet start leaves no pass pending, so the awake plugin's
-            // one more pass at the same instant when a book opens (the
-            // parked one is made in the pass before) shows: it is counted,
-            // not compared, and sleeping may take fewer, never more.
-            if now.contains("refresh: None,")
-                && now.contains(&format!("wake_at: Some(Instant({}))", self.now))
-            {
+            // A pass with nothing but a wake-up at this instant is counted,
+            // not compared: a just-made parked plugin gets up to 3 rounds in
+            // one pass (`native_host/service_pump.rs`), so an awake plugin
+            // takes more such passes than a parked one. Sleeping may take
+            // fewer, never more; the awake run at most 2 more per step.
+            if only_wakes_now(&effects, self.now) {
                 again += 1;
                 continue;
             }
@@ -178,6 +193,7 @@ impl Run {
                 last_at = self.now;
             }
         }
+        assert!(settled, "{what}: still ticking after 10,000 passes");
         if folded > 0 {
             self.repeats.push((self.steps.len(), folded));
         }
@@ -552,11 +568,12 @@ fn same_awake_and_asleep(plugin: &'static str) {
         asleep.raw.len(),
         "{plugin}: the unfolded runs took a different number of steps"
     );
-    // Sleeping never adds a pass at an instant (it may take fewer).
+    // Sleeping never adds a pass at an instant (it may take fewer), and the
+    // awake run takes at most 2 more per step (service_pump.rs).
     for (index, (a, b)) in awake.again_now.iter().zip(&asleep.again_now).enumerate() {
         assert!(
-            b <= a,
-            "{plugin}: asleep takes more same-instant passes ({b}) than awake ({a}) at step {index}"
+            b <= a && a - b <= 2,
+            "{plugin}: same-instant passes at step {index}: awake {a}, asleep {b} (asleep never more, awake at most 2 more)"
         );
     }
     assert_eq!(
