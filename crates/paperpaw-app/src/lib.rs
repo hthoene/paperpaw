@@ -217,6 +217,7 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
     ("sleep", &paperpaw_plugin_sleep::NATIVE_ENTRY),
+    ("store", &paperpaw_plugin_store::NATIVE_ENTRY),
     ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
@@ -351,6 +352,7 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         #[cfg(feature = "native-linked-reading")]
         "reader" => tables!(paperpaw_plugin_reader),
         "settings" => tables!(paperpaw_plugin_settings),
+        "store" => tables!(paperpaw_plugin_store),
         #[cfg(feature = "native-linked-store")]
         "aids" => tables!(paperpaw_plugin_aids),
         #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
@@ -629,14 +631,8 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
 
 /// The network settings of every networked first-party plugin the app registers.
 #[cfg(not(feature = "native-linked"))]
-pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
-    "fonts-browser",
-    "mail",
-    "news",
-    "store",
-    "transfer",
-    "vocabulary",
-);
+pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] =
+    paperpaw_core::network_settings!("fonts-browser", "mail", "news", "transfer", "vocabulary",);
 
 /// The indexes of the first-party plugins' translation catalogs, made
 /// when the program was built (see `build.rs`): their catalogs keep none
@@ -668,41 +664,11 @@ pub fn install_with(
         #[cfg(any(feature = "packs", not(feature = "outline")))]
         Fonts::Packs => builder.plugin(paperpaw_plugin_fonts_default::DefaultFontPacks),
     };
-    // Nothing is left to `store` without the store's plugins, or where they
-    // and the reader's are all linked.
-    #[cfg(not(all(
-        feature = "store-plugins",
-        not(all(feature = "native-linked-store", feature = "native-linked-reading"))
-    )))]
+    // The store's plugins are native plugins only: nothing is left to `store`.
     let _ = store;
     // Wi-Fi, Transfer, Menu, News, Picture home and the rest of the store's
     // plugins are native plugins only (`NATIVE_PLUGINS`, under `native-linked`):
     // their interface-6 forms are gone (#244).
-    let b = builder.plugin(paperpaw_plugin_store::Store);
-    #[cfg(all(
-        feature = "store-plugins",
-        not(all(feature = "native-linked-store", feature = "native-linked-reading"))
-    ))]
-    let b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     // A theme of the app's own, off as it ships, on every device.
-    b.plugin_off(Pebble)
-}
-
-/// Adds `plugin`, one the store offers as a file too, as `store` says (none
-/// is left to it where the store's and the reader's plugins are all linked).
-#[cfg(all(
-    feature = "store-plugins",
-    not(all(feature = "native-linked-store", feature = "native-linked-reading"))
-))]
-fn offered(
-    builder: KernelBuilder,
-    store: StorePlugins<'_>,
-    plugin: impl paperpaw_core::sdk::Plugin + 'static,
-) -> KernelBuilder {
-    match store {
-        StorePlugins::Left => builder,
-        StorePlugins::On => builder.plugin(plugin),
-        StorePlugins::Off(on) if on(plugin.manifest().id.as_str()) => builder.plugin(plugin),
-        StorePlugins::Off(_) => builder.plugin_off(plugin),
-    }
+    builder.plugin_off(Pebble)
 }

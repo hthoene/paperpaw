@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-store"
 description = "PaperPaw plugin store: finds data plugins for this device in a plugin library and installs, updates and removes them"
-version = "1.0.8"
+version = "1.0.9"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -21,7 +21,9 @@ paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-ui-kit.workspace = true
 
 [build-dependencies]
-paperpaw-sdk.workspace = true
+# `kernel` only for the build script (not unified with the plugin's own use of
+# the SDK): it makes the tables a linked build keeps in the program.
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
 paperpaw-core.workspace = true

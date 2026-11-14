@@ -178,7 +178,7 @@ pub struct Tally {
 
 /// Counts the plugins `ids` (the library lists `sizes` of them, a byte count each)
 /// by the installs' steps. A plugin installed counts whole, the one downloading
-/// by the bytes so far, never more than its size.
+/// by the share of its files that are here, never more than its size.
 #[must_use]
 pub fn tally(ids: &[String], sizes: &[u64], installs: &dyn Installs) -> Tally {
     let mut tally = Tally::default();
@@ -189,9 +189,13 @@ pub fn tally(ids: &[String], sizes: &[u64], installs: &dyn Installs) -> Tally {
                 tally.whole = tally.whole.saturating_add(1);
                 tally.restart |= installs.restart_needed(id);
             }
-            Step::Downloading { done, .. } => {
+            Step::Downloading { done, total } => {
+                // `done` of `total` files are here, not bytes: the share of the
+                // plugin's size those files make, by their number.
                 tally.busy = true;
-                tally.done = tally.done.saturating_add(u64::from(done).min(*size));
+                let here = u128::from(*size) * u128::from(done) / u128::from(total.max(1));
+                let here = u64::try_from(here).unwrap_or(u64::MAX).min(*size);
+                tally.done = tally.done.saturating_add(here);
             }
             Step::Installing => {
                 tally.busy = true;

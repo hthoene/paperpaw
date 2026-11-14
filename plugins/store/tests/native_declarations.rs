@@ -7,9 +7,7 @@ use paperpaw_core::native_host::{declarations::validate_batch, registrations::re
 mod declarations;
 #[path = "../../test-support/declared.rs"]
 mod declared;
-use paperpaw_plugin_store::Store;
 use paperpaw_sdk::native::declare::Declarations;
-use paperpaw_sdk::{Id, Plugin, Registrar};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/store_declarations.rs"));
@@ -53,34 +51,14 @@ fn the_host_admits_the_two_settings() {
     }
 }
 
-/// The two settings are the interface-6 registration's: kinds, defaults, the
-/// group, the titles and helps, and the guarded flag of the community switch.
+/// The two settings: kinds, defaults, the group, the titles and helps, and the
+/// guarded flag of the community switch, as pinned (made while the interface-6
+/// registration was compared with them line for line).
 #[test]
-fn the_decoded_batches_say_what_the_registration_says() {
-    // The settings sit in the built-in groups (developer, system), not in a
-    // group of the store's own: the registration is read once for each.
-    let old = |group: &str| {
-        let mut registrar = Registrar::new(Id::new_static("store"));
-        Store.register(&mut registrar).unwrap();
-        declared::legacy("store", group, registrar.into_contributions())
-    };
-    let (developer, system) = (old("core.group.developer"), old("core.group.system"));
+fn the_decoded_batches_say_what_was_pinned() {
     let new = declared::native("store", &batches());
     assert_eq!(new.specs.len(), 2);
-    let old_specs: Vec<_> = developer
-        .specs
-        .iter()
-        .chain(&system.specs)
-        .cloned()
-        .collect();
-    assert_eq!(new.specs, old_specs);
-    let old_extras: Vec<_> = developer
-        .extras
-        .iter()
-        .chain(&system.extras)
-        .cloned()
-        .collect();
-    assert_eq!(new.extras, old_extras);
+    declared::assert_pinned("settings", &new);
     // The guard is on the community switch alone.
     let guarded = |line: &String| {
         let flags: u32 = line.split('|').nth(2).unwrap().parse().unwrap();
@@ -108,9 +86,9 @@ fn the_action_menu_entries_and_event_are_what_the_image_holds_and_the_host_admit
 }
 
 /// The seven screens are what the image holds, the host admits them, and each
-/// has the id and the title of the interface-6 registration.
+/// has the id and the title pinned (those of the interface-6 registration).
 #[test]
-fn the_screens_are_what_the_image_holds_and_the_registration_says() {
+fn the_screens_are_what_the_image_holds_and_were_pinned() {
     let screens = batches_of!(declarations::screens);
     assert_eq!(screens.len(), image::SCREENS.len());
     for (built, image) in screens.iter().zip(image::SCREENS) {
@@ -119,19 +97,13 @@ fn the_screens_are_what_the_image_holds_and_the_registration_says() {
         assert_eq!(records.iter().count(), 8);
         validate_batch("store", &records).unwrap();
     }
-    let mut registrar = Registrar::new(Id::new_static("store"));
-    Store.register(&mut registrar).unwrap();
-    let mut old =
-        declared::legacy("store", "core.group.system", registrar.into_contributions()).screens;
-    let mut new = declared::native("store", &screens).screens;
-    old.sort();
-    new.sort();
-    assert_eq!(new, old);
-    assert_eq!(new.len(), 8);
+    let new = declared::native("store", &screens);
+    assert_eq!(new.screens.len(), 8);
+    declared::assert_pinned("screens", &new);
 }
 
-/// The setup step is what the image holds, the host admits it, and it is the
-/// interface-6 registration's: its title, help and order, opening the page of
+/// The setup step is what the image holds, the host admits it, and it is what
+/// the interface-6 registration had, pinned: its title, help and order, opening the page of
 /// the first-run offer.
 #[test]
 fn the_setup_step_is_what_the_image_holds_and_the_host_admits_it() {
@@ -143,10 +115,7 @@ fn the_setup_step_is_what_the_image_holds_and_the_host_admits_it() {
         assert_eq!(records.iter().count(), 1);
         validate_batch("store", &records).unwrap();
     }
-    let mut registrar = Registrar::new(Id::new_static("store"));
-    Store.register(&mut registrar).unwrap();
-    let old = declared::legacy("store", "core.group.system", registrar.into_contributions());
     let new = declared::native("store", &setup);
     assert_eq!(new.others.len(), 1, "{:?}", new.others);
-    assert_eq!(old.others.len(), 0, "{:?}", old.others);
+    declared::assert_pinned("setup", &new);
 }

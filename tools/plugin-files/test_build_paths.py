@@ -19,7 +19,6 @@ import unittest.mock
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 # Each script with a plugin it knows (plugins.txt; the native entries).
 SCRIPTS = {
-    "plugin-files": (ROOT / "tools/plugin-files/build.sh", "vocabulary"),
     "plugin-files7": (ROOT / "tools/plugin-files7/build.sh", "battery"),
 }
 
@@ -74,9 +73,7 @@ class SpacedPaths(unittest.TestCase):
     def test_the_override_is_never_read_for_a_signed_build(self):
         key = pathlib.Path(self.tmp.name) / "k"
         key.write_text("x")
-        cases = [("plugin-files", ("--key", str(key))),
-                 ("plugin-files", ("--fingerprint", "00ff00ff00ff00ff")),
-                 ("plugin-files7", ("--key", str(key)))]
+        cases = [("plugin-files7", ("--key", str(key)))]
         for name, args in cases:
             proc = self.run_script(name, *args, override=True)
             self.assertNotEqual(proc.returncode, 0, (name, args))
