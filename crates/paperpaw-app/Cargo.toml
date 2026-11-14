@@ -48,7 +48,6 @@ store-plugins = [
     "dep:paperpaw-plugin-news",
     "dep:paperpaw-plugin-vocabulary",
     "dep:paperpaw-plugin-fonts-browser",
-    "dep:paperpaw-plugin-aids",
     "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-picture-home",
     "dep:paperpaw-plugin-format-mobi",
@@ -163,7 +162,6 @@ paperpaw-plugin-file-manager = { workspace = true, optional = true }
 paperpaw-plugin-transfer.workspace = true
 paperpaw-plugin-opds = { workspace = true, optional = true }
 paperpaw-plugin-lock = { workspace = true, optional = true }
-paperpaw-plugin-aids = { workspace = true, optional = true }
 paperpaw-plugin-vocabulary = { workspace = true, optional = true }
 paperpaw-plugin-sleep.workspace = true
 paperpaw-plugin-about = { workspace = true, optional = true }

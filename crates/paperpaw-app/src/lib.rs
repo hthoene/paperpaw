@@ -78,8 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 11] = [
-    "aids",
+pub const STORE_PLUGINS: [&str; 10] = [
     "fonts-browser",
     "format-docx",
     "format-images",
@@ -715,10 +714,6 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
     }
     b = b.plugin(paperpaw_plugin_store::Store);
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-    {
-        b = offered(b, store, paperpaw_plugin_aids::Aids);
-    }
     #[cfg(all(
         feature = "store-plugins",
         not(all(feature = "native-linked-store", feature = "native-linked-reading"))

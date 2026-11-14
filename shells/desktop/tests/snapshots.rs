@@ -186,24 +186,9 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    Case {
-        name: "x4-pictures-caption",
-        profile: "xteink-x4",
-        book: Some("books/pictures.epub"),
-        sets: &["aids.pictures=aids.pictures.caption"],
-        script: "wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-pictures-hidden",
-        profile: "xteink-x4",
-        book: Some("books/pictures.epub"),
-        sets: &["aids.pictures=aids.pictures.hide"],
-        script: "wait:300",
-        colour: 0,
-        fixtures: false,
-    },
+    // `x4-pictures-caption` and `x4-pictures-hidden` set aids.pictures, which the
+    // interface-6 aids plugin registered; they return when the reader applies the
+    // `reader.filter` stage at native activation (#228, todo 380).
     Case {
         name: "boox-settings",
         profile: "boox-go-7",

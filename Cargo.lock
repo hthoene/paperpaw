@@ -1647,7 +1647,6 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-about",
- "paperpaw-plugin-aids",
  "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",
