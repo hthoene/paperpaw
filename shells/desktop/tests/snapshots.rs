@@ -634,6 +634,15 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    Case {
+        name: "x4-quick-panel-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:core.quick-panel,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
     // The reader's panel on the X4, the row that opens the fonts focused:
     // its whole name and value on the focus bar, aligned with the rows
     // below.
@@ -727,12 +736,15 @@ fn root() -> PathBuf {
         .to_path_buf()
 }
 
+static NEXT_LIBRARY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// A library with only the sample books (and the book to reopen).
 fn library(case: &Case) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "paperpaw-snapshot-{}-{}",
+        "paperpaw-snapshot-{}-{}-{}",
         case.name,
-        std::process::id()
+        std::process::id(),
+        NEXT_LIBRARY.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let _ = fs::remove_dir_all(&dir);
     let books = dir.join("books");
@@ -1102,4 +1114,14 @@ fn helper_screen_cases(names: &[&str]) {
 #[test]
 fn transfer_offline_has_icon_and_bottom_button() {
     helper_screen_cases(&["x4-transfer", "x4-transfer-de"]);
+}
+
+#[test]
+fn quick_panel_values_use_the_row_text_size() {
+    helper_screen_cases(&[
+        "x4-quick-panel",
+        "x4-quick-panel-de",
+        "x4-pro-quick-panel",
+        "boox-quick-panel",
+    ]);
 }
