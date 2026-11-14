@@ -1,8 +1,0 @@
-Heading "Apple"
-Text "Does apple."
-Text "Data plugin: settings, looks and texts, no code."
-Text "By Someone, since 2024, 3 plugins"
-Text "Version 1.0.0, 61 B · Licence: MIT"
-Row "Install, 61 B" (focused)
-Row "Screenshots, 1"
-Row "Source code"

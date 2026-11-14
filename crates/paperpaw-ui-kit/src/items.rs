@@ -1215,6 +1215,17 @@ fn row_backdrop(
     backdrop(paint, style, rect, focused)
 }
 
+/// The ink of a faint row: its own grey, except on a panel of two grays, where
+/// that grey is drawn as paper and the row would not show at all; there it is
+/// the ink of notes (Beta 3's facts of a plugin were drawn so).
+pub(crate) const fn disabled_ink(style: &Style) -> paperpaw_sdk::Color {
+    if style.mono {
+        style.note
+    } else {
+        style.disabled
+    }
+}
+
 pub(crate) fn draw_row(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
@@ -1241,7 +1252,7 @@ pub(crate) fn draw_row(
         style.paper
     };
     let ink = if row.disabled {
-        style.disabled
+        disabled_ink(style)
     } else {
         ink(style, focused)
     };

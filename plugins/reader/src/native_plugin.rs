@@ -133,6 +133,7 @@ const READ_ALOUD_TOKEN: u32 = native_handsfree::token_of(b"read-aloud");
 
 impl NativeReader {
     /// The reading screen opened: its book is opened with it.
+    #[inline(never)]
     fn open(
         &mut self,
         host: &Host<'_>,
@@ -209,6 +210,7 @@ impl NativeReader {
     }
 
     /// A note opened over the page.
+    #[inline(never)]
     fn open_note(
         &mut self,
         host: &Host<'_>,
@@ -284,6 +286,7 @@ impl NativeReader {
     }
 
     /// The table of contents opened: its book is opened with it.
+    #[inline(never)]
     fn open_toc(
         &mut self,
         host: &Host<'_>,
@@ -372,6 +375,7 @@ impl NativeReader {
     }
 
     /// The skim screen opened over the page.
+    #[inline(never)]
     fn open_skim(
         &mut self,
         host: &Host<'_>,
@@ -397,6 +401,7 @@ impl NativeReader {
     }
 
     /// The annotations opened: their notes are read with it.
+    #[inline(never)]
     fn open_notes(
         &mut self,
         host: &Host<'_>,
@@ -451,6 +456,7 @@ impl NativeReader {
     }
 
     /// The search screen opened: the text answered is searched for.
+    #[inline(never)]
     fn open_search(
         &mut self,
         host: &Host<'_>,
