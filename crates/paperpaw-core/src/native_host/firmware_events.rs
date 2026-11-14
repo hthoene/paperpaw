@@ -262,7 +262,8 @@ impl Kernel {
         // One at a time, so that no list is kept and none is left out. A
         // grant that stays set (a refused reset) ends the loop by the bound.
         for _ in 0..GRANTS_MAX {
-            let next = self.shared.settings.specs().find_map(|spec| {
+            // The grants are the kernel's own, kept as they are.
+            let next = self.shared.settings.kept_specs().find_map(|spec| {
                 let id = spec.id.as_str();
                 let is_its = id
                     .strip_prefix("core.grant.")

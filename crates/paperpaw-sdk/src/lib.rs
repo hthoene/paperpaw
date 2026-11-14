@@ -205,6 +205,11 @@ pub use settings::{
     Choices, Editor, Level, SettingCheck, SettingError, SettingExtra, SettingGroup,
     SettingGroupSpec, SettingKind, SettingSpec, SettingValue, Settings,
 };
+/// Settings a plugin loaded from the card describes on demand, for the
+/// kernel: of each only its default and flags are kept.
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub use settings::{DescribeError, Described, DescribedSettings, Pick};
 pub use shared_str::Str;
 pub use sockets::{
     CertificateHash, Distrust, KeyHash, MAX_PINS, MAX_TLS_IDLE_MS, MAX_TLS_TIMEOUT_MS, SocketError,

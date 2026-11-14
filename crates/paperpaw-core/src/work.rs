@@ -640,10 +640,8 @@ impl Kernel {
     ///
     /// [`SettingSpec::guarded`]: paperpaw_sdk::SettingSpec::guarded
     fn guarded(&self, id: &Id) -> bool {
-        self.shared
-            .settings
-            .spec(id.as_str())
-            .is_some_and(|spec| spec.guarded)
+        // Asked without its spec: no lack of room unguards it (#248).
+        self.shared.settings.defines_guarded(id.as_str())
     }
 
     /// Wears `wear`'s mode; `tell` plugins of it (not before they start).
