@@ -144,7 +144,11 @@ jobs:
       # behind. With the reader and the formats linked (`native-linked-reading`,
       # #243): every format that may sleep is a native plugin there, so its
       # parity cases run and the cycles require it.
-      - run: cargo test -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles
+      - run: cargo test -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles --test linked_catalogs
+      # The linked plugins' translations without their keys (#258) with what the
+      # X4 links (`native-on`: no store plugins, `packs`): the build works out
+      # which plugins are linked from the manifest, and a slip there shows keys.
+      - run: cargo test -p paperpaw-app --no-default-features --features native-linked-reading,packs --test linked_catalogs
       # Every linked plugin's screens keep the entry of their titles table (#248):
       # the test is compiled out unless the app's `native-linked*` features are on.
       - run: cargo test -p paperpaw-app --features native-linked-reading --test linked_settings_tables
