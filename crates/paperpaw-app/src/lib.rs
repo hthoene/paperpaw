@@ -666,7 +666,6 @@ pub fn install_with(
     {
         b = b
             .plugin(paperpaw_plugin_format_txt::TxtFormat)
-            .plugin(paperpaw_plugin_format_xtc::XtcFormat)
             .plugin(paperpaw_epub_family::EpubFormat)
             .plugin(paperpaw_epub_family::HtmlFormat)
             .plugin(paperpaw_epub_family::Fb2Format)
