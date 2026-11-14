@@ -264,10 +264,13 @@ pub const fn host_table<S: Services + 'static>() -> PpHost {
     table.text_draw = text_draw::<S>;
     table.text_draw_inked = text_draw_inked::<S>;
     doc_slots::install::<S>(&mut table);
-    // The X4 ink probe is enabled only after device timing qualifies it.
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+    // The X4 ink probe: after device timing qualifies it (`x4-ink` times it).
+    #[cfg(any(
+        feature = "x4-ink",
+        not(any(target_arch = "riscv32", target_arch = "xtensa"))
+    ))]
     {
-        table.text_ink = text_ink::<S>;
+        table.text_ink = text_ink::text_ink::<S>;
     }
     table
 }
@@ -937,6 +940,12 @@ fn invoke_registration<S: 'static>(
 mod doc_slots;
 #[path = "shell_storage.rs"]
 mod storage_externs;
+#[cfg(any(
+    feature = "x4-ink",
+    not(any(target_arch = "riscv32", target_arch = "xtensa"))
+))]
+#[path = "shell_text_ink.rs"]
+mod text_ink;
 #[path = "shell_tokens.rs"]
 mod tokens;
 pub(crate) use tokens::dispatch_token_staged;
@@ -1232,40 +1241,6 @@ unsafe extern "C" fn text_metrics<S: 'static>(
             ascent,
             descent,
             height,
-        )
-    }
-}
-
-#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
-#[allow(clippy::too_many_arguments, reason = "matches the ABI scalar slot")]
-unsafe extern "C" fn text_ink<S: 'static>(
-    ctx: *mut c_void,
-    handle: u32,
-    size: f32,
-    text: PpBytes,
-    top: *mut i32,
-    bottom: *mut i32,
-    left: *mut i32,
-    right: *mut i32,
-) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter_as(super::host_slot::Id::TextInk);
-    // SAFETY: slot contracts supply live, disjoint input and output storage.
-    unsafe {
-        super::fonts::ink(
-            &context.environment,
-            &context.resources,
-            handle,
-            size,
-            text,
-            top,
-            bottom,
-            left,
-            right,
         )
     }
 }

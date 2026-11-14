@@ -430,8 +430,11 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
     intersected with its own and restores the parent's when it ends.
   - A stale font handle is `ERR_STATE`, `size` must be finite and > 0, as for `text.measure`.
   - Host implementation notes: `text.ink` over up to 4096 bytes uses a bounded scratch buffer (no
-    allocation per glyph) and is timed on the X4 before it is wired there; `canvas.clip` does
-    its bounds arithmetic in 64 bits (`x + width` cannot overflow).
+    allocation per glyph) and is timed on the X4 before it is wired there: until then the X4's
+    host answers `ERR_UNSUPPORTED` (the core feature `x4-ink` wires it, for the test image that
+    times it), and the SDK's `Font::ink` gives `None`, as for text without ink, so a plugin
+    places the text by its metrics. `canvas.clip` does its bounds arithmetic in 64 bits
+    (`x + width` cannot overflow).
 - [D] **Glyph coverage** (draft 25; the keyboard hides layouts its fonts cannot draw, interface 6
   `Font::has_char`): host slot 39 `text.covers(ctx, font: handle, text: bytes) -> length`,
   `query`. `text` is UTF-8 of at most 1,024 bytes (`ERR_INVALID` above, `ERR_UTF8` if not); the

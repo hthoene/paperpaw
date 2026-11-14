@@ -25,24 +25,50 @@ fn ink(app: &mut App) -> usize {
     dark
 }
 
+/// `what` is drawn: not blank, and no plugin's callback ended with an error
+/// (what the device logged for each white screen).
+fn drawn(app: &mut App, what: &str) {
+    assert!(ink(app) > 200, "{what} is blank");
+    let failed = crate::native_activation::take_failed_calls();
+    assert!(failed.is_empty(), "{what}: {failed:?}");
+}
+
+/// Slot 30 answers as on the X4 while this lives, on this test's thread.
+struct AsTheX4;
+
+impl AsTheX4 {
+    fn new() -> Self {
+        paperpaw_core::native_host::answer_text_ink_as_the_x4(true);
+        let _ = crate::native_activation::take_failed_calls();
+        Self
+    }
+}
+
+impl Drop for AsTheX4 {
+    fn drop(&mut self) {
+        paperpaw_core::native_host::answer_text_ink_as_the_x4(false);
+    }
+}
+
 #[test]
 fn the_plugin_screens_draw_where_the_host_does_not_answer_text_ink() {
-    // Slot 30 as the X4 answers it, on this test's thread.
-    paperpaw_core::native_host::answer_text_ink_as_the_x4(true);
+    let _x4 = AsTheX4::new();
     let config = "[home]\npage-1 = home.continue\n";
     let mut app = App::new(X4, Shared::memory(config, &[]));
     app.home();
     assert!(app.shows("Start reading"), "{:?}", app.labels());
-    assert!(ink(&mut app) > 200, "home is blank");
+    drawn(&mut app, "home");
     for (action, screen) in [
         (actions::MENU, "the menu"),
         (actions::SETTINGS, "the settings"),
         (actions::LIBRARY, "the library"),
+        (Id::new_static("store.open"), "the store"),
+        (Id::new_static("power.open"), "power"),
+        (Id::new_static("about.open"), "about"),
     ] {
         app.home();
         app.run(action);
         assert_ne!(app.screen(), "home.dashboard", "{screen}");
-        assert!(ink(&mut app) > 200, "{screen} is blank");
+        drawn(&mut app, screen);
     }
-    paperpaw_core::native_host::answer_text_ink_as_the_x4(false);
 }
