@@ -1,0 +1,3 @@
+home.dashboard
+files.browser
+reader.screen
