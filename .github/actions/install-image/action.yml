@@ -4,9 +4,11 @@ description: >
   signature), as another firmware's own installer takes it: CrossPoint's
   "SD firmware update" writes such a file into its other app slot. Made
   from the release build of shells/xteink after the action xteink-tools
-  (with espflash), and checked to fit CrossPoint's slot of 0x640000
-  bytes: the build fails when it does not, and the log says how much
-  room is left.
+  (with espflash), and checked to fit PaperPaw's own app partition of
+  0x7F0000 bytes: the build fails when it does not, and the log says how
+  much room is left. CrossPoint's smaller slots (0x640000) no longer
+  gate the build (Decision 179: from Beta 4 PaperPaw installs by
+  flashing); the log says when the image is over them.
 inputs:
   out:
     description: Where the image goes.
@@ -27,14 +29,20 @@ runs:
         mkdir -p "$(dirname "$OUT")"
         espflash save-image --chip "$FIRMWARE_CHIP" --flash-size 16mb --partition-table "$table" \
           "target/$FIRMWARE_TARGET/release/paperpaw-xteink" "$OUT"
-        # CrossPoint's app slots (its partitions.csv, as the stock X4's).
-        slot=$((0x640000))
+        # PaperPaw's own app partitions (partitions.csv, ota_0): the image must
+        # fit them. CrossPoint's slots (its partitions.csv, as the stock X4's)
+        # are 0x640000: over those the image installs by flashing only.
+        slot=$((0x7F0000))
+        crosspoint=$((0x640000))
         size=$(stat -c %s "$OUT")
         spare=$((slot - size))
         percent=$(awk -v s="$spare" -v t="$slot" 'BEGIN { printf "%.1f", 100 * s / t }')
-        line="$DEVICE install image: $size bytes, CrossPoint's slot $slot, room left $spare bytes ($percent %)"
+        line="$DEVICE install image: $size bytes, app partition $slot, room left $spare bytes ($percent %)"
+        if ((size > crosspoint)); then
+          echo "::notice::$DEVICE install image is $((size - crosspoint)) bytes over CrossPoint's slot ($crosspoint): it installs by flashing only (Decision 179)"
+        fi
         if ((spare < 0)); then
-          echo "::error::$line: it does not fit, CrossPoint cannot install it"
+          echo "::error::$line: it does not fit the app partition"
           exit 1
         elif ((spare < 64 * 1024)); then
           echo "::warning::$line: less than 64 KiB left"
