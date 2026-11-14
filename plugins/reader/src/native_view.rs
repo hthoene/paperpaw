@@ -152,6 +152,8 @@ struct Open {
     chapter: Option<Chapter>,
     /// The starts of the book's bookmarks, for the ribbon (`ribbon.rs`).
     bookmarks: Vec<(u32, u32)>,
+    /// Those of other conversions, shown where the page has their text.
+    foreign_bookmarks: Vec<ribbon::ForeignMark>,
     /// The status lines chosen at the top and the bottom.
     status: native_status::State,
     /// The marks plugins gave the page on show (`reader.decorations@1`).
@@ -372,7 +374,7 @@ impl View {
         .map_err(fail)?;
         // The highlights of the book; a book the library does not know has none.
         let marks = match library.map(|l| native_marks::load(host, l, &found.path, conversion)) {
-            Some(Ok(spans)) => Marks::new(spans),
+            Some(Ok((own, foreign))) => Marks::new(own).with_foreign(foreign),
             // A book the library does not know, or no room to read them in: the
             // page is drawn without highlights, the book still opens.
             _ => Marks::default(),
@@ -408,6 +410,7 @@ impl View {
             class_asked: false,
             chapter: None,
             bookmarks: Vec::new(),
+            foreign_bookmarks: Vec::new(),
             status: native_status::State::default(),
             decorations: None,
             undecorated: false,
@@ -1352,6 +1355,8 @@ impl Open {
         let page = self.page.as_ref().ok_or(Error::State)?;
         if self.words.is_empty() {
             self.words = native_wordbox::word_boxes(&faces, page, area)?;
+            // Highlights of another conversion that this page has the text of.
+            self.marks.accept_foreign(&self.words);
             self.decorate(host);
         }
         let page = self.page.as_ref().ok_or(Error::State)?;

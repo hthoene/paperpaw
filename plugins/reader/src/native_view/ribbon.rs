@@ -10,6 +10,7 @@ use super::{
     Body, CommandSender, Error, Handled, Host, Input, Library, Open, RedrawMode, View, flag, redraw,
 };
 use crate::native_bookmark::{self, Done, Range};
+use crate::native_marks::lead::Lead;
 use alloc::vec::Vec;
 use paperpaw_sdk::Color;
 use paperpaw_sdk::native::{
@@ -22,6 +23,18 @@ use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 /// The most bookmark starts kept for one book; a book with more shows the
 /// ribbon on the first of them only.
 pub const MAX_MARKS: usize = 256;
+
+/// The most bookmarks of other conversions held (each 40 bytes).
+pub const MAX_FOREIGN: usize = 64;
+
+/// A bookmark made in another conversion of the book: where it was and the start
+/// of the text it kept. The ribbon is shown for it where the page has that text
+/// (#265); the library keeps it as it is.
+#[derive(Clone, Copy, Debug)]
+pub struct ForeignMark {
+    at: (u32, u32),
+    lead: Lead,
+}
 
 /// The ribbon's width and the corner's size, in tenths of a millimetre.
 const RIBBON_WIDTH: u32 = 30;
@@ -57,12 +70,13 @@ impl Open {
     /// Reads the starts of the book's bookmarks from the library (once, at the
     /// opening): a book the library cannot list shows no ribbon.
     pub(super) fn load_bookmarks(&mut self, host: &Host<'_>, library: Option<&Library>) {
-        self.bookmarks = library
+        (self.bookmarks, self.foreign_bookmarks) = library
             .and_then(|library| read_marks(host, library, &self.path, self.conversion).ok())
             .unwrap_or_default();
     }
 
-    /// Whether the page on show has a bookmark.
+    /// Whether the page on show has a bookmark: one of its own, or one of
+    /// another conversion whose text the page has.
     pub(super) fn bookmarked(&self) -> bool {
         let Some(page) = &self.page else {
             return false;
@@ -72,11 +86,20 @@ impl Open {
             end: (page.end.section, page.end.offset),
         };
         on_page(&self.bookmarks, range)
+            || self.foreign_bookmarks.iter().any(|m| range.holds(m.at))
+                && native_bookmark::page_text(&page.lines)
+                    .is_ok_and(|text| foreign_on_page(&self.foreign_bookmarks, range, &text))
     }
 
-    /// The bookmarks after a toggle of the page `range` did `done`.
-    pub(super) fn bookmarks_toggled(&mut self, range: Range, done: Done) {
+    /// The bookmarks after a toggle of the page `range`, whose text is `text`,
+    /// did `done`: a removal also took the ones of other conversions the page
+    /// has the text of.
+    pub(super) fn bookmarks_toggled(&mut self, range: Range, done: Done, text: &str) {
         toggled(&mut self.bookmarks, range, done);
+        if done == Done::Removed {
+            self.foreign_bookmarks
+                .retain(|m| !(range.holds(m.at) && m.lead.is_in(text)));
+        }
     }
 
     /// Draws the ribbon's place again after a toggle, with a fast refresh
@@ -171,6 +194,14 @@ impl View {
     }
 }
 
+/// Whether one of the bookmarks of other conversions is on the page `range`
+/// that has the text `text`.
+fn foreign_on_page(marks: &[ForeignMark], range: Range, text: &str) -> bool {
+    marks
+        .iter()
+        .any(|m| range.holds(m.at) && m.lead.is_in(text))
+}
+
 /// Whether one of the bookmark starts `marks` is on the page `range`.
 fn on_page(marks: &[(u32, u32)], range: Range) -> bool {
     marks.iter().any(|at| range.holds(*at))
@@ -192,16 +223,18 @@ fn toggled(marks: &mut Vec<(u32, u32)>, range: Range, done: Done) {
 }
 
 /// The starts of the bookmarks of the book at `path` in the conversion
-/// `conversion` (or of none), at most [`MAX_MARKS`].
+/// `conversion` (or of none), at most [`MAX_MARKS`], and those of other
+/// conversions that kept a text to be told by, at most [`MAX_FOREIGN`].
 fn read_marks(
     host: &Host<'_>,
     library: &Library,
     path: &str,
     conversion: u64,
-) -> Result<Vec<(u32, u32)>, Error> {
+) -> Result<(Vec<(u32, u32)>, Vec<ForeignMark>), Error> {
     let book = BookRef::path(path)?;
     let (mut input, mut out) = (buffer(1024)?, buffer(SERVICE_BUFFER)?);
     let mut marks = Vec::new();
+    let mut foreign = Vec::new();
     let mut cursor = AnnotationCursor::start();
     let mut seen = 0usize;
     loop {
@@ -209,15 +242,25 @@ fn read_marks(
         for row in page.rows() {
             seen += 1;
             let row = row?;
-            let mine = row.conversion().is_none_or(|c| c == conversion);
-            if row.kind() == AnnotationKind::Bookmark && mine && marks.len() < MAX_MARKS {
-                marks.try_reserve(1).map_err(|_| Error::NoMemory)?;
-                marks.push((row.start_section(), row.start_offset()));
+            if row.kind() != AnnotationKind::Bookmark {
+                continue;
+            }
+            let at = (row.start_section(), row.start_offset());
+            if row.conversion().is_none_or(|c| c == conversion) {
+                if marks.len() < MAX_MARKS {
+                    marks.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                    marks.push(at);
+                }
+            } else if foreign.len() < MAX_FOREIGN
+                && let Some(lead) = Lead::of(row.text())
+            {
+                foreign.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                foreign.push(ForeignMark { at, lead });
             }
         }
         match page.end().next() {
             Some(next) if seen < native_bookmark::MAX_ROWS => cursor = next,
-            _ => return Ok(marks),
+            _ => return Ok((marks, foreign)),
         }
     }
 }

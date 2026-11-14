@@ -255,3 +255,82 @@ fn a_list_of_highlights_has_a_number_that_changes_with_a_place_a_note_and_the_co
     };
     assert_ne!(list(&one), list(&[noted]));
 }
+
+/// A page of the words of `text`, each 6 offsets long from `start` on.
+fn page_of(text: &str, start: u32) -> Vec<WordBox> {
+    let mut at = start;
+    text.split(' ')
+        .map(|w| {
+            let b = word(w, 0, 0, at, at + 5);
+            at += 6;
+            b
+        })
+        .collect()
+}
+
+fn foreign(from: u32, to: u32, text: &str) -> Foreign {
+    Foreign {
+        span: span(from, to),
+        lead: Lead::of(text).unwrap(),
+    }
+}
+
+#[test]
+fn a_highlight_of_another_conversion_is_drawn_where_the_page_has_its_text() {
+    // The page's words start at offset 100, six apart.
+    let words = page_of("down the rabbit hole she fell", 100);
+    let mut marks = Marks::new(Vec::new()).with_foreign(Vec::from([
+        // "rabbit hole she" starts at 112.
+        foreign(112, 127, "rabbit hole she"),
+    ]));
+    assert!(marks.highlights().is_empty());
+    marks.accept_foreign(&words);
+    assert_eq!(marks.highlights(), [span(112, 127)]);
+    // Taken once: another page does not draw it twice.
+    marks.accept_foreign(&words);
+    assert_eq!(marks.highlights().len(), 1);
+}
+
+#[test]
+fn a_highlight_whose_text_is_not_there_stays_hidden() {
+    let words = page_of("down the rabbit hole she fell", 100);
+    // The same place, other words: made for another text.
+    let mut marks = Marks::new(Vec::new()).with_foreign(Vec::from([
+        foreign(112, 127, "queen of hearts"),
+        // The text is there, but the place is another page's.
+        foreign(5_000, 5_015, "rabbit hole she"),
+    ]));
+    marks.accept_foreign(&words);
+    assert!(marks.highlights().is_empty());
+    // Both are kept to be looked at on the pages they are on.
+    let again = page_of("down the rabbit hole she fell", 100);
+    marks.accept_foreign(&again);
+    assert!(marks.highlights().is_empty());
+}
+
+#[test]
+fn a_highlight_that_runs_over_the_page_end_is_found_by_the_part_on_the_page() {
+    let words = page_of("down the rabbit hole she", 100);
+    // It starts at "hole" (118) and goes on over the page break.
+    let mut marks = Marks::new(Vec::new()).with_foreign(Vec::from([foreign(
+        118,
+        160,
+        "hole she fell down the long well",
+    )]));
+    marks.accept_foreign(&words);
+    assert_eq!(marks.highlights().len(), 1);
+}
+
+#[test]
+fn a_new_reading_of_the_library_replaces_both_lists() {
+    let mut marks = Marks::new(Vec::from([span(0, 5)])).with_foreign(Vec::from([foreign(
+        112,
+        127,
+        "rabbit hole she",
+    )]));
+    assert_eq!(marks.take(), [span(0, 5)]);
+    marks.accept_foreign(&page_of("down the rabbit hole she fell", 100));
+    assert!(marks.highlights().is_empty());
+    marks.replace((Vec::from([span(1, 2)]), Vec::new()));
+    assert_eq!(marks.highlights(), [span(1, 2)]);
+}

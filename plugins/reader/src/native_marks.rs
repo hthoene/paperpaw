@@ -13,7 +13,9 @@
 //! [`MAX_HIGHLIGHTS`]); Beta 3 held every note with its text. A book with more
 //! highlights draws the first ones the library gives.
 use crate::native_selection::line_boxes;
+use alloc::string::String;
 use alloc::vec::Vec;
+use lead::{LEAD_MAX, Lead};
 use paperpaw_sdk::{
     Color, Rect,
     decorations::{Decoration, LineKind, THICKNESS, Tone},
@@ -69,10 +71,25 @@ pub struct Hit {
     pub span: Span,
 }
 
+/// Most highlights of another conversion held until a page has their text
+/// (#265): the first ones the library gives.
+pub const MAX_FOREIGN: usize = 128;
+
+/// A highlight made in another conversion of the book: drawn when a page has the
+/// text it kept at the place it has (`lead`), else not at all. It stays in the
+/// library as it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Foreign {
+    pub span: Span,
+    pub lead: Lead,
+}
+
 /// What marks the pages of the open book.
 #[derive(Debug, Default)]
 pub struct Marks {
     highlights: Vec<Span>,
+    /// Highlights of another conversion not yet found on a page.
+    foreign: Vec<Foreign>,
     hit: Option<Hit>,
 }
 
@@ -82,7 +99,50 @@ impl Marks {
     pub fn new(highlights: Vec<Span>) -> Self {
         Self {
             highlights,
+            foreign: Vec::new(),
             hit: None,
+        }
+    }
+
+    /// The same, with the highlights of other conversions that a page may
+    /// show.
+    #[must_use]
+    pub fn with_foreign(mut self, foreign: Vec<Foreign>) -> Self {
+        self.foreign = foreign;
+        self
+    }
+
+    /// Takes the highlights of another conversion whose text `words` (the words
+    /// of the page on show) have where the highlight starts: they are drawn from
+    /// here on, in memory only. A highlight that continues on the next page is
+    /// found by the page it starts on.
+    pub fn accept_foreign(&mut self, words: &[WordBox]) {
+        let (Some(first), Some(last)) = (words.first(), words.last()) else {
+            return;
+        };
+        if self.foreign.is_empty() {
+            return;
+        }
+        let (from, to) = (
+            (first.start.section, first.start.offset),
+            (last.end.section, last.end.offset),
+        );
+        let mut i = 0;
+        while i < self.foreign.len() {
+            let Some(held) = self.foreign.get(i).copied() else {
+                break;
+            };
+            let on_page = held.span.start >= from && held.span.start < to;
+            if on_page
+                && self.highlights.len() < MAX_HIGHLIGHTS
+                && self.highlights.try_reserve(1).is_ok()
+                && has_text(words, held.span.start, &held.lead)
+            {
+                self.highlights.push(held.span);
+                self.foreign.swap_remove(i);
+            } else {
+                i += 1;
+            }
         }
     }
 
@@ -115,12 +175,14 @@ impl Marks {
     /// Gives up the highlights held (to free them before a new reading of the
     /// library: the old list and the new one are not held at once).
     pub fn take(&mut self) -> Vec<Span> {
+        self.foreign = Vec::new();
         core::mem::take(&mut self.highlights)
     }
 
     /// Takes the highlights of a new reading of the library.
-    pub fn replace(&mut self, highlights: Vec<Span>) {
+    pub fn replace(&mut self, (highlights, foreign): (Vec<Span>, Vec<Foreign>)) {
         self.highlights = highlights;
+        self.foreign = foreign;
     }
 
     /// Shows `span` as a search hit on the page that starts at `page`.
@@ -154,16 +216,23 @@ impl Marks {
 }
 
 /// The highlights of the book at `path` in the conversion `mine`, read from the
-/// library's annotations (rows of another conversion are left out, one with none
-/// is taken; a highlight of no length marks nothing).
+/// library's annotations (one with none is taken; a highlight of no length marks
+/// nothing), and those of other conversions that kept enough text to be
+/// found on a page again.
 ///
 /// # Errors
 /// `State` for a book the library does not know, `NoMemory`, the host's
 /// refusals.
-pub fn load(host: &Host<'_>, library: &Library, path: &str, mine: u64) -> Result<Vec<Span>, Error> {
+pub fn load(
+    host: &Host<'_>,
+    library: &Library,
+    path: &str,
+    mine: u64,
+) -> Result<(Vec<Span>, Vec<Foreign>), Error> {
     let book = BookRef::path(path)?;
     let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
     let mut found: Vec<Span> = Vec::new();
+    let mut foreign: Vec<Foreign> = Vec::new();
     let mut cursor = AnnotationCursor::start();
     let mut seen = 0usize;
     loop {
@@ -176,14 +245,20 @@ pub fn load(host: &Host<'_>, library: &Library, path: &str, mine: u64) -> Result
                 end: (row.end_section(), row.end_offset()),
                 noted: row.noted(),
             };
-            if row.kind() == AnnotationKind::Highlight
-                && row.conversion().is_none_or(|c| c == mine)
-                && span.start < span.end
-                && found.len() < MAX_HIGHLIGHTS
+            if row.kind() != AnnotationKind::Highlight || span.start >= span.end {
+                continue;
+            }
+            if row.conversion().is_none_or(|c| c == mine) {
+                if found.len() < MAX_HIGHLIGHTS {
+                    // Exactly one more: the usual growth would take room for twice.
+                    found.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+                    found.push(span);
+                }
+            } else if foreign.len() < MAX_FOREIGN
+                && let Some(lead) = Lead::of(row.text())
             {
-                // Exactly one more: the usual growth would take room for twice.
-                found.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
-                found.push(span);
+                foreign.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+                foreign.push(Foreign { span, lead });
             }
         }
         match page.end().next() {
@@ -191,10 +266,28 @@ pub fn load(host: &Host<'_>, library: &Library, path: &str, mine: u64) -> Result
             _ => {
                 // Nothing held beyond what was read.
                 found.shrink_to_fit();
-                return Ok(found);
+                foreign.shrink_to_fit();
+                return Ok((found, foreign));
             }
         }
     }
+}
+
+/// Whether the words of a page that start at `at` or after it say `lead`: the
+/// first few words, as a highlight keeps the text of its words.
+fn has_text(words: &[WordBox], at: (u32, u32), lead: &Lead) -> bool {
+    let mut text = String::new();
+    let from = words.partition_point(|w| (w.start.section, w.start.offset) < at);
+    for word in words.iter().skip(from) {
+        if text.len() > LEAD_MAX + 16 || text.try_reserve(word.text.len() + 1).is_err() {
+            break;
+        }
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        text.push_str(&word.text);
+    }
+    lead.is_in(&text)
 }
 
 /// The look of a role, from its settings (`<role>.background`, `.ink`, `.line`,
@@ -601,6 +694,7 @@ fn draw_line(
 }
 
 pub mod edit;
+pub mod lead;
 
 #[cfg(test)]
 mod tests;

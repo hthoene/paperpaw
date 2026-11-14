@@ -85,7 +85,9 @@ pub fn overlaps(a: &Span, b: &Span) -> bool {
 }
 
 /// The highlights of the book at `book` that overlap `span`, in the conversion
-/// `mine` (a row of another one is left out, one with none is taken).
+/// `mine` (one with none is taken). A row of another conversion is one the
+/// reader drew only if the chosen `text` has the text it kept, or, with no
+/// text, if it is the very stretch (#265); any other is left out.
 ///
 /// # Errors
 /// `State` for a book the library does not know, `NoMemory`, the host's refusals.
@@ -94,6 +96,7 @@ pub fn overlapping(
     library: &Library,
     book: BookRef<'_>,
     (span, mine): (Span, u64),
+    text: Option<&str>,
 ) -> Result<Overlap, Error> {
     let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
     let mut found = Overlap::default();
@@ -110,8 +113,12 @@ pub fn overlapping(
                 end: (row.end_section(), row.end_offset()),
                 noted: row.noted(),
             };
+            let ours = row.conversion().is_none_or(|c| c == mine)
+                || text.map_or((there.start, there.end) == (span.start, span.end), |t| {
+                    super::lead::found_in(row.text(), t)
+                });
             if row.kind() != AnnotationKind::Highlight
-                || !row.conversion().is_none_or(|c| c == mine)
+                || !ours
                 || !overlaps(&there, &span)
                 || found.ids.len() >= MAX_REMOVED
             {
@@ -220,7 +227,13 @@ fn toggle_once(
     book: BookRef<'_>,
     new: &New<'_>,
 ) -> Result<Toggled, Error> {
-    let found = overlapping(host, library, book, (new.span, new.conversion))?;
+    let found = overlapping(
+        host,
+        library,
+        book,
+        (new.span, new.conversion),
+        Some(new.text),
+    )?;
     if found.ids.is_empty() {
         commit(host, library, book, found.generation, &[adding(new, "")])?;
         return Ok(Toggled::Added);
@@ -268,7 +281,13 @@ fn begin_once(
     book: BookRef<'_>,
     new: &New<'_>,
 ) -> Result<Target, Error> {
-    let found = overlapping(host, library, book, (new.span, new.conversion))?;
+    let found = overlapping(
+        host,
+        library,
+        book,
+        (new.span, new.conversion),
+        Some(new.text),
+    )?;
     if let Some(row) = found.first {
         return Ok(Target {
             span: row.span,
@@ -308,7 +327,7 @@ fn note_once(
     (target, conversion, now): (Span, u64, u64),
     note: &str,
 ) -> Result<(), Error> {
-    let found = overlapping(host, library, book, (target, conversion))?;
+    let found = overlapping(host, library, book, (target, conversion), None)?;
     let Some(row) = found.first else {
         return Ok(());
     };
