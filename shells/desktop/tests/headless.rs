@@ -590,6 +590,45 @@ fn a_page_picture_is_decoded_no_larger_than_the_screen_is_long() {
     }
 }
 
+/// The frame that draws a page's picture reads the picture's file once, not
+/// once more for every band above the one drawn: Alice's cover on the X4 is
+/// 464 KB on the card and its frame of four bands read 1,290 KB (#250).
+#[test]
+#[cfg_attr(
+    not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+    ignore = "needs the native reader (the desktop's `native-linked`, #243)"
+)]
+fn a_pictures_frame_reads_its_file_once() {
+    let library = library("picture-once");
+    let state = library.join(".paperpaw/plugins/reader");
+    fs::create_dir_all(&state).unwrap();
+    fs::write(
+        state.join("state.ini"),
+        "[reader]\nlast = books/alice-in-wonderland.epub\n",
+    )
+    .unwrap();
+    let opened = run_in(&library, "xteink-x4", "wait:8000", &["--trace"]);
+    let _ = fs::remove_dir_all(&library);
+    assert!(opened.ok, "{}", opened.stderr);
+    // The kilobytes each of the reading screen's frames read from the card.
+    let most = opened
+        .stdout
+        .lines()
+        .filter(|l| l.starts_with("frame reader.screen"))
+        .map(|l| {
+            let (_, after) = l.split_once(" reads of ").unwrap();
+            after.split(' ').next().unwrap().parse::<u64>().unwrap()
+        })
+        .max()
+        .unwrap_or(0);
+    assert!(most > 400, "a frame draws the cover: {}", opened.stdout);
+    assert!(
+        most <= 520,
+        "{most} KB read by one frame: {}",
+        opened.stdout
+    );
+}
+
 /// The card files' library with two decks' files in a folder.
 fn card_files_library(name: &str) -> PathBuf {
     let library = library(name);
