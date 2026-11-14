@@ -1,10 +1,13 @@
 //! The reading settings and display a page is laid out with (`Setup`), and
 //! the key that says when a laid-out page is stale (`LayoutKey`).
-use crate::{native_pages::Reading, native_status};
+use crate::{native_look::Look, native_pages::Reading, native_status};
+use alloc::boxed::Box;
+use alloc::rc::Rc;
 use paperpaw_sdk::{
     layout::{BookStyles, Style},
     native::{
         Error, Host,
+        fonts::Font,
         settings::{self, SettingValue},
         snapshot::{self, Snapshot},
     },
@@ -21,11 +24,104 @@ pub(super) struct LayoutKey {
 }
 
 /// The text the screen reads its page from: reading settings and the display.
+#[derive(Clone, Copy, Debug)]
 pub(super) struct Setup {
     pub(super) reading: Reading,
     pub(super) display: Snapshot,
     /// The room of the status lines (their size and places).
     pub(super) room: native_status::Room,
+}
+
+/// What the settings said when they were last read, kept so that a page turn
+/// does not read some forty settings again for every step and every band it
+/// draws (#250). It is read again after any setting changed
+/// ([`Kept::forget`], told by the `setting_changed` event) and where the screen
+/// is another (a turned display); the display is taken anew every time.
+///
+/// Behind a `Box`: the open book is built in a frame of `open`, which must stay
+/// under 2,048 bytes on the S3, and a `Setup` is large.
+#[derive(Debug, Default)]
+pub(super) struct Kept(Box<core::cell::RefCell<State>>);
+
+#[derive(Debug, Default)]
+struct State {
+    setup: Option<Setup>,
+    /// How the text is inked, with the grays it was made for.
+    look: Option<(Option<u16>, Look)>,
+    /// What the status lines read.
+    status: Option<Rc<native_status::Shown>>,
+}
+
+impl Kept {
+    /// The setup now: the kept settings on the display as it is, or read.
+    ///
+    /// # Errors
+    /// What reading a setting refuses.
+    // Out of line: a Setup is large, and its copies in the callers' frames made
+    // the frames of `open` and `screen_shown` pass the limit of 2,048 bytes.
+    #[inline(never)]
+    pub(super) fn setup(&self, host: &Host<'_>) -> Result<Setup, Error> {
+        let display = snapshot::capture_snapshot(host)?;
+        let kept = self.0.borrow().setup;
+        if let Some(kept) = kept
+            && kept.same_screen(&display)
+        {
+            return Ok(Setup { display, ..kept });
+        }
+        let setup = Setup::read_on(host, display)?;
+        // Another screen: the colour of the notes is another as well.
+        *self.0.borrow_mut() = State {
+            setup: Some(setup),
+            ..State::default()
+        };
+        Ok(setup)
+    }
+
+    /// How the text is inked for a panel of `grays`: kept like the setup.
+    ///
+    /// # Errors
+    /// What reading a setting refuses.
+    // Out of line: a Setup is large, and its copies in the callers' frames made
+    // the frames of `open` and `screen_shown` pass the limit of 2,048 bytes.
+    #[inline(never)]
+    pub(super) fn look(&self, host: &Host<'_>, grays: Option<u16>) -> Result<Look, Error> {
+        let kept = self.0.borrow().look;
+        if let Some((at, look)) = kept
+            && at == grays
+        {
+            return Ok(look);
+        }
+        let look = Look::read(host, grays)?;
+        self.0.borrow_mut().look = Some((grays, look));
+        Ok(look)
+    }
+
+    /// What a paint of the status lines reads, kept like the setup.
+    ///
+    /// # Errors
+    /// What reading a setting refuses.
+    // Out of line: a Setup is large, and its copies in the callers' frames made
+    // the frames of `open` and `screen_shown` pass the limit of 2,048 bytes.
+    #[inline(never)]
+    pub(super) fn status(
+        &self,
+        host: &Host<'_>,
+        display: &Snapshot,
+        font: &Font<'_>,
+    ) -> Result<Rc<native_status::Shown>, Error> {
+        let kept = self.0.borrow().status.clone();
+        if let Some(kept) = kept {
+            return Ok(kept);
+        }
+        let shown = Rc::new(native_status::Shown::read(host, display, font)?);
+        self.0.borrow_mut().status = Some(Rc::clone(&shown));
+        Ok(shown)
+    }
+
+    /// A setting changed: the next read asks the host.
+    pub(super) fn forget(&self) {
+        *self.0.borrow_mut() = State::default();
+    }
 }
 
 pub(super) fn integer(host: &Host<'_>, key: &str) -> Result<i64, Error> {
@@ -101,7 +197,14 @@ fn text_of(host: &Host<'_>, reading: Reading) -> Result<Reading, Error> {
 
 impl Setup {
     pub(super) fn read(host: &Host<'_>) -> Result<Self, Error> {
-        let display = snapshot::capture_snapshot(host)?;
+        Self::read_on(host, snapshot::capture_snapshot(host)?)
+    }
+
+    /// The setup of the settings now on `display`.
+    // Out of line: a Setup is large, and its copies in the callers' frames made
+    // the frames of `open` and `screen_shown` pass the limit of 2,048 bytes.
+    #[inline(never)]
+    fn read_on(host: &Host<'_>, display: Snapshot) -> Result<Self, Error> {
         let room = native_status::room(host, display.display_dpi())?;
         let (top, bottom) = room.reserved();
         Ok(Self {
@@ -138,6 +241,24 @@ impl Setup {
             display,
             room,
         })
+    }
+
+    /// Whether `other` is the same screen: its size, density and grays.
+    fn same_screen(&self, other: &Snapshot) -> bool {
+        let mine = &self.display;
+        (
+            mine.display_width(),
+            mine.display_height(),
+            mine.display_dpi(),
+            mine.display_gray_levels(),
+            mine.display_is_colour(),
+        ) == (
+            other.display_width(),
+            other.display_height(),
+            other.display_dpi(),
+            other.display_gray_levels(),
+            other.display_is_colour(),
+        )
     }
 
     /// What a page laid out with this setup depends on.
@@ -180,5 +301,12 @@ mod tests {
         assert_eq!(font_name(Err(Error::NoSpace)), Ok(""));
         // Another failure is still one.
         assert_eq!(font_name(Err(Error::NoMemory)), Err(Error::NoMemory));
+    }
+
+    #[test]
+    fn the_kept_settings_are_one_pointer_in_the_open_book() {
+        // The open book is built in a frame of `open` (2,048 bytes at most on the
+        // S3): what it keeps of the settings stays off it.
+        assert_eq!(core::mem::size_of::<Kept>(), core::mem::size_of::<usize>());
     }
 }

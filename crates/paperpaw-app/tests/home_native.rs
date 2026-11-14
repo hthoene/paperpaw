@@ -28,11 +28,19 @@ mod drawer_focus;
 mod drawer_rtl;
 #[path = "home_native/edit_touch.rs"]
 mod edit_touch;
+#[path = "home_native/foreign_widgets.rs"]
+mod foreign_widgets;
 #[path = "home_native/landscape.rs"]
 mod landscape;
 #[path = "home_native/layouts.rs"]
 mod layouts;
+#[path = "home_native/preview.rs"]
+mod preview;
 #[path = "home_native/shapes.rs"]
 mod shapes;
+#[path = "home_native/widget_font.rs"]
+mod widget_font;
 #[path = "home_native/widget_list.rs"]
 mod widget_list;
+#[path = "home_native/widget_look.rs"]
+mod widget_look;

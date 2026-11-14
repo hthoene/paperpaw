@@ -6,6 +6,7 @@ use super::{
     resources::{FontKey, FontRole, OwnerResources},
 };
 use crate::abi7::{context::Frame, graphics};
+use crate::font_refresh::widget_fonts;
 #[cfg(any(test, feature = "testing"))]
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 use paperpaw_native::host_glue::{
@@ -46,7 +47,13 @@ fn resolve_role(fonts: &Fonts, role: FontRole) -> Option<FontHandle<'_>> {
     }
 }
 
-fn resolve<'a>(frame: &'a dyn Frame, key: &'a FontKey) -> Result<FontHandle<'a>, i32> {
+/// The font of `key` for text at `size` (`None`: at no size, as for what
+/// characters it has).
+fn resolve<'a>(
+    frame: &'a dyn Frame,
+    key: &'a FontKey,
+    size: Option<f32>,
+) -> Result<FontHandle<'a>, i32> {
     if let FontKey::Data(font) = key {
         return font.handle();
     }
@@ -59,6 +66,13 @@ fn resolve<'a>(frame: &'a dyn Frame, key: &'a FontKey) -> Result<FontHandle<'a>,
             }
             fonts.get(id.as_str()).ok_or(ERR_STATE)
         }
+        FontKey::Widget { id, acquired } => frame
+            .font_valid(id.namespace(), *acquired)
+            .then(|| fonts.get(id.as_str()))
+            .flatten()
+            .filter(|font| size.is_none_or(|size| widget_fonts::has_size(font, size)))
+            .or_else(|| resolve_role(fonts, FontRole::Ui))
+            .ok_or(ERR_NOT_FOUND),
         FontKey::Data(_) => Err(ERR_STATE),
     }
 }
@@ -117,7 +131,7 @@ fn with_bold<R>(
                 font.check(owner, frame.callback_epoch().ok())?;
             }
             let faux = size.map_or(0, |size| faux_bold(frame, key, size));
-            call(&resolve(frame, key)?, faux)
+            call(&resolve(frame, key, size)?, faux)
         })
     })?
 }
@@ -156,6 +170,36 @@ fn status(result: Result<(), i32>) -> i32 {
 /// The key of a font file in the plugin's own data folder: `data:<path>`.
 const DATA_KEY: &str = "data:";
 
+/// The key of the font a widget is set in: `widget:<widget id>`.
+const WIDGET_KEY: &str = "widget:";
+
+/// The font the reader chose for `widget` (`screens-input.md` 4), as it is
+/// now: a family whose regular face is open, else the role it stands for.
+fn widget_key(frame: &dyn Frame, widget: &str) -> Result<FontKey, i32> {
+    let fonts = frame.fonts().ok_or(ERR_STATE)?;
+    let role = match widget_fonts::chosen(frame.settings(), widget) {
+        widget_fonts::Chosen::Menus => FontRole::Ui,
+        widget_fonts::Chosen::Book => FontRole::Reading,
+        widget_fonts::Chosen::Family(family) => {
+            let open = fonts
+                .family_regular(family)
+                .filter(|id| fonts.get(id.as_str()).is_some());
+            match open {
+                Some(id) => {
+                    let acquired = frame.font_generation().ok_or(ERR_STATE)?;
+                    let id = id.try_clone().ok_or(ERR_NO_MEMORY)?;
+                    return Ok(FontKey::Widget { id, acquired });
+                }
+                None => FontRole::Ui,
+            }
+        }
+    };
+    if resolve_role(fonts, role).is_none() {
+        return Err(ERR_NOT_FOUND);
+    }
+    Ok(FontKey::Role(role))
+}
+
 /// A role key, or a registered font id.
 fn named_or_role(frame: &dyn Frame, key: &str) -> Result<FontKey, i32> {
     let fonts = frame.fonts().ok_or(ERR_STATE)?;
@@ -172,7 +216,9 @@ fn named_or_role(frame: &dyn Frame, key: &str) -> Result<FontKey, i32> {
     Ok(FontKey::Named { id, acquired })
 }
 
-/// Acquire slot 7. The key is copied only for a named font, using checked allocation.
+/// Acquire slot 7: a role, a registered font, a font file of the plugin's
+/// (`data:`) or the font chosen for a widget (`widget:`). Of the key only a
+/// font's id is copied, using checked allocation.
 ///
 /// # Safety
 /// Input must be readable and stable; output must be writable, exclusive and
@@ -189,6 +235,8 @@ pub(crate) unsafe fn acquire(
         let key = unsafe { buffers::text_in(key, 128) }?;
         let key = if let Some(path) = key.strip_prefix(DATA_KEY) {
             FontKey::Data(DataFont::open(scope, owner, path)?)
+        } else if let Some(widget) = key.strip_prefix(WIDGET_KEY) {
+            scope.with_frame(|frame| widget_key(frame, widget))??
         } else {
             scope.with_frame(|frame| named_or_role(frame, key))??
         };
@@ -222,7 +270,7 @@ pub(crate) unsafe fn measure(
         size_check(size)?;
         // SAFETY: the caller provides live readable input.
         let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
-        let width = with_font(scope, owner, handle, |font| {
+        let width = with_bold(scope, owner, handle, Some(size), |font, _| {
             graphics::text_measure(font, size, text).map_err(|_| ERR_INVALID)
         })?;
         // SAFETY: output was validated and no reference to it was formed.
@@ -304,7 +352,7 @@ pub(crate) unsafe fn metrics(
     status((|| {
         outputs([ascent, descent, height])?;
         size_check(size)?;
-        let values = with_font(scope, owner, handle, |font| {
+        let values = with_bold(scope, owner, handle, Some(size), |font, _| {
             let metrics = font.line_metrics(size);
             let values = [metrics.ascent, metrics.descent, metrics.line_height];
             if values
@@ -352,7 +400,10 @@ mod ink_unwired {
     }
 }
 
-#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+#[cfg(any(
+    feature = "x4-ink",
+    not(any(target_arch = "riscv32", target_arch = "xtensa"))
+))]
 fn ink_of(font: &FontHandle<'_>, size: f32, text: &str, threshold: u8) -> Result<[i32; 4], i32> {
     let bounds = font.ink_drawn(size, text, threshold).ok_or(ERR_NOT_FOUND)?;
     Ok([bounds.top, bounds.bottom, bounds.left, bounds.right])
@@ -364,7 +415,10 @@ fn ink_of(font: &FontHandle<'_>, size: f32, text: &str, threshold: u8) -> Result
 /// Text must be readable and unchanged. All outputs must be writable, exclusive
 /// and disjoint from text and host state. They may be uninitialized.
 #[allow(clippy::too_many_arguments, reason = "matches the ABI ink scalars")]
-#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+#[cfg(any(
+    feature = "x4-ink",
+    not(any(target_arch = "riscv32", target_arch = "xtensa"))
+))]
 pub(crate) unsafe fn ink(
     scope: &EnvironmentScope,
     owner: &OwnerResources,
@@ -387,7 +441,7 @@ pub(crate) unsafe fn ink(
         let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
         let values = scope.with_frame(|frame| {
             owner.with_font(handle, |key| {
-                let font = resolve(frame, key)?;
+                let font = resolve(frame, key, Some(size))?;
                 let mut ink = ink_of(&font, size, text, frame.ink_threshold()?)?;
                 // Faux bold widens every glyph to the right.
                 ink[3] = ink[3].saturating_add(i32::from(faux_bold(frame, key, size)));
@@ -573,6 +627,10 @@ mod inked_tests;
 #[cfg(test)]
 #[path = "fonts_faux_tests.rs"]
 mod faux_tests;
+
+#[cfg(test)]
+#[path = "fonts_widget_tests.rs"]
+mod widget_tests;
 
 /// The longest text slot 39 reads (`screens-input.md` section 4).
 const COVERS_MAX: usize = 1024;

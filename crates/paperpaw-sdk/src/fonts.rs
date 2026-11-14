@@ -1473,4 +1473,6 @@ mod storage;
 mod wanted;
 
 #[cfg(test)]
+mod kept_tests;
+#[cfg(test)]
 mod tests;

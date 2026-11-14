@@ -24,6 +24,10 @@ panes = []
 # the book menu's *Open with…* is not registered, as its resolver is
 # interface 6's, not carried by interface 7 (`docs/abi/document.md` 1).
 native-reading = []
+# Counts every named host-slot entry per thread (`native_host::host_slot::
+# slot_counts`), for the page-turn cost guard. Needs std; never a default,
+# never in firmware.
+slot-counts = []
 # Colour framebuffers for colour e-ink panels.
 color = ["paperpaw-graphics/color"]
 # Scalable OpenType/TrueType fonts; not available on the ESP32-C3.
@@ -34,6 +38,11 @@ outline = ["paperpaw-sdk/outline"]
 # owner's X4 test image until the device measurement passes (#250), then the
 # X4 release; off by default.
 x4-nested = []
+# Wires host slot 30 (`text.ink`) on the X4 and the X4 Pro too, where it stays
+# unwired until it is timed on the device (`docs/abi/screens-input.md`): text
+# and icons are then centred by their ink, as in the emulator. For the owner's
+# X4 test image that times it (#250); off by default.
+x4-ink = []
 # What the app's and the shells' tests ask the kernel and a shell never does
 # (`Kernel::native_is_parked`): never in a firmware build (#248, D1).
 testing = []

@@ -89,6 +89,58 @@ fn read_meta(host: &Host<'_>, wanted: &[&str; 3]) -> Result<Vec<Meta>, Error> {
     Ok(found)
 }
 
+/// What the registry says of a line's items, kept by the caller between
+/// draws: a line drawn band by band, and again at every page turned, asks the
+/// registry once and not at each draw (#250). The caller
+/// [forgets](Memo::forget) it where the items may have changed: when its
+/// screen is shown again and at an input, at the latest.
+#[derive(Debug, Default)]
+pub struct Memo {
+    /// The lists the items were read for.
+    lists: [String; 3],
+    meta: Option<Vec<Meta>>,
+}
+
+impl Memo {
+    /// Nothing kept yet.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            lists: [String::new(), String::new(), String::new()],
+            meta: None,
+        }
+    }
+
+    /// Lets go of what is kept: the next draw asks the registry again.
+    pub fn forget(&mut self) {
+        self.meta = None;
+    }
+
+    /// Whether the registry's answer for `wanted` is kept.
+    fn keeps(&self, wanted: &[&str; 3]) -> bool {
+        self.meta.is_some()
+            && self
+                .lists
+                .iter()
+                .zip(wanted)
+                .all(|(kept, list)| kept == list)
+    }
+
+    /// The registry's items among `wanted`: the ones kept for the same lists,
+    /// else read now and kept.
+    fn known(&mut self, host: &Host<'_>, wanted: &[&str; 3]) -> Result<&[Meta], Error> {
+        if !self.keeps(wanted) {
+            self.meta = None;
+            let meta = read_meta(host, wanted)?;
+            for (kept, list) in self.lists.iter_mut().zip(wanted) {
+                *kept = copy(list)?;
+            }
+            self.meta = Some(meta);
+        }
+        Ok(self.meta.as_deref().unwrap_or_default())
+    }
+}
+
 fn read_pages(
     registry: &Registry,
     host: &Host<'_>,
@@ -236,23 +288,24 @@ fn join(ids: &[&str]) -> Result<String, Error> {
 }
 
 /// What the line shows, laid out in `area`.
-struct Line<'a> {
+struct Line<'a, 'm> {
     shown: Vec<Shown<'a>>,
     laid: Vec<Laid>,
-    meta: Vec<Meta>,
+    meta: &'m [Meta],
 }
 
-fn lay_out<'a>(
+/// The line of `lists` laid out in `area`, of the items `meta` (what the
+/// registry says of them, [`read_meta`]).
+fn lay_out<'a, 'm>(
     face: &Face<'a, '_>,
-    lists: &Lists,
+    (lists, meta): (&Lists, &'m [Meta]),
     ui: &Ui,
     area: Rect,
     own: Own<'_>,
     buffers: &'a mut [Vec<u8>; 2],
-) -> Result<Line<'a>, Error> {
+) -> Result<Line<'a, 'm>, Error> {
     let wanted = lists.wanted();
-    let meta = read_meta(face.host, &wanted)?;
-    let (shown, at_part) = values(face.host, ui, (&meta, own), &wanted, buffers)?;
+    let (shown, at_part) = values(face.host, ui, (meta, own), &wanted, buffers)?;
     let size = face.small;
     let mut parts: Parts = [Vec::new(), Vec::new(), Vec::new()];
     for (part, indices) in at_part.iter().enumerate() {
@@ -312,6 +365,34 @@ pub fn draw<'a>(
 /// # Errors
 /// Font and host refusals, [`Error::NoMemory`].
 pub fn draw_own<'a>(
+    items: (&Face<'a, '_>, &Lists),
+    ui: &Ui,
+    sinks: (&mut Vec<Paint>, &mut Vec<Placed<'a>>),
+    buffers: &'a mut [Vec<u8>; 2],
+    on: ((Rect, paperpaw_sdk::Color), Own<'_>),
+) -> Result<(), Error> {
+    draw_with(None, items, ui, sinks, buffers, on)
+}
+
+/// [`draw_own`] with what the registry says of the items kept in `memo`
+/// between draws: asked once, until the caller [forgets](Memo::forget) it or
+/// draws other lists with it.
+///
+/// # Errors
+/// Font and host refusals, [`Error::NoMemory`].
+pub fn draw_kept<'a>(
+    memo: &mut Memo,
+    items: (&Face<'a, '_>, &Lists),
+    ui: &Ui,
+    sinks: (&mut Vec<Paint>, &mut Vec<Placed<'a>>),
+    buffers: &'a mut [Vec<u8>; 2],
+    on: ((Rect, paperpaw_sdk::Color), Own<'_>),
+) -> Result<(), Error> {
+    draw_with(Some(memo), items, ui, sinks, buffers, on)
+}
+
+fn draw_with<'a>(
+    memo: Option<&mut Memo>,
     (face, lists): (&Face<'a, '_>, &Lists),
     ui: &Ui,
     (out, placed): (&mut Vec<Paint>, &mut Vec<Placed<'a>>),
@@ -335,7 +416,16 @@ pub fn draw_own<'a>(
         }
         return Ok(());
     }
-    let line = lay_out(face, lists, ui, area, own, buffers)?;
+    let wanted = lists.wanted();
+    let read;
+    let meta = match memo {
+        Some(memo) => memo.known(face.host, &wanted)?,
+        None => {
+            read = read_meta(face.host, &wanted)?;
+            read.as_slice()
+        }
+    };
+    let line = lay_out(face, (lists, meta), ui, area, own, buffers)?;
     let baseline = ink_baseline(face.font, size, FIGURES, area)?;
     for laid in &line.laid {
         let Some(item) = line.shown.get(laid.index) else {
@@ -403,7 +493,8 @@ pub fn targets_own(
         mem::buffer(mem::SERVICE_BUFFER)?,
         mem::buffer(mem::SERVICE_BUFFER)?,
     ];
-    let line = lay_out(face, lists, ui, area, own, &mut buffers)?;
+    let meta = read_meta(face.host, &lists.wanted())?;
+    let line = lay_out(face, (lists, &meta), ui, area, own, &mut buffers)?;
     let mut tappable = tapped(&line);
     paperpaw_sdk::sort::sort_unstable_by(&mut tappable, |a, b| a.0.x.total_cmp(&b.0.x));
     let reach = face.small * 0.2;
@@ -424,7 +515,7 @@ pub fn targets_own(
 }
 
 /// The laid items whose owner declared an action of its own.
-fn tapped<'l>(line: &'l Line<'_>) -> Vec<(Laid, &'l str)> {
+fn tapped<'l>(line: &'l Line<'_, '_>) -> Vec<(Laid, &'l str)> {
     let mut found = Vec::new();
     for laid in &line.laid {
         let Some(item) = line.shown.get(laid.index) else {
@@ -471,7 +562,8 @@ pub fn action_own(
         mem::buffer(mem::SERVICE_BUFFER)?,
         mem::buffer(mem::SERVICE_BUFFER)?,
     ];
-    let line = lay_out(face, lists, ui, area, own, &mut buffers)?;
+    let meta = read_meta(face.host, &lists.wanted())?;
+    let line = lay_out(face, (lists, &meta), ui, area, own, &mut buffers)?;
     let mut tappable = tapped(&line);
     paperpaw_sdk::sort::sort_unstable_by(&mut tappable, |a, b| a.0.x.total_cmp(&b.0.x));
     let at = usize::try_from(target).unwrap_or(0).saturating_sub(1);
@@ -498,4 +590,23 @@ pub fn shows(host: &Host<'_>, lists: &Lists, ui: &Ui) -> Result<u64, Error> {
         }
     }
     Ok(hash)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_memo_keeps_the_registrys_answer_for_its_lists_until_it_is_forgotten() {
+        let lists = ["clock.time,battery.level", "", "reader.page"];
+        let mut memo = Memo::new();
+        assert!(!memo.keeps(&lists), "nothing read yet");
+        memo.lists = lists.map(String::from);
+        memo.meta = Some(Vec::new());
+        assert!(memo.keeps(&lists));
+        // Other lists drawn with it: asked again.
+        assert!(!memo.keeps(&["clock.time", "", "reader.page"]));
+        memo.forget();
+        assert!(!memo.keeps(&lists));
+    }
 }
