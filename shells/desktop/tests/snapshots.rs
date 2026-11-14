@@ -1060,3 +1060,16 @@ fn headers_are_centred_by_their_capitals() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[test]
+fn standalone_picture_book_is_not_blank() {
+    let case = CASES
+        .iter()
+        .find(|case| case.name == "x4-pictures-book")
+        .unwrap();
+    let (_, _, gray, _) = draw(case);
+    assert!(
+        gray.iter().filter(|pixel| **pixel < 128).count() > gray.len() / 10,
+        "standalone picture book must draw its picture"
+    );
+}
