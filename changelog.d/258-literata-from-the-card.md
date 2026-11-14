@@ -11,6 +11,9 @@
   or italic face a plugin proposes, or of a chosen family, is used where regular book text
   is in the same family; else the regular face stands in, as where no bold is bound. A
   binding you make yourself under `[fonts]` is taken as given.
+- **Bold book text in a font without a bold face is drawn bolder** (faux bold): the regular
+  face with every letter one pixel wider for every 24 px of its size, in the same room, so
+  headings and bold words stand out on a reader that has no Literata on its card.
 - **A font family is offered for reading and for the status lines only where it has a
   regular face that is there.** A family of bold and italic alone is no longer listed.
 - **A pack that extends a font (a script's letters, larger sizes) is open only while that
