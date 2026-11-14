@@ -8,36 +8,107 @@
 )]
 #![cfg(feature = "native-linked")]
 
-#[test]
-fn every_linked_plugin_with_catalogs_has_its_files() {
-    // The plugins that have texts of their own are the ones with an `i18n`
-    // folder: a linked one found by its id, in every language it has.
-    for id in ["keyboard", "menu", "settings", "help", "lock"] {
-        let catalogs = paperpaw_app::native_catalogs(id);
-        assert!(catalogs.len() >= 2, "{id}: {} catalogs", catalogs.len());
-        assert!(catalogs.iter().all(|text| !text.is_empty()), "{id}");
-    }
-    assert!(paperpaw_app::native_catalogs("no-such-plugin").is_empty());
+/// The catalogs of plugin `id` as its folder has them, each parsed.
+fn catalogs_of(id: &str) -> Vec<paperpaw_i18n::Catalog> {
+    let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../plugins")
+        .join(id)
+        .join("i18n");
+    ["en.ini", "de.ini"]
+        .iter()
+        .filter_map(|name| std::fs::read_to_string(folder.join(name)).ok())
+        .map(|source| paperpaw_i18n::Catalog::parse(source).unwrap())
+        .collect()
 }
 
-/// The store's plugins are linked only where the build has them (the X4's
-/// firmware has none): their texts are not carried for nobody.
+/// The tables alone, as the kernel has them, in `language`.
+fn tables(language: &str) -> paperpaw_i18n::Translator {
+    let mut translator = paperpaw_i18n::Translator::new();
+    translator.set_language(language);
+    for table in paperpaw_app::NATIVE_MESSAGES {
+        translator.built_messages(table);
+    }
+    translator
+}
+
+/// The program carries the linked plugins' catalogs without their keys
+/// (#258): every key of every one of their files reads through the tables
+/// what the file says, in both languages, and no file is kept as a text
+/// beside them.
 #[test]
-fn a_plugin_the_build_leaves_out_brings_no_catalogs() {
-    let built: Vec<&str> = paperpaw_app::CRATES.split(',').collect();
-    for id in [
-        "format-docx",
-        "format-images",
-        "format-mobi",
-        "news",
-        "vocabulary",
-    ] {
-        let name = format!("paperpaw-plugin-{id}");
-        if !built.contains(&name.as_str()) {
-            let catalogs = paperpaw_app::native_catalogs(id);
-            assert!(catalogs.is_empty(), "{id}: {} catalogs", catalogs.len());
+fn every_text_of_a_linked_plugin_reads_the_same_without_its_keys() {
+    assert_eq!(paperpaw_app::NATIVE_MESSAGES.len(), 2);
+    let (english, german) = (tables("en"), tables("de"));
+    let (mut checked, mut with_texts) = (0, 0);
+    for (id, _) in paperpaw_app::NATIVE_PLUGINS {
+        let kept = paperpaw_app::native_catalogs(id);
+        assert!(
+            kept.is_empty(),
+            "{id}: {} catalogs kept as texts",
+            kept.len()
+        );
+        let catalogs = catalogs_of(id);
+        with_texts += usize::from(!catalogs.is_empty());
+        for catalog in catalogs {
+            let translator = match catalog.language() {
+                "en" => &english,
+                _ => &german,
+            };
+            for key in catalog.keys() {
+                assert_eq!(translator.get(key), catalog.get(key), "{id} {key}");
+                checked += 1;
+            }
         }
     }
+    for id in ["keyboard", "menu", "settings", "help", "lock"] {
+        assert!(
+            paperpaw_app::NATIVE_PLUGINS
+                .iter()
+                .any(|(linked, _)| *linked == id),
+            "{id}"
+        );
+    }
+    assert!(with_texts > 10, "{with_texts} plugins with texts");
+    assert!(checked > 1_000, "{checked} texts checked");
+    assert!(paperpaw_app::native_catalogs("no-such-plugin").is_empty());
+    // No key's text is in the program for them: the tables hold hashes.
+    for table in paperpaw_app::NATIVE_MESSAGES {
+        assert_eq!(table.keys.len(), table.entries.len());
+        assert!(
+            !table.values.contains("keyboard.done"),
+            "{}",
+            table.language
+        );
+    }
+}
+
+/// Only theirs: a plugin this build does not link (the X4's firmware has
+/// none of the store's; a build with the store's plugins in their
+/// interface-6 form registers those, which add their catalogs themselves)
+/// has no text in the tables.
+#[test]
+fn a_plugin_the_build_does_not_link_has_no_text_in_the_tables() {
+    let english = tables("en");
+    let plugins = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+    let mut others = 0;
+    for entry in std::fs::read_dir(plugins).unwrap().flatten() {
+        let id = entry.file_name().to_string_lossy().into_owned();
+        if paperpaw_app::NATIVE_PLUGINS
+            .iter()
+            .any(|(linked, _)| *linked == id)
+        {
+            continue;
+        }
+        assert!(paperpaw_app::native_catalogs(&id).is_empty(), "{id}");
+        let catalogs = catalogs_of(&id);
+        others += usize::from(!catalogs.is_empty());
+        for catalog in catalogs {
+            for key in catalog.keys() {
+                assert_eq!(english.get(key), None, "{id} {key}");
+            }
+        }
+    }
+    assert!(others > 0, "no plugin with texts is left out");
 }
 
 #[test]
