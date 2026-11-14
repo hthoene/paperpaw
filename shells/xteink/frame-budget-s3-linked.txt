@@ -60,3 +60,22 @@ frames-in paperpaw_document documents the reader opens: every function under the
 frames-in paperpaw_core::native_host the host side of the plugin callbacks (event, action, widget input, services): every function under the 2,048 B frame limit (Senior #2897 C1)
 frames-in paperpaw_core::chrome `sync_chromes`, run after a plugin's event: every function under the 2,048 B frame limit (Senior #2897 C1)
 frames-in paperpaw_core::core_plugin the core plugin's closures (`register_library`): every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in core the standard library's code in the image (formatting, iterators): every function under the 2,048 B frame limit (Senior #2899 M2)
+frames-in alloc the allocator's collections: every function under the 2,048 B frame limit (Senior #2899 M2)
+#
+# Known frames of 2,048 B or more (R1: the scan is blocking, so a new one fails at once). Each line
+# holds the function at the largest frame the two S3 images show (the max is a ceiling: growth fails,
+# a cut under the limit makes the line stale and fails too: remove it). The owner's todo is in the
+# why. Release check for the S3 images (todo 639, Beta 4 MUST): no `allow frame` line left here
+# except the two that are not callbacks (`main`, the mbedTLS frame) once their todos close.
+allow frame _ZN88_$LT$paperpaw_plugin_store..list..ListScreen$u20$as$u20$paperpaw_sdk..screen..Screen$GT$8on_event 2064 owner: Store Engineer (the list screen's on_event, 2,064 B on both devices); todo 639
+allow frame paperpaw_json::stream::read_file 2240 owner: Kernel todo 626 (json read_file, 2,240/2,224 B); todo 639
+allow frame _ZN20paperpaw_epub_family7convert7convert 2112 owner: Kernel todo 626 (epub-family convert, 2,112/2,096 B); todo 639
+allow frame paperpaw_core::native_host::event_call::native_event_call 2192 owner: Kernel todo 626 (2,192/2,176 B); todo 639
+allow frame paperpaw_core::native_host::event_call::deliver_action 2176 owner: Kernel todo 626 (2,176/2,160 B); todo 639
+allow frame paperpaw_core::native_host::widget_inputs::deliver_one_widget_input 2272 owner: Kernel todo 626 (2,272/2,256 B); todo 639
+allow frame paperpaw_core::chrome::sync_chromes 2256 owner: Kernel todo 626 (2,256/2,240 B); todo 639
+allow frame _ZN13paperpaw_core11core_plugin16register_library28_$u7b$$u7b$closure$u7d$$u7d$ 2096 owner: Kernel todo 626 (the register_library closure, 2,096/2,080 B); todo 639
+allow frame core::fmt::float::float_to_decimal_common_exact 2048 owner: Firmware (exactly the limit: core's float formatting, `{:.N}` of an f64; find the caller on a plugin path or confirm it is not reached); todo 639
+allow frame main 8768 the firmware's entry on the main task's stack, not a callback frame: the start-stack check (`check-x4-start-stack.py --s3`) already counts it in every route (8,768/8,672 B); owner: Firmware
+allow frame x509_crt_verify_restartable_ca_cb$constprop$0$isra$0 16776 owner: Firmware, new todo (mbedTLS C code with a 16,776 B frame in the certificate check of a TLS handshake: which stack runs the handshake on the S3, and does the band cover it?)

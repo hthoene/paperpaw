@@ -487,13 +487,12 @@ jobs:
       # function of their families held to the frame limit
       # (`frame-budget-s3-linked.txt`). A second scan, not an include in the
       # budgets above: the plain scan stays exact per function (Senior #2897 C2).
-      # Report-only until the eight frames of 2,048 B or more it lists are cut
-      # (Kernel todo 626, Store list screen, json/epub-family); then drop `continue-on-error`.
-      # MUST be blocking and green before any x4-pro/x4-classic image with native plugins leaves the
-      # team: an owner test image for those devices, or the Beta 4 release images (Manager ruling).
+      # Blocking (Senior #2899 R1): every frame of the limit or more is a named
+      # `allow frame` line in the linked file with its owner's todo, so a new one fails at once.
+      # The release check for any x4-pro/x4-classic image with native plugins (an owner test
+      # image, the Beta 4 images; todo 639): no `allow frame` line left but the two named there.
       - name: The S3's linked plugins' frames and calls fit under the band
         if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
-        continue-on-error: true
         run: |
           budget=shells/xteink/frame-budget-s3.txt
           [[ "$DEVICE" == x4-classic ]] && budget=shells/xteink/frame-budget-s3-classic.txt

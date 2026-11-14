@@ -271,6 +271,9 @@ pub struct Budget {
     /// `frames-in <crate|prefix*|path> <why>`: every function of the family in
     /// the image is held to the frame limit, reached or not.
     pub frames_in: Vec<(String, String)>,
+    /// `allow frame <function> <max> <why>`: a frame of the limit or more that
+    /// is known (see [`family::frames_in_problems`]).
+    pub frame_exceptions: Vec<(String, u32, String)>,
 }
 
 impl Budget {
@@ -328,6 +331,9 @@ impl Budget {
                 ["frames-in", family, why @ ..] if !why.is_empty() => budget
                     .frames_in
                     .push(((*family).to_string(), why.join(" "))),
+                ["allow", "frame", ..] => budget
+                    .frame_exceptions
+                    .push(family::parse_frame(&words).ok_or_else(bad)?),
                 ["allow", "rom" | "indirect-in", ..] => budget
                     .allow
                     .push(family::parse_line(&words).ok_or_else(bad)?),
@@ -1260,7 +1266,7 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
         if report.largest.as_ref().is_none_or(|(b, _)| frame > *b) {
             report.largest = Some((frame, f.path.clone()));
         }
-        if frame >= budget.limit {
+        if frame >= budget.limit && !family::frame_excused(budget, f, frame) {
             report.problems.push(format!(
                 "`{}` takes a frame of {frame} bytes (limit {})",
                 f.shown, budget.limit
@@ -1457,3 +1463,5 @@ pub fn run(elf: &str, budget: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_frames;
