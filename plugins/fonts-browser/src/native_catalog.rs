@@ -120,12 +120,12 @@ impl Font {
         })
     }
 
-    /// The font as a screen's parameter, for its page to have it without
-    /// reading the catalog again: its fields on the first line, then a line
-    /// for each file, tabs between.
+    /// The font as comparable text (the interface-6 reader's `to_param`):
+    /// its fields on the first line, then a line for each file, tabs between.
     ///
     /// # Errors
     /// [`Error::NoMemory`].
+    #[cfg(test)]
     pub fn to_param(&self) -> Result<String, Error> {
         let mut text = String::new();
         let mut size = [0u8; 20];
@@ -160,67 +160,24 @@ impl Font {
         Ok(text)
     }
 
-    /// The font [`to_param`](Self::to_param) made `text` of; `None` if it is
-    /// none, or not one fit for this device.
-    ///
-    /// # Errors
-    /// [`Error::NoMemory`].
-    pub fn from_param(text: &str) -> Result<Option<Font>, Error> {
-        let mut lines = text.split('\n');
-        let Some(first) = lines.next() else {
-            return Ok(None);
-        };
-        let mut fields = first.split('\t');
-        let mut field = || fields.next();
-        let (Some(id), Some(name), Some(category), Some(author)) =
-            (field(), field(), field(), field())
-        else {
-            return Ok(None);
-        };
-        let (Some(licence), Some(version), Some(styles), Some(sample)) =
-            (field(), field(), field(), field())
-        else {
-            return Ok(None);
-        };
-        let Ok(styles) = styles.parse() else {
-            return Ok(None);
-        };
-        let mut font = Font {
-            id: copy(id)?,
-            name: copy(name)?,
-            category: copy(category)?,
-            author: copy(author)?,
-            licence: copy(licence)?,
-            version: copy(version)?,
-            styles,
-            sample: copy(sample)?,
-            files: Vec::new(),
-        };
-        for line in lines.take(MAX_FILES) {
-            let mut parts = line.splitn(4, '\t');
-            let (Some(path), Some(size), Some(sha1), Some(url)) =
-                (parts.next(), parts.next(), parts.next(), parts.next())
-            else {
-                return Ok(None);
-            };
-            let Ok(size) = size.parse() else {
-                return Ok(None);
-            };
-            push(
-                &mut font.files,
-                FontFile {
-                    path: copy(path)?,
-                    url: copy(url)?,
-                    size,
-                    sha1: copy(sha1)?,
-                },
-            )?;
-        }
-        Ok(font.usable().then_some(font))
+    /// What a font's page is handed over (`core.ui` hand-over, at most 1,024
+    /// bytes of keys and values on any device): its id. The page finds the
+    /// font in the kept catalog by it ([`Self::find`]); the whole entry would
+    /// not fit where the catalog lists a font's packs (the X4's).
+    #[must_use]
+    pub fn page_param(&self) -> &str {
+        &self.id
+    }
+
+    /// The font with the id `param` ([`Self::page_param`]) of `fonts`.
+    #[must_use]
+    pub fn find(fonts: Vec<Font>, param: &str) -> Option<Font> {
+        fonts.into_iter().find(|font| font.id == param)
     }
 }
 
 /// `parts` with tabs between, any control character in them a space.
+#[cfg(test)]
 fn line(text: &mut String, parts: &[&str]) {
     for (n, part) in parts.iter().enumerate() {
         if n > 0 {

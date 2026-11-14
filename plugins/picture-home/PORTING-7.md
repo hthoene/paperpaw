@@ -81,7 +81,7 @@ On its side the pages are shown (placed anew) but not arranged: the pencil says 
 upright, as interface 6 did. A dashboard opened again keeps its page and its widgets.
 
 Differences from interface 6, each a named step below: a bar that goes within a minute, a
-picture tiled more than 256 times (or 32 in a row) not drawn (*Slice 6*), and the rows of *Add*
+tile under 8 pixels a side not drawn (*Slice 6*), and the rows of *Add*
 without icons.
 
 ### Icons (#257)
@@ -198,7 +198,7 @@ included) decides, `native_backdrop_host.rs` reads, asks, draws and says, `nativ
   shape, clipped by the screen). *Paler by* is the host's transparency (255 times the percent) over the
   paper that is painted first (`Style::paper`; also under a picture that does not cover the screen).
   *Tile* is the one prepared picture drawn again for each tile, from the tile before the first edge as
-  interface 6 started it, at most 256 tiles and 32 in a row (`TILES_MAX`, `TILES_ACROSS_MAX`); nothing is
+  interface 6 started it, any number of tiles of at least 8 pixels a side (`TILE_SIDE_MIN`); nothing is
   allocated for them (`native_backdrop::Tiles`), and a draw asks only for the tiles that meet the rows it
   may change (`DrawFrame::clip_top`/`clip_bottom`: the X4's band, elsewhere the whole screen).
 - The notice while it is made: the screen says *Preparing the picture* (`picture-home.preparing` and
@@ -231,18 +231,12 @@ Blocked, each named (nothing invented):
   every gray: `grays()`; automatic: the panel's own rule, which is what interface 6's shell flag decided),
   `IMG-stretch` (*Stretch to the screen* is `stretch()` into the whole screen, no longer cropped). A change
   of brightness, contrast or render asks for the picture again (they are in the recipe's key).
-- `IMG-tile-many` (partial, #257): the cause of the cap is the number of `canvas.draw_image` calls, not the
-  plugin's memory (the places are no list now) nor the host's 8 prepared images (one picture is drawn
-  again for every tile): the host opens and checks the picture's file on the card at every call, also
-  for a tile it then clips away (`native_host/image_service.rs`: `probe_picture` before the clip). So a
-  draw now asks only for the tiles in its rows, which on the X4 (bands of 192 rows) is about a band's
-  share of them, and the cap is 256 tiles (32 in a row: what a band meets once for each row of tiles in
-  it), up from 64 asked in every band. A 64-pixel pattern (9 by 14 tiles) now tiles; a smaller one, or
-  one narrower than the screen's 32nd, is not drawn. Interface 6 had no cap: it made one screen-sized
-  file of the tiles once. Lifting the rest needs the host: a tiled draw (`canvas.draw_image` repeating
-  the picture over the rectangle from one read of the file a band) or `image_prepare` making the
-  screen-sized tiled picture (Kernel, about 6 hours with tests either way). The time of 256 tiles on the
-  X4 is unmeasured (X4 measurement list).
+- `IMG-tile-many` (done, #244): no cap on the number of tiles. Services measured that the host takes a
+  small tile from the kernel's cache once a frame, so the `canvas.draw_image` calls cost no reading of
+  the card; a draw asks only for the tiles in its rows (on the X4 a band's share). The one floor
+  against a degenerate picture is a tile of at least 8 pixels a side (`TILE_SIDE_MIN`; 6,000 tiles on
+  the X4's screen); a smaller one is not drawn, where interface 6 had no floor (Manager, 2026-11-13). A
+  16-pixel pattern (31 by 51 tiles) tiles as on interface 6. It was 256 tiles and 32 in a row before.
 - `IMG-replaced` (done, #257): the recipe's key carries the file's size and the time of its last change
   from `core.files` `stat` (`native_backdrop_host::file_facts`), as interface 6 read them, so a picture
   replaced by another file of the same name is asked for anew at the next show of the dashboard (where it
@@ -267,8 +261,8 @@ Blocked, each named (nothing invented):
 - Moving and sizing with a finger: ported (the drag of an item or its corner, as home's; the cells
   it makes are unit-tested in `paperpaw_ui_kit::dashboard::arrange`). Seen only on a host with a
   screen stack that delivers pointers: `picture-home-edit` (H1).
-- The picture's part the host cannot do is named under *Slice 6* (`IMG-tile-many` past 256 tiles);
-  the rest is ported and waits for the production loader (`picture-home-picture`). The recipe's
+- The picture is ported (*Slice 6*; tiles under 8 pixels a side are not drawn, `IMG-tile-many`);
+  it waits for the production loader (`picture-home-picture`). The recipe's
   turn, tone, render, stretch and the bar's ink are written against the host's fields (#1076) and
   unseen on a device (`picture-home-picture`, H1/H7).
 - The bar: ported (`native_bar.rs`: the five looks, full or compact, where its plate sits;
@@ -299,19 +293,30 @@ device.
 
 ### Still missing for native-only
 
-With *Add*, the picture, the bar, the finger's drag, the icons and the widgets' updates open, one
-part of the picture stands between this plugin and the interface-6 one:
-
-1. A picture tiled more than 256 times or 32 in a row (*Slice 6*, `IMG-tile-many`): accepted as
-   named, or asked of Kernel as a tiled draw.
+With *Add*, the picture (tiles of any number since #244), the bar, the finger's drag, the icons and
+the widgets' updates open, nothing of the picture stands between this plugin and the interface-6 one
+but the floor of 8 pixels a tile (`IMG-tile-many`, accepted by the Manager).
 
 The icons of *Add*'s rows are a smaller step named above.
+
+On the X4 the host keeps nested callbacks closed until the device's stack check passes (#250,
+`ui_store::nested_closed`): it lays no other plugin's widget out (`widget_place`, `widget_measure`,
+`widget_targets` and `ui.compose` answer `ERR_UNSUPPORTED`), and every widget of the default page is
+home's. Until then the page shows the picture, the plates and the bar with the widgets' cells left
+empty and nothing in them to reach (`tests/hosted_page.rs`), where Beta 3 showed the widgets. Full
+parity on the X4 comes when that gate opens; nothing changes here then. A widget of another plugin
+shows only once the host tells its owner `event.widget_made` (Core, todo 594).
+
+A widget that shows nothing (it measures no height: the shelf of recent books with none read) has
+no plate over the picture, as on interface 6, where each widget drew its own plate; it keeps its
+place in the grid, and gets its plate when `event.widget_changed` finds it showing something
+(`tests/hosted_page.rs`, which needs `event.widget_made`, Core #1392).
 
 ### Gate: not in `NATIVE_PLUGINS` or `complete.txt` until the activation (with the removal step)
 
 `make` submits the `core.home` offer at the priority of a replacing plugin. The dashboard, *Add* and
-the picture open (slices 4 to 6), the bar and the finger's drag too (slice 7); the picture lacks only
-the part named under *Slice 6* (`IMG-tile-many` past 256 tiles). `NativePictureHome` is listed in `NATIVE_PLUGINS` and in
+the picture open (slices 4 to 6), the bar and the finger's drag too (slice 7); the picture's tiles
+have the floor of 8 pixels a side (`IMG-tile-many`). `NativePictureHome` is listed in `NATIVE_PLUGINS` and in
 `tools/plugin-files7/complete.txt` with the activation (together with the removal step below), once
 the picture's last part is in or accepted as named.
 

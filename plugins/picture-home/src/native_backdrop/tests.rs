@@ -290,7 +290,6 @@ fn a_tile_repeats_to_cover_the_screen_or_is_not_drawn() {
     let drawing = held(TILE, 100, 0, (600, 400));
     assert!(drawing.paper);
     let all = places(&drawing);
-    assert!(all.len() as i64 <= TILES_MAX);
     assert_eq!(all.len() as u64, drawing.tiles.count());
     let width = all[0].width as i64;
     let height = all[0].height as i64;
@@ -310,8 +309,24 @@ fn a_tile_repeats_to_cover_the_screen_or_is_not_drawn() {
         all.iter()
             .all(|p| (i64::from(p.x) - i64::from(all[0].x)) % width == 0)
     );
-    // A tiny picture would repeat a thousand times: not drawn.
-    assert_eq!(held_tiny(), None);
+}
+
+#[test]
+fn a_16_pixel_pattern_repeats_over_the_screen_as_on_interface_6() {
+    // 16 by 16: 31 by 51 tiles (1,581), past the old cap of 256 (32 in a row).
+    let drawing = held_tiny().unwrap();
+    assert_eq!((drawing.tiles.across, drawing.tiles.down), (31, 51));
+    let all = places(&drawing);
+    assert_eq!(all.len(), 31 * 51);
+    for (x, y) in [(0, 0), (479, 0), (0, 799), (479, 799), (240, 400)] {
+        assert!(
+            all.iter()
+                .any(|p| (p.x..p.x + 16).contains(&x) && (p.y..p.y + 16).contains(&y)),
+            "({x}, {y})"
+        );
+    }
+    // An X4 band of 192 rows asks for its rows' tiles only: 13 rows of 31.
+    assert_eq!(drawing.tiles.within((0, 192)).count(), 13 * 31);
 }
 
 fn held_tiny() -> Option<Drawing> {
@@ -340,11 +355,7 @@ fn a_small_pattern_repeats_over_the_screen_as_on_interface_6() {
     ready(&mut back, number, (64, 64));
     let drawing = back.drawing().unwrap();
     let all = places(&drawing);
-    assert!(
-        all.len() > 64 && all.len() as i64 <= TILES_MAX,
-        "{}",
-        all.len()
-    );
+    assert!(all.len() > 64, "{}", all.len());
     for (x, y) in [(0, 0), (479, 0), (0, 799), (479, 799), (240, 400)] {
         assert!(
             all.iter()
@@ -391,7 +402,7 @@ fn a_draw_asks_only_for_the_tiles_in_the_rows_it_may_change() {
 }
 
 #[test]
-fn a_picture_that_would_repeat_too_often_or_too_many_in_a_row_is_not_drawn() {
+fn only_a_tile_under_eight_pixels_is_not_drawn() {
     let tiled = |size: (u32, u32)| {
         let mut back = Backdrop::default();
         let mut cookie = 0;
@@ -403,14 +414,15 @@ fn a_picture_that_would_repeat_too_often_or_too_many_in_a_row_is_not_drawn() {
         ready(&mut back, number, size);
         back.drawing()
     };
-    // 30 by 30: 17 across, 27 down, 459 in all.
-    assert_eq!(tiled((30, 30)), None);
-    // 14 by 400: 105 in all, but 35 in a row.
-    assert_eq!(tiled((14, 400)), None);
-    // 16 by 400: 31 in a row, 93 in all.
-    let drawing = tiled((16, 400)).unwrap();
-    assert_eq!((drawing.tiles.across, drawing.tiles.down), (31, 3));
-    assert!(i64::from(drawing.tiles.across) <= TILES_ACROSS_MAX);
+    // 30 by 30 (459 tiles) and 14 by 400 (35 in a row): drawn.
+    assert!(tiled((30, 30)).is_some());
+    assert!(tiled((14, 400)).is_some());
+    // 8 by 8: 6,000 and some on the X4, drawn; 7 wide or 7 high: not.
+    let drawing = tiled((8, 8)).unwrap();
+    assert!(drawing.tiles.count() >= 6_000);
+    assert!(i64::from(drawing.tiles.first.width) >= TILE_SIDE_MIN);
+    assert_eq!(tiled((7, 400)), None);
+    assert_eq!(tiled((400, 7)), None);
 }
 
 #[test]

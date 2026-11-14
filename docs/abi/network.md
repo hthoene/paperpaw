@@ -430,7 +430,7 @@ file's size, 2.1).
 | Plugin | Uses | Methods | Options |
 | --- | --- | --- | --- |
 | browser | request | GET | save to file, `max_file` 0 (64 MiB) for pages and downloads |
-| fonts-browser | request | GET | save, `max_file` 512 KiB / 1 MiB |
+| fonts-browser | request | GET | save, `max_file` 4 MiB / 8 MiB |
 | joplin | request | GET, POST, PUT, PROPFIND | save, send a file, `Authorization` |
 | kosync | request | GET, PUT, POST | `x-auth-user` / `x-auth-key` headers |
 | news | request | GET | save, `max_file` 4 MiB |

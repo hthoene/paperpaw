@@ -218,6 +218,8 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         #[cfg(feature = "native-linked-reading")]
         "dictionary" => tables!(paperpaw_plugin_dictionary),
         "file-manager" => tables!(paperpaw_plugin_file_manager),
+        #[cfg(feature = "native-linked-store")]
+        "fonts-browser" => tables!(paperpaw_plugin_fonts_browser),
         "help" => tables!(paperpaw_plugin_help),
         #[cfg(feature = "native-linked-reading")]
         "home" => tables!(paperpaw_plugin_home),

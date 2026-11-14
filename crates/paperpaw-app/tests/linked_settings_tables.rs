@@ -70,7 +70,7 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
         "sleep",
     ];
     #[cfg(feature = "native-linked-store")]
-    with_settings.push("aids");
+    with_settings.extend(["aids", "fonts-browser"]);
     #[cfg(feature = "native-linked-reading")]
     with_settings.extend(["home", "reader", "dictionary"]);
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]

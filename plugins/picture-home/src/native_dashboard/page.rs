@@ -19,7 +19,8 @@ impl Dashboard {
         breaks: &mut Breaks<'_>,
     ) -> Result<(), Error> {
         for cell in &laid.cells {
-            if let Some(plate) = laid.plate {
+            // A widget that shows nothing has no plate (but while editing).
+            if let Some(plate) = laid.plate.filter(|_| !cell.blank || self.editing) {
                 paint::push(below, Paint::Focus(cell.rect, style.corner, None, plate))?;
             }
             if self.editing {

@@ -1367,3 +1367,30 @@ fn native_presets_are_listed_with_their_values_and_resets() {
         "{values:?}"
     );
 }
+
+/// The flags the SDK's status decoder demands of a row (`registry.md` 2.2: bit 0 "drawn by its
+/// owner" is 1 for a line and 0 for an item, `sdk/src/native/registry/status.rs`): a row that
+/// breaks it makes `Registry::status` answer `Invalid` for the whole listing, and every native
+/// status line (the reader's, home's, picture-home's) fails with it. The SDK's `Host` can only be
+/// made inside a plugin, so this restates its rule over the real kernel's listing; the end to end
+/// case, with a kernel and a linked plugin, is picture-home's `hosted_page` test.
+#[test]
+fn op_21_rows_of_the_real_kernel_pass_the_sdk_decoders_flag_rule_and_hold_the_clock_and_battery() {
+    let kernel = kernel();
+    let rows = rows_of(&kernel, None, schema::OP_STATUS, "", 0);
+    for id in ["core.status.clock", "core.status.battery"] {
+        assert!(rows.iter().any(|row| row.contains(id)), "{id} in {rows:?}");
+    }
+    let field = |row: &str, name: &str| -> u32 {
+        let (_, rest) = row.split_once(&format!(" {name}=")).unwrap();
+        rest.split(' ').next().unwrap().parse().unwrap()
+    };
+    for row in &rows {
+        let (kind, flags) = (field(row, "kind"), field(row, "flags"));
+        assert_eq!(
+            flags & 1,
+            kind,
+            "the drawn bit of an item is 0, of a line 1: {row}"
+        );
+    }
+}
