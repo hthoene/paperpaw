@@ -58,11 +58,11 @@ sys.path.insert(0, str(HERE))
 import versions  # noqa: E402
 
 # Where a change cannot reach the firmware of the base, nor the key. Of
-# tools/plugin-files only the project that builds the plugin files: the
+# tools/plugin-files7 only the project that builds the plugin files: the
 # scripts (build.sh, sign.sh, the Python tools) and the linker script stay
 # the trusted checkout's, and a change to one is for `accept` to name.
-OWN_FOLDERS = ("tools/plugin-files/src/", "docs/", "changelog.d/")
-OWN_FILES = ("CHANGELOG.md", "README.md", "tools/plugin-files/Cargo.toml", "tools/plugin-files/Cargo.lock",
+OWN_FOLDERS = ("tools/plugin-files7/src/", "docs/", "changelog.d/")
+OWN_FILES = ("CHANGELOG.md", "README.md", "tools/plugin-files7/Cargo.toml", "tools/plugin-files7/Cargo.lock",
              "tools/plugin-files/plugins.txt")
 # The workspace's list of members and versions: changed only as far as a
 # new plugin needs (manifest_problems, lock_problems), or by name.

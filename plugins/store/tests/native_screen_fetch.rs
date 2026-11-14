@@ -84,16 +84,10 @@ fn the_count_is_the_interface_6_count() {
     let (ids, sizes) = (strings(&["a", "b", "c"]), [1000, 3000, 0]);
     let t = tally(&ids, &sizes, &going);
     assert_eq!(t, counted(|t| t.missing = true));
-    // Installed counts whole, the one downloading by its bytes, never more
-    // than its size.
+    // Installed counts whole, the one downloading by the share of its files
+    // that are here (`done` and `total` count files), never more than its size.
     going.set("a", Step::Installed);
-    going.set(
-        "b",
-        Step::Downloading {
-            done: 9_000,
-            total: 3000,
-        },
-    );
+    going.set("b", Step::Downloading { done: 5, total: 2 });
     let t = tally(&ids, &sizes, &going);
     assert_eq!((t.done, t.whole, t.busy), (4000, 1, true));
     assert_eq!(
@@ -101,15 +95,13 @@ fn the_count_is_the_interface_6_count() {
         (990, 4000),
         "never whole before the end"
     );
-    going.set(
-        "b",
-        Step::Downloading {
-            done: 1_000,
-            total: 3000,
-        },
-    );
+    going.set("b", Step::Downloading { done: 1, total: 3 });
     let t = tally(&ids, &sizes, &going);
     assert_eq!(progress(&t, 4000, 3), (500, 2000));
+    // One of two files here: half of the plugin's bytes, not one byte.
+    going.set("b", Step::Downloading { done: 1, total: 2 });
+    let t = tally(&ids, &sizes, &going);
+    assert_eq!(t.done, 1000 + 1500);
     // No sizes known: the plugins installed are the share.
     let t = tally(&ids, &[0, 0, 0], &going);
     assert_eq!(progress(&t, 0, 3), (333, 0));

@@ -122,10 +122,15 @@ pub enum Outcome {
         updated: bool,
         restart: bool,
     },
-    /// It is not installed: the text to say, taking `{name}`.
-    Refused { name: String, key: &'static str },
-    /// The reader declined, or the host stopped it: nothing to say.
-    Silent,
+    /// It is not installed: the text to say, taking `{name}`. The host's end
+    /// of the install names no plugin: `plugin` is the one that was going.
+    Refused {
+        plugin: String,
+        name: String,
+        key: &'static str,
+    },
+    /// The reader declined, or the host stopped it: nothing to say, of `plugin`.
+    Silent { plugin: String },
     /// Not an install of this store's (another request, or none going on).
     Other,
 }
@@ -252,11 +257,14 @@ impl Installer {
             }
             Said::Silent => {
                 download.set_step(Step::Idle);
-                Ok(Outcome::Silent)
+                Ok(Outcome::Silent {
+                    plugin: going.plugin,
+                })
             }
             Said::Said(key) => {
                 download.set_step(Step::Idle);
                 Ok(Outcome::Refused {
+                    plugin: going.plugin,
                     name: going.name,
                     key,
                 })

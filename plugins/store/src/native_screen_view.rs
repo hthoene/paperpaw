@@ -605,7 +605,8 @@ impl RowSource for Rows<'_> {
 
 /// What the lists of the index are, to tell when a fresh list took the place of
 /// the one the plugins were picked from: its size and its runs.
-fn stamp(index: &Index) -> u64 {
+#[must_use]
+pub fn stamp(index: &Index) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     let mut mix = |value: usize| {
         hash = (hash ^ value as u64).wrapping_mul(0x100_0000_01b3);
@@ -619,6 +620,13 @@ fn stamp(index: &Index) -> u64 {
         mix(index.section_len(section));
     }
     hash
+}
+
+/// The row to focus when the rows above the plugins went from `before` to
+/// `after`: the same plugin.
+#[must_use]
+pub const fn kept_focus(focus: usize, before: usize, after: usize) -> usize {
+    focus.saturating_add(after).saturating_sub(before)
 }
 
 fn redraw(host: &Host<'_>) -> Result<(), Error> {
@@ -690,10 +698,9 @@ impl View {
             return Ok(false);
         }
         let (before, after) = (self.top.len(), top.len());
-        let focus = self.list.focus();
+        let focus = kept_focus(self.list.focus(), before, after);
         self.top = top;
-        self.list
-            .set_focus(focus.saturating_add(after).saturating_sub(before));
+        self.list.set_focus(focus);
         Ok(true)
     }
 

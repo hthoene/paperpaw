@@ -188,7 +188,7 @@ finishes the port; until then nothing is dropped.
   file is not trusted).
 - Still the plugin's (host pieces): the event that asks (77) and its answer (78),
   the dialog (`Ui::ask`), the fetch of a page and the download, the install, the
-  first-run offer's names (`styles.rs`'s hint) and what the fetch screen shows.
+  first-run offer's names and what the fetch screen shows.
 - Tests: `tests/native_queue.rs`, `native_queue_refusal.rs`.
 
 ## Ported in slice 8 (`src/native_download.rs`, `src/native_install.rs`, host-free)
@@ -293,7 +293,7 @@ in place; its removal comes with the PR that finishes the port).
   from, a plugin's page with its pictures, the progress of a fetch (list, *Update
   all*, plugins another plugin asked for), the first-run offer.
 - `native_ask.rs`: the dialog of plugins other plugins ask for (events 77 and 78),
-  the first-run offer, and the offer of Literata's bold and italic, as pure functions
+  the first-run offer (the offer of Literata's bold and italic is gone: the lean firmware has none, Decision 186), as pure functions
   of what the plugin read; the answer to the one who asked is one `PluginOutcome` for
   each id (`answer_plugin`) where interface 6 sent one event with lists.
 - Declarations (`declarations::screens`, `declarations::setup`): `store.list` and
