@@ -254,12 +254,10 @@ jobs:
         run: |
           # The source's script; the signing job checks the files again.
           for id in $(jq -r '.[] | select(.kind == "code") | .id' <<< "$LIST"); do
-            # Interface 7 (format 5, no fingerprint); the S3's file waits for the
-            # target-9 profile (exit 4).
+            # Interface 7 (format 5, no fingerprint): target 5 on the X4, target 9
+            # on the X4 Pro and the X4 Classic.
             mkdir -p dist/plugins
-            rc=0
-            tools/plugin-files7/build.sh "$DEVICE" dist/plugins --only "$id" || rc=$?
-            [[ $rc = 0 || $rc = 4 ]]
+            tools/plugin-files7/build.sh "$DEVICE" dist/plugins --only "$id"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -296,12 +294,14 @@ jobs:
           rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
           cargo build -q --release -p paperpaw-sign
           base="${BASE#v}"
-          # Interface 7: files for the X4 (chip 5) only until the S3's target-9
-          # profile exists; a format-5 file has no fingerprint to compare.
-          for device in x4; do
+          # Interface 7: the X4's files are chip 5, the X4 Pro's and X4 Classic's
+          # chip 9; a format-5 file has no fingerprint to compare.
+          for device in x4 x4-pro x4-classic; do
+            chip=9
+            [[ "$device" == x4 ]] && chip=5
             while read -r id version; do
               tools/plugin-files/check_files.sh "dist/unsigned/unsigned-$device" target/release/paperpaw-sign \
-                5 none "$id-$version-$device.ppn"
+                "$chip" none "$id-$version-$device.ppn"
             done < <(jq -r '.[] | select(.kind == "code") | "\(.id) \(.version)"' <<< "$LIST")
           done
       # A dry run signs with keys made for the job (the real one is for a
@@ -319,18 +319,18 @@ jobs:
           trap 'rm -f "$key"' EXIT
           (umask 077 && printf '%s\n' "$PAPERPAW_PLUGIN_KEY" > "$key")
           # The files checked, not whatever else the build uploaded.
-          for device in x4; do
+          for device in x4 x4-pro x4-classic; do
             tools/plugin-files/sign.sh "dist/unsigned/unsigned-$device" target/release/paperpaw-sign --key "$key"
           done
       - name: Collect them
         run: |
           mkdir -p dist/signed
-          for device in x4; do
+          for device in x4 x4-pro x4-classic; do
             while read -r id version; do
               cp "dist/unsigned/unsigned-$device/$id-$version-$device.ppn" dist/signed/
             done < <(jq -r '.[] | select(.kind == "code") | "\(.id) \(.version)"' <<< "$LIST")
           done
-          want=$(( 1 * $(jq '[.[] | select(.kind == "code")] | length' <<< "$LIST") ))
+          want=$(( 3 * $(jq '[.[] | select(.kind == "code")] | length' <<< "$LIST") ))
           have=$(ls dist/signed/*.ppn | wc -l)
           [[ "$have" -eq "$want" ]] || { echo "::error::expected $want signed files, found $have"; exit 1; }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
