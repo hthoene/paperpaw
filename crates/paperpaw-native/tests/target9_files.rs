@@ -8,9 +8,9 @@
 
 #![cfg(feature = "kernel")]
 
-use paperpaw_native::header5::{Header5, Host, Refusal};
+use paperpaw_native::header5::{HEADER_LEN, Header5, Host, Refusal};
 use paperpaw_native::stream5::{EntryCheck, Relocator5, Written};
-use paperpaw_native::{Chip, HEADER_LEN, Problem};
+use paperpaw_native::{Chip, Problem};
 
 const FILE: &[u8] = include_bytes!("data/target9-aids.ppn");
 /// The newest minor the file can ask for, as the S3 host knows it.
