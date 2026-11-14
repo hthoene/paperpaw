@@ -17,7 +17,7 @@ use paperpaw_sdk::{
 pub enum Paint {
     /// A filled rectangle.
     Fill(Rect, Color),
-    /// A light separator on a monochrome display, ordered dithered.
+    /// A light separator on a monochrome display, in alternating pixels.
     Stipple(Rect, Color),
     /// A rounded rectangle: bounds, radius, stroke thickness (`None`: filled), colour.
     Focus(Rect, u32, Option<u32>, Color),
@@ -548,11 +548,9 @@ mod tests {
     }
 }
 
-// The same 4 × 4 ordered threshold used for Beta 3's tinted separators.
+// Beta 3's fill_tint uses an alternating pattern for every light monochrome tint.
 fn stipple_ink(x: u16, y: u16, color: Color) -> bool {
-    const BAYER: [[i32; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
-    let offset = (2 * BAYER[usize::from(y % 4)][usize::from(x % 4)] - 15) * 255 / 32;
-    i32::from(color.luma()) + offset < 128
+    color.luma() < 128 || (x ^ y) & 1 == 0
 }
 
 #[cfg(test)]
@@ -561,11 +559,13 @@ mod stipple_tests {
 
     #[test]
     fn faint_mono_separators_keep_ink_instead_of_rounding_to_white() {
-        let pixels: alloc::vec::Vec<_> = (0..4)
-            .flat_map(|y| (0..4).map(move |x| stipple_ink(x, y, Color::gray(210))))
-            .collect();
-        assert_eq!(pixels.iter().filter(|ink| **ink).count(), 3);
-        assert!((0..4).all(|x| !stipple_ink(x, 0, Color::WHITE)));
-        assert!((0..4).all(|x| stipple_ink(x, 0, Color::BLACK)));
+        for y in 0..4 {
+            let pixels: alloc::vec::Vec<_> = (0..64)
+                .map(|x| stipple_ink(x, y, Color::gray(210)))
+                .collect();
+            assert_eq!(pixels.iter().filter(|ink| **ink).count(), 32, "row {y}");
+            assert!(pixels.windows(2).all(|pair| pair[0] != pair[1]));
+            assert!((0..64).all(|x| stipple_ink(x, y, Color::BLACK)));
+        }
     }
 }
