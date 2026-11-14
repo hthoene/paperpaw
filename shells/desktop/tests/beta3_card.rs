@@ -133,7 +133,13 @@ fn a_beta3_card_keeps_position_settings_switches_and_unknown_keys() {
         .filter(|l| l.contains("\"event\": \"setting\""))
         .collect();
     assert!(settings[0].contains("\"value\": \"on\""), "{said}");
-    assert!(settings[1].contains("\"value\": \"Literata\""), "{said}");
+    // Literata is the card's font now (`literata-styles`, #258): until the card has
+    // its regular face the choice gives way to the default, and the file keeps it
+    // (asserted below), so installing the plugin brings it back.
+    assert!(
+        settings[1].contains("\"value\": \"core.font.default\""),
+        "{said}"
+    );
     assert!(settings[2].contains("\"value\": \"de\""), "{said}");
     // The position: where it was, in the same book, by the same conversion.
     let after = fs::read_to_string(&position).unwrap();
