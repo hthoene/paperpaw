@@ -35,6 +35,10 @@ rustflags = [
     "-C", "link-arg=-nostdlib",
     "-C", "link-arg=-Wl,-Tpaperpaw-plugin7.x",
     "-C", "link-arg=-Wl,--emit-relocs",
+    # No jump tables in the plugin's own code, as on the X4: the table lies in
+    # `.text` with no symbol of its own, which the packer refuses ("code that no
+    # sized function symbol covers", vocabulary).
+    "-C", "jump-tables=no",
     # The heap word (`native_plugin!`) is `global_asm!`, which rustc gates on
     # Xtensa; espup's compiler is a nightly, so the feature is opened for the
     # build here, not in every plugin crate.
