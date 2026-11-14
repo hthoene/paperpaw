@@ -20,6 +20,26 @@ fn every_linked_plugin_with_catalogs_has_its_files() {
     assert!(paperpaw_app::native_catalogs("no-such-plugin").is_empty());
 }
 
+/// The store's plugins are linked only where the build has them (the X4's
+/// firmware has none): their texts are not carried for nobody.
+#[test]
+fn a_plugin_the_build_leaves_out_brings_no_catalogs() {
+    let built: Vec<&str> = paperpaw_app::CRATES.split(',').collect();
+    for id in [
+        "format-docx",
+        "format-images",
+        "format-mobi",
+        "news",
+        "vocabulary",
+    ] {
+        let name = format!("paperpaw-plugin-{id}");
+        if !built.contains(&name.as_str()) {
+            let catalogs = paperpaw_app::native_catalogs(id);
+            assert!(catalogs.is_empty(), "{id}: {} catalogs", catalogs.len());
+        }
+    }
+}
+
 #[test]
 fn the_kernel_finds_the_texts_of_a_linked_plugin() {
     use paperpaw_core::Kernel;

@@ -42,6 +42,8 @@ fn main() {
     // The plugins a feature links (`"paperpaw-plugin-…/linked"`): the ones whose
     // catalogs the program carries for them (`native_catalogs`).
     let mut linked: Vec<String> = Vec::new();
+    // Linked only where something else builds the crate (`"…?/linked"`).
+    let mut linked_if_built: Vec<String> = Vec::new();
     for line in section("features").lines() {
         if let Some((name, _)) = line.split_once(" = [") {
             let variable = format!(
@@ -52,10 +54,12 @@ fn main() {
         }
         if on {
             for part in line.split('"') {
-                if let Some(name) = part.strip_suffix("/linked") {
-                    let name = name.trim_end_matches('?');
-                    if name.starts_with("paperpaw-plugin-") {
-                        linked.push(String::from(name));
+                if let Some(name) = part.strip_suffix("/linked")
+                    && name.starts_with("paperpaw-plugin-")
+                {
+                    match name.strip_suffix('?') {
+                        Some(name) => linked_if_built.push(String::from(name)),
+                        None => linked.push(String::from(name)),
                     }
                 }
             }
@@ -75,6 +79,10 @@ fn main() {
     println!("cargo::rustc-env=PAPERPAW_APP_CRATES={list}");
     plugin_versions(&crates);
     catalog_indexes(&crates);
+    // Not the catalogs of a plugin this build leaves out: the X4's firmware
+    // builds none of the store's plugins (about 42 KB of texts, #258).
+    linked_if_built.retain(|name| crates.contains(name));
+    linked.append(&mut linked_if_built);
     linked.sort_unstable();
     linked.dedup();
     native_catalogs(&linked);
