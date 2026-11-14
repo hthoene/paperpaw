@@ -387,7 +387,7 @@ impl Index {
         let mut order: Vec<u16> = (0..self.items.len() as u16)
             .filter(|&i| self.items[usize::from(i)].shown(show))
             .collect();
-        order.sort_unstable_by_key(|&i| {
+        paperpaw_sort::sort_unstable_by_key(&mut order, |&i| {
             let item = &self.items[usize::from(i)];
             let recent = if by_recent { item.recent } else { NEVER };
             (recent, item.key, item.offset)
@@ -424,7 +424,7 @@ impl Index {
             .filter(|&s| last[s].is_some())
             .filter_map(|s| next[s])
             .collect();
-        order.sort_unstable_by_key(|&i| {
+        paperpaw_sort::sort_unstable_by_key(&mut order, |&i| {
             let item = &self.items[usize::from(i)];
             let recent = match last.get(usize::from(item.series)) {
                 Some(Some(recent)) if by_recent => *recent,

@@ -113,8 +113,9 @@ pub mod served;
 pub mod services;
 pub mod setting;
 mod titled;
-/// One shared, stable sorter: use it instead of `slice::sort_by` and its
-/// kin, which compile a copy per element type (see `paperpaw_sort`).
+/// One shared sorter, stable or in place without memory: use it instead of
+/// `slice::sort_by`, `slice::sort_unstable` and their kin, which compile a
+/// copy per element type (see `paperpaw_sort`).
 pub use paperpaw_sort as sort;
 mod settings;
 pub mod setup;

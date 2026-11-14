@@ -503,7 +503,7 @@ pub fn unused_books(
     if full {
         return Err(StorageError::TooLarge);
     }
-    gone.sort_unstable();
+    paperpaw_sort::sort_unstable(&mut gone);
     gone.dedup();
     Ok(u32::try_from(gone.len()).unwrap_or(u32::MAX))
 }
@@ -546,7 +546,7 @@ fn file_keys(storage: &dyn Storage, library: &str) -> Result<Vec<u64>, StorageEr
             }
         }
     }
-    keys.sort_unstable();
+    paperpaw_sort::sort_unstable(&mut keys);
     keys.dedup();
     Ok(keys)
 }
@@ -558,7 +558,7 @@ fn file_keys(storage: &dyn Storage, library: &str) -> Result<Vec<u64>, StorageEr
 pub fn book_keys(storage: &dyn Storage, formats: &crate::Formats) -> Vec<u64> {
     let mut keys = Vec::new();
     books_in(storage, formats, "", &mut |path| keys.push(fnv1a64(path)));
-    keys.sort_unstable();
+    paperpaw_sort::sort_unstable(&mut keys);
     keys
 }
 

@@ -561,9 +561,10 @@ fn list(
     let _ = kernel.list_native(info);
 }
 
-/// The translation catalogs plugin `id` brings built in, as the texts of its
+/// The translation catalogs plugin `id` brings built in as the texts of its
 /// `i18n/<language>.ini` files (a linked native plugin has no code file to
-/// carry them: `screens-input.md` \[D\]). Empty for a plugin with none.
+/// carry them: `screens-input.md` \[D\]): those [`NATIVE_MESSAGES`] does not
+/// hold, so none for most plugins.
 #[cfg(feature = "native-linked")]
 #[must_use]
 pub fn native_catalogs(id: &str) -> &'static [&'static str] {
@@ -573,6 +574,13 @@ pub fn native_catalogs(id: &str) -> &'static [&'static str] {
         .find_map(|(plugin, catalogs)| (*plugin == id).then_some(*catalogs))
         .unwrap_or(&[])
 }
+
+/// The catalogs of the linked plugins of this build, English and German,
+/// without their keys (see `build.rs`): a hash of each key and the messages,
+/// about 40 % of the bytes of their sources less in the program (#258).
+#[cfg(feature = "native-linked")]
+pub static NATIVE_MESSAGES: &[paperpaw_i18n::BuiltMessages] =
+    include!(concat!(env!("OUT_DIR"), "/native_messages.rs"));
 
 /// Adds the catalogs of every linked plugin of [`NATIVE_PLUGINS`] to the
 /// kernel's translator, before the kernel starts (one call for a shell that
@@ -590,7 +598,9 @@ pub fn add_native_catalogs(kernel: &mut paperpaw_core::Kernel) {
         .iter()
         .filter(|(id, _)| !native_catalogs(id).is_empty())
         .count();
-    kernel.reserve_catalogs(plugins);
+    // The tables: a catalog a language, whichever is chosen.
+    kernel.reserve_catalogs(plugins + NATIVE_MESSAGES.len());
+    kernel.add_built_messages(NATIVE_MESSAGES);
     for (id, _) in NATIVE_PLUGINS {
         for source in native_catalogs(id) {
             kernel.add_catalog(source);

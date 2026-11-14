@@ -36,19 +36,24 @@ asleep-light = []
 # the core can take them: reads, checks, places and relocates the image and
 # checks its entry (`src/native/ppn5.rs`), makes the plugin through the core's
 # shell (`paperpaw_core::native_host::shell`) and hosts it. On with `native-on`,
-# which the ESP32-C3 devices (x4, x3) have; the ESP32-S3 devices take it with
-# `x4-pro,ppn5` (card plugins, none linked) until their stack gate is met.
+# which the ESP32-C3 devices (x4, x3) and the ESP32-S3 devices have (the S3's
+# card plugins are not loaded yet: their images and stack paths, #243).
 ppn5 = ["paperpaw-native/kernel"]
 # The built-in plugins that are interface-7 native plugins, linked statically
 # (`paperpaw_app::NATIVE_PLUGINS`, ADR 0034 "One path") in place of their
 # interface-6 forms, and hosted by the kernel (`native::register_linked`, once
 # the stack's band is armed, `abi/heap-word.md` section 6): what the firmware
 # ships (#243). Home and reader are linked with them (`native-linked-reading`).
-# The store's plugins stay files. A feature of the ESP32-C3 devices `x4` and
-# `x3`. Not yet of `x4-pro` and `x4-classic`: they build and link with it, but
-# their frame scans (`frame-budget-s3*.txt`) and the stack paths of the start
-# are not held for the linked plugins, and the owner's device tests S1-S8
-# (the band's trigger on the Xtensa chips) are open.
+# The store's plugins stay files. A feature of every device. On the S3 devices
+# (`x4-pro`, `x4-classic`) the frame scans (`frame-budget-s3*.txt`) do NOT yet cover
+# the linked plugins' own code: they root the host table and the trait impls, not
+# the plugins' entry points, so frames of 2,048 B or more inside a plugin
+# (`NativeReader::screen_opened`, `NativeUpdate::event`, json `read_file`, the
+# epub `convert`) are not caught there. Todos 624 (a rooted S3 scan, before
+# Beta 4), 625 (the plugins' frames) and 626 (json, epub convert, four core
+# frames). The X4's `frame-budget-linked.txt` does cover them. The owner's
+# device tests S1-S8 (the band's monitor on the Xtensa chips) are open and gate
+# the S3 release, not the build.
 native-on = ["ppn5", "paperpaw-app/native-linked", "paperpaw-app/native-linked-reading"]
 # The owner TEST image (decision 156): `native-on` with the test gates of
 # #2462, the high-water log every 30 s (`src/high_water.rs`). Never in a
@@ -74,8 +79,8 @@ esp32c3 = [
 # `ESP_LOG = "info"` anyway) are not compiled into the release image, to
 # keep room in CrossPoint's slot. A developer build wanting them takes it
 # out.
-x4-pro = ["esp32s3", "asleep-light", "bluetooth", "log/release_max_level_info"]
-x4-classic = ["esp32s3"]
+x4-pro = ["esp32s3", "asleep-light", "bluetooth", "log/release_max_level_info", "native-on"]
+x4-classic = ["esp32s3", "native-on"]
 # What both ESP32-S3 devices build with; chosen by `x4-pro` or
 # `x4-classic`, not by hand.
 esp32s3 = [

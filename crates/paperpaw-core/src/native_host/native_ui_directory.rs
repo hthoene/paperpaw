@@ -53,7 +53,7 @@ impl UiDirectory for NativeDeclarations {
         if failed {
             return Err(ERR_NO_MEMORY);
         }
-        keys.sort_unstable_by_key(|key| key.order());
+        paperpaw_sort::sort_unstable_by_key(&mut keys, |key| key.order());
         for key in keys {
             let Some(owner) = store.plugin_of(key) else {
                 continue;

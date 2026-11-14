@@ -355,7 +355,7 @@ impl HyphenTables {
             plugins.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
             plugins.push(plugin);
         }
-        plugins.sort_unstable_by(|a, b| order(a, b));
+        paperpaw_sort::sort_unstable_by(&mut plugins, |a, b| order(a, b));
         plugins.dedup_by(|a, b| order(a, b).is_eq());
         let rank = |plugin: &str| {
             let at = plugins

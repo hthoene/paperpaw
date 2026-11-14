@@ -10,6 +10,7 @@ use paperpaw_config::ParseError;
 
 use crate::built::{Built, BuiltCatalogs};
 use crate::card::{self, Card, CatalogFile};
+use crate::messages::BuiltMessages;
 use crate::plural::PluralRule;
 
 /// The messages of one language.
@@ -70,6 +71,8 @@ pub struct Catalog {
 enum Elsewhere {
     Card(Card),
     Built(Built),
+    /// The messages of a language built in without their keys.
+    Messages(&'static BuiltMessages),
 }
 
 impl Clone for Elsewhere {
@@ -77,6 +80,7 @@ impl Clone for Elsewhere {
         match self {
             Elsewhere::Card(card) => Elsewhere::Card(card.clone()),
             Elsewhere::Built(built) => Elsewhere::Built(built.clone()),
+            Elsewhere::Messages(messages) => Elsewhere::Messages(messages),
         }
     }
 }
@@ -91,21 +95,21 @@ impl Elsewhere {
     fn load(&mut self) -> Result<(), CatalogError> {
         match self {
             Elsewhere::Card(card) => card.load(),
-            Elsewhere::Built(_) => Ok(()),
+            Elsewhere::Built(_) | Elsewhere::Messages(_) => Ok(()),
         }
     }
 
     fn is_loaded(&self) -> bool {
         match self {
             Elsewhere::Card(card) => card.is_loaded(),
-            Elsewhere::Built(_) => true,
+            Elsewhere::Built(_) | Elsewhere::Messages(_) => true,
         }
     }
 
     fn read_bytes(&self) -> usize {
         match self {
             Elsewhere::Card(card) => card.read_bytes(),
-            Elsewhere::Built(_) => 0,
+            Elsewhere::Built(_) | Elsewhere::Messages(_) => 0,
         }
     }
 
@@ -119,6 +123,7 @@ impl Elsewhere {
         match self {
             Elsewhere::Card(card) => card.get(key),
             Elsewhere::Built(built) => built.get(key),
+            Elsewhere::Messages(messages) => messages.get(key),
         }
     }
 
@@ -126,6 +131,7 @@ impl Elsewhere {
         match self {
             Elsewhere::Card(card) => card.len(),
             Elsewhere::Built(built) => built.len(),
+            Elsewhere::Messages(messages) => messages.len(),
         }
     }
 
@@ -133,6 +139,7 @@ impl Elsewhere {
         match self {
             Elsewhere::Card(card) => card.index_on_heap(),
             Elsewhere::Built(built) => built.index_on_heap(),
+            Elsewhere::Messages(_) => 0,
         }
     }
 }
@@ -772,9 +779,33 @@ impl Catalog {
         Some(catalog)
     }
 
-    /// Whether it is the English catalogs built in, indexed together.
+    /// The messages of a language built in without their keys: one catalog
+    /// that answers for all their sources
+    /// ([`Translator::built_messages`](crate::Translator::built_messages)).
+    pub(crate) fn messages(table: &'static BuiltMessages) -> Option<Catalog> {
+        let meta = alloc::format!(
+            "[meta]\nlanguage = {}\nname = {}\nplural = one-other\n",
+            table.language,
+            table.name
+        );
+        let mut catalog = Catalog::parse(meta).ok()?;
+        catalog.card = Some(Box::new(Elsewhere::Messages(table)));
+        Some(catalog)
+    }
+
+    /// Whether it is the catalogs of a language built in, indexed together
+    /// or without their keys.
     pub(crate) fn is_built(&self) -> bool {
-        matches!(self.card.as_deref(), Some(Elsewhere::Built(_)))
+        matches!(
+            self.card.as_deref(),
+            Some(Elsewhere::Built(_) | Elsewhere::Messages(_))
+        )
+    }
+
+    /// Whether it is the messages of a language built in without their
+    /// keys.
+    pub(crate) fn is_messages(&self) -> bool {
+        matches!(self.card.as_deref(), Some(Elsewhere::Messages(_)))
     }
 
     /// Takes `source` into the built catalogs' slot for it, where this is
