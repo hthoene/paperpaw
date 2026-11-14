@@ -349,3 +349,16 @@ fn a_tall_row_takes_the_corner_of_the_style_not_a_pill_that_cuts_its_text() {
     assert!(radius_of(Rect::new(0, 0, 480, pill.row)) > pill.corner);
     assert_eq!(radius_of(Rect::new(0, 0, 480, pill.row * 2)), pill.corner);
 }
+
+#[test]
+fn a_faint_row_has_ink_on_a_panel_of_two_grays() {
+    let two = Style {
+        mono: true,
+        ..style()
+    };
+    // The grey 160 is paper on such a panel: the ink is the notes'.
+    assert_eq!(disabled_ink(&two), two.note);
+    assert_ne!(disabled_ink(&two), two.paper);
+    let many = style();
+    assert_eq!(disabled_ink(&many), many.disabled);
+}

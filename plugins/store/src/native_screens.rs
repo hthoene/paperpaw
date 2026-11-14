@@ -194,6 +194,11 @@ pub trait Installs {
     fn flash_hint(&self) -> bool {
         false
     }
+    /// The bytes free on the card, where the host says (a data plugin's page
+    /// states what the plugin needs of them).
+    fn free_space(&self) -> Option<u64> {
+        None
+    }
     /// Whether the device loads code plugins and there is a network, so a
     /// plugin of the library can be added (the first-run offer reads it). The
     /// default says no. (Addition of the screens' port.)
