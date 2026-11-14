@@ -381,9 +381,11 @@ jobs:
     name: Firmware (${{ matrix.device }})
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    # Normally 3-20 minutes. An apt mirror that stalls once held a run for 45
+    # Normally 3-20 minutes; the S3 devices run longer, 22-30 (their plain and S3
+    # builds, the plugin packs; run 43647500792 hit 30 in its last step, #259), so
+    # they get 45. An apt mirror that stalls once held a run for 45
     # (build-prerequisites.sh): fail then and rerun.
-    timeout-minutes: 30
+    timeout-minutes: ${{ (matrix.device == 'x4-pro' || matrix.device == 'x4-classic') && 45 || 30 }}
     strategy:
       fail-fast: false
       matrix:
