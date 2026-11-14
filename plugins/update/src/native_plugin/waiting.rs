@@ -337,6 +337,7 @@ impl NativeUpdate {
     }
 
     /// The reader looked at an update that waits.
+    #[inline(never)]
     pub(super) fn waiting_seen(&mut self, host: &Host<'_>, view: &View) -> Result<(), Error> {
         if !matches!(view, View::Waiting(_)) {
             return Ok(());

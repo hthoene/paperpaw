@@ -1,7 +1,8 @@
-# The linked plugins' own code in the S3 frame scan (todo 624, Senior #2892 M2). NOT included by the
-# budgets yet: with it the scan finds a frame of 2,048 B or more in `NativeUpdate::event` (todo 625)
-# and has to wait for it. Try it with `CHECK_S3_BUDGET_LINKED=1 tools/check-s3-budget.sh <worktree>`;
-# once the cut is in, add `include frame-budget-s3-linked.txt` to both S3 budgets.
+# The linked plugins' own code in the S3 frame scan (todos 624, 637; Senior #2892 M2, #2897 C1/C2).
+# NOT included by the two S3 budgets (the plain scan stays exact per function; the ceilings below
+# also absorb unlisted host calls of the same crates): CI scans the same image twice, the budget
+# alone, then the budget plus this file; `CHECK_S3_BUDGET_LINKED=1 tools/check-s3-budget.sh
+# <worktree>` does the second one locally.
 #
 # Every callback of a linked plugin goes through `paperpaw_sdk::native::binding::entry`, as on the X4
 # (`frame-budget-linked.txt`): rooting it follows what a plugin inlines into its handlers and calls
@@ -23,7 +24,6 @@ allow indirect-in paperpaw_qr 20 calls through a register the scan does not foll
 allow indirect-in paperpaw_text 18 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
 allow indirect-in paperpaw_digest 14 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
 allow indirect-in paperpaw_epub_family 14 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_json 11 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
 allow indirect-in paperpaw_sort 11 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
 allow indirect-in paperpaw_xml 11 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
 allow indirect-in alloc 6 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
@@ -37,3 +37,42 @@ allow rom __gedf2 the chip's ROM `__gedf2`: not scanned here (device test S4)
 allow rom __gtdf2 the chip's ROM `__gtdf2`: not scanned here (device test S4)
 allow rom __muldf3 the chip's ROM `__muldf3`: not scanned here (device test S4)
 allow rom __adddf3 the chip's ROM `__adddf3`: not scanned here (device test S4)
+#
+# `frames-in` (C1): every function of these families in the image is held to the frame limit,
+# whether the roots reach it (the scan stops at calls through a register) or not. A line that
+# matches no function fails, so a renamed crate cannot drop out.
+frames-in paperpaw_plugin_* the linked plugins' own code: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_json read by the plugins (`read_file`): every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_epub_family the format plugins' converter: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_sdk the SDK the plugins call: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_ui_kit the widgets the plugins draw with: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_layout the page layout the reader calls: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_text text the plugins measure with: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_stardict the dictionary plugin's reader: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_qr the transfer plugin's QR code: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_digest hashes the plugins compute: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_xml the format plugins' XML: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_sort the shared sort: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_config settings the plugins read: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_lang language tables: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_document documents the reader opens: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_core::native_host the host side of the plugin callbacks (event, action, widget input, services): every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_core::chrome `sync_chromes`, run after a plugin's event: every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in paperpaw_core::core_plugin the core plugin's closures (`register_library`): every function under the 2,048 B frame limit (Senior #2897 C1)
+frames-in core the standard library's code in the image (formatting, iterators): every function under the 2,048 B frame limit (Senior #2899 M2)
+frames-in alloc the allocator's collections: every function under the 2,048 B frame limit (Senior #2899 M2)
+#
+# Known frames of 2,048 B or more (R1: the scan is blocking, so a new one fails at once). Each line
+# holds the function at the largest frame the two S3 images show (the max is a ceiling: growth fails,
+# a cut under the limit makes the line stale and fails too: remove it). The owner's todo is in the
+# why. Release check for the S3 images (todo 639, Beta 4 MUST): no `allow frame` line left here
+# except `main` (not a callback frame).
+allow frame _ZN88_$LT$paperpaw_plugin_store..list..ListScreen$u20$as$u20$paperpaw_sdk..screen..Screen$GT$8on_event 2064 owner: Store Engineer (the list screen's on_event, 2,064 B on both devices); todo 639
+allow frame paperpaw_json::stream::read_file 2240 owner: Kernel todo 626 (json read_file, 2,240/2,224 B); todo 639
+allow frame _ZN20paperpaw_epub_family7convert7convert 2112 owner: Kernel todo 626 (epub-family convert, 2,112/2,096 B); todo 639
+allow frame paperpaw_core::native_host::event_call::native_event_call 2192 owner: Kernel todo 626 (2,192/2,176 B); todo 639
+allow frame paperpaw_core::native_host::event_call::deliver_action 2176 owner: Kernel todo 626 (2,176/2,160 B); todo 639
+allow frame paperpaw_core::native_host::widget_inputs::deliver_one_widget_input 2272 owner: Kernel todo 626 (2,272/2,256 B); todo 639
+allow frame paperpaw_core::chrome::sync_chromes 2256 owner: Kernel todo 626 (2,256/2,240 B); todo 639
+allow frame _ZN13paperpaw_core11core_plugin16register_library28_$u7b$$u7b$closure$u7d$$u7d$ 2096 owner: Kernel todo 626 (the register_library closure, 2,096/2,080 B); todo 639
+allow frame main 8768 the firmware's entry on the main task's stack, not a callback frame: the start-stack check (`check-x4-start-stack.py --s3`) already counts it in every route (8,768/8,672 B); owner: Firmware
