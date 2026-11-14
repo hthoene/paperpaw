@@ -61,6 +61,8 @@ pub mod native_refusal;
 #[doc(hidden)]
 pub mod native_request;
 #[doc(hidden)]
+pub mod native_requires;
+#[doc(hidden)]
 pub mod native_screen_fetch;
 #[doc(hidden)]
 pub mod native_screen_letters;

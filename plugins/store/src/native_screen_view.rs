@@ -466,11 +466,14 @@ pub fn plugin_row(
         value: mark(say, installs, entry)?,
         note: note(say, entry)?,
         zone: None,
+        icon: None,
         stepper: false,
         disabled: false,
         on: None,
         field: false,
         whole: false,
+        small: false,
+        plain: false,
     })
 }
 
@@ -496,11 +499,14 @@ pub fn top_row(say: &mut dyn Say, top: Top, order: Order, help: &str) -> Result<
         value,
         note,
         zone: None,
+        icon: None,
         stepper: false,
         disabled: false,
         on: None,
         field: false,
         whole: false,
+        small: false,
+        plain: false,
     })
 }
 

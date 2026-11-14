@@ -74,6 +74,7 @@ struct Offered {
     name: &'static str,
     version: &'static str,
     manifest: String,
+    summary: &'static str,
 }
 
 impl Offered {
@@ -85,17 +86,39 @@ impl Offered {
             name,
             version,
             manifest,
+            summary: "A pack.",
         }
+    }
+
+    /// The same plugin with another summary in the library.
+    fn summarised(mut self, summary: &'static str) -> Self {
+        self.summary = summary;
+        self
+    }
+
+    /// A data plugin that requires `requires` (plugin ids apart by commas).
+    fn requiring(
+        id: &'static str,
+        name: &'static str,
+        version: &'static str,
+        requires: &str,
+    ) -> Self {
+        let mut plugin = Self::data(id, name, version);
+        plugin
+            .manifest
+            .push_str(&format!("requires = {requires}\n"));
+        plugin
     }
 
     fn entry(&self) -> String {
         format!(
-            r#"{{"id": "{}", "name": "{}", "summary": "A pack.", "group": "reading",
+            r#"{{"id": "{}", "name": "{}", "summary": "{}", "group": "reading",
   "author": "PaperPaw", "licence": "OFL-1.1", "kind": "data",
   "added": "2026-01-01", "latest": {{"version": "{}", "sdk": "0.4", "formats": 4,
   "size": {}, "date": "2026-01-02"}}}}"#,
             self.id,
             self.name,
+            self.summary,
             self.version,
             self.manifest.len()
         )
@@ -104,13 +127,14 @@ impl Offered {
     fn page(&self) -> String {
         format!(
             r#"{{"format": 2, "plugin": {{"id": "{id}", "name": "{name}",
-  "summary": "A pack.", "group": "reading", "author": "PaperPaw",
+  "summary": "{summary}", "group": "reading", "author": "PaperPaw",
   "licence": "OFL-1.1", "kind": "data",
   "latest": {{"version": "{version}", "sdk": "0.4", "formats": 4, "size": {size},
     "files": [{{"path": "plugin.ini", "url": "{id}/{version}/plugin.ini",
                 "size": {size}, "sha1": "{sha}"}}]}}}}}}"#,
             id = self.id,
             name = self.name,
+            summary = self.summary,
             version = self.version,
             size = self.manifest.len(),
             sha = paperpaw_digest::sha1::hex(self.manifest.as_bytes()),
@@ -327,4 +351,284 @@ fn files_a_power_cut_left_staged_are_removed_at_the_start() {
             .card
             .exists(".paperpaw/plugins/store/stage/pack-a/plugin.ini")
     );
+}
+
+/// Chooses `label` in the dialog the store asks: its input guard is over first.
+fn answer_dialog(shop: &mut Shop, label: &str) {
+    shop.settle(1500);
+    shop.choose(label);
+    shop.settle(3000);
+}
+
+/// Installs plugin `id` from its page and confirms the host's question.
+fn install_and_confirm(shop: &mut Shop, id: &str) {
+    // Through the list, as the user comes: the plugins' names are known then.
+    shop.run("store.open");
+    shop.settle(2000);
+    shop.keys(&format!("open:store.plugin:id={id}"));
+    shop.settle(3000);
+    shop.choose("Install");
+    shop.settle(3000);
+    assert_eq!(confirm_screen(shop), "core.firmware-confirm");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+}
+
+/// A plugin that requires one the device lacks (Arabic menus need the Arabic
+/// letters): once installed the store offers it with its size.
+#[test]
+fn what_the_installed_plugin_requires_is_offered_and_fetched_on_download() {
+    let mut shop = Shop::new(&[
+        Offered::requiring("language-ar", "Arabic menus", "1.0.0", "script-arabic"),
+        Offered::data("script-arabic", "Arabic letters", "1.0.0"),
+    ]);
+    install_and_confirm(&mut shop, "language-ar");
+    assert!(shop.card.exists("plugins/language-ar/plugin.ini"));
+    let shown = shop.shown();
+    assert!(shown.contains("The plugin just installed also"), "{shown}");
+    assert!(shown.contains("Arabic letters"), "{shown}");
+    // Nothing is fetched before the reader says so.
+    assert!(!shop.card.exists("plugins/script-arabic/plugin.ini"));
+    answer_dialog(&mut shop, "Download");
+    // The host asks to confirm the second install too.
+    assert_eq!(confirm_screen(&mut shop), "core.firmware-confirm");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    // The host lets no plugin close a screen from an event: the fetch screen
+    // shows the end and a key closes it.
+    assert_eq!(shop.screen(), "store.fetch");
+    assert!(shop.shown().contains("100 %"), "{}", shop.shown());
+    shop.keys("run:core.confirm");
+    assert_ne!(shop.screen(), "store.fetch", "{}", shop.shown());
+    assert!(shop.card.exists("plugins/script-arabic/plugin.ini"));
+    let shown = shop.shown();
+    assert!(!shown.contains("just installed also"), "{shown}");
+}
+
+#[test]
+fn not_now_leaves_the_plugin_installed_and_fetches_nothing() {
+    let mut shop = Shop::new(&[
+        Offered::requiring("language-ar", "Arabic menus", "1.0.0", "script-arabic"),
+        Offered::data("script-arabic", "Arabic letters", "1.0.0"),
+    ]);
+    install_and_confirm(&mut shop, "language-ar");
+    assert!(shop.shown().contains("just installed also"));
+    answer_dialog(&mut shop, "Not now");
+    assert!(shop.card.exists("plugins/language-ar/plugin.ini"));
+    assert!(!shop.card.exists("plugins/script-arabic/plugin.ini"));
+    assert!(!shop.shown().contains("just installed also"));
+    assert!(
+        !shop
+            .library
+            .asked()
+            .iter()
+            .any(|url| url.contains("script-arabic/1.0.0")),
+        "{:?}",
+        shop.library.asked()
+    );
+}
+
+#[test]
+fn what_is_on_the_device_or_not_in_the_library_is_not_asked_for() {
+    let have = MemoryStorage::new().with(
+        "plugins/script-arabic/plugin.ini",
+        "[plugin]\nid = script-arabic\nname = Arabic letters\nversion = 1.0.0\nformats = 4\n",
+    );
+    let mut shop = Shop::on(
+        have,
+        &[Offered::requiring(
+            "language-ar",
+            "Arabic menus",
+            "1.0.0",
+            "script-arabic, not-in-the-library",
+        )],
+    );
+    install_and_confirm(&mut shop, "language-ar");
+    assert!(shop.card.exists("plugins/language-ar/plugin.ini"));
+    let shown = shop.shown();
+    assert!(!shown.contains("just installed also"), "{shown}");
+}
+
+/// Alpha requires Beta, Beta requires Gamma: a dialog for each step.
+#[test]
+fn a_chain_of_requirements_is_a_dialog_for_each_step() {
+    let mut shop = Shop::new(&[
+        Offered::requiring("alpha", "Alpha", "1.0.0", "beta"),
+        Offered::requiring("beta", "Beta", "1.0.0", "gamma"),
+        Offered::data("gamma", "Gamma", "1.0.0"),
+    ]);
+    install_and_confirm(&mut shop, "alpha");
+    assert!(shop.shown().contains("Beta"), "{}", shop.shown());
+    answer_dialog(&mut shop, "Download");
+    // The host asks to confirm the second install too.
+    assert_eq!(confirm_screen(&mut shop), "core.firmware-confirm");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    let shown = shop.shown();
+    assert!(shown.contains("just installed also"), "{shown}");
+    assert!(shown.contains("Gamma"), "{shown}");
+    assert!(shop.card.exists("plugins/beta/plugin.ini"));
+}
+
+/// Alpha and Beta require each other: nothing is asked after the second.
+#[test]
+fn two_plugins_requiring_each_other_end_after_the_second() {
+    let mut shop = Shop::new(&[
+        Offered::requiring("alpha", "Alpha", "1.0.0", "beta"),
+        Offered::requiring("beta", "Beta", "1.0.0", "alpha"),
+    ]);
+    install_and_confirm(&mut shop, "alpha");
+    answer_dialog(&mut shop, "Download");
+    // The host asks to confirm the second install too.
+    assert_eq!(confirm_screen(&mut shop), "core.firmware-confirm");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    assert!(shop.card.exists("plugins/beta/plugin.ini"));
+    let shown = shop.shown();
+    assert!(!shown.contains("just installed also"), "{shown}");
+}
+
+/// A long summary shows whole on the plugin's page (four lines), not cut after
+/// two with "…".
+#[test]
+fn the_page_of_a_plugin_shows_its_long_summary_whole() {
+    let mut shop = Shop::new(&[Offered::data("pack-a", "Pack A", "1.0.0").summarised(
+        "Reading aids for the words: bold starts of words, wider spacing of letters, \
+         words and lines, and a calmer type for those who read with dyslexia.",
+    )]);
+    shop.run("store.open");
+    shop.settle(2000);
+    shop.keys("open:store.plugin:id=pack-a");
+    shop.settle(3000);
+    let shown = shop.shown();
+    assert!(shown.contains("with dyslexia."), "{shown}");
+    assert!(!shown.contains('\u{2026}'), "{shown}");
+}
+
+/// A route that ends every request with status 0 only after a while, as a
+/// refused connection does on the real network (`never`: not at all).
+#[derive(Default)]
+struct Unreachable {
+    never: bool,
+    waiting: Vec<u32>,
+    polls: u32,
+}
+
+impl Route for Unreachable {
+    fn start(&mut self, call: HttpCall) -> Option<HttpResponse> {
+        self.waiting.push(call.id);
+        None
+    }
+
+    fn later(&mut self) -> Option<HttpResponse> {
+        self.polls += 1;
+        if self.never || self.polls < 20 {
+            return None;
+        }
+        let id = self.waiting.pop()?;
+        Some(HttpResponse {
+            id,
+            status: 0,
+            ..HttpResponse::default()
+        })
+    }
+}
+
+/// What the panel shows once the store was opened and the library answered
+/// `never` or refused the connection.
+fn panel_of_the_store(never: bool) -> Vec<u8> {
+    let mut shop = Shop::new(&[]);
+    set_route(Some(Box::new(Unreachable {
+        never,
+        ..Unreachable::default()
+    })));
+    // Not through the script: it would wait for the library as long as it takes.
+    let open = paperpaw_core::sdk::Id::parse("store.open").unwrap();
+    shop.device.run_action(open);
+    shop.settle(6000);
+    shop.device.panel.rgb_bytes()
+}
+
+/// The list's end without an answer is drawn: the screen that was loading says
+/// there is no connection (a screen shown by its rows alone would stay as it
+/// was drawn).
+#[test]
+fn a_list_that_cannot_be_fetched_is_redrawn_as_no_connection() {
+    assert_ne!(panel_of_the_store(false), panel_of_the_store(true));
+}
+
+/// The plugins "Pack 01" to "Pack 40" of the library, in that order.
+fn many_packs() -> Vec<Offered> {
+    (1..=40)
+        .map(|n| {
+            let id: &'static str = Box::leak(format!("pack-{n:02}").into_boxed_str());
+            let name: &'static str = Box::leak(format!("Pack {n:02}").into_boxed_str());
+            Offered::data(id, name, "1.0.0")
+        })
+        .collect()
+}
+
+/// A list of more plugins than a page holds: a hold of Select asks which page to
+/// go to ("Go to page (1 to N)"), and the number typed puts the focus on the
+/// first plugin of that page; a number past the last page is the last one.
+#[test]
+fn a_long_list_jumps_to_the_page_typed() {
+    let mut shop = Shop::new(&many_packs());
+    shop.run("store.open");
+    shop.settle(2000);
+    shop.keys("open:store.view:view=new");
+    shop.settle(2000);
+    let first = shop.shown();
+    let per_page = first.matches("Pack ").count();
+    assert!(per_page > 1 && per_page < 40, "{first}");
+    assert!(first.contains("*Pack 01"), "{first}");
+    // The hold of Select asks for the page.
+    shop.keys("run:core.menu");
+    shop.settle(1500);
+    let asked = shop.shown();
+    assert!(asked.contains("Go to page (1 to"), "{asked}");
+    shop.keys("type-enter:2");
+    shop.settle(1000);
+    let shown = shop.shown();
+    let second = format!("*Pack {:02}", per_page + 1);
+    assert!(shown.contains(&second), "wanted {second} in {shown}");
+}
+
+/// The list of the store drawn in part: what the panel shows after each step
+/// of the focus (the rows drawn put over the last frame) is what drawing the
+/// whole screen anew shows. Covers what `tests/partial_redraw.rs` did for the
+/// interface-6 store, which cannot run there (that harness wires the network
+/// offline).
+#[test]
+fn the_list_of_the_store_is_drawn_in_part_as_it_is_drawn_whole() {
+    let mut shop = Shop::new(&many_packs());
+    shop.run("store.open");
+    shop.settle(2000);
+    shop.keys("open:store.view:view=new");
+    shop.settle(2000);
+    let mut last = shop.device.panel.rgb_bytes();
+    let mut changed = 0;
+    for step in 0..12 {
+        let key = if step < 8 {
+            "run:core.down"
+        } else {
+            "run:core.up"
+        };
+        shop.keys(key);
+        let in_part = shop.device.panel.rgb_bytes();
+        changed += usize::from(in_part != last);
+        last = in_part.clone();
+        shop.device.draw_again();
+        shop.settle(300);
+        assert!(
+            shop.device.panel.rgb_bytes() == in_part,
+            "step {step}: drawn in part, the panel is not what the whole screen shows"
+        );
+    }
+    // Each step moved the focus and drew something.
+    assert!(changed >= 10, "{changed} of 12 steps changed the panel");
 }

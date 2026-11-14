@@ -420,6 +420,7 @@ impl Core {
 
     fn finish(&mut self) -> Next {
         self.phase = Phase::Done;
+        self.permille = 1000;
         let ready = (self.kind == Kind::Request).then(|| ready_key(&self.by));
         match (self.top, ready) {
             (true, Some(key)) => Next::CloseNotify(key),
