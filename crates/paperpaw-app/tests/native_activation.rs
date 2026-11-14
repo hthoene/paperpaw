@@ -253,6 +253,18 @@ thread_local! {
     static CLOCK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
+thread_local! {
+    /// The plugin callbacks that ended with an error on this thread, as a
+    /// shell logs them ([`take_failed_calls`]).
+    static FAILED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The plugin callbacks that ended with an error since the last asking, as a
+/// shell logs them (`<plugin>: call <tag> ended with <status>`).
+pub fn take_failed_calls() -> Vec<String> {
+    FAILED.with(std::cell::RefCell::take)
+}
+
 /// Sets the clock the host families read to `ms`, the time the test gives
 /// the kernel: declared work then comes due as on a device (#248).
 pub fn set_clock(ms: u64) {
@@ -494,6 +506,11 @@ mod linked {
 
     fn report(_: &Heap, plugin: &str, tag: u32, status: i32) {
         eprintln!("native plugin {plugin}: call {tag} ended with {status}");
+        super::FAILED.with(|failed| {
+            failed
+                .borrow_mut()
+                .push(format!("{plugin}: call {tag} ended with {status}"));
+        });
     }
 
     /// What the host offers: the data services, `core.device`, and the ones the
