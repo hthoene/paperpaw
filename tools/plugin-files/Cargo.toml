@@ -29,12 +29,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "notes-vault"
-path = "src/bin/notes-vault.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "format-mobi"
 path = "src/bin/format-mobi.rs"
 test = false
@@ -60,7 +54,6 @@ bench = false
 
 [dependencies]
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
-paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault" }
 paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
 paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi" }
 paperpaw-plugin-format-docx = { path = "../../plugins/format-docx" }

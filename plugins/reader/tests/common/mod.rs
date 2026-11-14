@@ -322,7 +322,7 @@ impl Reading {
             .plugin(paperpaw_epub_family::MarkdownFormat);
         // Later: its Markdown, with wikilinks, is the one used.
         let builder = if vault {
-            builder.plugin(paperpaw_plugin_notes_vault::NotesVault)
+            builder.plugin(VaultMarkdown)
         } else {
             builder
         };
@@ -797,4 +797,46 @@ pub fn numbered_book(paragraphs: usize, words: usize) -> String {
         text.push_str(".\n\n");
     }
     text
+}
+
+/// The vault's Markdown (wikilinks, front matter, callouts) as a format
+/// plugin of the kernel under test: the notes vault itself is a native plugin
+/// now (interface 7), and the kernel does not host those yet, so the tests
+/// register the format the vault reads notes with (`MarkdownDocument`) on
+/// their own.
+struct VaultMarkdown;
+
+impl paperpaw_sdk::Plugin for VaultMarkdown {
+    fn manifest(&self) -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            paperpaw_sdk::Id::new_static("notes-vault"),
+            "Notes vault",
+            paperpaw_sdk::package_version!(),
+        )
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.add_book_cache(paperpaw_sdk::Env::plugin_dir("notes-vault"), "md-")?;
+        r.add_format(paperpaw_sdk::FormatSpec::new(
+            paperpaw_sdk::Id::new_static("notes-vault.markdown"),
+            "notes-vault.markdown",
+            vec![
+                std::borrow::Cow::Borrowed("md"),
+                std::borrow::Cow::Borrowed("markdown"),
+            ],
+            Box::new(|storage, path, options| {
+                paperpaw_plugin_notes_vault::MarkdownDocument::open(
+                    storage,
+                    path,
+                    options.publisher_styles,
+                )
+                .map(|d| Box::new(d) as Box<dyn paperpaw_sdk::document::Document>)
+            }),
+        ))?;
+        r.add_translations(std::borrow::Cow::Borrowed(include_str!(
+            "../../../notes-vault/i18n/en.ini"
+        )))?;
+        Ok(())
+    }
 }

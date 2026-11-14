@@ -32,3 +32,4 @@ stats
 transfer
 wifi
 widgets
+notes-vault
