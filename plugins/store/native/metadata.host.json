@@ -141,6 +141,7 @@
   ],
   "services": [
     "core.device",
+    "core.files",
     "core.net",
     "core.registry",
     "core.ui"

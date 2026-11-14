@@ -264,6 +264,17 @@ impl Installer {
         }
     }
 
+    /// The plugin of the install going on as `request`: the host's end of a
+    /// declined or refused install does not name it.
+    #[must_use]
+    pub fn going_plugin(&self, request: u32) -> Option<&str> {
+        let going = self
+            .going
+            .as_ref()
+            .filter(|going| going.request == request)?;
+        Some(going.plugin.as_str())
+    }
+
     /// Forgets the install going on (the screen asked to stop; the host's
     /// request still ends, and is passed over).
     pub fn forget(&mut self, wire: &mut dyn Wire) {

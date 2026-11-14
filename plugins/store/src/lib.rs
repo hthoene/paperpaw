@@ -34,6 +34,7 @@ pub mod native_device;
 #[doc(hidden)]
 pub mod native_download;
 mod native_entry;
+mod native_folders;
 #[doc(hidden)]
 pub mod native_fonts;
 mod native_fonts_host;

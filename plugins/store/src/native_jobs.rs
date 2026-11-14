@@ -354,8 +354,7 @@ impl NativeStore {
     /// Lets go of an install that cannot go on: its staged files, its busy
     /// mark, what was kept for it.
     fn abandon(&mut self, host: &Host<'_>, staged: &crate::native_download::Staged) {
-        let storage = DataStorage::new(host);
-        let _ = storage.remove_dir_all(&staged.folder);
+        let _ = crate::native_folders::Folders::new(host).remove_dir_all(&staged.folder);
         self.download.set_step(DownStep::Idle);
         self.installing = None;
         self.sync_step(&staged.plugin);
@@ -380,6 +379,9 @@ impl NativeStore {
         let reason = reason_of(done);
         let flags = u32::from(done.data_kept()) | (u32::from(done.at_next_start()) << 1);
         let end = End::new(request, reason, flags);
+        // The host's end names no plugin where it was declined or refused.
+        let plugin =
+            crate::native_glue::own(self.installer.going_plugin(request).unwrap_or(done.id()))?;
         let outcome = {
             let mut wire = InstallWire::new(host);
             self.installer.done(
@@ -390,7 +392,7 @@ impl NativeStore {
             )?
         };
         self.forget_snapshot();
-        self.sync_step(done.id());
+        self.sync_step(&plugin);
         // A page the queue or the offer installed from is not kept for nobody.
         if !self.has_page_screen() {
             self.loader.forget_page();
@@ -398,8 +400,8 @@ impl NativeStore {
         // No room (the code room, the card) and a withdrawn key are what the
         // page of the plugin says of it afterwards.
         match reason_of(done) {
-            7 => self.activity.note_revoked(done.id())?,
-            13 | 17 => self.activity.note_no_room(done.id())?,
+            7 => self.activity.note_revoked(&plugin)?,
+            13 | 17 => self.activity.note_no_room(&plugin)?,
             _ => {}
         }
         use crate::native_install::Outcome;
@@ -420,11 +422,11 @@ impl NativeStore {
                 true
             }
             Outcome::Refused { name, key } => {
-                self.noted(host, done.id(), &name, key, Result_::NotInstalled)?;
+                self.noted(host, &plugin, &name, key, Result_::NotInstalled)?;
                 true
             }
             Outcome::Silent => {
-                self.noted(host, done.id(), "", "", Result_::NotInstalled)?;
+                self.noted(host, &plugin, "", "", Result_::NotInstalled)?;
                 true
             }
             _ => false,
