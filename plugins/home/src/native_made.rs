@@ -123,11 +123,20 @@ impl Made {
     }
 
     /// What a tap can reach in `rect`, in reading order: the target's number and
-    /// where it is.
+    /// where it is. A host that will not say (the X4's nested gate, #250) leaves
+    /// the widget without targets.
     ///
     /// # Errors
-    /// The host's refusals and [`Error::NoMemory`].
+    /// [`Error::NoMemory`].
     pub fn targets(&self, host: &Host<'_>, ui: &Ui, rect: Rect) -> Result<Vec<(u32, Rect)>, Error> {
+        match self.reach(host, ui, rect) {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(_) => Ok(Vec::new()),
+            found => found,
+        }
+    }
+
+    fn reach(&self, host: &Host<'_>, ui: &Ui, rect: Rect) -> Result<Vec<(u32, Rect)>, Error> {
         let mut found = Vec::new();
         match self {
             Self::Host(widget) => {

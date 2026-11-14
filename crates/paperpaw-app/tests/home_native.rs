@@ -28,6 +28,8 @@ mod drawer_focus;
 mod drawer_rtl;
 #[path = "home_native/edit_touch.rs"]
 mod edit_touch;
+#[path = "home_native/foreign_widgets.rs"]
+mod foreign_widgets;
 #[path = "home_native/landscape.rs"]
 mod landscape;
 #[path = "home_native/layouts.rs"]
