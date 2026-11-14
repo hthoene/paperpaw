@@ -911,24 +911,31 @@ jobs:
       - name: Bluetooth host-test dependencies too
         run: cargo deny --manifest-path tools/bluetooth-tests/Cargo.toml --all-features check
 
-  # The X4's native image (the interface-7 plugins linked and hosted, the loader
-  # for card plugins: what the device feature `x4` builds, #243). Its own job,
+  # The native image of the X4 and the X3 (the interface-7 plugins linked and
+  # hosted, the loader for card plugins: what the device features `x4` and `x3`
+  # build, #243). Its own job,
   # beside the `firmware` jobs, holds the functions a plugin's code can call into
   # under the 2 KiB band at the main stack's end
-  # (`shells/xteink/frame-budget-ppn5.txt`) and the paths of the start and the
-  # main loop above the band (`tools/check-x4-start-stack.py`).
+  # (`shells/xteink/frame-budget-ppn5.txt`), the linked plugins' entry frames
+  # (`frame-budget-linked.txt`) and the paths of the start and the main loop
+  # above the band (`tools/check-x4-start-stack.py`).
   firmware-host-frames:
-    name: Firmware interface-7 host frames (x4, ppn5)
+    name: Firmware interface-7 host frames (${{ matrix.device }}, ppn5)
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # The X3 has the X4's chip and code but its own board and features.
+        device: [x4, x3]
     env:
-      DEVICE: x4
+      DEVICE: ${{ matrix.device }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/xteink-tools
         with:
-          device: x4
+          device: ${{ matrix.device }}
           clang-fallback: "true"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -936,7 +943,7 @@ jobs:
           workspaces: |
             shells/xteink
             .
-          key: x4-ppn5
+          key: ${{ matrix.device }}-ppn5
       - name: Lint the X4 with interface-7 plugins
         working-directory: shells/xteink
         # The `ppn5` code sites are not in the other jobs' lint.
@@ -950,6 +957,11 @@ jobs:
           cargo run -q --release -p paperpaw-sign -- frames \
             shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
             --budget shells/xteink/frame-budget-ppn5.txt
+      - name: The linked plugins' entry frames fit under the band
+        run: |
+          cargo run -q --release -p paperpaw-sign -- frames \
+            shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
+            --budget shells/xteink/frame-budget-linked.txt
       - name: The start's and the main loop's stack paths stay above the band
         run: python3 -I tools/check-x4-start-stack.py shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink
 
