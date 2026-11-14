@@ -568,11 +568,15 @@ fn read_function(code: &[u8], start_addr: u32, around: &Around<'_>) -> Reads {
                 wide: true,
             });
             if let Some(size) = entry_frame(w) {
-                // The frame is taken from the stack pointer only by `entry a1`.
-                if (w >> 8) & 0xF != 1 {
-                    reads.entry_other.get_or_insert(pc);
+                // The frame is taken from the stack pointer only by `entry a1`, and from
+                // a function's first instruction only: C code keeps literal pools between
+                // its instructions, and their bytes can read as an `entry`.
+                if at == 0 {
+                    if (w >> 8) & 0xF != 1 {
+                        reads.entry_other.get_or_insert(pc);
+                    }
+                    reads.frame = Some(reads.frame.map_or(size, |f| f.max(size)));
                 }
-                reads.frame = Some(reads.frame.map_or(size, |f| f.max(size)));
             } else if w & 0xF == 5 {
                 // CALLn: n in bits 5:4, the target a word offset from the next word.
                 let target = ((i64::from(pc >> 2) + 1 + sext18(w)) << 2) as u32;

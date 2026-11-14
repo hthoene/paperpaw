@@ -117,3 +117,15 @@ fn an_allow_frame_line_names_a_known_frame_and_goes_stale_when_it_is_cut() {
     );
     assert!(none[0].contains("matches no function"), "{none:?}");
 }
+
+#[test]
+fn an_entry_in_the_middle_of_a_function_is_literal_data_not_a_frame() {
+    // A C function with a literal pool: the bytes of an `entry a1, 4096` between its
+    // instructions (the pool's word) are not its frame, which is the first `entry`.
+    let funcs = root_and(vec![(
+        sym("paperpaw_x", "pool", 8),
+        f(&[&entry(32), &entry(4080), &RETW_N]),
+    )]);
+    let held = scan(&funcs, "frames-in paperpaw_x the crate\n");
+    assert!(held.is_empty(), "{held:?}");
+}
