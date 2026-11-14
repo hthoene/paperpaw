@@ -1016,6 +1016,13 @@ fn kernel(
         // The keyboard's size, unless the reader chose another (see
         // `KEYBOARD_SIZE`).
         .setting_default_text("keyboard.size", KEYBOARD_SIZE);
+    // Test images never fall asleep by themselves (a sleeping device drops
+    // the serial bridge): no idle sleep, awake on the cable, no switch-off.
+    #[cfg(feature = "test-image")]
+    let builder = builder
+        .setting_default(&settings::SLEEP_AFTER, 0)
+        .setting_default(&device::STAY_AWAKE_USB, true)
+        .setting_default_text("x4.power-off-after", "x4.power-off-after.never");
     // A small screen: calm status lines, the time and the page while
     // reading (and the mark of reading aloud while it reads), the time
     // and the battery elsewhere. Every item stays to be chosen.
