@@ -15,7 +15,7 @@
 //! - `include <file>`: the lines of a file beside the budget (both S3 devices
 //!   share one for the linked plugins).
 
-use super::{Allow, Budget, Function};
+use super::{Allow, Around, Budget, Function, Image, read_function};
 use std::collections::BTreeMap;
 
 /// The crate a function belongs to: the first segment of its path, or, for a
@@ -44,6 +44,17 @@ pub(super) fn crate_of_symbol(symbol: &str) -> Option<String> {
     };
     (!name.is_empty() && name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_'))
         .then(|| name.to_string())
+}
+
+/// Whether `f` is in `family`: a path of a crate or module (`a::b`) holds the
+/// functions under it, a crate name or `prefix*` the crates it names.
+fn in_family(f: &Function, family: &str) -> bool {
+    if family.contains("::") {
+        return f
+            .names()
+            .any(|(_, path)| path == family || path.starts_with(&format!("{family}::")));
+    }
+    crate_of(f).is_some_and(|krate| family_matches(family, &krate))
 }
 
 /// Whether `krate` is named by `pattern` (equal, or `prefix*`).
@@ -146,6 +157,45 @@ pub(super) fn ceilings_exceeded(budget: &Budget, sites: &BTreeMap<usize, u32>) -
         {
             out.push(format!(
                 "the functions of `{family}` have {count} call(s) through a register that no line of their own lists, above the {max} `allow indirect-in` allows"
+            ));
+        }
+    }
+    out
+}
+
+/// The functions of a `frames-in` family with a frame of the limit or more, and
+/// a line that matches no function.
+pub(super) fn frames_in_problems(
+    image: &Image<'_>,
+    around: &Around<'_>,
+    budget: &Budget,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for (family, _) in &budget.frames_in {
+        let mut any = false;
+        for f in image
+            .funcs
+            .iter()
+            .filter(|f| f.size > 0 && in_family(f, family))
+        {
+            any = true;
+            let (k, from) = f.code;
+            let data = image.exec[k].1;
+            let to = (from + f.size as usize).min(data.len());
+            let reads = read_function(&data[from..to], f.start, around);
+            if let Some(frame) = reads.frame
+                && frame >= budget.limit
+            {
+                // As `judge` words it: a function reached says it once.
+                out.push(format!(
+                    "`{}` takes a frame of {frame} bytes (limit {})",
+                    f.shown, budget.limit
+                ));
+            }
+        }
+        if !any {
+            out.push(format!(
+                "the `frames-in` line `{family}` matches no function of the image: renamed? (update the budget)"
             ));
         }
     }

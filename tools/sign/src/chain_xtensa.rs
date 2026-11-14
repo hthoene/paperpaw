@@ -68,6 +68,12 @@
 //! allow indirect <caller> <count> <why>
 //!                                     exactly this many calls through a
 //!                                     register in the caller
+//! frames-in <family> <why>            every function of the crate (`prefix*`
+//!                                     for several, or a module path such as
+//!                                     `paperpaw_core::chrome`) in the image is
+//!                                     held to the frame limit, whether the
+//!                                     roots reach it or not; fails when it
+//!                                     matches no function
 //! allow rom <callee> <why>            any function may call this routine
 //!                                     outside the image (the chip's ROM)
 //! allow indirect-in <crate> <max> <why>
@@ -262,6 +268,9 @@ pub struct Budget {
     pub tables: Vec<String>,
     /// Each `allow` line with its reason.
     pub allow: Vec<(Allow, String)>,
+    /// `frames-in <crate|prefix*|path> <why>`: every function of the family in
+    /// the image is held to the frame limit, reached or not.
+    pub frames_in: Vec<(String, String)>,
 }
 
 impl Budget {
@@ -316,6 +325,9 @@ impl Budget {
                         why.join(" "),
                     ))
                 }
+                ["frames-in", family, why @ ..] if !why.is_empty() => budget
+                    .frames_in
+                    .push(((*family).to_string(), why.join(" "))),
                 ["allow", "rom" | "indirect-in", ..] => budget
                     .allow
                     .push(family::parse_line(&words).ok_or_else(bad)?),
@@ -1396,6 +1408,9 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     report
         .problems
         .extend(family::ceilings_exceeded(budget, &family_sites));
+    report
+        .problems
+        .extend(family::frames_in_problems(&image, &around, budget));
     for (n, (allow, _)) in budget.allow.iter().enumerate() {
         if !used[n] {
             report.problems.push(format!(

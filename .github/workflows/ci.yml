@@ -483,6 +483,22 @@ jobs:
           cargo run -q --release -p paperpaw-sign -- frames-s3 \
             shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink \
             --budget "$budget"
+      # The same image again with the linked plugins' own code rooted and every
+      # function of their families held to the frame limit
+      # (`frame-budget-s3-linked.txt`). A second scan, not an include in the
+      # budgets above: the plain scan stays exact per function (Senior #2897 C2).
+      # Report-only until the eight frames of 2,048 B or more it lists are cut
+      # (Kernel todo 626, Store list screen, json/epub-family); then drop `continue-on-error`.
+      - name: The S3's linked plugins' frames and calls fit under the band
+        if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
+        continue-on-error: true
+        run: |
+          budget=shells/xteink/frame-budget-s3.txt
+          [[ "$DEVICE" == x4-classic ]] && budget=shells/xteink/frame-budget-s3-classic.txt
+          { cat "$budget"; echo "include frame-budget-s3-linked.txt"; } > shells/xteink/.scan-linked.txt
+          cargo run -q --release -p paperpaw-sign -- frames-s3 \
+            shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink \
+            --budget shells/xteink/.scan-linked.txt
       # The S3's start and main-loop paths keep 2 KB above the band (the team's
       # rule for a route), as the X4's job below keeps 512 B for its own.
       - name: The S3's start and main-loop stack paths stay above the band
