@@ -153,23 +153,26 @@ impl crate::Kernel {
 
     /// The follow-up's areas, once the frame before it is drawn and nothing
     /// else waits to be: dropped when its screen is no longer on top.
-    pub(crate) fn run_followup(&mut self) {
+    /// Returns whether its areas are what this frame draws.
+    pub(crate) fn run_followup(&mut self) -> bool {
         if self.frame.followup.is_none()
             || self.frame.pending.is_some()
             || self.frame.unrendered.is_some()
             || self.output.redraw
         {
-            return;
+            return false;
         }
         let Some(followup) = self.frame.followup.take() else {
-            return;
+            return false;
         };
-        if super::super::native_screen::redrawable(&self.shared.stack, followup.screen, None)
-            .is_some()
-        {
+        let top =
+            super::super::native_screen::redrawable(&self.shared.stack, followup.screen, None)
+                .is_some();
+        if top {
             self.redraw_areas(followup.screen, &followup.areas, followup.mode);
             self.frame.followup_frame = Some(followup.screen);
         }
+        top
     }
 
     /// Now, while a follow-up waits and the frame before it is drawn or

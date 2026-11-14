@@ -5,7 +5,7 @@
 //! forward from the section's start). The interface-6 screen is the
 //! reference until it goes at activation. Everything is allocation-free
 //! or fallible.
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     layout::{BookStyles, Style},
     native::{Error, callbacks::Input},
@@ -43,6 +43,11 @@ pub struct Reading {
     /// Which of the book's own styles are followed (`core.book-…`, the bits of
     /// `paperpaw_layout::BookStyles`).
     pub book: u16,
+    /// A signature of the reading font's name and the hyphenation settings
+    /// (`core.reading-font`, `core.hyphenate`, `core.hyphen-min-left`,
+    /// `core.hyphen-min-right`): other letters or other breaks, other pages
+    /// (0: not told).
+    pub text: u64,
 }
 
 impl Reading {
@@ -80,7 +85,26 @@ impl Reading {
             lines_kept: (1, 1),
             balanced: false,
             book: u16::MAX,
+            text: 0,
         }
+    }
+
+    /// The same with the text set in `font` (the reading font's name) and
+    /// hyphenated as `hyphenation` says (on, the fewest letters before and
+    /// after a hyphen): all of it is part of what a page is laid out with.
+    #[must_use]
+    pub fn with_text(mut self, font: &str, (on, left, right): (bool, i64, i64)) -> Self {
+        use core::fmt::Write as _;
+        let mut named = String::new();
+        // A name or a refusal for room is not told: the file is then
+        // another one than any told, which is the safe side.
+        if named.try_reserve(font.len() + 48).is_ok()
+            && write!(named, "{font}|{}|{left}|{right}", u8::from(on)).is_ok()
+        {
+            // Never 0: that is "not told".
+            self.text = paperpaw_sdk::digest::fnv1a64(&named).max(1);
+        }
+        self
     }
 
     /// The same with paragraphs set apart as the settings say: the indent

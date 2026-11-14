@@ -1,4 +1,0 @@
-Heading "Clock"
-Text "Code plugins are programs: they run with full access to this device, its books and its settings, like apps on a computer. Install only those you trust. If one goes wrong, PaperPaw starts without code plugins (safe mode) and says which one it was."
-Row "I understand, install" (focused)
-Row "Not now"

@@ -600,13 +600,34 @@ impl Fonts {
     /// The font bound to `role` by the user, a chosen family or a plugin;
     /// unlike [`Fonts::role`], no fallback, for optional roles such as bold
     /// faces (a chosen family without bold has none, so its regular face
-    /// is used rather than another family's bold).
+    /// is used rather than another family's bold). A family's or a
+    /// plugin's bold or italic for book text counts only where book text
+    /// is in that family: else the regular face stands in for it too.
     pub fn bound(&self, role: &str) -> Option<FontHandle<'_>> {
         let user = self.user.get(role).and_then(|id| self.get(id.as_str()));
-        user.or_else(|| match self.family_face(role) {
-            Some(face) => face,
-            None => self.proposed(role),
+        user.or_else(|| {
+            let face = match self.family_face(role) {
+                Some(face) => face,
+                None => self.proposed(role),
+            }?;
+            self.of_the_book(role, &face).then_some(face)
         })
+    }
+
+    /// Whether `face` may set book text in the style of `role`: any font
+    /// for a role that is not a style of book text, else one of the
+    /// family the regular book text is in (both of no family count as
+    /// one, as fonts registered without a family always did).
+    fn of_the_book(&self, role: &str, face: &FontHandle<'_>) -> bool {
+        if !is_book_style(role) {
+            return true;
+        }
+        let family = |font: &FontHandle<'_>| {
+            let entry = self.entries.get(usize::from(font.index))?;
+            entry.family.as_deref()
+        };
+        self.role_plain(roles::READING.as_str())
+            .is_none_or(|regular| family(&regular) == family(face))
     }
 
     /// Whether the user chose the font for `role` in the configuration.
@@ -729,6 +750,17 @@ impl Fonts {
             .iter()
             .position(|e| e.id.as_str() == id && e.font.is_some())
     }
+}
+
+/// Whether `role` is a style of book text: its bold, italic or bold
+/// italic.
+fn is_book_style(role: &str) -> bool {
+    let styles = [
+        roles::READING_BOLD,
+        roles::READING_ITALIC,
+        roles::READING_BOLD_ITALIC,
+    ];
+    styles.iter().any(|style| style.as_str() == role)
 }
 
 /// Fonts a plugin loads itself, e.g. the fonts embedded in a book, with
