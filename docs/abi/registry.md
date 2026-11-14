@@ -320,6 +320,14 @@ key and text bytes within the stage budget.
   dismissed, or no answer within 10 minutes all change nothing; if the plugin that asked stops
   first, the pending request is discarded. The submitter learns the outcome from event 64 (an
   empty key: read again) or its absence.
+- [D] **Until the host has that question** both mass resets are refused: bit 1 naming another
+  plugin and bit 2 are `ERR_UNSUPPORTED`, with the feature or without. A plugin that resets many
+  after its own question (the Settings screen's "Reset all") sends one reset per setting. Flags
+  that name no one kind (two of bits 0 to 3, an unknown bit, bit 2 with a key) are `ERR_INVALID`.
+  The settings a group or plugin reset skips are not logged yet.
+- [D] **Bit 3 by prefix.** `key` is a placement (`home.clock@2`) or a widget placed by its own id
+  (`home.clock`): every value whose id starts with `key.` goes, kept on reset or not, as interface
+  6 `placement_values` listed them. A key of one segment (a whole plugin) is `ERR_INVALID`.
 - [D] `set_scope`: the book scope for scoped settings, by a path on root 1, while the submitting
   screen stays open; empty ends it. The screen identity is stamped at submit (as `command.redraw`):
   not the submitter's own top screen gives `ERR_STATE` (so does a work run; outside a screen's
@@ -390,14 +398,17 @@ These change the user's configuration of the whole device, so they need the D1 f
 ### 4.4 Preview
 
 - [D] `preview_setting` rows of one batch are **one preview set**: it replaces the previous set
-  wholly. `flags` bit 0 previews "as if not set" (`value` empty). Authority is that of
-  `command.set_setting` (guarded, own plugin), and values are checked as it checks them; a secret
-  setting or a grant can't be previewed (`ERR_UNSUPPORTED`, as slot 15).
+  wholly, and shows after the batch's other commands. `flags` bit 0 previews "as if not set"
+  (`value` empty; a value with it, another bit, or a value that does not decode is
+  `ERR_INVALID`). Authority is that of `command.set_setting` (guarded, own plugin), and values
+  are checked as it checks them; a secret setting can't be previewed (`ERR_UNSUPPORTED`, as slot
+  15), nor a grant (`ERR_DENIED`, section 4.3). A work run previews nothing (`ERR_STATE`).
 - [D] **Owner.** A preview belongs to (plugin, screen) that submitted it; that screen must be the
   submitter's own top screen (else `ERR_STATE`, as `set_scope`). `preview_end` ends only the
-  submitter's own preview (another plugin's: `ERR_STATE`). A new set from another plugin replaces
-  it, and event 76 tells both. A preview ends when its screen closes, its plugin stops or crashes,
-  and when the device sleeps; it is never saved.
+  submitter's own preview (another plugin's: `ERR_STATE`; with none it is `OK` and ends
+  nothing); a batch with both rows and an end is `ERR_INVALID`. A new set from another plugin
+  replaces it, and event 76 tells both. A preview ends when its screen closes, its plugin stops
+  or crashes, and when the device sleeps; it is never saved.
 - [D] While a preview is active, slot 5 and `reg_setting` give the previewed value (flag
   `preview`). Only one preview exists device-wide. Kernel side effects of a setting (language,
   rotation) wait for the kept value, as in interface 6.

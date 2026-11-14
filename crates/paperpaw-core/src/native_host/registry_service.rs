@@ -58,6 +58,7 @@ mod tests;
 mod widgets;
 
 pub(crate) use sources::Sources;
+pub(crate) use widgets::declared_names as declared_widget_names;
 
 pub(crate) use crate::abi7::context::registry_views::{Asker, RegistryView, Row};
 

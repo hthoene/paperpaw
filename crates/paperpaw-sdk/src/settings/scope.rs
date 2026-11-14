@@ -8,6 +8,18 @@ use crate::collections::VecMap;
 use crate::id::Id;
 
 impl Settings {
+    /// The ids that have a value of the reader's now: the kept ones, then
+    /// those only the active scope has. For a reset of many: nothing is
+    /// made for it.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn valued(&self) -> impl Iterator<Item = &Id> {
+        let scoped = self.scope.iter().flat_map(VecMap::keys);
+        self.values
+            .keys()
+            .chain(scoped.filter(|id| !self.values.contains_key(id.as_str())))
+    }
+
     /// Activates a scope with its values (only valid scoped ones are
     /// kept), or ends it. Where the heap has no room to check a value
     /// ([`Settings::try_set_scope`]) no scope is active afterwards.

@@ -118,6 +118,34 @@ pub(super) fn rows(
     Ok(())
 }
 
+/// The widgets to add that native plugins declared, for the kernel's own
+/// screens that name widgets (`Widgets::set_declared_elsewhere`): each one's
+/// id, the message key of its name and its kind; of widget `only` (or the
+/// widget a placement shows) alone, where it names one. Nothing while the
+/// store is being written.
+pub(crate) fn declared_names(
+    directory: &crate::native_host::native_declarations::NativeDeclarations,
+    only: Option<&str>,
+    each: &mut dyn FnMut(&str, &str, &str),
+) {
+    let Ok(store) = directory.store.try_borrow() else {
+        return;
+    };
+    let only = only.map(base);
+    store.keys(Kind::Widget, &mut |key| {
+        let _read = ordered::with_plugin(&store, key, &mut |record, plugin| {
+            if let Record::WidgetSpec(spec) = record
+                && spec.previews.is_empty()
+                && let Some(id) = Fixed::<{ caps::ID }>::of(&[plugin, ".", spec.name])
+                && only.is_none_or(|only| only == id.as_str())
+            {
+                each(id.as_str(), spec.title, spec.category);
+            }
+            ControlFlow::Continue(())
+        });
+    });
+}
+
 /// The row of the declared widget `key`.
 fn declared(
     env: &Env<'_>,

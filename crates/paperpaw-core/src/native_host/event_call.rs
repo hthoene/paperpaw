@@ -206,6 +206,7 @@ impl crate::Kernel {
                 self.native_requests_open_by(id.as_str()),
             );
             stage.set_answer_view(self.native_answer_view(owner));
+            stage.set_preview_held(self.preview_held(id.as_str()));
             // A run's callback is quiet (`work.md` section 2).
             stage.set_quiet(
                 instances

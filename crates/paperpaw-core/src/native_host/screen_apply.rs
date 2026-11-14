@@ -28,6 +28,7 @@ impl Kernel {
             requests_open: self.native_requests_open(),
             own_requests: self.native_requests_open_by(owner),
             answers: self.native_answer_view(owner_key),
+            preview: self.preview_held(owner),
         }
     }
 
