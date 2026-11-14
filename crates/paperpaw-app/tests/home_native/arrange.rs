@@ -478,7 +478,6 @@ fn a_full_page_says_there_is_no_room() {
 }
 
 #[test]
-#[ignore = "real native bug, Kernel todo 621: the host admits no `command.reset_setting` (`native_host/commands_ui.rs` owned_ui answers ERR_UNSUPPORTED), so Remove this page fails (todo 620)"]
 fn pages_are_added_and_removed() {
     for device in DEVICES {
         let mut app = App::new(device, Shared::memory("", &[]));

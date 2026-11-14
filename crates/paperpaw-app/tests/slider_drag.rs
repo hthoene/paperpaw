@@ -231,7 +231,7 @@ impl App {
 }
 
 #[test]
-#[ignore = "the host does not admit command.preview_setting / command.preview_end yet (ERR_UNSUPPORTED, Kernel todo 619; docs/abi/registry.md 4.4), so a number changed with the buttons shows no previe; and the native quick panel has no slider (todo 618) (#244)"]
+#[ignore = "the native quick panel offers no slider (todo 618) (#244)"]
 fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     let mut app = App::new();
     let effects = app.kernel.run_action(Instant(100), actions::QUICK_PANEL);

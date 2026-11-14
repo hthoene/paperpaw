@@ -55,7 +55,6 @@ fn choose(app: &mut App, label: &str) {
 }
 
 #[test]
-#[ignore = "Kernel todo 621: the widget-list editor (SDK `ui/widget_list.rs`) shows raw ids (`home.clock`) for native widgets"]
 fn widgets_move_up_and_down_and_are_removed() {
     for device in DEVICES {
         let mut app = editor(device, Shared::memory(CONFIG, &[]));
@@ -85,7 +84,6 @@ fn widgets_move_up_and_down_and_are_removed() {
 }
 
 #[test]
-#[ignore = "Kernel todo 621: the widget-list editor (SDK `ui/widget_list.rs`) offers only Space rows for native widgets"]
 fn a_widget_is_added_at_the_end_and_kept_after_a_restart() {
     for device in DEVICES {
         let storage = Shared::memory(CONFIG, &[]);
@@ -116,7 +114,6 @@ fn a_widget_is_added_at_the_end_and_kept_after_a_restart() {
 }
 
 #[test]
-#[ignore = "Kernel todo 621: the widget-list editor (SDK `ui/widget_list.rs`) knows only interface-6 widgets, so native widgets show as ids/Space rows"]
 fn a_widget_dragged_by_its_grip_moves_by_touch() {
     let mut app = editor(TOUCH, Shared::memory(CONFIG, &[]));
     let clock = app.find("Clock").unwrap();
@@ -131,7 +128,6 @@ fn a_widget_dragged_by_its_grip_moves_by_touch() {
 }
 
 #[test]
-#[ignore = "Kernel todo 621: the widget-list editor (SDK `ui/widget_list.rs`) offers only Space rows for native widgets"]
 fn an_empty_list_offers_only_adding() {
     for device in DEVICES {
         let mut app = editor(device, Shared::memory("[sleep]\nwidgets =\n", &[]));
@@ -143,7 +139,6 @@ fn an_empty_list_offers_only_adding() {
 }
 
 #[test]
-#[ignore = "Kernel todo 621: the widget-list editor (SDK `ui/widget_list.rs`) offers only Space rows for native widgets"]
 fn opened_for_no_setting_or_an_unknown_one_it_changes_nothing() {
     for id in ["", "no.such-setting", "..", "home.page-1x"] {
         for device in DEVICES {

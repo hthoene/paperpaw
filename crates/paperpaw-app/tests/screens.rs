@@ -284,7 +284,7 @@ fn a_page_starts_on_its_first_setting_not_on_an_action_above_it() {
 /// A number changed with the buttons shows its values at once, kept only
 /// when chosen; *back* goes back to the one before.
 #[test]
-#[ignore = "the host does not admit command.preview_setting / command.preview_end yet (ERR_UNSUPPORTED, Kernel todo 619; docs/abi/registry.md 4.4), so a number changed with the buttons shows no preview (#244)"]
+#[ignore = "the native number editor steps a font size by one point: the next size that looks different is the interface-6 editor's alone (Beta 3), Kernel/SDK lever needed, todo 632 (#244)"]
 fn numbers_change_with_the_buttons_kept_when_chosen() {
     let mut app = App::new();
     app.run(actions::SETTINGS);
@@ -325,7 +325,7 @@ fn numbers_change_with_the_buttons_kept_when_chosen() {
 /// as it moves: what it is moved to shows at once and is kept where the
 /// finger is lifted.
 #[test]
-#[ignore = "the host does not admit command.preview_setting / command.preview_end yet (ERR_UNSUPPORTED, Kernel todo 619; docs/abi/registry.md 4.4), so a number changed with the buttons shows no previe; and the native Settings has no slider (todo 618) (#244)"]
+#[ignore = "the native Settings offers no slider (todo 618) (#244)"]
 fn sliders_follow_the_finger_kept_where_it_is_lifted() {
     let mut app = App::on(TOUCH);
     app.run(actions::SETTINGS);
@@ -390,7 +390,6 @@ fn home_shows_the_book_read_last() {
 /// A group's advanced settings, a page one level down, stay that page
 /// when one of them changes.
 #[test]
-#[ignore = "the host does not admit command.preview_setting / command.preview_end yet (ERR_UNSUPPORTED, Kernel todo 619; docs/abi/registry.md 4.4), so a number changed with the buttons shows no preview (#244)"]
 fn a_groups_advanced_page_stays_when_a_setting_changes() {
     let mut app = App::new();
     app.now += 100;

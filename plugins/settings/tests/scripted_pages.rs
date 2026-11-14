@@ -407,9 +407,11 @@ fn none_gives_the_appearance_back_its_defaults_but_keeps_the_text_size() {
     world.open(&plugin, (THEMES, "settings.themes", 1), &[]);
     let done = press(&plugin, THEMES, OPEN);
     assert!(finished(done.status), "{}", done.status);
-    // The first reset is the theme's own, not the text size's (the scripted
-    // host refuses `reset_setting`, H1, so the later ones are not sent).
-    assert_eq!(commands(&done), ["reset core.ui-row"]);
+    // The resets are the theme's own, not the text size's.
+    assert_eq!(
+        commands(&done),
+        ["reset core.ui-row", "reset core.ui-focus", "close"]
+    );
 }
 
 #[test]

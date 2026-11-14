@@ -257,7 +257,6 @@ fn reading_and_home_keep_the_book_opened() {
 /// changed with the buttons are written to `paperpaw.ini`; a kernel
 /// started anew on the same card reads them back.
 #[test]
-#[ignore = "the host does not admit command.preview_setting / command.preview_end yet (ERR_UNSUPPORTED, Kernel todo 619; docs/abi/registry.md 4.4), so a number changed with the buttons shows no preview and is not kept (#244)"]
 fn settings_changed_in_the_ui_are_saved_and_read_back_after_a_restart() {
     let card = Card::new(true);
 
