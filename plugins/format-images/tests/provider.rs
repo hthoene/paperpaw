@@ -171,7 +171,9 @@ fn a_folder_reads_page_by_page() {
     let reply = run(&mut p, &io, &call(7, 1, |_| {})).unwrap();
     let r = rows(&reply);
     assert_eq!(r.len(), 4);
-    assert!(matches!(r[3], stage::Record::FmtEnd(e) if e.total == 3 && e.flags == 0));
+    assert!(
+        matches!(r[3], stage::Record::FmtEnd(e) if e.total == 3 && e.flags == 1 && e.generation == 1)
+    );
     // The sizes and the decoded bytes (a gray file: FNV-1a of what is stored)
     // the interface-6 reader made of these files.
     for (page, (width, height, length, digest)) in PINNED_PAGES.into_iter().enumerate() {

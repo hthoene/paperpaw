@@ -47,14 +47,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-epub-family"
-version = "1.0.5"
-dependencies = [
- "miniz_oxide",
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-graphics"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -121,33 +113,9 @@ version = "0.6.0-beta.3"
 name = "paperpaw-plugin-files"
 version = "0.0.0"
 dependencies = [
- "paperpaw-plugin-format-docx",
- "paperpaw-plugin-format-images",
- "paperpaw-plugin-format-mobi",
  "paperpaw-plugin-news",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-vocabulary",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-format-docx"
-version = "1.0.3"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-format-images"
-version = "1.0.4"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-format-mobi"
-version = "1.0.3"
-dependencies = [
  "paperpaw-sdk",
 ]
 

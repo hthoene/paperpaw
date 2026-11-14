@@ -664,8 +664,7 @@ pub fn install_with(
     // feature says, are not installed here: one plugin, one form.
     #[cfg(not(feature = "native-linked-reading"))]
     {
-        b = b
-            .plugin(paperpaw_plugin_format_txt::TxtFormat);
+        b = b.plugin(paperpaw_plugin_format_txt::TxtFormat);
     }
     b = b.plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
     // Reader and Home keep their order; they are native plugins, linked
@@ -706,8 +705,7 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_news::News);
     }
     // A theme of the app's own, off as it ships, on every device.
-    let builder = b.plugin_off(Pebble);
-    builder
+    b.plugin_off(Pebble)
 }
 
 /// Adds `plugin`, one the store offers as a file too that takes the place of

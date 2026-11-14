@@ -84,7 +84,13 @@ fn the_events_are_the_download() {
     // by a restart: `make` clears the staging folder now, `PORTING-7.md`): `http_done`, 99.
     assert_eq!(
         shown(|d| declarations::events(d).unwrap()),
-        ["Registration(Event { event_tag: 99, token: 3 })"]
+        [
+            "Registration(Event { event_tag: 99, token: 3 })",
+            // The setting and plugin-list changes the activation added (the settings
+            // table and the list of what is installed are read again on them).
+            "Registration(Event { event_tag: 64, token: 5 })",
+            "Registration(Event { event_tag: 70, token: 6 })",
+        ]
     );
 }
 
