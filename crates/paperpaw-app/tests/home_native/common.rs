@@ -7,6 +7,11 @@
     dead_code,
     reason = "shared by the tests; not every test file uses every helper"
 )]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "tests panic on purpose when something is wrong"
+)]
 
 use std::cell::RefCell;
 use std::collections::VecDeque;

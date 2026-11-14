@@ -18,7 +18,7 @@ use paperpaw_sdk::{
     keys::InputMode,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, FrameRect, Input, InputGestureKind},
+        callbacks::{DrawFrame, Input, InputGestureKind},
         canvas::PartRole,
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
@@ -128,8 +128,10 @@ enum Next {
     Options(usize),
 }
 
+mod area;
 mod arrange;
 mod names;
+use area::focus_area;
 
 /// The dashboard.
 #[derive(Debug, Default)]
@@ -634,6 +636,7 @@ impl Dashboard {
     ) -> Result<(), Error> {
         self.ensure(host, ui)?;
         self.ensure_dialog(host)?;
+        self.describe_dialog(paint::asking(frame));
         self.origin = (frame.rect.x, frame.rect.y);
         let Some(laid) = self.laid.as_ref() else {
             return Ok(());
@@ -691,11 +694,11 @@ impl Dashboard {
             let pencil = laid.pencil.as_ref().map(|(_, word)| word.as_str());
             // A tool is told by its whole name, not by the first line of it.
             let tool_name = match target.owner {
+                // The index is the cell's, widgets' cells among them.
                 Owner::Tool(n) => laid
                     .cells
-                    .iter()
+                    .get(n)
                     .filter(|cell| cell.face.is_some())
-                    .nth(n)
                     .map(|cell| cell.name.as_str()),
                 _ => None,
             };
@@ -857,6 +860,8 @@ impl Dashboard {
                     }
                     Ok(Handled::Yes)
                 }
+                // Arranging keeps the page: a swipe is not the kernel's page turn.
+                Touch::Pass if self.editing => Ok(Handled::Yes),
                 Touch::Pass => Ok(Handled::No),
             },
             _ => Ok(Handled::No),
@@ -998,7 +1003,12 @@ impl Dashboard {
             self.next(host, ui, next)?;
             return Ok(Handled::Yes);
         }
-        Ok(Handled::No)
+        // Arranging: a tap on nothing is not for the menu the kernel opens.
+        Ok(if self.editing {
+            Handled::Yes
+        } else {
+            Handled::No
+        })
     }
 
     /// Does what a target is for: runs a tool or a footer action, tells a
@@ -1252,8 +1262,6 @@ fn paintpush(paint: &mut Vec<Paint>, op: Paint) -> Result<(), Error> {
     paint::push(paint, op)
 }
 
-/// Where target `rect` and its ring (`room` round it) are, from the top left
-/// of the screen's region at `origin`.
 /// How far [`ring`] reaches outside its target: the air around it and its line.
 fn ring_room(style: &Style) -> i32 {
     ring_room_of(style.gap, style.line)
@@ -1261,22 +1269,6 @@ fn ring_room(style: &Style) -> i32 {
 
 fn ring_room_of(gap: u16, line: u16) -> i32 {
     i32::from(gap / 2).saturating_add(i32::from(line.max(2)))
-}
-
-fn focus_area(rect: Rect, room: i32, origin: (i32, i32)) -> FrameRect {
-    let grown = |size: u16| {
-        u32::from(size).saturating_add(u32::try_from(room).unwrap_or(0).saturating_mul(2))
-    };
-    FrameRect::new(
-        i32::from(rect.x)
-            .saturating_sub(room)
-            .saturating_sub(origin.0),
-        i32::from(rect.y)
-            .saturating_sub(room)
-            .saturating_sub(origin.1),
-        grown(rect.width),
-        grown(rect.height),
-    )
 }
 
 pub(crate) fn redraw(host: &Host<'_>) -> Result<(), Error> {

@@ -98,6 +98,19 @@ fn a_place_the_grid_no_longer_holds_is_moved_inside_it() {
 }
 
 #[test]
+fn an_item_whose_cells_another_took_goes_where_there_is_room() {
+    // Both are inside the grid, the second on the first's cells: it is not
+    // dropped, it moves to free cells.
+    let items = parse("tool:a 0/0 2x2, tool:b 1/1 1x1").unwrap();
+    let (shown, left) = fit(&Fixed, &grid(), &items).unwrap();
+    assert!(left.is_empty());
+    assert_eq!(whats(&shown), ["tool:a", "tool:b"]);
+    assert_eq!(shown[0].at, Some(cells(0, 0, 2, 2)));
+    let b = shown[1].at.unwrap();
+    assert!(!b.overlaps(&shown[0].at.unwrap()), "{b:?}");
+}
+
+#[test]
 fn what_has_no_room_is_left_as_it_was() {
     let g = Geometry::of(Rect::new(0, 0, 100, 100), 2, 1, 0);
     let items = [

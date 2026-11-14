@@ -43,7 +43,6 @@ fn empty(app: &mut App) -> i32 {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at edit_touch.rs:25); to analyse (#244, Home removal)"]
 fn a_swipe_on_nothing_while_arranging_keeps_the_page() {
     for (from, to) in [(400, 80), (80, 400)] {
         let mut app = arranging();
@@ -60,7 +59,6 @@ fn a_swipe_on_nothing_while_arranging_keeps_the_page() {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at edit_touch.rs:25); to analyse (#244, Home removal)"]
 fn a_tap_on_nothing_while_arranging_keeps_the_page() {
     let mut app = arranging();
     let y = empty(&mut app);

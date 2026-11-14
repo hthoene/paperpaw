@@ -93,13 +93,14 @@ fn clearances(app: &mut App, cell: Rect) -> (i32, i32, i32, i32) {
     let (x, y) = (i32::from(cell.x), i32::from(cell.y));
     let (right, bottom) = (cell.right() as i32, cell.bottom() as i32);
     let mid = x + i32::from(cell.width) / 2;
-    let rows = runs(app, y - 15, bottom, (mid - 10, mid + 10), true);
+    // The native ring is drawn round the cell, outside the area it is told as.
+    let rows = runs(app, y - 15, bottom + 15, (mid - 10, mid + 10), true);
     assert!(rows.len() >= 3, "ring, icon and name: {rows:?}");
     let above = rows[1].0 - rows[0].1 - 1;
     let below = rows[rows.len() - 1].0 - rows[rows.len() - 2].1 - 1;
     // Across the rows the icon and name are in.
     let (top, low) = (rows[1].0, rows[rows.len() - 2].1);
-    let columns = runs(app, x - 2, right + 2, (top, low + 1), false);
+    let columns = runs(app, x - 15, right + 15, (top, low + 1), false);
     assert!(columns.len() >= 3, "ring, content, ring: {columns:?}");
     let left = columns[1].0 - columns[0].1 - 1;
     let right = columns[columns.len() - 1].0 - columns[columns.len() - 2].1 - 1;
@@ -107,7 +108,6 @@ fn clearances(app: &mut App, cell: Rect) -> (i32, i32, i32, i32) {
 }
 
 #[test]
-#[ignore = "the native Home differs from the interface-6 one this test pinned (fails at drawer_focus.rs:56); to analyse (#244, Home removal)"]
 fn the_focus_ring_is_clear_of_the_icon_and_the_name_with_4_5_and_6_columns() {
     // Upright, a squarish screen, and on its side.
     for (width, height, expected) in [(480, 800, 4), (800, 680, 5), (800, 480, 6)] {
