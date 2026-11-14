@@ -38,6 +38,12 @@ pub const WORD_STAGE: &str = "reader.word-looked-up";
 pub const DECORATE_TOKEN: u32 = 8;
 pub const DECORATE_STAGE: &str = "reader.decorations";
 
+/// The phone's screen (*Edit with your phone*), and the events of its server:
+/// it started, failed or stopped, and a request to it.
+pub const PHONE_TOKEN: u32 = 16;
+pub const SERVER_TOKEN: u32 = 9;
+pub const REQUEST_TOKEN: u32 = 17;
+
 /// The sleep card's screen, and the waking (the review may open).
 pub const SLEEP_TOKEN: u32 = 15;
 pub const RESUME_TOKEN: u32 = 7;
@@ -283,6 +289,9 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.subscribe_event(EventKind::WorkDue, WORK_TOKEN)?;
     // Waking: the review opens with the card shown asleep, or where wanted.
     declarations.subscribe_event(EventKind::Resume, RESUME_TOKEN)?;
+    // The phone's page: its server's state, and the requests it gets.
+    declarations.subscribe_event(EventKind::Server, SERVER_TOKEN)?;
+    declarations.subscribe_event(EventKind::ServedRequest, REQUEST_TOKEN)?;
     declarations.submit()
 }
 
@@ -327,6 +336,10 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
         "vocabulary.sd.title",
         SD_CARD_TOKEN,
     ))?;
+    declarations.screen(
+        ScreenDecl::new("phone", "vocabulary.phone.title", PHONE_TOKEN)
+            .instances(Instances::Single),
+    )?;
     declarations.action(ActionDecl::new("open", "vocabulary.title", OPEN_TOKEN))?;
     let mut entry = MenuEntryDecl::new("core.tools", "vocabulary.open");
     entry.order = 36;
