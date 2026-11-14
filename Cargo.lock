@@ -1939,6 +1939,7 @@ name = "paperpaw-library-bench"
 version = "0.0.0"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-epub-family",
  "paperpaw-fat",
  "paperpaw-platform",
  "paperpaw-sdk",
