@@ -993,6 +993,7 @@ impl NativeReader {
             .hands
             .due(host, (now_ms, self.work.as_ref()), |instance, input| {
                 let view = screens.get(instance).ok_or(Error::State)?;
+                view.forget_status();
                 view.input(host, (docs, library, ui), input)?;
                 Ok(view.take_turned())
             });
@@ -1020,6 +1021,7 @@ impl NativeReader {
         Self::set_grays(host, instance, false);
         let (asked, reopened) = (self.aloud_asked.take(), self.reopening.take());
         if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
+            view.forget_status();
             view.shown(host, docs);
             crate::native_ready::say(host, view);
             // Read aloud kept at the start for the book reopened, or kept while
@@ -1455,6 +1457,7 @@ impl Plugin for NativeReader {
         }
         let (handled, turned, note) = match (self.screens.top(token), &self.docs, &self.ui) {
             (Some(view), Some(docs), Some(ui)) => {
+                view.forget_status();
                 let handled = view.input(host, (docs, self.library.as_ref(), ui), &input)?;
                 (handled, view.take_turned(), view.take_note())
             }

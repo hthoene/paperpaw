@@ -249,6 +249,9 @@ impl Texts {
 pub struct State {
     chosen: [String; 2],
     loaded: bool,
+    /// What the registry says of the items of the top and the bottom line,
+    /// kept between draws ([`State::forget_known`]).
+    known: core::cell::RefCell<[status_line::Memo; 2]>,
 }
 
 impl State {
@@ -259,6 +262,16 @@ impl State {
             self.loaded = true;
         }
         Ok(())
+    }
+
+    /// The registry is asked for the lines' items again at the next draw:
+    /// when the screen is shown again and at an input, a plugin with a status
+    /// item may have come or gone.
+    pub fn forget_known(&self) {
+        self.known
+            .borrow_mut()
+            .iter_mut()
+            .for_each(status_line::Memo::forget);
     }
 
     /// The line showing at the top (or bottom) among `list`.
@@ -401,6 +414,7 @@ fn paint_each(
             font,
             (ink, place.room.size),
             (&config.parts[at], showing, (texts, facts)),
+            &mut state.known.borrow_mut()[at],
         )?;
     }
     Ok(())
@@ -413,6 +427,7 @@ fn paint_one(
     font: &Font<'_>,
     ((strip, color), size): ((Rect, Color), u16),
     (parts, showing, (texts, facts)): (&Lists, &str, (&Texts, &Facts<'_>)),
+    known: &mut status_line::Memo,
 ) -> Result<(), Error> {
     let size = f32::from(size);
     let mut ops = Vec::new();
@@ -438,7 +453,8 @@ fn paint_one(
         if lists.line.is_empty() {
             buffers = [mem::buffer(SERVICE_BUFFER)?, mem::buffer(SERVICE_BUFFER)?];
         }
-        let drawn = status_line::draw_own(
+        let drawn = status_line::draw_kept(
+            known,
             (&face, lists),
             ui,
             (&mut ops, &mut placed),
