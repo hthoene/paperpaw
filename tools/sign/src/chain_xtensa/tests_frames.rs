@@ -129,3 +129,40 @@ fn an_entry_in_the_middle_of_a_function_is_literal_data_not_a_frame() {
     let held = scan(&funcs, "frames-in paperpaw_x the crate\n");
     assert!(held.is_empty(), "{held:?}");
 }
+
+#[test]
+fn a_function_with_no_entry_at_its_start_is_reported_unless_named() {
+    // Assembly such as the RTOS's task switch has no `entry`: its frame is not read, which must
+    // not pass as "no frame" (Senior #2900 R1).
+    let funcs = root_and(vec![(sym("paperpaw_x", "asm", 9), f(&[&RETW_N]))]);
+    let family = "frames-in paperpaw_x the crate\n";
+    let held = scan(&funcs, family);
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert!(held[0].contains("no `entry`"), "{held:?}");
+    let named = scan(
+        &funcs,
+        &format!("{family}allow frame paperpaw_x::asm 0 the RTOS switch\n"),
+    );
+    assert!(named.is_empty(), "{named:?}");
+    let gone = scan(
+        &funcs,
+        &format!("{family}allow frame paperpaw_x::gone 0 x\n"),
+    );
+    assert!(
+        gone.iter().any(|p| p.contains("matches no function")),
+        "{gone:?}"
+    );
+}
+
+#[test]
+fn a_fn_nested_in_a_trait_impl_method_is_in_the_crate_of_the_impl() {
+    // `<paperpaw_x::Thing as core::fmt::Debug>::fmt::helper`: the path begins with the method.
+    let segment = "_$LT$paperpaw_x..Thing$u20$as$u20$core..fmt..Debug$GT$";
+    let symbol = format!("_ZN{}{segment}3fmt6helper17h{:016x}E", segment.len(), 10);
+    let funcs = root_and(vec![(symbol, f(&[&entry(2048), &RETW_N]))]);
+    let held = scan(&funcs, "frames-in paperpaw_x the crate\n");
+    assert!(
+        held.len() == 1 && held[0].contains("takes a frame"),
+        "{held:?}"
+    );
+}

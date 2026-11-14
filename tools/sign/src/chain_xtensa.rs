@@ -1276,6 +1276,10 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
                 f.shown, budget.limit
             ));
         }
+    } else if reads.unreadable.is_none()
+        && let Some(problem) = family::frameless_problem(budget, f)
+    {
+        report.problems.push(problem);
     }
     if let Some(pc) = reads.writes_sp
         && !allowed(

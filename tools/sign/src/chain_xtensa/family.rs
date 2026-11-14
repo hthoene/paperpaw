@@ -23,12 +23,25 @@ use std::collections::BTreeMap;
 /// type in the symbol (`_ZN<n>_$LT$crate..module..Type$u20$as$u20$…`).
 pub(super) fn crate_of(f: &Function) -> Option<String> {
     f.names().find_map(|(symbol, path)| {
+        // A named fn nested in a trait-impl method has the path `method::helper`: when the
+        // symbol starts with an impl, its type says where the code is.
+        if is_impl_symbol(symbol) {
+            return crate_of_symbol(symbol);
+        }
         if !path.starts_with('<')
             && let Some((head, _)) = path.split_once("::")
         {
             return Some(head.to_string());
         }
         crate_of_symbol(symbol)
+    })
+}
+
+/// Whether the first segment of a legacy symbol is an impl (`_ZN<n>_$LT$…`).
+fn is_impl_symbol(symbol: &str) -> bool {
+    symbol.strip_prefix("_ZN").is_some_and(|rest| {
+        rest.trim_start_matches(|c: char| c.is_ascii_digit())
+            .starts_with("_$LT$")
     })
 }
 
@@ -209,6 +222,22 @@ pub(super) fn frame_excused(budget: &Budget, f: &Function, frame: u32) -> bool {
         .any(|(name, max, _)| f.is(name) && frame <= *max)
 }
 
+/// A function with no `entry` at its first instruction has no frame read: a problem unless an
+/// `allow frame <function> 0 <why>` line names it (an assembly routine such as the RTOS's task
+/// switch).
+pub(super) fn frameless_problem(budget: &Budget, f: &Function) -> Option<String> {
+    let named = budget
+        .frame_exceptions
+        .iter()
+        .any(|(name, max, _)| *max == 0 && f.is(name));
+    (!named).then(|| {
+        format!(
+            "`{}` has no `entry` at its first instruction, so its frame is not read (name it with `allow frame <function> 0 <why>`)",
+            f.shown
+        )
+    })
+}
+
 fn frame_of(image: &Image<'_>, around: &Around<'_>, f: &Function) -> Option<u32> {
     let (k, from) = f.code;
     let data = image.exec[k].1;
@@ -228,15 +257,16 @@ pub(super) fn frames_in_problems(
 ) -> Vec<String> {
     let mut out = Vec::new();
     let over = |f: &Function, out: &mut Vec<String>| {
-        if let Some(frame) = frame_of(image, around, f)
-            && frame >= budget.limit
-            && !frame_excused(budget, f, frame)
-        {
-            // As `judge` words it: a function reached says it once.
-            out.push(format!(
-                "`{}` takes a frame of {frame} bytes (limit {})",
-                f.shown, budget.limit
-            ));
+        match frame_of(image, around, f) {
+            Some(frame) if frame >= budget.limit && !frame_excused(budget, f, frame) => {
+                // As `judge` words it: a function reached says it once.
+                out.push(format!(
+                    "`{}` takes a frame of {frame} bytes (limit {})",
+                    f.shown, budget.limit
+                ));
+            }
+            None => out.extend(frameless_problem(budget, f)),
+            Some(_) => {}
         }
     };
     for (family, _) in &budget.frames_in {
@@ -265,13 +295,16 @@ pub(super) fn frames_in_problems(
         }
     }
     for (name, max, _) in &budget.frame_exceptions {
-        let frames: Vec<u32> = image
-            .funcs
-            .iter()
-            .filter(|f| f.size > 0 && f.is(name))
-            .filter_map(|f| frame_of(image, around, f))
-            .collect();
-        if frames.is_empty() {
+        let named = || image.funcs.iter().filter(|f| f.size > 0 && f.is(name));
+        let frames: Vec<u32> = named().filter_map(|f| frame_of(image, around, f)).collect();
+        if *max == 0 {
+            // A frameless routine: it only has to be there.
+            if named().next().is_none() {
+                out.push(format!(
+                    "an `allow frame` line matches no function: `{name}` (remove it)"
+                ));
+            }
+        } else if frames.is_empty() {
             out.push(format!(
                 "an `allow frame` line matches no function: `{name}` (remove it)"
             ));
