@@ -599,12 +599,7 @@ pub fn prepare(
         .lookup()
         .work(WorkInputs::new(inputs.view.clone(), profile.device.memory));
     // HTTP over the card (saved and sent files); no card, no `core.net`.
-    // The files `core.net` saves, sends and receives are the card's, as
-    // `core.files` has them (a run on simulated time keeps only its secrets in
-    // memory: `inputs.storage`).
-    let net_card = inputs.card.clone();
-    let transport = inputs.storage.clone().map(|storage| {
-        let storage = net_card.unwrap_or(storage);
+    let transport = net_storage(&inputs).map(|storage| {
         let transport = Rc::new(crate::native_net::NativeNet::new(
             storage.clone(),
             inputs.view.clone(),
@@ -736,6 +731,14 @@ pub fn register(
         }
     }
     Ok(registered)
+}
+
+/// Where `core.net` and `core.sockets` save and send files: the card, which
+/// the plugins read their data folders from. Not `storage`: on simulated time
+/// that one is the secrets' store in memory, where a saved answer would be
+/// out of the plugin's reach.
+fn net_storage(inputs: &Inputs) -> Option<Rc<dyn Storage>> {
+    inputs.card.clone()
 }
 
 /// Registers the app's linked plugins: the ones `paperpaw_app::sleeps` names
