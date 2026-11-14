@@ -139,6 +139,20 @@ description = "PaperPaw's menus and settings in Spanish."
 de.name = "Spanisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Spanisch."
 
+[language-nl]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/nl.ini", "tools/language-pack.py", "tools/sign"]
+name = "Dutch (user interface)"
+description = "PaperPaw's menus and settings in Dutch."
+de.name = "Niederländisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Niederländisch."
+
 # The Korean packs (#61; owner decision: in the store from the beta).
 # script-korean (#61): the 2,350 Hangul syllables of KS X 1001 with CJK
 # punctuation, compatibility jamo and full-width forms (2,602 characters),
