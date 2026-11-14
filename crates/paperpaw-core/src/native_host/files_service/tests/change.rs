@@ -520,4 +520,17 @@ fn a_file_that_is_no_book_moves_without_the_librarys_job() {
         );
         host.finish_job();
     }
+    // So is a file the library keeps details for, whatever its name (a book
+    // whose format is off): `.paperpaw/library/details/<h>/<key>.ini`.
+    card.file("Books/b.mobi", 4);
+    card.file("Books/c.mobi", 4);
+    let key = paperpaw_sdk::library::key("Books/b.mobi");
+    let details = alloc::format!(".paperpaw/library/details/{}/{key}.ini", &key[..2]);
+    card.file(&details, 9);
+    let before = host.library_moves.get();
+    assert_eq!(mv("Books/b.mobi", "Books/b.old", 0), Ok(()));
+    assert_eq!(host.library_moves.get(), before + 1, "kept by the library");
+    host.finish_job();
+    assert_eq!(mv("Books/c.mobi", "Books/c.old", 0), Ok(()));
+    assert_eq!(host.library_moves.get(), before + 1, "nothing kept");
 }

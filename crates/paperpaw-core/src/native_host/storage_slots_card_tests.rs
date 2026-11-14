@@ -525,3 +525,82 @@ fn a_file_that_is_no_book_is_renamed_without_the_librarys_job() {
         })
         .unwrap();
 }
+
+/// Senior R1 on #1443: a book whose format plugin is off (no format reads
+/// `.mobi` here) is no book by its name, but the library keeps details for
+/// it: its rename is still the library's move, and the details and the place
+/// in the book are found under the new name.
+#[test]
+fn a_book_whose_format_is_off_moves_with_what_the_library_keeps() {
+    use crate::native_host::{
+        host_services::HostServices, lib_moves_service::Pump, storage_files::StorageFiles,
+    };
+    use alloc::{rc::Rc, string::ToString};
+    use paperpaw_sdk::{
+        MemoryStorage,
+        document::Locator,
+        library,
+        positions::{self, Position},
+    };
+    let card = Rc::new(MemoryStorage::new());
+    card.write("Books/a.mobi", b"book").unwrap();
+    let provided = library::Provided::default().title("Kept".to_string());
+    library::provide(&*card, "Books/a.mobi", provided);
+    let place = Position::new(Locator::new(7, 1234), 41.5);
+    positions::save(&*card, "Books/a.mobi", &place).unwrap();
+    let storage: Rc<dyn Storage> = Rc::new(Shared(card.clone()));
+    let hosts = HostServices::default();
+    let moves = hosts.wire_library_moves(storage.clone()).unwrap();
+    let files = StorageFiles::new(storage, hosts.busy_sources().clone(), Rc::default())
+        .with_moves(moves.clone());
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .storage(Shared(card.clone()))
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    assert!(!env.formats().supports("a.mobi"), "the format is off");
+    let scope = core::pin::pin!(EnvironmentScope::new());
+    let linked = LinkedPlugins::default();
+    let formats = FormatScope::new();
+    let format = Some(Format {
+        scope: &formats,
+        owner: 1,
+        features: features(true, true),
+        files: Some(&files),
+        linked: &linked,
+    });
+    let none = PathsInUse::default();
+    let frame = KernelFrame(&env);
+    scope
+        .as_ref()
+        .scope_frame(&frame, || {
+            let _running = kernel.shared.meter.enter(OWNER);
+            // SAFETY: live inputs.
+            let renamed = unsafe {
+                rename(
+                    &scope,
+                    OWNER,
+                    format,
+                    &none,
+                    1,
+                    bytes(b"Books/a.mobi"),
+                    bytes(b"Books/b.mobi"),
+                )
+            };
+            assert_eq!(renamed, OK);
+            assert!(moves.moves().active(), "the library's move job");
+        })
+        .unwrap();
+    for _ in 0..100 {
+        if moves.pump(&env, &mut |_| ()) == Pump::Idle {
+            break;
+        }
+    }
+    assert!(!moves.moves().active(), "carried");
+    assert!(card.exists("Books/b.mobi") && !card.exists("Books/a.mobi"));
+    let book = library::book(&*card, "Books/b.mobi").expect("the details followed");
+    assert_eq!(book.title.as_deref(), Some("Kept"));
+    assert!(library::book(&*card, "Books/a.mobi").is_none());
+    let kept = positions::load(&*card, "Books/b.mobi").expect("the place followed");
+    assert_eq!((kept.at.section, kept.at.offset), (7, 1234));
+}

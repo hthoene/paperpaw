@@ -159,7 +159,13 @@ pub(super) fn move_entry(view: &View<'_>, record: Record<'_>) -> Result<usize, i
     // single file there is the card's rename alone.
     let library = from.root == CARD
         && to.root == CARD
-        && library_follows(view.formats, from_kind == Kind::Folder, from_path, to_path);
+        && library_follows(
+            view.formats,
+            storage,
+            from_kind == Kind::Folder,
+            from_path,
+            to_path,
+        );
     view.host
         .rename(storage, from_path, to_path, replace, library)?;
     Ok(0)

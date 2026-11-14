@@ -564,7 +564,7 @@ impl<'a> StorageAdapter<'a> {
         // A single file no format reads is the card's rename alone (2.6),
         // refused where the job would: below itself, or onto a folder.
         let folder = !self.storage.exists(f);
-        let library = super::files_service::library_follows(formats, folder, f, t);
+        let library = super::files_service::library_follows(formats, self.storage, folder, f, t);
         if !library {
             let below = files.within(self.storage, t, f);
             if below && !files.within(self.storage, f, t) {
