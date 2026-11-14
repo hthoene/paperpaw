@@ -675,44 +675,13 @@ pub fn install_with(
         #[cfg(any(feature = "packs", not(feature = "outline")))]
         Fonts::Packs => builder.plugin(paperpaw_plugin_fonts_default::DefaultFontPacks),
     };
-    // Nothing is left to `store` without the store's plugins, or where they
-    // and the reader's are all linked.
-    #[cfg(not(all(
-        feature = "store-plugins",
-        not(all(feature = "native-linked-store", feature = "native-linked-reading"))
-    )))]
+    // The store's plugins are native plugins only: nothing is left to `store`.
     let _ = store;
     // Wi-Fi, Transfer, Menu, News, Picture home and the rest of the store's
     // plugins are native plugins only (`NATIVE_PLUGINS`, under `native-linked`):
     // their interface-6 forms are gone (#244).
-    #[allow(unused_mut, reason = "only some builds add plugins below")]
-    let mut b = interface6_reading(builder);
-    #[cfg(all(
-        feature = "store-plugins",
-        not(all(feature = "native-linked-store", feature = "native-linked-reading"))
-    ))]
-    {
-        b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
-    }
+    let b = interface6_reading(builder);
     // A theme of the app's own, off as it ships, on every device.
     b.plugin_off(Pebble)
 }
 
-/// Adds `plugin`, one the store offers as a file too, as `store` says (none
-/// is left to it where the store's and the reader's plugins are all linked).
-#[cfg(all(
-    feature = "store-plugins",
-    not(all(feature = "native-linked-store", feature = "native-linked-reading"))
-))]
-fn offered(
-    builder: KernelBuilder,
-    store: StorePlugins<'_>,
-    plugin: impl paperpaw_core::sdk::Plugin + 'static,
-) -> KernelBuilder {
-    match store {
-        StorePlugins::Left => builder,
-        StorePlugins::On => builder.plugin(plugin),
-        StorePlugins::Off(on) if on(plugin.manifest().id.as_str()) => builder.plugin(plugin),
-        StorePlugins::Off(_) => builder.plugin_off(plugin),
-    }
-}

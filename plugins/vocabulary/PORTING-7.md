@@ -1,8 +1,9 @@
-# Vocabulary on interface 7 (partly ported)
+# Vocabulary on interface 7
 
-Status: **not complete.** The interface-6 plugin (registration, screens, widget, marks,
-flash cards, phone page, sync, apkg) is still in place. It is removed in the PR that finishes
-the port.
+Status: **complete.** The interface-6 plugin (registration, screens, widget, marks, flash cards,
+phone page, sleep card, its tests) is removed (#244); what is below is the native port, with
+what was done on purpose differently. Interface-6 tests that were deleted with it are mapped
+to native ones in the PR text of #1452 (coverage table, with the gaps named).
 
 ## Ported: the words' data layer (`src/store.rs`, `src/lines.rs`, `src/files.rs`)
 
@@ -135,7 +136,7 @@ native screens replace these callers.
   native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
   The flash cards' action, entry and screens are declared (next section).
 
-## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
+## Not ported (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
 - `sdcard`, `sdmenu` (done: see *Ported: the card files*), `phone` (done: see *Ported: the phone page*);
   `fsrs.rs` is pure and needs nothing.
