@@ -641,7 +641,8 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   35 and for ops 7 and 12-15 alike (each runs another plugin's callback inside the caller's): they
   join the frame budget of #254 (limit 2,048 bytes per frame), with a device high-water case (home
   with widgets under the sleep screen's widgets) before activation; the stack gate passed on the
-  X4 (#250) and is open by default; the core feature `x4-gate-closed` closes it again (the X4 then
+  X4 (#250) and is open by default; the core feature `x4-gate-closed` closes it again (the X3's
+  firmware builds with it until an X3 has measured the gate; the X4 then
   answers slot 35 and those ops with `ERR_UNSUPPORTED`). The kernel's own status
   items run no plugin and are answered there (op 14, slot 35 kind 1; section 5.3).
 
