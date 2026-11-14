@@ -98,7 +98,7 @@ pub struct Firmware {
     pub secrets: crate::secrets::Secrets,
     /// The loader's table of handles, for the linked plugins' hosting
     /// (`native-on`): one table for the device.
-    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+    #[cfg(feature = "native-on")]
     pub device_table: Option<crate::native::DeviceTable>,
     pub state: State,
 }
@@ -196,7 +196,7 @@ impl Firmware {
         // is armed (`abi/heap-word.md` section 6); else none runs and the log
         // says so. Here, on the kernel in its place: a local in `kernel()` or
         // `start()` would copy it (+4 KB on the frame).
-        #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+        #[cfg(feature = "native-on")]
         if let Some(table) = &self.device_table {
             if paperpaw_x4::stack_band::host_native_at_start(crate::stack::band_armed()) {
                 crate::native::register_linked(&mut self.kernel, table);

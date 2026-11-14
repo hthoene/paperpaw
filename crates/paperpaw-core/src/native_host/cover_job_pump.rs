@@ -136,6 +136,15 @@ impl crate::Kernel {
         }
     }
 
+    /// The end of `Kernel::start`: the commands first (home opens, `Started` is
+    /// queued), so that the services' pass inside `finish` tells native plugins
+    /// `Started` and a book the reader opens at the start is opened before the
+    /// first frame, as interface 6 did inside the start. Home is not drawn first.
+    pub(crate) fn finish_start(&mut self) -> crate::Effects {
+        self.run_commands();
+        self.finish_started()
+    }
+
     /// The end of `Kernel::start`: its effects, then cover jobs of the library
     /// may begin (a format's crash inside start would count as a failed start,
     /// `doc_cover_job`).

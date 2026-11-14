@@ -26,7 +26,7 @@ pub mod partition;
 #[cfg(feature = "ppn5")]
 mod ppn5;
 pub mod seed;
-#[cfg(all(feature = "native-on", feature = "esp32c3"))]
+#[cfg(feature = "native-on")]
 pub(crate) use ppn5::register_linked;
 #[cfg(feature = "esp32s3")]
 mod psram;
@@ -282,7 +282,7 @@ impl DeviceTable {
     /// A counted share of the table, made (with `core.ui` wired) if it is not
     /// there yet. `None` where it has no room, or where the loader is busy
     /// with it (a plugin loading: no other caller exists on this one core).
-    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+    #[cfg(feature = "native-on")]
     pub(crate) fn share(&self) -> Option<paperpaw_core::native_host::HostResources> {
         let mut table = self.0.try_borrow_mut().ok()?;
         if table.is_none() {
@@ -314,7 +314,7 @@ impl Loader {
 
     /// The device's table of handles as the loader holds it, for the
     /// linked plugins: one table, not a second one.
-    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+    #[cfg(feature = "native-on")]
     pub fn device_table(&self) -> DeviceTable {
         self.resources.clone()
     }

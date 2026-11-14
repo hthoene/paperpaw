@@ -253,9 +253,7 @@ pub struct Device {
     /// The kernel's warnings since start (the last `KEPT_WARNINGS`),
     /// besides printed: for tools that check there are none.
     pub warnings: Vec<Warning>,
-    /// The frames shown since start, in order (the last `KEPT_FRAMES`): the
-    /// region and the mode the panel was refreshed with, for tests of what a
-    /// start or a page turn shows.
+    /// The last `KEPT_FRAMES` frames shown (region, mode), for tests of a start.
     pub shown: Vec<(paperpaw_platform::Rect, RefreshMode)>,
     /// Requests are answered from the emulator's fixtures
     /// ([`Device::use_fixtures`]).
@@ -514,8 +512,7 @@ impl Device {
         self.wifi_online = online;
     }
 
-    /// A network saved as joined before, where the native Wi-Fi plugin looks
-    /// for it (a run on simulated time only; [`crate::linked::Inputs::share_secrets`]).
+    /// A network saved as joined before, for the native Wi-Fi plugin (simulated time only).
     fn share_secrets_with_native(&self) {
         #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
         self.linked.share_secrets(self.kernel.storage());
@@ -802,19 +799,16 @@ impl Device {
     fn poll_native_net(&mut self, _wait: Option<std::time::Duration>) {}
 
     /// Whether the native plugins' servers run (the loop looks again soon).
-    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
     #[must_use]
     pub fn native_serving(&self) -> bool {
-        self.linked
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        return self
+            .linked
             .net
             .borrow()
             .as_ref()
-            .is_some_and(|net| net.transport.serving())
-    }
-
-    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
-    #[must_use]
-    pub fn native_serving(&self) -> bool {
+            .is_some_and(|net| net.transport.serving());
+        #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
         false
     }
 

@@ -444,10 +444,10 @@ jobs:
           out: ${{ runner.temp }}/released.bin
       - name: The released image against shells/xteink/size-budget.txt
         run: python3 -I tools/size-report.py check --device "$DEVICE" --image "$RUNNER_TEMP/released.bin"
-      # The loader's S3 code (format-5 files in PSRAM, `ppn5`) is off by
-      # default and so not in the lint and build above; the X4's own job
-      # (firmware-host-frames) covers the X4. Without the job's RUSTFLAGS,
-      # as above.
+      # The loader's S3 code (format-5 files in PSRAM, `ppn5`) is not part of
+      # the S3 device features yet and so not in the lint and build above; the
+      # X4's native image has its own job (firmware-host-frames). Without the
+      # job's RUSTFLAGS, as above.
       - name: Lint and build the S3 with interface-7 plugins
         if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
         working-directory: shells/xteink
@@ -912,12 +912,12 @@ jobs:
       - name: Bluetooth host-test dependencies too
         run: cargo deny --manifest-path tools/bluetooth-tests/Cargo.toml --all-features check
 
-  # What a plugin's code can call into on the X4 (the interface-7 host entries,
-  # the dispatch, the loader's x4 module) exists in the firmware built with
-  # `ppn5`, which is off by default and so not in the `firmware` jobs' builds.
-  # Its own job, beside them, builds the X4 with it and holds those functions'
-  # stack frames under the 2 KiB band at the main stack's end
-  # (`shells/xteink/frame-budget-ppn5.txt`).
+  # The X4's native image (the interface-7 plugins linked and hosted, the loader
+  # for card plugins: what the device feature `x4` builds, #243). Its own job,
+  # beside the `firmware` jobs, holds the functions a plugin's code can call into
+  # under the 2 KiB band at the main stack's end
+  # (`shells/xteink/frame-budget-ppn5.txt`) and the paths of the start and the
+  # main loop above the band (`tools/check-x4-start-stack.py`).
   firmware-host-frames:
     name: Firmware interface-7 host frames (x4, ppn5)
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
@@ -951,6 +951,8 @@ jobs:
           cargo run -q --release -p paperpaw-sign -- frames \
             shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
             --budget shells/xteink/frame-budget-ppn5.txt
+      - name: The start's and the main loop's stack paths stay above the band
+        run: python3 -I tools/check-x4-start-stack.py shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink
 
   # After a push to a branch that saves caches: the newest Rust cache entry of
   # each prefix stays, the older ones go. Every Cargo.lock change otherwise

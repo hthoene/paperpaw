@@ -39,7 +39,7 @@
 # about 10 bytes (measured twice, #4382); another --work, even with the same
 # remaps, moved the total by up to 12 KB. Compare only runs with the same --work.
 #
-# Defaults: head HEAD with features `x4,ppn5` (as the finished firmware
+# Defaults: head HEAD with features `x4` (native plugins on, as the firmware
 # ships); base `v0.6.0-beta.3` with `x4`. Each tree builds with its own
 # `rust-toolchain.toml` and `.cargo/config.toml`, release profile, no default
 # features (no `remote`, no `waveform-lab`), as the release image is built.
@@ -52,7 +52,7 @@ set -Eeuo pipefail
 trap 'exit 2' ERR
 die() { echo "flash-gate: $*" >&2; exit 2; }
 
-head=HEAD base=v0.6.0-beta.3 base_features=x4 head_features=x4,ppn5
+head=HEAD base=v0.6.0-beta.3 base_features=x4 head_features=x4
 label="" limit=60000 jobs=4 keep=0 image_only=0 plugin_elfs=()
 work="${TMPDIR:-/tmp}"
 target=riscv32imc-unknown-none-elf
