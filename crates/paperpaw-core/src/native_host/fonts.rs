@@ -359,6 +359,12 @@ pub(crate) unsafe fn draw(
         let color = Color::rgb(red, green, blue);
         // SAFETY: the caller provides live readable input.
         let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
+        // An icon is a picture, not a word: it is not told as text.
+        let icon = owner
+            .with_font(handle, |key| {
+                Ok(matches!(key, FontKey::Role(FontRole::Icons)))
+            })
+            .unwrap_or(false);
         let width = with_font(scope, owner, handle, |font| {
             canvas.with_canvas(|canvas| {
                 let width =
@@ -366,7 +372,7 @@ pub(crate) unsafe fn draw(
                         .map_err(|_| ERR_INVALID)?;
                 // Told as text where somebody asks, as a legacy label is
                 // (`screens-input.md` 6.1); nothing is done otherwise.
-                if canvas.is_describing() {
+                if canvas.is_describing() && !icon {
                     let line = font.line_metrics(size);
                     #[allow(
                         clippy::cast_precision_loss,
