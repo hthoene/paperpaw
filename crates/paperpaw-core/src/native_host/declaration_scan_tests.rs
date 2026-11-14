@@ -7,7 +7,7 @@ extern crate std;
 use super::super::super::raw_declarations::varint;
 use super::super::super::registrations::*;
 use super::super::*;
-use alloc::{rc::Rc, vec, vec::Vec};
+use alloc::{rc::Rc, string::String, vec, vec::Vec};
 use core::cell::{Cell, RefCell};
 
 struct Image {
@@ -479,7 +479,7 @@ fn store_of(batches: &[Vec<u8>], read_only: bool) -> (DeclarationStore, Rc<Image
 }
 
 /// What a lookup by `parts` gives: the record as text.
-fn found(store: &DeclarationStore, kind: Kind, parts: &[&str]) -> Option<alloc::string::String> {
+fn found(store: &DeclarationStore, kind: Kind, parts: &[&str]) -> Option<String> {
     let mut found = None;
     let hit = store.find_parts("fixture", kind, parts, &mut |record| {
         found = Some(alloc::format!("{record:?}"));
@@ -628,6 +628,89 @@ fn a_lookup_in_an_image_decodes_only_records_that_may_hold_the_name() {
     });
     assert_eq!(groups, 2);
     assert_eq!(source.errors.get(), 2);
+}
+
+/// What `each_wanted` gives of `kind`, and what `keys` with `with_record`
+/// does, as text.
+fn each(store: &DeclarationStore, kind: Kind, wanted: &dyn Fn(&[u8]) -> bool) -> Vec<String> {
+    let mut records = Vec::new();
+    store.each_wanted(kind, wanted, &mut |record| {
+        records.push(alloc::format!("{record:?}"));
+    });
+    records
+}
+
+fn by_keys(store: &DeclarationStore, kind: Kind) -> Vec<String> {
+    let mut records = Vec::new();
+    store.keys(kind, &mut |key| {
+        store.with_record(key, &mut |record| {
+            records.push(alloc::format!("{record:?}"));
+        });
+    });
+    records
+}
+
+#[test]
+fn every_record_wanted_is_given_as_its_key_gives_it() {
+    let batches = crowded();
+    let (scanned, source) = store_of(&batches, true);
+    let (indexed, _) = store_of(&batches, false);
+    let mut given = 0;
+    for kind in [
+        Kind::Group,
+        Kind::Action,
+        Kind::MenuEntry,
+        Kind::Hyphenation,
+    ] {
+        let all = each(&scanned, kind, &|_| true);
+        assert_eq!(all, by_keys(&scanned, kind), "{kind:?}");
+        // An owner with an index gives the same records (in its index's
+        // order) and is not asked what is wanted.
+        let (mut sorted, mut of_index) = (all.clone(), each(&indexed, kind, &|_| false));
+        sorted.sort();
+        of_index.sort();
+        assert_eq!(sorted, of_index, "{kind:?}");
+        given += all.len();
+        // Of an image, the wanted ones alone: the image asked for once.
+        let before = source.reads.get();
+        let named = each(&scanned, kind, &|bytes| super::holds(bytes, "alpha"));
+        assert_eq!(source.reads.get() - before, 1, "{kind:?}");
+        let holding: Vec<_> = all
+            .iter()
+            .filter(|r| r.contains("alpha"))
+            .cloned()
+            .collect();
+        assert_eq!(named, holding, "{kind:?}");
+    }
+    assert!(given > 8, "{given}");
+    assert_eq!(source.errors.get(), 0);
+    // A stale owner gives nothing and its image is not asked for.
+    source.generation.set(2);
+    let before = source.reads.get();
+    assert!(each(&scanned, Kind::Group, &|_| true).is_empty());
+    assert_eq!(source.reads.get(), before);
+}
+
+#[test]
+fn a_record_that_is_not_wanted_is_not_decoded() {
+    let (store, source) = store(true, false);
+    {
+        // The title of group "beta" stops being text; its frame still walks.
+        let mut bytes = source.bytes.borrow_mut();
+        let at = bytes
+            .windows(4)
+            .position(|window| window == b"beta")
+            .unwrap();
+        bytes[at + 7] = 0xff;
+    }
+    let alpha = each(&store, Kind::Group, &|bytes| super::holds(bytes, "alpha"));
+    assert_eq!(alpha.len(), 1, "{alpha:?}");
+    assert_eq!(source.errors.get(), 0, "passed by, not read");
+    // Wanted, it is read: said to its plugin, and not given.
+    assert_eq!(each(&store, Kind::Group, &|_| true).len(), 2);
+    assert_eq!(source.errors.get(), 1);
+    assert!(super::holds(b"xaab", "aab") && super::holds(b"", ""));
+    assert!(!super::holds(b"aaba", "aabb") && !super::holds(b"", "a"));
 }
 
 #[test]

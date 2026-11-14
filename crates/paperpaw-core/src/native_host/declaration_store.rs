@@ -1133,6 +1133,33 @@ impl DeclarationStore {
         }
     }
 
+    /// Every record of `kind`, as [`Self::keys`] and [`Self::with_record`]
+    /// give them, but for the records read from an image without an index
+    /// whose bytes are not `wanted`: those are passed without decoding them
+    /// (`declaration_scan.rs`). An owner with an index has all of its visited.
+    pub(crate) fn each_wanted(
+        &self,
+        kind: Kind,
+        wanted: &dyn Fn(&[u8]) -> bool,
+        visit: &mut dyn for<'a> FnMut(Record<'a>),
+    ) {
+        for (index, owner) in self.owners.iter().enumerate() {
+            let Some(owner) = owner else {
+                continue;
+            };
+            if let Batches::Starts(starts) = &owner.batches {
+                scan::each_in_image(owner, starts, kind, wanted, visit);
+                continue;
+            }
+            if owner.source.generation() != owner.generation {
+                continue;
+            }
+            for slot in owner.of_kind(kind) {
+                self.with_record(owner.key(index, slot.batch(), slot.record()), visit);
+            }
+        }
+    }
+
     /// Binary name lookup shares the resident sorted slots with key visitors.
     pub(crate) fn find(
         &self,
@@ -1335,6 +1362,7 @@ mod formats;
 #[path = "declaration_scan.rs"]
 mod scan;
 use batches::Batches;
+pub(super) use scan::holds;
 #[path = "declaration_starts.rs"]
 mod starts;
 #[allow(

@@ -173,7 +173,7 @@ fn source(sources: &Sources<'_>, spec: &SettingSpec) -> u32 {
 /// for it, and each row then asks `governs` itself.
 pub(super) fn governing<'s>(sources: &Sources<'_>, all: &'s Settings) -> Option<Vec<&'s str>> {
     let mut declared = 0_usize;
-    native_extra::each_governing(sources, all, &mut |_| declared += 1);
+    native_extra::each_governing(sources, all, None, &mut |_| declared += 1);
     // An extra is of a spec kept as it is: none a plugin describes is made.
     let count = all
         .kept_specs()
@@ -188,7 +188,7 @@ pub(super) fn governing<'s>(sources: &Sources<'_>, all: &'s Settings) -> Option<
     );
     // Within the room counted: the store is changed by the kernel alone,
     // never during a call.
-    native_extra::each_governing(sources, all, &mut |of| {
+    native_extra::each_governing(sources, all, None, &mut |of| {
         if ids.len() < ids.capacity() {
             ids.push(of);
         }
