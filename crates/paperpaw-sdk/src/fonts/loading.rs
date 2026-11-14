@@ -29,6 +29,33 @@ impl Fonts {
             .any(|entry| entry.family.as_deref() == Some(family))
     }
 
+    /// Whether `family` can set text now: it has a regular face that is
+    /// built in or open, or in a file of the plugin that named it (taken
+    /// as there, as ever), or in a file of another plugin's folder that
+    /// is on `storage`. A family of styles alone, or one whose regular
+    /// face another plugin has yet to bring, is not offered or taken for
+    /// reading: its letters would be another font's.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn family_there(&self, family: &str, storage: &dyn Storage) -> bool {
+        // Only a file of another plugin's folder is looked for: one look
+        // at the card for each such family, none for the others.
+        let own = |entry: &super::Entry, file: &str| {
+            let folder = file
+                .strip_prefix(crate::builtin::PLUGIN_DIR)
+                .and_then(|rest| rest.strip_prefix('/'))
+                .and_then(|rest| rest.split('/').next());
+            folder.is_none_or(|folder| folder == entry.id.namespace())
+        };
+        self.entries.iter().any(|entry| {
+            let there = |file: &str| own(entry, file) || storage.size(file).is_ok();
+            entry.family.as_deref() == Some(family)
+                && !entry.bold
+                && !entry.italic
+                && (entry.font.is_some() || entry.file.as_deref().is_some_and(there))
+        })
+    }
+
     /// [`Fonts::families`], or [`FontError::OutOfMemory`] where the heap has
     /// no room for the list.
     ///

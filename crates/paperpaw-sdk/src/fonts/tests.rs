@@ -925,3 +925,111 @@ fn a_family_chosen_can_be_given_back_and_a_registered_one_is_known() {
     fonts.restore_status(status);
     assert_eq!(fonts.status.as_deref(), Some("Serif"));
 }
+
+/// A family is there to set text with a regular face: one in a file of
+/// another plugin's folder (the firmware's name for Literata, whose pack
+/// a data plugin brings) only once the card has that file. A plugin's
+/// own files and loose ones are taken as there, without a look at the
+/// card.
+#[test]
+fn a_family_is_there_once_another_plugins_file_of_its_regular_face_is() {
+    let face = |id: &'static str, path: &'static str, family: &'static str, bold: bool| {
+        FontFace::new(Id::new_static(id), path, family, bold, false)
+    };
+    let path = "plugins/styles/fonts/serif.ppfp";
+    let mut fonts = Fonts::new(4096);
+    fonts
+        .add_face(face("firmware.serif", path, "Serif", false))
+        .unwrap();
+    fonts
+        .add_face(face(
+            "styles.bold",
+            "plugins/styles/fonts/bold.ppfp",
+            "Serif",
+            true,
+        ))
+        .unwrap();
+    fonts
+        .add_face(face(
+            "own.regular",
+            "plugins/own/fonts/own.ppfp",
+            "Own",
+            false,
+        ))
+        .unwrap();
+    fonts
+        .add_face(face("fonts.loose", "fonts/Loose.ppfp", "Loose", false))
+        .unwrap();
+    fonts
+        .add_face(face(
+            "own.slab-bold",
+            "plugins/own/fonts/slab.ppfp",
+            "Slab",
+            true,
+        ))
+        .unwrap();
+    let empty = MemoryStorage::new();
+    assert!(fonts.has_family("Serif"));
+    assert!(!fonts.family_there("Serif", &empty));
+    assert!(fonts.family_there("Own", &empty));
+    assert!(fonts.family_there("Loose", &empty));
+    // Styles alone set no text.
+    assert!(fonts.has_family("Slab"));
+    assert!(!fonts.family_there("Slab", &empty));
+    assert!(!fonts.family_there("Other", &empty));
+    let card = MemoryStorage::new().with(path, pack("a"));
+    assert!(fonts.family_there("Serif", &card));
+}
+
+/// A plugin's bold for book text (a card's Literata styles) counts only
+/// where regular book text is in its family. Beside another family's
+/// regular face (the UI font, which sets book text on a lean device) the
+/// regular face stands in for bold too: no two typefaces in a paragraph.
+#[test]
+fn a_bold_of_another_family_than_the_book_text_is_not_used() {
+    fn add(fonts: &mut Fonts, id: &'static str, family: &'static str, bold: bool) -> Id {
+        let font = Font::from_data(pack("a"), &[]).unwrap();
+        let id = Id::new_static(id);
+        fonts
+            .add(FontSpec::new(id.clone(), font).family(family, bold, false))
+            .unwrap();
+        id
+    }
+    let bold = roles::READING_BOLD;
+    let mut fonts = Fonts::new(4096);
+    let sans = add(&mut fonts, "a.sans", "Sans", false);
+    let serif_bold = add(&mut fonts, "b.serif-bold", "Serif", true);
+    fonts.propose(roles::UI, sans.clone(), Priority::DEFAULT);
+    fonts.propose(roles::READING, sans, Priority::DEFAULT);
+    fonts.propose(bold.clone(), serif_bold.clone(), Priority::DEFAULT);
+    let reading = |fonts: &Fonts| fonts.role(roles::READING.as_str()).unwrap().id().clone();
+    assert_eq!(reading(&fonts).as_str(), "a.sans");
+    assert!(fonts.bound(bold.as_str()).is_none());
+
+    // Nor where its family is chosen but has no regular face. The kernel
+    // takes no such family: it is not there to set text.
+    fonts.set_family(Some("Serif"));
+    assert_eq!(reading(&fonts).as_str(), "a.sans");
+    assert!(fonts.bound(bold.as_str()).is_none());
+    fonts.set_family(None);
+    let card = MemoryStorage::new();
+    assert!(fonts.family_there("Sans", &card));
+    assert!(!fonts.family_there("Serif", &card));
+
+    // What the user binds in the configuration is taken as given.
+    fonts.bind_user(bold.clone(), serif_bold);
+    assert_eq!(
+        fonts.bound(bold.as_str()).unwrap().id().as_str(),
+        "b.serif-bold"
+    );
+    fonts.user.clear();
+
+    // With the family's regular face setting book text, its bold counts.
+    let serif = add(&mut fonts, "b.serif", "Serif", false);
+    fonts.propose(roles::READING, serif, Priority::PREFERRED);
+    assert_eq!(reading(&fonts).as_str(), "b.serif");
+    assert_eq!(
+        fonts.bound(bold.as_str()).unwrap().id().as_str(),
+        "b.serif-bold"
+    );
+}
