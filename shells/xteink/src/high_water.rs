@@ -63,6 +63,10 @@ pub fn start() {
     }
     // SAFETY: as `tracker`; written once at start.
     unsafe { core::ptr::addr_of_mut!(BEFORE).write(kept) };
+    // Read once: a start that keeps nothing (a chip reset within the first
+    // 30 s) must not show this run's figure again as its own.
+    // SAFETY: as `tracker`; one core, at start.
+    unsafe { core::ptr::addr_of_mut!(KEPT).write_volatile([0; WORDS]) };
     let _ = tracker();
 }
 
@@ -85,7 +89,10 @@ pub fn note_to_card(storage: &dyn paperpaw_platform::Storage) {
             low.heap_free,
             low.largest
         ),
-        None => alloc::format!("{}\tthe run before: nothing kept\n", env!("PAPERPAW_VERSION")),
+        None => alloc::format!(
+            "{}\tthe run before: nothing kept\n",
+            env!("PAPERPAW_VERSION")
+        ),
     };
     let _ = storage.create_dir(paperpaw_sdk::data::DIR);
     let full = storage.size(FILE).is_ok_and(|size| size > MAX_FILE);
