@@ -354,6 +354,19 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   the card is asked once for each callback, not at every text call, so a file rewritten within the
   callback that draws from it is noticed at the next callback (what a pack cannot read draws
   nothing).
+- [D] **A widget's font** (#262, additive: no record, slot or lock change): key `widget:<widget
+  id>` (with a placement's `@n`), the font the reader chose for that widget: its setting
+  `<widget id>.font` (a placement's value first), which the host gives every natively declared
+  widget that has a settings group of its id and no `font` setting of its own, else or where that
+  says `core.widgets.font.all` the setting for all widgets `core.widgets.font`:
+  `core.widgets.font.menus` (the default) is `role:ui`, `core.widgets.font.book` is
+  `role:reading`, any other value a family, whose regular face the host keeps open (at most 3
+  families beside the roles'). It never fails for the choice: a family that is not open, was
+  closed since the acquire, or has no size near the call's `size` (a font pack sets text up to
+  2 px past its largest size; the X4's card fonts have 20 to 36 px) draws that call in `role:ui`.
+  Any id acquires (an unknown widget follows `core.widgets.font`); it counts towards the 8
+  handles and keeps the family's font id (<= 128 B) while a family is chosen, a few bytes
+  otherwise.
 - [D] **Named icons** (Port Reviewer, #344; draft 25): host slot 40 `icon.glyph(ctx, name: bytes,
   out: buffer) -> length`, `query`, writes the UTF-8 of the named icon's character in the bound
   icon font (at most 4 bytes; a smaller `out` is `ERR_NO_SPACE`) into `out` and returns its
@@ -417,8 +430,11 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
     intersected with its own and restores the parent's when it ends.
   - A stale font handle is `ERR_STATE`, `size` must be finite and > 0, as for `text.measure`.
   - Host implementation notes: `text.ink` over up to 4096 bytes uses a bounded scratch buffer (no
-    allocation per glyph) and is timed on the X4 before it is wired there; `canvas.clip` does
-    its bounds arithmetic in 64 bits (`x + width` cannot overflow).
+    allocation per glyph) and is timed on the X4 before it is wired there: until then the X4's
+    host answers `ERR_UNSUPPORTED` (the core feature `x4-ink` wires it, for the test image that
+    times it), and the SDK's `Font::ink` gives `None`, as for text without ink, so a plugin
+    places the text by its metrics. `canvas.clip` does its bounds arithmetic in 64 bits
+    (`x + width` cannot overflow).
 - [D] **Glyph coverage** (draft 25; the keyboard hides layouts its fonts cannot draw, interface 6
   `Font::has_char`): host slot 39 `text.covers(ctx, font: handle, text: bytes) -> length`,
   `query`. `text` is UTF-8 of at most 1,024 bytes (`ERR_INVALID` above, `ERR_UTF8` if not); the

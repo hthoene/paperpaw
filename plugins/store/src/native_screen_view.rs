@@ -472,6 +472,8 @@ pub fn plugin_row(
         on: None,
         field: false,
         whole: false,
+        small: false,
+        plain: false,
     })
 }
 
@@ -503,6 +505,8 @@ pub fn top_row(say: &mut dyn Say, top: Top, order: Order, help: &str) -> Result<
         on: None,
         field: false,
         whole: false,
+        small: false,
+        plain: false,
     })
 }
 

@@ -2,6 +2,7 @@
 """Checks an X4 owner or release image before it leaves the team.
 
     check-owner-image.py IMAGE REFERENCE_FULL_IMAGE
+    check-owner-image.py --release IMAGE
 
 Every image handed to the owner is a FULL image (`espflash save-image --merge`),
 because the owner flashes it at 0x0 and an app-only file would overwrite the
@@ -17,11 +18,18 @@ An app-only image (0xE9 at 0x0 with a long app, no table at 0x8000) is refused.
 The bootloader's bytes are compared too, as a NOTE: a different bootloader is
 allowed, but the report must say so. Prints OWNER_IMAGE_CHECK_EXIT=<0|1>.
 Exit status: 0 ok, 1 refused, 2 usage.
+
+`--release IMAGE` (the release workflow, on every image it builds) refuses an
+image built as a test image (`test-image`, which also brings the never-sleep
+defaults the device tests use): its high-water log lines are in no other build.
 """
 import hashlib
 import sys
 
 TABLE_AT, TABLE_LEN, APP_AT = 0x8000, 0x1000, 0x10000
+# Log strings only the test image has (`shells/xteink/src/high_water.rs`, compiled
+# with `test-image`, whose defaults are also the never-sleep ones).
+TEST_IMAGE_MARKS = (b"high-water: stack left", b"high-water: the run before")
 
 
 def problems(img: bytes, ref: bytes) -> list[str]:
@@ -41,11 +49,31 @@ def problems(img: bytes, ref: bytes) -> list[str]:
     return bad
 
 
+def test_image_problems(img: bytes) -> list[str]:
+    return [
+        f"a test image (its log line {m.decode()!r} is in it): never a release"
+        for m in TEST_IMAGE_MARKS
+        if m in img
+    ]
+
+
 def bootloader_diff(img: bytes, ref: bytes) -> int:
     return sum(1 for x, y in zip(img[:TABLE_AT], ref[:TABLE_AT]) if x != y)
 
 
+def release(path: str) -> int:
+    with open(path, "rb") as f:
+        img = f.read()
+    bad = test_image_problems(img)
+    for b in bad:
+        print("FAIL:", b)
+    print(f"RELEASE_IMAGE_CHECK_EXIT={1 if bad else 0}")
+    return 1 if bad else 0
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] == "--release":
+        return release(argv[1])
     if len(argv) != 2:
         print(__doc__)
         return 2

@@ -7,7 +7,7 @@
 //! the top). A page laid out only in its draw (a changed setting, a turned
 //! screen) and a page without pictures have one frame; a page turned before
 //! its pictures were drawn never draws them.
-use super::{Open, Setup, redraw};
+use super::{Open, redraw};
 use crate::native_block::picture_path;
 use crate::native_draw::{Pictures, picture_boxes, picture_of};
 use alloc::string::String;
@@ -125,7 +125,12 @@ impl Open {
         let Some(page) = self.page.as_ref() else {
             return false;
         };
-        let Some(area) = Setup::read(host).ok().and_then(|setup| self.area(&setup)) else {
+        let Some(area) = self
+            .settings
+            .setup(host)
+            .ok()
+            .and_then(|setup| self.area(&setup))
+        else {
             return false;
         };
         // The boxes from the top left of the screen's region, as its draw

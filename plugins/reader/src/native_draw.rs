@@ -50,7 +50,19 @@ pub trait Ink {
     /// # Errors
     /// The host's refusal.
     fn image(&mut self, image: u32, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error>;
+
+    /// Whether anything between the rows `top` and `bottom` (exclusive) can
+    /// show: a draw of one band of the screen has no use for the rest, which the
+    /// host would clip anyway. Everything shows by default.
+    fn shows(&self, _top: i32, _bottom: i32) -> bool {
+        true
+    }
 }
+
+/// How far above a line's baseline, in sizes, a letter's ink may reach (accents
+/// and tall scripts), and how far below.
+const ABOVE: f32 = 1.5;
+const BELOW: f32 = 0.7;
 
 /// The page's lines (and rules) drawn with their content box's top left at `(left, top)`.
 /// Stops at the first refusal of the host.
@@ -109,6 +121,20 @@ pub fn draw_page<M: Measure>(
     for line in &page.lines {
         // Rounded to the row (the page is below the top of the screen: never negative).
         let baseline = (top + line.baseline + 0.5) as i32;
+        // A line out of the band being drawn is not drawn (the words still count).
+        let tallest = line
+            .runs
+            .iter()
+            .map(|run| faces.size(run.face))
+            .fold(0.0, f32::max);
+        let (high, low) = (
+            baseline - (tallest * ABOVE + line.leading) as i32,
+            baseline + (tallest * BELOW) as i32,
+        );
+        if !ink.shows(high, low) {
+            number += words_of(line);
+            continue;
+        }
         let mut x = left + line.x;
         let mut under = Under::default();
         for run in &line.runs {
@@ -151,6 +177,31 @@ pub fn draw_page<M: Measure>(
         Pictures::Drawn => draw_images(ink, page, (left, top)),
         Pictures::Places => Ok(()),
     }
+}
+
+/// How many words `line` adds to the count of the words of the page (the numbers
+/// `native_speech::words` gives them): as [`draw_page`] counts them.
+fn words_of(line: &paperpaw_sdk::layout::PageLine) -> usize {
+    if line.inserted {
+        return 0;
+    }
+    let mut counted = 0;
+    for run in &line.runs {
+        let Some(text) = line.text.get(run.start..run.end) else {
+            continue;
+        };
+        let mut at = run.start;
+        for (n, word) in text.split(' ').enumerate() {
+            if n > 0 {
+                at += 1;
+            }
+            if !word.is_empty() && (at == 0 || line.text.as_bytes().get(at - 1) == Some(&b' ')) {
+                counted += 1;
+            }
+            at += word.len();
+        }
+    }
+    counted
 }
 
 /// The boxes the page's pictures take on the screen, with the content box's
@@ -197,6 +248,9 @@ fn draw_images(ink: &mut impl Ink, page: &Page, (left, top): (f32, f32)) -> Resu
             continue;
         };
         let (x, y, width, height) = place(image, (left, top));
+        if !ink.shows(y, y.saturating_add(height.min(i32::MAX as u32) as i32)) {
+            continue;
+        }
         match ink.image(handle, x, y, width, height) {
             Err(Error::NotFound | Error::Unsupported) => {}
             other => other?,
@@ -335,6 +389,8 @@ pub struct HostInk<'a, 'h> {
     canvas: &'a Canvas<'a>,
     color: Color,
     look: Look,
+    /// The rows the host lets a draw reach (a band): `None` for any.
+    clip: Option<(i32, i32)>,
 }
 
 impl<'a, 'h> HostInk<'a, 'h> {
@@ -351,7 +407,16 @@ impl<'a, 'h> HostInk<'a, 'h> {
             canvas,
             color,
             look,
+            clip: None,
         }
+    }
+
+    /// The same, drawing only what reaches the rows `top` to `bottom` (exclusive):
+    /// the band of this draw.
+    #[must_use]
+    pub const fn clipped(mut self, top: i32, bottom: i32) -> Self {
+        self.clip = Some((top, bottom));
+        self
     }
 }
 
@@ -386,6 +451,11 @@ impl Ink for HostInk<'_, '_> {
             FrameRect::new(x, y, width, height),
             ImageStyle::new(),
         )
+    }
+
+    fn shows(&self, top: i32, bottom: i32) -> bool {
+        self.clip
+            .is_none_or(|(first, last)| bottom > first && top < last)
     }
 }
 
