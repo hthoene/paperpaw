@@ -218,7 +218,10 @@ const KNOWN_MISSING_ICONS: [&str; 2] = ["notebook", "cloud-upload"];
 fn missing_icons(contributions: &[Contribution]) -> Vec<(String, String)> {
     let icon_font = &font(contributions, &ICONS).font;
     let names = icon_names_in_plugins();
-    assert!(names.len() > 20, "found the plugins' icons: {names:?}");
+    // Fewer than before: the interface-6 plugins that named most of them are
+    // gone (#244); native plugins name icons in their declarations, which this
+    // scan of the source does not read.
+    assert!(names.len() > 5, "found the plugins' icons: {names:?}");
     names
         .into_iter()
         .filter(|(name, _)| !icons::char(name).is_some_and(|c| icon_font.has_char(c)))
