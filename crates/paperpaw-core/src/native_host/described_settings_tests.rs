@@ -562,15 +562,34 @@ fn whether_a_described_setting_is_a_secret_is_told_without_its_spec() {
     let (_shown, mut settings) = probe();
     let key = paperpaw_sdk::SettingSpec::text("probe.key", "Key", "", OTHER);
     settings.define(key.with_extra(&SECRET)).unwrap();
+    // An id longer than the room a placed key is made plain in.
+    let long = alloc::format!("probe.{}", "k".repeat(130));
+    let long_id = paperpaw_sdk::Id::parse(&long).unwrap();
+    let long_key = paperpaw_sdk::SettingSpec::new(
+        long_id,
+        "Long key",
+        paperpaw_sdk::SettingKind::Text,
+        paperpaw_sdk::SettingValue::Text("".into()),
+        OTHER,
+    );
+    settings.define(long_key.with_extra(&SECRET)).unwrap();
+    let (long_placed, long_none) = (long.replacen('.', "@2.", 1), alloc::format!("{long}x"));
+    let long_none_placed = long_none.replacen('.', "@2.", 1);
     let secret = |key: &str| SettingIdentity::new(key).unwrap().secret(&settings);
     // Asked of a placement too (`probe@2.one` is `probe.one` placed).
     FAIL_NTH.with(|fail| fail.set(1));
     assert_eq!(secret("probe.one"), Some(false));
     assert_eq!(secret("probe@2.one"), Some(false));
+    // Placed at its end, the key is a placement of the setting itself.
+    assert_eq!(secret("probe.one@2"), Some(false));
     assert_eq!(secret("probe.key"), Some(true));
     assert_eq!(secret("probe@2.key"), Some(true));
     assert_eq!(secret("probe.none"), None);
     assert_eq!(secret("probe@2.none"), None);
+    assert_eq!(secret(&long), Some(true));
+    assert_eq!(secret(&long_placed), Some(true));
+    assert_eq!(secret(&long_none), None);
+    assert_eq!(secret(&long_none_placed), None);
     assert_eq!(
         FAIL_NTH.with(|fail| fail.replace(0)),
         1,
