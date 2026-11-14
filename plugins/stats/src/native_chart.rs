@@ -145,7 +145,9 @@ pub(crate) fn bars(
                 let right = f32::from(area.x) + f32::from(area.width);
                 // Not `f32::clamp`: its panic message formats floats, which brings core's 2,048 B
                 // float formatter into the plugin (the S3 packer refuses it, #263).
-                let at_x = (x + bar.width / 2.0 - w / 2.0).max(left).min((right - w).max(left));
+                let at_x = (x + bar.width / 2.0 - w / 2.0)
+                    .max(left)
+                    .min((right - w).max(left));
                 let row = Rect::new(
                     area.x,
                     clamp(base - bar.height - i32::from(plan.label_height)),

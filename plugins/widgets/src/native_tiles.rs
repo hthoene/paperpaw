@@ -96,7 +96,11 @@ fn localised(cx: &mut Cx<'_>, parts: Vec<String>) -> Result<Vec<String>, Error> 
 
 /// Each tile `w` wide (pairs wider), `w * 1.4` high.
 fn tile_w(text: &str) -> f32 {
-    if text.chars().count() > 1 { wide() } else { 1.0 }
+    if text.chars().count() > 1 {
+        wide()
+    } else {
+        1.0
+    }
 }
 
 /// A pair's width. Apart on the S3: LLVM's Xtensa backend cannot select the
