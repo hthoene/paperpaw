@@ -390,14 +390,17 @@ These change the user's configuration of the whole device, so they need the D1 f
 ### 4.4 Preview
 
 - [D] `preview_setting` rows of one batch are **one preview set**: it replaces the previous set
-  wholly. `flags` bit 0 previews "as if not set" (`value` empty). Authority is that of
-  `command.set_setting` (guarded, own plugin), and values are checked as it checks them; a secret
-  setting or a grant can't be previewed (`ERR_UNSUPPORTED`, as slot 15).
+  wholly, and shows after the batch's other commands. `flags` bit 0 previews "as if not set"
+  (`value` empty; a value with it, another bit, or a value that does not decode is
+  `ERR_INVALID`). Authority is that of `command.set_setting` (guarded, own plugin), and values
+  are checked as it checks them; a secret setting can't be previewed (`ERR_UNSUPPORTED`, as slot
+  15), nor a grant (`ERR_DENIED`, section 4.3). A work run previews nothing (`ERR_STATE`).
 - [D] **Owner.** A preview belongs to (plugin, screen) that submitted it; that screen must be the
   submitter's own top screen (else `ERR_STATE`, as `set_scope`). `preview_end` ends only the
-  submitter's own preview (another plugin's: `ERR_STATE`). A new set from another plugin replaces
-  it, and event 76 tells both. A preview ends when its screen closes, its plugin stops or crashes,
-  and when the device sleeps; it is never saved.
+  submitter's own preview (another plugin's: `ERR_STATE`; with none it is `OK` and ends
+  nothing); a batch with both rows and an end is `ERR_INVALID`. A new set from another plugin
+  replaces it, and event 76 tells both. A preview ends when its screen closes, its plugin stops
+  or crashes, and when the device sleeps; it is never saved.
 - [D] While a preview is active, slot 5 and `reg_setting` give the previewed value (flag
   `preview`). Only one preview exists device-wide. Kernel side effects of a setting (language,
   rotation) wait for the kept value, as in interface 6.

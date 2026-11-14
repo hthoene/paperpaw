@@ -51,8 +51,11 @@ mod answers;
 mod lookup;
 #[path = "commands_presets.rs"]
 mod preset;
+#[path = "commands_preview.rs"]
+mod preview;
 #[cfg(test)]
 pub(crate) use preset::{covers as preset_covers, plan as preset_plan, walk as preset_walk};
+pub(crate) use preview::PreviewHeld;
 #[path = "commands_nav.rs"]
 mod nav;
 pub(crate) use nav::PolicyChange;
@@ -176,6 +179,8 @@ pub struct CommandStage<'a> {
     /// callback.
     staged_widgets: Vec<u32>,
     staged_policies: Vec<nav::PolicyChange>,
+    /// Whose the device's one preview is (`commands_preview.rs`).
+    preview_held: PreviewHeld,
 }
 
 impl<'a> CommandStage<'a> {
@@ -225,6 +230,7 @@ impl<'a> CommandStage<'a> {
             staged_hints: Vec::new(),
             staged_widgets: Vec::new(),
             staged_policies: Vec::new(),
+            preview_held: PreviewHeld::Nobody,
         }
     }
 
@@ -405,21 +411,25 @@ impl<'a> CommandStage<'a> {
     /// The lists of a batch kept apart from the `Command`s, checked and
     /// copied: item states (`commands_items.rs`), presets
     /// (`commands_presets.rs`), answers to plugin requests
-    /// (`commands_answers.rs`) and ready lookups (`commands_lookup.rs`).
+    /// (`commands_answers.rs`), ready lookups (`commands_lookup.rs`) and the
+    /// preview (`commands_preview.rs`).
     #[inline(never)]
     fn validate_kept(&self, batch: &CommandBatch<'_>) -> Result<Kept, i32> {
         let (item_states, item_bytes) = self.validate_item_states(batch)?;
         let (presets, preset_bytes) = self.validate_presets(batch)?;
         let (answers, answer_bytes) = self.validate_answers(batch)?;
         let lookups = self.validate_lookup_readies(batch)?;
+        let (preview, preview_bytes) = self.validate_preview(batch)?;
         Ok(Kept {
             item_states,
             presets,
             answers,
             lookups,
+            preview,
             bytes: item_bytes
                 .saturating_add(preset_bytes)
-                .saturating_add(answer_bytes),
+                .saturating_add(answer_bytes)
+                .saturating_add(preview_bytes),
         })
     }
 
@@ -439,6 +449,7 @@ impl<'a> CommandStage<'a> {
         self.staged_presets.extend(kept.presets);
         self.staged_answers.extend(kept.answers);
         self.staged_lookups.extend(kept.lookups);
+        self.keep_preview(kept.preview);
     }
 
     /// Room for the instances of the batch's `command.widget_changed`.
@@ -475,6 +486,7 @@ impl<'a> CommandStage<'a> {
                     || Self::is_preset(&command)
                     || Self::is_answer(&command)
                     || Self::is_lookup_ready(&command)
+                    || Self::is_preview(&command)
                 {
                     Ok(0)
                 } else {
@@ -584,6 +596,7 @@ impl<'a> CommandStage<'a> {
                 || Self::is_preset(&command)
                 || Self::is_answer(&command)
                 || Self::is_lookup_ready(&command)
+                || Self::is_preview(&command)
             {
                 continue;
             }
@@ -653,6 +666,13 @@ impl<'a> CommandStage<'a> {
             return self.owned_ui(command);
         };
         let spec = self.admitted(key)?;
+        let value = Self::owned_value(spec, value)?;
+        Ok(Command::SetSetting(Self::owned_key(spec, key)?, value))
+    }
+
+    /// A value `spec` takes, copied (text fallibly); "not set" and one it
+    /// does not take are `ERR_INVALID`.
+    fn owned_value(spec: &SettingSpec, value: SettingValueRef<'_>) -> Result<SettingValue, i32> {
         let value = match value {
             SettingValueRef::Bool(value) => SettingValue::Bool(value),
             SettingValueRef::Int(value) => SettingValue::Int(value),
@@ -669,13 +689,17 @@ impl<'a> CommandStage<'a> {
         if !spec.accepts(&value) {
             return Err(ERR_INVALID);
         }
-        // Keys are at most COMMAND_MAX_KEY_BYTES; a placement key is parsed.
-        let id = if key == spec.id.as_str() {
-            spec.id.try_clone().ok_or(ERR_NO_MEMORY)?
+        Ok(value)
+    }
+
+    /// The id of the admitted `key` of `spec`, copied fallibly. Keys are at
+    /// most `COMMAND_MAX_KEY_BYTES`; a placement key is parsed.
+    fn owned_key(spec: &SettingSpec, key: &str) -> Result<Id, i32> {
+        if key == spec.id.as_str() {
+            spec.id.try_clone().ok_or(ERR_NO_MEMORY)
         } else {
-            ui::copy_id(key)?
-        };
-        Ok(Command::SetSetting(id, value))
+            ui::copy_id(key)
+        }
     }
 }
 
@@ -686,6 +710,8 @@ struct Kept {
     presets: Vec<alloc::boxed::Box<str>>,
     answers: Vec<super::plugin_requests::Answer>,
     lookups: Vec<u64>,
+    /// The preview set of the batch (`commands_preview.rs`); empty, an end.
+    preview: Option<preview::PreviewSet>,
     bytes: usize,
 }
 
@@ -874,6 +900,10 @@ mod hint_tests;
 #[cfg(test)]
 #[path = "commands_grant_tests.rs"]
 mod grant_tests;
+
+#[cfg(test)]
+#[path = "commands_preview_tests.rs"]
+mod preview_tests;
 
 #[cfg(test)]
 mod tests {
