@@ -138,6 +138,18 @@ impl Kernel {
         self.list_plugin(manifest, PluginState::Off, false);
     }
 
+    /// Lists a plugin switched off with nothing of its folder loaded, not
+    /// even its translations: one refused for its id (#1424 R1).
+    pub(crate) fn list_bare(&mut self, manifest: Manifest) {
+        let id = &manifest.id;
+        if id.as_str() != id.namespace() || self.shared.plugins.get(id.as_str()).is_some() {
+            return;
+        }
+        if let Some(manifest) = self.copy_manifest(manifest) {
+            self.list_plugin(manifest, PluginState::Off, false);
+        }
+    }
+
     /// The copy of `manifest` the plugin list holds, made before anything
     /// of the plugin is registered: where the heap has no room for it, the
     /// plugin is refused with a warning, not loaded unlisted, which would let
@@ -781,7 +793,7 @@ impl Kernel {
     /// Registers the data plugin in `folder` (switched off where the
     /// configuration says so) and applies its defaults; `false`, with a
     /// warning, if it could not be.
-    fn register_folder(&mut self, folder: &str) -> bool {
+    pub(crate) fn register_folder(&mut self, folder: &str) -> bool {
         let storage = self.shared.storage.clone();
         let plugin = match crate::data_plugin::load_folder(&storage, folder) {
             Ok(plugin) => plugin,

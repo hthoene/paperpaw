@@ -154,7 +154,7 @@ fn a_library_whose_check_fails_leaves_no_private_copy_on_disk() {
     let bytes = std::fs::read(&fixture.path).unwrap();
     let resources = paperpaw_core::native_host::HostResources::try_new().unwrap();
     let depth = paperpaw_core::native_host::flat::FlatDepth::try_new().unwrap();
-    let result = crate::native_runtime::admission(ID, &bytes, resources, depth);
+    let result = crate::native_runtime::admission(ID, &bytes, resources, depth, None);
     assert!(
         matches!(
             result,
@@ -179,4 +179,46 @@ fn a_library_whose_check_fails_leaves_no_private_copy_on_disk() {
         left.is_empty(),
         "a refused library leaves its copy: {left:?}"
     );
+}
+
+#[test]
+fn a_card_plugin_is_admitted_against_what_the_pool_offers() {
+    use paperpaw_native::metadata::Service;
+    let _one = crate::one_device_at_a_time();
+    // It needs a service the emulator's table does not have: refused with no
+    // offer, and past the metadata check when the device's offer lists it
+    // (what `linked::prepare` tells the pool is wired).
+    let metadata = crate::native_runtime::tests::service_metadata("core.offered-here", 1, 0);
+    let mut callbacks = [0; 64];
+    let length =
+        wire::registrations_encode(&[Registration::Draw { token: TOKEN }], &mut callbacks).unwrap();
+    let fixture =
+        super::foreign::fixture_service(vec![0], &callbacks[..length], DRAW, &metadata, &[]);
+    let bytes = std::fs::read(&fixture.path).unwrap();
+    static OFFERED: [Service<'static>; 1] = [Service {
+        key: "core.offered-here",
+        major: 1,
+        semantic_revision: 0,
+        min_table_bytes: 0,
+    }];
+    let offer = crate::native_runtime::Offer {
+        services: &OFFERED,
+        features: &[],
+    };
+    let admit = |offer| {
+        let resources = paperpaw_core::native_host::HostResources::try_new().unwrap();
+        let depth = paperpaw_core::native_host::flat::FlatDepth::try_new().unwrap();
+        crate::native_runtime::admission(ID, &bytes, resources, depth, offer)
+    };
+    assert!(
+        matches!(
+            admit(None),
+            Err(crate::native_runtime::Refusal::Runtime(
+                crate::native_runtime::RuntimeError::Metadata
+            ))
+        ),
+        "no offer: the service is unknown"
+    );
+    let admitted = admit(Some(offer));
+    assert!(admitted.is_ok(), "the offer lists it: {:?}", admitted.err());
 }

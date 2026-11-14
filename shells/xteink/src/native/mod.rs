@@ -26,8 +26,8 @@ pub mod partition;
 #[cfg(feature = "ppn5")]
 mod ppn5;
 pub mod seed;
-#[cfg(all(feature = "static-native", feature = "esp32c3"))]
-pub(crate) use ppn5::register_linked_probe;
+#[cfg(feature = "native-on")]
+pub(crate) use ppn5::register_linked;
 #[cfg(feature = "esp32s3")]
 mod psram;
 
@@ -245,7 +245,7 @@ pub struct Loader {
 }
 
 /// The device-wide table of handles, one for the whole firmware: the code
-/// loader and the linked-plugin probe (`register_linked_probe`) both take their
+/// loader and the linked plugins (`register_linked`) both take their
 /// share of this one, so what is wired into it (`core.ui`, `text.hyphenate`)
 /// stays single. A clone is another view of the same cell (nothing is made
 /// twice); the table itself is made at the first use, with `core.device`
@@ -266,7 +266,7 @@ impl DeviceTable {
     }
 
     /// A counted share of the device's one callback-depth counter, for the
-    /// loader and the linked-plugin probe alike: the kernel refuses a plugin
+    /// loader and the linked plugins alike: the kernel refuses a plugin
     /// that brings another (`paperpaw_x4::device_depth`).
     pub(crate) fn depth(&self) -> Option<paperpaw_core::native_host::flat::FlatDepth> {
         self.2.share()
@@ -282,7 +282,7 @@ impl DeviceTable {
     /// A counted share of the table, made (with `core.ui` wired) if it is not
     /// there yet. `None` where it has no room, or where the loader is busy
     /// with it (a plugin loading: no other caller exists on this one core).
-    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    #[cfg(feature = "native-on")]
     pub(crate) fn share(&self) -> Option<paperpaw_core::native_host::HostResources> {
         let mut table = self.0.try_borrow_mut().ok()?;
         if table.is_none() {
@@ -313,8 +313,8 @@ impl Loader {
     }
 
     /// The device's table of handles as the loader holds it, for the
-    /// linked-plugin probe: one table, not a second one.
-    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    /// linked plugins: one table, not a second one.
+    #[cfg(feature = "native-on")]
     pub fn device_table(&self) -> DeviceTable {
         self.resources.clone()
     }
@@ -330,38 +330,6 @@ impl Loader {
         let started = crate::micros();
         let mut head = [0; HEADER_LEN];
         read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
-        // Interface 7's files (format 5) are read by their own loader.
-        #[cfg(feature = "ppn5")]
-        if ppn5::is_format5(&head) {
-            // Without the net at the stack's end (`stack::arm_band`) a
-            // frame that overflows is not caught: refused, for this start.
-            if !crate::stack::band_armed() {
-                warn!("native: {path} not run: the stack's band is not armed");
-                return Err(PluginProblem::Unsupported);
-            }
-            // The nesting budget every interface-7 plugin of this device
-            // shares: the device's one counter (the linked probe takes the same),
-            // made at the first use (a fallible allocation: `NoRoom`).
-            let Some(depth) = self.resources.depth() else {
-                return Err(PluginProblem::NoRoom);
-            };
-            let Ok(mut resources) = self.resources.0.try_borrow_mut() else {
-                return Err(PluginProblem::NoRoom);
-            };
-            let loaded = ppn5::load(
-                &mut self.place,
-                &depth,
-                &mut resources,
-                &self.device,
-                storage,
-                code,
-            );
-            drop(resources);
-            if loaded.is_ok() {
-                crate::stack::native_loaded();
-            }
-            return loaded;
-        }
         let header = Header::read(&head).map_err(|p| problem_of(&head, p))?;
         if header.chip != CHIP {
             warn!(
@@ -528,6 +496,24 @@ fn new_resources(
     Some(resources)
 }
 
+/// What the card cannot tell the catalog reads, on the X4: the walk is the
+/// kernel's own (nothing to show here) and a book is new by the date the clock
+/// has, when it has one.
+#[cfg(feature = "ppn5")]
+struct CardCatalog;
+
+#[cfg(feature = "ppn5")]
+impl paperpaw_core::native_host::shell_wiring::CatalogEnv for CardCatalog {
+    fn walking(&self) -> Option<u32> {
+        None
+    }
+
+    fn today(&self) -> Option<u32> {
+        let millis = crate::clock::unix_ms(crate::now())?;
+        u32::try_from(millis / 86_400_000).ok()
+    }
+}
+
 #[cfg(feature = "ppn5")]
 impl Loader {
     /// Wires `core.net` and `core.sockets` over the network's bridge, once
@@ -540,15 +526,17 @@ impl Loader {
             HostWiring,
             shell_wiring::{
                 NetInputs, NetLimits, ShellHttp, ShellNetwork, SockInputs, SockLimits, SockTls,
-                SockTransport,
+                SockTransport, WorkInputs,
             },
         };
         // The loader's table of handles (one for the device, shared with the
-        // linked-plugin probe): not borrowed by anything else at this point.
+        // linked plugins): not borrowed by anything else at this point.
         let Ok(table) = self.resources.0.try_borrow() else {
+            warn!("native: core.net, core.sockets and core.work not wired (table busy)");
             return;
         };
         let Some(resources) = table.as_ref() else {
+            warn!("native: core.net, core.sockets and core.work not wired (no table)");
             return;
         };
         let bridge = &self.host_net;
@@ -563,16 +551,138 @@ impl Loader {
         let http: Rc<dyn ShellHttp> = bridge.clone();
         let net_limits = NetLimits::new(crate::host_net::POOL_BYTES, 2)
             .tls_sessions(crate::tls_slots::SESSIONS)
+            // The computer's lines over the cable (`PPT/1`, `usb_lines`) reach the
+            // plugin that serves `net_serve` port 0 (the transfer, #900).
+            .cable(true)
             .max_body(16 * 1024);
         let net = NetInputs::new(storage.clone(), http, network, net_limits);
-        match resources.wire(HostWiring::new().net(net).sockets(sockets)) {
-            Ok(wired) => bridge.wired(storage.clone(), wired.net(), wired.sockets()),
-            Err(status) => warn!("native: core.net and core.sockets not wired ({status})"),
+        // `core.work` with them: its scheduler reads the same clock and the
+        // same network the bridge does, and is wired before the per-plugin
+        // network policy is filled.
+        let work = WorkInputs::new(bridge.clone(), crate::DEVICE.memory);
+        match resources.wire(HostWiring::new().net(net).sockets(sockets).work(work)) {
+            Ok(wired) => {
+                bridge.wired(storage.clone(), wired.net(), wired.sockets());
+                crate::device_host::wired_work();
+            }
+            Err(status) => {
+                warn!("native: core.net, core.sockets and core.work not wired ({status})")
+            }
+        }
+    }
+
+    /// Wires `core.document`, `core.library` and `core.files` over the card:
+    /// the books a plugin reads, the catalog, and the card's files. One wiring,
+    /// because `core.files` needs the sources of what the host holds in use
+    /// (the library's moves, the reader's book). Offered to plugins only when
+    /// it succeeded (`device_host::wired_card`); a table that is
+    /// borrowed or missing counts as not wired. Not reached by a plugin until
+    /// the activation (the stack gate).
+    fn wire_card(&self, storage: &alloc::rc::Rc<dyn Storage>) {
+        use alloc::rc::Rc;
+        use paperpaw_core::native_host::HostWiring;
+        let Ok(table) = self.resources.0.try_borrow() else {
+            warn!("native: core.document, core.library and core.files not wired (table busy)");
+            return;
+        };
+        let Some(resources) = table.as_ref() else {
+            warn!("native: core.document, core.library and core.files not wired (no table)");
+            return;
+        };
+        let display = crate::DEVICE.display;
+        let wiring = HostWiring::new()
+            .documents(
+                crate::DEVICE.memory,
+                u32::from(display.width.max(display.height)),
+            )
+            .library(storage.clone(), Rc::new(CardCatalog))
+            .files(storage.clone());
+        match resources.wire(wiring) {
+            Ok(_) => crate::device_host::wired_card(),
+            Err(status) => {
+                warn!("native: core.document, core.library and core.files not wired ({status})")
+            }
+        }
+    }
+
+    /// Wires `core.lookup`: the dictionaries' query service. It reads what the
+    /// plugins declared and keeps nothing of its own; offered to the linked
+    /// plugins only where it succeeded (`device_host::wired_lookup`), and
+    /// never to a card plugin (`native_offer::card_services`).
+    #[cfg(feature = "native-on")]
+    fn wire_lookup(&self) {
+        use paperpaw_core::native_host::HostWiring;
+        let Ok(table) = self.resources.0.try_borrow() else {
+            warn!("native: core.lookup not wired (table busy)");
+            return;
+        };
+        let Some(resources) = table.as_ref() else {
+            warn!("native: core.lookup not wired (no table)");
+            return;
+        };
+        match resources.wire(HostWiring::new().lookup()) {
+            Ok(_) => crate::device_host::wired_lookup(),
+            Err(status) => warn!("native: core.lookup not wired ({status})"),
+        }
+    }
+
+    /// Wires `core.secrets`: the card's file, sealed with the device key.
+    /// Before the first plugin is admitted, as the families above, so a card
+    /// plugin that declares it is admitted at this start; offered to plugins
+    /// only where it succeeded (`device_host::wired_secrets`). A plugin reaches
+    /// its own secrets only: the file is keyed by the plugin's id, which the host
+    /// gives (the card folder's name, which `load_native` refuses where it is
+    /// the id of a linked plugin), never the plugin.
+    #[cfg(feature = "ppn5")]
+    fn wire_secrets(&self, storage: &alloc::rc::Rc<dyn Storage>) {
+        use paperpaw_core::native_host::HostWiring;
+        let Ok(table) = self.resources.0.try_borrow() else {
+            warn!("native: core.secrets not wired (table busy)");
+            return;
+        };
+        let Some(resources) = table.as_ref() else {
+            warn!("native: core.secrets not wired (no table)");
+            return;
+        };
+        match resources.wire(HostWiring::new().secrets(self.secrets.inputs(storage))) {
+            Ok(mut wired) => {
+                if wired.secrets().is_some() {
+                    crate::device_host::wired_secrets();
+                }
+                self.secrets.keep(&mut wired);
+            }
+            Err(status) => warn!("native: core.secrets not wired ({status})"),
         }
     }
 }
 
 impl CodeLoader for Loader {
+    /// Wires what the shell offers (`core.net`, `core.sockets`, `core.work`
+    /// with the network's bridge, and `core.document`, `core.library`,
+    /// `core.files` over the card) before the first plugin is admitted, so the
+    /// lists (`paperpaw_x4::native_offer`) are what is wired at this start. They are
+    /// wired before the per-plugin network policy is filled (a later wiring
+    /// would show plugins a false `network_off`); they need the card too
+    /// (files read to, the staged file).
+    #[cfg(feature = "ppn5")]
+    fn prepare(&mut self, storage: &alloc::rc::Rc<dyn Storage>) {
+        crate::device_host::reset_wired();
+        {
+            let Ok(mut table) = self.resources.0.try_borrow_mut() else {
+                warn!("native: no host services wired (table busy)");
+                return;
+            };
+            if table.is_none() {
+                *table = new_resources(Some(self.resources.device_host()));
+            }
+        }
+        self.wire_network(storage);
+        self.wire_card(storage);
+        #[cfg(feature = "native-on")]
+        self.wire_lookup();
+        self.wire_secrets(storage);
+    }
+
     fn load(
         &mut self,
         storage: &dyn Storage,
@@ -581,6 +691,63 @@ impl CodeLoader for Loader {
         // By its id, as safe mode switches it off.
         crate::safe_mode::loading(code.id.as_str());
         self.load_file(storage, code)
+    }
+
+    /// A format-5 file (interface 7) is hosted for the kernel to admit with
+    /// everything it declares: `make` runs in the kernel's registration
+    /// transaction, and its screens, settings and callbacks are registered
+    /// all together or the plugin is refused (`Unsupported` where the stack's
+    /// band is not armed, `NoRoom`, `Damaged`, ...; never loaded without what
+    /// it declared). Any other file is `load`'s.
+    #[cfg(feature = "ppn5")]
+    fn load_native(
+        &mut self,
+        storage: &dyn Storage,
+        code: &CodeFile<'_>,
+    ) -> Result<Option<Box<dyn paperpaw_core::NativeAdmission>>, PluginProblem> {
+        let path = code.path;
+        let mut head = [0; HEADER_LEN];
+        read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
+        if !ppn5::is_format5(&head) {
+            return Ok(None);
+        }
+        // The id of a linked plugin is that plugin's: a card folder is named by
+        // whoever made it, and the id keys secrets and files. Card plugins are
+        // admitted before the linked ones register, so this is the one place.
+        if paperpaw_app::is_linked_id(code.id.as_str()) {
+            warn!(
+                "native: {path}: `{}` is a plugin built into this firmware; a card plugin cannot take its id",
+                code.id.as_str()
+            );
+            return Err(PluginProblem::Mismatch);
+        }
+        // By its id, as safe mode switches it off.
+        crate::safe_mode::loading(code.id.as_str());
+        // As `load_file`: without the net at the stack's end a frame that
+        // overflows is not caught.
+        if !crate::stack::band_armed() {
+            warn!("native: {path} not run: the stack's band is not armed");
+            return Err(PluginProblem::Unsupported);
+        }
+        let Some(depth) = self.resources.depth() else {
+            return Err(PluginProblem::NoRoom);
+        };
+        let Ok(mut resources) = self.resources.0.try_borrow_mut() else {
+            return Err(PluginProblem::NoRoom);
+        };
+        let hosted = ppn5::host(
+            &mut self.place,
+            &depth,
+            &mut resources,
+            &self.device,
+            storage,
+            code,
+        );
+        drop(resources);
+        if hosted.is_ok() {
+            crate::stack::native_loaded();
+        }
+        hosted.map(Some)
     }
 
     /// What interface-7 plugins are served: `text.hyphenate` (the data
@@ -603,26 +770,16 @@ impl CodeLoader for Loader {
         // what is wired, so nothing is recorded wrongly.
         // `core.ui` was wired when the table of handles was made (before any
         // plugin loaded); `text.hyphenate` needs the card, which only comes here.
-        // `core.secrets` with them: the card's file, sealed with the device key.
-        let mut wired = match resources.as_ref()?.wire(
-            HostWiring::new()
-                .hyphenation(storage.clone())
-                .secrets(self.secrets.inputs(storage)),
-        ) {
+        let wired = match resources
+            .as_ref()?
+            .wire(HostWiring::new().hyphenation(storage.clone()))
+        {
             Ok(wired) => wired,
             Err(status) => {
-                warn!("native: text.hyphenate and core.secrets not wired ({status})");
+                warn!("native: text.hyphenate not wired ({status})");
                 return None;
             }
         };
-        self.secrets.keep(&mut wired);
-        // The table is borrowed no longer: `wire_sockets` takes it again.
-        drop(resources);
-        // This hook runs at the end of the kernel's build, before `Kernel::start`:
-        // `core.net` and `core.sockets` are wired before the per-plugin network policy is
-        // filled (a later wiring would show plugins a false `network_off`).
-        // It needs the card too (files read to, the staged file).
-        self.wire_network(storage);
         wired.hyphen().cloned()
     }
 

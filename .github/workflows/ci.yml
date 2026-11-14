@@ -42,9 +42,9 @@ env:
 
 jobs:
   # "Format, lint, test" is the required check and is the job `check` at the
-  # end of this group: it passes only when both parts below passed (not
+  # end of this group: it passes only when all three parts below passed (not
   # skipped, not cancelled). The parts run side by side, which takes the
-  # lint (about 4 minutes) off the path of the tests (about 16).
+  # lint and the feature builds of the tests off the path of the workspace tests.
   lint:
     name: Format, lint, docs
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
@@ -90,7 +90,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: check
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
       - run: cargo test --workspace
       # The line-break table (crates/paperpaw-text/src/linebreak) is made from
       # Unicode 17.0.0's files, pinned by SHA-256 in the generator (a changed
@@ -113,6 +113,24 @@ jobs:
           done
           python3 tools/linebreak-table.py "$dir" --check
           PAPERPAW_UCD_TESTS="$dir" PAPERPAW_REQUIRE_UCD=1 cargo test -p paperpaw-text --lib linebreak
+
+  # The feature builds of the tests run beside the workspace run (they were
+  # its tail, about 16 minutes after it): the same commands, a job of their own.
+  test-features:
+    name: Tests (feature builds)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      # Reads the cache the test job saves (shared-key check); never saves.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: check
+          save-if: false
       # Builds without runtime font rendering use bitmap font packs; the plugins of the
       # store that carry a copy of their card files for the apps read the card without it;
       # the kernel without panes is that of the Xteink devices.
@@ -127,22 +145,27 @@ jobs:
       # #243): every format that may sleep is a native plugin there, so its
       # parity cases run and the cycles require it.
       - run: cargo test -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles
+      # Every linked plugin's screens keep the entry of their titles table (#248):
+      # the test is compiled out unless the app's `native-linked*` features are on.
+      - run: cargo test -p paperpaw-app --features native-linked-reading --test linked_settings_tables
+      - run: cargo test -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
 
   check:
     name: Format, lint, test
     # Runs whatever the parts did (a failed or cancelled part must not leave
     # this check missing or skipped), but not for a draft pull request.
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    needs: [lint, test]
+    needs: [lint, test, test-features]
     runs-on: ubuntu-latest
     env:
       LINT: ${{ needs.lint.result }}
       TEST: ${{ needs.test.result }}
+      TEST_FEATURES: ${{ needs.test-features.result }}
     steps:
-      - name: Both parts passed
+      - name: All parts passed
         run: |
-          echo "lint: $LINT, test: $TEST"
-          [ "$LINT" = success ] && [ "$TEST" = success ]
+          echo "lint: $LINT, test: $TEST, test-features: $TEST_FEATURES"
+          [ "$LINT" = success ] && [ "$TEST" = success ] && [ "$TEST_FEATURES" = success ]
 
   screens:
     name: Screens checked (paperpaw-dev)
@@ -155,7 +178,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
       - run: cargo build --release -p paperpaw-dev
       # Every screen and widget on the X4s and the Boox, offline from the
       # emulator's fixtures: a text under a row or a control, a part off
@@ -195,7 +218,7 @@ jobs:
           toolchain: "1.88"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
       - run: cargo +1.88 check --workspace --all-targets
       - name: Bluetooth host regressions on oldest Rust
         run: cargo +1.88 test --manifest-path tools/bluetooth-tests/Cargo.toml --locked --target x86_64-unknown-linux-gnu
@@ -216,7 +239,7 @@ jobs:
       - run: rustup toolchain install "$NIGHTLY" --profile minimal
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
       # Each tool from the cache, else the release, else crates.io.
       - uses: ./.github/actions/cargo-tool
         with:
@@ -312,7 +335,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
       - name: Build kernel and first-party plugins
         # The standard app pulls in every first-party plugin, so a new
         # one is built here without being listed.
@@ -365,13 +388,17 @@ jobs:
           clang-fallback: "true"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
           # The firmware, the sample code plugin and paperpaw-sign.
           workspaces: |
             shells/xteink
             samples/hello-native
             .
-          key: ${{ matrix.device }}
+          # The two S3 devices build the same dependencies (the core library for
+          # Xtensa, esp-hal, mbedTLS) and the X4 and the X3 the same for RISC-V:
+          # one cache for each pair, not four (the four held 6.8 of the 10 GB the
+          # repository may keep, and evicted the small caches that matter more).
+          shared-key: ${{ (matrix.device == 'x4-pro' || matrix.device == 'x4-classic') && 'firmware-s3' || 'firmware-riscv' }}
       # Code plugins for the ESP32-S3 link with core libraries built once,
       # as the release publishes them; installed first, as the release
       # does, so that everything after builds beside them.
@@ -389,14 +416,30 @@ jobs:
         # flags of shells/xteink/.cargo/config.toml (no jump tables, frame
         # pointers), which the frame budgets are measured with. Clippy denies
         # the warnings itself; build.rs fails the build if the flags are missing.
+        # The build remaps the runner's paths as the release's does
+        # (tools/ci/firmware-remap.sh): the image here is the released one's
+        # size (shells/xteink/size-budget.txt).
         run: |
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,remote" -- -D warnings
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE" -- -D warnings
-          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE"
-      # The loader's S3 code (format-5 files in PSRAM, `ppn5`) is off by
-      # default and so not in the lint and build above; the X4's own job
-      # (firmware-host-frames) covers the X4. Without the job's RUSTFLAGS,
-      # as above.
+          remap="$("$GITHUB_WORKSPACE/tools/ci/firmware-remap.sh" "$FIRMWARE_TARGET" "$FIRMWARE_TOOLCHAIN")"
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE"
+      # The released build's install image against its size budget
+      # (shells/xteink/size-budget.txt, ticket #258). Measured here, before the
+      # next step rebuilds the same file with `ppn5` and legacy symbol names on
+      # the S3: the later install-image step packs that build, not this one.
+      # Fails when the image is over its line, and when the image or the line
+      # is missing (tools/size-report.py).
+      - name: The install image stays within its size budget
+        uses: ./.github/actions/install-image
+        with:
+          out: ${{ runner.temp }}/released.bin
+      - name: The released image against shells/xteink/size-budget.txt
+        run: python3 -I tools/size-report.py check --device "$DEVICE" --image "$RUNNER_TEMP/released.bin"
+      # The loader's S3 code (format-5 files in PSRAM, `ppn5`) is not part of
+      # the S3 device features yet and so not in the lint and build above; the
+      # X4's native image has its own job (firmware-host-frames). Without the
+      # job's RUSTFLAGS, as above.
       - name: Lint and build the S3 with interface-7 plugins
         if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
         working-directory: shells/xteink
@@ -530,7 +573,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
           key: update-path
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -557,7 +600,7 @@ jobs:
           targets: riscv32imc-unknown-none-elf
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
           workspaces: |
             .
             crates/paperpaw-core/tests/native-plugin
@@ -654,7 +697,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
           workspaces: |
             .
             crates/paperpaw-core/tests/native-plugin
@@ -697,6 +740,8 @@ jobs:
       # the last release has one (or says no reader sees the change).
       - name: A store plugin that changed has a newer version
         run: python3 tools/plugin-files/versions.py
+      - name: The size gate fails when an image is over its budget or a file is missing
+        run: python3 -m unittest discover -s tools -p "test_size_report.py"
       - name: The handbook holds the SDK and PaperPaw's own plugins, without tests
         run: python3 -m unittest discover -s tools -p "test_handbook.py"
       - name: CI tool setup verifies binaries and keeps its missing-tool fallback
@@ -731,7 +776,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
       - run: cargo build -p paperpaw-emulator
       - name: Headless smoke test on every profile
         shell: bash
@@ -787,7 +832,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
       - run: cargo install cargo-ndk --locked
       # The runner's variables are not in the `env` context, so the NDK
       # path is passed on through GITHUB_ENV.
@@ -814,7 +859,7 @@ jobs:
           toolchain: nightly
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
           workspaces: fuzz
       - run: cargo install cargo-fuzz --locked
       - name: One minute per target, seeded with the sample books
@@ -859,32 +904,39 @@ jobs:
       - name: Bluetooth host-test dependencies too
         run: cargo deny --manifest-path tools/bluetooth-tests/Cargo.toml --all-features check
 
-  # What a plugin's code can call into on the X4 (the interface-7 host entries,
-  # the dispatch, the loader's x4 module) exists in the firmware built with
-  # `ppn5`, which is off by default and so not in the `firmware` jobs' builds.
-  # Its own job, beside them, builds the X4 with it and holds those functions'
-  # stack frames under the 2 KiB band at the main stack's end
-  # (`shells/xteink/frame-budget-ppn5.txt`).
+  # The native image of the X4 and the X3 (the interface-7 plugins linked and
+  # hosted, the loader for card plugins: what the device features `x4` and `x3`
+  # build, #243). Its own job,
+  # beside the `firmware` jobs, holds the functions a plugin's code can call into
+  # under the 2 KiB band at the main stack's end
+  # (`shells/xteink/frame-budget-ppn5.txt`), the linked plugins' entry frames
+  # (`frame-budget-linked.txt`) and the paths of the start and the main loop
+  # above the band (`tools/check-x4-start-stack.py`).
   firmware-host-frames:
-    name: Firmware interface-7 host frames (x4, ppn5)
+    name: Firmware interface-7 host frames (${{ matrix.device }}, ppn5)
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # The X3 has the X4's chip and code but its own board and features.
+        device: [x4, x3]
     env:
-      DEVICE: x4
+      DEVICE: ${{ matrix.device }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/xteink-tools
         with:
-          device: x4
+          device: ${{ matrix.device }}
           clang-fallback: "true"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
           workspaces: |
             shells/xteink
             .
-          key: x4-ppn5
+          key: ${{ matrix.device }}-ppn5
       - name: Lint the X4 with interface-7 plugins
         working-directory: shells/xteink
         # The `ppn5` code sites are not in the other jobs' lint.
@@ -898,6 +950,13 @@ jobs:
           cargo run -q --release -p paperpaw-sign -- frames \
             shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
             --budget shells/xteink/frame-budget-ppn5.txt
+      - name: The linked plugins' entry frames fit under the band
+        run: |
+          cargo run -q --release -p paperpaw-sign -- frames \
+            shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
+            --budget shells/xteink/frame-budget-linked.txt
+      - name: The start's and the main loop's stack paths stay above the band
+        run: python3 -I tools/check-x4-start-stack.py shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink
 
   # After a push to a branch that saves caches: the newest Rust cache entry of
   # each prefix stays, the older ones go. Every Cargo.lock change otherwise
@@ -909,7 +968,7 @@ jobs:
   prune-caches:
     name: Old Rust caches removed
     if: ${{ always() && github.event_name == 'push' }}
-    needs: [check, screens, msrv, sdk, abi7, embedded, firmware, update-path, native, table-compat, architecture, emulator, android, fuzz, deny, firmware-host-frames]
+    needs: [check, test, screens, msrv, sdk, abi7, embedded, firmware, update-path, native, table-compat, architecture, emulator, android, fuzz, deny, firmware-host-frames]
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:

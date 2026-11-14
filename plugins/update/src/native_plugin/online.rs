@@ -16,7 +16,7 @@ use alloc::string::String;
 use paperpaw_sdk::native::{
     Error, Host,
     commands::CommandSender,
-    device::DeviceCursor,
+    device::{DeviceCursor, DeviceOutcome},
     files::Files,
     net::{
         BODY_PART, FileRoot, Header, HttpDone, HttpProgress, Net, REPLY, REQUEST_INPUT, Reason,
@@ -395,6 +395,12 @@ impl NativeUpdate {
         let Some(running) = self.firmware(host)? else {
             return self.refresh(host);
         };
+        // Not started where it cannot go into this device's slot (a small
+        // layout, such as CrossPoint's): nothing is downloaded; the device
+        // refuses again at the install (Decision 179).
+        if !native_online::fits_slot(offer.size, running.room) {
+            return self.show_if(host, View::Unfit(DeviceOutcome::NoRoom));
+        }
         let path = concat(&[
             UPDATE_DIR,
             "/",

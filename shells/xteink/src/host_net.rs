@@ -794,6 +794,24 @@ fn trust_of(to: &TlsOpen<'_>) -> Result<Trust, i32> {
     }
 }
 
+/// What the device tells `core.work`: the clock `Kernel::tick` is given
+/// ([`crate::now`]) and whether a network is up. The radio is the user's and
+/// is never turned on for work, so "the radio is on anyway" is the network
+/// being up.
+impl paperpaw_core::native_host::shell_wiring::WorkDevice for Bridge {
+    fn now_ms(&self) -> u64 {
+        crate::now().0
+    }
+
+    fn network_up(&self) -> bool {
+        self.up.get()
+    }
+
+    fn radio_on(&self) -> bool {
+        self.up.get()
+    }
+}
+
 impl ShellNetwork for Bridge {
     fn now_ms(&self) -> u64 {
         crate::now().0

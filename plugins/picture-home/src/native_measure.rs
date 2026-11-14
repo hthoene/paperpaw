@@ -53,12 +53,28 @@ pub fn measure_handle(
     widget: MadeWidget,
     geometry: &Geometry,
 ) -> Result<(u8, u8), Error> {
+    measure_shown(host, ui, widget, geometry).map(|(rows, least, _)| (rows, least))
+}
+
+/// [`measure_handle`], and whether the widget shows nothing now (a height of
+/// 0: the shelf with no book read). Interface 6's widgets drew their plates
+/// themselves, so one that showed nothing had none.
+///
+/// # Errors
+/// Allocation and the host's refusals.
+pub fn measure_shown(
+    host: &Host<'_>,
+    ui: &Ui,
+    widget: MadeWidget,
+    geometry: &Geometry,
+) -> Result<(u8, u8, bool), Error> {
     let MadeWidget::Widget(widget) = widget else {
-        return Ok((1, 1));
+        return Ok((1, 1, false));
     };
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let size = ui.widget_measure(host, widget, grid_width(geometry), &mut input, &mut out)?;
-    Ok(rows_of(geometry, size.height(), size.min_height()))
+    let (rows, least) = rows_of(geometry, size.height(), size.min_height());
+    Ok((rows, least, size.height() == 0))
 }
 
 /// Makes the widget `id` at `place`, measures it and lets it go; `None` where

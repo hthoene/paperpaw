@@ -100,10 +100,9 @@ fn the_ids_of_the_table_are_the_plugins_ids_and_there_are_no_two() {
         assert!(ids.contains(&id), "{id}");
         assert!(STORE_PLUGINS.contains(&id), "{id}");
     }
-    // The ones that are not finished are not.
-    for id in ["dictionary", "sleep"] {
-        assert!(!ids.contains(&id), "{id}");
-    }
+    // Sleep is linked always; the dictionary with the reader (it looks words
+    // up through `core.lookup`, Decision 173), checked below.
+    assert!(ids.contains(&"sleep"));
     // The ones linked with the reader (`native-linked-reading`: home, reader,
     // the formats TXT, XTC, EPUB, HTML, FB2, Markdown and CBZ, and with the
     // store's plugins news, vocabulary and the formats DOCX, images and MOBI)
@@ -113,6 +112,7 @@ fn the_ids_of_the_table_are_the_plugins_ids_and_there_are_no_two() {
     for id in [
         "home",
         "reader",
+        "dictionary",
         "news",
         "vocabulary",
         "format-txt",

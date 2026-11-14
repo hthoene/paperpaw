@@ -114,13 +114,15 @@ impl Preset {
     /// do not fit their setting are left out, so a preset made for
     /// plugins this device lacks still applies the rest.
     pub fn changes(&self, settings: &Settings, covered: &[Id]) -> Vec<(Id, Option<SettingValue>)> {
+        let known = |id: &str| settings.with_spec(id, |_| ()) == Ok(Some(()));
         let mut out: Vec<(Id, Option<SettingValue>)> = covered
             .iter()
-            .filter(|id| settings.spec(id.as_str()).is_some())
+            .filter(|id| known(id.as_str()))
             .map(|id| (id.clone(), None))
             .collect();
         for (id, text) in self.values() {
-            let Some(value) = settings.spec(id).and_then(|spec| spec.kind.parse(text)) else {
+            let parsed = settings.with_spec(id, |spec| spec.kind.parse(text));
+            let Ok(Some(Some(value))) = parsed else {
                 continue;
             };
             let Ok(id) = Id::parse(id) else {
@@ -155,12 +157,19 @@ pub fn theme_settings(settings: &Settings) -> Vec<Id> {
         crate::logo::LOGO.static_str(),
         WIDGET_FRAME.static_str(),
     ];
-    settings
-        .specs()
-        .filter(|spec| settings.group_of(spec) == crate::builtin::groups::LOOK)
-        .filter(|spec| !kept.contains(&spec.id.as_str()))
-        .map(|spec| spec.id.clone())
-        .collect()
+    let mut covered = Vec::new();
+    let walked = settings.each_spec(crate::settings::Pick::All, |spec| {
+        if settings.group_of(spec) == crate::builtin::groups::LOOK
+            && !kept.contains(&spec.id.as_str())
+        {
+            covered.push(spec.id.clone());
+        }
+    });
+    // A part of them would change a part of the look: none, then.
+    if walked.is_err() {
+        covered.clear();
+    }
+    covered
 }
 
 /// What applying `theme` makes of the settings it covers
@@ -213,11 +222,16 @@ pub fn widget_look_settings(settings: &Settings, widgets: &crate::widgets::Widge
                 .is_some_and(|widget| widgets.has(widget))
         })
     };
-    settings
-        .specs()
-        .filter(|spec| all.contains(&spec.id.as_str()) || of_widget(spec.id.as_str()))
-        .map(|spec| spec.id.clone())
-        .collect()
+    let mut covered = Vec::new();
+    let walked = settings.each_spec(crate::settings::Pick::All, |spec| {
+        if all.contains(&spec.id.as_str()) || of_widget(spec.id.as_str()) {
+            covered.push(spec.id.clone());
+        }
+    });
+    if walked.is_err() {
+        covered.clear();
+    }
+    covered
 }
 
 /// What `look` changes among [`widget_look_settings`].
@@ -275,10 +289,7 @@ fn kept<'a>(
     id: &Id,
     value: Option<&'a SettingValue>,
 ) -> Option<&'a SettingValue> {
-    let default = settings
-        .spec(id.as_str())
-        .filter(|spec| spec.id == *id)
-        .map(|spec| &spec.default);
+    let default = settings.default_of(id.as_str());
     value.filter(|value| widget_frame(id) || Some(*value) != default)
 }
 

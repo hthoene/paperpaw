@@ -47,13 +47,14 @@ pub(crate) fn dispatch_stage<S: 'static, M>(
                             cap: capacity,
                         },
                     )
-                });
-                if result >= 0 && result as usize > capacity {
+                })?;
+                Ok(if result >= 0 && result as usize > capacity {
                     ERR_INVALID
                 } else {
                     result
-                }
+                })
             })
             .map_err(Error::from)
+            .and_then(|status| status)
     })?
 }

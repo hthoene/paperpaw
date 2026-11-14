@@ -30,7 +30,7 @@ std::thread_local! {
     static CHECK_TEARDOWN: Cell<bool> = const { Cell::new(false) };
     static TEARDOWN_STATUS: Cell<i32> = const { Cell::new(0) };
     static FLAGS: Cell<u32> = const { Cell::new(0) };
-    static DESTROYED: Cell<u32> = const { Cell::new(0) };
+    pub(super) static DESTROYED: Cell<u32> = const { Cell::new(0) };
     static REPORTS: Cell<u32> = const { Cell::new(0) };
     static STAMPS: RefCell<Vec<(u64, u64)>> = const { RefCell::new(Vec::new()) };
     static EVENTS: RefCell<Vec<(u32, u32, u32, u32)>> = const { RefCell::new(Vec::new()) };
@@ -408,7 +408,7 @@ unsafe extern "C" fn screen_event(
     EVENTS.with(|events| events.borrow_mut().push(row));
     OK
 }
-fn host(flags: u32) -> Hosted<Heap, ()> {
+pub(super) fn host(flags: u32) -> Hosted<Heap, ()> {
     host_named("factory", flags)
 }
 fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
@@ -432,6 +432,7 @@ fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
             DeclaredServices::none().with_features(input_records::FEATURES.with(Cell::get)),
         )
     }
+    .inspect(super::native_entry_hooks::announce_if_set)
     .unwrap()
 }
 /// The device's depth counter: the first plugin's, once there is one.
@@ -498,7 +499,7 @@ pub(super) fn kernel(flags: u32) -> crate::Kernel {
     install(&mut kernel, flags).unwrap();
     kernel
 }
-fn open(kernel: &mut crate::Kernel, params: Params) {
+pub(super) fn open(kernel: &mut crate::Kernel, params: Params) {
     kernel.open_screen(
         paperpaw_platform::Instant(1),
         Id::new_static("factory.screen"),

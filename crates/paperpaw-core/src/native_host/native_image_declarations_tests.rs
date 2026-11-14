@@ -25,7 +25,7 @@ use paperpaw_native::host_glue::{ERR_NO_SPACE, Services};
 use paperpaw_plugin_widgets::NATIVE_ENTRY;
 use std::alloc::Layout;
 
-struct Heap;
+pub(super) struct Heap;
 impl Services for Heap {
     fn alloc(&self, s: usize, a: usize) -> *mut u8 {
         // SAFETY: host validates the nonzero layout before forwarding.
@@ -43,7 +43,7 @@ impl Services for Heap {
         0
     }
 }
-fn report(_: &Heap, _: &str, s: super::TeardownStep, e: super::Error) {
+pub(super) fn report(_: &Heap, _: &str, s: super::TeardownStep, e: super::Error) {
     std::eprintln!("native teardown {s:?}: {e:?}");
 }
 
@@ -76,7 +76,7 @@ pub(super) fn image() -> &'static [u8] {
     panic!("the anchor is in no mapping");
 }
 
-fn declared_services() -> shell::DeclaredServices {
+pub(super) fn declared_services() -> shell::DeclaredServices {
     use paperpaw_native::metadata::{self, Host as AdmissionHost, Profile, Service};
     let services = ["core.registry", "core.ui", "core.library", "core.files"].map(|key| Service {
         key,
@@ -280,8 +280,8 @@ fn an_image_that_is_not_the_one_the_batches_were_kept_in_is_refused() {
     }
 }
 
-/// The (kept, copied) settings of the pack for `table`.
-fn settings_paths(table: &'static [paperpaw_sdk::SettingSpec]) -> (usize, usize) {
+/// The (kept, copied, described) settings of the pack for `table`.
+fn settings_paths(table: &'static [paperpaw_sdk::SettingSpec]) -> (usize, usize, usize) {
     // SAFETY: as in `construct`.
     let hosted = unsafe {
         shell::Hosted::new(
@@ -335,12 +335,14 @@ fn every_setting_of_the_widget_pack_takes_its_table_entry() {
     // The table the build script makes of the declarations: a spec that
     // silently fell back to a copy would lose the saving unseen, so none may.
     let table = paperpaw_plugin_widgets::NATIVE_SETTINGS;
-    let (kept, copied) = settings_paths(table);
+    let (kept, copied, described) = settings_paths(table);
     assert!(kept > SPECS_MAX, "{kept} settings kept, {copied} copied");
     assert_eq!(copied, 0, "{copied} settings of the pack are copies");
+    assert_eq!(described, 0, "the table stands for them, no record does");
     assert_eq!(kept, table.len(), "every entry of the table is taken once");
-    // Without a table every one is a copy, as before.
-    assert_eq!(settings_paths(&[]), (0, kept));
+    // Without a table none is a copy either: the records in the image
+    // describe every one of them (#248).
+    assert_eq!(settings_paths(&[]), (0, 0, kept));
 }
 
 #[test]
@@ -358,8 +360,8 @@ fn a_table_entry_that_differs_from_the_declaration_is_not_taken() {
     };
     changed[first].default = paperpaw_sdk::SettingValue::Bool(!was);
     let changed: &'static [paperpaw_sdk::SettingSpec] = std::boxed::Box::leak(changed.into());
-    let (kept, copied) = settings_paths(changed);
-    assert_eq!((kept + copied, copied), (table.len(), 1));
+    let (kept, copied, described) = settings_paths(changed);
+    assert_eq!((kept + copied, copied, described), (table.len(), 1, 0));
 }
 
 #[test]

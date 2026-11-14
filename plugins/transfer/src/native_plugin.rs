@@ -68,6 +68,9 @@ mod phone;
 
 /// What the host's `serve` and `stop_serving` reply with, at most.
 const SERVE_OUT: usize = 1536;
+/// The room for the reply of `sec_random` (`secrets.md` 2.5: `max_reply` 1,280); the
+/// host refuses a call whose reply buffer is smaller (`ERR_NO_SPACE`).
+const RANDOM_REPLY: usize = 1280;
 
 /// What the screen shows.
 #[derive(Debug)]
@@ -720,7 +723,7 @@ fn draw_from<'a>(
 ) -> impl FnMut(&mut [u8]) -> Result<bool, Error> + 'a {
     move |bytes: &mut [u8]| {
         let secrets = handle(secrets, || Secrets::open(host))?;
-        let (mut input, mut out) = (buffer(128)?, buffer(512)?);
+        let (mut input, mut out) = (buffer(128)?, buffer(RANDOM_REPLY)?);
         let drawn = secrets.random(host, bytes.len(), &mut input, &mut out);
         let strong = drawn.map(|drawn| {
             bytes.copy_from_slice(drawn.bytes());

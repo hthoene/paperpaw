@@ -672,6 +672,9 @@ pub(crate) struct Staging {
     slots: Vec<SlotSpec>,
     candidates: Vec<SlotCandidate>,
     pub(crate) settings: Vec<Staged>,
+    /// A native plugin's settings described from its own records, defined
+    /// after the others (`native_host::described_settings`).
+    pub(crate) described: Option<paperpaw_sdk::DescribedSettings>,
     pub(crate) keymaps: Vec<Cow<'static, str>>,
     /// Key maps that apply while a switch (the id) is on.
     pub(crate) keymaps_when: Vec<(Id, Cow<'static, str>)>,

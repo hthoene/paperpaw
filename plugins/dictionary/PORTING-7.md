@@ -125,10 +125,29 @@ list) is still in place beside the native one. It is removed in the PR that fini
   panel, and its entries could end with a line that opens more (*Open Wikipedia ›*). The native lookup service calls a
   provider that fetches itself whenever the network is up, and an entry has no "opens more": the line is replaced by
   *Online ›* (the same screen), and no first-party provider that fetches exists (Wikipedia is the slot's screen).
-- Not done: the hint text of the menu button (*Online ›*; the host's hints, #892) and *Looking up …* while providers
-  answer later (todo 98).
+- Not done: the hint text of the menu button (*Online ›*; the host's hints, #892).
 - Tests: `native_online` (what asks to go online), `native_popup` (the place of the label); not run on a host (the
   slot's offer and the opening need a scripted host with `core.registry` and `core.ui`).
+
+## Slice 7 (#244): later answers, linked (todo 98, #2769)
+
+- **Later answers** (`src/native_asking.rs`, `native_popup`, `native_plugin`): a provider's page flagged `pending`
+  (one that must fetch, `document.md` 7) is not shown; the panel waits for that provider and its note says
+  *Looking up …* (`dictionary.asking`), with no *not found* text while it waits, as Beta 3. The panel subscribes
+  `event.lookup_ready` (110); when the provider it waits for kept its answer, the word is looked up again (the
+  provider answers from what it kept) and the panel draws again on the page it showed. A timer (work
+  `dictionary.answers`, `after_ms` 20 s, Beta 3's `ANSWER_MS`, from the first panel that waits) ends the wait: the
+  note goes, and a panel of no entry says *not found*. Where the timer cannot be declared the panel does not wait
+  (a note that never goes says more than there is). **Differences to Beta 3:** Beta 3 asked network providers only
+  on *Online ›* and appended the one answer; the native lookup asks every provider whose network is up (host
+  rule), and a later answer is a new lookup of all (the order of the entries is the providers' order, not the
+  order of answering). No first-party provider answers `pending` today (the SDK's provider side has no pending
+  answer yet); tests: `native_asking` (who is waited for), `native_declarations` (the subscription). Not run on a
+  host (needs a scripted host with `core.lookup` and a provider that answers later).
+- **Linked:** under the app's `native-linked-reading` (the native reader asks it) the app lists `NATIVE_ENTRY` in
+  `NATIVE_PLUGINS`, keeps its settings in the program (`fixed_tables`, the build script's tables as menu's) and no
+  longer installs the interface-6 `DictionaryPlugin`. The interface-6 code stays in the crate until activation
+  (removal HELD, #244; held PR #853 is replaced by this one and gets refreshed for the removal then).
 
 ## What the slice loses (each returns in a later slice or with its host piece)
 
@@ -136,7 +155,7 @@ list) is still in place beside the native one. It is removed in the PR that fini
 - The panel (definitions, scrolling, the *Online* line, *Open more*), and the slot `core.lookup` it
   fills: a screen that cannot draw is not declared.
 - Background indexing of a dictionary's blocks on the first lookup (done in slice 2, as the provider's work).
-- Other plugins' providers in the panel, and providers answering later (todo 98).
+- Other plugins' providers in the panel (done with the panel), and providers answering later (done, slice 7).
 - The setting's section heading (`dictionary.section`).
 - Entries are cut at 2,048 bytes (interface 6 scrolled the whole definition).
 

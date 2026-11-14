@@ -103,6 +103,26 @@ fn pushed(kernel: &crate::Kernel, item: &str) -> Option<u32> {
         .map(crate::native_host::item_state::ItemPush::flags)
 }
 
+/// A setting its plugin describes (#248) is an item of its own without a
+/// spec made of it: no lack of room for one makes it an item not found.
+#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+#[test]
+fn the_state_of_a_described_setting_s_item_is_pushed_without_its_spec() {
+    use crate::native_host::described_settings::tests::{
+        define_plugin, no_room_for_a_spec, switch,
+    };
+    use crate::native_host::shell::tests::FAIL_SIZE;
+    let mut kernel = kernel(0, true);
+    let records = [switch("lazy", "Lazy", 0)];
+    let _shown = define_plugin(&mut kernel.shared.settings, "fake", &records);
+    no_room_for_a_spec();
+    let (submitted, result) = run(&mut kernel, &[state("lazy", FAINT)], OK);
+    let armed = FAIL_SIZE.with(|size| size.replace(0));
+    assert_ne!(armed, 0, "a spec was made");
+    assert_eq!((submitted, result), (OK, Ok(OK)));
+    assert_eq!(pushed(&kernel, "lazy"), Some(FAINT));
+}
+
 #[test]
 fn a_pushed_state_is_stored_after_the_callback_and_the_default_removes_it() {
     let mut kernel = kernel(1, true);

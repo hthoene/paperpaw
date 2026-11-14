@@ -118,10 +118,20 @@ impl KernelBuilder {
         signers: &'static [(&'static str, [u8; 32])],
     ) -> Self {
         self.0.plugin_host = Some(crate::native_host::plugin_job::PluginHost {
-            loader,
+            loader: Some(loader),
             offered,
             signers,
         });
+        self
+    }
+
+    /// [`Self::plugin_host`] for a device that loads no plugin code
+    /// (Boox/Android, desktop, web): plugin jobs install, check and remove
+    /// data plugins only; a plugin with a code file ends with reason 19
+    /// (`ERR_UNSUPPORTED`). It shares the queue of [`Self::firmware_host`].
+    #[must_use]
+    pub fn data_plugin_host(mut self) -> Self {
+        self.0.plugin_host = Some(crate::native_host::plugin_job::PluginHost::DATA_ONLY);
         self
     }
 
@@ -1161,11 +1171,7 @@ impl Kernel {
         for (plugin, id, value) in mem::take(&mut self.plugin_defaults) {
             // A setting that keeps the device safe takes no other plugin's
             // default.
-            let guarded = self
-                .shared
-                .settings
-                .spec(id.as_str())
-                .is_some_and(|spec| spec.guarded);
+            let guarded = self.shared.settings.defines_guarded(id.as_str());
             if guarded && id.namespace() != plugin.as_str() {
                 self.warn(
                     WarningSource::Plugin(plugin),
@@ -1266,21 +1272,33 @@ impl Kernel {
         }
         let mut secrets = Vec::new();
         for (id, value, line) in waiting {
-            let Some(spec) = self.shared.settings.spec(&id) else {
-                left.push((id, value, line));
-                continue;
+            let secret = match self.shared.settings.try_spec(&id) {
+                Ok(Some(spec)) => Ok(spec.extra().secret),
+                Ok(None) => {
+                    left.push((id, value, line));
+                    continue;
+                }
+                Err(error) => Err(error),
             };
-            let secret = spec.extra().secret;
             let unknown = format!("`{id}`: {}", paperpaw_sdk::SettingError::Unknown);
             self.warnings.retain(|warning| {
                 !(warning.line == line
                     && matches!(warning.source, WarningSource::UserConfig)
                     && warning.message == unknown)
             });
-            // A secret goes to the secrets, as one read at the build does.
-            if secret {
-                secrets.push((id, value));
-            } else if let Err(error) = self.shared.settings.set_from_text(&id, &value) {
+            let set = match secret {
+                // A secret goes to the secrets, as one read at the build does.
+                Ok(true) => {
+                    secrets.push((id, value));
+                    continue;
+                }
+                Ok(false) => self.shared.settings.set_from_text(&id, &value),
+                // No room to read what its plugin describes of it (#248):
+                // told as that, not as a setting nobody knows. The file
+                // keeps the value for the next start.
+                Err(error) => Err(error),
+            };
+            if let Err(error) = set {
                 self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
             }
         }

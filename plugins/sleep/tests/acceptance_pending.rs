@@ -30,11 +30,11 @@ const CASES: [Case; 5] = [
         blocked_by: &["H1", "H3"],
     },
     // Asleep, the screen takes every button but Sleep and Home, and its hints
-    // stay hidden: no native declaration of a screen's hint visibility yet.
+    // stay hidden (declared, `hints_hidden`; the host's input waits for H4).
     Case {
         name: "sleep-buttons-and-hints",
         golden: None,
-        blocked_by: &["H4", "HINTS-visibility"],
+        blocked_by: &["H4"],
     },
     // The screen closes when the device wakes; what opened as it woke stays.
     Case {
@@ -73,7 +73,7 @@ fn sleep_widgets() {
 }
 
 #[test]
-#[ignore = "BLOCKED H4/HINTS-visibility: input is not qualified; hints visibility has no declaration"]
+#[ignore = "BLOCKED H4: input is not qualified"]
 fn sleep_buttons_and_hints() {
     CASES[3].refuse().unwrap();
 }

@@ -80,3 +80,26 @@ fn the_host_admits_the_panel_screen() {
         validate_batch("dictionary", &records).unwrap();
     }
 }
+
+/// The panel hears when a provider that answers later kept its answer
+/// (`event.lookup_ready`, 110, `document.md` 7; todo 98): its screens' batch
+/// subscribes the panel's token to it.
+#[test]
+fn the_panel_hears_when_a_provider_kept_its_answer() {
+    use paperpaw_core::native_host::registrations::{Record, Registration};
+    /// `event.lookup_ready` (`abi/abi.def`).
+    const EVENT_LOOKUP_READY_TAG: u32 = 110;
+    let mut found = Vec::new();
+    for batch in batches!(declarations::screens) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::Registration(Registration::Event { event_tag, token }) = record {
+                found.push((event_tag, token));
+            }
+        }
+    }
+    assert_eq!(
+        found,
+        [(EVENT_LOOKUP_READY_TAG, declarations::POPUP_TOKEN)],
+        "{found:?}"
+    );
+}

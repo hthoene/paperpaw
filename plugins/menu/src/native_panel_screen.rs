@@ -138,12 +138,7 @@ impl PanelView {
                 i.kind == SettingKind::Choice && (2..=MAX_SEGMENTS as u32).contains(&i.choices)
             }) {
                 values = reader.choice_values(&info.key)?;
-                labels
-                    .try_reserve_exact(values.len())
-                    .map_err(|_| Error::NoMemory)?;
-                for value in &values {
-                    labels.push(messages.copy(host, value)?);
-                }
+                labels = choice_labels(&values, &mut |value| messages.copy(host, value))?;
             }
             parts.push(Part {
                 row,
@@ -223,6 +218,7 @@ impl PanelView {
             margin: style.margin,
             rtl: false,
             top: self.top,
+            touch: self.touch,
         };
         let entries = self.entries()?;
         let label = panel::label_width(
@@ -351,6 +347,11 @@ impl PanelView {
                 )?;
                 index += 1;
             }
+            if let (Some(track), Some(part)) =
+                (row.track, row.label.and_then(|i| self.parts.get(i)))
+            {
+                Self::draw_slider(body, style, track, part)?;
+            }
         }
         if let Some(bar) = layout.pager {
             let pages = layout.pages();
@@ -451,12 +452,14 @@ impl PanelView {
                 )?;
             }
             let color = if on && !faint { style.paper } else { ink };
-            let room =
-                f32::from(rect.width.saturating_sub(style.margin.saturating_mul(2))).max(1.0);
-            let fitted = text::fit(font, style.small, label, room)?;
-            let wide = font.measure_text(style.small, &fitted)?;
+            let room = f32::from(button_room(rect.width, style.margin)).max(1.0);
+            let size = label_size(style.small, room, &mut |size| {
+                font.measure_text(size, label)
+            })?;
+            let fitted = text::fit(font, size, label, room)?;
+            let wide = font.measure_text(size, &fitted)?;
             let x = f32::from(rect.x) + (f32::from(rect.width) - wide).max(0.0) / 2.0;
-            text::label(body, font, &fitted, style.small, x, rect, color, Some(rect))
+            text::label(body, font, &fitted, size, x, rect, color, Some(rect))
         };
         match control {
             Control::Toggle(_) => {
@@ -470,7 +473,8 @@ impl PanelView {
             Control::Step(_, step) => {
                 button(body, if step < 0 { "\u{2212}" } else { "+" }, false)?;
                 if step > 0 {
-                    self.draw_number(body, font, style, part, rect)?;
+                    let shown = self.number_text(host, messages, part)?;
+                    self.draw_number(body, font, style, &shown, rect)?;
                 }
                 Ok(())
             }
@@ -486,8 +490,8 @@ impl PanelView {
             Control::Open(_) => {
                 let value = match &part.info {
                     Some(info) => {
-                        crate::native_plugin::value_text(info, on_text, off_text, &mut |key| {
-                            messages.copy(host, key)
+                        crate::native_plugin::value_text(info, on_text, off_text, &mut |key, n| {
+                            crate::native_plugin::say(messages, host, key, n)
                         })?
                     }
                     None => String::new(),
@@ -527,26 +531,88 @@ impl PanelView {
         }
     }
 
+    /// The number of a stepped setting with its unit as the catalogs say
+    /// it (*9 pt*); empty where it has no number.
+    fn number_text(
+        &self,
+        host: &Host<'_>,
+        messages: &mut Messages,
+        part: &Part,
+    ) -> Result<String, Error> {
+        let Some(info) = part.info.as_ref() else {
+            return Ok(String::new());
+        };
+        let Some(Value::Int(now)) = info.value.as_ref() else {
+            return Ok(String::new());
+        };
+        model::said_with_unit(*now, &info.unit, &mut |key, n| {
+            crate::native_plugin::say(messages, host, key, Some(n))
+        })
+    }
+
+    /// A slider's track: a thin line, thick up to the knob, and the knob.
+    fn draw_slider(
+        body: &mut Vec<Paint>,
+        style: &Style,
+        track: Rect,
+        part: &Part,
+    ) -> Result<(), Error> {
+        let Some(info) = part.info.as_ref().filter(|i| i.slider()) else {
+            return Ok(());
+        };
+        let Some(Value::Int(now)) = info.value else {
+            return Ok(());
+        };
+        let ink = if part.row.choosable() {
+            style.ink
+        } else {
+            style.disabled
+        };
+        let radius = panel::knob_radius(track);
+        let knob = panel::knob_x(track, now, (info.min, info.max)).clamp(0, i32::from(u16::MAX));
+        let middle = track.y.saturating_add(track.height / 2);
+        let (thin, thick) = (style.line.max(1), style.line.saturating_mul(3).max(3));
+        let start = track.x.saturating_add(radius);
+        let end = track.x.saturating_add(track.width).saturating_sub(radius);
+        let at = knob as u16;
+        let line = |from: u16, to: u16, height: u16| {
+            Rect::new(
+                from,
+                middle.saturating_sub(height / 2),
+                to.saturating_sub(from),
+                height,
+            )
+        };
+        paint::push(body, Paint::Fill(line(start, end, thin), ink))?;
+        paint::push(body, Paint::Fill(line(start, at, thick), ink))?;
+        let circle = Rect::new(
+            at.saturating_sub(radius),
+            middle.saturating_sub(radius),
+            radius.saturating_mul(2),
+            radius.saturating_mul(2),
+        );
+        paint::push(body, Paint::Focus(circle, u32::from(radius), None, ink))
+    }
+
     /// A number's value between its `−` and its `+`, drawn beside the `+`.
     fn draw_number(
         &self,
         body: &mut Vec<Paint>,
         font: &Font<'_>,
         style: &Style,
-        part: &Part,
+        shown: &str,
         plus: Rect,
     ) -> Result<(), Error> {
-        let Some(Value::Int(now)) = part.info.as_ref().and_then(|i| i.value.as_ref()) else {
+        if shown.is_empty() {
             return Ok(());
-        };
-        let shown = model::with_unit(*now, part.info.as_ref().map_or("", |i| i.unit.as_str()))?;
-        let wide = font.measure_text(style.small, &shown)?;
+        }
+        let wide = font.measure_text(style.small, shown)?;
         let x = f32::from(plus.x) - style.gap as f32 - wide;
         let area = Rect::new(0, plus.y, plus.x, plus.height);
         text::label(
             body,
             font,
-            &shown,
+            shown,
             style.small,
             x.max(0.0),
             area,
@@ -608,6 +674,9 @@ impl PanelView {
             }
             _ => {}
         }
+        if let Some((row, track)) = layout.track_at(self.page, at) {
+            return self.set_by_tap(host, row, track, at);
+        }
         if let Some((_, control)) = layout.hit(self.page, at) {
             // The focus shown goes, as after other taps.
             if self.focus.take().is_some() {
@@ -616,6 +685,37 @@ impl PanelView {
             return self.activate(host, control);
         }
         Ok(Outcome::Handled(Handled::Yes))
+    }
+
+    /// A tap on a slider's track: the number is the nearest step to it.
+    fn set_by_tap(
+        &mut self,
+        host: &Host<'_>,
+        row: usize,
+        track: Rect,
+        at: Point,
+    ) -> Result<Outcome, Error> {
+        let handled = Ok(Outcome::Handled(Handled::Yes));
+        // The focus shown goes, as after other taps.
+        if self.focus.take().is_some() {
+            self.redraw(host)?;
+        }
+        let Some(part) = self.parts.get(row) else {
+            return handled;
+        };
+        let Some(info) = part.info.as_ref().filter(|i| i.slider()) else {
+            return handled;
+        };
+        if !part.row.choosable() {
+            return handled;
+        }
+        let next = panel::value_at(track, at.x, (info.min, info.max, info.step));
+        if !matches!(info.value, Some(Value::Int(now)) if now == next) {
+            let mut scratch = buffer(1024)?;
+            CommandSender::new(host, &mut scratch)
+                .set_setting(&info.key, SettingValue::Int(next))?;
+        }
+        handled
     }
 
     fn on_action(
@@ -752,5 +852,105 @@ impl PanelView {
             },
             _ => Outcome::Handled(Handled::Yes),
         })
+    }
+}
+
+/// The room for a button's label: its width less the margin on each side
+/// (at most a sixteenth of the width: the X4's UI font has one size, so a
+/// label that is a little too wide cannot be drawn smaller there, and
+/// "Refresh the screen" was cut to "Refresh the scr…" in a 200 px button),
+/// so a small round button (`−`, `+`) keeps most of its width and its sign
+/// is never cut to `…`.
+fn button_room(width: u16, margin: u16) -> u16 {
+    width.saturating_sub(margin.min(width / 16).saturating_mul(2))
+}
+
+/// The size a button's label is drawn at: the normal one, or smaller in
+/// steps of 5 % (never under three quarters) until `measure` says it fits
+/// the button's room, so "Refresh the screen" is not cut to "Refresh the
+/// scr…" (#257; Beta 3 drew these labels smaller). Only what still does not
+/// fit at that size is cut with "…".
+///
+/// # Errors
+/// What `measure` answers.
+fn label_size(
+    size: f32,
+    room: f32,
+    measure: &mut dyn FnMut(f32) -> Result<f32, Error>,
+) -> Result<f32, Error> {
+    let floor = size * 0.75;
+    let mut now = size;
+    while now > floor && measure(now)? > room {
+        now = (now * 0.95).max(floor);
+    }
+    Ok(now)
+}
+
+/// The labels of a choice's `values`, as `translate` says them; a value
+/// without a text of its own is said as it is and never takes the whole
+/// panel with it (#257: the reader's font panel did not open).
+///
+/// # Errors
+/// [`Error::NoMemory`] and the host's refusals other than "no such key".
+fn choice_labels(
+    values: &[String],
+    translate: &mut dyn FnMut(&str) -> Result<String, Error>,
+) -> Result<Vec<String>, Error> {
+    let mut labels = Vec::new();
+    labels
+        .try_reserve_exact(values.len())
+        .map_err(|_| Error::NoMemory)?;
+    for value in values {
+        labels.push(crate::native_plugin::or_as_it_is(translate(value), value)?);
+    }
+    Ok(labels)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "test assertions")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_choice_value_without_a_text_is_said_as_it_is_and_the_panel_opens() {
+        let values = [String::from("core.spacing.normal"), String::from("wide")];
+        let mut translate = |value: &str| match value {
+            "wide" => copy("Wide"),
+            _ => Err(Error::NotFound),
+        };
+        let labels = choice_labels(&values, &mut translate).unwrap();
+        assert_eq!(labels, ["core.spacing.normal", "Wide"]);
+        // A real failure still fails.
+        let mut refused = |_: &str| Err(Error::NoMemory);
+        assert_eq!(choice_labels(&values, &mut refused), Err(Error::NoMemory));
+    }
+
+    #[test]
+    fn a_label_wider_than_its_button_is_drawn_smaller_before_it_is_cut() {
+        // 0.6 of the size a letter: "Refresh the screen" is 18 letters.
+        let mut wide = |size: f32| Ok(18.0 * size * 0.6);
+        // At 17 it is 183 px in a 150 px room: smaller, and measured to fit.
+        let now = label_size(17.0, 150.0, &mut wide).unwrap();
+        assert!((12.75..17.0).contains(&now));
+        assert!(wide(now).unwrap() <= 150.0);
+        // A label that fits keeps its size.
+        assert_eq!(label_size(17.0, 200.0, &mut wide).unwrap(), 17.0);
+        // Never under three quarters of the size: the rest is cut with "…".
+        assert_eq!(label_size(17.0, 20.0, &mut wide).unwrap(), 12.75);
+        // A refusal of the measure is passed on.
+        let mut refused = |_: f32| Err(Error::NoMemory);
+        assert_eq!(label_size(17.0, 20.0, &mut refused), Err(Error::NoMemory));
+    }
+
+    #[test]
+    fn a_small_step_button_keeps_room_for_its_sign() {
+        // X4: a 44 px round button and a 20 px margin left 4 px, so `−`
+        // and `+` were drawn as `…`.
+        assert_eq!(button_room(44, 20), 40);
+        // A 200 px button keeps 176 px: "Refresh the screen" (154 px) fits.
+        assert_eq!(button_room(200, 20), 176);
+        // A wide button keeps its margins.
+        assert_eq!(button_room(400, 20), 360);
+        assert_eq!(button_room(0, 20), 0);
     }
 }

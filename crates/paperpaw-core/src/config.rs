@@ -56,6 +56,17 @@ const RENAMED: [(&str, &str, &str); 2] = [
     ("core.status-font", "Source Sans 3", "PaperPaw Sans"),
 ];
 
+/// The spec of setting `id` to set by its text (`Kernel::set_setting`); why
+/// not: one there is no room to read now (#248) is not an unknown one.
+pub(crate) fn spec_to_set<'a>(
+    settings: &'a paperpaw_sdk::Settings,
+    id: &str,
+) -> Result<&'a paperpaw_sdk::SettingSpec, &'static str> {
+    let spec = settings.try_spec(id);
+    spec.map_err(|_| "no room to read this setting now")?
+        .ok_or("no such setting")
+}
+
 /// `value` of setting `id` as kept in a file, under its new name where it
 /// was renamed and only the new one is a value it takes now.
 fn renamed(settings: &paperpaw_sdk::Settings, id: &str, value: String) -> String {
@@ -114,12 +125,7 @@ impl Kernel {
     /// active scope, or from the configuration file.
     pub(crate) fn reset_setting(&mut self, id: &Id) {
         // A secret setting is kept with the secrets: reset, it goes.
-        if self
-            .shared
-            .settings
-            .spec(id.as_str())
-            .is_some_and(|spec| spec.extra().secret)
-        {
+        if self.shared.settings.defines_secret(id.as_str()) {
             self.set_secret(paperpaw_sdk::secrets::SecretChange::remove(id.as_str()));
             self.secret_setting_changed(id);
             return;
@@ -174,11 +180,13 @@ impl Kernel {
     /// change changes.
     pub(crate) fn scoped_values(&self) -> Vec<(Id, Option<paperpaw_sdk::SettingValue>)> {
         let settings = &self.shared.settings;
-        settings
-            .specs()
-            .filter(|spec| spec.scoped)
-            .map(|spec| (spec.id.clone(), settings.get(spec.id.as_str()).cloned()))
-            .collect()
+        let mut values = Vec::new();
+        // One spec at a time: none a plugin describes is kept for this. For
+        // lack of memory the rest is left out (their change is not told).
+        let _ = settings.each(paperpaw_sdk::Pick::Scoped, |spec| {
+            values.push((spec.id.clone(), settings.get(spec.id.as_str()).cloned()));
+        });
+        values
     }
 
     /// Announces the scoped settings whose value differs from `before`.
@@ -228,6 +236,7 @@ impl Kernel {
             }
             _ => false,
         };
+        let mut full = false;
         let values = read.map(|text| {
             let text = text.ok().flatten().unwrap_or_default();
             let mut values = paperpaw_sdk::collections::VecMap::new();
@@ -239,11 +248,14 @@ impl Kernel {
                     (id, value) = (now.to_string(), was);
                 }
                 let value = renamed(&self.shared.settings, &id, value);
-                let parsed = self
-                    .shared
-                    .settings
-                    .specs()
-                    .find(|spec| spec.id.as_str() == id)
+                // No room to read what its plugin describes of it: the
+                // values read are not all there are.
+                let spec = self.shared.settings.try_spec(&id).unwrap_or_else(|_| {
+                    full = true;
+                    None
+                });
+                let parsed = spec
+                    .filter(|spec| spec.id.as_str() == id)
                     .and_then(|spec| Some((spec.id.clone(), spec.parse(&value)?)));
                 if let Some((id, value)) = parsed {
                     values.insert(id, value);
@@ -251,7 +263,21 @@ impl Kernel {
             }
             values
         });
-        self.shared.settings.set_scope(values);
+        // A part of its values is never taken for all of them, nor written
+        // over the file: without room to read them all, none is used.
+        let none = values
+            .as_ref()
+            .map(|_| paperpaw_sdk::collections::VecMap::new());
+        let full = full || self.shared.settings.try_set_scope(values).is_err();
+        if full {
+            self.shared.settings.set_scope(none);
+            if let Some(path) = &path {
+                self.warn_runtime(format!(
+                    "{path}: no memory to read its settings: they are not used or saved"
+                ));
+            }
+        }
+        let unreadable = unreadable || full;
         if had_values
             || self
                 .shared
@@ -330,8 +356,7 @@ impl Kernel {
             .filter_map(Result::ok)
             .filter(|entry| {
                 let id = format!("{}.{}", entry.section, entry.key);
-                settings.spec(&id).is_some_and(|spec| spec.scoped)
-                    && values.get(id.as_str()).is_none()
+                settings.defines_scoped(&id) && values.get(id.as_str()).is_none()
             })
             .map(|entry| (entry.section.to_string(), entry.key.to_string()))
             .collect();
@@ -612,12 +637,7 @@ impl Kernel {
                     };
                     let value =
                         Cow::<str>::Owned(renamed(&self.shared.settings, &id, value.into_owned()));
-                    let secret = self
-                        .shared
-                        .settings
-                        .spec(&id)
-                        .is_some_and(|spec| spec.extra().secret);
-                    if secret {
+                    if self.shared.settings.defines_secret(&id) {
                         secrets_moved.push((id, value.to_string()));
                         continue;
                     }

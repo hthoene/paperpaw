@@ -36,7 +36,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input},
         clock,
         commands::{CommandSender, RedrawMode},
-        document::{DocId, DocPosition, Documents, OpenBook, Preparation, Report, Root},
+        document::{DocId, DocPosition, Documents, Preparation, Report, Root},
         fonts::{Font, FontRole},
         library::Library,
         snapshot,
@@ -159,6 +159,8 @@ struct Open {
     decorations: Option<crate::native_decorations::Decorations>,
     /// No plugin marks this book's pages (asked again once back on top).
     undecorated: bool,
+    /// The rules of `reader.filter@1` for this book (`filters.rs`).
+    filters: Vec<crate::native_filter::Filter>,
     /// Pages are asked for marks: from the step after the first is shown.
     ask_marks: bool,
     /// The packs of letters this book asked for while open (`native_script_hint`).
@@ -260,7 +262,9 @@ impl View {
         let root = found.root();
         let state = {
             let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
-            let book = OpenBook::new(&found.path).root(root).publisher_styles();
+            let colour =
+                snapshot::capture_snapshot(host).is_ok_and(|display| display.display_is_colour());
+            let book = open_request(&found.path, root, colour);
             match docs.open_book(host, &book, &mut input, &mut out) {
                 Ok(state) => (
                     state.id(),
@@ -396,9 +400,11 @@ impl View {
             status: native_status::State::default(),
             decorations: None,
             undecorated: false,
+            filters: Vec::new(),
             ask_marks: false,
             packs_asked: 0,
         };
+        open.ask_filters(host);
         open.begin(host, root == Root::Library);
         open.load_bookmarks(host, library);
         open.ask_packs(host, docs, script);
@@ -998,7 +1004,7 @@ impl Open {
             match self.lay(host, docs, &setup, self.at) {
                 Ok(page) => {
                     self.page = Some(page);
-                    self.laid = Some(setup.key());
+                    self.laid = Some(self.key(&setup));
                 }
                 Err(_) => return,
             }
@@ -1171,7 +1177,7 @@ impl Open {
                 let moved = self.next()?;
                 if moved {
                     self.page = Some(*laid);
-                    self.laid = Some(setup.key());
+                    self.laid = Some(self.key(&setup));
                     self.words = Vec::new();
                 }
                 Ok(moved)
@@ -1268,7 +1274,8 @@ impl Open {
         start: (u32, u32),
         area: native_pages::Box,
     ) -> Result<Page, Error> {
-        let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?;
+        let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?
+            .filtered(&self.filters, &self.path);
         let style = setup.style(faces.line_height());
         let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces);
         layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
@@ -1305,7 +1312,7 @@ impl Open {
         // A turned screen or a changed reading setting (the host may draw before
         // the plugin is told): the page is laid out again, and the pages before
         // it are found anew (their starts were those of another layout).
-        let key = setup.key();
+        let key = self.key(setup);
         if self.page.is_some() && self.laid != Some(key) {
             self.page = None;
             self.trail.clear();
@@ -1422,6 +1429,7 @@ fn say_with(
 mod aloud;
 mod count;
 mod decorations;
+mod filters;
 mod goto;
 mod menu_bar;
 mod notes;
@@ -1430,7 +1438,7 @@ mod preparing;
 mod ribbon;
 mod script_hint;
 mod setup;
-use preparing::Preparing;
+use preparing::{Preparing, open_request};
 use setup::{LayoutKey, Setup, flag, integer};
 
 /// The language a book is read in: its own, or the UI language where the

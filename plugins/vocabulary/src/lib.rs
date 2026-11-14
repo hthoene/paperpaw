@@ -67,7 +67,11 @@ mod native_decks;
 mod native_entry;
 mod native_export;
 mod native_goto;
+mod native_key;
 mod native_list;
+mod native_phone;
+mod native_phone_draw;
+mod native_phone_screen;
 #[allow(
     dead_code,
     reason = "the review's decisions and the screen's drawing: the tests use what the shell does not"

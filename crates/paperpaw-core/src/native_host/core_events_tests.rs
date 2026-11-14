@@ -305,16 +305,16 @@ fn the_pump_and_service_due_agree_at_every_pass() {
     assert_eq!(w.kernel.service_due(), None, "all told");
 }
 
-/// `Kernel::start` raises `started` as its commands run, after its pump: the
-/// effects it returns ask for the next call now (#243).
+/// `Kernel::start` tells `started` before its first frame: its commands run,
+/// then the services' pass tells the plugins, and the passes go on while the
+/// services ask for another at once (#243: the book read last opens in the
+/// first frame, home is not drawn first).
 #[test]
-fn start_asks_to_be_called_again_now_for_the_started_event() {
+fn start_tells_the_started_event_before_the_first_frame() {
     let mut w = world(ALL, &[]);
     let effects = w.kernel.start(Instant(7_000));
-    assert!(!tags(&w, 'a').contains(&wire::EVENT_STARTED_TAG));
-    assert_eq!(effects.wake_at(), Some(Instant(7_000)));
-    let _ = w.kernel.tick(Instant(7_000));
     assert!(tags(&w, 'a').contains(&wire::EVENT_STARTED_TAG));
+    assert_eq!(effects.wake_at(), None, "nothing is left to tell");
 }
 
 #[test]

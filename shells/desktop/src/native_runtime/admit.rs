@@ -4,30 +4,24 @@
 //! kernel admits it when it loads the code plugins at the start
 //! ([`paperpaw_core::CodeLoader::load_native`]): `make` runs there, under the
 //! kernel's registration transaction, and its declarations (screens,
-//! settings, actions, …) and callbacks are registered together or not at all.
-//! A refusal destroys the hosted plugin (its library is unmapped, its private
-//! copy removed) and says why as the plugin's problem.
+//! settings, actions, …) and callbacks are registered together or not at all
+//! ([`HostedAdmission`], the same on every shell). A refusal destroys the
+//! hosted plugin (its library is unmapped, its private copy removed) and says
+//! why as the plugin's problem.
 
-use paperpaw_core::native_host::{self, flat::FlatDepth, shell};
-use paperpaw_core::{Kernel, NativeAdmission, sdk::PluginProblem};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
+use paperpaw_core::native_host::flat::FlatDepth;
+use paperpaw_core::native_host::hosted_admission::HostedAdmission;
+use paperpaw_core::native_host::shell;
 
 use super::owned::dev::CopyModule;
 use crate::host_services::DesktopServices;
 
 /// A hosted plugin and the device-wide dispatch budget it runs under.
-pub(crate) struct DesktopAdmission {
+pub(crate) fn admission(
     hosted: shell::Hosted<DesktopServices, CopyModule>,
     depth: FlatDepth,
-}
-
-impl DesktopAdmission {
-    pub(crate) fn new(
-        hosted: shell::Hosted<DesktopServices, CopyModule>,
-        depth: FlatDepth,
-    ) -> Self {
-        Self { hosted, depth }
-    }
+) -> HostedAdmission<DesktopServices, CopyModule> {
+    HostedAdmission::new(hosted, depth, report, refused)
 }
 
 /// The kernel's diagnostics of an admitted plugin (a refused declaration, a
@@ -36,30 +30,6 @@ fn report(_: &DesktopServices, plugin: &str, step: u32, status: i32) {
     eprintln!("native plugin {plugin}: admission step {step}: status {status}");
 }
 
-/// Why a plugin was refused, as the plugin manager says it.
-fn problem(error: &shell::Error) -> PluginProblem {
-    match error {
-        shell::Error::Allocation | shell::Error::Status(ERR_NO_MEMORY) => PluginProblem::NoRoom,
-        // A declaration or requirement this PaperPaw does not serve.
-        shell::Error::Status(ERR_UNSUPPORTED) => PluginProblem::NeedsNewerPaperPaw,
-        // No plugin at all (nothing declared, nothing registered), or a record
-        // that does not decode.
-        shell::Error::Status(ERR_INVALID) => PluginProblem::Damaged,
-        shell::Error::Lifecycle(native_host::Error::Memory | native_host::Error::Capacity) => {
-            PluginProblem::NoRoom
-        }
-        _ => PluginProblem::Damaged,
-    }
-}
-
-impl NativeAdmission for DesktopAdmission {
-    fn admit(self: Box<Self>, kernel: &mut Kernel, folder: &str) -> Result<(), PluginProblem> {
-        let Self { hosted, depth } = *self;
-        kernel
-            .register_native_in(hosted, &depth, Some(folder), report)
-            .map_err(|error| {
-                eprintln!("native plugin {folder}: refused: {error:?}");
-                problem(&error)
-            })
-    }
+fn refused(folder: &str, error: &shell::Error) {
+    eprintln!("native plugin {folder}: refused: {error:?}");
 }

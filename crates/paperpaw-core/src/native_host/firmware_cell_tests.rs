@@ -21,7 +21,7 @@ fn fake(dual: bool) -> Box<dyn FirmwareHost> {
 fn plugin_host() -> PluginHost {
     let (loader, offered): (Loader, _) = kernel_host();
     PluginHost {
-        loader,
+        loader: Some(loader),
         offered,
         signers: &[],
     }

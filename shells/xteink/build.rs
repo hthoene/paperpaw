@@ -49,6 +49,30 @@ fn main() {
     std::fs::copy("memory-x4.x", out.join("memory.x")).expect("memory-x4.x");
     println!("cargo::rustc-link-search={}", out.display());
     println!("cargo::rustc-link-arg=-Tlinkall.x");
+    if std::env::var_os("CARGO_FEATURE_PPN5").is_some() {
+        stack_floor_x4(&out);
+    }
+}
+
+/// The least main stack of the X4 where interface-7 plugins are built in
+/// (`ppn5`): as the ESP32-S3's (`STACK_FLOOR_BAND`): the deepest path measured
+/// (a plugin's call into the files host and the FAT reached 37.9 KB on the
+/// device, over the band of the first test images, #2556) and the band with its
+/// reserve at the stack's end (7.7 KB). Statics that grow shrink the stack
+/// unseen, so the link fails below this instead.
+const STACK_FLOOR_X4_BAND: u32 = STACK_FLOOR_BAND;
+
+/// Fails the link where the X4's main stack is below [`STACK_FLOOR_X4_BAND`]:
+/// a linker script of its own, read beside esp-hal's.
+fn stack_floor_x4(out: &std::path::Path) {
+    let script = out.join("stack-floor.x");
+    let floor = STACK_FLOOR_X4_BAND;
+    let text = format!(
+        "ASSERT(_stack_start - _stack_end >= {floor}, \"the main stack is below \
+         {floor} bytes: give the heap less (HEAP_SIZE, X4_BAND_KB)\");\n"
+    );
+    std::fs::write(&script, text).expect("stack-floor.x");
+    println!("cargo::rustc-link-arg={}", script.display());
 }
 
 /// The frame budgets are measured with frame pointers (the flags of

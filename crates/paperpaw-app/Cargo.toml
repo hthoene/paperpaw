@@ -25,6 +25,7 @@ panes = ["paperpaw-core/panes"]
 native-linked-reading = [
     "native-linked",
     "paperpaw-core/native-reading",
+    "paperpaw-plugin-dictionary/linked",
     "paperpaw-plugin-home/linked",
     "paperpaw-plugin-reader/linked",
     "paperpaw-plugin-format-txt/linked",
@@ -94,6 +95,7 @@ native-linked = [
     "paperpaw-plugin-opds/linked",
     "paperpaw-plugin-settings/linked",
     "paperpaw-plugin-setup/linked",
+    "paperpaw-plugin-sleep/linked",
     "paperpaw-plugin-transfer/linked",
     "paperpaw-plugin-update/linked",
     "paperpaw-plugin-wifi/linked",

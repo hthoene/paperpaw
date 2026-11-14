@@ -147,8 +147,8 @@ SAME_NAME_SKIPPED = {
         "draw", "draw_lines", "each", "env", "fit", "fits", "focused", "font", "forget",
         "frame", "height", "ink", "into_iter", "keep", "key", "line", "list", "make",
         "name", "new", "on", "read", "read_at", "rows", "separator", "set", "settings",
-        "shows", "size", "state", "switch", "targets", "text", "title", "widgets",
-        "with", "wrap",
+        "shows", "size", "state", "switch", "targets", "text", "title", "try_parse",
+        "widgets", "with", "wrap",
     }),
     "paperpaw-text": frozenset({
         "advance", "anchors", "class", "default", "finish", "glyph", "has_char", "kern",

@@ -469,7 +469,7 @@ impl Kernel {
             let text = String::from(self.shared.translator.tr(trouble.key()));
             self.output.commands.push(Command::Notify(text));
         }
-        self.finish_started()
+        self.finish_start()
     }
 
     /// Handles an input event.
@@ -1202,7 +1202,7 @@ impl Kernel {
         text: &str,
     ) -> Result<Effects, &'static str> {
         // A placement's too (`widgets.clock@2.face`).
-        let spec = self.shared.settings.spec(id).ok_or("no such setting")?;
+        let spec = config::spec_to_set(&self.shared.settings, id)?;
         let value = spec.parse(text).ok_or("not a value of this setting")?;
         let id = Id::parse(id).map_err(|_| "no such setting")?;
         let _running = self.shared.meter.enter(meter::CORE);

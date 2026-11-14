@@ -87,6 +87,8 @@ fn run_step(device: &mut Device, step: &str) -> Result<(), String> {
             let end = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
             while std::time::Instant::now() < end {
                 device.poll_servers();
+                // The native plugins' servers (`core.net`) are the same loop's.
+                device.poll_http(None);
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
         }

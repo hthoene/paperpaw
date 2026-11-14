@@ -712,9 +712,6 @@ impl NativeReader {
         crate::native_annotations_view::open_screen(host, ui, "reader.search-results", &params)
     }
 
-    /// A setting changed: every reading screen lays its page out again (a
-    /// setting of the layout) or draws it again (a setting of the ink). A refusal
-    /// of one screen costs the others nothing.
     /// A page is best in grays where the text is smooth (Beta 3's
     /// `Screen::grays`): the reading screen says so to the host, which shows
     /// the whole screen so where the panel has few grays but shows more with
@@ -743,6 +740,9 @@ impl NativeReader {
             .ok();
     }
 
+    /// A setting changed: every reading screen lays its page out again (a
+    /// setting of the layout) or draws it again (a setting of the ink). A refusal
+    /// of one screen costs the others nothing.
     fn setting_changed(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
         if key == "core.smooth-text" {
             let instances: alloc::vec::Vec<Instance> = self
@@ -754,7 +754,14 @@ impl NativeReader {
                 Self::set_grays(host, instance, true);
             }
         }
-        let layout = native_pages::affects_layout(key);
+        // Another plugin's setting may change the text filters' rules.
+        let mut refiltered = false;
+        if !key.starts_with("core.") && !key.starts_with("reader.") {
+            for view in self.screens.all() {
+                refiltered |= view.refilter(host);
+            }
+        }
+        let layout = refiltered || native_pages::affects_layout(key);
         if !layout && !native_pages::affects_ink(key) {
             return Ok(());
         }

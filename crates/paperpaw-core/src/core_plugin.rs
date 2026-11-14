@@ -5,6 +5,7 @@
 mod catalog_job;
 mod clean_up;
 mod finishing;
+mod look_more;
 mod placeholder;
 mod reading;
 mod widget_settings;
@@ -82,7 +83,9 @@ impl Plugin for CorePlugin {
             let Some(id) = id else {
                 return;
             };
-            if env.settings().spec(id.as_str()).is_none() {
+            // Asked without its spec: what was typed is not dropped for
+            // lack of room to read one (#248); the change itself says so.
+            if !env.settings().knows(id.as_str()) {
                 return;
             }
             // A secret setting's text is kept with the secrets, never in
@@ -1330,6 +1333,7 @@ static LOOK: [SettingSpec; 14] = [
 
 fn register_look_settings(r: &mut Registrar) -> Result<(), RegisterError> {
     r.add_settings(&LOOK)?;
+    r.add_settings(&look_more::LOOK_MORE)?;
     r.add_settings(&widget_settings::ALL_WIDGETS)
 }
 

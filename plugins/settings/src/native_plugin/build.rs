@@ -82,6 +82,46 @@ pub(super) fn holding(
     Ok(found)
 }
 
+/// The registry scope that asks for the settings shown in group `of` and no
+/// others (op 1: a group's own settings, not its parts'); empty where `of` is
+/// no group, so that nothing is taken for a plugin's name.
+pub(super) fn scope_of<'a>(groups: &[Group], of: &'a str) -> &'a str {
+    if of == model::OTHER_GROUP || groups.iter().any(|g| g.id == of) {
+        of
+    } else {
+        ""
+    }
+}
+
+/// Whether group `part` or any part of it holds a listed setting: asked of the
+/// registry one group at a time, and no more once one is found, where the
+/// whole list was walked for it.
+pub(super) fn holds(
+    reader: &mut Reader<'_, '_>,
+    groups: &[Group],
+    cx: Context,
+    part: &str,
+) -> Result<bool, Error> {
+    let mut found = false;
+    for g in groups.iter().filter(|g| model::within(groups, &g.id, part)) {
+        reader.each_setting(
+            &g.id,
+            Fields::Light,
+            |_| true,
+            |reader, setting| {
+                if !found && listed(reader, groups, cx, &setting, true)? {
+                    found = true;
+                }
+                Ok(())
+            },
+        )?;
+        if found {
+            break;
+        }
+    }
+    Ok(found)
+}
+
 /// A catalog text; a key the catalog lacks is shown as it is.
 pub(super) fn translate(
     messages: &mut Messages,
@@ -98,32 +138,6 @@ pub(super) fn on_off(messages: &mut Messages, host: &Host<'_>, on: bool) -> Resu
     messages.copy(host, if on { "core.on" } else { "core.off" })
 }
 
-/// `value` with the setting's unit as Beta 3 showed it (`i18n.plural`): the
-/// unit is a catalog key (`core.unit.pages`), its plural forms
-/// (`core.unit.pages.one`, `.other`) hold `{count}` and the host picks the form
-/// for `value` (`i18n.format` with `i18n.count`). A key with no plural forms is
-/// its plain text, a unit no catalog has the text given, each placed as
-/// [`model::with_unit`] says.
-fn with_unit(
-    messages: &mut Messages,
-    host: &Host<'_>,
-    value: i64,
-    unit: &str,
-) -> Result<String, Error> {
-    if unit.is_empty() {
-        return model::with_unit(value, unit);
-    }
-    match messages.format(host, unit, &[Arg::Count(value)]) {
-        Err(Error::NotFound | Error::Invalid) => {}
-        found => return found,
-    }
-    match messages.copy(host, unit) {
-        Ok(text) => model::with_unit(value, &text),
-        Err(Error::NotFound | Error::Invalid) => model::with_unit(value, unit),
-        Err(error) => Err(error),
-    }
-}
-
 /// The value of a setting as its row shows it.
 pub(super) fn value_text(
     messages: &mut Messages,
@@ -133,9 +147,9 @@ pub(super) fn value_text(
 ) -> Result<String, Error> {
     let setting = &entry.setting;
     let text = match (&setting.value, editing) {
-        (_, Some(now)) => with_unit(messages, host, now, &entry.detail.unit)?,
+        (_, Some(now)) => messages.with_unit(host, now, &entry.detail.unit)?,
         (Some(Val::Bool(on)), _) => on_off(messages, host, *on)?,
-        (Some(Val::Int(v)), _) => with_unit(messages, host, *v, &entry.detail.unit)?,
+        (Some(Val::Int(v)), _) => messages.with_unit(host, *v, &entry.detail.unit)?,
         (Some(Val::Text(v)), _) => match entry.options.iter().find(|(value, _)| value == v) {
             Some((_, name)) => copy(name)?,
             None => copy(v)?,
@@ -335,6 +349,8 @@ pub(super) fn build_list(
         let item = match &link {
             None => Item::heading(&title)?,
             Some(Link::Advanced) => Item::row(&title, &on_off(&mut messages, host, advanced)?)?,
+            // The search looks like the field it opens, as it did in Beta 3.
+            Some(Link::Search) => Item::field(&title)?,
             Some(Link::Reset | Link::Restart) => Item::row(&title, "")?,
             Some(_) => Item::row(&title, "›")?,
         };
@@ -385,18 +401,8 @@ fn focus_group(
     groups: &[Group],
     focus: &str,
 ) -> Result<String, Error> {
-    let mut own: Option<String> = None;
-    reader.each_setting(
-        "",
-        Fields::Light,
-        |row| row.key() == focus,
-        |_, s| {
-            own = Some(copy(listed_in(groups, &s))?);
-            Ok(())
-        },
-    )?;
-    match own {
-        Some(group) => Ok(group),
+    match reader.setting_row(focus, Fields::Light)? {
+        Some(s) => copy(listed_in(groups, &s)),
         None => copy(model::OTHER_GROUP),
     }
 }
@@ -444,7 +450,7 @@ pub(super) fn build_group(
     // The settings of the page's group, and only those are read.
     let mut mine: Vec<Setting> = Vec::new();
     reader.each_setting(
-        "",
+        scope_of(&groups, &of),
         Fields::Full,
         |row| model::in_group(&groups, row.group(), &of),
         |_, s| push(&mut mine, s),
@@ -525,9 +531,8 @@ pub(super) fn page_rows(
     // A placement's page has no parts, actions or themes: those are the group's.
     if !view.more && model::unplaced(&view.group).is_none() {
         // Its parts, each a page of its own, where they hold something.
-        let held = holding(reader, groups, cx, true)?;
         for g in groups.iter().filter(|g| g.parent == of) {
-            if held.iter().any(|h| model::within(groups, h, &g.id)) {
+            if holds(reader, groups, cx, &g.id)? {
                 push(&mut rows, Row::Part(copy(&g.id)?, copy(&g.title)?))?;
             }
         }
@@ -618,17 +623,7 @@ pub(super) fn build_choose(
         Some(base) => base,
         None => copy(&view.key)?,
     };
-    let mut named: Option<String> = None;
-    reader.each_setting(
-        "",
-        Fields::Full,
-        |row| row.key() == base,
-        |_, s| {
-            named = Some(s.title);
-            Ok(())
-        },
-    )?;
-    let Some(title) = named else {
+    let Some(title) = reader.setting_row(&base, Fields::Full)?.map(|s| s.title) else {
         return Ok(());
     };
     let options = reader.choices(&base)?;

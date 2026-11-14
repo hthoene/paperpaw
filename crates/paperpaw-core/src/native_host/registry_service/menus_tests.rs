@@ -1073,9 +1073,21 @@ fn op_19_shown_follows_the_settings_a_place_lists() {
 }
 
 #[test]
-fn op_21_is_empty_until_a_plugin_declares_a_status_item_or_line() {
+fn op_21_lists_the_kernels_items_between_the_declared_items_and_lines() {
     let kernel = kernel();
-    for scope in ["", "item", "line", "other"] {
+    // The kernel's own (todo 598): Beta 3's priorities, the battery with room
+    // for its symbol and percentage. Items: never the drawn bit (a line's).
+    let kernels = [
+        "status core.status.clock core kind=0 flags=0 priority=160 size=0 tap= Time",
+        "status core.status.date core kind=0 flags=0 priority=128 size=0 tap= Date",
+        "status core.status.date-short core kind=0 flags=0 priority=128 size=0 tap= Date, short",
+        "status core.status.battery core kind=0 flags=0 priority=192 size=4200 tap= Battery",
+        "status core.status.battery-low core kind=0 flags=0 priority=128 size=4200 tap= Battery when low",
+    ];
+    for scope in ["", "item"] {
+        assert_eq!(rows_of(&kernel, None, schema::OP_STATUS, scope, 0), kernels);
+    }
+    for scope in ["line", "other"] {
         let (rows, end) = page(&kernel, schema::OP_STATUS, scope);
         assert!(rows.is_empty(), "{scope}");
         assert_eq!((end.flags, end.total, end.next), (1, 0, 0));
@@ -1100,18 +1112,57 @@ fn op_21_is_empty_until_a_plugin_declares_a_status_item_or_line() {
         }),
     ]);
     let all = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "", 0);
+    let declared = [
+        "status nat.battery nat kind=0 flags=2 priority=200 size=1500 tap=nat.go nat.status.battery",
+        "status nat.reading nat kind=1 flags=1 priority=0 size=1000 tap= nat.status.reading",
+    ];
+    assert_eq!(all.len(), 7);
     assert_eq!(
-        all,
-        [
-            "status nat.battery nat kind=0 flags=2 priority=200 size=1500 tap=nat.go nat.status.battery",
-            "status nat.reading nat kind=1 flags=1 priority=0 size=1000 tap= nat.status.reading",
-        ]
+        (all[0].as_str(), all[6].as_str()),
+        (declared[0], declared[1])
     );
+    assert_eq!(&all[1..6], kernels);
     let items = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "item", 0);
-    assert_eq!(items, &all[..1]);
+    assert_eq!(items, &all[..6]);
     let lines = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "line", 0);
-    assert_eq!(lines, &all[1..]);
+    assert_eq!(lines, &all[6..]);
     assert!(rows_of(&kernel, Some(&directory), schema::OP_STATUS, "other", 0).is_empty());
+}
+
+/// `registry.md` 3, `reg_status.flags` bit 0: always set for a line, never
+/// for an item. The SDK refuses a page with a row that says otherwise, so a
+/// status line that reads its items (reader, home, picture-home) stays empty.
+#[test]
+fn op_21_marks_lines_and_no_item_as_drawn_by_their_owner() {
+    let kernel = kernel();
+    let directory = declarations(&[
+        Record::StatusItem(wire::StatusItem {
+            name: "steps",
+            title: "nat.status.steps",
+            tap: "",
+            priority: 10,
+            min_width: 0,
+            token: 0,
+            flags: 2,
+        }),
+        Record::StatusLine(wire::StatusLine {
+            name: "reading",
+            title: "nat.status.reading",
+            height: 1000,
+            token: 0,
+            flags: 0,
+        }),
+    ]);
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "", 0);
+    assert_eq!(rows.len(), 7);
+    for row in &rows {
+        let flags = row
+            .split(' ')
+            .find_map(|part| part.strip_prefix("flags="))
+            .and_then(|flags| flags.parse::<u32>().ok())
+            .unwrap();
+        assert_eq!(flags & 1 != 0, row.contains(" kind=1 "), "{row}");
+    }
 }
 
 #[test]
@@ -1315,4 +1366,31 @@ fn native_presets_are_listed_with_their_values_and_resets() {
         values.contains(&format!("value {other} [] 1")),
         "{values:?}"
     );
+}
+
+/// The flags the SDK's status decoder demands of a row (`registry.md` 2.2: bit 0 "drawn by its
+/// owner" is 1 for a line and 0 for an item, `sdk/src/native/registry/status.rs`): a row that
+/// breaks it makes `Registry::status` answer `Invalid` for the whole listing, and every native
+/// status line (the reader's, home's, picture-home's) fails with it. The SDK's `Host` can only be
+/// made inside a plugin, so this restates its rule over the real kernel's listing; the end to end
+/// case, with a kernel and a linked plugin, is picture-home's `hosted_page` test.
+#[test]
+fn op_21_rows_of_the_real_kernel_pass_the_sdk_decoders_flag_rule_and_hold_the_clock_and_battery() {
+    let kernel = kernel();
+    let rows = rows_of(&kernel, None, schema::OP_STATUS, "", 0);
+    for id in ["core.status.clock", "core.status.battery"] {
+        assert!(rows.iter().any(|row| row.contains(id)), "{id} in {rows:?}");
+    }
+    let field = |row: &str, name: &str| -> u32 {
+        let (_, rest) = row.split_once(&format!(" {name}=")).unwrap();
+        rest.split(' ').next().unwrap().parse().unwrap()
+    };
+    for row in &rows {
+        let (kind, flags) = (field(row, "kind"), field(row, "flags"));
+        assert_eq!(
+            flags & 1,
+            kind,
+            "the drawn bit of an item is 0, of a line 1: {row}"
+        );
+    }
 }

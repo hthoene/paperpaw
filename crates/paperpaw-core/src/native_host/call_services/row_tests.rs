@@ -220,6 +220,7 @@ fn lookup_entry() -> Vec<u8> {
         title: "word",
         text: "meaning",
         flags: 0,
+        opens: "",
     });
     let mut out = std::vec![0; 256];
     let len = registrations::record_encode_one(&row, &mut out).unwrap();

@@ -2,7 +2,7 @@
 //! feature, the path rules and the root-1 exclusions, in the order the contract
 //! lists them, then the path joined for the storage in a stack buffer.
 use super::View;
-use crate::native_host::data_plugin_folders::plugin_folder_of;
+use crate::native_host::data_plugin_folders::{below_folder, plugin_folder_of};
 use crate::native_host::storage::{MAX_FOLDER, MAX_JOINED, PREFIX, relative_path};
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 
@@ -148,6 +148,11 @@ pub(super) fn resolve(
         if plugin_folder_of(path).is_some_and(|name| view.host.data_folder(name)) {
             if intent == Intent::Change {
                 return Err(ERR_DENIED);
+            }
+            // Its code and the host's files are not shown (`files.md` 1.1).
+            if below_folder(path).is_some_and(|(folder, entry)| view.host.host_file(folder, entry))
+            {
+                return Err(ERR_INVALID);
             }
         } else if reaches_protected(view, first) {
             return Err(ERR_INVALID);
