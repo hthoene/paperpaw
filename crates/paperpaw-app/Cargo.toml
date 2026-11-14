@@ -75,6 +75,7 @@ native-linked = [
     "dep:paperpaw-plugin-file-manager",
     "dep:paperpaw-plugin-files",
     "dep:paperpaw-plugin-help",
+    "dep:paperpaw-plugin-keyboard",
     "dep:paperpaw-plugin-lock",
     "dep:paperpaw-plugin-opds",
     "dep:paperpaw-plugin-plugin-manager",
@@ -149,7 +150,7 @@ paperpaw-plugin-format-cbz.workspace = true
 paperpaw-plugin-format-txt.workspace = true
 paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true
-paperpaw-plugin-keyboard.workspace = true
+paperpaw-plugin-keyboard = { workspace = true, optional = true }
 paperpaw-plugin-menu.workspace = true
 paperpaw-plugin-notes-vault = { workspace = true, optional = true }
 paperpaw-plugin-picture-home = { workspace = true, optional = true }

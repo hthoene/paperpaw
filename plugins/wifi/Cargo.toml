@@ -31,7 +31,6 @@ paperpaw-native.workspace = true
 paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 paperpaw-platform.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
-paperpaw-plugin-keyboard.workspace = true
 paperpaw-i18n.workspace = true
 proptest.workspace = true
 

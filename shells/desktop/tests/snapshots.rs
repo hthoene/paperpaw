@@ -307,13 +307,15 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    // The keyboard (`boox-keyboard`) is gone with the interface-6 keyboard; it returns with the
+    // native keyboard when the host runs native plugins (#228).
     // The screen lock's PIN keypad (`boox-lock-pin`) is gone with the interface-6 lock; it
     // returns with the native lock screen when the host runs native plugins (#228).
     // The screens one passes through most, on the X4 (buttons alone,
     // black and white) and on the Boox (touch): the main menu and the
     // tools, the library, the reader's menus, the contents, the
     // bookmarks, settings pages, statistics, the file manager, the
-    // sleep screen, the keyboard, a book's menu. (Not the about page: it shows the
+    // sleep screen, a book's menu. (Not the about page: it shows the
     // version, which would need a new picture at every release.)
     Case {
         name: "x4-main-menu",
@@ -584,16 +586,6 @@ const CASES: &[Case] = &[
         book: None,
         sets: &[],
         script: "run:core.settings,wait:300,tap-on:Display,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        // The settings searched: the keyboard below the field.
-        name: "boox-keyboard",
-        profile: "boox-go-7",
-        book: None,
-        sets: &[],
-        script: "run:core.settings,wait:300,tap-on:Search,wait:300",
         colour: 0,
         fixtures: false,
     },

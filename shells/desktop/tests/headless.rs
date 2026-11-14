@@ -329,6 +329,7 @@ fn power_sleeps_and_only_power_wakes() {
 /// `type:` types into the keyboard shown as if on its keys, umlauts and
 /// all; `type-enter:` confirms what was typed, and the keyboard closes.
 #[test]
+#[ignore = "re-enable at native activation (#228, todo 380): the keyboard is native only and this headless run does not type into the native keyboard yet"]
 fn text_is_typed_into_the_keyboard_shown() {
     let typed = run(
         "type",

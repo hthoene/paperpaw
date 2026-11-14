@@ -32,14 +32,13 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 /// What a beginner needs on a fresh device, and what gets the rest back.
 /// (The library, `files`, the update and Wi-Fi are native plugins: the app
 /// registers none until the host activates them, `NATIVE_PLUGINS`.)
-const ALWAYS: [&str; 9] = [
+const ALWAYS: [&str; 8] = [
     "fonts-default",
     "format-epub",
     "format-txt",
     "reader",
     "home",
     "menu",
-    "keyboard",
     "store",
     "transfer",
 ];
