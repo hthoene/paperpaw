@@ -202,6 +202,8 @@ impl Firmware {
                 let at = self.kernel_now();
                 let state = ButtonState::Pressed;
                 let started = now();
+                #[cfg(feature = "test-image")]
+                crate::hoststat::clear();
                 let effects = self.kernel.handle(
                     at,
                     InputEvent::Button {

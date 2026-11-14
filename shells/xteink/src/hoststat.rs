@@ -87,6 +87,20 @@ pub fn end() {
     });
 }
 
+/// Forgets what was counted (before a key's handling: the pump's work between
+/// two presses is not the key's).
+pub fn clear() {
+    critical_section::with(|cs| {
+        let mut s = STAT.borrow_ref_mut(cs);
+        s.key = [0; SITES];
+        s.count = [0; SITES];
+        s.micros = [0; SITES];
+        s.calls = 0;
+        s.outer_micros = 0;
+        s.dropped = 0;
+    });
+}
+
 /// Prints what was counted since the last report and clears it.
 pub fn report(what: &str) {
     let (calls, outer, dropped, rows) = critical_section::with(|cs| {
