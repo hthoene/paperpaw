@@ -35,7 +35,6 @@ paperpaw-publish.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-text.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
-paperpaw-plugin-menu.workspace = true
 
 [lints]
 workspace = true

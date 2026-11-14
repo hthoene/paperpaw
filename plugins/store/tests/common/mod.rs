@@ -10,6 +10,8 @@
 
 #[path = "../../../test-support/keyboard_dialog.rs"]
 mod keyboard_dialog;
+#[path = "../../../test-support/notice_box.rs"]
+pub mod notice_box;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -297,7 +299,7 @@ impl Shopping {
             .storage(storage.clone())
             .network(true)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(paperpaw_plugin_menu::Menu)
+            .plugin(notice_box::NoticeBox)
             .plugin(KeyboardDialog)
             .plugin(Store)
             .catalog_device("x4")
@@ -347,7 +349,7 @@ impl Shopping {
             .network(network)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
             // Shows the notices.
-            .plugin(paperpaw_plugin_menu::Menu)
+            .plugin(notice_box::NoticeBox)
             // Asks for text and numbers.
             .plugin(KeyboardDialog)
             .plugin(Store);

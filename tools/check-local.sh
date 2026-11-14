@@ -291,7 +291,8 @@ if [[ "$native_wanted" == 1 ]]; then
     step test-native bash -c 'set -e
         cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles
         cargo test -j"$1" -p paperpaw-app --features native-linked-reading --test linked_settings_tables
-        cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables' _ "$jobs"
+        cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
+        cargo test -j"$1" -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers' _ "$jobs"
 elif ! wanted test-native; then
     skipped+=("test-native (left out by --only/--skip)")
 else

@@ -675,16 +675,12 @@ pub fn install_with(
     b = b.plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
     // Reader and Home keep their order; they are native plugins, linked
     // (`NATIVE_PLUGINS`), where the feature says (`native-linked-reading`);
-    // Menu where `native-linked` says.
+    // Menu is a native plugin only.
     #[cfg(not(feature = "native-linked-reading"))]
     {
         b = b
             .plugin(paperpaw_plugin_reader::Reader)
             .plugin(paperpaw_plugin_home::Home);
-    }
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_menu::Menu);
     }
     // Wi-Fi, Transfer, News and Picture home are native plugins only
     // (`NATIVE_PLUGINS`, under `native-linked`): their interface-6 forms are

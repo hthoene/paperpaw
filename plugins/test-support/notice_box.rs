@@ -1,26 +1,58 @@
-//! Short messages ([`slots::NOTICE`](paperpaw_sdk::builtin::slots::NOTICE)):
-//! a dark box with rounded corners above the bottom of the screen, between
-//! the margins, with the text centred in white in at most three lines. The kernel shows it over
-//! whatever is open and takes it away after a few seconds.
+//! A notice box for the hosted tests of plugins that give notices: the dark
+//! rounded box the interface-6 menu drew above the bottom of the screen,
+//! bound to `core.notice`. Test-only; the product's notice is the host's
+//! (`core.notice-box`).
+#![allow(dead_code, reason = "shared by the tests; not every one uses it")]
 
+const NOTICE: Id = Id::new_static("test.notice");
+
+/// Draws the notices.
+#[derive(Debug, Default)]
+pub struct NoticeBox;
+
+static SCREENS: [FixedScreen; 1] = [FixedScreen::new(NOTICE, "test.notice", |env, params| {
+    Box::new(NoticeScreen::new(env, params))
+})];
+
+impl Plugin for NoticeBox {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(
+            Id::new_static("test-notice"),
+            "Notice box",
+            paperpaw_sdk::SDK_VERSION,
+        )
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        r.add_screens(&SCREENS)?;
+        r.bind_slot(slots::NOTICE, NOTICE, Priority::DEFAULT)?;
+        Ok(())
+    }
+}
+
+extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use paperpaw_sdk::builtin::params;
+use paperpaw_sdk::builtin::{params, slots};
 use paperpaw_sdk::ui::{self, UiStyle};
-use paperpaw_sdk::{Canvas, Color, Cx, Env, Handled, Id, Params, Rect, Screen};
+use paperpaw_sdk::{
+    Canvas, Color, Cx, Env, FixedScreen, Handled, Id, Manifest, Params, Plugin, Priority, Rect,
+    RegisterError, Registrar, Screen,
+};
 
 /// Lines of a message, at most.
 const LINES: usize = 3;
 
-pub(crate) struct NoticeScreen {
+struct NoticeScreen {
     style: UiStyle,
     region: Rect,
     lines: Vec<String>,
 }
 
 impl NoticeScreen {
-    pub(crate) fn new(env: &Env<'_>, params: &Params) -> Self {
+    fn new(env: &Env<'_>, params: &Params) -> Self {
         let style = UiStyle::new(env);
         let display = env.device().display;
         let margin = style.margin();

@@ -2633,7 +2633,6 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-menu",
  "paperpaw-publish",
  "paperpaw-sdk",
  "paperpaw-text",

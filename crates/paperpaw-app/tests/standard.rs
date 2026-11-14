@@ -310,10 +310,7 @@ fn every_built_in_text_reads_the_same_through_its_table() {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
+#[ignore = "needs the menu, which is native only now (#244); the native run waits for the native settings, help, lock, files and file-manager plugins (#925)"]
 fn a_plugin_reaches_the_reader_through_the_standard_ids() {
     let mut app = App::new();
     app.now += 100;

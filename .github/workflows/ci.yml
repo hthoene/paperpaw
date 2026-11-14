@@ -153,6 +153,8 @@ jobs:
       # the test is compiled out unless the app's `native-linked*` features are on.
       - run: cargo test -p paperpaw-app --features native-linked-reading --test linked_settings_tables
       - run: cargo test -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
+      # The menu is native only (#244): its entries and the tools list are tested linked.
+      - run: cargo test -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers
 
   check:
     name: Format, lint, test
