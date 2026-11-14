@@ -255,14 +255,16 @@ thread_local! {
 
 thread_local! {
     /// The plugin callbacks that ended with an error on this thread, as a
-    /// shell logs them ([`take_failed_calls`]).
-    static FAILED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// shell logs them ([`take_failed_calls`]). `None` until a test asks:
+    /// the tests that count the heap must not see this list grow.
+    static FAILED: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
 }
 
 /// The plugin callbacks that ended with an error since the last asking, as a
-/// shell logs them (`<plugin>: call <tag> ended with <status>`).
+/// shell logs them (`<plugin>: call <tag> ended with <status>`). They are
+/// kept from the first asking on, so a test asks once before what it checks.
 pub fn take_failed_calls() -> Vec<String> {
-    FAILED.with(std::cell::RefCell::take)
+    FAILED.with(|failed| failed.replace(Some(Vec::new())).unwrap_or_default())
 }
 
 /// Sets the clock the host families read to `ms`, the time the test gives
@@ -507,9 +509,9 @@ mod linked {
     fn report(_: &Heap, plugin: &str, tag: u32, status: i32) {
         eprintln!("native plugin {plugin}: call {tag} ended with {status}");
         super::FAILED.with(|failed| {
-            failed
-                .borrow_mut()
-                .push(format!("{plugin}: call {tag} ended with {status}"));
+            if let Some(failed) = failed.borrow_mut().as_mut() {
+                failed.push(format!("{plugin}: call {tag} ended with {status}"));
+            }
         });
     }
 
