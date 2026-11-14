@@ -162,7 +162,7 @@ pub fn host(
     )
 }
 
-#[cfg(all(feature = "native-on", feature = "esp32c3"))]
+#[cfg(feature = "native-on")]
 pub(crate) use x4::register_linked;
 #[cfg(feature = "esp32s3")]
 pub(super) use x4::scanned_table_is_handed;
@@ -375,7 +375,7 @@ mod x4 {
     /// mapped for the whole run and is never written. `(null, 0)` if the
     /// symbols are not in order (end not after start): the declarations are
     /// then copied, as before.
-    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+    #[cfg(feature = "native-on")]
     fn flash_rodata() -> (*const u8, usize) {
         unsafe extern "C" {
             static _rodata_start: u8;
@@ -493,7 +493,7 @@ mod x4 {
     /// and the heap busy, is not taken for a hang (test image, Senior's
     /// condition on #2462). Not set later: a plugin that loops in a call is
     /// still the watchdog's.
-    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+    #[cfg(feature = "native-on")]
     static CREATING: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
     fn call_begin(id: &str) -> bool {
@@ -503,7 +503,7 @@ mod x4 {
         if !crate::stack::dispatch_allowed() {
             return false;
         }
-        #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+        #[cfg(feature = "native-on")]
         if CREATING.load(core::sync::atomic::Ordering::Relaxed) {
             crate::power::feed();
         }
@@ -524,7 +524,7 @@ mod x4 {
     /// the main loop once the stack's band is armed (`abi/heap-word.md`
     /// section 6): without it no plugin of interface 7 runs. A plugin the host
     /// refuses is logged and does not stop the others.
-    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+    #[cfg(feature = "native-on")]
     #[inline(never)]
     pub(crate) fn register_linked(
         kernel: &mut paperpaw_core::Kernel,

@@ -412,7 +412,7 @@ fn start() -> Firmware {
     info!("startup: building the kernel");
     let bundle = ready.staged.other_slot.take();
     let flash = ready.flash.clone();
-    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+    #[cfg(feature = "native-on")]
     let device_table = match &ready.code {
         CodePlugins::Load(loader) => Some(loader.device_table()),
         _ => None,
@@ -434,7 +434,7 @@ fn start() -> Firmware {
         device: ready.device,
         #[cfg(feature = "ppn5")]
         secrets: secrets::Secrets::new(ready.secrets),
-        #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+        #[cfg(feature = "native-on")]
         device_table,
         state: State::default(),
         // Last, and built right in its place: the kernel is large.
