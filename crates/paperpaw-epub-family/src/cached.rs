@@ -181,14 +181,18 @@ fn record_sizes(
 }
 
 /// The record `len` bytes long at `at` of the text file, in one read: its
-/// header, text, runs and languages. `None` where the file gave fewer bytes.
+/// header, text, runs and languages. `None` where the file gave fewer bytes or
+/// the room is not there: the caller then reads the header first, which tells
+/// a damaged index from a lack of memory.
 fn whole_record(
     storage: &dyn Storage,
     path: &str,
     at: u32,
     len: usize,
 ) -> Result<Option<Vec<u8>>, DocumentError> {
-    let mut record = crate::fallible::zeroed(len)?;
+    let Ok(mut record) = crate::fallible::zeroed(len) else {
+        return Ok(None);
+    };
     let mut filled = 0;
     while filled < len {
         let n = storage.read_at(path, u64::from(at) + filled as u64, &mut record[filled..])?;
