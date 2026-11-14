@@ -582,19 +582,27 @@ fn page_title(
     }
 }
 
-/// The widget that previews `group`, or the group it is a part of.
+/// The widget that previews `group`, or the group it is a part of. A registry
+/// that cannot say leaves the page without one; only a full heap is an error.
 fn previewing(
     reader: &mut Reader<'_, '_>,
     groups: &[Group],
     group: &str,
 ) -> Result<Option<String>, Error> {
-    if let Some(id) = reader.previewing(group)? {
-        return Ok(Some(id));
+    let parent = groups
+        .iter()
+        .find(|g| g.id == group)
+        .map(|g| g.parent.as_str())
+        .filter(|parent| !parent.is_empty());
+    for id in core::iter::once(group).chain(parent) {
+        match reader.previewing(id) {
+            Ok(Some(widget)) => return Ok(Some(widget)),
+            Ok(None) => {}
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => return Ok(None),
+        }
     }
-    match groups.iter().find(|g| g.id == group) {
-        Some(g) if !g.parent.is_empty() => reader.previewing(&g.parent),
-        _ => Ok(None),
-    }
+    Ok(None)
 }
 
 /// The row a page opens its focus on when an action another plugin added

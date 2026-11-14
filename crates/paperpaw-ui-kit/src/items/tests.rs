@@ -400,10 +400,10 @@ fn the_room_above_the_rows_takes_room_from_the_first_page_only() {
         .map(|n| Item::row(&alloc::format!("row {n}"), "").unwrap())
         .collect();
     let heights = [100u16; 6];
-    // Room for three rows a page; the head's 150 leaves two on the first.
+    // Room for three rows a page; the head's 100 leaves two on the first.
     assert_eq!(paginate_with(&items, &heights, 300, 0).unwrap(), [0, 3]);
     assert_eq!(
-        paginate_with(&items, &heights, 300, 150).unwrap(),
+        paginate_with(&items, &heights, 300, 100).unwrap(),
         [0, 2, 5]
     );
 }
