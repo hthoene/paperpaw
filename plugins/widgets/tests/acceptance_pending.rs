@@ -1,13 +1,13 @@
 //! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! pack is pinned by `tests/drawing.rs` on a kernel; each behaviour needs the
-//! same run through the production loader with the native plugin. These cases
+//! pack was pinned by drawing tests on a kernel (deleted with it); each behaviour
+//! needs a run through the production loader with the native plugin. These cases
 //! never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 13] = [
+const CASES: [Case; 16] = [
     // The day widget on the home screen in each style, with the frame and
     // look settings applied, at the sizes a cell takes.
     Case {
@@ -93,6 +93,29 @@ const CASES: [Case; 13] = [
         golden: None,
         blocked_by: &["H1", "H3", "H4"],
     },
+    // The books family: favourites and series shelves, next up, book progress
+    // (each style) and now reading, covers placed over the frame, a tap opens
+    // the book or the library.
+    Case {
+        name: "widgets-books-draw-covers-and-open-the-book",
+        golden: None,
+        blocked_by: &["H1", "H3", "H4"],
+    },
+    // Now reading records the page, the chapter and the speed from the reading
+    // events and draws them when the home screen shows again.
+    Case {
+        name: "widgets-reading-records-and-draws-the-position",
+        golden: None,
+        blocked_by: &["H1", "H3"],
+    },
+    // Every widget at every size from the smallest cell to the whole page, on
+    // grays and on black and white, at awkward times, with every value of every
+    // setting: none leaves its place (the sweep of the interface-6 pack).
+    Case {
+        name: "widgets-every-widget-stays-in-its-place",
+        golden: None,
+        blocked_by: &["H1", "H3"],
+    },
 ];
 
 #[test]
@@ -168,4 +191,22 @@ fn widgets_library_draws_its_numbers() {
 #[ignore = "BLOCKED H1/H3/H4: native screen commands, composition and widget input are not qualified"]
 fn widgets_highlight_draws_and_opens_the_book() {
     CASES[10].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H3/H4: native screen commands, composition and widget input are not qualified"]
+fn widgets_books_draw_covers_and_open_the_book() {
+    CASES[13].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H3: native screen commands and composition are not qualified"]
+fn widgets_reading_records_and_draws_the_position() {
+    CASES[14].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H3: native screen commands and composition are not qualified"]
+fn widgets_every_widget_stays_in_its_place() {
+    CASES[15].refuse().unwrap();
 }

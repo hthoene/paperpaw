@@ -1,8 +1,6 @@
-//! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! transfer is pinned by `serving.rs`, `cable.rs`, `plugins.rs` and
-//! `upload_memory.rs` on a kernel; these cases are the same behaviours
-//! through the production loader with the native plugin. They never pass by
-//! themselves.
+//! Acceptance of the transfer through the production loader with the native
+//! plugin, pending on the host: serving with its key, files through the page,
+//! installs, the cable. They never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;

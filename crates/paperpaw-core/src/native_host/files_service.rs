@@ -27,9 +27,11 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE, ERR_UNSUPPORTED};
 use paperpaw_platform::Storage;
 
 mod change;
+mod follows;
 mod read;
 mod target;
 
+pub(crate) use follows::library_follows;
 pub(crate) use target::{same_fold, within};
 
 pub(crate) use super::lib_service::moves::Access;
@@ -111,9 +113,10 @@ pub(crate) trait FilesHost {
 
     /// Moves `from` to `to` after the service has checked them (both exist
     /// as it said, `to` is free or a file to replace, no folder moves into
-    /// itself). `library`: both are the user's files (root 1); the library
-    /// follows such a move with its journal entry and job (`files.md` 2.6),
-    /// which the host starts here. The default is the storage's rename.
+    /// itself). `library`: both are the user's files (root 1) and the library
+    /// follows the move ([`library_follows`]: a folder, a book) with its
+    /// journal entry and job (`files.md` 2.6), which the host starts here.
+    /// The default is the storage's rename.
     ///
     /// # Errors
     /// An `ERR_*` status; a refusal changes nothing.
@@ -164,6 +167,7 @@ pub(crate) fn backend(
         storage,
         who: &who,
         scope: caller.hosts.format_scope(),
+        formats: frame.kernel_env().map(paperpaw_sdk::Env::formats),
     };
     let record = codec::decode_single(input)?;
     match op.id {
@@ -184,6 +188,9 @@ struct View<'a> {
     who: &'a Caller<'a>,
     /// The format calls under way: root 3 is the book of the caller's own.
     scope: &'a super::format_scope::FormatScope,
+    /// The kernel's formats, where the frame has them: what a book is, for
+    /// the moves the library follows ([`library_follows`]).
+    formats: Option<&'a paperpaw_sdk::Formats>,
 }
 
 /// A record the host built, framed into `out`; its length.

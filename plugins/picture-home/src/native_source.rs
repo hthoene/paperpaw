@@ -419,14 +419,11 @@ mod tests {
             BAR,
             BAR_AT,
         ] {
-            assert!(
-                crate::settings::SETTINGS
-                    .iter()
-                    .any(|s| s.id.as_str() == key),
-                "{key}"
-            );
+            let short = key.trim_start_matches("picture-home.");
+            let pinned = include_str!("../tests/pinned/declarations.txt");
+            assert!(pinned.contains(&alloc::format!("\n{short}|")), "{key}");
         }
-        assert_eq!(BAR_AT, crate::settings::BAR_AT.static_str());
+        assert_eq!(BAR_AT, "picture-home.bar.at");
         assert_eq!(TOOL_MENUS[0], "home.actions");
     }
 

@@ -1,11 +1,13 @@
-//! The notes vault's native declarations (slice 1): its settings group and the
-//! vault's folder. The tools entry, its icon, the three screens, the Markdown
-//! format and the home widgets follow with their host pieces
-//! (`PORTING-7.md`). The Markdown format is declared with the page.
+//! What the notes vault declares: its settings group and the vault's folder,
+//! the page, the lists and the tags as screens, the action and the Tools entry
+//! that open the page, the Markdown format, and the six home widgets with their
+//! settings groups (`PORTING-7.md`). `build.rs` builds the batches into the image.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, FormatDecl,
-    GroupDecl, Instances, Kind, MenuEntryDecl, ScreenDecl, SpecDecl,
+    GroupDecl, Instances, Kind, MenuEntryDecl, ScreenDecl, SpecDecl, WidgetDecl,
 };
+pub use paperpaw_ui_kit::widget::options::Opt;
+use paperpaw_ui_kit::widget::options::{declare_all, shared_look};
 
 /// The settings group (`notes-vault.group`).
 pub const GROUP: &str = "notes-vault.group";
@@ -22,6 +24,16 @@ pub const TAGS: u32 = 12;
 pub const WORK_DUE: u32 = 20;
 /// The Markdown format's `core.format` calls.
 pub const FORMAT: u32 = 30;
+/// The token of the settings that change (the widgets show them anew).
+pub const SETTING_CHANGED: u32 = 21;
+/// The widgets: *Recent notes*, *Pinned note*, *Note of the day*, *Random note*,
+/// *Note tags* and *Search notes*.
+pub const RECENT_TOKEN: u32 = 40;
+pub const PINNED_TOKEN: u32 = 41;
+pub const DAY_TOKEN: u32 = 42;
+pub const RANDOM_TOKEN: u32 = 43;
+pub const TAGS_TOKEN: u32 = 44;
+pub const SEARCH_TOKEN: u32 = 45;
 
 /// The settings group and the vault's folder.
 pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
@@ -69,5 +81,118 @@ pub fn formats<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.format(
         FormatDecl::new("markdown", "notes-vault.markdown", "md\nmarkdown", FORMAT).priority(10),
     )?;
+    d.submit()
+}
+
+const HEADING: Opt = Opt::Part("heading", "notes-vault.part.heading", true);
+const WHERE: Opt = Opt::Part("where", "notes-vault.part.where", true);
+const EXCERPT: Opt = Opt::Part("excerpt", "notes-vault.part.excerpt", true);
+const FOLDER: Opt = Opt::Text(
+    "folder",
+    "notes-vault.widget.folder",
+    "",
+    "notes-vault.widget.folder.help",
+);
+
+/// The settings of *Recent notes* after the shared look, in their order.
+pub const RECENT_OPTIONS: &[Opt] = &[
+    HEADING,
+    WHERE,
+    Opt::Number("count", "notes-vault.widget.count", 1, 10, 5, ""),
+    FOLDER,
+];
+/// The settings of *Pinned note* after the shared look.
+pub const PINNED_OPTIONS: &[Opt] = &[
+    HEADING,
+    EXCERPT,
+    Opt::Text(
+        "title",
+        "notes-vault.widget.title",
+        "",
+        "notes-vault.widget.title.help",
+    ),
+];
+/// The settings of *Note of the day* after the shared look.
+pub const DAY_OPTIONS: &[Opt] = &[HEADING, EXCERPT, FOLDER];
+/// The settings of *Random note* after the shared look.
+pub const RANDOM_OPTIONS: &[Opt] = &[HEADING, EXCERPT, FOLDER];
+/// The settings of *Note tags* after the shared look.
+pub const TAGS_OPTIONS: &[Opt] = &[
+    HEADING,
+    Opt::Number("count", "notes-vault.widget.count", 1, 12, 5, ""),
+];
+/// *Search notes* has the shared look alone.
+pub const SEARCH_OPTIONS: &[Opt] = &[];
+
+/// A widget: its name (the settings group and the settings carry it), its
+/// token, its size in cells, the frame it has by default and its own settings.
+type Widget = (&'static str, u32, (u8, u8), &'static str, &'static [Opt]);
+
+/// The six widgets, in the order the catalogue lists them.
+pub const WIDGETS: [Widget; 6] = [
+    (
+        "recent",
+        RECENT_TOKEN,
+        (2, 2),
+        "core.frame.none",
+        RECENT_OPTIONS,
+    ),
+    (
+        "pinned",
+        PINNED_TOKEN,
+        (2, 1),
+        "core.frame.none",
+        PINNED_OPTIONS,
+    ),
+    ("day", DAY_TOKEN, (2, 1), "core.frame.none", DAY_OPTIONS),
+    (
+        "random",
+        RANDOM_TOKEN,
+        (2, 1),
+        "core.frame.none",
+        RANDOM_OPTIONS,
+    ),
+    ("tags", TAGS_TOKEN, (2, 1), "core.frame.none", TAGS_OPTIONS),
+    (
+        "search",
+        SEARCH_TOKEN,
+        (2, 1),
+        "core.frame.line",
+        SEARCH_OPTIONS,
+    ),
+];
+
+/// The widgets, their settings groups and their settings: the look every
+/// widget shares (text at the start of its line), then the widget's own.
+pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    for (name, token, (columns, rows), frame, options) in WIDGETS {
+        let title = ["notes-vault.", name].concat();
+        let group = title.as_str();
+        d.group(GroupDecl::new(name, group))?;
+        let spec = WidgetDecl::new(name, group, "core.widgets.personal", token)
+            .map_err(|_| DeclareError::TooLong("widget"))?
+            .cells(columns, rows);
+        d.widget(spec)?;
+        let mut look = shared_look("core.align.left");
+        look[1] = Opt::Frame(frame);
+        declare_all(
+            d,
+            name,
+            group,
+            look.into_iter().chain(options.iter().copied()),
+        )?;
+        d.submit()?;
+    }
+    Ok(())
+}
+
+/// The events the plugin watches for its widgets: a setting that changed (the
+/// vault's folder, a widget's own settings).
+pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
     d.submit()
 }

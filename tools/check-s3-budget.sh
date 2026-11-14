@@ -19,6 +19,10 @@
 # device's full output is in <worktree>/target-budget/<device>.scan.txt).
 # Exit 2: bad usage or no toolchain.
 #
+# CHECK_S3_BUDGET_LINKED=1 in the environment scans with the linked plugins' own
+# code rooted as well (`shells/xteink/frame-budget-s3-linked.txt`, todo 624; the
+# budgets do not include it until the frames it finds are cut, todo 625/626).
+#
 # CHECK_S3_BUDGET_KEEP=<dir> in the environment copies each device's ELF to
 # <dir>/<device>.elf (both devices build into one directory, the second
 # overwrites the first; this is how to have both, e.g. to regenerate a budget).
@@ -145,6 +149,12 @@ status=0
 for device in "${devices[@]}"; do
     budget=shells/xteink/frame-budget-s3.txt
     [[ "$device" == x4-classic ]] && budget=shells/xteink/frame-budget-s3-classic.txt
+    if [[ -n "${CHECK_S3_BUDGET_LINKED:-}" ]]; then
+        # With the linked plugins' own code rooted too (todo 624): the budget and
+        # `include frame-budget-s3-linked.txt`, in a file beside them.
+        { cat "$ci_path/$budget"; echo "include frame-budget-s3-linked.txt"; } > "$ci_path/shells/xteink/.scan-linked.txt"
+        budget=shells/xteink/.scan-linked.txt
+    fi
         echo "check-s3-budget: building the $device firmware ($(date +%H:%M:%S))"
     if ! (cd "$ci_path/shells/xteink" && env -u RUSTFLAGS CARGO_TARGET_DIR="$build_dir" \
         cargo +esp build --locked -j4 --release --target xtensa-esp32s3-none-elf --no-default-features \

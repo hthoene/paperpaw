@@ -1,36 +1,32 @@
 //! A feed in a file made into the page of its book (`native_book`): the same
-//! page and result as the interface-6 conversion, over a volume in memory, and
+//! page and result as the interface-6 conversion pinned in `testdata`, over a volume in memory, and
 //! refusing instead of aborting.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 use crate::fail_alloc::sweep;
 use crate::native_book::{Failure, make_page};
-use crate::native_convert_tests::{day_text, feeds, old};
+use crate::native_convert_tests::{day_text, feeds, pinned, pinned_line};
 use crate::test_volume::Mem;
 use paperpaw_sdk::native::{Error, storage::MAX_DATA};
 use paperpaw_ui_kit::files::Volume;
 
 #[test]
 fn a_feed_in_a_file_becomes_the_page_of_interface_6() {
-    for feed in feeds() {
+    for (index, feed) in feeds().iter().enumerate() {
         for (articles, text) in [(10, 10_000), (5, 100), (1, 8 * 1024), (200, 64 * 1024)] {
-            let (want, page) = old(feed.as_bytes(), articles, text);
+            let want = pinned(index, articles, text);
             let mem = Mem::with("feed.tmp", feed.as_bytes());
             let got = make_page(&mem, ("feed.tmp", "page.tmp"), (articles, text), &day_text);
-            match (want, got) {
-                (Ok(w), Ok(g)) => {
-                    assert_eq!(
-                        (w.title, w.articles, w.headlines),
-                        (g.title, g.articles, g.headlines)
-                    );
-                    assert_eq!(page, mem.get("page.tmp").unwrap());
+            match got {
+                Ok(g) => {
+                    let page = mem.get("page.tmp").unwrap();
+                    assert_eq!(pinned_line(&g.title, g.articles, &g.headlines, &page), want);
                 }
                 // No article: no page, and none left behind.
-                (Ok(w), Err(Failure::Failed)) => {
-                    assert_eq!(w.articles, 0);
+                Err(Failure::Failed) => {
+                    assert!(want.contains(" 0 [] page="), "{want} for {feed:.60}");
                     assert!(mem.get("page.tmp").is_none());
                 }
-                (Err(_), Err(_)) => assert!(mem.get("page.tmp").is_none()),
-                (want, got) => panic!("{want:?} against {got:?} for {feed}"),
+                got => panic!("{got:?} for {feed}"),
             }
         }
     }
@@ -116,7 +112,6 @@ impl Volume for Cut<'_> {
 #[test]
 fn a_cut_leaves_a_stale_page_the_next_call_replaces() {
     let feed = &feeds()[3];
-    let (_, whole) = old(feed.as_bytes(), 30, 64 * 1024);
     // How many appends a whole page takes.
     let mem = Mem::with("feed.tmp", feed.as_bytes());
     let count = Cut {
@@ -124,6 +119,7 @@ fn a_cut_leaves_a_stale_page_the_next_call_replaces() {
         left: core::cell::Cell::new(usize::MAX),
     };
     make_page(&count, ("feed.tmp", "page.tmp"), (30, 64 * 1024), &day_text).unwrap();
+    let whole = mem.get("page.tmp").unwrap();
     let appends = usize::MAX - count.left.get();
     assert!(appends > 2);
     for left in 1..appends {

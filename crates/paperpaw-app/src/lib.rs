@@ -612,6 +612,11 @@ pub fn add_native_catalogs(kernel: &mut paperpaw_core::Kernel) {
 /// the program rather than made on the heap at every start (see
 /// [`KernelBuilder::network_settings`]); one missing here only costs
 /// memory (the tests say so).
+///
+/// Wi-Fi (native only, #244) is in it where it is linked (`native-linked`);
+/// without that feature the app does not register it, and its settings would
+/// be left without their page.
+#[cfg(feature = "native-linked")]
 pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
     "fonts-browser",
     "mail",
@@ -620,6 +625,17 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "transfer",
     "vocabulary",
     "wifi",
+);
+
+/// The network settings of every networked first-party plugin the app registers.
+#[cfg(not(feature = "native-linked"))]
+pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
+    "fonts-browser",
+    "mail",
+    "news",
+    "store",
+    "transfer",
+    "vocabulary",
 );
 
 /// The indexes of the first-party plugins' translation catalogs, made
@@ -635,8 +651,8 @@ pub static CATALOG_INDEXES: &[(u64, &[u16])] =
 pub static BUILT_CATALOGS: &[paperpaw_i18n::BuiltLanguage] =
     include!(concat!(env!("OUT_DIR"), "/built_catalogs.rs"));
 
-/// The interface-6 forms of the formats, the dictionary, the reader and home:
-/// each only where its native form is not linked (`native-linked-reading`).
+/// The interface-6 form of home, only where its native form is not linked
+/// (`native-linked-reading`).
 #[cfg_attr(
     feature = "native-linked-reading",
     allow(clippy::missing_const_for_fn, reason = "nothing is added there")
@@ -647,34 +663,11 @@ fn interface6_reading(builder: KernelBuilder) -> KernelBuilder {
         reason = "nothing is added where the native forms are linked"
     )]
     let mut b = builder;
-    // The plugins that are native plugins, linked (`NATIVE_PLUGINS`), where the
-    // feature says, are not installed here: one plugin, one form.
+    // Home is a native plugin, linked (`NATIVE_PLUGINS`), where the feature says
+    // (`native-linked-reading`); the reader and Menu are native plugins only.
     #[cfg(not(feature = "native-linked-reading"))]
     {
-        b = b
-            .plugin(paperpaw_plugin_format_txt::TxtFormat)
-            .plugin(paperpaw_plugin_format_xtc::XtcFormat)
-            .plugin(paperpaw_epub_family::EpubFormat)
-            .plugin(paperpaw_epub_family::HtmlFormat)
-            .plugin(paperpaw_epub_family::Fb2Format)
-            .plugin(paperpaw_epub_family::MarkdownFormat)
-            .plugin(paperpaw_epub_family::CbzFormat);
-    }
-    // Dictionary is a native plugin, linked (`NATIVE_PLUGINS`), where the
-    // native reader asks it (`native-linked-reading`): the interface-6
-    // reader looks words up through the interface-6 form.
-    #[cfg(not(feature = "native-linked-reading"))]
-    {
-        b = b.plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
-    }
-    // Reader and Home keep their order; they are native plugins, linked
-    // (`NATIVE_PLUGINS`), where the feature says (`native-linked-reading`);
-    // Menu where `native-linked` says.
-    #[cfg(not(feature = "native-linked-reading"))]
-    {
-        b = b
-            .plugin(paperpaw_plugin_reader::Reader)
-            .plugin(paperpaw_plugin_home::Home);
+        b = b.plugin(paperpaw_plugin_home::Home);
     }
     b
 }
@@ -705,48 +698,11 @@ pub fn install_with(
         not(all(feature = "native-linked-store", feature = "native-linked-reading"))
     )))]
     let _ = store;
+    // Wi-Fi, Transfer, Menu, News, Picture home and the rest of the store's
+    // plugins are native plugins only (`NATIVE_PLUGINS`, under `native-linked`):
+    // their interface-6 forms are gone (#244).
     let mut b = interface6_reading(builder);
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_menu::Menu);
-    }
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-    {
-        b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
-    }
-    // Picture home is a native plugin, linked (`NATIVE_PLUGINS`), shipped off
-    // (`native_default_on`), where `native-linked-store` links the store's.
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-    {
-        b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
-    }
-    #[cfg(all(
-        feature = "store-plugins",
-        not(all(feature = "native-linked-store", feature = "native-linked-reading"))
-    ))]
-    {
-        b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
-        b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
-        b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
-    }
-    // Wi-Fi and Transfer are native plugins, linked (`NATIVE_PLUGINS`), where
-    // the feature says.
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_wifi::Wifi);
-        b = b.plugin(paperpaw_plugin_transfer::Transfer);
-    }
-    // Fonts browser is a native plugin, linked (`NATIVE_PLUGINS`), where
-    // `native-linked-store` links the store's plugins.
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-    {
-        b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
-    }
     b = b.plugin(paperpaw_plugin_store::Store);
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-    {
-        b = offered(b, store, paperpaw_plugin_aids::Aids);
-    }
     #[cfg(all(
         feature = "store-plugins",
         not(all(feature = "native-linked-store", feature = "native-linked-reading"))
@@ -754,62 +710,8 @@ pub fn install_with(
     {
         b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     }
-    // Sleep is a native plugin, linked (`NATIVE_PLUGINS`), where the feature
-    // says.
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_sleep::Sleep);
-    }
-    #[cfg(all(
-        feature = "store-plugins",
-        not(all(feature = "native-linked-store", feature = "native-linked-reading"))
-    ))]
-    {
-        b = offered(b, store, paperpaw_plugin_news::News);
-    }
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-    {
-        b = offered(b, store, paperpaw_plugin_widgets::Widgets);
-    }
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-    {
-        b = offer_shipped_off(b, store);
-    }
     // A theme of the app's own, off as it ships, on every device.
-    let builder = b.plugin_off(Pebble);
-    #[cfg(not(feature = "native-linked"))]
-    let builder = builder
-        .plugin(paperpaw_plugin_keyboard::Keyboard)
-        .plugin(paperpaw_plugin_settings::SettingsPlugin);
-    builder
-}
-
-/// Adds the plugins the store offers that ship off, wherever they are
-/// built in, as `store` says.
-#[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-fn offer_shipped_off(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBuilder {
-    let shipped_off = match store {
-        StorePlugins::Left => StorePlugins::Left,
-        _ => StorePlugins::Off(&|_| false),
-    };
-    b = offered(b, shipped_off, paperpaw_plugin_mail::Mail);
-    b
-}
-
-/// Adds `plugin`, one the store offers as a file too that takes the place of
-/// a built-in screen (the home screen): as [`offered`], but switched off
-/// where `store` says on for all, so that the tests keep the screen they
-/// test unless one switches the plugin on.
-#[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
-fn offered_replacing_home(
-    builder: KernelBuilder,
-    store: StorePlugins<'_>,
-    plugin: impl paperpaw_core::sdk::Plugin + 'static,
-) -> KernelBuilder {
-    match store {
-        StorePlugins::On => builder.plugin_off(plugin),
-        other => offered(builder, other, plugin),
-    }
+    b.plugin_off(Pebble)
 }
 
 /// Adds `plugin`, one the store offers as a file too, as `store` says (none

@@ -68,6 +68,14 @@
 //! allow indirect <caller> <count> <why>
 //!                                     exactly this many calls through a
 //!                                     register in the caller
+//! allow rom <callee> <why>            any function may call this routine
+//!                                     outside the image (the chip's ROM)
+//! allow indirect-in <crate> <max> <why>
+//!                                     the functions of the crate (`prefix*`
+//!                                     for several) have at most `max` calls
+//!                                     through a register between them that
+//!                                     no `allow indirect` line lists
+//! include <file>                      the lines of a file beside the budget
 //! allow sp <caller> <why>             the caller changes the stack pointer
 //!                                     other than by `entry`
 //! allow nosize <name> <why>           a function with no size (assembly)
@@ -121,6 +129,7 @@
 //! a word an `l32r` of its own reads (the packer's `uncovered` reads the
 //! same layout for plugins).
 
+mod family;
 mod regs;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -129,6 +138,7 @@ use crate::elf::{EM_XTENSA, Elf, SHF_ALLOC, SHF_EXECINSTR, SHF_WRITE};
 use crate::framelist::in_family;
 use crate::frames::path;
 use crate::frames_xtensa::{Class, entry_frame, length, narrow_class, wide_class};
+pub use family::expand_includes;
 use regs::{Insn, Writes};
 
 /// `STT_FUNC` and `STT_OBJECT`.
@@ -149,6 +159,11 @@ pub enum Allow {
     /// `caller` uses the privileged form `form` (one of [`FORMS`]), which
     /// leaves `a1` alone.
     Form { caller: String, form: String },
+    /// Any function may call `callee` outside the image (`allow rom`).
+    Rom { callee: String },
+    /// The functions of the crates `family` have at most `max` calls through
+    /// a register that no line of their own lists (`allow indirect-in`).
+    IndirectIn { family: String, max: u32 },
 }
 
 /// The privileged forms an `allow form` line may name besides the ones of a
@@ -301,6 +316,9 @@ impl Budget {
                         why.join(" "),
                     ))
                 }
+                ["allow", "rom" | "indirect-in", ..] => budget
+                    .allow
+                    .push(family::parse_line(&words).ok_or_else(bad)?),
                 ["allow", "sp", caller, why @ ..] if !why.is_empty() => budget.allow.push((
                     Allow::Sp {
                         caller: (*caller).to_string(),
@@ -1017,10 +1035,17 @@ fn follow(
             .cloned()
             .unwrap_or_else(|| format!("{target:#x}"));
         let by_address = format!("{target:#x}");
+        let outside = !image.in_image(target);
         if !allowed(budget, used, &|a| {
             matches!(a, Allow::Call { caller: c, callee: e }
                 if caller.is(c) && (*e == callee || *e == by_address))
-        }) {
+        }) && !(outside
+            && allowed(
+                budget,
+                used,
+                &|a| matches!(a, Allow::Rom { callee: e } if *e == callee || *e == by_address),
+            ))
+        {
             let where_ = if image.in_image(target) {
                 "code of the image with no symbol"
             } else {
@@ -1194,6 +1219,28 @@ fn allowed(budget: &Budget, used: &mut [bool], wanted: &dyn Fn(&Allow) -> bool) 
     any
 }
 
+/// The calls through a register of `f` (`count` of them) against the budget:
+/// a line of its own, an `allow indirect-in` family, or a problem.
+fn check_indirect(
+    budget: &Budget,
+    f: &Function,
+    count: u32,
+    (used, family_sites): (&mut [bool], &mut BTreeMap<usize, u32>),
+    report: &mut Report,
+) {
+    let own = allowed(
+        budget,
+        used,
+        &|a| matches!(a, Allow::Indirect { caller: c, count: n } if f.is(c) && *n == count),
+    );
+    if !own && !family::in_a_family(budget, used, family_sites, f, count) {
+        report.problems.push(format!(
+            "`{}` has {count} call(s) through a register: not followed here (name them with `allow indirect`)",
+            f.shown
+        ));
+    }
+}
+
 /// What the function's own code says against the budget: frame, stack pointer,
 /// call width, `entry` and forms the scan does not classify.
 fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report: &mut Report) {
@@ -1276,6 +1323,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         word: &word,
         pointed: &pointed,
     };
+    let mut family_sites: BTreeMap<usize, u32> = BTreeMap::new();
     seed(&image, budget, &mut report, &mut queue, &mut seen);
     while let Some(i) = queue.pop_front() {
         let f = &funcs[i];
@@ -1301,17 +1349,8 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         report.indirect += reads.indirect;
         report.resolved += reads.resolved;
         if reads.indirect > 0 {
-            let count = reads.indirect;
-            if !allowed(
-                budget,
-                &mut used,
-                &|a| matches!(a, Allow::Indirect { caller: c, count: n } if f.is(c) && *n == count),
-            ) {
-                report.problems.push(format!(
-                    "`{}` has {count} call(s) through a register: not followed here (name them with `allow indirect`)",
-                    f.shown
-                ));
-            }
+            let sites = (used.as_mut_slice(), &mut family_sites);
+            check_indirect(budget, f, reads.indirect, sites, &mut report);
         }
         follow(
             &image,
@@ -1330,6 +1369,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     // says which of them it describes.
     for (allow, _) in &budget.allow {
         let name = match allow {
+            Allow::Rom { .. } | Allow::IndirectIn { .. } => continue,
             Allow::Call { caller: n, .. }
             | Allow::Sp { caller: n }
             | Allow::Indirect { caller: n, .. }
@@ -1353,6 +1393,9 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
             ));
         }
     }
+    report
+        .problems
+        .extend(family::ceilings_exceeded(budget, &family_sites));
     for (n, (allow, _)) in budget.allow.iter().enumerate() {
         if !used[n] {
             report.problems.push(format!(
@@ -1371,6 +1414,8 @@ pub fn run(elf: &str, budget: &str) -> Result<(), String> {
     let bytes = std::fs::read(elf).map_err(|e| format!("{elf}: {e}"))?;
     let parsed = Elf::parse(&bytes).map_err(|e| format!("{elf}: {e}"))?;
     let text = std::fs::read_to_string(budget).map_err(|e| format!("{budget}: {e}"))?;
+    let text = expand_includes(&text, std::path::Path::new(budget))
+        .map_err(|e| format!("{budget}: {e}"))?;
     let budget = Budget::parse(&text).map_err(|e| format!("{budget}: {e}"))?;
     let report = check(&parsed, &budget).map_err(|e| format!("{elf}: {e}"))?;
     println!(

@@ -9,6 +9,8 @@ calibre
 end-of-book
 file-manager
 files
+format-xtc
+format-docx
 joplin
 keys
 menu-editor
@@ -30,3 +32,14 @@ diagnostics
 power
 stats
 transfer
+wifi
+widgets
+notes-vault
+mail
+format-mobi
+format-images
+format-html
+format-fb2
+format-cbz
+format-markdown
+format-epub

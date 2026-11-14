@@ -1,0 +1,1 @@
+reader.setup.font-size|core.setting.font-size||30|0|core.font-size|true|1

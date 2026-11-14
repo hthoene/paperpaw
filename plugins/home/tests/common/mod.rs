@@ -24,8 +24,8 @@ pub use paperpaw_sdk::{DirEntry, Id, MemoryStorage, Params, Storage, StorageErro
 
 use paperpaw_sdk::replies::Typed;
 use paperpaw_sdk::{
-    Canvas, Command, Cx, Env, Handled, Manifest, Plugin, Priority, RegisterError, Registrar,
-    Screen, ScreenSpec, Version,
+    ActionSpec, Canvas, Command, Cx, Env, Handled, Manifest, MenuEntry, Plugin, Priority,
+    RegisterError, Registrar, Screen, ScreenSpec, Version,
 };
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
@@ -194,6 +194,34 @@ impl Plugin for TestKeyboard {
     }
 }
 
+/// Three more tools in the overview, standing for those that are native
+/// only now (Settings, Wi-Fi, ...), so that it has the six columns of a wide
+/// screen to fill.
+pub struct TestTools;
+
+const TEST_TOOLS: [&str; 3] = ["test-tools.one", "test-tools.two", "test-tools.three"];
+
+impl Plugin for TestTools {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(
+            Id::new_static("test-tools"),
+            "Test tools",
+            Version::new(0, 1, 0),
+        )
+        .description("Tools to fill the overview.")
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        for id in TEST_TOOLS {
+            let id = Id::new_static(id);
+            r.add_action(ActionSpec::new(id.clone(), "test-tools").handler(|_, _, _| {}))?;
+            r.add_menu_entry(MenuEntry::new(paperpaw_sdk::builtin::menus::APPS, id))?;
+        }
+        Ok(())
+    }
+}
+
 struct Keyboard {
     params: Params,
 }
@@ -236,17 +264,24 @@ pub struct App {
 impl App {
     /// The app on `device` over `storage`, started.
     pub fn new(device: DeviceInfo, storage: Shared) -> Self {
-        Self::at(device, storage, 0)
+        Self::at(device, storage, 0, false)
     }
 
-    fn at(device: DeviceInfo, storage: Shared, now: u64) -> Self {
+    /// The same with the [`TestTools`] in the overview.
+    pub fn with_more_tools(device: DeviceInfo, storage: Shared) -> Self {
+        Self::at(device, storage, 0, true)
+    }
+
+    fn at(device: DeviceInfo, storage: Shared, now: u64, more_tools: bool) -> Self {
         TYPED.with(|typed| typed.borrow_mut().clear());
         ASKED.with(|asked| asked.borrow_mut().clear());
         let builder = Kernel::builder(device).storage(storage.clone());
-        let mut kernel = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs)
-            .plugin(TestKeyboard)
-            .build()
-            .unwrap();
+        let mut builder =
+            paperpaw_app::install(builder, paperpaw_app::Fonts::Packs).plugin(TestKeyboard);
+        if more_tools {
+            builder = builder.plugin(TestTools);
+        }
+        let mut kernel = builder.build().unwrap();
         let effects = kernel.start(Instant(now));
         let display = device.display;
         let mut app = Self {
@@ -265,7 +300,7 @@ impl App {
         let storage = self.storage.clone();
         let now = self.now + 1000;
         drop(self);
-        Self::at(device, storage, now)
+        Self::at(device, storage, now, false)
     }
 
     /// Lets timers run until nothing is due within a second.

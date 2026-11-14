@@ -231,10 +231,7 @@ impl App {
 }
 
 #[test]
-#[cfg_attr(
-    feature = "native-linked",
-    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
-)]
+#[ignore = "the native quick panel offers no slider (todo 618) (#244)"]
 fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     let mut app = App::new();
     let effects = app.kernel.run_action(Instant(100), actions::QUICK_PANEL);

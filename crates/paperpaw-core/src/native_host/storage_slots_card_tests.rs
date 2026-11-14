@@ -407,3 +407,200 @@ fn a_root_one_rename_is_the_librarys_move_and_its_books_keep_their_place() {
     let kept = positions::load(&*card, "Books/new/a.epub").expect("the place followed");
     assert_eq!((kept.at.section, kept.at.offset), (7, 1234));
 }
+
+/// A callback's frame that has the kernel's `Env`, as core's own frame.
+struct KernelFrame<'a>(&'a paperpaw_sdk::Env<'a>);
+
+impl crate::abi7::context::Frame for KernelFrame<'_> {
+    fn settings(&self) -> &paperpaw_sdk::Settings {
+        self.0.settings()
+    }
+    fn translator(&self) -> &paperpaw_i18n::Translator {
+        self.0.i18n()
+    }
+    fn storage(&self) -> Option<&dyn Storage> {
+        Some(self.0.storage())
+    }
+    fn kernel_env(&self) -> Option<&paperpaw_sdk::Env<'_>> {
+        Some(self.0)
+    }
+}
+
+/// #612: a flash card save is two renames in one callback (the copy kept, then
+/// the new file). The first one's move job, stepped only after the callback,
+/// made the second `ERR_BUSY`: the list "could not be written".
+#[test]
+fn a_file_that_is_no_book_is_renamed_without_the_librarys_job() {
+    use crate::native_host::{host_services::HostServices, storage_files::StorageFiles};
+    use alloc::{borrow::Cow, rc::Rc};
+    use paperpaw_native::host_glue::ERR_STATE;
+    use paperpaw_sdk::{FormatSpec, Id, MemoryStorage, document::DocumentError};
+    let card = Rc::new(MemoryStorage::new());
+    for (path, data) in [
+        ("Flashcards/Spanish.csv", "old"),
+        ("Flashcards/_Spanish.bak.csv.part", "old"),
+        ("Flashcards/Spanish.csv.part", "new"),
+        ("Books/a.epub", "book"),
+    ] {
+        card.write(path, data.as_bytes()).unwrap();
+    }
+    let storage: Rc<dyn Storage> = Rc::new(Shared(card.clone()));
+    let hosts = HostServices::default();
+    let moves = hosts.wire_library_moves(storage.clone()).unwrap();
+    let files = StorageFiles::new(storage, hosts.busy_sources().clone(), Rc::default())
+        .with_moves(moves.clone());
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .storage(Shared(card.clone()))
+        .build()
+        .unwrap();
+    kernel
+        .shared
+        .formats
+        .add(FormatSpec::new(
+            Id::new_static("test.epub"),
+            "EPUB",
+            alloc::vec![Cow::Borrowed("epub")],
+            alloc::boxed::Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+        ))
+        .unwrap();
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let scope = core::pin::pin!(EnvironmentScope::new());
+    let linked = LinkedPlugins::default();
+    let formats = FormatScope::new();
+    let format = Some(Format {
+        scope: &formats,
+        owner: 1,
+        features: features(true, true),
+        files: Some(&files),
+        linked: &linked,
+    });
+    let none = PathsInUse::default();
+    let frame = KernelFrame(&env);
+    scope
+        .as_ref()
+        .scope_frame(&frame, || {
+            let _running = kernel.shared.meter.enter(OWNER);
+            let mv = |from: &str, to: &str| {
+                // SAFETY: live inputs.
+                unsafe {
+                    rename(
+                        &scope,
+                        OWNER,
+                        format,
+                        &none,
+                        1,
+                        bytes(from.as_bytes()),
+                        bytes(to.as_bytes()),
+                    )
+                }
+            };
+            for (from, to) in [
+                (
+                    "Flashcards/_Spanish.bak.csv.part",
+                    "Flashcards/_Spanish.bak.csv",
+                ),
+                ("Flashcards/Spanish.csv.part", "Flashcards/Spanish.csv"),
+            ] {
+                assert_eq!(mv(from, to), OK, "{from}");
+                assert!(!moves.moves().active(), "no job after {from}");
+                assert!(!card.exists(from) && card.exists(to), "{from}");
+            }
+            assert_eq!(card.get("Flashcards/Spanish.csv").unwrap(), b"new");
+            assert_eq!(card.get("Flashcards/_Spanish.bak.csv").unwrap(), b"old");
+            // Refused as the job refuses: onto a folder, below itself.
+            assert_eq!(mv("Flashcards/Spanish.csv", "Books"), ERR_STATE);
+            assert_eq!(
+                mv("Flashcards/Spanish.csv", "Flashcards/Spanish.csv/x"),
+                ERR_INVALID
+            );
+            assert!(card.exists("Flashcards/Spanish.csv"));
+            // A book is the library's move as before, under either name.
+            assert_eq!(mv("Books/a.epub", "Books/a.old"), OK);
+            assert!(moves.moves().active(), "the library's move job");
+            // One move at a time: while it runs, any other rename waits.
+            assert_eq!(
+                mv("Flashcards/Spanish.csv", "Flashcards/Spanish2.csv"),
+                ERR_BUSY
+            );
+        })
+        .unwrap();
+}
+
+/// Senior R1 on #1443: a book whose format plugin is off (no format reads
+/// `.mobi` here) is no book by its name, but the library keeps details for
+/// it: its rename is still the library's move, and the details and the place
+/// in the book are found under the new name.
+#[test]
+fn a_book_whose_format_is_off_moves_with_what_the_library_keeps() {
+    use crate::native_host::{
+        host_services::HostServices, lib_moves_service::Pump, storage_files::StorageFiles,
+    };
+    use alloc::{rc::Rc, string::ToString};
+    use paperpaw_sdk::{
+        MemoryStorage,
+        document::Locator,
+        library,
+        positions::{self, Position},
+    };
+    let card = Rc::new(MemoryStorage::new());
+    card.write("Books/a.mobi", b"book").unwrap();
+    let provided = library::Provided::default().title("Kept".to_string());
+    library::provide(&*card, "Books/a.mobi", provided);
+    let place = Position::new(Locator::new(7, 1234), 41.5);
+    positions::save(&*card, "Books/a.mobi", &place).unwrap();
+    let storage: Rc<dyn Storage> = Rc::new(Shared(card.clone()));
+    let hosts = HostServices::default();
+    let moves = hosts.wire_library_moves(storage.clone()).unwrap();
+    let files = StorageFiles::new(storage, hosts.busy_sources().clone(), Rc::default())
+        .with_moves(moves.clone());
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .storage(Shared(card.clone()))
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    assert!(!env.formats().supports("a.mobi"), "the format is off");
+    let scope = core::pin::pin!(EnvironmentScope::new());
+    let linked = LinkedPlugins::default();
+    let formats = FormatScope::new();
+    let format = Some(Format {
+        scope: &formats,
+        owner: 1,
+        features: features(true, true),
+        files: Some(&files),
+        linked: &linked,
+    });
+    let none = PathsInUse::default();
+    let frame = KernelFrame(&env);
+    scope
+        .as_ref()
+        .scope_frame(&frame, || {
+            let _running = kernel.shared.meter.enter(OWNER);
+            // SAFETY: live inputs.
+            let renamed = unsafe {
+                rename(
+                    &scope,
+                    OWNER,
+                    format,
+                    &none,
+                    1,
+                    bytes(b"Books/a.mobi"),
+                    bytes(b"Books/b.mobi"),
+                )
+            };
+            assert_eq!(renamed, OK);
+            assert!(moves.moves().active(), "the library's move job");
+        })
+        .unwrap();
+    for _ in 0..100 {
+        if moves.pump(&env, &mut |_| ()) == Pump::Idle {
+            break;
+        }
+    }
+    assert!(!moves.moves().active(), "carried");
+    assert!(card.exists("Books/b.mobi") && !card.exists("Books/a.mobi"));
+    let book = library::book(&*card, "Books/b.mobi").expect("the details followed");
+    assert_eq!(book.title.as_deref(), Some("Kept"));
+    assert!(library::book(&*card, "Books/a.mobi").is_none());
+    let kept = positions::load(&*card, "Books/b.mobi").expect("the place followed");
+    assert_eq!((kept.at.section, kept.at.offset), (7, 1234));
+}

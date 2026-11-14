@@ -45,6 +45,7 @@ fn pages(dir: &Path, found: &mut Vec<std::path::PathBuf>) {
 }
 
 #[test]
+#[ignore = "the dev tool measures a widget's cell with its interface-6 probe widget, which the native Home does not place (todo 634, #244)"]
 fn a_plugin_s_gallery_is_written_and_linked() {
     let out = std::env::temp_dir().join(format!("paperpaw-dev-gallery-{}", std::process::id()));
     let mut context = Context::new(

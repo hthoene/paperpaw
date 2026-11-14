@@ -1,8 +1,11 @@
-# Notes vault on interface 7 (slices 1 to 3, partly ported)
+# Notes vault on interface 7 (complete in code)
 
-Status: **not complete.** The interface-6 plugin (the Markdown format, the vault's page, lists and
-tags screens, the index, the home widgets, the registration) is still in place beside the native
-one; the screens are native since slice 2, the Markdown format since slice 3 (up to what the host takes), the widgets are not. It is removed in the PR that finishes the port.
+Status: **complete in code.** The plugin is native only: the vault's page, the lists and the tags
+screens, the index, the Markdown format and the six home widgets are interface 7 (slices 1 to 4
+below); the interface-6 plugin (`NotesVault`, its screens, widgets, index and registration) is gone,
+and with it the app's built-in offer of it and its interface-6 plugin file. What is not measured or
+not yet taken by the host is listed under "Open" and "Not measured" below; the cases that wait for
+the host are ignored cases in `tests/acceptance_pending.rs`.
 
 ## Ported in slice 1 (`declarations.rs`, `src/native_model/`, `src/native_plugin.rs`)
 
@@ -11,7 +14,7 @@ one; the screens are native since slice 2, the Markdown format since slice 3 (up
   its editor). `build.rs` and `native/metadata*` are generated with `tools/abi-metadata.py`. En/de
   texts are the existing ones (`tests/native_translations.rs`).
 - Model (host-free, over `Storage`, each part the interface-6 code made fallible and tested to give
-  the same answers on fixed cases and on generated text and vaults, `src/native_parity_tests.rs`):
+  the same answers on fixed cases and on generated text and vaults; the answers of the interface-6 code were written to `testdata/model.v1` before it was removed and `src/native_golden_tests.rs` checks the native model against them):
   - `lines`: a file a line at a time (one reservation for the chunk and the line, lines cut at
     1,024 bytes, bad bytes replaced as `from_utf8_lossy` does).
   - `note`: names, titles, folders, the excerpt (front matter skipped by looking, not by holding
@@ -91,12 +94,41 @@ one; the screens are native since slice 2, the Markdown format since slice 3 (up
 - Worst-case memory: one window of 100 rows (path, title) and the stack of folders being walked (at
   most 24 deep), the tags (400), the two 4 KiB `core.files` buffers while the card is read.
 
-## Not ported yet (each is an ignored case in `tests/acceptance_pending.rs`)
+## Ported in slice 4: the home widgets (`src/native_widgets.rs`)
 
-- The **home widgets** (recent notes, pinned note, note of the day, random note, tags, search): the
-  widget host call (Core todo 76) and the ui-kit widget toolkit.
-- The vault's folder editor is the slot `core.choose-folder`; interface 6 named the screen
-  `core.folder-editor`. Same chooser; the registry-through-loader case checks it.
+- *Recent notes*, *Pinned note*, *Note of the day*, *Random note*, *Note tags* and *Search notes*
+  are declared (`declarations::widgets`, category `core.widgets.personal`, sizes 2x2 and 2x1, no
+  `.previews`: the rule of #861) with the shared look and their own settings (count, folder, title,
+  the parts *heading*, *where*, *excerpt*). The host makes an instance per placement
+  (`event.widget_made`), asks its height and its targets through the `core.widget` stage and calls
+  the plugin to draw it (`DrawPurpose::Widget`).
+- The lines are what the index holds; a tap on a note opens it in the reader bound to `core.reader`,
+  on a tag opens its list, on *Search* asks for words (as the page does), on the "no vault"/"no
+  index"/"nothing" line opens the vault's page. Each line is a target (numbered from 1).
+- The lines of an instance are kept with what they were made from (the index's state and stamp,
+  the tags file's size, the day, the hour for the random note, the widget's settings, the language):
+  the index is read again only when that changes. Interface 6 kept them across instances by
+  placement in a bounded cache; now each instance keeps its own (at most 12 short lines), dropped
+  with the instance.
+- The widgets are told to show something new when the index slice ends and when a setting
+  changes (`event.setting_changed`, token 21; the host does not admit that subscription yet, #763,
+  so `make` goes on when it answers `Unsupported`, and the widgets show the change at their next
+  measure).
+- Differences from interface 6, on purpose: the day and the hour come from the host's snapshot
+  and clock; within one instance the random note stays for an hour or until the index or the widget's settings change
+  (interface 6 kept it while the widget lasted); the heading is drawn by the kit's caption.
+  The lines are kept per instance and an instance lives as long as its placement is shown, so a
+  new instance (a home visit) reads the index again and the random note changes on every home
+  visit; interface 6 kept the lines across instances by placement, so the random note stayed for
+  an hour across visits. This is deliberate.
+- Every widget subscribes `event.setting_changed` for every setting, so each widget refreshes on any
+  setting change (not only its own).
+- X4 timing gate (not measured): the index re-read on each new instance (each home visit) and on each
+  measure after a change; `tag_counts` on a big vault.
+- Not measured: the widgets' frames on the X4 (the packer reports none over 2,048 B), the time of
+  a measure on a vault of thousands of notes (the *Recent* window reads the whole index file), no
+  scripted-host test of the stage and the draw yet (the model under them is pinned by
+  `native_golden_tests`).
 
 ## Ported in slice 3: the Markdown format (`src/markdown*`, `src/fallible.rs`, `src/native_format.rs`)
 
@@ -107,8 +139,7 @@ one; the screens are native since slice 2, the Markdown format since slice 3 (up
   listing's callback cannot answer in a `Walk` and ends the open. `tests/markdown_allocation.rs`
   refuses each allocation of opening and reading a vault note in turn (front matter, wikilinks,
   embeds, a table, a callout, a code block) and checks the output is a clean run's, and that a retry
-  reads. The same code serves interface 6 (the registration stays until the host activates native
-  plugins).
+  reads. The same code serves the native provider (the interface-6 registration is gone).
 - Differences, on purpose: file names of the picture walk and of the callout kind are lower-cased
   character by character (as the names of the index are, slice 1), so a Greek name that ends in a
   capital sigma differs from `str::to_lowercase`; a picture that is on the card and cannot be decoded
@@ -122,7 +153,7 @@ one; the screens are native since slice 2, the Markdown format since slice 3 (up
   puts it there for a format that declares `uses.storage`, where the book came from the card; todo
   336); with none the note is read without a vault, and its title is empty (root 3 has no name: the
   library names an untitled book by its file, as for format-txt). `tests/provider.rs` compares the
-  provider with the interface-6 reader on the same vault note block by block (texts, runs, maps, spans,
+  provider with `MarkdownDocument` (the parser both use) on the same vault note block by block (texts, runs, maps, spans,
   metadata), with and without a card path, and checks `VaultIo`'s routing and refusals and hostile
   paths.
 - `declarations::formats` declares `notes-vault.markdown` for `md` and `markdown`, priority 10 (the
@@ -138,7 +169,7 @@ one; the screens are native since slice 2, the Markdown format since slice 3 (up
   Activation list (cases to un-ignore when the host lands, in `tests/acceptance_pending.rs`):
   `BLOCKED DOC-format-declaration` (the host takes `notes-vault.markdown`) and
   `BLOCKED DOC-format-card-path` (the card path in `fmt.call.text`); both must pass before the
-  interface-6 `MarkdownDocument` registration goes with todo 90. The
+  vault's Markdown is the one the user's `.md` opens with. The
   `add_book_cache` registration has no interface-7 form: the host owns each document's cache (root 6).
   Each `core.format` call opens `core.files` and gives it back (two buffers of about 4 KiB); not
   measured on the X4. No scripted-host test of `Event::StageCall` (the scripted host has none).

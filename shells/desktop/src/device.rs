@@ -1263,7 +1263,12 @@ fn build_kernel(
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            builder = code_plugins(builder, profile, &pool);
+            builder = crate::native::code_plugins(
+                builder,
+                CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed),
+                profile.device.memory,
+                &pool,
+            );
         }
         // Plugin installs from the card share the firmware's queue: the
         // emulated device has one, with no firmware to install
@@ -1308,25 +1313,6 @@ fn build_kernel(
         };
         Ok(kernel)
     })
-}
-
-/// Code plugins built for this computer, from the card.
-#[cfg(not(target_arch = "wasm32"))]
-fn code_plugins(
-    builder: KernelBuilder,
-    profile: &'static Profile,
-    pool: &crate::native::DevicePool,
-) -> KernelBuilder {
-    if !CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed) {
-        return builder;
-    }
-    builder.code_plugins(
-        crate::native::native(),
-        Box::new(crate::native::HostLoader::for_device_in(
-            profile.device.memory,
-            pool.clone(),
-        )),
-    )
 }
 
 /// `device` with its screen turned by `rotation`: on its side, width and

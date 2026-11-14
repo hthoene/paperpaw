@@ -67,15 +67,18 @@ Each release has an install file for every device,
 `paperpaw-<device>-<version>-install.bin`: the app image alone,
 unsigned, as CrossPoint's installer takes it.
 
-- **From CrossPoint to PaperPaw**: copy the install file onto the card
-  and choose it in CrossPoint's *Settings*, *General*, *SD firmware
-  update*. CrossPoint writes it into its other app slot and starts it;
-  PaperPaw starts on trial and, if it fails, CrossPoint comes back.
-  PaperPaw then runs in CrossPoint's partitions as it finds them and
-  never writes the partition table. Their slots (6.25 MB) are smaller
-  than PaperPaw's own: CI fails a build whose image no longer fits, and
-  on the X4 code plugins from the store have little or no room there
-  (the store says so).
+- **From CrossPoint to PaperPaw**: from Beta 4 PaperPaw installs by flashing
+  (paperpaw.org/flash, or `tools/flash-x4.py`), which also writes PaperPaw's
+  own partition table (app slots of 7.9 MB). The install file still goes
+  through CrossPoint's *Settings*, *General*, *SD firmware update* when it
+  fits CrossPoint's app slot (6.25 MB): CrossPoint writes it into its other
+  slot and starts it; PaperPaw starts on trial and, if it fails, CrossPoint
+  comes back. The native images are larger than that slot: the build tells
+  how much over it they are, and the menu cannot install them. A device that
+  keeps CrossPoint's layout runs PaperPaw as it finds it (it never writes the
+  partition table), cannot take an update larger than its slot (the update
+  page says so before downloading, Decision 179), and has little or no room
+  for code plugins from the store (the store says so).
 - **Back to the stock firmware by card** (the X4's *Up* and *Power*
   with `update.bin`) works only while the stock bootloader is still in
   the flash: a device that got PaperPaw by the menu keeps it, one

@@ -11,7 +11,8 @@
 # Steps, in this order: fmt (and, for changed .rs files there, fmt-shells
 # for shells/xteink and fmt-fuzz for fuzz: rustfmt only), clippy (-D warnings), test,
 # test-linked (the tests of each package that has a `linked` feature, run with
-# it: the hosted tests there are built nowhere else), test-native (the app's
+# it: the hosted tests there are built nowhere else), clippy-native (the app's
+# tests behind the native-linked features, -D warnings), test-native (the app's
 # flows, sleep_parity and sleep_cycles with the linked reader and formats, when the core, the
 # app, the native layer or a plugin changed, or with --all-linked), doc (-D warnings),
 # changelog, lockfiles, licences, checks (paperpaw-checks), abi-metadata.
@@ -61,7 +62,7 @@ base="origin/abi7/integration"
 jobs=4
 crates=()
 all_linked=0
-known=" fmt fmt-shells fmt-fuzz clippy clippy-features test test-features test-linked test-native doc changelog lockfiles licences checks abi-metadata "
+known=" fmt fmt-shells fmt-fuzz clippy clippy-features clippy-native test test-features test-linked test-native doc changelog lockfiles licences checks abi-metadata "
 
 check_names() { # LIST OPTION: every name must be a known step
     local name
@@ -248,9 +249,9 @@ pkg_step clippy cargo clippy -j"$jobs" "${pkgs[@]}" --all-targets -- -D warnings
 if [[ -n "$features" ]]; then
     pkg_step clippy-features cargo clippy -j"$jobs" "${pkgs[@]}" --features "$features" --all-targets -- -D warnings
 fi
-pkg_step test cargo test -j"$jobs" "${pkgs[@]}"
+pkg_step test cargo test --no-fail-fast -j"$jobs" "${pkgs[@]}"
 if [[ -n "$features" ]]; then
-    pkg_step test-features cargo test -j"$jobs" "${pkgs[@]}" --features "$features"
+    pkg_step test-features cargo test --no-fail-fast -j"$jobs" "${pkgs[@]}" --features "$features"
 fi
 # The hosted tests of the plugins (tests/hosted_*.rs, test-support/hosted.rs)
 # are built only with --features linked, and CI does not build them: run every
@@ -272,7 +273,7 @@ PY
     )
 fi
 if ((${#linked_pkgs[@]} > 0)); then
-    step test-linked cargo test -j"$jobs" "${linked_pkgs[@]}" --features linked
+    step test-linked cargo test --no-fail-fast -j"$jobs" "${linked_pkgs[@]}" --features linked
 elif ! wanted test-linked; then
     skipped+=("test-linked (left out by --only/--skip)")
 else
@@ -289,11 +290,21 @@ for crate in "${crates[@]}"; do
     esac
 done
 if [[ "$native_wanted" == 1 ]]; then
-    step test-native bash -c 'set -e
-        cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles --test linked_catalogs
-        cargo test -j"$1" -p paperpaw-app --no-default-features --features native-linked-reading,packs --test linked_catalogs
-        cargo test -j"$1" -p paperpaw-app --features native-linked-reading --test linked_settings_tables
-        cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables' _ "$jobs"
+    # The tests behind the native-linked features are compiled out of the plain
+    # clippy run above (the CI workspace run unifies the features and sees them).
+    step clippy-native cargo clippy -j"$jobs" -p paperpaw-app --all-targets --features native-linked,native-linked-reading,native-linked-store -- -D warnings
+    # Every command runs, so that one run lists every red; the step fails if
+    # any of them did.
+    step test-native bash -c 'rc=0
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles --test linked_catalogs || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --no-default-features --features native-linked-reading,packs --test linked_catalogs || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading --test linked_settings_tables || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading --test sets --test standard || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading --test readers || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading --test partial_redraw -- --exact table_of_contents || rc=1
+        exit $rc' _ "$jobs"
 elif ! wanted test-native; then
     skipped+=("test-native (left out by --only/--skip)")
 else
@@ -306,7 +317,7 @@ step lockfiles python3 tools/check-lockfiles.py $lock_args
 step licences python3 tools/licences/build.py --check
 # paperpaw-checks bakes the repository path: no compiler cache for it.
 touch tools/checks/src/lib.rs 2> /dev/null || true
-step checks env SCCACHE_DISABLE=1 cargo test -j"$jobs" -p paperpaw-checks
+step checks env SCCACHE_DISABLE=1 cargo test --no-fail-fast -j"$jobs" -p paperpaw-checks
 if [[ -f tools/tests/test_abi_plugin_metadata.py ]]; then
     step abi-metadata python3 tools/tests/test_abi_plugin_metadata.py
 fi

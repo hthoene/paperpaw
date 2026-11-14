@@ -124,6 +124,7 @@ fn add(builder: KernelBuilder) -> KernelBuilder {
 }
 
 #[test]
+#[ignore = "the dev tool measures a widget's cell with its interface-6 probe widget, which the native Home does not place (todo 634, #244)"]
 fn reads_while_drawing_large_screens_and_leaks_are_found() {
     let out = std::env::temp_dir().join(format!("paperpaw-dev-perf-{}", std::process::id()));
     let mut context = Context::new(

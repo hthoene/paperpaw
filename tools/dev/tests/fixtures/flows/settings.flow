@@ -2,8 +2,8 @@
 profiles: boox-go-7
 
 expect screen home.dashboard
-# A tap in the middle opens the menu.
-tap:632:840
+# A tap in the empty middle, below the book card, opens the menu.
+tap:632:1008
 expect screen menu.list
 tap-on:Settings
 expect screen settings.list

@@ -45,7 +45,14 @@ fn hosted() -> shell::Hosted<Heap, ()> {
 /// A kernel with the pack: its settings described from the image, or taken
 /// from its table in the program (what a linked build does).
 pub(in crate::native_host) fn kernel(table: bool) -> crate::Kernel {
+    configured(table, "")
+}
+
+/// [`kernel`] with `config` as the shell's configuration, read at the build
+/// (before the pack registers).
+fn configured(table: bool, config: &str) -> crate::Kernel {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .user_config(config)
         .build()
         .unwrap();
     let depth = FlatDepth::try_new().unwrap();
@@ -98,6 +105,32 @@ fn the_pack_s_settings_are_the_table_s_and_none_of_them_is_held() {
         );
         assert_eq!(lazy.shows(spec), eager.shows(wanted), "{id}");
     }
+}
+
+/// A value the configuration has for a described setting is set when its
+/// plugin registers, which reads the setting's spec. The spec is let go with
+/// the publication: at the start plugin after plugin registers with no round
+/// between, and each kept spec would stay through the whole of it.
+#[test]
+fn what_a_configured_value_made_of_them_is_let_go_with_the_publication() {
+    let (wanted, on) = NATIVE_SETTINGS
+        .iter()
+        .find_map(|spec| match spec.default {
+            SettingValue::Bool(on) => Some((spec, on)),
+            _ => None,
+        })
+        .unwrap();
+    let (plugin, name) = wanted.id.as_str().split_once('.').unwrap();
+    let value = if on { "off" } else { "on" };
+    let kernel = configured(false, &std::format!("[{plugin}]\n{name} = {value}\n"));
+    // Set from the file, so its spec was read; and nothing of it is kept.
+    let settings = &kernel.shared.settings;
+    assert_eq!(
+        settings.get(wanted.id.as_str()),
+        Some(&SettingValue::Bool(!on))
+    );
+    assert!(!settings.any_made());
+    assert!(!settings.went_short());
 }
 
 #[test]

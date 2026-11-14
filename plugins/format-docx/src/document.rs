@@ -1,24 +1,22 @@
 //! A Word document as a [`Document`]: converted once into the cache (see
 //! [`crate::cache`]), read from there.
 //!
-//! One document serves two openers: the interface-6 one (the cache is a folder
-//! of the plugin's, named for the book) and the native provider's
-//! ([`DocxDocument::native`]: the archive is the book, the cache is root 6;
-//! both are "", the cache's files are named by themselves). The conversion
-//! ([`DocxDocument::convert`]) and the reading are the same code; every
-//! allocation in them can be refused (`OutOfMemory`).
+//! The native provider's document ([`DocxDocument::native`]): the archive is
+//! the book (root 3), the cache is root 6; both paths are "", the cache's
+//! files are named by themselves. The conversion ([`DocxDocument::convert`])
+//! and the reading are one code; every allocation in them can be refused
+//! (`OutOfMemory`).
 
-use alloc::boxed::Box;
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{
     Block, BlockKind, Document, DocumentError, ImageRef, Link, Locator, Metadata, TocEntry,
 };
 use paperpaw_sdk::image::Fit;
 use paperpaw_sdk::zip::ZipArchive;
-use paperpaw_sdk::{Env, OpenOptions, Storage, read_file};
 
 use crate::cache::{self, EXTERNAL, Kind, Span};
 use crate::mem::{self, Refused};
@@ -26,10 +24,8 @@ use crate::parts::{
     Parts, error, malformed, read_numbering, read_properties, read_rels, read_styles, xml_part,
 };
 use crate::writer::Writer;
-use crate::{MAX_TEXT, MAX_TITLE, PLUGIN, images};
+use crate::{MAX_TEXT, MAX_TITLE, images};
 
-/// Changes when what is made of a document changes, so they are made anew.
-const VERSION: u32 = 1;
 pub(crate) const INFO: &str = "info.txt";
 /// The most of `info.txt` that is read.
 const INFO_BYTES: usize = 4096;
@@ -41,27 +37,15 @@ fn oom(_: Refused) -> DocumentError {
 /// An open Word document.
 #[derive(Debug)]
 pub struct DocxDocument {
-    /// The archive: the book's path, or `""` for the native book (root 3).
+    /// The archive: `""`, the book (root 3).
     path: String,
-    /// The document's folder, or `""` for the native cache (root 6).
+    /// The document's folder: `""`, the cache (root 6).
     dir: String,
     metadata: Metadata,
     /// The text's length, as places are counted.
     length: u32,
     fit: Fit,
     color: bool,
-}
-
-/// What tells the file from another of its name: its size and a hash of
-/// its first and last 4 KB.
-fn fingerprint(storage: &dyn Storage, path: &str) -> Result<String, DocumentError> {
-    let size = storage.size(path)?;
-    let head = read_file(storage, path, 4096).unwrap_or_default();
-    let mut tail = alloc::vec![0u8; 4096];
-    let n = storage.read_at(path, size.saturating_sub(4096), &mut tail)?;
-    tail.truncate(n);
-    let hash = paperpaw_sdk::digest::fnv1a64([head.as_slice(), tail.as_slice()].concat());
-    Ok(format!("{size}:{hash:016x}"))
 }
 
 /// What `info.txt` says: the text's length, the author, the title and the
@@ -72,9 +56,9 @@ struct Info {
 }
 
 impl Info {
-    /// Reads `info.txt` of the folder `dir`. `name` is the file the book is
-    /// in, for a title the document has none of (`None`: the library names it).
-    fn read(storage: &dyn Storage, dir: &str, name: Option<&str>) -> Result<Self, DocumentError> {
+    /// Reads `info.txt` of the folder `dir`. A title the document has none of
+    /// is left to the library (it names the book by its file).
+    fn read(storage: &dyn Storage, dir: &str) -> Result<Self, DocumentError> {
         let file = cache::path(dir, INFO).map_err(oom)?;
         let size = match storage.size(&file) {
             Ok(size) => size,
@@ -94,10 +78,6 @@ impl Info {
         let mut metadata = Metadata::default();
         if !title.is_empty() {
             metadata.title = Some(mem::string(title).map_err(oom)?);
-        } else if let Some(name) = name {
-            let name = name.rsplit('/').next().unwrap_or(name);
-            let stem = name.rsplit_once('.').map_or(name, |(s, _)| s);
-            metadata.title = Some(mem::string(stem).map_err(oom)?);
         }
         if !authors.is_empty() {
             let mut list = Vec::new();
@@ -130,39 +110,6 @@ fn one_line(text: &str) -> Result<String, Refused> {
 }
 
 impl DocxDocument {
-    /// Opens the document at `path` (converting it if it is not yet).
-    pub fn open(
-        storage: &dyn Storage,
-        path: &str,
-        options: &OpenOptions,
-    ) -> Result<Self, DocumentError> {
-        let dir = paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "", path);
-        let stamp = format!("{VERSION}\n{}\n", fingerprint(storage, path)?);
-        let done = format!("{dir}/{}", cache::DONE);
-        if read_file(storage, &done, 256).ok().as_deref() != Some(stamp.as_bytes()) {
-            storage.remove_dir_all(&dir).ok();
-            let converted = storage
-                .create_dir(&dir)
-                .map_err(DocumentError::from)
-                .and_then(|()| Self::convert(storage, path, &dir));
-            if let Err(e) = converted {
-                // Nothing half made stays.
-                storage.remove_dir_all(&dir).ok();
-                return Err(e);
-            }
-            storage.write(&done, stamp.as_bytes())?;
-        }
-        let info = Info::read(storage, &dir, Some(path))?;
-        Ok(Self {
-            path: path.to_string(),
-            dir,
-            metadata: info.metadata,
-            length: info.length,
-            fit: options.image_fit,
-            color: options.color,
-        })
-    }
-
     /// The document of the native provider whose cache is whole: the book is
     /// the archive (`""`), the cache is root 6 (`""`). A title the document
     /// has none of is left to the library.
@@ -170,7 +117,7 @@ impl DocxDocument {
     /// # Errors
     /// A card or memory that fails.
     pub fn native(storage: &dyn Storage, fit: Fit, color: bool) -> Result<Self, DocumentError> {
-        let info = Info::read(storage, "", None)?;
+        let info = Info::read(storage, "")?;
         Ok(Self {
             path: String::new(),
             dir: String::new(),
@@ -507,13 +454,4 @@ impl Document for DocxDocument {
     fn link_target(&self, storage: &dyn Storage, href: &str) -> Option<Locator> {
         self.try_link_target(storage, href).ok().flatten()
     }
-}
-
-/// A document opened for the library.
-pub(crate) fn opener(
-    storage: &dyn Storage,
-    path: &str,
-    options: &OpenOptions,
-) -> Result<Box<dyn Document>, DocumentError> {
-    DocxDocument::open(storage, path, options).map(|d| Box::new(d) as Box<dyn Document>)
 }

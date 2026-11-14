@@ -1,0 +1,12 @@
+#220:bb9cc0dada2f266e	"To: Jane Doe <jane@example.org>\nCc: \nSubject: Re: Lunch\nIn-Reply-To: <m1@x>\nReferences: <m0@x> <m1@x>\n\n\n\nJane wrote:\n> Noon?\n"
+"from"	"ada@example.org"
+#219:0e9ce1004a9d35e5	#171:f1965f3848249588
+"from"	"ada@example.org"
+"\"From: Jane <jane@example.org>\\nReply-To: list@example.org\\nSubject: RE: Lunch\\nMessage-ID: <m2@x>\\n\\nOk\\n\" all=false"	"To: list@example.org\nCc: \nSubject: RE: Lunch\nIn-Reply-To: <m2@x>\nReferences: <m2@x>\n\n\n\nJane wrote:\n> Ok\n"
+"from"	"ada@example.org"
+"\"From: Jane <jane@example.org>\\nReply-To: list@example.org\\nSubject: RE: Lunch\\nMessage-ID: <m2@x>\\n\\nOk\\n\" all=true"	"To: list@example.org\nCc: \nSubject: RE: Lunch\nIn-Reply-To: <m2@x>\nReferences: <m2@x>\n\n\n\nJane wrote:\n> Ok\n"
+"from"	"ada@example.org"
+"\"From: x@y.org\\n\\n\" all=false"	"To: x@y.org\nCc: \nSubject: Re:\nIn-Reply-To: \nReferences: \n\n\n\nJane wrote:\n"
+"from"	"ada@example.org"
+"\"From: x@y.org\\n\\n\" all=true"	"To: x@y.org\nCc: \nSubject: Re:\nIn-Reply-To: \nReferences: \n\n\n\nJane wrote:\n"
+"from"	"ada@example.org"

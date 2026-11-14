@@ -1,6 +1,6 @@
-//! The XTC `core.format` provider against the interface-6 reader on the same
-//! books: the same pages, chapters and pictures, and the refusals a hostile
-//! call or book gets.
+//! The XTC `core.format` provider against the reader (`XtcDocument`, on a
+//! cache of its own) on the same books: the same pages, chapters and
+//! pictures, and the refusals a hostile call or book gets.
 
 #![allow(
     clippy::unwrap_used,
@@ -185,13 +185,13 @@ fn last_page(end: &stage::FmtEnd) -> bool {
 }
 
 #[test]
-fn a_book_opens_with_whole_pages_and_chapters_and_reads_like_interface_6() {
+fn a_book_opens_with_whole_pages_and_chapters_and_reads_like_the_reader() {
     let (data, _) = book(&pages());
     let io = Roots::new(data.clone());
     let mut p = XtcProvider::new();
     assert_eq!(open(&mut p, &io), (0, 0, 3));
-    let old_io = MemoryStorage::new().with("b.xtc", data);
-    let old = XtcDocument::open(&old_io, "b.xtc").unwrap();
+    let old_io = Roots::new(data);
+    let old = XtcDocument::open_native(&old_io).unwrap();
     // Sections.
     let reply = run(&mut p, &io, &call(7, 1, |_| {})).unwrap();
     let r = rows(&reply);

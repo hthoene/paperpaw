@@ -15,7 +15,7 @@ name = "paperpaw-dev"
 path = "src/main.rs"
 
 [dependencies]
-paperpaw-emulator = { path = "../../shells/desktop", default-features = false }
+paperpaw-emulator = { path = "../../shells/desktop", default-features = false, features = ["native-linked"] }
 paperpaw-core = { workspace = true, features = ["color", "outline"] }
 paperpaw-config.workspace = true
 paperpaw-digest.workspace = true

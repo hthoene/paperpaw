@@ -1,8 +1,10 @@
 # Interface-7 port (the native plugin and its settings; the rules wait for the reader)
 
-Version 1.1.5. The plugin's part of interface 7 is small: it declares three settings and the reader
-applies the rules. Everything else stays until the reader calls the `reader.filter` stage and the
-host activates native plugins (then the interface-6 text filters go, no shim).
+Version 1.1.5 (above Beta 3's 1.1.1: no bump). The plugin's part of interface 7 is small: it declares
+three settings and the reader applies the rules. The interface-6 plugin is removed (this port: the
+`Aids` plugin, its registration and text filters, the plugin-file build of `tools/plugin-files`, the
+app dependency and the store-plugin entry). **The current interface-6 app loses the three settings and
+the rules until native activation and the reader asking the stage: merge right after both.**
 
 ## Ported
 
@@ -40,12 +42,28 @@ host activates native plugins (then the interface-6 text filters go, no shim).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- Removing the interface-6 text filters (`add_text_filter` in `register`, `bold_beginnings`,
-  `replace`, `pictures::apply`, `filters_tests.rs`, the `Aids` plugin): with the reader calling the
-  stage; until then they are the only way the rules apply, and the reader's cache keys depend on
-  their signatures. They go in one commit then, no shim.
 - The reader asking the stage and applying the rules to each block (`BLOCKED READER-filter-fire`:
   the stage is defined and declared (PR #807), the native reader screens do not ask it yet).
   Without that, nothing applies the rules on a native host.
 - Refusing a configuration the payload cannot hold before it is adopted (SETTINGS-validation): the
   settings editor has no hook for it yet.
+
+## Interface-6 code removed
+
+- The interface-6 text filters (`bold_beginnings`, `replace`, `pairs`, `pictures::apply`) live on only
+  as `src/oracle.rs` (test code): the reference the stage's rules are compared with
+  (`reader_filter/tests.rs`) and the property tests (`filters_tests.rs`). `whole_word` stays, the
+  rules use it. Delete the oracle when the reader pipeline owns the parity tests.
+- The declaration test pins the three settings as literals (it compared them with the interface-6
+  registration before).
+
+## Set aside until native activation (todo 380)
+
+- Desktop snapshot cases `x4-pictures-caption` and `x4-pictures-hidden` (goldens deleted): they set
+  `aids.pictures`, which nothing registers until the native plugin runs and the reader asks the stage.
+  `boox-reading-de` is re-blessed (no *Reading aids* rows meanwhile); the `settings-reading` golden of
+  the app loses its *Reading aids* row.
+- `crates/paperpaw-app/tests/sets.rs`: the check that `aids` runs in the app is gone; the store-plugin
+  list has ten entries.
+- `tools/plugin-files/plugins.txt`: `aids` is commented out like the other ported plugins (the native
+  file is built by `tools/plugin-files7`).

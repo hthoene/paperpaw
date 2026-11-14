@@ -55,6 +55,9 @@ pub fn with_library<T>(
 #[derive(Debug, Default)]
 pub struct Known {
     held: RefCell<(u32, Vec<(u32, bool)>)>,
+    /// Where each book's cover stood when it was last asked (generation, key):
+    /// a draw asks the host once, not once for each band of a frame.
+    covers: RefCell<Vec<(u32, u32, Covered)>>,
 }
 
 impl Known {
@@ -84,6 +87,30 @@ impl Known {
     /// What the host said is not kept any more.
     pub fn forget(&self) {
         *self.held.borrow_mut() = (0, Vec::new());
+        self.forget_covers();
+    }
+
+    /// The covers are asked about anew at the next draw: one that was being
+    /// made may be ready, one the host ended is made again.
+    pub fn forget_covers(&self) {
+        self.covers.borrow_mut().clear();
+    }
+
+    fn cover_of(&self, generation: u32, key: u32) -> Option<Covered> {
+        self.covers
+            .borrow()
+            .iter()
+            .find(|(g, k, _)| *g == generation && *k == key)
+            .map(|(.., covered)| *covered)
+    }
+
+    fn keep_cover(&self, generation: u32, key: u32, covered: Covered) {
+        let mut covers = self.covers.borrow_mut();
+        // At most the rows one page holds; a refused allocation keeps nothing,
+        // and the next draw asks again.
+        if covers.len() < PAGE && covers.try_reserve(1).is_ok() {
+            covers.push((generation, key, covered));
+        }
     }
 }
 
@@ -248,6 +275,27 @@ pub fn cover(host: &Host<'_>, library: &Library, book: &Book) -> Result<Covered,
     }
 }
 
+/// [`cover`], asked once for each book and generation until the instance
+/// forgets (`Known::forget_covers`: the tick found the books changed or a cover
+/// that was being made), so that the bands of a frame, drawn one after the
+/// other, do not each make the host look at the book's files again.
+///
+/// # Errors
+/// As [`cover`].
+pub fn cover_known(
+    host: &Host<'_>,
+    known: &Known,
+    library: &Library,
+    book: &Book,
+) -> Result<Covered, Error> {
+    if let Some(covered) = known.cover_of(book.generation, book.key) {
+        return Ok(covered);
+    }
+    let covered = cover(host, library, book)?;
+    known.keep_cover(book.generation, book.key, covered);
+    Ok(covered)
+}
+
 /// The pictures a draw puts on the canvas after its paint is replayed (a cover
 /// goes where nothing else is drawn), and whether one is still being made.
 #[derive(Debug, Default)]
@@ -290,6 +338,24 @@ pub fn fitted(size: (u32, u32), place: Rect, x: f32, y: f32) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cover_is_remembered_by_book_and_generation_until_forgotten() {
+        let known = Known::default();
+        assert_eq!(known.cover_of(1, 7), None);
+        known.keep_cover(1, 7, Covered::Busy);
+        known.keep_cover(1, 8, Covered::None);
+        assert_eq!(known.cover_of(1, 7), Some(Covered::Busy));
+        assert_eq!(known.cover_of(1, 8), Some(Covered::None));
+        // Another generation of the catalog is another question.
+        assert_eq!(known.cover_of(2, 7), None);
+        known.forget_covers();
+        assert_eq!(known.cover_of(1, 7), None);
+        // What the tick found changed forgets the covers with the files.
+        known.keep_cover(1, 7, Covered::None);
+        known.forget();
+        assert_eq!(known.cover_of(1, 7), None);
+    }
 
     #[test]
     fn a_picture_is_fitted_in_its_shape_where_the_place_says() {

@@ -399,11 +399,10 @@ impl NetInputs {
             policy,
         );
         // The cable's server is the kernel's (`cable_link`): the shell passes
-        // its lines to `Kernel::cable_line`.
+        // its lines to `Kernel::cable_line`. An empty link holds nothing from
+        // the heap, so this cannot be refused (`Later::make`).
         if profile.cable {
-            device.with_cable(Rc::new(
-                crate::native_host::net_service::cable_link::CableLink::new(),
-            ))
+            device.with_cable(crate::native_host::net_service::cable_link::CableLink::new())
         } else {
             device
         }

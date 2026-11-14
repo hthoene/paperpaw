@@ -1,5 +1,5 @@
-//! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! plugin is pinned by `fetch.rs`, `fetching.rs` and `widgets.rs` on a kernel;
+//! Acceptance of the interface-7 port, pending on the host. The native
+//! behaviours are pinned by `src/native_*_tests.rs` and `tests/native_flow.rs`;
 //! these cases are the same behaviours through the production loader with the
 //! native plugin. They never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]

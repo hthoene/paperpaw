@@ -17,14 +17,29 @@
 # (`--features <device>`, paths remapped by `tools/ci/firmware-remap.sh`), not
 # the `ppn5` build of the frame scans. Settings described in place (#248, lazy
 # specs) add to those, before and after built at one path: x4 11,904, x3 11,904,
-# x4-pro 11,856, x4-classic 11,936; the lines below hold both.
+# x4-pro 11,856, x4-classic 11,936. Size stage 1 of #258 (icons found by the
+# hash of their names, no float parser or formatter of core) then took off, on
+# `abi7/integration` after train 38, before and after built at one path: x4
+# 92,288, x3 92,288, x4-pro 86,528, x4-classic 79,840, to x4 5,246,624, x3
+# 5,258,432, x4-pro 5,700,976, x4-classic 5,257,232; the lines below are those
+# plus 8,192.
 #
 # Raising a line: say in the pull request what grew and why. Up to 4 KB the
 # reviewer decides, up to 32 KB the Manager, more than that the owner. A
 # change that makes the image smaller lowers the line to its measured size plus
 # 8,192 again. Measure anew when a branch with more crates lands (native
 # activation adds some); the target for Beta 4 is 6,400,000 bytes at most.
-image x4 5349632
-image x3 5361456
-image x4-pro 5795584
-image x4-classic 5345056
+#
+# Native activation (train t40, Decision 184: the owner allowed the native
+# images to exceed size stage 1, 6,400,000 bytes, until they are shrunk; the
+# target before Beta 4 stays stage 1): the first line to measure with the
+# plugins linked in on all four devices. Measured on `train/t40` (697fdda79),
+# local build of the release-like image, as above: x4 6,477,952, x3 6,489,744,
+# x4-pro 7,046,560, x4-classic 6,596,704; the lines are those plus 16,000.
+# Beyond the installer slot (6,553,600 bytes, CrossPoint's): x4-pro and
+# x4-classic (they fit `ota_0`, 8,323,072 bytes: install by flashing only,
+# Decision 179). Lower the lines again as the images shrink (the plan of #258).
+image x4 6493952
+image x3 6505744
+image x4-pro 7062560
+image x4-classic 6612704

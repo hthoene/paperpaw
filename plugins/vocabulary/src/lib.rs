@@ -423,7 +423,8 @@ impl Plugin for Vocabulary {
                 paperpaw_sdk::help::HelpHint::any("vocabulary.help.back"),
             ],
         )?;
-        r.add_choice(Id::new_static(SLEEP_SHOW), SLEEP_CARD)?;
+        // No sleep-screen choice here: the interface-6 sleep screen is gone (#244),
+        // the native plugin declares its card as one.
         r.on(events::RESUME, |env, _, out| wake(env, out))?;
         widget::register(r)?;
         r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;

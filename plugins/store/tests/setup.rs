@@ -369,7 +369,7 @@ fn built_in_ones_are_switched_on() {
     let mut kernel = paperpaw_core::Kernel::builder(common::DEVICE)
         .storage(paperpaw_sdk::MemoryStorage::new())
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        .plugin(paperpaw_plugin_menu::Menu)
+        .plugin(common::notice_box::NoticeBox)
         .plugin(paperpaw_plugin_store::Store)
         .plugin_off(BuiltInStats)
         .build()
@@ -410,7 +410,7 @@ fn restarted(storage: common::Shared) -> paperpaw_core::Kernel {
         .catalog_device("x4")
         .code_plugins(native(), Box::new(common::NoCode))
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        .plugin(paperpaw_plugin_menu::Menu)
+        .plugin(common::notice_box::NoticeBox)
         .plugin(paperpaw_plugin_store::Store)
         .build()
         .unwrap();

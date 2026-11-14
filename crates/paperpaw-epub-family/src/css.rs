@@ -473,17 +473,26 @@ const MAX_INDENT: i32 = 500;
 /// keeps it to a quarter of a line).
 const MAX_SIDE: i32 = 1000;
 
+/// A number as a stylesheet writes it (`1.5`, `-.25`, `1e2`), with
+/// nothing around it. Not by `core`'s parser of floats, which is 16 KB
+/// of the firmware (#258): the same float for up to eight digits after
+/// the point, within a unit of its last place for longer ones.
+fn number(text: &str) -> Option<f32> {
+    use paperpaw_sdk::event::ParamValue;
+    // That one takes spaces around a number, which are none here.
+    if text.trim().len() != text.len() {
+        return None;
+    }
+    f32::from_param(text)
+}
+
 /// A margin or padding at a side, in hundredths of an em: a percentage
 /// of the width taken as a quarter of an em per percent (a line holds
 /// some 25 to 40 ems); negative ones as none.
 fn side(value: &str) -> Option<u16> {
     let value = value.trim();
     let side = match value.strip_suffix('%') {
-        Some(percent) => percent
-            .trim()
-            .parse::<f32>()
-            .ok()
-            .map(|p| (p * 25.0) as i32),
+        Some(percent) => number(percent.trim()).map(|p| (p * 25.0) as i32),
         None if value == "auto" => Some(0),
         None => length(value),
     };
@@ -495,8 +504,8 @@ fn side(value: &str) -> Option<u16> {
 fn line_height(value: &str) -> Option<u16> {
     let value = value.trim();
     let percent = if let Some(percent) = value.strip_suffix('%') {
-        percent.trim().parse::<f32>().ok()?
-    } else if let Ok(number) = value.parse::<f32>() {
+        number(percent.trim())?
+    } else if let Some(number) = number(value) {
         number * 100.0
     } else {
         length(value)? as f32
@@ -513,8 +522,8 @@ pub(crate) fn length(value: &str) -> Option<i32> {
     let split = value
         .find(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | '-' | '+')))
         .unwrap_or(value.len());
-    let (number, unit) = value.split_at(split);
-    let number: f32 = number.parse().ok()?;
+    let (digits, unit) = value.split_at(split);
+    let number = number(digits)?;
     let em = match unit.trim() {
         "em" | "rem" => number,
         "ex" => number / 2.0,
@@ -559,7 +568,7 @@ fn initial_letter(value: &str) -> Option<u8> {
     if value == "normal" {
         return Some(0);
     }
-    let lines: f32 = value.split_whitespace().next()?.parse().ok()?;
+    let lines = number(value.split_whitespace().next()?)?;
     Some(lines.clamp(0.0, 9.0) as u8)
 }
 
@@ -581,7 +590,7 @@ fn font_size(value: &str) -> Option<FontSize> {
     }
     let value = value.trim();
     if let Some(percent) = value.strip_suffix('%') {
-        let percent: f32 = percent.trim().parse().ok()?;
+        let percent = number(percent.trim())?;
         return (percent > 0.0).then_some(FontSize::Relative((percent + 0.5) as u16));
     }
     let percent = u16::try_from(length(value)?).ok().filter(|&p| p > 0)?;

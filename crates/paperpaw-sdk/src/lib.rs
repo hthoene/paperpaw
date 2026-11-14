@@ -68,6 +68,7 @@ pub mod event;
 pub mod files;
 pub mod filters;
 pub mod firmware;
+mod float_text;
 mod fonts;
 mod formats;
 mod gesture;

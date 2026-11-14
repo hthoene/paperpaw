@@ -129,6 +129,17 @@ impl Dashboard {
         Ok(dialog)
     }
 
+    /// Whether the options' dialog tells what it is (from the draw callback).
+    pub(super) fn describe_dialog(&mut self, describing: bool) {
+        if let Some(Options {
+            dialog: Some(dialog),
+            ..
+        }) = &mut self.options
+        {
+            dialog.set_describing(describing);
+        }
+    }
+
     /// The options' dialog as drawn operations, over the page.
     pub(super) fn dialog_paint(&self, font: &Font<'_>, out: &mut Vec<Paint>) -> Result<(), Error> {
         if let Some(Options {
@@ -392,6 +403,8 @@ impl Dashboard {
                 .and_then(|dialog| dialog.hit(position))
                 .and_then(|button| choices(options.settings).get(button))
                 .map(|(choice, _)| *choice),
+            // A finger is left to the kernel, which makes the tap of it.
+            Input::Pointer { .. } => return Ok(Handled::No),
             // The dialog is modal: everything else is taken.
             _ => None,
         };

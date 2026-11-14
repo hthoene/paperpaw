@@ -4,7 +4,7 @@
 //! from `core.secrets` when a connection is made. The screens, the lists and the
 //! widgets follow (see `PORTING-7.md`); the interface-6 plugin is still in place
 //! beside this one.
-use crate::declarations::{OPEN_TOKEN, SOCKET_TOKEN, WRITE_TOKEN};
+use crate::declarations::{OPEN_TOKEN, SETTING_TOKEN, SOCKET_TOKEN, TICK_TOKEN, WRITE_TOKEN};
 use crate::native_model::{
     account::Account,
     job::{Job, Run},
@@ -12,22 +12,25 @@ use crate::native_model::{
     mem::Error as MailError,
     session::{Outgoing, Task},
 };
+use crate::native_provider as provider;
 use crate::native_reader::{READ_TOKEN, Reading};
 use crate::native_screens::{Asked, BOXES_TOKEN, Check, LIST_TOKEN, View};
 use crate::native_socket::HostNet;
-use crate::native_values::HostValues;
+use crate::native_values::{HostValues, SettingsValues};
+use crate::native_widgets::{Tap, Widgets};
 use crate::native_writer::{COMPOSE_TOKEN, Writing};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled,
     native::{
         Error, Host, Plugin,
-        callbacks::{DrawFrame, Input},
+        callbacks::{DrawFrame, DrawPurpose, Input},
         commands::CommandSender,
         events::{Event, Incoming, kinds},
         registrations,
         reply::Reply,
         secrets::Secrets,
+        settings::SettingValue,
         sockets::{SocketId, Sockets},
         storage::DataStorage,
         ui::{Instance, Open, Ui},
@@ -63,6 +66,8 @@ pub struct NativeMail {
     /// The account whose server the reader trusted, and the screen to check
     /// again from when it shows.
     pub(crate) pending: Option<(u8, Instance)>,
+    /// The home widgets made for screens.
+    pub(crate) widgets: Widgets,
 }
 
 impl Plugin for NativeMail {
@@ -71,6 +76,7 @@ impl Plugin for NativeMail {
             .iter()
             .chain(image::UI)
             .chain(image::SCREENS)
+            .chain(image::WIDGETS)
             .chain(image::EVENTS)
         {
             registrations::submit(host, batch)?;
@@ -83,13 +89,32 @@ impl Plugin for NativeMail {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _reply: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::Socket, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered)
+        let Some(event) = read_event!(incoming; kinds::Socket, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::SettingChanged, kinds::Tick, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
         else {
             return Ok(());
         };
         match event {
+            Event::WidgetMade {
+                widget, instance, ..
+            } => self.widgets.made(widget, instance),
+            Event::WidgetDropped { instance, .. } => {
+                self.widgets.dropped(instance);
+                Ok(())
+            }
+            Event::StageCall {
+                stage: "core.widget",
+                payload,
+                ..
+            } => self.widgets.stage(host, payload, reply),
+            Event::Tick { .. } if token == TICK_TOKEN => {
+                self.widgets.tick(host);
+                Ok(())
+            }
+            Event::SettingChanged { key, .. } if token == SETTING_TOKEN => {
+                self.setting_changed(host, key)
+            }
             Event::Socket(socket) if token == SOCKET_TOKEN => {
                 if self.socket != Some(socket.id()) {
                     // The socket of a connection that is over: nothing of ours.
@@ -150,6 +175,9 @@ impl Plugin for NativeMail {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, frame: DrawFrame<'_>) -> Result<(), Error> {
+        if frame.purpose == DrawPurpose::Widget {
+            return self.widgets.draw(host, frame);
+        }
         if token == READ_TOKEN {
             return self.draw_reader(host, frame);
         }
@@ -160,6 +188,11 @@ impl Plugin for NativeMail {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        // A tap on a home widget opens the folder, the folders or a new mail.
+        if let Some(tap) = self.widgets.tapped(host, &input)? {
+            self.tapped(host, tap)?;
+            return Ok(Handled::Yes);
+        }
         if token == READ_TOKEN {
             return self.input_reader(host, &input);
         }
@@ -270,8 +303,46 @@ impl NativeMail {
             // The connection is over; its socket is closed or ended.
             self.socket = None;
         }
+        if !self.job.working() {
+            // What the card holds changed: the widgets show it.
+            self.widgets.refresh(host);
+        }
         result?;
         self.progressed(host)
+    }
+
+    /// What a tap on a home widget opens.
+    fn tapped(&mut self, host: &Host<'_>, tap: Tap) -> Result<(), Error> {
+        match tap {
+            Tap::Write => self.open_compose(host, 0, None),
+            Tap::Folder(account, folder) => {
+                self.ensure_ui(host)?;
+                self.open_folder(host, account, &folder)
+            }
+            Tap::Boxes => {
+                let mut scratch = [0; 128];
+                CommandSender::new(host, &mut scratch).open(Open::screen("mail.boxes")?)
+            }
+        }
+    }
+
+    /// A setting changed: the widgets show it anew, and a provider chosen (or
+    /// an address a provider is known by) sets the servers.
+    fn setting_changed(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
+        if key.starts_with("mail.widget.") {
+            self.widgets.refresh(host);
+            return Ok(());
+        }
+        let changes = provider::after_change(&SettingsValues(host), key)?;
+        let mut scratch = [0; 256];
+        for change in &changes {
+            let value = match change.value {
+                provider::Value::Text(text) => SettingValue::Text(text),
+                provider::Value::Int(number) => SettingValue::Int(number),
+            };
+            CommandSender::new(host, &mut scratch).set_setting(&change.id, value)?;
+        }
+        Ok(())
     }
 
     /// Lets go of the connection: its socket is closed (with small buffers

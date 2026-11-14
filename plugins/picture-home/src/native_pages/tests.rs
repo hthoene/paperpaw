@@ -65,21 +65,28 @@ fn text_of(writes: &[Write], slot: usize) -> Option<&str> {
 
 #[test]
 fn the_pages_are_the_interface_6_pages() {
-    assert_eq!(MAX_PAGES, crate::settings::MAX_PAGES);
-    assert_eq!(DEFAULTS, crate::settings::DEFAULTS);
+    assert_eq!(MAX_PAGES, 4);
+    assert_eq!(
+        DEFAULTS,
+        [
+            "home.clock, home.continue, home.recent",
+            "home.tools",
+            "",
+            ""
+        ]
+    );
     for slot in 0..MAX_PAGES {
         assert_eq!(
             setting(slot).unwrap(),
-            crate::settings::page_setting(slot).as_str()
+            alloc::format!("picture-home.page-{}", slot + 1)
         );
         assert_eq!(slot_of(&setting(slot).unwrap()), Some(slot));
     }
     for id in ["picture-home.page-5", "picture-home.page-0", "home.page-1"] {
         assert_eq!(slot_of(id), None);
-        assert_eq!(crate::pages::slot_of(id), None);
     }
     assert_eq!(slot_of("picture-home.page-1.wide"), None);
-    assert_eq!(TOOLS, crate::pages::TOOLS);
+    assert_eq!(TOOLS, "home.tools");
     assert_eq!(SPACE, paperpaw_sdk::widgets::SPACE);
     assert_eq!(FILL, paperpaw_sdk::widgets::FILL);
 }

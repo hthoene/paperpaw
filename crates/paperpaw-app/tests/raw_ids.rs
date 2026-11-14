@@ -1,6 +1,6 @@
 //! No screen made from what plugins register shows an id where a name
-//! belongs: in every language shipped, every row of every settings group
-//! and of every choice is a name, never a raw id such as
+//! belongs: in every language shipped, every title and note of every
+//! settings group and every option of every choice is a name, never a raw id such as
 //! `core.status-font` (a key no catalog has, or no key at all); and so is
 //! every entry of every menu, as the menus show them. The same walk over
 //! the menu editor is the pending case `menu-editor-names-every-menu-and-entry`
@@ -20,7 +20,7 @@ use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
-use paperpaw_sdk::builtin::{actions, params};
+use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::{Id, MemoryStorage, Params, SettingKind};
 
 /// An X4 Pro as the emulator has it: buttons, no touch.
@@ -184,7 +184,10 @@ fn ids_are_found_where_shown() {
 }
 
 /// Every settings group names its settings and their values, and every
-/// choice its options and more ways to choose.
+/// choice its options. The settings screen is native (interface 7) and
+/// not run by this kernel, so this is what the screens are made of: the
+/// titles and notes the registry holds, translated as the screens do
+/// (`NativeSettings` reads the same registry and the same catalogs).
 #[test]
 #[cfg_attr(
     feature = "native-linked",
@@ -192,33 +195,26 @@ fn ids_are_found_where_shown() {
 )]
 fn settings_pages_and_choosers_show_names() {
     for language in languages() {
-        let mut app = App::new(&language);
-        app.run(actions::SETTINGS);
-        let mut shown = app.walk();
+        let app = App::new(&language);
         let settings = app.kernel.settings();
-        let groups: Vec<Id> = settings.groups().map(|g| g.id.clone()).collect();
-        let choices: Vec<Id> = settings
-            .specs()
-            .filter(|s| matches!(s.kind, SettingKind::Choice(_)))
-            .map(|s| s.id.clone())
-            .collect();
-        for group in groups {
-            app.open(
-                paperpaw_plugin_settings::GROUP_SCREEN,
-                Params::new().with(params::ID, group.to_string()),
-            );
-            shown.extend(app.walk());
-            app.run(actions::BACK);
+        let menus = app.kernel.menus();
+        let i18n = app.kernel.translator();
+        let mut shown: Vec<String> = Vec::new();
+        for group in settings.groups() {
+            shown.push(i18n.tr(&group.title).to_string());
         }
-        for choice in choices {
-            app.open(
-                paperpaw_plugin_settings::CHOOSE_SCREEN,
-                Params::new().with(params::ID, choice.to_string()),
-            );
-            shown.extend(app.walk());
-            app.run(actions::BACK);
+        for spec in settings.specs() {
+            shown.push(i18n.tr(&spec.title).to_string());
+            if let Some(note) = spec.description.as_deref() {
+                shown.push(i18n.tr(note).to_string());
+            }
+            if matches!(spec.kind, SettingKind::Choice(_)) {
+                for item in menus.items(spec.id.as_str()) {
+                    shown.push(i18n.tr(item.title).to_string());
+                }
+            }
         }
-        assert!(shown.len() > 200, "{language}: the walk saw the pages");
+        assert!(shown.len() > 100, "{language}: the registry was read");
         let raw = app.raw_ids(&shown);
         assert!(raw.is_empty(), "{language}: settings show ids: {raw:#?}");
     }
@@ -226,21 +222,14 @@ fn settings_pages_and_choosers_show_names() {
 
 /// Every entry of every menu, as the menus show it: its title.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the menus are native plugins: linked with `native-linked-reading` and `native-linked-store` (#244)"
+)]
 fn menu_entries_have_names() {
     for language in languages() {
         let mut app = App::new(&language);
-        let shown = if cfg!(feature = "native-linked") {
-            app.menus_shown()
-        } else {
-            let menus = app.kernel.menus();
-            let i18n = app.kernel.translator();
-            menus
-                .menu_ids()
-                .into_iter()
-                .flat_map(|menu| menus.items(menu.as_str()))
-                .map(|item| i18n.tr(item.title).to_string())
-                .collect()
-        };
+        let shown = app.menus_shown();
         assert!(
             shown.len() > 50,
             "{language}: the menus have entries: {shown:#?}"

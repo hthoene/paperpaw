@@ -9,13 +9,12 @@
 
 mod fake;
 
-use fake::{Fake, Proto, Script};
+use fake::{Fake, Input, Proto, Script};
 use paperpaw_plugin_mail::native_model::job::{Job, Run};
 use paperpaw_plugin_mail::native_model::link::{Net, Notice, Peer};
 use paperpaw_plugin_mail::native_model::mem::{Error, Secret};
 use paperpaw_plugin_mail::native_model::session::{Endpoint, Failure, Outgoing, Security, Task};
 use paperpaw_plugin_mail::native_model::store;
-use paperpaw_plugin_mail::session as old;
 use paperpaw_sdk::native::sockets::{Reason, SocketKind, Untrusted};
 use paperpaw_sdk::{KeyHash, Tls};
 
@@ -50,26 +49,26 @@ impl Net for FakeNet<'_> {
         pin: Option<[u8; 32]>,
     ) -> Result<(), Error> {
         if tls {
-            old::Io::connect_tls(self.fake, host, port, tls_of(pin));
+            self.fake.connect_tls(host, port, tls_of(pin));
         } else {
-            old::Io::connect_plain(self.fake, host, port);
+            self.fake.connect_plain(host, port);
         }
         Ok(())
     }
     fn start_tls(&mut self, pin: Option<[u8; 32]>) -> Result<(), Error> {
-        old::Io::start_tls(self.fake, tls_of(pin));
+        self.fake.start_tls(tls_of(pin));
         Ok(())
     }
     fn send(&mut self, piece: &[u8]) -> Result<(), Error> {
-        old::Io::send(self.fake, piece.to_vec());
+        self.fake.send(piece.to_vec());
         Ok(())
     }
     fn read_bytes(&mut self, max: u32) -> Result<(), Error> {
-        old::Io::read_bytes(self.fake, max);
+        self.fake.read_bytes(max);
         Ok(())
     }
     fn read_file(&mut self, path: &str, len: u64) -> Result<(), Error> {
-        old::Io::read_file(self.fake, path, len);
+        self.fake.read_file(path, len);
         Ok(())
     }
     fn data(&mut self, offset: u32, out: &mut [u8]) -> Result<usize, Error> {
@@ -85,15 +84,15 @@ impl Net for FakeNet<'_> {
         self.wire.peer.ok_or(Error::NotFound)
     }
     fn close(&mut self) {
-        old::Io::close(self.fake);
+        self.fake.close();
     }
 }
 
 /// The fake's notice as the host would tell it.
-fn notice_of(input: &old::Input, wire: &mut Wire) -> Notice {
+fn notice_of(input: &Input, wire: &mut Wire) -> Notice {
     let (kind, len) = match input {
-        old::Input::Connected => (SocketKind::Connected, 0),
-        old::Input::Secured {
+        Input::Connected => (SocketKind::Connected, 0),
+        Input::Secured {
             certificate,
             key,
             time_checked,
@@ -106,7 +105,7 @@ fn notice_of(input: &old::Input, wire: &mut Wire) -> Notice {
             });
             (SocketKind::Secured, 0)
         }
-        old::Input::Untrusted {
+        Input::Untrusted {
             certificate, key, ..
         } => {
             wire.peer = Some(Peer {
@@ -117,13 +116,13 @@ fn notice_of(input: &old::Input, wire: &mut Wire) -> Notice {
             });
             (SocketKind::Untrusted, 0)
         }
-        old::Input::Bytes(bytes) => {
+        Input::Bytes(bytes) => {
             wire.came = bytes.clone();
             (SocketKind::Received, bytes.len() as u32)
         }
-        old::Input::Saved(_) => (SocketKind::Saved, 0),
-        old::Input::Closed => (SocketKind::Closed, 0),
-        old::Input::Failed(..) => (SocketKind::Failed, 0),
+        Input::Saved(_) => (SocketKind::Saved, 0),
+        Input::Closed => (SocketKind::Closed, 0),
+        Input::Failed(..) => (SocketKind::Failed, 0),
     };
     Notice {
         kind,
@@ -164,7 +163,7 @@ fn drive(job: &mut Job, fake: &mut Fake) {
         let Some(input) = fake.next_input() else {
             return;
         };
-        if matches!(input, old::Input::Secured { .. }) {
+        if matches!(input, Input::Secured { .. }) {
             fake.switched();
         }
         let notice = notice_of(&input, &mut wire);

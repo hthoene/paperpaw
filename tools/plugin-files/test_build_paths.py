@@ -19,7 +19,7 @@ import unittest.mock
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 # Each script with a plugin it knows (plugins.txt; the native entries).
 SCRIPTS = {
-    "plugin-files": (ROOT / "tools/plugin-files/build.sh", "aids"),
+    "plugin-files": (ROOT / "tools/plugin-files/build.sh", "vocabulary"),
     "plugin-files7": (ROOT / "tools/plugin-files7/build.sh", "battery"),
 }
 

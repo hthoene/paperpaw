@@ -1,12 +1,11 @@
 # Interface-7 port (slices 1 to 4: the model, the declarations, the native entry and screens, install and removal)
 
-Version 1.0.8 (already above its Beta 3 version; no further bump). Status: **not complete**: the native
-entry (`NativeFontsBrowser`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin) shows the list and a
-font's page, downloads, installs, updates and removes fonts through the host (slice 4); under the app's
-`native-linked-store` its settings come from the program's tables, and the flip branch lists it as a linked native
-plugin for the activation merge (#2769, as the store's other plugins); it is not in `tools/plugin-files7/complete.txt` while
-its interface-6 part stays. The interface-6 `FontsBrowser` and everything of it stays until the host
-activates native plugins (then it goes together, no shim; see the removal step).
+Version 1.0.8 (already above its Beta 3 version; no further bump). Status: the interface-6 `FontsBrowser`
+is **removed** (this port: the plugin, its list and font screens, the installer, the samples, `catalog.rs`, the
+plugin-file build of `tools/plugin-files`, the app's store-offer line, the store tests' use of it). The native
+entry (`NativeFontsBrowser`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin) is what is left. **The
+current interface-6 app loses the fonts browser until native activation (#243): merge right after it.** It is
+not yet in `tools/plugin-files7/complete.txt`: list it when download, update and removal run end to end (H2).
 
 ## Ported
 
@@ -63,21 +62,8 @@ activates native plugins (then it goes together, no shim; see the removal step).
   whether the host's `remove` takes a non-empty folder (an error is ignored, the leftover then goes with
   the next download of that font). *Remove* refused (Denied/Full) says it failed.
 - Unmeasured X4 timing: checking a 1 MiB font file (SHA-1 in 4 KiB pieces) in one callback.
-- The host's questions: `install_plugin` runs as a host job that asks the user before the swap (`plugin_install.rs`
-  step 6, `plugin_confirm.rs`; declined is reason 2, dismissed 3), `remove_plugin` with its three-button question
-  (decision 124); the plugin takes `Denied`/`Cancelled` as an answer. End-to-end on the flip emulator: #2769.
-
-## Slice 5 (#2769): progress, follow changes, Offline mode, linked
-
-- From #911 (not merged before): a download says how far it is (`2 / 5`, `Running::progress`) in the list and on its
-  page; the pages follow a font chosen, installed or removed (`setting_changed`, `plugins_changed`); an empty list
-  that says why tries again when confirmed or tapped; in Offline mode the list and a download offer once to go
-  online (`uses.wifi`, `command.go_online`, `fonts-browser.offline-offer`); the button devices' wording.
-- **Linked:** under `native-linked-store` the app takes its settings from the program (`fixed_tables`, the build
-  script's tables). Listing `NATIVE_ENTRY` in `NATIVE_PLUGINS` (and offering the interface-6 `FontsBrowser` only
-  without the feature) is on the flip branch `port-a/picture-home-linked-flip-228`, as for the store's other plugins.
-- **Sizes:** a pack may be 4 MiB and a font file 8 MiB (`native_plan::MAX_PACK`, `MAX_OUTLINE`); interface 6 asked
-  for no cap of its own, and the library's packs reach about 700 KB (512 KiB had kept 5 of its 6 fonts out).
+- Gaps: the host's questions are not wired to native
+  plugins (H2), so no end-to-end run yet (`fonts-browser-install` stays ignored).
 
 ## Your own fonts (`src/native_own.rs`)
 
@@ -94,8 +80,16 @@ activates native plugins (then it goes together, no shim; see the removal step).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- **Download, update, remove through the production loader** (`fonts-browser-install`): done in the plugin (slice 4);
-  the case stays ignored until the host qualifies H1/H2.
+- **Download, update, remove (named blocked step):** *Download*/*Update*/*Stop*/*Remove* answer `Unsupported`.
+  Needs `CommandSender::install_plugin`/`remove_plugin` (PR 621, waiting for its bless) and event 97
+  `install_done` (#589). The plan is `native_plan` (files to the data folder's `staging/<plugin>/` with `core.net`
+  `save_to`, each checked with its SHA-1 read in pieces, then `install_plugin` for the folder with the update flag).
+  The host asks the user (decision 132) and its dialog is not wired yet (Kernel todo 145): the plugin must take
+  `Unsupported`/`Denied` as an answer. The job state (which file is next) is kept in the data folder.
+- **The restart's cancel:** interface 6 subscribed `started` to cancel a download cut off by a restart; the native
+  entry has no download yet, so it does not subscribe: it comes back with the download.
+- The *Download*/*Update*/*Stop*/*Remove* rows are not shown until then (no dead buttons); `native_view::rows` still
+  says which rows a page will have.
 - **The font's own face:** on the font's page the sentence is drawn in the font's own face
   (`native_sample.rs`): the sample pack (one size, only the characters of the name and the sentence, asked
   from the catalog's `sample` address with `core.net` `save_to` into `samples/` of the data folder) is
@@ -131,10 +125,33 @@ activates native plugins (then it goes together, no shim; see the removal step).
   0, a path that leaves the folder, a plugin id over 40 bytes) is not offered
   (`native_plan::fits`, used by `Catalog::finish`).
 
-## Removal step (one sweep, with the reader port and Core #944)
+## Interface-6 suites replaced
 
-1. `FontsBrowser` and its `Plugin` impl, `list.rs`, `font.rs`, `install.rs`, `samples.rs`, `catalog.rs` (the interface-6
-   catalog; `native_catalog` is the same rules), the `HOW` table kept for the manifest;
-2. the app's store-offer line and the other plugins' tests that register `FontsBrowser`;
-3. list `NativeFontsBrowser` in `NATIVE_PLUGINS` (the flip branch, #2769, under `native-linked-store`); list it in
-   `tools/plugin-files7/complete.txt` with step 1.
+| Removed interface-6 test | Native coverage |
+|---|---|
+| `catalog`: `fonts_and_files_past_the_limits_leave_those_kept_whole` | `native_catalog/tests.rs` `fonts_over_the_caps_are_not_offered`, `the_catalog_reads_as_the_interface_6_reader_did` (what the old reader made, pinned as literals) |
+| `catalog`: `only_the_files_this_device_takes_are_kept` | the same two (packs or outlines per device) |
+| `catalog`: `a_font_goes_to_its_page_whole` | `native_catalog/tests.rs` (same name) |
+| `samples`: `samples_are_held_within_their_budget` | ignored case `fonts-browser-samples` (`FONT-runtime`) |
+| `install`: `the_catalog_is_shown_with_what_fits` | `native_catalog`, `native_view` tests; screens: ignored `fonts-browser-screens` |
+| `install`: `a_font_is_downloaded_chosen_and_removed` | `native_job/tests.rs`, `native_plan/tests.rs`; end to end: ignored `fonts-browser-install` (H2) |
+| `install`: `a_damaged_download_is_not_installed` | `native_job/tests.rs` `a_file_is_kept_only_if_size_and_digest_are_the_catalogs` |
+| `install`: `updating_the_font_one_reads_with_keeps_it` | ignored `fonts-browser-update-keeps-font` (H2) |
+| `install`: `coming_back_to_the_list_fetches_nothing` | `native_view::should_fetch` test; ignored `fonts-browser-list-back` |
+| `install`: `a_font_page_has_its_font_from_the_list` | `native_catalog` `a_font_goes_to_its_page_whole`; ignored `fonts-browser-list-back` |
+| `install`: `a_download_cut_off_by_a_restart_is_dropped` | `make` clears `staging`; ignored `fonts-browser-restart-drops-download` |
+| `install`: `your_own_fonts_shows_how_to_read_with_a_font_file` | `native_own` unit tests; `tests/hosted_own.rs` (en and de through the kernel, against the Beta 3 page) |
+| declaration tests (compared with the interface-6 registration) | `tests/abi7_declarations.rs` pins the decoded records as literals |
+
+## Set aside until native activation (todo 380)
+
+- Six tests of the store (`plugins/store/tests/store.rs`: `fonts_open_the_fonts_browser`, `discover_fonts_opens_the_list_where_the_fonts_browser_runs`,
+  `discover_fonts_asks_for_the_restart_a_fonts_browser_waits_for`, `discover_fonts_offers_to_switch_a_switched_off_fonts_browser_on`,
+  `larger_sizes_are_discovered_from_the_reading_settings`, `the_list_shows_what_fits_by_group`) are `#[ignore]`d: they need the browser registered.
+
+## Notes for activation (Port Reviewer, #1058)
+
+- The native plugin keeps `HOW` only for *Your own fonts* (`native_own`); the plugin's help page itself waits for the rule for plugin help texts (as #996 to #999).
+- The store tests' `discovering(fonts, ...)` ignores its argument now: drop the parameter when the six tests return.
+- Put `fonts-browser` back into the app's `NETWORK_SETTINGS` (memory only).
+

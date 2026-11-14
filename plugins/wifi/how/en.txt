@@ -1,5 +1,0 @@
-Wi-Fi joins networks when something needs one and switches the radio off again, to save battery and memory. It applies where PaperPaw manages Wi-Fi itself, such as the X4; elsewhere the system does it.
-
-The radio is off by default. It comes on when a plugin wants the network, joins the saved network you picked last (or the strongest, as Join first says) and goes off a minute after the last use (Switch off after changes that). Open the Wi-Fi page in the settings, or tap the Wi-Fi sign in the status line. Networks opens the list of the networks in reach: choose one and enter its password. The menu button or a long press forgets a saved network.
-
-Set up with a phone lets you pick the network and type its password on a phone; until a network is kept it is the first choice below the Wi-Fi switch.

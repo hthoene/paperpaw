@@ -970,3 +970,114 @@ fn unknown_query_flag_bits_are_unsupported_on_every_list_op() {
         Err(ERR_UNSUPPORTED)
     );
 }
+
+/// How many settings [`Many`] has that a row can carry: more than two pages.
+const MANY: usize = 70;
+
+/// A plugin of many settings, one of a title and a value longer than their
+/// fields and one whose id fits no `reg_setting.key` (128 bytes).
+struct Many;
+impl Plugin for Many {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("many"), "Many", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        let leaked = |text: String| -> &'static str { text.leak() };
+        for n in 0..MANY - 1 {
+            r.add_setting(SettingSpec::number(
+                leaked(format!("many.n{n:02}")),
+                "many.title",
+                0,
+                9,
+                1,
+                OTHER,
+            ))?;
+            if n == 40 {
+                r.add_setting(SettingSpec::switch(
+                    leaked(format!("many.{}", "x".repeat(130))),
+                    "many.title",
+                    false,
+                    OTHER,
+                ))?;
+            }
+        }
+        r.add_setting(SettingSpec::text(
+            "many.wide",
+            leaked(format!("many.{}", "t".repeat(200))),
+            leaked("v".repeat(80)),
+            OTHER,
+        ))?;
+        Ok(())
+    }
+}
+
+fn crowded() -> crate::Kernel {
+    crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(Cfg)
+        .plugin(Ed)
+        .plugin(Many)
+        .build()
+        .unwrap()
+}
+
+/// #248: a page built every setting of its scope twice (once to count it,
+/// once to reach the cursor) with its title, its value and what its plugin
+/// declares of it; the settings screen reads some fifty pages when it opens.
+#[test]
+fn a_page_of_settings_builds_the_rows_it_answers_and_no_other() {
+    let kernel = crowded();
+    for (scope, room) in [("many", 4096), ("", 4096), ("many", 700)] {
+        let (mut cursor, mut generation, mut seen) = (0, 0, 0);
+        settings::built::take();
+        loop {
+            let input = query(scope, cursor, generation, 0);
+            let reply = call_as(&kernel, "reader", schema::OP_SETTINGS, &input, room).unwrap();
+            let (rows, end) = read(&reply);
+            let end = end.unwrap();
+            let built = settings::built::take();
+            if room == 4096 {
+                assert_eq!(built, rows.len(), "{scope} from {cursor}");
+            } else {
+                // A page cut short by its room built the row it had none for.
+                assert!(rows.len() < 32 && built <= rows.len() + 1, "{built}");
+            }
+            seen += rows.len();
+            if end.flags & 1 != 0 {
+                assert_eq!(seen, end.total as usize, "{scope}");
+                break;
+            }
+            (cursor, generation) = (end.next, end.generation);
+        }
+        assert!(scope.is_empty() || seen == MANY, "{scope}: {seen}");
+        assert!(seen > 64, "more than two pages: {seen}");
+    }
+}
+
+/// A row is counted and passed by its key and group alone, built or not:
+/// what else it carries is cut to its field or left out.
+#[test]
+fn a_setting_no_row_can_carry_is_passed_by_and_a_long_title_or_value_is_not() {
+    let kernel = crowded();
+    let rows = pages(&kernel, schema::OP_SETTINGS, "many");
+    assert_eq!(rows.len(), MANY);
+    assert!(!rows.iter().any(|r| r.contains("xxxx")), "{rows:?}");
+    // In order, with none lost at the row passed by.
+    let keys: Vec<&str> = rows.iter().map(|r| r.split(' ').nth(1).unwrap()).collect();
+    assert_eq!(keys[40..42], ["many.n40", "many.n41"]);
+    let wide = rows
+        .iter()
+        .find(|r| r.starts_with("setting many.wide "))
+        .unwrap();
+    // The title cut to 128 bytes; a value over 64 bytes is long, not sent.
+    assert!(
+        wide.contains(&format!(" title=many.{} ", "t".repeat(123))),
+        "{wide}"
+    );
+    assert!(
+        wide.ends_with(" value=-") && flags_of(wide) & 128 != 0,
+        "{wide}"
+    );
+    let (page_rows, end) = page(&kernel, schema::OP_SETTINGS, "many");
+    assert_eq!((page_rows.len(), end.total as usize), (32, MANY));
+}

@@ -161,10 +161,8 @@ impl ListScreen {
                     options.push("settings");
                 }
                 options.push("remove");
-                let title = env
-                    .widgets
-                    .title(id)
-                    .map_or(id.as_str(), |t| env.i18n().tr(t));
+                let named = env.widgets.title_of(id);
+                let title = named.as_deref().map_or(id.as_str(), |t| env.i18n().tr(t));
                 cx.command(
                     crate::ask::choice(title, &CHOSEN)
                         .about(format!("{at}"))
@@ -226,7 +224,8 @@ impl Screen for ListScreen {
                 let (icon, title, value) = match rows[index] {
                     Row::Widget(at) => {
                         let id = list.get(at).map_or("", String::as_str);
-                        let name = env.widgets().title(id).map_or(id, |t| env.i18n().tr(t));
+                        let named = env.widgets().title_of(id);
+                        let name = named.as_deref().map_or(id, |t| env.i18n().tr(t));
                         (None, name.to_string(), "")
                     }
                     Row::Add => (
@@ -343,19 +342,14 @@ impl AddScreen {
         let area = Rect::new(0, top, display.width, display.height.saturating_sub(top));
         let target = target_of(params);
         let shown = target.widgets(env);
-        let mut offered: Vec<(Id, String)> = env
-            .widgets
-            .iter()
-            .filter(|(id, _)| {
-                widgets::repeatable(id.as_str()) || !shown.iter().any(|s| s == id.as_str())
-            })
-            .map(|(id, title)| (id.clone(), title.to_string()))
-            .collect();
+        let mut offered = env.widgets.offered();
+        offered.retain(|(id, _)| {
+            widgets::repeatable(id.as_str()) || !shown.iter().any(|s| s == id.as_str())
+        });
         // By their kind, as `categories::ALL` orders them (the spaces,
         // which are room, after the widgets that show something).
-        let kind = |id: &Id| env.widgets().category(id.as_str()).unwrap_or_default();
         let rank = |id: &Id| {
-            let kind = kind(id);
+            let kind = env.widgets().kind_of(id.as_str()).unwrap_or_default();
             let order = widgets::categories::ALL.iter().position(|k| *k == kind);
             (
                 widgets::repeatable(id.as_str()),
@@ -403,9 +397,9 @@ impl Screen for AddScreen {
             // Its kind beside it, so that widgets of a kind are seen
             // together.
             let (id, title) = &widgets[index];
-            let kind = env.widgets().category(id.as_str()).unwrap_or_default();
+            let kind = env.widgets().kind_of(id.as_str()).unwrap_or_default();
             let title = env.i18n().tr(title);
-            ui::Row::value(title, env.i18n().tr(kind))
+            ui::Row::value(title, env.i18n().tr(&kind))
                 .focused(focused)
                 .draw(ui, rect);
         });
