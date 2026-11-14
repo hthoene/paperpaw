@@ -13,6 +13,9 @@ mod native_activation;
 #[path = "home_native/common.rs"]
 mod common;
 
+#[path = "home_native/x4_ink.rs"]
+mod x4_ink;
+
 #[path = "home_native/arrange.rs"]
 mod arrange;
 #[path = "home_native/colours.rs"]
