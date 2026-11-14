@@ -87,7 +87,8 @@ impl Fonts {
 
     /// Loads the files of the chosen family's faces (one per style) and
     /// frees all others; returns the files that could not be loaded.
-    /// Packs that extend fonts are opened too (they stay where they are).
+    /// Packs that extend a font are open while that font is: one built
+    /// in, or one of the faces loaded.
     /// Where the heap is short nothing changes and the list is empty: see
     /// [`Fonts::try_load`] for the kernel's use.
     pub fn load(&mut self, storage: &Rc<dyn Storage>) -> Vec<String> {
@@ -137,6 +138,20 @@ impl Fonts {
         Ok(wanted)
     }
 
+    /// Whether the file of entry `index` is to be open, with the faces
+    /// `wanted`: a face that is wanted, or a pack extending a font that is
+    /// built in or wanted. A pack for a font that sets no text now (a
+    /// script's letters for Literata while another font sets the book)
+    /// keeps no index in memory.
+    fn to_open(&self, index: usize, wanted: &[usize]) -> bool {
+        match &self.entries[index].extends {
+            Some(base) => self.entries.iter().enumerate().any(|(at, entry)| {
+                entry.id == *base && (entry.file.is_none() || wanted.contains(&at))
+            }),
+            None => wanted.contains(&index),
+        }
+    }
+
     /// [`Fonts::load`] where the heap may be short. A shortage fails the
     /// call after the glyph cache was let go and the files tried once more;
     /// the fonts are then as they were (what is wanted is opened before
@@ -166,9 +181,7 @@ impl Fonts {
             .iter()
             .enumerate()
             .filter(|(index, entry)| {
-                entry.file.is_some()
-                    && entry.font.is_none()
-                    && (entry.extends.is_some() || wanted.contains(index))
+                entry.file.is_some() && entry.font.is_none() && self.to_open(*index, &wanted)
             })
             .count();
         opened
@@ -178,9 +191,9 @@ impl Fonts {
             Ok(failed) => {
                 // Freed last, so that a failure above leaves the fonts as
                 // they were.
-                for (index, entry) in self.entries.iter_mut().enumerate() {
-                    if entry.file.is_some() && entry.extends.is_none() && !wanted.contains(&index) {
-                        entry.font = None;
+                for index in 0..self.entries.len() {
+                    if self.entries[index].file.is_some() && !self.to_open(index, &wanted) {
+                        self.entries[index].font = None;
                     }
                 }
                 Ok(failed)
@@ -194,8 +207,9 @@ impl Fonts {
         }
     }
 
-    /// Opens the files of `wanted` (and of the extensions) that are not
-    /// open, noting each in `opened`, which has room for them all.
+    /// Opens the files of `wanted` (and of the packs extending what is
+    /// open then) that are not open, noting each in `opened`, which has
+    /// room for them all.
     fn open_missing(
         &mut self,
         storage: &Rc<dyn Storage>,
@@ -209,7 +223,7 @@ impl Fonts {
                 continue;
             };
             let extends = entry.extends.is_some();
-            if entry.font.is_some() || !(extends || wanted.contains(&index)) {
+            if entry.font.is_some() || !self.to_open(index, wanted) {
                 continue;
             }
             let font = if extends || (entry.face && is_pack(path)) {
