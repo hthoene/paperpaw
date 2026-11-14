@@ -57,6 +57,7 @@ mod card;
 mod catalog;
 pub mod check;
 mod format;
+mod messages;
 mod plural;
 
 pub use built::{BuiltCatalogs, BuiltLanguage, BuiltLanguageTable, BuiltTable};
@@ -64,6 +65,7 @@ pub use card::{CatalogFile, MAX_MESSAGE, MAX_READ};
 pub use catalog::{Catalog, CatalogError, FixedIndexes, fingerprint};
 pub use catalog::{calendars, digit_systems};
 pub use format::Arg;
+pub use messages::{BuiltMessages, BuiltMessagesTable};
 pub use paperpaw_lang::{Direction, Lang};
 pub use plural::{PluralCategory, PluralRule, cldr_rules};
 
@@ -165,6 +167,41 @@ impl Translator {
     /// (call it once for each language).
     pub fn built_language(&mut self, table: &'static BuiltLanguage) {
         self.built_in(&table.catalogs, table.language, table.name);
+    }
+
+    /// The messages of one language built into the program without their
+    /// keys, by its build script (call it once for each language): one
+    /// catalog that answers for all their sources, which are not added.
+    /// Every other catalog takes precedence over it, one added before as
+    /// one added later: what a plugin on the card or the user says anew
+    /// is heard whenever the tables come.
+    pub fn built_messages(&mut self, table: &'static BuiltMessages) {
+        if table.keys.is_empty() {
+            return;
+        }
+        let Some(mut catalog) = Catalog::messages(table) else {
+            return;
+        };
+        // The tables are the first added, in their order, and so the
+        // first kept (they are never parked); every other catalog moves
+        // up by one.
+        let under = self.catalogs.iter().filter(|c| c.is_messages()).count();
+        let others = self.catalogs.iter_mut().map(|c| &mut c.added);
+        for added in others.chain(self.parked.iter_mut().map(|p| &mut p.added)) {
+            if *added as usize >= under {
+                *added = added.wrapping_add(1);
+            }
+        }
+        self.added = self.added.wrapping_add(1);
+        catalog.added = under as u32;
+        if self.chain().contains(&catalog.language()) {
+            catalog.load();
+            catalog.use_fixed(self.fixed);
+        } else {
+            catalog.unload();
+        }
+        self.catalogs.insert(under, catalog);
+        self.rebuild_order();
     }
 
     fn built_in(&mut self, table: &'static BuiltCatalogs, language: &str, name: &str) {

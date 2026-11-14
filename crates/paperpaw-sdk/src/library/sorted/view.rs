@@ -196,7 +196,7 @@ impl Sorted {
         super::sort_by(&mut recent, |(rank, r)| {
             (u128::from(*rank) << 32) | u128::from(r.pos)
         });
-        apart.sort_unstable();
+        paperpaw_sort::sort_unstable(&mut apart);
         self.recent = recent.into_iter().map(|(_, r)| r).collect();
         self.apart = apart;
         self.count_heads(storage, &mut blocks)?;

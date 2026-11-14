@@ -82,7 +82,7 @@ impl Described for ImageSettings {
 pub(super) fn declared_order(
     mut placed: Vec<super::raw_declarations::Place>,
 ) -> Result<Vec<u32>, i32> {
-    placed.sort_unstable();
+    paperpaw_sort::sort_unstable(&mut placed);
     let mut places = Vec::new();
     places
         .try_reserve_exact(placed.len())
