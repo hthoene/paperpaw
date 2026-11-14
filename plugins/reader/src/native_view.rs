@@ -362,16 +362,15 @@ impl View {
         };
         let progress =
             Progress::read(host, docs, id, sections, (&mut input, &mut out)).map_err(fail)?;
-        let (at, stored_ppm) =
-            Self::starting_place(host, library, &found, (sections, conversion), &mut out)
-                .map_err(fail)?;
-        // The highlights of the book; a book the library does not know has none.
-        let marks = match library.map(|l| native_marks::load(host, l, &found.path, conversion)) {
-            Some(Ok(spans)) => Marks::new(spans),
-            // A book the library does not know, or no room to read them in: the
-            // page is drawn without highlights, the book still opens.
-            _ => Marks::default(),
-        };
+        let (at, stored_ppm) = Self::starting_place(
+            host,
+            library,
+            &found,
+            (sections, conversion, progress.as_ref()),
+            &mut out,
+        )
+        .map_err(fail)?;
+        let marks = Self::load_marks(host, library, &found.path, conversion);
         let mut open = Open {
             id,
             sections,
@@ -430,6 +429,21 @@ impl View {
         })
     }
 
+    /// The highlights of the book; a book the library does not know has none,
+    /// and where there is no room to read them the page is drawn without
+    /// highlights, the book still opens.
+    fn load_marks(
+        host: &Host<'_>,
+        library: Option<&Library>,
+        path: &str,
+        conversion: u64,
+    ) -> Marks {
+        match library.map(|l| native_marks::load(host, l, path, conversion)) {
+            Some(Ok(spans)) => Marks::new(spans),
+            _ => Marks::default(),
+        }
+    }
+
     /// Where the book opens and the progress stored with its place: the place
     /// the hand-over names, if the book has it; else the place saved last time;
     /// else the start (a page number needs the page index: `PORTING-7.md`).
@@ -437,7 +451,7 @@ impl View {
         host: &Host<'_>,
         library: Option<&Library>,
         found: &Handover,
-        (sections, conversion): (u32, u64),
+        (sections, conversion, progress): (u32, u64, Option<&Progress>),
         out: &mut [u8],
     ) -> Result<((u32, u32), u32), Error> {
         Ok(
@@ -455,10 +469,15 @@ impl View {
                             (&mut ask, out),
                         )
                     });
-                    (
-                        stored.and_then(|s| s.at).unwrap_or((0, 0)),
-                        stored.map_or(0, |s| s.ppm),
-                    )
+                    // A place of another conversion is found again by its
+                    // progress; the file stays as it is until the next save.
+                    let at = stored.and_then(|s| {
+                        s.at.or_else(|| {
+                            s.other
+                                .and_then(|other| native_place::relocate(other, s.ppm, progress))
+                        })
+                    });
+                    (at.unwrap_or((0, 0)), stored.map_or(0, |s| s.ppm))
                 }
                 _ => ((0, 0), 0),
             },

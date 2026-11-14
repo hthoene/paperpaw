@@ -118,6 +118,11 @@ impl Progress {
     }
 }
 
+/// The most the progress of a place saved in another conversion may differ from
+/// the progress that place has in this one for it to be taken as it is, in
+/// millionths (0.2 %: the file keeps a tenth of a percent).
+pub const RELOCATE_WITHIN: u32 = 2_000;
+
 /// What the library keeps of a book's place: where it was, if that fits the
 /// book, and the progress stored with it (kept when this screen cannot tell
 /// the progress itself).
@@ -128,9 +133,50 @@ pub struct Stored {
     pub at: Option<(u32, u32)>,
     /// The progress stored, in millionths.
     pub ppm: u32,
+    /// A place saved in another conversion of the book: its section and
+    /// offset mean what they meant there, so it is looked at by
+    /// [`relocate`] before it is taken.
+    pub other: Option<(u32, u32)>,
 }
 
-/// The place saved for the book at `path`. A read that fails other than as
+impl Progress {
+    /// Whether the book has `offset` in `section` (the end of a section
+    /// counts: a page may start there).
+    #[must_use]
+    pub fn holds(&self, section: u32, offset: u32) -> bool {
+        self.lengths
+            .get(section as usize)
+            .is_some_and(|length| offset <= *length)
+    }
+}
+
+/// Where a place saved in another conversion is in this one: the place itself
+/// where its progress here is what was stored with it (within
+/// [`RELOCATE_WITHIN`]: the text before it is the same), else the place that
+/// progress is (Beta 3's own way when a place did not fit), else none, so the
+/// book opens at its start. Nothing is written.
+#[must_use]
+pub fn relocate(
+    other: (u32, u32),
+    stored_ppm: u32,
+    progress: Option<&Progress>,
+) -> Option<(u32, u32)> {
+    let progress = progress?;
+    if progress.total == 0 || stored_ppm == 0 {
+        // No progress stored (or none to measure it by): only the start is
+        // sure to be where it was.
+        return (other == (0, 0)).then_some(other);
+    }
+    if progress.holds(other.0, other.1)
+        && progress.ppm(other.0, other.1).abs_diff(stored_ppm) <= RELOCATE_WITHIN
+    {
+        return Some(other);
+    }
+    Some(progress.place_at(stored_ppm))
+}
+
+/// The place saved for the book at `path`: its own, or one of another
+/// conversion as `other`. A read that fails other than as
 /// "no place" is tried once more, as Beta 3 did, before the book opens at its
 /// start.
 #[must_use]
@@ -151,10 +197,12 @@ pub fn saved(
     let Ok(position) = read else {
         return Stored::default();
     };
-    let fits = position.section < sections && position.conversion.is_none_or(|c| c == conversion);
+    let here = (position.section, position.offset);
+    let mine = position.conversion.is_none_or(|c| c == conversion);
     Stored {
-        at: fits.then_some((position.section, position.offset)),
+        at: (mine && position.section < sections).then_some(here),
         ppm: position.progress_ppm.min(1_000_000),
+        other: (!mine).then_some(here),
     }
 }
 
