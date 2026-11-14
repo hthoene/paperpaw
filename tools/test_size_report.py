@@ -98,9 +98,17 @@ class SizeGate(unittest.TestCase):
     def test_the_committed_budget_names_every_device(self):
         images = size_report.read_budget(REAL_BUDGET)
         self.assertEqual(sorted(images), sorted(size_report.DEVICES))
+        # Beta 4's target is 6,400,000 bytes at most (#258). Decision 184 let the
+        # first native images (train t40) exceed it until they are shrunk: these
+        # ceilings are that train's lines, and only go down (back to 6,400,000).
+        ceilings = {
+            "x4": 6_493_952,
+            "x3": 6_505_744,
+            "x4-pro": 7_062_560,
+            "x4-classic": 6_612_704,
+        }
         for device, budget in images.items():
-            # Beta 4's target is 6,400,000 bytes at most (#258).
-            self.assertLessEqual(budget, 6_400_000, device)
+            self.assertLessEqual(budget, ceilings[device], device)
 
 
 if __name__ == "__main__":

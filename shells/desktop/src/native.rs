@@ -421,8 +421,6 @@ fn is_interface7(bytes: &[u8]) -> bool {
     }
 }
 
-/// [`load`] with its memory not counted against the budget (the file read
-/// here, then loaded as an interface-6 library).
 /// Code plugins built for this computer, from the card (`on`: `device::set_code_plugins`).
 pub fn code_plugins(
     builder: paperpaw_core::KernelBuilder,
@@ -443,6 +441,8 @@ pub fn code_plugins(
     )
 }
 
+/// [`load`] with its memory not counted against the budget (the file read
+/// here, then loaded as an interface-6 library).
 #[cfg(test)]
 fn load_installed(
     storage: &dyn Storage,
