@@ -625,7 +625,6 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "fonts-browser",
     "mail",
     "news",
-    "store",
     "transfer",
     "vocabulary",
 );
@@ -693,10 +692,6 @@ pub fn install_with(
     // their interface-6 forms are gone (#244).
     #[allow(unused_mut, reason = "only some builds add plugins below")]
     let mut b = interface6_reading(builder);
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_store::Store);
-    }
     #[cfg(all(
         feature = "store-plugins",
         not(all(feature = "native-linked-store", feature = "native-linked-reading"))
