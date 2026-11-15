@@ -58,9 +58,15 @@ USAGE:
     paperpaw-sign check-image <flash.bin>
         Checks that a whole flash image takes updates over the air once
         flashed: its partition table has the OTA data and two app slots
-        (read as the firmware reads it), its app has one data segment, and
-        the app fits either slot and CrossPoint's. The release runs it on
-        every device's image.
+        (read as the firmware reads it), its app has one data segment with
+        the application descriptor first in it, and the app fits either
+        slot and CrossPoint's (not where the image installs by flashing
+        only: FLASH_ONLY in tools/sign/src/image.rs). The release runs it
+        on every device's image.
+    paperpaw-sign check-app <app.bin>
+        The first of those for an app image alone (what a build's install
+        image is): one data segment, the descriptor first in it. CI runs it
+        on every device's image.
     paperpaw-sign plugins <image.bin>
         Lists the plugin crates an app image or update file has built in;
         fails if it lists none.
@@ -172,6 +178,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["sign-asset", file, signature, "--key", key] => asset::sign(file, signature, Some(key)),
         ["check-asset", file, signature] => asset::check(file, signature),
         ["check-image", flash] => image::check_file(flash),
+        ["check-app", app] => image::check_app_file(app),
         ["plugins", image] => firmware::plugins(image),
         ["fingerprint", elf] => firmware::fingerprint(elf),
         ["abi", elf] => firmware::abi(elf),
