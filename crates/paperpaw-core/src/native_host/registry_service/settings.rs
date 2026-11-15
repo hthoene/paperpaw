@@ -412,7 +412,7 @@ fn choices(
         return Ok(());
     };
     let i18n = sources.env.i18n();
-    let mut row = |value, title| {
+    let mut row = |value: &str, title: &str| {
         visit(&Record::ServiceRegChoice(wire::ServiceRegChoice {
             value,
             title,
@@ -426,30 +426,28 @@ fn choices(
                 }
             }
         }
-        SettingKind::Language => {
-            for (tag, name) in languages(i18n) {
-                if row(tag, name).is_break() {
-                    break;
-                }
-            }
-        }
+        SettingKind::Language => languages(i18n, &mut row),
         _ => {}
     }
     Ok(())
 }
 
 /// The languages a `reg_choice` row can carry, in the translator's order
-/// (English first, then by tag): the tag, which is the setting's value, and
-/// the language's name in that language as its catalog gives it (`Deutsch`;
-/// a language pack's own), or the tag where the catalog gives none.
-fn languages(i18n: &paperpaw_i18n::Translator) -> impl Iterator<Item = (&str, &str)> {
-    i18n.languages()
-        .into_iter()
-        .filter(|(tag, _)| tag.len() <= CHOICE_VALUE)
-        .map(|(tag, name)| {
-            let name = if name.is_empty() { tag } else { name };
-            (tag, clip(name, caps::TITLE))
-        })
+/// (English first, then by tag), until `visit` breaks: the tag, which is
+/// the setting's value, and the language's name in that language as its
+/// catalog gives it (`Deutsch`; a language pack's own), or the tag where the
+/// catalog gives none. Nothing is allocated.
+fn languages(
+    i18n: &paperpaw_i18n::Translator,
+    visit: &mut dyn FnMut(&str, &str) -> ControlFlow<()>,
+) {
+    i18n.each_language(&mut |tag, name| {
+        if tag.len() > CHOICE_VALUE {
+            return ControlFlow::Continue(());
+        }
+        let name = if name.is_empty() { tag } else { name };
+        visit(tag, clip(name, caps::TITLE))
+    });
 }
 
 /// The setting `id` itself (a placement's id names no setting here).
@@ -469,7 +467,14 @@ fn choice_count(spec: &SettingSpec, i18n: &paperpaw_i18n::Translator) -> u32 {
             let count = values.iter().filter(|v| v.len() <= CHOICE_VALUE).count();
             u32::try_from(count).unwrap_or(u32::MAX)
         }
-        SettingKind::Language => u32::try_from(languages(i18n).count()).unwrap_or(u32::MAX),
+        SettingKind::Language => {
+            let mut count = 0_u32;
+            languages(i18n, &mut |_, _| {
+                count = count.saturating_add(1);
+                ControlFlow::Continue(())
+            });
+            count
+        }
         _ => 0,
     }
 }
