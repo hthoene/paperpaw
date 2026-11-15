@@ -39,6 +39,20 @@ plugin | transfer Running enabled=true BuiltIn
 plugin | update Running enabled=true BuiltIn
 plugin | vocabulary Running enabled=true BuiltIn
 plugin | widgets Running enabled=true BuiltIn
+plugin | stats Off enabled=false BuiltIn
+plugin | battery Off enabled=false BuiltIn
+plugin | keys Off enabled=false BuiltIn
+plugin | reading-goal Off enabled=false BuiltIn
+plugin | notes-overview Off enabled=false BuiltIn
+plugin | weather Off enabled=false BuiltIn
+plugin | koreader Off enabled=false BuiltIn
+plugin | profiles Off enabled=false BuiltIn
+plugin | menu-editor Off enabled=false BuiltIn
+plugin | rules Off enabled=false BuiltIn
+plugin | calibre Off enabled=false BuiltIn
+plugin | end-of-book Off enabled=false BuiltIn
+plugin | diagnostics Off enabled=false BuiltIn
+plugin | translate Off enabled=false BuiltIn
 plugin | wifi Running enabled=true BuiltIn
 setting-group | SettingGroupSpec { id: Id(core.space), title: "core.widget.space", order: 0, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(home.clock), title: "home.widget.clock", order: 0, page: None, parent: None }
