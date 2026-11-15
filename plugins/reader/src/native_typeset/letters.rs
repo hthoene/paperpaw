@@ -47,6 +47,16 @@ impl Letters {
     }
 }
 
+/// Whether fonts kern `c` with its neighbours: not the ideographs, the kana, the
+/// Hangul syllables and the full-width forms, which are set one after the other
+/// (a page of them has no pair to ask the host about).
+const fn kerns(c: char) -> bool {
+    !matches!(
+        c as u32,
+        0x2E80..=0xA4CF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF | 0x2_0000..=0x3_FFFF
+    )
+}
+
 /// The letter a pair is joined into, if it is one.
 const fn ligature(left: char, right: char) -> Option<char> {
     match (left, right) {
@@ -122,6 +132,10 @@ impl<M: Measure> Faces<M> {
     /// How much `right` moves when it follows `left` set by the font alone: its
     /// kerning, as the host's text calls set a pair.
     fn host_kern(&self, role: Role, size: f32, (left, right): (char, char)) -> f32 {
+        // A pair the tables could not keep is not asked at every use.
+        if self.tables.leaves_out((left, right)) {
+            return 0.0;
+        }
         if let Some(kern) = self.tables.pair(role, size, (left, right)) {
             return kern;
         }
@@ -178,6 +192,8 @@ impl<M: Measure> Faces<M> {
             || right == ' '
             || paperpaw_sdk::text::is_invisible(left)
             || paperpaw_sdk::text::is_invisible(right)
+            || !kerns(left)
+            || !kerns(right)
         {
             return 0.0;
         }

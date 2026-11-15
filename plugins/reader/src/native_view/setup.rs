@@ -126,17 +126,16 @@ impl Kept {
     }
 
     /// What the pages of this book remember of the host's fonts, made for
-    /// `letters` (a table of pairs only where kerning or ligatures are on) at
     /// the first page and kept until a setting or the screen changes (or the
     /// book is closed), so that only the first pages ask the host for widths
     /// and pairs. Where there is no room for them the reader carries on without
     /// (every ask goes to the host, as before) and tries again at the next page.
-    pub(super) fn tables(&self, letters: Letters) -> Tables {
+    pub(super) fn tables(&self) -> Tables {
         let kept = self.0.borrow().tables.clone();
         if let Some(kept) = kept {
             return kept;
         }
-        let made = Tables::new(letters);
+        let made = Tables::new();
         if let Ok(tables) = &made {
             self.0.borrow_mut().tables = Some(tables.clone());
         }
@@ -357,7 +356,7 @@ mod tests {
     fn without_room_for_the_tables_the_reader_carries_on_without_them() {
         // No room: no tables, no error; they are asked for again at the next page.
         assert!(!carry_on(Err(Error::NoMemory)).has_room());
-        assert!(carry_on(Tables::new(Letters::DEFAULT)).has_room());
+        assert!(carry_on(Tables::new()).has_room());
     }
 
     #[test]

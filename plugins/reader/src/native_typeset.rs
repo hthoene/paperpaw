@@ -204,7 +204,7 @@ impl<M: Measure> Faces<M> {
     /// `Invalid` for a size or spacing that is not positive and finite, or a
     /// font that cannot be measured; `NoMemory` for the tables.
     pub fn new(measure: M, base: f32, spacing: f32) -> Result<Self, Error> {
-        Self::with_tables(measure, base, spacing, Tables::new(Letters::DEFAULT)?)
+        Self::with_tables(measure, base, spacing, Tables::new()?)
     }
 
     /// [`Faces::new`] remembering the fonts in `tables`, which the pages of a
@@ -311,8 +311,7 @@ impl<M: Measure> Faces<M> {
             }
             _ => return self.refused(),
         };
-        self.tables.keep_width(role, size, c, width);
-        width
+        self.tables.keep_width(role, size, c, width)
     }
 }
 
