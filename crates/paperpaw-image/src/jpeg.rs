@@ -152,7 +152,10 @@ impl<'r, 'a> Bits<'r, 'a> {
 
     /// Takes bytes until more than 24 bits are at hand (zeros after a
     /// marker or the end of the data, which a file without its end
-    /// marker reaches while its last bits are looked ahead of).
+    /// marker reaches while its last bits are looked ahead of). Not
+    /// inlined: the bits at hand are looked at where they are asked for,
+    /// and this is called once in a few of them.
+    #[inline(never)]
     fn fill(&mut self) -> Result<(), ImageError> {
         while self.count <= 24 {
             let byte = if self.marker.is_some() || self.ended {
@@ -215,7 +218,9 @@ impl<'r, 'a> Bits<'r, 'a> {
         blocks <= self.reader.position().saturating_mul(BLOCKS_PER_BYTE)
     }
 
-    /// The next `n` bits (at most 24), not taken.
+    /// The next `n` bits (at most 24), not taken. Inlined: with the bits
+    /// at hand it is a shift and a mask, asked for twice a coefficient.
+    #[inline(always)]
     fn peek(&mut self, n: u32) -> Result<u32, ImageError> {
         if self.count < n {
             self.fill()?;
@@ -229,10 +234,10 @@ impl<'r, 'a> Bits<'r, 'a> {
         Ok(bit)
     }
 
+    #[inline]
     pub(crate) fn receive(&mut self, n: u32) -> Result<i32, ImageError> {
         if n > 16 {
-            let high = self.receive(n - 16)?;
-            return Ok(high << 16 | self.receive(16)?);
+            return self.receive_wide(n);
         }
         if n == 0 {
             return Ok(0);
@@ -240,6 +245,13 @@ impl<'r, 'a> Bits<'r, 'a> {
         let v = self.peek(n)?;
         self.count -= n;
         Ok(v as i32)
+    }
+
+    /// [`Bits::receive`] of more than 16 bits (no valid file asks for it).
+    #[inline(never)]
+    fn receive_wide(&mut self, n: u32) -> Result<i32, ImageError> {
+        let high = self.receive(n - 16)?;
+        Ok(high << 16 | self.receive(16)?)
     }
 
     pub(crate) fn extend(v: i32, n: u32) -> i32 {
@@ -252,6 +264,7 @@ impl<'r, 'a> Bits<'r, 'a> {
         }
     }
 
+    #[inline]
     pub(crate) fn decode(&mut self, table: &Huffman) -> Result<u8, ImageError> {
         let next = self.peek(FAST_BITS)?;
         let entry = table.fast[next as usize];
@@ -259,7 +272,13 @@ impl<'r, 'a> Bits<'r, 'a> {
             self.count -= u32::from(entry >> 8);
             return Ok(entry as u8);
         }
-        // A longer code: bit by bit from there.
+        self.decode_long(table, next)
+    }
+
+    /// A code longer than [`FAST_BITS`], whose first bits are `next`: bit
+    /// by bit from there.
+    #[inline(never)]
+    fn decode_long(&mut self, table: &Huffman, next: u32) -> Result<u8, ImageError> {
         self.count -= FAST_BITS;
         let mut code = next as i32;
         for len in FAST_BITS as usize + 1..=16 {
@@ -358,6 +377,9 @@ pub(crate) fn idct_scaled(coef: &[i32; 64], n: usize, out: &mut [u8], stride: us
     if n == 4 {
         return idct4(coef, out, stride);
     }
+    if n == 8 {
+        return idct8(coef, out, stride);
+    }
     let c = match n {
         8 => &C8,
         4 => &C4,
@@ -415,6 +437,53 @@ fn idct4(coef: &[i32; 64], out: &mut [u8], stride: usize) {
     }
     for x in 0..4 {
         let column = idct4_line([tmp[0][x], tmp[1][x], tmp[2][x], tmp[3][x]]);
+        for (y, sum) in column.into_iter().enumerate() {
+            out[y * stride + x] = (((sum + (1 << 13)) >> 14) + 128).clamp(0, 255) as u8;
+        }
+    }
+}
+
+/// [`C8`] applied to eight frequencies, with 22 multiplications instead
+/// of 64. The basis is even in its even frequencies and odd in its odd
+/// ones (`c[u][7 - x]` is `c[u][x]`, negated for odd `u`), so each half of
+/// the line is the even frequencies' sum plus or minus the odd ones'; the
+/// same products are added, in another order, so the numbers are the same
+/// (nothing overflows: see [`COEFFICIENT`]).
+#[inline(always)]
+fn idct8_line(f: [i32; 8]) -> [i32; 8] {
+    let e0 = (f[0] + f[4]) * 1448;
+    let e1 = (f[0] - f[4]) * 1448;
+    let a = f[2] * 1892 + f[6] * 784;
+    let b = f[2] * 784 - f[6] * 1892;
+    let (p, q, r, s) = (e0 + a, e1 + b, e1 - b, e0 - a);
+    // Without odd frequencies (most lines of a photograph's blocks) the
+    // line is its own mirror.
+    if f[1] | f[3] | f[5] | f[7] == 0 {
+        return [p, q, r, s, s, r, q, p];
+    }
+    let t = f[1] * 2009 + f[3] * 1703 + f[5] * 1138 + f[7] * 400;
+    let u = f[1] * 1703 - f[3] * 400 - f[5] * 2009 - f[7] * 1138;
+    let v = f[1] * 1138 - f[3] * 2009 + f[5] * 400 + f[7] * 1703;
+    let w = f[1] * 400 - f[3] * 1138 + f[5] * 1703 - f[7] * 2009;
+    [p + t, q + u, r + v, s + w, s - w, r - v, q - u, p - t]
+}
+
+/// [`idct_scaled`] at full size (`n` = 8): what a picture less than twice
+/// the size it shows at is decoded at, every block of it. The general
+/// sums took most of the time of such a picture's decoding (#250).
+fn idct8(coef: &[i32; 64], out: &mut [u8], stride: usize) {
+    let mut tmp = [[0i32; 8]; 8];
+    for (row, to) in coef.as_chunks::<8>().0.iter().zip(tmp.iter_mut()) {
+        // A row without frequencies (most, in a photograph) stays zeros.
+        if *row != [0; 8] {
+            *to = idct8_line(row.map(|c| c.clamp(-COEFFICIENT, COEFFICIENT))).map(|sum| sum >> 10);
+        }
+    }
+    for x in 0..8 {
+        let t = &tmp;
+        let column = idct8_line([
+            t[0][x], t[1][x], t[2][x], t[3][x], t[4][x], t[5][x], t[6][x], t[7][x],
+        ]);
         for (y, sum) in column.into_iter().enumerate() {
             out[y * stride + x] = (((sum + (1 << 13)) >> 14) + 128).clamp(0, 255) as u8;
         }
@@ -682,6 +751,9 @@ fn scan(
         Vec::new()
     };
     let mut block = [0u8; 64];
+    // Zeroed for each block that is shown: a dropped one (chroma, for
+    // gray: two of three blocks) keeps none of its coefficients.
+    let mut coef = [0i32; 64];
     let mut bits = Bits::new(reader);
     let mut until_restart = restart_interval;
     let mut emitted = 0u32;
@@ -734,7 +806,9 @@ fn scan(
                             let dc_value = component.prediction.saturating_mul(i32::from(q[0]));
                             block[..n * n].fill(dc_level(dc_value));
                         } else {
-                            let mut coef = [0i32; 64];
+                            if shown {
+                                coef = [0i32; 64];
+                            }
                             let t = bits.decode(dc)?;
                             if t > 16 {
                                 return Err(ImageError::Invalid("bad DC"));
@@ -902,6 +976,61 @@ mod tests {
                 }
             }
             assert_eq!(fast, general);
+        }
+    }
+
+    /// The sums of [`idct_scaled`] before its shortcuts, for `n` × `n`
+    /// frequencies of basis `c`.
+    fn general(coef: &[i32; 64], n: usize, c: &[[i32; 8]; 8]) -> [u8; 64] {
+        let mut tmp = [0i32; 64];
+        for v in 0..n {
+            for x in 0..n {
+                let sum: i32 = (0..n)
+                    .map(|u| coef[v * 8 + u].clamp(-COEFFICIENT, COEFFICIENT) * c[u][x])
+                    .sum();
+                tmp[v * 8 + x] = sum >> 10;
+            }
+        }
+        let mut out = [0u8; 64];
+        for x in 0..n {
+            for y in 0..n {
+                let sum: i32 = (0..n).map(|v| tmp[v * 8 + x] * c[v][y]).sum();
+                out[y * n + x] = (((sum + (1 << 13)) >> 14) + 128).clamp(0, 255) as u8;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn full_size_idct_as_the_general_one() {
+        let mut seed = 11u32;
+        let mut next = move || {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            (seed >> 16) as i32
+        };
+        // Any coefficients, sparse ones as pictures have them (most lines
+        // without odd frequencies, most blocks with few), and ones past
+        // what a valid file gives, at the bounds and beyond.
+        for round in 0..4000 {
+            let mut coef = [0i32; 64];
+            for (at, c) in coef.iter_mut().enumerate() {
+                let value = next();
+                *c = match round % 5 {
+                    0 => value % 3000 - 1500,
+                    1 if at % 8 < 3 && at / 8 < 3 => value % 600 - 300,
+                    2 if at % 2 == 0 && value % 3 == 0 => value % 2000 - 1000,
+                    3 => [-40_000_000, -4096, -4095, 0, 4095, 4096, i32::MAX, i32::MIN]
+                        [value as usize % 8],
+                    4 if value % 7 == 0 => value % 9000 - 4500,
+                    _ => 0,
+                };
+            }
+            let mut fast = [0u8; 64];
+            idct8(&coef, &mut fast, 8);
+            assert_eq!(fast, general(&coef, 8, &C8), "round {round}: {coef:?}");
+            let mut through = [0u8; 64];
+            idct_scaled(&coef, 8, &mut through, 8);
+            assert_eq!(through, fast);
         }
     }
 

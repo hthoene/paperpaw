@@ -15,7 +15,11 @@ use paperpaw_sdk::MemoryStorage;
 const OLD_INI: &str =
     "[plugin]\nid = hyphenation-de\nname = Hyphenation: German\nversion = 1.0.4\n";
 const PACK_INI: &str = "[plugin]\nid = hyphenation-de\nname = Hyphenation: German\nversion = 2.0.0\nformats = 5\n\n[hyphenation]\nde = hyphenation/de.pphp\n";
-const CODE: &str = "PPNP-beta3-interface-6";
+/// A plugin file as Beta 3 shipped it (interface 6, format 4): the X4's
+/// `hyphenation-it` 1.0.3 (`tests/data/beta3-hyphenation-it-1.0.3-x4.source.txt`).
+/// What the kernel says of it goes by its header, so the German plugin's
+/// folder of these tests holds it as well as its own would.
+const CODE: &[u8] = include_bytes!("../tests/data/beta3-hyphenation-it-1.0.3-x4.ppn");
 const PART: &str = "plugins/.hyphenation-de.part";
 
 fn table() -> Vec<u8> {
@@ -125,18 +129,12 @@ fn named_installed(card: MemoryStorage) -> Rc<MemoryStorage> {
     Rc::new(card)
 }
 
-/// Beta 3's code is the one installed (named as its store did), and this
-/// interface-7 firmware's loader refuses it as built for interface 6.
-struct Interface6;
-impl CodeLoader for Interface6 {
-    fn load(
-        &mut self,
-        _: &dyn Storage,
-        _: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        Err(PluginProblem::OlderInterface { built_for: 6 })
-    }
-}
+/// Beta 3's code is the one installed (named as its store did). This
+/// firmware's loader runs interface-7 files only and takes Beta 3's for none
+/// of its own: the kernel says from the file itself that it was built for
+/// interface 6 (`file_problem`).
+struct Interface7Only;
+impl CodeLoader for Interface7Only {}
 
 /// What a start changed, as the paths named, shared so that what the kernel does
 /// after it started counts too.
@@ -150,7 +148,7 @@ fn start(card: &Rc<MemoryStorage>, left: usize, staged: bool) -> (Kernel, Change
             left: Cell::new(left),
             changes: changes.clone(),
         })
-        .code_plugins(Native::new("code.ppn"), Box::new(Interface6));
+        .code_plugins(Native::new("code.ppn"), Box::new(Interface7Only));
     if staged {
         builder = builder.install_plugin(Id::new_static("hyphenation-de"), PART);
     }
@@ -178,7 +176,7 @@ fn folder(card: &MemoryStorage, when: &str) -> Folder {
     if ini == OLD_INI.as_bytes() {
         assert_eq!(
             code.as_deref(),
-            Some(CODE.as_bytes()),
+            Some(CODE),
             "{when}: Beta 3's plugin lost its code"
         );
         assert!(pphp.is_none(), "{when}: Beta 3's folder holds a table");

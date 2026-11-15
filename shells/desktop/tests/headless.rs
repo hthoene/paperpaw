@@ -153,6 +153,101 @@ fn size(path: &Path) -> (u32, u32) {
     (info.width, info.height)
 }
 
+/// How many pixels of the PNG are dark (a page of text alone has a few
+/// thousand, a picture of rings some tens of thousands more).
+fn dark_pixels(path: &Path) -> usize {
+    let decoder = png::Decoder::new(std::io::BufReader::new(File::open(path).unwrap()));
+    let mut reader = decoder.read_info().unwrap();
+    let mut bytes = vec![0; reader.output_buffer_size().unwrap()];
+    let frame = reader.next_frame(&mut bytes).unwrap();
+    let step = frame.color_type.samples();
+    bytes[..frame.buffer_size()]
+        .chunks(step)
+        .filter(|pixel| pixel[0] < 128)
+        .count()
+}
+
+/// A font size smaller by a few steps brings a picture onto the first page
+/// that no page showed before, so it is not decoded yet (#250): the reader asks
+/// for it where it lays the page out again, and the picture is drawn.
+#[test]
+fn a_picture_a_font_change_brings_onto_the_page_is_asked_for_and_drawn() {
+    let library = library("reflow-picture");
+    let fixtures = root().join("shells/desktop/tests/fixtures-pictures/pictures.epub");
+    fs::copy(fixtures, library.join("books/pictures.epub")).unwrap();
+    let reader = library.join(".paperpaw/plugins/reader");
+    fs::create_dir_all(&reader).unwrap();
+    fs::write(
+        reader.join("state.ini"),
+        "[reader]\nlast = books/pictures.epub\n",
+    )
+    .unwrap();
+    let shot = library.join("shot.png");
+    let mut script = String::from("wait:600");
+    for _ in 0..6 {
+        script.push_str(",run:reader.font-smaller,wait:400");
+    }
+    let run = run_in(
+        &library,
+        "xteink-x4",
+        &script,
+        &[
+            "--set",
+            "core.font-size=30",
+            "--screenshot",
+            shot.to_str().unwrap(),
+        ],
+    );
+    assert!(run.ok, "{}", run.stderr);
+    let dark = dark_pixels(&shot);
+    let _ = fs::remove_dir_all(&library);
+    // The page's text alone: about 17,700; with the picture drawn: about 81,900.
+    assert!(dark > 40_000, "the picture is missing: {dark} dark pixels");
+}
+
+/// What a frame of a book with status lines takes of the heap beyond what is
+/// live: its status line makes one reply buffer of 4 KiB, after the registry's
+/// answer is read, and a small request buffer (#248); it made two of 4 KiB and
+/// a third of 4 KiB for the request, while the answer was read: 16.9 KiB above
+/// the live heap before, 9.0 after. Measured by `redraw` between `reset-peak`
+/// and `step:` on an X4.
+#[test]
+fn a_frame_of_a_book_with_status_lines_takes_little_heap() {
+    let library = library("status-frame");
+    let reader = library.join(".paperpaw/plugins/reader");
+    fs::create_dir_all(&reader).unwrap();
+    fs::write(
+        reader.join("state.ini"),
+        "[reader]\nlast = books/die-verwandlung.txt\n",
+    )
+    .unwrap();
+    let run = run_in(
+        &library,
+        "xteink-x4",
+        "wait:6000,reset-peak,redraw,wait:300,step:frame",
+        &[],
+    );
+    let _ = fs::remove_dir_all(&library);
+    assert!(run.ok, "{}", run.stderr);
+    let line = run
+        .stdout
+        .lines()
+        .find(|line| line.starts_with("step frame:"))
+        .unwrap_or_else(|| panic!("no step line in {}", run.stdout));
+    let number = |after: &str| -> f64 {
+        line.split(after)
+            .nth(1)
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("no number after {after:?} in {line}"))
+    };
+    let above_live = number("peak ") - number("live ");
+    assert!(
+        above_live < 12.0,
+        "a frame peaks {above_live} KiB above live: {line}"
+    );
+}
+
 #[test]
 fn help_and_the_profiles_are_printed() {
     let help = emulator(&["--help"]);
@@ -324,6 +419,79 @@ fn power_sleeps_and_only_power_wakes() {
         woken.stderr
     );
     assert_eq!(woken.screen(), "home.dashboard");
+}
+
+/// The power button held opens the power menu (#266); its answer reaches the
+/// power plugin whatever token it comes with. *Sleep* puts the device to sleep
+/// with the sleep screen, *Switch off* (where PaperPaw switches off: the X4s)
+/// shows the sleep screen and switches off, *Restart* restarts.
+#[test]
+fn the_power_menu_sleeps_switches_off_and_restarts() {
+    let menu = "long:power,wait:500";
+    let sleep = run(
+        "power-menu-sleep",
+        "xteink-x4",
+        &format!("{menu},confirm,wait:1500"),
+        &[],
+    );
+    assert!(sleep.ok, "{}", sleep.stderr);
+    assert!(
+        sleep.stderr.contains("xteink-x4: asleep"),
+        "{}",
+        sleep.stderr
+    );
+    assert_eq!(sleep.screen(), "sleep.screen");
+    let off = run(
+        "power-menu-off",
+        "xteink-x4",
+        &format!("{menu},page-forward,confirm,wait:1500"),
+        &[],
+    );
+    assert!(off.ok, "{}", off.stderr);
+    assert!(
+        off.stderr.contains("xteink-x4: power off"),
+        "{}",
+        off.stderr
+    );
+    assert_eq!(off.screen(), "sleep.screen");
+    let restart = run(
+        "power-menu-restart",
+        "xteink-x4",
+        &format!("{menu},page-forward,page-forward,confirm,wait:1500"),
+        &[],
+    );
+    assert!(restart.ok, "{}", restart.stderr);
+    assert!(
+        restart.stderr.contains("xteink-x4: restarting"),
+        "{}",
+        restart.stderr
+    );
+    // A device that cannot switch off does not offer it.
+    let menu_only = run(
+        "power-menu-none",
+        "boox-go-7",
+        &format!("{menu},describe"),
+        &[],
+    );
+    assert!(
+        !menu_only.stdout.contains("Switch off"),
+        "{}",
+        menu_only.stdout
+    );
+}
+
+/// The power menu used once does not stop the power settings from opening
+/// (the plugin holds one `core.ui`, and uses it for both).
+#[test]
+fn the_power_settings_open_after_the_power_menu_was_used() {
+    let run = run(
+        "power-menu-settings",
+        "xteink-x4",
+        "long:power,wait:500,back,wait:500,run:power.open,wait:500",
+        &[],
+    );
+    assert!(run.ok, "{}", run.stderr);
+    assert_eq!(run.screen(), "settings.list", "{}", run.stdout);
 }
 
 /// `type:` types into the keyboard shown as if on its keys, umlauts and
@@ -543,6 +711,89 @@ fn a_picture_follows_the_text_of_its_page_in_a_frame_of_its_own() {
         back[1..].iter().any(|&kb| kb > 100),
         "a frame after draws the picture: {}",
         turned.stdout
+    );
+}
+
+/// The pictures a book's pages show are decoded no larger than the screen is
+/// long, as Beta 3 decoded them: Alice's cover of 800 x 1,104 pixels is kept
+/// as 580 x 800 on the X4 (464 KB on the card where the picture's own size
+/// took 883 KB, written in pieces while the book opens, #250) and at its own
+/// size on a screen 1,448 pixels long.
+#[test]
+#[cfg_attr(
+    not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+    ignore = "needs the native reader (the desktop's `native-linked`, #243)"
+)]
+fn a_page_picture_is_decoded_no_larger_than_the_screen_is_long() {
+    for (profile, long, wanted) in [
+        ("xteink-x4", 800, (580, 800)),
+        ("kobo-clara-bw", 1448, (800, 1104)),
+    ] {
+        let library = library(&format!("picture-side-{profile}"));
+        let state = library.join(".paperpaw/plugins/reader");
+        fs::create_dir_all(&state).unwrap();
+        fs::write(
+            state.join("state.ini"),
+            "[reader]\nlast = books/alice-in-wonderland.epub\n",
+        )
+        .unwrap();
+        let opened = run_in(&library, profile, "wait:8000", &[]);
+        // The decoded pictures in the book's cache: `PPGI`, width, height.
+        let decoded: Vec<(u32, u32, u64)> = files_under(&library.join(".paperpaw/cache"))
+            .iter()
+            .filter(|path| path.extension().is_some_and(|e| e == "gray"))
+            .map(|path| {
+                let bytes = fs::read(path).unwrap();
+                let side = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+                (side(4), side(8), bytes.len() as u64)
+            })
+            .collect();
+        let _ = fs::remove_dir_all(&library);
+        assert!(opened.ok, "{profile}: {}", opened.stderr);
+        assert_eq!(opened.screen(), "reader.screen", "{profile}");
+        assert_eq!(decoded.len(), 1, "{profile}: the cover alone: {decoded:?}");
+        let (width, height, bytes) = decoded[0];
+        assert_eq!((width, height), wanted, "{profile}");
+        assert!(bytes <= long * long + 12, "{profile}: {bytes} bytes");
+    }
+}
+
+/// The frame that draws a page's picture reads the picture's file once, not
+/// once more for every band above the one drawn: Alice's cover on the X4 is
+/// 464 KB on the card and its frame of four bands read 1,290 KB (#250).
+#[test]
+#[cfg_attr(
+    not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+    ignore = "needs the native reader (the desktop's `native-linked`, #243)"
+)]
+fn a_pictures_frame_reads_its_file_once() {
+    let library = library("picture-once");
+    let state = library.join(".paperpaw/plugins/reader");
+    fs::create_dir_all(&state).unwrap();
+    fs::write(
+        state.join("state.ini"),
+        "[reader]\nlast = books/alice-in-wonderland.epub\n",
+    )
+    .unwrap();
+    let opened = run_in(&library, "xteink-x4", "wait:8000", &["--trace"]);
+    let _ = fs::remove_dir_all(&library);
+    assert!(opened.ok, "{}", opened.stderr);
+    // The kilobytes each of the reading screen's frames read from the card.
+    let most = opened
+        .stdout
+        .lines()
+        .filter(|l| l.starts_with("frame reader.screen"))
+        .map(|l| {
+            let (_, after) = l.split_once(" reads of ").unwrap();
+            after.split(' ').next().unwrap().parse::<u64>().unwrap()
+        })
+        .max()
+        .unwrap_or(0);
+    assert!(most > 400, "a frame draws the cover: {}", opened.stdout);
+    assert!(
+        most <= 520,
+        "{most} KB read by one frame: {}",
+        opened.stdout
     );
 }
 

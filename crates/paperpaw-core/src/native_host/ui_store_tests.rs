@@ -506,13 +506,13 @@ fn only_the_small_memory_class_gets_the_x4_profile() {
     assert!(!is_x4(MemoryClass::Large));
 }
 
-/// The nested-callback gate is closed on the X4 profile only, and only
-/// without the feature `x4-nested` (#250); a large device never has it.
+/// The nested-callback gate is open by default and closed on the X4 profile
+/// only with the feature `x4-gate-closed` (#250); a large device never has it.
 #[test]
-fn the_nested_gate_is_the_x4_profiles_until_the_feature_opens_it() {
+fn the_nested_gate_is_open_unless_the_feature_closes_it_on_the_x4_profile() {
     assert_eq!(
         nested_closed(MemoryClass::Small),
-        !cfg!(feature = "x4-nested")
+        cfg!(feature = "x4-gate-closed")
     );
     assert!(!nested_closed(MemoryClass::Large));
 }

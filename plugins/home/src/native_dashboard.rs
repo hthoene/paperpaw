@@ -33,6 +33,9 @@ use paperpaw_ui_kit::{
     paint, text,
 };
 
+mod compose;
+use compose::compose_each;
+
 use crate::native_add_screen as add_screen;
 use crate::native_dash::{self as dash, Footer, Frame, Nav, Wanted};
 use crate::native_focus::{Button, Focus, Owner, Press, Step, Target};
@@ -369,7 +372,11 @@ impl Dashboard {
                 Ok(()) => Ok(Some((made, rect))),
                 Err(error) => {
                     made.release(host, ui);
-                    Err(error)
+                    // Refused (the nested gate on the X4): an empty strip.
+                    if error == Error::NoMemory {
+                        return Err(error);
+                    }
+                    Ok(None)
                 }
             },
             Err(Error::NotFound | Error::Denied) => Ok(None),
@@ -460,7 +467,14 @@ impl Dashboard {
                 Ok(made) => {
                     if let Err(error) = made.place(host, ui, rect) {
                         made.release(host, ui);
-                        return Err(error);
+                        // A host that will not place another plugin's widget
+                        // here (the X4 until its nested gate is open, #250)
+                        // leaves it out of the page, as one that is gone.
+                        return if error == Error::NoMemory {
+                            Err(error)
+                        } else {
+                            Ok(None)
+                        };
                     }
                     match text::copy(Self::widget_title(src, id)) {
                         Ok(name) => (name, Some(made)),
@@ -725,6 +739,27 @@ impl Dashboard {
         Ok(())
     }
 
+    fn compose_widgets(
+        host: &Host<'_>,
+        ui: &Ui,
+        frame: &mut DrawFrame<'_>,
+        laid: &Laid,
+    ) -> Result<(), Error> {
+        let band = (
+            frame.clip_top.saturating_sub(frame.rect.y),
+            frame.clip_bottom.saturating_sub(frame.rect.y),
+        );
+        compose_each(
+            laid.cells
+                .iter()
+                .filter_map(|cell| Some((cell.widget.as_ref()?, cell.rect)))
+                .chain(laid.status.as_ref().map(|(made, rect)| (made, *rect))),
+            band,
+            |made, rect| made.draw(host, ui, frame, rect),
+        )
+        .map(drop)
+    }
+
     fn paint(
         &self,
         host: &Host<'_>,
@@ -824,13 +859,7 @@ impl Dashboard {
             ring(&mut above, target.rect, &style)?;
         }
         paint::replay_icons(frame, font, fonts.icons, below.iter())?;
-        compose_each(
-            laid.cells
-                .iter()
-                .filter_map(|cell| Some((cell.widget.as_ref()?, cell.rect)))
-                .chain(laid.status.as_ref().map(|(made, rect)| (made, *rect))),
-            |made, rect| made.draw(host, ui, frame, rect),
-        )?;
+        Self::compose_widgets(host, ui, frame, laid)?;
         paint::replay(frame, font, above.iter())?;
         let mut dialog = Vec::new();
         self.dialog_paint(font, &mut dialog)?;
@@ -1158,29 +1187,6 @@ fn touch_of(kind: InputGestureKind) -> Touch {
     }
 }
 
-/// Composes each widget into its cell. One the host cannot compose (or that
-/// fails to draw) is left out: the rest of the page still shows (as on
-/// interface 6). Returns how many were composed. Memory is the exception: a
-/// widget that cannot draw for want of it fails the draw, so that the screen is
-/// not left with a blank cell nobody sees the reason for.
-///
-/// # Errors
-/// [`Error::NoMemory`] from a widget's draw.
-fn compose_each<T>(
-    widgets: impl Iterator<Item = (T, Rect)>,
-    mut compose: impl FnMut(T, Rect) -> Result<(), Error>,
-) -> Result<usize, Error> {
-    let mut composed = 0;
-    for (widget, rect) in widgets {
-        match compose(widget, rect) {
-            Ok(()) => composed += 1,
-            Err(Error::NoMemory) => return Err(Error::NoMemory),
-            Err(_) => {}
-        }
-    }
-    Ok(composed)
-}
-
 /// Lets the widgets of these cells go.
 fn release_cells(host: &Host<'_>, ui: &Ui, cells: Vec<Cell>) {
     for cell in cells {
@@ -1449,37 +1455,6 @@ mod tests {
     fn a_long_press_is_taken_and_runs_nothing() {
         assert_eq!(touch_of(InputGestureKind::LongPress), Touch::Held);
         assert_eq!(touch_of(InputGestureKind::Tap), Touch::Tap);
-    }
-
-    #[test]
-    fn a_widget_that_fails_to_compose_leaves_the_rest_of_the_page_drawn() {
-        let cell = |n: u16| Rect::new(n * 10, 0, 10, 10);
-        let mut seen = Vec::new();
-        let composed = compose_each(
-            [(1_u32, cell(0)), (2, cell(1)), (3, cell(2))].into_iter(),
-            |id, rect| {
-                seen.push((id, rect.x));
-                if id == 2 { Err(Error::Denied) } else { Ok(()) }
-            },
-        )
-        .unwrap();
-        // All three were tried, in order; the failing one alone is missing.
-        assert_eq!(seen, [(1, 0), (2, 10), (3, 20)]);
-        assert_eq!(composed, 2);
-        // A host that refuses every one: none composed, no error.
-        assert_eq!(
-            compose_each([(1_u32, cell(0)), (2, cell(1))].into_iter(), |_, _| Err(
-                Error::Denied
-            )),
-            Ok(0)
-        );
-        // Memory is not a refusal to leave out: the draw fails.
-        assert_eq!(
-            compose_each([(1_u32, cell(0)), (2, cell(1))].into_iter(), |_, _| Err(
-                Error::NoMemory
-            )),
-            Err(Error::NoMemory)
-        );
     }
 
     #[test]

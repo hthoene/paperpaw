@@ -134,14 +134,9 @@ fn missing_empty_and_damaged_files_are_reported() {
         fonts.role(roles::READING.as_str()).unwrap().id().as_str(),
         "a.builtin"
     );
-    assert_eq!(
-        fonts
-            .bound(roles::READING_BOLD.as_str())
-            .unwrap()
-            .id()
-            .as_str(),
-        "x.bold"
-    );
+    // The family's bold was read, but sets no bold in another family's
+    // text: the regular face stands in for it.
+    assert!(fonts.bound(roles::READING_BOLD.as_str()).is_none());
     // The family's own faces that failed are not bound to another's.
     assert!(fonts.bound(roles::READING_ITALIC.as_str()).is_none());
     // Loading again tries again, and reports again.

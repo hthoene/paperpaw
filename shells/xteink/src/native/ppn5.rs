@@ -70,8 +70,8 @@ const PROFILE: paperpaw_native::metadata::Profile<'static> = paperpaw_native::he
 const FIRST_FORMAT: u16 = paperpaw_native::header5::FORMAT;
 
 /// Whether `head` (the file's first bytes) is a plugin file of format 5 or
-/// later, which is this module's to read; older ones are the format-4
-/// loader's.
+/// later, which is this module's to read; older ones are none this firmware
+/// runs.
 pub fn is_format5(head: &[u8]) -> bool {
     head.len() >= 6 && head[..4] == MAGIC && u16::from_le_bytes([head[4], head[5]]) >= FIRST_FORMAT
 }
