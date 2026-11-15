@@ -193,7 +193,21 @@ where
         }
         Err(e) => return Err(e),
     };
-    let want = want.clamp(1, MAX_RUN);
+    // A run is written in one block of the FAT, with the link into it: a cut can then leave no
+    // taken cluster linked from nowhere beyond what the old one-at-a-time order could (one).
+    // Where it would straddle two blocks, or the cluster before it is not just before it or
+    // lies in the block before, it is cut short (to the end of the block, or to one cluster).
+    let entries_per_block = 512 / if fat_type == FatType::Fat32 { 4 } else { 2 };
+    let one_block = match prev_cluster {
+        Some(n) => n + 1 == first && n / entries_per_block == first / entries_per_block,
+        None => true,
+    };
+    let want = if one_block {
+        want.min(entries_per_block - first % entries_per_block)
+    } else {
+        1
+    }
+    .clamp(1, MAX_RUN);
     let mut count = 1;
     while count < want && first + count < end_cluster && read_fat(fat, fat_type, first + count)? == FatValue::Free {
         count += 1;
