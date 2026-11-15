@@ -1,0 +1,3 @@
+### Changed
+
+- **A screen with pictures (Home with covers, after "Back" from the book) shows at once in black and white, its grays follow by themselves** (#267, Decision 196). Before, the device first drew the whole screen aside to count its pictures and then in grays, which took about 5 s on the X4. Now the first frame is black and white with the covers dithered, and when the screen has pictures one gray picture follows after 3 seconds in which no key was pressed and nothing else was drawn; a key press begins the wait again. With "Bilder in Graustufen" off there is no gray picture. A screen shown just before the device sleeps keeps its grays at once.
