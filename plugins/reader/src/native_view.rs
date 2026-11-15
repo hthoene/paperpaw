@@ -270,7 +270,7 @@ impl View {
             let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
             let colour =
                 snapshot::capture_snapshot(host).is_ok_and(|display| display.display_is_colour());
-            let book = open_request(&found.path, root, colour);
+            let book = open_request(&found.path, root, (publisher_styles(host)?, colour));
             match docs.open_book(host, &book, &mut input, &mut out) {
                 Ok(state) => (
                     state.id(),
@@ -1462,7 +1462,7 @@ mod ribbon;
 mod script_hint;
 mod setup;
 use helpers::{book_language, document_error_kind, redraw, say};
-use preparing::{Preparing, open_request};
+use preparing::{Preparing, open_request, publisher_styles};
 use setup::{Kept, LayoutKey, Setup, flag, integer};
 
 mod r3;
