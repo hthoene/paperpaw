@@ -3,7 +3,6 @@
 //! registry changed ([`Dashboard::forget_looks`]), not at every draw (the X4
 //! draws a frame in five bands, each a call of `draw`).
 use alloc::vec::Vec;
-use core::cell::Cell;
 
 use super::{Cell, Dashboard, Error, Font, Host, Laid, Made, Rect, Snapshot, Style, Ui, icons};
 use paperpaw_sdk::native::snapshot;
@@ -101,7 +100,7 @@ fn tool_lines(
 ) -> Result<(Vec<(u16, icons::Name)>, bool), Error> {
     let mut lines = Vec::new();
     let hyphens = icons::Hyphens::of(host);
-    let refused = Cell::new(false);
+    let refused = core::cell::Cell::new(false);
     let mut breaks = |word: &str, out: &mut _| hyphens.breaks_noting(host, word, out, &refused);
     for cell in cells {
         if cell.face.is_none() {
