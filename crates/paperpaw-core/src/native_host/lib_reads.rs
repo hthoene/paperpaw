@@ -115,6 +115,8 @@ pub(crate) struct CatalogReads {
     env: Rc<dyn CatalogEnv>,
     /// The last book whose Beta 3 reader's files were looked at.
     old: old_reader::Memo,
+    /// Where the last page of names (op 5) ended, for the page after it.
+    names: core::cell::Cell<Option<facets::Kept>>,
 }
 
 impl CatalogReads {
@@ -151,6 +153,7 @@ impl CatalogReads {
             storage,
             env,
             old: old_reader::Memo::default(),
+            names: core::cell::Cell::new(None),
         }
     }
 
