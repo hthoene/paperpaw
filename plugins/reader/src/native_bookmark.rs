@@ -102,6 +102,21 @@ pub fn is_here(
     kind == AnnotationKind::Bookmark && conversion.is_none_or(|c| c == mine) && range.holds(at)
 }
 
+/// Whether a row of the annotations is a bookmark of another conversion whose
+/// place is on this page: its own place means what it meant there, so it is the
+/// page's bookmark only where the page has the text the bookmark kept
+/// ([`crate::native_marks::lead`]).
+#[must_use]
+pub fn is_foreign_here(
+    range: &Range,
+    kind: AnnotationKind,
+    at: (u32, u32),
+    conversion: Option<u64>,
+    mine: u64,
+) -> bool {
+    kind == AnnotationKind::Bookmark && conversion.is_some_and(|c| c != mine) && range.holds(at)
+}
+
 /// What the text of a page needs of one of its lines.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LineView<'a> {
@@ -211,7 +226,8 @@ pub fn snippet(text: &str, max: usize) -> Result<String, Error> {
     Ok(out)
 }
 
-/// The bookmarks of the book at `book` that are on `range`.
+/// The bookmarks of the book at `book` that are on `range`; those of other
+/// conversions where the page's `text` has the text they kept.
 ///
 /// # Errors
 /// `State` for a book the library does not know, `NoMemory`, the host's refusals.
@@ -219,7 +235,7 @@ pub fn find(
     host: &Host<'_>,
     library: &Library,
     book: BookRef<'_>,
-    (range, conversion): (&Range, u64),
+    (range, conversion, text): (&Range, u64, &str),
 ) -> Result<Found, Error> {
     let (mut input, mut out) = (buffer(1024)?, buffer(SERVICE_BUFFER)?);
     let mut found = Found::default();
@@ -232,7 +248,10 @@ pub fn find(
             seen += 1;
             let row = row?;
             let at = (row.start_section(), row.start_offset());
-            if is_here(range, row.kind(), at, row.conversion(), conversion)
+            let mine = is_here(range, row.kind(), at, row.conversion(), conversion);
+            if (mine
+                || is_foreign_here(range, row.kind(), at, row.conversion(), conversion)
+                    && crate::native_marks::lead::found_in(row.text(), text))
                 && found.ids.len() < MAX_ON_PAGE
             {
                 found.ids.try_reserve(1).map_err(|_| Error::NoMemory)?;
@@ -276,7 +295,12 @@ fn attempt(
     page: &Page<'_>,
     text: &str,
 ) -> Result<Done, Error> {
-    let found = find(host, library, book, (&page.range, page.conversion))?;
+    let found = find(
+        host,
+        library,
+        book,
+        (&page.range, page.conversion, page.text),
+    )?;
     let (mut input, mut out) = (buffer(4096)?, buffer(4096)?);
     let mut transaction = library.edit_begin(
         host,

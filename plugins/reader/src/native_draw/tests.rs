@@ -314,6 +314,25 @@ fn picture_page(handle: &str) -> (Page, Faces<Fixed>) {
 }
 
 #[test]
+fn the_draw_that_counts_pictures_draws_the_pictures_and_no_text() {
+    // The same picture as the page draws, at the same box: and nothing else.
+    let (picture, faces) = picture_page("5:0");
+    let mut whole = Recorder::default();
+    draw_lines(&mut whole, &faces, &picture, (10.0, 20.0)).unwrap();
+    let mut only = Recorder::default();
+    draw_pictures(&mut only, &picture, (10.0, 20.0), Pictures::Drawn).unwrap();
+    assert_eq!(only.images, whole.images);
+    assert_eq!(only.images.len(), 1);
+    assert!(only.calls.is_empty() && only.fills.is_empty());
+    // A text page: no draw at all. Their places kept empty: none either.
+    let (text, _) = page("one two three", TextStyle::REGULAR);
+    let mut none = Recorder::default();
+    draw_pictures(&mut none, &text, (0.0, 0.0), Pictures::Drawn).unwrap();
+    draw_pictures(&mut none, &picture, (0.0, 0.0), Pictures::Places).unwrap();
+    assert!(none.calls.is_empty() && none.images.is_empty());
+}
+
+#[test]
 fn a_picture_is_drawn_scaled_into_the_box_the_layout_gave_it() {
     let (page, faces) = picture_page("7");
     let mut ink = Recorder::default();

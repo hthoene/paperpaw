@@ -328,11 +328,22 @@ fn number_size(cx: &Cx<'_>, cell: u16) -> Result<Option<f32>, Error> {
     let width = f32::from(cell) * 0.7;
     let height = i32::from(inner) * 3 / 5;
     largest_size(cx.style().text, cx.style().small * 0.7, |size| {
-        let tall = match cx.font.ink(size, "30")? {
-            Some(ink) => ink.bottom.saturating_sub(ink.top),
-            None => i32::MAX,
-        };
+        let ink = cx.font.ink(size, "30")?.map(|ink| (ink.top, ink.bottom));
+        let tall = number_tall(ink, || Ok(geometry::line_metrics(&cx.font, size)?.0))?;
         Ok(cx.font.measure_text(size, "30")? <= width && tall <= height)
+    })
+}
+
+/// How high a number is drawn: its ink (`top`, `bottom`), or the line's ascent
+/// where the host cannot say (the X4 until `text.ink` is wired there, #250):
+/// "never fits" there left every day a dot.
+fn number_tall(
+    ink: Option<(i32, i32)>,
+    ascent: impl FnOnce() -> Result<f32, Error>,
+) -> Result<i32, Error> {
+    Ok(match ink {
+        Some((top, bottom)) => bottom.saturating_sub(top),
+        None => ascent()? as i32,
     })
 }
 
@@ -765,6 +776,16 @@ mod tests {
         // With a goal of an hour, ten minutes are a sixth of it.
         let (shades, _) = levels(&days, (10, 12), Some(3600)).unwrap();
         assert_eq!(shades, [1, 0, 4]);
+    }
+
+    #[test]
+    fn a_number_without_known_ink_is_as_high_as_the_ascent_not_never_fitting() {
+        // With ink: as drawn, and the ascent is not asked.
+        let unasked = || Err(Error::Invalid);
+        assert_eq!(number_tall(Some((-12, 1)), unasked), Ok(13));
+        // The X4's host has no `text.ink` (`Font::ink` is `None` there).
+        assert_eq!(number_tall(None, || Ok(14.6)), Ok(14));
+        assert_eq!(number_tall(None, unasked), Err(Error::Invalid));
     }
 
     #[test]

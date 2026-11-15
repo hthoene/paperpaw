@@ -26,15 +26,18 @@ rustflags = [
 # toolchain, `cargo +esp x4pro`, against the core libraries of the PaperPaw
 # release (tools/xtensa-std), as tools/plugin-files does for interface 6. The
 # linker script is the same: the Xtensa-specific parts of it (`.literal`)
-# are already in it. Packing for target 9 waits for the profile of
-# `abi/ppn5.md` (Kernel, decision 142): until then this is built and checked,
-# not packed.
+# are already in it. The files are packed for target 9 (`abi/ppn5.md`, decision
+# 142) by `build.sh`, against each plugin's `metadata.s3.bin`.
 [target.xtensa-esp32s3-none-elf]
 rustflags = [
     "-C", "link-arg=-nostartfiles",
     "-C", "link-arg=-nostdlib",
     "-C", "link-arg=-Wl,-Tpaperpaw-plugin7.x",
     "-C", "link-arg=-Wl,--emit-relocs",
+    # No jump tables in the plugin's own code, as on the X4: the table lies in
+    # `.text` with no symbol of its own, which the packer refuses ("code that no
+    # sized function symbol covers", vocabulary).
+    "-C", "jump-tables=no",
     # The heap word (`native_plugin!`) is `global_asm!`, which rustc gates on
     # Xtensa; espup's compiler is a nightly, so the feature is opened for the
     # build here, not in every plugin crate.

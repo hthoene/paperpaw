@@ -9,9 +9,11 @@
 //! The early cycles grow lasting state once: the storage recall cache
 //! (`recall::Recall`, at most 64 paths) learns each path the first time it
 //! is read, the catalog check after the first standby and, with books, the
-//! cover and page caches made later in the quiet time; the same with every
-//! plugin awake (#248). That growth from cycle 2 to [`SETTLED`] must
-//! stay under [`ONCE_MAX`]; from [`SETTLED`] on the heap must not change.
+//! cover and page caches made later in the quiet time (each cycle has a quiet
+//! moment at home before its standby, so every opened book has its cover
+//! long before [`SETTLED`]); the same with every plugin awake (#248). That
+//! growth from cycle 2 to [`SETTLED`] must stay under [`ONCE_MAX`]; from
+//! [`SETTLED`] on the heap must not change.
 //! Each frame is drawn as a shell draws it: the recall cache keeps what a
 //! call read only until its frame is drawn (todo 576).
 //! The card's files are the test's storage, not the heap: what the card
@@ -220,6 +222,15 @@ impl Run {
         self.run(&actions::BACK);
     }
 
+    /// A quiet moment at home: nothing pressed for longer than the library
+    /// waits before it makes a book's cover.
+    fn quiet(&mut self) {
+        self.now += 1500;
+        native_activation::set_clock(self.now);
+        let effects = self.kernel.tick(Instant(self.now));
+        self.settle(effects);
+    }
+
     fn standby(&mut self) {
         self.now += 100;
         native_activation::set_clock(self.now);
@@ -383,6 +394,11 @@ fn main() {
             );
         }
         run.run(&actions::HOME);
+        // The library makes the cover of a book opened before only in a
+        // quiet moment at home, and keeps its picture's id. Without this one
+        // the cycles leave it such a moment only now and then, and the last
+        // cover came after [`SETTLED`] (#258: in cycle 33, 96 B).
+        run.quiet();
         run.standby();
         for (plugin, _) in &ways {
             assert_eq!(

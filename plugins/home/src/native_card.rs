@@ -309,10 +309,26 @@ fn empty(
         y = y.saturating_add(icon_h).saturating_add(gap);
     }
     let row = |y: u16, height: u16| Rect::new(area.x, y, area.width, height);
+    let first_text = out.len();
     words.draw(out, &cx.font, row(y, title_h), Align::Center, look.ink)?;
     y = y.saturating_add(title_h).saturating_add(gap);
     if text_h > 0 {
         text.draw(out, &cx.font, row(y, text_h), Align::Center, look.faint)?;
+    }
+    // Wrapped text can exceed its minimum height on a short landscape card.
+    // Keep its ink inside the cell, as host-composed widgets are clipped.
+    for op in &mut out[first_text..] {
+        if let Paint::Text {
+            clip: Some(clip), ..
+        } = op
+        {
+            let bottom = clip
+                .y
+                .saturating_add(clip.height)
+                .min(area.y.saturating_add(area.height));
+            clip.y = clip.y.max(area.y);
+            clip.height = bottom.saturating_sub(clip.y);
+        }
     }
     Ok(())
 }

@@ -225,6 +225,7 @@ fn with_new<T>(
             conversion: book.conversion,
             now: wall_seconds(host),
             text: &text,
+            drawn: book.highlights,
         },
     )
 }
