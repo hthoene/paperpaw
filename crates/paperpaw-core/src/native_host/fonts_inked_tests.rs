@@ -21,7 +21,7 @@ fn bytes(text: &[u8]) -> PpBytes {
 /// A kernel with the default fonts, started.
 fn kernel() -> crate::Kernel {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+        .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
         .build()
         .unwrap();
     kernel.start(Instant(0));

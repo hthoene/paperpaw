@@ -158,7 +158,7 @@ fn world_on(device: paperpaw_platform::DeviceInfo) -> World {
     let running = Rc::new(RefCell::new(Vec::new()));
     let made = Rc::new(RefCell::new(Vec::new()));
     let kernel = crate::Kernel::builder(device)
-        .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+        .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
         .build()
         .unwrap();
     let lease = NativeLease::try_new(Child {

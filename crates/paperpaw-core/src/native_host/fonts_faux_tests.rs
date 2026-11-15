@@ -20,9 +20,9 @@ const TEXT: &[u8] = b"Bold milk";
 fn kernel(lean: bool) -> crate::Kernel {
     let builder = crate::Kernel::builder(crate::tests::DEVICE);
     let builder = if lean {
-        builder.plugin(paperpaw_plugin_fonts_default::LeanFontPacks)
+        builder.built_in_fonts(&paperpaw_plugin_fonts_default::LEAN_FONT_PACKS)
     } else {
-        builder.plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+        builder.built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
     };
     let mut kernel = builder.build().unwrap();
     kernel.start(Instant(0));
