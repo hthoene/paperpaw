@@ -110,6 +110,11 @@ struct Laid {
     /// How far the focus ring reaches outside a target: what a focus step
     /// draws again around it, kept here so that a step reads no style.
     ring_room: i32,
+    /// The look read when the page was laid out: a draw (one per band of the
+    /// frame, and again at every return) reads no setting for it. It lasts as
+    /// long as the page, which is laid out again where a setting, the display
+    /// or the registry changed (`Kept`).
+    style: Style,
 }
 
 /// Which of the footer's buttons are there.
@@ -298,7 +303,8 @@ impl Dashboard {
             wide,
             ..
         } = Shown::read(host, display, font)?;
-        let ring_room = ring_room(&Style::read(host, display, font)?);
+        let style = Style::read(host, display, font)?;
+        let ring_room = ring_room(&style);
         let nav = self.nav.get_or_insert(Nav::new(pages.len()));
         nav.resize(pages.len());
         let (page, count) = (nav.page, nav.pages);
@@ -389,6 +395,7 @@ impl Dashboard {
             handle: (metrics.row / 2).max(16),
             status,
             ring_room,
+            style,
         })
     }
 
@@ -690,9 +697,8 @@ impl Dashboard {
         let Some(laid) = self.laid.as_ref() else {
             return Ok(());
         };
-        let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let drawn = self.paint(host, ui, frame, &display, &font, laid);
+        let drawn = self.paint(host, ui, frame, &font, laid);
         let released = font.release();
         drawn?;
         released
@@ -800,11 +806,10 @@ impl Dashboard {
         host: &Host<'_>,
         ui: &Ui,
         frame: &mut DrawFrame<'_>,
-        display: &Snapshot,
         font: &Font<'_>,
         laid: &Laid,
     ) -> Result<(), Error> {
-        let style = Style::read(host, display, font)?;
+        let style = &laid.style;
         let mut below = Vec::new();
         let mut above = Vec::new();
         self.describe_targets(&mut below, paint::asking(frame), laid)?;
