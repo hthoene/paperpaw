@@ -1,5 +1,5 @@
 //! The grips of rows that can be moved, and the frame and bar drawn while one is.
-use super::{RowItem, draw_row};
+use super::{RowItem, row::draw_row_as};
 use crate::{
     Paint, Style,
     list::{backdrop, ink},
@@ -19,14 +19,14 @@ pub(super) fn draw_row_with_grip(
     style: &Style,
     rect: Rect,
     row: &RowItem,
-    focused: bool,
+    (focused, cards): (bool, Option<bool>),
     grip: Option<(&mut Vec<(Rect, usize)>, usize)>,
 ) -> Result<Option<(Rect, Rect)>, Error> {
     let content = match grip {
-        Some((grips, index)) => grip_row(paint, style, rect, focused, grips, index)?,
+        Some((grips, index)) => grip_row(paint, style, rect, focused, grips, index, cards)?,
         None => rect,
     };
-    draw_row(paint, font, style, content, row, focused)
+    draw_row_as(paint, font, style, content, row, focused, cards)
 }
 
 /// The grip of a row in `rect`: as wide as the row is high, at its end (the left
@@ -53,10 +53,15 @@ fn grip_row(
     focused: bool,
     grips: &mut Vec<(Rect, usize)>,
     index: usize,
+    cards: Option<bool>,
 ) -> Result<Rect, Error> {
     let strip = grip_strip(style, rect);
     // The focus fills the whole row, under its content.
-    backdrop(paint, style, rect, focused)?;
+    if let Some(more) = cards {
+        crate::cards::backdrop(paint, style, rect, focused, more)?;
+    } else {
+        backdrop(paint, style, rect, focused)?;
+    }
     let bar = style.line.max(2);
     let pitch = bar.saturating_mul(3);
     let width = (strip.width / 2).max(bar);
