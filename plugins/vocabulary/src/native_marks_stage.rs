@@ -39,12 +39,12 @@ pub(crate) fn decorate(
     match records.next() {
         Some(Ok(Record::DecoratePage(page))) => {
             if !flag(host, MARK)? {
-                return Ok(());
+                return nothing(reply);
             }
             let storage = DataStorage::new(host);
             let entries = Entries::read(&DataFolder(&storage), primary(page.language))?;
             if entries.is_empty() {
-                return Ok(());
+                return nothing(reply);
             }
             let mut ranges = Vec::new();
             for (number, record) in records.enumerate() {
@@ -57,7 +57,7 @@ pub(crate) fn decorate(
                 }
             }
             if ranges.is_empty() {
-                return Ok(());
+                return nothing(reply);
             }
             let look = look(host)?;
             answer(reply, &look, &ranges)
@@ -65,6 +65,13 @@ pub(crate) fn decorate(
         Some(Ok(Record::DecorateTapped(tapped))) => taken(host, ui, &tapped, reply),
         _ => Err(Error::Invalid),
     }
+}
+
+/// The reply of a call with nothing to add: a batch of no records. Bytes of
+/// none are no batch, and the host refuses them (`ERR_INVALID`, logged for
+/// the plugin on every page).
+fn nothing(reply: &mut Reply<'_>) -> Result<(), Error> {
+    reply.write_with(|out| reply_encode(&[], out).map_err(|_| Error::NoSpace))
 }
 
 /// The reply: the look, then the marks that use it.
@@ -95,7 +102,7 @@ fn taken(
 ) -> Result<(), Error> {
     let word = native_marks::tapped_word(tapped.text);
     if tapped.role != ROLE || word.is_empty() {
-        return Ok(());
+        return nothing(reply);
     }
     let storage = DataStorage::new(host);
     let language = native_marks::language_of(&DataFolder(&storage), word)?;
