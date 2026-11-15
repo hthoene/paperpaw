@@ -26,12 +26,10 @@ use paperpaw_emulator::headless::run_script;
 use paperpaw_emulator::http::{Route, set_route};
 use paperpaw_emulator::profiles;
 
-/// The library's recorded answers by address without its query; what was asked
-/// is kept in order.
+/// The library's recorded answers by address without its query.
 #[derive(Clone, Default)]
 struct Library {
     answers: Rc<RefCell<HashMap<String, Vec<u8>>>>,
-    asked: Rc<RefCell<Vec<String>>>,
 }
 
 impl Library {
@@ -40,18 +38,12 @@ impl Library {
             .borrow_mut()
             .insert(url.to_string(), body.into());
     }
-
-    /// The addresses asked for so far, in order, with their queries.
-    fn asked(&self) -> Vec<String> {
-        self.asked.borrow().clone()
-    }
 }
 
 struct Recorded(Library);
 
 impl Route for Recorded {
     fn start(&mut self, call: HttpCall) -> Option<HttpResponse> {
-        self.0.asked.borrow_mut().push(call.url.clone());
         let path = call.url.split('?').next().unwrap_or("");
         let found = self.0.answers.borrow().get(path).cloned();
         Some(HttpResponse {
@@ -91,26 +83,6 @@ impl Offered {
             summary: "A pack.",
             kind: "data",
         }
-    }
-
-    /// The same plugin with another summary in the library.
-    fn summarised(mut self, summary: &'static str) -> Self {
-        self.summary = summary;
-        self
-    }
-
-    /// A data plugin that requires `requires` (plugin ids apart by commas).
-    fn requiring(
-        id: &'static str,
-        name: &'static str,
-        version: &'static str,
-        requires: &str,
-    ) -> Self {
-        let mut plugin = Self::data(id, name, version);
-        plugin
-            .manifest
-            .push_str(&format!("requires = {requires}\n"));
-        plugin
     }
 
     fn entry(&self) -> String {
@@ -166,8 +138,6 @@ fn serve(library: &Library, plugins: &[Offered]) {
 /// The emulated X4 with the linked store, its card and its library.
 struct Shop {
     device: Device,
-    card: Rc<MemoryStorage>,
-    library: Library,
 }
 
 impl Shop {
@@ -187,11 +157,7 @@ impl Shop {
         let profile = profiles::find("xteink-x4").expect("the X4 profile");
         let mut device = Device::in_memory(profile, None, card.clone(), true, None).unwrap();
         device.start();
-        let mut shop = Self {
-            device,
-            card,
-            library,
-        };
+        let mut shop = Self { device };
         shop.settle(3000);
         shop
     }

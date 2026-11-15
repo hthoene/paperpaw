@@ -277,7 +277,7 @@ pub const LINKED_STORE_PLUGINS: &[&str] = &[
     "weather",
 ];
 
-/// Whether `id` is one of [`LINKED_STORE_PLUGINS`] (never, without the feature).
+/// Whether `id` is one of the `LINKED_STORE_PLUGINS` (never, without the feature).
 #[must_use]
 pub fn is_linked_store_plugin(id: &str) -> bool {
     #[cfg(feature = "native-linked-store")]
