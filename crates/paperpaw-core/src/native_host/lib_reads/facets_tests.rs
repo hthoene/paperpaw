@@ -713,3 +713,66 @@ fn a_book_being_deleted_uses_no_place_and_keeps_none() {
     let (rows, end, scans) = counted_page(on, &third, &hide);
     assert_eq!(((rows, end), scans), (anew(&third), 6));
 }
+
+/// The 700 authors read `room` rows a call in the direction of `flags`, each
+/// call going on where the one before ended: every page after the first is
+/// what a call that starts anew answers, read in two scans. The names in the
+/// order they came.
+fn walked(flags: u32, room: usize) -> Vec<String> {
+    let (reads, storage, env, size) = counted_shelf();
+    let take = |reads: &CatalogReads, q: &wire::ServiceLibQuery<'_>| {
+        storage.read.set(0);
+        let mut rows = Vec::new();
+        let end = reads
+            .facets_hiding(q, "", &|_| false, &mut |record| {
+                if rows.len() == room {
+                    return ControlFlow::Break(());
+                }
+                let Record::ServiceLibFacet(row) = record else {
+                    panic!("a facet row")
+                };
+                rows.push((row.text.to_string(), row.count, row.first));
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        (rows, (end.total, end.next), storage.read.get() / size)
+    };
+    let mut q = wire::ServiceLibQuery { flags, ..ask(0) };
+    let mut names = Vec::new();
+    loop {
+        let anew = CatalogReads::new(storage.clone(), env.clone());
+        let expected = take(&anew, &q);
+        let (rows, end, scans) = take(&reads, &q);
+        assert_eq!((&rows, end), (&expected.0, expected.1), "from {}", q.cursor);
+        if rows.is_empty() {
+            return names;
+        }
+        if q.cursor != 0 {
+            assert_eq!(scans, 2, "from {}", q.cursor);
+        }
+        names.extend(rows.into_iter().map(|row| row.0));
+        q.cursor = end.1;
+    }
+}
+
+/// A caller that takes fewer rows than the page has (20 of 32) goes on
+/// after the last row it took, not after the last one the page had.
+#[test]
+fn a_page_the_caller_cut_short_goes_on_after_its_last_row() {
+    let names = walked(0, 20);
+    let mut sorted = names.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!((names.len(), &names), (700, &sorted));
+}
+
+/// A descending list goes on from a place as an ascending one does: whole
+/// pages and cut ones are the ascending names the other way round.
+#[test]
+fn a_descending_page_goes_on_where_the_one_before_ended() {
+    let mut up = walked(0, 32);
+    assert_eq!(up.len(), 700);
+    up.reverse();
+    assert_eq!(walked(1, 32), up);
+    assert_eq!(walked(1, 20), up);
+}

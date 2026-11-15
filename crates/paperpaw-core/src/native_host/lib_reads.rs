@@ -143,6 +143,20 @@ impl CatalogReads {
         facets::facets(self, query, archive, hide, visit)
     }
 
+    /// The place the last page of names ended at is dropped.
+    pub(crate) fn names_ended(&self) {
+        self.names.set(None);
+    }
+
+    /// Whether a place is kept.
+    #[cfg(test)]
+    pub(crate) fn names_kept(&self) -> bool {
+        let kept = self.names.take();
+        let is = kept.is_some();
+        self.names.set(kept);
+        is
+    }
+
     /// The library folder setting ([`CatalogEnv::library_folder`]).
     pub(crate) fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
         self.env.library_folder(visit);
