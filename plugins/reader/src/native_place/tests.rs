@@ -179,9 +179,16 @@ fn a_place_of_another_conversion_stays_where_its_progress_is_the_stored_one() {
     let ppm = book.ppm(1, 500);
     assert_eq!(ppm, 500_000);
     assert_eq!(relocate((1, 500), ppm, Some(&book)), Some((1, 500)));
-    // Up to two tenths of a percent off: the same text before it.
-    assert_eq!(relocate((1, 500), ppm - 2_000, Some(&book)), Some((1, 500)));
-    assert_eq!(relocate((1, 500), ppm + 2_000, Some(&book)), Some((1, 500)));
+    // A little off: the same text before it, counted a bit differently.
+    let within = tolerance(ppm);
+    assert_eq!(
+        relocate((1, 500), ppm - within, Some(&book)),
+        Some((1, 500))
+    );
+    assert_eq!(
+        relocate((1, 500), ppm + within, Some(&book)),
+        Some((1, 500))
+    );
 }
 
 #[test]
@@ -190,9 +197,10 @@ fn a_place_that_is_not_where_its_progress_says_is_found_by_the_progress() {
     // Stored 80 %, but the section and offset here are 50 %: the progress wins.
     assert_eq!(relocate((1, 500), 800_000, Some(&book)), Some((2, 400)));
     // One part over the limit.
+    let over = 500_000 + tolerance(500_000) + 1;
     assert_eq!(
-        relocate((1, 500), 500_000 + RELOCATE_WITHIN + 1, Some(&book)),
-        Some(book.place_at(500_000 + RELOCATE_WITHIN + 1))
+        relocate((1, 500), over, Some(&book)),
+        Some(book.place_at(over))
     );
     // A section the book does not have: the progress as well.
     assert_eq!(relocate((9, 0), 250_000, Some(&book)), Some((0, 750)));
@@ -218,4 +226,12 @@ fn the_end_of_a_section_is_a_place_the_book_has() {
     assert!(book.holds(0, 10));
     assert!(!book.holds(0, 11));
     assert!(!book.holds(2, 0));
+}
+
+#[test]
+fn the_allowed_difference_grows_with_the_progress() {
+    // What two Beta 3 books measured: 0.2 % at 2 %, 1.6 % at 27 %.
+    assert!(tolerance(23_000) >= 2_000);
+    assert!(tolerance(271_000) >= 16_000);
+    assert!(tolerance(0) == RELOCATE_WITHIN);
 }

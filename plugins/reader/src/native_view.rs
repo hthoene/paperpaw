@@ -54,6 +54,10 @@ pub const MAX_PATH: usize = 512;
 /// Most pages laid out to find the page before one.
 pub const BACK_LIMIT: usize = 4096;
 
+/// The progress of a book, where it opens and the progress stored with that
+/// place.
+type Beginning = (Option<Progress>, (u32, u32), u32);
+
 /// What the screen shows.
 #[derive(Debug)]
 #[allow(
@@ -433,7 +437,7 @@ impl View {
         (docs, library): (&Documents, Option<&Library>),
         (found, id, (sections, conversion)): (&Handover, DocId, (u32, u64)),
         (input, out): (&mut [u8], &mut [u8]),
-    ) -> Result<(Option<Progress>, (u32, u32), u32), Error> {
+    ) -> Result<Beginning, Error> {
         let progress = Progress::read(host, docs, id, sections, (input, out))?;
         let (at, stored) = Self::starting_place(
             host,
