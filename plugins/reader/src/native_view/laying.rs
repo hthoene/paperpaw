@@ -66,13 +66,18 @@ impl Open {
             Breaks::default()
         };
         let hyphenate = |word: &str, out: &mut dyn FnMut(usize)| {
-            breaks.places(
-                host,
-                &self.language,
-                (u32::from(left), u32::from(right)),
-                word,
-                out,
-            );
+            let (left, right) = (u32::from(left), u32::from(right));
+            let ask = |word: &str, places: &mut [u8]| {
+                paperpaw_sdk::native::text::hyphenate(
+                    host,
+                    &self.language,
+                    word,
+                    left,
+                    right,
+                    places,
+                )
+            };
+            breaks.places(&ask, &self.language, (left, right), word, out);
         };
         let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces)
             .hyphenate(on.then_some(&hyphenate as Hyphenate<'_>));
