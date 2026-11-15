@@ -1,6 +1,6 @@
 //! The store plugins the emulator links (#277, option A): `stats` and the others
 //! of `paperpaw_app::LINKED_STORE_PLUGINS` are built into the emulator, shipped off,
-//! and "install" is *Switch on* in the store, "remove" is switching off. The emulator
+//! and "install" is *Switch on* in the store, "remove" is switching off in the plugin manager. The emulator
 //! cannot load a plugin file the X4 family installs (it runs ELF libraries, and the
 //! install check of the core takes only `code.ppn`), so the store plugins ride along
 //! as linked ones, as aids and widgets do. Driven through the buttons as
@@ -54,7 +54,6 @@ impl Route for Recorded {
         self.0.asked.borrow_mut().push(call.url.clone());
         let path = call.url.split('?').next().unwrap_or("");
         let found = self.0.answers.borrow().get(path).cloned();
-        eprintln!("DBG ROUTE {} id {} found {}", call.url, call.id, found.is_some());
         Some(HttpResponse {
             id: call.id,
             status: if found.is_some() { 200 } else { 404 },
@@ -319,41 +318,14 @@ fn a_linked_store_plugin_is_switched_on_used_kept_over_a_restart_and_switched_of
     shop.device.restart();
     shop.settle(3000);
     assert!(shop.has_action("stats.open"), "off again after a restart");
-    // Switched off from the store's page: gone again, and again after a restart.
-    shop.run("store.open");
+    // On, the library no longer offers it (the store lists a built-in plugin
+    // while it is off): it is switched off where it is listed, the plugin
+    // manager, and again after a restart it is gone.
+    shop.keys("open:plugin-manager.list");
     shop.settle(2000);
-    eprintln!("DBG LIST: {}\nDBG ASKED: {:?}", shop.shown(), shop.library.asked());
-    shop.keys("open:store.plugin:id=stats");
-    shop.settle(3000);
-    eprintln!("DBG PAGE: {}\nDBG ASKED: {:?}", shop.shown(), shop.library.asked());
-    shop.choose("Switch off");
-    shop.settle(3000);
+    shop.choose("Reading statistics");
+    shop.settle(2000);
     shop.device.restart();
     shop.settle(3000);
     assert!(!shop.has_action("stats.open"), "on again after a restart");
-}
-
-#[test]
-fn dbg_page_after_restart_without_switching() {
-    let mut shop = Shop::new(&[offered_stats()]);
-    shop.device.restart();
-    shop.settle(3000);
-    shop.run("store.open");
-    shop.settle(2000);
-    shop.keys("open:store.plugin:id=stats");
-    shop.settle(3000);
-    eprintln!("DBG A: {}", shop.shown());
-    assert!(shop.shown().contains("Switch on"), "A");
-}
-
-#[test]
-fn dbg_page_with_stats_on_from_the_start() {
-    let card = MemoryStorage::new().with("paperpaw.ini", "[help]\nshow = false\n[plugins]\nstats = on\n");
-    let mut shop = Shop::on(card, &[offered_stats()]);
-    shop.run("store.open");
-    shop.settle(2000);
-    shop.keys("open:store.plugin:id=stats");
-    shop.settle(3000);
-    eprintln!("DBG B: {}", shop.shown());
-    assert!(!shop.shown().contains("no longer"), "B");
 }

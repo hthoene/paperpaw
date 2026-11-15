@@ -1,0 +1,3 @@
+### Fixed
+
+- **The desktop emulator offers the store's plugins again** (#277). The store listed none of the Beta 3 plugins that PaperPaw now offers as files (Statistics, Battery, Keys, Reading goal, All notes, Weather, KOReader, Reading profiles, Customise menus, Rules, Wireless library, End of book, Device check, Translate) and said "Plugin not found" on their pages, because the emulator told the store nothing of the plugins it can load. It does now, and the fourteen are built into the emulator, shipped off: *Switch on* in the store (it applies after a restart) is the install, switching off in the plugin manager the removal. The X4 family is not affected: it installs the files.
