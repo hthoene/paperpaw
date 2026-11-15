@@ -7620,8 +7620,8 @@ pub fn paperpaw_sdk::native::Linked::fmt(&self, &mut core::fmt::Formatter<'_>) -
 #[non_exhaustive] pub struct paperpaw_sdk::native::Native
 pub paperpaw_sdk::native::Native::api_size: u32
 pub paperpaw_sdk::native::Native::compiler: u32
-pub paperpaw_sdk::native::Native::family_min: paperpaw_table::Revisions
-pub paperpaw_sdk::native::Native::family_revs: paperpaw_table::Revisions
+pub paperpaw_sdk::native::Native::family_min: [u16; 8]
+pub paperpaw_sdk::native::Native::family_revs: [u16; 8]
 pub paperpaw_sdk::native::Native::file: alloc::borrow::Cow<'static, str>
 pub paperpaw_sdk::native::Native::fingerprint: paperpaw_sdk::native::Fingerprint
 pub paperpaw_sdk::native::Native::minor: u16
