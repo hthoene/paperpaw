@@ -914,13 +914,12 @@ fn a_staged_secret_question_is_secret_and_a_second_one_is_refused() {
     assert_eq!(w.store.request_count(), 1);
 }
 
-/// A question Back cancelled reaches its asker before anything else of the
+/// A question cancelled after a pass reaches its asker before anything else of the
 /// next pass (here the change of the stack the close made): what is served
 /// after it (a computer's next request on the cable) never finds the
 /// question still open.
 #[test]
 fn a_cancelled_question_is_told_before_the_next_passes_events() {
-    use paperpaw_sdk::builtin::actions;
     let mut w = world(Ok(OK));
     let heard = Rc::new(RefCell::new(Vec::new()));
     let owner = w
@@ -953,8 +952,11 @@ fn a_cancelled_question_is_told_before_the_next_passes_events() {
         .ask(who, None, &question, false, None, false)
         .unwrap();
     let _ = w.kernel.tick(Instant(5));
-    // Back: the pass of this call ran before the dialog closed.
-    act(&mut w, 10, actions::BACK);
+    // The close is queued (as one a plugin stages from an event of the
+    // pass): the pass of this call runs before the dialog closes.
+    w.kernel.output.commands.push(paperpaw_sdk::Command::Back);
+    let _ = w.kernel.tick(Instant(10));
+    assert!(w.kernel.native_dialog_answers_waiting());
     heard.borrow_mut().clear();
     let _ = w.kernel.tick(Instant(20));
     assert_eq!(
