@@ -14,6 +14,8 @@ include = ["src", "how", "i18n", "build.rs", "declarations.rs", "native"]
 [features]
 linked = []
 native-entry = []
+# The kernel with the X4's nested-call gate closed (the X3 builds so): the page still shows (CI).
+x4-gate-closed = ["paperpaw-core/x4-gate-closed"]
 
 [dependencies]
 paperpaw-sdk.workspace = true

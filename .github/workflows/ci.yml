@@ -162,6 +162,9 @@ jobs:
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands
       # The Settings and the menu its tests open are native: the app's own plugins, as the lean
       # firmware has them (#244).
+      # The nested-call gate closed (the X3): the host that refuses the Preview widget (#250).
+      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading,native-linked-store,x4-gate-closed --test home_native preview
+      - run: cargo test --no-fail-fast -p paperpaw-plugin-picture-home --features linked,x4-gate-closed --test hosted_page
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test sets --test standard
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test readers
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test partial_redraw -- --exact table_of_contents
