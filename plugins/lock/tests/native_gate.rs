@@ -351,3 +351,21 @@ fn wrong_tries_the_card_refuses_are_said_and_the_try_is_not_refused() {
     assert!(!gate::keep_tries(&device, 0));
     assert_eq!(device.notices.borrow().len(), 1);
 }
+
+#[test]
+fn tries_the_card_cannot_tell_are_taken_as_used_at_the_start() {
+    let mut device = Fake::with_code("pin");
+    device.tries = Err(Error::Io);
+    let (mut lock, mut door) = fresh();
+    // The lock comes first (the screen is staged, so the callback is `Ok`)...
+    assert_eq!(start(&device, &mut lock, &mut door, 1_000), Ok(()));
+    assert!(lock.locked);
+    // ...and the next try waits, as after five wrong ones.
+    assert!(lock.attempts.waiting(1_000));
+    assert!(!lock.attempts.waiting(1_000 + model::WAIT_MS));
+    // A card that tells none (no file) starts with none.
+    let device = Fake::with_code("pin");
+    let (mut lock, mut door) = fresh();
+    start(&device, &mut lock, &mut door, 1_000).unwrap();
+    assert!(!lock.attempts.waiting(1_000));
+}

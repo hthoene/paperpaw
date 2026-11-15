@@ -154,9 +154,12 @@ pub fn started(
     let stored = device.stored();
     let (asked, locked) = locked(device, lock, door, &stored, true);
     let repaired = repair(device, &stored);
-    let tries = device
-        .tries()
-        .map(|tries| lock.attempts.restore(tries, now_ms));
+    // Tries the card cannot tell are taken as all used: a read that fails is
+    // no way to a count of none (the wait ends by itself, after half a minute).
+    let tries = device.tries();
+    lock.attempts
+        .restore(tries.as_ref().map_or(model::TRIES, |t| *t), now_ms);
+    let tries = tries.map(drop);
     settle(asked, locked.and(repaired).and(tries))
 }
 
