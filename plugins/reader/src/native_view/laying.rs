@@ -57,7 +57,25 @@ impl Open {
                 &self.language,
                 setup.reading.scripts,
             ));
-        let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces);
+        // Words broken at the end of a line where the setting is on: the places
+        // are the host's table for the book's language, kept for the words met.
+        let (on, left, right) = setup.reading.hyphens;
+        let breaks = if on {
+            self.settings.breaks()
+        } else {
+            Breaks::default()
+        };
+        let hyphenate = |word: &str, out: &mut dyn FnMut(usize)| {
+            breaks.places(
+                host,
+                &self.language,
+                (u32::from(left), u32::from(right)),
+                word,
+                out,
+            );
+        };
+        let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces)
+            .hyphenate(on.then_some(&hyphenate as Hyphenate<'_>));
         layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
             match document_error_kind(&error) {
                 Some(kind) => kind,

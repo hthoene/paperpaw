@@ -1,6 +1,7 @@
 //! The reading settings and display a page is laid out with (`Setup`), and
 //! the key that says when a laid-out page is stale (`LayoutKey`).
 use crate::{
+    native_breaks::Breaks,
     native_look::Look,
     native_pages::Reading,
     native_status,
@@ -57,6 +58,8 @@ struct State {
     status: Option<Rc<native_status::Shown>>,
     /// The widths of letters and the kerning of pairs met so far (`Tables`).
     tables: Option<Tables>,
+    /// Where the words met may be broken (`Breaks`).
+    breaks: Option<Breaks>,
 }
 
 impl Kept {
@@ -141,6 +144,21 @@ impl Kept {
             self.0.borrow_mut().tables = Some(tables.clone());
         }
         carry_on(made)
+    }
+
+    /// Where the words of this book may be broken, made at the first page that
+    /// is laid with hyphenation and kept like the tables (and as they are
+    /// carried on without where there is no room: every word asked of the host).
+    pub(super) fn breaks(&self) -> Breaks {
+        let kept = self.0.borrow().breaks.clone();
+        if let Some(kept) = kept {
+            return kept;
+        }
+        let made = Breaks::new();
+        if let Ok(breaks) = &made {
+            self.0.borrow_mut().breaks = Some(breaks.clone());
+        }
+        made.unwrap_or_default()
     }
 
     /// A setting changed: the next read asks the host.
@@ -279,6 +297,13 @@ impl Setup {
                     flag(host, "core.kerning")?,
                     flag(host, "core.ligatures")?,
                 ))
+                .with_hyphens(
+                    flag(host, "core.hyphenate")?,
+                    (
+                        integer(host, "core.hyphen-min-left")?,
+                        integer(host, "core.hyphen-min-right")?,
+                    ),
+                )
                 .with_lines(
                     (
                         integer(host, "core.widows")?,

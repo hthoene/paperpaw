@@ -7,6 +7,7 @@
 //! links, annotations) is in `PORTING-7.md`.
 use crate::{
     native_actions,
+    native_breaks::Breaks,
     native_chapter::{self, Chapter},
     native_document::HostDocument,
     native_draw::{HostInk, draw_page},
@@ -29,7 +30,7 @@ use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
     document::Locator,
-    layout::{LayoutContext, Page, layout_page},
+    layout::{Hyphenate, LayoutContext, Page, layout_page},
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input},
