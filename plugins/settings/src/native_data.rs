@@ -185,6 +185,7 @@ impl<'h, 'cb> Reader<'h, 'cb> {
                         page: copy(row.page())?,
                         order: row.order(),
                         title: copy(row.title())?,
+                        icon: copy(row.icon())?,
                     })?;
                     push(&mut parents, copy(row.id())?)?;
                 }
