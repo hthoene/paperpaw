@@ -1,6 +1,11 @@
 //! The reading settings and display a page is laid out with (`Setup`), and
 //! the key that says when a laid-out page is stale (`LayoutKey`).
-use crate::{native_look::Look, native_pages::Reading, native_status, native_typeset::Tables};
+use crate::{
+    native_look::Look,
+    native_pages::Reading,
+    native_status,
+    native_typeset::{Letters, Tables},
+};
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use paperpaw_sdk::{
@@ -50,7 +55,7 @@ struct State {
     look: Option<(Option<u16>, Look)>,
     /// What the status lines read.
     status: Option<Rc<native_status::Shown>>,
-    /// The widths of letters met so far (`Tables`).
+    /// The widths of letters and the kerning of pairs met so far (`Tables`).
     tables: Option<Tables>,
 }
 
@@ -120,17 +125,18 @@ impl Kept {
         Ok(shown)
     }
 
-    /// What the pages of this book remember of the host's fonts: made at the
-    /// first page and kept until a setting or the screen changes (or the book is
-    /// closed), so that only the first pages ask the host for widths. Where
-    /// there is no room for them the reader carries on without (every width is
-    /// asked of the host, as before) and tries again at the next page.
-    pub(super) fn tables(&self) -> Tables {
+    /// What the pages of this book remember of the host's fonts, made for
+    /// `letters` (a table of pairs only where kerning or ligatures are on) at
+    /// the first page and kept until a setting or the screen changes (or the
+    /// book is closed), so that only the first pages ask the host for widths
+    /// and pairs. Where there is no room for them the reader carries on without
+    /// (every ask goes to the host, as before) and tries again at the next page.
+    pub(super) fn tables(&self, letters: Letters) -> Tables {
         let kept = self.0.borrow().tables.clone();
         if let Some(kept) = kept {
             return kept;
         }
-        let made = Tables::new();
+        let made = Tables::new(letters);
         if let Ok(tables) = &made {
             self.0.borrow_mut().tables = Some(tables.clone());
         }
@@ -268,6 +274,11 @@ impl Setup {
                         integer(host, "core.paragraph-space")?,
                     ),
                 )
+                .with_letters(Letters::new(
+                    integer(host, "core.letter-spacing")?,
+                    flag(host, "core.kerning")?,
+                    flag(host, "core.ligatures")?,
+                ))
                 .with_lines(
                     (
                         integer(host, "core.widows")?,
@@ -346,7 +357,7 @@ mod tests {
     fn without_room_for_the_tables_the_reader_carries_on_without_them() {
         // No room: no tables, no error; they are asked for again at the next page.
         assert!(!carry_on(Err(Error::NoMemory)).has_room());
-        assert!(carry_on(Tables::new()).has_room());
+        assert!(carry_on(Tables::new(Letters::DEFAULT)).has_room());
     }
 
     #[test]

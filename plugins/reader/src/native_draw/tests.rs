@@ -1,5 +1,5 @@
 use super::*;
-use crate::native_typeset::Measure;
+use crate::native_typeset::{Letters, Measure};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::Cell;
@@ -24,6 +24,36 @@ impl Measure for Fixed {
     }
     fn metrics(&self, _: Role, size: f32) -> Result<(f32, f32), Error> {
         Ok((size * 0.8, size * 0.2))
+    }
+}
+
+/// Like `Fixed`, but `AV` and `VA` are a tenth of the size closer, and the
+/// letter `ﬁ` is 12 wide at size 20 (as the font has it).
+#[derive(Debug, Default)]
+struct Kerned;
+
+impl Measure for Kerned {
+    fn width(&self, _: Role, size: f32, text: &str) -> Result<f32, Error> {
+        let mut width = 0.0;
+        let mut before = None;
+        for c in text.chars() {
+            width += if c == '\u{fb01}' {
+                size * 0.6
+            } else {
+                size * 0.5
+            };
+            if matches!((before, c), (Some('A'), 'V') | (Some('V'), 'A')) {
+                width -= size * 0.1;
+            }
+            before = Some(c);
+        }
+        Ok(width)
+    }
+    fn metrics(&self, _: Role, size: f32) -> Result<(f32, f32), Error> {
+        Ok((size * 0.8, size * 0.2))
+    }
+    fn covers(&self, _: Role, c: char) -> bool {
+        c == '\u{fb01}'
     }
 }
 
@@ -54,6 +84,8 @@ struct Recorder {
     images: Vec<(u32, i32, i32, u32, u32)>,
     image_error: Option<Error>,
     fail_at: Cell<Option<usize>>,
+    /// Runs are as wide as `Kerned` sets them.
+    kerned: bool,
 }
 
 impl Ink for Recorder {
@@ -69,7 +101,10 @@ impl Ink for Recorder {
             return Err(Error::State);
         }
         self.calls.push((role, x as i32, baseline, text.into()));
-        Fixed.width(role, size, text)
+        match self.kerned {
+            true => Kerned.width(role, size, text),
+            false => Fixed.width(role, size, text),
+        }
     }
 
     fn fill(&mut self, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error> {
@@ -87,6 +122,10 @@ impl Ink for Recorder {
 }
 
 fn page(text: &str, style: TextStyle) -> (Page, Faces<Fixed>) {
+    page_in(text, style, Faces::new(Fixed, 20.0, 1.0).unwrap())
+}
+
+fn page_in<M: Measure>(text: &str, style: TextStyle, faces: Faces<M>) -> (Page, Faces<M>) {
     let mut block = Block::new(BlockKind::Paragraph, 0, text.len() as u32, text.into());
     block.runs = alloc::vec![paperpaw_sdk::document::Run::new(
         0,
@@ -97,7 +136,6 @@ fn page(text: &str, style: TextStyle) -> (Page, Faces<Fixed>) {
         blocks: alloc::vec![block],
         metadata: Metadata::default(),
     };
-    let faces = Faces::new(Fixed, 20.0, 1.0).unwrap();
     let style = Style::new(0.0, 0.0, 20.0, false);
     let cx = LayoutContext::new(&book, &NoStorage, 400.0, &style, &faces);
     (layout_page(&cx, Locator::START, 400.0).unwrap(), faces)
@@ -433,4 +471,110 @@ fn small_capitals_are_drawn_as_smaller_capitals() {
     // The capitals of lower-case letters are narrower than full ones, as the
     // layout measured them: "HE" starts where "T" ends, at 10.
     assert_eq!(ink.calls[1].1, 10);
+}
+
+/// The runs a text is drawn in, as (text, x), with `letters` set on `Kerned` fonts.
+fn runs_of(text: &str, letters: Letters) -> Vec<(String, i32)> {
+    let faces = Faces::new(Kerned, 20.0, 1.0).unwrap().with_letters(letters);
+    let (page, faces) = page_in(text, TextStyle::REGULAR, faces);
+    let mut ink = Recorder {
+        kerned: true,
+        ..Recorder::default()
+    };
+    draw_lines(&mut ink, &faces, &page, (30.0, 50.0)).unwrap();
+    ink.calls.into_iter().map(|c| (c.3, c.1)).collect()
+}
+
+#[test]
+fn spaced_letters_are_drawn_one_by_one_with_the_space_after_each() {
+    // 10 percent of 20 px: a letter is 10 px and 2 px of space.
+    let runs = runs_of("abc", Letters::new(10, true, true));
+    let expected: Vec<(String, i32)> = [("a", 30), ("b", 42), ("c", 54)]
+        .into_iter()
+        .map(|(t, x)| (t.into(), x))
+        .collect();
+    assert_eq!(runs, expected);
+    // None: the word is one run, as the host draws it.
+    assert_eq!(
+        runs_of("abc", Letters::new(0, true, true)),
+        [("abc".into(), 30)]
+    );
+}
+
+#[test]
+fn a_space_between_words_is_not_spaced() {
+    // "ab cd": "ab" 24 wide (two letters of 12), a space of 10, "cd" at 30 + 24 + 10.
+    let runs = runs_of("ab cd", Letters::new(10, true, true));
+    let xs: Vec<i32> = runs.iter().map(|r| r.1).collect();
+    assert_eq!(xs, [30, 42, 64, 76]);
+}
+
+#[test]
+fn kerning_off_draws_a_kerned_pair_as_two_runs_each_by_its_advance() {
+    // Kerned: the host draws the word at once and sets the pair closer.
+    assert_eq!(
+        runs_of("AVA", Letters::new(0, true, true)),
+        [("AVA".into(), 30)]
+    );
+    // Not kerned: the pairs are cut, the pen goes by the advance alone.
+    let expected: Vec<(String, i32)> = [("A", 30), ("V", 40), ("A", 50)]
+        .into_iter()
+        .map(|(t, x)| (t.into(), x))
+        .collect();
+    assert_eq!(runs_of("AVA", Letters::new(0, false, true)), expected);
+    // A word with no kerned pair stays one run.
+    assert_eq!(
+        runs_of("abc", Letters::new(0, false, true)),
+        [("abc".into(), 30)]
+    );
+}
+
+#[test]
+fn a_ligature_is_drawn_in_place_of_its_letters_where_the_font_has_it() {
+    // "ﬁ" is 12 wide: the rest of the word follows at 30 + 12.
+    let expected: Vec<(String, i32)> = [("\u{fb01}", 30), ("ne", 42)]
+        .into_iter()
+        .map(|(t, x)| (t.into(), x))
+        .collect();
+    assert_eq!(runs_of("fine", Letters::new(0, true, true)), expected);
+    // Off, spaced, or a letter the font lacks (`fl`): the letters as they are.
+    assert_eq!(
+        runs_of("fine", Letters::new(0, true, false)),
+        [("fine".into(), 30)]
+    );
+    assert_eq!(
+        runs_of("flat", Letters::new(0, true, true)),
+        [("flat".into(), 30)]
+    );
+    assert_eq!(runs_of("fi", Letters::new(5, true, true)).len(), 2);
+}
+
+#[test]
+fn a_word_is_as_wide_as_the_layout_measured_it_for_every_setting() {
+    for set in [
+        Letters::new(0, true, true),
+        Letters::new(0, false, true),
+        Letters::new(0, false, false),
+        Letters::new(10, true, true),
+        Letters::new(-5, false, true),
+    ] {
+        let faces = Faces::new(Kerned, 20.0, 1.0).unwrap().with_letters(set);
+        let face = paperpaw_sdk::layout::Face::new(TextStyle::REGULAR, 0, 0);
+        for word in ["AVA", "fine", "affix", "AVfi"] {
+            let mut ink = Recorder {
+                kerned: true,
+                ..Recorder::default()
+            };
+            let drawn = if faces.drawn_at_once(face, word) {
+                draw_word(&mut ink, (Role::Reading, 20.0), 0.0, 0, word).unwrap()
+            } else {
+                letters::draw_apart(&mut ink, &faces, face, (0.0, 0), word).unwrap()
+            };
+            let laid = faces.advance_text(face, word, &paperpaw_sdk::text::Around::NONE);
+            assert!(
+                (drawn - laid).abs() < 1e-3,
+                "{word} {set:?}: {drawn} {laid}"
+            );
+        }
+    }
 }

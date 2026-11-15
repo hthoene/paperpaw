@@ -86,10 +86,10 @@ pub fn layout_text(
     filtered: u64,
 ) -> Result<String, Error> {
     let mut text = String::new();
-    text.try_reserve(112).map_err(|_| Error::NoMemory)?;
+    text.try_reserve(128).map_err(|_| Error::NoMemory)?;
     write!(
         text,
-        "{}/{}/{}/{}/{}/{}/{}x{}x{}/{}/{}-{}/{}:{}/{}:{}/{}/{:x}/{:x}",
+        "{}/{}/{}/{}/{}/{}/{}x{}x{}/{}/{}-{}/{}:{}/{}:{}/{}/{:x}/{:x}/t{}:{}{}",
         (reading.size_pt * 10.0) as u32,
         reading.line_spacing,
         reading.word_spacing,
@@ -112,6 +112,10 @@ pub fn layout_text(
         reading.book,
         // The font and the hyphenation: other letters, other pages.
         reading.text,
+        // The letters: the space, kerning and ligatures set other widths.
+        reading.letters.spacing,
+        u8::from(reading.letters.kerning),
+        u8::from(reading.letters.ligatures),
     )
     .map_err(|_| Error::NoMemory)?;
     // The text filters' rules (none: the name stays as it was).

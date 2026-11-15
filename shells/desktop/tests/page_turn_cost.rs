@@ -50,8 +50,8 @@ const CEILINGS: &[(&str, u32, &str)] = &[
     ),
     (
         "text_measure",
-        50,
-        "layout of the next page, widths kept for the book (41; 224 before)",
+        220,
+        "layout of the next page, widths and pairs kept for the book (215)",
     ),
     (
         "storage_read_at",
@@ -61,8 +61,8 @@ const CEILINGS: &[(&str, u32, &str)] = &[
     ("service_call", 30, "document service and status line (17)"),
 ];
 
-/// All slots together, one turn (323 now).
-const TOTAL_CEILING: u32 = 340;
+/// All slots together, one turn (493 now).
+const TOTAL_CEILING: u32 = 510;
 
 /// Floors, so that a turn which does nothing cannot pass: every measured turn
 /// enters at least this many slots (the quietest, a page with one picture,
