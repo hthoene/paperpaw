@@ -189,10 +189,6 @@ pub(super) struct WriteJob {
     stage: Stage,
 }
 
-#[expect(
-    clippy::large_enum_variant,
-    reason = "one at a time, held in place so that nothing is allocated for it"
-)]
 enum Stage {
     /// The image's head not read yet (the first step does: the card is
     /// not asked in `begin_write`).
