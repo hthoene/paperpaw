@@ -127,11 +127,13 @@ fn name_key(out: &mut String, text: &str) -> Result<(), i32> {
 }
 
 /// A name that was found: where it goes (and, after the NUL, its text), how
-/// many books have it and the first of them in the list's order.
+/// many books have it, the first of them in the list's order and, once
+/// [`Lists::firsts`] counted it, its `first`.
 #[derive(Default)]
 struct Name {
     key: String,
     count: u32,
+    first: u32,
     first_book: Key,
     has_book: bool,
 }
@@ -200,7 +202,7 @@ impl Window {
             Name::default()
         };
         core::mem::swap(&mut name.key, scratch);
-        (name.count, name.has_book) = (1, false);
+        (name.count, name.first, name.has_book) = (1, 0, false);
         // The room is there: the window was reserved, and one name is out.
         self.names.insert(at, name);
         Some(at)
@@ -298,76 +300,74 @@ impl Lists<'_> {
         }
     }
 
-    /// One scan of the catalog: every name of every book found goes to `pass`.
-    fn pass(&self, pass: &mut Pass<'_>) -> Result<(), i32> {
-        let (mut name, mut words, mut book) = (String::new(), String::new(), Key::default());
-        let mut failure = None;
+    /// One scan of the catalog: every book found goes to `f`.
+    fn books(&self, f: &mut dyn FnMut(&catalog::Record) -> Result<(), i32>) -> Result<(), i32> {
+        let (mut words, mut failure) = (String::new(), None);
         catalog::try_each_at(&*self.engine.reads.storage, &mut |_, record| {
-            if failure.is_some() {
-                return;
-            }
-            let outcome = self.engine.keeps(&record, &mut words).and_then(|kept| {
-                if !kept {
-                    return Ok(());
-                }
-                self.each(&record, &mut |text| {
-                    name_key(&mut name, text)?;
-                    if let Some(counted) = pass.counted.as_deref_mut() {
-                        counted.note(fnv1a64(&name))?;
-                    }
-                    if let Some(at) = pass.window.offer(&mut name, pass.after)
-                        && pass.books
-                    {
-                        self.engine.fill(&record, &mut book)?;
-                        pass.window.book(at, &mut book);
-                    }
-                    Ok(())
-                })
-            });
-            if let Err(status) = outcome {
-                failure = Some(status);
+            if failure.is_none() {
+                failure = self
+                    .engine
+                    .keeps(&record, &mut words)
+                    .and_then(|kept| if kept { f(&record) } else { Ok(()) })
+                    .err();
             }
         })
         .map_err(fail)?;
         failure.map_or(Ok(()), Err)
     }
 
+    /// One scan of the catalog: every name of every book found goes to `pass`.
+    fn pass(&self, pass: &mut Pass<'_>) -> Result<(), i32> {
+        let (mut name, mut book) = (String::new(), Key::default());
+        self.books(&mut |record| {
+            self.each(record, &mut |text| {
+                name_key(&mut name, text)?;
+                if let Some(counted) = pass.counted.as_deref_mut() {
+                    counted.note(fnv1a64(&name))?;
+                }
+                if let Some(at) = pass.window.offer(&mut name, pass.after)
+                    && pass.books
+                {
+                    self.engine.fill(record, &mut book)?;
+                    pass.window.book(at, &mut book);
+                }
+                Ok(())
+            })
+        })
+    }
+
     /// How many names there are, from the count the first scan made: where
     /// they were more than it holds, the hashes are counted half by half, a
-    /// scan each, until every part fits.
+    /// scan each, until every part fits (the left half first; after a part
+    /// that fits, the part beside it or beside the half it closes).
     fn count(&self, mut counted: Distinct) -> Result<u32, i32> {
         if !counted.over {
             return Ok(counted.len());
         }
-        let mut parts: Vec<(u64, u64)> = Vec::new();
-        parts.try_reserve(2).map_err(|_| ERR_NO_MEMORY)?;
-        parts.push((0, u64::MAX));
         let mut window = Window::new(0, false)?;
-        let mut total = 0_u32;
-        // The whole was over: its halves first.
-        let mut split = true;
-        while let Some((low, high)) = parts.pop() {
-            if !split {
-                counted.hashes.clear();
-                (counted.low, counted.high, counted.over) = (low, high, false);
-                self.pass(&mut Pass {
-                    window: &mut window,
-                    after: None,
-                    counted: Some(&mut counted),
-                    books: false,
-                })?;
+        // The whole was over: its lower half first.
+        let (mut low, mut high, mut total) = (0_u64, u64::MAX / 2, 0_u32);
+        loop {
+            counted.hashes.clear();
+            (counted.low, counted.high, counted.over) = (low, high, false);
+            self.pass(&mut Pass {
+                window: &mut window,
+                after: None,
+                counted: Some(&mut counted),
+                books: false,
+            })?;
+            if counted.over && low < high {
+                high = low + (high - low) / 2;
+                continue;
             }
-            if (split || counted.over) && low < high {
-                let middle = low + (high - low) / 2;
-                parts.try_reserve(2).map_err(|_| ERR_NO_MEMORY)?;
-                parts.push((middle + 1, high));
-                parts.push((low, middle));
-            } else {
-                total = total.saturating_add(counted.len());
+            total = total.saturating_add(counted.len());
+            if high == u64::MAX {
+                return Ok(total);
             }
-            split = false;
+            // The part that begins after this one: as wide as its start is even.
+            low = high + 1;
+            high = low + ((low & low.wrapping_neg()) - 1);
         }
-        Ok(total)
     }
 
     /// A scan for `window`; the first of a call counts the names too.
@@ -415,92 +415,77 @@ impl Lists<'_> {
         Ok((found, skipped, window.names))
     }
 
-    /// `first` of each of `names`: how many of the books found come before
-    /// the name's first book, or before the books of its sort key
-    /// ([`Jump`]), in the list's order. One scan.
-    fn firsts(&self, names: &[Name]) -> Result<Vec<u32>, i32> {
-        let jump = self.facet.jump();
-        let before = |a: &Key, b: &Key| if self.descending { b.cmp(a) } else { a.cmp(b) };
-        let before_text = |a: &str, b: &str| if self.descending { b.cmp(a) } else { a.cmp(b) };
-        // The names by where their books begin (as they are kept, but for
-        // the letters), and for each place how many books come right before
-        // it: after the place before.
-        let mut order: Vec<usize> = Vec::new();
-        order
-            .try_reserve_exact(names.len())
-            .map_err(|_| ERR_NO_MEMORY)?;
-        order.extend(0..names.len());
-        match jump {
-            Jump::Book => {
-                order.sort_unstable_by(|a, b| before(&names[*a].first_book, &names[*b].first_book));
-            }
-            // By the cut the books are counted by: a character across it is
-            // left out, which can put a name before one it is kept after.
-            Jump::Block(cut) => order.sort_unstable_by(|a, b| {
-                let (one, other) = (head(names[*a].lower(), cut), head(names[*b].lower(), cut));
-                before_text(one, other).then(a.cmp(b))
-            }),
-            Jump::None => {}
+    /// Where the books of `name` begin in the list's order ([`Jump`]): as a
+    /// [`Key`] is compared.
+    fn place<'n>(&self, name: &'n Name) -> (u32, &'n str) {
+        match self.facet.jump() {
+            Jump::Block(cut) => (0, head(name.lower(), cut)),
+            _ => (name.first_book.first, name.first_book.text.as_str()),
         }
-        let mut steps = zeroes(names.len())?;
-        let (mut words, mut book) = (String::new(), Key::default());
-        let mut failure = None;
-        catalog::try_each_at(&*self.engine.reads.storage, &mut |_, record| {
-            if failure.is_some() {
-                return;
-            }
-            let outcome = self.engine.keeps(&record, &mut words).and_then(|kept| {
-                if !kept {
-                    return Ok(());
-                }
-                // The names that begin up to this book: it comes before the rest.
-                let at = if let Jump::Block(cut) = jump {
-                    let text = &mut book.text;
-                    text.clear();
-                    let value = match self.facet {
-                        Facet::Series => &record.series,
-                        _ => &record.author,
-                    };
-                    push_lower(text, value, cut)?;
-                    let block = head(text, cut);
-                    order.partition_point(|name| {
-                        before_text(head(names[*name].lower(), cut), block) != Ordering::Greater
-                    })
-                } else {
-                    self.engine.fill(&record, &mut book)?;
-                    order.partition_point(|name| {
-                        before(&names[*name].first_book, &book) != Ordering::Greater
-                    })
-                };
-                if let Some(step) = steps.get_mut(at) {
-                    *step = step.saturating_add(1);
-                }
-                Ok(())
-            });
-            if let Err(status) = outcome {
-                failure = Some(status);
-            }
-        })
-        .map_err(fail)?;
-        if let Some(status) = failure {
-            return Err(status);
-        }
-        let mut firsts = zeroes(names.len())?;
-        let mut sum = 0_u32;
-        for (place, name) in order.iter().enumerate() {
-            sum = sum.saturating_add(steps[place]);
-            firsts[*name] = sum;
-        }
-        Ok(firsts)
     }
-}
 
-/// `len` zeroes, reserved fallibly.
-fn zeroes(len: usize) -> Result<Vec<u32>, i32> {
-    let mut out = Vec::new();
-    out.try_reserve_exact(len).map_err(|_| ERR_NO_MEMORY)?;
-    out.resize(len, 0);
-    Ok(out)
+    /// Whether the books of `name` begin after `place`, in the list's order.
+    fn after(&self, name: &Name, place: (u32, &str)) -> bool {
+        let order = self.place(name).cmp(&place);
+        order
+            == if self.descending {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+    }
+
+    /// `first` of each of `names` (the page: [`WINDOW`] at most): how many
+    /// of the books found come before the name's first book, or before the
+    /// books of its sort key ([`Jump`]), in the list's order. One scan.
+    fn firsts(&self, names: &mut [Name]) -> Result<(), i32> {
+        // The names by where their books begin, each after those that begin
+        // before it or with it (as they are kept, but for the letters, and for
+        // a name with a character across the cut the books are counted by:
+        // it is left out, which can put a name before one it is kept after).
+        let mut order = [0_u8; WINDOW];
+        let order = &mut order[..names.len().min(WINDOW)];
+        for at in 0..order.len() {
+            let mut to = at;
+            while to > 0 && self.after(&names[usize::from(order[to - 1])], self.place(&names[at])) {
+                order[to] = order[to - 1];
+                to -= 1;
+            }
+            order[to] = at as u8;
+        }
+        // For each place how many books come right before it (after the
+        // place before), counted in the name's `first`.
+        let mut book = Key::default();
+        self.books(&mut |record| {
+            if let Jump::Block(cut) = self.facet.jump() {
+                let text = &mut book.text;
+                text.clear();
+                let value = match self.facet {
+                    Facet::Series => &record.series,
+                    _ => &record.author,
+                };
+                push_lower(text, value, cut)?;
+                text.truncate(head(text, cut).len());
+            } else {
+                self.engine.fill(record, &mut book)?;
+            }
+            // The names that begin up to this book: it comes before the rest.
+            let here = (book.first, book.text.as_str());
+            let at = order.partition_point(|name| !self.after(&names[usize::from(*name)], here));
+            if let Some(name) = order.get(at) {
+                let first = &mut names[usize::from(*name)].first;
+                *first = first.saturating_add(1);
+            }
+            Ok(())
+        })?;
+        let mut sum = 0_u32;
+        for name in order.iter() {
+            let first = &mut names[usize::from(*name)].first;
+            sum = sum.saturating_add(*first);
+            *first = sum;
+        }
+        Ok(())
+    }
 }
 
 /// The rows from `q.cursor`, and where the page ends. `hide` names the books
@@ -549,12 +534,11 @@ pub(super) fn facets(
         if q.generation != 0 && q.generation != generation {
             return Err(ERR_STATE);
         }
-        let (total, skipped, names) = lists.select(q.cursor)?;
-        let firsts = if facet.jump() != Jump::None && !names.is_empty() {
-            Some(lists.firsts(&names)?)
-        } else {
-            None
-        };
+        let (total, skipped, mut names) = lists.select(q.cursor)?;
+        let jumps = facet.jump() != Jump::None;
+        if jumps && !names.is_empty() {
+            lists.firsts(&mut names)?;
+        }
         if reads.generation()? != generation {
             // Read again where the caller named no generation to hold.
             if q.generation != 0 {
@@ -563,15 +547,11 @@ pub(super) fn facets(
             continue;
         }
         let mut rows = 0_u32;
-        for (at, name) in names.iter().enumerate() {
-            let first = firsts
-                .as_ref()
-                .and_then(|firsts| firsts.get(at).copied())
-                .unwrap_or(NO_JUMP);
+        for name in &names {
             let row = wire::ServiceLibFacet {
                 text: name.text(),
                 count: name.count,
-                first,
+                first: if jumps { name.first } else { NO_JUMP },
             };
             if visit(Record::ServiceLibFacet(row)).is_break() {
                 break;
