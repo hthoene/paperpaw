@@ -244,7 +244,9 @@ fn line_ink(gray: &[u8], width: usize) -> Vec<(usize, usize)> {
 fn lines_of(profile: &str, size: u32, turned: usize) -> Vec<(usize, usize)> {
     let rows = if profile == "xteink-x4" { 740 } else { 1400 };
     let ini = format!("[core]\nfont-size = {size}\njustify = on\n");
-    let card = card("lines", "lines.html", &ini);
+    // A card of its own for each test (they run side by side in one process).
+    let name = format!("lines-{:?}", std::thread::current().id());
+    let card = card(&name, "lines.html", &ini);
     fs::copy(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures-lines/lines.html"),
         card.join("books/lines.html"),
