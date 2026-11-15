@@ -444,7 +444,7 @@ impl Marking {
         selection: Selection,
         item: Item,
     ) -> Result<Outcome, Error> {
-        let (lo, hi) = selection.range();
+        let (lo, hi) = selection.whole(ctx.words);
         let (Some(first), Some(last)) = (ctx.words.get(lo), ctx.words.get(hi)) else {
             return Ok(self.set(ctx, None));
         };
@@ -519,7 +519,7 @@ impl Marking {
         let style = UiStyle::read(host, &display, font)?;
         let mut ops: Vec<Paint> = Vec::new();
         if let Some(selection) = self.selection.filter(|_| self.on == Some(ctx.page_start)) {
-            let (lo, hi) = selection.range();
+            let (lo, hi) = selection.whole(ctx.words);
             frame_words(&mut ops, &style, ctx.words, |i| (lo..=hi).contains(&i))?;
             if selection.mode == Mode::Bar {
                 let items = bar::items(display.has_touch(), act::standing(ctx, selection.range()));
