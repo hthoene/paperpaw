@@ -1095,6 +1095,7 @@ const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_BINDING_TAG: u32 
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_CHOICE_TAG: u32 = 1_029u32
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_CHOICE_TITLE_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_CHOICE_VALUE_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_GROUP_ICON_MAX_BYTES: usize = 64usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_GROUP_ID_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_GROUP_PAGE_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_GROUP_PARENT_MAX_BYTES: usize = 128usize
@@ -3045,7 +3046,7 @@ struct paperpaw_sdk::native::declare::records_wire::ServicePlugin<'a> { name: &'
 struct paperpaw_sdk::native::declare::records_wire::ServicePluginUsage<'a> { plugin: &'a str, busy_us: u64, calls: u32, shown_ms: u64, fast: u32, partial: u32, full: u32, pixels: u64, read: u64, written: u64, syncs: u32, requests: u32, refused: u32, awake_ms: u64, awake_reason: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegBinding<'a> { layer: &'a str, input: &'a str, action: &'a str, origin: u32 }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegChoice<'a> { value: &'a str, title: &'a str }
-struct paperpaw_sdk::native::declare::records_wire::ServiceRegGroup<'a> { id: &'a str, parent: &'a str, page: &'a str, order: i32, title: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegGroup<'a> { id: &'a str, parent: &'a str, page: &'a str, order: i32, title: &'a str, icon: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegItem<'a> { id: &'a str, plugin: &'a str, flags: u32, title: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegKey<'a> { key: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegMenuRow<'a> { item: &'a str, kind: u32, flags: u32, order: i32, by: &'a str, title: &'a str, icon: &'a str, badge: &'a str, describe: &'a str }
