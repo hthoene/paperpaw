@@ -10,8 +10,8 @@ adds the PaperPaw side. `docs/plugins.md` ("Publishing") explains the
 same for people; ADR 0023 (the store) and ADR 0024 (code plugins as
 files) say why it works so.
 
-Check names before relying on them: `paperpaw-sign --help`,
-`samples/hello-native`, and the site's guide. Where they disagree, the
+Check names before relying on them: `paperpaw-sign --help` and the
+site's guide. Where they disagree, the
 site's guide and the repository win; tell the user that this file looks
 out of date.
 
@@ -283,6 +283,13 @@ form, and `dist/<id>-<version>.zip`, without `store/`: what readers
 install.
 
 ## 5b. A code plugin: key, build, sign, source
+
+> **Out of date for plugin interface 7 (#244).** This section describes a
+> plugin with code for the interface before 7: `samples/hello-native`,
+> `paperpaw_sdk::plugin!`, `paperpaw-plugin.x` and the fingerprint are gone,
+> and devices refuse such files. `paperpaw-dev new --code` and the author
+> release workflow do not yet make a plugin with code for interface 7. Tell
+> the user so; a plugin without code (5a) is not affected.
 
 ### The repository
 

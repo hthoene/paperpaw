@@ -104,7 +104,7 @@ USAGE:
         Shows what a plugin file holds, and its author if it is signed
         (failing if the signature does not hold). A file of a format
         before 5 (made for a PaperPaw before plugin interface 7) is named
-        as that in one line and not read; sign-plugin and check-plugin
+        as that in one line and refused, as sign-plugin and check-plugin
         refuse it.
     paperpaw-sign sign-plugin <plugin.ppn> [--key <secret-key-file>]
         Signs a plugin file as its author: the signature goes at its end

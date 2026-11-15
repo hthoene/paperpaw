@@ -303,6 +303,40 @@ fn release_files_the_site_refuses_are_found() {
 }
 
 #[test]
+fn a_build_no_reader_takes_is_refused() {
+    let dir = code_repo("code-refused");
+    let release = dir.join("release");
+    let r = release.display().to_string();
+    let good = ppn(Chip::Esp32C3, 2, Some(AUTHOR));
+    // A file of the format before 5.
+    let mut old = good.clone();
+    old[4..6].copy_from_slice(&4u16.to_le_bytes());
+    write(&release, "clock-1.0.0-x4.ppn", old);
+    says(
+        &check(&dir, &["--release-dir", &r]),
+        "a plugin file of format 4",
+    );
+    // One byte of the image changed: the digest no longer holds.
+    let mut changed = good.clone();
+    changed[100] ^= 1;
+    write(&release, "clock-1.0.0-x4.ppn", changed);
+    says(
+        &check(&dir, &["--release-dir", &r]),
+        "readers refuse it: Damaged",
+    );
+    // Cut short.
+    write(
+        &release,
+        "clock-1.0.0-x4.ppn",
+        good[..good.len() - 1].to_vec(),
+    );
+    says(
+        &check(&dir, &["--release-dir", &r]),
+        "readers refuse it: Length",
+    );
+}
+
+#[test]
 fn a_plugin_with_code_needs_its_lock_its_sdk_by_version_and_the_right_switch() {
     let dir = code_repo("code-repo");
     std::fs::remove_file(dir.join("Cargo.lock")).unwrap();
