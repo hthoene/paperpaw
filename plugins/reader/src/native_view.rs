@@ -362,14 +362,11 @@ impl View {
             Self::forget(host, docs, id);
             error
         };
-        let progress =
-            Progress::read(host, docs, id, sections, (&mut input, &mut out)).map_err(fail)?;
-        let (at, stored_ppm) = Self::starting_place(
+        let (progress, at, stored_ppm) = Self::place_and_progress(
             host,
-            library,
-            &found,
-            (sections, conversion, progress.as_ref()),
-            &mut out,
+            (docs, library),
+            (&found, id, (sections, conversion)),
+            (&mut input, &mut out),
         )
         .map_err(fail)?;
         let marks = Self::load_marks(host, library, &found.path, conversion);
@@ -430,6 +427,25 @@ impl View {
             speaker: Speaker::new(0),
             aloud_kept: false,
         })
+    }
+
+    /// The sections' lengths for progress, and where the book opens with the
+    /// progress stored with that place.
+    fn place_and_progress(
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+        (found, id, (sections, conversion)): (&Handover, DocId, (u32, u64)),
+        (input, out): (&mut [u8], &mut [u8]),
+    ) -> Result<(Option<Progress>, (u32, u32), u32), Error> {
+        let progress = Progress::read(host, docs, id, sections, (input, out))?;
+        let (at, stored) = Self::starting_place(
+            host,
+            library,
+            found,
+            (sections, conversion, progress.as_ref()),
+            out,
+        )?;
+        Ok((progress, at, stored))
     }
 
     /// The highlights of the book; a book the library does not know has none,
