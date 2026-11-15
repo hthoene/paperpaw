@@ -555,6 +555,9 @@ impl Overlay {
                 }
                 _ => Ok(Handled::Yes),
             },
+            // A button press comes first as a key: left alone, the host turns it
+            // into the action the key maps name (`core.confirm`) and asks again.
+            Input::Key { .. } => Ok(Handled::No),
             _ => Ok(Handled::Yes),
         }
     }

@@ -1092,3 +1092,44 @@ fn rows_do_not_grow_as_the_interface_text_gets_smaller() {
     assert_eq!(rows[17].1.0, 153, "{rows:?}");
     eprintln!("settings rows (height, count) by size: {rows:?}");
 }
+
+/// On a fresh card the first-time hint opens over Home and a button closes it
+/// (Beta 3: Select). A button comes to the hint as a key first; swallowed there,
+/// it never became the action that closes it, and no button left the hint.
+#[test]
+fn the_first_time_hint_is_closed_by_a_button() {
+    for button in ["confirm", "back", "long:confirm"] {
+        let card = library("hint-button");
+        let script = format!("wait:2500,{button},wait:2000,describe");
+        let run: Run = Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"))
+            .args(["--profile", "xteink-x4", "--headless", "--library"])
+            .arg(&card)
+            .args(["--script", &script])
+            .output()
+            .unwrap()
+            .into();
+        let shown = library("hint-open");
+        let opened: Run = Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"))
+            .args(["--profile", "xteink-x4", "--headless", "--library"])
+            .arg(&shown)
+            .args(["--script", "wait:2500,describe"])
+            .output()
+            .unwrap()
+            .into();
+        let _ = fs::remove_dir_all(&card);
+        let _ = fs::remove_dir_all(&shown);
+        assert_eq!(
+            opened.screen(),
+            "help.overlay",
+            "no hint over Home: {}",
+            opened.stdout
+        );
+        assert!(run.ok, "{}", run.stderr);
+        assert_eq!(
+            run.screen(),
+            "home.dashboard",
+            "{button} left the hint: {}",
+            run.stdout
+        );
+    }
+}
