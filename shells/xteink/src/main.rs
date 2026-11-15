@@ -449,6 +449,7 @@ fn start() -> Firmware {
             ready.storage,
             ready.card_trouble,
             ready.firmware,
+            ready.firmware_host,
             ready.code,
             ready.staged,
         ),
@@ -487,6 +488,9 @@ struct Ready {
     /// Why there is no card to keep things on, if there is none.
     card_trouble: Option<paperpaw_core::CardTrouble>,
     firmware: Option<paperpaw_sdk::firmware::Firmware>,
+    /// What the kernel's firmware jobs run on: the OTA the shell also drives,
+    /// or a host that installs no firmware (`paperpaw_x4::host_jobs`).
+    firmware_host: Box<dyn paperpaw_platform::firmware::FirmwareHost>,
     code: CodePlugins,
     /// The device behind `core.device`.
     #[cfg(feature = "ppn5")]
@@ -712,6 +716,10 @@ fn prepare() -> Ready {
     power::init(LowPower::new(board.low_power));
     Ready {
         firmware: ota.as_ref().map(ota::Ota::firmware),
+        firmware_host: match ota.as_ref() {
+            Some(ota) => Box::new(ota.host()),
+            None => Box::new(paperpaw_x4::host_jobs::NoFirmware::new(native::FAMILY)),
+        },
         panel,
         network,
         ota,
@@ -951,6 +959,7 @@ fn kernel(
     storage: Box<dyn Storage>,
     card_trouble: Option<paperpaw_core::CardTrouble>,
     firmware: Option<paperpaw_sdk::firmware::Firmware>,
+    firmware_host: Box<dyn paperpaw_platform::firmware::FirmwareHost>,
     code: CodePlugins,
     staged: native::bundle::Staged,
 ) -> Kernel {
@@ -1037,6 +1046,9 @@ fn kernel(
         Some(firmware) => builder.firmware(firmware),
         None => builder,
     };
+    // Plugin jobs and the firmware's own update share this host's queue; the
+    // plugin host is handed over once the services are wired (`Firmware::run`).
+    let builder = builder.firmware_host(firmware_host);
     let builder = match card_trouble {
         Some(trouble) => builder.card_trouble(trouble),
         None => builder,

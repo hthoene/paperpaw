@@ -35,7 +35,6 @@ mod native_serve;
 pub mod native_sock;
 /// The firmware host of an emulated device: plugin jobs only.
 #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-pub mod no_firmware;
 pub mod offline;
 pub mod panel;
 #[cfg(not(target_arch = "wasm32"))]

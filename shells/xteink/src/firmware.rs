@@ -200,6 +200,18 @@ impl Firmware {
         if let Some(table) = &self.device_table {
             if paperpaw_x4::stack_band::host_native_at_start(crate::stack::band_armed()) {
                 crate::native::register_linked(&mut self.kernel, table);
+                // Plugin jobs (a store's install, update and removal, a
+                // plugin check), which the loader's own lists and the families
+                // wired by now decide (`paperpaw_x4::host_jobs`). Not where no
+                // code loads (an update on trial, safe mode): refused then.
+                let wired = crate::device_host::wired_families(false);
+                if !paperpaw_x4::host_jobs::offer_plugin_jobs(
+                    &mut self.kernel,
+                    crate::native::FAMILY,
+                    wired,
+                ) {
+                    warn!("native: plugin jobs are not taken: the kernel has no firmware host");
+                }
             } else {
                 warn!("native: the stack's band is not armed: no plugin of interface 7 is hosted");
             }
@@ -287,6 +299,13 @@ impl Firmware {
         }
         // At a calm moment: at once, unless a book is open, then once it
         // is left. A sleep on battery before is a start too.
+        // A firmware job installed an image and asked for its start
+        // (`FirmwareHost::restart`): the way every restart goes, at the next
+        // turn of this loop, not inside the kernel's call.
+        if crate::ota::restart_asked() {
+            info!("OTA: an installed update asked to start: restarting");
+            self.restart();
+        }
         if self.state.restart_for_code && !self.reading() {
             info!("native: the update is kept; restarting to load the code plugins");
             self.restart();

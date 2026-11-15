@@ -63,6 +63,13 @@ pub fn this_firmware() -> paperpaw_sdk::native::Native {
     native
 }
 
+/// The chip family of this device, for what the kernel's plugin and firmware
+/// jobs check a file against (`paperpaw_x4::host_jobs`).
+#[cfg(feature = "esp32c3")]
+pub const FAMILY: paperpaw_x4::host_jobs::Family = paperpaw_x4::host_jobs::Family::Riscv;
+#[cfg(feature = "esp32s3")]
+pub const FAMILY: paperpaw_x4::host_jobs::Family = paperpaw_x4::host_jobs::Family::Xtensa;
+
 /// The internal RAM kept for plugins' hot code (the X4's arena), which
 /// the heap gets once plugins are loaded, as far as they did not take it.
 #[cfg(feature = "esp32c3")]
