@@ -224,8 +224,75 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("vocabulary", &paperpaw_plugin_vocabulary::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("widgets", &paperpaw_plugin_widgets::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("stats", &paperpaw_plugin_stats::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("battery", &paperpaw_plugin_battery::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("keys", &paperpaw_plugin_keys::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("reading-goal", &paperpaw_plugin_reading_goal::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    (
+        "notes-overview",
+        &paperpaw_plugin_notes_overview::NATIVE_ENTRY,
+    ),
+    #[cfg(feature = "native-linked-store")]
+    ("weather", &paperpaw_plugin_weather::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("koreader", &paperpaw_plugin_koreader::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("profiles", &paperpaw_plugin_profiles::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("menu-editor", &paperpaw_plugin_menu_editor::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("rules", &paperpaw_plugin_rules::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("calibre", &paperpaw_plugin_calibre::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("end-of-book", &paperpaw_plugin_end_of_book::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("diagnostics", &paperpaw_plugin_diagnostics::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("translate", &paperpaw_plugin_translate::NATIVE_ENTRY),
     ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
+
+/// The plugins that the store offers as files on the X4 family and that the
+/// emulator links (`native-linked-store`): "installed" there is "switched on",
+/// and none ships on. Not in [`STORE_PLUGINS`], which the X4's image also
+/// holds: a build without `native-linked-store` does not have these ids at all.
+#[cfg(feature = "native-linked-store")]
+pub const LINKED_STORE_PLUGINS: &[&str] = &[
+    "battery",
+    "calibre",
+    "diagnostics",
+    "end-of-book",
+    "keys",
+    "koreader",
+    "menu-editor",
+    "notes-overview",
+    "profiles",
+    "reading-goal",
+    "rules",
+    "stats",
+    "translate",
+    "weather",
+];
+
+/// Whether `id` is one of the `LINKED_STORE_PLUGINS` (never, without the feature).
+#[must_use]
+pub fn is_linked_store_plugin(id: &str) -> bool {
+    #[cfg(feature = "native-linked-store")]
+    {
+        LINKED_STORE_PLUGINS.contains(&id)
+    }
+    #[cfg(not(feature = "native-linked-store"))]
+    {
+        let _ = id;
+        false
+    }
+}
 
 /// Whether the linked native plugin `id` is linked here and, if it is, on where
 /// nothing switched it (the default `Kernel::native_decide` takes): the rule
@@ -245,7 +312,21 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
 #[cfg(feature = "native-linked")]
 pub fn native_default_on(id: &str, store: StorePlugins<'_>) -> Option<bool> {
     if !STORE_PLUGINS.contains(&id) {
-        return Some(true);
+        // The emulator's store plugins: left out where the store installs them
+        // (no store at all), else shipped off until the reader "installs" them.
+        return match (is_linked_store_plugin(id), store) {
+            (false, _) => Some(true),
+            (true, StorePlugins::Left) => None,
+            #[cfg(feature = "store-plugins")]
+            (true, StorePlugins::On) => Some(false),
+            #[cfg(feature = "store-plugins")]
+            (true, StorePlugins::Off(on)) => Some(on(id)),
+            #[allow(
+                unreachable_patterns,
+                reason = "`On` and `Off` exist only with the feature `store-plugins`"
+            )]
+            (true, _) => None,
+        };
     }
     match store {
         StorePlugins::Left => None,

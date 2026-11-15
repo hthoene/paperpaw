@@ -1,0 +1,42 @@
+{
+  "payload": "reading-goal.read-today-reply",
+  "major": 1,
+  "revision": 0,
+  "max_bytes": 16,
+  "records": [
+    {
+      "id": 1,
+      "name": "today.reading",
+      "since": 0,
+      "fields": [
+        {
+          "name": "known",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "day",
+          "type": "i32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "seconds",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    }
+  ]
+}
