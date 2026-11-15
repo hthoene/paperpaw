@@ -89,10 +89,14 @@ const MAX_MARGIN: u16 = 1000;
 /// Longer paragraphs are split into continued blocks; no record's text
 /// is longer.
 pub(crate) const LIMIT: usize = 4000;
-/// Output is written to storage in chunks of about this size.
-const FLUSH: usize = 1024;
-/// Index and anchors are written in chunks of about this size.
-const FLUSH_SMALL: usize = 256;
+/// Output is written to storage in chunks of about this size: each write is a
+/// host call and a write to the card (about 27 ms on the X4, #250), so a book
+/// opened for the first time makes few and large ones. 4,096 would save
+/// about a third of the writes more for 7 KiB more heap at the peak.
+const FLUSH: usize = 2048;
+/// Index, positions, cross references and anchors are written in chunks of
+/// about this size.
+const FLUSH_SMALL: usize = 1024;
 /// Elements nested deeper are read as part of the deepest one.
 pub(crate) const MAX_DEPTH: usize = 128;
 /// Element names are kept to this length (no HTML name is longer).
