@@ -142,6 +142,16 @@ impl Kept {
         carry_on(made)
     }
 
+    /// Whether tables are held.
+    pub(super) fn has_tables(&self) -> bool {
+        self.0.borrow().tables.is_some()
+    }
+
+    /// Lets go of the tables (the memory they hold); the next page makes them.
+    pub(super) fn drop_tables(&self) {
+        self.0.borrow_mut().tables = None;
+    }
+
     /// A setting changed: the next read asks the host.
     pub(super) fn forget(&self) {
         *self.0.borrow_mut() = State::default();
