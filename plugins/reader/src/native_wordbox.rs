@@ -162,13 +162,13 @@ pub fn first_word(page: &Page) -> Result<Option<(String, Locator)>, Error> {
         return Ok(None);
     };
     let mut word = String::new();
-    // Past the word: a space after it.
+    // Past the word: a space (or a no-break one) after it.
     let mut done = false;
     for run in &line.runs {
         let Some(text) = line.text.get(run.start..run.end) else {
             continue;
         };
-        for (n, part) in text.split(' ').enumerate() {
+        for (n, part) in text.split(|c| c == ' ' || c == '\u{a0}').enumerate() {
             if n > 0 {
                 done |= !word.is_empty();
             }

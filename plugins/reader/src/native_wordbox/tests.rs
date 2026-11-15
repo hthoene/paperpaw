@@ -208,3 +208,12 @@ fn a_word_broken_at_the_end_of_a_page_is_whole_with_the_first_word_of_the_next()
     assert_eq!(last.end, end);
     assert!(!ends_open(&words, &first));
 }
+
+#[test]
+fn the_first_word_of_a_page_ends_at_a_no_break_space_too() {
+    let (page, _) = plain("larly\u{a0}said the rest of the line");
+    let (word, _) = first_word(&page).unwrap().unwrap();
+    assert_eq!(word, "larly");
+    let (page, _) = plain("larly said the rest of the line");
+    assert_eq!(first_word(&page).unwrap().unwrap().0, "larly");
+}
