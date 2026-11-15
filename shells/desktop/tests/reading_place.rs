@@ -4,6 +4,7 @@
 //! picture size) is found again by its progress; one that cannot be found
 //! opens the book at its start, and nothing is written to the card when the
 //! book opens. Each test starts the emulator on a card with the sample book.
+//! Marks a Beta 3 card holds are drawn where their text is, and only there.
 //! The last test is for #270: a highlight saved in this conversion is drawn.
 
 #![allow(
@@ -255,4 +256,83 @@ fn a_highlight_saved_in_this_conversion_is_drawn_on_its_page() {
     fs::rename(&marks, &kept).unwrap();
     let without = opens_at(&card, "without");
     assert_ne!(with, without, "the highlight is not drawn on its page");
+}
+
+/// The header and rows as Beta 3 wrote them for this book (`format 2`, its
+/// conversion): a highlight on the first page, a bookmark a few pages on.
+const BETA3_HEADER: &str = "# format 2\n# book 189249 59feb863c3a0652fe66a99c0978404f9\n";
+const BETA3_HIGHLIGHT: &str = "h\t1\t97\t1\t123\t0\t1794701285\t0\taf63bc4c8601b62c\t\
+    /body/DocFragment[2]/body/header[1]/div[1]/text()[1].18\t\
+    /body/DocFragment[2]/body/header[1]/div[1]/text()[1].44\t\
+    the use of anyone any- where\t\n";
+const BETA3_BOOKMARK: &str = "b\t1\t1004\t1\t1004\t2\t1794701285\t0\taf63bc4c8601b62c\t\
+    /body/DocFragment[2]/body/h2[1]/text()[1].0\t\t\
+    by Lewis Carroll THE MILLENNIUM FULCRUM EDITION 3.0 * * *\t\n";
+
+/// The pages from the first on, `count` of them, each as gray rows.
+fn walk(card: &Path, name: &str, count: usize) -> Vec<Vec<u8>> {
+    let mut pages = Vec::new();
+    for upto in 0..count {
+        let shot = card.join(format!("{name}-{upto}.png"));
+        let mut keys = Vec::new();
+        for _ in 0..upto {
+            keys.extend(press("page-forward"));
+        }
+        // Each walk starts at the first page, not where the last one left.
+        let _ = fs::remove_file(positions(card));
+        session(card, &shot, &keys);
+        pages.push(page(&shot));
+    }
+    pages
+}
+
+fn beta3_marks(name: &str, rows: &str) -> (PathBuf, Vec<Vec<u8>>, String) {
+    let card = new_card(name);
+    let dir = card.join(".paperpaw/annotations");
+    fs::create_dir_all(&dir).unwrap();
+    let file = format!("{BETA3_HEADER}{rows}");
+    fs::write(dir.join(format!("{HASH}.txt")), &file).unwrap();
+    let marked = walk(&card, "marked", 8);
+    (card, marked, file)
+}
+
+fn plain_pages(name: &str) -> Vec<Vec<u8>> {
+    walk(&new_card(name), "plain", 8)
+}
+
+#[test]
+fn a_highlight_a_beta3_card_wrote_is_drawn_on_the_page_with_its_text() {
+    let (card, marked, file) = beta3_marks("hl", BETA3_HIGHLIGHT);
+    let plain = plain_pages("hl-plain");
+    // The page after the cover holds "the use of anyone anywhere".
+    assert_ne!(marked[1], plain[1], "the highlight is not drawn");
+    let other = (0..8).filter(|k| marked[*k] != plain[*k]).count();
+    assert_eq!(other, 1, "the highlight is drawn on pages without its text");
+    let path = card.join(format!(".paperpaw/annotations/{HASH}.txt"));
+    assert_eq!(
+        fs::read_to_string(path).unwrap(),
+        file,
+        "the file was changed"
+    );
+}
+
+#[test]
+fn a_highlight_whose_text_is_not_on_the_page_is_not_drawn_and_stays_in_its_file() {
+    let rows = BETA3_HIGHLIGHT.replace("the use of anyone any- where", "nothing like this text");
+    let (card, marked, file) = beta3_marks("text", &rows);
+    assert_eq!(
+        marked,
+        plain_pages("text-plain"),
+        "a mark was drawn where its text is not"
+    );
+    let path = card.join(format!(".paperpaw/annotations/{HASH}.txt"));
+    assert_eq!(fs::read_to_string(path).unwrap(), file);
+}
+
+#[test]
+fn a_bookmark_a_beta3_card_wrote_shows_its_ribbon_on_a_page() {
+    let (_, marked, _) = beta3_marks("bm", BETA3_BOOKMARK);
+    let plain = plain_pages("bm-plain");
+    let shown: Vec<_> = (0..8).filter(|k| marked[*k] != plain[*k]).collect();
+    assert_eq!(shown.len(), 1, "the bookmark shows on pages {shown:?}");
 }
