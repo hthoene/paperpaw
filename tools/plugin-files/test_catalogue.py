@@ -118,7 +118,8 @@ class HowItWorks(unittest.TestCase):
             with zipfile.ZipFile(dist / folder) as z:
                 names = z.namelist()
                 english = z.read("how/en.txt").decode("utf-8")
-            self.assertEqual(names[:1] + names[-2:], ["plugin.ini", "how/de.txt", "how/en.txt"])
+            self.assertEqual(names[0], "plugin.ini")
+            self.assertTrue({"how/de.txt", "how/en.txt", "i18n/de.ini", "i18n/en.ini"} <= set(names))
             self.assertEqual(english, catalogue.ROOT.joinpath("plugins/vocabulary/how/en.txt").read_text(encoding="utf-8"))
             # The same bytes again: the release's checksums hold.
             with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
