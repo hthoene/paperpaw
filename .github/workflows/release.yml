@@ -97,6 +97,17 @@ jobs:
           persist-credentials: false
       - name: Release notes were collected before tagging
         run: python3 tools/changelog.py check --release
+      # The release page's text is written before tagging (a tag without it
+      # cannot be mended by a re-run: the tag names the commit). A dry run warns.
+      - name: The release page's text is in the tag
+        run: |
+          if ! python3 -I tools/check-release-notes.py "docs/release-notes/${RELEASE_TAG#v}.md"; then
+            if [[ "$DRY_RUN" == true ]]; then
+              echo "::warning::no usable release notes (a real release stops here)"
+            else
+              exit 1
+            fi
+          fi
       # A release gate (todo 639): no callback frame of 2,048 B or more may be
       # left as an exception in the S3 linked budget but `main`. A dry run only warns.
       - name: No S3 exception frame is left but main
@@ -604,26 +615,14 @@ jobs:
             echo "::error::CHANGELOG.md has no section for $VERSION"
             exit 1
           fi
-          limit=125000
           file="docs/release-notes/$VERSION.md"
-          if [[ -s "$file" ]]; then
+          if python3 -I tools/check-release-notes.py "$file"; then
             cp "$file" dist/notes.md
-          elif [[ "$DRY_RUN" == true ]]; then
+          elif [[ "$DRY_RUN" == true && ! -e "$file" ]]; then
             echo "::warning::no $file: this dry run shows the CHANGELOG section; a release needs the file"
             cp "$RUNNER_TEMP/changelog-section.md" dist/notes.md
           else
-            echo "::error::no $file: the release page's text is written for the release (GitHub takes at most $limit characters; the CHANGELOG section is for the file the notes link to)"
             exit 1
-          fi
-          chars="$(python3 -I -c 'import sys; print(len(open(sys.argv[1], encoding="utf-8").read()))' dist/notes.md)"
-          echo "The release page's text: $chars characters (at most $limit)"
-          if (( chars > limit )); then
-            if [[ "$DRY_RUN" == true && ! -s "$file" ]]; then
-              echo "::warning::the CHANGELOG section is $chars characters: over GitHub's $limit"
-            else
-              echo "::error::the release page's text is $chars characters: GitHub takes at most $limit"
-              exit 1
-            fi
           fi
       # Before anything is uploaded: the release holds exactly its 73 files
       # and no plugin file, and every address in the catalogue has an asset,
