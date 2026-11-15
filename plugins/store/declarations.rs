@@ -28,6 +28,8 @@ pub const IMAGE_TOKEN: u32 = 6;
 pub const STARTED_TOKEN: u32 = 7;
 /// Other plugins asking for plugins (event 77).
 pub const PLUGINS_TOKEN: u32 = 8;
+/// *Discover fonts*, on the reading settings' page of the text.
+pub const DISCOVER_TOKEN: u32 = 9;
 /// The screens' tokens: the start, the page of a plugin, a view, the letters,
 /// the source, the pictures and the progress of a fetch.
 pub const LIST_SCREEN: u32 = 20;
@@ -121,6 +123,18 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     more.order = 10;
     d.menu_entry(more)?;
     d.icon("store.open", "cloud-download")?;
+    // On the page of the text, below the font size, whose largest sizes are
+    // the font's: the fonts browser's list, or what to do about it.
+    d.action(ActionDecl::new(
+        "discover-fonts",
+        "store.discover-fonts",
+        DISCOVER_TOKEN,
+    ))?;
+    d.menu_entry(MenuEntryDecl::new(
+        groups::READING_TEXT.as_str(),
+        "store.discover-fonts",
+    ))?;
+    d.icon("store.discover-fonts", "typography")?;
     d.submit()?;
     Ok(())
 }

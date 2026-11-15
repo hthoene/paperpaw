@@ -5,11 +5,32 @@
 //! forward from the section's start). The interface-6 screen is the
 //! reference until it goes at activation. Everything is allocation-free
 //! or fallible.
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
-    layout::{BookStyles, Style},
+    layout::{BookStyles, ScriptOptions, Style},
     native::{Error, callbacks::Input},
 };
+
+/// The options of the line breaker for a book in `language`: by word only
+/// for a Korean book whose reader chose it (the bit is never global: it lays
+/// Chinese and Japanese out badly), and hanging punctuation where chosen.
+#[must_use]
+pub fn script_options(language: &str, (hanging, korean_word): (bool, bool)) -> ScriptOptions {
+    let korean = language
+        .split(['-', '_'])
+        .next()
+        .is_some_and(|primary| primary.eq_ignore_ascii_case("ko"));
+    let options = if korean && korean_word {
+        ScriptOptions::KEEP_ALL
+    } else {
+        ScriptOptions::NONE
+    };
+    if hanging {
+        options.with(ScriptOptions::HANGING_PUNCTUATION)
+    } else {
+        options
+    }
+}
 
 /// The reading settings a page is set with, in the units the settings use.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -43,6 +64,15 @@ pub struct Reading {
     /// Which of the book's own styles are followed (`core.book-…`, the bits of
     /// `paperpaw_layout::BookStyles`).
     pub book: u16,
+    /// Hanging punctuation (`core.hanging-punctuation`), and Korean broken
+    /// between words only (`core.korean-breaks.word`; Korean books only,
+    /// see [`script_options`]).
+    pub scripts: (bool, bool),
+    /// A signature of the reading font's name and the hyphenation settings
+    /// (`core.reading-font`, `core.hyphenate`, `core.hyphen-min-left`,
+    /// `core.hyphen-min-right`): other letters or other breaks, other pages
+    /// (0: not told).
+    pub text: u64,
 }
 
 impl Reading {
@@ -80,7 +110,53 @@ impl Reading {
             lines_kept: (1, 1),
             balanced: false,
             book: u16::MAX,
+            scripts: (false, false),
+            text: 0,
         }
+    }
+
+    /// The same with the text set in `font` (the reading font's name) and
+    /// hyphenated as `hyphenation` says (on, the fewest letters before and
+    /// after a hyphen): all of it is part of what a page is laid out with.
+    #[must_use]
+    pub fn with_text(mut self, font: &str, (on, left, right): (bool, i64, i64)) -> Self {
+        use core::fmt::Write as _;
+        let mut named = String::new();
+        // A name or a refusal for room is not told: the file is then
+        // another one than any told, which is the safe side.
+        if named.try_reserve(font.len() + 48).is_ok()
+            && write!(named, "{font}|{}|{left}|{right}", u8::from(on)).is_ok()
+        {
+            // Never 0: that is "not told".
+            self.text = paperpaw_sdk::digest::fnv1a64(&named).max(1);
+        }
+        self
+    }
+
+    /// The same with hanging punctuation and Korean broken by word as the
+    /// settings say: other breaks, other pages, so they are part of what a
+    /// page is laid out with (`text`, where it was told).
+    #[must_use]
+    pub fn with_scripts(mut self, hanging: bool, korean_word: bool) -> Self {
+        self.scripts = (hanging, korean_word);
+        if self.text != 0 {
+            let mut key = String::new();
+            if key.try_reserve(40).is_ok()
+                && core::fmt::Write::write_fmt(
+                    &mut key,
+                    format_args!(
+                        "{:x}|{}|{}",
+                        self.text,
+                        u8::from(hanging),
+                        u8::from(korean_word)
+                    ),
+                )
+                .is_ok()
+            {
+                self.text = paperpaw_sdk::digest::fnv1a64(&key).max(1);
+            }
+        }
+        self
     }
 
     /// The same with paragraphs set apart as the settings say: the indent
@@ -252,6 +328,8 @@ pub fn affects_layout(key: &str) -> bool {
                 | "core.widows"
                 | "core.orphans"
                 | "core.line-breaking"
+                | "core.hanging-punctuation"
+                | "core.korean-breaks"
                 | "core.book-align"
                 | "core.book-indent"
                 | "core.book-sizes"

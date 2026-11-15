@@ -109,22 +109,12 @@ mod tests {
     use super::*;
     use alloc::boxed::Box;
     use alloc::string::String;
-    use paperpaw_platform::Storage;
     use paperpaw_sdk::native::Native;
-    use paperpaw_sdk::{Plugin, PluginProblem};
 
     /// The X4's loader in safe mode: no code is loaded.
     struct NoCode;
 
-    impl crate::CodeLoader for NoCode {
-        fn load(
-            &mut self,
-            _: &dyn Storage,
-            _: &crate::CodeFile<'_>,
-        ) -> Result<Box<dyn Plugin>, PluginProblem> {
-            Err(PluginProblem::Unsupported)
-        }
-    }
+    impl crate::CodeLoader for NoCode {}
 
     /// What a kernel without any screen of a plugin shows at its start,
     /// all its texts in one.

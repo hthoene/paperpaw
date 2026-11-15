@@ -206,6 +206,10 @@ events 83, 88 and 90 are free).
     so while this screen is on top and nothing lies over it (the same rule as the picture
     pass, `settings.pictures_in_grays`); under an overlay, or where the screen is not the whole
     display, it has no effect. `screen_policy` may change it at run time (below), page by page.
+  - bit 10 `dims_below`: an overlay (bit 2) washes out what lies below it while it shows, so that
+    it stands out and what it cuts through is not read as its own (interface 6
+    `Screen::dims_below`: a menu, a panel; not a keyboard over its field). No effect on a screen
+    that is no overlay. Declared only; `screen_policy` cannot change it.
   Other bits stay `ERR_UNSUPPORTED`.
 - [D] **Policies change at run time** (the lock guards only while locked): `command.screen_policy`
   (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4, 5 and 9 above) sets them for
@@ -640,9 +644,10 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
 - [D] **X4 stack.** Two plugin frames and the host frame between them share the main stack, for slot
   35 and for ops 7 and 12-15 alike (each runs another plugin's callback inside the caller's): they
   join the frame budget of #254 (limit 2,048 bytes per frame), with a device high-water case (home
-  with widgets under the sleep screen's widgets) before activation; until the stack gate passes, the
-  X4 answers slot 35 and those ops with `ERR_UNSUPPORTED`, unless built with the core feature
-  `x4-nested` (the X4 shell's test image only, never a default feature). The kernel's own status
+  with widgets under the sleep screen's widgets) before activation; the stack gate passed on the
+  X4 (#250) and is open by default; the core feature `x4-gate-closed` closes it again (the X3's
+  firmware builds with it until an X3 has measured the gate; the X4 then
+  answers slot 35 and those ops with `ERR_UNSUPPORTED`). The kernel's own status
   items run no plugin and are answered there (op 14, slot 35 kind 1; section 5.3).
 
 ### 5.2 Widgets
@@ -1011,6 +1016,7 @@ and every device of that profile (the X3 too), not the model.
 | `ScreenKey`, `Cx::params`, `params::TEXT` | `instance`; hand-over (op 16, `command.open.handover`), read with op 17 and the hand-over text (op 10); event 79 again on update |
 | `Screen::guards`, `secret`, `holds_edges` (dynamic) | `screen.spec.flags` bits 1, 4, 5; `command.screen_policy` |
 | `Screen::grays` (dynamic) | `screen.spec.flags` bit 9 `grays`; `command.screen_policy` bit 9 |
+| `Screen::dims_below` | `screen.spec.flags` bit 10 `dims_below` |
 | `Registrar::set_screen_hints(screen, HintVisibility::Hidden)` | `screen.spec.flags` bit 8 `hints_hidden` |
 | `Env::stack`, `StackEntry` (`guards`, `overlay`, `slot`) | `core.ui` op 1, `ui_screen`; event 81 |
 | `Command::SetKeyLayer`, `ShowHints`, `Input` | `command.set_key_layer`, `show_hints`, `raise_input` |

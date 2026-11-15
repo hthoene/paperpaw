@@ -124,7 +124,8 @@ fn the_host_is_asked_to_install_with_the_evidence_and_the_end_is_said() {
             plugin: "airy-theme".into(),
             name: "Airy".into(),
             updated: true,
-            restart: true
+            restart: true,
+            requires: Vec::new(),
         }
     );
     assert_eq!(download.step(), Step::Installed);
@@ -204,12 +205,19 @@ fn what_the_host_refuses_is_said_in_the_stores_words() {
             Some(key) => assert_eq!(
                 outcome,
                 Outcome::Refused {
+                    plugin: "airy-theme".into(),
                     name: "Airy".into(),
                     key
                 },
                 "reason {reason}"
             ),
-            None => assert_eq!(outcome, Outcome::Silent, "reason {reason}"),
+            None => assert_eq!(
+                outcome,
+                Outcome::Silent {
+                    plugin: "airy-theme".into()
+                },
+                "reason {reason}"
+            ),
         }
         // Not installed: the staged files gone, the step idle.
         assert!(!wire.storage.exists("stage/airy-theme/plugin.ini"));
@@ -325,4 +333,32 @@ fn the_turn_is_given_though_the_card_refuses_the_queue() {
         next(&mut queue, &storage).unwrap(),
         Next::FetchPage("beta".into())
     );
+}
+
+#[test]
+fn what_the_installed_plugin_requires_goes_with_its_outcome() {
+    let mut wire = Fake::new();
+    wire.storage
+        .write(
+            "stage/airy-theme/plugin.ini",
+            b"[plugin]\nid = airy-theme\nrequires = script-arabic 1.0.0, news\n",
+        )
+        .unwrap();
+    let (mut download, mut installer) = (Download::new(), Installer::new());
+    let have = Have {
+        version: None,
+        repairs: false,
+    };
+    installer
+        .finish(&mut wire, &mut download, staged(), &page(false), have)
+        .unwrap();
+    let request = wire.installs[0].0;
+    // The folder is gone once the host has taken it: the list was kept.
+    let outcome = installer
+        .done(&mut wire, &mut download, &End::new(request, 0, 0), false)
+        .unwrap();
+    let Outcome::Installed { requires, .. } = outcome else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(requires, ["script-arabic", "news"]);
 }

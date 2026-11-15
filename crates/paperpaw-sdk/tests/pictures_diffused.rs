@@ -9,10 +9,12 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+use std::cell::Cell;
+
 use paperpaw_graphics::Framebuffer;
 use paperpaw_image::{ColorWriter, GrayWriter, ImageSink};
 use paperpaw_sdk::document::ImageRef;
-use paperpaw_sdk::{Color, MemoryStorage, PixelFormat, Rect, ui};
+use paperpaw_sdk::{Color, DirEntry, MemoryStorage, PixelFormat, Rect, Storage, StorageError, ui};
 
 const W: u16 = 120;
 const H: u16 = 90;
@@ -183,4 +185,154 @@ fn a_dithered_part_falls_back_to_its_visible_columns_where_the_full_width_does_n
         ui::try_draw_picture(&mut frame.canvas(), &storage, &picture, area, 255),
         Ok(())
     );
+}
+
+/// A card that counts the bytes read from it.
+struct Counted {
+    card: MemoryStorage,
+    read: Cell<u64>,
+}
+
+impl Storage for Counted {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        let n = self.card.read_at(path, offset, buf)?;
+        self.read.set(self.read.get() + n as u64);
+        Ok(n)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.card.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.card.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.card.append(path, data)
+    }
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.card.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.card.remove(path)
+    }
+}
+
+/// The frame of the host's draws below, and where their picture goes: made
+/// smaller, as a book's cover is.
+const FRAME: (u16, u16) = (220, 320);
+const PLACE: Rect = Rect::new(10, 12, 200, 300);
+/// The most a call reads beyond the rows it draws: its last chunk of rows.
+const CHUNK: u64 = 8 * 1024;
+
+/// A card with a gray picture of `width` x `height` on it.
+fn card(width: u32, height: u32) -> (Counted, ImageRef) {
+    let card = MemoryStorage::new();
+    let image = picture(&card, width, height, false);
+    let read = Cell::new(0);
+    (Counted { card, read }, image)
+}
+
+/// The host's draw of a picture ([`ui::try_draw_picture`]) into the band
+/// `frame` holds, with the X4's limit on its buffers or `budget`.
+fn host_draw(frame: &mut Framebuffer, storage: &Counted, image: &ImageRef, area: Rect) {
+    let budget = if image.width > 1000 {
+        usize::MAX
+    } else {
+        32 * 1024
+    };
+    let kind = ui::PictureKind::Gray;
+    let picture = ui::Picture::new(&image.path, kind, image.width, image.height, budget);
+    ui::try_draw_picture(&mut frame.canvas(), storage, &picture, area, 255).unwrap();
+}
+
+/// A frame of `size` drawn by the host in bands of `rows` rows starting at
+/// `tops`, one after the other: its pixels, and the bytes read for it.
+fn frame_in_bands(
+    storage: &Counted,
+    image: &ImageRef,
+    (size, area): ((u16, u16), Rect),
+    (rows, tops): (u16, &[u16]),
+    format: PixelFormat,
+) -> (Vec<u8>, u64) {
+    let before = storage.read.get();
+    let mut joined = Framebuffer::new(size.0, size.1, format).unwrap();
+    let mut band = Framebuffer::banded(size.0, size.1, rows, format).unwrap();
+    for &top in tops {
+        band.set_top(top);
+        band.canvas().clear(Color::WHITE);
+        host_draw(&mut band, storage, image, area);
+        joined.write_rows(top, band.view());
+    }
+    band.end_frame();
+    (joined.view().data.to_vec(), storage.read.get() - before)
+}
+
+fn tops(height: u16, rows: u16) -> Vec<u16> {
+    (0..height).step_by(usize::from(rows)).collect()
+}
+
+/// The host's draw of a dithered picture goes on in each band where the band
+/// above ended: the frame shows the same pixels in one band, four, five and
+/// nine, and the picture's file is read once for it, not once more for every
+/// band above (#250: the X4 read a cover 2.5 times a frame).
+#[test]
+fn the_hosts_draw_reads_a_picture_once_a_frame_in_any_bands() {
+    for format in [PixelFormat::Mono1, PixelFormat::Gray2] {
+        let (storage, image) = card(400, 600);
+        let whole_frame = (FRAME.1, tops(FRAME.1, FRAME.1));
+        let (whole, once) = frame_in_bands(
+            &storage,
+            &image,
+            (FRAME, PLACE),
+            (whole_frame.0, &whole_frame.1),
+            format,
+        );
+        assert!(once >= 200_000, "{format:?}: {once} bytes for the picture");
+        for rows in [80, 64, 36] {
+            let tops = tops(FRAME.1, rows);
+            let (banded, read) =
+                frame_in_bands(&storage, &image, (FRAME, PLACE), (rows, &tops), format);
+            assert_eq!(whole, banded, "{format:?}: bands of {rows} rows");
+            let most = once + tops.len() as u64 * CHUNK;
+            assert!(
+                read <= most,
+                "{format:?}: {read} bytes read in bands of {rows} rows, {once} in one"
+            );
+        }
+    }
+}
+
+/// A band drawn twice, bands out of their order and a frame drawn once more
+/// without its end between (a frame sent again is drawn anew where the kept
+/// copy is lost) show the same pixels: the error kept is taken only by the
+/// band that begins where it was left, once.
+#[test]
+fn the_hosts_draw_shows_the_same_in_bands_drawn_again_or_out_of_order() {
+    let (storage, image) = card(400, 600);
+    let format = PixelFormat::Mono1;
+    let all = tops(FRAME.1, FRAME.1);
+    let (whole, _) = frame_in_bands(&storage, &image, (FRAME, PLACE), (FRAME.1, &all), format);
+    for order in [
+        &[0, 0, 64, 64, 128, 192, 256][..],
+        &[0, 128, 64, 256, 192][..],
+        &[0, 64, 128, 192, 256, 0, 64, 128, 192, 256][..],
+        &[256, 192, 128, 64, 0][..],
+    ] {
+        let (drawn, _) = frame_in_bands(&storage, &image, (FRAME, PLACE), (64, order), format);
+        assert_eq!(whole, drawn, "bands at {order:?}");
+    }
+}
+
+/// A picture too wide for what a frame keeps (4 KiB: 1,024 dithered columns)
+/// is dithered from its first row in every band, as before: the same pixels,
+/// its rows above read again.
+#[test]
+fn a_picture_too_wide_to_keep_is_dithered_from_its_first_row_as_before() {
+    let (storage, image) = card(1100, 60);
+    let (size, area) = ((1100, 60), Rect::new(0, 0, 1100, 60));
+    let format = PixelFormat::Mono1;
+    let (whole, once) = frame_in_bands(&storage, &image, (size, area), (60, &[0]), format);
+    let tops = tops(60, 10);
+    let (banded, read) = frame_in_bands(&storage, &image, (size, area), (10, &tops), format);
+    assert_eq!(whole, banded);
+    assert!(read > 2 * once, "{read} bytes read in bands, {once} in one");
 }

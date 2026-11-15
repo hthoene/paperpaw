@@ -15,7 +15,7 @@
 //! [`short_key`], [`progress_text`], [`how_text`].
 //!
 //! **What differs on purpose** (an [`ItemList`] draws the page, not the text
-//! and icons of Beta 3): the summary shows in two lines under the name, each
+//! and icons of Beta 3): the summary shows in up to four lines under the name, each
 //! fact is a faint row of one line, the notice before the first code plugin
 //! shows under its two rows; the room a code plugin needs is the host's check
 //! (`Installs::no_room`), so the fact with its sizes is gone and *Not enough
@@ -105,6 +105,11 @@ pub enum Fact<'a> {
         licence: &'a str,
         built_in: bool,
     },
+    /// What a data plugin takes of the card, and what the card has free.
+    Needs {
+        size: u64,
+        free: u64,
+    },
     Heap {
         bytes: u64,
         tight: bool,
@@ -124,6 +129,8 @@ pub struct FactInput<'a> {
     pub revoked: bool,
     /// The device has little memory.
     pub small: bool,
+    /// The bytes free on the card, where the host says.
+    pub free: Option<u64>,
 }
 
 /// Whether the plugin is a built-in one switched off: *Switch on* is what the
@@ -188,6 +195,12 @@ pub fn facts<'a>(input: &FactInput<'a>) -> Result<Vec<Fact<'a>>, Error> {
         licence: &entry.licence,
         built_in: off,
     });
+    if let (false, None, Some(free)) = (entry.code, input.installed, input.free) {
+        out.push(Fact::Needs {
+            size: entry.size,
+            free,
+        });
+    }
     if let Some(bytes) = more.and_then(|m| m.heap) {
         out.push(Fact::Heap {
             bytes,
@@ -483,6 +496,8 @@ struct Made {
     below: Below,
     note: String,
     empty: (String, String),
+    /// The picture over it.
+    icon: &'static str,
     /// The header, where the plugin is known.
     title: Option<String>,
     sig: Sig,
@@ -519,6 +534,8 @@ pub struct View {
     below: Below,
     note: String,
     empty: (String, String),
+    /// The picture over what is said instead of the page.
+    icon: &'static str,
 }
 
 fn param<'a>(params: &[(&str, &'a str)], name: &str) -> Option<&'a str> {
@@ -531,10 +548,24 @@ pub fn first_action(targets: &[Option<Row>]) -> usize {
     targets.iter().position(Option::is_some).unwrap_or(0)
 }
 
+/// The item as a line of small print.
+fn small(item: Item) -> Item {
+    match item {
+        Item::Row(mut row) => {
+            row.small = true;
+            Item::Row(row)
+        }
+        other => other,
+    }
+}
+
 fn faint(item: Item) -> Item {
     match item {
         Item::Row(mut row) => {
             row.disabled = true;
+            // What the page says of the plugin shows whole where it is long
+            // (summary four lines, a fact two), as Beta 3's page did.
+            row.whole = true;
             Item::Row(row)
         }
         other => other,
@@ -573,6 +604,7 @@ impl View {
         self.below = made.below;
         self.note = made.note;
         self.empty = made.empty;
+        self.icon = made.icon;
         if let Some(title) = made.title {
             self.title = title;
         }
@@ -647,6 +679,7 @@ impl View {
             below,
             note,
             empty,
+            icon: "",
             title: Some(copy(&entry.name)?),
             sig,
         })
@@ -654,10 +687,10 @@ impl View {
 
     /// Nothing of the plugin is known yet (or any more): what is said instead.
     fn made_empty(&self, ctx: &Ctx<'_>, say: &mut Messages, sig: Sig) -> Result<Made, Error> {
-        let (title, text) = match ctx.loader.page_state(&self.id) {
-            Trouble::Failed => ("store.gone", "store.gone.help"),
-            Trouble::Offline => ("store.offline", "store.offline.page"),
-            _ => ("store.loading-plugin", ""),
+        let (icon, title, text) = match ctx.loader.page_state(&self.id) {
+            Trouble::Failed => ("cloud", "store.gone", "store.gone.help"),
+            Trouble::Offline => ("wifi-off", "store.offline", "store.offline.page"),
+            _ => ("cloud-download", "store.loading-plugin", ""),
         };
         let empty = (
             say.copy(ctx.host, title)?,
@@ -673,6 +706,7 @@ impl View {
             below: Below::Empty,
             note: String::new(),
             empty,
+            icon,
             title: None,
             sig,
         })
@@ -690,7 +724,14 @@ impl View {
     ) -> Result<(), Error> {
         let entry = input.entry;
         let page = ctx.loader.page(&self.id);
-        push(items, faint(Item::noted(&entry.name, "", &entry.summary)?))?;
+        // The summary shows whole (four lines) in the text's size, as Beta 3's
+        // page did; the name is in the title above it.
+        let mut summary = Item::row(&entry.summary, "")?;
+        if let Item::Row(row) = &mut summary {
+            row.whole = true;
+            row.plain = true;
+        }
+        push(items, summary)?;
         push(targets, None)?;
         let facts = facts(&FactInput {
             entry,
@@ -698,10 +739,12 @@ impl View {
             installed: input.installed,
             revoked: ctx.installs.revoked(&self.id),
             small: ctx.loader.small_memory(),
+            free: ctx.installs.free_space(),
         })?;
         for fact in &facts {
             let text = fact_text(ctx.host, say, fact, mark)?;
-            push(items, faint(Item::row(&text, "")?))?;
+            let item = faint(Item::row(&text, "")?).with_icon(ctx.host, fact_icon(fact))?;
+            push(items, small(item))?;
             push(targets, None)?;
         }
         Ok(())
@@ -964,6 +1007,24 @@ fn text<'a>(name: &'a str, value: &'a str) -> Arg<'a> {
     Arg::Text { name, value }
 }
 
+/// The icon of a fact, as Beta 3's page showed it.
+const fn fact_icon(fact: &Fact<'_>) -> &'static str {
+    match fact {
+        Fact::Revoked | Fact::Unreviewed { .. } => "alert-triangle",
+        Fact::Kind { code: true, .. } | Fact::Key(_) => "key",
+        Fact::Kind { code: false, .. } => "puzzle",
+        Fact::Check(Check::Verified) => "circle-check",
+        Fact::Check(Check::Failed) => "x",
+        Fact::Check(Check::Not) => "circle",
+        Fact::Official => "paw",
+        Fact::By { .. } => "user",
+        Fact::Version { .. } => "info-circle",
+        Fact::Needs { .. } => "stack-2",
+        Fact::Heap { .. } => "chart-bar",
+        Fact::Installed(_) => "check",
+    }
+}
+
 /// The text of a fact.
 fn fact_text(
     host: &Host<'_>,
@@ -1031,6 +1092,15 @@ fn fact_text(
             let licence = say.format(host, "store.licence", &[text("licence", licence)])?;
             concat(&[&line, DOT, &licence])
         }
+        Fact::Needs { size, free } => {
+            let size = say.digits(host, &size_text(size, mark)?)?;
+            let free = say.digits(host, &size_text(free, mark)?)?;
+            say.format(
+                host,
+                "store.needs",
+                &[text("size", &size), text("free", &free)],
+            )
+        }
         Fact::Heap { bytes, tight } => {
             let size = say.digits(host, &size_text(bytes, mark)?)?;
             let key = if tight {
@@ -1080,6 +1150,7 @@ impl Screen for View {
             below: Below::Nothing,
             note: String::new(),
             empty: (String::new(), String::new()),
+            icon: "",
         };
         view.build(ctx, true)?;
         Ok(view)
@@ -1090,7 +1161,14 @@ impl Screen for View {
         self.build(ctx, false)
     }
 
+    /// On top for the first time: the page is asked for where it is not here
+    /// (the host tells the plugin once, `started`, not through `event`).
+    fn started(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        self.start(ctx)
+    }
+
     fn draw(&mut self, ctx: &Ctx<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
+        self.list.set_empty_icon(ctx.host, self.icon)?;
         let footer = match self.below {
             Below::Empty => Footer::Empty {
                 title: &self.empty.0,

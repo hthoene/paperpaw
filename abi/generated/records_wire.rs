@@ -5714,6 +5714,8 @@ pub const SERVICE_REG_GROUP_PARENT_MAX_BYTES: usize = 128;
 pub const SERVICE_REG_GROUP_PAGE_MAX_BYTES: usize = 128;
 /// Maximum bytes of `service.reg_group.title`.
 pub const SERVICE_REG_GROUP_TITLE_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.reg_group.icon`.
+pub const SERVICE_REG_GROUP_ICON_MAX_BYTES: usize = 64;
 
 /// The `service.reg_group` record, borrowed from its batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -5728,6 +5730,8 @@ pub struct ServiceRegGroup<'a> {
     pub order: i32,
     /// UTF-8 text of at most 128 bytes.
     pub title: &'a str,
+    /// UTF-8 text of at most 64 bytes. Appended and optional; empty when absent.
+    pub icon: &'a str,
 }
 
 impl<'a> ServiceRegGroup<'a> {
@@ -5736,32 +5740,50 @@ impl<'a> ServiceRegGroup<'a> {
     }
 
     fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
-        body.bitmap()?;
+        let bits = body.bitmap_bits()?;
         Ok(Self {
             id: body.string(SERVICE_REG_GROUP_ID_MAX_BYTES)?,
             parent: body.string(SERVICE_REG_GROUP_PARENT_MAX_BYTES)?,
             page: body.string(SERVICE_REG_GROUP_PAGE_MAX_BYTES)?,
             order: i32::from_le_bytes(body.scalar()?),
             title: body.string(SERVICE_REG_GROUP_TITLE_MAX_BYTES)?,
+            icon: body.opt_string(bits, 0x01, SERVICE_REG_GROUP_ICON_MAX_BYTES)?,
         })
     }
 
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if !self.icon.is_empty() {
+            bits |= 0x01;
+        }
+        bits
+    }
+
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
         len += blob_len(self.id.len(), SERVICE_REG_GROUP_ID_MAX_BYTES)?;
         len += blob_len(self.parent.len(), SERVICE_REG_GROUP_PARENT_MAX_BYTES)?;
         len += blob_len(self.page.len(), SERVICE_REG_GROUP_PAGE_MAX_BYTES)?;
         len += 4;
         len += blob_len(self.title.len(), SERVICE_REG_GROUP_TITLE_MAX_BYTES)?;
+        if bits & 0x01 != 0 {
+            len += blob_len(self.icon.len(), SERVICE_REG_GROUP_ICON_MAX_BYTES)?;
+        }
         Ok(len)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
+        let bits = self.bits();
         write_blob(self.id.as_bytes(), out, offset);
         write_blob(self.parent.as_bytes(), out, offset);
         write_blob(self.page.as_bytes(), out, offset);
         write_bytes(&self.order.to_le_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
+        if bits & 0x01 != 0 {
+            write_blob(self.icon.as_bytes(), out, offset);
+        }
     }
 }
 
@@ -5775,7 +5797,11 @@ impl<'a> WireEncode for ServiceRegGroup<'a> {
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
         self.write(out, offset);
     }
 }
@@ -22569,6 +22595,7 @@ impl Record<'_> {
             Record::EventBookOpened(record) => record.bits(),
             Record::EventBookClosed(record) => record.bits(),
             Record::EventBookFinished(record) => record.bits(),
+            Record::ServiceRegGroup(record) => record.bits(),
             Record::ServiceRegWidget(record) => record.bits(),
             Record::EventImageReady(record) => record.bits(),
             Record::ServiceLibRef(record) => record.bits(),

@@ -144,7 +144,7 @@ fn look(host: &Host<'_>) -> Result<Look, Error> {
             kept[at] = Some(text);
         }
     }
-    let mut numbers = [0u8; 16];
+    let mut numbers = [0u8; 32];
     let thickness = match read_setting(host, "vocabulary.learning.thickness", &mut numbers)? {
         SettingValue::Int(value) => value,
         _ => 4,

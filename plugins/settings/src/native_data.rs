@@ -185,6 +185,7 @@ impl<'h, 'cb> Reader<'h, 'cb> {
                         page: copy(row.page())?,
                         order: row.order(),
                         title: copy(row.title())?,
+                        icon: copy(row.icon())?,
                     })?;
                     push(&mut parents, copy(row.id())?)?;
                 }
@@ -244,6 +245,20 @@ impl<'h, 'cb> Reader<'h, 'cb> {
         let mut found = Vec::new();
         rows!(cursor => self.registry.widgets(self.host, "", cursor, &mut self.input, &mut self.output), |row| {
             push(&mut found, copy(row.id())?)
+        })?;
+        Ok(found)
+    }
+
+    /// The widget that previews `group`: the last the registry lists for it, as
+    /// a settings page shows that one; none where no widget does.
+    pub fn previewing(&mut self, group: &str) -> Result<Option<String>, Error> {
+        if group.is_empty() {
+            return Ok(None);
+        }
+        let mut found = None;
+        rows!(cursor => self.registry.widgets_previewing(self.host, group, cursor, &mut self.input, &mut self.output), |row| {
+            found = Some(copy(row.id())?);
+            Ok(())
         })?;
         Ok(found)
     }

@@ -117,3 +117,31 @@ fn image_lifecycle_subscriptions_match_generated_callbacks() {
     .unwrap();
     assert_eq!(index, image::EVENTS.len());
 }
+
+#[test]
+fn tools_entry_and_icon_keep_beta3_references() {
+    use paperpaw_core::native_host::registrations::{Record, records_decode};
+    let mut entry_found = false;
+    let mut icon_found = false;
+    fixture::ui(|batch| {
+        for record in records_decode(batch).unwrap().iter() {
+            match record {
+                Record::MenuEntry(entry)
+                    if entry.menu == "core.tools" && entry.item == "battery.open" =>
+                {
+                    assert_eq!(entry.order, 37);
+                    entry_found = true;
+                }
+                Record::IconSpec(icon) if icon.item == "battery.open" => {
+                    assert_eq!(icon.icon, "battery");
+                    icon_found = true;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert!(entry_found, "Battery must appear in Tools");
+    assert!(icon_found, "Battery must have its icon");
+}

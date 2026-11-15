@@ -175,9 +175,9 @@ fn code_is(
     let mut unjudged = false;
     let is = native::CODE_FILES.iter().any(|name| {
         let path = format!("{}/{name}", folder.trim_end_matches('/'));
-        native::read_header(storage, &path).is_some_and(|header| header.sha256 == *sha256)
-            && author.is_none_or(|author| match native::checked_file(storage, &path) {
-                Ok((_, signature)) => signature.is_some_and(|s| s.key == author),
+        named(storage, &path) == Some(*sha256)
+            && author.is_none_or(|author| match signer(storage, &path) {
+                Ok(signature) => signature.is_some_and(|s| s.key == author),
                 Err(native::Problem::Other(native::NO_MEMORY)) => {
                     unjudged = true;
                     false
@@ -186,6 +186,24 @@ fn code_is(
             })
     });
     (is || !unjudged).then_some(is)
+}
+
+/// The SHA-256 the header of the code file at `path` carries: of either
+/// format where the kernel is built, of the format before interface 7 else.
+fn named(storage: &dyn Storage, path: &str) -> Option<[u8; 32]> {
+    #[cfg(feature = "kernel")]
+    return native::code_sha256(storage, path);
+    #[cfg(not(feature = "kernel"))]
+    native::read_header(storage, path).map(|header| header.sha256)
+}
+
+/// The author's signature of the code file at `path`, checked whole
+/// (`None`: not signed), as [`named`] reads it.
+fn signer(storage: &dyn Storage, path: &str) -> Result<Option<native::Signature>, native::Problem> {
+    #[cfg(feature = "kernel")]
+    return native::check_code(storage, path).map(|(_, signature)| signature);
+    #[cfg(not(feature = "kernel"))]
+    native::checked_file(storage, path).map(|(_, signature)| signature)
 }
 
 #[cfg(test)]

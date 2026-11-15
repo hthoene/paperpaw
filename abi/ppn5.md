@@ -243,8 +243,7 @@ interface 6 and gets format 4, and one that defines both or neither is refused. 
 - `entry` is `PAPERPAW_ENTRY` (exactly 20 bytes, 8-aligned) and `meta_at`, `meta_len` are `PAPERPAW_METADATA`
   (4-aligned, at most 2,048 bytes, a record this host reads); `abi_major` and `needs_minor` are the record's
   own. **Nothing is written for a draft** (there is no draft field), no fingerprint, no compiler;
-- target 9 (**the X4 Pro**: a plugin built for Xtensa) is refused with the reason, until an Xtensa profile exists
-  in `abi/entry.md`;
+- target 9 (**the X4 Pro and X4 Classic**: a plugin built for Xtensa) is packed, see "Target 9" below;
 - the pack-time half of the freestanding rule: an undefined symbol, an exported symbol besides the two
   and the optional `PAPERPAW_HEAP` (`PAPERPAW_HOT` and `PAPERPAW_HOT_END` are the linker script's), a writable section or any section but
   `.rodata` and `.text` that takes memory (`.data`, `.bss`, TLS, `.init_array`, `.ctors`, `.fini*`), and a
@@ -285,6 +284,9 @@ The same format 5, header, digests, signature and loader order; what differs for
   (`relocation.rs`, `Chip::Esp32S3`), refuses a call0 object (`.xtensa.info` `ABI=1` where present), and writes target 9.
 - **Builds:** the release and store workflows build every code plugin for `x4-pro` (target 9; `x4-classic`
   takes the same file, as `store-plugin.yml` already maps it) with the esp toolchain, alongside `x4`.
+  `tools/plugin-files7/build.sh x4-pro|x4-classic` packs every plugin's file (the same bytes for both
+  devices, under their own names) against `native/metadata.s3.bin`, which `tools/plugin-files7/s3-metadata.py`
+  writes from the plugin's own metadata (`--check` in CI). The S3 build sets `-C jump-tables=no` as the X4's.
 - **Tests:** the loader's refusal sweep repeats for target 9 (nonzero hot or patch fields, a word outside the
   image, unsorted relocs, wrong metadata target, a target-5 file on the S3 and a target-9 file on the C3);
   `samples/abi7-x4-min` builds for both targets in CI. Device runs on an X4 Pro wait for the owner.

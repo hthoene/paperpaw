@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-vocabulary"
 description = "PaperPaw vocabulary: the words looked up while reading, with their sentences"
-version = "1.1.7"
+version = "1.1.9"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -13,7 +13,7 @@ categories = ["no-std"]
 [package.metadata.paperpaw]
 # What the plugin reads from its folder on the card: the store's package
 # holds these files (tools/plugin-files/catalogue.py).
-card-files = ["data/phone.txt"]
+card-files = ["i18n/*.ini", "data/phone.txt"]
 
 [features]
 # The phone page carried in the code (the plugin as part of an app); a
