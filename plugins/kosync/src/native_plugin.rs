@@ -28,8 +28,8 @@ use paperpaw_ui_kit::{
 };
 
 use crate::declarations::{
-    ACCOUNT, BOOK_CLOSED, BOOK_OPENED, HTTP_DONE, PAGE_TURNED, PUSH_WORK, RESUME, SCREEN_SHOWN,
-    SETTING_CHANGED, STARTED, SUSPEND, SYNC_NOW, WORK_ALLOWED, WORK_DUE,
+    ACCOUNT, BOOK_CLOSED, BOOK_OPENED, HTTP_DONE, PAGE_TURNED, PUSH_WORK, RESUME, SETTING_CHANGED,
+    STARTED, SUSPEND, SYNC_NOW, WORK_ALLOWED, WORK_DUE,
 };
 use crate::native_account::{Account, Field, Message, Row, Todo};
 use crate::native_backing::Backing;
@@ -158,7 +158,6 @@ impl Plugin for NativeKosync {
                 instance: Some(instance),
                 ..
             } if token == ACCOUNT => self.screens.shown(token, instance),
-            Event::ScreenShown { .. } if token == SCREEN_SHOWN => Ok(()),
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 Ok(())
