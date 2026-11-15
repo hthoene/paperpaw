@@ -31,6 +31,7 @@ pub struct World {
     pub host: ScriptedHost,
     pub dialogs: Dialogs,
     pub server: Rc<RefCell<Server>>,
+    pub library_ops: Rc<RefCell<Vec<u32>>>,
 }
 
 impl World {
@@ -118,7 +119,10 @@ impl World {
                 _ => Err(-1),
             }
         });
-        host.service("core.library", 1, 0, |op, input| {
+        let library_ops = Rc::new(RefCell::new(Vec::new()));
+        let calls = library_ops.clone();
+        host.service("core.library", 1, 0, move |op, input| {
+            calls.borrow_mut().push(op);
             if op != 25 { return Err(-1); }
             let rows = records_decode(input).map_err(|_| -2)?;
             if !matches!(rows.iter().next(), Some(Record::ServiceLibRef(book)) if !book.path.is_empty()) { return Err(-2); }
@@ -128,6 +132,7 @@ impl World {
             host,
             dialogs,
             server,
+            library_ops,
         }
     }
 

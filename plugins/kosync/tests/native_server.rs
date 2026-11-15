@@ -122,3 +122,33 @@ fn a_truncated_body_is_not_mistaken_for_a_complete_unknown_position() {
             .all(|r| r.method != "PUT")
     );
 }
+
+#[test]
+fn an_unconfirmed_offer_never_writes_a_library_position() {
+    for answer in [None, Some(Answer::Cancelled), Some(Answer::Confirm(false))] {
+        let world = World::new(true);
+        {
+            let plugin = world.load();
+            assert_eq!(world.opened(&plugin, "first.epub", 100_000).status, 0);
+            let remote = br#"{"percentage":0.8,"device_id":"another","device":"Test device","progress":"/known"}"#;
+            assert_eq!(world.complete(&plugin, 0, 200, remote).status, 0);
+            if let Some(answer) = answer {
+                let request = world.dialogs.last().unwrap().request;
+                let event = world.dialogs.answer(request, &answer).unwrap();
+                assert_eq!(plugin.event(tokens::ACCOUNT, &event).unwrap().status, 0);
+            }
+            assert_eq!(
+                world.closed(&plugin, "first.epub", 100_000, 70_000).status,
+                0
+            );
+        }
+        assert!(
+            world.library_ops.borrow().contains(&25),
+            "real plugin queried the fingerprint"
+        );
+        assert!(
+            !world.library_ops.borrow().contains(&14),
+            "unaccepted remote position must not replace the saved reader position"
+        );
+    }
+}
