@@ -42,3 +42,24 @@ impl Kernel {
         (shown, self.finish())
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
+mod tests {
+    use paperpaw_platform::Instant;
+
+    #[test]
+    fn the_confirmation_shows_without_a_firmware_host() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        kernel.start(Instant(0));
+        let (shown, _) =
+            kernel.show_firmware_confirm(Instant(10), "update", "other-os", "9.9.9", true);
+        assert!(shown);
+        assert_eq!(
+            kernel.active_screen().map(paperpaw_sdk::Id::as_str),
+            Some("core.firmware-confirm")
+        );
+    }
+}
