@@ -168,7 +168,7 @@ pub fn first_word(page: &Page) -> Result<Option<(String, Locator)>, Error> {
         let Some(text) = line.text.get(run.start..run.end) else {
             continue;
         };
-        for (n, part) in text.split(|c| c == ' ' || c == '\u{a0}').enumerate() {
+        for (n, part) in text.split([' ', '\u{a0}']).enumerate() {
             if n > 0 {
                 done |= !word.is_empty();
             }
