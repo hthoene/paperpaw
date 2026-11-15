@@ -17,6 +17,7 @@ use crate::panel::Panel;
 use crate::profiles::Profile;
 use paperpaw_core::sdk::MemoryStorage;
 use paperpaw_fs::DirStorage;
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
 use paperpaw_platform::Storage;
 
 mod card;
