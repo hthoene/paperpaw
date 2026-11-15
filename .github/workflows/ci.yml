@@ -557,6 +557,10 @@ jobs:
           cargo build -q --release -p paperpaw-sign
           target/release/paperpaw-sign key "$RUNNER_TEMP/ci.key" > /dev/null
           tools/plugin-files7/build.sh "$DEVICE" "$out" --key "$RUNNER_TEMP/ci.key"
+          # Each of them runs on this firmware, as the release checks it: its
+          # chip, its interface, and no newer minor than the firmware has.
+          target/release/paperpaw-sign fits \
+            "shells/xteink/target/$FIRMWARE_TARGET/release/paperpaw-xteink" "$out"/*.ppn
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
           python3 tools/plugin-files/catalogue.py "$out" "$version" https://example.invalid/ci
       # espup's toolchain is cached between runs (xteink-tools): the core
