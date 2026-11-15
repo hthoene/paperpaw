@@ -229,7 +229,10 @@ jobs:
           - { os: windows-latest, target: windows-x64, rust: "" }
           - { os: macos-14, target: macos-arm64, rust: "" }
           - { os: macos-14, target: macos-x64, rust: x86_64-apple-darwin }
-          - { os: ubuntu-latest, target: linux-x64, rust: "" }
+          # Built on the oldest image we support: a binary needs at most the
+          # glibc of the machine that built it (Debian 12 has 2.36, Ubuntu
+          # 22.04 has 2.35). `ubuntu-latest` (24.04, 2.39) left both out (#125).
+          - { os: ubuntu-22.04, target: linux-x64, rust: "" }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -261,6 +264,11 @@ jobs:
           mkdir -p dist/pkg
           tools=("paperpaw-emu$exe" "paperpaw-dev$exe" "paperpaw-sign$exe")
           for tool in "${tools[@]}"; do cp "$built/$tool" dist/pkg/; done
+          # Linux: what they ask of the system's glibc is what the zip
+          # promises (Debian 12 and Ubuntu 22.04 start them).
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            tools/check-glibc.sh 2.35 "$built/paperpaw-emu" "$built/paperpaw-dev" "$built/paperpaw-sign" "$built/paperpaw-fontgen"
+          fi
           # Their licence and the notices of what they hold (tools/licences).
           cp LICENSE NOTICE dist/pkg/
           # Where it runs as built: it answers over --stdio, as the
