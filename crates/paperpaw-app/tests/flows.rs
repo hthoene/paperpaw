@@ -318,6 +318,10 @@ fn settings_changed_in_the_ui_are_saved_and_read_back_after_a_restart() {
 /// With the help's first-time hints on, as on a new device: the start shows
 /// home, a hint the first button closes takes nothing with it, and home and
 /// the reader still open without a warning.
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn the_first_start_with_the_help_hints_on_reaches_home_and_a_book() {
     let card = Card::new(true);
@@ -376,6 +380,61 @@ fn bookmarks_keep_words_broken_across_lines_whole() {
         })
         .collect();
     assert!(broken.is_empty(), "words broken in bookmarks: {broken:#?}");
+}
+
+/// The reader keeps its reading settings between page turns (#250) but not
+/// past a change: a size set while the book is open is the one of the next
+/// page, as when set before the book opened.
+#[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
+fn a_setting_changed_while_a_book_is_open_is_used_by_the_next_page() {
+    // The first words of the second page, bookmarked, with the font size
+    // four larger (where `Some`) before the book opens (`true`) or after it
+    // opened and a page was turned and turned back.
+    fn second_page(larger: Option<bool>) -> String {
+        let card = Card::new(true);
+        let mut app = App::start(BUTTONS, &card);
+        let set = |app: &mut App| {
+            let now = Instant(app.now);
+            let to = (app.kernel.settings().int("core.font-size") + 4).to_string();
+            let effects = app.kernel.set_setting(now, "core.font-size", &to).unwrap();
+            app.settle(effects);
+        };
+        if larger == Some(true) {
+            set(&mut app);
+        }
+        app.now += 100;
+        let open = Params::new().with(paperpaw_sdk::builtin::params::PATH, ALICE);
+        let effects =
+            app.kernel
+                .open_slot(Instant(app.now), paperpaw_sdk::builtin::slots::READER, open);
+        app.settle(effects);
+        app.kernel.render(&mut |_, _| {});
+        app.run(actions::NEXT_PAGE);
+        app.run(actions::PREV_PAGE);
+        app.kernel.render(&mut |_, _| {});
+        if larger == Some(false) {
+            set(&mut app);
+            app.kernel.render(&mut |_, _| {});
+        }
+        app.run(actions::NEXT_PAGE);
+        app.kernel.render(&mut |_, _| {});
+        app.run(Id::new_static("reader.toggle-bookmark"));
+        let marks = paperpaw_sdk::annotations::load(&card, ALICE);
+        assert_eq!(marks.len(), 1);
+        marks[0].text.clone()
+    }
+    let plain = second_page(None);
+    let before = second_page(Some(true));
+    let after = second_page(Some(false));
+    assert_ne!(
+        plain, before,
+        "the size changes where the second page begins"
+    );
+    assert_eq!(after, before, "a size set after the book opened is used");
 }
 
 /// The reader asked to open a book while it shows one (a book opened from
@@ -599,11 +658,19 @@ fn open_every_screen(device: DeviceInfo) {
     assert_eq!(app.screen(), "home.dashboard");
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn every_screen_opens_and_closes_with_the_buttons() {
     open_every_screen(BUTTONS);
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn every_screen_opens_and_closes_by_touch() {
     open_every_screen(TOUCH);

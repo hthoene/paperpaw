@@ -23,6 +23,9 @@ use paperpaw_sdk::{DirEntry, Env, MemoryStorage, Storage, StorageError};
 struct Roots {
     mem: MemoryStorage,
     prefix: String,
+    /// The decoded pictures written (their paths in `mem`) and the appends to them.
+    pictures: std::cell::RefCell<Vec<String>>,
+    picture_appends: std::cell::Cell<u32>,
 }
 
 impl Roots {
@@ -30,6 +33,8 @@ impl Roots {
         Self {
             mem: MemoryStorage::new().with(&format!("book/{name}"), book.to_vec()),
             prefix: Env::plugin_dir("format-epub"),
+            pictures: std::cell::RefCell::default(),
+            picture_appends: std::cell::Cell::new(0),
         }
     }
     fn map(&self, path: &str) -> String {
@@ -51,11 +56,17 @@ impl Storage for Roots {
         if !path.starts_with(&self.prefix) {
             return Err(StorageError::Unsupported);
         }
+        if path.ends_with(".gray") && !self.pictures.borrow().contains(&self.map(path)) {
+            self.pictures.borrow_mut().push(self.map(path));
+        }
         self.mem.write(&self.map(path), data)
     }
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         if !path.starts_with(&self.prefix) {
             return Err(StorageError::Unsupported);
+        }
+        if path.ends_with(".gray") {
+            self.picture_appends.set(self.picture_appends.get() + 1);
         }
         self.mem.append(&self.map(path), data)
     }
@@ -852,4 +863,140 @@ fn a_background_open_builds_nothing_and_a_normal_one_after_it_finds_everything_o
         files.iter().any(|f| f.ends_with("package.ini")),
         "{files:?}"
     );
+}
+
+const PNG: &[u8] = include_bytes!("../../../crates/paperpaw-image/tests/data/gray.png");
+
+/// Two chapters, a picture in each after some text.
+fn picture_book() -> Vec<u8> {
+    let chapter = |n: u32| {
+        format!(
+            "<h1>Chapter {n}</h1><p>Some words first.</p><p><img src=\"p{n}.png\" alt=\"picture {n}\"/></p><p>And words after.</p>"
+        )
+    };
+    book(
+        &[chapter(0), chapter(1)],
+        &[
+            ("OEBPS/p0.png", PNG.to_vec()),
+            ("OEBPS/p1.png", PNG.to_vec()),
+        ],
+    )
+}
+
+/// The picture rows (section, index, width, height, flags) of every block of
+/// the book, each block read once from its section's start on, as the page
+/// count reads them.
+fn read_every_block(
+    p: &mut paperpaw_epub_family::provider::FormatProvider,
+    io: &dyn Storage,
+) -> Vec<(u32, u32, u32, u32, u32)> {
+    let mut pictures = Vec::new();
+    for section in 0..2 {
+        let mut offset = 0;
+        loop {
+            let input = call(8, |c| {
+                c.section = section;
+                c.offset = offset;
+            });
+            let Ok(reply) = run(p, io, &input) else {
+                break;
+            };
+            for row in rows(&reply) {
+                match row {
+                    stage::Record::FmtBlock(b) => offset = b.end,
+                    stage::Record::FmtImage(i) => {
+                        pictures.push((section, i.index, i.width, i.height, i.flags));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    pictures
+}
+
+/// Asks for the picture `index` of `section` (op 18): width, height, flags.
+fn ask_picture(
+    p: &mut paperpaw_epub_family::provider::FormatProvider,
+    io: &dyn Storage,
+    section: u32,
+    index: u32,
+) -> (u32, u32, u32) {
+    let input = call(18, |c| {
+        c.section = section;
+        c.index = index;
+    });
+    let reply = run(p, io, &input).unwrap();
+    let stage::Record::FmtImage(image) = rows(&reply)[0] else {
+        panic!("image")
+    };
+    (image.width, image.height, image.flags)
+}
+
+fn open_picture_book(io: &Roots) -> paperpaw_epub_family::provider::FormatProvider {
+    let mut p = epub_provider();
+    let reply = run(&mut p, io, &call(2, |c| c.text = "pictures.epub")).unwrap();
+    let stage::Record::FmtState(s) = rows(&reply)[0] else {
+        panic!("state")
+    };
+    assert_eq!((s.state, s.status), (0, 0), "{s:?}");
+    p
+}
+
+#[test]
+fn reading_every_block_decodes_no_picture() {
+    let io = Roots::new("pictures.epub", &picture_book());
+    let mut p = open_picture_book(&io);
+    let pictures = read_every_block(&mut p, &io);
+    // Both go out with the size they decode to and "not decoded yet" (bit 0).
+    assert_eq!(pictures.len(), 2, "{pictures:?}");
+    for (_, _, width, height, flags) in &pictures {
+        assert_eq!((*width, *height, *flags), (37, 23, 1));
+    }
+    assert!(io.pictures.borrow().is_empty(), "{:?}", io.pictures);
+    assert_eq!(io.picture_appends.get(), 0);
+}
+
+#[test]
+fn a_picture_asked_for_is_decoded_once_at_the_size_its_block_said() {
+    let io = Roots::new("pictures.epub", &picture_book());
+    let mut p = open_picture_book(&io);
+    let (section, index, width, height, _) = read_every_block(&mut p, &io)[1];
+    assert_eq!(ask_picture(&mut p, &io, section, index), (width, height, 0));
+    // Only the one asked for, and whole.
+    let made = io.pictures.borrow().clone();
+    assert_eq!(made.len(), 1, "{made:?}");
+    let whole = 12 + u64::from(width) * u64::from(height);
+    assert_eq!(io.mem.size(&made[0]).unwrap(), whole);
+    let appends = io.picture_appends.get();
+    assert!(appends > 0);
+    // Asked for again and read again: served from its file, decoded (flags 0).
+    assert_eq!(ask_picture(&mut p, &io, section, index), (width, height, 0));
+    let again = read_every_block(&mut p, &io);
+    assert_eq!(again[1], (section, index, width, height, 0));
+    assert_eq!(again[0].4, 1, "the other one is still not decoded");
+    assert_eq!(io.picture_appends.get(), appends);
+    assert_eq!(io.pictures.borrow().len(), 1);
+}
+
+#[test]
+fn a_picture_file_cut_short_is_decoded_again_when_asked_for() {
+    let io = Roots::new("pictures.epub", &picture_book());
+    let mut p = open_picture_book(&io);
+    let (section, index, width, height, _) = read_every_block(&mut p, &io)[0];
+    ask_picture(&mut p, &io, section, index);
+    let path = io.pictures.borrow()[0].clone();
+    let whole = 12 + u64::from(width) * u64::from(height);
+    // A decode the power cut: the header and half the rows.
+    let mut half = vec![0; (whole / 2) as usize];
+    io.mem.read_at(&path, 0, &mut half).unwrap();
+    io.mem.write(&path, &half).unwrap();
+    // Read again it is "not decoded yet", not a picture of half its rows.
+    assert_eq!(
+        read_every_block(&mut p, &io)[0],
+        (section, index, width, height, 1)
+    );
+    assert_eq!(io.mem.size(&path).unwrap(), whole / 2);
+    assert_eq!(ask_picture(&mut p, &io, section, index), (width, height, 0));
+    assert_eq!(io.mem.size(&path).unwrap(), whole);
 }

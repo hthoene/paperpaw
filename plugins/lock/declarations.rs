@@ -1,8 +1,7 @@
 //! The screen lock's native declarations: its page of settings (the kind of
 //! lock, whether waking up asks for it, the touch lock's switch), the lock
 //! screen, the action *Lock now* and the events that lock the device. The
-//! page's icon and the first-run step are declarable but the host refuses them
-//! until it takes icons and setup steps; the menu entries, the input filter and
+//! first-run step is pending on host setup support; the menu entries, the input filter and
 //! the status item of the touch lock follow with their host pieces
 //! (`PORTING-7.md`).
 use paperpaw_sdk::native::declare::{
@@ -36,6 +35,7 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     let mut group = GroupDecl::new(GROUP, "lock.plugin.name");
     group.order = 92;
     d.group(group)?;
+    d.icon(GROUP_FULL, "lock")?;
     let mut kind = SpecDecl::new(
         "kind",
         Kind::Choice {
@@ -88,6 +88,7 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.action(ActionDecl::new("now", "lock.now", NOW))?;
+    d.icon("lock.now", "lock")?;
     d.submit()?;
     Ok(())
 }

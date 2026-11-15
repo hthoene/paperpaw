@@ -22,6 +22,11 @@
       "key": "uses.network",
       "required": false,
       "revision": 1
+    },
+    {
+      "key": "uses.power",
+      "required": false,
+      "revision": 1
     }
   ],
   "flags": 0,
@@ -40,6 +45,12 @@
   "services": [
     {
       "key": "core.device",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
+      "key": "core.files",
       "major": 1,
       "min_table_bytes": 0,
       "semantic_revision": 0
@@ -64,5 +75,5 @@
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 205
+  "total_bytes": 245
 }

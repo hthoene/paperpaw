@@ -466,6 +466,7 @@ impl NativeUpdate {
     }
 
     /// The download's progress: the percent of the page.
+    #[inline(never)]
     pub(super) fn load_progress(
         &mut self,
         host: &Host<'_>,
@@ -575,6 +576,7 @@ impl NativeUpdate {
     }
 
     /// The end of a request of this flow, whichever it is.
+    #[inline(never)]
     pub(super) fn http_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
         match done.token() {
             ASK => self.answered(host, done),
@@ -624,6 +626,7 @@ impl NativeUpdate {
     }
 
     /// A check at a cheap moment (the action `update.check`, which a rule runs).
+    #[inline(never)]
     pub(super) fn check_later(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let spec = WorkSpec::new(CHECK_KEY, super::WORK_DUE)?
             .network()
@@ -641,6 +644,7 @@ impl NativeUpdate {
     }
 
     /// Declared work came due: the weekly look (counted from now on) or a check.
+    #[inline(never)]
     pub(super) fn work_due(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
         if key == LOOK_KEY {
             if !flag(host, LOOK)? {
@@ -658,6 +662,7 @@ impl NativeUpdate {
     }
 
     /// A setting changed: the weekly look is declared anew or taken back.
+    #[inline(never)]
     pub(super) fn setting_changed(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
         if key == LOOK {
             return tolerate(self.plan_look(host));

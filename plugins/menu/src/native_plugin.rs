@@ -519,6 +519,11 @@ impl NativeMenu {
             let mut item = Item::noted(&row.title, &value, &row.describe)?;
             if let Item::Row(r) = &mut item {
                 r.disabled = !row.choosable();
+                // The entry's icon at the start of its row, where the host
+                // has an icon font that knows the name.
+                if !row.icon.is_empty() {
+                    r.icon = paperpaw_ui_kit::icons::glyph(host, &row.icon)?;
+                }
                 r.stepper = touch && info.is_some_and(|i| i.kind == SettingKind::Int);
                 // A switch is told as one: the row is on or off.
                 if let (Kind::Setting, Some(Value::Bool(on))) =

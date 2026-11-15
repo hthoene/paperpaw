@@ -1,0 +1,3 @@
+### Fixed
+
+- **A book's pictures are decoded when a page shows them, not when the book is read** (#250). Opening a book for the first time and counting its pages read every block, and each picture block decoded its picture and wrote it to the card, shown or not: a first open of a picture-heavy EPUB took most of its time there, and the page count went on decoding in the background. A picture that is not decoded yet now goes out at the size it will have, so the pages come out the same, and it is decoded when the reader asks for it for the page on show. Caches made before stay valid; books of whole pages (comics) are read as before.

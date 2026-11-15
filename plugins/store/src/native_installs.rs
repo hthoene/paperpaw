@@ -20,8 +20,10 @@ use paperpaw_sdk::Storage;
 use paperpaw_sdk::native::{
     Error, Host,
     device::{Device as Dev, DeviceCapability},
+    files::{Files, INPUT_BYTES, OUTPUT_BYTES},
     registry::{PageCursor, Registry, RegistryNeedKind, RegistryPluginKind},
     settings::{self, SettingValue},
+    storage::Root,
 };
 use paperpaw_ui_kit::{
     mem::{SERVICE_BUFFER, buffer, push},
@@ -295,8 +297,25 @@ pub struct Activity {
     pub can_install: bool,
     /// The device takes betas as updates.
     pub takes_betas: bool,
+    /// The bytes free on the card, where the host says.
+    pub free: Option<u64>,
     /// The actions registered (the fonts browser's, for one).
     pub actions: Vec<String>,
+}
+
+/// The bytes free on the medium of the plugin's data folder (the card), if the
+/// host says; nothing where the files service or the number is not there.
+fn read_free(host: &Host<'_>) -> Option<u64> {
+    let (Ok(mut input), Ok(mut out)) = (buffer(INPUT_BYTES), buffer(OUTPUT_BYTES)) else {
+        return None;
+    };
+    let files = Files::open(host).ok()?;
+    let free = files
+        .space(host, Root::Data, &mut input, &mut out)
+        .ok()
+        .and_then(|space| space.free());
+    files.release(host).ok();
+    free
 }
 
 /// What the host says of the device, before it is put into the [`Activity`].
@@ -373,6 +392,7 @@ impl Activity {
         let facts = facts?;
         self.can_install = facts.code && facts.network && facts.install;
         self.takes_betas = facts.beta_setting || facts.beta_firmware;
+        self.free = read_free(host);
         self.flash_hint = facts.code
             && paperpaw_sdk::native::code_room(storage).is_some_and(|room| room.larger.is_some());
         self.actions = facts.actions;
@@ -588,6 +608,10 @@ impl Installs for HostInstalls<'_> {
 
     fn flash_hint(&self) -> bool {
         self.activity.flash_hint
+    }
+
+    fn free_space(&self) -> Option<u64> {
+        self.activity.free
     }
 
     fn can_install(&self) -> bool {

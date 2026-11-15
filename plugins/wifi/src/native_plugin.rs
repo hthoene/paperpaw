@@ -567,8 +567,14 @@ impl NativeWifi {
                 };
                 let title = say.copy(host, key)?;
                 let help = say.copy(host, &concat(&[key, ".help"])?)?;
-                let value = switch(say, Self::flag(host, setting)?)?;
-                Item::noted(&title, &value, &help)
+                let on = Self::flag(host, setting)?;
+                let value = switch(say, on)?;
+                let mut item = Item::noted(&title, &value, &help)?;
+                // Drawn as a switch; the word is what the row says elsewhere.
+                if let Item::Row(row) = &mut item {
+                    row.on = Some(on);
+                }
+                Ok(item)
             }
             PageRow::IdleOff => {
                 let title = say.copy(host, "wifi.setting.idle-off")?;

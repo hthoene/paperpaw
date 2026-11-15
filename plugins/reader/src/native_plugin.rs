@@ -50,6 +50,9 @@ use paperpaw_ui_kit::{
     read_event, text, uitext,
 };
 
+mod reopen;
+use reopen::rest;
+
 mod image {
     include!(concat!(env!("OUT_DIR"), "/reader_declarations.rs"));
 }
@@ -133,6 +136,7 @@ const READ_ALOUD_TOKEN: u32 = native_handsfree::token_of(b"read-aloud");
 
 impl NativeReader {
     /// The reading screen opened: its book is opened with it.
+    #[inline(never)]
     fn open(
         &mut self,
         host: &Host<'_>,
@@ -209,6 +213,7 @@ impl NativeReader {
     }
 
     /// A note opened over the page.
+    #[inline(never)]
     fn open_note(
         &mut self,
         host: &Host<'_>,
@@ -284,6 +289,7 @@ impl NativeReader {
     }
 
     /// The table of contents opened: its book is opened with it.
+    #[inline(never)]
     fn open_toc(
         &mut self,
         host: &Host<'_>,
@@ -372,6 +378,7 @@ impl NativeReader {
     }
 
     /// The skim screen opened over the page.
+    #[inline(never)]
     fn open_skim(
         &mut self,
         host: &Host<'_>,
@@ -397,6 +404,7 @@ impl NativeReader {
     }
 
     /// The annotations opened: their notes are read with it.
+    #[inline(never)]
     fn open_notes(
         &mut self,
         host: &Host<'_>,
@@ -451,6 +459,7 @@ impl NativeReader {
     }
 
     /// The search screen opened: the text answered is searched for.
+    #[inline(never)]
     fn open_search(
         &mut self,
         host: &Host<'_>,
@@ -744,6 +753,11 @@ impl NativeReader {
     /// setting of the layout) or draws it again (a setting of the ink). A refusal
     /// of one screen costs the others nothing.
     fn setting_changed(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
+        // What the screens kept of the settings is out of date.
+        for view in self.screens.all() {
+            view.forget_settings();
+            view.forget_status();
+        }
         if key == "core.smooth-text" {
             let instances: alloc::vec::Vec<Instance> = self
                 .screens
@@ -753,6 +767,9 @@ impl NativeReader {
             for instance in instances {
                 Self::set_grays(host, instance, true);
             }
+        }
+        if key == "core.publisher-styles" {
+            return self.reopen_books(host);
         }
         // Another plugin's setting may change the text filters' rules.
         let mut refiltered = false;
@@ -983,6 +1000,7 @@ impl NativeReader {
             .hands
             .due(host, (now_ms, self.work.as_ref()), |instance, input| {
                 let view = screens.get(instance).ok_or(Error::State)?;
+                view.forget_status();
                 view.input(host, (docs, library, ui), input)?;
                 Ok(view.take_turned())
             });
@@ -1010,6 +1028,7 @@ impl NativeReader {
         Self::set_grays(host, instance, false);
         let (asked, reopened) = (self.aloud_asked.take(), self.reopening.take());
         if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
+            view.forget_status();
             view.shown(host, docs);
             crate::native_ready::say(host, view);
             // Read aloud kept at the start for the book reopened, or kept while
@@ -1182,32 +1201,6 @@ impl NativeReader {
         self.screens.close(instance);
         self.resting.retain(|(at, ..)| *at != instance);
     }
-}
-
-/// Gives back the documents of the reading screens other than `instance`: the
-/// host lets a plugin keep few open (one on the X4). Each keeps its book in
-/// `resting` and opens it again when it is on top again.
-fn rest(
-    host: &Host<'_>,
-    (docs, library): (&Documents, Option<&Library>),
-    (screens, resting): (
-        &mut Screens<View>,
-        &mut Vec<(Instance, String, &'static str)>,
-    ),
-    instance: Instance,
-) -> Result<(), Error> {
-    for (other, view) in screens.all_with_instance() {
-        if other == instance {
-            continue;
-        }
-        let Some((path, root)) = view.book() else {
-            continue;
-        };
-        let path = text::copy(path)?;
-        mem::push(resting, (other, path, root))?;
-        view.close(host, (docs, library));
-    }
-    Ok(())
 }
 
 impl Plugin for NativeReader {
@@ -1445,6 +1438,7 @@ impl Plugin for NativeReader {
         }
         let (handled, turned, note) = match (self.screens.top(token), &self.docs, &self.ui) {
             (Some(view), Some(docs), Some(ui)) => {
+                view.forget_status();
                 let handled = view.input(host, (docs, self.library.as_ref(), ui), &input)?;
                 (handled, view.take_turned(), view.take_note())
             }
