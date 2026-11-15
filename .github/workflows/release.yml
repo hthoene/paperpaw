@@ -97,6 +97,17 @@ jobs:
           persist-credentials: false
       - name: Release notes were collected before tagging
         run: python3 tools/changelog.py check --release
+      # The release page's text is written before tagging (a tag without it
+      # cannot be mended by a re-run: the tag names the commit). A dry run warns.
+      - name: The release page's text is in the tag
+        run: |
+          if ! python3 -I tools/check-release-notes.py "docs/release-notes/${RELEASE_TAG#v}.md"; then
+            if [[ "$DRY_RUN" == true ]]; then
+              echo "::warning::no usable release notes (a real release stops here)"
+            else
+              exit 1
+            fi
+          fi
       # A release gate (todo 639): no callback frame of 2,048 B or more may be
       # left as an exception in the S3 linked budget but `main`. A dry run only warns.
       - name: No S3 exception frame is left but main
@@ -588,16 +599,29 @@ jobs:
             target/release/paperpaw-sign check-asset "$file" "$file.sig"
             (cd dist && sha256sum "$(basename "$file")" > "$(basename "$file").sha256")
           done
-      - name: Release notes from CHANGELOG.md
+      # The release page's text is `docs/release-notes/<version>.md`: GitHub
+      # takes at most 125,000 characters, and a big beta's CHANGELOG section
+      # is far over it. A release made by a tag needs the file; a dry run
+      # without it shows the CHANGELOG section (and warns if that is too long).
+      - name: Release notes
         run: |
-          # The section of this version, up to the next one.
+          # The CHANGELOG still has to say what the version holds (the notes link to it).
           awk -v head="## [$VERSION]" '
             index($0, head) == 1 { found = 1; next }
             found && index($0, "## [") == 1 { exit }
             found { print }
-          ' CHANGELOG.md > dist/notes.md
-          if [[ ! -s dist/notes.md ]]; then
+          ' CHANGELOG.md > "$RUNNER_TEMP/changelog-section.md"
+          if [[ ! -s "$RUNNER_TEMP/changelog-section.md" ]]; then
             echo "::error::CHANGELOG.md has no section for $VERSION"
+            exit 1
+          fi
+          file="docs/release-notes/$VERSION.md"
+          if python3 -I tools/check-release-notes.py "$file"; then
+            cp "$file" dist/notes.md
+          elif [[ "$DRY_RUN" == true && ! -e "$file" ]]; then
+            echo "::warning::no $file: this dry run shows the CHANGELOG section; a release needs the file"
+            cp "$RUNNER_TEMP/changelog-section.md" dist/notes.md
+          else
             exit 1
           fi
       # Before anything is uploaded: the release holds exactly its 73 files
