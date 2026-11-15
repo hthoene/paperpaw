@@ -7,13 +7,15 @@
 //! the top). A page laid out only in its draw (a changed setting, a turned
 //! screen) and a page without pictures have one frame; a page turned before
 //! its pictures were drawn never draws them.
-use super::{Open, redraw};
+use super::{Open, Setup, redraw};
 use crate::native_block::picture_path;
-use crate::native_draw::{Pictures, picture_boxes, picture_of};
+use crate::native_draw::{HostInk, Pictures, draw_pictures, picture_boxes, picture_of};
+use crate::native_typeset::HostFonts;
 use alloc::string::String;
+use paperpaw_sdk::Color;
 use paperpaw_sdk::native::{
     Error, Host,
-    callbacks::FrameRect,
+    callbacks::{DrawFrame, FrameRect},
     commands::{CommandSender, RedrawMode},
     document::Documents,
     image::{ImageId, ImageInfo},
@@ -65,6 +67,37 @@ pub(super) const fn follow_up(frame: &paperpaw_sdk::native::callbacks::DrawFrame
 }
 
 impl Open {
+    /// The host's draw aside that only counts the pictures
+    /// ([`DrawFrame::pictures_only`], `screens-input.md` section 6; nothing of it
+    /// is shown): only the pictures of the page are drawn, as the draw of the
+    /// same frame would draw them, and no text, marks, ribbon or status lines.
+    ///
+    /// # Errors
+    /// The host's refusal; no page laid out.
+    pub(super) fn draw_pictures_only(
+        &mut self,
+        host: &Host<'_>,
+        frame: &mut DrawFrame<'_>,
+        (setup, fonts, area): (&Setup, &HostFonts<'_>, crate::native_pages::Box),
+    ) -> Result<(), Error> {
+        let page = self.page.as_ref().ok_or(Error::State)?;
+        let (rect, band, follow_up) = (
+            frame.rect,
+            (frame.clip_top, frame.clip_bottom),
+            follow_up(frame),
+        );
+        let canvas = frame.draw_canvas()?;
+        let look = self
+            .settings
+            .look(host, setup.display.display_gray_levels())?;
+        let mut ink = HostInk::new(fonts, &canvas, Color::BLACK, look).clipped(band.0, band.1);
+        let origin = (
+            rect.x as f32 + f32::from(area.x),
+            rect.y as f32 + f32::from(area.y),
+        );
+        draw_pictures(&mut ink, page, origin, self.pictures.drawing(follow_up))
+    }
+
     /// Whether the page on show (laid out) has pictures.
     pub(super) fn has_pictures(&self) -> bool {
         self.page
