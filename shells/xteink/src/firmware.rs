@@ -225,7 +225,7 @@ impl Firmware {
         let Some(left) = self.ota.as_ref().and_then(|ota| ota.trial_left(start.0)) else {
             return;
         };
-        if !paperpaw_core::code_to_load(self.kernel.storage(), &crate::native::this_firmware()) {
+        if !crate::native::code_to_load(self.kernel.storage()) {
             return;
         }
         let params = paperpaw_sdk::Params::new()
@@ -279,11 +279,9 @@ impl Firmware {
             // installed before (an update that keeps the fingerprint
             // fetches none) and those fetched for it wait for a start once
             // it is kept, which installs and loads them (ADR 0024).
-            let native = crate::native::this_firmware();
             Ota::trial_over(self.kernel.storage());
             self.kernel.trial_kept();
-            self.state.restart_for_code =
-                paperpaw_core::code_to_load(self.kernel.storage(), &native);
+            self.state.restart_for_code = crate::native::code_to_load(self.kernel.storage());
         }
         // At a calm moment: at once, unless a book is open, then once it
         // is left. A sleep on battery before is a start too.

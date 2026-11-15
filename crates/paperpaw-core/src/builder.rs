@@ -666,8 +666,12 @@ impl BuilderParts {
             && self.safe_mode.is_none()
         {
             let storage = kernel.shared.storage.clone();
-            self.staged
-                .extend(crate::code_plugin::fetched(storage.as_ref(), &code.native));
+            let loader = self.plugin_host.as_ref().and_then(|host| host.loader);
+            self.staged.extend(crate::code_plugin::fetched(
+                storage.as_ref(),
+                &code.native,
+                loader.as_ref(),
+            ));
         }
         // A plugin install or removal a cut left is finished (or set aside)
         // before any plugin is found, so a plugin is the old or the new one.
