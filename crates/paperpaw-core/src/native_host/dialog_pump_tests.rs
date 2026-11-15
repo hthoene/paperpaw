@@ -31,6 +31,11 @@ std::thread_local! {
 }
 
 std::thread_local! {
+    /// Whether the asker opens the keyboard screen when it hears its answer.
+    static OPENS: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+std::thread_local! {
     /// Whether the next dialog shown closes itself.
     static SPAWN: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 }
@@ -152,11 +157,23 @@ impl NativeInstance for Asker {
         &self,
         bytes: &[u8],
         _: &Env<'_>,
-        _: &mut crate::native_host::commands::CommandStage<'_>,
+        stage: &mut crate::native_host::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
+        use crate::native_host::commands::{WireCommand, commands_decode, commands_encode};
         self.hear(bytes);
         if let Ok(wire::Record::EventAnswered(answered)) = wire::records_decode_single(bytes) {
             self.seen.borrow_mut().push(answered);
+            if OPENS.with(core::cell::Cell::take) {
+                let open = WireCommand::Open {
+                    target: "d.keyboard",
+                    mode: 0,
+                    slot: "",
+                    handover: 0,
+                };
+                let mut bytes = [0; 64];
+                let len = commands_encode(&[open], &mut bytes).unwrap();
+                assert_eq!(stage.stage(&commands_decode(&bytes[..len]).unwrap()), OK);
+            }
         }
         self.status
     }
@@ -488,6 +505,23 @@ fn a_confirm_question_is_answered_by_the_host_dialog() {
         w.kernel.active_screen().map(Id::as_str),
         Some("core.confirm-dialog")
     );
+}
+
+/// An action run for a shell's remote control or a test closes the dialog
+/// before the asker hears the answer, as a key press does (#266): the screen
+/// the answer opens is not what the dialog's own close takes.
+#[test]
+fn a_screen_the_answer_opens_stays_on_top_after_an_action_that_was_run() {
+    use paperpaw_sdk::builtin::actions;
+    let mut w = world(Ok(OK));
+    ask_with(&w, 2, 1 << 9, "", 1);
+    w.kernel.native_dialog_pump();
+    OPENS.with(|opens| opens.set(true));
+    act(&mut w, 10, actions::CONFIRM);
+    let _ = w.kernel.tick(Instant(20));
+    // Bit 0: the dialog was closed when the answer was heard, as after a tap.
+    assert_eq!(answers(&w), [(2, 0, 1, 1)]);
+    assert_eq!(w.kernel.active_screen().map(Id::as_str), Some("d.keyboard"));
 }
 
 #[test]
