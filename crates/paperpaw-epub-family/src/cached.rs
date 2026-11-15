@@ -112,7 +112,11 @@ fn read_block(
             let mut entry = [0u8; INDEX as usize];
             storage.read_at(&paths.index, u64::from(i) * u64::from(INDEX), &mut entry)?;
             let next = if i + 1 < blocks {
-                Some(u32_at(storage, &paths.index, u64::from((i + 1) * INDEX))?)
+                Some(u32_at(
+                    storage,
+                    &paths.index,
+                    (u64::from(i) + 1) * u64::from(INDEX),
+                )?)
             } else {
                 None
             };
@@ -342,7 +346,11 @@ pub(crate) fn block_at(
         if block >= blocks {
             return Ok(u32::MAX);
         }
-        Ok(u32_at(storage, &paths.index, u64::from(block * INDEX))?)
+        Ok(u32_at(
+            storage,
+            &paths.index,
+            u64::from(block) * u64::from(INDEX),
+        )?)
     };
     // The block after the last one, or the last one again: its entry and
     // the next start read at once, and kept for reading the block.
@@ -551,5 +559,74 @@ mod kept_tests {
         assert_eq!(next, None);
         let (_, next) = seek.kept(6, 4).unwrap();
         assert_eq!(next, Some(u32::from_le_bytes([7; 4])));
+    }
+}
+
+#[cfg(test)]
+mod huge_chapter_tests {
+    use super::*;
+    use paperpaw_sdk::DirEntry;
+
+    /// A storage that answers every small read with zeros and no window
+    /// read at all: a chapter whose index claims more blocks than u32
+    /// byte offsets can address (a book's own numbers are not trusted).
+    struct Zeros;
+
+    impl Storage for Zeros {
+        fn read_at(&self, _: &str, _: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            if buf.len() <= INDEX as usize {
+                buf.fill(0);
+                return Ok(buf.len());
+            }
+            Ok(0)
+        }
+        fn size(&self, _: &str) -> Result<u64, StorageError> {
+            Err(StorageError::Io)
+        }
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Io)
+        }
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Io)
+        }
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Err(StorageError::Io)
+        }
+        fn remove(&self, _: &str) -> Result<(), StorageError> {
+            Err(StorageError::Io)
+        }
+        fn rename(&self, _: &str, _: &str) -> Result<(), StorageError> {
+            Err(StorageError::Io)
+        }
+    }
+
+    fn seek() -> Seek {
+        Seek {
+            last: None,
+            window: Vec::new(),
+            first: 0,
+        }
+    }
+
+    #[test]
+    fn reading_a_block_past_the_range_of_u32_offsets_does_not_overflow() {
+        let paths = CachePaths::new("/c", "0").unwrap();
+        // Block 200 million of 4 billion: its next entry sits at
+        // `(i + 1) * 24`, past 4 GiB.
+        let _ = read_block(
+            &Zeros,
+            &paths,
+            (10, u32::MAX),
+            &mut seek(),
+            (200_000_000, false),
+        );
+    }
+
+    #[test]
+    fn finding_a_block_among_billions_does_not_overflow_the_offsets() {
+        let paths = CachePaths::new("/c", "0").unwrap();
+        // The search halves a range of 4 billion blocks: `mid * 24` is
+        // past 4 GiB on its first steps.
+        let _ = block_at(&Zeros, &paths, 10, u32::MAX, 5, false, &mut seek());
     }
 }

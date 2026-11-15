@@ -270,7 +270,7 @@ impl View {
             let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
             let colour =
                 snapshot::capture_snapshot(host).is_ok_and(|display| display.display_is_colour());
-            let book = open_request(&found.path, root, colour);
+            let book = open_request(&found.path, root, (publisher_styles(host)?, colour));
             match docs.open_book(host, &book, &mut input, &mut out) {
                 Ok(state) => (
                     state.id(),
@@ -1332,7 +1332,12 @@ impl Open {
     ) -> Result<Page, Error> {
         let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?
             .filtered(&self.filters, &self.path);
-        let style = setup.style(faces.line_height());
+        let style = setup
+            .style(faces.line_height())
+            .script_options(native_pages::script_options(
+                &self.language,
+                setup.reading.scripts,
+            ));
         let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces);
         layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
             match document_error_kind(&error) {
@@ -1462,7 +1467,7 @@ mod ribbon;
 mod script_hint;
 mod setup;
 use helpers::{book_language, document_error_kind, redraw, say};
-use preparing::{Preparing, open_request};
+use preparing::{Preparing, open_request, publisher_styles};
 use setup::{Kept, LayoutKey, Setup, flag, integer};
 
 mod r3;

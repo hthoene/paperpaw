@@ -50,6 +50,9 @@ use paperpaw_ui_kit::{
     read_event, text, uitext,
 };
 
+mod reopen;
+use reopen::rest;
+
 mod image {
     include!(concat!(env!("OUT_DIR"), "/reader_declarations.rs"));
 }
@@ -765,6 +768,9 @@ impl NativeReader {
                 Self::set_grays(host, instance, true);
             }
         }
+        if key == "core.publisher-styles" {
+            return self.reopen_books(host);
+        }
         // Another plugin's setting may change the text filters' rules.
         let mut refiltered = false;
         if !key.starts_with("core.") && !key.starts_with("reader.") {
@@ -1195,32 +1201,6 @@ impl NativeReader {
         self.screens.close(instance);
         self.resting.retain(|(at, ..)| *at != instance);
     }
-}
-
-/// Gives back the documents of the reading screens other than `instance`: the
-/// host lets a plugin keep few open (one on the X4). Each keeps its book in
-/// `resting` and opens it again when it is on top again.
-fn rest(
-    host: &Host<'_>,
-    (docs, library): (&Documents, Option<&Library>),
-    (screens, resting): (
-        &mut Screens<View>,
-        &mut Vec<(Instance, String, &'static str)>,
-    ),
-    instance: Instance,
-) -> Result<(), Error> {
-    for (other, view) in screens.all_with_instance() {
-        if other == instance {
-            continue;
-        }
-        let Some((path, root)) = view.book() else {
-            continue;
-        };
-        let path = text::copy(path)?;
-        mem::push(resting, (other, path, root))?;
-        view.close(host, (docs, library));
-    }
-    Ok(())
 }
 
 impl Plugin for NativeReader {
