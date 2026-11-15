@@ -231,30 +231,16 @@ fn writable_data_other_sections_and_undefined_symbols_are_refused() {
 }
 
 #[test]
-fn an_interface_6_table_word_is_no_interface_7_plugin() {
-    let mut p = plugin(EM_RISCV);
-    let elf = p.b.build();
-    assert_eq!(is_interface7(&elf), Ok(true));
-    p.b.symbol(API_SYMBOL, LINK_BASE + 100, 0, SHN_ABS, false);
-    assert!(is_interface7(&p.b.build()).unwrap_err().contains("both"));
-    let neither = Builder::new(EM_RISCV, ET_EXEC);
+fn a_plugin_without_the_metadata_record_is_no_interface_7_plugin() {
+    assert_eq!(is_interface7(&plugin(EM_RISCV).b.build()), Ok(()));
+    // Linked with another script (the one of the interface before, say).
+    let other = Builder::new(EM_RISCV, ET_EXEC);
+    let error = is_interface7(&other.build()).unwrap_err();
     assert!(
-        is_interface7(&neither.build())
-            .unwrap_err()
-            .contains("neither")
+        error.contains("does not define `PAPERPAW_METADATA`"),
+        "{error}"
     );
-    // A family word read in the code: interface 7 has none.
-    let mut p = plugin(EM_RISCV);
-    let family = p.b.symbol(
-        paperpaw_native::TABLE_SYMBOLS[0],
-        LINK_BASE + 100,
-        0,
-        p.rodata as u16,
-        true,
-    );
-    p.b.rela(p.text, TEXT, family, 18);
-    let error = refused(&p);
-    assert!(error.contains("a family of shared functions"), "{error}");
+    assert!(error.contains("no longer packed"), "{error}");
 }
 
 #[test]
@@ -288,7 +274,7 @@ const SAMPLE_PPN: &[u8] =
 
 #[test]
 fn the_real_sample_packs_to_the_committed_file() {
-    assert_eq!(is_interface7(SAMPLE_ELF), Ok(true));
+    assert_eq!(is_interface7(SAMPLE_ELF), Ok(()));
     let packed = pack5(SAMPLE_ELF).unwrap();
     assert_eq!(
         packed.file, SAMPLE_PPN,

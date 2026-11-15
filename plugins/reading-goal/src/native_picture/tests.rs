@@ -185,14 +185,6 @@ fn the_cookie_tells_mood_and_step_apart() {
     assert_eq!(seen.len(), count);
 }
 
-// The cats installed with the plugin are read from the plugin's own install
-// folder, which the SDK cannot name yet.
-#[test]
-#[ignore = "needs PrepareRoot::Bundle (image_prepare root 2: the plugin's install folder), Services todo 308 and Host todo 309"]
-fn the_installed_cats_are_prepared_from_the_install_folder() {
-    unreachable!("a mood without a picture of one's own asks root 2 for pictures/<mood>.png");
-}
-
 #[test]
 fn a_changed_folder_drops_the_request_open_and_its_answer_is_ignored() {
     let mut pictures = Pictures::default();
