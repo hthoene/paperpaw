@@ -387,6 +387,7 @@ fn main() {
         if matches!(way, Use::Book(_)) {
             run.reach(way);
             run.quiet();
+            run.quiet();
         }
     }
     let mut first = None;
