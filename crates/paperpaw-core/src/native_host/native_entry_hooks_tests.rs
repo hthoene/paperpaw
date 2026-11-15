@@ -108,14 +108,6 @@ fn the_shell_is_given_the_plugins_id_before_its_make_and_every_entry_ends() {
 struct HostedLoader;
 
 impl crate::CodeLoader for HostedLoader {
-    fn load(
-        &mut self,
-        _: &dyn paperpaw_sdk::Storage,
-        _: &crate::CodeFile<'_>,
-    ) -> Result<Box<dyn paperpaw_sdk::Plugin>, paperpaw_sdk::PluginProblem> {
-        Err(paperpaw_sdk::PluginProblem::Damaged)
-    }
-
     fn load_native(
         &mut self,
         _: &dyn paperpaw_sdk::Storage,

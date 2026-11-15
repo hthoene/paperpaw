@@ -1191,6 +1191,7 @@ impl Kernel {
         self.keep_offered_choices();
         self.apply_reading_font();
         self.apply_status_font();
+        self.apply_widget_fonts();
         self.apply_ui_text_curve();
         // A plugin may have brought or taken the interface's font.
         self.renew_memory_notice();

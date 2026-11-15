@@ -61,9 +61,10 @@ cannot take yet is listed under *What is pending*; each has an ignored case in
   screen, so the settings list does not change it. (Ignored case.)
 - **Sealed *Lock now***: `ActionDecl` has no seal, so another plugin's handler could override
   `lock.now`. (Ignored case `lock-now-locks-from-any-button-gesture-menu-or-rule`.)
-- **The page's icon (`lock`) and the first-run step** (order 70, page = the kind setting): the
-  records exist but the host refuses icons until #517 and has no op 22 (Host todo 99). Not
-  submitted, so the host admits the rest.
+- **The page's icon (`lock`)** is declared, as is the `lock.now` icon. The Settings
+  group registry reply still needs to carry the icon to the Settings plugin (#268).
+- **The first-run step** (order 70, page = the kind setting) needs host op 22
+  (Host todo 99), so it is not submitted.
 - **The touch lock**: the input filter that takes taps, swipes and the pen, the hint, the status
   item, the quick-panel and reader menu entries, the menu need for touch, the key map (`long.home`)
   and its actions. `native_touch` holds the pure part (the way out: tap twice and hold the second;

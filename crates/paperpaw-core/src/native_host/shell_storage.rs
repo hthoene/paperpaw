@@ -14,7 +14,7 @@ pub(super) unsafe extern "C" fn storage_size<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::super::host_slot::enter();
+    let _slot = super::super::host_slot::enter_as(super::super::host_slot::Id::StorageSize);
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe {
         super::super::storage_slots::size(
@@ -40,7 +40,7 @@ pub(super) unsafe extern "C" fn storage_read_at<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::super::host_slot::enter();
+    let _slot = super::super::host_slot::enter_as(super::super::host_slot::Id::StorageReadAt);
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe {
         super::super::storage_slots::read_at(
@@ -80,7 +80,7 @@ pub(super) unsafe extern "C" fn storage_write<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::super::host_slot::enter();
+    let _slot = super::super::host_slot::enter_as(super::super::host_slot::Id::StorageWrite);
     let held = context.resources.hosts().in_use();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe {
@@ -107,7 +107,7 @@ pub(super) unsafe extern "C" fn storage_append<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::super::host_slot::enter();
+    let _slot = super::super::host_slot::enter_as(super::super::host_slot::Id::StorageAppend);
     let held = context.resources.hosts().in_use();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe {
@@ -134,7 +134,7 @@ pub(super) unsafe extern "C" fn storage_rename<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::super::host_slot::enter();
+    let _slot = super::super::host_slot::enter_as(super::super::host_slot::Id::StorageRename);
     let held = context.resources.hosts().in_use();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe {
@@ -160,7 +160,7 @@ pub(super) unsafe extern "C" fn storage_remove<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::super::host_slot::enter();
+    let _slot = super::super::host_slot::enter_as(super::super::host_slot::Id::StorageRemove);
     let held = context.resources.hosts().in_use();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe {
@@ -181,6 +181,6 @@ pub(super) unsafe extern "C" fn storage_sync<S: 'static>(ctx: *mut c_void) -> i3
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = super::super::host_slot::enter();
+    let _slot = super::super::host_slot::enter_as(super::super::host_slot::Id::StorageSync);
     super::super::storage_slots::sync(&context.environment, context.plugin_id())
 }

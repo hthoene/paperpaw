@@ -56,7 +56,7 @@ fn a_native_draw_callback_draws_inked_text_through_the_host_table() {
     DRAW_INKED.with(|d| d.set(true));
     INKED.with(|r| r.set(None));
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+        .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
         .build()
         .unwrap();
     kernel.start(paperpaw_platform::Instant(0));

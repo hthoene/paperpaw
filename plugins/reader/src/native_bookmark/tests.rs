@@ -51,6 +51,18 @@ fn only_a_bookmark_that_starts_on_the_page_in_the_same_conversion_is_its_bookmar
 }
 
 #[test]
+fn a_bookmark_of_another_conversion_on_the_page_is_not_its_own() {
+    let page = range((0, 0), (0, 50));
+    let there = |kind, at, conversion| is_foreign_here(&page, kind, at, conversion, 7);
+    assert!(there(AnnotationKind::Bookmark, (0, 10), Some(8)));
+    // The same conversion, none, a highlight, another page: not this case.
+    assert!(!there(AnnotationKind::Bookmark, (0, 10), Some(7)));
+    assert!(!there(AnnotationKind::Bookmark, (0, 10), None));
+    assert!(!there(AnnotationKind::Highlight, (0, 10), Some(8)));
+    assert!(!there(AnnotationKind::Bookmark, (0, 50), Some(8)));
+}
+
+#[test]
 fn the_progress_is_kept_in_whole_percent_rounded() {
     assert_eq!(percent_of(0), 0);
     assert_eq!(percent_of(4_999), 0);

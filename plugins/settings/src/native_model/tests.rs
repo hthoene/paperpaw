@@ -9,6 +9,7 @@ fn group(id: &str, parent: &str, order: i32, title: &str) -> Group {
         page: String::new(),
         order,
         title: title.to_string(),
+        icon: String::new(),
     }
 }
 

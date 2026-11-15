@@ -25,8 +25,9 @@ OPTIONS:
                           Check a plugin with paperpaw-dev (beside this program),
                           its findings as JSON on standard output
     --trust-code          Load code plugins built for this computer from the
-                          library (plugins/<id>/code-host.dll, .so or .dylib),
-                          those there installed first; without it, none
+                          library (plugins/<id>/code-host.so, interface 7;
+                          Linux x86-64), those there installed first;
+                          without it, none
     --abi7-dev-loader     Developer switch (also PAPERPAW_ABI7_DEV_LOADER=1):
                           load interface-7 code plugins of the library
                           (plugins/<id>/code-host.so) without applying what

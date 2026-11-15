@@ -8,8 +8,10 @@ use paperpaw_sdk::native::{
 
 /// The conversion cache belongs to the host's document lease, not the plugin install.
 pub const UTF8_CACHE: &str = "text.utf8";
-const INPUT: usize = 1024;
-const OUTPUT: usize = 1542;
+/// Each step reads this much and appends what it makes of it to the cache: an
+/// append is a host call and a write to the card (about 27 ms on the X4, #250).
+const INPUT: usize = 2048;
+const OUTPUT: usize = 3078;
 
 /// Owned conversion state; no callback binding survives a call.
 #[derive(Debug)]
@@ -51,7 +53,7 @@ impl Preparation {
         u32::try_from(self.offset.saturating_mul(1_000_000) / self.size.max(1)).unwrap_or(1_000_000)
     }
 
-    /// Convert at most 1 KiB per callback. The host owns the `.complete` stamp.
+    /// Convert at most 2 KiB per callback. The host owns the `.complete` stamp.
     /// An I/O refusal poisons this preparation: restart with a new instance,
     /// which truncates any partially appended cache before retrying.
     pub fn step(&mut self, host: &Host<'_>) -> Result<bool, Error> {
@@ -194,6 +196,39 @@ mod tests {
                 |_, _| panic!("must not append")
             ),
             Err(Error::State)
+        );
+    }
+
+    #[test]
+    fn a_long_file_is_appended_to_the_cache_in_large_pieces() {
+        // 140 KB of UTF-16 text: before (#250), 1 KiB steps made 137 appends.
+        let text = "Moby Dick, or the whale.\n".repeat(2800);
+        let mut source = vec![0xff, 0xfe];
+        for unit in text.encode_utf16() {
+            source.extend_from_slice(&unit.to_le_bytes());
+        }
+        let mut state = Preparation::new(source.len() as u64, false).unwrap();
+        let (mut output, mut appends) = (Vec::new(), 0);
+        while !state
+            .advance(
+                |offset, buf| {
+                    let n = buf.len().min(source.len() - offset as usize);
+                    buf[..n].copy_from_slice(&source[offset as usize..offset as usize + n]);
+                    Ok(n)
+                },
+                |_, bytes| {
+                    appends += 1;
+                    output.extend_from_slice(bytes);
+                    Ok(())
+                },
+            )
+            .unwrap()
+        {}
+        assert_eq!(String::from_utf8(output).unwrap(), text);
+        assert!(
+            appends <= 72,
+            "{appends} appends for {} bytes",
+            source.len()
         );
     }
 }

@@ -1,0 +1,8 @@
+[position]
+section = 1
+offset = 190
+percent = 0.6
+conversion = af63bc4c8601b62c
+xpointer = /body/DocFragment[2]/body/header[1]/div[1]/text()[1].111
+updated = 1791967272
+book = 189249 59feb863c3a0652fe66a99c0978404f9

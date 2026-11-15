@@ -37,12 +37,14 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 
 use critical_section::Mutex;
-use log::{info, warn};
+use log::warn;
 use paperpaw_core::{CodeFile, CodeLoader};
-use paperpaw_native::{CODE_OFFSET, Chip, Entry, HEADER_LEN, Header, Problem};
+use paperpaw_native::Problem;
 use paperpaw_platform::Storage;
-use paperpaw_sdk::native::{FINGERPRINT, TOOLCHAIN};
-use paperpaw_sdk::{Plugin, PluginProblem};
+use paperpaw_sdk::PluginProblem;
+use paperpaw_sdk::native::FINGERPRINT;
+#[cfg(feature = "remote")]
+use paperpaw_sdk::native::TOOLCHAIN;
 
 /// The fingerprint plugin files must have, under a name of its own in the
 /// firmware's ELF file: the release takes it from there (`paperpaw-sign
@@ -63,6 +65,25 @@ pub fn this_firmware() -> paperpaw_sdk::native::Native {
     native
 }
 
+/// What this firmware's loader reads of interface-7 files (its chip,
+/// interface and minor; `None` in a build without the loader). The one
+/// source of it: [`code_to_load`] asks with it, and the kernel installs the
+/// code fetched for an update by it (`CodeLoader::reads`).
+pub fn reads() -> Option<paperpaw_native::header5::Host> {
+    #[cfg(feature = "ppn5")]
+    let reads = Some(ppn5::HOST);
+    #[cfg(not(feature = "ppn5"))]
+    let reads = None;
+    reads
+}
+
+/// Whether a start with code plugins would load any from `storage`
+/// (`paperpaw_core::code_to_load`), with what this firmware's loader reads
+/// of interface-7 files: asked once an update on trial is kept.
+pub fn code_to_load(storage: &dyn Storage) -> bool {
+    paperpaw_core::code_to_load(storage, &this_firmware(), reads().as_ref())
+}
+
 /// The internal RAM kept for plugins' hot code (the X4's arena), which
 /// the heap gets once plugins are loaded, as far as they did not take it.
 #[cfg(feature = "esp32c3")]
@@ -76,12 +97,6 @@ pub fn no_hot_code() {
     #[cfg(feature = "esp32c3")]
     hot::release(0);
 }
-
-/// The chip plugin files must be made for.
-#[cfg(feature = "esp32c3")]
-const CHIP: Chip = Chip::Esp32C3;
-#[cfg(feature = "esp32s3")]
-const CHIP: Chip = Chip::Esp32S3;
 
 /// A plugin's image, where it runs.
 struct Image {
@@ -150,8 +165,8 @@ pub fn describe(line: &mut dyn FnMut(&str)) {
     ));
     line(&alloc::format!(
         "shared functions: revisions {:?}, oldest run {:?}, tables {}",
-        api::API.family_revs,
-        api::API.family_min,
+        api::SHARED_REVISIONS,
+        api::SHARED_OLDEST,
         paperpaw_table::HASH
     ));
     let room = critical_section::with(|cs| ROOM.borrow(cs).get());
@@ -188,10 +203,18 @@ pub fn describe(line: &mut dyn FnMut(&str)) {
     });
 }
 
+/// The length of the header before the image in a plugin's file: an
+/// interface-7 file's (96 bytes), the only files placed.
+#[cfg(feature = "ppn5")]
+const FILE_HEADER: u32 = paperpaw_native::header5::HEADER_LEN as u32;
+/// Without the loader no image is placed.
+#[cfg(not(feature = "ppn5"))]
+const FILE_HEADER: u32 = 0;
+
 /// The plugin whose code the instruction address `pc` lies in, and the
 /// offset into its file (the image begins after the header): with the
 /// plugin's ELF, its function is at `0x3C000000 + 0x06000000 + offset -
-/// HEADER_LEN`. Code in the arena of hot code is its plugin's, at its
+/// FILE_HEADER`. Code in the arena of hot code is its plugin's, at its
 /// place in the image. Called from the panic handler: allocates nothing.
 pub fn attribute(pc: u32, found: &mut dyn FnMut(&str, u32)) {
     critical_section::with(|cs| {
@@ -204,7 +227,7 @@ pub fn attribute(pc: u32, found: &mut dyn FnMut(&str, u32)) {
                     pc.wrapping_sub(image.code_base)
                 };
                 if offset < image.len {
-                    found(&image.id, offset + HEADER_LEN as u32);
+                    found(&image.id, offset + FILE_HEADER);
                     return;
                 }
             }
@@ -317,150 +340,6 @@ impl Loader {
     #[cfg(feature = "native-on")]
     pub fn device_table(&self) -> DeviceTable {
         self.resources.clone()
-    }
-
-    fn load_file(
-        &mut self,
-        storage: &dyn Storage,
-        code: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        let path = code.path;
-        let heap = esp_alloc::HEAP.used();
-        let internal = internal_free();
-        let started = crate::micros();
-        let mut head = [0; HEADER_LEN];
-        read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
-        let header = Header::read(&head).map_err(|p| problem_of(&head, p))?;
-        if header.chip != CHIP {
-            warn!(
-                "native: {path} is for chip {}, this firmware's is {CHIP}",
-                header.chip
-            );
-            return Err(PluginProblem::OtherBuild);
-        }
-        // Built for another plugin interface, or needing more of this
-        // firmware than it has: said as such, not as another build.
-        if header.interface != paperpaw_sdk::native::INTERFACE
-            || header.needs_api > paperpaw_native::Api::SIZE
-        {
-            warn!(
-                "native: {path} is built for plugin interface {} and needs {} bytes of the table; \
-                 this firmware has {} and {}",
-                header.interface,
-                header.needs_api,
-                paperpaw_sdk::native::INTERFACE,
-                paperpaw_native::Api::SIZE
-            );
-            return Err(if header.interface < paperpaw_sdk::native::INTERFACE {
-                PluginProblem::OlderInterface {
-                    built_for: header.interface,
-                }
-            } else {
-                PluginProblem::NeedsNewerPaperPaw
-            });
-        }
-        // The families of shared functions it calls in this firmware: not
-        // a newer revision than this has, nor one before a change old
-        // plugins would see. Refused before anything is placed.
-        if let Some(misfit) = paperpaw_table::misfit(
-            &header.families,
-            &api::API.family_min,
-            &api::API.family_revs,
-        ) {
-            warn!(
-                "native: {path} calls revisions {:?} of the shared functions; this firmware \
-                 has {:?} and runs plugins from {:?} on",
-                header.families,
-                api::API.family_revs,
-                api::API.family_min
-            );
-            return Err(match misfit {
-                // Built for this interface, against tables of a revision
-                // since given up: `built_for` can only name the interface
-                // (the detail is in the log line above), so the reason
-                // reads "older" and the same number as this firmware's.
-                paperpaw_table::Misfit::Older => PluginProblem::OlderInterface {
-                    built_for: header.interface,
-                },
-                // Newer, and any reason a later SDK adds: the firmware is
-                // to be updated.
-                _ => PluginProblem::NeedsNewerPaperPaw,
-            });
-        }
-        if let Some(why) = paperpaw_sdk::native::Fingerprint(header.fingerprint).misfit() {
-            warn!("native: {path} is {why} ({FINGERPRINT}, {TOOLCHAIN})");
-            return Err(PluginProblem::OtherBuild);
-        }
-        if header.compiler != paperpaw_native::compiler::id(COMPILER) {
-            warn!(
-                "native: {path} is built by another compiler than rustc {COMPILER}, this firmware's"
-            );
-            return Err(PluginProblem::OtherBuild);
-        }
-        // The file installed, its content checked against its header
-        // where it is placed: not one put in its folder since.
-        if header.sha256 != code.sha256 {
-            warn!("native: {path} is not the file installed");
-            return Err(PluginProblem::Changed);
-        }
-        // Signed by its author or not: the store and the bundle checked
-        // the signature when they installed it.
-        let size = storage.size(path).map_err(|_| PluginProblem::Damaged)?;
-        header.signed(size).map_err(problem)?;
-        let words = read_words(storage, path, &header)?;
-        let (base, hot) = self.place.put(storage, path, &header, &words)?;
-        drop(words);
-        let placed = crate::micros();
-        let entry = (base + header.entry) as *const Entry;
-        // SAFETY: the entry lies in the image just placed and relocated,
-        // its address checked to be in the image's read-only data, aligned
-        // to 8; its fingerprint first, as an entry of another interface
-        // may be shorter than this one's.
-        if unsafe { Entry::fingerprint_at(entry) } != FINGERPRINT.0 {
-            return Err(PluginProblem::Damaged);
-        }
-        // SAFETY: as above, an entry of this interface.
-        let entry = unsafe { &*entry };
-        critical_section::with(|cs| {
-            IMAGES.borrow_ref_mut(cs).push(Image {
-                id: String::from(code.id.as_str()),
-                code_base: base + CODE_OFFSET,
-                len: header.image_len,
-                hot,
-                hot_at: header.hot_at,
-                hot_len: header.hot_len,
-                took: None,
-            })
-        });
-        // SAFETY: a plugin of this firmware's plugin interface, chip and
-        // layouts (its fingerprint) and of its compiler (its header),
-        // placed as its file says.
-        let plugin =
-            unsafe { paperpaw_sdk::native::take((entry.make)()) }.ok_or(PluginProblem::Damaged)?;
-        let took = Took {
-            place_us: placed - started,
-            make_us: crate::micros() - placed,
-            heap: esp_alloc::HEAP.used() as isize - heap as isize,
-            internal: internal as isize - internal_free() as isize,
-            hot: if hot == 0 { 0 } else { header.hot_len },
-        };
-        info!(
-            "native: {path}: {} B at {base:#x}, {} words moved, {} patched; placed in {} us, made in {} us; heap {:+} B, internal RAM {:+} B, hot code {} B at {hot:#x}",
-            header.image_len,
-            header.relocs,
-            header.patches,
-            took.place_us,
-            took.make_us,
-            took.heap,
-            took.internal,
-            took.hot
-        );
-        critical_section::with(|cs| {
-            if let Some(image) = IMAGES.borrow_ref_mut(cs).last_mut() {
-                image.took = Some(took);
-            }
-        });
-        Ok(plugin)
     }
 }
 
@@ -657,6 +536,10 @@ impl Loader {
 }
 
 impl CodeLoader for Loader {
+    fn reads(&self) -> Option<paperpaw_native::header5::Host> {
+        reads()
+    }
+
     /// Wires what the shell offers (`core.net`, `core.sockets`, `core.work`
     /// with the network's bridge, and `core.document`, `core.library`,
     /// `core.files` over the card) before the first plugin is admitted, so the
@@ -683,22 +566,14 @@ impl CodeLoader for Loader {
         self.wire_secrets(storage);
     }
 
-    fn load(
-        &mut self,
-        storage: &dyn Storage,
-        code: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        // By its id, as safe mode switches it off.
-        crate::safe_mode::loading(code.id.as_str());
-        self.load_file(storage, code)
-    }
-
     /// A format-5 file (interface 7) is hosted for the kernel to admit with
     /// everything it declares: `make` runs in the kernel's registration
     /// transaction, and its screens, settings and callbacks are registered
     /// all together or the plugin is refused (`Unsupported` where the stack's
     /// band is not armed, `NoRoom`, `Damaged`, ...; never loaded without what
-    /// it declared). Any other file is `load`'s.
+    /// it declared). Any other file is none of this loader's: the kernel says
+    /// why it does not run (built for an older PaperPaw, as Beta 3's plugins
+    /// are, or damaged).
     #[cfg(feature = "ppn5")]
     fn load_native(
         &mut self,
@@ -706,14 +581,10 @@ impl CodeLoader for Loader {
         code: &CodeFile<'_>,
     ) -> Result<Option<Box<dyn paperpaw_core::NativeAdmission>>, PluginProblem> {
         let path = code.path;
-        let mut head = [0; HEADER_LEN];
-        read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
-        if !ppn5::is_format5(&head) {
-            return Ok(None);
-        }
         // The id of a linked plugin is that plugin's: a card folder is named by
-        // whoever made it, and the id keys secrets and files. Card plugins are
-        // admitted before the linked ones register, so this is the one place.
+        // whoever made it, and the id keys secrets and files. The kernel refuses
+        // such a folder before it asks here (`built_in_ids`, `main.rs`); whatever
+        // the file is, this loader does not look at it either.
         if paperpaw_app::is_linked_id(code.id.as_str()) {
             warn!(
                 "native: {path}: `{}` is a plugin built into this firmware; a card plugin cannot take its id",
@@ -721,10 +592,15 @@ impl CodeLoader for Loader {
             );
             return Err(PluginProblem::Mismatch);
         }
+        let mut head = [0; paperpaw_native::header5::HEADER_LEN];
+        read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
+        if !ppn5::is_format5(&head) {
+            return Ok(None);
+        }
         // By its id, as safe mode switches it off.
         crate::safe_mode::loading(code.id.as_str());
-        // As `load_file`: without the net at the stack's end a frame that
-        // overflows is not caught.
+        // Without the net at the stack's end a frame that overflows is not
+        // caught.
         if !crate::stack::band_armed() {
             warn!("native: {path} not run: the stack's band is not armed");
             return Err(PluginProblem::Unsupported);
@@ -818,36 +694,6 @@ fn problem_of(head: &[u8], problem: Problem) -> PluginProblem {
     why
 }
 
-/// The words after the image (those to relocate, then the patches),
-/// read from the end of the file.
-fn read_words(
-    storage: &dyn Storage,
-    path: &str,
-    header: &Header,
-) -> Result<Vec<u32>, PluginProblem> {
-    let count = header.tail_words();
-    let mut words = Vec::new();
-    words
-        .try_reserve_exact(count)
-        .map_err(|_| PluginProblem::NoRoom)?;
-    let mut buf = [0u8; 256];
-    let mut at = header.relocs_at();
-    while words.len() < count {
-        let want = ((count - words.len()) * 4).min(buf.len());
-        read_exact(storage, path, at, &mut buf[..want]).map_err(|_| PluginProblem::Damaged)?;
-        words.extend(
-            buf[..want]
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .map(|w| u32::from_le_bytes(*w)),
-        );
-        at += want as u64;
-    }
-    paperpaw_native::check_relocations(header, &words).map_err(problem)?;
-    Ok(words)
-}
-
 /// Fills `buf` from `path` at `at`.
 fn read_exact(
     storage: &dyn Storage,
@@ -865,13 +711,4 @@ fn read_exact(
         }
     }
     Ok(())
-}
-
-/// The bytes after the header the digest covers once the image is read:
-/// the words after the image as the file has them.
-#[cfg(feature = "esp32c3")]
-fn digest_words(sha: &mut paperpaw_digest::sha256::Sha256, words: &[u32]) {
-    for word in words {
-        sha.update(&word.to_le_bytes());
-    }
 }

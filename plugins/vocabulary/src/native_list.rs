@@ -96,11 +96,14 @@ impl<'s> WordRows<'s> {
             value: text::copy("›")?,
             note: text::copy(note)?,
             zone: None,
+            icon: None,
             stepper: false,
             disabled: false,
             on: None,
             field: false,
             whole: false,
+            small: false,
+            plain: false,
         }))
     }
 
@@ -152,11 +155,14 @@ impl<'s> WordRows<'s> {
                 value: String::new(),
                 note: text::copy(note)?,
                 zone: None,
+                icon: None,
                 stepper: false,
                 disabled: false,
                 on: None,
                 field: false,
                 whole: false,
+                small: false,
+                plain: false,
             });
         }
         Ok(rows)

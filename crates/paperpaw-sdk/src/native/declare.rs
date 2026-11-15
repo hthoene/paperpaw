@@ -474,6 +474,14 @@ impl ScreenDecl<'_> {
         self.policy_flags |= 512;
         self
     }
+    /// An overlay that washes out what lies below it while it shows, so that it
+    /// stands out (a menu, a panel); not one looked through (a keyboard over
+    /// its field). No effect on a screen that is no overlay.
+    #[must_use]
+    pub const fn dims_below(mut self) -> Self {
+        self.policy_flags |= 1024;
+        self
+    }
     /// Show no row of button hints with this screen (the sleep screen).
     #[must_use]
     pub const fn hints_hidden(mut self) -> Self {

@@ -188,6 +188,9 @@ impl Firmware {
                 self.pause_trial();
                 let at = self.kernel_now();
                 let _ = self.kernel.stop(at);
+                // The stop route's depth is kept for the next start (test image).
+                #[cfg(feature = "test-image")]
+                crate::high_water::before_sleep();
                 self.network.leave();
                 remote::ok();
                 esp_hal::system::software_reset();

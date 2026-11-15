@@ -7,6 +7,7 @@
 use super::{
     Row,
     fixed::{Fixed, caps, clip, translated},
+    menu_native::Native,
     schema,
     sources::Sources,
 };
@@ -24,6 +25,8 @@ const GESTURE: u32 = 1 << 2;
 const DECLARED: u32 = 1 << 4;
 /// `reg_slot.flags`: the user bound it.
 const USER_BOUND: u32 = 1;
+/// `reg_group.icon` of a group nobody named an icon for, as Beta 3 showed it.
+const GROUP_ICON: &str = "puzzle";
 
 const ID: usize = caps::ID;
 const TITLE: usize = caps::TITLE;
@@ -68,17 +71,33 @@ fn groups(
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
     let translator = sources.env.i18n();
+    let menus = sources.env.menus();
+    let store = match sources.directory {
+        Some(directory) => Some(directory.store.try_borrow().map_err(|_| ERR_BUSY)?),
+        None => None,
+    };
+    let native = store
+        .as_deref()
+        .map(|store| Native::new(store, sources.env.caps()));
     for group in sources.env.settings().groups() {
         let parent = group.parent.as_ref().map_or("", Id::as_str);
         if !scope.is_empty() && parent != scope {
             continue;
         }
+        // Its icon by name, found as a menu row's is: the kernel's or a code
+        // plugin's, else a natively declared one (`icon.spec`).
+        let declared = native.as_ref().and_then(|n| n.icon(group.id.as_str()));
+        let icon = menus
+            .icon(group.id.as_str())
+            .or_else(|| declared.as_ref().map(Fixed::as_str))
+            .unwrap_or(GROUP_ICON);
         let row = Record::ServiceRegGroup(wire::ServiceRegGroup {
             id: group.id.as_str(),
             parent,
             page: group.page.as_ref().map_or("", Id::as_str),
             order: group.order,
             title: translated(translator, &group.title, caps::TITLE),
+            icon,
         });
         if visit(&row).is_break() {
             break;

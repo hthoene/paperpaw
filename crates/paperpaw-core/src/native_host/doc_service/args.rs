@@ -7,10 +7,18 @@ use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID};
 pub(super) const OPEN_FLAGS: u32 = 0b111;
 /// The most `doc_option` rows of one open.
 pub(super) const MAX_OPTIONS: usize = 12;
-/// Default longest side of a page picture (interface 6 `IMAGE_FIT`).
-pub(super) const IMAGE_FIT: u32 = 1_600;
 /// The largest picture an `image` call may ask for.
 pub(super) const IMAGE_SIDE_MAX: u32 = 1_600;
+/// The longest side of a page picture where an open names none: the
+/// screen's long side, as large as a page ever shows a picture whichever
+/// way the screen is turned (Beta 3's screen fit), at most 1,600. A host
+/// that was told no screen keeps the most.
+pub(super) fn default_image_side(long_side: u32) -> u32 {
+    match long_side {
+        0 => IMAGE_SIDE_MAX,
+        side => side.min(IMAGE_SIDE_MAX),
+    }
+}
 
 /// A parsed `open` input: the open record and how many options follow it.
 pub(super) struct Open<'a> {
