@@ -57,7 +57,9 @@ impl CachePaths {
     /// reads as empty. (Made empty first, each was a whole write: eight
     /// writes to a FAT card, 1.6 s for a book's first chapters, #250.)
     pub fn begin(&self, storage: &dyn Storage) -> Result<(), StorageError> {
-        let _ = storage.remove(&self.end);
+        // The end mark first, and for certain: left behind, it would call
+        // a conversion cut off after it complete.
+        gone(storage, &self.end)?;
         let _ = storage.remove_dir_all(&self.folder);
         for path in [
             &self.text,
@@ -71,10 +73,7 @@ impl CachePaths {
             // Each by its name: where the folder could not be removed (the
             // host's cache is no tree the format may remove), what an
             // aborted try left must not be appended to, nor stay.
-            match storage.remove(path) {
-                Ok(()) | Err(StorageError::NotFound) => {}
-                Err(e) => return Err(e),
-            }
+            gone(storage, path)?;
         }
         Ok(())
     }
@@ -91,13 +90,22 @@ impl CachePaths {
     }
 }
 
+/// Removes the file at `path`; one that is not there is as good.
+fn gone(storage: &dyn Storage, path: &str) -> Result<(), StorageError> {
+    match storage.remove(path) {
+        Ok(()) | Err(StorageError::NotFound) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use paperpaw_sdk::{DirEntry, MemoryStorage};
 
-    /// A storage that cannot remove a tree, as the native roots cannot.
-    struct NoTrees(MemoryStorage);
+    /// A storage that cannot remove a tree, as the native roots cannot,
+    /// nor the file named (a card that fails).
+    struct NoTrees(MemoryStorage, &'static str);
 
     impl Storage for NoTrees {
         fn read_at(&self, p: &str, o: u64, b: &mut [u8]) -> Result<usize, StorageError> {
@@ -116,6 +124,9 @@ mod tests {
             self.0.list(d, v)
         }
         fn remove(&self, p: &str) -> Result<(), StorageError> {
+            if !self.1.is_empty() && p.ends_with(self.1) {
+                return Err(StorageError::Io);
+            }
             self.0.remove(p)
         }
         fn rename(&self, a: &str, b: &str) -> Result<(), StorageError> {
@@ -125,7 +136,7 @@ mod tests {
 
     #[test]
     fn a_retry_starts_from_nothing_even_where_no_tree_can_be_removed() {
-        let storage = NoTrees(MemoryStorage::new());
+        let storage = NoTrees(MemoryStorage::new(), "");
         let paths = CachePaths::new("cache", "3").unwrap();
         // What an aborted conversion left: text, an index and links, no
         // end mark.
@@ -140,6 +151,17 @@ mod tests {
         // What is appended then is all there is.
         storage.append(&paths.text, b"whole").unwrap();
         assert_eq!(storage.0.get(&paths.text).unwrap(), b"whole");
+    }
+
+    #[test]
+    fn an_end_mark_that_cannot_be_removed_stops_the_conversion() {
+        let storage = NoTrees(MemoryStorage::new(), "/end");
+        let paths = CachePaths::new("cache", "3").unwrap();
+        storage.write(&paths.text, b"a chapter").unwrap();
+        storage.write(&paths.end, &9u32.to_le_bytes()).unwrap();
+        assert_eq!(paths.begin(&storage), Err(StorageError::Io));
+        // Nothing is taken from under the mark that stayed.
+        assert_eq!(storage.0.get(&paths.text).unwrap(), b"a chapter");
     }
 
     #[test]
