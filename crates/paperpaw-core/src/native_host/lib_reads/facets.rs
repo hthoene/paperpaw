@@ -111,8 +111,12 @@ enum Jump {
 /// book right in it or outside.
 fn folder_in<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
     let inner = path.strip_prefix(prefix)?;
-    let (folder, _) = inner.split_once('/')?;
-    path.get(..path.len() - inner.len() + folder.len())
+    path.get(..prefix.len() + at(inner, b'/')?)
+}
+
+/// Where the first `byte` (an ASCII one) of `text` is.
+fn at(text: &str, byte: u8) -> Option<usize> {
+    text.bytes().position(|b| b == byte)
 }
 
 /// Where the name `text` goes among the names, made in `out`: its lowercase
@@ -139,13 +143,13 @@ struct Name {
 }
 
 impl Name {
-    fn text(&self) -> &str {
-        self.key.split_once('\0').map_or("", |(_, text)| text)
-    }
-
-    /// Its lowercase, as it is ordered by.
-    fn lower(&self) -> &str {
-        self.key.split_once('\0').map_or("", |(lower, _)| lower)
+    /// Its lowercase, as it is ordered by, and its text.
+    fn parts(&self) -> (&str, &str) {
+        let cut = at(&self.key, 0).unwrap_or(0);
+        (
+            self.key.get(..cut).unwrap_or(""),
+            self.key.get(cut + 1..).unwrap_or(""),
+        )
     }
 }
 
@@ -370,56 +374,49 @@ impl Lists<'_> {
         }
     }
 
-    /// A scan for `window`; the first of a call counts the names too.
-    fn scan(
-        &self,
-        window: &mut Window,
-        after: Option<&str>,
-        total: &mut Option<u32>,
-        books: bool,
-    ) -> Result<u32, i32> {
-        let mut counted = total.is_none().then(Distinct::new);
-        self.pass(&mut Pass {
-            window,
-            after,
-            counted: counted.as_mut(),
-            books,
-        })?;
-        match (*total, counted) {
-            (Some(known), _) => Ok(known),
-            (None, Some(counted)) => Ok(*total.insert(self.count(counted)?)),
-            (None, None) => Err(ERR_STATE),
-        }
-    }
-
     /// What the scans found: how many names in all, how many the cursor
     /// skipped (all there are, where it is past them) and the names of the
-    /// page.
+    /// page. The first scan counts the names too.
     fn select(&self, cursor: u32) -> Result<(u32, u32, Vec<Name>), i32> {
         let (mut after, mut skipped, mut total) = (None::<String>, 0_u32, None);
-        while skipped < cursor {
-            let step = usize::try_from(cursor - skipped).map_or(WINDOW, |n| n.min(WINDOW));
-            let mut window = Window::new(step, self.descending)?;
-            let found = self.scan(&mut window, after.as_deref(), &mut total, false)?;
+        loop {
+            // A step towards the cursor, or at it the page.
+            let page = skipped >= cursor;
+            let want = if page {
+                WINDOW
+            } else {
+                usize::try_from(cursor - skipped).map_or(WINDOW, |n| n.min(WINDOW))
+            };
+            let mut window = Window::new(want, self.descending)?;
+            let mut counted = Distinct::new();
+            self.pass(&mut Pass {
+                window: &mut window,
+                after: after.as_deref(),
+                counted: total.is_none().then_some(&mut counted),
+                books: page && self.facet.jump() == Jump::Book,
+            })?;
+            let found = match total {
+                Some(known) => known,
+                None => *total.insert(self.count(counted)?),
+            };
+            if page {
+                return Ok((found, skipped, window.names));
+            }
             let taken = u32::try_from(window.names.len()).unwrap_or(u32::MAX);
             skipped = skipped.saturating_add(taken);
-            if window.names.len() < step {
+            if window.names.len() < want {
                 // The cursor is past the last name.
                 return Ok((found, skipped.min(found), Vec::new()));
             }
             after = window.names.pop().map(|name| name.key);
         }
-        let mut window = Window::new(WINDOW, self.descending)?;
-        let books = self.facet.jump() == Jump::Book;
-        let found = self.scan(&mut window, after.as_deref(), &mut total, books)?;
-        Ok((found, skipped, window.names))
     }
 
     /// Where the books of `name` begin in the list's order ([`Jump`]): as a
     /// [`Key`] is compared.
     fn place<'n>(&self, name: &'n Name) -> (u32, &'n str) {
         match self.facet.jump() {
-            Jump::Block(cut) => (0, head(name.lower(), cut)),
+            Jump::Block(cut) => (0, head(name.parts().0, cut)),
             _ => (name.first_book.first, name.first_book.text.as_str()),
         }
     }
@@ -506,8 +503,13 @@ pub(super) fn facets(
     let mut prefix = String::new();
     if facet == Facet::Folders {
         let mut failure = None;
-        let mut root = |folder: &str| {
-            let folder = folder.trim_matches('/');
+        let mut root = |mut folder: &str| {
+            while let Some(rest) = folder.strip_prefix('/') {
+                folder = rest;
+            }
+            while let Some(rest) = folder.strip_suffix('/') {
+                folder = rest;
+            }
             if !folder.is_empty() {
                 failure = copy(folder)
                     .and_then(|mut path| push(&mut path, "/").map(|()| prefix = path))
@@ -549,7 +551,7 @@ pub(super) fn facets(
         let mut rows = 0_u32;
         for name in &names {
             let row = wire::ServiceLibFacet {
-                text: name.text(),
+                text: name.parts().1,
                 count: name.count,
                 first: if jumps { name.first } else { NO_JUMP },
             };
