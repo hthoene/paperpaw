@@ -4,6 +4,7 @@
 //! picture size) is found again by its progress; one that cannot be found
 //! opens the book at its start, and nothing is written to the card when the
 //! book opens. Each test starts the emulator on a card with the sample book.
+//! The last test is for #270: a highlight saved in this conversion is drawn.
 
 #![allow(
     clippy::unwrap_used,
@@ -219,4 +220,39 @@ fn the_first_page_turn_after_a_found_place_saves_it_in_this_conversion() {
     let after = fs::read_to_string(positions(&card)).unwrap();
     assert_eq!(conversion(&after), own);
     assert_ne!(after, saved);
+}
+
+/// Presses a button and waits for the screen to follow.
+fn press(name: &str) -> Vec<String> {
+    let mut steps = Vec::new();
+    for pressed in ["true", "false"] {
+        steps.push(format!(
+            "{{\"op\": \"button\", \"name\": \"{name}\", \"pressed\": {pressed}}}"
+        ));
+    }
+    steps.push("{\"op\": \"wait\", \"ms\": 400}".to_string());
+    steps
+}
+
+#[test]
+fn a_highlight_saved_in_this_conversion_is_drawn_on_its_page() {
+    // Two turns on, one word selected and kept as a highlight (the keys the
+    // reader's selection takes), as on a device.
+    let card = new_card("drawn");
+    let mut keys = turns(2);
+    keys.push("{\"op\": \"run\", \"action\": \"reader.select-text\"}".to_string());
+    keys.push("{\"op\": \"wait\", \"ms\": 500}".to_string());
+    for name in ["confirm", "right", "right", "confirm", "back"] {
+        keys.extend(press(name));
+    }
+    session(&card, &card.join("selecting.png"), &keys);
+    let marks = card.join(".paperpaw/annotations");
+    let saved = fs::read_dir(&marks).unwrap().count();
+    assert_eq!(saved, 1, "the highlight was not saved");
+    // The page as it opens with the highlight, and with the file taken away.
+    let with = opens_at(&card, "with");
+    let kept = card.join("kept");
+    fs::rename(&marks, &kept).unwrap();
+    let without = opens_at(&card, "without");
+    assert_ne!(with, without, "the highlight is not drawn on its page");
 }

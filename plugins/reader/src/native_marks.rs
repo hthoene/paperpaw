@@ -308,22 +308,22 @@ const SHIFT: u32 = 16;
 pub fn read_decoration(host: &Host<'_>, role: &str) -> Result<Decoration, Error> {
     let mut scratch = [0u8; 96];
     let mut key = [0u8; 48];
-    let mut text = |aspect: &str, scratch: &mut [u8]| -> Result<Option<usize>, Error> {
+    // The text is the value in `scratch` (not the start of the buffer: that
+    // holds the reply's framing).
+    let mut text = |aspect: &str, scratch: &mut [u8]| -> Result<Option<Look>, Error> {
         let name = join(&mut key, role, aspect)?;
         match settings::read_setting(host, name, scratch) {
-            Ok(SettingValue::Text(value)) => Ok(Some(value.len())),
+            Ok(SettingValue::Text(value)) => Ok(Some(Look {
+                tone: Tone::from_id(value),
+                line: LineKind::from_id(value),
+            })),
             Ok(_) | Err(Error::NotFound) => Ok(None),
             Err(error) => Err(error),
         }
     };
     let mut deco = Decoration::NONE;
     for aspect in ["background", "ink", "line-tone"] {
-        let tone = match text(aspect, &mut scratch)? {
-            Some(len) => core::str::from_utf8(&scratch[..len])
-                .ok()
-                .and_then(Tone::from_id),
-            None => None,
-        };
+        let tone = text(aspect, &mut scratch)?.and_then(|look| look.tone);
         match (aspect, tone) {
             ("background", Some(tone)) => deco = deco.background(tone),
             ("ink", Some(tone)) => deco = deco.ink(tone),
@@ -331,11 +331,7 @@ pub fn read_decoration(host: &Host<'_>, role: &str) -> Result<Decoration, Error>
             _ => {}
         }
     }
-    if let Some(len) = text("line", &mut scratch)?
-        && let Some(kind) = core::str::from_utf8(&scratch[..len])
-            .ok()
-            .and_then(LineKind::from_id)
-    {
+    if let Some(kind) = text("line", &mut scratch)?.and_then(|look| look.line) {
         deco = deco.line(kind);
     }
     let mut bytes = [0u8; 32];
@@ -352,6 +348,12 @@ pub fn read_decoration(host: &Host<'_>, role: &str) -> Result<Decoration, Error>
         }
     }
     Ok(deco)
+}
+
+/// What a text setting's value names: a tone or a line kind.
+struct Look {
+    tone: Option<Tone>,
+    line: Option<LineKind>,
 }
 
 /// `role`, a dot and `aspect` in `buffer`.
