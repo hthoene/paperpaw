@@ -7,8 +7,10 @@
 //! heap budget as the memory probe, and the power level the kernel reports. A
 //! part the profile does not have is `ERR_NOT_FOUND` (the default of
 //! [`DeviceHost`]): firmware (PaperPaw is never the emulator's firmware),
-//! native-plugin state, the built-in list and the plugins a start could not
-//! install. `caps` and the answered parts agree (a test).
+//! the built-in list and the plugins a start could not install. Native-plugin
+//! state is answered where the emulator loads code plugins (Linux on x86-64:
+//! the code file `code-host.so`, no chip, no safe mode). `caps` and the answered
+//! parts agree (a test).
 //!
 //! The emulator offers the service to admission with [`offered_services`];
 //! the X4 firmware does not.
@@ -21,7 +23,7 @@ use std::time::Instant;
 
 use paperpaw_core::native_host::device_service::{
     BluetoothFacts, BondedRow, DEVICE_SERVICES, DeviceFacts, DeviceHost, DeviceServices,
-    MemoryFacts, NetworkRow, ProbeCache, WifiFacts, caps,
+    MemoryFacts, NativeFacts, NetworkRow, ProbeCache, WifiFacts, caps,
 };
 use paperpaw_core::native_host::shell::DATA_SERVICES;
 use paperpaw_core::sdk::power::Power;
@@ -138,6 +140,31 @@ impl DeviceHost for DesktopDevice {
             // The emulator does not say how it started or how long it slept.
             start: 0,
             slept_ms: None,
+        });
+        Ok(())
+    }
+
+    /// What a code plugin must be built for, where the emulator loads code
+    /// plugins (Linux on x86-64: a library `code-host.so`, `crate::native`): no
+    /// chip (0), no safe mode, no code flash to run out of. Elsewhere the
+    /// default stands (`ERR_NOT_FOUND`: no code plugins). Without these the
+    /// store drops every code build and says the library does not offer the
+    /// plugin for this device (#277).
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn native(&self, visit: &mut dyn FnMut(&NativeFacts<'_>)) -> Result<(), i32> {
+        let file = crate::native::file_name();
+        visit(&NativeFacts {
+            abi_major: u32::from(paperpaw_core::sdk::native::INTERFACE),
+            abi_draft: u32::from(paperpaw_core::sdk::native::DRAFT),
+            target: 0,
+            code_file: &file,
+            safe_mode: 0,
+            crashed: "",
+            last_loaded: "",
+            pending: 0,
+            not_installed: 0,
+            room_free: u64::MAX,
+            room_largest: u64::MAX,
         });
         Ok(())
     }
@@ -263,6 +290,33 @@ mod tests {
             // PaperPaw is never the emulator's firmware.
             assert_eq!(device.firmware(&mut |_| {}), Err(ERR_NOT_FOUND));
             assert_eq!(caps_seen & caps::FIRMWARE, 0);
+        }
+    }
+
+    /// Where the emulator loads code plugins it says what they must be built
+    /// for: without it the store drops every code build (#277).
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn native_facts_name_the_code_file_the_emulator_loads() {
+        for profile in PROFILES {
+            let device = DesktopDevice::new(profile);
+            let mut seen = None;
+            device
+                .native(&mut |facts| {
+                    seen = Some((
+                        facts.abi_major,
+                        facts.abi_draft,
+                        facts.code_file.to_string(),
+                        facts.safe_mode,
+                        facts.pending,
+                    ));
+                })
+                .unwrap();
+            let (major, draft, file, safe, pending) = seen.unwrap();
+            assert_eq!(major, 7);
+            assert_eq!(draft, u32::from(paperpaw_core::sdk::native::DRAFT));
+            assert_eq!(file, crate::native::file_name());
+            assert_eq!((safe, pending), (0, 0));
         }
     }
 
