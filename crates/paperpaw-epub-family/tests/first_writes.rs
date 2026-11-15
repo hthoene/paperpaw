@@ -204,7 +204,7 @@ fn what_an_aborted_try_left_of_a_chapter_does_not_stay() {
             .unwrap();
         card.inner.remove(&format!("{folder}/end")).unwrap();
         for name in ["txt", "idx", "anc", "lnk", "pos", "xpt", "pic"] {
-            let left = format!("left\tof\tan\tearlier\ttry\n").repeat(200);
+            let left = "left\tof\tan\tearlier\ttry\n".repeat(200);
             card.inner
                 .write(&format!("{folder}/{name}"), left.as_bytes())
                 .unwrap();
