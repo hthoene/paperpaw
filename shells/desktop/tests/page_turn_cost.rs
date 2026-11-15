@@ -50,8 +50,8 @@ const CEILINGS: &[(&str, u32, &str)] = &[
     ),
     (
         "text_measure",
-        220,
-        "layout of the next page, widths and pairs kept for the book (215)",
+        224,
+        "layout of the next page, widths and pairs kept for the book (221)",
     ),
     (
         "storage_read_at",
@@ -59,10 +59,15 @@ const CEILINGS: &[(&str, u32, &str)] = &[
         "card reads; a chapter's first page (87)",
     ),
     ("service_call", 30, "document service and status line (17)"),
+    (
+        "other",
+        45,
+        "hyphenation of the words at line ends (40; 13 without)",
+    ),
 ];
 
-/// All slots together, one turn (493 now).
-const TOTAL_CEILING: u32 = 510;
+/// All slots together, one turn (517 now with hyphenation, 493 without).
+const TOTAL_CEILING: u32 = 525;
 
 /// Floors, so that a turn which does nothing cannot pass: every measured turn
 /// enters at least this many slots (the quietest, a page with one picture,
@@ -96,6 +101,12 @@ fn reading() -> Device {
             format!("[reader]\nlast = {BOOK}\n"),
         )
         .with("paperpaw.ini", "[help]\nshow = false\n");
+    // English is hyphenated as on a fresh install (the firmware seeds the pack).
+    let files = paperpaw_default_packs::english()
+        .iter()
+        .fold(files, |files, (path, bytes)| {
+            files.with(&format!("plugins/hyphenation/{path}"), *bytes)
+        });
     paperpaw_emulator::budget::override_limit(None);
     let profile = profiles::find("xteink-x4").unwrap();
     let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
@@ -134,8 +145,9 @@ fn a_page_turn_stays_within_its_host_crossings() {
         press(&mut device, ButtonState::Released);
         let counts = slot_counts::snapshot();
         eprintln!(
-            "page turn: measures {} reads {} service {} settings {} inked {}",
+            "page turn: measures {} other {} reads {} service {} settings {} inked {}",
             count_of(&counts, "text_measure"),
+            count_of(&counts, "other"),
             count_of(&counts, "storage_read_at"),
             count_of(&counts, "service_call"),
             count_of(&counts, "settings_read"),
