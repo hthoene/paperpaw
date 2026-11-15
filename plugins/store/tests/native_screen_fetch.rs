@@ -84,16 +84,10 @@ fn the_count_is_the_interface_6_count() {
     let (ids, sizes) = (strings(&["a", "b", "c"]), [1000, 3000, 0]);
     let t = tally(&ids, &sizes, &going);
     assert_eq!(t, counted(|t| t.missing = true));
-    // Installed counts whole, the one downloading by its bytes, never more
-    // than its size.
+    // Installed counts whole, the one downloading by the share of its files
+    // that are here (`done` and `total` count files), never more than its size.
     going.set("a", Step::Installed);
-    going.set(
-        "b",
-        Step::Downloading {
-            done: 9_000,
-            total: 3000,
-        },
-    );
+    going.set("b", Step::Downloading { done: 5, total: 2 });
     let t = tally(&ids, &sizes, &going);
     assert_eq!((t.done, t.whole, t.busy), (4000, 1, true));
     assert_eq!(
@@ -101,15 +95,13 @@ fn the_count_is_the_interface_6_count() {
         (990, 4000),
         "never whole before the end"
     );
-    going.set(
-        "b",
-        Step::Downloading {
-            done: 1_000,
-            total: 3000,
-        },
-    );
+    going.set("b", Step::Downloading { done: 1, total: 3 });
     let t = tally(&ids, &sizes, &going);
     assert_eq!(progress(&t, 4000, 3), (500, 2000));
+    // One of two files here: half of the plugin's bytes, not one byte.
+    going.set("b", Step::Downloading { done: 1, total: 2 });
+    let t = tally(&ids, &sizes, &going);
+    assert_eq!(t.done, 1000 + 1500);
     // No sizes known: the plugins installed are the share.
     let t = tally(&ids, &[0, 0, 0], &going);
     assert_eq!(progress(&t, 0, 3), (333, 0));
@@ -452,4 +444,18 @@ fn the_bar_has_room_to_spare_or_goes_close_below_the_message() {
         ..metrics(u16::MAX, u16::MAX)
     });
     assert!(small.bar.y >= small.message.y);
+}
+
+/// The host lets a plugin close a screen only from the screen's own callbacks,
+/// so a download that ended in an event leaves its screen drawn at the end,
+/// not at 99 %, until a key or the next showing closes it.
+#[test]
+fn a_fetch_that_ended_is_drawn_whole_until_it_closes() {
+    let going = Going::default();
+    going.set("pack-a", Step::Installed);
+    going.set("pack-b", Step::Installed);
+    let mut core = request("reader");
+    core.refresh(&going, Trouble::None);
+    assert_eq!((core.phase, core.permille), (Phase::Done, 1000));
+    assert_eq!(core.refresh(&going, Trouble::None), Next::Close);
 }

@@ -195,6 +195,23 @@ fn frames_preserve_every_field_and_unknown_purposes() {
 }
 
 #[test]
+fn a_screens_draw_that_only_counts_pictures_is_told_by_bit_1_of_its_id() {
+    let decoded = |purpose: u32, id: u32| {
+        let frame = wire::DrawFrame {
+            id,
+            ..frame(purpose)
+        };
+        let bytes = encode(&[Record::DrawFrame(frame)]);
+        DrawFrame::decode(&bytes).unwrap().pictures_only()
+    };
+    assert!(decoded(0, 2));
+    assert!(decoded(0, 3));
+    // Not the follow-up's bit, and not the id of another purpose's owner.
+    assert!(!decoded(0, 0) && !decoded(0, 1) && !decoded(0, 4));
+    assert!(!decoded(1, 2) && !decoded(4, 2));
+}
+
+#[test]
 fn callback_decoders_require_exact_single_records_and_complete_framing() {
     let input = Record::InputAction(wire::InputAction {
         now_ms: 1,

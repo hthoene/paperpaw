@@ -1,5 +1,5 @@
 //! What a widget draws with in one callback: the host, its settings, the
-//! interface font, the look its settings make, the clock and the catalog.
+//! font chosen for it, the look its settings make, the clock and the catalog.
 //! Nothing here outlives the callback.
 use crate::{
     Messages, Style,
@@ -39,7 +39,7 @@ impl<'a> Cx<'a> {
     /// The host's refusals and [`Error::NoMemory`].
     pub fn open(host: &'a Host<'a>, widget: &'a str) -> Result<Self, Error> {
         let settings = Settings::new(host, widget);
-        let font = Font::acquire_role(host, FontRole::Ui)?;
+        let font = widget_font(host, widget)?;
         let snapshot = snapshot::capture_snapshot(host)?;
         let style = Style::read(host, &snapshot, &font)?;
         Ok(Self {
@@ -251,6 +251,29 @@ fn chosen_or_system(chosen: Option<i32>, system: Option<i16>) -> i32 {
 /// The host's refusal.
 pub fn local_time_now(host: &Host<'_>) -> Result<Option<LocalTime>, Error> {
     local_time_in(host, &snapshot::capture_snapshot(host)?)
+}
+
+/// The key of the font the reader chose for a widget
+/// (`docs/abi/screens-input.md` section 4).
+const WIDGET_FONT: &str = "widget:";
+
+/// The font the reader chose for `widget` (its id with the placement): its
+/// own setting `<widget>.font`, else the one for all widgets, as the host
+/// resolves the key `widget:<id>`. The menus' font where the host knows no
+/// such key or the id is too long for one.
+///
+/// # Errors
+/// The host's refusal.
+pub fn widget_font<'a>(host: &'a Host<'a>, widget: &str) -> Result<Font<'a>, Error> {
+    use core::fmt::Write;
+    let mut key = super::settings::Stack::<128>::new();
+    if key.write_str(WIDGET_FONT).is_ok()
+        && key.write_str(widget).is_ok()
+        && let Ok(font) = Font::acquire(host, key.as_str())
+    {
+        return Ok(font);
+    }
+    Font::acquire_role(host, FontRole::Ui)
 }
 
 /// The font of `face` (one of [`super::options::FACES`]): the menus' font, or

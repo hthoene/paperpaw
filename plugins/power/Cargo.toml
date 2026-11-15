@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-power"
 description = "PaperPaw power: chooses the power mode, by hand or by the battery (ADR 0025)"
-version = "1.1.2"
+version = "1.1.3"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

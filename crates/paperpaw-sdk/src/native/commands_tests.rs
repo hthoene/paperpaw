@@ -1385,3 +1385,50 @@ fn revocations_go_in_batches_of_eight_and_keep_their_limits() {
     }
     assert!(ctx.batches.borrow().is_empty());
 }
+
+#[test]
+fn a_button_hint_is_checked_before_the_host_and_sent_as_set_hint() {
+    use crate::native::ui::ButtonHint;
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let action = "core.confirm";
+    for hint in [
+        ButtonHint::words(action, "Try again").unwrap(),
+        ButtonHint::icon("core.next", "arrow-right").unwrap(),
+        ButtonHint::hidden("store.more").unwrap(),
+        ButtonHint::usual(action).unwrap(),
+    ] {
+        sender.set_hint(hint).unwrap();
+    }
+    let hint = |action, kind, label| wire::Command::SetHint {
+        action,
+        kind,
+        label,
+    };
+    let expected = [
+        hint(action, 1, "Try again"),
+        hint("core.next", 2, "arrow-right"),
+        hint("store.more", 3, ""),
+        hint(action, 0, ""),
+    ];
+    let batches = ctx.batches.borrow();
+    assert_eq!(batches.len(), expected.len());
+    for (bytes, command) in batches.iter().zip(expected) {
+        let sent = wire::commands_decode(bytes).unwrap();
+        assert_eq!(sent.iter().collect::<Vec<_>>(), [command]);
+    }
+    // What the host would refuse for its shape is refused here, unsent.
+    assert_eq!(ButtonHint::words(action, ""), Err(Error::Invalid));
+    assert_eq!(ButtonHint::icon(action, ""), Err(Error::Invalid));
+    assert_eq!(ButtonHint::words("confirm", "x"), Err(Error::Invalid));
+    assert_eq!(ButtonHint::hidden(""), Err(Error::Invalid));
+    let long = "x".repeat(65);
+    assert_eq!(ButtonHint::words(action, &long), Err(Error::NoSpace));
+    assert!(ButtonHint::words(action, &long[..64]).is_ok());
+}
