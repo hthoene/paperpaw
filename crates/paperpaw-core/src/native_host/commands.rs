@@ -972,3 +972,7 @@ mod tests {
         assert_eq!(unsafe { scope.submit(core::ptr::null(), 0) }, ERR_BUSY);
     }
 }
+
+#[cfg(test)]
+#[path = "commands_enable_tests.rs"]
+mod enable_tests;
