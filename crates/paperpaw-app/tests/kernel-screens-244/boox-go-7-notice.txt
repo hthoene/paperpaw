@@ -1,0 +1,5 @@
+screen core.notice-box
+Button "Start reading, Choose a book from your library." at 47,377 1170x283
+Button "Edit" at 1134,1597 83x83
+Text "The card is nearly full: 12 MB left" at 416,1516 800x45
+frame 1680 rows, fnv1a64 ec6b9129ef052a72
