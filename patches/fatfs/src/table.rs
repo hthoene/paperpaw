@@ -157,6 +157,193 @@ where
     Ok(new_cluster)
 }
 
+// Modified for PaperPaw: a run of clusters taken at once. `first` is the first free cluster at or
+// after `hint`; up to `want` free clusters in a row from it are chained (the last one ends the
+// chain), and `prev_cluster`'s link to `first` is written with them in one write when it is the
+// cluster just before: the entries of one FAT sector reach each FAT copy once, not once for each
+// entry (written one by one they were written back in order, entry by entry, each time to both
+// copies). Returns the first cluster and how many were taken (at least one). FAT12 takes one.
+pub(crate) fn alloc_run<S, E>(
+    fat: &mut S,
+    fat_type: FatType,
+    prev_cluster: Option<u32>,
+    hint: Option<u32>,
+    total_clusters: u32,
+    taken: &Cell<u64>,
+    want: u32,
+) -> Result<(u32, u32), Error<E>>
+where
+    S: Read + Write + Seek,
+    E: IoError,
+    Error<E>: From<S::Error>,
+{
+    if fat_type == FatType::Fat12 {
+        let first = alloc_cluster(fat, fat_type, prev_cluster, hint, total_clusters, taken)?;
+        return Ok((first, 1));
+    }
+    let end_cluster = total_clusters + RESERVED_FAT_ENTRIES;
+    let start_cluster = match hint {
+        Some(n) if n < end_cluster => n,
+        _ => RESERVED_FAT_ENTRIES,
+    };
+    let first = match find_free_cluster(fat, fat_type, start_cluster, end_cluster) {
+        Ok(n) => n,
+        Err(_) if start_cluster > RESERVED_FAT_ENTRIES => {
+            find_free_cluster(fat, fat_type, RESERVED_FAT_ENTRIES, start_cluster)?
+        }
+        Err(e) => return Err(e),
+    };
+    // A run is written in one block of the FAT, with the link into it: a cut can then leave no
+    // taken cluster linked from nowhere beyond what the old one-at-a-time order could (one).
+    // Where it would straddle two blocks, or the cluster before it is not just before it or
+    // lies in the block before, it is cut short (to the end of the block, or to one cluster).
+    let entries_per_block = 512 / if fat_type == FatType::Fat32 { 4 } else { 2 };
+    let one_block = match prev_cluster {
+        Some(n) => n + 1 == first && n / entries_per_block == first / entries_per_block,
+        None => true,
+    };
+    let want = if one_block {
+        want.min(entries_per_block - first % entries_per_block)
+    } else {
+        1
+    }
+    .clamp(1, MAX_RUN);
+    let mut count = 1;
+    while count < want && first + count < end_cluster && read_fat(fat, fat_type, first + count)? == FatValue::Free {
+        count += 1;
+    }
+    // Count first: a mirror write can fail after the primary FAT has changed.
+    taken.set(taken.get().wrapping_add(u64::from(count)));
+    // The link from the cluster before goes in the same write when the run follows it.
+    let joined = prev_cluster.filter(|&n| n + 1 == first);
+    let begin = joined.unwrap_or(first);
+    let mut raw = [0u8; (MAX_RUN as usize + 1) * 4];
+    let mut at = 0;
+    let mut put = |fat: &mut S, cluster: u32, value: FatValue| -> Result<(), Error<E>> {
+        at += put_entry(&mut raw[at..], fat, fat_type, cluster, value)?;
+        Ok(())
+    };
+    if joined.is_some() {
+        put(fat, begin, FatValue::Data(first))?;
+    }
+    for i in 0..count {
+        let value = if i + 1 < count {
+            FatValue::Data(first + i + 1)
+        } else {
+            FatValue::EndOfChain
+        };
+        put(fat, first + i, value)?;
+    }
+    write_entries(fat, fat_type, begin, &raw[..at], true)?;
+    if let (Some(n), None) = (prev_cluster, joined) {
+        write_fat(fat, fat_type, n, FatValue::Data(first))?;
+    }
+    trace!("allocated {} clusters from {}", count, first);
+    Ok((first, count))
+}
+
+// Modified for PaperPaw: the clusters after `keep` (`count` of them, from `first`, which must be the
+// cluster after `keep`) freed in one write, `keep` made the end of its chain. For a run that
+// `alloc_run` took; it writes each FAT copy once.
+pub(crate) fn free_run<S, E>(fat: &mut S, fat_type: FatType, keep: u32, first: u32, count: u32) -> Result<(), Error<E>>
+where
+    S: Read + Write + Seek,
+    E: IoError,
+    Error<E>: From<S::Error>,
+{
+    debug_assert!(fat_type != FatType::Fat12 && keep + 1 == first && count >= 1 && count <= MAX_RUN);
+    let mut raw = [0u8; (MAX_RUN as usize + 1) * 4];
+    let mut at = 0;
+    at += put_entry(&mut raw[at..], fat, fat_type, keep, FatValue::EndOfChain)?;
+    for i in 0..count {
+        at += put_entry(&mut raw[at..], fat, fat_type, first + i, FatValue::Free)?;
+    }
+    write_entries(fat, fat_type, keep, &raw[..at], false)
+}
+
+/// The most clusters a run takes at once.
+pub(crate) const MAX_RUN: u32 = 32;
+
+/// The bytes of one FAT16/FAT32 entry, as `Fat16::set` and `Fat32::set` write it (a FAT32 entry
+/// keeps its four reserved bits).
+fn put_entry<S, E>(out: &mut [u8], fat: &mut S, fat_type: FatType, cluster: u32, value: FatValue) -> Result<usize, Error<E>>
+where
+    S: Read + Seek,
+    E: IoError,
+    Error<E>: From<S::Error>,
+{
+    match fat_type {
+        FatType::Fat32 => {
+            let reserved = Fat32::get_raw(fat, cluster)? & 0xF000_0000;
+            let raw = match value {
+                FatValue::Free => 0,
+                FatValue::Bad => 0x0FFF_FFF7,
+                FatValue::EndOfChain => 0x0FFF_FFFF,
+                FatValue::Data(n) => n,
+            } | reserved;
+            out[..4].copy_from_slice(&raw.to_le_bytes());
+            Ok(4)
+        }
+        _ => {
+            let raw: u16 = match value {
+                FatValue::Free => 0,
+                FatValue::Bad => 0xFFF7,
+                FatValue::EndOfChain => 0xFFFF,
+                FatValue::Data(n) => n as u16,
+            };
+            out[..2].copy_from_slice(&raw.to_le_bytes());
+            Ok(2)
+        }
+    }
+}
+
+/// `bytes` (entries as `put_entry` made them) written at the entry of `cluster`: one write per
+/// 512-byte block of the FAT they touch (a block reaches the card as a whole, in the order its
+/// changes were made), the last block first where `later_first` (a chain made: every link points
+/// to what is already written, the link into the run last), the first block first where not (a
+/// chain cut short: its end first, then what is freed).
+fn write_entries<S, E>(
+    fat: &mut S,
+    fat_type: FatType,
+    cluster: u32,
+    bytes: &[u8],
+    later_first: bool,
+) -> Result<(), Error<E>>
+where
+    S: Read + Write + Seek,
+    E: IoError,
+    Error<E>: From<S::Error>,
+{
+    const BLOCK: u64 = 512;
+    let size: u64 = if fat_type == FatType::Fat32 { 4 } else { 2 };
+    let begin = u64::from(cluster) * size;
+    let end = begin + bytes.len() as u64;
+    // The cut points: every block boundary inside. The entries of a run are fewer bytes than a
+    // block (`MAX_RUN` + 1 of them), so there is one boundary at most: three points.
+    debug_assert!(bytes.len() as u64 <= BLOCK);
+    let mut parts = [0usize; 3];
+    let mut n = 0;
+    let mut at = 0usize;
+    parts[n] = 0;
+    n += 1;
+    let mut next_boundary = (begin / BLOCK + 1) * BLOCK;
+    while next_boundary < end {
+        at = (next_boundary - begin) as usize;
+        parts[n] = at;
+        n += 1;
+        next_boundary += BLOCK;
+    }
+    let _ = at;
+    parts[n] = bytes.len();
+    for k in 0..n {
+        let k = if later_first { n - 1 - k } else { k };
+        let (from, to) = (parts[k], parts[k + 1]);
+        fat.seek(io::SeekFrom::Start(begin + from as u64))?;
+        fat.write_all(&bytes[from..to])?;
+    }
+    Ok(())
+}
+
 pub(crate) fn read_fat_flags<S, E>(fat: &mut S, fat_type: FatType) -> Result<FsStatusFlags, Error<E>>
 where
     S: Read + Seek,
