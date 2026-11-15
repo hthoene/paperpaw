@@ -65,6 +65,13 @@ pub fn this_firmware() -> paperpaw_sdk::native::Native {
     native
 }
 
+/// The chip family of this device, for what the kernel's plugin and firmware
+/// jobs check a file against (`paperpaw_x4::host_jobs`).
+#[cfg(feature = "esp32c3")]
+pub const FAMILY: paperpaw_x4::host_jobs::Family = paperpaw_x4::host_jobs::Family::Riscv;
+#[cfg(feature = "esp32s3")]
+pub const FAMILY: paperpaw_x4::host_jobs::Family = paperpaw_x4::host_jobs::Family::Xtensa;
+
 /// What this firmware's loader reads of interface-7 files (its chip,
 /// interface and minor; `None` in a build without the loader). The one
 /// source of it: [`code_to_load`] asks with it, and the kernel installs the

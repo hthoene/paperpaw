@@ -390,6 +390,14 @@ impl Device for HostDevice<'_, '_> {
         store::on_wake(self.0)
     }
 
+    fn keep_tries(&self, tries: u8) -> Result<(), Error> {
+        store::keep_tries(self.0, tries)
+    }
+
+    fn notice(&self, key: &'static str) -> Result<(), Error> {
+        notify(self.0, key)
+    }
+
     fn open_unlock(&self) -> Result<(), Error> {
         let host = self.0;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
@@ -620,9 +628,10 @@ impl NativeLock {
                 // The end of a wait is seen at the next input (and drawn from
                 // the clock); an exact wake needs the work service.
                 Effect::WakeAt(_) => {}
-                // Not kept, the count still holds until PaperPaw starts anew.
+                // Not kept, the count still holds until PaperPaw starts anew;
+                // that is said, and the effects after it go on.
                 Effect::KeepTries(tries) => {
-                    let _ = store::keep_tries(host, tries);
+                    gate::keep_tries(&HostDevice(host), tries);
                 }
             }
         }
