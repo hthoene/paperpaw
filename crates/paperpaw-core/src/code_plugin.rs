@@ -20,26 +20,20 @@ use alloc::vec::Vec;
 use paperpaw_native::header5;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::native::{Native, SafeMode, SafeModeReason};
-use paperpaw_sdk::{
-    Id, Manifest, Plugin, PluginKind, PluginProblem, PluginState, RegisterError, Registrar,
-};
+use paperpaw_sdk::{Id, Plugin, PluginKind, PluginProblem, PluginState};
 
 use crate::data_plugin::DataPlugin;
 use crate::{Kernel, WarningSource};
 
 /// The SHA-256 in the header of the code file at `path`, if this firmware
 /// loads the file: a format-5 file (interface 7) its loader reads (`loader`,
-/// the chip, interface and minor it takes; `None` where it reads none), or a
-/// file of the format before that fits `native`.
+/// the chip, interface and minor it takes; `None` where it reads none). A
+/// file of the format before is never loaded, whatever it says it fits.
 fn code_that_fits(
     storage: &dyn Storage,
     path: &str,
-    native: &Native,
     loader: Option<&header5::Host>,
 ) -> Option<[u8; 32]> {
-    if let Some(header) = paperpaw_sdk::native::read_header(storage, path) {
-        return native.fits(&header).then_some(header.sha256);
-    }
     let mut head = [0u8; header5::HEADER_LEN];
     let mut at = 0;
     while at < head.len() {
@@ -75,7 +69,7 @@ pub(crate) fn fetched_for(
     ids.into_iter()
         .filter_map(|id| {
             let path = native.path(&paperpaw_sdk::native::fetched_folder(&id));
-            let sha256 = code_that_fits(storage, &path, native, loader)?;
+            let sha256 = code_that_fits(storage, &path, loader)?;
             (paperpaw_sdk::native::fetched_code(storage, &id) == Some(sha256))
                 .then_some((id, sha256))
         })
@@ -134,34 +128,27 @@ pub fn code_to_load(
     });
     folders
         .iter()
-        .any(|folder| code_that_fits(storage, &native.path(folder), native, loader).is_some())
+        .any(|folder| code_that_fits(storage, &native.path(folder), loader).is_some())
 }
 
 /// What loads the code of code plugins: the shell's, which knows where it
 /// can run.
 pub trait CodeLoader {
-    /// Loads the code of the plugin `code.id` and makes its plugin, or
-    /// says why it cannot. Called at the start, once for every code plugin
-    /// switched on, in the order of their ids. Only the file installed may
-    /// run: one whose header's SHA-256 is not `code.sha256` (changed since
-    /// it was installed) is [`PluginProblem::Changed`], and its content
-    /// must hold to its header.
-    fn load(
-        &mut self,
-        storage: &dyn Storage,
-        code: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem>;
-
-    /// Whether the code of `code.id` is an interface-7 native plugin, and if
-    /// so, hosted and ready to be admitted ([`NativeAdmission`]). Asked before
-    /// [`load`](Self::load), once per plugin: `Ok(None)` is "not one of
-    /// mine, load it as before", an error is why it cannot run (as for
-    /// `load`). The code runs nothing of the plugin's before the kernel
-    /// admits it: the kernel registers its declarations (screens, settings,
-    /// actions, …) with the callbacks it committed, all or none.
+    /// Hosts the code of the plugin `code.id`, an interface-7 native plugin,
+    /// ready to be admitted ([`NativeAdmission`]), or says why it cannot run.
+    /// Called at the start, once for every code plugin switched on, in the
+    /// order of their ids. Only the file installed may run: one whose
+    /// header's SHA-256 is not `code.sha256` (changed since it was
+    /// installed) is [`PluginProblem::Changed`], and its content must hold
+    /// to its header. `Ok(None)` is "not a file I run" (not an interface-7
+    /// file, or a loader that runs none): the kernel says why from the file
+    /// itself ([`file_problem`]: built for an older PaperPaw, needing a
+    /// newer one, or damaged). The code runs nothing of the plugin's before
+    /// the kernel admits it: the kernel registers its declarations (screens,
+    /// settings, actions, …) with the callbacks it committed, all or none.
     ///
     /// # Errors
-    /// Why the code is refused, as [`load`](Self::load).
+    /// Why the code is refused.
     fn load_native(
         &mut self,
         _storage: &dyn Storage,
@@ -171,7 +158,7 @@ pub trait CodeLoader {
     }
 
     /// Called once per start, before the first plugin is asked
-    /// ([`load_native`](Self::load_native) or [`load`](Self::load)); not in safe
+    /// ([`load_native`](Self::load_native)); not in safe
     /// mode, where no plugin is loaded. A shell that offers host services to
     /// admission wires them here (`storage`: the card, as an `Rc`), so every
     /// plugin is admitted against what is wired at this start and not what an
@@ -214,7 +201,18 @@ pub trait NativeAdmission {
     fn admit(self: Box<Self>, kernel: &mut Kernel, folder: &str) -> Result<(), PluginProblem>;
 }
 
-/// A code plugin's file to load ([`CodeLoader::load`]).
+/// A hosted plugin of the tests: admitted with nothing registered.
+#[cfg(test)]
+pub(crate) struct Admitted;
+
+#[cfg(test)]
+impl NativeAdmission for Admitted {
+    fn admit(self: Box<Self>, _: &mut Kernel, _: &str) -> Result<(), PluginProblem> {
+        Ok(())
+    }
+}
+
+/// A code plugin's file to load ([`CodeLoader::load_native`]).
 #[derive(Debug, Clone, Copy)]
 pub struct CodeFile<'a> {
     /// The plugin's id, as its `plugin.ini` says: what a crash in its
@@ -237,24 +235,38 @@ pub(crate) struct CodePlugins {
     pub(crate) safe_mode: Option<SafeMode>,
 }
 
-/// A code plugin: its code, then its folder's data.
-struct WithData {
-    code: Box<dyn Plugin>,
-    data: DataPlugin,
-}
-
-impl Plugin for WithData {
-    /// The code's, at the version its `plugin.ini` names: the one the
-    /// store, the installer and updates go by.
-    fn manifest(&self) -> Manifest {
-        let mut manifest = self.code.manifest();
-        manifest.version = self.data.manifest().version;
-        manifest
+/// Why the code file at `path` does not run where the loader took it for
+/// none of its own ([`CodeLoader::load_native`] answered `Ok(None)`): a file
+/// of the format before interface 7 was built for an older PaperPaw (Beta 3's
+/// plugins: listed so, never loaded and never taken for damaged), one of a
+/// format this build does not read needs a newer one, an interface-7 file
+/// where the loader runs none is not supported here, anything else is
+/// damaged.
+pub(crate) fn file_problem(storage: &dyn Storage, path: &str) -> PluginProblem {
+    use paperpaw_native::{HEADER_LEN, Header, MAGIC, Problem};
+    let mut head = [0u8; HEADER_LEN];
+    let mut at = 0;
+    while at < head.len() {
+        match storage.read_at(path, at as u64, &mut head[at..]) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => at += n,
+        }
     }
-
-    fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
-        self.code.register(registrar)?;
-        self.data.register(registrar)
+    let head = &head[..at];
+    match Header::read(head) {
+        // Whatever a build of the time said of itself, the format before is
+        // not this interface's.
+        Ok(header) => PluginProblem::OlderInterface {
+            built_for: header.interface.min(paperpaw_sdk::native::INTERFACE - 1),
+        },
+        Err(Problem::NewerFormat)
+            if head.len() >= 6
+                && head[..4] == MAGIC
+                && u16::from_le_bytes([head[4], head[5]]) == header5::FORMAT =>
+        {
+            PluginProblem::Unsupported
+        }
+        Err(problem) => Native::problem_of_file(head, problem),
     }
 }
 
@@ -341,37 +353,11 @@ impl Kernel {
             if self.load_native_code(loader.as_mut(), storage.as_ref(), &file, &plugin, disabled) {
                 continue;
             }
-            let loaded = loader.load(storage.as_ref(), &file).and_then(|code| {
-                if code.manifest().id == id {
-                    Ok(code)
-                } else {
-                    Err(PluginProblem::Mismatch)
-                }
-            });
-            match loaded {
-                Ok(code) => {
-                    // Its `plugin.ini` names its version (0.1.0 where it
-                    // names none); code saying another is the author's slip
-                    // (`paperpaw-dev package` finds it), told, not refused.
-                    let (declared, built) = (plugin.manifest().version, code.manifest().version);
-                    if built != declared {
-                        let message = format!(
-                            "{path}: its code says version {built}, its plugin.ini {declared}: \
-                             taken as {declared}"
-                        );
-                        self.warn(WarningSource::Plugin(id.clone()), None, message);
-                    }
-                    let plugin = WithData { code, data: plugin };
-                    let manifest = plugin.manifest();
-                    self.register_plugin(&plugin, manifest);
-                    self.set_code_info(&id, None);
-                }
-                Err(problem) => {
-                    let message = format!("{path}: not loaded ({problem:?})");
-                    self.warn(WarningSource::Plugin(id.clone()), None, message);
-                    self.list_code_plugin(&plugin, disabled, PluginState::Failed, problem);
-                }
-            }
+            // Not a file the loader runs: the file itself says why.
+            let problem = file_problem(storage.as_ref(), &path);
+            let message = format!("{path}: not loaded ({problem:?})");
+            self.warn(WarningSource::Plugin(id.clone()), None, message);
+            self.list_code_plugin(&plugin, disabled, PluginState::Failed, problem);
         }
         drop(installed);
         loader.finish(storage.as_ref());
@@ -380,8 +366,7 @@ impl Kernel {
     }
 
     /// Asks the loader whether `file` is a native library and, if so, admits it
-    /// ([`Self::add_native_plugin`]) or lists why not; `true` when it was one
-    /// (the code is not loaded the other way).
+    /// ([`Self::add_native_plugin`]) or lists why not; `true` when it was one.
     fn load_native_code(
         &mut self,
         loader: &mut dyn CodeLoader,
@@ -525,33 +510,14 @@ impl Kernel {
 
 #[cfg(test)]
 mod tests {
-    use alloc::borrow::Cow;
     use alloc::rc::Rc;
     use core::cell::RefCell;
 
-    use paperpaw_sdk::{ActionSpec, MemoryStorage, Version};
+    use paperpaw_sdk::{Manifest, MemoryStorage, Version};
 
     use super::*;
+    use crate::KernelBuilder;
     use crate::tests::DEVICE;
-
-    /// A plugin whose code the loader "loaded": one action.
-    struct Code(&'static str);
-
-    impl Plugin for Code {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static(self.0), "Code", Version::new(1, 0, 0))
-                .description("Native code.")
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-            let id =
-                Id::parse(&format!("{}.hello", self.0)).map_err(|_| RegisterError::Invalid {
-                    message: Cow::Borrowed("id"),
-                })?;
-            r.add_action(ActionSpec::new(id, "hello"))
-        }
-    }
 
     /// Loads from a table, noting what it was asked.
     #[derive(Clone, Default)]
@@ -560,6 +526,8 @@ mod tests {
         /// The ids it was told, with the paths asked.
         ids: Rc<RefCell<Vec<String>>>,
         finished: Rc<RefCell<bool>>,
+        /// The paths of code it hosts (named by their plugin, for the
+        /// tests' reading) or refuses; any other file is none of its own.
         answers: Vec<(&'static str, Result<&'static str, PluginProblem>)>,
         /// The paths of native libraries, and how their admission goes.
         natives: Vec<(&'static str, Result<(), PluginProblem>)>,
@@ -581,44 +549,31 @@ mod tests {
     }
 
     impl CodeLoader for Loader {
-        fn load(
-            &mut self,
-            _: &dyn Storage,
-            code: &CodeFile<'_>,
-        ) -> Result<Box<dyn Plugin>, PluginProblem> {
-            let path = code.path;
-            self.asked.borrow_mut().push(String::from(path));
-            self.ids.borrow_mut().push(String::from(code.id.as_str()));
-            if code.sha256 != installed(code.id.as_str()) {
-                return Err(PluginProblem::Changed);
-            }
-            let answer = self
-                .answers
-                .iter()
-                .find(|(p, _)| *p == path)
-                .map(|(_, a)| *a);
-            match answer {
-                Some(Ok(id)) => Ok(Box::new(Code(id))),
-                Some(Err(problem)) => Err(problem),
-                None => Err(PluginProblem::Damaged),
-            }
-        }
-
         fn load_native(
             &mut self,
             _: &dyn Storage,
             code: &CodeFile<'_>,
         ) -> Result<Option<Box<dyn NativeAdmission>>, PluginProblem> {
-            Ok(self
-                .natives
-                .iter()
-                .find(|(path, _)| *path == code.path)
-                .map(|(_, result)| {
-                    Box::new(Admit {
-                        result: *result,
-                        admitted: self.admitted.clone(),
-                    }) as Box<dyn NativeAdmission>
-                }))
+            let admit = |result| {
+                Box::new(Admit {
+                    result,
+                    admitted: self.admitted.clone(),
+                }) as Box<dyn NativeAdmission>
+            };
+            let path = code.path;
+            if let Some((_, result)) = self.natives.iter().find(|(p, _)| *p == path) {
+                return Ok(Some(admit(*result)));
+            }
+            self.asked.borrow_mut().push(String::from(path));
+            self.ids.borrow_mut().push(String::from(code.id.as_str()));
+            if code.sha256 != installed(code.id.as_str()) {
+                return Err(PluginProblem::Changed);
+            }
+            match self.answers.iter().find(|(p, _)| *p == path) {
+                Some((_, Ok(_))) => Ok(Some(admit(Ok(())))),
+                Some((_, Err(problem))) => Err(*problem),
+                None => Ok(None),
+            }
         }
 
         fn finish(&mut self, _: &dyn Storage) {
@@ -705,7 +660,6 @@ mod tests {
             (PluginState::Running, PluginKind::Code, None)
         );
         assert_eq!(info(&kernel, "theme").kind, PluginKind::Data);
-        assert!(kernel.shared.actions.contains("hello.hello"), "its code's");
         assert_eq!(
             kernel.translator().get("hello.greeting"),
             Some("Hi"),
@@ -716,8 +670,8 @@ mod tests {
     }
 
     /// A native library is admitted by the kernel once, before the plugin is
-    /// registered, and never loaded the other way; a refusal lists the plugin
-    /// as failed with why, and the others still load.
+    /// registered; a refusal lists the plugin as failed with why, and the
+    /// others still load.
     #[test]
     fn a_native_library_is_admitted_once_and_a_refusal_is_listed() {
         let loader = Loader {
@@ -725,7 +679,7 @@ mod tests {
             ..loader()
         };
         let first = kernel(&loader, "", None);
-        assert_eq!(*loader.admitted.borrow(), ["plugins/hello"]);
+        assert_eq!(*loader.admitted.borrow(), ["plugins/hello", "plugins/zeta"]);
         assert_eq!(*loader.asked.borrow(), ["plugins/zeta/code.ppn"]);
         let hello = info(&first, "hello");
         assert_eq!(
@@ -740,7 +694,10 @@ mod tests {
             ..self::loader()
         };
         let second = kernel(&refused, "", None);
-        assert_eq!(*refused.admitted.borrow(), ["plugins/hello"]);
+        assert_eq!(
+            *refused.admitted.borrow(),
+            ["plugins/hello", "plugins/zeta"]
+        );
         let hello = info(&second, "hello");
         assert_eq!(
             (hello.state, hello.kind, hello.problem),
@@ -808,10 +765,7 @@ mod tests {
     #[test]
     fn code_that_does_not_fit_is_listed_with_why() {
         let loader = Loader {
-            answers: alloc::vec![
-                ("plugins/hello/code.ppn", Err(PluginProblem::OtherBuild)),
-                ("plugins/zeta/code.ppn", Ok("other")),
-            ],
+            answers: alloc::vec![("plugins/hello/code.ppn", Err(PluginProblem::OtherBuild)),],
             ..Loader::default()
         };
         let kernel = kernel(&loader, "", None);
@@ -819,8 +773,12 @@ mod tests {
         assert_eq!(hello.state, PluginState::Failed);
         assert!(hello.enabled, "it stays switched on, for a build that fits");
         assert_eq!(hello.problem, Some(PluginProblem::OtherBuild));
-        assert_eq!(info(&kernel, "zeta").problem, Some(PluginProblem::Mismatch));
-        assert!(!kernel.shared.actions.contains("other.hello"));
+        // None of the loader's own, and no plugin file by its bytes.
+        let zeta = info(&kernel, "zeta");
+        assert_eq!(
+            (zeta.state, zeta.enabled, zeta.problem),
+            (PluginState::Failed, true, Some(PluginProblem::Damaged))
+        );
 
         // Where PaperPaw loads no code.
         let kernel = Kernel::builder(DEVICE).storage(storage()).build().unwrap();
@@ -830,39 +788,6 @@ mod tests {
             (PluginState::Failed, Some(PluginProblem::Unsupported))
         );
         assert!(kernel.shared.native.is_none());
-    }
-
-    /// The version its `plugin.ini` names is the plugin's (the store,
-    /// the installer and updates go by it): code that says another runs
-    /// at that version, and it is told; nothing is refused for it.
-    #[test]
-    fn code_of_another_version_than_its_folder_says_runs_at_the_folders() {
-        let loader = loader();
-        let storage = storage()
-            .with(
-                "plugins/hello/plugin.ini",
-                "[plugin]\nname = Hello\nversion = 2.0.0\n",
-            )
-            .with("plugins/zeta/plugin.ini", "[plugin]\nname = Zeta\n");
-        let mut kernel = kernel_on(storage, &loader, "");
-        let hello = info(&kernel, "hello");
-        assert_eq!(
-            (hello.state, hello.problem, hello.manifest.version),
-            (PluginState::Running, None, Version::new(2, 0, 0))
-        );
-        assert!(kernel.shared.actions.contains("hello.hello"));
-        // Where it names none, 0.1.0, as for any plugin.
-        assert_eq!(
-            info(&kernel, "zeta").manifest.version,
-            Version::new(0, 1, 0)
-        );
-        let warnings = kernel.take_warnings();
-        assert!(
-            warnings.iter().any(|w| w
-                .message
-                .contains("its code says version 1.0.0, its plugin.ini 2.0.0")),
-            "{warnings:?}"
-        );
     }
 
     #[test]
@@ -1241,61 +1166,70 @@ version = 2.0.0
         file
     }
 
+    /// An interface-7 file of the X4 (ESP32-C3), as `paperpaw-sign pack5`
+    /// made it, and what reads it: this firmware's loader, and another's.
+    const FILE: &[u8] = include_bytes!("../../paperpaw-native/tests/data/abi7-x4-min.ppn");
+    const X4: header5::Host = header5::Host::x4(paperpaw_native::host_glue::MINOR);
+    const X4_PRO: header5::Host = header5::Host::x4_pro(paperpaw_native::host_glue::MINOR);
+
+    /// The SHA-256 the file's header carries (its bytes 64 to 96).
+    fn file_sha256() -> [u8; 32] {
+        FILE[64..96].try_into().unwrap()
+    }
+
     /// A storage with `stats` fetched for a firmware update: its folder,
-    /// its code built for `fingerprint`, named as fetched if `named`.
-    fn fetched(fingerprint: u64, named: bool) -> MemoryStorage {
+    /// its code an interface-7 file of the X4, named as fetched if `named`.
+    fn fetched(named: bool) -> MemoryStorage {
         let storage = storage()
             .with(
                 "plugins/.stats.next/plugin.ini",
                 "[plugin]\nid = stats\nname = Statistics\nversion = 1.0.0\n",
             )
             .with(".paperpaw/plugins/stats/statistics.sqlite3", "kept");
-        storage
-            .write(
-                "plugins/.stats.next/code.ppn",
-                &code_file(fingerprint, installed("stats")),
-            )
-            .unwrap();
+        storage.write("plugins/.stats.next/code.ppn", FILE).unwrap();
         if named {
             assert!(paperpaw_sdk::native::remember_fetched(
                 &storage,
                 "stats",
-                &installed("stats")
+                &file_sha256()
             ));
         }
         storage
     }
 
-    fn kernel_on(storage: MemoryStorage, loader: &Loader, config: &str) -> Kernel {
+    /// A kernel of a firmware whose loader reads what `reads` says.
+    fn builder_on(storage: MemoryStorage, loader: &Loader, reads: header5::Host) -> KernelBuilder {
+        let (_, offered) = crate::native_host::firmware_driver::plugin_tests::kernel_host();
         Kernel::builder(DEVICE)
             .storage(storage)
-            .user_config(config)
+            .plugin_host(reads, offered, &[])
             .code_plugins(Native::new("code.ppn"), Box::new(loader.clone()))
-            .build()
-            .unwrap()
     }
 
     fn stats_loader() -> Loader {
         let mut loader = loader();
-        loader.answers.push(("plugins/stats/code.ppn", Ok("stats")));
+        loader.natives.push(("plugins/stats/code.ppn", Ok(())));
         loader
     }
 
     #[test]
     fn code_fetched_for_this_firmware_is_installed_at_its_start() {
-        let fingerprint = Native::new("code.ppn").fingerprint.0;
-        let storage = fetched(fingerprint, true);
         let loader = stats_loader();
-        let kernel = kernel_on(storage, &loader, "");
+        let kernel = builder_on(fetched(true), &loader, X4).build().unwrap();
         let storage = kernel.storage();
         assert_eq!(info(&kernel, "stats").state, PluginState::Running);
         assert_eq!(info(&kernel, "stats").kind, PluginKind::Code);
         assert!(
             loader
-                .asked
+                .admitted
                 .borrow()
                 .iter()
-                .any(|p| p == "plugins/stats/code.ppn")
+                .any(|p| p == "plugins/stats")
+        );
+        // Named as installed: the file's own SHA-256.
+        assert_eq!(
+            paperpaw_sdk::native::installed_code(storage, "stats"),
+            Some(file_sha256())
         );
         assert!(!storage.exists("plugins/.stats.next/code.ppn"));
         // Its data and settings belong to its id: they stay.
@@ -1304,10 +1238,9 @@ version = 2.0.0
 
     #[test]
     fn code_fetched_for_another_firmware_waits() {
-        let fingerprint = Native::new("code.ppn").fingerprint.0 ^ 1;
-        let storage = fetched(fingerprint, true);
+        // The file is the X4's: the X4 Pro's loader does not read it.
         let loader = stats_loader();
-        let kernel = kernel_on(storage, &loader, "");
+        let kernel = builder_on(fetched(true), &loader, X4_PRO).build().unwrap();
         let storage = kernel.storage();
         assert!(kernel.plugins().get("stats").is_none());
         assert!(storage.exists("plugins/.stats.next/code.ppn"));
@@ -1316,10 +1249,8 @@ version = 2.0.0
     #[test]
     fn a_folder_the_update_did_not_fetch_is_not_taken() {
         // Put there otherwise (e.g. over the Wi-Fi transfer).
-        let fingerprint = Native::new("code.ppn").fingerprint.0;
-        let storage = fetched(fingerprint, false);
         let loader = stats_loader();
-        let kernel = kernel_on(storage, &loader, "");
+        let kernel = builder_on(fetched(false), &loader, X4).build().unwrap();
         assert!(kernel.plugins().get("stats").is_none());
         let storage = kernel.storage();
         assert!(paperpaw_sdk::native::installed_code(storage, "stats").is_none());
@@ -1327,12 +1258,8 @@ version = 2.0.0
 
     #[test]
     fn safe_mode_leaves_code_fetched_where_it_is() {
-        let fingerprint = Native::new("code.ppn").fingerprint.0;
-        let storage = fetched(fingerprint, true);
         let loader = stats_loader();
-        let kernel = Kernel::builder(DEVICE)
-            .storage(storage)
-            .code_plugins(Native::new("code.ppn"), Box::new(loader.clone()))
+        let kernel = builder_on(fetched(true), &loader, X4)
             .safe_mode(SafeMode::new(SafeModeReason::KeyHeld))
             .build()
             .unwrap();
@@ -1345,23 +1272,23 @@ version = 2.0.0
         // for it waits, and the firmware, seeing it, starts once more
         // when the update is kept.
         let native = Native::new("code.ppn");
-        let storage = fetched(native.fingerprint.0, true);
-        let kernel = Kernel::builder(DEVICE).storage(storage).build().unwrap();
+        let kernel = Kernel::builder(DEVICE)
+            .storage(fetched(true))
+            .build()
+            .unwrap();
         let storage = kernel.storage();
         assert!(storage.exists("plugins/.stats.next/code.ppn"));
-        let waiting = super::fetched_for(storage, &native, None);
-        assert_eq!(waiting, [("stats".into(), installed("stats"))]);
+        let waiting = super::fetched_for(storage, &native, Some(&X4));
+        assert_eq!(waiting, [("stats".into(), file_sha256())]);
         // For another firmware, nothing waits.
-        let mut other = Native::new("code.ppn");
-        other.fingerprint.0 ^= 1;
-        assert!(super::fetched_for(storage, &other, None).is_empty());
-        assert!(super::code_to_load(storage, &native, None));
-        assert!(!super::code_to_load(storage, &other, None));
+        assert!(super::fetched_for(storage, &native, Some(&X4_PRO)).is_empty());
+        assert!(super::code_to_load(storage, &native, Some(&X4)));
+        assert!(!super::code_to_load(storage, &native, Some(&X4_PRO)));
     }
 
-    /// An update that keeps the fingerprint fetches nothing: the code
-    /// installed before still fits, and a start once the update is kept
-    /// loads it (the trial's start went without).
+    /// An update whose loader still reads the code installed fetches
+    /// nothing: a start once the update is kept loads it (the trial's start
+    /// went without).
     #[test]
     fn code_installed_that_fits_is_code_to_load() {
         let native = Native::new("code.ppn");
@@ -1369,26 +1296,41 @@ version = 2.0.0
             "plugins/stats/plugin.ini",
             "[plugin]\nid = stats\nname = Statistics\nversion = 1.0.0\n",
         );
-        assert!(!super::code_to_load(&plugins, &native, None));
-        plugins
-            .write(
-                "plugins/stats/code.ppn",
-                &code_file(native.fingerprint.0, installed("stats")),
-            )
-            .unwrap();
-        assert!(super::code_to_load(&plugins, &native, None));
-        let mut other = Native::new("code.ppn");
-        other.fingerprint.0 ^= 1;
-        assert!(!super::code_to_load(&plugins, &other, None));
+        assert!(!super::code_to_load(&plugins, &native, Some(&X4)));
+        plugins.write("plugins/stats/code.ppn", FILE).unwrap();
+        assert!(super::code_to_load(&plugins, &native, Some(&X4)));
+        assert!(!super::code_to_load(&plugins, &native, Some(&X4_PRO)));
         // A folder being installed or put aside is not one to load.
-        let aside = storage().with("plugins/.stats.old/code.ppn", "");
-        aside
-            .write(
-                "plugins/.stats.old/code.ppn",
-                &code_file(native.fingerprint.0, installed("stats")),
-            )
-            .unwrap();
-        assert!(!super::code_to_load(&aside, &native, None));
+        let aside = storage();
+        aside.write("plugins/.stats.old/code.ppn", FILE).unwrap();
+        assert!(!super::code_to_load(&aside, &native, Some(&X4)));
+    }
+
+    /// A file of the format before interface 7 is no code to load, even one
+    /// that says this firmware's fingerprint: no loader runs it, so nothing
+    /// starts again for it and nothing fetched takes its place.
+    #[test]
+    fn a_file_of_the_format_before_is_no_code_to_load() {
+        let native = Native::new("code.ppn");
+        let old = code_file(native.fingerprint.0, installed("stats"));
+        let plugins = storage().with(
+            "plugins/stats/plugin.ini",
+            "[plugin]\nid = stats\nname = Statistics\nversion = 1.0.0\n",
+        );
+        plugins.write("plugins/stats/code.ppn", &old).unwrap();
+        assert!(!super::code_to_load(&plugins, &native, Some(&X4)));
+        let waiting = storage().with(
+            "plugins/.stats.next/plugin.ini",
+            "[plugin]\nid = stats\nname = Statistics\nversion = 1.0.0\n",
+        );
+        waiting.write("plugins/.stats.next/code.ppn", &old).unwrap();
+        assert!(paperpaw_sdk::native::remember_fetched(
+            &waiting,
+            "stats",
+            &installed("stats")
+        ));
+        assert!(super::fetched_for(&waiting, &native, Some(&X4)).is_empty());
+        assert!(!super::code_to_load(&waiting, &native, Some(&X4)));
     }
 }
 

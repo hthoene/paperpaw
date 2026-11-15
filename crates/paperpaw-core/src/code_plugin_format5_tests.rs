@@ -2,6 +2,8 @@
 //! start once an update is kept goes by (`code_to_load`), and what was
 //! fetched for an update (`fetched_for`).
 
+use alloc::boxed::Box;
+
 use paperpaw_native::header5::Host;
 use paperpaw_native::host_glue::MINOR;
 use paperpaw_platform::Storage;
@@ -97,4 +99,125 @@ fn an_interface_7_build_fetched_for_an_update_waits_for_this_firmware() {
     assert!(code_to_load(&card, &native, Some(&X4)));
     // For the X4 Pro nothing waits.
     assert!(fetched_for(&card, &native, Some(&Host::x4_pro(MINOR))).is_empty());
+}
+
+/// What a card that comes from Beta 3 holds: plugin files of interface 6
+/// (format 4). This one is a file Beta 3 shipped, unchanged
+/// (`tests/data/beta3-hyphenation-it-1.0.3-x4.source.txt`).
+const BETA3: &[u8] = include_bytes!("../tests/data/beta3-hyphenation-it-1.0.3-x4.ppn");
+
+/// A loader as the devices' is: it runs interface-7 files and takes any
+/// other for none of its own.
+struct Interface7Only;
+impl super::CodeLoader for Interface7Only {
+    fn load_native(
+        &mut self,
+        storage: &dyn Storage,
+        code: &super::CodeFile<'_>,
+    ) -> Result<Option<Box<dyn super::NativeAdmission>>, paperpaw_sdk::PluginProblem> {
+        let mut head = [0u8; 6];
+        let read = storage.read_at(code.path, 0, &mut head).unwrap_or(0);
+        let seven = read == 6 && head[..4] == *b"PPNP" && head[4] == 5;
+        Ok(seven.then(|| Box::new(super::Admitted) as Box<dyn super::NativeAdmission>))
+    }
+}
+
+/// A plugin of Beta 3 left on the card is listed, switched on and failed,
+/// as built for interface 6: not loaded, not taken for damaged, not gone,
+/// and its files are as they were. The interface-7 plugin beside it runs.
+#[test]
+fn a_plugin_file_of_beta_3_is_listed_as_built_for_an_older_paperpaw() {
+    use paperpaw_sdk::{PluginKind, PluginProblem, PluginState};
+    let card = card()
+        .with(
+            "plugins/hyphenation-it/plugin.ini",
+            "[plugin]\nid = hyphenation-it\nname = Hyphenation: Italian\nversion = 1.0.3\n",
+        )
+        .with("plugins/hyphenation-it/code.ppn", BETA3);
+    // Beta 3's store named its code as installed; so is the new plugin's.
+    let beta3 = paperpaw_native::Header::read(BETA3).unwrap().sha256;
+    assert!(paperpaw_sdk::native::remember_code(
+        &card,
+        "hyphenation-it",
+        &beta3
+    ));
+    assert!(paperpaw_sdk::native::remember_code(
+        &card,
+        "clock",
+        &sha256()
+    ));
+    let mut kernel = Kernel::builder(DEVICE)
+        .storage(card)
+        .code_plugins(Native::new("code.ppn"), Box::new(Interface7Only))
+        .build()
+        .unwrap();
+    let old = kernel.plugins().get("hyphenation-it").unwrap();
+    assert_eq!(
+        (old.state, old.enabled, old.kind, old.problem),
+        (
+            PluginState::Failed,
+            true,
+            PluginKind::Code,
+            Some(PluginProblem::OlderInterface { built_for: 6 })
+        )
+    );
+    assert_eq!(old.manifest.version, paperpaw_sdk::Version::new(1, 0, 3));
+    let new = kernel.plugins().get("clock").unwrap();
+    assert_eq!((new.state, new.problem), (PluginState::Running, None));
+    assert_eq!(
+        kernel
+            .storage()
+            .size("plugins/hyphenation-it/code.ppn")
+            .ok(),
+        Some(BETA3.len() as u64)
+    );
+    let warnings = kernel.take_warnings();
+    assert!(
+        warnings.iter().any(|w| w
+            .message
+            .contains("plugins/hyphenation-it/code.ppn: not loaded (OlderInterface")),
+        "{warnings:?}"
+    );
+}
+
+/// Why a file the loader takes for none of its own does not run, from the
+/// file itself; whatever its bytes, nothing panics.
+#[test]
+fn a_file_that_is_no_interface_7_file_says_why_it_does_not_run() {
+    use paperpaw_sdk::PluginProblem;
+    let why = |bytes: &[u8]| {
+        let card = MemoryStorage::new();
+        card.write("code.ppn", bytes).unwrap();
+        super::file_problem(&card, "code.ppn")
+    };
+    let older = PluginProblem::OlderInterface { built_for: 6 };
+    assert_eq!(why(BETA3), older);
+    // Its header alone says so: the file may be cut after it.
+    let head = &BETA3[..paperpaw_native::HEADER_LEN];
+    assert_eq!(why(head), older);
+    // The format before Beta 3's, of the same interface.
+    let mut format3 = head.to_vec();
+    format3[4] = 3;
+    assert_eq!(why(&format3), older);
+    // A build of the format before that said interface 7 of itself (a
+    // draft's): the format is not this interface's.
+    let mut draft = paperpaw_native::Header::read(head).unwrap();
+    assert_eq!(draft.interface, 6);
+    draft.interface = 7;
+    draft.fingerprint = (draft.fingerprint & 0x0000_ffff_ffff_ffff) | (7 << 48);
+    assert_eq!(why(&draft.to_bytes()), older);
+    // An interface-7 file where the loader runs none.
+    assert_eq!(why(FILE), PluginProblem::Unsupported);
+    // A format after this build's.
+    let mut newer = FILE.to_vec();
+    newer[4] = 9;
+    assert_eq!(why(&newer), PluginProblem::NeedsNewerPaperPaw);
+    // No plugin file, a header cut short, nothing at all.
+    for bytes in [&b"not a plugin"[..], &BETA3[..40], &b"PPNP"[..], &[][..]] {
+        assert_eq!(why(bytes), PluginProblem::Damaged, "{bytes:?}");
+    }
+    assert_eq!(
+        super::file_problem(&MemoryStorage::new(), "none.ppn"),
+        PluginProblem::Damaged
+    );
 }

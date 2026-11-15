@@ -4,7 +4,7 @@ use super::*;
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_platform::{DirEntry, StorageError};
-use paperpaw_sdk::{MemoryStorage, Version};
+use paperpaw_sdk::MemoryStorage;
 
 const INSTALLED: &str = ".paperpaw/plugin-code.txt";
 
@@ -37,27 +37,16 @@ impl Storage for Counted {
     }
 }
 
-struct Code(Id);
-impl Plugin for Code {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(self.0.clone(), "Code", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, _: &mut Registrar) -> Result<(), RegisterError> {
-        Ok(())
-    }
-}
-
 struct Loader(Rc<Cell<usize>>);
 impl CodeLoader for Loader {
-    fn load(
+    fn load_native(
         &mut self,
         _: &dyn Storage,
         file: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
+    ) -> Result<Option<Box<dyn NativeAdmission>>, PluginProblem> {
         assert_eq!(file.sha256, [7; 32]);
         self.0.set(self.0.get() + 1);
-        Ok(Box::new(Code(file.id.clone())))
+        Ok(Some(Box::new(Admitted)))
     }
 }
 
@@ -116,16 +105,16 @@ impl CodeLoader for Ordered {
         self.wired = self.wiring_succeeds;
         self.log.borrow_mut().push("prepare".into());
     }
-    fn load(
+    fn load_native(
         &mut self,
         _: &dyn Storage,
         file: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
+    ) -> Result<Option<Box<dyn NativeAdmission>>, PluginProblem> {
         self.log.borrow_mut().push(format!("load {}", file.id));
         if !self.wired {
             return Err(PluginProblem::Unsupported);
         }
-        Ok(Box::new(Code(file.id.clone())))
+        Ok(Some(Box::new(Admitted)))
     }
 }
 
