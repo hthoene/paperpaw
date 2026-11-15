@@ -9,10 +9,8 @@
 //! aids (`native-linked-store`) can change the page, through the native
 //! reader.
 //!
-//! The device is the large memory class: on the X4's class the kernel keeps
-//! `stage.run` closed until its nested-callback stack gate passes (feature
-//! `x4-nested`, #250; `native_host/ui_store.rs`), so no rule reaches the
-//! reader there yet (#257).
+//! The device is the large memory class (the X4's class has the nested-callback
+//! gate open too since #250; `native_host/ui_store.rs`, feature `x4-gate-closed`).
 #![cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
 #![allow(
     clippy::unwrap_used,
