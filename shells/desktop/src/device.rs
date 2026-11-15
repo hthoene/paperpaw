@@ -1219,6 +1219,8 @@ fn build_kernel(
         };
         let mut device = turned(profile.device, rotation);
         device.input.keys = profile.buttons;
+        let gray_levels = device.display.format.gray_levels();
+        let grays = gray_levels.map_or(255, |levels| levels.min(255) as u8);
         let mut builder = Kernel::builder(device)
             .storage(crate::trace::Traced(storage))
             .clock(crate::host::micros)
@@ -1228,13 +1230,7 @@ fn build_kernel(
             .glyph_cache(profile.glyph_cache)
             .busy_mark(profile.busy_mark)
             // Its grays; frames show at once here (see `execute`).
-            .panel(paperpaw_core::sdk::realtime::PanelInfo::new(
-                device
-                    .display
-                    .format
-                    .gray_levels()
-                    .map_or(255, |levels| levels.min(255) as u8),
-            ))
+            .panel(paperpaw_core::sdk::realtime::PanelInfo::new(grays))
             .colors(profile.colors)
             .network(true)
             // Plugins' secure sockets (rustls); none in the browser.
