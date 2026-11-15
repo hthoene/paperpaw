@@ -1,45 +1,45 @@
-plugin | core 0.6.0-beta.3 Running enabled=true BuiltIn
-plugin | fonts-default 1.0.3 Running enabled=true BuiltIn
-plugin | pebble 1.0.0 Off enabled=false BuiltIn
-plugin | about 1.0.4 Running enabled=true BuiltIn
-plugin | aids 1.1.5 Running enabled=true BuiltIn
-plugin | bluetooth 1.0.4 Running enabled=true BuiltIn
-plugin | dictionary 1.0.4 Failed enabled=true BuiltIn
-plugin | file-manager 1.0.6 Running enabled=true BuiltIn
-plugin | files 1.0.8 Running enabled=true BuiltIn
-plugin | fonts-browser 1.0.9 Running enabled=true BuiltIn
-plugin | help 1.0.4 Running enabled=true BuiltIn
-plugin | home 1.0.9 Running enabled=true BuiltIn
-plugin | format-cbz 1.0.5 Running enabled=true BuiltIn
-plugin | format-docx 1.0.3 Running enabled=true BuiltIn
-plugin | format-epub 1.0.5 Running enabled=true BuiltIn
-plugin | format-fb2 1.0.5 Running enabled=true BuiltIn
-plugin | format-html 1.0.5 Running enabled=true BuiltIn
-plugin | format-images 1.0.4 Running enabled=true BuiltIn
-plugin | format-markdown 1.0.5 Running enabled=true BuiltIn
-plugin | format-mobi 1.0.3 Running enabled=true BuiltIn
-plugin | format-txt 1.0.4 Running enabled=true BuiltIn
-plugin | format-xtc 1.0.2 Running enabled=true BuiltIn
-plugin | keyboard 1.1.3 Running enabled=true BuiltIn
-plugin | lock 1.0.5 Running enabled=true BuiltIn
-plugin | mail 1.0.5 Off enabled=false BuiltIn
-plugin | menu 1.0.10 Running enabled=true BuiltIn
-plugin | news 1.0.11 Running enabled=true BuiltIn
-plugin | notes-vault 1.0.4 Off enabled=false BuiltIn
-plugin | opds 1.0.5 Running enabled=true BuiltIn
-plugin | picture-home 1.0.3 Off enabled=false BuiltIn
-plugin | plugin-manager 1.0.7 Running enabled=true BuiltIn
-plugin | power 1.1.3 Running enabled=true BuiltIn
-plugin | reader 1.0.17 Running enabled=true BuiltIn
-plugin | settings 1.0.11 Running enabled=true BuiltIn
-plugin | setup 1.0.4 Running enabled=true BuiltIn
-plugin | sleep 1.0.6 Running enabled=true BuiltIn
-plugin | store 1.0.10 Running enabled=true BuiltIn
-plugin | transfer 1.0.6 Running enabled=true BuiltIn
-plugin | update 1.0.8 Running enabled=true BuiltIn
-plugin | vocabulary 1.1.9 Running enabled=true BuiltIn
-plugin | widgets 1.0.10 Running enabled=true BuiltIn
-plugin | wifi 1.0.6 Running enabled=true BuiltIn
+plugin | core Running enabled=true BuiltIn
+plugin | fonts-default Running enabled=true BuiltIn
+plugin | pebble Running enabled=true BuiltIn
+plugin | about Running enabled=true BuiltIn
+plugin | aids Running enabled=true BuiltIn
+plugin | bluetooth Running enabled=true BuiltIn
+plugin | dictionary Failed enabled=true BuiltIn
+plugin | file-manager Running enabled=true BuiltIn
+plugin | files Running enabled=true BuiltIn
+plugin | fonts-browser Running enabled=true BuiltIn
+plugin | help Running enabled=true BuiltIn
+plugin | home Running enabled=true BuiltIn
+plugin | format-cbz Running enabled=true BuiltIn
+plugin | format-docx Running enabled=true BuiltIn
+plugin | format-epub Running enabled=true BuiltIn
+plugin | format-fb2 Running enabled=true BuiltIn
+plugin | format-html Running enabled=true BuiltIn
+plugin | format-images Running enabled=true BuiltIn
+plugin | format-markdown Running enabled=true BuiltIn
+plugin | format-mobi Running enabled=true BuiltIn
+plugin | format-txt Running enabled=true BuiltIn
+plugin | format-xtc Running enabled=true BuiltIn
+plugin | keyboard Running enabled=true BuiltIn
+plugin | lock Running enabled=true BuiltIn
+plugin | mail Failed enabled=true BuiltIn
+plugin | menu Running enabled=true BuiltIn
+plugin | news Running enabled=true BuiltIn
+plugin | notes-vault Running enabled=true BuiltIn
+plugin | opds Running enabled=true BuiltIn
+plugin | picture-home Running enabled=true BuiltIn
+plugin | plugin-manager Running enabled=true BuiltIn
+plugin | power Running enabled=true BuiltIn
+plugin | reader Running enabled=true BuiltIn
+plugin | settings Running enabled=true BuiltIn
+plugin | setup Running enabled=true BuiltIn
+plugin | sleep Running enabled=true BuiltIn
+plugin | store Running enabled=true BuiltIn
+plugin | transfer Running enabled=true BuiltIn
+plugin | update Running enabled=true BuiltIn
+plugin | vocabulary Running enabled=true BuiltIn
+plugin | widgets Running enabled=true BuiltIn
+plugin | wifi Running enabled=true BuiltIn
 setting-group | SettingGroupSpec { id: Id(core.space), title: "core.widget.space", order: 0, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(home.clock), title: "home.widget.clock", order: 0, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(home.continue), title: "home.widget.continue", order: 0, page: None, parent: None }
@@ -47,6 +47,13 @@ setting-group | SettingGroupSpec { id: Id(home.date), title: "home.widget.date",
 setting-group | SettingGroupSpec { id: Id(home.recent), title: "home.widget.recent", order: 0, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(home.status), title: "home.widget.status", order: 0, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(news.widget.headlines), title: "news.widget.headlines", order: 0, page: None, parent: None }
+setting-group | SettingGroupSpec { id: Id(notes-vault.day), title: "notes-vault.day", order: 0, page: None, parent: None }
+setting-group | SettingGroupSpec { id: Id(notes-vault.group), title: "notes-vault.title", order: 0, page: None, parent: None }
+setting-group | SettingGroupSpec { id: Id(notes-vault.pinned), title: "notes-vault.pinned", order: 0, page: None, parent: None }
+setting-group | SettingGroupSpec { id: Id(notes-vault.random), title: "notes-vault.random", order: 0, page: None, parent: None }
+setting-group | SettingGroupSpec { id: Id(notes-vault.recent), title: "notes-vault.recent", order: 0, page: None, parent: None }
+setting-group | SettingGroupSpec { id: Id(notes-vault.search), title: "notes-vault.search", order: 0, page: None, parent: None }
+setting-group | SettingGroupSpec { id: Id(notes-vault.tags), title: "notes-vault.tags", order: 0, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(vocabulary.widget.due), title: "vocabulary.widget.due", order: 0, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(vocabulary.widget.saved), title: "vocabulary.widget.saved", order: 0, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(vocabulary.widget.word), title: "vocabulary.widget.word", order: 0, page: None, parent: None }
@@ -102,6 +109,7 @@ setting-group | SettingGroupSpec { id: Id(core.group.developer), title: "core.gr
 setting-group | SettingGroupSpec { id: Id(core.group.other), title: "core.group.other", order: 100, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(core.group.look), title: "core.group.look", order: 210, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(home.group), title: "home.section", order: 220, page: None, parent: None }
+setting-group | SettingGroupSpec { id: Id(picture-home.group), title: "picture-home.title", order: 221, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(core.group.plugins), title: "core.group.plugins", order: 230, page: None, parent: None }
 setting bluetooth.group | bluetooth.remotes Choice(Fixed(["bluetooth.remotes.hand", "bluetooth.remotes.reading", "bluetooth.remotes.awake"])) default=Text("bluetooth.remotes.hand") Basic scoped=false guarded=false secret=false kept=false title=bluetooth.remotes
 setting core.group.controls | core.edge-ends Int { min: 0, max: 25 } default=Int(10) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.edge-ends
@@ -137,9 +145,9 @@ setting core.group.look | core.ui-size Int { min: 7, max: 24 } default=Int(8) Ba
 setting core.group.look | core.ui-contrast Choice(Fixed(["core.contrast.normal", "core.contrast.strong"])) default=Text("core.contrast.normal") Basic scoped=false guarded=false secret=false kept=false title=core.setting.ui-contrast
 setting core.group.look | core.ui-header Choice(Fixed(["core.header.plain", "core.header.light", "core.header.dark"])) default=Text("core.header.plain") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.ui-header
 setting core.group.look | core.ui-corners Choice(Fixed(["core.corners.square", "core.corners.small", "core.corners.round", "core.corners.soft"])) default=Text("core.corners.soft") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.ui-corners
-setting core.group.look | core.ui-focus Choice(Fixed(["core.focus.fill", "core.focus.ring", "core.focus.soft"])) default=Text("core.focus.fill") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.ui-focus
+setting core.group.look | core.ui-focus Choice(Fixed(["core.focus.fill", "core.focus.ring", "core.focus.soft"])) default=Text("core.focus.soft") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.ui-focus
 setting core.group.look | core.ui-separators Choice(Fixed(["core.separators.inset", "core.separators.line", "core.separators.none"])) default=Text("core.separators.inset") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.ui-separators
-setting core.group.look | core.ui-groups Choice(Fixed(["core.groups.plain", "core.groups.cards"])) default=Text("core.groups.plain") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.ui-groups
+setting core.group.look | core.ui-groups Choice(Fixed(["core.groups.plain", "core.groups.cards"])) default=Text("core.groups.cards") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.ui-groups
 setting core.group.look | core.ui-title Int { min: 100, max: 200 } default=Int(115) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.ui-title
 setting core.group.look | core.ui-margin Int { min: 0, max: 15 } default=Int(4) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.ui-margin
 setting core.group.look | core.ui-row Int { min: 120, max: 300 } default=Int(160) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.ui-row
@@ -407,6 +415,104 @@ setting news.widget.headlines | news.widget.headlines.caption Bool default=Bool(
 setting news.widget.headlines | news.widget.headlines.source Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=news.part.source
 setting news.widget.headlines | news.widget.headlines.rules Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=news.part.rules
 setting news.widget.headlines | news.widget.headlines.font Choice(Owned(["core.widgets.font.all", "core.widgets.font.menus", "core.widgets.font.book", "PaperPaw Sans"])) default=Text("core.widgets.font.all") Basic scoped=false guarded=false secret=false kept=false title=core.setting.font
+setting notes-vault.day | notes-vault.day.align Choice(Fixed(["core.align.left", "core.align.center", "core.align.right"])) default=Text("core.align.left") Basic scoped=false guarded=false secret=false kept=false title=core.setting.align
+setting notes-vault.day | notes-vault.day.frame Choice(Fixed(["core.frame.none", "core.frame.line", "core.frame.card", "core.frame.dark"])) default=Text("core.frame.none") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame
+setting notes-vault.day | notes-vault.day.padding Choice(Fixed(["core.padding.auto", "core.padding.none", "core.padding.small", "core.padding.normal", "core.padding.large"])) default=Text("core.padding.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.padding
+setting notes-vault.day | notes-vault.day.paper Choice(Fixed(["core.plate.normal", "core.plate.inverted", "core.plate.light-gray", "core.plate.dark-gray", "core.plate.none"])) default=Text("core.plate.normal") Basic scoped=false guarded=false secret=false kept=false title=core.setting.paper
+setting notes-vault.day | notes-vault.day.ink Choice(Fixed(["core.ink.auto", "core.tone.black", "core.tone.white"])) default=Text("core.ink.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.ink
+setting notes-vault.day | notes-vault.day.corners Choice(Fixed(["core.corners.auto", "core.corners.square", "core.corners.small", "core.corners.round", "core.corners.soft"])) default=Text("core.corners.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.corners
+setting notes-vault.day | notes-vault.day.frame-line Choice(Fixed(["core.lines.auto", "core.lines.thin", "core.lines.medium", "core.lines.thick"])) default=Text("core.lines.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame-line
+setting notes-vault.day | notes-vault.day.drop-shadow Choice(Fixed(["core.shadow.none", "core.shadow.hard"])) default=Text("core.shadow.none") Basic scoped=false guarded=false secret=false kept=false title=core.setting.shadow
+setting notes-vault.day | notes-vault.day.heading Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=notes-vault.part.heading
+setting notes-vault.day | notes-vault.day.excerpt Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=notes-vault.part.excerpt
+setting notes-vault.day | notes-vault.day.folder Text default=Text("") Basic scoped=false guarded=false secret=false kept=false title=notes-vault.widget.folder
+setting notes-vault.day | notes-vault.day.font Choice(Owned(["core.widgets.font.all", "core.widgets.font.menus", "core.widgets.font.book", "PaperPaw Sans"])) default=Text("core.widgets.font.all") Basic scoped=false guarded=false secret=false kept=false title=core.setting.font
+setting notes-vault.group | notes-vault.folder Text default=Text("") Basic scoped=false guarded=false secret=false kept=false title=notes-vault.setting.folder
+setting notes-vault.pinned | notes-vault.pinned.align Choice(Fixed(["core.align.left", "core.align.center", "core.align.right"])) default=Text("core.align.left") Basic scoped=false guarded=false secret=false kept=false title=core.setting.align
+setting notes-vault.pinned | notes-vault.pinned.frame Choice(Fixed(["core.frame.none", "core.frame.line", "core.frame.card", "core.frame.dark"])) default=Text("core.frame.none") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame
+setting notes-vault.pinned | notes-vault.pinned.padding Choice(Fixed(["core.padding.auto", "core.padding.none", "core.padding.small", "core.padding.normal", "core.padding.large"])) default=Text("core.padding.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.padding
+setting notes-vault.pinned | notes-vault.pinned.paper Choice(Fixed(["core.plate.normal", "core.plate.inverted", "core.plate.light-gray", "core.plate.dark-gray", "core.plate.none"])) default=Text("core.plate.normal") Basic scoped=false guarded=false secret=false kept=false title=core.setting.paper
+setting notes-vault.pinned | notes-vault.pinned.ink Choice(Fixed(["core.ink.auto", "core.tone.black", "core.tone.white"])) default=Text("core.ink.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.ink
+setting notes-vault.pinned | notes-vault.pinned.corners Choice(Fixed(["core.corners.auto", "core.corners.square", "core.corners.small", "core.corners.round", "core.corners.soft"])) default=Text("core.corners.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.corners
+setting notes-vault.pinned | notes-vault.pinned.frame-line Choice(Fixed(["core.lines.auto", "core.lines.thin", "core.lines.medium", "core.lines.thick"])) default=Text("core.lines.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame-line
+setting notes-vault.pinned | notes-vault.pinned.drop-shadow Choice(Fixed(["core.shadow.none", "core.shadow.hard"])) default=Text("core.shadow.none") Basic scoped=false guarded=false secret=false kept=false title=core.setting.shadow
+setting notes-vault.pinned | notes-vault.pinned.heading Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=notes-vault.part.heading
+setting notes-vault.pinned | notes-vault.pinned.excerpt Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=notes-vault.part.excerpt
+setting notes-vault.pinned | notes-vault.pinned.title Text default=Text("") Basic scoped=false guarded=false secret=false kept=false title=notes-vault.widget.title
+setting notes-vault.pinned | notes-vault.pinned.font Choice(Owned(["core.widgets.font.all", "core.widgets.font.menus", "core.widgets.font.book", "PaperPaw Sans"])) default=Text("core.widgets.font.all") Basic scoped=false guarded=false secret=false kept=false title=core.setting.font
+setting notes-vault.random | notes-vault.random.align Choice(Fixed(["core.align.left", "core.align.center", "core.align.right"])) default=Text("core.align.left") Basic scoped=false guarded=false secret=false kept=false title=core.setting.align
+setting notes-vault.random | notes-vault.random.frame Choice(Fixed(["core.frame.none", "core.frame.line", "core.frame.card", "core.frame.dark"])) default=Text("core.frame.none") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame
+setting notes-vault.random | notes-vault.random.padding Choice(Fixed(["core.padding.auto", "core.padding.none", "core.padding.small", "core.padding.normal", "core.padding.large"])) default=Text("core.padding.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.padding
+setting notes-vault.random | notes-vault.random.paper Choice(Fixed(["core.plate.normal", "core.plate.inverted", "core.plate.light-gray", "core.plate.dark-gray", "core.plate.none"])) default=Text("core.plate.normal") Basic scoped=false guarded=false secret=false kept=false title=core.setting.paper
+setting notes-vault.random | notes-vault.random.ink Choice(Fixed(["core.ink.auto", "core.tone.black", "core.tone.white"])) default=Text("core.ink.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.ink
+setting notes-vault.random | notes-vault.random.corners Choice(Fixed(["core.corners.auto", "core.corners.square", "core.corners.small", "core.corners.round", "core.corners.soft"])) default=Text("core.corners.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.corners
+setting notes-vault.random | notes-vault.random.frame-line Choice(Fixed(["core.lines.auto", "core.lines.thin", "core.lines.medium", "core.lines.thick"])) default=Text("core.lines.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame-line
+setting notes-vault.random | notes-vault.random.drop-shadow Choice(Fixed(["core.shadow.none", "core.shadow.hard"])) default=Text("core.shadow.none") Basic scoped=false guarded=false secret=false kept=false title=core.setting.shadow
+setting notes-vault.random | notes-vault.random.heading Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=notes-vault.part.heading
+setting notes-vault.random | notes-vault.random.excerpt Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=notes-vault.part.excerpt
+setting notes-vault.random | notes-vault.random.folder Text default=Text("") Basic scoped=false guarded=false secret=false kept=false title=notes-vault.widget.folder
+setting notes-vault.random | notes-vault.random.font Choice(Owned(["core.widgets.font.all", "core.widgets.font.menus", "core.widgets.font.book", "PaperPaw Sans"])) default=Text("core.widgets.font.all") Basic scoped=false guarded=false secret=false kept=false title=core.setting.font
+setting notes-vault.recent | notes-vault.recent.align Choice(Fixed(["core.align.left", "core.align.center", "core.align.right"])) default=Text("core.align.left") Basic scoped=false guarded=false secret=false kept=false title=core.setting.align
+setting notes-vault.recent | notes-vault.recent.frame Choice(Fixed(["core.frame.none", "core.frame.line", "core.frame.card", "core.frame.dark"])) default=Text("core.frame.none") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame
+setting notes-vault.recent | notes-vault.recent.padding Choice(Fixed(["core.padding.auto", "core.padding.none", "core.padding.small", "core.padding.normal", "core.padding.large"])) default=Text("core.padding.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.padding
+setting notes-vault.recent | notes-vault.recent.paper Choice(Fixed(["core.plate.normal", "core.plate.inverted", "core.plate.light-gray", "core.plate.dark-gray", "core.plate.none"])) default=Text("core.plate.normal") Basic scoped=false guarded=false secret=false kept=false title=core.setting.paper
+setting notes-vault.recent | notes-vault.recent.ink Choice(Fixed(["core.ink.auto", "core.tone.black", "core.tone.white"])) default=Text("core.ink.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.ink
+setting notes-vault.recent | notes-vault.recent.corners Choice(Fixed(["core.corners.auto", "core.corners.square", "core.corners.small", "core.corners.round", "core.corners.soft"])) default=Text("core.corners.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.corners
+setting notes-vault.recent | notes-vault.recent.frame-line Choice(Fixed(["core.lines.auto", "core.lines.thin", "core.lines.medium", "core.lines.thick"])) default=Text("core.lines.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame-line
+setting notes-vault.recent | notes-vault.recent.drop-shadow Choice(Fixed(["core.shadow.none", "core.shadow.hard"])) default=Text("core.shadow.none") Basic scoped=false guarded=false secret=false kept=false title=core.setting.shadow
+setting notes-vault.recent | notes-vault.recent.heading Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=notes-vault.part.heading
+setting notes-vault.recent | notes-vault.recent.where Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=notes-vault.part.where
+setting notes-vault.recent | notes-vault.recent.count Int { min: 1, max: 10 } default=Int(5) Basic scoped=false guarded=false secret=false kept=false title=notes-vault.widget.count
+setting notes-vault.recent | notes-vault.recent.folder Text default=Text("") Basic scoped=false guarded=false secret=false kept=false title=notes-vault.widget.folder
+setting notes-vault.recent | notes-vault.recent.font Choice(Owned(["core.widgets.font.all", "core.widgets.font.menus", "core.widgets.font.book", "PaperPaw Sans"])) default=Text("core.widgets.font.all") Basic scoped=false guarded=false secret=false kept=false title=core.setting.font
+setting notes-vault.search | notes-vault.search.align Choice(Fixed(["core.align.left", "core.align.center", "core.align.right"])) default=Text("core.align.left") Basic scoped=false guarded=false secret=false kept=false title=core.setting.align
+setting notes-vault.search | notes-vault.search.frame Choice(Fixed(["core.frame.none", "core.frame.line", "core.frame.card", "core.frame.dark"])) default=Text("core.frame.line") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame
+setting notes-vault.search | notes-vault.search.padding Choice(Fixed(["core.padding.auto", "core.padding.none", "core.padding.small", "core.padding.normal", "core.padding.large"])) default=Text("core.padding.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.padding
+setting notes-vault.search | notes-vault.search.paper Choice(Fixed(["core.plate.normal", "core.plate.inverted", "core.plate.light-gray", "core.plate.dark-gray", "core.plate.none"])) default=Text("core.plate.normal") Basic scoped=false guarded=false secret=false kept=false title=core.setting.paper
+setting notes-vault.search | notes-vault.search.ink Choice(Fixed(["core.ink.auto", "core.tone.black", "core.tone.white"])) default=Text("core.ink.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.ink
+setting notes-vault.search | notes-vault.search.corners Choice(Fixed(["core.corners.auto", "core.corners.square", "core.corners.small", "core.corners.round", "core.corners.soft"])) default=Text("core.corners.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.corners
+setting notes-vault.search | notes-vault.search.frame-line Choice(Fixed(["core.lines.auto", "core.lines.thin", "core.lines.medium", "core.lines.thick"])) default=Text("core.lines.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame-line
+setting notes-vault.search | notes-vault.search.drop-shadow Choice(Fixed(["core.shadow.none", "core.shadow.hard"])) default=Text("core.shadow.none") Basic scoped=false guarded=false secret=false kept=false title=core.setting.shadow
+setting notes-vault.search | notes-vault.search.font Choice(Owned(["core.widgets.font.all", "core.widgets.font.menus", "core.widgets.font.book", "PaperPaw Sans"])) default=Text("core.widgets.font.all") Basic scoped=false guarded=false secret=false kept=false title=core.setting.font
+setting notes-vault.tags | notes-vault.tags.align Choice(Fixed(["core.align.left", "core.align.center", "core.align.right"])) default=Text("core.align.left") Basic scoped=false guarded=false secret=false kept=false title=core.setting.align
+setting notes-vault.tags | notes-vault.tags.frame Choice(Fixed(["core.frame.none", "core.frame.line", "core.frame.card", "core.frame.dark"])) default=Text("core.frame.none") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame
+setting notes-vault.tags | notes-vault.tags.padding Choice(Fixed(["core.padding.auto", "core.padding.none", "core.padding.small", "core.padding.normal", "core.padding.large"])) default=Text("core.padding.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.padding
+setting notes-vault.tags | notes-vault.tags.paper Choice(Fixed(["core.plate.normal", "core.plate.inverted", "core.plate.light-gray", "core.plate.dark-gray", "core.plate.none"])) default=Text("core.plate.normal") Basic scoped=false guarded=false secret=false kept=false title=core.setting.paper
+setting notes-vault.tags | notes-vault.tags.ink Choice(Fixed(["core.ink.auto", "core.tone.black", "core.tone.white"])) default=Text("core.ink.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.ink
+setting notes-vault.tags | notes-vault.tags.corners Choice(Fixed(["core.corners.auto", "core.corners.square", "core.corners.small", "core.corners.round", "core.corners.soft"])) default=Text("core.corners.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.corners
+setting notes-vault.tags | notes-vault.tags.frame-line Choice(Fixed(["core.lines.auto", "core.lines.thin", "core.lines.medium", "core.lines.thick"])) default=Text("core.lines.auto") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame-line
+setting notes-vault.tags | notes-vault.tags.drop-shadow Choice(Fixed(["core.shadow.none", "core.shadow.hard"])) default=Text("core.shadow.none") Basic scoped=false guarded=false secret=false kept=false title=core.setting.shadow
+setting notes-vault.tags | notes-vault.tags.heading Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=notes-vault.part.heading
+setting notes-vault.tags | notes-vault.tags.count Int { min: 1, max: 12 } default=Int(5) Basic scoped=false guarded=false secret=false kept=false title=notes-vault.widget.count
+setting notes-vault.tags | notes-vault.tags.font Choice(Owned(["core.widgets.font.all", "core.widgets.font.menus", "core.widgets.font.book", "PaperPaw Sans"])) default=Text("core.widgets.font.all") Basic scoped=false guarded=false secret=false kept=false title=core.setting.font
+setting picture-home.group | picture-home.folder Text default=Text("wallpapers") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.folder
+setting picture-home.group | picture-home.picture Text default=Text("") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.picture
+setting picture-home.group | picture-home.fit Choice(Fixed(["picture-home.fit.fill", "picture-home.fit.fit", "picture-home.fit.stretch", "picture-home.fit.original", "picture-home.fit.tile"])) default=Text("picture-home.fit.fill") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.fit
+setting picture-home.group | picture-home.anchor Choice(Fixed(["picture-home.anchor.top-left", "picture-home.anchor.top", "picture-home.anchor.top-right", "picture-home.anchor.left", "picture-home.anchor.center", "picture-home.an… (449 bytes, 24614f897ad21f5c)
+setting picture-home.group | picture-home.zoom Int { min: 100, max: 300 } default=Int(100) Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.zoom
+setting picture-home.group | picture-home.lighten Int { min: 0, max: 60 } default=Int(15) Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.lighten
+setting picture-home.group | picture-home.brightness Choice(Fixed(["picture-home.brightness.much-darker", "picture-home.brightness.darker", "picture-home.brightness.normal", "picture-home.brightness.lighter", "picture-home.brightness.much-lighter"])) default=Text("picture-home.brightness.normal") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.brightness
+setting picture-home.group | picture-home.contrast Choice(Fixed(["picture-home.contrast.lower", "picture-home.contrast.normal", "picture-home.contrast.higher"])) default=Text("picture-home.contrast.normal") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.contrast
+setting picture-home.group | picture-home.plate Choice(Fixed(["core.plate.normal", "core.plate.light-gray", "core.plate.none"])) default=Text("core.plate.normal") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.plate
+setting picture-home.group | picture-home.render Choice(Fixed(["picture-home.render.auto", "picture-home.render.grays", "picture-home.render.dither"])) default=Text("picture-home.render.auto") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.render
+setting picture-home.group | picture-home.bar Choice(Fixed(["picture-home.bar.off", "picture-home.bar.auto", "picture-home.bar.on"])) default=Text("picture-home.bar.on") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.bar
+setting picture-home.group | picture-home.bar.at Choice(Fixed(["picture-home.bar.top", "picture-home.bar.bottom"])) default=Text("picture-home.bar.top") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.bar-at
+setting picture-home.group | picture-home.bar.shape Choice(Fixed(["picture-home.bar.full", "picture-home.bar.compact"])) default=Text("picture-home.bar.full") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.bar-shape
+setting picture-home.group | picture-home.bar.align Choice(Fixed(["picture-home.bar.left", "picture-home.bar.center", "picture-home.bar.right"])) default=Text("picture-home.bar.right") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.bar-align
+setting picture-home.group | picture-home.bar.look Choice(Fixed(["picture-home.look.normal", "picture-home.look.inverted", "picture-home.look.light", "picture-home.look.dark", "picture-home.look.clear"])) default=Text("picture-home.look.normal") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.bar-look
+setting picture-home.group | picture-home.hints Choice(Fixed(["picture-home.bar.off", "picture-home.bar.auto", "picture-home.bar.on"])) default=Text("picture-home.bar.on") Advanced scoped=false guarded=false secret=false kept=false title=picture-home.setting.hints
+setting picture-home.group | picture-home.bar.left-items List default=Text("core.status.clock") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.bar-left
+setting picture-home.group | picture-home.bar.center-items List default=Text("") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.bar-center
+setting picture-home.group | picture-home.bar.right-items List default=Text("lock.touch-status, wifi.status, power.status, core.status.battery") Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.bar-right
+setting picture-home.group | picture-home.columns Int { min: 2, max: 6 } default=Int(3) Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.columns
+setting picture-home.group | picture-home.rows Int { min: 0, max: 12 } default=Int(0) Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.rows
+setting picture-home.group | picture-home.dots Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.dots
+setting picture-home.group | picture-home.pencil Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.pencil
+setting picture-home.group | picture-home.focus-at-once Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=picture-home.setting.focus-at-once
+setting picture-home.group | picture-home.page-1 Text default=Text("home.clock, home.continue, home.recent") Advanced scoped=false guarded=false secret=false kept=false title=picture-home.setting.page-1
+setting picture-home.group | picture-home.page-2 Text default=Text("home.tools") Advanced scoped=false guarded=false secret=false kept=false title=picture-home.setting.page-2
+setting picture-home.group | picture-home.page-3 Text default=Text("") Advanced scoped=false guarded=false secret=false kept=false title=picture-home.setting.page-3
+setting picture-home.group | picture-home.page-4 Text default=Text("") Advanced scoped=false guarded=false secret=false kept=false title=picture-home.setting.page-4
 setting power.group | core.sleep-after Int { min: 0, max: 120 } default=Int(10) Basic scoped=false guarded=false secret=false kept=false title=core.setting.sleep-after
 setting power.group | core.awake-holds Bool default=Bool(true) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.awake-holds
 setting power.group | power.mode Choice(Fixed(["power.mode.auto", "power.mode.normal", "power.mode.saving", "power.mode.offline"])) default=Text("power.mode.auto") Basic scoped=false guarded=false secret=false kept=false title=power.setting.mode
@@ -871,6 +977,7 @@ action keyboard.done | title=keyboard.done-action sealed=false runs-itself=true 
 action lock.now | title=lock.now sealed=false runs-itself=true native=Some(1)
 action news.fetch | title=news.fetch sealed=false runs-itself=true native=Some(2)
 action news.open | title=news.title sealed=false runs-itself=true native=Some(1)
+action notes-vault.open | title=notes-vault.title sealed=false runs-itself=true native=Some(1)
 action opds.open | title=opds.title sealed=false runs-itself=true native=Some(1)
 action opds.sync | title=opds.sync-all sealed=false runs-itself=true native=Some(2)
 action plugin-manager.open | title=plugin-manager.open sealed=false runs-itself=true native=Some(2)
@@ -952,9 +1059,16 @@ screen lock.screen | title=lock.setting.kind hints=Shown
 screen menu.list | title=menu.title hints=Shown
 screen menu.panel | title=menu.title hints=Shown
 screen news.list | title=news.title hints=Shown
+screen notes-vault.list | title=notes-vault.title hints=Shown
+screen notes-vault.screen | title=notes-vault.title hints=Shown
+screen notes-vault.tags | title=notes-vault.tags hints=Shown
 screen opds.browse | title=opds.title hints=Shown
 screen opds.catalogs | title=opds.title hints=Shown
 screen opds.edit | title=opds.title hints=Shown
+screen picture-home.add | title=picture-home.add hints=Shown
+screen picture-home.dashboard | title=picture-home.title hints=Shown
+screen picture-home.pick | title=picture-home.setting.picture hints=Shown
+screen picture-home.status-items | title=picture-home.setting.bar hints=Shown
 screen plugin-manager.list | title=plugin-manager.title hints=Shown
 screen plugin-manager.screens | title=plugin-manager.screens hints=Shown
 screen reader.annotations | title=reader.annotations hints=Shown
@@ -996,7 +1110,7 @@ screen widgets.todo.list | title=widgets.todo hints=Shown
 screen wifi.networks | title=wifi.networks.title hints=Shown
 screen wifi.page | title=wifi.title hints=Shown
 screen wifi.phone | title=wifi.phone.title hints=Shown
-slot core.home | title=core.slot.home bound=Some("home.dashboard")
+slot core.home | title=core.slot.home bound=Some("picture-home.dashboard")
 slot core.library | title=core.slot.library bound=Some("files.browser")
 slot core.menu | title=core.slot.menu bound=Some("menu.list")
 slot core.reader | title=core.slot.reader bound=Some("reader.screen")
@@ -1014,6 +1128,7 @@ slot-offer core.footnote | reader.footnote Priority(0)
 slot-offer core.home | core.placeholder Priority(-32768)
 slot-offer core.home | files.browser Priority(-100)
 slot-offer core.home | home.dashboard Priority(0)
+slot-offer core.home | picture-home.dashboard Priority(100)
 slot-offer core.keyboard | keyboard.screen Priority(0)
 slot-offer core.library | core.placeholder Priority(-32768)
 slot-offer core.library | files.browser Priority(0)
@@ -1032,6 +1147,7 @@ slot-offer core.skim | reader.skim-screen Priority(0)
 slot-offer core.sleep | sleep.screen Priority(0)
 slot-offer core.sleep | vocabulary.sleep-card Priority(-1)
 slot-offer core.toc | reader.toc Priority(0)
+slot-order core.home | picture-home.dashboard
 slot-order core.home | home.dashboard
 slot-order core.home | files.browser
 slot-order core.home | core.placeholder
@@ -1078,6 +1194,12 @@ widget home.date | title=home.widget.date kind=core.widgets.time category=None c
 widget home.recent | title=home.widget.recent kind=core.widgets.books category=None cells=None
 widget home.status | title=home.widget.status kind=core.widgets.device category=None cells=None
 widget news.widget.headlines | title=news.widget.headlines kind=core.widgets.world category=None cells=None
+widget notes-vault.day | title=notes-vault.day kind=core.widgets.personal category=None cells=None
+widget notes-vault.pinned | title=notes-vault.pinned kind=core.widgets.personal category=None cells=None
+widget notes-vault.random | title=notes-vault.random kind=core.widgets.personal category=None cells=None
+widget notes-vault.recent | title=notes-vault.recent kind=core.widgets.personal category=None cells=None
+widget notes-vault.search | title=notes-vault.search kind=core.widgets.personal category=None cells=None
+widget notes-vault.tags | title=notes-vault.tags kind=core.widgets.personal category=None cells=None
 widget vocabulary.widget.due | title=vocabulary.widget.due kind=core.widgets.words category=None cells=None
 widget vocabulary.widget.saved | title=vocabulary.widget.saved kind=core.widgets.words category=None cells=None
 widget vocabulary.widget.word | title=vocabulary.widget.word kind=core.widgets.words category=None cells=None
@@ -1208,6 +1330,14 @@ native Group home | SettingGroup(SettingGroup { name: "status", title: "home.wid
 native Group keyboard | SettingGroup(SettingGroup { name: "group", title: "keyboard.title", order: 72, page: "", parent: "" })
 native Group lock | SettingGroup(SettingGroup { name: "group", title: "lock.plugin.name", order: 92, page: "", parent: "" })
 native Group news | SettingGroup(SettingGroup { name: "widget.headlines", title: "news.widget.headlines", order: 0, page: "", parent: "" })
+native Group notes-vault | SettingGroup(SettingGroup { name: "group", title: "notes-vault.title", order: 0, page: "", parent: "" })
+native Group notes-vault | SettingGroup(SettingGroup { name: "recent", title: "notes-vault.recent", order: 0, page: "", parent: "" })
+native Group notes-vault | SettingGroup(SettingGroup { name: "pinned", title: "notes-vault.pinned", order: 0, page: "", parent: "" })
+native Group notes-vault | SettingGroup(SettingGroup { name: "day", title: "notes-vault.day", order: 0, page: "", parent: "" })
+native Group notes-vault | SettingGroup(SettingGroup { name: "random", title: "notes-vault.random", order: 0, page: "", parent: "" })
+native Group notes-vault | SettingGroup(SettingGroup { name: "tags", title: "notes-vault.tags", order: 0, page: "", parent: "" })
+native Group notes-vault | SettingGroup(SettingGroup { name: "search", title: "notes-vault.search", order: 0, page: "", parent: "" })
+native Group picture-home | SettingGroup(SettingGroup { name: "group", title: "picture-home.title", order: 221, page: "", parent: "" })
 native Group power | SettingGroup(SettingGroup { name: "group", title: "power.title", order: 86, page: "", parent: "" })
 native Group sleep | SettingGroup(SettingGroup { name: "group", title: "sleep.title", order: 62, page: "", parent: "" })
 native Group update | SettingGroup(SettingGroup { name: "group", title: "update.group", order: 94, page: "", parent: "" })
@@ -1349,8 +1479,100 @@ native Spec news | SettingSpec(SettingSpec { name: "widget.headlines.lines", kin
 native Spec news | SettingSpec(SettingSpec { name: "widget.headlines.caption", kind: 0, flags: 0, group: "news.widget.headlines", title: "news.part.caption", help: "core.setting.part.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
 native Spec news | SettingSpec(SettingSpec { name: "widget.headlines.source", kind: 0, flags: 0, group: "news.widget.headlines", title: "news.part.source", help: "core.setting.part.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
 native Spec news | SettingSpec(SettingSpec { name: "widget.headlines.rules", kind: 0, flags: 0, group: "news.widget.headlines", title: "news.part.rules", help: "core.setting.part.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "folder", kind: 3, flags: 0, group: "notes-vault.group", title: "notes-vault.setting.folder", help: "notes-vault.setting.folder.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "recent.align", kind: 2, flags: 0, group: "notes-vault.recent", title: "core.setting.align", help: "core.setting.align.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 97, 108, 105, 103, 110, 46, 108, 101, 102, 116], min: 0, max: 0, choices: "core.align.left\ncore.align.center\ncore.align.right" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "recent.frame", kind: 2, flags: 0, group: "notes-vault.recent", title: "core.setting.frame", help: "core.setting.frame.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 102, 114, 97, 109, 101, 46, 110, 111, 110, 101], min: 0, max: 0, choices: "core.frame.none\ncore.frame.line\ncore.frame.card\ncore.frame.dark" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "recent.padding", kind: 2, flags: 0, group: "notes-vault.recent", title: "core.setting.padding", help: "core.setting.padding.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17… (419 bytes, dc42283b0d9322f2)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "recent.paper", kind: 2, flags: 0, group: "notes-vault.recent", title: "core.setting.paper", help: "core.setting.paper.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0, 0… (416 bytes, c0de0a2bac4f1c29)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "recent.ink", kind: 2, flags: 0, group: "notes-vault.recent", title: "core.setting.ink", help: "core.setting.ink.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 13, 0, 0, 0, 99, 111, 114, 101, 46, 105, 110, 107, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "core.ink.auto\ncore.tone.black\ncore.tone.white" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "recent.corners", kind: 2, flags: 0, group: "notes-vault.recent", title: "core.setting.corners", help: "core.setting.corners.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17… (419 bytes, 6752e9ceb1e07c8d)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "recent.frame-line", kind: 2, flags: 0, group: "notes-vault.recent", title: "core.setting.frame-line", help: "core.setting.frame-line.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 108, 105, 110, 101, 115, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "core.lines.auto\ncore.lines.thin\ncore.lines.medium\ncore.lines.thick" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "recent.drop-shadow", kind: 2, flags: 0, group: "notes-vault.recent", title: "core.setting.shadow", help: "core.setting.shadow.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 16, 0, 0, 0, 99, 111, 114, 101, 46, 115, 104, 97, 100, 111, 119, 46, 110, 111, 110, 101], min: 0, max: 0, choices: "core.shadow.none\ncore.shadow.hard" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "recent.heading", kind: 0, flags: 0, group: "notes-vault.recent", title: "notes-vault.part.heading", help: "core.setting.part.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "recent.where", kind: 0, flags: 0, group: "notes-vault.recent", title: "notes-vault.part.where", help: "core.setting.part.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "recent.count", kind: 1, flags: 0, group: "notes-vault.recent", title: "notes-vault.widget.count", help: "", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0], min: 1, max: 10, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "recent.folder", kind: 3, flags: 0, group: "notes-vault.recent", title: "notes-vault.widget.folder", help: "notes-vault.widget.folder.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "pinned.align", kind: 2, flags: 0, group: "notes-vault.pinned", title: "core.setting.align", help: "core.setting.align.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 97, 108, 105, 103, 110, 46, 108, 101, 102, 116], min: 0, max: 0, choices: "core.align.left\ncore.align.center\ncore.align.right" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "pinned.frame", kind: 2, flags: 0, group: "notes-vault.pinned", title: "core.setting.frame", help: "core.setting.frame.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 102, 114, 97, 109, 101, 46, 110, 111, 110, 101], min: 0, max: 0, choices: "core.frame.none\ncore.frame.line\ncore.frame.card\ncore.frame.dark" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "pinned.padding", kind: 2, flags: 0, group: "notes-vault.pinned", title: "core.setting.padding", help: "core.setting.padding.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17… (419 bytes, 4302c7d0b5bf877e)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "pinned.paper", kind: 2, flags: 0, group: "notes-vault.pinned", title: "core.setting.paper", help: "core.setting.paper.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0, 0… (416 bytes, 3aa1a5a8550dc7b1)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "pinned.ink", kind: 2, flags: 0, group: "notes-vault.pinned", title: "core.setting.ink", help: "core.setting.ink.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 13, 0, 0, 0, 99, 111, 114, 101, 46, 105, 110, 107, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "core.ink.auto\ncore.tone.black\ncore.tone.white" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "pinned.corners", kind: 2, flags: 0, group: "notes-vault.pinned", title: "core.setting.corners", help: "core.setting.corners.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17… (419 bytes, af26ecfba1e07d51)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "pinned.frame-line", kind: 2, flags: 0, group: "notes-vault.pinned", title: "core.setting.frame-line", help: "core.setting.frame-line.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 108, 105, 110, 101, 115, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "core.lines.auto\ncore.lines.thin\ncore.lines.medium\ncore.lines.thick" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "pinned.drop-shadow", kind: 2, flags: 0, group: "notes-vault.pinned", title: "core.setting.shadow", help: "core.setting.shadow.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 16, 0, 0, 0, 99, 111, 114, 101, 46, 115, 104, 97, 100, 111, 119, 46, 110, 111, 110, 101], min: 0, max: 0, choices: "core.shadow.none\ncore.shadow.hard" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "pinned.heading", kind: 0, flags: 0, group: "notes-vault.pinned", title: "notes-vault.part.heading", help: "core.setting.part.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "pinned.excerpt", kind: 0, flags: 0, group: "notes-vault.pinned", title: "notes-vault.part.excerpt", help: "core.setting.part.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "pinned.title", kind: 3, flags: 0, group: "notes-vault.pinned", title: "notes-vault.widget.title", help: "notes-vault.widget.title.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "day.align", kind: 2, flags: 0, group: "notes-vault.day", title: "core.setting.align", help: "core.setting.align.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 97, 108, 105, 103, 110, 46, 108, 101, 102, 116], min: 0, max: 0, choices: "core.align.left\ncore.align.center\ncore.align.right" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "day.frame", kind: 2, flags: 0, group: "notes-vault.day", title: "core.setting.frame", help: "core.setting.frame.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 102, 114, 97, 109, 101, 46, 110, 111, 110, 101], min: 0, max: 0, choices: "core.frame.none\ncore.frame.line\ncore.frame.card\ncore.frame.dark" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "day.padding", kind: 2, flags: 0, group: "notes-vault.day", title: "core.setting.padding", help: "core.setting.padding.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0, 0… (413 bytes, b07896d59fe608c0)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "day.paper", kind: 2, flags: 0, group: "notes-vault.day", title: "core.setting.paper", help: "core.setting.paper.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0, 0, 0, 9… (410 bytes, a8cc2a4cf7040451)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "day.ink", kind: 2, flags: 0, group: "notes-vault.day", title: "core.setting.ink", help: "core.setting.ink.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 13, 0, 0, 0, 99, 111, 114, 101, 46, 105, 110, 107, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "core.ink.auto\ncore.tone.black\ncore.tone.white" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "day.corners", kind: 2, flags: 0, group: "notes-vault.day", title: "core.setting.corners", help: "core.setting.corners.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0, 0… (413 bytes, c9f4a73c68d026bd)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "day.frame-line", kind: 2, flags: 0, group: "notes-vault.day", title: "core.setting.frame-line", help: "core.setting.frame-line.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 108, 105, 110, 101, 115, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "core.lines.auto\ncore.lines.thin\ncore.lines.medium\ncore.lines.thick" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "day.drop-shadow", kind: 2, flags: 0, group: "notes-vault.day", title: "core.setting.shadow", help: "core.setting.shadow.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 16, 0, 0, 0, 99, 111, 114, 101, 46, 115, 104, 97, 100, 111, 119, 46, 110, 111, 110, 101], min: 0, max: 0, choices: "core.shadow.none\ncore.shadow.hard" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "day.heading", kind: 0, flags: 0, group: "notes-vault.day", title: "notes-vault.part.heading", help: "core.setting.part.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "day.excerpt", kind: 0, flags: 0, group: "notes-vault.day", title: "notes-vault.part.excerpt", help: "core.setting.part.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "day.folder", kind: 3, flags: 0, group: "notes-vault.day", title: "notes-vault.widget.folder", help: "notes-vault.widget.folder.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "random.align", kind: 2, flags: 0, group: "notes-vault.random", title: "core.setting.align", help: "core.setting.align.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 97, 108, 105, 103, 110, 46, 108, 101, 102, 116], min: 0, max: 0, choices: "core.align.left\ncore.align.center\ncore.align.right" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "random.frame", kind: 2, flags: 0, group: "notes-vault.random", title: "core.setting.frame", help: "core.setting.frame.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 102, 114, 97, 109, 101, 46, 110, 111, 110, 101], min: 0, max: 0, choices: "core.frame.none\ncore.frame.line\ncore.frame.card\ncore.frame.dark" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "random.padding", kind: 2, flags: 0, group: "notes-vault.random", title: "core.setting.padding", help: "core.setting.padding.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17… (419 bytes, b53e11b6a42b41ca)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "random.paper", kind: 2, flags: 0, group: "notes-vault.random", title: "core.setting.paper", help: "core.setting.paper.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0, 0… (416 bytes, ef4fe031341d2c51)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "random.ink", kind: 2, flags: 0, group: "notes-vault.random", title: "core.setting.ink", help: "core.setting.ink.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 13, 0, 0, 0, 99, 111, 114, 101, 46, 105, 110, 107, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "core.ink.auto\ncore.tone.black\ncore.tone.white" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "random.corners", kind: 2, flags: 0, group: "notes-vault.random", title: "core.setting.corners", help: "core.setting.corners.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17… (419 bytes, 1ff6c2507bac27a5)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "random.frame-line", kind: 2, flags: 0, group: "notes-vault.random", title: "core.setting.frame-line", help: "core.setting.frame-line.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 108, 105, 110, 101, 115, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "core.lines.auto\ncore.lines.thin\ncore.lines.medium\ncore.lines.thick" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "random.drop-shadow", kind: 2, flags: 0, group: "notes-vault.random", title: "core.setting.shadow", help: "core.setting.shadow.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 16, 0, 0, 0, 99, 111, 114, 101, 46, 115, 104, 97, 100, 111, 119, 46, 110, 111, 110, 101], min: 0, max: 0, choices: "core.shadow.none\ncore.shadow.hard" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "random.heading", kind: 0, flags: 0, group: "notes-vault.random", title: "notes-vault.part.heading", help: "core.setting.part.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "random.excerpt", kind: 0, flags: 0, group: "notes-vault.random", title: "notes-vault.part.excerpt", help: "core.setting.part.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "random.folder", kind: 3, flags: 0, group: "notes-vault.random", title: "notes-vault.widget.folder", help: "notes-vault.widget.folder.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "tags.align", kind: 2, flags: 0, group: "notes-vault.tags", title: "core.setting.align", help: "core.setting.align.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 97, 108, 105, 103, 110, 46, 108, 101, 102, 116], min: 0, max: 0, choices: "core.align.left\ncore.align.center\ncore.align.right" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "tags.frame", kind: 2, flags: 0, group: "notes-vault.tags", title: "core.setting.frame", help: "core.setting.frame.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 102, 114, 97, 109, 101, 46, 110, 111, 110, 101], min: 0, max: 0, choices: "core.frame.none\ncore.frame.line\ncore.frame.card\ncore.frame.dark" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "tags.padding", kind: 2, flags: 0, group: "notes-vault.tags", title: "core.setting.padding", help: "core.setting.padding.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0,… (415 bytes, aba08ea84717da76)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "tags.paper", kind: 2, flags: 0, group: "notes-vault.tags", title: "core.setting.paper", help: "core.setting.paper.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0, 0, 0,… (412 bytes, b0b23995c00cb211)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "tags.ink", kind: 2, flags: 0, group: "notes-vault.tags", title: "core.setting.ink", help: "core.setting.ink.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 13, 0, 0, 0, 99, 111, 114, 101, 46, 105, 110, 107, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "core.ink.auto\ncore.tone.black\ncore.tone.white" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "tags.corners", kind: 2, flags: 0, group: "notes-vault.tags", title: "core.setting.corners", help: "core.setting.corners.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0,… (415 bytes, 75509dd73db9a019)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "tags.frame-line", kind: 2, flags: 0, group: "notes-vault.tags", title: "core.setting.frame-line", help: "core.setting.frame-line.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 108, 105, 110, 101, 115, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "core.lines.auto\ncore.lines.thin\ncore.lines.medium\ncore.lines.thick" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "tags.drop-shadow", kind: 2, flags: 0, group: "notes-vault.tags", title: "core.setting.shadow", help: "core.setting.shadow.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 16, 0, 0, 0, 99, 111, 114, 101, 46, 115, 104, 97, 100, 111, 119, 46, 110, 111, 110, 101], min: 0, max: 0, choices: "core.shadow.none\ncore.shadow.hard" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "tags.heading", kind: 0, flags: 0, group: "notes-vault.tags", title: "notes-vault.part.heading", help: "core.setting.part.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "tags.count", kind: 1, flags: 0, group: "notes-vault.tags", title: "notes-vault.widget.count", help: "", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0], min: 1, max: 12, choices: "" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "search.align", kind: 2, flags: 0, group: "notes-vault.search", title: "core.setting.align", help: "core.setting.align.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 97, 108, 105, 103, 110, 46, 108, 101, 102, 116], min: 0, max: 0, choices: "core.align.left\ncore.align.center\ncore.align.right" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "search.frame", kind: 2, flags: 0, group: "notes-vault.search", title: "core.setting.frame", help: "core.setting.frame.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 102, 114, 97, 109, 101, 46, 108, 105, 110, 101], min: 0, max: 0, choices: "core.frame.none\ncore.frame.line\ncore.frame.card\ncore.frame.dark" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "search.padding", kind: 2, flags: 0, group: "notes-vault.search", title: "core.setting.padding", help: "core.setting.padding.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17… (419 bytes, bd875ef1980b214e)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "search.paper", kind: 2, flags: 0, group: "notes-vault.search", title: "core.setting.paper", help: "core.setting.paper.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0, 0… (416 bytes, 29e35189203321f1)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "search.ink", kind: 2, flags: 0, group: "notes-vault.search", title: "core.setting.ink", help: "core.setting.ink.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 13, 0, 0, 0, 99, 111, 114, 101, 46, 105, 110, 107, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "core.ink.auto\ncore.tone.black\ncore.tone.white" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "search.corners", kind: 2, flags: 0, group: "notes-vault.search", title: "core.setting.corners", help: "core.setting.corners.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17… (419 bytes, ecf8a18c8fc601f5)
+native Spec notes-vault | SettingSpec(SettingSpec { name: "search.frame-line", kind: 2, flags: 0, group: "notes-vault.search", title: "core.setting.frame-line", help: "core.setting.frame-line.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 99, 111, 114, 101, 46, 108, 105, 110, 101, 115, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "core.lines.auto\ncore.lines.thin\ncore.lines.medium\ncore.lines.thick" })
+native Spec notes-vault | SettingSpec(SettingSpec { name: "search.drop-shadow", kind: 2, flags: 0, group: "notes-vault.search", title: "core.setting.shadow", help: "core.setting.shadow.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 16, 0, 0, 0, 99, 111, 114, 101, 46, 115, 104, 97, 100, 111, 119, 46, 110, 111, 110, 101], min: 0, max: 0, choices: "core.shadow.none\ncore.shadow.hard" })
 native Spec opds | SettingSpec(SettingSpec { name: "covers", kind: 0, flags: 0, group: "core.group.library", title: "opds.setting.covers", help: "opds.setting.covers.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
 native Spec opds | SettingSpec(SettingSpec { name: "sync-limit", kind: 1, flags: 0, group: "core.group.library", title: "opds.setting.limit", help: "opds.setting.limit.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 50, 0, 0, 0, 0, 0, 0, 0], min: 10, max: 1000, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "folder", kind: 3, flags: 0, group: "picture-home.group", title: "picture-home.setting.folder", help: "picture-home.setting.folder.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 10, 0, 0, 0, 119, 97, 108, 108, 112, 97, 112, 101, 114, 115], min: 0, max: 0, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "picture", kind: 3, flags: 0, group: "picture-home.group", title: "picture-home.setting.picture", help: "picture-home.setting.picture.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "fit", kind: 2, flags: 0, group: "picture-home.group", title: "picture-home.setting.fit", help: "picture-home.setting.fit.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 21, 0… (459 bytes, 2edc03fbca2321d4)
+native Spec picture-home | SettingSpec(SettingSpec { name: "anchor", kind: 2, flags: 0, group: "picture-home.group", title: "picture-home.setting.anchor", help: "picture-home.setting.anchor.help", default: [1, 0, 0, 0, 3, 0, 0,… (631 bytes, cc39dd572a433473)
+native Spec picture-home | SettingSpec(SettingSpec { name: "zoom", kind: 1, flags: 0, group: "picture-home.group", title: "picture-home.setting.zoom", help: "picture-home.setting.zoom.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0], min: 100, max: 300, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "lighten", kind: 1, flags: 0, group: "picture-home.group", title: "picture-home.setting.lighten", help: "picture-home.setting.lighten.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 60, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "brightness", kind: 2, flags: 0, group: "picture-home.group", title: "picture-home.setting.brightness", help: "picture-home.setting.brightness.help", default: [1, 0, 0,… (574 bytes, 729fc8038e332c67)
+native Spec picture-home | SettingSpec(SettingSpec { name: "contrast", kind: 2, flags: 0, group: "picture-home.group", title: "picture-home.setting.contrast", help: "picture-home.setting.contrast.help", default: [1, 0, 0, 0, 3,… (474 bytes, c42d262b4d604d18)
+native Spec picture-home | SettingSpec(SettingSpec { name: "plate", kind: 2, flags: 0, group: "picture-home.group", title: "picture-home.setting.plate", help: "picture-home.setting.plate.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0, 0, 0, 99, 111, 114, 101, 46, 112, 108, 97, 116, 101, 46, 110, 111, 114, 109, 97, 108], min: 0, max: 0, choices: "core.plate.normal\ncore.plate.light-gray\ncore.plate.none" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "render", kind: 2, flags: 0, group: "picture-home.group", title: "picture-home.setting.render", help: "picture-home.setting.render.help", default: [1, 0, 0, 0, 3, 0, 0,… (442 bytes, 30bdf2e9ee8602b7)
+native Spec picture-home | SettingSpec(SettingSpec { name: "bar", kind: 2, flags: 0, group: "picture-home.group", title: "picture-home.setting.bar", help: "picture-home.setting.bar.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 19, 0, 0, 0, 112, 105, 99, 116, 117, 114, 101, 45, 104, 111, 109, 101, 46, 98, 97, 114, 46, 111, 110], min: 0, max: 0, choices: "picture-home.bar.off\npicture-home.bar.auto\npicture-home.bar.on" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "bar.at", kind: 2, flags: 0, group: "picture-home.group", title: "picture-home.setting.bar-at", help: "picture-home.setting.bar-at.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 20, 0, 0, 0, 112, 105, 99, 116, 117, 114, 101, 45, 104, 111, 109, 101, 46, 98, 97, 114, 46, 116, 111, 112], min: 0, max: 0, choices: "picture-home.bar.top\npicture-home.bar.bottom" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "bar.shape", kind: 2, flags: 0, group: "picture-home.group", title: "picture-home.setting.bar-shape", help: "picture-home.setting.bar-shape.help", default: [1, 0, 0, 0,… (403 bytes, e469cd57f4c96f77)
+native Spec picture-home | SettingSpec(SettingSpec { name: "bar.align", kind: 2, flags: 0, group: "picture-home.group", title: "picture-home.setting.bar-align", help: "picture-home.setting.bar-align.help", default: [1, 0, 0, 0,… (431 bytes, 5ee326f4167c5cb0)
+native Spec picture-home | SettingSpec(SettingSpec { name: "bar.look", kind: 2, flags: 0, group: "picture-home.group", title: "picture-home.setting.bar-look", help: "picture-home.setting.bar-look.help", default: [1, 0, 0, 0, 3,… (495 bytes, d1146b089707718e)
+native Spec picture-home | SettingSpec(SettingSpec { name: "hints", kind: 2, flags: 16, group: "picture-home.group", title: "picture-home.setting.hints", help: "picture-home.setting.hints.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 19, 0, 0, 0, 112, 105, 99, 116, 117, 114, 101, 45, 104, 111, 109, 101, 46, 98, 97, 114, 46, 111, 110], min: 0, max: 0, choices: "picture-home.bar.off\npicture-home.bar.auto\npicture-home.bar.on" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "bar.left-items", kind: 5, flags: 0, group: "picture-home.group", title: "picture-home.setting.bar-left", help: "picture-home.setting.items.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0, 0, 0, 99, 111, 114, 101, 46, 115, 116, 97, 116, 117, 115, 46, 99, 108, 111, 99, 107], min: 0, max: 0, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "bar.center-items", kind: 5, flags: 0, group: "picture-home.group", title: "picture-home.setting.bar-center", help: "picture-home.setting.items.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "bar.right-items", kind: 5, flags: 0, group: "picture-home.group", title: "picture-home.setting.bar-right", help: "picture-home.setting.items.help", default: [1, 0, 0, … (563 bytes, 2f85dd7c6154354a)
+native Spec picture-home | SettingSpec(SettingSpec { name: "columns", kind: 1, flags: 0, group: "picture-home.group", title: "picture-home.setting.columns", help: "picture-home.setting.columns.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 2, max: 6, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "rows", kind: 1, flags: 0, group: "picture-home.group", title: "picture-home.setting.rows", help: "picture-home.setting.rows.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 12, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "dots", kind: 0, flags: 0, group: "picture-home.group", title: "picture-home.setting.dots", help: "picture-home.setting.dots.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "pencil", kind: 0, flags: 0, group: "picture-home.group", title: "picture-home.setting.pencil", help: "picture-home.setting.pencil.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "focus-at-once", kind: 0, flags: 0, group: "picture-home.group", title: "picture-home.setting.focus-at-once", help: "picture-home.setting.focus-at-once.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "page-1", kind: 3, flags: 16, group: "picture-home.group", title: "picture-home.setting.page-1", help: "picture-home.setting.page.help", default: [1, 0, 0, 0, 3, 0, 0, … (426 bytes, 6fc4174f3232aa2b)
+native Spec picture-home | SettingSpec(SettingSpec { name: "page-2", kind: 3, flags: 16, group: "picture-home.group", title: "picture-home.setting.page-2", help: "picture-home.setting.page.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 10, 0, 0, 0, 104, 111, 109, 101, 46, 116, 111, 111, 108, 115], min: 0, max: 0, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "page-3", kind: 3, flags: 16, group: "picture-home.group", title: "picture-home.setting.page-3", help: "picture-home.setting.page.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
+native Spec picture-home | SettingSpec(SettingSpec { name: "page-4", kind: 3, flags: 16, group: "picture-home.group", title: "picture-home.setting.page-4", help: "picture-home.setting.page.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
 native Spec power | SettingSpec(SettingSpec { name: "mode", kind: 2, flags: 0, group: "power.group", title: "power.setting.mode", help: "power.setting.mode.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 15, 0, 0, 0, 112, 111, 119, 101, 114, 46, 109, 111, 100, 101, 46, 97, 117, 116, 111], min: 0, max: 0, choices: "power.mode.auto\npower.mode.normal\npower.mode.saving\npower.mode.offline" })
 native Spec power | SettingSpec(SettingSpec { name: "saving-below", kind: 1, flags: 0, group: "power.group", title: "power.setting.saving-below", help: "power.setting.saving-below.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0], min: 5, max: 50, choices: "" })
 native Spec power | SettingSpec(SettingSpec { name: "offline-below", kind: 1, flags: 0, group: "power.group", title: "power.setting.offline-below", help: "power.setting.offline-below.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 30, choices: "" })
@@ -1813,8 +2035,31 @@ native Extra lock | SettingExtra(SettingExtra { name: "kind", unit: "", section:
 native Extra news | SettingExtra(SettingExtra { name: "articles", unit: "", section: "news.plugin.name", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 5, flags: 0, check: 0 })
 native Extra news | SettingExtra(SettingExtra { name: "widget.headlines.paper", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
 native Extra news | SettingExtra(SettingExtra { name: "widget.headlines.ink", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "folder", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 2, editor: "core.choose-folder", step: 0, flags: 0, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "recent.paper", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "recent.ink", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "pinned.paper", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "pinned.ink", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "day.paper", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "day.ink", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "random.paper", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "random.ink", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "tags.paper", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "tags.ink", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "search.paper", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
+native Extra notes-vault | SettingExtra(SettingExtra { name: "search.ink", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 4, check: 0 })
 native Extra opds | SettingExtra(SettingExtra { name: "covers", unit: "", section: "opds.section", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
 native Extra opds | SettingExtra(SettingExtra { name: "sync-limit", unit: "", section: "opds.section", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 10, flags: 0, check: 0 })
+native Extra picture-home | SettingExtra(SettingExtra { name: "folder", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 2, editor: "core.choose-folder", step: 0, flags: 0, check: 0 })
+native Extra picture-home | SettingExtra(SettingExtra { name: "picture", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "pick", step: 0, flags: 0, check: 0 })
+native Extra picture-home | SettingExtra(SettingExtra { name: "bar.align", unit: "", section: "", follows: "", shown_id: "picture-home.bar.shape", shown_value: "picture-home.bar.compact", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
+native Extra picture-home | SettingExtra(SettingExtra { name: "bar.left-items", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "status-items", step: 0, flags: 0, check: 0 })
+native Extra picture-home | SettingExtra(SettingExtra { name: "bar.center-items", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "status-items", step: 0, flags: 0, check: 0 })
+native Extra picture-home | SettingExtra(SettingExtra { name: "bar.right-items", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "status-items", step: 0, flags: 0, check: 0 })
+native Extra picture-home | SettingExtra(SettingExtra { name: "page-1", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "dashboard", step: 0, flags: 0, check: 0 })
+native Extra picture-home | SettingExtra(SettingExtra { name: "page-2", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "dashboard", step: 0, flags: 0, check: 0 })
+native Extra picture-home | SettingExtra(SettingExtra { name: "page-3", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "dashboard", step: 0, flags: 0, check: 0 })
+native Extra picture-home | SettingExtra(SettingExtra { name: "page-4", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "dashboard", step: 0, flags: 0, check: 0 })
 native Extra power | SettingExtra(SettingExtra { name: "saving-below", unit: "core.unit.percent", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
 native Extra power | SettingExtra(SettingExtra { name: "offline-below", unit: "core.unit.percent", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
 native Extra reader | SettingExtra(SettingExtra { name: "auto-turn-seconds", unit: "core.unit.seconds", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 5, flags: 0, check: 0 })
@@ -1927,9 +2172,16 @@ native Screen lock | ScreenSpec(ScreenSpec { name: "screen", title: "lock.settin
 native Screen menu | ScreenSpec(ScreenSpec { name: "list", title: "menu.title", token: 10, flags: 4 })
 native Screen menu | ScreenSpec(ScreenSpec { name: "panel", title: "menu.title", token: 11, flags: 4 })
 native Screen news | ScreenSpec(ScreenSpec { name: "list", title: "news.title", token: 10, flags: 64 })
+native Screen notes-vault | ScreenSpec(ScreenSpec { name: "screen", title: "notes-vault.title", token: 10, flags: 64 })
+native Screen notes-vault | ScreenSpec(ScreenSpec { name: "list", title: "notes-vault.title", token: 11, flags: 128 })
+native Screen notes-vault | ScreenSpec(ScreenSpec { name: "tags", title: "notes-vault.tags", token: 12, flags: 64 })
 native Screen opds | ScreenSpec(ScreenSpec { name: "catalogs", title: "opds.title", token: 10, flags: 64 })
 native Screen opds | ScreenSpec(ScreenSpec { name: "browse", title: "opds.title", token: 11, flags: 128 })
 native Screen opds | ScreenSpec(ScreenSpec { name: "edit", title: "opds.title", token: 12, flags: 128 })
+native Screen picture-home | ScreenSpec(ScreenSpec { name: "dashboard", title: "picture-home.title", token: 10, flags: 0 })
+native Screen picture-home | ScreenSpec(ScreenSpec { name: "add", title: "picture-home.add", token: 11, flags: 0 })
+native Screen picture-home | ScreenSpec(ScreenSpec { name: "pick", title: "picture-home.setting.picture", token: 12, flags: 0 })
+native Screen picture-home | ScreenSpec(ScreenSpec { name: "status-items", title: "picture-home.setting.bar", token: 13, flags: 0 })
 native Screen plugin-manager | ScreenSpec(ScreenSpec { name: "list", title: "plugin-manager.title", token: 10, flags: 64 })
 native Screen plugin-manager | ScreenSpec(ScreenSpec { name: "screens", title: "plugin-manager.screens", token: 11, flags: 0 })
 native Screen reader | ScreenSpec(ScreenSpec { name: "screen", title: "reader.title", token: 10, flags: 256 })
@@ -1988,6 +2240,7 @@ native Action keyboard | ActionSpec(ActionSpec { name: "done", title: "keyboard.
 native Action lock | ActionSpec(ActionSpec { name: "now", title: "lock.now", token: 1, flags: 0 })
 native Action news | ActionSpec(ActionSpec { name: "open", title: "news.title", token: 1, flags: 0 })
 native Action news | ActionSpec(ActionSpec { name: "fetch", title: "news.fetch", token: 2, flags: 0 })
+native Action notes-vault | ActionSpec(ActionSpec { name: "open", title: "notes-vault.title", token: 1, flags: 0 })
 native Action opds | ActionSpec(ActionSpec { name: "open", title: "opds.title", token: 1, flags: 0 })
 native Action opds | ActionSpec(ActionSpec { name: "sync", title: "opds.sync-all", token: 2, flags: 0 })
 native Action plugin-manager | ActionSpec(ActionSpec { name: "open", title: "plugin-manager.open", token: 2, flags: 0 })
@@ -2040,6 +2293,12 @@ native Widget home | WidgetSpec(WidgetSpec { name: "continue", title: "home.widg
 native Widget home | WidgetSpec(WidgetSpec { name: "recent", title: "home.widget.recent", category: "core.widgets.books", previews: "", cells: 0, token: 23, flags: 0 })
 native Widget home | WidgetSpec(WidgetSpec { name: "status", title: "home.widget.status", category: "core.widgets.device", previews: "", cells: 0, token: 24, flags: 1 })
 native Widget news | WidgetSpec(WidgetSpec { name: "widget.headlines", title: "news.widget.headlines", category: "core.widgets.world", previews: "", cells: 0, token: 20, flags: 0 })
+native Widget notes-vault | WidgetSpec(WidgetSpec { name: "recent", title: "notes-vault.recent", category: "core.widgets.personal", previews: "", cells: 514, token: 40, flags: 0 })
+native Widget notes-vault | WidgetSpec(WidgetSpec { name: "pinned", title: "notes-vault.pinned", category: "core.widgets.personal", previews: "", cells: 258, token: 41, flags: 0 })
+native Widget notes-vault | WidgetSpec(WidgetSpec { name: "day", title: "notes-vault.day", category: "core.widgets.personal", previews: "", cells: 258, token: 42, flags: 0 })
+native Widget notes-vault | WidgetSpec(WidgetSpec { name: "random", title: "notes-vault.random", category: "core.widgets.personal", previews: "", cells: 258, token: 43, flags: 0 })
+native Widget notes-vault | WidgetSpec(WidgetSpec { name: "tags", title: "notes-vault.tags", category: "core.widgets.personal", previews: "", cells: 258, token: 44, flags: 0 })
+native Widget notes-vault | WidgetSpec(WidgetSpec { name: "search", title: "notes-vault.search", category: "core.widgets.personal", previews: "", cells: 258, token: 45, flags: 0 })
 native Widget reader | WidgetSpec(WidgetSpec { name: "sample", title: "reader.sample", category: "core.widgets.other", previews: "core.group.reading", cells: 0, token: 40, flags: 0 })
 native Widget vocabulary | WidgetSpec(WidgetSpec { name: "widget.word", title: "vocabulary.widget.word", category: "core.widgets.words", previews: "", cells: 0, token: 20, flags: 1 })
 native Widget vocabulary | WidgetSpec(WidgetSpec { name: "widget.saved", title: "vocabulary.widget.saved", category: "core.widgets.words", previews: "", cells: 0, token: 21, flags: 0 })
@@ -2068,6 +2327,7 @@ native Widget widgets | WidgetSpec(WidgetSpec { name: "reading", title: "widgets
 native Widget widgets | WidgetSpec(WidgetSpec { name: "logo", title: "widgets.logo", category: "core.widgets.other", previews: "", cells: 0, token: 121, flags: 0 })
 native Widget widgets | WidgetSpec(WidgetSpec { name: "picture", title: "widgets.picture", category: "core.widgets.personal", previews: "", cells: 0, token: 122, flags: 0 })
 native WidgetPlace home | WidgetPlace(WidgetPlace { name: "pages", title: "home.title", list_keys: "home.page-1\nhome.page-2\nhome.page-3\nhome.page-4\nhome.page-5\nhome.page-6\nhome.page-7\nhome.page-8", layout: 0, shown_if_key: "", shown_if_value: "" })
+native WidgetPlace picture-home | WidgetPlace(WidgetPlace { name: "pages", title: "picture-home.title", list_keys: "picture-home.page-1\npicture-home.page-2\npicture-home.page-3\npicture-home.page-4", layout: 0, shown_if_key: "", shown_if_value: "" })
 native WidgetPlace sleep | WidgetPlace(WidgetPlace { name: "widgets", title: "sleep.title", list_keys: "sleep.widgets", layout: 1, shown_if_key: "sleep.show", shown_if_value: "sleep.show.widgets" })
 native WidgetPlace sleep | WidgetPlace(WidgetPlace { name: "overlay", title: "sleep.title", list_keys: "sleep.overlay-widget", layout: 1, shown_if_key: "sleep.show", shown_if_value: "sleep.show.overlay" })
 native StatusItem power | StatusItem(StatusItem { name: "status", title: "power.status.item", tap: "open", priority: 0, min_width: 0, token: 12, flags: 0 })
@@ -2079,6 +2339,7 @@ native StatusItem wifi | StatusItem(StatusItem { name: "status", title: "wifi.st
 native StatusLine reader | StatusLine(StatusLine { name: "status-line.progress", title: "reader.status.line.progress", height: 2100, token: 17, flags: 0 })
 native StatusLine reader | StatusLine(StatusLine { name: "status-line.empty", title: "reader.status.line.empty", height: 2100, token: 17, flags: 0 })
 native StatusPlace home | StatusPlace(StatusPlace { name: "status-line", title: "home.widget.status", left: "status.left", center: "status.center", right: "status.right" })
+native StatusPlace picture-home | StatusPlace(StatusPlace { name: "bar", title: "picture-home.setting.bar", left: "picture-home.bar.left-items", center: "picture-home.bar.center-items", right: "picture-home.bar.right-items" })
 native StatusPlace reader | StatusPlace(StatusPlace { name: "status.top", title: "reader.status.section.top", left: "reader.status.top-left", center: "reader.status.top-center", right: "reader.status.top-right" })
 native StatusPlace reader | StatusPlace(StatusPlace { name: "status.bottom", title: "reader.status.section.bottom", left: "reader.status.bottom-left", center: "reader.status.bottom-center", right: "reader.status.bottom-right" })
 native MenuEntry about | MenuEntry(MenuEntry { menu: "core.settings-pages", item: "about.open", order: 99, place: 0, anchor: "" })
@@ -2100,6 +2361,7 @@ native MenuEntry fonts-browser | MenuEntry(MenuEntry { menu: "core.status-font",
 native MenuEntry home | MenuEntry(MenuEntry { menu: "core.main", item: "home.edit-pages", order: 40, place: 0, anchor: "" })
 native MenuEntry home | MenuEntry(MenuEntry { menu: "home.actions", item: "core.library", order: 10, place: 0, anchor: "" })
 native MenuEntry news | MenuEntry(MenuEntry { menu: "core.tools", item: "news.open", order: 44, place: 0, anchor: "" })
+native MenuEntry notes-vault | MenuEntry(MenuEntry { menu: "core.tools", item: "notes-vault.open", order: 38, place: 0, anchor: "" })
 native MenuEntry opds | MenuEntry(MenuEntry { menu: "core.tools", item: "opds.open", order: 45, place: 0, anchor: "" })
 native MenuEntry plugin-manager | MenuEntry(MenuEntry { menu: "core.settings-pages", item: "plugin-manager.open", order: 220, place: 0, anchor: "" })
 native MenuEntry plugin-manager | MenuEntry(MenuEntry { menu: "plugin-manager.more", item: "plugin-manager.screens.open", order: -10, place: 0, anchor: "" })
@@ -2170,8 +2432,11 @@ native Icon lock | IconSpec(IconSpec { item: "lock.group", icon: "lock" })
 native Icon lock | IconSpec(IconSpec { item: "lock.now", icon: "lock" })
 native Icon news | IconSpec(IconSpec { item: "news.open", icon: "rss" })
 native Icon news | IconSpec(IconSpec { item: "news.fetch", icon: "refresh" })
+native Icon notes-vault | IconSpec(IconSpec { item: "notes-vault.open", icon: "note" })
+native Icon notes-vault | IconSpec(IconSpec { item: "notes-vault.group", icon: "note" })
 native Icon opds | IconSpec(IconSpec { item: "opds.open", icon: "book-download" })
 native Icon opds | IconSpec(IconSpec { item: "opds.sync", icon: "refresh" })
+native Icon picture-home | IconSpec(IconSpec { item: "picture-home.group", icon: "layout-grid" })
 native Icon plugin-manager | IconSpec(IconSpec { item: "plugin-manager.open", icon: "puzzle" })
 native Icon plugin-manager | IconSpec(IconSpec { item: "plugin-manager.screens.open", icon: "layout" })
 native Icon power | IconSpec(IconSpec { item: "power.group", icon: "leaf" })
@@ -2208,6 +2473,7 @@ native MenuNeed bluetooth | MenuNeed(MenuNeed { item: "bluetooth.remotes", need:
 native MenuNeed files | MenuNeed(MenuNeed { item: "files.covers", need: 9, capability: 0 })
 native MenuNeed home | MenuNeed(MenuNeed { item: "home.focus-at-once", need: 3, capability: 0 })
 native MenuNeed keyboard | MenuNeed(MenuNeed { item: "keyboard.key-shape", need: 4, capability: 0 })
+native MenuNeed picture-home | MenuNeed(MenuNeed { item: "picture-home.focus-at-once", need: 3, capability: 0 })
 native MenuNeed reader | MenuNeed(MenuNeed { item: "reader.read-aloud", need: 0, capability: 0 })
 native MenuNeed reader | MenuNeed(MenuNeed { item: "reader.selection.read-aloud", need: 0, capability: 0 })
 native MenuNeed reader | MenuNeed(MenuNeed { item: "reader.aloud-speed", need: 0, capability: 0 })
@@ -2246,6 +2512,7 @@ native SlotOffer home | SlotOffer(SlotOffer { slot: "core.home", screen: "home.d
 native SlotOffer keyboard | SlotOffer(SlotOffer { slot: "core.keyboard", screen: "keyboard.screen", priority: 0 })
 native SlotOffer menu | SlotOffer(SlotOffer { slot: "core.menu", screen: "menu.list", priority: 0 })
 native SlotOffer menu | SlotOffer(SlotOffer { slot: "core.panel", screen: "menu.panel", priority: 0 })
+native SlotOffer picture-home | SlotOffer(SlotOffer { slot: "core.home", screen: "picture-home.dashboard", priority: 100 })
 native SlotOffer reader | SlotOffer(SlotOffer { slot: "core.reader", screen: "reader.screen", priority: 0 })
 native SlotOffer reader | SlotOffer(SlotOffer { slot: "core.toc", screen: "reader.toc", priority: 0 })
 native SlotOffer reader | SlotOffer(SlotOffer { slot: "core.annotations", screen: "reader.annotations", priority: 0 })
@@ -2327,4 +2594,5 @@ native Format format-markdown | FormatSpec(FormatSpec { name: "markdown", title:
 native Format format-mobi | FormatSpec(FormatSpec { name: "mobi", title: "format-mobi.title", extensions: "mobi\nazw\nazw3", flags: 3, priority: 0, token: 1 })
 native Format format-txt | FormatSpec(FormatSpec { name: "txt", title: "format-txt.title", extensions: "txt\ntext", flags: 1, priority: 0, token: 1 })
 native Format format-xtc | FormatSpec(FormatSpec { name: "xtc", title: "format-xtc.title", extensions: "xtc\nxtch", flags: 10, priority: 0, token: 1 })
+native Format notes-vault | FormatSpec(FormatSpec { name: "markdown", title: "notes-vault.markdown", extensions: "md\nmarkdown", flags: 0, priority: 10, token: 30 })
 native Reader reader | ReaderSpec(ReaderSpec { name: "app", screen: "reader.screen", formats: "", flags: 0 })

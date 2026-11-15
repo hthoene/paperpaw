@@ -63,12 +63,34 @@ fn fonts() -> paperpaw_app::Fonts {
     return paperpaw_app::Fonts::Outline;
 }
 
+/// A plugin line without its version (`plugin | id 1.0.4 Running ...`): a plugin
+/// bump or the release's own version does not redden the goldens.
+fn without_version(line: &str) -> String {
+    if !line.starts_with("plugin | ") {
+        return line.to_string();
+    }
+    let mut parts: Vec<&str> = line.split(' ').collect();
+    if parts.len() > 3 {
+        parts.remove(3);
+    }
+    parts.join(" ")
+}
+
 fn golden(device: DeviceInfo) {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
-    let (builder, card) = native_activation::quiet_on(device, storage, "[core]\nlanguage = en\n");
+    // The plugins that are off in a new setup are on, and the dictionary has its
+    // lookup, as on the desktop: their registrations are in the net too.
+    let config = "[core]\nlanguage = en\n[plugins]\npebble = on\nmail = on\nnotes-vault = on\npicture-home = on\n";
+    native_activation::wire_lookup();
+    let (builder, card) = native_activation::quiet_on(device, storage, config);
     let mut kernel = native_activation::build_on(paperpaw_app::install(builder, fonts()), card);
     kernel.start(Instant(0));
-    let mut shown = kernel.registry_lines().join("\n");
+    let mut shown = kernel
+        .registry_lines()
+        .iter()
+        .map(|line| without_version(line))
+        .collect::<Vec<_>>()
+        .join("\n");
     shown.push('\n');
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/registry-244")
