@@ -631,7 +631,7 @@ impl NativeLock {
                 // Not kept, the count still holds until PaperPaw starts anew;
                 // that is said, and the effects after it go on.
                 Effect::KeepTries(tries) => {
-                    gate::keep_tries(&HostDevice(host), tries);
+                    gate::keep_tries(&HostDevice(host), tries, &mut self.door);
                 }
             }
         }

@@ -223,23 +223,17 @@ jobs:
         with:
           ref: ${{ needs.check.outputs.commit }}
           persist-credentials: false
-      # The base's toolchain (its actions), its core libraries and its
-      # firmware's fingerprint, so its firmware loads the plugins.
+      # The base's toolchain (its actions) and its core libraries, so its
+      # firmware loads the plugins (an interface-7 file has no fingerprint).
       - uses: ./.github/actions/xteink-tools
         with:
           device: ${{ matrix.device }}
-      - name: The base release's fingerprint and core libraries
+      - name: The base release's core libraries
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           base="${BASE#v}"
           dir="$RUNNER_TEMP/base"
-          # The X4 Classic has the X4 Pro's chip: its plugins are the
-          # Pro's, fingerprint and all, and a release names the Pro's only.
-          abi="$DEVICE"
-          [[ "$DEVICE" == x4-classic ]] && abi=x4-pro
-          gh release download "$BASE" -R "$GITHUB_REPOSITORY" -D "$dir" -p "paperpaw-$abi-$base-abi.txt"
-          echo "FINGERPRINT=$(awk 'NR == 1 { print $1 }' "$dir/paperpaw-$abi-$base-abi.txt")" >> "$GITHUB_ENV"
           if [[ "$DEVICE" != x4 ]]; then
             gh release download "$BASE" -R "$GITHUB_REPOSITORY" -D "$dir" \
               -p "paperpaw-xtensa-std-$base.tar.gz" -p "paperpaw-xtensa-std-$base.tar.gz.sha256"
