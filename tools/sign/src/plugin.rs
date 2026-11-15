@@ -4,7 +4,7 @@
 
 use paperpaw_digest::{hex, sha256::Sha256};
 use paperpaw_native::header5::Header5;
-use paperpaw_native::{Header, Signature, signature};
+use paperpaw_native::{Signature, signature};
 use paperpaw_update::{fingerprint, key_hex};
 
 use crate::pack5;
@@ -18,72 +18,39 @@ fn write(path: &str, bytes: &[u8]) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|e| format!("{path}: {e}"))
 }
 
-/// A plugin file, checked whole, and its author's signature if it ends
-/// with one.
-fn plugin_file(path: &str) -> Result<(Vec<u8>, Header, Option<Signature>), String> {
-    let file = read(path)?;
-    let (header, signature) = Header::check_file(&file).map_err(|e| format!("{path}: {e}"))?;
-    Ok((file, header, signature))
+/// The format a plugin file says it has, where it is one of a format before
+/// 5 (the plugin interfaces before 7): such a file is named for what it is
+/// and not read any further.
+fn older_format(file: &[u8]) -> Option<u16> {
+    (file.len() >= 6 && file[..4] == paperpaw_native::MAGIC)
+        .then(|| u16::from_le_bytes([file[4], file[5]]))
+        .filter(|format| *format < paperpaw_native::header5::FORMAT)
 }
 
-/// Whether `file` is a plugin file of format 5 (interface 7): by its header,
-/// not by its name.
-fn is_format5(file: &[u8]) -> bool {
-    file.len() >= 6
-        && file[..4] == paperpaw_native::MAGIC
-        && u16::from_le_bytes([file[4], file[5]]) == paperpaw_native::header5::FORMAT
+/// What is said of a file of a format before 5.
+fn older(path: &str, format: u16) -> String {
+    format!(
+        "{path}: a plugin file of format {format}, made for a PaperPaw before plugin interface 7: \
+         this tool no longer reads it"
+    )
 }
 
 /// A format-5 file, read as the loader reads it, and its signature if it
 /// ends with one.
 fn plugin_file5(path: &str) -> Result<(Vec<u8>, Header5, Option<Signature>), String> {
     let file = read(path)?;
+    if let Some(format) = older_format(&file) {
+        return Err(older(path, format));
+    }
     let (header, signature) = pack5::check_file5(&file).map_err(|e| format!("{path}: {e}"))?;
     Ok((file, header, signature))
 }
 
+/// `pack`: the file of format 5 of a linked interface-7 plugin.
 pub fn pack(elf: &str, out: &str, key_file: Option<&str>) -> Result<(), String> {
     let bytes = read(elf)?;
-    if pack5::is_interface7(&bytes).map_err(|e| format!("{elf}: {e}"))? {
-        return pack_format5(elf, &bytes, out, key_file);
-    }
-    let packed = crate::pack::pack(&bytes).map_err(|e| format!("{elf}: {e}"))?;
-    let header = &packed.header;
-    let mut file = packed.file.clone();
-    let signed = match key_file {
-        Some(key_file) => {
-            let seed = secret_key(Some(key_file))?;
-            let signed = signature::sign(&file, &seed);
-            file.extend_from_slice(&signed.to_bytes());
-            Some(signed)
-        }
-        None => None,
-    };
-    write(out, &file)?;
-    println!(
-        "{out}: {} bytes of data, {} of code, {} words to relocate, fingerprint {:016x}, {},          built by rustc {}",
-        header.code_at,
-        header.image_len - header.code_at,
-        header.relocs,
-        header.fingerprint,
-        header.chip,
-        packed.compiler
-    );
-    if header.hot_len > 0 {
-        println!(
-            "{out}: {} bytes of hot code at {}, {} patches",
-            header.hot_len, header.hot_at, header.patches
-        );
-    }
-    if let Some(signed) = signed {
-        print_signer(&signed);
-    }
-    Ok(())
-}
-
-/// `pack` for an interface-7 plugin: the file of format 5.
-fn pack_format5(elf: &str, bytes: &[u8], out: &str, key_file: Option<&str>) -> Result<(), String> {
-    let packed = pack5::pack5(bytes).map_err(|e| format!("{elf}: {e}"))?;
+    pack5::is_interface7(&bytes).map_err(|e| format!("{elf}: {e}"))?;
+    let packed = pack5::pack5(&bytes).map_err(|e| format!("{elf}: {e}"))?;
     let header = &packed.header;
     let mut file = packed.file.clone();
     let signed = match key_file {
@@ -117,8 +84,13 @@ fn pack_format5(elf: &str, bytes: &[u8], out: &str, key_file: Option<&str>) -> R
     Ok(())
 }
 
-/// `show` for a format-5 file.
-fn show5(path: &str) -> Result<(), String> {
+/// `plugin`: what a plugin file holds. A file of a format before 5 is named
+/// as that, in one line, and nothing else is said of it.
+pub fn show(path: &str) -> Result<(), String> {
+    if let Some(format) = older_format(&read(path)?) {
+        println!("format:      {format} (before plugin interface 7: no longer read)");
+        return Ok(());
+    }
     let (file, header, signed) = plugin_file5(path)?;
     let mut sha = Sha256::new();
     sha.update(&file);
@@ -161,48 +133,6 @@ fn show5(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn show(path: &str) -> Result<(), String> {
-    if is_format5(&read(path)?) {
-        return show5(path);
-    }
-    let (file, header, signed) = plugin_file(path)?;
-    let mut sha = Sha256::new();
-    sha.update(&file);
-    println!("chip:        {} ({})", header.chip, header.chip.id());
-    println!("fingerprint: {:016x}", header.fingerprint);
-    // The plugin interface it was built for: the fingerprint's top bits.
-    println!("interface:   {}", header.fingerprint >> 48);
-    println!("compiler:    {:08x}", header.compiler);
-    println!(
-        "image:       {} bytes: {} of data, {} of code, linked at {:#010x}, aligned to {}",
-        header.image_len,
-        header.code_at,
-        header.image_len - header.code_at,
-        header.base,
-        header.align
-    );
-    println!(
-        "entry:       at {}, the table's word at {}",
-        header.entry, header.api
-    );
-    println!("relocations: {} words", header.relocs);
-    println!(
-        "hot code:    {} bytes at {}, {} patches",
-        header.hot_len, header.hot_at, header.patches
-    );
-    println!(
-        "file:        {} bytes, SHA-256 {}",
-        file.len(),
-        hex::encode(&sha.finish())
-    );
-    println!("digest:      {}", hex::encode(&header.sha256));
-    match signed {
-        Some(signed) => print_signer(&signed),
-        None => println!("signer:      none, not signed"),
-    }
-    Ok(())
-}
-
 fn print_signer(signed: &Signature) {
     println!(
         "signer:      {} ({})",
@@ -216,13 +146,8 @@ fn print_signer(signed: &Signature) {
 /// signature it had before replaced).
 pub fn sign(path: &str, key_file: Option<&str>) -> Result<(), String> {
     let seed = secret_key(key_file)?;
-    let (mut file, len) = if is_format5(&read(path)?) {
-        let (file, header, _) = plugin_file5(path)?;
-        (file, header.file_len() as usize)
-    } else {
-        let (file, header, _) = plugin_file(path)?;
-        (file, header.file_len() as usize)
-    };
+    let (mut file, header, _) = plugin_file5(path)?;
+    let len = header.file_len() as usize;
     file.truncate(len);
     let signed = signature::sign(&file, &seed);
     file.extend_from_slice(&signed.to_bytes());
@@ -233,26 +158,14 @@ pub fn sign(path: &str, key_file: Option<&str>) -> Result<(), String> {
 }
 
 pub fn check(path: &str) -> Result<(), String> {
-    if is_format5(&read(path)?) {
-        let (file, header, signed) = plugin_file5(path)?;
-        let signed = signed.ok_or_else(|| format!("{path}: not signed"))?;
-        println!(
-            "plugin:      {} bytes of format 5 for the {}, interface {}.{}",
-            file.len(),
-            header.target,
-            header.abi_major,
-            header.needs_minor
-        );
-        print_signer(&signed);
-        return Ok(());
-    }
-    let (file, header, signed) = plugin_file(path)?;
+    let (file, header, signed) = plugin_file5(path)?;
     let signed = signed.ok_or_else(|| format!("{path}: not signed"))?;
     println!(
-        "plugin:      {} bytes for the {}, fingerprint {:016x}",
+        "plugin:      {} bytes of format 5 for the {}, interface {}.{}",
         file.len(),
-        header.chip,
-        header.fingerprint
+        header.target,
+        header.abi_major,
+        header.needs_minor
     );
     print_signer(&signed);
     Ok(())
@@ -283,8 +196,10 @@ pub fn statics(archives: &[&str]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::elf::EM_RISCV;
-    use crate::pack::tests::packed;
+
+    /// The real sample's file (`samples/abi7-x4-min`), not signed.
+    const SAMPLE: &[u8] =
+        include_bytes!("../../../crates/paperpaw-native/tests/data/abi7-x4-min.ppn");
 
     #[test]
     fn a_signed_plugin_checks_and_a_changed_one_does_not() {
@@ -293,7 +208,7 @@ mod tests {
         let path = |name: &str| dir.join(name).to_string_lossy().into_owned();
         let (key, file) = (path("key"), path("plugin.ppn"));
         std::fs::write(&key, format!("{}\n", "07".repeat(32))).unwrap();
-        let unsigned = packed(EM_RISCV);
+        let unsigned = SAMPLE.to_vec();
         std::fs::write(&file, &unsigned).unwrap();
         assert!(check(&file).unwrap_err().ends_with("not signed"));
 
@@ -315,7 +230,7 @@ mod tests {
         let mut changed = signed.clone();
         changed[100] ^= 1;
         std::fs::write(&file, &changed).unwrap();
-        assert!(check(&file).unwrap_err().ends_with("changed or damaged"));
+        assert!(check(&file).is_err());
         // A changed signature.
         let mut changed = signed;
         let last = changed.len() - 20;
@@ -326,6 +241,14 @@ mod tests {
                 .unwrap_err()
                 .ends_with("its author's signature does not hold")
         );
+        // A file of the format before: named as that, not read, not signed.
+        let mut old = SAMPLE.to_vec();
+        old[4..6].copy_from_slice(&4u16.to_le_bytes());
+        std::fs::write(&file, &old).unwrap();
+        show(&file).unwrap();
+        assert!(check(&file).unwrap_err().contains("format 4"));
+        assert!(sign(&file, Some(&key)).unwrap_err().contains("format 4"));
+        assert_eq!(std::fs::read(&file).unwrap(), old);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

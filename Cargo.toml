@@ -224,8 +224,8 @@ proptest = { version = "1.5", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
-# `paperpaw_plugin`: set where native plugin files are built (ADR 0024,
-# samples/hello-native). `fuzzing`: set by cargo-fuzz.
+# `paperpaw_plugin`: set where plugin files of the format before interface 7
+# were built (ADR 0024). `fuzzing`: set by cargo-fuzz.
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(paperpaw_plugin)", "cfg(paperpaw_table_host)", "cfg(fuzzing)"] }
 missing_debug_implementations = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }

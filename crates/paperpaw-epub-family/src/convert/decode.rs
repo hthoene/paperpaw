@@ -155,15 +155,13 @@ pub(crate) fn decode_entry(
             color,
         );
     }
-    let streamed = match archive.reader(storage, entry) {
-        Ok(reader) => {
-            let mut source = EntrySource { storage, reader };
-            decode_source(storage, &mut source, cache, fit, color)
-        }
-        Err(paperpaw_sdk::zip::ZipError::OutOfMemory) => {
-            Err(paperpaw_sdk::image::ImageError::OutOfMemory)
-        }
-        Err(e) => return Err(error(e)),
+    // A reader that finds no memory ends it here: the copy below asks for
+    // the same and would be refused again, after two writes to the card
+    // (its file made and removed) on every try (#250).
+    let streamed = {
+        let reader = archive.reader(storage, entry).map_err(error)?;
+        let mut source = EntrySource { storage, reader };
+        decode_source(storage, &mut source, cache, fit, color)
     };
     if streamed != Err(paperpaw_sdk::image::ImageError::OutOfMemory) {
         return streamed.map_err(image_error);
@@ -171,16 +169,17 @@ pub(crate) fn decode_entry(
     let temp = alloc::format!("{dir}/image.tmp");
     storage.write(&temp, &[])?;
     let mut failed = None;
-    archive
-        .stream(storage, entry, &mut |chunk| {
-            failed = storage.append(&temp, chunk).err();
-            failed.is_none()
-        })
-        .map_err(error)?;
-    let result = match failed {
-        Some(e) => Err(DocumentError::Storage(e)),
-        None => decode_range(storage, &temp, 0, u64::from(entry.size), cache, fit, color),
+    let copied = archive.stream(storage, entry, &mut |chunk| {
+        failed = storage.append(&temp, chunk).err();
+        failed.is_none()
+    });
+    let result = match (copied, failed) {
+        (Err(e), _) => Err(error(e)),
+        (Ok(()), Some(e)) => Err(DocumentError::Storage(e)),
+        (Ok(()), None) => decode_range(storage, &temp, 0, u64::from(entry.size), cache, fit, color),
     };
+    // On every way out: a copy that found no memory left an empty file
+    // behind (#250).
     let _ = storage.remove(&temp);
     result
 }

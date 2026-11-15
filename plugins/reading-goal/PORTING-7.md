@@ -46,9 +46,15 @@ feature `embedded-pictures` (the app no longer carries the plugin, so the cats a
 - Events: a book opened, a book closed, suspend and stopping. The edges are `edge()`, which
   maps events to `Edge`s (tested without a host), and `Kept::apply`.
 - **The figure is asked for, by a stage Reading goal owns** (Kernel's ruling): `reading-goal.read-today`
-  (schema 1; input: the day as `i32`, little-endian, empty meaning today; reply: the day `i32` and
-  the seconds `u32`, little-endian; `max_input` 4, `max_reply` 8, one record). The statistics
-  *subscribe* and answer from memory (no card read, `ERR_NOT_FOUND` for a day they do not know);
+  (schema 1; input: the day as `i32`, little-endian, empty meaning today; reply: one `today.reading` record
+  with `known: u32`, `day: i32`, `seconds: u32`, little-endian; `max_input` 4,
+  `max_reply` 16 including batch count, tag, body length and bitmap).
+  `known=1` carries the figure; `known=0, day=0, seconds=0` is an explicit unknown date.
+  The payload schema is `payloads/reading-goal.read-today-reply@1.def`; its fixed-size codec
+  is `src/read_today.rs`, shared directly with stats. It encodes only the one fixed record;
+  generic stage tables, streams, variable-size fields and unused reply writers are omitted.
+  Schema 1 is corrected in place before either plugin is published for interface 7. The statistics
+  *subscribe* and answer from the cache or log (`ERR_NOT_FOUND` for an explicitly different day);
   nothing re-enters because the owner cannot subscribe to its own stage. Reading goal runs it (reading every subscriber's reply, hearing only `stats`) when it
   is about to write: at a book closed, suspend and stopping (the widget and the sleep screen will
   also on drawing and on the minute tick). No answer (`ERR_CANCELLED` when the statistics have not

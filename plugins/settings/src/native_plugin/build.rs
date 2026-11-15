@@ -138,6 +138,25 @@ pub(super) fn on_off(messages: &mut Messages, host: &Host<'_>, on: bool) -> Resu
     messages.copy(host, if on { "core.on" } else { "core.off" })
 }
 
+/// A list keeps ids in storage and shows their catalogue names in order.
+fn list_value_text(messages: &mut Messages, host: &Host<'_>, value: &str) -> Result<String, Error> {
+    let mut text = String::new();
+    for id in value.split(',').map(str::trim).filter(|id| !id.is_empty()) {
+        let name = translate(messages, host, id)?;
+        text.try_reserve(name.len().saturating_add(2))
+            .map_err(|_| Error::NoMemory)?;
+        if !text.is_empty() {
+            text.push_str(", ");
+        }
+        text.push_str(&name);
+    }
+    if text.is_empty() {
+        messages.copy(host, "core.list.none")
+    } else {
+        Ok(text)
+    }
+}
+
 /// The value of a setting as its row shows it.
 pub(super) fn value_text(
     messages: &mut Messages,
@@ -150,6 +169,9 @@ pub(super) fn value_text(
         (_, Some(now)) => messages.with_unit(host, now, &entry.detail.unit)?,
         (Some(Val::Bool(on)), _) => on_off(messages, host, *on)?,
         (Some(Val::Int(v)), _) => messages.with_unit(host, *v, &entry.detail.unit)?,
+        (Some(Val::Text(v)), _) if setting.kind == Kind::List => {
+            list_value_text(messages, host, v)?
+        }
         (Some(Val::Text(v)), _) => match entry.options.iter().find(|(value, _)| value == v) {
             Some((_, name)) => copy(name)?,
             None => copy(v)?,

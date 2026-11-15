@@ -555,6 +555,9 @@ impl Overlay {
                 }
                 _ => Ok(Handled::Yes),
             },
+            // A button press comes first as a key: left alone, the host turns it
+            // into the action the key maps name (`core.confirm`) and asks again.
+            Input::Key { .. } => Ok(Handled::No),
             _ => Ok(Handled::Yes),
         }
     }
@@ -574,8 +577,12 @@ fn draw_again(host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
     font.release()
 }
 
-/// Any button or tap closes it.
+/// Any button or tap closes it. A button comes first as a key: left alone, the
+/// host turns it into the action the key maps name and asks again.
 fn again_input(host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
+    if matches!(input, Input::Key { .. }) {
+        return Ok(Handled::No);
+    }
     let close = match *input {
         Input::Action { .. } => true,
         Input::Gesture { kind, .. } => kind == InputGestureKind::Tap,

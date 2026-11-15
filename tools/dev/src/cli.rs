@@ -43,10 +43,10 @@ COMMANDS:
                 A plugin's own repository (and its release's files) checked by the
                 plugin store's rules at paperpaw.org, saying what to change: run it
                 before tagging; the release workflow runs it too
-    new --github <id> [--code] [--dir <path>]
+    new --github <id> [--dir <path>]
                 A plugin's own repository for GitHub that check-publish passes: the
                 plugin's folder, store/store.ini, the release workflow, README,
-                .gitignore; with --code the crate too
+                .gitignore (a plugin without code; none with code yet)
     ui-kit      Every building block of the SDK's `ui` module, as the gallery shows
                 screens (every device, look, light and dark), checked as `visual`
                 checks; a label shortened to fit is an error

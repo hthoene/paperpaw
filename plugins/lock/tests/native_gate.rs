@@ -338,18 +338,29 @@ fn the_kind_setting_never_decides_which_lock_is_in_use() {
 }
 
 #[test]
-fn wrong_tries_the_card_refuses_are_said_and_the_try_is_not_refused() {
+fn wrong_tries_the_card_refuses_are_said_once_and_the_try_is_not_refused() {
     let mut device = Fake::with_code("pin");
-    assert!(gate::keep_tries(&device, 3));
+    let mut door = Door::default();
+    assert!(gate::keep_tries(&device, 3, &mut door));
     assert_eq!(*device.kept.borrow(), [3]);
     assert!(device.notices.borrow().is_empty());
     device.keep_refused = Some(Error::NoSpace);
-    // Said once for the count that was lost; the caller goes on (no error).
-    assert!(!gate::keep_tries(&device, 4));
+    // Said for the count that was lost; the caller goes on (no error).
+    assert!(!gate::keep_tries(&device, 4, &mut door));
     assert_eq!(*device.notices.borrow(), [gate::TRIES_NOT_KEPT]);
-    // Forgetting the count (the right code) failing is no news to the owner.
-    assert!(!gate::keep_tries(&device, 0));
+    // The next wrong tries on the same card are not said again.
+    assert!(!gate::keep_tries(&device, 5, &mut door));
+    assert!(!gate::keep_tries(&device, 5, &mut door));
     assert_eq!(device.notices.borrow().len(), 1);
+    // Forgetting the count (the right code) failing is no news to the owner.
+    assert!(!gate::keep_tries(&device, 0, &mut door));
+    assert_eq!(device.notices.borrow().len(), 1);
+    // A write that goes through is the end of it: a later refusal is said.
+    device.keep_refused = None;
+    assert!(gate::keep_tries(&device, 1, &mut door));
+    device.keep_refused = Some(Error::NoSpace);
+    assert!(!gate::keep_tries(&device, 2, &mut door));
+    assert_eq!(device.notices.borrow().len(), 2);
 }
 
 #[test]

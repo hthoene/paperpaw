@@ -162,9 +162,9 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
 
 /// The stage `reading-goal.read-today` (schema 1, owned by Reading goal): the
 /// statistics answer it. Asked with nothing, or with today's day (an `i32`,
-/// local days since 1970), it answers the day and the seconds read on it as an
-/// `i32` and a `u32`, little-endian; for another day it answers not found. It
-/// answers nothing where the device does not know the date yet.
+/// local days since 1970), it answers one `today.reading` record with
+/// `known=1`, the day and seconds. For another day it answers not found.
+/// Without a date it answers `known=0, day=0, seconds=0`, still a valid batch.
 pub fn stages(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
     declarations.subscribe(SubscribeDecl::new(READ_TODAY, READ_TODAY_TOKEN))?;

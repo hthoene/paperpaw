@@ -1,0 +1,5 @@
+screen core.finishing-update
+Text "Finishing the update…" at 47,733 1170x83
+Progress "0%" at 47,840 1170x24
+Text "The device restarts by itself in a moment." at 47,953 1170x34
+frame 1680 rows, fnv1a64 64fd402d205f437b

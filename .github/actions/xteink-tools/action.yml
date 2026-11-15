@@ -5,9 +5,7 @@ description: >
   for the X4 Pro and the X4 Classic), and espflash if asked. Sets
   FIRMWARE_TOOLCHAIN, FIRMWARE_TARGET, FIRMWARE_CHIP (as espflash names
   it), FIRMWARE_CHIP_ID (as images do), FIRMWARE_CARGO (the arguments
-  every build takes, the features left to add) and PLUGIN_ALIAS (the
-  alias code plugins build with, as samples/hello-native names it; for
-  the ESP32-S3 after the action xtensa-std).
+  every build takes, the features left to add).
 inputs:
   device:
     description: x4, x3, x4-pro or x4-classic.
@@ -79,7 +77,6 @@ runs:
           echo "FIRMWARE_CHIP=esp32c3"
           echo "FIRMWARE_CHIP_ID=5"
           echo "FIRMWARE_CARGO=--release --target $target --no-default-features"
-          echo "PLUGIN_ALIAS=x4"
         } >> "$GITHUB_ENV"
     # Restored by every run, saved only by a push to abi7/integration or main
     # (a pull request's copy would be one more of the 10 GB the repository may keep).
@@ -133,7 +130,6 @@ runs:
           # library is built for Xtensa here.
           echo "FIRMWARE_CARGO=--release --target $target --no-default-features -Zbuild-std=core,alloc"
           # Code plugins link with the release's core libraries instead.
-          echo "PLUGIN_ALIAS=x4pro"
         } >> "$GITHUB_ENV"
     - name: espflash
       if: inputs.espflash == 'true'
