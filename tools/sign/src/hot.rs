@@ -1,8 +1,8 @@
 //! A plugin's hot code (the SDK's `hot!`): where it lies, and the patches
-//! that let it run elsewhere than the rest of the image (format 3, see
+//! that let it run elsewhere than the rest of the image (see
 //! `paperpaw_native::PatchKind`).
 //!
-//! `paperpaw-plugin.x` puts the hot code at the end of `.text`, between
+//! `paperpaw-plugin7.x` puts the hot code at the end of `.text`, between
 //! `PAPERPAW_HOT` and `PAPERPAW_HOT_END`. A device may run it from
 //! faster memory, so every reference across its edge by a distance
 //! changes. On RISC-V those are `auipc` with its partner (a call, or a
@@ -72,7 +72,7 @@ impl Hot {
         let end = code_symbol(image, symbols, HOT_END_SYMBOL)?;
         if end < start || !start.is_multiple_of(4) || !end.is_multiple_of(4) {
             return Err(format!(
-                "`{HOT_SYMBOL}` and `{HOT_END_SYMBOL}` do not hold the hot code in whole words: link the plugin with paperpaw-plugin.x as it is now"
+                "`{HOT_SYMBOL}` and `{HOT_END_SYMBOL}` do not hold the hot code in whole words: link the plugin with paperpaw-plugin7.x as it is now"
             ));
         }
         if start == end {
@@ -250,7 +250,7 @@ fn code_symbol(image: &Image<'_>, symbols: &[Symbol], name: &str) -> Result<u32,
         .iter()
         .find(|s| s.name == name && s.shndx != crate::elf::SHN_UNDEF)
         .ok_or_else(|| {
-            format!("no `{name}`: link the plugin with paperpaw-plugin.x as it is now")
+            format!("no `{name}`: link the plugin with paperpaw-plugin7.x as it is now")
         })?;
     symbol
         .value
@@ -355,12 +355,12 @@ impl Image<'_> {
 
 #[cfg(test)]
 mod tests {
-    use paperpaw_native::{API_SYMBOL, ENTRY_SYMBOL, HEADER_LEN, Relocator};
+    use paperpaw_native::header5::Header5;
+    use paperpaw_native::stream5::Relocator5;
 
     use super::*;
     use crate::elf::build::Builder;
-    use crate::elf::{EM_RISCV, EM_XTENSA, ET_EXEC, SHF_ALLOC, SHN_ABS};
-    use crate::pack::pack;
+    use crate::elf::{EM_RISCV, EM_XTENSA, ET_EXEC, SHF_ALLOC};
 
     const TEXT: u32 = LINK_BASE + CODE_OFFSET + 96;
     const CONSTANT: u32 = LINK_BASE + 80;
@@ -398,9 +398,7 @@ mod tests {
     }
 
     fn plugin(machine: u16, hot_from: u32) -> Plugin {
-        let mut rodata = [0u8; 96];
-        rodata[..8].copy_from_slice(&1u64.to_le_bytes());
-        rodata[12..16].copy_from_slice(&(64u32 | (5 << 16)).to_le_bytes());
+        let rodata = [0u8; 96];
         let to_constant = CONSTANT.wrapping_sub(HOT);
         let to_helper = HELPER.wrapping_sub(HOT + 12);
         let mut text = Vec::new();
@@ -421,18 +419,6 @@ mod tests {
         let mut b = Builder::new(machine, ET_EXEC);
         let ro = b.section(".rodata", SHF_ALLOC, LINK_BASE, &rodata, 16) as u16;
         let tx = b.section(".text", SHF_ALLOC | 4, TEXT, &text, 4);
-        b.section(
-            ".comment",
-            0x30,
-            0,
-            b"rustc version 1.99.0 (b940084d7 2026-09-28)\0",
-            1,
-        );
-        b.symbol(ENTRY_SYMBOL, LINK_BASE, 32, ro, false);
-        b.symbol(API_SYMBOL, LINK_BASE + 32, 0, SHN_ABS, false);
-        for (n, name) in paperpaw_native::TABLE_SYMBOLS.iter().enumerate() {
-            b.symbol(name, LINK_BASE + 36 + 4 * n as u32, 0, SHN_ABS, false);
-        }
         let constant = b.symbol("CONSTANT", CONSTANT, 4, ro, true);
         let label = b.symbol(".Lpcrel_hi0", HOT, 0, tx as u16, true);
         let cold = b.symbol("cold", TEXT, 8, tx as u16, false);
@@ -453,19 +439,27 @@ mod tests {
         }
     }
 
+    /// The hot code of the linked plugin `elf`, as a packer asks for it,
+    /// with the image and the words to relocate.
+    fn hot_of(elf: &[u8]) -> Result<(Hot, Vec<u8>, Vec<u32>), String> {
+        let elf = Elf::parse(elf)?;
+        let chip = match elf.machine {
+            EM_RISCV => Chip::Esp32C3,
+            _ => Chip::Esp32S3,
+        };
+        let (symtab, symbols) = elf.symbols()?.ok_or("no symbol table")?;
+        let image = Image::of(&elf, &symbols)?;
+        let words = image.words(&elf, chip, symtab, &symbols)?;
+        let hot = Hot::of(&elf, &image, chip, &symbols, &words)?;
+        Ok((hot, image.bytes.clone(), words.into_iter().collect()))
+    }
+
     #[test]
     fn reaches_across_the_edge_become_patches() {
-        let packed = pack(&plugin(EM_RISCV, HOT).b.build()).unwrap();
-        let header = packed.header;
-        assert_eq!((header.hot_at, header.hot_len), (112, 24));
-        let words: Vec<u32> = packed.file[HEADER_LEN + header.image_len as usize..]
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|w| u32::from_le_bytes(*w))
-            .collect();
+        let (hot, mut image, words) = hot_of(&plugin(EM_RISCV, HOT).b.build()).unwrap();
+        assert_eq!((hot.at, hot.len), (112, 24));
         assert_eq!(
-            words.as_chunks::<2>().0,
+            hot.patches,
             [
                 [PatchKind::Hi20.record(96), 112],
                 [PatchKind::Hi20.record(112), 80],
@@ -476,11 +470,34 @@ mod tests {
                 [PatchKind::Lo12S.record(120), 112],
             ]
         );
-        // The loader takes them: the call of `hot` reaches it where it
-        // runs.
-        let len = header.image_len as usize;
-        let mut image = packed.file[HEADER_LEN..HEADER_LEN + len].to_vec();
-        let relocator = Relocator::new(&header, &words, LINK_BASE, 0)
+        // The loader takes them, as a plugin file lists them: the call of
+        // `hot` reaches it where it runs.
+        let records = crate::pack5::records(&hot.patches).unwrap();
+        let header = Header5 {
+            target: Chip::Esp32C3,
+            abi_major: 7,
+            needs_minor: 1,
+            base: LINK_BASE,
+            image_len: image.len() as u32,
+            code_at: 96,
+            entry: 0,
+            meta_at: 24,
+            meta_len: 8,
+            relocs: words.len() as u32,
+            align: 16,
+            hot_at: hot.at,
+            hot_len: hot.len,
+            patches: records.len() as u32,
+            heap_at: None,
+            sha256: [0; 32],
+            signed: false,
+        };
+        let mut file = header.to_bytes().to_vec();
+        file.extend_from_slice(&image);
+        for word in words.iter().chain(records.iter().flatten()) {
+            file.extend_from_slice(&word.to_le_bytes());
+        }
+        let relocator = Relocator5::new(&header, &file[..], LINK_BASE)
             .and_then(|r| r.hot_at(0x4039_0000))
             .unwrap();
         relocator.apply(0, &mut image).unwrap();
@@ -492,8 +509,8 @@ mod tests {
     #[test]
     fn without_hot_code_and_on_xtensa_there_is_none() {
         for (machine, hot_from) in [(EM_RISCV, END), (EM_XTENSA, HOT)] {
-            let header = pack(&plugin(machine, hot_from).b.build()).unwrap().header;
-            assert_eq!((header.hot_at, header.hot_len, header.patches), (0, 0, 0));
+            let (hot, _, _) = hot_of(&plugin(machine, hot_from).b.build()).unwrap();
+            assert_eq!((hot.at, hot.len, hot.patches.len()), (0, 0, 0));
         }
     }
 
@@ -502,7 +519,7 @@ mod tests {
         // A jump of short reach from cold code into hot code.
         let mut p = plugin(EM_RISCV, HOT);
         p.b.rela(p.text, TEXT + 4, p.hot, 17);
-        let error = pack(&p.b.build()).unwrap_err();
+        let error = hot_of(&p.b.build()).unwrap_err();
         assert!(
             error.contains(
                 "`cold` reaches `hot` across the edge of hot code (R_RISCV_JAL at .text+0x4), \
@@ -513,11 +530,11 @@ mod tests {
         // Within hot code it is fine.
         let mut p = plugin(EM_RISCV, HOT);
         p.b.rela(p.text, HOT + 16, p.hot, 17);
-        assert!(pack(&p.b.build()).is_ok());
+        assert!(hot_of(&p.b.build()).is_ok());
         // A word to relocate in hot code.
         let mut p = plugin(EM_RISCV, HOT);
         p.b.rela(p.text, HOT + 20, p.cold, 1);
-        let error = pack(&p.b.build()).unwrap_err();
+        let error = hot_of(&p.b.build()).unwrap_err();
         assert!(
             error.contains("a word to relocate lies in hot code, at .text+0x24"),
             "{error}"
@@ -529,7 +546,7 @@ mod tests {
         // A call relaxed or linked otherwise: no `auipc` where it says.
         let mut p = plugin(EM_RISCV, HOT);
         p.b.rela(p.text, TEXT + 8, p.hot, CALL);
-        let error = pack(&p.b.build()).unwrap_err();
+        let error = hot_of(&p.b.build()).unwrap_err();
         assert!(
             error.contains("no `auipc` at .text+0x8 reaches as its relocation says"),
             "{error}"

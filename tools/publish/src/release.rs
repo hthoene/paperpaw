@@ -5,7 +5,9 @@
 
 use std::path::Path;
 
-use paperpaw_native::{Chip, Header};
+use paperpaw_native::header5::{self, Header5, Host};
+use paperpaw_native::stream5::Relocator5;
+use paperpaw_native::{Chip, MAGIC, Signature};
 
 use crate::Problem;
 use crate::repo::Plugin;
@@ -17,6 +19,53 @@ fn chip(device: &str) -> Option<Chip> {
         "x4" | "x3" => Some(Chip::Esp32C3),
         "x4-pro" | "x4-classic" => Some(Chip::Esp32S3),
         _ => None,
+    }
+}
+
+/// A build's file (format 5, `abi/ppn5.md`) read as a reader of its own
+/// chip and plugin interface reads it: the header, the digest, the words to
+/// relocate. With its author's signature, checked, if it ends with one; or
+/// what is wrong.
+fn build(file: &[u8]) -> Result<(Header5, Option<Signature>), String> {
+    let word = |at: usize| {
+        file.get(at..at + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+    };
+    let own = (file.get(..4) == Some(&MAGIC[..])).then_some(());
+    if let Some(format) = own.and_then(|()| word(4)).filter(|f| *f < header5::FORMAT) {
+        return Err(format!(
+            "a plugin file of format {format}, made for a PaperPaw before plugin interface 7: \
+             build it with this release's SDK and compilers"
+        ));
+    }
+    let host = match word(6).and_then(Chip::from_id) {
+        Some(Chip::Esp32S3) => Host::x4_pro(u16::MAX),
+        _ => Host::x4(u16::MAX),
+    };
+    let host = Host {
+        abi_major: word(8).unwrap_or(host.abi_major),
+        ..host
+    };
+    let refused = |why: &dyn std::fmt::Debug| {
+        format!("readers refuse it: {why:?}; make it again with `paperpaw-sign pack`")
+    };
+    let header = Header5::read(file, file.len() as u64, &host).map_err(|why| refused(&why))?;
+    let end = header.file_len() as usize;
+    let body = &file[..end];
+    let mut scratch = vec![0u8; 4096];
+    Relocator5::new(&header, body, header.base)
+        .and_then(|relocator| relocator.verify(&mut scratch))
+        .map_err(|why| refused(&why))?;
+    if !header.signed {
+        return Ok((header, None));
+    }
+    match Signature::read(&file[end..]) {
+        Some(signature)
+            if signature.signed_len as usize == end && signature.holds(body).is_ok() =>
+        {
+            Ok((header, Some(signature)))
+        }
+        _ => Err(refused(&"its author's signature does not hold")),
     }
 }
 
@@ -198,31 +247,25 @@ fn builds(
             ));
             continue;
         }
-        let (header, signature) = match Header::check_file(&bytes) {
-            Ok(checked) => checked,
+        let (header, signature) = match build(&bytes) {
+            Ok(read) => read,
             Err(problem) => {
-                problems.push(Problem::error(
-                    "build",
-                    name.to_string(),
-                    format!(
-                        "readers refuse it: {problem:?}; make it again with `paperpaw-sign pack`"
-                    ),
-                ));
+                problems.push(Problem::error("build", name.to_string(), problem));
                 continue;
             }
         };
-        if Some(header.chip) != chip(&device) {
+        if Some(header.target) != chip(&device) {
             problems.push(Problem::error(
                 "build",
                 name.to_string(),
                 format!(
                     "built for the {:?}, which is not the {device}'s chip: give it the name of \
                      the reader it was built for",
-                    header.chip
+                    header.target
                 ),
             ));
         }
-        let built_for = (header.fingerprint >> 48) as u16;
+        let built_for = header.abi_major;
         if let Some(interface) = interface
             && built_for != interface
         {

@@ -14,7 +14,7 @@ publish = false
 paperpaw-digest.workspace = true
 paperpaw-fs.workspace = true
 paperpaw-json.workspace = true
-paperpaw-native.workspace = true
+paperpaw-native = { workspace = true, features = ["kernel"] }
 paperpaw-zip.workspace = true
 
 [dev-dependencies]
