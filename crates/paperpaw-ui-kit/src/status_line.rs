@@ -223,9 +223,13 @@ fn values<'a>(
     let mut shown: Vec<Shown<'a>> = Vec::new();
     let [first, second] = buffers;
     let mut scratch = [0u8; 256];
-    let mut input = mem::buffer(mem::SERVICE_BUFFER)?;
     for (chunk, out) in asked.chunks(8).zip([first, second]) {
         let items = join(chunk)?;
+        // The reply buffers are made now, one for the first eight items and a
+        // second only for more (the registry's answer, read before, has given its
+        // room back), and the request has the room of its items, not 4 KiB.
+        let mut input = mem::buffer(items.len() + ASK_SLACK)?;
+        grow(out, mem::SERVICE_BUFFER)?;
         let page = ui.status_values(host, &items, &[], &mut scratch, &mut input, out)?;
         for row in page {
             let row = row?;
@@ -271,6 +275,22 @@ fn values<'a>(
         }
     }
     Ok((shown, at_part))
+}
+
+/// What the request beyond its items takes (the record's framing). Only the
+/// request may be smaller than the 4 KiB every op accepts: a reply buffer must
+/// hold the operation's declared `max_reply`, which is `SERVICE_BUFFER`.
+const ASK_SLACK: usize = 128;
+
+/// `bytes` grown to `len` (kept where it is longer already).
+fn grow(bytes: &mut Vec<u8>, len: usize) -> Result<(), Error> {
+    if bytes.len() < len {
+        bytes
+            .try_reserve_exact(len - bytes.len())
+            .map_err(|_| Error::NoMemory)?;
+        bytes.resize(len, 0);
+    }
+    Ok(())
 }
 
 /// `ids` separated by newlines, as `status_values` asks for them.
@@ -489,10 +509,7 @@ pub fn targets_own(
     area: Rect,
     own: Own<'_>,
 ) -> Result<Vec<(u32, Rect)>, Error> {
-    let mut buffers = [
-        mem::buffer(mem::SERVICE_BUFFER)?,
-        mem::buffer(mem::SERVICE_BUFFER)?,
-    ];
+    let mut buffers = [Vec::new(), Vec::new()];
     let meta = read_meta(face.host, &lists.wanted())?;
     let line = lay_out(face, (lists, &meta), ui, area, own, &mut buffers)?;
     let mut tappable = tapped(&line);
@@ -558,10 +575,7 @@ pub fn action_own(
     (area, own): (Rect, Own<'_>),
     target: u32,
 ) -> Result<Option<String>, Error> {
-    let mut buffers = [
-        mem::buffer(mem::SERVICE_BUFFER)?,
-        mem::buffer(mem::SERVICE_BUFFER)?,
-    ];
+    let mut buffers = [Vec::new(), Vec::new()];
     let meta = read_meta(face.host, &lists.wanted())?;
     let line = lay_out(face, (lists, &meta), ui, area, own, &mut buffers)?;
     let mut tappable = tapped(&line);
@@ -576,10 +590,7 @@ pub fn action_own(
 /// # Errors
 /// The host's refusals and [`Error::NoMemory`].
 pub fn shows(host: &Host<'_>, lists: &Lists, ui: &Ui) -> Result<u64, Error> {
-    let mut buffers = [
-        mem::buffer(mem::SERVICE_BUFFER)?,
-        mem::buffer(mem::SERVICE_BUFFER)?,
-    ];
+    let mut buffers = [Vec::new(), Vec::new()];
     let wanted = lists.wanted();
     let meta = read_meta(host, &wanted)?;
     let (shown, _) = values(host, ui, (&meta, &[]), &wanted, &mut buffers)?;
@@ -608,5 +619,15 @@ mod tests {
         assert!(!memo.keeps(&["clock.time", "", "reader.page"]));
         memo.forget();
         assert!(!memo.keeps(&lists));
+    }
+
+    #[test]
+    fn a_buffer_grows_to_the_room_asked_and_never_shrinks() {
+        let mut bytes = Vec::new();
+        grow(&mut bytes, 100).unwrap();
+        grow(&mut bytes, 60).unwrap();
+        assert_eq!(bytes.len(), 100);
+        grow(&mut bytes, mem::SERVICE_BUFFER).unwrap();
+        assert_eq!(bytes.len(), mem::SERVICE_BUFFER);
     }
 }
