@@ -35,14 +35,16 @@ The store plugin is not linked into the firmware. No version bump is part of thi
   restart on the same card, local sign-out, and another restart remaining signed out.
 - native_menu.rs checks the shown native More-menu: *Sync progress* appears only while the
   plugin is installed and enabled. Kernel::menus() alone does not include native declarations.
-- Accepted handover to the real reader and persistence of its reached position remain open
-  (native_handover.rs and acceptance_pending.rs). Beta 3 policy applies: kosync does not
-  store an unconfirmed remote position; the reader saves its position after accepted navigation.
-- Currently Library book_key refuses books absent from the catalog, so those books cannot
-  fetch/send until catalogued. Kernel's separate #3124 addresses this; adoption is owner
-  decision 199 on #277. No plugin workaround is used.
-- Final full gates and final-head unsigned store/install artifacts are pending. Earlier
-  pack/readback success does not establish device acceptance.
+- native_handover.rs confirms the offer closes into the real reader at 80 %, Back without
+  a page turn stores 80 % on the card, and reopening retains that position without another offer.
+  The exact test fails at the missing save without Reader's Start::At unsaved fix and passes
+  with it. Body-text labels are not used as readiness evidence.
+- Kernel's uncatalogued book_key fix (#3124, owner decision 199) and run_action dialog-close
+  ordering fix (#266) are locally merged dependencies. The fixture opens the Reader slot;
+  no catalog workaround or core test hook is used.
+- Beta 3 policy applies: kosync never stores an unconfirmed remote position; the reader saves
+  its reached position after accepted navigation. Gate and unsigned store/install artifact
+  evidence is recorded with the PR head; pack/readback does not establish device acceptance.
 
 ## Differences and device-only checks
 
