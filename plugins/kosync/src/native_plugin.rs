@@ -836,7 +836,10 @@ impl NativeKosync {
     /// Opens the book where the other device is, in the reader the user bound.
     /// `false` where the place cannot be found (it is then as if closed).
     fn go_there(&mut self, host: &Host<'_>, offer: &Offer) -> Result<bool, Error> {
-        let Some((section, offset)) = self.backing.locate(host, &offer.path, &offer.xpointer)?
+        let progress = offer.percentage.parse::<f64>().unwrap_or(0.0);
+        let Some((section, offset)) =
+            self.backing
+                .locate(host, &offer.path, &offer.xpointer, progress)?
         else {
             return Ok(false);
         };
