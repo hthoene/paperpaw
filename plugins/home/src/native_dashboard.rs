@@ -82,7 +82,6 @@ struct Laid {
     actions: Actions,
     pages: usize,
     dots: bool,
-    tool_labels: bool,
     focus_at_once: bool,
     /// The arrow keys stay on the page.
     arrows_stay: bool,
@@ -115,6 +114,10 @@ struct Laid {
     /// long as the page, which is laid out again where a setting, the display
     /// or the registry changed (`Kept`).
     style: Style,
+    /// The lines of each tool's name and the top of its cell, wrapped when the
+    /// page was laid out (hyphenation asks, text measures): kept for the same
+    /// reason as `style`.
+    wrapped: Vec<(u16, icons::Name)>,
 }
 
 /// Which of the footer's buttons are there.
@@ -374,6 +377,16 @@ impl Dashboard {
                 return Err(error);
             }
         };
+        let wrapped = match Self::tool_lines(host, font, &style, &cells, src.tool_labels) {
+            Ok(wrapped) => wrapped,
+            Err(error) => {
+                if let Some((made, _)) = status {
+                    made.release(host, ui);
+                }
+                release_cells(host, ui, cells);
+                return Err(error);
+            }
+        };
         Ok(Laid {
             frame,
             cells,
@@ -381,7 +394,6 @@ impl Dashboard {
             actions,
             pages: count,
             dots: src.dots,
-            tool_labels: src.tool_labels,
             focus_at_once: src.focus_at_once,
             arrows_stay: src.arrows_stay,
             pencil: pencil_on.then_some((footer.pencil, word)),
@@ -396,6 +408,7 @@ impl Dashboard {
             status,
             ring_room,
             style,
+            wrapped,
         })
     }
 
@@ -707,20 +720,20 @@ impl Dashboard {
     /// The lines of the name of each tool shown (with names), with the top of its
     /// cell, in the order of the cells that are tools.
     fn tool_lines(
-        &self,
         host: &Host<'_>,
         font: &Font<'_>,
         style: &Style,
-        laid: &Laid,
+        cells: &[Cell],
+        tool_labels: bool,
     ) -> Result<Vec<(u16, icons::Name)>, Error> {
         let mut lines = Vec::new();
         let hyphens = icons::Hyphens::of(host);
         let mut breaks = |word: &str, out: &mut _| hyphens.breaks(host, word, out);
-        for cell in &laid.cells {
+        for cell in cells {
             if cell.face.is_none() {
                 continue;
             }
-            let own = if laid.tool_labels {
+            let own = if tool_labels {
                 icons::name_lines(font, style, cell.rect, &cell.name, &mut breaks)?
             } else {
                 icons::Name {
@@ -820,11 +833,11 @@ impl Dashboard {
             icons: icon_font.as_ref(),
             circle: circle.as_ref(),
         };
-        let wrapped = self.tool_lines(host, font, &style, laid)?;
+        let wrapped = &laid.wrapped;
         let mut tops: Vec<(u16, usize)> = Vec::new();
         tops.try_reserve_exact(wrapped.len())
             .map_err(|_| Error::NoMemory)?;
-        for (top, name) in &wrapped {
+        for (top, name) in wrapped {
             tops.push((*top, name.lines.len()));
         }
         let row_lines = icons::row_lines(&tops)?;
