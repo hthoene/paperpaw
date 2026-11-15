@@ -1208,6 +1208,12 @@ fn validate_keymap(source: &str) -> Result<(), RegisterError> {
     }
 }
 
+// The registry as text lines, for the tests that pin it (#244). Declared
+// here: `lib.rs` is at its length limit.
+#[cfg(any(test, feature = "testing"))]
+#[path = "registry_lines.rs"]
+mod registry_lines;
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -74,8 +74,6 @@ mod realtime;
 mod recall;
 mod refresh;
 mod registry;
-#[cfg(any(test, feature = "testing"))]
-mod registry_lines;
 mod room;
 mod screens;
 mod secrets_i6;
