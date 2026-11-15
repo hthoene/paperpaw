@@ -215,6 +215,7 @@ def main():
     parser.add_argument("--sets")
     parser.add_argument("--set-args", action="append")
     parser.add_argument("--target")
+    parser.add_argument("--first-catch", action="store_true", help="run: stop at the first set in which a test fails (the canary is caught; the later sets are not run, so `.fails` names only that set's failing tests)")
     parser.add_argument("--merge", action="store_true", help="run: keep the names of an earlier `.fails` and add the new ones (more sets for the canaries no set caught yet)")
     parser.add_argument("-j", "--jobs", type=int)
     args = parser.parse_args()
@@ -279,6 +280,8 @@ def main():
                     break
                 names |= done[1]
                 crashed |= {f"{b}\t(binary failed)" for b in done[2]}
+                if args.first_catch and (names or crashed):
+                    break
         finally:
             restore(tree, c)
         (out / f"{c.id}.error").unlink(missing_ok=True)
