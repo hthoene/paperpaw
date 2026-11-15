@@ -145,6 +145,8 @@ pub struct Group {
     pub order: i32,
     /// Translated name.
     pub title: String,
+    /// The name of its icon; empty for none.
+    pub icon: String,
 }
 
 /// A row of the menu of pages other plugins add.

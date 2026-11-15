@@ -50,9 +50,14 @@ impl Seek {
     /// The entries of `blocks` kept for block `i` and, where there is one, the
     /// one after it: the entry and the start of the next block.
     fn kept(&self, blocks: u32, i: u32) -> Option<(Entry, Option<u32>)> {
-        let want = if i + 1 < blocks { 2 } else { 1 };
-        let at = usize::try_from(i.checked_sub(self.first)?).ok()? * INDEX as usize;
-        let bytes = self.window.get(at..at + want * INDEX as usize)?;
+        // Checked all through: `i` comes from a book's own numbers.
+        let want = if i < blocks.saturating_sub(1) { 2 } else { 1 };
+        let at = usize::try_from(i.checked_sub(self.first)?)
+            .ok()?
+            .checked_mul(INDEX as usize)?;
+        let bytes = self
+            .window
+            .get(at..at.checked_add(want * INDEX as usize)?)?;
         let mut entry: Entry = [0; INDEX as usize];
         entry.copy_from_slice(&bytes[..INDEX as usize]);
         let next = (want == 2).then(|| {
@@ -82,7 +87,11 @@ fn entry_and_next(
     seek.window.clear();
     crate::fallible::reserve_exact(&mut seek.window, bytes)?;
     seek.window.resize(bytes, 0);
-    let read = storage.read_at(&paths.index, u64::from(i * INDEX), &mut seek.window)?;
+    let read = storage.read_at(
+        &paths.index,
+        u64::from(i) * u64::from(INDEX),
+        &mut seek.window,
+    )?;
     // Whole entries only.
     seek.window.truncate(read / INDEX as usize * INDEX as usize);
     seek.first = i;
@@ -101,7 +110,7 @@ fn read_block(
         Some((entry, next)) => (entry, next.unwrap_or(length), record_end(next, length)),
         None => {
             let mut entry = [0u8; INDEX as usize];
-            storage.read_at(&paths.index, u64::from(i * INDEX), &mut entry)?;
+            storage.read_at(&paths.index, u64::from(i) * u64::from(INDEX), &mut entry)?;
             let next = if i + 1 < blocks {
                 Some(u32_at(storage, &paths.index, u64::from((i + 1) * INDEX))?)
             } else {
@@ -511,4 +520,36 @@ pub(crate) fn links(storage: &dyn Storage, paths: &CachePaths, from: u32, to: u3
         true
     });
     links
+}
+
+#[cfg(test)]
+mod kept_tests {
+    use super::*;
+
+    fn kept_window(first: u32, entries: usize) -> Seek {
+        Seek {
+            last: None,
+            window: alloc::vec![7; entries * INDEX as usize],
+            first,
+        }
+    }
+
+    #[test]
+    fn a_block_number_at_the_end_of_the_range_gives_none_not_a_panic() {
+        let seek = kept_window(0, 2);
+        // `i + 1` and the offsets of such a number overflow; a book's own
+        // numbers are not trusted.
+        assert!(seek.kept(u32::MAX, u32::MAX).is_none());
+        assert!(seek.kept(u32::MAX, u32::MAX - 1).is_none());
+        assert!(kept_window(u32::MAX, 1).kept(u32::MAX, u32::MAX).is_some());
+    }
+
+    #[test]
+    fn the_last_block_of_a_chapter_has_no_next_start() {
+        let seek = kept_window(4, 2);
+        let (_, next) = seek.kept(6, 5).unwrap();
+        assert_eq!(next, None);
+        let (_, next) = seek.kept(6, 4).unwrap();
+        assert_eq!(next, Some(u32::from_le_bytes([7; 4])));
+    }
 }

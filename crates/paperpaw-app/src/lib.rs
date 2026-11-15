@@ -660,11 +660,11 @@ pub fn install_with(
         .built_catalogs(BUILT_CATALOGS);
     let builder = match fonts {
         #[cfg(feature = "outline")]
-        Fonts::Outline => builder.plugin(paperpaw_plugin_fonts_default::DefaultFonts),
+        Fonts::Outline => builder.built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONTS),
         #[cfg(any(feature = "packs", not(feature = "outline")))]
         // What the firmware of such a device has, in any build: the UI
         // font, which sets book text too (Literata is a font of the card).
-        Fonts::Packs => builder.plugin(paperpaw_plugin_fonts_default::LeanFontPacks),
+        Fonts::Packs => builder.built_in_fonts(&paperpaw_plugin_fonts_default::LEAN_FONT_PACKS),
     };
     // The store's plugins are native plugins only: nothing is left to `store`.
     let _ = store;

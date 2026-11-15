@@ -51,12 +51,15 @@ impl CachePaths {
 }
 
 impl CachePaths {
-    /// Makes the chapter's files anew, empty, for a conversion: not
-    /// complete from here on, and what an earlier try left goes whole (not
-    /// each file written whole, which takes a FAT card several looks
-    /// through the folder).
+    /// Begins a conversion: not complete from here on, and nothing an
+    /// earlier try left stays. No file is made: each is made by the first
+    /// bytes appended to it, and one that gets none is not there, which
+    /// reads as empty. (Made empty first, each was a whole write: eight
+    /// writes to a FAT card, 1.6 s for a book's first chapters, #250.)
     pub fn begin(&self, storage: &dyn Storage) -> Result<(), StorageError> {
-        let _ = storage.remove(&self.end);
+        // The end mark first, and for certain: left behind, it would call
+        // a conversion cut off after it complete.
+        gone(storage, &self.end)?;
         let _ = storage.remove_dir_all(&self.folder);
         for path in [
             &self.text,
@@ -67,12 +70,31 @@ impl CachePaths {
             &self.xpointers,
             &self.pictures,
         ] {
-            // Truncated, not appended to: where the folder could not be
-            // removed (the host's cache is no tree the format may remove),
-            // what an aborted try left must not stay.
-            storage.write(path, &[])?;
+            // Each by its name: where the folder could not be removed (the
+            // host's cache is no tree the format may remove), what an
+            // aborted try left must not be appended to, nor stay.
+            gone(storage, path)?;
         }
         Ok(())
+    }
+
+    /// Marks the conversion complete, last: `end` says the text's length,
+    /// and the text is as long. A chapter without text gets its text and
+    /// index made empty first: they are asked for their sizes.
+    pub fn complete(&self, storage: &dyn Storage, length: u32) -> Result<(), StorageError> {
+        if length == 0 {
+            storage.write(&self.text, &[])?;
+            storage.write(&self.index, &[])?;
+        }
+        storage.write(&self.end, &length.to_le_bytes())
+    }
+}
+
+/// Removes the file at `path`; one that is not there is as good.
+fn gone(storage: &dyn Storage, path: &str) -> Result<(), StorageError> {
+    match storage.remove(path) {
+        Ok(()) | Err(StorageError::NotFound) => Ok(()),
+        Err(e) => Err(e),
     }
 }
 
@@ -81,8 +103,9 @@ mod tests {
     use super::*;
     use paperpaw_sdk::{DirEntry, MemoryStorage};
 
-    /// A storage that cannot remove a tree, as the native roots cannot.
-    struct NoTrees(MemoryStorage);
+    /// A storage that cannot remove a tree, as the native roots cannot,
+    /// nor the file named (a card that fails).
+    struct NoTrees(MemoryStorage, &'static str);
 
     impl Storage for NoTrees {
         fn read_at(&self, p: &str, o: u64, b: &mut [u8]) -> Result<usize, StorageError> {
@@ -101,6 +124,9 @@ mod tests {
             self.0.list(d, v)
         }
         fn remove(&self, p: &str) -> Result<(), StorageError> {
+            if !self.1.is_empty() && p.ends_with(self.1) {
+                return Err(StorageError::Io);
+            }
             self.0.remove(p)
         }
         fn rename(&self, a: &str, b: &str) -> Result<(), StorageError> {
@@ -109,16 +135,43 @@ mod tests {
     }
 
     #[test]
-    fn a_retry_starts_from_empty_files_even_where_no_tree_can_be_removed() {
-        let storage = NoTrees(MemoryStorage::new());
+    fn a_retry_starts_from_nothing_even_where_no_tree_can_be_removed() {
+        let storage = NoTrees(MemoryStorage::new(), "");
         let paths = CachePaths::new("cache", "3").unwrap();
-        // What an aborted conversion left: text and an index, no end mark.
+        // What an aborted conversion left: text, an index and links, no
+        // end mark.
         storage.write(&paths.text, b"half a chapter").unwrap();
         storage.write(&paths.index, b"half an index").unwrap();
+        storage.write(&paths.links, b"a link\n").unwrap();
         paths.begin(&storage).unwrap();
-        for path in [&paths.text, &paths.index, &paths.pictures] {
-            assert_eq!(storage.size(path), Ok(0), "{path}");
+        for path in [&paths.text, &paths.index, &paths.links, &paths.pictures] {
+            assert!(!storage.exists(path), "{path}");
         }
         assert!(!storage.exists(&paths.end));
+        // What is appended then is all there is.
+        storage.append(&paths.text, b"whole").unwrap();
+        assert_eq!(storage.0.get(&paths.text).unwrap(), b"whole");
+    }
+
+    #[test]
+    fn an_end_mark_that_cannot_be_removed_stops_the_conversion() {
+        let storage = NoTrees(MemoryStorage::new(), "/end");
+        let paths = CachePaths::new("cache", "3").unwrap();
+        storage.write(&paths.text, b"a chapter").unwrap();
+        storage.write(&paths.end, &9u32.to_le_bytes()).unwrap();
+        assert_eq!(paths.begin(&storage), Err(StorageError::Io));
+        // Nothing is taken from under the mark that stayed.
+        assert_eq!(storage.0.get(&paths.text).unwrap(), b"a chapter");
+    }
+
+    #[test]
+    fn a_chapter_without_text_is_complete_with_its_text_and_index_there() {
+        let storage = MemoryStorage::new();
+        let paths = CachePaths::new("cache", "3").unwrap();
+        paths.begin(&storage).unwrap();
+        paths.complete(&storage, 0).unwrap();
+        assert_eq!(storage.size(&paths.text), Ok(0));
+        assert_eq!(storage.size(&paths.index), Ok(0));
+        assert_eq!(storage.get(&paths.end).unwrap(), 0u32.to_le_bytes());
     }
 }

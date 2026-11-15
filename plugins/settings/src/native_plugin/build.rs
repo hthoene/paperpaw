@@ -340,7 +340,7 @@ pub(super) fn build_list(
         };
         push(
             &mut placed,
-            (order, true, Some(link), (copy(&g.title)?, String::new())),
+            (order, true, Some(link), (copy(&g.title)?, copy(&g.icon)?)),
         )?;
     }
     push(

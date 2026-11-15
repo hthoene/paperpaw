@@ -51,7 +51,7 @@ impl paperpaw_sdk::Plugin for Catalogs {
 fn start(config: &str) -> Session {
     Session::start(
         hosted::Setup::x4().config(config).with_kernel(|b| {
-            b.plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+            b.built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
                 .plugin(Catalogs)
         }),
         paperpaw_plugin_battery::NATIVE_ENTRY.entry(),
@@ -268,7 +268,7 @@ fn goldens_of_other_depths_and_colors_compare_as_grays() {
 fn a_wired_start_settles_without_a_refused_callback() {
     let setup = hosted::Setup::x4()
         .with_kernel(|b| {
-            b.plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+            b.built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
                 .plugin(Catalogs)
         })
         .wired(|w| w.lookup());

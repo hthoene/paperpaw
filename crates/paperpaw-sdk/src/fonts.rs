@@ -11,6 +11,8 @@ use paperpaw_text::sfnt::FontInfo;
 use paperpaw_text::{Font, GlyphCache, LineMetrics, PackLimits};
 
 #[cfg(any(test, feature = "kernel"))]
+pub use built_in::{BuiltInFont, BuiltInFonts};
+#[cfg(any(test, feature = "kernel"))]
 pub use storage::{OpenError, open_file};
 use storage::{Stored, read_font};
 
@@ -1462,6 +1464,8 @@ impl<'a> FontHandle<'a> {
     }
 }
 
+#[cfg(any(test, feature = "kernel"))]
+mod built_in;
 mod ink;
 #[cfg(any(test, feature = "kernel"))]
 mod loading;

@@ -522,6 +522,9 @@ impl Firmware {
         crate::startup::restarting(&mut self.panel, &self.kernel);
         self.pause_trial();
         let _ = self.kernel.stop(now());
+        // The stop route's depth is kept for the next start (test image).
+        #[cfg(feature = "test-image")]
+        crate::high_water::before_sleep();
         self.network.leave();
         esp_hal::system::software_reset();
     }

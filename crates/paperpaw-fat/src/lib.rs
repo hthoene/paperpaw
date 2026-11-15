@@ -124,6 +124,22 @@ pub const FOLDERS: usize = 8;
 type FatDir<IO> = Dir<'static, IO, DefaultTimeProvider, LossyOemCpConverter>;
 type FatEntry<IO> = fatfs::DirEntry<'static, IO, DefaultTimeProvider, LossyOemCpConverter>;
 
+/// A file smaller than this takes its clusters one at a time.
+const AHEAD_FROM: u64 = 16 * 1024;
+/// The most a file takes ahead, in bytes.
+const AHEAD_BYTES: u64 = 64 * 1024;
+
+/// How many clusters beyond the one it needs a file of `len` bytes takes when it grows.
+fn ahead_clusters(len: u64, cluster: u32) -> u32 {
+    let cluster = u64::from(cluster.max(1));
+    if len < AHEAD_FROM {
+        return 0;
+    }
+    let by_size = (len / cluster / 2).max(1);
+    let by_bytes = AHEAD_BYTES / cluster;
+    u32::try_from(by_size.min(by_bytes)).unwrap_or(0)
+}
+
 /// A file kept open.
 struct Open<IO: ReadWriteSeek + 'static> {
     path: String,
@@ -133,6 +149,9 @@ struct Open<IO: ReadWriteSeek + 'static> {
     len: u64,
     /// Appended to since it was last written back.
     dirty: bool,
+    /// Whether an append has looked, once, for clusters an earlier cut left taken
+    /// ahead after its last one in use (see `append`).
+    looked: bool,
 }
 
 impl<IO: ReadWriteSeek + 'static> Open<IO> {
@@ -141,6 +160,10 @@ impl<IO: ReadWriteSeek + 'static> Open<IO> {
     fn flush(&mut self) -> Result<(), StorageError> {
         if self.dirty {
             self.dirty = false;
+            // The clusters taken ahead of an append and not used (see
+            // `FatStorage::append`) are given back first, so that the entry's
+            // size and the chain agree once written.
+            self.file.trim_ahead().map_err(error)?;
             self.file.flush().map_err(error)?;
         }
         Ok(())
@@ -174,6 +197,8 @@ pub struct FatStorage<IO: ReadWriteSeek + 'static> {
     /// The folders whose temporary files of earlier versions were looked
     /// at since the start, by a hash of their paths (`clean_old`).
     cleaned: RefCell<Vec<u64>>,
+    /// Whether a file that grows takes clusters ahead (see `append`).
+    reserve: Cell<bool>,
 }
 
 impl<IO: ReadWriteSeek + 'static> core::fmt::Debug for FatStorage<IO> {
@@ -674,7 +699,15 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             settling: Cell::new(false),
             stuck: RefCell::new(None),
             cleaned: RefCell::new(Vec::new()),
+            reserve: Cell::new(true),
         }
+    }
+
+    /// Whether a file that grows by appends takes its clusters ahead, a run
+    /// at a time (the default), or one at a time as it did. For tests that
+    /// compare the two.
+    pub fn set_append_reservation(&self, on: bool) {
+        self.reserve.set(on);
     }
 
     /// The same, with the file system's disk shared ([`SharedDisk`]): its
@@ -829,6 +862,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                     file,
                     len,
                     dirty: false,
+                    looked: false,
                 });
             }
         }
@@ -1165,6 +1199,28 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
                 return Err(StorageError::Io);
             }
             o.dirty = true;
+            // The first append since it was opened: clusters an earlier cut left taken
+            // ahead are given back when it is written back, even where the append ends
+            // inside the last cluster in use.
+            if !o.looked {
+                o.looked = true;
+                if o.len > 0 && self.reserve.get() {
+                    o.file.maybe_ahead();
+                }
+            }
+            // A file that has grown to some size takes its next clusters in a
+            // run (up to about 64 KB, half its size at most): the FAT is
+            // written once for the run, not once for each cluster. What is not
+            // used when it is written back is given back (`Open::flush`); cut
+            // off before that, the clusters stay linked after the last one in
+            // use and are read as no data (the size in the entry is the
+            // old one): the next append takes them, removing the file frees
+            // them.
+            o.file.reserve_ahead(if self.reserve.get() {
+                ahead_clusters(o.len, self.fs.cluster_size())
+            } else {
+                0
+            });
             let written = o.file.write_all(data).map_err(error);
             // As far as it came, where the card is full.
             o.len = o.file.seek(SeekFrom::Current(0)).map_err(error)?;

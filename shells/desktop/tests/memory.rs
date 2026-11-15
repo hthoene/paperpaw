@@ -459,15 +459,20 @@ fn the_store_with_the_devices_tls_stays_within_the_x4_budget() {
     let store = run("x4-store-peak", &flow);
     let whole = run("x4-store-whole", &installing_flow());
     let allowed = 256.0 * MARGIN_PERCENT / 100.0;
+    // The higher of the two runs counts: two runs differ by a little (the one
+    // that waits and resets its peak first, `store`, was 0.7 KiB above `whole`
+    // with the nested-call gate open).
+    let peak = store.max(whole);
     eprintln!(
         "x4 store: peak {store} KiB from the store's start, {whole} KiB in the run; + {STORE_DEVICE_EXTRA_KIB} KiB of the device = {} KiB of {allowed} KiB",
-        whole + STORE_DEVICE_EXTRA_KIB
+        peak + STORE_DEVICE_EXTRA_KIB
     );
     assert!(
-        whole + STORE_DEVICE_EXTRA_KIB <= allowed,
-        "store: peak {whole} KiB + {STORE_DEVICE_EXTRA_KIB} KiB of the device's TLS and Wi-Fi, over {allowed} KiB"
+        peak + STORE_DEVICE_EXTRA_KIB <= allowed,
+        "store: peak {peak} KiB + {STORE_DEVICE_EXTRA_KIB} KiB of the device's TLS and Wi-Fi, over {allowed} KiB"
     );
-    assert!(store <= whole);
+    // A reset that did not take would put `store` far above `whole`.
+    assert!(store <= whole + 1.0, "store {store} KiB, whole {whole} KiB");
 }
 
 /// What installing a plugin from the store may add on the X4 to the heap

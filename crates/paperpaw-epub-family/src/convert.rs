@@ -1682,7 +1682,7 @@ pub(crate) fn convert(
     // picture found no room to be decoded: that picture is its alternative
     // text for now, and the next opening converts the chapter again.
     if complete {
-        storage.write(&paths.end, &length.to_le_bytes())?;
+        paths.complete(storage, length)?;
     }
     Ok(length)
 }

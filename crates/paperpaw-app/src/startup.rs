@@ -3,7 +3,7 @@
 //! draws it in bands; normal plugin screens take over after startup.
 
 use paperpaw_core::sdk as paperpaw_sdk;
-use paperpaw_sdk::{Canvas, Color, Contribution, Fonts, Plugin, Rect, RegisterError, Registrar};
+use paperpaw_sdk::{Canvas, Color, Fonts, Rect, RegisterError};
 
 /// Drawing state for startup, released before the kernel is built.
 #[derive(Debug)]
@@ -12,27 +12,16 @@ pub struct Screen {
 }
 
 impl Screen {
-    /// The standard UI font, through its normal plugin registration.
+    /// The standard UI font, made of the table of built-in fonts as the
+    /// kernel makes it; no other font of the table is made.
     pub fn new() -> Result<Self, RegisterError> {
-        let plugin = paperpaw_plugin_fonts_default::DefaultFonts;
-        let mut registrar = Registrar::new(plugin.manifest().id);
-        plugin.register(&mut registrar)?;
-        let mut fonts = Fonts::new(0);
-        for contribution in registrar.into_contributions() {
-            if let Contribution::Font(font) = contribution
-                && font.id == paperpaw_plugin_fonts_default::SOURCE_SANS
-            {
-                fonts.add(*font)?;
-            }
-        }
-        if fonts
-            .get(paperpaw_plugin_fonts_default::SOURCE_SANS.as_str())
-            .is_none()
-        {
-            return Err(RegisterError::Invalid {
+        let font = paperpaw_plugin_fonts_default::DEFAULT_FONTS
+            .font(&paperpaw_plugin_fonts_default::SOURCE_SANS)
+            .ok_or_else(|| RegisterError::Invalid {
                 message: "startup UI font is missing".into(),
-            });
-        }
+            })??;
+        let mut fonts = Fonts::new(0);
+        fonts.add(font)?;
         Ok(Self { fonts })
     }
 

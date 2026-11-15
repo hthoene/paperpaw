@@ -5928,6 +5928,7 @@ pub fn paperpaw_sdk::native::registry::RegistryChoice<'a>::title(&self) -> &'a s
 pub fn paperpaw_sdk::native::registry::RegistryChoice<'a>::value(&self) -> &'a str
 pub struct paperpaw_sdk::native::registry::RegistryGroup<'a>
 impl<'a> paperpaw_sdk::native::registry::RegistryGroup<'a>
+pub fn paperpaw_sdk::native::registry::RegistryGroup<'a>::icon(&self) -> &'a str
 pub fn paperpaw_sdk::native::registry::RegistryGroup<'a>::id(&self) -> &'a str
 pub fn paperpaw_sdk::native::registry::RegistryGroup<'a>::order(&self) -> i32
 pub fn paperpaw_sdk::native::registry::RegistryGroup<'a>::page(&self) -> &'a str

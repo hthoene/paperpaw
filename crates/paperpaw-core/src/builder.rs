@@ -7,6 +7,8 @@
 )]
 use super::*;
 
+mod built_in;
+
 /// Configures and creates a [`Kernel`].
 ///
 /// What it holds lies on the heap: each call moves the builder, and a
@@ -89,6 +91,15 @@ impl KernelBuilder {
     pub fn plugin_off(mut self, plugin: impl Plugin + 'static) -> Self {
         self.0.off.push(String::from(plugin.manifest().id.as_str()));
         self.plugin(plugin)
+    }
+
+    /// Adds the fonts the program is built with: a table in the program,
+    /// listed as a plugin of data is and registered where it is named,
+    /// among the plugins (those registered later win priority ties).
+    #[must_use]
+    pub fn built_in_fonts(mut self, fonts: &'static paperpaw_sdk::BuiltInFonts) -> Self {
+        self.0.plugins.push(Box::new(built_in::BuiltIn(fonts)));
+        self
     }
 
     /// The device's firmware: what installs and checks a firmware image

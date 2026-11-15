@@ -679,6 +679,67 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         Ok(cluster)
     }
 
+    // Modified for PaperPaw: added. A run of up to `want` free clusters in a row taken at once, linked
+    // from `prev_cluster` and to one another (see `table::alloc_run`); the number of the first and how
+    // many came. Not for a directory (those clusters are zeroed one at a time).
+    pub(crate) fn alloc_clusters(&self, prev_cluster: Option<u32>, want: u32) -> Result<(u32, u32), Error<IO::Error>> {
+        trace!("alloc_clusters");
+        let hint = self.fs_info.borrow().next_free_cluster;
+        let (first, count) = {
+            let mut fat = self.fat_slice();
+            crate::table::alloc_run(
+                &mut fat,
+                self.fat_type,
+                prev_cluster,
+                hint,
+                self.total_clusters,
+                &self.clusters_taken,
+                want,
+            )?
+        };
+        let mut fs_info = self.fs_info.borrow_mut();
+        fs_info.set_next_free_cluster(first + count);
+        fs_info.map_free_clusters(|n| n.saturating_sub(count));
+        Ok((first, count))
+    }
+
+    // Modified for PaperPaw: added. The clusters after `cluster` freed, `cluster` ending its chain: as
+    // `truncate_cluster_chain`, but a tail that is one run (each cluster the one after the one before,
+    // up to `table::MAX_RUN` of them: what `alloc_clusters` takes) is freed in one write.
+    pub(crate) fn truncate_cluster_chain_run(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
+        if self.fat_type != FatType::Fat12 {
+            let mut count = 0;
+            let mut last = cluster;
+            let mut whole = true;
+            for next in self.cluster_iter(cluster) {
+                match next {
+                    Ok(n) if n == last + 1 && count < crate::table::MAX_RUN => {
+                        count += 1;
+                        last = n;
+                    }
+                    _ => {
+                        whole = false;
+                        break;
+                    }
+                }
+            }
+            if whole && count > 0 {
+                {
+                    let mut fat = self.fat_slice();
+                    crate::table::free_run(&mut fat, self.fat_type, cluster, cluster + 1, count)?;
+                }
+                self.note_freed(count);
+                self.fs_info.borrow_mut().map_free_clusters(|n| n.saturating_add(count));
+                return Ok(());
+            }
+            if whole {
+                // Nothing after it.
+                return Ok(());
+            }
+        }
+        self.truncate_cluster_chain(cluster)
+    }
+
     /// Returns status flags for this volume.
     ///
     /// # Errors
