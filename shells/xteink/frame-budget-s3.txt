@@ -243,10 +243,6 @@ allow indirect _ZN12paperpaw_fat6listed5shown 1 1 call(s) through a register rel
 allow indirect fatfs::dir_entry::file_name 1 literal call not proven on every path
 allow indirect paperpaw_fat::child 1 literal call not proven on every path
 allow indirect paperpaw_fat::settle::held_up 2 literal call not proven on every path
-allow indirect paperpaw_fat::close 3 literal call not proven on every path
-allow indirect paperpaw_fat::forget 3 literal call not proven on every path
-allow indirect paperpaw_fat::remove_tree 9 literal call not proven on every path
-allow indirect _ZN12paperpaw_fat4walk52_$LT$impl$u20$paperpaw_fat..FatStorage$LT$IO$GT$$GT$9walk_tree 2 jump table of a `match` at core/result.rs:966; literal call not proven on every path
 allow indirect paperpaw_fat::find_file 1 jump table of a `match` at core/result.rs:966
 allow indirect paperpaw_fat::is_within 2 vtable or fn-pointer call at core/str/iter.rs:663: a `char` predicate closure or searcher of a `str` method in the caller; literal call not proven on every path
 allow indirect fatfs::dir::is_valid_long_name 1 jump table of a `match` at patches/fatfs/dir.rs:1065
@@ -289,8 +285,6 @@ allow indirect paperpaw_fat::walk::finish_tree 1 literal call not proven on ever
 allow indirect paperpaw_fat::settle::clean_old 1 literal call not proven on every path
 allow indirect fatfs::dir::validate_long_name 1 jump table of a `match` at patches/fatfs/dir.rs:1065
 allow indirect fatfs::dir_entry::eq_name 3 literal call not proven on every path
-allow indirect fatfs::dir::remove_entries 2 literal call not proven on every path
-allow indirect fatfs::fs::free_cluster_chain 2 literal call not proven on every path
 allow indirect _ZN75_$LT$paperpaw_fat..disk..SharedDisk$LT$B$GT$$u20$as$u20$fatfs..io..Read$GT$4read 1 1 call(s) through a register reloaded from this function's own stack at fat/disk.rs:415: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_core::recall::Recall::same 1 literal call not proven on every path
 allow indirect paperpaw_zip::EntryReader::more 1 1 call(s) through a register reloaded from this function's own stack at zip/lib.rs:609: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
@@ -315,7 +309,6 @@ allow indirect paperpaw_hyphen::stored::raw_read 1 vtable or fn-pointer call at 
 allow indirect paperpaw_sdk::fonts::Fonts::proposed 2 2 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:157, sdk/fonts.rs:569: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_fat::write_all 1 literal call not proven on every path
 allow indirect paperpaw_fat::damaged::is_whole 2 literal call not proven on every path
-allow indirect fatfs::fs::alloc_cluster 1 literal call not proven on every path
 allow indirect paperpaw_zip::EntryReader::fill 1 vtable or fn-pointer call at zip/lib.rs:591: a trait-object or function-pointer call
 allow indirect _ZN12paperpaw_sdk11collections19VecMap$LT$K$C$V$GT$4find 1 1 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:339: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_sdk::settings::specs::Specs::find 2 2 call(s) through a register reloaded from this function's own stack at core/slice/cmp.rs:339, sdk/settings/specs.rs:46: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
@@ -422,7 +415,6 @@ allow indirect paperpaw_core::native_host::radio_requests::RadioRequests::discar
 allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$13remove_listed 3 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::found::lookup_with 2 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::settle::recorded 1 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_fat::found::quick_lookup 3 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::settle::settle_files 2 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::settle::temps_in 1 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::settle::files_of_temps 1 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
@@ -546,3 +538,14 @@ allow indirect paperpaw_core::native_host::fonts::faux_bold 1 new in train t41: 
 allow indirect paperpaw_sdk::native::services::call::Service::open 1 new in train t41: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_sdk::ui::image::try_draw_picture 3 new in train t41: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_sdk::fonts::Fonts::role_plain 1 new in train t41: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_fat::close 2 new with the FAT appends in runs (#250): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
+allow indirect paperpaw_fat::forget 4 new with the FAT appends in runs (#250): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
+allow indirect paperpaw_fat::remove_tree 8 new with the FAT appends in runs (#250): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
+allow indirect paperpaw_fat::walk::walk_tree 3 new with the FAT appends in runs (#250): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
+allow indirect paperpaw_fat::flush 1 new with the FAT appends in runs (#250): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
+allow indirect paperpaw_fat::found::quick_lookup 4 new with the FAT appends in runs (#250): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
+allow indirect fatfs::file::trim_ahead 1 new with the FAT appends in runs (#250): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
+allow indirect _ZN75_$LT$fatfs..file..File$LT$IO$C$TP$C$OCC$GT$$u20$as$u20$fatfs..io..Write$GT$5write 1 new with the FAT appends in runs (#250): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
+allow indirect fatfs::dir::remove_entries 1 new with the FAT appends in runs (#250): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
+allow indirect fatfs::table::put_entry 2 new with the FAT appends in runs (#250): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
+allow indirect fatfs::table::free 2 new with the FAT appends in runs (#250): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
