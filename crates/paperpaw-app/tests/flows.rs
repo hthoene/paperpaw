@@ -675,3 +675,89 @@ fn every_screen_opens_and_closes_with_the_buttons() {
 fn every_screen_opens_and_closes_by_touch() {
     open_every_screen(TOUCH);
 }
+
+/// A small EPUB that names its author, a series and a tag.
+fn epub_of_a_series() -> Vec<u8> {
+    const CONTAINER: &str = r#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+<rootfiles><rootfile full-path="content.opf"/></rootfiles></container>"#;
+    const OPF: &str = "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" \
+        version=\"2.0\"><metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\
+        <dc:title>The First Tale</dc:title><dc:creator>Ada Teller</dc:creator>\
+        <dc:subject>Tales</dc:subject>\
+        <meta name=\"calibre:series\" content=\"Tales of the Shelf\"/>\
+        <meta name=\"calibre:series_index\" content=\"1\"/></metadata><manifest>\
+        <item id=\"c1\" href=\"ch1.xhtml\" media-type=\"application/xhtml+xml\"/>\
+        </manifest><spine><itemref idref=\"c1\"/></spine></package>";
+    paperpaw_zip::testing::ZipBuilder::new()
+        .stored("mimetype", "application/epub+zip")
+        .stored("META-INF/container.xml", CONTAINER)
+        .stored("content.opf", OPF)
+        .stored("ch1.xhtml", "<html><body><p>Once.</p></body></html>")
+        .build()
+}
+
+/// The library's lists by author, by series and by tag show the names of the
+/// sample library's books and of a book in a series (#257): the host lists
+/// them (`core.library`'s `facets`). Before, the three lists opened empty and
+/// dead.
+#[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native library and the formats that read a book's details (`native-linked-reading`)"
+)]
+fn the_lists_by_author_series_and_tag_show_the_librarys_names() {
+    use paperpaw_platform::Storage;
+    let card = Card::new(true);
+    for (path, book) in [
+        (
+            "books/alice-in-wonderland.epub",
+            &include_bytes!("../../../samples/library/books/alice-in-wonderland.epub")[..],
+        ),
+        (
+            "books/die-verwandlung.epub",
+            &include_bytes!("../../../samples/library/books/die-verwandlung.epub")[..],
+        ),
+        ("books/first-tale.epub", &epub_of_a_series()[..]),
+    ] {
+        card.write(path, book).unwrap();
+    }
+    let mut app = App::start(BUTTONS, &card);
+    // The library is walked and its books' details are read in the background.
+    let catalog = || {
+        card.text(".paperpaw/library/catalog.txt")
+            .unwrap_or_default()
+    };
+    let read = |catalog: &str| {
+        ["Carroll", "Kafka", "Tales of the Shelf"]
+            .iter()
+            .all(|name| catalog.contains(name))
+    };
+    for _ in 0..600 {
+        if read(&catalog()) {
+            break;
+        }
+        app.now += 500;
+        let effects = app.kernel.tick(Instant(app.now));
+        app.settle(effects);
+    }
+    assert!(read(&catalog()), "{}", catalog());
+    for (action, names) in [
+        (
+            "files.by-author",
+            &["Ada Teller", "Franz Kafka", "Lewis Carroll"][..],
+        ),
+        ("files.by-series", &["Tales of the Shelf"][..]),
+        ("files.by-tag", &["Fantasy fiction", "Tales"][..]),
+    ] {
+        app.run(Id::new_static(action));
+        assert_eq!(app.screen(), "files.names", "{action}");
+        let rows = app.rows();
+        for name in names {
+            assert!(
+                rows.iter().any(|row| row.starts_with(&format!("{name}, "))),
+                "{action}: {name} in {rows:?}"
+            );
+        }
+    }
+}
