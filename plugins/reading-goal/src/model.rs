@@ -137,17 +137,13 @@ fn decimal(mut value: u64, digits: &mut [u8; 20]) -> &[u8] {
     digits.get(at..).unwrap_or(&[])
 }
 
-/// The statistics' figure of today as the reply of the stage `reading-goal.read-today` carries it
-/// (schema 1): the day as an `i32` and the seconds read on it as a `u32`, both
-/// little-endian. Anything but exactly eight bytes is nothing.
+/// A known figure from the stage's one-record batch. Unknown dates and
+/// malformed replies leave the previously kept figure alone.
 #[must_use]
 pub fn parse_stage(payload: &[u8]) -> Option<(i32, u32)> {
-    let bytes: [u8; 8] = payload.try_into().ok()?;
-    let (day, seconds) = bytes.split_at(4);
-    Some((
-        i32::from_le_bytes(day.try_into().ok()?),
-        u32::from_le_bytes(seconds.try_into().ok()?),
-    ))
+    use crate::read_today::reading_goal_read_today_reply_v1::TodayReading;
+    let reading = TodayReading::decode(payload).ok()?;
+    (reading.known == 1).then_some((reading.day, reading.seconds))
 }
 
 /// What is known of today's reading.
