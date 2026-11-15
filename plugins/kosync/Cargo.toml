@@ -27,3 +27,6 @@ paperpaw-core.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.paperpaw]
+card-files = ["i18n/*.ini"]
