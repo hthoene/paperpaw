@@ -49,7 +49,12 @@ fn kernel_with_host(family: Family) -> Kernel {
 fn a_kernel_without_the_firmware_host_takes_no_plugin_jobs() {
     for family in FAMILIES {
         let mut kernel = Kernel::builder(device()).build().unwrap();
-        assert!(!offer_plugin_jobs(&mut kernel, family.loader(), family, Wired::ALL));
+        assert!(!offer_plugin_jobs(
+            &mut kernel,
+            family.loader(),
+            family,
+            Wired::ALL
+        ));
     }
 }
 
