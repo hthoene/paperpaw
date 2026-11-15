@@ -219,13 +219,6 @@ impl Handover {
         })
     }
 
-    fn names_place(&self, sections: u32) -> bool {
-        matches!(
-            native_open::opening(|k| self.get(k), |p| p.section < sections),
-            Start::At(_)
-        )
-    }
-
     fn get(&self, key: &str) -> Option<&str> {
         match key {
             native_open::SECTION => self.section.as_deref(),
@@ -392,7 +385,7 @@ impl View {
             laid: None,
             trail: Trail::new(),
             root: root_code(root),
-            unsaved: found.names_place(sections),
+            unsaved: native_open::names_place(|k| found.get(k), sections),
             path: found.path,
             conversion,
             progress,
