@@ -279,7 +279,12 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   in order: one of an older generation, then the asker's own least recently used one when it is at
   its share, then the table's least recently used one. A cursor with no matching entry (evicted,
   hash differs, never made) is walked from the start: slower, the same rows, never an error. A
-  stopped plugin's entries are cleared.
+  stopped plugin's entries are cleared. **What this host keeps today:** no table yet. `query`
+  walks to every cursor from the start. `facets` keeps one place, the last call's (the last name
+  served and the number of names, at most 0.7 KiB, allocated fallibly): a page that goes on
+  where the call before ended, for the same query under the same generation, starts there and
+  needs no skip; any other cursor is walked from the start. The place is not used, and none is
+  kept, while a pending delete hides a book.
 - [D] `cover` (`lib_cover`: `lib_ref`, `side` 0 for the list's size, else the longest side, at most
   the screen's long side, larger is `ERR_INVALID`, never clamped; the default is interface 6
   `cover_fit`, the larger of 300 and 3/8 of the screen's long side): the catalog's cover as an
