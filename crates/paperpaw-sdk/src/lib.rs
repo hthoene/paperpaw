@@ -46,25 +46,56 @@
     )
 )]
 #![no_std]
+// Without `kernel` the old plugin API is the crate's own (#244, slice D0): most of it has
+// no user then.
+#![cfg_attr(not(any(test, feature = "kernel")), allow(dead_code, unused_imports))]
 
 extern crate alloc;
 
 mod action;
 pub mod annotations;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod ask;
+#[cfg(not(any(test, feature = "kernel")))]
+mod ask;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod bluetooth;
+#[cfg(not(any(test, feature = "kernel")))]
+mod bluetooth;
 pub mod builtin;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod chrome;
+#[cfg(not(any(test, feature = "kernel")))]
+mod chrome;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod collections;
+#[cfg(not(any(test, feature = "kernel")))]
+mod collections;
 mod command;
 mod commands;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod contribution;
+#[cfg(not(any(test, feature = "kernel")))]
+mod contribution;
 pub mod data;
 pub mod decorations;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod developer;
+#[cfg(not(any(test, feature = "kernel")))]
+mod developer;
 pub mod device_name;
 mod env;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod event;
+#[cfg(not(any(test, feature = "kernel")))]
+mod event;
 pub mod files;
 pub mod filters;
 pub mod firmware;
@@ -73,7 +104,11 @@ mod fonts;
 mod formats;
 mod gesture;
 pub mod help;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod host;
+#[cfg(not(any(test, feature = "kernel")))]
+mod host;
 #[cfg(test)]
 mod test_kit;
 #[cfg(any(test, feature = "kernel"))]
@@ -84,7 +119,11 @@ pub mod icons;
 mod id;
 pub mod install;
 pub mod keys;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod layers;
+#[cfg(not(any(test, feature = "kernel")))]
+mod layers;
 pub mod library;
 pub mod logo;
 pub mod lookup;
@@ -98,19 +137,39 @@ pub mod pattern;
 mod plugin;
 mod plugins;
 pub mod positions;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod power;
+#[cfg(not(any(test, feature = "kernel")))]
+mod power;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod presets;
+#[cfg(not(any(test, feature = "kernel")))]
+mod presets;
 pub mod random;
 pub mod readers;
 pub mod reading;
 pub mod realtime;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod render;
+#[cfg(not(any(test, feature = "kernel")))]
+mod render;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod replies;
+#[cfg(not(any(test, feature = "kernel")))]
+mod replies;
 mod screen;
 pub mod secrets;
 pub mod semantics;
 pub mod served;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod services;
+#[cfg(not(any(test, feature = "kernel")))]
+mod services;
 pub mod setting;
 mod titled;
 /// One shared sorter, stable or in place without memory: use it instead of
@@ -118,27 +177,60 @@ mod titled;
 /// copy per element type (see `paperpaw_sort`).
 pub use paperpaw_sort as sort;
 mod settings;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod setup;
+#[cfg(not(any(test, feature = "kernel")))]
+mod setup;
 mod shared_str;
 mod sockets;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod sound;
+#[cfg(not(any(test, feature = "kernel")))]
+mod sound;
 pub mod status;
 pub mod time;
 pub mod ui;
 pub mod usage;
 mod version;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod voices;
+#[cfg(not(any(test, feature = "kernel")))]
+mod voices;
 pub mod web;
 pub mod widgets;
 pub mod wifi;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod words;
+#[cfg(not(any(test, feature = "kernel")))]
+mod words;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod work;
+#[cfg(not(any(test, feature = "kernel")))]
+mod work;
 
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use action::{
     Action, ActionHandler, ActionHint, ActionOverride, ActionSpec, Actions, FixedAction,
     FixedHandler, NativeAction, Observer, ObserverSpec,
 };
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use action::{
+    Action, ActionHandler, ActionHint, ActionOverride, ActionSpec, Actions, FixedAction,
+    FixedHandler, NativeAction, Observer, ObserverSpec,
+};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use command::{
+    Broadcast, Command, HttpOptions, HttpRequest, MAX_CLIPBOARD, ServerResponse, SocketRead, Speech,
+};
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use command::{
     Broadcast, Command, HttpOptions, HttpRequest, MAX_CLIPBOARD, ServerResponse, SocketRead, Speech,
 };
 #[cfg(any(test, feature = "kernel"))]
@@ -149,8 +241,16 @@ pub use command::{HttpParts, ResponseParts};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use command::{http_params, server_params, socket_params, speech_params};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use commands::Commands;
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use commands::Commands;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use contribution::Registrar;
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use contribution::Registrar;
 /// What a plugin added, for the kernel to apply: opaque to plugins, which
 /// add through [`Registrar`]'s methods.
 #[cfg(any(test, feature = "kernel"))]
@@ -159,47 +259,112 @@ pub use contribution::item::Contribution;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use env::EnvParts;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use env::{Capabilities, Capability, Env, Metrics};
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use env::{Capabilities, Capability, Env, Metrics};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use event::{Event, EventData, EventHandler, FixedSubscription};
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use event::{Event, EventData, EventHandler, FixedSubscription};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use fonts::{BuiltInFont, BuiltInFonts};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use fonts::{FontFace, FontHandle, FontSet, FontSpec, Fonts};
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use fonts::{FontFace, FontHandle, FontSet, FontSpec, Fonts};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use fonts::{OpenError as FontOpenError, open_file as open_font_file};
-pub use formats::{
-    COVER_FIT, FormatOpener, FormatPrepared, FormatSpec, Formats, IMAGE_FIT, OpenOptions, cover_fit,
-};
+pub use formats::{COVER_FIT, IMAGE_FIT, OpenOptions, cover_fit};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub use formats::{FormatOpener, FormatPrepared, FormatSpec, Formats};
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use formats::{FormatOpener, FormatPrepared, FormatSpec, Formats};
 pub use gesture::{Direction, Gesture, GestureKind};
 #[cfg(feature = "kernel")]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use hyphenation::{CardTable, plugin_wins};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use hyphenation::{Hyphenation, HyphenationSpec, Hyphenator};
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use hyphenation::{Hyphenation, HyphenationSpec, Hyphenator};
 pub use id::{Id, IdError, InvalidId};
 pub use memory_storage::{MemoryStorage, read_file};
+pub use menus::MenuNeed;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use menus::{
-    ItemState, ItemStateFn, MenuEntry, MenuItem, MenuNeed, MenuPlace, MenuSection, MenuView, Menus,
+    ItemState, ItemStateFn, MenuEntry, MenuItem, MenuPlace, MenuSection, MenuView, Menus,
 };
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use menus::{
+    ItemState, ItemStateFn, MenuEntry, MenuItem, MenuPlace, MenuSection, MenuView, Menus,
+};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use params::Params;
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use params::Params;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use plugin::{Manifest, Plugin, Priority, RegisterError, SlotSpec, Uses};
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use plugin::{Manifest, Plugin, Priority, RegisterError, SlotSpec, Uses};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use plugins::requires;
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use plugins::requires;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use plugins::{
     MAX_REQUESTED_PLUGINS, ManifestRef, PluginInfo, PluginKind, PluginProblem, PluginState,
     Plugins, RequiredFor,
 };
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use plugins::{
+    MAX_REQUESTED_PLUGINS, ManifestRef, PluginInfo, PluginKind, PluginProblem, PluginState,
+    Plugins, RequiredFor,
+};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use replies::{
     FolderChosen, HttpError, HttpProgress, HttpReply, ServerNotice, SocketNotice, Typed,
 };
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use replies::{
+    FolderChosen, HttpError, HttpProgress, HttpReply, ServerNotice, SocketNotice, Typed,
+};
+pub use screen::Handled;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use screen::{
-    CloseCause, Cx, FixedFactory, FixedScreen, Handled, Hint, HintVisibility, Instances, Output,
-    Outside, Pane, SCREEN_REVISION, Screen, ScreenFactory, ScreenKey, ScreenList, ScreenSpec,
-    ShowsThrough, StackEntry, call_since, revision_holding,
+    CloseCause, Cx, FixedFactory, FixedScreen, Hint, HintVisibility, Instances, Output, Outside,
+    Pane, SCREEN_REVISION, Screen, ScreenFactory, ScreenKey, ScreenList, ScreenSpec, ShowsThrough,
+    StackEntry, call_since, revision_holding,
+};
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use screen::{
+    CloseCause, Cx, FixedFactory, FixedScreen, Hint, HintVisibility, Instances, Output, Outside,
+    Pane, SCREEN_REVISION, Screen, ScreenFactory, ScreenKey, ScreenList, ScreenSpec, ShowsThrough,
+    StackEntry, call_since, revision_holding,
 };
 pub use setting::{Setting, Text};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub use settings::Settings;
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use settings::Settings;
 pub use settings::{
     Choices, Editor, Level, SettingCheck, SettingError, SettingExtra, SettingGroup,
-    SettingGroupSpec, SettingKind, SettingSpec, SettingValue, Settings,
+    SettingGroupSpec, SettingKind, SettingSpec, SettingValue,
 };
 /// Settings a plugin loaded from the card describes on demand, for the
 /// kernel: of each only its default and flags are kept.
@@ -226,7 +391,14 @@ pub use paperpaw_platform::{
     PixelFormat, Point, PointerEvent, PointerPhase, PointerTool, Rect, RefreshMode,
 };
 pub use paperpaw_platform::{DirEntry, NoStorage, Storage, StorageError};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use status::{
+    StatusFn, StatusFrame, StatusItemSpec, StatusItems, StatusLineFn, StatusLineSpec,
+    StatusSignatureFn, StatusValue,
+};
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) use status::{
     StatusFn, StatusFrame, StatusItemSpec, StatusItems, StatusLineFn, StatusLineSpec,
     StatusSignatureFn, StatusValue,
 };
