@@ -25,7 +25,7 @@ battery system
 # notes-vault notes  (no file until the store build moves to interface 7, #228)
 # picture-home look  (removed with interface 6; its store file comes with the interface-7 store build, #244)
 # profiles reading  (no file until the store build moves to interface 7, #228)
-# reading-goal reading  (no file until the store build moves to interface 7, #228)
+reading-goal reading
 # readwise notes  (no file until the store build moves to interface 7, #228)
 # read-later-cloud news  (no file until the store build moves to interface 7, #228)
 # rules system  (no file until the store build moves to interface 7, #228)
