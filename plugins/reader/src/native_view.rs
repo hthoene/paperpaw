@@ -219,6 +219,13 @@ impl Handover {
         })
     }
 
+    fn names_place(&self, sections: u32) -> bool {
+        matches!(
+            native_open::opening(|k| self.get(k), |p| p.section < sections),
+            Start::At(_)
+        )
+    }
+
     fn get(&self, key: &str) -> Option<&str> {
         match key {
             native_open::SECTION => self.section.as_deref(),
@@ -373,10 +380,6 @@ impl View {
         )
         .map_err(fail)?;
         let marks = Self::load_marks(host, library, &found.path, conversion);
-        let unsaved = matches!(
-            native_open::opening(|k| found.get(k), |p| p.section < sections),
-            Start::At(_)
-        );
         let mut open = Open {
             id,
             sections,
@@ -389,12 +392,12 @@ impl View {
             laid: None,
             trail: Trail::new(),
             root: root_code(root),
+            unsaved: found.names_place(sections),
             path: found.path,
             conversion,
             progress,
             stored_ppm,
             saved_at: None,
-            unsaved,
             turned: false,
             pictures: pictures::Pass::Whole,
             report_due: false,
