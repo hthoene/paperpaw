@@ -212,7 +212,7 @@ fn today_txt_is_read_and_replaced_only_when_it_differs() {
 }
 
 #[test]
-#[ignore = "needs an installed-asset image/decode-and-draw fixture, absent from hosted.rs; Reading goal root_of(Source::Bundle) still returns None despite SDK PrepareRoot::Bundle existing"]
+#[ignore = "needs an installed-asset image/decode-and-draw fixture, absent from hosted.rs"]
 fn the_widget_shows_the_cat_of_todays_mood_and_the_minutes() {
     panic!("pending end-to-end fixture: installed mood picture and minute text");
 }
@@ -224,7 +224,7 @@ fn the_widget_is_drawn_and_a_tap_opens_the_goal() {
 }
 
 #[test]
-#[ignore = "needs a native sleep-slot plus installed-image composition fixture; hosted.rs does not drive sleep selection and image pumping, and Reading goal root_of(Source::Bundle) still excludes bundled cats"]
+#[ignore = "needs a native sleep-slot plus installed-image composition fixture; hosted.rs does not drive sleep selection and image pumping"]
 fn the_sleep_screen_shows_the_cat_large_in_the_middle() {
     panic!("pending end-to-end fixture: selected sleep screen with centred cat and minutes");
 }

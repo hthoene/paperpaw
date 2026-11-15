@@ -401,9 +401,8 @@ impl NativeReadingGoal {
             .unwrap_or(0);
         let mut step = from;
         while step < native_picture::steps(own) {
-            if let Some(candidate) = native_picture::candidate(folder, mood, step)
-                && let Some(root) = root_of(candidate.source)
-            {
+            if let Some(candidate) = native_picture::candidate(folder, mood, step) {
+                let root = root_of(candidate.source);
                 let cookie = native_picture::cookie(mood, step);
                 let request = PrepareImage::new(root, &candidate.path, cookie).side(side);
                 let mut scratch = [0u8; 640];
@@ -484,13 +483,11 @@ fn sleep_chosen(host: &Host<'_>) -> bool {
     )
 }
 
-/// Where the host reads a candidate from. The plugin's install folder (the
-/// cats) cannot be named by the SDK yet: `PrepareRoot::Bundle` (Services
-/// todo 308, Host todo 309), so the cats are left out until it exists.
-const fn root_of(source: Source) -> Option<PrepareRoot> {
+/// Where the host reads a candidate from.
+const fn root_of(source: Source) -> PrepareRoot {
     match source {
-        Source::Card => Some(PrepareRoot::Library),
-        Source::Bundle => None,
+        Source::Card => PrepareRoot::Library,
+        Source::Bundle => PrepareRoot::Bundle,
     }
 }
 
