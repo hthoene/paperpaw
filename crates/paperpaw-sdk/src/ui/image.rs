@@ -254,7 +254,12 @@ pub(super) fn grab(len: usize) -> Result<Vec<u8>, crate::image::ImageError> {
 /// drawn: the buffers are taken first), `Io` (a row that cannot be read:
 /// the bands before it are drawn, none after). Nothing is drawn on a frame
 /// that is only described or where the picture is not in the clip or has
-/// no opacity.
+/// no opacity. A dithered picture goes on where the band above left it, as
+/// [`draw_image`] does: the frame keeps its dithering error from band to band
+/// ([`Canvas::keep_diffusion`], a few bytes a column, freed with the frame),
+/// so a band reads only its own rows. Where the frame keeps none (no room,
+/// a band drawn again, a part drawn alone), the picture is dithered from its
+/// first row again: the same pixels, more rows read.
 pub fn try_draw_picture(
     canvas: &mut Canvas<'_>,
     storage: &dyn Storage,
@@ -290,16 +295,18 @@ fn made_columns(
 /// shows a part of it (the longest side of any picture is 1,600).
 const DIFFUSE_WIDTH_MAX: usize = 1_600;
 
-/// [`try_draw_picture`], where `retain` lets the frame keep the dithering
-/// error from band to band ([`Canvas::keep_diffusion`], freed with the
-/// frame); the host's draw keeps nothing between calls.
+/// [`try_draw_picture`]; `lenient` draws a picture undithered where there
+/// is no memory to dither it ([`draw_image_over`], which says nothing)
+/// rather than failing with `OutOfMemory`. Either way the frame keeps the
+/// dithering error from band to band ([`Canvas::keep_diffusion`], freed
+/// with the frame).
 fn draw_picture(
     canvas: &mut Canvas<'_>,
     storage: &dyn Storage,
     picture: &Picture<'_>,
     area: Rect,
     opacity: u8,
-    retain: bool,
+    lenient: bool,
 ) -> Result<(), crate::image::ImageError> {
     if area.intersection(&canvas.clip()).is_none() || opacity == 0 {
         return Ok(());
@@ -329,7 +336,7 @@ fn draw_picture(
         &source,
         area,
         opacity,
-        (retain, picture.scratch_max),
+        (lenient, picture.scratch_max),
         picture.tones,
     )
 }
@@ -410,22 +417,22 @@ fn between(i: usize, out: usize, source: usize) -> (usize, usize, u32) {
 }
 
 /// Where the diffusion of a call starts: where the band above left it, from
-/// the first row on, or none where memory for it is short (a frame dithers in
-/// place; a call that keeps nothing says so).
+/// the first row on, or, where memory for it is short, none for a `lenient`
+/// call (the frame dithers in place) and `OutOfMemory` for any other.
 fn start_diffusion(
     canvas: &mut Canvas<'_>,
     levels: Option<u8>,
     (key, shown, top): (u64, i32, i32),
-    (vw, retain): (usize, bool),
+    (vw, lenient): (usize, bool),
 ) -> Result<(i32, Option<(paperpaw_graphics::diffuse::Atkinson, u8)>), crate::image::ImageError> {
     let Some(levels) = levels else {
         return Ok((shown, None));
     };
-    match retain.then(|| canvas.take_diffusion(key, shown)).flatten() {
+    match canvas.take_diffusion(key, shown) {
         Some(atkinson) if atkinson.width() == vw => Ok((shown, Some((atkinson, levels)))),
         _ => match paperpaw_graphics::diffuse::Atkinson::new(vw) {
             Some(atkinson) => Ok((top, Some((atkinson, levels)))),
-            None if retain => Ok((shown, None)),
+            None if lenient => Ok((shown, None)),
             None => Err(crate::image::ImageError::OutOfMemory),
         },
     }
@@ -443,7 +450,7 @@ fn draw_source(
     source: &ImageSource<'_>,
     area: Rect,
     opacity: u8,
-    (retain, budget): (bool, usize),
+    (lenient, budget): (bool, usize),
     tones: Tones,
 ) -> Result<(), crate::image::ImageError> {
     let (left, top) = (i32::from(area.x), i32::from(area.y));
@@ -488,7 +495,7 @@ fn draw_source(
     if wanted > budget {
         return Err(crate::image::ImageError::OutOfMemory);
     }
-    let (first, mut diffusion) = start_diffusion(canvas, levels, (key, shown, top), (vw, retain))?;
+    let (first, mut diffusion) = start_diffusion(canvas, levels, (key, shown, top), (vw, lenient))?;
     let mut diffused = grab(if diffusion.is_some() { vw } else { 0 })?;
     let mut rows = RowChunk::new(sw * source.bytes())?;
     // The source row a screen row comes from, as gray and opacity; made
@@ -545,7 +552,6 @@ fn draw_source(
         }
     }
     if let Some((atkinson, _)) = diffusion
-        && retain
         && last < top + h as i32
     {
         canvas.keep_diffusion(key, last, atkinson);

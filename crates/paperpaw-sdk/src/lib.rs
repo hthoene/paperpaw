@@ -170,6 +170,9 @@ pub use contribution::item::Contribution;
 pub use env::EnvParts;
 pub use env::{Capabilities, Capability, Env, Metrics};
 pub use event::{Event, EventData, EventHandler, FixedSubscription};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub use fonts::{BuiltInFont, BuiltInFonts};
 pub use fonts::{FontFace, FontHandle, FontSet, FontSpec, Fonts};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]

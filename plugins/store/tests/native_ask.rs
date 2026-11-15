@@ -1,6 +1,5 @@
 //! What the store asks and how it reads the answers (slice 7, host-free): the
-//! dialog of plugins another plugin asks for, the first-run offer and the styles
-//! offer, with the interface-6 words and decisions.
+//! dialog of plugins another plugin asks for, the first-run offer, with the interface-6 words and decisions.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -8,7 +7,7 @@
 )]
 use paperpaw_i18n::{Arg as Word, Catalog, Translator};
 use paperpaw_plugin_store::native_ask::{
-    self as ask, Badge, Decision, Faces, Have, Plan, Reply, Say, Way,
+    self as ask, Badge, Decision, Have, Plan, Reply, Say, Way,
 };
 use paperpaw_plugin_store::native_index::{Index, take};
 use paperpaw_plugin_store::native_item::Device;
@@ -719,83 +718,11 @@ fn every_offered_plugin_has_its_words_and_the_hint_is_chosen_by_state() {
     assert_eq!(ask::hint_key(false, false), "store.offer.hint");
 }
 
-// --- the styles offer ------------------------------------------------------
-
-fn faces(regular: bool, built_in: bool, from_pack: bool, installed: bool) -> Faces {
-    Faces {
-        regular,
-        bold_built_in: built_in,
-        bold_from_pack: from_pack,
-        pack_installed: installed,
-    }
-}
-
 #[test]
-fn a_firmware_lacks_the_styles_only_with_literata_and_without_them_anywhere() {
-    assert!(faces(true, false, false, false).lacks_styles());
-    assert!(!faces(false, false, false, false).lacks_styles());
-    assert!(!faces(true, true, false, false).lacks_styles());
-    assert!(!faces(true, false, true, false).lacks_styles());
-    assert!(!faces(true, false, false, true).lacks_styles());
-}
-
-#[test]
-fn the_pack_is_queued_quietly_once_the_setup_is_over_and_tried_three_times_at_most() {
-    let storage = MemoryStorage::new();
-    let lacks = faces(true, false, false, false);
-    let off = |setup, online, device| ask::styles_offer(&storage, lacks, (setup, online, device));
-    assert!(!off(false, true, true).unwrap(), "after the setup");
-    assert!(!off(true, false, true).unwrap(), "a network");
-    assert!(
-        !off(true, true, false).unwrap(),
-        "a device the library knows"
-    );
-    assert!(
-        !ask::styles_offer(
-            &storage,
-            faces(true, true, false, false),
-            (true, true, true)
-        )
-        .unwrap()
-    );
-    assert!(storage.get("queue.txt").is_none());
-    assert!(off(true, true, true).unwrap());
-    assert_eq!(storage.get("queue.txt").unwrap(), b"~literata-styles\n");
-    // Queued already: not twice.
-    assert!(!off(true, true, true).unwrap());
-    // Only an answer of the library is a try, and only for the pack.
-    ask::styles_answered(&storage, "other", 200).unwrap();
-    ask::styles_answered(&storage, ask::PACK, 0).unwrap();
-    assert_eq!(ask::tries(&storage).unwrap(), 0);
-    for tried in 1..=3 {
-        ask::styles_answered(&storage, ask::PACK, 503).unwrap();
-        assert_eq!(ask::tries(&storage).unwrap(), tried);
-    }
-    storage.remove("queue.txt").unwrap();
-    assert!(
-        !off(true, true, true).unwrap(),
-        "after three tries it is the reader's"
-    );
-    // A damaged count is none.
-    storage.write("styles-tries.txt", b"lots").unwrap();
-    assert_eq!(ask::tries(&storage).unwrap(), 0);
-}
-
-#[test]
-fn the_hint_to_connect_is_said_once() {
-    let storage = MemoryStorage::new();
-    assert!(ask::hint_due(&storage));
-    assert!(!ask::hint_due(&storage));
-    assert!(!ask::hint_due(&storage));
-}
-
-#[test]
-fn the_end_notices_say_what_was_added_what_was_not_and_the_styles_hint_once() {
-    let storage = MemoryStorage::new();
+fn the_end_notices_say_what_was_added_and_what_was_not() {
     let mut en = words("en");
-    let said = |storage: &MemoryStorage, say: &mut Words, done: &str, not: &str| {
+    let said = |say: &mut Words, done: &str, not: &str| {
         ask::quiet_notices(
-            storage,
             say,
             &Report {
                 done: done.into(),
@@ -806,7 +733,6 @@ fn the_end_notices_say_what_was_added_what_was_not_and_the_styles_hint_once() {
     };
     assert_eq!(
         said(
-            &storage,
             &mut en,
             "Reading statistics, Wireless library",
             "Progress sync"
@@ -816,22 +742,14 @@ fn the_end_notices_say_what_was_added_what_was_not_and_the_styles_hint_once() {
             "Could not be added: Progress sync. They are in the Plugin store."
         ]
     );
-    // The faces have a hint of their own, the first time only, and are not
-    // told as failed.
-    let first = said(&storage, &mut en, "", "Bold and italic, Progress sync");
+    // The faces of Literata have no hint of their own any more: the lean
+    // firmware has none to offer (Decision 186).
     assert_eq!(
-        first,
-        [
-            "Bold and italic: connect to Wi-Fi once, then restart.",
-            "Could not be added: Progress sync. They are in the Plugin store."
-        ]
+        said(&mut en, "", "Bold and italic, Progress sync"),
+        ["Could not be added: Bold and italic, Progress sync. They are in the Plugin store."]
     );
     assert_eq!(
-        said(&storage, &mut en, "", "Bold and italic"),
-        Vec::<String>::new()
-    );
-    assert_eq!(
-        said(&storage, &mut words("de"), "Lesestatistik", ""),
+        said(&mut words("de"), "Lesestatistik", ""),
         ["Hinzugefügt: Lesestatistik. Sie starten beim nächsten Start von PaperPaw."]
     );
 }
@@ -845,12 +763,7 @@ fn the_quiet_notes_become_a_report_the_notices_read() {
         true,
     )
     .unwrap();
-    note(
-        &storage,
-        &ask::name_of(&mut words("en"), ask::PACK).unwrap(),
-        false,
-    )
-    .unwrap();
+    note(&storage, "Bold and italic", false).unwrap();
     note(
         &storage,
         &ask::name_of(&mut words("en"), "unknown-one").unwrap(),
@@ -860,8 +773,8 @@ fn the_quiet_notes_become_a_report_the_notices_read() {
     let report = report(&storage, &Queue::default()).unwrap().unwrap();
     assert_eq!(report.done, "Reading statistics");
     assert_eq!(report.not, "Bold and italic, unknown-one");
-    let notices = ask::quiet_notices(&storage, &mut words("en"), &report).unwrap();
-    assert_eq!(notices.len(), 3);
+    let notices = ask::quiet_notices(&mut words("en"), &report).unwrap();
+    assert_eq!(notices.len(), 2);
 }
 
 #[test]

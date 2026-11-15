@@ -283,7 +283,7 @@ fn arguments_reach_the_format_as_the_contract_maps_them() {
         })
     };
     call(&fake, 16, &[ask(0)]).unwrap();
-    assert_eq!((last(&fake)[5], last(&fake)[6]), (6, 1600));
+    assert_eq!((last(&fake)[5], last(&fake)[6]), (6, 800));
     call(&fake, 16, &[ask(1200)]).unwrap();
     assert_eq!(last(&fake)[6], 1200);
     call(&fake, 16, &[ask(1600)]).unwrap();

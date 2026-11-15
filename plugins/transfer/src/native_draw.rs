@@ -20,6 +20,136 @@ use paperpaw_ui_kit::{
     text,
 };
 
+/// The no-network screen: the status icon and explanation above a bottom button.
+///
+/// # Errors
+/// Host, font and allocation failures.
+pub fn draw_no_network(
+    host: &Host<'_>,
+    frame: &mut DrawFrame<'_>,
+    managed: bool,
+) -> Result<Option<Rect>, Error> {
+    let display = snapshot::capture_snapshot(host)?;
+    let font = Font::acquire_role(host, FontRole::Ui)?;
+    let style = Style::read(host, &display, &font)?;
+    let width = u16::try_from(frame.rect.width).unwrap_or(u16::MAX);
+    let height = u16::try_from(frame.rect.height).unwrap_or(u16::MAX);
+    let button_height =
+        paperpaw_ui_kit::Chips::height(&style, paperpaw_ui_kit::Chips::finger(&display));
+    let button = managed.then(|| {
+        Rect::new(
+            style.margin,
+            height.saturating_sub(style.margin + button_height),
+            width.saturating_sub(2 * style.margin),
+            button_height,
+        )
+    });
+    let mut messages = Messages::new()?;
+    let title = messages.copy(host, "transfer.no-network.title")?;
+    let note = messages.copy(
+        host,
+        if managed {
+            "transfer.no-network"
+        } else {
+            "transfer.no-network.system"
+        },
+    )?;
+    let inner = width.saturating_sub(2 * style.margin);
+    let room = f32::from(width.saturating_sub(4 * style.margin)).max(1.0);
+    let lines = text::wrap_with(|line| font.measure_text(style.small, line), &note, room, 6)?;
+    let head = line_px(&font, style.title)?;
+    let line = line_px(&font, style.small)?;
+    let group = style.row + 2 * style.gap + head + line * lines.len() as u16;
+    let bottom = button.map_or(height, |button| button.y);
+    let top = style.header + bottom.saturating_sub(style.header + group) / 2;
+    let mut ops = Vec::new();
+    let icon_font = paperpaw_ui_kit::icons::font(host)?;
+    if let (Some(icons), Some(glyph)) = (
+        icon_font.as_ref(),
+        paperpaw_ui_kit::icons::glyph(host, "wifi-off")?,
+    ) {
+        paperpaw_ui_kit::icons::draw_centred(
+            &mut ops,
+            icons,
+            &glyph,
+            style.title * 2.0,
+            Rect::new(0, top, width, style.row),
+            style.ink,
+        )?;
+    }
+    let mut run = Run {
+        font: &font,
+        style: &style,
+        inner: f32::from(inner),
+        width,
+        y: top + style.row + style.gap,
+    };
+    run.put(&mut ops, &[title], style.title, head, style.ink)?;
+    run.y += style.gap;
+    run.put(&mut ops, &lines, style.small, line, style.muted)?;
+    if let Some(rect) = button {
+        draw_router_button(host, &font, &style, rect, !display.has_touch(), &mut ops)?;
+    }
+    let drawn = paint::replay_icons(frame, &font, icon_font.as_ref(), &ops);
+    if let Some(icons) = icon_font {
+        icons.release()?;
+    }
+    font.release()?;
+    drawn?;
+    Ok(button)
+}
+
+fn draw_router_button(
+    host: &Host<'_>,
+    font: &Font<'_>,
+    style: &Style,
+    rect: Rect,
+    focused: bool,
+    ops: &mut Vec<Paint>,
+) -> Result<(), Error> {
+    let label = Messages::new()?.copy(host, "transfer.without-router")?;
+    paint::push(
+        ops,
+        Paint::Focus(
+            rect,
+            u32::from(rect.height / 2),
+            Some(u32::from(style.line)),
+            style.ink,
+        ),
+    )?;
+    if focused {
+        paint::push(
+            ops,
+            Paint::Focus(
+                rect.inset(4, 4),
+                u32::from(rect.height / 2),
+                Some(u32::from(style.line)),
+                style.ink,
+            ),
+        )?;
+    }
+    paint::describe_named(
+        ops,
+        style.describing,
+        paperpaw_sdk::native::canvas::PartRole::Button,
+        rect,
+        &label,
+        focused,
+        false,
+    )?;
+    let wide = font.measure_text(style.small, &label)?;
+    text::label(
+        ops,
+        font,
+        &label,
+        style.small,
+        f32::from(rect.x) + (f32::from(rect.width) - wide) / 2.0,
+        rect,
+        style.ink,
+        None,
+    )
+}
+
 /// The quiet zone round a code, in modules (what scanners expect).
 const QUIET: u16 = 4;
 /// Lines of the address, the hint and the last thing said, at most.

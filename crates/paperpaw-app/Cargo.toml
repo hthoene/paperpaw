@@ -18,6 +18,9 @@ default = ["store-plugins", "diagnostics", "panes"]
 # `panes`): every shell with the app's defaults has it; the Xteink
 # firmware, never wide, leaves it out.
 panes = ["paperpaw-core/panes"]
+# Closes the X4's nested-call gate in the kernel again (the X3's firmware builds so):
+# the tests that expect the refusals run with it (CI).
+x4-gate-closed = ["paperpaw-core/x4-gate-closed"]
 # Home and reader as linked native plugins too (their `NATIVE_PLUGINS` entries
 # and their settings tables, `fixed_tables`, are under this feature, so that
 # no table sits in the image of a build that does not link them); news and
@@ -96,6 +99,7 @@ native-linked = [
     "paperpaw-plugin-settings/linked",
     "paperpaw-plugin-setup/linked",
     "paperpaw-plugin-sleep/linked",
+    "paperpaw-plugin-store/linked",
     "paperpaw-plugin-transfer/linked",
     "paperpaw-plugin-update/linked",
     "paperpaw-plugin-wifi/linked",
@@ -183,6 +187,8 @@ paperpaw-plugin-settings.workspace = true
 paperpaw-core = { workspace = true, features = ["testing"] }
 paperpaw-platform.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
+# Font packs made in the tests (a card font for widgets, #262).
+paperpaw-text.workspace = true
 # Comic books for the sleep tests (#248).
 paperpaw-zip = { workspace = true, features = ["testing"] }
 # The home layouts' property tests (moved from the Home plugin, #244).

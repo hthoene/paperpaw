@@ -553,7 +553,10 @@ fn a_refused_allocation_is_no_memory_and_calls_and_writes_nothing() {
 }
 
 #[test]
-#[cfg_attr(feature = "x4-nested", ignore = "x4-nested opens the X4 gate (#250)")]
+#[cfg_attr(
+    not(feature = "x4-gate-closed"),
+    ignore = "the X4 gate is open by default (#250); run with x4-gate-closed"
+)]
 fn a_small_device_blocks_stage_runs_until_its_stack_gate_passes() {
     // Every class but `Large` is the small one (`ui_store::is_x4`).
     let fixture = Fixture::new();
