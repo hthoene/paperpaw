@@ -688,6 +688,22 @@ impl PackBuilder {
                         .collect()
                 })
                 .flatten();
+            // A pack that does not read back as it was made is not written.
+            for ((ch, glyph), bytes) in glyphs.iter().zip(packed.iter().flatten()) {
+                let rows = crate::packed::Rows::new(bytes, glyph.width, glyph.height);
+                let stride = usize::from(glyph.width).div_ceil(2);
+                for y in 0..usize::from(glyph.height) {
+                    for x in 0..usize::from(glyph.width) {
+                        let byte = glyph.data.get(y * stride + x / 2).copied().unwrap_or(0);
+                        let level = if x % 2 == 0 { byte >> 4 } else { byte & 15 };
+                        assert_eq!(
+                            rows.level(x as u32, y as u32),
+                            level,
+                            "packed glyph {ch:?} at {size}: pixel {x},{y}"
+                        );
+                    }
+                }
+            }
             for (i, (ch, glyph)) in glyphs.iter().enumerate() {
                 let data_offset = (out.len() - bitmaps) as u32;
                 match &packed {

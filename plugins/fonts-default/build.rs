@@ -98,7 +98,12 @@ fn main() {
             .filter(|ch| font.has_char(*ch));
         let chars = charset(paperpaw_text::charset::named("latin").unwrap_or(&[])).chain(ligatures);
         let pack = if name == UI {
-            with_display(&font, &sizes, chars, hinting)
+            let pack = with_display(&font, &sizes, chars.clone(), hinting, true);
+            // Packed: well under what the plain one takes (and, each glyph read
+            // back as it was made, a pack that is not is not written).
+            let plain = with_display(&font, &sizes, chars, hinting, false);
+            assert!(pack.len() * 10 < plain.len() * 7, "{name}: not packed");
+            pack
         } else {
             paperpaw_text::build_pack_hinted(&font, &sizes, chars, hinting)
         };
@@ -110,7 +115,9 @@ fn main() {
     let data = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
     let font = paperpaw_text::OutlineFont::new(data, &[]).unwrap_or_else(|e| panic!("{path}: {e}"));
     let chars = ('\u{e000}'..=char::MAX).filter(|ch| font.has_char(*ch));
-    let pack = paperpaw_text::build_pack_compact(&font, &sizes, chars);
+    let pack = paperpaw_text::build_pack_compact(&font, &sizes, chars.clone());
+    let plain = paperpaw_text::build_pack(&font, &sizes, chars);
+    assert!(pack.len() * 10 < plain.len() * 7, "icons: not packed");
     write(&out.join("icons.ppfp"), &pack);
 }
 
@@ -122,11 +129,14 @@ fn with_display(
     sizes: &[f32],
     chars: impl Iterator<Item = char> + Clone,
     hinting: paperpaw_text::Hinting,
+    compact: bool,
 ) -> Vec<u8> {
     let mut builder = paperpaw_text::PackBuilder::new();
     // The surface font is stored packed (Decision 197): the same pixels in about
     // half the bytes.
-    builder.compact();
+    if compact {
+        builder.compact();
+    }
     builder.kerning(&font.kerning_pairs(&chars.clone().collect::<Vec<char>>()));
     let strikes = sizes
         .iter()
