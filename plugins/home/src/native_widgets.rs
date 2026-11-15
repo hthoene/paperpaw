@@ -92,6 +92,14 @@ impl Mine {
         }))
     }
 
+    pub fn covers_ready(&self) -> bool {
+        let waiting = self.waiting.replace(false);
+        if waiting {
+            self.known.forget_covers();
+        }
+        waiting
+    }
+
     /// Where the screen placed it, for a tap on one of its items.
     pub fn place(&self, rect: Rect) {
         self.placed.set(Some(rect));
@@ -347,6 +355,16 @@ impl Widgets {
         }
     }
 
+    pub fn covers_ready(&mut self, host: &Host<'_>) {
+        let mut scratch = [0; 64];
+        let mut commands = CommandSender::new(host, &mut scratch);
+        for item in &mut self.items {
+            if item.mine.covers_ready() && commands.widget_changed(item.instance).is_err() {
+                item.mine.waiting.set(true);
+            }
+        }
+    }
+
     /// The minute came: tells the makers whose widget shows something new since
     /// the last minute. A widget that fails (its time or its command) is left for
     /// the next tick and costs the others nothing.
@@ -468,3 +486,7 @@ mod tests {
         sweep(|| Mine::new("home.clock@home.page-2/1").map(drop));
     }
 }
+
+#[cfg(test)]
+#[path = "native_cover_tests.rs"]
+mod cover_event_tests;

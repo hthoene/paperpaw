@@ -35,8 +35,8 @@ mod image {
 }
 
 use crate::declarations::{
-    ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, REGISTRY_CHANGED, SETTING_CHANGED,
-    STACK_CHANGED, STATUS_ITEMS, STATUS_PARTS, TICK, WIDGET_CHANGED,
+    ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, LIBRARY_CHANGED, REGISTRY_CHANGED,
+    SETTING_CHANGED, STACK_CHANGED, STATUS_ITEMS, STATUS_PARTS, TICK, WIDGET_CHANGED,
 };
 use crate::native_add_screen::{self as add_screen, AddScreen};
 use crate::native_dashboard::{Dashboard, redraw};
@@ -122,7 +122,7 @@ impl Plugin for NativeHome {
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::StackChanged, kinds::RegistryChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::StackChanged, kinds::RegistryChanged, kinds::LibraryChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
         else {
             return Ok(());
         };
@@ -196,6 +196,9 @@ impl Plugin for NativeHome {
                 self.invalidate_covered();
                 self.refresh(host)
             }
+            Event::LibraryChanged { what, .. } if token == LIBRARY_CHANGED && what.cover() => {
+                self.covers_ready(host)
+            }
             Event::StackChanged { .. } if token == STACK_CHANGED => self.covered(host),
             // What the page reads was changed (a plugin came or went, a menu
             // or widget changed): a page kept under another screen is laid out
@@ -267,6 +270,11 @@ impl Plugin for NativeHome {
 const STACK_REQUEST: usize = 256;
 
 impl NativeHome {
+    #[cfg(test)]
+    pub(crate) fn test_widgets(&mut self) -> &mut Widgets {
+        &mut self.widgets
+    }
+
     /// Opens `core.ui` in the first live callback; the handle serves later ones.
     fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
@@ -277,6 +285,20 @@ impl NativeHome {
 
     fn ui(&self) -> Result<&Ui, Error> {
         self.ui.as_ref().ok_or(Error::State)
+    }
+
+    fn covers_ready(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.widgets.covers_ready(host);
+        let mut changed = false;
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                changed |= dashboard.covers_ready();
+            }
+        }
+        if changed && self.stack_top(host)? == self.screens.top_instance(DASHBOARD) {
+            redraw(host)?;
+        }
+        Ok(())
     }
 
     /// The dashboard shows something new (the minute passed, a widget
