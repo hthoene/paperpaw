@@ -24,6 +24,10 @@ struct Fake {
     /// returned `Ok`: an error returned drops what the callback staged.
     staged: RefCell<Vec<&'static str>>,
     applied: RefCell<Vec<&'static str>>,
+    /// The card refuses the wrong tries; the counts it kept, the notices said.
+    keep_refused: Option<Error>,
+    kept: RefCell<Vec<u8>>,
+    notices: RefCell<Vec<&'static str>>,
 }
 
 impl Fake {
@@ -46,6 +50,9 @@ impl Fake {
             repaired: RefCell::new(Vec::new()),
             staged: RefCell::new(Vec::new()),
             applied: RefCell::new(Vec::new()),
+            keep_refused: None,
+            kept: RefCell::new(Vec::new()),
+            notices: RefCell::new(Vec::new()),
         }
     }
 
@@ -92,6 +99,19 @@ impl Device for Fake {
 
     fn on_wake(&self) -> Result<bool, Error> {
         self.wake
+    }
+
+    fn keep_tries(&self, tries: u8) -> Result<(), Error> {
+        if let Some(error) = self.keep_refused {
+            return Err(error);
+        }
+        self.kept.borrow_mut().push(tries);
+        Ok(())
+    }
+
+    fn notice(&self, key: &'static str) -> Result<(), Error> {
+        self.notices.borrow_mut().push(key);
+        Ok(())
     }
 
     fn open_unlock(&self) -> Result<(), Error> {
@@ -315,4 +335,19 @@ fn the_kind_setting_never_decides_which_lock_is_in_use() {
         ..ctx
     };
     assert!(flow.released(&mut lock, &gone, &mut fx));
+}
+
+#[test]
+fn wrong_tries_the_card_refuses_are_said_and_the_try_is_not_refused() {
+    let mut device = Fake::with_code("pin");
+    assert!(gate::keep_tries(&device, 3));
+    assert_eq!(*device.kept.borrow(), [3]);
+    assert!(device.notices.borrow().is_empty());
+    device.keep_refused = Some(Error::NoSpace);
+    // Said once for the count that was lost; the caller goes on (no error).
+    assert!(!gate::keep_tries(&device, 4));
+    assert_eq!(*device.notices.borrow(), [gate::TRIES_NOT_KEPT]);
+    // Forgetting the count (the right code) failing is no news to the owner.
+    assert!(!gate::keep_tries(&device, 0));
+    assert_eq!(device.notices.borrow().len(), 1);
 }
