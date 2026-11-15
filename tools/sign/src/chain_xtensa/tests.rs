@@ -1035,6 +1035,22 @@ fn a_word_that_equals_an_address_is_no_entry_where_no_jx_goes_there() {
 }
 
 #[test]
+fn an_image_with_a_part_split_off_a_function_is_refused() {
+    // The rule above holds only while a jump table is its function's own.
+    let whole = f(&[&entry(32), &RETW_N]);
+    for (name, refused) in [
+        ("helper", false),
+        ("helper.cold", true),
+        ("helper.part.0", true),
+    ] {
+        let (bytes, _) = firmware(&[("root", whole.clone()), (name, whole.clone())]);
+        let elf = Elf::parse(&bytes).unwrap();
+        let outcome = check(&elf, &Budget::parse("root root\n").unwrap());
+        assert_eq!(outcome.is_err(), refused, "{name}");
+    }
+}
+
+#[test]
 fn a_jx_needs_an_address_to_jump_to_and_its_table_words_are_entries() {
     let at = BASE + 0x40;
     // entry; jx a3; l32r a8; callx8 a8; retw.n. Only a table gets to the

@@ -718,9 +718,9 @@ fn resolve(
         return give_up(reads);
     }
     // Only the function's own `jx` goes there (a jump table is its function's
-    // own; the image has no split-off function parts). With none, such a word
-    // is a number or text (`0SUB` in the pin names is 0x42555330) that follows
-    // the layout: no entry.
+    // own: `no_split_parts` refuses an image where it may not be). With none,
+    // such a word is a number or text (`0SUB` in the pin names is 0x42555330)
+    // that follows the layout: no entry.
     if !jumps {
         entries.clear();
     }
@@ -1338,6 +1338,18 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
     }
 }
 
+/// `resolve` takes a jump table to be its function's own: a part split off a
+/// function (`.cold`, `.part.N`) could be entered from the other's table.
+fn no_split_parts(funcs: &[Function]) -> Result<(), String> {
+    let split = |f: &&Function| f.symbol.contains(".cold") || f.symbol.contains(".part.");
+    funcs.iter().find(split).map_or(Ok(()), |f| {
+        Err(format!(
+            "`{}` is a part split off a function: this scan cannot place the jumps into it",
+            f.symbol
+        ))
+    })
+}
+
 /// Reads `elf` and checks the set the budget's roots and tables reach.
 pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     if elf.machine != EM_XTENSA {
@@ -1345,6 +1357,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     }
     let image = image(elf)?;
     let funcs = &image.funcs;
+    no_split_parts(funcs)?;
     let mut report = Report::default();
     // Which `allow` lines were used.
     let mut used = vec![false; budget.allow.len()];
