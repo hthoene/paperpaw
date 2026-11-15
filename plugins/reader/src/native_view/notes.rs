@@ -24,10 +24,12 @@ impl Open {
         // highlights until the next reading, not stale ones.
         drop(self.marks.take());
         match native_marks::load(host, library, &self.path, self.conversion) {
-            Ok(spans) => self.marks.replace(spans),
+            Ok(loaded) => self.marks.replace(loaded),
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => {}
         }
+        // Those of another conversion the page on show has the text of, again.
+        self.marks.accept_foreign(&self.words);
         Ok(self.marks.fingerprint() != before)
     }
 }
@@ -82,7 +84,7 @@ impl View {
             library,
             &open.path,
             (target, open.conversion, native_place::wall_seconds(host)),
-            note,
+            (note, open.marks.highlights()),
         );
         match done {
             Ok(()) => {}
