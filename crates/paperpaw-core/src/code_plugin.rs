@@ -17,6 +17,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use paperpaw_native::header5;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::native::{Native, SafeMode, SafeModeReason};
 use paperpaw_sdk::{
@@ -26,15 +27,72 @@ use paperpaw_sdk::{
 use crate::data_plugin::DataPlugin;
 use crate::{Kernel, WarningSource};
 
+/// The SHA-256 in the header of the code file at `path`, if this firmware
+/// loads the file: a format-5 file (interface 7) its loader reads (`loader`,
+/// the chip, interface and minor it takes; `None` where it reads none), or a
+/// file of the format before that fits `native`.
+fn code_that_fits(
+    storage: &dyn Storage,
+    path: &str,
+    native: &Native,
+    loader: Option<&header5::Host>,
+) -> Option<[u8; 32]> {
+    if let Some(header) = paperpaw_sdk::native::read_header(storage, path) {
+        return native.fits(&header).then_some(header.sha256);
+    }
+    let mut head = [0u8; header5::HEADER_LEN];
+    let mut at = 0;
+    while at < head.len() {
+        match storage.read_at(path, at as u64, &mut head[at..]) {
+            Ok(0) | Err(_) => return None,
+            Ok(n) => at += n,
+        }
+    }
+    let len = storage.size(path).ok()?;
+    let header = header5::Header5::read(&head, len, loader?).ok()?;
+    Some(header.sha256)
+}
+
+/// The plugins fetched for a firmware update that wait for this one: their
+/// folders ([`native::fetched_folder`](paperpaw_sdk::native::fetched_folder))
+/// hold code this firmware loads ([`code_that_fits`]) and fetched by the
+/// update plugin ([`native::remember_fetched`](paperpaw_sdk::native::remember_fetched)),
+/// not put there otherwise. Their ids and the SHA-256 of their headers, sorted.
+pub(crate) fn fetched_for(
+    storage: &dyn Storage,
+    native: &Native,
+    loader: Option<&header5::Host>,
+) -> Vec<(String, [u8; 32])> {
+    let mut ids: Vec<String> = Vec::new();
+    let _ = storage.list(paperpaw_sdk::builtin::PLUGIN_DIR, &mut |entry| {
+        if entry.is_dir
+            && let Some(id) = paperpaw_sdk::native::fetched_plugin(entry.name)
+        {
+            ids.push(String::from(id));
+        }
+    });
+    paperpaw_sort::sort(&mut ids);
+    ids.into_iter()
+        .filter_map(|id| {
+            let path = native.path(&paperpaw_sdk::native::fetched_folder(&id));
+            let sha256 = code_that_fits(storage, &path, native, loader)?;
+            (paperpaw_sdk::native::fetched_code(storage, &id) == Some(sha256))
+                .then_some((id, sha256))
+        })
+        .collect()
+}
+
 /// The code plugins fetched for a firmware update that fit this one
-/// ([`native::fetched_folder`](paperpaw_sdk::native::fetched_folder)):
-/// their folders, to install before the plugins are found, their code
-/// named as installed. Those built for another firmware wait (the update
-/// may come yet, or went back); a folder whose code the update plugin did
-/// not fetch ([`native::remember_fetched`](paperpaw_sdk::native::remember_fetched))
-/// is not taken.
-pub(crate) fn fetched(storage: &dyn Storage, native: &Native) -> Vec<(Id, String)> {
-    paperpaw_sdk::native::fetched_for(storage, native)
+/// ([`fetched_for`]): their folders, to install before the plugins are
+/// found, their code named as installed. Those built for another firmware
+/// wait (the update may come yet, or went back); a folder whose code the
+/// update plugin did not fetch is not taken.
+pub(crate) fn fetched(
+    storage: &dyn Storage,
+    native: &Native,
+    loader: Option<&header5::Host>,
+) -> Vec<(Id, String)> {
+    fetched_for(storage, native, loader)
         .into_iter()
         .filter_map(|(id, sha256)| {
             let id = Id::parse(&id).ok()?;
@@ -50,13 +108,18 @@ pub(crate) fn fetched(storage: &dyn Storage, native: &Native) -> Vec<(Id, String
         .collect()
 }
 
-/// Whether a start with code plugins would load any that fit `native`:
-/// one installed (a folder of [`PLUGIN_DIR`](paperpaw_sdk::builtin::PLUGIN_DIR)
-/// with its code) or fetched for a firmware update. A start without them
-/// (an update on trial) asks it once the update is kept: if so, the shell
-/// starts again for them.
-pub fn code_to_load(storage: &dyn Storage, native: &Native) -> bool {
-    if !paperpaw_sdk::native::fetched_for(storage, native).is_empty() {
+/// Whether a start with code plugins would load any this firmware loads
+/// ([`code_that_fits`]: `loader` is what its loader reads of interface-7
+/// files, `None` where it reads none): one installed (a folder of
+/// [`PLUGIN_DIR`](paperpaw_sdk::builtin::PLUGIN_DIR) with its code) or
+/// fetched for a firmware update. A start without them (an update on trial)
+/// asks it once the update is kept: if so, the shell starts again for them.
+pub fn code_to_load(
+    storage: &dyn Storage,
+    native: &Native,
+    loader: Option<&header5::Host>,
+) -> bool {
+    if !fetched_for(storage, native, loader).is_empty() {
         return true;
     }
     let mut folders: Vec<String> = Vec::new();
@@ -69,10 +132,9 @@ pub fn code_to_load(storage: &dyn Storage, native: &Native) -> bool {
             ));
         }
     });
-    folders.iter().any(|folder| {
-        paperpaw_sdk::native::read_header(storage, &native.path(folder))
-            .is_some_and(|header| native.fits(&header))
-    })
+    folders
+        .iter()
+        .any(|folder| code_that_fits(storage, &native.path(folder), native, loader).is_some())
 }
 
 /// What loads the code of code plugins: the shell's, which knows where it
@@ -1287,14 +1349,14 @@ version = 2.0.0
         let kernel = Kernel::builder(DEVICE).storage(storage).build().unwrap();
         let storage = kernel.storage();
         assert!(storage.exists("plugins/.stats.next/code.ppn"));
-        let waiting = paperpaw_sdk::native::fetched_for(storage, &native);
+        let waiting = super::fetched_for(storage, &native, None);
         assert_eq!(waiting, [("stats".into(), installed("stats"))]);
         // For another firmware, nothing waits.
         let mut other = Native::new("code.ppn");
         other.fingerprint.0 ^= 1;
-        assert!(paperpaw_sdk::native::fetched_for(storage, &other).is_empty());
-        assert!(super::code_to_load(storage, &native));
-        assert!(!super::code_to_load(storage, &other));
+        assert!(super::fetched_for(storage, &other, None).is_empty());
+        assert!(super::code_to_load(storage, &native, None));
+        assert!(!super::code_to_load(storage, &other, None));
     }
 
     /// An update that keeps the fingerprint fetches nothing: the code
@@ -1307,17 +1369,17 @@ version = 2.0.0
             "plugins/stats/plugin.ini",
             "[plugin]\nid = stats\nname = Statistics\nversion = 1.0.0\n",
         );
-        assert!(!super::code_to_load(&plugins, &native));
+        assert!(!super::code_to_load(&plugins, &native, None));
         plugins
             .write(
                 "plugins/stats/code.ppn",
                 &code_file(native.fingerprint.0, installed("stats")),
             )
             .unwrap();
-        assert!(super::code_to_load(&plugins, &native));
+        assert!(super::code_to_load(&plugins, &native, None));
         let mut other = Native::new("code.ppn");
         other.fingerprint.0 ^= 1;
-        assert!(!super::code_to_load(&plugins, &other));
+        assert!(!super::code_to_load(&plugins, &other, None));
         // A folder being installed or put aside is not one to load.
         let aside = storage().with("plugins/.stats.old/code.ppn", "");
         aside
@@ -1326,9 +1388,13 @@ version = 2.0.0
                 &code_file(native.fingerprint.0, installed("stats")),
             )
             .unwrap();
-        assert!(!super::code_to_load(&aside, &native));
+        assert!(!super::code_to_load(&aside, &native, None));
     }
 }
+
+#[cfg(test)]
+#[path = "code_plugin_format5_tests.rs"]
+mod format5_tests;
 
 #[cfg(test)]
 #[path = "code_plugin_startup_tests.rs"]

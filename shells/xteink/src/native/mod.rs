@@ -63,6 +63,17 @@ pub fn this_firmware() -> paperpaw_sdk::native::Native {
     native
 }
 
+/// Whether a start with code plugins would load any from `storage`
+/// (`paperpaw_core::code_to_load`), with what this firmware's loader reads
+/// of interface-7 files: asked once an update on trial is kept.
+pub fn code_to_load(storage: &dyn Storage) -> bool {
+    #[cfg(feature = "ppn5")]
+    let loader = Some(&ppn5::HOST);
+    #[cfg(not(feature = "ppn5"))]
+    let loader = None;
+    paperpaw_core::code_to_load(storage, &this_firmware(), loader)
+}
+
 /// The internal RAM kept for plugins' hot code (the X4's arena), which
 /// the heap gets once plugins are loaded, as far as they did not take it.
 #[cfg(feature = "esp32c3")]
