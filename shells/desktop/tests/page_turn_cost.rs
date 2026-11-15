@@ -265,11 +265,10 @@ fn vietnamese_book() -> Vec<u8> {
     html.into_bytes()
 }
 
-#[test]
-fn a_page_turn_stays_within_its_host_crossings() {
-    let alice = include_bytes!("../../../samples/library/books/alice-in-wonderland.epub");
+/// The Latin book at the default settings: every slot under its ceiling, and
+/// the turns did something.
+fn latin_over(alice: &[u8], over: &mut Vec<String>) {
     let seen = measure("alice", "alice-in-wonderland.epub", alice, "");
-    let mut over = Vec::new();
     for ((slot, ceiling, why), seen) in CEILINGS.iter().zip(&seen.worst) {
         eprintln!("page turn: {slot}: most {seen} (ceiling {ceiling}, {why})");
         if seen > ceiling {
@@ -299,17 +298,44 @@ fn a_page_turn_stays_within_its_host_crossings() {
             INKED_PER_TURN_FLOOR * MEASURED as u32
         ));
     }
-    // Books and settings the Latin page does not show: what a book of another
-    // script, a book that starts in Latin and goes on in Cyrillic, and a reader
-    // with kerning and ligatures off cost (ceilings: text measures, all slots).
-    let chinese = chinese_book();
-    let cyrillic = cyrillic_after_latin_book();
-    let vietnamese = vietnamese_book();
-    let cases: [(&str, &str, &[u8], &str, (u32, u32)); 4] = [
-        ("chinese", "chinese.html", &chinese, "", CHINESE),
-        ("cyrillic", "cyrillic.html", &cyrillic, "", CYRILLIC),
-        ("vietnamese", "vietnamese.html", &vietnamese, "", VIETNAMESE),
-        (
+}
+
+/// A book (or settings) the Latin page does not show, with the most text
+/// measures and all slots one turn of it may enter.
+struct Case<'a> {
+    label: &'a str,
+    name: &'a str,
+    book: &'a [u8],
+    ini: &'a str,
+    ceilings: (u32, u32),
+}
+
+/// What a book of another script, a book that starts in Latin and goes on in
+/// Cyrillic, Vietnamese and a reader with kerning and ligatures off cost.
+fn cases_over(alice: &[u8], over: &mut Vec<String>) {
+    let (chinese, cyrillic, vietnamese) = (
+        chinese_book(),
+        cyrillic_after_latin_book(),
+        vietnamese_book(),
+    );
+    let case = |label, name, book, ini, ceilings| Case {
+        label,
+        name,
+        book,
+        ini,
+        ceilings,
+    };
+    let cases = [
+        case("chinese", "chinese.html", &chinese[..], "", CHINESE),
+        case("cyrillic", "cyrillic.html", &cyrillic[..], "", CYRILLIC),
+        case(
+            "vietnamese",
+            "vietnamese.html",
+            &vietnamese[..],
+            "",
+            VIETNAMESE,
+        ),
+        case(
             "plain",
             "alice-in-wonderland.epub",
             alice,
@@ -320,7 +346,14 @@ fn a_page_turn_stays_within_its_host_crossings() {
     let measures = CEILINGS
         .iter()
         .position(|(slot, ..)| *slot == "text_measure");
-    for (label, name, book, ini, (measure_ceiling, total_ceiling)) in cases {
+    for Case {
+        label,
+        name,
+        book,
+        ini,
+        ceilings: (measure_ceiling, total_ceiling),
+    } in cases
+    {
         let seen = measure(label, name, book, ini);
         let measured = seen.worst[measures.unwrap()];
         eprintln!(
@@ -344,6 +377,14 @@ fn a_page_turn_stays_within_its_host_crossings() {
             ));
         }
     }
+}
+
+#[test]
+fn a_page_turn_stays_within_its_host_crossings() {
+    let alice = include_bytes!("../../../samples/library/books/alice-in-wonderland.epub");
+    let mut over = Vec::new();
+    latin_over(alice, &mut over);
+    cases_over(alice, &mut over);
     assert!(
         over.is_empty(),
         "a page turn crosses into the host too often: {over:#?}"
