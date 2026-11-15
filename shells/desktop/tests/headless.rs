@@ -1133,3 +1133,29 @@ fn the_first_time_hint_is_closed_by_a_button() {
         );
     }
 }
+
+/// *Show hints again* closes with a button too: Select, Back or Left (it
+/// swallowed the keys, and only power left it).
+#[test]
+fn the_show_hints_again_message_is_closed_by_a_button() {
+    let screen_after = |name: &str, script: &str| {
+        let card = library(name);
+        let run: Run = Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"))
+            .args(["--profile", "xteink-x4", "--headless", "--library"])
+            .arg(&card)
+            .args(["--set", "help.show=false", "--script", script])
+            .output()
+            .unwrap()
+            .into();
+        let _ = fs::remove_dir_all(&card);
+        assert!(run.ok, "{}", run.stderr);
+        (run.screen().to_string(), run.stdout)
+    };
+    let (open, shown) = screen_after("again-open", "wait:2500,open:help.again,wait:800");
+    assert_eq!(open, "help.again", "the message did not open: {shown}");
+    for button in ["confirm", "back", "left"] {
+        let script = format!("wait:2500,open:help.again,wait:800,{button},wait:1500");
+        let (screen, out) = screen_after("again-button", &script);
+        assert_eq!(screen, "home.dashboard", "{button} left the message: {out}");
+    }
+}
