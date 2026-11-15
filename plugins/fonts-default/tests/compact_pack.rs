@@ -59,7 +59,7 @@ fn the_surface_font_packed_is_the_plain_one_pixel_for_pixel() {
             .map(|&s| (s, chars.clone()))
             .chain(DISPLAY_SIZES.iter().map(|&s| (s, digits.clone())));
         for (size, chars) in strikes {
-            let glyphs = font.rasterize_chars(chars.into_iter(), size, Hinting::Light);
+            let glyphs = font.rasterize_chars(chars, size, Hinting::Light);
             builder.add_strike(size, font.line_metrics(size), glyphs);
         }
         BitmapFont::new(builder.build()).unwrap()
@@ -101,7 +101,7 @@ fn time_of_reading_a_screen_of_text() {
     let mut chars: Vec<char> = text.clone();
     chars.sort();
     chars.dedup();
-    let mut scan = |compact: bool| {
+    let scan = |compact: bool| {
         let mut builder = PackBuilder::new();
         if compact {
             builder.compact();
