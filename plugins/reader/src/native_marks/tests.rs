@@ -334,3 +334,18 @@ fn a_new_reading_of_the_library_replaces_both_lists() {
     marks.replace((Vec::from([span(1, 2)]), Vec::new()));
     assert_eq!(marks.highlights(), [span(1, 2)]);
 }
+
+#[test]
+fn a_highlight_a_character_or_two_off_in_this_conversion_is_still_found() {
+    let words = page_of("down the rabbit hole she fell", 100);
+    // The place says 113 (inside "rabbit", which starts at 112).
+    let mut marks =
+        Marks::new(Vec::new()).with_foreign(Vec::from([foreign(113, 127, "rabbit hole she")]));
+    marks.accept_foreign(&words);
+    assert_eq!(marks.highlights().len(), 1);
+    // Far from where the text is (past the shift allowed): not found.
+    let mut far =
+        Marks::new(Vec::new()).with_foreign(Vec::from([foreign(100, 127, "she fell down")]));
+    far.accept_foreign(&words);
+    assert!(far.highlights().is_empty());
+}

@@ -273,13 +273,18 @@ pub fn load(
     }
 }
 
-/// Whether the words of a page that start at `at` or after it say `lead`: the
-/// first few words, as a highlight keeps the text of its words.
+/// Whether the words of a page from a little before `at` say `lead`: the first
+/// few words, as a highlight keeps the text of its words. The stretch starts
+/// [`SHIFT`] before the place, as another conversion of the same text may count
+/// a character or two otherwise.
 fn has_text(words: &[WordBox], at: (u32, u32), lead: &Lead) -> bool {
     let mut text = String::new();
-    let from = words.partition_point(|w| (w.start.section, w.start.offset) < at);
-    for word in words.iter().skip(from) {
-        if text.len() > LEAD_MAX + 16 || text.try_reserve(word.text.len() + 1).is_err() {
+    let from = (at.0, at.1.saturating_sub(SHIFT));
+    let first = words.partition_point(|w| (w.end.section, w.end.offset) <= from);
+    for word in words.iter().skip(first) {
+        if text.len() > LEAD_MAX + 2 * SHIFT as usize
+            || text.try_reserve(word.text.len() + 1).is_err()
+        {
             break;
         }
         if !text.is_empty() {
@@ -289,6 +294,10 @@ fn has_text(words: &[WordBox], at: (u32, u32), lead: &Lead) -> bool {
     }
     lead.is_in(&text)
 }
+
+/// How many characters before its place the text of a highlight of another
+/// conversion is looked for.
+const SHIFT: u32 = 16;
 
 /// The look of a role, from its settings (`<role>.background`, `.ink`, `.line`,
 /// `.line-tone`, `.thickness`, `.frame`, `.struck`, as `Decoration::of_role` reads

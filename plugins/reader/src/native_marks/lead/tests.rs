@@ -56,3 +56,27 @@ fn nothing_is_found_without_a_lead_or_on_an_empty_page() {
     assert!(!found_in("short", "short"));
     assert!(!found_in("Alice was beginning", ""));
 }
+
+#[test]
+fn a_word_broken_at_the_end_of_a_line_is_whole_on_both_sides() {
+    // Beta 3 broke it there, this build somewhere else, or not at all.
+    assert!(found_in(
+        "the use of anyone any- where",
+        "the use of anyone anywhere"
+    ));
+    assert!(found_in(
+        "the use of anyone anywhere",
+        "the use of anyone any- where"
+    ));
+    assert!(found_in(
+        "aloud. I must be get- ting",
+        "aloud. I must be getting somewhere"
+    ));
+    // A dash between words stays one.
+    assert!(!found_in("rabbit - hole of the", "rabbithole of the"));
+    // Not a break: a hyphen inside a word keeps it as it is.
+    assert!(found_in(
+        "the rabbit-hole went on",
+        "all the rabbit-hole went on and on"
+    ));
+}

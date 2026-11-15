@@ -72,7 +72,7 @@ fn plain(text: &str) -> impl Iterator<Item = char> + Clone + '_ {
     let mut words = text.split_whitespace();
     let mut first = true;
     let mut word = "".chars();
-    core::iter::from_fn(move || {
+    let spaced = core::iter::from_fn(move || {
         loop {
             if let Some(c) = word.next() {
                 return Some(c);
@@ -84,6 +84,22 @@ fn plain(text: &str) -> impl Iterator<Item = char> + Clone + '_ {
             } else {
                 return Some(' ');
             }
+        }
+    });
+    // A word broken at a line's end ("any- where") is whole again: both sides
+    // of a comparison were broken at other places.
+    let mut chars = spaced.peekable();
+    let mut before = ' ';
+    core::iter::from_fn(move || {
+        loop {
+            let c = chars.next()?;
+            if c == '-' && before.is_alphabetic() && chars.peek() == Some(&' ') {
+                chars.next();
+                before = c;
+                continue;
+            }
+            before = c;
+            return Some(c);
         }
     })
 }
