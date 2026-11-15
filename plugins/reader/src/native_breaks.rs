@@ -58,7 +58,7 @@ pub fn break_places(asked: Result<usize, Error>, places: &[u8], out: &mut dyn Fn
 }
 
 impl Breaks {
-    /// Room for [`ENTRIES`] words and a language without a table.
+    /// Room for 64 words and a language without a table.
     ///
     /// # Errors
     /// `NoMemory`.
