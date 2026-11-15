@@ -28,7 +28,7 @@ profiles reading
 reading-goal reading
 # readwise notes  (no file until the store build moves to interface 7, #228)
 # read-later-cloud news  (no file until the store build moves to interface 7, #228)
-# rules system  (no file until the store build moves to interface 7, #228)
+rules system
 # translate reading  (no file until the store build moves to interface 7, #228)
 stats reading
 vocabulary learning
