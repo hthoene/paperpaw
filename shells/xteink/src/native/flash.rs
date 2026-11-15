@@ -113,13 +113,7 @@ impl Flash {
                 // No table of the firmware's is written into an image any
                 // more (the files before interface 7 had one): none, in every
                 // placement of this firmware.
-                Some(Layout::new(
-                    region,
-                    firmware,
-                    0,
-                    super::hot::arena(),
-                    found,
-                ))
+                Some(Layout::new(region, firmware, 0, super::hot::arena(), found))
             }
             Err(why) => {
                 warn!("native: no room for code plugins: {why}");

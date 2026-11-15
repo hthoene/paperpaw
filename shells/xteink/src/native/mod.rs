@@ -41,10 +41,10 @@ use log::warn;
 use paperpaw_core::{CodeFile, CodeLoader};
 use paperpaw_native::{HEADER_LEN, Problem};
 use paperpaw_platform::Storage;
+use paperpaw_sdk::PluginProblem;
 use paperpaw_sdk::native::FINGERPRINT;
 #[cfg(feature = "remote")]
 use paperpaw_sdk::native::TOOLCHAIN;
-use paperpaw_sdk::PluginProblem;
 
 /// The fingerprint plugin files must have, under a name of its own in the
 /// firmware's ELF file: the release takes it from there (`paperpaw-sign
@@ -195,10 +195,18 @@ pub fn describe(line: &mut dyn FnMut(&str)) {
     });
 }
 
+/// The length of the header before the image in a plugin's file: an
+/// interface-7 file's (96 bytes), the only files placed.
+#[cfg(feature = "ppn5")]
+const FILE_HEADER: u32 = paperpaw_native::header5::HEADER_LEN as u32;
+/// Without the loader no image is placed.
+#[cfg(not(feature = "ppn5"))]
+const FILE_HEADER: u32 = 0;
+
 /// The plugin whose code the instruction address `pc` lies in, and the
 /// offset into its file (the image begins after the header): with the
 /// plugin's ELF, its function is at `0x3C000000 + 0x06000000 + offset -
-/// HEADER_LEN`. Code in the arena of hot code is its plugin's, at its
+/// FILE_HEADER`. Code in the arena of hot code is its plugin's, at its
 /// place in the image. Called from the panic handler: allocates nothing.
 pub fn attribute(pc: u32, found: &mut dyn FnMut(&str, u32)) {
     critical_section::with(|cs| {
@@ -211,7 +219,7 @@ pub fn attribute(pc: u32, found: &mut dyn FnMut(&str, u32)) {
                     pc.wrapping_sub(image.code_base)
                 };
                 if offset < image.len {
-                    found(&image.id, offset + HEADER_LEN as u32);
+                    found(&image.id, offset + FILE_HEADER);
                     return;
                 }
             }

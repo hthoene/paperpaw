@@ -12,7 +12,6 @@ use paperpaw_platform::Storage;
 use paperpaw_sdk::PluginProblem;
 use paperpaw_sdk::native::CodeRoom;
 
-
 #[cfg(feature = "ppn5")]
 use alloc::vec::Vec;
 #[cfg(feature = "ppn5")]
