@@ -161,3 +161,26 @@ fn what_a_book_changed_under_the_cover_shows_when_it_returns() {
         "the card shows the old progress"
     );
 }
+
+#[test]
+fn a_plain_setting_changed_just_before_back_shows_when_it_returns() {
+    let mut device = device(false);
+    let before = shot(&mut device, "plain-before");
+    run_script(&mut device, "run:home.all-tools").unwrap();
+    run_script(&mut device, "wait:2000").unwrap();
+    // Not the grid's, and no wait between the change and the Back: the event
+    // reaches Home in the call that closes the cover.
+    device.call(|kernel, now| {
+        kernel
+            .set_setting(now, "home.footer.pencil", "false")
+            .unwrap()
+    });
+    run_script(&mut device, "back").unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    assert_eq!(screen(&mut device), "home.dashboard");
+    assert_ne!(
+        shot(&mut device, "plain-after"),
+        before,
+        "the footer still shows the pencil"
+    );
+}
