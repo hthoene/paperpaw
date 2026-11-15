@@ -692,10 +692,12 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   desktop and the emulator (the shell's `scratch_max`); a draw that needs more, or whose block is
   refused, is `ERR_NO_MEMORY` with nothing drawn. The
   one thing a host **may** keep between calls is a **dithering carry**: the error rows of the
-  picture whose bands this frame draws, at most 4 KiB per plugin, so band edges do not show; freed
-  when the frame ends or the image id ends. A host that keeps none, or cannot have it (refused,
-  or another picture holds it), dithers each call on its own (Atkinson within the call), never an
-  error. A dithered picture whose rectangle is up to 1,600 px wide is dithered over all its
+  pictures whose bands this frame draws (4 bytes a dithered column: 1,920 bytes for a picture as
+  wide as the X4's screen), at most 4 KiB for all pictures of the frame together, so a band goes
+  on where the band above ended and reads only its own rows; freed when the frame ends. A host
+  that keeps none, or cannot have it (refused, the 4 KiB taken, a band drawn again, a part drawn
+  alone), dithers the picture from its first row again and draws only the rows of the call: the
+  same pixels, more rows read, never an error. A dithered picture whose rectangle is up to 1,600 px wide is dithered over all its
   columns, so a part redrawn alone matches the whole; for a wider rectangle, or where the device's
   draw scratch does not hold the full width, only the visible columns are dithered and a redrawn
   part may differ slightly (never an error). These limits are slot 37's; a plugin that draws a picture itself with the SDK's drawer
