@@ -33,12 +33,6 @@ fn the_widgets_and_the_status_item_show_todays_reading() {
 
 #[cfg(feature = "linked")]
 #[path = "../../reading-goal/src/read_today.rs"]
-#[allow(
-    clippy::absurd_extreme_comparisons,
-    clippy::match_single_binding,
-    clippy::unnecessary_min_or_max,
-    reason = "generated payload codec also emits an unused reply direction"
-)]
 mod read_today;
 
 #[test]

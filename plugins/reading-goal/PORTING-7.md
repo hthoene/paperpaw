@@ -50,8 +50,9 @@ feature `embedded-pictures` (the app no longer carries the plugin, so the cats a
   with `known: u32`, `day: i32`, `seconds: u32`, little-endian; `max_input` 4,
   `max_reply` 16 including batch count, tag, body length and bitmap).
   `known=1` carries the figure; `known=0, day=0, seconds=0` is an explicit unknown date.
-  The payload schema is `payloads/reading-goal.read-today-reply@1.def`; the codec is generated
-  by `python3 tools/stage-codec.py plugins/reading-goal/payloads plugins/reading-goal/src/read_today.rs`.
+  The payload schema is `payloads/reading-goal.read-today-reply@1.def`; its fixed-size codec
+  is `src/read_today.rs`, shared directly with stats. It encodes only the one fixed record;
+  generic stage tables, streams, variable-size fields and unused reply writers are omitted.
   Schema 1 is corrected in place before either plugin is published for interface 7. The statistics
   *subscribe* and answer from the cache or log (`ERR_NOT_FOUND` for an explicitly different day);
   nothing re-enters because the owner cannot subscribe to its own stage. Reading goal runs it (reading every subscriber's reply, hearing only `stats`) when it

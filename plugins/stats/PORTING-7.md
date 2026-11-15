@@ -434,9 +434,10 @@ The X4 file (`stats`) packs at 486,328 B (format 5, interface 7.1, version 1.0.8
   `known=0, day=0, seconds=0` is the valid unknown-date answer. Another requested day
   returns `NotFound`; invalid input length returns `Invalid`. Schema 1 is corrected before
   either plugin's first interface-7 publication, without an SDK or interface change.
-  The subscribed payload schema is a copy of Reading goal's schema at
-  `payloads/subscribed/reading-goal.read-today-reply@1.def`; generate its codec with
-  `python3 tools/stage-codec.py plugins/stats/payloads/subscribed plugins/stats/src/read_today.rs`.
+  The payload schema and compact codec are owned by Reading goal:
+  `plugins/reading-goal/payloads/reading-goal.read-today-reply@1.def` and its
+  `src/read_today.rs`. Stats includes that codec directly; store builds use the repository
+  tree, so no second source or schema copy is needed.
 
 ## Widgets and the settings pages
 

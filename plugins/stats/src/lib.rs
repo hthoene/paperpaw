@@ -51,12 +51,7 @@ mod native_widgets;
 pub use native_entry::NATIVE_ENTRY;
 /// The interface-7 plugin.
 pub mod native_plugin;
-#[allow(
-    clippy::absurd_extreme_comparisons,
-    clippy::match_single_binding,
-    clippy::unnecessary_min_or_max,
-    reason = "generated payload codec also emits an unused reply direction"
-)]
+#[path = "../../reading-goal/src/read_today.rs"]
 mod read_today;
 
 mod book_list;
