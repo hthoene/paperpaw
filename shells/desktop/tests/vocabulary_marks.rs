@@ -49,10 +49,7 @@ fn card(name: &str, marks: bool) -> PathBuf {
     .unwrap();
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/beta3-card");
     copy_tree(&fixture.join("data"), &dir.join(".paperpaw"));
-    let _ = fs::remove_file(
-        dir.join(".paperpaw/positions")
-            .join(format!("{HASH}.txt")),
-    );
+    let _ = fs::remove_file(dir.join(".paperpaw/positions").join(format!("{HASH}.txt")));
     let setup = dir.join(".paperpaw/plugins/setup");
     fs::create_dir_all(&setup).unwrap();
     fs::write(setup.join("done"), "").unwrap();
@@ -139,7 +136,11 @@ fn text_page(name: &str, marks: bool) -> Vec<u8> {
 fn words_of_the_vocabulary_list_are_marked_on_the_page_when_marks_are_on() {
     let plain = text_page("off", false);
     // The same page twice without marks: the comparison below is of one page.
-    assert_eq!(plain, text_page("off-again", false), "the page is not steady");
+    assert_eq!(
+        plain,
+        text_page("off-again", false),
+        "the page is not steady"
+    );
     let marked = text_page("on", true);
     assert_ne!(
         plain, marked,
