@@ -1,0 +1,4 @@
+paperpaw-core/lib	native_host::doc_host::tests::details_flag_tests::a_plugins_open_with_bit_3_is_refused	run
+paperpaw-core/lib	native_host::shell::tests::native_screen_install::input_records::screen_commands::an_open_with_a_hand_over_is_refused_where_nothing_stages_hand_overs	run
+paperpaw-core/lib	native_host::shell::tests::native_screen_install::open_handover::an_open_with_a_hand_over_and_a_refused_command_after_it_is_refused_whole	run
+paperpaw-core/lib	tests::open_with::the_book_menu_has_no_open_with_with_the_native_reader	run

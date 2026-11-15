@@ -1,0 +1,2 @@
+paperpaw-plugin-picture-home/hosted_page	a_widget_that_shows_nothing_has_no_plate	ignored
+paperpaw-plugin-picture-home/hosted_page	the_page_shows_with_the_picture_on_the_x4_whichever_way_its_gate_is_set	run

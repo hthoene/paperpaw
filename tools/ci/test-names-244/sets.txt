@@ -1,0 +1,24 @@
+# set<TAB>cargo test arguments (<TAB>-- harness filters); written by tools/test-names.py --write
+bluetooth-tests-a1c3a0	--manifest-path tools/bluetooth-tests/Cargo.toml --locked --target x86_64-unknown-linux-gnu
+workspace-c36d0b	--workspace
+text-lib-3bdf82	-p paperpaw-text --lib linebreak
+text-plugin-fonts-default-co-bec8a4	-p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features
+core-lib-x4-gate-closed-18a064	-p paperpaw-core --lib --features x4-gate-closed native_host
+core-lib-native-reading-83d4b1	-p paperpaw-core --lib --features native-reading open_with
+app-native-linked+native-lin-ce88b4	-p paperpaw-app --features native-linked,native-linked-reading --test flows --test sleep_parity --test sleep_cycles --test linked_catalogs
+app-nodefault-native-linked--65cadd	-p paperpaw-app --no-default-features --features native-linked-reading,packs --test linked_catalogs
+app-native-linked+native-lin-596008	-p paperpaw-app --features native-linked,native-linked-reading,native-linked-store --test sleep_parity a_book_ready_at_once_has_its_pages_counted
+app-native-linked-reading-li-bb6508	-p paperpaw-app --features native-linked-reading --test linked_settings_tables
+app-native-linked+native-lin-9b225f	-p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
+app-native-linked-reading+na-bf372e	-p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands
+app-native-linked-reading+na-4d2e96	-p paperpaw-app --features native-linked-reading,native-linked-store,x4-gate-closed --test home_native preview
+plugin-picture-home-linked+x-66f56e	-p paperpaw-plugin-picture-home --features linked,x4-gate-closed --test hosted_page
+app-native-linked-reading-se-a2a5ba	-p paperpaw-app --features native-linked-reading --test sets --test standard
+app-native-linked-reading-re-e971a2	-p paperpaw-app --features native-linked-reading --test readers
+app-native-linked-reading-pa-e003ec	-p paperpaw-app --features native-linked-reading --test partial_redraw	--exact table_of_contents
+sdk-interface-937d63	-p paperpaw-sdk --test interface
+x4-update_path-968f93	--release -p paperpaw-x4 --test update_path
+core-native_plugin-ee2bbd	-p paperpaw-core --test native_plugin
+native-real_plugin-052291	-p paperpaw-native --test real_plugin
+sdk-kernel-151904	-p paperpaw-sdk --features kernel
+shells-xteink-static	static: shells/xteink

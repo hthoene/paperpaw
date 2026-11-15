@@ -1,0 +1,5 @@
+paperpaw-app/sets	a_reader_who_ran_paperpaw_before_keeps_the_plugins_as_they_were	run
+paperpaw-app/sets	the_crates_listed_are_those_installed	ignored
+paperpaw-app/sets	the_lean_set_keeps_what_a_beginner_needs	run
+paperpaw-app/standard	every_built_in_text_reads_the_same_through_its_table	run
+paperpaw-app/standard	translations_keep_no_index_on_the_heap	run

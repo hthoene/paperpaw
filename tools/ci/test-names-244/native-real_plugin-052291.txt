@@ -1,0 +1,1 @@
+paperpaw-native/real_plugin	the_real_native_plugin_is_accepted	ignored

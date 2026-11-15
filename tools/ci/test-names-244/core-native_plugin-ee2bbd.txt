@@ -1,0 +1,1 @@
+paperpaw-core/native_plugin	a_plugin_built_apart_runs_in_the_kernel	ignored
