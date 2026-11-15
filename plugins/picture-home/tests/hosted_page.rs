@@ -1,12 +1,12 @@
 //! The page with home's widgets over the picture, in a kernel with both
 //! plugins linked.
 //!
-//! - On the X4 while its nested callbacks are closed (#250) the host lays no
-//!   other plugin's widget out there (`ERR_UNSUPPORTED` for the widget ops that
-//!   call into the widget's owner), and every widget of the default page is
-//!   home's. The page still shows: the picture behind it and the cells, left
-//!   empty; no callback of the page fails. Full parity on the X4 comes when the
-//!   gate opens after the device's stack check.
+//! - On the X4 the nested callbacks are open by default (#250): home's widgets are laid
+//!   out and drawn over the picture. With the gate closed (feature `x4-gate-closed`, the
+//!   X3's builds; CI runs it) the host lays no other plugin's widget out (`ERR_UNSUPPORTED`
+//!   for the widget ops that call into the widget's owner) and the cells stay empty. Either
+//!   way the page shows the picture and no callback of it fails. The host is wired as the
+//!   X4's shell wires it, library included: home's widgets ask for it.
 //! - A widget that shows nothing (the shelf of recent books with none read)
 //!   has no plate over the picture, as on interface 6, where each widget drew
 //!   its own.
@@ -169,12 +169,17 @@ fn dashboard(setup: hosted::Setup) -> (Screen, Vec<(u32, i32)>) {
 }
 
 #[test]
-fn the_page_shows_with_the_picture_and_empty_cells_while_the_gate_is_closed() {
+fn the_page_shows_with_the_picture_on_the_x4_whichever_way_its_gate_is_set() {
     let (screen, dropped) = dashboard(
         hosted::Setup::x4()
             .config(&config(None))
             // The screen stack and the widgets, sized for the X4 as its shell wires them.
-            .wired(|w| w.ui(paperpaw_sdk::MemoryClass::Small)),
+            .wired(|w| {
+                w.ui(paperpaw_sdk::MemoryClass::Small).library(
+                    std::rc::Rc::new(MemoryStorage::new()),
+                    std::rc::Rc::new(NoCatalog),
+                )
+            }),
     );
     // Every callback of the page ended well: none was dropped, also not
     // the draw (`ensure` used to fail on the first widget the host would

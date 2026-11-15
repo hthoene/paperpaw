@@ -28,7 +28,7 @@ use alloc::vec::Vec;
 use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
-    document::{DocumentError, Locator},
+    document::Locator,
     layout::{LayoutContext, Page, layout_page},
     native::{
         Error, Host,
@@ -36,7 +36,6 @@ use paperpaw_sdk::{
         clock,
         commands::{CommandSender, RedrawMode},
         document::{DocId, DocPosition, Documents, Preparation, Report, Root},
-        fonts::{Font, FontRole},
         library::Library,
         snapshot,
         ui::{HandoverId, Notify, Open as NavOpen, Param, Ui},
@@ -44,15 +43,19 @@ use paperpaw_sdk::{
     reading::WordBox,
 };
 use paperpaw_ui_kit::{
-    Messages, Style as UiStyle,
-    mem::{SERVICE_BUFFER, buffer, push},
-    paint, text,
+    Messages,
+    mem::{SERVICE_BUFFER, buffer},
+    text,
 };
 
 /// Longest path taken from a hand-over, in bytes.
 pub const MAX_PATH: usize = 512;
 /// Most pages laid out to find the page before one.
 pub const BACK_LIMIT: usize = 4096;
+
+/// The progress of a book, where it opens and the progress stored with that
+/// place.
+type Beginning = (Option<Progress>, (u32, u32), u32);
 
 /// What the screen shows.
 #[derive(Debug)]
@@ -152,6 +155,8 @@ struct Open {
     chapter: Option<Chapter>,
     /// The starts of the book's bookmarks, for the ribbon (`ribbon.rs`).
     bookmarks: Vec<(u32, u32)>,
+    /// Those of other conversions, shown where the page has their text.
+    foreign_bookmarks: Vec<ribbon::ForeignMark>,
     /// The status lines chosen at the top and the bottom.
     status: native_status::State,
     /// The marks plugins gave the page on show (`reader.decorations@1`).
@@ -360,18 +365,14 @@ impl View {
             Self::forget(host, docs, id);
             error
         };
-        let progress =
-            Progress::read(host, docs, id, sections, (&mut input, &mut out)).map_err(fail)?;
-        let (at, stored_ppm) =
-            Self::starting_place(host, library, &found, (sections, conversion), &mut out)
-                .map_err(fail)?;
-        // The highlights of the book; a book the library does not know has none.
-        let marks = match library.map(|l| native_marks::load(host, l, &found.path, conversion)) {
-            Some(Ok(spans)) => Marks::new(spans),
-            // A book the library does not know, or no room to read them in: the
-            // page is drawn without highlights, the book still opens.
-            _ => Marks::default(),
-        };
+        let (progress, at, stored_ppm) = Self::place_and_progress(
+            host,
+            (docs, library),
+            (&found, id, (sections, conversion)),
+            (&mut input, &mut out),
+        )
+        .map_err(fail)?;
+        let marks = Self::load_marks(host, library, &found.path, conversion);
         let mut open = Open {
             id,
             sections,
@@ -403,6 +404,7 @@ impl View {
             class_asked: false,
             chapter: None,
             bookmarks: Vec::new(),
+            foreign_bookmarks: Vec::new(),
             status: native_status::State::default(),
             decorations: None,
             undecorated: false,
@@ -430,6 +432,40 @@ impl View {
         })
     }
 
+    /// The sections' lengths for progress, and where the book opens with the
+    /// progress stored with that place.
+    fn place_and_progress(
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+        (found, id, (sections, conversion)): (&Handover, DocId, (u32, u64)),
+        (input, out): (&mut [u8], &mut [u8]),
+    ) -> Result<Beginning, Error> {
+        let progress = Progress::read(host, docs, id, sections, (input, out))?;
+        let (at, stored) = Self::starting_place(
+            host,
+            library,
+            found,
+            (sections, conversion, progress.as_ref()),
+            out,
+        )?;
+        Ok((progress, at, stored))
+    }
+
+    /// The highlights of the book; a book the library does not know has none,
+    /// and where there is no room to read them the page is drawn without
+    /// highlights, the book still opens.
+    fn load_marks(
+        host: &Host<'_>,
+        library: Option<&Library>,
+        path: &str,
+        conversion: u64,
+    ) -> Marks {
+        match library.map(|l| native_marks::load(host, l, path, conversion)) {
+            Some(Ok((own, foreign))) => Marks::new(own).with_foreign(foreign),
+            _ => Marks::default(),
+        }
+    }
+
     /// Where the book opens and the progress stored with its place: the place
     /// the hand-over names, if the book has it; else the place saved last time;
     /// else the start (a page number needs the page index: `PORTING-7.md`).
@@ -437,7 +473,7 @@ impl View {
         host: &Host<'_>,
         library: Option<&Library>,
         found: &Handover,
-        (sections, conversion): (u32, u64),
+        (sections, conversion, progress): (u32, u64, Option<&Progress>),
         out: &mut [u8],
     ) -> Result<((u32, u32), u32), Error> {
         Ok(
@@ -455,10 +491,15 @@ impl View {
                             (&mut ask, out),
                         )
                     });
-                    (
-                        stored.and_then(|s| s.at).unwrap_or((0, 0)),
-                        stored.map_or(0, |s| s.ppm),
-                    )
+                    // A place of another conversion is found again by its
+                    // progress; the file stays as it is until the next save.
+                    let at = stored.and_then(|s| {
+                        s.at.or_else(|| {
+                            s.other
+                                .and_then(|other| native_place::relocate(other, s.ppm, progress))
+                        })
+                    });
+                    (at.unwrap_or((0, 0)), stored.map_or(0, |s| s.ppm))
                 }
                 _ => ((0, 0), 0),
             },
@@ -1345,6 +1386,8 @@ impl Open {
         let page = self.page.as_ref().ok_or(Error::State)?;
         if self.words.is_empty() {
             self.words = native_wordbox::word_boxes(&faces, page, area)?;
+            // Highlights of another conversion that this page has the text of.
+            self.marks.accept_foreign(&self.words);
             self.decorate(host);
         }
         let page = self.page.as_ref().ok_or(Error::State)?;
@@ -1405,50 +1448,12 @@ impl Open {
     }
 }
 
-fn redraw(host: &Host<'_>, mode: RedrawMode) -> Result<(), Error> {
-    let mut scratch = [0; 64];
-    CommandSender::new(host, &mut scratch).queue_redraw(mode)
-}
-
-/// What a layout's refusal is as a host error.
-fn document_error_kind(error: &DocumentError) -> Option<Error> {
-    match error {
-        DocumentError::OutOfMemory => Some(Error::NoMemory),
-        DocumentError::NotReady => Some(Error::Busy),
-        _ => None,
-    }
-}
-
-/// Says why there is no page: the text over the whole screen.
-fn say(host: &Host<'_>, frame: &mut DrawFrame<'_>, key: &str) -> Result<(), Error> {
-    let font = Font::acquire_role(host, FontRole::Ui)?;
-    let said = say_with(host, frame, &font, key);
-    let released = font.release();
-    said.and(released)
-}
-
-fn say_with(
-    host: &Host<'_>,
-    frame: &mut DrawFrame<'_>,
-    font: &Font<'_>,
-    key: &str,
-) -> Result<(), Error> {
-    let display = snapshot::capture_snapshot(host)?;
-    let style = UiStyle::read(host, &display, font)?;
-    let area = paperpaw_sdk::Rect::new(0, 0, display.display_width(), display.display_height());
-    let mut messages = Messages::new()?;
-    let shown = messages.copy(host, key)?;
-    let mut body = alloc::vec::Vec::new();
-    push(&mut body, paint::Paint::Fill(area, style.paper))?;
-    text::message(&mut body, font, &style, area, &shown)?;
-    paint::replay(frame, font, body.iter())
-}
-
 mod aloud;
 mod count;
 mod decorations;
 mod filters;
 mod goto;
+mod helpers;
 mod menu_bar;
 mod notes;
 mod pictures;
@@ -1456,23 +1461,10 @@ mod preparing;
 mod ribbon;
 mod script_hint;
 mod setup;
+use helpers::{book_language, document_error_kind, redraw, say};
 use preparing::{Preparing, open_request};
 use setup::{Kept, LayoutKey, Setup, flag, integer};
 
-/// The language a book is read in: its own, or the UI language where the
-/// format names none (a text file), as in Beta 3, so the voice reading aloud
-/// is the reader's. Empty only where the UI language cannot be read either
-/// (the host's voice then).
-///
-/// # Errors
-/// `NoMemory`.
-fn book_language(host: &Host<'_>, declared: &str) -> Result<String, Error> {
-    if !declared.is_empty() {
-        return text::copy(declared);
-    }
-    let mut scratch = [0; 64];
-    text::copy(paperpaw_sdk::native::i18n::language(host, &mut scratch).unwrap_or(""))
-}
 mod r3;
 mod status;
 
