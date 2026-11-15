@@ -35,8 +35,8 @@ mod image {
 }
 
 use crate::declarations::{
-    ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, SETTING_CHANGED, STACK_CHANGED, STATUS_ITEMS,
-    STATUS_PARTS, TICK, WIDGET_CHANGED,
+    ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, REGISTRY_CHANGED, SETTING_CHANGED,
+    STACK_CHANGED, STATUS_ITEMS, STATUS_PARTS, TICK, WIDGET_CHANGED,
 };
 use crate::native_add_screen::{self as add_screen, AddScreen};
 use crate::native_dashboard::{Dashboard, redraw};
@@ -122,7 +122,7 @@ impl Plugin for NativeHome {
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::StackChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::StackChanged, kinds::RegistryChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
         else {
             return Ok(());
         };
@@ -193,12 +193,20 @@ impl Plugin for NativeHome {
             }
             Event::WidgetChanged { .. } if token == WIDGET_CHANGED => self.refresh(host),
             Event::StackChanged { .. } if token == STACK_CHANGED => self.covered(host),
+            // What the page reads was changed (a plugin came or went, a menu
+            // or widget changed): a page kept under another screen is laid out
+            // again when it is shown.
+            Event::RegistryChanged { .. } if token == REGISTRY_CHANGED => {
+                self.invalidate_covered();
+                Ok(())
+            }
             // The grid's columns or rows changed: the pages are fitted to it.
             Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {
                 if is_grid_setting(key) {
                     fit(host)?;
                     self.refresh(host)?;
                 }
+                self.invalidate_covered();
                 Ok(())
             }
             _ => Ok(()),
@@ -279,8 +287,18 @@ impl NativeHome {
         redraw(host)
     }
 
-    /// The stack changed: a dashboard under another screen lets its page go (a
-    /// book is read, the page is not held; it is laid out again when shown).
+    /// A setting or the registry changed: a dashboard under another screen is
+    /// laid out again when it is shown.
+    fn invalidate_covered(&mut self) {
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                dashboard.invalidate_covered();
+            }
+        }
+    }
+
+    /// The stack changed: a dashboard under another screen keeps its page (a
+    /// book is read, the page is laid out only if something it shows changed).
     fn covered(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let holding = self
             .screens
@@ -290,12 +308,11 @@ impl NativeHome {
             return Ok(());
         }
         let top = self.stack_top(host)?;
-        let ui = self.ui.as_ref().ok_or(Error::State)?;
         for (instance, slot) in self.screens.all_with_instance() {
             if let Slot::Dashboard(dashboard) = slot
                 && Some(instance) != top
             {
-                dashboard.cover(host, ui);
+                dashboard.cover();
             }
         }
         Ok(())

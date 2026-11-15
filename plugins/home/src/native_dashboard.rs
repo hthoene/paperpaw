@@ -101,6 +101,8 @@ struct Laid {
     /// screen is on its side.
     slot: usize,
     wide: bool,
+    /// What it was laid out for, checked when it is shown again.
+    kept: Kept,
     /// How wide and high the corner of an item is that a finger sizes it by.
     handle: u16,
     /// The status line above the grid (`home.status-bar`), made and placed.
@@ -146,6 +148,11 @@ pub struct Dashboard {
     stale: bool,
     /// Shown (again): whether the focus shows is decided anew once laid out.
     reshow: bool,
+    /// Another screen is over this one: the page it holds is kept as it is.
+    covered: bool,
+    /// Shown again with its page kept: what the book widgets' heights depend on
+    /// and the display are looked at once before it draws.
+    returned: bool,
     /// What the reader used last before the show (`None`: not known).
     last_input: Option<InputMode>,
     /// Editing the home screen: the pencil is *Done*, *Add* shows; what is
@@ -160,6 +167,42 @@ pub struct Dashboard {
     /// The top left of the screen's region at the last draw: where the
     /// cells' places are counted from when a part of it is drawn again.
     origin: (i32, i32),
+}
+
+/// What a page was laid out for: the display (width, height), whether it has a
+/// recent shelf, and whether that had a book (the shelf is no rows without one).
+#[derive(Debug)]
+struct Kept {
+    display: (u16, u16),
+    shelf: bool,
+    recent: bool,
+}
+
+impl Kept {
+    fn of(host: &Host<'_>, display: &Snapshot, shown: &[grid::Item]) -> Self {
+        let shelf = shown.iter().any(
+            |item| matches!(&item.what, What::Widget(id) if native_pages::base(id) == "home.recent"),
+        );
+        Self {
+            display: (display.display_width(), display.display_height()),
+            shelf,
+            recent: shelf && has_recent(host) == Some(true),
+        }
+    }
+
+    /// Whether the display or the shelf's books are other than they were.
+    fn differs(&self, host: &Host<'_>, display: &Snapshot) -> bool {
+        (display.display_width(), display.display_height()) != self.display
+            || (self.shelf && has_recent(host) != Some(self.recent))
+    }
+}
+
+/// Whether the recent shelf has a book (the card shows the first): `None` where
+/// the host refuses.
+fn has_recent(host: &Host<'_>) -> Option<bool> {
+    crate::native_recent::read_listed(host, 1, 1)
+        .ok()
+        .map(|books| !books.is_empty())
 }
 
 impl Dashboard {
@@ -201,11 +244,36 @@ impl Dashboard {
     /// Shown again (above another screen closed, a book left), after the
     /// reader used `last_input` last.
     pub fn shown(&mut self, last_input: Option<InputMode>) {
-        self.stale = true;
+        // The page it kept is not laid out again for nothing: only what
+        // [`Dashboard::changed_while_covered`] finds.
+        self.covered = false;
+        self.returned = true;
         self.reshow = true;
         self.last_input = last_input;
         // A finger's drag does not outlive the screen's being covered.
         self.drag = None;
+    }
+
+    /// A setting or the registry changed (or a plugin came or went) while
+    /// another screen is over this one: the page it kept is laid out again when
+    /// it is shown.
+    pub fn invalidate_covered(&mut self) {
+        if self.covered {
+            self.stale = true;
+        }
+    }
+
+    /// Whether what a page kept under another screen cannot show any more: the
+    /// display changed, or the recent shelf came or went (the books it shows are
+    /// read when it draws, the shelf is no rows without one).
+    fn changed_while_covered(&self, host: &Host<'_>) -> bool {
+        let Some(laid) = &self.laid else {
+            return true;
+        };
+        let Ok(display) = snapshot::capture_snapshot(host) else {
+            return true;
+        };
+        laid.kept.differs(host, &display)
     }
 
     /// Lays the page out when it is stale: the widgets of the page before are
@@ -215,9 +283,14 @@ impl Dashboard {
     /// [`Error::NoMemory`] and the host's refusals; the old layout stays where
     /// the new one could not be made.
     pub fn ensure(&mut self, host: &Host<'_>, ui: &Ui) -> Result<(), Error> {
-        if !self.stale && self.laid.is_some() {
+        if !self.stale
+            && self.laid.is_some()
+            && (!core::mem::take(&mut self.returned) || !self.changed_while_covered(host))
+        {
+            self.show_focus();
             return Ok(());
         }
+        self.returned = false;
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
         let made = self.lay_out(host, ui, &display, &font);
@@ -235,18 +308,24 @@ impl Dashboard {
         self.options = None;
         self.moving = None;
         self.focus.clamp(laid.targets.len());
-        if self.reshow {
-            // As on interface 6: at every show the focus is drawn only if the
-            // reader chose to see it at once and used buttons last; a finger,
-            // a pen or an input the host does not know of get none.
+        self.laid = Some(laid);
+        self.show_focus();
+        self.drag = None;
+        self.stale = false;
+        Ok(())
+    }
+
+    /// As on interface 6: at every show the focus is drawn only if the reader
+    /// chose to see it at once and used buttons last; a finger, a pen or an
+    /// input the host does not know of get none.
+    fn show_focus(&mut self) {
+        if self.reshow
+            && let Some(laid) = &self.laid
+        {
             self.focus
                 .show(focus_at_show(laid.focus_at_once, self.last_input));
             self.reshow = false;
         }
-        self.laid = Some(laid);
-        self.drag = None;
-        self.stale = false;
-        Ok(())
     }
 
     fn lay_out(
@@ -351,6 +430,7 @@ impl Dashboard {
             items,
             slot,
             wide,
+            kept: Kept::of(host, display, &shown),
             handle: (metrics.row / 2).max(16),
             status,
             ring_room,
@@ -615,15 +695,14 @@ impl Dashboard {
         self.laid.is_some()
     }
 
-    /// Another screen is over this one: the page, and the widgets made for it,
-    /// are let go and laid out again when it is shown (as it always is, shown
-    /// again). What a finger or the buttons are doing with the page keeps it.
-    pub fn cover(&mut self, host: &Host<'_>, ui: &Ui) {
-        if self.options.is_some() || self.moving.is_some() || self.drag.is_some() {
-            return;
+    /// Another screen is over this one: its page, and the widgets made for it,
+    /// are kept as they are (what a book changed shows when it is drawn);
+    /// [`Dashboard::invalidate_covered`] and the look at the display and the
+    /// shelf when it is shown say whether it is laid out again.
+    pub fn cover(&mut self) {
+        if self.laid.is_some() {
+            self.covered = true;
         }
-        self.drop_widgets(host, ui);
-        self.stale = true;
     }
 
     /// The widgets of the page before are let go; a refusal is of no matter
