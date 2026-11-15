@@ -1,0 +1,3 @@
+### Fixed
+
+- **A book's pictures are decoded no larger than the screen again** (#250). A reader that names no picture size got pictures of up to 1,600 pixels a side, where Beta 3 decoded them for the screen: a cover of 896 × 1,400 pixels was written to the card as 1.25 MB on the X4 while the book opened, and read back at that size for every page that shows it. The size is now the screen's long side (800 pixels on the X4 family, at most 1,600 on larger screens), so that cover is 512 × 800 and 0.41 MB. It is the long side, so turning the screen converts nothing again. Books opened before are converted once more at their next open; a reader that names a size gets that size as before.

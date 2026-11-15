@@ -204,6 +204,23 @@ fn words_of(line: &paperpaw_sdk::layout::PageLine) -> usize {
     counted
 }
 
+/// Only the page's pictures, as [`draw_page`] draws them with `pictures`: for the
+/// host's draw that counts them and shows nothing.
+///
+/// # Errors
+/// What `ink` refuses.
+pub fn draw_pictures(
+    ink: &mut impl Ink,
+    page: &Page,
+    (left, top): (f32, f32),
+    pictures: Pictures,
+) -> Result<(), Error> {
+    match pictures {
+        Pictures::Drawn => draw_images(ink, page, (left, top)),
+        Pictures::Places => Ok(()),
+    }
+}
+
 /// The boxes the page's pictures take on the screen, with the content box's
 /// top left at `(left, top)`: `(x, y, width, height)` in pixels, rounded as
 /// they are drawn.

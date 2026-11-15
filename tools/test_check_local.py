@@ -129,6 +129,45 @@ class CheckLocal(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertIn("packages: many7", run.stdout)
 
+    def add_user_of_good(self):
+        # `user` depends on `good`, `deep` on `user`: a change in `good` is felt by both.
+        members = ["crates/good", "crates/bad"]
+        for name, dep in (("user", "good"), ("deep", "user")):
+            crate = self.repo / "crates" / name
+            (crate / "src").mkdir(parents=True)
+            (crate / "Cargo.toml").write_text(
+                f'[package]\nname = "{name}"\nversion = "0.1.0"\nedition = "2021"\n'
+                f'[dependencies]\n{dep} = {{ path = "../{dep}" }}\n')
+            (crate / "src/lib.rs").write_text("")
+            members.append(f"crates/{name}")
+        quoted = ", ".join(f'"{m}"' for m in members)
+        (self.repo / "Cargo.toml").write_text(f'[workspace]\nmembers = [{quoted}]\nresolver = "2"\n')
+        self.git("add", ".")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "users")
+        self.git("branch", "-f", "base")
+
+    def test_the_packages_that_depend_on_a_changed_one_are_checked_too(self):
+        self.add_user_of_good()
+        (self.repo / "crates/good/src/lib.rs").write_text("pub fn changed() {}\n")
+        run = self.run_script("--only", "test")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("packages: good user deep", run.stdout)
+        self.assertIn("2 dependent package(s)", run.stdout)
+        # `bad` does not depend on `good`: its failing test is not run.
+        self.assertNotIn("bad", run.stdout.split("packages:")[1].splitlines()[0])
+
+    def test_no_dependents_keeps_to_the_changed_packages(self):
+        self.add_user_of_good()
+        (self.repo / "crates/good/src/lib.rs").write_text("pub fn changed() {}\n")
+        run = self.run_script("--only", "test", "--no-dependents")
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("packages: good\n", run.stdout)
+
+    def test_named_crates_get_no_dependents(self):
+        self.add_user_of_good()
+        run = self.run_script("--only", "test", "good")
+        self.assertIn("packages: good\n", run.stdout)
+
     def test_a_missing_base_is_an_error_not_an_empty_package_set(self):
         run = self.run_script("--base", "origin/nowhere", "--only", "test")
         self.assertEqual(run.returncode, 2, run.stdout + run.stderr)

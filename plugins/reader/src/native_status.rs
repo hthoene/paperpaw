@@ -24,8 +24,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    Messages, Style,
-    mem::{self, SERVICE_BUFFER},
+    Messages, Style, mem,
     paint::{self, Paint},
     status_line::{self, Face, Lists, Placed},
     text,
@@ -461,9 +460,6 @@ fn paint_one(
         _ => None,
     };
     if let Some(lists) = lists {
-        if lists.line.is_empty() {
-            buffers = [mem::buffer(SERVICE_BUFFER)?, mem::buffer(SERVICE_BUFFER)?];
-        }
         let drawn = status_line::draw_kept(
             known,
             (&face, lists),
