@@ -200,6 +200,22 @@ impl Firmware {
         if let Some(table) = &self.device_table {
             if paperpaw_x4::stack_band::host_native_at_start(crate::stack::band_armed()) {
                 crate::native::register_linked(&mut self.kernel, table);
+                // Plugin jobs (a store's install, update and removal, a
+                // plugin check), which the loader's own lists and the families
+                // wired by now decide (`paperpaw_x4::host_jobs`). Not where no
+                // code loads (an update on trial, safe mode): refused then.
+                let wired = crate::device_host::wired_families(false);
+                // With what this firmware's loader reads (`native::reads`).
+                if let Some(loader) = crate::native::reads()
+                    && !paperpaw_x4::host_jobs::offer_plugin_jobs(
+                        &mut self.kernel,
+                        loader,
+                        crate::native::FAMILY,
+                        wired,
+                    )
+                {
+                    warn!("native: plugin jobs are not taken: the kernel has no firmware host");
+                }
             } else {
                 warn!("native: the stack's band is not armed: no plugin of interface 7 is hosted");
             }
@@ -217,6 +233,21 @@ impl Firmware {
         }
     }
 
+    /// A start is due once the update on trial is kept: code plugins to load,
+    /// or the linked plugins of interface 7 that a trial does not host
+    /// (`paperpaw_x4::host_jobs::restart_once_kept`).
+    fn restart_once_kept(&self) -> bool {
+        #[cfg(feature = "native-on")]
+        let (hosted, linked) = (self.device_table.is_some(), true);
+        #[cfg(not(feature = "native-on"))]
+        let (hosted, linked) = (true, false);
+        paperpaw_x4::host_jobs::restart_once_kept(
+            crate::native::code_to_load(self.kernel.storage()),
+            hosted,
+            linked,
+        )
+    }
+
     /// An update on trial with code plugins to load once it is kept: it
     /// starts again then, and says so meanwhile, on a screen that takes no
     /// input (nothing begun is cut off).
@@ -225,7 +256,7 @@ impl Firmware {
         let Some(left) = self.ota.as_ref().and_then(|ota| ota.trial_left(start.0)) else {
             return;
         };
-        if !crate::native::code_to_load(self.kernel.storage()) {
+        if !self.restart_once_kept() {
             return;
         }
         let params = paperpaw_sdk::Params::new()
@@ -281,10 +312,17 @@ impl Firmware {
             // it is kept, which installs and loads them (ADR 0024).
             Ota::trial_over(self.kernel.storage());
             self.kernel.trial_kept();
-            self.state.restart_for_code = crate::native::code_to_load(self.kernel.storage());
+            self.state.restart_for_code = self.restart_once_kept();
         }
         // At a calm moment: at once, unless a book is open, then once it
         // is left. A sleep on battery before is a start too.
+        // A firmware job installed an image and asked for its start
+        // (`FirmwareHost::restart`): the way every restart goes, at the next
+        // turn of this loop, not inside the kernel's call.
+        if crate::ota::restart_asked() {
+            info!("OTA: an installed update asked to start: restarting");
+            self.restart();
+        }
         if self.state.restart_for_code && !self.reading() {
             info!("native: the update is kept; restarting to load the code plugins");
             self.restart();

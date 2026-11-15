@@ -972,6 +972,41 @@ fn sleep_during_a_trial_keeps_its_time() {
     }
 }
 
+/// On trial the other slot holds the firmware to go back to: the kernel's write
+/// (`FirmwareHost::begin_write`) is refused, and writes nothing, until the
+/// trial is over (#273).
+#[test]
+fn the_kernels_write_is_refused_while_a_trial_runs() {
+    use paperpaw_platform::firmware::{FirmwareHost, Reason};
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        device.server.updates = vec![files.new.clone()];
+        assert_eq!(device.update_online(), Taken::Installed, "{name}");
+        device.restart();
+        assert!(device.updates.as_ref().unwrap().on_trial(), "{name}");
+        let refused = FirmwareHost::begin_write(
+            device.updates.as_mut().unwrap(),
+            "update.bin",
+            [0; 32],
+            None,
+            false,
+        );
+        assert_eq!(refused, Err(Reason::OTHER), "{name}");
+        assert!(device.untouched(), "{name}");
+        // Kept: the write may begin again.
+        device.run_for(TRIAL_MS + 1_000);
+        let again = FirmwareHost::begin_write(
+            device.updates.as_mut().unwrap(),
+            "update.bin",
+            [0; 32],
+            None,
+            false,
+        );
+        assert_eq!(again, Ok(()), "{name}");
+    }
+}
+
 /// The way back to another firmware (CrossPoint): its image, which the
 /// reader chose as such, is written whole into the other half and the
 /// bootloader would start it. The wiring takes chip and board from

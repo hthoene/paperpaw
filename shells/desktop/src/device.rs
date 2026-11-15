@@ -1278,8 +1278,9 @@ fn build_kernel(
         // emulated device has one, with no firmware to install
         // (`crate::linked::card_plugins`).
         #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-        if let Some((_, _, chip)) = crate::linked::card_plugins(profile) {
-            builder = builder.firmware_host(Box::new(crate::no_firmware::NoFirmware::new(chip)));
+        if let Some(family) = crate::linked::card_plugins(profile) {
+            builder =
+                builder.firmware_host(Box::new(paperpaw_x4::host_jobs::NoFirmware::new(family)));
         }
         if let Some(add) = add {
             builder = add(builder);
