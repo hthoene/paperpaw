@@ -184,3 +184,35 @@ fn a_plain_setting_changed_just_before_back_shows_when_it_returns() {
         "the footer still shows the pencil"
     );
 }
+
+#[test]
+fn a_return_from_a_book_read_for_minutes_keeps_the_page() {
+    let mut device = device(true);
+    // The clock is set, so that Home's clock and card change at each minute.
+    device.set_time(1_760_000_000_000);
+    // The first return lays the page out (the book was open from the start).
+    run_script(&mut device, "back").unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    run_script(
+        &mut device,
+        "open:reader.screen:path=books/alice-in-wonderland.epub",
+    )
+    .unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    assert_eq!(screen(&mut device), "reader.screen");
+    // Minutes pass under the book: Home's own clock and card are drawn from what
+    // they read (they have no widget instance of the host's, so no
+    // `widget_changed`) and are no reason to lay the page out again.
+    for _ in 0..8 {
+        run_script(&mut device, "wait:15000,page-forward").unwrap();
+    }
+    let (all, settings) = counted(&mut device, &["back", "wait:3000"]);
+    assert_eq!(screen(&mut device), "home.dashboard");
+    // A return that lays the page out again reads over 550 settings (614 and
+    // 1,298 slots measured); the widgets of the new minute draw a few slots
+    // more than the first return does.
+    assert!(
+        all <= KEPT_ALL_SLOTS + 100 && settings <= KEPT_SETTINGS,
+        "the return made {all} host slots ({settings} settings reads): the page was laid out again"
+    );
+}
