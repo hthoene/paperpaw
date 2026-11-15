@@ -231,24 +231,23 @@ fn read_exact(
     Ok(buf)
 }
 
-/// Up to `len` bytes at `offset`: fewer where the file ends before.
-fn read_most(
+/// Fills `into` from `offset` and tells how much was there: less than
+/// `into` holds where the file ends before.
+fn read_into(
     storage: &dyn Storage,
     path: &str,
     offset: u64,
-    len: usize,
-) -> Result<Vec<u8>, ZipError> {
-    let mut buf = zeroed(len)?;
+    into: &mut [u8],
+) -> Result<usize, ZipError> {
     let mut filled = 0;
-    while filled < len {
-        let n = storage.read_at(path, offset + filled as u64, &mut buf[filled..])?;
+    while let Some(rest) = into.get_mut(filled..).filter(|rest| !rest.is_empty()) {
+        let n = storage.read_at(path, offset + filled as u64, rest)?;
         if n == 0 {
             break;
         }
         filled += n;
     }
-    buf.truncate(filled);
-    Ok(buf)
+    Ok(filled)
 }
 
 /// A zero-filled buffer, or [`ZipError::OutOfMemory`].
@@ -507,7 +506,11 @@ impl ZipArchive {
         storage: &dyn Storage,
         offset: u32,
     ) -> Result<([u8; RECORD], String), ZipError> {
-        let mut read = read_most(storage, &self.path, u64::from(offset), NAMED)?;
+        // Read on the stack: the name is kept by callers (a comic's page
+        // list holds thousands), so it takes exactly its own length.
+        let mut read = [0u8; NAMED];
+        let got = read_into(storage, &self.path, u64::from(offset), &mut read)?;
+        let read = read.get(..got).unwrap_or_default();
         let head: [u8; RECORD] = read
             .get(..RECORD)
             .and_then(|head| head.try_into().ok())
@@ -516,13 +519,19 @@ impl ZipArchive {
             return Err(ZipError::Invalid("bad central directory entry"));
         }
         let name_len = usize::from(u16_at(&head, 28).unwrap_or(0));
-        let name = if RECORD + name_len <= read.len() {
-            read.drain(..RECORD);
-            read.truncate(name_len);
-            read
-        } else {
-            let after = u64::from(offset) + RECORD as u64;
-            read_exact(storage, &self.path, after, name_len)?
+        let name = match read.get(RECORD..RECORD + name_len) {
+            Some(name) => {
+                let mut exact = Vec::new();
+                exact
+                    .try_reserve_exact(name_len)
+                    .map_err(|_| ZipError::OutOfMemory)?;
+                exact.extend_from_slice(name);
+                exact
+            }
+            None => {
+                let after = u64::from(offset) + RECORD as u64;
+                read_exact(storage, &self.path, after, name_len)?
+            }
         };
         Ok((head, lossy(name)?))
     }
@@ -1385,6 +1394,24 @@ mod tests {
             assert_eq!(archive.entry_by_record(&storage, entry.record), Ok(entry));
             assert_eq!(storage.1.get(), reads);
         }
+    }
+
+    /// Names are kept by callers: a comic's page list holds thousands and
+    /// budgets by their length, so none may keep the read buffer's room.
+    #[test]
+    fn an_entrys_name_takes_no_more_room_than_its_length() {
+        let (zip, names) = a_books_archive();
+        let storage = OneFile(zip);
+        let archive = ZipArchive::open(&storage, "x.zip").unwrap();
+        let entry = archive.entry(&storage, &names[0]).unwrap().unwrap();
+        assert_eq!(entry.name.capacity(), entry.name.len());
+        let mut listed = 0;
+        for entry in archive.entries(&storage) {
+            let name = entry.unwrap().name;
+            assert_eq!(name.capacity(), name.len(), "{}", &name[..20]);
+            listed += 1;
+        }
+        assert_eq!(listed, names.len());
     }
 
     #[test]
