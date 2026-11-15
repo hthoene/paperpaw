@@ -221,3 +221,123 @@ fn a_file_that_is_no_interface_7_file_says_why_it_does_not_run() {
         PluginProblem::Damaged
     );
 }
+
+/// A card that comes from Beta 3 with the folder of a plugin that is built
+/// in now (`widgets`): Beta 3's file, named as installed, and a text only
+/// the folder's translations have.
+fn card_with_built_in_id() -> MemoryStorage {
+    let card = card_never_installed();
+    let beta3 = paperpaw_native::Header::read(BETA3).unwrap().sha256;
+    assert!(paperpaw_sdk::native::remember_code(
+        &card, "widgets", &beta3
+    ));
+    card
+}
+
+/// The same folder with its code put there otherwise, not installed.
+fn card_never_installed() -> MemoryStorage {
+    MemoryStorage::new()
+        .with(
+            "plugins/widgets/plugin.ini",
+            "[plugin]\nid = widgets\nname = Widgets of Beta 3\nversion = 1.0.3\n",
+        )
+        .with("plugins/widgets/code.ppn", BETA3)
+        .with(
+            "plugins/widgets/i18n/en.ini",
+            "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n\
+             [messages]\nwidgets.card-only = from the card\n",
+        )
+}
+
+fn widgets_is_built_in(id: &str) -> bool {
+    id == "widgets"
+}
+
+/// Nothing of the folder is loaded and its row says its id is taken.
+fn assert_refused_for_its_id(kernel: &mut Kernel) {
+    use paperpaw_sdk::PluginProblem;
+    let row = kernel.plugins().get("widgets").unwrap();
+    assert_eq!(row.problem, Some(PluginProblem::Mismatch));
+    assert_eq!(kernel.translator().get("widgets.card-only"), None);
+    let warnings = kernel.take_warnings();
+    assert!(
+        warnings.iter().any(|w| w
+            .message
+            .contains("plugins/widgets: a plugin built in has this id")),
+        "{warnings:?}"
+    );
+    assert_eq!(
+        kernel.storage().size("plugins/widgets/code.ppn").ok(),
+        Some(BETA3.len() as u64)
+    );
+}
+
+/// The folder of a Beta 3 plugin whose id is a built-in plugin's now is
+/// refused for its id before its file is looked at: no row "built for an
+/// older PaperPaw", none of its translations, and the built-in plugin's row
+/// takes its place. The X4's loader asked the file's format first.
+#[test]
+fn a_beta_3_folder_with_a_built_in_plugins_id_is_refused_for_its_id() {
+    use paperpaw_sdk::{Id, Manifest, PluginInfo, PluginKind, PluginState, Version};
+    let mut kernel = Kernel::builder(DEVICE)
+        .storage(card_with_built_in_id())
+        .built_in_ids(widgets_is_built_in)
+        .code_plugins(Native::new("code.ppn"), Box::new(Interface7Only))
+        .build()
+        .unwrap();
+    assert_refused_for_its_id(&mut kernel);
+    let manifest = Manifest::new(Id::new_static("widgets"), "Widgets", Version::new(2, 0, 0));
+    let manifest = paperpaw_sdk::ManifestRef::try_new(manifest, None).unwrap();
+    let linked = PluginInfo::new(
+        manifest,
+        PluginState::Running,
+        true,
+        paperpaw_sdk::RequiredFor::default(),
+        PluginKind::BuiltIn,
+        None,
+        None,
+    );
+    assert_eq!(kernel.list_native(linked), Ok(()));
+    let row = kernel.plugins().get("widgets").unwrap();
+    assert_eq!((row.kind, row.problem), (PluginKind::BuiltIn, None));
+    assert_eq!(row.manifest.name, "Widgets");
+}
+
+/// So it is on every start: one without code plugins (an update on trial),
+/// with the id switched off, with the code never named as installed, and
+/// in safe mode, which must not switch the built-in plugin's id off.
+#[test]
+fn a_folder_with_a_built_in_plugins_id_is_refused_on_every_start() {
+    use paperpaw_sdk::native::{SafeMode, SafeModeReason};
+    let native = || Native::new("code.ppn");
+    let builder = |card: MemoryStorage| {
+        Kernel::builder(DEVICE)
+            .storage(card)
+            .built_in_ids(widgets_is_built_in)
+    };
+    let mut on_trial = builder(card_with_built_in_id())
+        .native_after_trial(native())
+        .build()
+        .unwrap();
+    assert_refused_for_its_id(&mut on_trial);
+    let mut off = builder(card_with_built_in_id())
+        .user_config("[plugins]\nwidgets = off\n")
+        .code_plugins(native(), Box::new(Interface7Only))
+        .build()
+        .unwrap();
+    assert_refused_for_its_id(&mut off);
+    let mut kernel = builder(card_never_installed())
+        .code_plugins(native(), Box::new(Interface7Only))
+        .build()
+        .unwrap();
+    assert_refused_for_its_id(&mut kernel);
+    let mut safe = builder(card_with_built_in_id())
+        .code_plugins(native(), Box::new(Interface7Only))
+        .safe_mode(SafeMode::new(SafeModeReason::KeyHeld))
+        .build()
+        .unwrap();
+    assert_refused_for_its_id(&mut safe);
+    let config = paperpaw_sdk::read_file(safe.storage(), "paperpaw.ini", 4096).unwrap_or_default();
+    let config = alloc::string::String::from_utf8(config).unwrap();
+    assert!(!config.contains("widgets"), "{config}");
+}

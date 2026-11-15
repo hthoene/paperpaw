@@ -157,6 +157,14 @@ pub trait CodeLoader {
         Ok(None)
     }
 
+    /// What this loader reads of interface-7 files: the chip, interface and
+    /// minor it takes; `None` (the default) where it runs none. The one
+    /// source of it: the kernel installs the code fetched for a firmware
+    /// update by it, and the shell asks [`code_to_load`] with the same.
+    fn reads(&self) -> Option<header5::Host> {
+        None
+    }
+
     /// Called once per start, before the first plugin is asked
     /// ([`load_native`](Self::load_native)); not in safe
     /// mode, where no plugin is loaded. A shell that offers host services to
@@ -235,13 +243,23 @@ pub(crate) struct CodePlugins {
     pub(crate) safe_mode: Option<SafeMode>,
 }
 
+/// What a start knows of the code among the card's plugins: how it loads
+/// (`None`: this start loads none) and which ids are built-in plugins'
+/// ([`KernelBuilder::built_in_ids`](crate::KernelBuilder::built_in_ids)).
+pub(crate) struct CodeAtStart {
+    pub(crate) plugins: Option<CodePlugins>,
+    pub(crate) built_in: Option<fn(&str) -> bool>,
+}
+
 /// Why the code file at `path` does not run where the loader took it for
 /// none of its own ([`CodeLoader::load_native`] answered `Ok(None)`): a file
 /// of the format before interface 7 was built for an older PaperPaw (Beta 3's
 /// plugins: listed so, never loaded and never taken for damaged), one of a
 /// format this build does not read needs a newer one, an interface-7 file
 /// where the loader runs none is not supported here, anything else is
-/// damaged.
+/// damaged. Not inlined: the header it reads stays out of the frame of the
+/// start's loop over the plugins, which the admissions stand on.
+#[inline(never)]
 pub(crate) fn file_problem(storage: &dyn Storage, path: &str) -> PluginProblem {
     use paperpaw_native::{HEADER_LEN, Header, MAGIC, Problem};
     let mut head = [0u8; HEADER_LEN];
@@ -278,9 +296,16 @@ impl Kernel {
         &mut self,
         mut found: Vec<DataPlugin>,
         disabled: &[String],
-        code: Option<CodePlugins>,
+        code: CodeAtStart,
     ) {
         paperpaw_sort::sort_by_cached_key(&mut found, |plugin| plugin.manifest().id);
+        let CodeAtStart {
+            plugins: code,
+            built_in,
+        } = code;
+        if let Some(built_in) = built_in {
+            found = self.refuse_built_in_ids(found, disabled, built_in);
+        }
         let Some(CodePlugins {
             mut native,
             mut loader,
@@ -363,6 +388,35 @@ impl Kernel {
         loader.finish(storage.as_ref());
         self.ask_hyphenation_sink(loader.as_mut(), &storage);
         self.shared.native = Some(native);
+    }
+
+    /// A card folder with code whose id is a plugin's built into the program
+    /// (`built_in`, [`KernelBuilder::built_in_ids`](crate::KernelBuilder::built_in_ids))
+    /// is refused for its id before anything else is asked of it, whatever
+    /// its file, switch or start (a plugin of Beta 3 that is built in now):
+    /// nothing of it loads, not its translations, safe mode does not switch
+    /// its id off, and its row is the built-in plugin's once that registers.
+    /// The folders left.
+    fn refuse_built_in_ids(
+        &mut self,
+        found: Vec<DataPlugin>,
+        disabled: &[String],
+        built_in: fn(&str) -> bool,
+    ) -> Vec<DataPlugin> {
+        let (refused, found): (Vec<DataPlugin>, Vec<DataPlugin>) = found
+            .into_iter()
+            .partition(|plugin| built_in(plugin.manifest().id.as_str()));
+        for plugin in refused {
+            let id = self.begin_try(&plugin.manifest().id);
+            let problem = PluginProblem::Mismatch;
+            let message = format!(
+                "{}: a plugin built in has this id; not loaded ({problem:?})",
+                plugin.folder()
+            );
+            self.warn(WarningSource::Plugin(id), None, message);
+            self.list_code_plugin(&plugin, disabled, PluginState::Failed, problem);
+        }
+        found
     }
 
     /// Asks the loader whether `file` is a native library and, if so, admits it
@@ -533,6 +587,8 @@ mod tests {
         natives: Vec<(&'static str, Result<(), PluginProblem>)>,
         /// The folders the kernel admitted.
         admitted: Rc<RefCell<Vec<String>>>,
+        /// What it says it reads of interface-7 files.
+        reads: Option<header5::Host>,
     }
 
     /// A hosted native plugin: admitting it notes its folder.
@@ -574,6 +630,10 @@ mod tests {
                 Some((_, Err(problem))) => Err(*problem),
                 None => Ok(None),
             }
+        }
+
+        fn reads(&self) -> Option<header5::Host> {
+            self.reads
         }
 
         fn finish(&mut self, _: &dyn Storage) {
@@ -1197,13 +1257,17 @@ version = 2.0.0
         storage
     }
 
-    /// A kernel of a firmware whose loader reads what `reads` says.
+    /// A kernel of a firmware whose loader reads what `reads` says, built
+    /// as the X4's shell builds it: the loader alone says so (no plugin
+    /// host, which that shell does not set).
     fn builder_on(storage: MemoryStorage, loader: &Loader, reads: header5::Host) -> KernelBuilder {
-        let (_, offered) = crate::native_host::firmware_driver::plugin_tests::kernel_host();
+        let loader = Loader {
+            reads: Some(reads),
+            ..loader.clone()
+        };
         Kernel::builder(DEVICE)
             .storage(storage)
-            .plugin_host(reads, offered, &[])
-            .code_plugins(Native::new("code.ppn"), Box::new(loader.clone()))
+            .code_plugins(Native::new("code.ppn"), Box::new(loader))
     }
 
     fn stats_loader() -> Loader {
