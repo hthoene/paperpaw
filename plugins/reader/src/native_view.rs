@@ -514,6 +514,9 @@ impl View {
                 open.ensure_counter(host, &setup);
             }
             open.announce(host, docs);
+            // Its pictures are asked for as they are where a page is shown: one
+            // the layout brought onto the page is not decoded yet (#250).
+            return open.redraw_page(host, docs, RedrawMode::Full);
         }
         redraw(host, RedrawMode::Full)
     }
