@@ -23,6 +23,7 @@ impl paperpaw_sdk::Screen for Blank {
 
 const LOW: Id = Id::new_static("shelf.low");
 const HIGH: Id = Id::new_static("shelf.high");
+const TIDY: Id = Id::new_static("shelf.tidy");
 
 struct Shelf;
 impl paperpaw_sdk::Plugin for Shelf {
@@ -40,7 +41,30 @@ impl paperpaw_sdk::Plugin for Shelf {
         // The lower one is offered first: the order tried is by priority.
         r.bind_slot(slots::HOME, LOW, Priority::DEFAULT)?;
         r.bind_slot(slots::HOME, HIGH, Priority::PREFERRED)?;
-        r.subscribe(events::BOOK_CLOSED, alloc::boxed::Box::new(|_, _, _| {}))
+        r.subscribe(events::BOOK_CLOSED, alloc::boxed::Box::new(|_, _, _| {}))?;
+        r.add_action(paperpaw_sdk::ActionSpec::new(TIDY, "shelf.tidy"))?;
+        r.override_action(TIDY, |_, _, _| {}, Priority::DEFAULT)?;
+        r.observe_actions(paperpaw_sdk::ObserverSpec::new(
+            Id::new_static("shelf.seen"),
+            |_, _, _, _| {},
+        ))
+    }
+}
+
+/// A second plugin, registered after `shelf` though its name sorts before:
+/// a handler of the same priority in the place of `shelf`'s action, and an
+/// observer of actions.
+struct Desk;
+impl paperpaw_sdk::Plugin for Desk {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("desk"), "Desk", Version::new(1, 0, 0))
+    }
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.override_action(TIDY, |_, _, _| {}, Priority::DEFAULT)?;
+        r.observe_actions(paperpaw_sdk::ObserverSpec::new(
+            Id::new_static("desk.seen"),
+            |_, _, _, _| {},
+        ))
     }
 }
 
@@ -64,6 +88,7 @@ impl ImageOwner for Declarer {
 fn kernel() -> crate::Kernel {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .plugin(Shelf)
+        .plugin(Desk)
         .build()
         .unwrap();
     let directory = Shared::try_new(NativeDeclarations::default()).unwrap();
@@ -120,6 +145,11 @@ fn a_slots_screens_stand_in_the_order_they_are_tried_not_in_the_lines_order() {
         part(&lines, "slot-order core.home"),
         ["| shelf.high", "| shelf.low", "| core.placeholder"]
     );
+    // The list of the slot's screens is code of its own, in the same order.
+    assert_eq!(
+        part(&lines, "slot-list core.home"),
+        part(&lines, "slot-order core.home")
+    );
     assert!(
         part(&lines, "slot core.home")
             .iter()
@@ -138,6 +168,23 @@ fn a_slots_screens_stand_in_the_order_they_are_tried_not_in_the_lines_order() {
             .iter()
             .any(|line| line.starts_with("plugin | shelf 1.0.0 "))
     );
+}
+
+/// Two handlers of one priority in one action's place, and two observers of
+/// actions, stand in the kernel's order (the plugins' order of registering),
+/// not in their names': a sort of the lines would lose which runs first.
+#[test]
+fn equal_handlers_and_observers_stand_in_the_order_of_registering() {
+    let lines = kernel().registry_lines();
+    assert_eq!(
+        part(&lines, "action-override shelf.tidy"),
+        ["| shelf", "| desk"]
+    );
+    let observers: Vec<&str> = part(&lines, "action-observer")
+        .into_iter()
+        .filter(|line| line.ends_with(".seen"))
+        .collect();
+    assert_eq!(observers, ["| shelf.seen", "| desk.seen"]);
 }
 
 #[test]

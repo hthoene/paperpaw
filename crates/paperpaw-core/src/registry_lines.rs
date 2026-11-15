@@ -226,6 +226,14 @@ impl Kernel {
             });
         }
         lines.end("slot-order");
+        // The same order as a list (`ScreenMaker::slot_screens`): code of
+        // its own, which a view of the slot's screens asks.
+        for (id, _) in registry.slots.iter() {
+            for screen in paperpaw_sdk::ScreenMaker::slot_screens(registry, id.as_str()) {
+                lines.add(id, screen);
+            }
+        }
+        lines.end("slot-list");
         for (slot, screen) in registry.user_bindings() {
             lines.add(slot, screen);
         }
