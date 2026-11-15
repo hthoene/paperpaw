@@ -36,7 +36,7 @@ struct paperpaw_text::anchors::Anchors { list: [paperpaw_text::anchors::Anchor; 
 struct paperpaw_text::around::Around { before: core::option::Option<char>, after: core::option::Option<char>, base: paperpaw_lang::Direction, lang: paperpaw_lang::Lang, flags: u32 }
 struct paperpaw_text::bidi::Level(0: u8)
 struct paperpaw_text::bitmap::BitmapFont { data: alloc::borrow::Cow<'static, [u8]>, strikes: u16 }
-struct paperpaw_text::bitmap::PackBuilder { strikes: alloc::vec::Vec<paperpaw_text::bitmap::StrikeData>, kerning: alloc::vec::Vec<u8>, tables: [alloc::vec::Vec<u8>; 7] }
+struct paperpaw_text::bitmap::PackBuilder { strikes: alloc::vec::Vec<paperpaw_text::bitmap::StrikeData>, kerning: alloc::vec::Vec<u8>, tables: [alloc::vec::Vec<u8>; 7], compact: bool }
 struct paperpaw_text::bitmap::StrikeData { size: f32, metrics: paperpaw_text::font::LineMetrics, glyphs: alloc::vec::Vec<(char, paperpaw_text::glyph::Glyph)> }
 struct paperpaw_text::cache::GlyphCache(0: alloc::boxed::Box<dyn paperpaw_text::cache::Cache>)
 struct paperpaw_text::curve::ToneCurve { alphas: [u8; 16] }
