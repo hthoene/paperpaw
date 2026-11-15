@@ -712,7 +712,7 @@ fn narrow(value: u32) -> u16 {
     value.min(crate::geometry::MAX_PX as u32) as u16
 }
 
-fn palette_color(palette: &str, name: &str, default: Color) -> Color {
+pub(crate) fn palette_color(palette: &str, name: &str, default: Color) -> Color {
     palette_find(palette, name).unwrap_or(default)
 }
 
