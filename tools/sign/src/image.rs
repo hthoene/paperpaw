@@ -18,6 +18,7 @@
 //! `check-app <app.bin>` holds the first rule alone to an app image
 //! without table (the install image a build makes).
 
+use paperpaw_update::PLUGINS_AT;
 use paperpaw_x4::partitions::{Slots, TABLE_AT, TABLE_LEN};
 
 /// The magic byte of an app image.
@@ -70,6 +71,9 @@ pub struct App {
     pub descriptor: bool,
     /// The project named in the descriptor, where there is one.
     pub project: String,
+    /// The plugin crates the list after the descriptor names (0 where there
+    /// is no list).
+    pub plugins: usize,
 }
 
 /// The app image at the start of `bytes`, as ESP-IDF lays it out: the
@@ -85,6 +89,7 @@ pub fn app(bytes: &[u8]) -> Result<App, String> {
     let mut drom = 0;
     let mut descriptor = false;
     let mut project = String::new();
+    let mut plugins = 0;
     for n in 0..segments {
         let head = bytes
             .get(at..at + 8)
@@ -101,6 +106,12 @@ pub fn app(bytes: &[u8]) -> Result<App, String> {
                 let name = &data[DESC_PROJECT];
                 let end = name.iter().position(|&b| b == 0).unwrap_or(name.len());
                 project = String::from_utf8_lossy(&name[..end]).into_owned();
+                // The list sits right after the descriptor (`PLUGINS_AT` is
+                // counted from the image's start: its header and the segment's).
+                plugins = data
+                    .get(PLUGINS_AT - (HEADER + 8)..)
+                    .and_then(paperpaw_update::Plugins::read)
+                    .map_or(0, |list| list.iter().count());
             }
         }
         at += 8 + len;
@@ -120,6 +131,7 @@ pub fn app(bytes: &[u8]) -> Result<App, String> {
         drom,
         descriptor,
         project,
+        plugins,
     })
 }
 
@@ -140,6 +152,12 @@ fn one_data_segment(app: &App) -> Result<(), String> {
         return Err(format!(
             "the app's first segment is not data at {DESC_AT:#x} that begins with the \
              application descriptor (magic {DESC_MAGIC:#x})"
+        ));
+    }
+    if app.plugins == 0 {
+        return Err(String::from(
+            "the list of plugins built in, right after the application descriptor, is \
+             missing or empty: the firmware reads it for the update check and About",
         ));
     }
     Ok(())
@@ -252,6 +270,11 @@ pub fn check_file(path: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    thread_local! {
+        /// Set by a test that wants an image without the plugin list.
+        static NO_LIST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
     /// An app image of `segments` (address, length), its checksum padded,
     /// with a hash.
     fn image(segments: &[(u32, usize)]) -> Vec<u8> {
@@ -275,6 +298,15 @@ mod tests {
                 bytes[first + DESC_PROJECT.start..first + DESC_PROJECT.end].fill(0);
                 let name = project.as_bytes();
                 bytes[first + DESC_PROJECT.start..][..name.len()].copy_from_slice(name);
+                // The list of plugins after the descriptor (256 bytes).
+                let list = paperpaw_update::Plugins::record([paperpaw_update::PluginCrate {
+                    name: "paperpaw-plugin-about",
+                    version: "1.0.0",
+                }])
+                .unwrap();
+                if len >= 256 + list.len() && !NO_LIST.with(std::cell::Cell::get) {
+                    bytes[first + 256..first + 256 + list.len()].copy_from_slice(&list);
+                }
             }
         }
         let padded = (bytes.len() + 1).next_multiple_of(16);
@@ -345,6 +377,15 @@ mod tests {
             (0x4218_0020, 5000),
         ]);
         assert_eq!(check(&flash(&app, true)).unwrap().1.drom, 1);
+    }
+
+    #[test]
+    fn an_image_without_the_plugin_list_fails() {
+        NO_LIST.with(|n| n.set(true));
+        let app = image(&[(0x3C00_0020, 1168), (0x4200_0020, 2000)]);
+        NO_LIST.with(|n| n.set(false));
+        let why = check(&flash(&app, true)).unwrap_err();
+        assert!(why.contains("list of plugins"), "{why}");
     }
 
     #[test]

@@ -141,9 +141,12 @@ fn stack_floor(out: &std::path::Path) {
 /// fails here, at once, and the padding is raised.
 fn no_rodata_gap(out: &std::path::Path) {
     let script = out.join("rodata-gap.x");
-    let text = "ASSERT(SIZEOF(.rodata_merge) == 0, \"a gap of the alignment of .rodata is left \
-                after the application descriptor: raise SECTION_END_ALIGN in \
-                crates/paperpaw-update/src/plugins.rs\");\n";
+    // By addresses, not by the gap section's size: a renamed or dropped
+    // `.rodata_merge` would read 0 and pass; a missing section named here
+    // fails the link instead.
+    let text = "ASSERT(ADDR(.rodata) == ADDR(.flash.appdesc) + SIZEOF(.flash.appdesc), \
+                \"a gap is left between the application descriptor's section and \
+                .rodata: raise SECTION_END_ALIGN in crates/paperpaw-update/src/plugins.rs\");\n";
     std::fs::write(&script, text).expect("rodata-gap.x");
     println!("cargo::rustc-link-arg={}", script.display());
 }
