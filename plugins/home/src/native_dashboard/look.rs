@@ -3,6 +3,7 @@
 //! registry changed ([`Dashboard::forget_looks`]), not at every draw (the X4
 //! draws a frame in five bands, each a call of `draw`).
 use alloc::vec::Vec;
+use core::cell::Cell;
 
 use super::{Cell, Dashboard, Error, Font, Host, Laid, Made, Rect, Snapshot, Style, Ui, icons};
 use paperpaw_sdk::native::snapshot;
@@ -33,14 +34,15 @@ impl Look {
         (cells, tool_labels): (&[Cell], bool),
     ) -> Result<Vec<Self>, Error> {
         let style = Style::read(host, display, font)?;
-        let wrapped = tool_lines(host, font, &style, cells, tool_labels)?;
+        let (wrapped, refused) = tool_lines(host, font, &style, cells, tool_labels)?;
         let mut held = Vec::new();
         held.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
         held.push(Self {
             style,
             wrapped,
             tool_labels,
-            ok: true,
+            // Hyphenation refused: the names are wrapped again at the next draw.
+            ok: !refused,
         });
         Ok(held)
     }
@@ -88,17 +90,19 @@ impl Dashboard {
 }
 
 /// The lines of the name of each tool shown (with names), with the top of its
-/// cell, in the order of the cells that are tools.
+/// cell, in the order of the cells that are tools, and whether the host refused
+/// a hyphenation (then the lines are not to be kept).
 fn tool_lines(
     host: &Host<'_>,
     font: &Font<'_>,
     style: &Style,
     cells: &[Cell],
     tool_labels: bool,
-) -> Result<Vec<(u16, icons::Name)>, Error> {
+) -> Result<(Vec<(u16, icons::Name)>, bool), Error> {
     let mut lines = Vec::new();
     let hyphens = icons::Hyphens::of(host);
-    let mut breaks = |word: &str, out: &mut _| hyphens.breaks(host, word, out);
+    let refused = Cell::new(false);
+    let mut breaks = |word: &str, out: &mut _| hyphens.breaks_noting(host, word, out, &refused);
     for cell in cells {
         if cell.face.is_none() {
             continue;
@@ -113,5 +117,5 @@ fn tool_lines(
         };
         push(&mut lines, (cell.rect.y, own))?;
     }
-    Ok(lines)
+    Ok((lines, refused.get()))
 }
