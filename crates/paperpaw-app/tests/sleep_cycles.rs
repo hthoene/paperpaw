@@ -311,7 +311,7 @@ fn card_bytes(card: &Card, dir: &str) -> u64 {
 const _: () = assert!(CYCLES > SETTLED);
 
 /// Keeps cycle 2's heap and handles, checks the once-growth at [`SETTLED`]
-/// and that nothing changed from there to the last cycle.
+/// and that nothing changes in any cycle from there to the last.
 fn compare(first: &mut Option<(isize, usize)>, cycle: usize, now: (isize, usize)) {
     match *first {
         None if cycle == 2 => *first = Some(now),
@@ -325,7 +325,7 @@ fn compare(first: &mut Option<(isize, usize)>, cycle: usize, now: (isize, usize)
             );
             *first = Some(now);
         }
-        Some((heap, handles)) if cycle == CYCLES => {
+        Some((heap, handles)) if cycle > SETTLED => {
             assert_eq!(
                 now.1, handles,
                 "handles after cycle {cycle} vs cycle {SETTLED}"
