@@ -56,6 +56,7 @@ mod effects;
 mod font_refresh;
 mod free_count;
 mod gestures;
+mod gray_later;
 mod hints;
 mod hyphen_feed;
 mod input;
@@ -486,6 +487,7 @@ impl Kernel {
         self.now = now;
         self.last_activity = now;
         self.last_user_input = Some(now);
+        self.gray_postpone();
         // No cover work begins beside what the user does now.
         self.native_cover_input();
         // Not counted while a screen guards the device: it would tell a typed code's length.

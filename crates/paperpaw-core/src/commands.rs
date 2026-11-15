@@ -146,6 +146,7 @@ impl Kernel {
             self.frame.followup_frame = None;
         }
         let followup = self.run_followup();
+        let gray_pass = self.gray_step();
         if mem::take(&mut self.output.redraw)
             && let Some(top) = self.stack.len().checked_sub(1)
         {
@@ -219,25 +220,32 @@ impl Kernel {
             // too where asked; not when drawn again after grays, not what
             // changes on it after, and not where the screen set its
             // refresh exactly (a focus moved far: the parts apart).
-            let grays = grays
-                || (whole
-                    && set.is_none()
-                    && !mode.does_clean_itself()
-                    && pictures
-                    && !again
-                    && weight * 2 >= area(screen)
-                    && self.shared.device.display.format.gray_levels() == Some(2)
-                    && self
-                        .shared
-                        .settings
-                        .bool(core_settings::PICTURES_IN_GRAYS.as_str())
-                    && self.pictures_drawn());
+            // In black and white first, the grays after a calm (`gray_later`,
+            // Decision 196); the pass itself is the frame in grays.
+            let rule = !grays
+                && !gray_pass
+                && whole
+                && set.is_none()
+                && !mode.does_clean_itself()
+                && pictures
+                && !again
+                && weight * 2 >= area(screen)
+                && self.shared.device.display.format.gray_levels() == Some(2)
+                && self
+                    .shared
+                    .settings
+                    .bool(core_settings::PICTURES_IN_GRAYS.as_str());
+            // The screen a device goes to sleep on has no calm to wait for:
+            // in grays at once, where it has the pictures.
+            let at_once = rule && (effects.sleep || effects.power_off) && self.pictures_drawn();
+            let later = rule && !at_once;
+            let grays = grays || gray_pass || at_once;
             // A page's pictures drawn after its text are no page turned,
             // however large: not counted, nor made the full refresh of the
             // whole screen that is due (leaving them refreshes in full).
             // What a filter deferred rides along uncounted too (above); no
             // filter of this tree defers (todo: count it apart).
-            let counted = if followup { 0 } else { weight };
+            let counted = if followup || gray_pass { 0 } else { weight };
             self.frame.refresh.weigh(Some(counted));
             let (mode, region) = self.frame.refresh.decide(requested, dirty, screen, every);
             let top = self.stack.last();
@@ -276,6 +284,7 @@ impl Kernel {
                     self.frame.refresh.weigh(None);
                     effects.refresh = Some((refresh.region, refresh.mode));
                     effects.grays = refresh.grays;
+                    self.gray_asked(whole, later);
                     self.frame_asked();
                     self.shared.usage.refreshed(refresh.mode, refresh.region);
                     let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
@@ -333,6 +342,7 @@ impl Kernel {
             self.service_due(),
             self.work_pump_due(),
             self.followup_due(effects.refresh.is_some()),
+            self.gray_wake(effects.refresh.is_some()),
         ]
         .into_iter()
         .flatten()

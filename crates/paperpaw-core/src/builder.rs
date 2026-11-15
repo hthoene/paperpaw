@@ -902,6 +902,7 @@ impl BuilderParts {
                 defers: 0,
                 followup: None,
                 followup_frame: None,
+                gray_later: crate::gray_later::GrayLater::Nothing,
             },
             input: gestures::InputState {
                 recognizer: Recognizer::default(),
