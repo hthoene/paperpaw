@@ -6,16 +6,18 @@
 //! has no room and keeps nothing: every ask goes to the host (slower, as
 //! before).
 //!
-//! The letters met are numbered in the order they come (up to [`ALPHABET`]). A
-//! context has a width for each letter and a bit for each pair that says it is
-//! known; the kerning of a known pair is zero unless the small table of kerned
-//! pairs has it. Nothing is hashed there, so what is found is always what was
-//! kept. The widths of the characters after the first [`ALPHABET`] (a book of
-//! another script, or one that starts in Latin) are kept in a small table of
-//! exact entries (the whole key is compared; a new entry takes the place of one
-//! of the two it may be in), made at the first such character. Their pairs are
-//! not kept and not asked (see [`Tables::leaves_out`]). Memory, made at once
-//! and never grown: about 7 KiB, and 2 KiB more for such a book.
+//! The letters met are numbered (up to [`ALPHABET`] at once; a new one takes
+//! the number of the one used least lately if it has not been used for a while
+//! ([`STALE`]), so that the alphabet follows the script being read: a Cyrillic
+//! book with a Latin title page is kerned in Cyrillic from its third page on). A context has a width for each letter
+//! and a bit for each pair that says it is known; the kerning of a known pair is
+//! zero unless the small table of kerned pairs has it. Nothing is hashed there,
+//! so what is found is always what was kept. Characters that have no number
+//! (fonts do not kern ideographs, kana and Hangul: [`kerns`]; or all numbers are
+//! in use) have their widths kept in a small table of exact entries (the whole key is compared; a new entry
+//! takes the place of one of the two it may be in), made at the first such
+//! character. Memory, made at once and never grown: about 8 KiB, and 2 KiB more
+//! for a book of such characters.
 use super::Role;
 use alloc::{rc::Rc, vec::Vec};
 use core::cell::{RefCell, RefMut};
@@ -25,6 +27,13 @@ use paperpaw_sdk::native::Error;
 const ALPHABET: usize = 96;
 /// Fonts at sizes kept at once; the least used is forgotten for a new one.
 const CONTEXTS: usize = 4;
+/// A letter that has not been asked for in this many lookups (about two pages of
+/// text) may give its number to a new one: a Latin title page lets go of its
+/// letters once the book goes on in Cyrillic, but a working set of more than
+/// [`ALPHABET`] letters (Vietnamese) does not take numbers from each other at
+/// every page. Letters without a number have their widths kept in the table of
+/// the others and are set without kerning.
+const STALE: u32 = 3_000;
 /// Entries of the table of kerned pairs (a power of two, 4 bytes each).
 const KERNED: usize = 256;
 /// The pairs of one context, as bits.
@@ -42,8 +51,11 @@ struct State {
     /// and the others met: the character and its number (`c << 8 | number`).
     ascii: Vec<u8>,
     others: Vec<u32>,
-    /// The number the next new character gets.
+    /// The number the next new character gets while some are free; the
+    /// character of each number and when it was last used.
     next: usize,
+    chars: Vec<u32>,
+    used: Vec<u32>,
     /// The widths of each context's letters (NaN: not known).
     widths: Vec<f32>,
     /// A bit for each pair of each context: its kerning is known.
@@ -89,6 +101,8 @@ impl Tables {
             ascii: filled(128, 0)?,
             others,
             next: 0,
+            chars: filled(ALPHABET, 0)?,
+            used: filled(ALPHABET, 0)?,
             widths: filled(CONTEXTS * ALPHABET, f32::NAN)?,
             known: filled(CONTEXTS * PAIR_BYTES, 0)?,
             kerned: filled(KERNED, 0)?,
@@ -110,14 +124,14 @@ impl Tables {
         self.0.as_ref()?.try_borrow_mut().ok()
     }
 
-    /// Whether the pair `left`, `right` is one the tables never keep and is not
-    /// asked of the host: the alphabet is full and one of them is not in it (a
-    /// book of another script after a Latin start). It is set unkerned, as the
-    /// layout set every pair before kerning was set at all.
+    /// Whether the pair is one that cannot be kept now and is not asked of the
+    /// host: one of the letters has no number and none can be given (all are in
+    /// use). It is set unkerned, as before kerning was set at all.
     pub(super) fn leaves_out(&self, (left, right): (char, char)) -> bool {
         self.state().is_some_and(|mut state| {
-            state.next >= ALPHABET
-                && (state.letter(left, false).is_none() || state.letter(right, false).is_none())
+            let numbered =
+                state.letter(left, false).is_some() && state.letter(right, false).is_some();
+            !numbered && state.next >= ALPHABET && state.oldest().is_none()
         })
     }
 
@@ -215,6 +229,16 @@ impl Tables {
     }
 }
 
+/// Whether fonts kern `c` with its neighbours: not the ideographs, the kana, the
+/// Hangul syllables and the full-width forms, which are set one after the other
+/// (a page of them has no pair to ask the host about).
+pub(super) const fn kerns(c: char) -> bool {
+    !matches!(
+        c as u32,
+        0x2E80..=0xA4CF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF | 0x2_0000..=0x3_FFFF
+    )
+}
+
 /// A value kept in sixty-fourths of a pixel, as pixels.
 fn unit(kept: i16) -> f32 {
     f32::from(kept) / 64.0
@@ -251,9 +275,10 @@ pub(super) fn quantised(kern: f32) -> i16 {
 
 impl State {
     /// The number of `c` among the characters met; it is numbered now if
-    /// `assign` and there is room. `None` for a character that is not kept.
+    /// `assign` (the number of the letter used least lately where all are
+    /// taken). `None` for a character that is not kept.
     fn letter(&mut self, c: char, assign: bool) -> Option<usize> {
-        if self.widths.is_empty() {
+        if self.widths.is_empty() || !kerns(c) {
             return None;
         }
         let ascii = (c as u32) < 128;
@@ -268,19 +293,65 @@ impl State {
                 .find(|&&o| o >> 8 == c as u32)
                 .map(|&o| (o & 0xff) as usize)
         };
-        if found.is_some() || !assign || self.next >= ALPHABET {
-            return found;
+        if let Some(number) = found {
+            *self.used.get_mut(number)? = self.clock;
+            return Some(number);
         }
-        let number = self.next;
+        if !assign {
+            return None;
+        }
+        let number = if self.next < ALPHABET {
+            self.next += 1;
+            self.next - 1
+        } else {
+            self.free_oldest()?
+        };
         if ascii {
             *self.ascii.get_mut(c as usize)? = (number + 1) as u8;
         } else {
+            // Room: a number has one character, and each is in the list once.
             if self.others.len() >= self.others.capacity() {
                 return None;
             }
             self.others.push((c as u32) << 8 | number as u32);
         }
-        self.next += 1;
+        *self.chars.get_mut(number)? = c as u32;
+        *self.used.get_mut(number)? = self.clock;
+        Some(number)
+    }
+
+    /// The number of the letter used least lately, if it is stale.
+    fn oldest(&self) -> Option<usize> {
+        let age = |i: usize| {
+            self.clock
+                .wrapping_sub(self.used.get(i).copied().unwrap_or(0))
+        };
+        let number = (0..ALPHABET).max_by_key(|&i| age(i))?;
+        (age(number) >= STALE).then_some(number)
+    }
+
+    /// Takes the number of the letter used least lately away from it and
+    /// forgets what was kept under it in every context.
+    fn free_oldest(&mut self) -> Option<usize> {
+        let number = self.oldest()?;
+        let old = *self.chars.get(number)?;
+        if old < 128 {
+            *self.ascii.get_mut(old as usize)? = 0;
+        } else {
+            self.others.retain(|&o| (o & 0xff) as usize != number);
+        }
+        for context in 0..CONTEXTS {
+            if let Some(width) = self.widths.get_mut(context * ALPHABET + number) {
+                *width = f32::NAN;
+            }
+            for other in 0..ALPHABET {
+                for pair in [number * ALPHABET + other, other * ALPHABET + number] {
+                    if let Some(byte) = self.known.get_mut(context * PAIR_BYTES + pair / 8) {
+                        *byte &= !(1 << (pair % 8));
+                    }
+                }
+            }
+        }
         Some(number)
     }
 

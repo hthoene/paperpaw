@@ -27,10 +27,11 @@ use paperpaw_platform::{ButtonState, InputEvent, buttons};
 /// `(text measures, all slots)`, the most of one turn, of the other cases of
 /// `a_page_turn_stays_within_its_host_crossings`, as measured on the emulator
 /// (the integration base's, which set no pair at all, in brackets): a page of
-/// ideographs with more different ones than the table holds 2,323 (2,569), a
-/// Cyrillic book that starts in Latin 8 (116), a page of Vietnamese 216 (535),
+/// ideographs with more different ones than the table holds 2,457 (2,569: the
+/// base's own is the ceiling, as nothing can be kept for most of them), a
+/// Cyrillic book that starts in Latin 22 (116), a page of Vietnamese 238 (535),
 /// kerning and ligatures off 151 (224).
-const CHINESE: (u32, u32) = (2_400, 2_600);
+const CHINESE: (u32, u32) = (2_569, 2_742);
 const CYRILLIC: (u32, u32) = (40, 340);
 const VIETNAMESE: (u32, u32) = (260, 560);
 const PLAIN: (u32, u32) = (200, 560);
