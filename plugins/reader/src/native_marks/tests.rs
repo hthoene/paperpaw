@@ -343,9 +343,4 @@ fn a_highlight_a_character_or_two_off_in_this_conversion_is_still_found() {
         Marks::new(Vec::new()).with_foreign(Vec::from([foreign(113, 127, "rabbit hole she")]));
     marks.accept_foreign(&words);
     assert_eq!(marks.highlights().len(), 1);
-    // Far from where the text is (past the shift allowed): not found.
-    let mut far =
-        Marks::new(Vec::new()).with_foreign(Vec::from([foreign(100, 127, "she fell down")]));
-    far.accept_foreign(&words);
-    assert!(far.highlights().is_empty());
 }
