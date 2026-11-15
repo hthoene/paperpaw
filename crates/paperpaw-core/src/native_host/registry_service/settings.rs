@@ -400,8 +400,9 @@ fn settings(
 }
 
 /// Op 3: the values of choice setting `scope`, the setting's own first and
-/// then those other plugins added (the setting keeps them in that order).
-/// Nothing for a setting that is not there or is no choice.
+/// then those other plugins added (the setting keeps them in that order);
+/// of a language setting, the languages there are ([`languages`]).
+/// Nothing for a setting that is not there or is neither.
 fn choices(
     sources: &Sources<'_>,
     scope: &str,
@@ -410,19 +411,44 @@ fn choices(
     let Some(spec) = exact(sources, scope)? else {
         return Ok(());
     };
-    let SettingKind::Choice(values) = &spec.kind else {
-        return Ok(());
-    };
-    for value in values.iter() {
-        let row = Record::ServiceRegChoice(wire::ServiceRegChoice {
+    let i18n = sources.env.i18n();
+    let mut row = |value, title| {
+        visit(&Record::ServiceRegChoice(wire::ServiceRegChoice {
             value,
-            title: translated(sources.env.i18n(), value, caps::TITLE),
-        });
-        if visit(&row).is_break() {
-            break;
+            title,
+        }))
+    };
+    match &spec.kind {
+        SettingKind::Choice(values) => {
+            for value in values.iter() {
+                if row(value, translated(i18n, value, caps::TITLE)).is_break() {
+                    break;
+                }
+            }
         }
+        SettingKind::Language => {
+            for (tag, name) in languages(i18n) {
+                if row(tag, name).is_break() {
+                    break;
+                }
+            }
+        }
+        _ => {}
     }
     Ok(())
+}
+
+/// The languages a `reg_choice` row can carry, in the translator's order
+/// (English first, then by tag): the tag, which is the setting's value, and
+/// the language's name in that language as its catalog gives it (`Deutsch`;
+/// a language pack's own), or the tag where the catalog gives none.
+fn languages(i18n: &paperpaw_i18n::Translator) -> impl Iterator<Item = (&str, &str)> {
+    let named = |(tag, name): (_, &str)| (tag, if name.is_empty() { tag } else { name });
+    i18n.languages()
+        .into_iter()
+        .filter(|(tag, _)| tag.len() <= CHOICE_VALUE)
+        .map(named)
+        .map(|(tag, name)| (tag, clip(name, caps::TITLE)))
 }
 
 /// The setting `id` itself (a placement's id names no setting here).
@@ -436,12 +462,13 @@ pub(super) fn exact<'a>(sources: &Sources<'a>, id: &str) -> Result<Option<&'a Se
 }
 
 /// How many values of `spec` a `reg_choice` row can carry.
-fn choice_count(spec: &SettingSpec) -> u32 {
+fn choice_count(spec: &SettingSpec, i18n: &paperpaw_i18n::Translator) -> u32 {
     match &spec.kind {
         SettingKind::Choice(values) => {
             let count = values.iter().filter(|v| v.len() <= CHOICE_VALUE).count();
             u32::try_from(count).unwrap_or(u32::MAX)
         }
+        SettingKind::Language => u32::try_from(languages(i18n).count()).unwrap_or(u32::MAX),
         _ => 0,
     }
 }
@@ -456,7 +483,8 @@ pub(super) fn detail(
     let spec = exact(sources, key)?.ok_or(ERR_NOT_FOUND)?;
     native_extra::ready(sources)?;
     with_row(sources, asker, spec, None, |row| visit(row))?;
-    native_extra::with_extra(sources, spec, |shown| extra_row(spec, shown, visit))??;
+    let i18n = sources.env.i18n();
+    native_extra::with_extra(sources, spec, |shown| extra_row(spec, shown, i18n, visit))??;
     let help = spec.description.as_deref().unwrap_or("");
     if help.is_empty() {
         return Ok(());
@@ -499,7 +527,7 @@ fn extra_row(
             shown_value: clip(shown.shown_value, caps::ID),
             editor_kind: shown.editor_kind,
             editor: shown.editor,
-            choices: choice_count(spec),
+            choices: choice_count(spec, i18n),
         },
     ))
 }
