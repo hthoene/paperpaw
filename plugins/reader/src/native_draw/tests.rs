@@ -578,3 +578,66 @@ fn a_word_is_as_wide_as_the_layout_measured_it_for_every_setting() {
         }
     }
 }
+
+/// Where each line of a justified page of kerned pairs ends when it is laid out
+/// with `Kerned` and drawn with runs as wide as `drawn_kerned` says.
+fn line_ends(drawn_kerned: bool) -> Vec<f32> {
+    let words = "AVA VAV fine AVAVA office VAVAV affix AVA fine";
+    let text = alloc::vec![words; 8].join(" ");
+    let faces = Faces::new(Kerned, 20.0, 1.0).unwrap();
+    let mut block = Block::new(BlockKind::Paragraph, 0, text.len() as u32, text.clone());
+    block.runs = alloc::vec![paperpaw_sdk::document::Run::new(
+        0,
+        text.len() as u32,
+        TextStyle::REGULAR
+    )];
+    let book = Book {
+        blocks: alloc::vec![block],
+        metadata: Metadata::default(),
+    };
+    let style = Style::new(0.0, 0.0, 20.0, true);
+    let cx = LayoutContext::new(&book, &NoStorage, 400.0, &style, &faces);
+    let page = layout_page(&cx, Locator::START, 400.0).unwrap();
+    let mut ink = Recorder {
+        kerned: drawn_kerned,
+        ..Recorder::default()
+    };
+    draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
+    let mut ends: Vec<(i32, f32)> = Vec::new();
+    for (role, x, baseline, run) in &ink.calls {
+        let width = match drawn_kerned {
+            true => Kerned.width(*role, 20.0, run),
+            false => Fixed.width(*role, 20.0, run),
+        }
+        .unwrap();
+        let end = *x as f32 + width;
+        match ends.last_mut() {
+            Some(line) if line.0 == *baseline => line.1 = line.1.max(end),
+            _ => ends.push((*baseline, end)),
+        }
+    }
+    ends.into_iter().map(|line| line.1).collect()
+}
+
+#[test]
+fn no_line_is_drawn_wider_than_the_measure_it_was_laid_out_in() {
+    // Laid out and drawn by the same font: every line of the page ends inside
+    // the 400 px (a justified one at it, to a pixel).
+    let ends = line_ends(true);
+    assert!(ends.len() >= 5, "{ends:?}");
+    for (at, end) in ends.iter().enumerate() {
+        assert!(*end <= 400.5, "line {at} ends at {end}");
+        if at + 1 < ends.len() {
+            assert!(*end >= 399.0, "line {at} ends at {end}, short of 400");
+        }
+    }
+}
+
+#[test]
+fn the_check_for_a_line_wider_than_its_measure_sees_one() {
+    // A font that draws the pairs wider than the layout measured them (`Fixed`
+    // ignores the pair `AV` the layout closed): the same check finds lines past
+    // the measure. Without this the check above could pass on any page.
+    let ends = line_ends(false);
+    assert!(ends.iter().any(|end| *end > 400.5), "{ends:?}");
+}

@@ -59,9 +59,15 @@ fn card(name: &str, book: &str, ini: &str) -> PathBuf {
 
 /// Runs the emulator on `card` through `requests`, then shoots the page.
 fn session(card: &Path, shot: &Path, requests: &[String]) {
+    session_on("xteink-x4", card, shot, requests);
+}
+
+/// [`session`] on the device `profile`.
+fn session_on(profile: &str, card: &Path, shot: &Path, requests: &[String]) {
     let path = paperpaw_core::sdk::json::string(&card.display().to_string());
     let target = paperpaw_core::sdk::json::string(&shot.display().to_string());
-    let mut child = Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"))
+    let emu = std::env::var("PP_EMU").unwrap_or_else(|_| env!("CARGO_BIN_EXE_paperpaw-emu").into());
+    let mut child = Command::new(emu)
         .arg("--stdio")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -69,7 +75,7 @@ fn session(card: &Path, shot: &Path, requests: &[String]) {
         .spawn()
         .unwrap();
     let mut lines = format!(
-        "{{\"op\": \"start\", \"profile\": \"xteink-x4\", \"library\": {path}}}\n\
+        "{{\"op\": \"start\", \"profile\": \"{profile}\", \"library\": {path}}}\n\
          {{\"op\": \"wait\", \"ms\": 2500}}\n"
     );
     for request in requests {
@@ -182,4 +188,124 @@ fn turning_the_styles_off_opens_the_book_again_where_it_was() {
         after, before,
         "the setting changed nothing on the open book"
     );
+}
+
+/// The gray rows of a shot above its status line, and the width of a row.
+fn gray_page(path: &Path, rows: usize) -> (Vec<u8>, usize) {
+    let decoder = png::Decoder::new(std::io::BufReader::new(fs::File::open(path).unwrap()));
+    let mut reader = decoder.read_info().unwrap();
+    let mut bytes = vec![0; reader.output_buffer_size().unwrap()];
+    let frame = reader.next_frame(&mut bytes).unwrap();
+    // One channel of each pixel is its gray: the shots are equal in all three.
+    let step = frame.line_size / frame.width as usize;
+    let gray = bytes[..rows * frame.line_size]
+        .iter()
+        .step_by(step)
+        .copied()
+        .collect();
+    (gray, frame.width as usize)
+}
+
+/// The ink of each line of text, as (first, last) dark column: the rows of a shot
+/// split at the empty rows (a band under 8 rows is a rule or a stray mark and is
+/// left out).
+fn line_ink(gray: &[u8], width: usize) -> Vec<(usize, usize)> {
+    let dark = |row: &[u8]| {
+        Some((
+            row.iter().position(|&g| g < 140)?,
+            row.iter().rposition(|&g| g < 140)?,
+        ))
+    };
+    let mut lines = Vec::new();
+    let mut band: Option<(usize, (usize, usize))> = None;
+    for row in gray
+        .chunks(width)
+        .chain(std::iter::once(&vec![255u8; width][..]))
+    {
+        match (dark(row), band) {
+            (Some((a, z)), Some((rows, (first, last)))) => {
+                band = Some((rows + 1, (first.min(a), last.max(z))));
+            }
+            (Some(ink), None) => band = Some((1, ink)),
+            (None, Some((rows, ink))) => {
+                if rows >= 8 {
+                    lines.push(ink);
+                }
+                band = None;
+            }
+            (None, None) => {}
+        }
+    }
+    lines
+}
+
+/// The ink of the lines of the Lines book (regular, bold and italic text,
+/// justified) on the device `profile` at `size` points, `turned` pages in.
+fn lines_of(profile: &str, size: u32, turned: usize) -> Vec<(usize, usize)> {
+    let rows = if profile == "xteink-x4" { 740 } else { 1400 };
+    let ini = format!("[core]\nfont-size = {size}\njustify = on\n");
+    let card = card("lines", "lines.html", &ini);
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures-lines/lines.html"),
+        card.join("books/lines.html"),
+    )
+    .unwrap();
+    let shot = card.join("page.png");
+    session_on(profile, &card, &shot, &turns(turned));
+    let (gray, width) = gray_page(&shot, rows);
+    let lines = line_ink(&gray, width);
+    assert!(lines.len() >= 6, "{profile} {size}: {lines:?}");
+    lines
+}
+
+#[test]
+fn no_line_is_drawn_past_the_margin() {
+    // The layout measures the pairs the host draws kerned, so a line is never
+    // drawn wider than its measure: ink past the right margin (2 px for the
+    // side of a letter) would be clipped text. The X4 and a Boox, two sizes.
+    for (profile, margin, size) in [
+        ("xteink-x4", 444, 12),
+        ("xteink-x4", 444, 10),
+        ("boox-go-7", 1216, 12),
+        ("boox-go-7", 1216, 16),
+    ] {
+        for turned in [0usize, 1] {
+            let lines = lines_of(profile, size, turned);
+            for (_, last) in &lines {
+                assert!(
+                    *last <= margin + 2,
+                    "{profile} {size}: ink at {last}, past {margin}: {lines:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn stretched_lines_of_a_boox_reach_the_margin() {
+    // Not short of it either: where the layout measured more than was drawn the
+    // edge was ragged (12 px short on a Boox before the pairs were measured).
+    // A paragraph starts with an indent: the line before one is its last and is
+    // not stretched. A stretched line ends at the margin within the room at the
+    // side of its last letter (up to 6 px); a line of three words may keep the
+    // most its gaps can grow and fall short, so one such line is left out.
+    let margin = 1216;
+    for size in [12, 10] {
+        for turned in [0usize, 1] {
+            let lines = lines_of("boox-go-7", size, turned);
+            let left = lines.iter().map(|l| l.0).min().unwrap();
+            let (mut stretched, mut short) = (0, 0);
+            for (at, &(first, last)) in lines.iter().enumerate() {
+                let ends_paragraph = lines.get(at + 1).is_none_or(|next| next.0 > left + 8);
+                if !ends_paragraph && first <= left + 8 {
+                    stretched += 1;
+                    short += usize::from(last + 7 < margin);
+                }
+            }
+            assert!(
+                stretched >= 3 && short <= 1,
+                "{size}: {short} of {stretched} stretched lines end short of {margin}: {lines:?}"
+            );
+        }
+    }
 }
