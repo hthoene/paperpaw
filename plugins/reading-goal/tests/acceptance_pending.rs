@@ -1,7 +1,4 @@
-//! What `tests/goal.rs` proves on interface 6 with a whole kernel. The decisions
-//! that need no host (mood, goal, `today.txt`, when it is written) are tested in
-//! `src/model/tests.rs`; these need host services that are not there yet and stay
-//! ignored until they are. Each names what is missing.
+//! Native storage acceptance and pending image/UI composition fixtures.
 
 #![allow(
     clippy::unwrap_used,
@@ -84,28 +81,150 @@ fn the_statistics_tell_today_and_it_is_written_to_the_card_when_a_book_closes() 
     assert!(goal.dropped().is_empty(), "{:?}", goal.dropped());
 }
 
+#[cfg(feature = "linked")]
+mod data_folder {
+    use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
+    use std::{cell::Cell, rc::Rc};
+
+    pub const TODAY: &str = ".paperpaw/plugins/reading-goal/today.txt";
+
+    #[derive(Default)]
+    pub struct Counts {
+        pub reads: Cell<u32>,
+        pub writes: Cell<u32>,
+    }
+
+    pub struct Card(pub MemoryStorage, pub Rc<Counts>);
+
+    impl Storage for Card {
+        fn read_at(&self, path: &str, offset: u64, out: &mut [u8]) -> Result<usize, StorageError> {
+            if path == TODAY {
+                self.1.reads.set(self.1.reads.get() + 1);
+            }
+            self.0.read_at(path, offset, out)
+        }
+        fn size(&self, path: &str) -> Result<u64, StorageError> {
+            self.0.size(path)
+        }
+        fn write(&self, path: &str, bytes: &[u8]) -> Result<(), StorageError> {
+            if path == TODAY {
+                self.1.writes.set(self.1.writes.get() + 1);
+            }
+            self.0.write(path, bytes)
+        }
+        fn append(&self, path: &str, bytes: &[u8]) -> Result<(), StorageError> {
+            self.0.append(path, bytes)
+        }
+        fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.0.list(dir, visit)
+        }
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.0.remove(path)
+        }
+    }
+}
+
 #[test]
-#[ignore = "needs a host that runs native plugins end to end: today.txt is written through the data folder (the store is tested over MemoryStorage)"]
+#[cfg(feature = "linked")]
 fn today_txt_is_read_and_replaced_only_when_it_differs() {
-    unreachable!("parse_told on the file, told_text into a 32-byte buffer, one write per change");
+    use data_folder::{Card, Counts, TODAY};
+    use paperpaw_sdk::{
+        EventData, Instant, MemoryStorage, SystemStatus, WallClock, builtin::events,
+    };
+    use std::rc::Rc;
+
+    for (old, writes) in [("20000 750\n", 0), ("19999 3600\n", 1)] {
+        let counts = Rc::new(Counts::default());
+        let observed = counts.clone();
+        let mut page = [0u8; 16];
+        page[2..6].copy_from_slice(&1u32.to_le_bytes());
+        page[6..10].copy_from_slice(&(20_000u32 * 86_400).to_le_bytes());
+        page[10..12].copy_from_slice(&750u16.to_le_bytes());
+        page[12..16].copy_from_slice(&10u32.to_le_bytes());
+        let setup = hosted::Setup::x4().with_kernel(move |builder| {
+            builder.storage(Card(
+                MemoryStorage::new()
+                    .with(".paperpaw/plugins/stats/pages.bin", page)
+                    .with(TODAY, old.as_bytes()),
+                counts.clone(),
+            ))
+        });
+        let mut goal = hosted::install_in(
+            &setup,
+            paperpaw_plugin_reading_goal::NATIVE_ENTRY.entry(),
+            "reading-goal",
+            &["core.registry", "core.ui"],
+        )
+        .unwrap();
+        hosted::also(
+            &mut goal,
+            paperpaw_plugin_stats::NATIVE_ENTRY.entry(),
+            "stats",
+            &[
+                "core.library",
+                "core.net",
+                "core.registry",
+                "core.secrets",
+                "core.ui",
+            ],
+            paperpaw_core::native_host::FixedTables::NONE,
+        )
+        .unwrap();
+        let _ = goal.kernel().start(Instant(0));
+        let _ = goal.kernel().set_status(
+            Instant(0),
+            SystemStatus::new(
+                Some(WallClock::new(Instant(0), 20_000 * 86_400_000, Some(0))),
+                None,
+            ),
+        );
+        let reading = events::Reading::new("book.epub".into(), "Book".into(), 0.0, 0, 0, "".into());
+        for _ in 0..2 {
+            let _ = goal.kernel().send_event(
+                Instant(0),
+                events::BOOK_OPENED.id().clone(),
+                reading.to_params(),
+            );
+            let _ = goal.kernel().send_event(
+                Instant(0),
+                events::BOOK_CLOSED.id().clone(),
+                reading.to_params(),
+            );
+        }
+        assert!(goal.dropped().is_empty(), "{:?}", goal.dropped());
+        assert!(
+            observed.reads.get() >= 1,
+            "existing data-folder file must be read"
+        );
+        assert_eq!(
+            observed.writes.get(),
+            writes,
+            "only replace a different figure"
+        );
+        let mut bytes = [0; 64];
+        let n = goal
+            .kernel()
+            .storage()
+            .read_at(TODAY, 0, &mut bytes)
+            .unwrap();
+        assert_eq!(&bytes[..n], b"20000 750\n");
+    }
 }
 
 #[test]
-#[ignore = "needs a host that runs native plugins end to end with images: the pictures asked for are prepared and drawn (the decisions are tested in src/native_picture/tests.rs; the installed cats need PrepareRoot::Bundle, Services todo 308, Host todo 309)"]
+#[ignore = "needs an installed-asset image/decode-and-draw fixture, absent from hosted.rs; Reading goal root_of(Source::Bundle) still returns None despite SDK PrepareRoot::Bundle existing"]
 fn the_widget_shows_the_cat_of_todays_mood_and_the_minutes() {
-    unreachable!("the picture of today's mood, as large as its place leaves, above the minutes");
+    panic!("pending end-to-end fixture: installed mood picture and minute text");
 }
 
 #[test]
-#[ignore = "needs a host that composes widgets (H1, H3) and screen commands: the widget drawn in its frame, a tap opening the settings on the goal"]
+#[ignore = "needs a native home/settings composition fixture: hosted.rs installs entries but does not arrange/draw widgets or route taps into core.settings; scripted_offer.rs checks only dialog commands"]
 fn the_widget_is_drawn_and_a_tap_opens_the_goal() {
-    unreachable!(
-        "frame, mood in words, `12 / 20 min`; a tap where the statistics count opens stats.goal"
-    );
+    panic!("pending end-to-end fixture: widget frame, tap, and stats.goal focus");
 }
 
 #[test]
-#[ignore = "needs a host that composes the slot core.sleep with the native sleep (PR #649) and runs native plugins end to end: choosing sleep.show = reading-goal.sleep opens this screen, the cat is drawn large in the middle"]
+#[ignore = "needs a native sleep-slot plus installed-image composition fixture; hosted.rs does not drive sleep selection and image pumping, and Reading goal root_of(Source::Bundle) still excludes bundled cats"]
 fn the_sleep_screen_shows_the_cat_large_in_the_middle() {
-    unreachable!("the cat, the minutes and the goal below it");
+    panic!("pending end-to-end fixture: selected sleep screen with centred cat and minutes");
 }
