@@ -85,9 +85,12 @@ pub fn pack(elf: &str, out: &str, key_file: Option<&str>) -> Result<(), String> 
 }
 
 /// `plugin`: what a plugin file holds. A file of a format before 5 is named
-/// as that, in one line, and refused: nothing is said of it on standard
-/// output, and the tool fails.
+/// as that, in one line, and nothing else is said of it.
 pub fn show(path: &str) -> Result<(), String> {
+    if let Some(format) = older_format(&read(path)?) {
+        println!("format:      {format} (before plugin interface 7: no longer read)");
+        return Ok(());
+    }
     let (file, header, signed) = plugin_file5(path)?;
     let mut sha = Sha256::new();
     sha.update(&file);
@@ -242,7 +245,7 @@ mod tests {
         let mut old = SAMPLE.to_vec();
         old[4..6].copy_from_slice(&4u16.to_le_bytes());
         std::fs::write(&file, &old).unwrap();
-        assert!(show(&file).unwrap_err().contains("format 4"));
+        show(&file).unwrap();
         assert!(check(&file).unwrap_err().contains("format 4"));
         assert!(sign(&file, Some(&key)).unwrap_err().contains("format 4"));
         assert_eq!(std::fs::read(&file).unwrap(), old);

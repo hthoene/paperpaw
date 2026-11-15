@@ -100,8 +100,7 @@ These are not rows of their own, but the raise is not complete without them (all
 5. Retarget the trusted-base ABI CI (#147/#150) to the draft-7 baseline: `tools/abi-frozen6-check.py` becomes
    `tools/abi-reference-check.py` (rules in `README.md`), still against the PR's base.
 6. Record the raise in `CHANGELOG.md`.
-7. (Done then; the check, its script and its CI job are gone since #244, as no plugin of interface 6 is built any
-   more.) Retarget the old-plugin check (`tools/table-compat.sh`, CI job "Old plugins, new firmware"): a baseline of an
+7. Retarget the old-plugin check (`tools/table-compat.sh`, CI job "Old plugins, new firmware"): a baseline of an
    older interface or an older draft (`interface`/`draft` of its `interface.txt`) builds a plugin this firmware
    must refuse at load (fingerprint, `Native::problem`), before anything of it runs; only a baseline of this
    interface and draft must still run and agree. `crates/paperpaw-table/table-baseline.txt` stays at the

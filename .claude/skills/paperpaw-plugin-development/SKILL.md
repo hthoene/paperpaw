@@ -33,10 +33,9 @@ Read, in this order, and skim what is relevant to the task:
 2. `CONTRIBUTING.md`: the architecture rules reviews check, and the
    checks CI runs.
 3. `samples/hello-plugin`: a complete small plugin with a test; the best
-   template. `samples/plugins` holds data plugins. (The sample that
-   built a plugin with code as a file, `samples/hello-native`, is gone
-   with plugin interface 6, #244; there is no such sample for interface
-   7 yet.)
+   template. `samples/hello-native` builds it as a plugin file for the
+   X4s, in a workspace of its own as a plugin's repository is, with a CI
+   job. `samples/plugins` holds data plugins.
 4. The SDK's API: `cargo doc -p paperpaw-sdk --open`, and
    `crates/paperpaw-sdk/api.txt` (every public item, kept current).
 5. `CHANGELOG.md`, its top section: what changed lately (renamed or
@@ -269,10 +268,7 @@ Only if the user has one and wants it used. Its README is
 - Build and flash from `shells/xteink` (its own workspace); a test
   build has the remote control below, released firmware does not.
 - A plugin with code is tried as a file, without building it into the
-  firmware. Out of date for plugin interface 7 (#244): the sample named
-  here is gone and `paperpaw-dev new --code` does not yet make a plugin
-  with code. For the interface before 7 it was built as
-  `samples/hello-native` did (`cargo x4`, or
+  firmware: build it as `samples/hello-native` does (`cargo x4`, or
   `cargo +esp x4pro` for the X4 Pro and the X4 Classic, with the
   release's core libraries installed into the `esp` toolchain, see
   `tools/xtensa-std`) against the SDK of the firmware on the device, pack it with `paperpaw-sign pack`, put
