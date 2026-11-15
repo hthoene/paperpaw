@@ -333,29 +333,22 @@ fn cut_at_every_command(fat_type: FatType, card_bytes: usize, lost_ok: usize) {
                 "before command {k}: what is read is not what was appended"
             );
         }
-        if k % 3 == 1 && size > 0 && !size.is_multiple_of(512) {
+        if size > 0 && !size.is_multiple_of(512) {
             a_short_append_after_the_cut(k, &image, size);
         }
-        if k % 9 == 0 {
-            the_next_append_and_a_remove_after_the_cut(
-                k,
-                &card,
-                size,
-                &whole,
-                used_before,
-                lost_ok,
-            );
-        }
+        the_next_append_and_a_remove_after_the_cut(k, &card, size, &whole, used_before, lost_ok);
         let at = *index as usize * BLOCK;
         image[at..at + data.len()].copy_from_slice(data);
     }
     check_chains(&image, "the end");
 }
 
-/// FAT16: a run crosses blocks of the FAT every 256 clusters.
+/// FAT16: a run crosses blocks of the FAT every 256 clusters. One cluster may stay taken
+/// after a cut and a remove here too (the old one-at-a-time order loses it between marking
+/// the new cluster and linking it: ticket #269), checked at every command.
 #[test]
 fn a_cut_in_a_stream_of_appends_leaves_a_sound_volume() {
-    cut_at_every_command(FatType::Fat16, 24 << 20, 0);
+    cut_at_every_command(FatType::Fat16, 24 << 20, 1);
 }
 
 /// FAT32 (128 entries to a block of the FAT). One cluster may stay taken after a cut and a
