@@ -118,10 +118,19 @@ impl Progress {
     }
 }
 
-/// The most the progress of a place saved in another conversion may differ from
+/// The least the progress of a place saved in another conversion may differ from
 /// the progress that place has in this one for it to be taken as it is, in
-/// millionths (0.2 %: the file keeps a tenth of a percent).
-pub const RELOCATE_WITHIN: u32 = 2_000;
+/// millionths (0.6 %); [`tolerance`] adds a share of the progress.
+pub const RELOCATE_WITHIN: u32 = 6_000;
+
+/// How far the progress of a place saved in another conversion may be from the
+/// progress it has here: a Beta 3 card counted the book's text a few percent
+/// shorter, so the difference grows with the progress (measured on two books,
+/// 5 to 9 % of it, #265).
+#[must_use]
+pub const fn tolerance(stored_ppm: u32) -> u32 {
+    RELOCATE_WITHIN + stored_ppm / 12
+}
 
 /// What the library keeps of a book's place: where it was, if that fits the
 /// book, and the progress stored with it (kept when this screen cannot tell
@@ -151,8 +160,8 @@ impl Progress {
 }
 
 /// Where a place saved in another conversion is in this one: the place itself
-/// where its progress here is what was stored with it (within
-/// [`RELOCATE_WITHIN`]: the text before it is the same), else the place that
+/// where its progress here is what was stored with it (within [`tolerance`]:
+/// the text before it is the same), else the place that
 /// progress is (Beta 3's own way when a place did not fit), else none, so the
 /// book opens at its start. Nothing is written.
 #[must_use]
@@ -168,7 +177,7 @@ pub fn relocate(
         return (other == (0, 0)).then_some(other);
     }
     if progress.holds(other.0, other.1)
-        && progress.ppm(other.0, other.1).abs_diff(stored_ppm) <= RELOCATE_WITHIN
+        && progress.ppm(other.0, other.1).abs_diff(stored_ppm) <= tolerance(stored_ppm)
     {
         return Some(other);
     }
