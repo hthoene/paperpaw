@@ -28,7 +28,7 @@ use alloc::vec::Vec;
 use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
-    document::{DocumentError, Locator},
+    document::Locator,
     layout::{LayoutContext, Page, layout_page},
     native::{
         Error, Host,
@@ -36,7 +36,6 @@ use paperpaw_sdk::{
         clock,
         commands::{CommandSender, RedrawMode},
         document::{DocId, DocPosition, Documents, Preparation, Report, Root},
-        fonts::{Font, FontRole},
         library::Library,
         snapshot,
         ui::{HandoverId, Notify, Open as NavOpen, Param, Ui},
@@ -44,9 +43,9 @@ use paperpaw_sdk::{
     reading::WordBox,
 };
 use paperpaw_ui_kit::{
-    Messages, Style as UiStyle,
-    mem::{SERVICE_BUFFER, buffer, push},
-    paint, text,
+    Messages,
+    mem::{SERVICE_BUFFER, buffer},
+    text,
 };
 
 /// Longest path taken from a hand-over, in bytes.
@@ -1443,50 +1442,12 @@ impl Open {
     }
 }
 
-fn redraw(host: &Host<'_>, mode: RedrawMode) -> Result<(), Error> {
-    let mut scratch = [0; 64];
-    CommandSender::new(host, &mut scratch).queue_redraw(mode)
-}
-
-/// What a layout's refusal is as a host error.
-fn document_error_kind(error: &DocumentError) -> Option<Error> {
-    match error {
-        DocumentError::OutOfMemory => Some(Error::NoMemory),
-        DocumentError::NotReady => Some(Error::Busy),
-        _ => None,
-    }
-}
-
-/// Says why there is no page: the text over the whole screen.
-fn say(host: &Host<'_>, frame: &mut DrawFrame<'_>, key: &str) -> Result<(), Error> {
-    let font = Font::acquire_role(host, FontRole::Ui)?;
-    let said = say_with(host, frame, &font, key);
-    let released = font.release();
-    said.and(released)
-}
-
-fn say_with(
-    host: &Host<'_>,
-    frame: &mut DrawFrame<'_>,
-    font: &Font<'_>,
-    key: &str,
-) -> Result<(), Error> {
-    let display = snapshot::capture_snapshot(host)?;
-    let style = UiStyle::read(host, &display, font)?;
-    let area = paperpaw_sdk::Rect::new(0, 0, display.display_width(), display.display_height());
-    let mut messages = Messages::new()?;
-    let shown = messages.copy(host, key)?;
-    let mut body = alloc::vec::Vec::new();
-    push(&mut body, paint::Paint::Fill(area, style.paper))?;
-    text::message(&mut body, font, &style, area, &shown)?;
-    paint::replay(frame, font, body.iter())
-}
-
 mod aloud;
 mod count;
 mod decorations;
 mod filters;
 mod goto;
+mod helpers;
 mod menu_bar;
 mod notes;
 mod pictures;
@@ -1494,23 +1455,10 @@ mod preparing;
 mod ribbon;
 mod script_hint;
 mod setup;
+use helpers::{book_language, document_error_kind, redraw, say};
 use preparing::{Preparing, open_request};
 use setup::{Kept, LayoutKey, Setup, flag, integer};
 
-/// The language a book is read in: its own, or the UI language where the
-/// format names none (a text file), as in Beta 3, so the voice reading aloud
-/// is the reader's. Empty only where the UI language cannot be read either
-/// (the host's voice then).
-///
-/// # Errors
-/// `NoMemory`.
-fn book_language(host: &Host<'_>, declared: &str) -> Result<String, Error> {
-    if !declared.is_empty() {
-        return text::copy(declared);
-    }
-    let mut scratch = [0; 64];
-    text::copy(paperpaw_sdk::native::i18n::language(host, &mut scratch).unwrap_or(""))
-}
 mod r3;
 mod status;
 
