@@ -70,9 +70,6 @@ USAGE:
     paperpaw-sign plugins <image.bin>
         Lists the plugin crates an app image or update file has built in;
         fails if it lists none.
-    paperpaw-sign fingerprint <firmware.elf>
-        Prints the fingerprint native plugins must have to run on a
-        firmware (16 hexadecimal digits), as its ELF file names it.
     paperpaw-sign abi <firmware.elf>
         Prints a release's -abi.txt for a firmware: two lines, `interface:`
         (the plugin interface) and `minor:` (the newest minor of it a
@@ -82,18 +79,17 @@ USAGE:
         built for its chip and its interface, needing no newer minor than
         it has. The release runs it on the plugins it builds for the store.
     paperpaw-sign pack <plugin.elf> <plugin.ppn> [--key <secret-key-file>]
-        Makes a native plugin file from a plugin linked with
-        paperpaw-plugin.x and --emit-relocs, or says what keeps it from
-        moving (writable data, undefined symbols, addresses built into
-        instructions, relative reaches out of the plugin). With --key,
-        signs it as sign-plugin does. A plugin linked with
-        paperpaw-plugin7.x (it defines PAPERPAW_METADATA) is an interface-7
-        plugin and gets the file of format 5 (abi/ppn5.md), read back as
-        its loader reads it (target 9 for a plugin built for the X4 Pro and
-        X4 Classic: no hot code, no patches, frames and call0 checked), with
-        the same refusals: a symbol exported besides the entry and the metadata, and more than 8192
-        patches. The plugin, sign-plugin and check-plugin commands read
-        both formats.
+        Makes a native plugin file (format 5, abi/ppn5.md) from a plugin
+        of interface 7, linked with paperpaw-plugin7.x and --emit-relocs
+        (it defines PAPERPAW_METADATA), or says what keeps it from moving
+        (writable data, undefined symbols, addresses built into
+        instructions, relative reaches out of the plugin). The file is read
+        back as its loader reads it (target 9 for a plugin built for the
+        X4 Pro and X4 Classic: no hot code, no patches, frames and call0
+        checked); a symbol exported besides the entry and the metadata,
+        and more than 8192 patches, are refused. With --key, signs it as
+        sign-plugin does. A plugin of the interface before 7 is no longer
+        packed.
     paperpaw-sign catalog <catalog.ini> <catalog.ppcat>
         Compiles a translation catalog to be read from the card as
         needed (ADR 0033): a data plugin's i18n/*.ppcat. Fails where it
@@ -112,7 +108,10 @@ USAGE:
         store's library lists with the plugin and the key.
     paperpaw-sign plugin <plugin.ppn>
         Shows what a plugin file holds, and its author if it is signed
-        (failing if the signature does not hold).
+        (failing if the signature does not hold). A file of a format
+        before 5 (made for a PaperPaw before plugin interface 7) is named
+        as that in one line and not read; sign-plugin and check-plugin
+        refuse it.
     paperpaw-sign sign-plugin <plugin.ppn> [--key <secret-key-file>]
         Signs a plugin file as its author: the signature goes at its end
         (one it had is replaced), and the author's key (64 hexadecimal
@@ -180,7 +179,6 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["check-image", flash] => image::check_file(flash),
         ["check-app", app] => image::check_app_file(app),
         ["plugins", image] => firmware::plugins(image),
-        ["fingerprint", elf] => firmware::fingerprint(elf),
         ["abi", elf] => firmware::abi(elf),
         ["fits", elf, files @ ..] if !files.is_empty() => firmware::fits(elf, files),
         ["frames", elf, rest @ ..] => frames_command(elf, rest),

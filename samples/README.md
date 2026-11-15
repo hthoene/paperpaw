@@ -36,21 +36,14 @@ tools, a screen for touch and buttons, a setting, an event and
 translations. [Writing plugins](../docs/plugins.md) walks through it; try
 it with `cargo run -p paperpaw-emulator --features hello`.
 
-`hello-native` is the same plugin as a file the X4 and the X4 Pro load
-at their start, without a new firmware, in a workspace of its own with a
-CI job for a plugin's repository; see its [README](hello-native/README.md)
-and [Plugins as files](../docs/plugins.md#plugins-as-files).
-
 `interlinear` writes between a book's lines ([ADR 0032](../docs/adr/0032-writing-between-the-lines.md)):
 a toy translation above each line, starting where each sentence on the
 line starts, which a tap (or Select, chosen with the buttons as links
 are) opens whole; and a translation after each paragraph. Try it with
-`cargo run -p paperpaw-emulator --features interlinear`; `hello-native`
-builds it as a file (`cargo x4 --example interlinear`).
+`cargo run -p paperpaw-emulator --features interlinear`.
 
 `frame-test` runs in real time ([ADR 0030](../docs/adr/0030-real-time-screens.md)):
 a moving pattern at a fixed pace, drawn with the blit, and work done for
 every frame as hot code and as ordinary code, each measured and shown
 with the frames a second and the heap free. Try it with `cargo run -p
-paperpaw-emulator --features frame-test`; `hello-native` builds it as a
-file too (`PLUGIN=frame-test`).
+paperpaw-emulator --features frame-test`.
