@@ -37,6 +37,10 @@ impl Lead {
             c.encode_utf8(&mut bytes[len..len + n]);
             len += n;
         }
+        // Cut after a word's end: no space left at the end.
+        if len > 0 && bytes.get(len - 1) == Some(&b' ') {
+            len -= 1;
+        }
         (len >= LEAD_MIN).then_some(Self {
             bytes,
             len: u8::try_from(len).unwrap_or(0),
