@@ -373,6 +373,10 @@ impl View {
         )
         .map_err(fail)?;
         let marks = Self::load_marks(host, library, &found.path, conversion);
+        let unsaved = matches!(
+            native_open::opening(|k| found.get(k), |p| p.section < sections),
+            Start::At(_)
+        );
         let mut open = Open {
             id,
             sections,
@@ -390,7 +394,7 @@ impl View {
             progress,
             stored_ppm,
             saved_at: None,
-            unsaved: false,
+            unsaved,
             turned: false,
             pictures: pictures::Pass::Whole,
             report_due: false,
