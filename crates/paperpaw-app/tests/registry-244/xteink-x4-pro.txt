@@ -1173,6 +1173,18 @@ slot-order core.reader | reader.screen
 slot-order core.reader | core.placeholder
 slot-order core.settings | settings.list
 slot-order core.settings | core.placeholder
+slot-list core.home | picture-home.dashboard
+slot-list core.home | home.dashboard
+slot-list core.home | files.browser
+slot-list core.home | core.placeholder
+slot-list core.library | files.browser
+slot-list core.library | core.placeholder
+slot-list core.menu | menu.list
+slot-list core.menu | core.placeholder
+slot-list core.reader | reader.screen
+slot-list core.reader | core.placeholder
+slot-list core.settings | settings.list
+slot-list core.settings | core.placeholder
 menu core.group.system | core.clean-up order=Some(0) section=false hidden-by=None
 menu core.main | core.quick-panel order=Some(5) section=false hidden-by=None
 menu core.main | core.home order=Some(10) section=false hidden-by=None
@@ -1194,6 +1206,84 @@ menu core.tools | core.screenshot order=Some(95) section=false hidden-by=None
 setup-step | core.setup.language title= order=10 page=Setting(Id(core.language))
 setup-step | core.setup.buttons title= order=20 page=Setting(Id(core.keymap-preset))
 setup-step | core.setup.time-zone title= order=40 page=Setting(Id(core.time-zone))
+menu-merged core.group.reading-text | store.discover-fonts by=store order=0 kind=0 flags=0x22
+menu-merged core.group.system | core.clean-up by=core order=0 kind=0 flags=0x22
+menu-merged core.main | core.quick-panel by=core order=5 kind=0 flags=0x22
+menu-merged core.main | core.home by=core order=10 kind=0 flags=0x22
+menu-merged core.main | core.library by=core order=20 kind=0 flags=0x22
+menu-merged core.main | core.tools by=core order=30 kind=2 flags=0x22
+menu-merged core.main | home.edit-pages by=home order=40 kind=0 flags=0x22
+menu-merged core.main | core.night-mode by=core order=85 kind=1 flags=0x62
+menu-merged core.main | core.settings by=core order=90 kind=0 flags=0x22
+menu-merged core.quick | core.night-mode by=core order=10 kind=1 flags=0x62
+menu-merged core.quick | power.mode by=power order=30 kind=1 flags=0x22
+menu-merged core.quick | core.refresh-screen by=core order=50 kind=0 flags=0x22
+menu-merged core.quick | core.screenshot by=core order=60 kind=0 flags=0x22
+menu-merged core.quick | core.sleep by=core order=70 kind=0 flags=0x22
+menu-merged core.quick | core.settings by=core order=90 kind=0 flags=0x22
+menu-merged core.reader-menu | reader.quick-settings by=reader order=5 kind=0 flags=0x22
+menu-merged core.reader-menu | reader.show-toc by=reader order=10 kind=0 flags=0x22
+menu-merged core.reader-menu | reader.search by=reader order=20 kind=0 flags=0x22
+menu-merged core.reader-menu | reader.show-annotations by=reader order=40 kind=0 flags=0x22
+menu-merged core.reader-menu | core.night-mode by=reader order=60 kind=1 flags=0x62
+menu-merged core.reader-menu | reader.toggle-bookmark by=reader order=65 kind=0 flags=0x22
+menu-merged core.reader-menu | core.reader-more by=reader order=70 kind=2 flags=0x22
+menu-merged core.reader-menu | core.home by=reader order=80 kind=0 flags=0x22
+menu-merged core.reader-more | reader.skim-book by=reader order=15 kind=0 flags=0x22
+menu-merged core.reader-more | reader.go-to-page by=reader order=16 kind=0 flags=0x22
+menu-merged core.reader-more | reader.go-to-percent by=reader order=17 kind=0 flags=0x22
+menu-merged core.reader-more | reader.auto-turn by=reader order=17 kind=0 flags=0x22
+menu-merged core.reader-more | core.settings by=reader order=50 kind=0 flags=0x22
+menu-merged core.reader-panel | core.scope-only by=reader order=1 kind=1 flags=0x62
+menu-merged core.reader-panel | core.reading-font by=reader order=5 kind=1 flags=0x22
+menu-merged core.reader-panel | core.font-size by=reader order=10 kind=1 flags=0x22
+menu-merged core.reader-panel | core.font-weight by=reader order=15 kind=1 flags=0x22
+menu-merged core.reader-panel | core.line-spacing by=reader order=20 kind=1 flags=0x22
+menu-merged core.reader-panel | core.margin by=reader order=30 kind=1 flags=0x22
+menu-merged core.reader-panel | core.justify by=reader order=40 kind=1 flags=0x63
+menu-merged core.reader-panel | core.hyphenate by=reader order=50 kind=1 flags=0x63
+menu-merged core.reader-panel | core.publisher-styles by=reader order=60 kind=1 flags=0x63
+menu-merged core.reading-font | fonts-browser.open by=fonts-browser order=0 kind=0 flags=0x22
+menu-merged core.reading-font | fonts-browser.own by=fonts-browser order=0 kind=0 flags=0x22
+menu-merged core.selection-menu | reader.selection.look-up by=reader order=10 kind=0 flags=0x22
+menu-merged core.selection-menu | reader.selection.highlight by=reader order=20 kind=0 flags=0x22
+menu-merged core.selection-menu | reader.selection.note by=reader order=22 kind=0 flags=0x22
+menu-merged core.selection-menu | reader.selection.copy by=reader order=30 kind=0 flags=0x22
+menu-merged core.selection-menu | reader.selection.translate by=reader order=35 kind=0 flags=0x22
+menu-merged core.selection-menu | reader.selection.extend by=reader order=80 kind=0 flags=0x22
+menu-merged core.selection-menu | reader.selection.cancel by=reader order=90 kind=0 flags=0x22
+menu-merged core.settings-pages | core.settings-section.reading by=core order=0 kind=3 flags=0x22
+menu-merged core.settings-pages | core.settings-section.device by=core order=50 kind=3 flags=0x22
+menu-merged core.settings-pages | settings.secrets.open by=settings order=95 kind=0 flags=0x22
+menu-merged core.settings-pages | setup.open by=setup order=97 kind=0 flags=0x22
+menu-merged core.settings-pages | about.open by=about order=99 kind=0 flags=0x22
+menu-merged core.settings-pages | core.settings-section.customise by=core order=200 kind=3 flags=0x22
+menu-merged core.settings-pages | plugin-manager.open by=plugin-manager order=220 kind=0 flags=0x22
+menu-merged core.status-font | fonts-browser.open by=fonts-browser order=0 kind=0 flags=0x22
+menu-merged core.status-font | fonts-browser.own by=fonts-browser order=0 kind=0 flags=0x22
+menu-merged core.tools | vocabulary.open by=vocabulary order=36 kind=0 flags=0x22
+menu-merged core.tools | vocabulary.flash-cards by=vocabulary order=36 kind=0 flags=0x22
+menu-merged core.tools | notes-vault.open by=notes-vault order=38 kind=0 flags=0x22
+menu-merged core.tools | news.open by=news order=44 kind=0 flags=0x22
+menu-merged core.tools | file-manager.open by=file-manager order=45 kind=0 flags=0x22
+menu-merged core.tools | opds.open by=opds order=45 kind=0 flags=0x22
+menu-merged core.tools | transfer.open by=transfer order=46 kind=0 flags=0x22
+menu-merged core.tools | core.apps by=core order=90 kind=0 flags=0x6
+menu-merged core.tools | store.open by=store order=90 kind=0 flags=0x22
+menu-merged core.tools | core.screenshot by=core order=95 kind=0 flags=0x22
+menu-merged files.menu | files.sort by=files order=10 kind=1 flags=0x22
+menu-merged files.menu | files.view by=files order=11 kind=1 flags=0x22
+menu-merged files.menu | files.search by=files order=21 kind=0 flags=0x22
+menu-merged files.menu | files.shelves by=files order=30 kind=2 flags=0x22
+menu-merged files.menu | core.library-folder by=files order=80 kind=1 flags=0x22
+menu-merged files.menu | core.settings by=files order=90 kind=0 flags=0x22
+menu-merged files.shelves | files.favourites by=files order=5 kind=0 flags=0x22
+menu-merged files.shelves | files.by-author by=files order=10 kind=0 flags=0x22
+menu-merged files.shelves | files.by-series by=files order=20 kind=0 flags=0x22
+menu-merged files.shelves | files.by-tag by=files order=30 kind=0 flags=0x22
+menu-merged home.actions | core.library by=home order=10 kind=0 flags=0x22
+menu-merged plugin-manager.more | plugin-manager.screens.open by=plugin-manager order=-10 kind=0 flags=0x22
+menu-merged plugin-manager.more | store.open by=store order=10 kind=0 flags=0x22
 status-item | core.status.clock title=core.status.clock priority=160
 status-item | core.status.date title=core.status.date priority=128
 status-item | core.status.date-short title=core.status.date-short priority=128
@@ -1257,6 +1347,10 @@ book-data | BookData { folder: ".paperpaw/positions", prefix: "", kind: UserData
 book-data | BookData { folder: ".paperpaw/readers", prefix: "", kind: UserData }
 book-data | BookData { folder: ".paperpaw/library/details", prefix: "", kind: UserData }
 book-data | BookData { folder: ".paperpaw/library/thumbs", prefix: "", kind: Cache }
+key-layer | core.home
+key-layer | core.reader
+key-layer | global
+key-layer | keyboard.screen
 key core.home | swipe.up -> home.all-tools Plugin
 key core.reader | long.confirm -> reader.toggle-bookmark Plugin
 key core.reader | tap.bottom -> reader.quick-settings Plugin
