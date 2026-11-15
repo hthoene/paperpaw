@@ -1031,6 +1031,9 @@ fn kernel(
         Some(trouble) => builder.card_trouble(trouble),
         None => builder,
     };
+    // A card folder with code never takes the id of a plugin linked into
+    // this firmware (a plugin of Beta 3 that is built in now), on any start.
+    let builder = builder.built_in_ids(paperpaw_app::is_linked_id);
     let builder = match code {
         CodePlugins::Load(loader) => {
             builder.code_plugins(native(staged.not_installed), Box::new(loader))

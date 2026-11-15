@@ -65,15 +65,23 @@ pub fn this_firmware() -> paperpaw_sdk::native::Native {
     native
 }
 
+/// What this firmware's loader reads of interface-7 files (its chip,
+/// interface and minor; `None` in a build without the loader). The one
+/// source of it: [`code_to_load`] asks with it, and the kernel installs the
+/// code fetched for an update by it (`CodeLoader::reads`).
+pub fn reads() -> Option<paperpaw_native::header5::Host> {
+    #[cfg(feature = "ppn5")]
+    let reads = Some(ppn5::HOST);
+    #[cfg(not(feature = "ppn5"))]
+    let reads = None;
+    reads
+}
+
 /// Whether a start with code plugins would load any from `storage`
 /// (`paperpaw_core::code_to_load`), with what this firmware's loader reads
 /// of interface-7 files: asked once an update on trial is kept.
 pub fn code_to_load(storage: &dyn Storage) -> bool {
-    #[cfg(feature = "ppn5")]
-    let loader = Some(&ppn5::HOST);
-    #[cfg(not(feature = "ppn5"))]
-    let loader = None;
-    paperpaw_core::code_to_load(storage, &this_firmware(), loader)
+    paperpaw_core::code_to_load(storage, &this_firmware(), reads().as_ref())
 }
 
 /// The internal RAM kept for plugins' hot code (the X4's arena), which
@@ -528,6 +536,10 @@ impl Loader {
 }
 
 impl CodeLoader for Loader {
+    fn reads(&self) -> Option<paperpaw_native::header5::Host> {
+        reads()
+    }
+
     /// Wires what the shell offers (`core.net`, `core.sockets`, `core.work`
     /// with the network's bridge, and `core.document`, `core.library`,
     /// `core.files` over the card) before the first plugin is admitted, so the
@@ -569,20 +581,21 @@ impl CodeLoader for Loader {
         code: &CodeFile<'_>,
     ) -> Result<Option<Box<dyn paperpaw_core::NativeAdmission>>, PluginProblem> {
         let path = code.path;
-        let mut head = [0; paperpaw_native::header5::HEADER_LEN];
-        read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
-        if !ppn5::is_format5(&head) {
-            return Ok(None);
-        }
         // The id of a linked plugin is that plugin's: a card folder is named by
-        // whoever made it, and the id keys secrets and files. Card plugins are
-        // admitted before the linked ones register, so this is the one place.
+        // whoever made it, and the id keys secrets and files. The kernel refuses
+        // such a folder before it asks here (`built_in_ids`, `main.rs`); whatever
+        // the file is, this loader does not look at it either.
         if paperpaw_app::is_linked_id(code.id.as_str()) {
             warn!(
                 "native: {path}: `{}` is a plugin built into this firmware; a card plugin cannot take its id",
                 code.id.as_str()
             );
             return Err(PluginProblem::Mismatch);
+        }
+        let mut head = [0; paperpaw_native::header5::HEADER_LEN];
+        read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
+        if !ppn5::is_format5(&head) {
+            return Ok(None);
         }
         // By its id, as safe mode switches it off.
         crate::safe_mode::loading(code.id.as_str());
