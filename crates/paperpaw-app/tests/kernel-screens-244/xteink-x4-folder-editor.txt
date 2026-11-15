@@ -1,0 +1,6 @@
+screen files.choose-folder
+Heading "Device" at 0,0 480x58
+Row "Use this folder" (focused) at 0,75 480x61
+Row "New folder" at 0,136 480x61
+Row "books/" at 0,197 480x61
+frame 800 rows, fnv1a64 a8ebe857a458088f
