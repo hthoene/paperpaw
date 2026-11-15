@@ -47,7 +47,14 @@ pub const FLASH_ONLY: &[(&str, &str)] = &[(
 )];
 /// The least room an app leaves in the smallest slot: the next updates
 /// grow, and one that no longer fits cannot be installed over the air.
-pub const FAIL_BELOW: u32 = 256 * 1024;
+/// It follows the size limit (`shells/xteink/size-budget.txt`): an image at the
+/// hard limit of 6,400,000 bytes leaves 153,600 bytes in CrossPoint's slot of
+/// 6,553,600, which this passes; 256 KB failed every image near the limit (#275).
+pub const FAIL_BELOW: u32 = 128 * 1024;
+/// The hard size limit of an image (Decision 184 allows native images above it
+/// until they are shrunk; the x4-pro by [`FLASH_ONLY`]).
+#[cfg(test)]
+const SIZE_LIMIT: u32 = 6_400_000;
 /// Below this margin the release warns: time to make room.
 pub const WARN_BELOW: u32 = 512 * 1024;
 
@@ -398,6 +405,20 @@ mod tests {
         let (slots, app) = check(&flash(&image(&[(0x3C00_0020, fits)]), true)).unwrap();
         assert_eq!(margin(&slots, &app), FAIL_BELOW);
         let why = check(&flash(&image(&[(0x3C00_0020, fits + 16)]), true)).unwrap_err();
-        assert!(why.contains("need at least 256 KB"), "{why}");
+        assert!(why.contains("need at least 128 KB"), "{why}");
+    }
+
+    #[test]
+    fn an_app_at_the_size_limit_passes_in_crosspoints_slot() {
+        // 80 bytes of header, segment head, checksum and hash, 16 of padding.
+        let at_limit = image(&[(0x3C00_0020, SIZE_LIMIT as usize - 96)]);
+        let (slots, app) = check(&flash(&at_limit, true)).unwrap();
+        assert!(app.len <= SIZE_LIMIT && SIZE_LIMIT - app.len < 16 + 32);
+        assert_eq!(room(&slots, &app), CROSSPOINT_SLOT);
+        assert!(margin(&slots, &app) >= CROSSPOINT_SLOT - SIZE_LIMIT);
+        assert!(margin(&slots, &app) >= FAIL_BELOW);
+        // Past the limit by what the rule leaves, it fails.
+        let past = image(&[(0x3C00_0020, (CROSSPOINT_SLOT - FAIL_BELOW) as usize - 64)]);
+        assert!(check(&flash(&past, true)).is_err());
     }
 }
