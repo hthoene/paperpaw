@@ -196,7 +196,8 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   for the walk; a file copied on since the last one), named by `path`, is that book for the ops
   that keep the book's own data by its path: `position`, `set_position`, `annotations`,
   `anchors`, the edit transaction (ops 13-21) and `text` of an annotation's text or note (op 4,
-  kinds 5 and 6), as Beta 3 kept marks and places by path. The card must hold a file at `path`
+  kinds 5 and 6), as Beta 3 kept marks and places by path, and for `book_key` (op 25), whose
+  key, fingerprint and size need the file alone (Beta 3's kosync took them from the file). The card must hold a file at `path`
   (any file, not only a book format, as in Beta 3; a folder is none), else `ERR_NOT_FOUND`; what the catalog answers (`details`, `status`, fields, queries) still
   needs it. The path rules hold as for any `path` (no control character, nothing below
   `plugins/` or `.paperpaw/`, `files.md` 1.1: `ERR_INVALID`). Once the walk catalogues the book,
