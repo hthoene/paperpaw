@@ -12,7 +12,6 @@ use crate::{
     native_draw::{HostInk, draw_page},
     native_index::Counter,
     native_links::DocRef,
-    native_look::Look,
     native_marking::{Book, Ctx, Marking, Outcome},
     native_marks::{self, CanvasPen, Gauge, Marks, Painted},
     native_open::{self, Place, Start},
@@ -29,7 +28,7 @@ use alloc::vec::Vec;
 use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
-    document::{DocumentError, Locator},
+    document::Locator,
     layout::{LayoutContext, Page, layout_page},
     native::{
         Error, Host,
@@ -37,7 +36,6 @@ use paperpaw_sdk::{
         clock,
         commands::{CommandSender, RedrawMode},
         document::{DocId, DocPosition, Documents, Preparation, Report, Root},
-        fonts::{Font, FontRole},
         library::Library,
         snapshot,
         ui::{HandoverId, Notify, Open as NavOpen, Param, Ui},
@@ -45,15 +43,19 @@ use paperpaw_sdk::{
     reading::WordBox,
 };
 use paperpaw_ui_kit::{
-    Messages, Style as UiStyle,
-    mem::{SERVICE_BUFFER, buffer, push},
-    paint, text,
+    Messages,
+    mem::{SERVICE_BUFFER, buffer},
+    text,
 };
 
 /// Longest path taken from a hand-over, in bytes.
 pub const MAX_PATH: usize = 512;
 /// Most pages laid out to find the page before one.
 pub const BACK_LIMIT: usize = 4096;
+
+/// The progress of a book, where it opens and the progress stored with that
+/// place.
+type Beginning = (Option<Progress>, (u32, u32), u32);
 
 /// What the screen shows.
 #[derive(Debug)]
@@ -153,6 +155,8 @@ struct Open {
     chapter: Option<Chapter>,
     /// The starts of the book's bookmarks, for the ribbon (`ribbon.rs`).
     bookmarks: Vec<(u32, u32)>,
+    /// Those of other conversions, shown where the page has their text.
+    foreign_bookmarks: Vec<ribbon::ForeignMark>,
     /// The status lines chosen at the top and the bottom.
     status: native_status::State,
     /// The marks plugins gave the page on show (`reader.decorations@1`).
@@ -165,6 +169,8 @@ struct Open {
     ask_marks: bool,
     /// The packs of letters this book asked for while open (`native_script_hint`).
     packs_asked: crate::native_script_hint::Asked,
+    /// The reading settings as last read, until one changes (`setup::Kept`).
+    settings: Kept,
 }
 
 /// One open reading screen.
@@ -264,20 +270,23 @@ impl View {
             let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
             let colour =
                 snapshot::capture_snapshot(host).is_ok_and(|display| display.display_is_colour());
-            let book = open_request(&found.path, root, colour);
+            let book = open_request(&found.path, root, (publisher_styles(host)?, colour));
             match docs.open_book(host, &book, &mut input, &mut out) {
                 Ok(state) => (
                     state.id(),
                     state.preparation(),
                     state.whole_pages(),
                     state.conversion(),
+                    state.status(),
                 ),
                 Err(Error::NoMemory) => return Err(Error::NoMemory),
                 Err(Error::Busy) => return Ok(Self::message("reader.not-ready")),
+                // The file is gone from the card (Beta 3's "no longer there").
+                Err(Error::NotFound) => return Ok(Self::message("reader.missing")),
                 Err(_) => return Ok(Self::message("reader.error")),
             }
         };
-        let (id, preparation, whole_pages, conversion) = state;
+        let (id, preparation, whole_pages, conversion, status) = state;
         let book = Preparing {
             id,
             found,
@@ -294,9 +303,11 @@ impl View {
                 speaker: Speaker::new(0),
                 aloud_kept: false,
             }),
+            // Failed in the open: the document's status says why (no room, the
+            // file gone), as it does when it fails later.
             _ => {
                 Self::forget(host, docs, id);
-                Ok(Self::message("reader.error"))
+                Ok(Self::message(preparing::failed_message(status)))
             }
         }
     }
@@ -354,18 +365,14 @@ impl View {
             Self::forget(host, docs, id);
             error
         };
-        let progress =
-            Progress::read(host, docs, id, sections, (&mut input, &mut out)).map_err(fail)?;
-        let (at, stored_ppm) =
-            Self::starting_place(host, library, &found, (sections, conversion), &mut out)
-                .map_err(fail)?;
-        // The highlights of the book; a book the library does not know has none.
-        let marks = match library.map(|l| native_marks::load(host, l, &found.path, conversion)) {
-            Some(Ok(spans)) => Marks::new(spans),
-            // A book the library does not know, or no room to read them in: the
-            // page is drawn without highlights, the book still opens.
-            _ => Marks::default(),
-        };
+        let (progress, at, stored_ppm) = Self::place_and_progress(
+            host,
+            (docs, library),
+            (&found, id, (sections, conversion)),
+            (&mut input, &mut out),
+        )
+        .map_err(fail)?;
+        let marks = Self::load_marks(host, library, &found.path, conversion);
         let mut open = Open {
             id,
             sections,
@@ -397,12 +404,14 @@ impl View {
             class_asked: false,
             chapter: None,
             bookmarks: Vec::new(),
+            foreign_bookmarks: Vec::new(),
             status: native_status::State::default(),
             decorations: None,
             undecorated: false,
             filters: Vec::new(),
             ask_marks: false,
             packs_asked: 0,
+            settings: Kept::default(),
         };
         open.ask_filters(host);
         open.begin(host, root == Root::Library);
@@ -423,6 +432,40 @@ impl View {
         })
     }
 
+    /// The sections' lengths for progress, and where the book opens with the
+    /// progress stored with that place.
+    fn place_and_progress(
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+        (found, id, (sections, conversion)): (&Handover, DocId, (u32, u64)),
+        (input, out): (&mut [u8], &mut [u8]),
+    ) -> Result<Beginning, Error> {
+        let progress = Progress::read(host, docs, id, sections, (input, out))?;
+        let (at, stored) = Self::starting_place(
+            host,
+            library,
+            found,
+            (sections, conversion, progress.as_ref()),
+            out,
+        )?;
+        Ok((progress, at, stored))
+    }
+
+    /// The highlights of the book; a book the library does not know has none,
+    /// and where there is no room to read them the page is drawn without
+    /// highlights, the book still opens.
+    fn load_marks(
+        host: &Host<'_>,
+        library: Option<&Library>,
+        path: &str,
+        conversion: u64,
+    ) -> Marks {
+        match library.map(|l| native_marks::load(host, l, path, conversion)) {
+            Some(Ok((own, foreign))) => Marks::new(own).with_foreign(foreign),
+            _ => Marks::default(),
+        }
+    }
+
     /// Where the book opens and the progress stored with its place: the place
     /// the hand-over names, if the book has it; else the place saved last time;
     /// else the start (a page number needs the page index: `PORTING-7.md`).
@@ -430,7 +473,7 @@ impl View {
         host: &Host<'_>,
         library: Option<&Library>,
         found: &Handover,
-        (sections, conversion): (u32, u64),
+        (sections, conversion, progress): (u32, u64, Option<&Progress>),
         out: &mut [u8],
     ) -> Result<((u32, u32), u32), Error> {
         Ok(
@@ -448,10 +491,15 @@ impl View {
                             (&mut ask, out),
                         )
                     });
-                    (
-                        stored.and_then(|s| s.at).unwrap_or((0, 0)),
-                        stored.map_or(0, |s| s.ppm),
-                    )
+                    // A place of another conversion is found again by its
+                    // progress; the file stays as it is until the next save.
+                    let at = stored.and_then(|s| {
+                        s.at.or_else(|| {
+                            s.other
+                                .and_then(|other| native_place::relocate(other, s.ppm, progress))
+                        })
+                    });
+                    (at.unwrap_or((0, 0)), stored.map_or(0, |s| s.ppm))
                 }
                 _ => ((0, 0), 0),
             },
@@ -503,12 +551,20 @@ impl View {
             open.laid = None;
             open.trail.clear();
             open.pictures = pictures::Pass::Whole;
-            if let Ok(setup) = Setup::read(host) {
+            if let Ok(setup) = open.settings.setup(host) {
                 open.ensure_counter(host, &setup);
             }
             open.announce(host, docs);
+            return open.redraw_page(host, docs, RedrawMode::Full); // asks for new pictures (#250)
         }
         redraw(host, RedrawMode::Full)
+    }
+
+    /// A setting changed: the reading settings are read again at the next use.
+    pub fn forget_settings(&self) {
+        if let Body::Open(open) = &self.body {
+            open.settings.forget();
+        }
     }
 
     /// Only the way the text is inked changed: the page is drawn again.
@@ -648,8 +704,8 @@ impl View {
         {
             // Opened with pictures, or shown again while they waited (the
             // host dropped their follow-up when the screen left the top): they
-            // are asked for now. The show draws the page itself, its pictures'
-            // places empty: only their boxes follow.
+            // are asked for together with a whole redraw, so the host schedules
+            // a follow-up frame that draws the pictures in their places.
             open.show_pictures(host, docs).ok();
         }
     }
@@ -897,7 +953,7 @@ impl Open {
     ) -> Result<(), Error> {
         let from = if forward {
             if self.page.is_none() {
-                let setup = Setup::read(host)?;
+                let setup = self.settings.setup(host)?;
                 self.page = Some(self.lay(host, docs, &setup, self.at)?);
             }
             let Some(page) = &self.page else {
@@ -997,7 +1053,7 @@ impl Open {
     /// pages left in it come from `native_chapter`, the page numbers from the
     /// count, once it is complete (`PORTING-7.md`).
     fn announce(&mut self, host: &Host<'_>, docs: &Documents) {
-        let Ok(setup) = Setup::read(host) else {
+        let Ok(setup) = self.settings.setup(host) else {
             return;
         };
         if self.page.is_none() {
@@ -1102,7 +1158,7 @@ impl Open {
         if self.page.is_none() {
             return Ok(Outcome::Ignored);
         }
-        let setup = Setup::read(host)?;
+        let setup = self.settings.setup(host)?;
         let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
@@ -1130,7 +1186,7 @@ impl Open {
     /// Follows the link `href` of the book (*Go to the note*): goes to its
     /// target, the page left kept for *Back*; whether the page moved.
     fn follow(&mut self, host: &Host<'_>, docs: &Documents, href: &str) -> Result<bool, Error> {
-        let setup = Setup::read(host)?;
+        let setup = self.settings.setup(host)?;
         let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
@@ -1167,7 +1223,7 @@ impl Open {
             return Ok(false);
         };
         let end = (page.end.section, page.end.offset);
-        let Ok(setup) = Setup::read(host) else {
+        let Ok(setup) = self.settings.setup(host) else {
             return self.next();
         };
         match onto(self.lay(host, docs, &setup, end)) {
@@ -1214,7 +1270,7 @@ impl Open {
                 } else {
                     (self.at.0, 0)
                 };
-                let setup = Setup::read(host)?;
+                let setup = self.settings.setup(host)?;
                 let at = self.at;
                 native_pages::page_before(from, at, BACK_LIMIT, |start| {
                     let page = self.lay(host, docs, &setup, start)?;
@@ -1276,7 +1332,12 @@ impl Open {
     ) -> Result<Page, Error> {
         let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?
             .filtered(&self.filters, &self.path);
-        let style = setup.style(faces.line_height());
+        let style = setup
+            .style(faces.line_height())
+            .script_options(native_pages::script_options(
+                &self.language,
+                setup.reading.scripts,
+            ));
         let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces);
         layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
             match document_error_kind(&error) {
@@ -1292,7 +1353,7 @@ impl Open {
         (docs, ui): (&Documents, Option<&Ui>),
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
-        let setup = Setup::read(host)?;
+        let setup = self.settings.setup(host)?;
         let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let fonts = HostFonts::acquire(host)?;
         let drawn = self.draw_with(host, (docs, ui), frame, (&setup, &fonts, area));
@@ -1310,8 +1371,7 @@ impl Open {
         let faces = Faces::new(fonts, setup.base(), setup.reading.spacing_factor())?
             .word_spacing(setup.reading.word_factor());
         // A turned screen or a changed reading setting (the host may draw before
-        // the plugin is told): the page is laid out again, and the pages before
-        // it are found anew (their starts were those of another layout).
+        // the plugin is told): the page is laid out again, its trail found anew.
         let key = self.key(setup);
         if self.page.is_some() && self.laid != Some(key) {
             self.page = None;
@@ -1325,27 +1385,33 @@ impl Open {
             self.words = Vec::new();
             self.laid = Some(key);
         }
+        if frame.pictures_only() {
+            return self.draw_pictures_only(host, frame, (setup, fonts, area));
+        }
         let page = self.page.as_ref().ok_or(Error::State)?;
         if self.words.is_empty() {
             self.words = native_wordbox::word_boxes(&faces, page, area)?;
+            // Highlights of another conversion that this page has the text of.
+            self.marks.accept_foreign(&self.words);
             self.decorate(host);
         }
         let page = self.page.as_ref().ok_or(Error::State)?;
         let rect = frame.rect;
+        let band = (frame.clip_top, frame.clip_bottom);
         let follow_up = pictures::follow_up(frame);
         let canvas = frame.draw_canvas()?;
         canvas.fill_rectangle(rect, Color::WHITE)?;
-        let look = Look::read(host, setup.display.display_gray_levels())?;
-        let mut ink = HostInk::new(fonts, &canvas, Color::BLACK, look);
+        let look = self
+            .settings
+            .look(host, setup.display.display_gray_levels())?;
+        let mut ink = HostInk::new(fonts, &canvas, Color::BLACK, look).clipped(band.0, band.1);
         let origin = (
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
-        // The highlights and the search hit: backgrounds behind the words,
-        // lines and frames over them.
+        // The highlights and the search hit: behind the words, over them.
         let hit = self.marks.hit_on(self.at);
-        // A mark never fails the page: no room for it or a refusal of the host
-        // leaves the text drawn without marks (or with the part drawn so far).
+        // A mark never fails the page: a refusal leaves the text without it.
         let gauge = Gauge::of(
             setup.display.display_dpi(),
             setup.display.display_gray_levels(),
@@ -1387,50 +1453,12 @@ impl Open {
     }
 }
 
-fn redraw(host: &Host<'_>, mode: RedrawMode) -> Result<(), Error> {
-    let mut scratch = [0; 64];
-    CommandSender::new(host, &mut scratch).queue_redraw(mode)
-}
-
-/// What a layout's refusal is as a host error.
-fn document_error_kind(error: &DocumentError) -> Option<Error> {
-    match error {
-        DocumentError::OutOfMemory => Some(Error::NoMemory),
-        DocumentError::NotReady => Some(Error::Busy),
-        _ => None,
-    }
-}
-
-/// Says why there is no page: the text over the whole screen.
-fn say(host: &Host<'_>, frame: &mut DrawFrame<'_>, key: &str) -> Result<(), Error> {
-    let font = Font::acquire_role(host, FontRole::Ui)?;
-    let said = say_with(host, frame, &font, key);
-    let released = font.release();
-    said.and(released)
-}
-
-fn say_with(
-    host: &Host<'_>,
-    frame: &mut DrawFrame<'_>,
-    font: &Font<'_>,
-    key: &str,
-) -> Result<(), Error> {
-    let display = snapshot::capture_snapshot(host)?;
-    let style = UiStyle::read(host, &display, font)?;
-    let area = paperpaw_sdk::Rect::new(0, 0, display.display_width(), display.display_height());
-    let mut messages = Messages::new()?;
-    let shown = messages.copy(host, key)?;
-    let mut body = alloc::vec::Vec::new();
-    push(&mut body, paint::Paint::Fill(area, style.paper))?;
-    text::message(&mut body, font, &style, area, &shown)?;
-    paint::replay(frame, font, body.iter())
-}
-
 mod aloud;
 mod count;
 mod decorations;
 mod filters;
 mod goto;
+mod helpers;
 mod menu_bar;
 mod notes;
 mod pictures;
@@ -1438,23 +1466,10 @@ mod preparing;
 mod ribbon;
 mod script_hint;
 mod setup;
-use preparing::{Preparing, open_request};
-use setup::{LayoutKey, Setup, flag, integer};
+use helpers::{book_language, document_error_kind, redraw, say};
+use preparing::{Preparing, open_request, publisher_styles};
+use setup::{Kept, LayoutKey, Setup, flag, integer};
 
-/// The language a book is read in: its own, or the UI language where the
-/// format names none (a text file), as in Beta 3, so the voice reading aloud
-/// is the reader's. Empty only where the UI language cannot be read either
-/// (the host's voice then).
-///
-/// # Errors
-/// `NoMemory`.
-fn book_language(host: &Host<'_>, declared: &str) -> Result<String, Error> {
-    if !declared.is_empty() {
-        return text::copy(declared);
-    }
-    let mut scratch = [0; 64];
-    text::copy(paperpaw_sdk::native::i18n::language(host, &mut scratch).unwrap_or(""))
-}
 mod r3;
 mod status;
 

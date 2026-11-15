@@ -40,8 +40,72 @@ pub(super) struct Slot(());
 /// Begins a host slot: hold the result until the slot returns. The call is
 /// noted where the plugin's frame records them (its `make`, #248).
 pub(super) fn enter() -> Slot {
+    #[cfg(feature = "slot-counts")]
+    slot_counts::note(Id::Other);
+    begin_slot()
+}
+
+fn begin_slot() -> Slot {
     super::frame_owner::note_host_call();
     enter_registration()
+}
+
+/// A host slot the counters of `slot-counts` tell apart; `Other` is every
+/// slot not named here.
+macro_rules! slot_ids {
+    ($($variant:ident => $name:literal),+ $(,)?) => {
+        #[derive(Clone, Copy)]
+        #[allow(dead_code, reason = "named for the counters of `slot-counts`")]
+        pub(super) enum Id {
+            $($variant),+,
+            Other,
+        }
+
+        #[cfg(feature = "slot-counts")]
+        const NAMES: &[&str] = &[$($name),+, "other"];
+    };
+}
+
+slot_ids! {
+        BlobRead => "blob_read",
+        BlobRelease => "blob_release",
+        CanvasClip => "canvas_clip",
+        CanvasDescribe => "canvas_describe",
+        CanvasDrawLine => "canvas_draw_line",
+        CanvasFillRect => "canvas_fill_rect",
+        CanvasFillRound => "canvas_fill_round",
+        CanvasStrokeRound => "canvas_stroke_round",
+        CommandsSubmit => "commands_submit",
+        EnvSnapshot => "env_snapshot",
+        FontAcquire => "font_acquire",
+        HandleRelease => "handle_release",
+        ServiceCall => "service_call",
+        ServiceOpen => "service_open",
+        ServicesQuery => "services_query",
+        SettingsRead => "settings_read",
+        StorageAppend => "storage_append",
+        StorageReadAt => "storage_read_at",
+        StorageRemove => "storage_remove",
+        StorageRename => "storage_rename",
+        StorageSize => "storage_size",
+        StorageSync => "storage_sync",
+        StorageWrite => "storage_write",
+        TextDraw => "text_draw",
+        TextDrawInked => "text_draw_inked",
+        TextInk => "text_ink",
+        TextMeasure => "text_measure",
+        TextMetrics => "text_metrics"
+}
+
+/// As [`enter`], naming the slot: counted with the `slot-counts` feature
+/// (a host-cost guard of the tests), a plain [`enter`] without it.
+#[inline(always)]
+pub(super) fn enter_as(id: Id) -> Slot {
+    #[cfg(feature = "slot-counts")]
+    slot_counts::note(id);
+    #[cfg(not(feature = "slot-counts"))]
+    let _ = id;
+    begin_slot()
 }
 
 /// As [`enter`], for `registrations.submit`: the one call `make` is meant to
@@ -54,6 +118,52 @@ pub(super) fn enter_registration() -> Slot {
 impl Drop for Slot {
     fn drop(&mut self) {
         call(&END);
+    }
+}
+
+/// How often each host slot was entered on this thread, for a test that
+/// guards the cost of a user action in host crossings (the device spends
+/// about a millisecond or more on each). Off by default; no shell turns it on.
+/// A fixed array of cells: counting never allocates (the memory tests count
+/// the simulated X4's heap) and never fails.
+#[cfg(feature = "slot-counts")]
+pub mod slot_counts {
+    extern crate std;
+    use super::{Id, NAMES};
+    use alloc::vec::Vec;
+    use core::cell::Cell;
+
+    std::thread_local! {
+        static COUNTS: [Cell<u32>; NAMES.len()] = const { [const { Cell::new(0) }; NAMES.len()] };
+    }
+
+    pub(super) fn note(id: Id) {
+        // A thread being torn down has no counts to keep.
+        let _ = COUNTS.try_with(|counts| {
+            let count = &counts[id as usize];
+            count.set(count.get().saturating_add(1));
+        });
+    }
+
+    /// Forgets the counts of this thread.
+    pub fn reset() {
+        let _ = COUNTS.try_with(|counts| counts.iter().for_each(|count| count.set(0)));
+    }
+
+    /// The counts of this thread since `reset`, by slot name, the slots
+    /// entered only.
+    #[must_use]
+    pub fn snapshot() -> Vec<(&'static str, u32)> {
+        COUNTS
+            .try_with(|counts| {
+                NAMES
+                    .iter()
+                    .zip(counts)
+                    .filter(|(_, count)| count.get() > 0)
+                    .map(|(name, count)| (*name, count.get()))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -103,6 +213,7 @@ mod tests {
                 if signature.contains("ctx: *mut c_void") && !FAST.contains(&name.as_str()) {
                     seen += 1;
                     let guarded = function.contains("host_slot::enter()")
+                        || function.contains("host_slot::enter_as(")
                         || (name == "registrations_submit"
                             && function.contains("host_slot::enter_registration()"));
                     if !guarded {

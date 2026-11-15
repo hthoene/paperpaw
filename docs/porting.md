@@ -196,8 +196,9 @@ Only the desktop emulator loads interface-7 libraries, and only behind
 keeps this order, which the tests in `shells/desktop` pin:
 
 1. Read the file and tell its kind from the bytes: `PAPERPAW_METADATA` alone is
-   interface 7, `PAPERPAW_API` alone is interface 6 and left to its own loader,
-   anything else is refused. Never guess.
+   interface 7, `PAPERPAW_API` alone is interface 6 (refused as built for an
+   older PaperPaw: no loader takes it any more), anything else is refused.
+   Never guess.
 2. Run the strict freestanding check (`check_freestanding`, `PLUGIN_EXPORTS`)
    before any code of the library runs.
 3. Open the plugin with the id of its **folder** (`PinnedPlugin::open`), never

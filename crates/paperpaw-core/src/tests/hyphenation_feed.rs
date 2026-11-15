@@ -8,20 +8,11 @@ use crate::native_host::{HyphenTables, hyphen_card::CardTables, hyphen_service::
 use alloc::format;
 use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::native::Native;
-use paperpaw_sdk::{Plugin, PluginProblem};
 
 /// A loader with no code, whose sink is the one it was made with.
 struct SinkLoader(HyphenTables);
 
 impl CodeLoader for SinkLoader {
-    fn load(
-        &mut self,
-        _: &dyn paperpaw_platform::Storage,
-        _: &crate::code_plugin::CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        Err(PluginProblem::Changed)
-    }
-
     fn hyphenation_sink(
         &mut self,
         _: &alloc::rc::Rc<dyn paperpaw_platform::Storage>,

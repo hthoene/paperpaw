@@ -601,7 +601,7 @@ impl Device {
                 .storage(self.card.clone())
                 .network(true)
                 .firmware(updates.firmware())
-                .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+                .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
                 .build()
                 .unwrap();
             let effects = kernel.start(Instant(0));

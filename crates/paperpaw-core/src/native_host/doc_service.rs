@@ -830,7 +830,7 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     // sees 0; before the conversion key, so an open with 0 and an explicit
     // open of the same size share one cache (`document.md` 3).
     let image_side = match request.image_side {
-        0 => args::IMAGE_FIT,
+        0 => args::default_image_side(long_side),
         side => side,
     };
     let cover_side = match request.cover_side {

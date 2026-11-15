@@ -21,6 +21,9 @@ use paperpaw_sdk::{Env, MemoryStorage, OpenOptions, Storage};
 
 struct Fake {
     meta: Metadata,
+    /// The side its pictures not decoded yet say they have (`big.fake`: one
+    /// the host passes on only decoded).
+    side: u32,
 }
 
 fn cache() -> String {
@@ -75,7 +78,7 @@ impl Document for Fake {
                 let mut b = Block::new(BlockKind::Image, 20, 30, String::new());
                 b.image = Some(ImageRef {
                     path: format!("{}/lazy.gray", cache()),
-                    width: 30,
+                    width: self.side,
                     height: 40,
                 });
                 Some(b)
@@ -97,7 +100,7 @@ impl Document for Fake {
                 let mut b = Block::new(BlockKind::Image, 40, 50, "a dog".into());
                 b.image = Some(ImageRef {
                     path: format!("{}/missing.gray", cache()),
-                    width: 30,
+                    width: self.side,
                     height: 40,
                 });
                 Some(b)
@@ -114,12 +117,17 @@ impl Document for Fake {
     }
 }
 
-fn open(_: &dyn Storage, _: &str, _: &OpenOptions) -> Result<Box<dyn Document>, DocumentError> {
+fn open(_: &dyn Storage, path: &str, _: &OpenOptions) -> Result<Box<dyn Document>, DocumentError> {
     let mut meta = Metadata::default();
     meta.title = Some("T".into());
     // 40 bytes: longer than a call carries (35), as interface 6 opened it.
     meta.language = Some("x-a-very-long-private-use-language-tag-1".into());
-    Ok(Box::new(Fake { meta }))
+    let side = if path.ends_with("big.fake") {
+        1_601
+    } else {
+        30
+    };
+    Ok(Box::new(Fake { meta, side }))
 }
 
 fn provider() -> FormatProvider {
@@ -160,13 +168,17 @@ fn picture_file(io: &MemoryStorage, path: &str) {
 }
 
 fn opened() -> (FormatProvider, MemoryStorage) {
+    opened_as("b.fake")
+}
+
+fn opened_as(book: &'static str) -> (FormatProvider, MemoryStorage) {
     let io = MemoryStorage::new();
     // The files the fake's pictures name (`lazy.gray` becomes `decoded.gray`).
     for name in ["pic", "decoded"] {
         picture_file(&io, &format!("{}/{name}.gray", cache()));
     }
     let mut p = provider();
-    let reply = run(&mut p, &io, &call(2, |c| c.text = "b.fake")).unwrap();
+    let reply = run(&mut p, &io, &call(2, |c| c.text = book)).unwrap();
     let stage::Record::FmtState(s) = rows(&reply)[0] else {
         panic!("state")
     };
@@ -331,7 +343,7 @@ fn pictures_match_kind(reply: &[u8]) {
 }
 
 #[test]
-fn a_picture_the_document_decodes_late_is_decoded_before_its_block_goes_out() {
+fn a_picture_the_document_decodes_late_goes_out_undecoded_and_is_decoded_when_asked_for() {
     let (mut p, io) = opened();
     let reply = block_at(&mut p, &io, 20);
     pictures_match_kind(&reply);
@@ -340,10 +352,19 @@ fn a_picture_the_document_decodes_late_is_decoded_before_its_block_goes_out() {
         panic!("block")
     };
     assert_eq!(block.kind, 3);
+    // "Not decoded yet" (flags bit 0), at the size the document says.
     assert!(rows.iter().any(|r| matches!(
         r,
-        stage::Record::FmtImage(i) if i.path == "decoded.gray" && (i.width, i.height) == (30, 40)
+        stage::Record::FmtImage(i)
+            if i.path == "lazy.gray" && (i.width, i.height, i.flags) == (30, 40, 1)
     )));
+    // Asked for by its number (the page shows it), it is decoded.
+    let reply = run(&mut p, &io, &call(18, |c| c.index = 20)).unwrap();
+    assert!(matches!(
+        self::rows(&reply)[0],
+        stage::Record::FmtImage(i)
+            if i.path == "decoded.gray" && (i.width, i.height, i.flags) == (30, 40, 0)
+    ));
 }
 
 #[test]
@@ -362,18 +383,23 @@ fn a_picture_that_cannot_be_served_costs_the_picture_only_never_the_book() {
         r,
         stage::Record::FmtTextPart(t) if t.text == "a cat on a mat"
     )));
-    // A picture of the cache with no file, and none to be made, goes the same way.
+    // A picture of the cache with no file goes out not decoded yet: whether
+    // it can be made shows when a page asks for it, and then costs only itself.
     let reply = block_at(&mut p, &io, 40);
     pictures_match_kind(&reply);
     let dog = rows(&reply);
     let stage::Record::FmtBlock(block) = dog[0] else {
         panic!("block")
     };
-    assert_eq!(block.kind, 0);
+    assert_eq!(block.kind, 3);
     assert!(dog.iter().any(|r| matches!(
         r,
-        stage::Record::FmtTextPart(t) if t.text == "a dog"
+        stage::Record::FmtImage(i) if i.path == "missing.gray" && i.flags == 1
     )));
+    assert!(matches!(
+        run(&mut p, &io, &call(18, |c| c.index = 40)),
+        Err(Error::NotFound)
+    ));
     // The ones with their pictures in the cache are unchanged.
     pictures_match_kind(&block_at(&mut p, &io, 10));
     // The same picture asked for by number is not found, as before.
@@ -381,4 +407,39 @@ fn a_picture_that_cannot_be_served_costs_the_picture_only_never_the_book() {
         run(&mut p, &io, &call(18, |c| c.index = 30)),
         Err(Error::NotFound)
     ));
+}
+
+#[test]
+fn a_picture_the_host_takes_only_decoded_is_decoded_where_its_block_is_read() {
+    // A side over 1,600: the host passes no such picture on undecoded
+    // (document.md section 5), so it cannot wait for a page to show it.
+    let (mut p, io) = opened_as("big.fake");
+    let reply = block_at(&mut p, &io, 20);
+    pictures_match_kind(&reply);
+    let lazy = rows(&reply);
+    let stage::Record::FmtBlock(block) = lazy[0] else {
+        panic!("block")
+    };
+    assert_eq!(block.kind, 3);
+    // Decoded at the read: the file made, at its size, nothing left to ask.
+    assert!(lazy.iter().any(|r| matches!(
+        r,
+        stage::Record::FmtImage(i)
+            if i.path == "decoded.gray" && (i.width, i.height, i.flags) == (30, 40, 0)
+    )));
+    // One that cannot be made costs the picture only, at the read: a
+    // paragraph with the block's own text, no picture record.
+    let reply = block_at(&mut p, &io, 40);
+    pictures_match_kind(&reply);
+    let dog = rows(&reply);
+    let stage::Record::FmtBlock(block) = dog[0] else {
+        panic!("block")
+    };
+    assert_eq!(block.kind, 0);
+    assert_eq!(block.text_bytes, "a dog".len() as u32);
+    assert!(dog.iter().any(|r| matches!(
+        r,
+        stage::Record::FmtTextPart(t) if t.text == "a dog"
+    )));
+    assert!(!dog.iter().any(|r| matches!(r, stage::Record::FmtImage(_))));
 }

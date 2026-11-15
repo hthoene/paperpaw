@@ -10,6 +10,17 @@ use super::{
 };
 use crate::native_status::{self, Config, Facts, Place, Tapped};
 
+impl super::View {
+    /// The status lines ask the registry for their items again at the next
+    /// draw: at an input and when the screen is shown again, a plugin with a
+    /// status item may have come or gone.
+    pub fn forget_status(&self) {
+        if let super::Body::Open(open) = &self.body {
+            open.status.forget_known();
+        }
+    }
+}
+
 impl Open {
     /// Where the status lines are for `setup` and the content box `area`: none
     /// in a book of whole pages.
@@ -58,7 +69,9 @@ impl Open {
         }
         self.status.load(&DataStorage::new(host))?;
         self.with_facts(host, |facts| {
-            native_status::paint(host, ui, frame, (&place, &self.status, facts))
+            native_status::paint(host, ui, frame, (&place, &self.status, facts), |font| {
+                self.settings.status(host, place.display, font)
+            })
         })
     }
 
@@ -85,7 +98,7 @@ impl Open {
             } => (None, Some(true)),
             _ => return Ok(None),
         };
-        let setup = Setup::read(host)?;
+        let setup = self.settings.setup(host)?;
         let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let Some(place) = self.status_place(&setup, &area) else {
             return Ok(None);

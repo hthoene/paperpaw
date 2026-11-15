@@ -86,6 +86,9 @@ const MAX_INI: usize = 32 * 1024;
 const TOC_HEADER: usize = 9;
 /// Cache files are appended in chunks of about this size.
 const FLUSH: usize = 256;
+/// What the buffers on the heap (the contents, the style rules) gather before
+/// they are appended to the cache: each append costs about 27 ms on the X4 (#250).
+const CACHE_FLUSH: usize = 1024;
 
 fn path(cache: &str, name: &str) -> Result<String, DocumentError> {
     fallible::try_format!("{cache}/{name}")
@@ -620,7 +623,7 @@ impl<'a> TocWriter<'a> {
         self.data.extend_from_slice(title.as_bytes());
         self.written += (TOC_HEADER + fragment.len() + title.len()) as u32;
         self.count += 1;
-        if self.data.len() >= FLUSH || self.index.len() >= FLUSH {
+        if self.data.len() >= CACHE_FLUSH || self.index.len() >= CACHE_FLUSH {
             self.flush();
         }
     }
@@ -1207,7 +1210,7 @@ fn write_rules(storage: &dyn Storage, file: &str, rules: &css::Rules) -> Result<
             failed = Some(e);
             return;
         }
-        if lines.len() >= FLUSH {
+        if lines.len() >= CACHE_FLUSH {
             failed = storage
                 .append(file, lines.as_bytes())
                 .err()

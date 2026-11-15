@@ -1,6 +1,7 @@
 screen settings.group
 Text "1 / 3"
 Heading "Reading"
+Heading "Preview"
 Row "Text" (focused)
 Row "Layout"
 Row "Hyphenation"
@@ -9,5 +10,3 @@ Row "Display"
 Row "Status lines"
 Row "Marks"
 Row "Reading aloud"
-Row "Reading aids"
-Row "Behaviour"

@@ -478,7 +478,7 @@ fn native_battery_pixel_acceptance() {
                 case.language,
                 if case.developer { "on" } else { "off" }
             ))
-            .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+            .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
             .plugin(Catalogs)
             .build()
             .unwrap();

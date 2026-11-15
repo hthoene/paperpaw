@@ -59,8 +59,9 @@ pub struct Framebuffer {
 
 /// Bytes of error rows the bands of a frame leave diffused for the next
 /// band, all pictures together (a 480-pixel row of two is 1.9 KiB); more
-/// start from their first row again.
-const DIFFUSION_BYTES: usize = 6 * 1024;
+/// start from their first row again. The most a host may keep for a
+/// plugin's pictures (`docs/abi/document.md` 5), so it holds for all.
+const DIFFUSION_BYTES: usize = 4 * 1024;
 
 impl Framebuffer {
     /// Allocates a white framebuffer. Fails instead of aborting when memory
@@ -885,11 +886,35 @@ mod tests {
         fb.keep_diffusion(1, 10, Atkinson::new(800).unwrap());
         fb.keep_diffusion(1, 10, Atkinson::new(800).unwrap());
         assert!(fb.take_diffusion(1, 10).is_some());
-        // Narrow ones: several fit.
+        // Narrow ones: two of the X4's width fit (3.8 KiB), a third does not.
         for key in 0..3 {
             fb.keep_diffusion(key, 10, Atkinson::new(480).unwrap());
         }
-        assert!(fb.take_diffusion(2, 10).is_some());
+        assert!(fb.take_diffusion(2, 10).is_none());
+        assert!(fb.take_diffusion(1, 10).is_some());
+        assert!(fb.take_diffusion(0, 10).is_some());
+    }
+
+    #[test]
+    fn diffusion_kept_goes_with_the_frame_or_a_band_that_begins_elsewhere() {
+        let mut fb = Framebuffer::banded(480, 100, 10, PixelFormat::Mono1).unwrap();
+        // Kept only where the band ends, for the band that begins there.
+        fb.keep_diffusion(1, 5, Atkinson::new(480).unwrap());
+        assert!(fb.diffusions.is_empty(), "not at the band's end");
+        fb.keep_diffusion(1, 10, Atkinson::new(480).unwrap());
+        fb.set_top(10);
+        assert_eq!(fb.diffusions.len(), 1, "the next band");
+        // The frame's end frees it, and its memory.
+        fb.end_frame();
+        assert_eq!(fb.diffusions.capacity(), 0);
+        // A band that begins elsewhere (drawn again, out of order) drops it.
+        fb.set_top(0);
+        fb.keep_diffusion(1, 10, Atkinson::new(480).unwrap());
+        fb.set_top(0);
+        assert!(fb.diffusions.is_empty(), "the same band again");
+        fb.keep_diffusion(1, 10, Atkinson::new(480).unwrap());
+        fb.set_top(20);
+        assert!(fb.take_diffusion(1, 10).is_none(), "a band further down");
     }
 
     #[test]
