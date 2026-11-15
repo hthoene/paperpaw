@@ -4702,6 +4702,15 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 128
+        },
+        {
+          "name": "icon",
+          "type": "str",
+          "since": 1,
+          "optional": true,
+          "ordinal": 0,
+          "default": "",
+          "max_bytes": 64
         }
       ]
     },

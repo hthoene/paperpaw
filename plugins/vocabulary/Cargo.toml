@@ -13,7 +13,7 @@ categories = ["no-std"]
 [package.metadata.paperpaw]
 # What the plugin reads from its folder on the card: the store's package
 # holds these files (tools/plugin-files/catalogue.py).
-card-files = ["data/phone.txt"]
+card-files = ["i18n/*.ini", "data/phone.txt"]
 
 [features]
 # The phone page carried in the code (the plugin as part of an app); a
