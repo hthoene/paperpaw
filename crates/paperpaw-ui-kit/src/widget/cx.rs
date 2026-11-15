@@ -76,8 +76,8 @@ impl<'a> Cx<'a> {
         let font = widget_font(host, widget)?;
         let snapshot = snapshot::capture_snapshot(host)?;
         let display = (snapshot.display_width(), snapshot.display_height());
-        let shape = match kept.filter(|kept| kept.display == display) {
-            Some(kept) => kept.shape,
+        let shape = match for_display(kept.map(|kept| (kept.display, kept.shape)), display) {
+            Some(shape) => shape,
             None => Shape::read(&settings, Style::read(host, &snapshot, &font)?)?,
         };
         Ok(Self {
@@ -340,9 +340,28 @@ pub fn face_font<'a>(host: &'a Host<'a>, face: &str) -> Result<Font<'a>, Error> 
     Font::acquire_role(host, role)
 }
 
+/// What was kept for the display it was kept for, none for another one (the
+/// look depends on the display's size).
+fn for_display<S>(kept: Option<((u16, u16), S)>, display: (u16, u16)) -> Option<S> {
+    kept.filter(|(was, _)| *was == display)
+        .map(|(_, kept)| kept)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::chosen_or_system;
+    use super::{chosen_or_system, for_display};
+
+    #[test]
+    fn a_kept_look_is_for_the_display_it_was_made_for() {
+        assert_eq!(
+            for_display(Some(((480, 800), "look")), (480, 800)),
+            Some("look")
+        );
+        // Turned, or another panel: read again.
+        assert_eq!(for_display(Some(((480, 800), "look")), (800, 480)), None);
+        assert_eq!(for_display(Some(((480, 800), "look")), (480, 480)), None);
+        assert_eq!(for_display::<&str>(None, (480, 800)), None);
+    }
 
     #[test]
     fn with_no_zone_chosen_the_systems_offset_counts() {
