@@ -208,6 +208,9 @@ impl World {
     pub fn signed_in() -> Self {
         Self::with_account(true)
     }
+    pub fn restart(card: Card) -> Self {
+        Self::on_card(card, false)
+    }
     fn with_account(signed_in: bool) -> Self {
         let card = Card(Rc::new(
             MemoryStorage::new().with(
@@ -228,6 +231,9 @@ impl World {
             )
             .unwrap();
         }
+        Self::on_card(card, signed_in)
+    }
+    fn on_card(card: Card, signed_in: bool) -> Self {
         let network = Rc::new(Network::default());
         let resources = HostResources::try_new().unwrap();
         let wired = resources
