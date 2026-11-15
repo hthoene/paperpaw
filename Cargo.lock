@@ -2329,6 +2329,7 @@ name = "paperpaw-plugin-kosync"
 version = "1.0.10"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]

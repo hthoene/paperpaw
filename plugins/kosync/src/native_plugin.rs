@@ -1,8 +1,7 @@
 //! The interface-7 progress sync: the settings, the account screen, the sync
 //! engine (`native_sync`) carried out through the network, secrets, work and
 //! user-interface services, and the offer to go where another device is.
-//! What the SDK has no facade for yet (the book's fingerprint, the XPointer of
-//! a place) is in `native_backing`; `PORTING-7.md` lists it.
+//! The book identity and document position adapters are in `native_backing`.
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -33,7 +32,7 @@ use crate::declarations::{
     SETTING_CHANGED, STARTED, SUSPEND, SYNC_NOW, WORK_ALLOWED, WORK_DUE,
 };
 use crate::native_account::{Account, Field, Message, Row, Todo};
-use crate::native_backing as backing;
+use crate::native_backing::Backing;
 use crate::native_flow::{Call, Pending, Purpose, Table, create_body};
 use crate::native_model::{self, MAX_ANSWER, Remote, Secret, failure, percent_text, progress_body};
 use crate::native_store as store;
@@ -83,6 +82,8 @@ pub struct NativeKosync {
     secrets: Option<Secrets>,
     work: Option<Work>,
     device: Option<Device>,
+    /// The book's fingerprint and places, where the device offers the services.
+    backing: Backing,
     /// The services were tried; `net` is `None` where the device has no network.
     opened: bool,
     screens: Screens<View>,
@@ -223,11 +224,20 @@ impl NativeKosync {
         if self.opened {
             return Ok(());
         }
+        if self.net.is_none() {
+            self.net = optional(Net::open(host))?;
+        }
+        if self.secrets.is_none() {
+            self.secrets = optional(Secrets::open(host))?;
+        }
+        if self.work.is_none() {
+            self.work = optional(Work::open(host))?;
+        }
+        if self.device.is_none() {
+            self.device = optional(Device::open(host))?;
+        }
+        self.backing = Backing::open(host)?;
         self.opened = true;
-        self.net = optional(Net::open(host))?;
-        self.secrets = optional(Secrets::open(host))?;
-        self.work = optional(Work::open(host))?;
-        self.device = optional(Device::open(host))?;
         Ok(())
     }
 
@@ -480,7 +490,7 @@ impl NativeKosync {
         local: f64,
         manual: bool,
     ) -> Result<bool, Error> {
-        let Some(digest) = backing::digest(host, path)? else {
+        let Some(digest) = self.backing.digest(host, path)? else {
             return Ok(false);
         };
         let Some((user, key)) = self.credentials(host)? else {
@@ -520,17 +530,18 @@ impl NativeKosync {
     }
 
     fn start_send(&mut self, host: &Host<'_>, position: &Position) -> Result<bool, Error> {
-        let Some(digest) = backing::digest(host, &position.path)? else {
+        let Some(digest) = self.backing.digest(host, &position.path)? else {
             return Ok(false);
         };
         let Some((user, key)) = self.credentials(host)? else {
             return Ok(false);
         };
-        let (xpointer, progress) = match backing::xpointer(host, &position.path, position.at)? {
-            Some(found) => found,
-            // The book gives none (a format without XPointers): the reader's progress.
-            None => (String::new(), position.progress),
-        };
+        // The book gives none (a format without XPointers): the progress alone.
+        let xpointer = self
+            .backing
+            .xpointer(host, &position.path, position.at)?
+            .unwrap_or_default();
+        let progress = position.progress;
         let model = self.model(host)?;
         let id = match &self.engine {
             Some(engine) => copy(engine.device_id())?,
@@ -599,7 +610,7 @@ impl NativeKosync {
     }
 
     fn push_later(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        if !backing::can_send() {
+        if !self.backing.can_send() {
             return Ok(());
         }
         let Some(work) = &self.work else {
@@ -825,9 +836,7 @@ impl NativeKosync {
     /// Opens the book where the other device is, in the reader the user bound.
     /// `false` where the place cannot be found (it is then as if closed).
     fn go_there(&mut self, host: &Host<'_>, offer: &Offer) -> Result<bool, Error> {
-        let progress = offer.percentage.parse::<f64>().unwrap_or(0.0);
-        let Some((section, offset)) =
-            backing::locate(host, &offer.path, &offer.xpointer, progress)?
+        let Some((section, offset)) = self.backing.locate(host, &offer.path, &offer.xpointer)?
         else {
             return Ok(false);
         };

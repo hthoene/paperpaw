@@ -23,6 +23,7 @@ paperpaw-ui-kit.workspace = true
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 paperpaw-core.workspace = true
 
 [lints]
