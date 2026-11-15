@@ -105,9 +105,9 @@ fn the_figure_is_asked_by_a_stage_of_its_own() {
         all.contains("StageSpec") && all.contains("read-today"),
         "{all}"
     );
-    // A day in (4 bytes), a day and the seconds out (8), one reply.
+    // A day in (4 bytes), one framed reading record out (16 bytes).
     assert!(
-        all.contains("max_input: 4") && all.contains("max_reply: 8"),
+        all.contains("max_input: 4") && all.contains("max_reply: 16"),
         "{all}"
     );
     assert!(all.contains("max_records: 1"), "{all}");

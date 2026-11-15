@@ -47,8 +47,8 @@ mod image {
 const EVENTS: u32 = crate::declarations::EVENTS_TOKEN;
 /// The stage this plugin owns and runs, by its full id.
 const READ_TODAY: &str = "reading-goal.read-today";
-/// What a reply of the stage can take (a day and the seconds: 8 bytes).
-const REPLY: usize = Stage::out_len(8);
+/// The host-framed reply, sized from the stage's declared payload limit.
+const REPLY: usize = Stage::out_len(crate::declarations::READ_TODAY_REPLY);
 
 /// The minute tick's callback token, as declared.
 const TICK: u32 = crate::declarations::TICK_TOKEN;

@@ -4,6 +4,13 @@
 //! host services or ported parts that are not there yet and stay ignored. Each names the
 //! missing piece.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "fixture failures fail the regression tests"
+)]
+
 #[test]
 #[ignore = "needs a host that runs native plugins end to end: it refuses icon declarations today, so make fails (the recording itself is tested in src/recorder/tests.rs)"]
 fn pages_read_are_recorded_and_the_days_summed() {
@@ -24,10 +31,36 @@ fn the_widgets_and_the_status_item_show_todays_reading() {
     );
 }
 
+#[cfg(feature = "linked")]
+#[path = "../../reading-goal/src/read_today.rs"]
+#[allow(
+    clippy::absurd_extreme_comparisons,
+    clippy::match_single_binding,
+    clippy::unnecessary_min_or_max,
+    reason = "generated payload codec also emits an unused reply direction"
+)]
+mod read_today;
+
 #[test]
-#[ignore = "needs a host that runs native plugins end to end: reading-goal runs reading-goal.read-today and the statistics answer it (the answer is src/native_plugin.rs tell_today)"]
-fn reading_goal_is_told_todays_seconds() {
-    unreachable!("the stage answers day and seconds as the stay is recorded");
+#[cfg(feature = "linked")]
+fn reading_goal_gets_an_unknown_record_without_a_date() {
+    use paperpaw_core::native_host::registrations::{Record, StageCall};
+    use paperpaw_scripted_host::{ScriptedHost, event_batch};
+    use read_today::reading_goal_read_today_reply_v1::TodayReading;
+    let host = ScriptedHost::for_plugin("stats");
+    let plugin = host
+        .load(paperpaw_plugin_stats::NATIVE_ENTRY.entry())
+        .unwrap();
+    let batch = event_batch(&Record::StageCall(StageCall {
+        stage: "reading-goal.read-today",
+        schema: 1,
+        payload: &[],
+    }))
+    .unwrap();
+    let (callback, reply) = plugin.stage_call(5, &batch, 16).unwrap();
+    assert_eq!(callback.status, 0);
+    let reading = TodayReading::decode(&reply).expect("unknown must be an explicit valid batch");
+    assert_eq!((reading.known, reading.day, reading.seconds), (0, 0, 0));
 }
 
 #[test]

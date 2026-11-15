@@ -152,15 +152,20 @@ fn what_was_told_is_written_when_no_book_is_open_or_it_closes_or_sleeps() {
 }
 
 #[test]
-fn the_stage_payload_is_exactly_a_day_and_the_seconds() {
-    let mut bytes = [0u8; 8];
-    bytes[..4].copy_from_slice(&20_000i32.to_le_bytes());
-    bytes[4..].copy_from_slice(&750u32.to_le_bytes());
-    assert_eq!(parse_stage(&bytes), Some((20_000, 750)));
-    bytes[..4].copy_from_slice(&(-1i32).to_le_bytes());
-    bytes[4..].copy_from_slice(&u32::MAX.to_le_bytes());
-    assert_eq!(parse_stage(&bytes), Some((-1, u32::MAX)));
-    for len in [0, 1, 4, 7, 9, 16] {
+fn the_stage_payload_is_a_known_or_unknown_record_batch() {
+    use crate::read_today::reading_goal_read_today_reply_v1::TodayReading;
+    let mut bytes = [0u8; 16];
+    for (day, seconds) in [(20_000, 750), (-1, u32::MAX), (i32::MIN, u32::MAX)] {
+        let len = TodayReading::new(1, day, seconds)
+            .encode(&mut bytes)
+            .unwrap();
+        assert_eq!(parse_stage(&bytes[..len]), Some((day, seconds)));
+    }
+    let len = TodayReading::new(0, 0, 0).encode(&mut bytes).unwrap();
+    assert_eq!(parse_stage(&bytes[..len]), None);
+    let len = TodayReading::new(2, 0, 0).encode(&mut bytes).unwrap();
+    assert_eq!(parse_stage(&bytes[..len]), None);
+    for len in [0, 1, 4, 7, 9, 15] {
         assert_eq!(parse_stage(&[1u8; 16][..len]), None, "{len}");
     }
 }
