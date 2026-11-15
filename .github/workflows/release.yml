@@ -588,17 +588,42 @@ jobs:
             target/release/paperpaw-sign check-asset "$file" "$file.sig"
             (cd dist && sha256sum "$(basename "$file")" > "$(basename "$file").sha256")
           done
-      - name: Release notes from CHANGELOG.md
+      # The release page's text is `docs/release-notes/<version>.md`: GitHub
+      # takes at most 125,000 characters, and a big beta's CHANGELOG section
+      # is far over it. A release made by a tag needs the file; a dry run
+      # without it shows the CHANGELOG section (and warns if that is too long).
+      - name: Release notes
         run: |
-          # The section of this version, up to the next one.
+          # The CHANGELOG still has to say what the version holds (the notes link to it).
           awk -v head="## [$VERSION]" '
             index($0, head) == 1 { found = 1; next }
             found && index($0, "## [") == 1 { exit }
             found { print }
-          ' CHANGELOG.md > dist/notes.md
-          if [[ ! -s dist/notes.md ]]; then
+          ' CHANGELOG.md > "$RUNNER_TEMP/changelog-section.md"
+          if [[ ! -s "$RUNNER_TEMP/changelog-section.md" ]]; then
             echo "::error::CHANGELOG.md has no section for $VERSION"
             exit 1
+          fi
+          limit=125000
+          file="docs/release-notes/$VERSION.md"
+          if [[ -s "$file" ]]; then
+            cp "$file" dist/notes.md
+          elif [[ "$DRY_RUN" == true ]]; then
+            echo "::warning::no $file: this dry run shows the CHANGELOG section; a release needs the file"
+            cp "$RUNNER_TEMP/changelog-section.md" dist/notes.md
+          else
+            echo "::error::no $file: the release page's text is written for the release (GitHub takes at most $limit characters; the CHANGELOG section is for the file the notes link to)"
+            exit 1
+          fi
+          chars="$(python3 -I -c 'import sys; print(len(open(sys.argv[1], encoding="utf-8").read()))' dist/notes.md)"
+          echo "The release page's text: $chars characters (at most $limit)"
+          if (( chars > limit )); then
+            if [[ "$DRY_RUN" == true && ! -s "$file" ]]; then
+              echo "::warning::the CHANGELOG section is $chars characters: over GitHub's $limit"
+            else
+              echo "::error::the release page's text is $chars characters: GitHub takes at most $limit"
+              exit 1
+            fi
           fi
       # Before anything is uploaded: the release holds exactly its 73 files
       # and no plugin file, and every address in the catalogue has an asset,
