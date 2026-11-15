@@ -542,7 +542,7 @@ fn take_plugin_jobs(kernel: &mut Kernel, profile: &Profile, on: Wired) -> bool {
         lookup: false,
         wifi: on.wifi,
     };
-    paperpaw_x4::host_jobs::offer_plugin_jobs(kernel, family, wired)
+    paperpaw_x4::host_jobs::offer_plugin_jobs(kernel, family.loader(), family, wired)
 }
 
 /// What the services wired for the device are, before the kernel is built:

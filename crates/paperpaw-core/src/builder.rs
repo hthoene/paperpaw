@@ -34,6 +34,9 @@ struct BuilderParts {
     /// What plugin checks, installs and removals compare a plugin with.
     plugin_host: Option<crate::native_host::plugin_job::PluginHost>,
     code: Option<crate::code_plugin::CodePlugins>,
+    /// The ids of plugins built in that register after the build
+    /// ([`KernelBuilder::built_in_ids`]).
+    built_in_ids: Option<fn(&str) -> bool>,
     /// A shell without a code loader that serves `text.hyphenate`
     /// ([`KernelBuilder::hyphenation_sink`]).
     hyphenation: Option<crate::hyphen_feed::MakeSink>,
@@ -383,6 +386,17 @@ impl KernelBuilder {
         self
     }
 
+    /// The ids of the plugins built into the program that register only
+    /// after the build (linked native plugins): a card folder with code never
+    /// takes one. It is listed as refused for its id with nothing of it
+    /// loaded, on every start (also one without code plugins, and in safe
+    /// mode), and the built-in plugin's row takes its place.
+    #[must_use]
+    pub fn built_in_ids(mut self, is: fn(&str) -> bool) -> Self {
+        self.0.built_in_ids = Some(is);
+        self
+    }
+
     /// The shell serves `text.hyphenate` without loading code plugins (the
     /// desktop emulator without `--trust-code`): `make` is called once with the
     /// card at the end of the build, as [`CodeLoader::hyphenation_sink`] is, and
@@ -666,8 +680,13 @@ impl BuilderParts {
             && self.safe_mode.is_none()
         {
             let storage = kernel.shared.storage.clone();
-            self.staged
-                .extend(crate::code_plugin::fetched(storage.as_ref(), &code.native));
+            // What the loader itself reads, as the shell's restart check has it.
+            let loader = code.loader.reads();
+            self.staged.extend(crate::code_plugin::fetched(
+                storage.as_ref(),
+                &code.native,
+                loader.as_ref(),
+            ));
         }
         // A plugin install or removal a cut left is finished (or set aside)
         // before any plugin is found, so a plugin is the old or the new one.
@@ -692,12 +711,16 @@ impl BuilderParts {
             dirs,
             mem::take(&mut self.font_dirs),
             &configs,
-            self.code
-                .take()
-                .map(|code| crate::code_plugin::CodePlugins {
-                    safe_mode: self.safe_mode.take(),
-                    ..code
-                }),
+            crate::code_plugin::CodeAtStart {
+                plugins: self
+                    .code
+                    .take()
+                    .map(|code| crate::code_plugin::CodePlugins {
+                        safe_mode: self.safe_mode.take(),
+                        ..code
+                    }),
+                built_in: self.built_in_ids,
+            },
         );
         if let Some(make) = self.hyphenation.take() {
             kernel.attach_hyphenation_sink(make);
@@ -1044,7 +1067,7 @@ impl Kernel {
         plugin_dirs: Vec<String>,
         font_dirs: Vec<String>,
         configs: &[&str],
-        code: Option<crate::code_plugin::CodePlugins>,
+        code: crate::code_plugin::CodeAtStart,
     ) {
         self.shared.menus.set_capabilities(self.shared.caps);
         // Colour screens open documents with colour pictures (ADR 0015).
@@ -1390,6 +1413,7 @@ impl Kernel {
             firmware_host: None,
             plugin_host: None,
             code: None,
+            built_in_ids: None,
             hyphenation: None,
             after_trial: None,
             safe_mode: None,

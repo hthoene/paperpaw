@@ -74,11 +74,17 @@ pub fn plugin_host(family: Family, wired: Wired) -> (Loader, metadata::Host<'sta
 }
 
 /// Hands the kernel the plugin host of `family` once the services are wired,
-/// before [`Kernel::start`]. `false`: nothing was set (the kernel was built
+/// before [`Kernel::start`], with the `loader` the shell's own loader reads
+/// (`CodeLoader::reads`, the one source). `false`: nothing was set (the kernel was built
 /// without a firmware host, whose queue plugin jobs share), so every plugin
 /// job would be refused.
-pub fn offer_plugin_jobs(kernel: &mut Kernel, family: Family, wired: Wired) -> bool {
-    let (loader, offered) = plugin_host(family, wired);
+pub fn offer_plugin_jobs(
+    kernel: &mut Kernel,
+    loader: Loader,
+    family: Family,
+    wired: Wired,
+) -> bool {
+    let offered = card_host(wired, loader.abi_major, loader.minor, family.profile());
     kernel.set_plugin_host(loader, offered, &[])
 }
 

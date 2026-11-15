@@ -1,0 +1,9 @@
+beta3-hyphenation-it-1.0.3-x4.ppn: a plugin file as Beta 3 (v0.6.0-beta.3) shipped it, unchanged: the
+X4's (ESP32-C3) build of the first-party code plugin `hyphenation-it` 1.0.3, interface 6, file format 4.
+From the release `plugins-2026` (asset `hyphenation-it-1.0.3-x4.ppn`, 23,124 bytes); its SHA-256 is the one
+the Beta 3 release lists in `paperpaw-0.6.0-beta.3-plugins.sha256`:
+a5e4335637e0ede054f1e28bf0f9ade9d67383b7b05de03d0ff286168a8bf05d
+
+What it is for: a card that comes from Beta 3 still holds such files. The kernel must list their plugins as
+built for an older PaperPaw (`PluginProblem::OlderInterface { built_for: 6 }`), never load them and never
+take them for damaged (`code_plugin::file_problem`, the tests in `code_plugin_migration_tests.rs`).

@@ -197,6 +197,23 @@ impl Sent {
         }
         true
     }
+
+    /// As [`replay`](Sent::replay), for a frame whose memory is not drawn anew
+    /// by the kernel (the busy mark: the kernel went on meanwhile). Where the
+    /// bands cannot all be sent again, the panel's two memories differ over what
+    /// is shown: `stale` is set, and the next frame drives every pixel. A flag
+    /// already set stays. `true` if they were kept.
+    pub fn replay_or_stale(
+        &mut self,
+        out: &mut dyn FnMut(u16, FrameView<'_>),
+        stale: &mut bool,
+    ) -> bool {
+        let kept = self.replay(out);
+        if !kept {
+            *stale = true;
+        }
+        kept
+    }
 }
 
 /// A check of the rows sent to a memory of the controller: their tops,
@@ -234,6 +251,10 @@ mod tests {
 
     fn plenty() -> usize {
         usize::MAX / 2
+    }
+
+    fn scarce() -> usize {
+        0
     }
 
     fn band(data: &[u8]) -> FrameView<'_> {
@@ -471,5 +492,31 @@ mod tests {
         let mut sent = Sent::new(|| 1024);
         sent.keep(0, &band(&[0; 40]));
         assert!(!sent.replay(&mut |_, _| {}));
+    }
+
+    #[test]
+    fn a_refused_replay_marks_the_next_frame_to_be_shown_whole() {
+        let data = [7u8; 100];
+        let mut sent = Sent::new(scarce);
+        sent.keep(0, &band(&data));
+        let (mut stale, mut passed) = (false, 0);
+        assert!(!sent.replay_or_stale(&mut |_, _| passed += 1, &mut stale));
+        assert!(
+            stale,
+            "the memories differ: the next frame drives every pixel"
+        );
+        assert_eq!(passed, 0);
+    }
+
+    #[test]
+    fn a_kept_replay_leaves_the_next_frame_as_it_was() {
+        let data = [7u8; 100];
+        for before in [false, true] {
+            let mut sent = Sent::new(plenty);
+            sent.keep(0, &band(&data));
+            let (mut stale, mut passed) = (before, 0);
+            assert!(sent.replay_or_stale(&mut |_, _| passed += 1, &mut stale));
+            assert_eq!((stale, passed), (before, 1));
+        }
     }
 }
