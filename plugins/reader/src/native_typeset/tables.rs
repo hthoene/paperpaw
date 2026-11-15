@@ -119,7 +119,7 @@ impl Tables {
         }
         let key = (context as u32) << 14 | pair as u32;
         let entry = *state.kerned.get(slot(key))?;
-        Some(if entry >> 16 == key + 1 & 0xffff {
+        Some(if entry >> 16 == (key + 1) & 0xffff {
             f32::from(entry as u16 as i16) / 64.0
         } else {
             0.0
@@ -143,7 +143,8 @@ impl Tables {
         let Some(&before) = state.kerned.get(at) else {
             return;
         };
-        let (name, mine) = (key + 1 & 0xffff, before >> 16 == key + 1 & 0xffff);
+        let name = (key + 1) & 0xffff;
+        let mine = before >> 16 == name;
         if kerning != 0 {
             if before != 0 && !mine {
                 // The entry is another pair's: it is not known any more.
