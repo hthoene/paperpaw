@@ -61,7 +61,7 @@ fn pack(sizes: &[f32], advance: f32) -> Vec<u8> {
     builder.build()
 }
 
-/// What the lean firmware has (`plugins/fonts-default`, `LeanFontPacks`):
+/// What the lean firmware has (`plugins/fonts-default`, `LEAN_FONT_PACKS`):
 /// the UI font up to 32 px, for the menus and for book text, and the
 /// name of Literata's regular face in the plugin's folder on the card.
 struct Lean;

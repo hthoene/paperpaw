@@ -2490,7 +2490,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-fonts-default"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-text",

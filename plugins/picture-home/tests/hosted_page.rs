@@ -108,7 +108,7 @@ impl Screen {
 fn dashboard(setup: hosted::Setup) -> (Screen, Vec<(u32, i32)>) {
     let setup = setup.with_kernel(|b| {
         b.storage(MemoryStorage::new().with("pics/wide.png", WIDE))
-            .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+            .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
             .plugin(Catalogs(
                 "picture-home",
                 [
