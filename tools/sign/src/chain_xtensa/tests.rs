@@ -1014,27 +1014,40 @@ fn the_literal_must_be_the_same_on_every_path_to_the_call() {
 }
 
 #[test]
-fn an_address_the_image_points_at_is_an_entry_with_nothing_known() {
+fn a_word_that_equals_an_address_is_no_entry_where_no_jx_goes_there() {
     let at = BASE + 0x40;
     // entry; l32r a8; mov.n; callx8 a8; retw.n: resolved on its own.
     let (lits, funcs) = root_and_helper(&|_| vec![0xad, 0x03]);
     assert_eq!(outcome(&lits, &funcs, &[]), (1, 0));
-    // A word of data holding the address of the `callx8` (a jump table of
-    // another function, or of this one): the call can be entered with nothing
-    // loaded, so it is not resolved.
+    // A word of data that equals the address of the `callx8`: the function
+    // has no `jx`, so nothing jumps there (a jump table is its function's
+    // own, see the next test). It is a number or text that happens to be the
+    // address (`0SUB` in the chip's pin names was one), so where the build
+    // puts things does not decide whether the call resolves.
     let callx_at = at + 3 + 3 + 2;
-    assert_eq!(outcome(&lits, &funcs, &[callx_at]), (0, 1));
-    // At the `l32r` itself (it loads before the call on every path): resolved.
+    assert_eq!(outcome(&lits, &funcs, &[callx_at]), (1, 0));
     assert_eq!(outcome(&lits, &funcs, &[at + 3]), (1, 0));
-    // A word that is no address of this function changes nothing.
+    // A word that is no address of this function changes nothing, nor does
+    // an address inside an instruction.
     assert_eq!(outcome(&lits, &funcs, &[0x1234_5678]), (1, 0));
-    // An address inside an instruction: no jump target (the compiler's are
-    // instruction starts), a number in the data that happens to be one: left
-    // out, so where the build puts things does not decide whether the call
-    // resolves. The same with a `jx` table that has a real entry too.
     assert_eq!(outcome(&lits, &funcs, &[at + 4]), (1, 0));
-    assert_eq!(outcome(&lits, &funcs, &[at + 4, at + 3]), (1, 0));
-    assert_eq!(outcome(&lits, &funcs, &[at + 4, callx_at]), (0, 1));
+    assert_eq!(outcome(&lits, &funcs, &[at + 4, callx_at]), (1, 0));
+}
+
+#[test]
+fn an_image_with_a_part_split_off_a_function_is_refused() {
+    // The rule above holds only while a jump table is its function's own.
+    let whole = f(&[&entry(32), &RETW_N]);
+    for (name, refused) in [
+        ("helper", false),
+        ("helper.cold", true),
+        ("helper.part.0", true),
+    ] {
+        let (bytes, _) = firmware(&[("root", whole.clone()), (name, whole.clone())]);
+        let elf = Elf::parse(&bytes).unwrap();
+        let outcome = check(&elf, &Budget::parse("root root\n").unwrap());
+        assert_eq!(outcome.is_err(), refused, "{name}");
+    }
 }
 
 #[test]

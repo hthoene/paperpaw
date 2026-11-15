@@ -1,6 +1,7 @@
 //! The reads of `core.library` over the catalog on the card: op 1 `state`, op
-//! 3 `book`, op 4 `text`, op 13 `position`, ops 15 and 16 `annotations` and
-//! `anchors`, and op 25 `book_key` (`docs/abi/library.md` 2.1, 2.2, 6).
+//! 2 `query` (`query`), op 3 `book`, op 4 `text`, op 5 `facets` (`facets`), op
+//! 13 `position`, ops 15 and 16 `annotations` and `anchors`, and op 25
+//! `book_key` (`docs/abi/library.md` 2.1, 2.2, 6).
 //!
 //! One implementation: `paperpaw_sdk::library`'s `try_` readers. This adapter
 //! only maps them to the wire records, so nothing is read twice and no
@@ -50,6 +51,7 @@ use paperpaw_sdk::library::{self, catalog};
 mod annotations;
 mod book;
 mod delete;
+mod facets;
 mod field;
 mod fields;
 mod importer;
@@ -126,6 +128,17 @@ impl CatalogReads {
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
         query::query(self, query, archive, hide, visit)
+    }
+
+    /// Op 5 `facets`, of the books [`Self::query_hiding`] lists.
+    pub(crate) fn facets_hiding(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        hide: &dyn Fn(&str) -> bool,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        facets::facets(self, query, archive, hide, visit)
     }
 
     /// The library folder setting ([`CatalogEnv::library_folder`]).
@@ -262,6 +275,15 @@ impl LibQuery for CatalogReads {
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
         query::query(self, query, archive, &|_| false, visit)
+    }
+
+    fn facets(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        facets::facets(self, query, archive, &|_| false, visit)
     }
 
     fn next_in_series(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {

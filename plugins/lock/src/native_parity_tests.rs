@@ -125,6 +125,20 @@ fn the_tries_of_version_1_are_read() {
 }
 
 #[test]
+fn a_tries_file_that_is_no_number_counts_as_all_tries_used() {
+    // Only no file at all is none (`store::tries`); a file that says nothing
+    // a number can be (cut by a power cut, damaged, too long) is no way to a
+    // count of none.
+    let long = [b'1'; native::MAX_TRIES_FILE + 1];
+    let bad: [&[u8]; 8] = [b"", b" ", b"x", b"3x", b"-1", b"300", b"\xff\xfe", &long];
+    for bytes in bad {
+        assert_eq!(native::parse_tries(bytes), native::TRIES, "{bytes:?}");
+    }
+    assert_eq!(native::parse_tries(b"0"), 0);
+    assert_eq!(native::parse_tries(b"2\n"), 2);
+}
+
+#[test]
 fn five_wrong_tries_make_the_next_one_wait() {
     let mut attempts = native::Attempts::default();
     for n in 1..native::TRIES {

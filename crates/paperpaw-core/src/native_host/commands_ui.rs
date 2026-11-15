@@ -358,6 +358,19 @@ impl<'a> CommandStage<'a> {
                 }
                 Ok(plugins.len())
             }
+            // A plugin switched for the next start (`registry.md` 4.2): `core` is
+            // the host's own and a plugin does not switch itself off, the whole
+            // batch refused. What the switch may not turn off (a plugin another
+            // one needs) is the kernel's to say when it applies it.
+            WireCommand::SetPluginEnabled { plugin, enabled } => {
+                copy_id(plugin)?;
+                if plugin == crate::core_plugin::CORE.as_str()
+                    || (enabled == 0 && plugin == self.owner.as_str())
+                {
+                    return Err(ERR_DENIED);
+                }
+                Ok(plugin.len())
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }
@@ -466,6 +479,9 @@ impl<'a> CommandStage<'a> {
                 }
                 let by = self.owner.try_clone().ok_or(ERR_NO_MEMORY)?;
                 Ok(Command::RequestPlugins { by, plugins: ids })
+            }
+            WireCommand::SetPluginEnabled { plugin, enabled } => {
+                Ok(Command::SetPluginEnabled(copy_id(plugin)?, enabled != 0))
             }
             _ => Err(ERR_UNSUPPORTED),
         }

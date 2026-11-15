@@ -905,7 +905,7 @@ impl LibQuery for Fake {
         ));
         self.deal(visit)
     }
-    fn facets(&self, q: &Query<'_>, visit: Rows<'_>) -> Result<RowsEnd, i32> {
+    fn facets(&self, q: &Query<'_>, _archive: &str, visit: Rows<'_>) -> Result<RowsEnd, i32> {
         self.note(std::format!("facets {}", describe(q)));
         self.page(q.cursor, q.generation, visit)
     }

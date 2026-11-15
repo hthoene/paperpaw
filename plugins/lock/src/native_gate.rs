@@ -72,16 +72,18 @@ pub const TRIES_NOT_KEPT: &str = "lock.tries-not-kept";
 
 /// Keeps the wrong tries on the card. The count holds in memory either way,
 /// so a card that refuses it (full, read only) only means it is lost at the
-/// next start: that is said once, and the try itself is not refused, for a
-/// card that cannot be written would lock the owner out with no way to mend
-/// it. Whether the card kept them.
-pub fn keep_tries(device: &impl Device, tries: u8) -> bool {
+/// next start: that is said once while the card keeps refusing (not at every
+/// wrong try; saying it again waits for a write that went through), and the
+/// try itself is not refused, for a card that cannot be written would lock
+/// the owner out with no way to mend it. Whether the card kept them.
+pub fn keep_tries(device: &impl Device, tries: u8, door: &mut Door) -> bool {
     if device.keep_tries(tries).is_ok() {
+        door.tries_said = false;
         return true;
     }
     // Forgetting them (0) failing leaves a count that is too high: no notice.
-    if tries > 0 {
-        let _ = device.notice(TRIES_NOT_KEPT);
+    if tries > 0 && !door.tries_said {
+        door.tries_said = device.notice(TRIES_NOT_KEPT).is_ok();
     }
     false
 }
@@ -93,6 +95,8 @@ pub struct Door {
     pub opening: bool,
     /// An unlock screen is open.
     pub shown: bool,
+    /// The wrong tries the card refused were said (`keep_tries`).
+    pub tries_said: bool,
 }
 
 /// Locks, if a code is kept whole and the device is not locked yet; locked
