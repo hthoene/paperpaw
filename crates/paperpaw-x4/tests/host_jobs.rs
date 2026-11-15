@@ -130,3 +130,19 @@ fn the_loader_is_the_chips() {
     assert_eq!(Family::Riscv.chip(), paperpaw_sdk::firmware::CHIP_ESP32_C3);
     assert_eq!(Family::Xtensa.chip(), paperpaw_sdk::firmware::CHIP_ESP32_S3);
 }
+
+/// A kept update that started on trial without the linked plugins restarts
+/// to host them, whether or not the card has code (#273, Senior M2).
+#[test]
+fn a_kept_trial_restarts_when_the_linked_plugins_were_not_hosted() {
+    use paperpaw_x4::host_jobs::restart_once_kept;
+    // No code on the card, linked plugins not hosted (the trial start).
+    assert!(restart_once_kept(false, false, true));
+    // Code on the card: as before.
+    assert!(restart_once_kept(true, true, true));
+    // Hosted already and nothing to load: no restart.
+    assert!(!restart_once_kept(false, true, true));
+    // A build without linked plugins restarts for card code only.
+    assert!(!restart_once_kept(false, false, false));
+    assert!(restart_once_kept(true, false, false));
+}

@@ -233,6 +233,21 @@ impl Firmware {
         }
     }
 
+    /// A start is due once the update on trial is kept: code plugins to load,
+    /// or the linked plugins of interface 7 that a trial does not host
+    /// (`paperpaw_x4::host_jobs::restart_once_kept`).
+    fn restart_once_kept(&self) -> bool {
+        #[cfg(feature = "native-on")]
+        let (hosted, linked) = (self.device_table.is_some(), true);
+        #[cfg(not(feature = "native-on"))]
+        let (hosted, linked) = (true, false);
+        paperpaw_x4::host_jobs::restart_once_kept(
+            crate::native::code_to_load(self.kernel.storage()),
+            hosted,
+            linked,
+        )
+    }
+
     /// An update on trial with code plugins to load once it is kept: it
     /// starts again then, and says so meanwhile, on a screen that takes no
     /// input (nothing begun is cut off).
@@ -241,7 +256,7 @@ impl Firmware {
         let Some(left) = self.ota.as_ref().and_then(|ota| ota.trial_left(start.0)) else {
             return;
         };
-        if !crate::native::code_to_load(self.kernel.storage()) {
+        if !self.restart_once_kept() {
             return;
         }
         let params = paperpaw_sdk::Params::new()
@@ -297,7 +312,7 @@ impl Firmware {
             // it is kept, which installs and loads them (ADR 0024).
             Ota::trial_over(self.kernel.storage());
             self.kernel.trial_kept();
-            self.state.restart_for_code = crate::native::code_to_load(self.kernel.storage());
+            self.state.restart_for_code = self.restart_once_kept();
         }
         // At a calm moment: at once, unless a book is open, then once it
         // is left. A sleep on battery before is a start too.
