@@ -84,7 +84,7 @@ impl View {
             library,
             &open.path,
             (target, open.conversion, native_place::wall_seconds(host)),
-            note,
+            (note, open.marks.highlights()),
         );
         match done {
             Ok(()) => {}

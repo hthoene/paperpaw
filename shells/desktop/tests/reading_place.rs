@@ -336,3 +336,44 @@ fn a_bookmark_a_beta3_card_wrote_shows_its_ribbon_on_a_page() {
     let shown: Vec<_> = (0..8).filter(|k| marked[*k] != plain[*k]).collect();
     assert_eq!(shown.len(), 1, "the bookmark shows on pages {shown:?}");
 }
+
+fn run(action: &str) -> Vec<String> {
+    vec![
+        format!("{{\"op\": \"run\", \"action\": \"{action}\"}}"),
+        "{\"op\": \"wait\", \"ms\": 400}".to_string(),
+    ]
+}
+
+#[test]
+fn a_highlight_the_page_does_not_draw_stays_in_the_file_when_its_words_are_highlighted() {
+    // Its text is on the page but its numbers are 91 characters before it:
+    // not found, so not drawn and not the user's to change; they overlap
+    // the words chosen below.
+    let hidden = BETA3_HIGHLIGHT
+        .replace("\t1\t97\t1\t123\t", "\t1\t6\t1\t32\t")
+        .replace("any- where", "anywhere");
+    let card = new_card("hidden");
+    let dir = card.join(".paperpaw/annotations");
+    fs::create_dir_all(&dir).unwrap();
+    let file = dir.join(format!("{HASH}.txt"));
+    fs::write(&file, format!("{BETA3_HEADER}{hidden}")).unwrap();
+    // The first page's words, all of them: *Highlight* over the old numbers.
+    let mut keys = press("page-forward");
+    keys.extend(run("reader.select-text"));
+    for name in ["confirm", "right", "right", "confirm", "back"] {
+        keys.extend(press(name));
+    }
+    session(&card, &card.join("hidden.png"), &keys);
+    let saved = fs::read_to_string(&file).unwrap();
+    let rows: Vec<&str> = saved.lines().filter(|l| l.starts_with("h\t")).collect();
+    assert_eq!(
+        rows.len(),
+        2,
+        "the old row stays and the new one is added:\n{saved}"
+    );
+    assert!(
+        rows.iter()
+            .any(|r| r.contains("\t6\t") && r.contains("the use of anyone anywhere")),
+        "the old row was changed:\n{saved}"
+    );
+}
