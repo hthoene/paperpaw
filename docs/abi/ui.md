@@ -206,6 +206,10 @@ events 83, 88 and 90 are free).
     so while this screen is on top and nothing lies over it (the same rule as the picture
     pass, `settings.pictures_in_grays`); under an overlay, or where the screen is not the whole
     display, it has no effect. `screen_policy` may change it at run time (below), page by page.
+  - bit 10 `dims_below`: an overlay (bit 2) washes out what lies below it while it shows, so that
+    it stands out and what it cuts through is not read as its own (interface 6
+    `Screen::dims_below`: a menu, a panel; not a keyboard over its field). No effect on a screen
+    that is no overlay. Declared only; `screen_policy` cannot change it.
   Other bits stay `ERR_UNSUPPORTED`.
 - [D] **Policies change at run time** (the lock guards only while locked): `command.screen_policy`
   (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4, 5 and 9 above) sets them for
@@ -1011,6 +1015,7 @@ and every device of that profile (the X3 too), not the model.
 | `ScreenKey`, `Cx::params`, `params::TEXT` | `instance`; hand-over (op 16, `command.open.handover`), read with op 17 and the hand-over text (op 10); event 79 again on update |
 | `Screen::guards`, `secret`, `holds_edges` (dynamic) | `screen.spec.flags` bits 1, 4, 5; `command.screen_policy` |
 | `Screen::grays` (dynamic) | `screen.spec.flags` bit 9 `grays`; `command.screen_policy` bit 9 |
+| `Screen::dims_below` | `screen.spec.flags` bit 10 `dims_below` |
 | `Registrar::set_screen_hints(screen, HintVisibility::Hidden)` | `screen.spec.flags` bit 8 `hints_hidden` |
 | `Env::stack`, `StackEntry` (`guards`, `overlay`, `slot`) | `core.ui` op 1, `ui_screen`; event 81 |
 | `Command::SetKeyLayer`, `ShowHints`, `Input` | `command.set_key_layer`, `show_hints`, `raise_input` |

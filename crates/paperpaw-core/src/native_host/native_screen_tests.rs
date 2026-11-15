@@ -11,6 +11,13 @@ type DrawCall = (u32, u32, u32, i32, i32, Rect);
 struct Recorder {
     calls: RefCell<Vec<(u32, Vec<u8>)>>,
     draws: RefCell<Vec<DrawCall>>,
+    /// The `id` of each draw's frame.
+    ids: RefCell<Vec<u32>>,
+    /// Whether a draw draws a picture over most of the screen.
+    picture: Cell<bool>,
+    /// The draws that drew more than pictures (all but those told to
+    /// draw only these).
+    texts: Cell<usize>,
     dropped: RefCell<Vec<(u32, i32)>>,
     result: Cell<i32>,
     /// What the kernel answers to `secret_now` (`None`: it cannot tell).
@@ -28,11 +35,26 @@ impl Dispatch for Recorder {
         &self,
         token: u32,
         frame: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        env: &Env<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
-        assert_eq!((frame.x, frame.y, frame.purpose, frame.id), (0, 0, 0, 0));
+        assert_eq!((frame.x, frame.y, frame.purpose), (0, 0, 0));
+        assert_eq!(frame.id & !PICTURES_ONLY_ID, 0);
         assert!(frame.payload.is_empty());
+        self.ids.borrow_mut().push(frame.id);
+        // A page: its text, left out where only pictures count, and its picture.
+        if frame.id & PICTURES_ONLY_ID == 0 {
+            self.texts.set(self.texts.get() + 1);
+        }
+        if self.picture.get() {
+            let image = paperpaw_sdk::document::ImageRef {
+                path: "p.gray".into(),
+                width: 8,
+                height: 8,
+            };
+            let area = Rect::new(10, 10, 60, 60);
+            paperpaw_sdk::ui::draw_image(canvas, env.storage(), &image, area);
+        }
         self.draws.borrow_mut().push((
             token,
             frame.width,
@@ -509,6 +531,19 @@ fn a_screen_declared_hints_hidden_says_so_and_another_leaves_it_to_its_plugin() 
 }
 
 #[test]
+fn a_screen_declared_to_dim_what_is_below_says_so_and_another_does_not() {
+    use paperpaw_sdk::Screen as _;
+    let (screen, _) = screen();
+    assert!(!screen.dims_below());
+    let screen = screen.with_flags((1 << 10) | (1 << 2));
+    assert!(screen.dims_below());
+    // The other policy bits are not it: an overlay alone does not dim.
+    let (screen, _) = self::screen();
+    let screen = screen.with_flags((1 << 9) | (1 << 8) | (1 << 5) | (1 << 2));
+    assert!(!screen.dims_below());
+}
+
+#[test]
 fn a_screen_declared_grays_says_so_and_another_does_not() {
     use paperpaw_sdk::Screen as _;
     let (screen, _) = screen();
@@ -667,4 +702,90 @@ fn a_shown_top_screen_not_offered_on_the_keyboard_slot_gets_no_typed_text() {
         .to_params();
     screen.on_event(events::TYPE_TEXT.id(), &typed, &mut cx);
     assert!(dispatch.calls.borrow().is_empty());
+}
+
+#[test]
+fn only_the_draw_that_counts_pictures_is_marked_as_one() {
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(0));
+    let pane = Rect::new(5, 7, 30, 80);
+    let device = env.device_within(pane);
+    let env = env.within(&device, pane);
+    let (screen, dispatch) = screen();
+    // Shown: pixels are kept.
+    let mut shown = paperpaw_graphics::Framebuffer::new(40, 100, PixelFormat::Gray8).unwrap();
+    screen.draw_visible(&mut shown.canvas().offset(5, 7), &env);
+    // Aside for the count of pictures, then aside for its parts.
+    let mut aside = paperpaw_graphics::Framebuffer::blind(40, 100);
+    screen.draw_visible(&mut aside.canvas().offset(5, 7), &env);
+    let mut parts = Vec::new();
+    let asked = aside.canvas().describing(&mut parts);
+    screen.draw_visible(&mut asked.offset(5, 7), &env);
+    assert_eq!(*dispatch.ids.borrow(), [0, PICTURES_ONLY_ID, 0]);
+}
+
+/// A plugin whose home screen is a native one, drawn by `Recorder`.
+struct PagePlugin(Rc<Recorder>);
+
+impl paperpaw_sdk::Plugin for PagePlugin {
+    fn manifest(&self) -> paperpaw_sdk::Manifest {
+        let id = Id::new_static("page");
+        paperpaw_sdk::Manifest::new(id, "Page", paperpaw_sdk::Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        let dispatch = Rc::clone(&self.0);
+        const ID: Id = Id::new_static("page.screen");
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+            ID,
+            "page",
+            alloc::boxed::Box::new(move |_, _| {
+                alloc::boxed::Box::new(NativeScreen::new(ID, 10, Rc::clone(&dispatch)))
+            }),
+        ))?;
+        r.bind_slot(slots::HOME, ID, paperpaw_sdk::Priority::DEFAULT)
+    }
+}
+
+/// A black and white panel coming up with [`PagePlugin`]'s page, with a
+/// picture on it or none: whether it came up in grays, and its draws.
+fn page_comes_up(picture: bool) -> (bool, Rc<Recorder>) {
+    use paperpaw_sdk::image::{GrayWriter, ImageSink};
+    let storage = paperpaw_sdk::MemoryStorage::new();
+    let mut writer = GrayWriter::new(&storage, "p.gray");
+    writer.start(8, 8).unwrap();
+    for _ in 0..8 {
+        writer.row(&[90; 8]).unwrap();
+    }
+    writer.finish().unwrap();
+    let device = crate::tests::DEVICE;
+    let device = device.with_display(device.display.with_format(PixelFormat::Mono1));
+    let dispatch = Rc::new(Recorder::default());
+    dispatch.picture.set(picture);
+    let mut kernel = crate::Kernel::builder(device)
+        .storage(storage)
+        .plugin(PagePlugin(Rc::clone(&dispatch)))
+        .build()
+        .unwrap();
+    let effects = kernel.start(Instant(0));
+    assert!(effects.refresh().is_some());
+    (effects.grays(), dispatch)
+}
+
+#[test]
+fn a_page_that_draws_only_its_pictures_when_told_still_comes_up_in_grays() {
+    let (grays, dispatch) = page_comes_up(true);
+    assert!(grays);
+    // Counted in one draw marked for it, where the page left its text out.
+    let marked = |id: &&u32| **id == PICTURES_ONLY_ID;
+    assert_eq!(dispatch.ids.borrow().iter().filter(marked).count(), 1);
+    let unmarked = dispatch.ids.borrow().len() - 1;
+    assert_eq!(dispatch.texts.get(), unmarked);
+    // A page without a picture is asked the same and comes up without.
+    let (grays, dispatch) = page_comes_up(false);
+    assert!(!grays);
+    assert_eq!(dispatch.ids.borrow().iter().filter(marked).count(), 1);
 }
