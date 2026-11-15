@@ -352,8 +352,10 @@ fn a_cut_in_a_stream_of_appends_leaves_a_sound_volume() {
 }
 
 /// FAT32 (128 entries to a block of the FAT). One cluster may stay taken after a cut and a
-/// remove: pre-existing, as with clusters taken one at a time (ticket #269: with
-/// `set_append_reservation(false)` command 396 of this stream does it too). At most one:
+/// remove (ticket #269): the base's one-cluster order (mark the new cluster taken in its FAT
+/// block, then link it from the block before) has that window at every cluster; a run takes
+/// it where it starts in a new block. (`set_append_reservation(false)` still uses the joined
+/// write, so it does not show the base.) At most one:
 /// the cut test's other checks (no link into a free cluster, none twice, a prefix is read)
 /// stay as strict as on FAT16.
 #[test]
