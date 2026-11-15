@@ -1174,6 +1174,7 @@ impl Open {
             return Ok(Outcome::Ignored);
         }
         let setup = self.settings.setup(host)?;
+        self.complete_end(host, docs, &setup, input);
         let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),

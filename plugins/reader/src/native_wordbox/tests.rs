@@ -173,3 +173,38 @@ fn a_word_broken_with_a_hyphen_of_the_layout_is_one_word_in_both_its_parts() {
     assert_eq!(words.len(), before.len());
     assert_eq!(words[0].text, before[0].text);
 }
+
+#[test]
+fn a_word_broken_at_the_end_of_a_page_is_whole_with_the_first_word_of_the_next() {
+    let (laid, faces) = plain("one two three four five six seven eight nine ten eleven twelve");
+    assert!(laid.lines.len() >= 2);
+    let next_start = Locator::new(0, laid.lines[1].words[0].0);
+    let next = Page::new(next_start, laid.end, laid.lines[1..].to_vec(), Vec::new());
+    let mut first = Page::new(
+        laid.start,
+        next_start,
+        vec![laid.lines[0].clone()],
+        Vec::new(),
+    );
+    assert!(!ends_open(
+        &word_boxes(&faces, &first, BOX).unwrap(),
+        &first
+    ));
+    // The layout broke the last word of the page.
+    first.lines[0].text.push('-');
+    first.lines[0].hyphen = true;
+    if let Some(run) = first.lines[0].runs.last_mut() {
+        run.end += 1;
+    }
+    let mut words = word_boxes(&faces, &first, BOX).unwrap();
+    assert!(ends_open(&words, &first));
+    let part = String::from(words[words.len() - 1].text.trim_end_matches('-'));
+    let after = word_boxes(&faces, &next, BOX).unwrap();
+    let (rest, end) = first_word(&next).unwrap().unwrap();
+    assert_eq!((rest.as_str(), end), (after[0].text.as_str(), after[0].end));
+    join_open_end(&mut words, &rest, end).unwrap();
+    let last = &words[words.len() - 1];
+    assert_eq!(last.text, format!("{part}{rest}"));
+    assert_eq!(last.end, end);
+    assert!(!ends_open(&words, &first));
+}

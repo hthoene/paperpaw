@@ -273,6 +273,12 @@ impl Marking {
         Ok(outcome)
     }
 
+    /// Whether a word is chosen (or being chosen) on the page.
+    #[must_use]
+    pub fn chosen(&self) -> bool {
+        self.selection.is_some()
+    }
+
     fn set(&mut self, ctx: &Ctx<'_>, to: Option<Selection>) -> Outcome {
         self.selection = to;
         self.on = to.map(|_| ctx.page_start);

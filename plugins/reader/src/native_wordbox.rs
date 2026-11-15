@@ -132,6 +132,76 @@ fn join_broken(words: &mut [WordBox], head: usize) -> Result<(), Error> {
     Ok(())
 }
 
+/// Whether the page's last word is one the layout broke at the page's end: its
+/// other part is the first word of the next page, which this page does not hold.
+#[must_use]
+pub fn ends_open(words: &[WordBox], page: &Page) -> bool {
+    let Some(line) = page.lines.iter().rev().find(|l| !l.inserted) else {
+        return false;
+    };
+    let last = words.last();
+    line.hyphen
+        && page.end != page.start
+        && last
+            .zip(line.words.last())
+            .is_some_and(|(word, &(_, end))| {
+                word.end == Locator::new(line.section, end) && word.text.ends_with('-')
+            })
+}
+
+/// The first word of the first line of `page`, whole, with where it ends: the
+/// other part of a word the page before broke at its end.
+///
+/// # Errors
+/// `NoMemory` when the word cannot be allocated.
+pub fn first_word(page: &Page) -> Result<Option<(String, Locator)>, Error> {
+    let Some(line) = page.lines.iter().find(|l| !l.inserted) else {
+        return Ok(None);
+    };
+    let Some(&(_, end)) = line.words.first() else {
+        return Ok(None);
+    };
+    let mut word = String::new();
+    // Past the word: a space after it.
+    let mut done = false;
+    for run in &line.runs {
+        let Some(text) = line.text.get(run.start..run.end) else {
+            continue;
+        };
+        for (n, part) in text.split(' ').enumerate() {
+            if n > 0 {
+                done |= !word.is_empty();
+            }
+            if part.is_empty() || done {
+                continue;
+            }
+            push_str(&mut word, part)?;
+        }
+    }
+    Ok((!word.is_empty()).then(|| (word, Locator::new(line.section, end))))
+}
+
+/// The page's last word, broken at its end, made whole with `rest` (the first
+/// word of the next page), which ends at `end`.
+///
+/// # Errors
+/// `NoMemory` when the word cannot be allocated.
+pub fn join_open_end(words: &mut [WordBox], rest: &str, end: Locator) -> Result<(), Error> {
+    let Some(word) = words.last_mut() else {
+        return Ok(());
+    };
+    let part = word.text.strip_suffix('-').unwrap_or(&word.text);
+    let mut whole = String::new();
+    whole
+        .try_reserve(part.len() + rest.len())
+        .map_err(|_| Error::NoMemory)?;
+    whole.push_str(part);
+    whole.push_str(rest);
+    word.text = whole;
+    word.end = end;
+    Ok(())
+}
+
 fn push_str(to: &mut String, text: &str) -> Result<(), Error> {
     to.try_reserve(text.len()).map_err(|_| Error::NoMemory)?;
     to.push_str(text);
