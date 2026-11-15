@@ -33,6 +33,7 @@ paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 paperpaw-plugin-reader = { workspace = true, features = ["linked"] }
 paperpaw-plugin-format-txt = { workspace = true, features = ["linked"] }
 paperpaw-plugin-keyboard = { workspace = true, features = ["linked"] }
+paperpaw-plugin-menu = { workspace = true, features = ["linked"] }
 
 [lints]
 workspace = true

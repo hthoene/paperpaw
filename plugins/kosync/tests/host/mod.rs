@@ -209,9 +209,15 @@ impl World {
         Self::with_account(true)
     }
     pub fn restart(card: Card) -> Self {
-        Self::on_card(card, false)
+        Self::on_card(card, false, true, true)
+    }
+    pub fn menu(installed: bool, enabled: bool) -> Self {
+        Self::with_plugins(false, installed, enabled)
     }
     fn with_account(signed_in: bool) -> Self {
+        Self::with_plugins(signed_in, true, true)
+    }
+    fn with_plugins(signed_in: bool, installed: bool, enabled: bool) -> Self {
         let card = Card(Rc::new(
             MemoryStorage::new().with(
                 "book.txt",
@@ -231,9 +237,9 @@ impl World {
             )
             .unwrap();
         }
-        Self::on_card(card, signed_in)
+        Self::on_card(card, signed_in, installed, enabled)
     }
-    fn on_card(card: Card, signed_in: bool) -> Self {
+    fn on_card(card: Card, signed_in: bool, installed: bool, enabled: bool) -> Self {
         let network = Rc::new(Network::default());
         let resources = HostResources::try_new().unwrap();
         let wired = resources
@@ -281,10 +287,17 @@ impl World {
             ),
             MemoryClass::Small,
         );
+        let config = format!(
+            "[core]\nlanguage=en\n[kosync]\n{}server=https://fake.invalid/kosync\nauto=true\n[reader]\nopen-last=false\n[plugins]\nkosync={}\n",
+            if signed_in { "user=test-reader\n" } else { "" },
+            if enabled { "on" } else { "off" }
+        );
         let kernel = Kernel::builder(device)
-            .storage(card.clone()).built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
-            .user_config(if signed_in { "[core]\nlanguage=en\n[kosync]\nuser=test-reader\nserver=https://fake.invalid/kosync\nauto=true\n[reader]\nopen-last=false\n" } else { "[core]\nlanguage=en\n[kosync]\nserver=https://fake.invalid/kosync\nauto=true\n[reader]\nopen-last=false\n" })
-            .build().unwrap();
+            .storage(card.clone())
+            .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
+            .user_config(config)
+            .build()
+            .unwrap();
         let mut world = Self {
             kernel: Some(kernel),
             resources: Some(resources),
@@ -320,14 +333,27 @@ impl World {
             .with_titles(paperpaw_plugin_keyboard::NATIVE_TITLES),
         );
         world.register(
-            paperpaw_plugin_kosync::NATIVE_ENTRY.entry(),
-            "kosync",
-            FixedTables::NONE,
+            paperpaw_plugin_menu::NATIVE_ENTRY.entry(),
+            "menu",
+            FixedTables::new(
+                paperpaw_plugin_menu::NATIVE_SETTINGS,
+                paperpaw_plugin_menu::NATIVE_GROUPS,
+            )
+            .with_ids(paperpaw_plugin_menu::NATIVE_IDS)
+            .with_titles(paperpaw_plugin_menu::NATIVE_TITLES),
         );
+        if installed {
+            world.register(
+                paperpaw_plugin_kosync::NATIVE_ENTRY.entry(),
+                "kosync",
+                FixedTables::NONE,
+            );
+        }
         for text in [
             include_str!("../../i18n/en.ini"),
             include_str!("../../../reader/i18n/en.ini"),
             include_str!("../../../keyboard/i18n/en.ini"),
+            include_str!("../../../menu/i18n/en.ini"),
         ] {
             world.kernel().add_catalog(text);
         }
@@ -339,6 +365,12 @@ impl World {
         self.kernel.as_mut().unwrap()
     }
     pub fn register(&mut self, entry: &'static PpEntry, name: &'static str, tables: FixedTables) {
+        let config = self.kernel().native_config();
+        let decision = self.kernel().native_decide(&config, name, true, false);
+        if !decision.hosts() {
+            self.list(name, paperpaw_sdk::PluginState::Off, decision.enabled());
+            return;
+        }
         let services: &'static [Service<'static>] = Box::leak(
             [
                 "core.device",
@@ -406,6 +438,26 @@ impl World {
             )
         }
         .expect(name);
+        self.list(name, paperpaw_sdk::PluginState::Running, true);
+    }
+    fn list(&mut self, name: &'static str, state: paperpaw_sdk::PluginState, enabled: bool) {
+        use paperpaw_sdk::{Manifest, ManifestRef, PluginInfo, PluginKind, RequiredFor, Version};
+        let manifest = ManifestRef::try_new(
+            Manifest::new(Id::new_static(name), name, Version::parse("1.0.0").unwrap()),
+            None,
+        )
+        .unwrap();
+        self.kernel()
+            .list_native(PluginInfo::new(
+                manifest,
+                state,
+                enabled,
+                RequiredFor::default(),
+                PluginKind::BuiltIn,
+                None,
+                None,
+            ))
+            .unwrap();
     }
     pub fn action(&mut self, action: &'static str) {
         let now = self.network.now.get() + 100;
