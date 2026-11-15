@@ -9,7 +9,7 @@ use paperpaw_sdk::{
     native::{Error, Host, callbacks::DrawFrame, ui::Ui},
 };
 use paperpaw_ui_kit::{
-    geometry, mem, paint,
+    geometry, paint,
     status_line::{self, Face, Lists},
     widget::{Cx, Frame},
 };
@@ -88,10 +88,7 @@ pub fn draw_widget(
 ) -> Result<(), Error> {
     // The buffers outlive the context: the drawn values borrow the host for the
     // callback and are composed in before it ends.
-    let mut buffers = [
-        mem::buffer(mem::SERVICE_BUFFER)?,
-        mem::buffer(mem::SERVICE_BUFFER)?,
-    ];
+    let mut buffers = [Vec::new(), Vec::new()];
     let cx = Cx::open(host, widget)?;
     let mut out = Vec::new();
     let mut placed = Vec::new();

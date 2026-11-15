@@ -15,7 +15,7 @@ with mock.patch.dict(sys.modules, {"serial": mock.Mock(), "serial.tools": mock.M
 class PluginDigest(unittest.TestCase):
     def test_native_header_formats_use_their_actual_digest(self):
         digest = bytes(range(32))
-        for version, at in [(2, 48), (3, 60), (4, 84)]:
+        for version, at in [(2, 48), (3, 60), (4, 84), (5, 64)]:
             with self.subTest(version=version):
                 header = bytearray(at + 32)
                 header[:6] = b"PPNP" + version.to_bytes(2, "little")
@@ -24,8 +24,8 @@ class PluginDigest(unittest.TestCase):
 
     def test_bad_unknown_and_truncated_headers_are_rejected(self):
         for data in [b"", b"PPNP", b"OTHER!", b"PPNP\x01\x00" + bytes(92),
-                     b"PPNP\x05\x00" + bytes(120), b"PPNP\x02\x00" + bytes(73),
-                     b"PPNP\x03\x00" + bytes(85), b"PPNP\x04\x00" + bytes(109)]:
+                     b"PPNP\x06\x00" + bytes(120), b"PPNP\x02\x00" + bytes(73),
+                     b"PPNP\x03\x00" + bytes(85), b"PPNP\x04\x00" + bytes(109), b"PPNP\x05\x00" + bytes(89)]:
             with self.subTest(data=data[:6]):
                 with self.assertRaises(ValueError):
                     remote.plugin_digest(data)

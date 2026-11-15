@@ -36,7 +36,7 @@ fn groups() -> [Group; 4] {
             "settings",
             batches!(declarations::settings),
             image::SETTINGS,
-            5,
+            6,
         ),
         (
             "screens",
@@ -48,7 +48,7 @@ fn groups() -> [Group; 4] {
             "navigation",
             batches!(declarations::navigation),
             image::NAVIGATION,
-            1,
+            2,
         ),
         ("events", batches!(declarations::events), image::EVENTS, 2),
     ]
@@ -73,4 +73,27 @@ fn the_host_admits_the_declarations() {
             validate_batch("lock", &records).unwrap();
         }
     }
+}
+
+#[test]
+fn lock_icons_keep_beta3_references() {
+    use paperpaw_core::native_host::registrations::Record;
+    let mut icons = Vec::new();
+    for batch in batches!(declarations::settings)
+        .into_iter()
+        .chain(batches!(declarations::navigation))
+    {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::IconSpec(icon) = record {
+                icons.push((icon.item.to_owned(), icon.icon.to_owned()));
+            }
+        }
+    }
+    assert_eq!(
+        icons,
+        [
+            ("lock.group".into(), "lock".into()),
+            ("lock.now".into(), "lock".into())
+        ]
+    );
 }

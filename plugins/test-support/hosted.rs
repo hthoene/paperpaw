@@ -247,9 +247,9 @@ impl Setup {
         }
     }
 
-    /// Builds the kernel further with `step`, e.g. `|b| b.plugin(DefaultFontPacks)` for the
-    /// fonts a screen draws with, or `|b| b.storage(..)` for files it reads. Steps run in the
-    /// order given.
+    /// Builds the kernel further with `step`, e.g. `|b| b.built_in_fonts(&DEFAULT_FONT_PACKS)`
+    /// for the fonts a screen draws with, or `|b| b.storage(..)` for files it reads. Steps run
+    /// in the order given.
     pub fn with_kernel(mut self, step: impl Fn(KernelBuilder) -> KernelBuilder + 'static) -> Self {
         self.kernel.push(Arc::new(step));
         self

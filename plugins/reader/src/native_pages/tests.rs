@@ -243,3 +243,29 @@ fn paragraphs_are_set_apart_by_parts_of_the_size_and_of_the_line() {
         .style(20.0, 27.0);
     assert!(off.indent.abs() < 1e-6 && off.paragraph_spacing.abs() < 1e-6);
 }
+
+#[test]
+fn hanging_punctuation_and_korean_by_word_are_options_of_the_line_breaker() {
+    let none = script_options("en", (false, false));
+    assert_eq!(none, ScriptOptions::NONE);
+    let hanging = script_options("en", (true, true));
+    assert!(hanging.has(ScriptOptions::HANGING_PUNCTUATION));
+    // By word is only for Korean books: it would break Chinese and Japanese badly.
+    assert!(!hanging.has(ScriptOptions::KEEP_ALL));
+    assert!(!script_options("ja", (false, true)).has(ScriptOptions::KEEP_ALL));
+    assert!(script_options("ko", (false, true)).has(ScriptOptions::KEEP_ALL));
+    assert!(script_options("KO-KR", (false, true)).has(ScriptOptions::KEEP_ALL));
+    assert!(!script_options("ko", (false, false)).has(ScriptOptions::KEEP_ALL));
+}
+
+#[test]
+fn a_change_of_hanging_punctuation_or_korean_breaks_lays_the_page_out_again() {
+    assert!(affects_layout("core.hanging-punctuation"));
+    assert!(affects_layout("core.korean-breaks"));
+    let base = Reading::new(12, 120, 100, 4, 4, true).with_text("Literata", (true, 0, 0));
+    let plain = base.with_scripts(false, false);
+    // Other breaks, other pages: the layout's name differs.
+    assert_ne!(plain.text, base.with_scripts(true, false).text);
+    assert_ne!(plain.text, base.with_scripts(false, true).text);
+    assert_ne!(plain, base.with_scripts(true, true));
+}

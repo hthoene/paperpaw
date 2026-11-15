@@ -466,11 +466,12 @@ impl TxtProvider {
 
     fn sections(document: &TxtDocument, cursor: u32, out: &mut [u8]) -> Result<usize, Error> {
         let section = Record::FmtSection(stage::FmtSection::new(0, document.section_len(0), 0));
+        // The one section is the whole list: the next cursor is its end.
         let end = Record::FmtEnd(stage::FmtEnd::new(
             END_LAST,
             document.sections(),
             1,
-            0,
+            document.sections(),
             None,
         ));
         if cursor == 0 {

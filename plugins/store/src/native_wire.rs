@@ -23,6 +23,7 @@ use paperpaw_sdk::native::{
 use paperpaw_ui_kit::{mem, text::copy};
 
 use crate::native_device::{self, Facts};
+use crate::native_folders::Folders;
 use crate::native_install::Proof;
 use crate::native_model::Revoked;
 
@@ -153,7 +154,7 @@ impl crate::native_load::Wire for HostWire<'_, '_> {
 pub struct DownloadWire<'a, 'h> {
     host: &'a Host<'h>,
     handles: &'a mut Handles,
-    storage: DataStorage<'a, 'h>,
+    storage: Folders<'a, 'h>,
 }
 
 impl core::fmt::Debug for DownloadWire<'_, '_> {
@@ -168,7 +169,7 @@ impl<'a, 'h> DownloadWire<'a, 'h> {
         Self {
             host,
             handles,
-            storage: DataStorage::new(host),
+            storage: Folders::new(host),
         }
     }
 }
@@ -196,7 +197,7 @@ impl crate::native_download::Wire for DownloadWire<'_, '_> {
 /// What the install sends the host.
 pub struct InstallWire<'a, 'h> {
     host: &'a Host<'h>,
-    storage: DataStorage<'a, 'h>,
+    storage: Folders<'a, 'h>,
 }
 
 impl core::fmt::Debug for InstallWire<'_, '_> {
@@ -211,7 +212,7 @@ impl<'a, 'h> InstallWire<'a, 'h> {
     pub fn new(host: &'a Host<'h>) -> Self {
         Self {
             host,
-            storage: DataStorage::new(host),
+            storage: Folders::new(host),
         }
     }
 }

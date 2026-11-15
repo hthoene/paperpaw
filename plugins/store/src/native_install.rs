@@ -121,11 +121,19 @@ pub enum Outcome {
         name: String,
         updated: bool,
         restart: bool,
+        /// The plugins it requires (`requires` of its `plugin.ini`), to be
+        /// offered if the device lacks them.
+        requires: Vec<String>,
     },
-    /// It is not installed: the text to say, taking `{name}`.
-    Refused { name: String, key: &'static str },
-    /// The reader declined, or the host stopped it: nothing to say.
-    Silent,
+    /// It is not installed: the text to say, taking `{name}`. The host's end
+    /// of the install names no plugin: `plugin` is the one that was going.
+    Refused {
+        plugin: String,
+        name: String,
+        key: &'static str,
+    },
+    /// The reader declined, or the host stopped it: nothing to say, of `plugin`.
+    Silent { plugin: String },
     /// Not an install of this store's (another request, or none going on).
     Other,
 }
@@ -145,6 +153,7 @@ struct Going {
     name: String,
     folder: String,
     updated: bool,
+    requires: Vec<String>,
 }
 
 impl Installer {
@@ -197,6 +206,11 @@ impl Installer {
         let request = self.next;
         let update = have.version.is_some();
         let allow_older = have.repairs;
+        // Read before the host takes the folder; a manifest that cannot be read
+        // asks for nothing more.
+        let requires =
+            crate::native_requires::required(wire.storage(), &staged.folder, &staged.plugin)
+                .unwrap_or_default();
         if let Err(error) = wire.install(request, &staged.folder, update, allow_older, &proof) {
             discard(wire.storage(), &staged.folder);
             download.set_step(Step::Failed(Failure::Card));
@@ -214,6 +228,7 @@ impl Installer {
             name: staged.name,
             folder: staged.folder,
             updated: update,
+            requires,
         });
         download.set_step(Step::Installing);
         Ok(Step::Installing)
@@ -248,15 +263,19 @@ impl Installer {
                     name: going.name,
                     updated: going.updated,
                     restart: words::after_restart(end.flags),
+                    requires: going.requires,
                 })
             }
             Said::Silent => {
                 download.set_step(Step::Idle);
-                Ok(Outcome::Silent)
+                Ok(Outcome::Silent {
+                    plugin: going.plugin,
+                })
             }
             Said::Said(key) => {
                 download.set_step(Step::Idle);
                 Ok(Outcome::Refused {
+                    plugin: going.plugin,
                     name: going.name,
                     key,
                 })

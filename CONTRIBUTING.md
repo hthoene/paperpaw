@@ -95,7 +95,7 @@ before 1.0.
   `cargo run -p paperpaw-dev -- check --plugin <id> --quick`.
 - **`paperpaw-sign`** (`tools/sign`) signs firmware updates, makes
   signing keys, and packs and signs plugin files (`--help`).
-- **`tools/plugin-files`** builds PaperPaw's own plugins that the X4s
+- **`tools/plugin-files`** holds the store's release scripts (catalogue, versions, data plugins); `tools/plugin-files7` builds PaperPaw's own plugins that the X4s
   install from the store as files, for every release (its README). Each
   plugin has a version of its own: one that changed gets a newer one
   (CI checks it), or its commits say `Plugin-unchanged: <id>` where no
