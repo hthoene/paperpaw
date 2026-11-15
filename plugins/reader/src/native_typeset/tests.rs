@@ -487,11 +487,11 @@ fn with_kerning_and_ligatures_off_a_pair_is_still_asked_once() {
         .unwrap()
         .with_letters(Letters::new(0, false, false));
     let plain = face(TextStyle::REGULAR, 0, 0);
-    let _ = faces.font_kern(plain, 'a', 'b');
+    assert!(faces.font_kern(plain, 'a', 'b').abs() < 1e-4);
     let first = fake.asked.get();
     assert!(first > 0);
     for _ in 0..3 {
-        let _ = faces.font_kern(plain, 'a', 'b');
+        assert!(faces.font_kern(plain, 'a', 'b').abs() < 1e-4);
     }
     assert_eq!(fake.asked.get(), first);
 }
