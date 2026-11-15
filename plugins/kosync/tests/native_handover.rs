@@ -43,13 +43,13 @@ fn accepting_a_remote_position_hands_it_to_the_reader_and_persists_it() {
         "reader.screen",
         "the accepted handover must reach Reader after the dialog closes"
     );
-    wait_for_page(&mut world);
+    wait_for_position(&mut world);
     world.action("core.back");
     world.assert_clean();
     let position =
         positions::load(&world.card, "book.txt").expect("reader must save the accepted position");
     assert!(
-        position.percent > 70.0 && position.percent <= 80.1,
+        (position.percent - 80.0).abs() <= 0.1,
         "saved reader position: {position:?}"
     );
     assert!(position.at.offset > 0);
@@ -61,7 +61,7 @@ fn accepting_a_remote_position_hands_it_to_the_reader_and_persists_it() {
         Params::new().with("path", "book.txt"),
     );
     world.pump();
-    wait_for_page(&mut world);
+    wait_for_position(&mut world);
     let fetches: Vec<_> = world
         .network
         .requests
@@ -87,7 +87,7 @@ fn accepting_a_remote_position_hands_it_to_the_reader_and_persists_it() {
     world.assert_clean();
 }
 
-fn wait_for_page(world: &mut World) {
+fn wait_for_position(world: &mut World) {
     for _ in 0..20 {
         world.kernel().render(&mut |_, _| {});
         world.pump();
@@ -95,10 +95,24 @@ fn wait_for_page(world: &mut World) {
             .kernel()
             .describe()
             .iter()
-            .any(|part| part.label.contains("paragraph"))
+            .any(|part| part.label == "80 %")
         {
             return;
         }
     }
-    panic!("reader did not show the handover book's text");
+    let labels: Vec<_> = world
+        .kernel()
+        .describe()
+        .into_iter()
+        .map(|part| part.label)
+        .collect();
+    let warnings = world.kernel().take_warnings();
+    let screens: Vec<_> = world
+        .kernel()
+        .screens()
+        .map(|id| id.as_str().to_owned())
+        .collect();
+    panic!(
+        "reader did not show the accepted 80 % position; screens={screens:?}, labels={labels:?}, warnings={warnings:?}"
+    );
 }
