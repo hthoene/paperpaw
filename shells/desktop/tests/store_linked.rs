@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use paperpaw_core::sdk::{MemoryStorage, Storage};
+use paperpaw_core::sdk::MemoryStorage;
 use paperpaw_core::{Effects, HttpCall, HttpResponse};
 use paperpaw_emulator::device::Device;
 use paperpaw_emulator::headless::run_script;
