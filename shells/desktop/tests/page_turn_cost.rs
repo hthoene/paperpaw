@@ -32,7 +32,7 @@ use paperpaw_platform::{ButtonState, InputEvent, buttons};
 /// Cyrillic book that starts in Latin 22 (116), a page of Vietnamese 238 (535),
 /// kerning and ligatures off 151 (224).
 const CHINESE: (u32, u32) = (2_430, 2_742);
-const CYRILLIC: (u32, u32) = (40, 340);
+const CYRILLIC: (u32, u32) = (40, 420);
 const VIETNAMESE: (u32, u32) = (260, 560);
 const PLAIN: (u32, u32) = (200, 560);
 
