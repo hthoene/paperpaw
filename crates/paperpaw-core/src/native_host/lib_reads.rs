@@ -354,7 +354,9 @@ impl LibQuery for CatalogReads {
     }
 
     fn book_key(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
-        self.with_path(book, |path| self.key_of(path, visit))
+        // The key and the fingerprint need the file alone, so a book the
+        // catalog does not know yet has them (kosync's first session).
+        self.with_book_file(book, |path| self.key_of(path, visit))
     }
 }
 
