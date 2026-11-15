@@ -54,7 +54,18 @@
 # +22,224, x4-classic +21,520); the lines are those plus 16,000. x4, x3 and
 # x4-classic are inside stage 1 (6,400,000 bytes); the x4-pro exceeds it and the
 # installer slot (Decision 184, Decision 179).
-image x4 6264400
-image x3 6276416
-image x4-pro 6833648
-image x4-classic 6383232
+#
+# Train t45 (#1490/#1499, #1508, #1509, #1510/#1512, #1511, #1513, #1514, #1515,
+# #1517, #1518 on t44b's base `f3b519ad8`): measured on `train/t45` (961949f1c),
+# local build of the release-like image at one path, as above: x4 6,260,352, x3
+# 6,272,336, x4-pro 6,829,216, x4-classic 6,379,632 (against `f3b519ad8` built at
+# the same path: x4 +5,248, x4-classic +4,656; per PR on #258); the lines are
+# those plus 16,000. The CI room under the old lines was only 3,600 to 4,432
+# bytes, and two builds of the same code differ by up to 9,696 bytes by their
+# build folder (see above), so the lines go up before the train's CI run, not
+# after a red one. x4, x3 and x4-classic stay inside stage 1 (6,400,000 bytes);
+# the x4-pro exceeds it and the installer slot (Decision 184, Decision 179).
+image x4 6276352
+image x3 6288336
+image x4-pro 6845216
+image x4-classic 6395632
