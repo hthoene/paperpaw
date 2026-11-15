@@ -1,6 +1,6 @@
 use super::*;
 use crate::native_typeset::Role;
-use alloc::vec;
+use alloc::{format, vec};
 use core::cell::Cell;
 use paperpaw_sdk::{
     NoStorage, Storage,
@@ -141,4 +141,35 @@ fn a_refused_allocation_is_no_memory_not_a_panic() {
         word_boxes(&faces, &page, BOX).map(|w| w.len())
     });
     assert!(total > 0);
+}
+
+#[test]
+fn a_word_broken_with_a_hyphen_of_the_layout_is_one_word_in_both_its_parts() {
+    let (mut page, faces) = plain("one two three four five six seven eight nine ten eleven twelve");
+    assert!(page.lines.len() >= 2);
+    let before = word_boxes(&faces, &page, BOX).unwrap();
+    let last = page.lines[0].words.len() - 1;
+    let (head, tail) = (last, last + 1);
+    // The layout broke that word: its line ends with a hyphen of the layout's.
+    page.lines[0].text.push('-');
+    page.lines[0].hyphen = true;
+    if let Some(run) = page.lines[0].runs.last_mut() {
+        run.end += 1;
+    }
+    let words = word_boxes(&faces, &page, BOX).unwrap();
+    let whole = format!("{}{}", before[head].text, before[tail].text);
+    assert_eq!(words[head].text, whole);
+    assert_eq!(words[tail].text, whole);
+    // Each part has its own box, and both the whole word's place in the book.
+    assert_eq!(words[head].area.x, before[head].area.x);
+    assert_eq!(words[tail].area, before[tail].area);
+    assert_eq!(words[head].start, before[head].start);
+    assert_eq!(words[tail].end, before[tail].end);
+    assert_eq!(
+        (words[head].start, words[head].end),
+        (words[tail].start, words[tail].end)
+    );
+    // The rest are as they were.
+    assert_eq!(words.len(), before.len());
+    assert_eq!(words[0].text, before[0].text);
 }

@@ -38,7 +38,11 @@ pub fn word_boxes<M: Measure>(
 ) -> Result<Vec<WordBox>, Error> {
     let (left, top) = (f32::from(area.x), f32::from(area.y));
     let mut words: Vec<WordBox> = Vec::new();
+    // The last word of the line before, where it ended with a hyphen the
+    // layout put there: its word goes on with the first of this line.
+    let mut broken: Option<usize> = None;
     for line in page.lines.iter().filter(|l| !l.inserted) {
+        let first = words.len();
         let mut x = left + line.x;
         // Inside a word that goes on in the next run (a bold start, say).
         let mut joined = false;
@@ -83,14 +87,49 @@ pub fn word_boxes<M: Measure>(
                             )
                             .bidi(line.bidi),
                         );
+                        if let Some(head) = broken.take() {
+                            join_broken(&mut words, head)?;
+                        }
                     }
                 }
                 x += width;
                 joined = true;
             }
         }
+        // A hyphen of the layout's ends this line's last word, which goes on
+        // in the next line (not in a page of its own: a page ends with it).
+        broken = (line.hyphen && words.len() > first).then(|| words.len() - 1);
     }
     Ok(words)
+}
+
+/// The word at `head`, which ends a line with a hyphen the layout put there,
+/// and the word after it, its other part: each is the whole word (without that
+/// hyphen) with its whole place in the book, so that a touch on either part
+/// chooses the word, and what is kept of it is the word, by its place.
+fn join_broken(words: &mut [WordBox], head: usize) -> Result<(), Error> {
+    let tail = head + 1;
+    let Some((front, back)) = words.get(head).zip(words.get(tail)) else {
+        return Ok(());
+    };
+    let part = front.text.strip_suffix('-').unwrap_or(&front.text);
+    let mut whole = String::new();
+    whole
+        .try_reserve(part.len() + back.text.len())
+        .map_err(|_| Error::NoMemory)?;
+    whole.push_str(part);
+    whole.push_str(&back.text);
+    let (start, end) = (front.start, back.end);
+    let mut again = String::new();
+    push_str(&mut again, &whole)?;
+    for (at, text) in [(head, whole), (tail, again)] {
+        if let Some(word) = words.get_mut(at) {
+            word.text = text;
+            word.start = start;
+            word.end = end;
+        }
+    }
+    Ok(())
 }
 
 fn push_str(to: &mut String, text: &str) -> Result<(), Error> {
