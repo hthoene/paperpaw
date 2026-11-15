@@ -838,7 +838,13 @@ mod tests {
         builder.compact();
         builder.add_strike(10.0, metrics, alloc::vec![('а', glyph(3, 255, 3.5))]);
         let data = builder.build();
-        assert!(BitmapFont::new(data.clone()).unwrap().glyph('а', 10.0).width == 3);
+        assert!(
+            BitmapFont::new(data.clone())
+                .unwrap()
+                .glyph('а', 10.0)
+                .width
+                == 3
+        );
         let stored = StoredPack::open(Rc::new(Memory(data, Cell::new(0)))).unwrap();
         // Packed bitmaps are for the firmware's own packs, read in place:
         // not noise here, nothing.

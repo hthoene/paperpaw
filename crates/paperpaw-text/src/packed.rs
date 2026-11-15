@@ -153,7 +153,7 @@ impl<'a> Rows<'a> {
         let n = self.next.get();
         self.next.set(n + 1);
         match self.data.get(n / 2) {
-            Some(&byte) if n % 2 == 0 => byte >> 4,
+            Some(&byte) if n.is_multiple_of(2) => byte >> 4,
             Some(&byte) => byte & 15,
             None => 0,
         }

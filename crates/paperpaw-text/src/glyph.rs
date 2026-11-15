@@ -60,7 +60,7 @@ impl GlyphRef<'_> {
         }
     }
 
-    /// [`GlyphRef::level`] of every pixel, the length of a row worked out
+    /// The level (0 to 15) of every pixel, the length of a row worked out
     /// once rather than for each pixel. A packed glyph is decoded a row at a
     /// time (rows asked in order cost one pass; an earlier row starts over).
     #[inline]
@@ -113,6 +113,10 @@ impl GlyphRef<'_> {
 }
 
 /// Where [`GlyphRef::levels`] reads from.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "on the stack of one glyph draw, never boxed: no heap on the draw path"
+)]
 enum Levels<'a> {
     Raw(&'a [u8]),
     Packed(crate::packed::Rows<'a>),
