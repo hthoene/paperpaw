@@ -17,7 +17,10 @@
 //!
 //! Not part of any interface: the `testing` feature only.
 use crate::Kernel;
+use crate::abi7::context::registry_views::{Asker, RegistryView as _};
 use crate::native_host::declaration_store::Kind;
+use crate::native_host::registrations::{Record, record_decode_prefix};
+use crate::native_host::registry_service::Sources;
 use alloc::{format, string::String, vec::Vec};
 use core::fmt::{Debug, Display};
 use core::ops::ControlFlow;
@@ -62,6 +65,30 @@ fn cut(text: String) -> String {
     format!("{}… ({} bytes, {hash:016x})", &text[..end], text.len())
 }
 
+/// The rows `core.registry` gives for `op` in `scope`, each as its record,
+/// in the order given. A row that cannot be framed or read is left out.
+fn rows_of(
+    sources: &Sources<'_>,
+    op: u32,
+    scope: &str,
+    flags: u32,
+    each: &mut dyn FnMut(Record<'_>),
+) {
+    let asker = Asker {
+        owner: 0,
+        plugin: "",
+    };
+    let _ = sources.rows(op, scope, flags, &asker, &mut |row| {
+        let mut bytes = alloc::vec![0; row.framed_len().unwrap_or(0)];
+        if row.encode(&mut bytes).is_ok()
+            && let Ok((record, _)) = record_decode_prefix(&bytes)
+        {
+            each(record);
+        }
+        ControlFlow::Continue(())
+    });
+}
+
 fn debug(value: &impl Debug) -> String {
     format!("{value:?}")
 }
@@ -77,6 +104,7 @@ impl Kernel {
         self.lines_of_actions(&mut lines);
         self.lines_of_screens(&mut lines);
         self.lines_of_menus(&mut lines);
+        self.lines_of_merged_menus(&mut lines);
         self.lines_of_status(&mut lines);
         self.lines_of_widgets(&mut lines);
         self.lines_of_reading(&mut lines);
@@ -368,6 +396,42 @@ impl Kernel {
         lines.end("book-badge");
     }
 
+    /// Every menu as `core.registry` lists it with all its rows (ops 11 and
+    /// 12): the entries plugins contributed and the rows natively declared
+    /// plugins put into it, in the one order a view of the menu gets.
+    fn lines_of_merged_menus(&self, lines: &mut Lines) {
+        use crate::abi7::services_wire::core_registry_v1 as schema;
+        // Op 12's flag for every row: those the user removed and the
+        // hidden ones too.
+        const ALL: u32 = 1;
+        let env = self.shared.env(crate::Instant(0));
+        let sources = crate::native_host::registry_service::Sources {
+            env: &env,
+            directory: self.shared.registry.native_declarations.as_deref(),
+            generation: &self.shared.registry_generation,
+        };
+        let mut menus = Vec::new();
+        rows_of(&sources, schema::OP_MENUS, "", 0, &mut |record| {
+            if let Record::ServiceRegItem(menu) = record {
+                menus.push(String::from(menu.id));
+            }
+        });
+        for menu in &menus {
+            rows_of(&sources, schema::OP_MENU, menu, ALL, &mut |record| {
+                if let Record::ServiceRegMenuRow(row) = record {
+                    lines.add(
+                        menu,
+                        format_args!(
+                            "{} by={} order={} kind={} flags={:#x}",
+                            row.item, row.by, row.order, row.kind, row.flags
+                        ),
+                    );
+                }
+            });
+        }
+        lines.end("menu-merged");
+    }
+
     fn lines_of_keys(&self, lines: &mut Lines) {
         let keymap = &self.shared.keymap;
         let mut layers = Vec::new();
@@ -375,6 +439,11 @@ impl Kernel {
             layers.push(String::from(layer));
             ControlFlow::Continue(())
         });
+        // The layers as the kernel walks them: the sort of `key` loses it.
+        for layer in &layers {
+            lines.add("", layer);
+        }
+        lines.end("key-layer");
         for layer in &layers {
             for (input, action, origin) in keymap.bindings(layer) {
                 lines.add(
