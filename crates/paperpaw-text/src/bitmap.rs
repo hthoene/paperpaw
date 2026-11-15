@@ -365,6 +365,7 @@ impl BitmapFont {
             glyphs: u32_at(d, base + 16)? as usize,
             glyph_table: u32_at(d, base + 20)? as usize,
             bitmaps: u32_at(d, base + 24)? as usize,
+            packed: u16_at(d, base + 2)? & STRIKE_PACKED != 0,
         })
     }
 
@@ -508,11 +509,17 @@ impl BitmapFont {
             let start = strike
                 .bitmaps
                 .checked_add(u32_at(d, offset + 16)? as usize)?;
-            let len = usize::from(width).div_ceil(2) * usize::from(height);
-            let (format, data) = (
-                crate::glyph::COVERAGE4,
-                d.get(start..start.checked_add(len)?)?,
-            );
+            // Packed: the glyph's stream, as far as the pack goes (the
+            // decoder stops at the glyph's last pixel).
+            let (format, data) = if strike.packed {
+                (crate::glyph::PACKED4, d.get(start..)?)
+            } else {
+                let len = usize::from(width).div_ceil(2) * usize::from(height);
+                (
+                    crate::glyph::COVERAGE4,
+                    d.get(start..start.checked_add(len)?)?,
+                )
+            };
             Some(GlyphRef {
                 format,
                 advance: q6(i32_at(d, offset + 4)?).max(0.0),
@@ -562,6 +569,8 @@ struct Tables {
     glyphs: usize,
     glyph_table: usize,
     bitmaps: usize,
+    /// The strike's bitmaps are stored packed ([`STRIKE_PACKED`]).
+    packed: bool,
 }
 
 /// Builds a pack from rasterized glyphs (used by `paperpaw-fontgen`).
@@ -664,7 +673,9 @@ impl PackBuilder {
                         .iter()
                         .map(|(_, glyph)| {
                             (glyph.format == crate::glyph::COVERAGE4)
-                                .then(|| crate::packed::encode(&glyph.data, glyph.width, glyph.height))
+                                .then(|| {
+                                    crate::packed::encode(&glyph.data, glyph.width, glyph.height)
+                                })
                                 .flatten()
                         })
                         .collect()
@@ -689,7 +700,8 @@ impl PackBuilder {
             }
             let mut header = Vec::with_capacity(STRIKE);
             header.extend_from_slice(&((size * 4.0 + 0.5) as u16).to_le_bytes());
-            header.extend_from_slice(&if packed.is_some() { STRIKE_PACKED } else { 0 }.to_le_bytes());
+            header
+                .extend_from_slice(&if packed.is_some() { STRIKE_PACKED } else { 0 }.to_le_bytes());
             header.extend_from_slice(&to_q6(metrics.ascent).to_le_bytes());
             header.extend_from_slice(&to_q6(metrics.descent).to_le_bytes());
             header.extend_from_slice(&to_q6(metrics.line_height).to_le_bytes());
@@ -955,6 +967,105 @@ mod tests {
         let mut data = pack().data.into_owned();
         data[..4].copy_from_slice(OLD_MAGIC);
         assert!(BitmapFont::new(data).unwrap().has_char('b'));
+    }
+
+    /// A glyph of `width` x `height` of deterministic levels (empty, full and
+    /// edge pixels).
+    fn noisy(width: u16, height: u16, seed: u32) -> Glyph {
+        let (mut s, mut run, mut level) = (seed, 0, 0u8);
+        let levels: Vec<u8> = (0..usize::from(width) * usize::from(height))
+            .map(|_| {
+                if run == 0 {
+                    s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    level = match (s >> 24) % 8 {
+                        0..=3 => 0,
+                        4..=5 => 15,
+                        n => (n * 2) as u8,
+                    };
+                    run = 1 + (s >> 16) % 24;
+                }
+                run -= 1;
+                level
+            })
+            .collect();
+        let stride = usize::from(width).div_ceil(2);
+        let mut data = alloc::vec![0u8; stride * usize::from(height)];
+        for (i, v) in levels.iter().enumerate() {
+            let (x, y) = (i % usize::from(width), i / usize::from(width));
+            data[y * stride + x / 2] |= if x % 2 == 0 { v << 4 } else { *v };
+        }
+        Glyph {
+            format: crate::glyph::COVERAGE4,
+            left: -1,
+            top: -(height as i16),
+            width,
+            height,
+            advance: f32::from(width) + 1.5,
+            data,
+        }
+    }
+
+    #[test]
+    fn a_compact_pack_gives_every_pixel_of_the_plain_one() {
+        let metrics = LineMetrics::fallback(20.0);
+        let strike = |sizes: &[(char, u16, u16)]| -> Vec<(char, Glyph)> {
+            sizes
+                .iter()
+                .enumerate()
+                .map(|(i, &(ch, w, h))| (ch, noisy(w, h, i as u32 * 7 + u32::from(w))))
+                .collect()
+        };
+        let strikes = [
+            (
+                10.0,
+                strike(&[('a', 5, 9), ('b', 6, 10), (' ', 0, 0), ('c', 1, 1)]),
+            ),
+            (
+                20.0,
+                strike(&[('a', 11, 18), ('b', 192, 20), ('c', 30, 30)]),
+            ),
+            // A glyph too wide to pack leaves its whole strike plain.
+            (40.0, strike(&[('a', 21, 36), ('b', 200, 8)])),
+        ];
+        let build = |compact: bool| {
+            let mut builder = PackBuilder::new();
+            if compact {
+                builder.compact();
+            }
+            for (size, glyphs) in &strikes {
+                builder.add_strike(*size, metrics, glyphs.clone());
+            }
+            builder.build()
+        };
+        let (plain, packed) = (build(false), build(true));
+        assert!(packed.len() < plain.len());
+        let (plain, packed) = (
+            BitmapFont::new(plain).unwrap(),
+            BitmapFont::new(packed).unwrap(),
+        );
+        for (size, glyphs) in &strikes {
+            for (ch, _) in glyphs {
+                let (a, b) = (plain.glyph(*ch, *size), packed.glyph(*ch, *size));
+                assert_eq!(
+                    (a.width, a.height, a.left, a.top, a.advance),
+                    (b.width, b.height, b.left, b.top, b.advance)
+                );
+                let (la, lb) = (a.levels(), b.levels());
+                for y in 0..a.height {
+                    for x in 0..a.width {
+                        assert_eq!(a.level(x, y), b.level(x, y), "{ch} {size} {x},{y}");
+                        assert_eq!(
+                            la(u32::from(x), u32::from(y)),
+                            lb(u32::from(x), u32::from(y))
+                        );
+                    }
+                }
+                assert_eq!(a.ink_box(), b.ink_box(), "{ch} {size}");
+            }
+        }
+        // Only the strikes that could be packed are.
+        assert!(packed.tables(0).unwrap().packed && packed.tables(1).unwrap().packed);
+        assert!(!packed.tables(2).unwrap().packed);
     }
 }
 

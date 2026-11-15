@@ -247,16 +247,17 @@ mod tests {
 
     #[test]
     fn long_runs_of_empty_and_full_are_cut_at_every_length() {
-        for run in [1, 2, 14, 15, 16, 17, 30, 31, 32, 270, 271, 272, 273, 500, 1000] {
+        for run in [
+            1, 2, 14, 15, 16, 17, 30, 31, 32, 270, 271, 272, 273, 500, 1000,
+        ] {
             for value in [0, 15, 7] {
                 let mut levels = vec![value; run];
                 levels.push(3);
                 levels.extend(vec![15 - value % 15; run]);
-                // One row, then the same cut into rows of 10.
-                round_trip(&levels, levels.len());
-                if levels.len() % 10 == 0 {
-                    round_trip(&levels, 10);
-                }
+                // One column, then the same cut into rows of 10.
+                round_trip(&levels, 1);
+                levels.resize(levels.len().div_ceil(10) * 10, 5);
+                round_trip(&levels, 10);
             }
         }
     }
