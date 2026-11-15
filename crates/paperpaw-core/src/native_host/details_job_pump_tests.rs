@@ -342,6 +342,16 @@ fn started(w: &mut World) {
 fn pump(w: &mut World, now: u64) {
     w.kernel.now = Instant(now);
     w.kernel.native_service_pump();
+    // No source of the pump's wake leaves one in the past: it would wake the
+    // device again at once, round after round. "Now" is the pump's own way
+    // to ask for another pass (`service_more`).
+    if !w.kernel.shared.native_instances.service_more() {
+        let due = w.kernel.service_due();
+        assert!(
+            due.is_none_or(|at| at.millis() > now),
+            "a wake at {due:?} is left in the past after the pass at {now}"
+        );
+    }
 }
 
 /// How many `core.catalog-wanted` (made anew) the kernel has to run.
@@ -556,6 +566,33 @@ fn a_wake_is_spent_while_a_job_has_the_slot_and_none_is_left_in_the_past() {
     }
     assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
     assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn a_look_due_inside_a_callback_waits_a_gap_and_leaves_no_wake_in_the_past() {
+    let mut w = world(&["books/a.epub"]);
+    catalog(&w, &[("books/a.epub", false)]);
+    started(&mut w);
+    w.kernel.now = Instant(5_000);
+    w.kernel.native_details_arm();
+    assert_eq!(w.kernel.native_details_due(), Some(5_000));
+    // A pass of the pump while a callback is on the stack makes no look.
+    w.kernel.shared.native_instances.test_enter_callback();
+    pump(&mut w, 5_000);
+    assert_eq!(w.format.opens(), 0, "never inside a callback");
+    assert_eq!(
+        w.kernel.native_details_due(),
+        Some(5_100),
+        "a wake left in the past would wake the device round after round"
+    );
+    // A wake that is not due yet stays as it is.
+    pump(&mut w, 5_050);
+    assert_eq!(w.kernel.native_details_due(), Some(5_100));
+    w.kernel.shared.native_instances.test_leave_callback();
+    // Between callbacks again, the look is made at its wake.
+    pump(&mut w, 5_100);
+    assert_eq!(w.format.opens(), 1);
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
 }
 
 #[test]

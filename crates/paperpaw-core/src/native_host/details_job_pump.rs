@@ -284,10 +284,6 @@ impl crate::Kernel {
     #[inline(never)]
     fn native_details_pass(&self) -> Pass {
         let instances = &self.shared.native_instances;
-        // Never inside a callback, nor while something staged waits.
-        if instances.depth() != 0 || instances.outbox.full() {
-            return Pass::Nothing;
-        }
         let Some(hosts) = instances.hosts() else {
             return Pass::Nothing;
         };
@@ -298,6 +294,12 @@ impl crate::Kernel {
             return Pass::Nothing;
         };
         let run = job.run();
+        // Never inside a callback, nor while something staged waits: a look
+        // that is due is made a job's gap later (`put_off`).
+        if instances.depth() != 0 || instances.outbox.full() {
+            run.put_off(self.now.millis(), self.native_job_gap());
+            return Pass::Nothing;
+        }
         let active = documents.0.cover_job_active();
         // A job that left the table without an end (an open took its place).
         if run.running() && !active {
