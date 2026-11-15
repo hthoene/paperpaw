@@ -372,13 +372,7 @@ impl View {
             &mut out,
         )
         .map_err(fail)?;
-        // The highlights of the book; a book the library does not know has none.
-        let marks = match library.map(|l| native_marks::load(host, l, &found.path, conversion)) {
-            Some(Ok((own, foreign))) => Marks::new(own).with_foreign(foreign),
-            // A book the library does not know, or no room to read them in: the
-            // page is drawn without highlights, the book still opens.
-            _ => Marks::default(),
-        };
+        let marks = Self::load_marks(host, library, &found.path, conversion);
         let mut open = Open {
             id,
             sections,
@@ -436,6 +430,21 @@ impl View {
             speaker: Speaker::new(0),
             aloud_kept: false,
         })
+    }
+
+    /// The highlights of the book; a book the library does not know has none,
+    /// and where there is no room to read them the page is drawn without
+    /// highlights, the book still opens.
+    fn load_marks(
+        host: &Host<'_>,
+        library: Option<&Library>,
+        path: &str,
+        conversion: u64,
+    ) -> Marks {
+        match library.map(|l| native_marks::load(host, l, path, conversion)) {
+            Some(Ok((own, foreign))) => Marks::new(own).with_foreign(foreign),
+            _ => Marks::default(),
+        }
     }
 
     /// Where the book opens and the progress stored with its place: the place
