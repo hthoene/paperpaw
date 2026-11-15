@@ -110,7 +110,7 @@ fn main() {
     let data = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
     let font = paperpaw_text::OutlineFont::new(data, &[]).unwrap_or_else(|e| panic!("{path}: {e}"));
     let chars = ('\u{e000}'..=char::MAX).filter(|ch| font.has_char(*ch));
-    let pack = paperpaw_text::build_pack(&font, &sizes, chars);
+    let pack = paperpaw_text::build_pack_compact(&font, &sizes, chars);
     write(&out.join("icons.ppfp"), &pack);
 }
 
@@ -124,6 +124,9 @@ fn with_display(
     hinting: paperpaw_text::Hinting,
 ) -> Vec<u8> {
     let mut builder = paperpaw_text::PackBuilder::new();
+    // The surface font is stored packed (Decision 197): the same pixels in about
+    // half the bytes.
+    builder.compact();
     builder.kerning(&font.kerning_pairs(&chars.clone().collect::<Vec<char>>()));
     let strikes = sizes
         .iter()
