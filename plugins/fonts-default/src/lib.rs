@@ -41,7 +41,7 @@
 #![no_std]
 
 use paperpaw_sdk::builtin::fonts;
-use paperpaw_sdk::{BuiltInFont, BuiltInFonts, Id, Manifest, Plugin, RegisterError, Registrar};
+use paperpaw_sdk::{BuiltInFont, BuiltInFonts, Id, Manifest};
 
 pub const PLUGIN: Id = Id::new_static("fonts-default");
 pub const LITERATA: Id = Id::new_static("fonts-default.literata");
@@ -262,52 +262,6 @@ pub static DEFAULT_FONT_PACKS: BuiltInFonts = built_in(packs::FONTS);
 /// so an emulator shows that device with it.
 #[cfg(any(feature = "packs", not(feature = "outline")))]
 pub static LEAN_FONT_PACKS: BuiltInFonts = built_in(packs::LEAN);
-
-/// The default fonts as an interface-6 plugin: [`DEFAULT_FONTS`], registered by a `Plugin`.
-#[derive(Debug, Default)]
-pub struct DefaultFonts;
-
-/// [`DEFAULT_FONT_PACKS`], registered by a `Plugin`.
-#[cfg(any(feature = "packs", not(feature = "outline")))]
-#[derive(Debug, Default)]
-pub struct DefaultFontPacks;
-
-/// [`LEAN_FONT_PACKS`], registered by a `Plugin`.
-#[cfg(any(feature = "packs", not(feature = "outline")))]
-#[derive(Debug, Default)]
-pub struct LeanFontPacks;
-
-impl Plugin for DefaultFonts {
-    fn manifest(&self) -> Manifest {
-        DEFAULT_FONTS.manifest.clone()
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        DEFAULT_FONTS.register(r)
-    }
-}
-
-#[cfg(any(feature = "packs", not(feature = "outline")))]
-impl Plugin for DefaultFontPacks {
-    fn manifest(&self) -> Manifest {
-        DEFAULT_FONT_PACKS.manifest.clone()
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        DEFAULT_FONT_PACKS.register(r)
-    }
-}
-
-#[cfg(any(feature = "packs", not(feature = "outline")))]
-impl Plugin for LeanFontPacks {
-    fn manifest(&self) -> Manifest {
-        LEAN_FONT_PACKS.manifest.clone()
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        LEAN_FONT_PACKS.register(r)
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -1,4 +1,4 @@
-//! The default fonts as the plugin registers them: every role bound to a
+//! The default fonts as their table registers them: every role bound to a
 //! face of the right family, weight and slant; the text faces (and with
 //! the `packs` feature their packs) hold the Latin set packs are made of;
 //! bold faces are bolder; and the icon font holds every icon first-party
@@ -14,18 +14,18 @@ use std::fs;
 use std::path::Path;
 
 use paperpaw_plugin_fonts_default::{
-    DefaultFonts, ICONS, LITERATA, LITERATA_BOLD, LITERATA_BOLD_ITALIC, LITERATA_ITALIC, PLUGIN,
+    DEFAULT_FONTS, ICONS, LITERATA, LITERATA_BOLD, LITERATA_BOLD_ITALIC, LITERATA_ITALIC, PLUGIN,
     SOURCE_SANS, UI_FAMILY,
 };
 #[cfg(any(feature = "outline", feature = "packs"))]
 use paperpaw_sdk::Font;
 use paperpaw_sdk::builtin::fonts;
-use paperpaw_sdk::{Contribution, FontSpec, Id, Plugin, Registrar, icons};
+use paperpaw_sdk::{Contribution, FontSpec, Id, Registrar, icons};
 use paperpaw_text::charset::{chars, named};
 
 fn registered() -> Vec<Contribution> {
     let mut registrar = Registrar::new(PLUGIN);
-    DefaultFonts.register(&mut registrar).unwrap();
+    DEFAULT_FONTS.register(&mut registrar).unwrap();
     registrar.into_contributions()
 }
 
@@ -267,10 +267,10 @@ fn the_icon_font_holds_every_icon_plugins_ask_for() {
 #[cfg(feature = "packs")]
 #[test]
 fn packs_hold_the_latin_set_at_every_size() {
-    use paperpaw_plugin_fonts_default::DefaultFontPacks;
+    use paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS;
 
     let mut registrar = Registrar::new(PLUGIN);
-    DefaultFontPacks.register(&mut registrar).unwrap();
+    DEFAULT_FONT_PACKS.register(&mut registrar).unwrap();
     let contributions = registrar.into_contributions();
     for id in TEXT_FACES {
         let face = &font(&contributions, id).font;
@@ -324,9 +324,9 @@ fn packs_hold_the_latin_set_at_every_size() {
 }
 
 #[cfg(feature = "packs")]
-fn bindings_of(plugin: &dyn Plugin) -> Vec<(String, String)> {
+fn bindings_of(fonts: &paperpaw_sdk::BuiltInFonts) -> Vec<(String, String)> {
     let mut registrar = Registrar::new(PLUGIN);
-    plugin.register(&mut registrar).unwrap();
+    fonts.register(&mut registrar).unwrap();
     let mut bound: Vec<(String, String)> = registrar
         .into_contributions()
         .iter()
@@ -360,17 +360,17 @@ fn sorted(bindings: &[(Id, Id)]) -> Vec<(String, String)> {
 #[cfg(feature = "packs")]
 #[test]
 fn the_lean_packs_set_book_text_in_the_ui_font() {
-    use paperpaw_plugin_fonts_default::LeanFontPacks;
+    use paperpaw_plugin_fonts_default::LEAN_FONT_PACKS;
 
     let expected = [
         (fonts::READING, SOURCE_SANS),
         (fonts::UI, SOURCE_SANS),
         (fonts::ICONS, ICONS),
     ];
-    assert_eq!(bindings_of(&LeanFontPacks), sorted(&expected));
+    assert_eq!(bindings_of(&LEAN_FONT_PACKS), sorted(&expected));
 
     let mut registrar = Registrar::new(PLUGIN);
-    LeanFontPacks.register(&mut registrar).unwrap();
+    LEAN_FONT_PACKS.register(&mut registrar).unwrap();
     let contributions = registrar.into_contributions();
     let ids: Vec<&str> = fonts_of(&contributions)
         .iter()
@@ -404,11 +404,11 @@ fn the_lean_packs_set_book_text_in_the_ui_font() {
 #[cfg(feature = "packs")]
 #[test]
 fn the_packs_bind_literata_unless_the_build_is_lean() {
-    use paperpaw_plugin_fonts_default::{DefaultFontPacks, LeanFontPacks};
+    use paperpaw_plugin_fonts_default::{DEFAULT_FONT_PACKS, LEAN_FONT_PACKS};
 
-    let bound = bindings_of(&DefaultFontPacks);
+    let bound = bindings_of(&DEFAULT_FONT_PACKS);
     if cfg!(paperpaw_lean_fonts) {
-        assert_eq!(bound, bindings_of(&LeanFontPacks));
+        assert_eq!(bound, bindings_of(&LEAN_FONT_PACKS));
         return;
     }
     let expected = [
