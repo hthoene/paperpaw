@@ -222,6 +222,9 @@ fn toggled(marks: &mut Vec<(u32, u32)>, range: Range, done: Done) {
     }
 }
 
+/// The bookmarks' starts in this conversion, and the foreign ones.
+type Marks = (Vec<(u32, u32)>, Vec<ForeignMark>);
+
 /// The starts of the bookmarks of the book at `path` in the conversion
 /// `conversion` (or of none), at most [`MAX_MARKS`], and those of other
 /// conversions that kept a text to be told by, at most [`MAX_FOREIGN`].
@@ -230,7 +233,7 @@ fn read_marks(
     library: &Library,
     path: &str,
     conversion: u64,
-) -> Result<(Vec<(u32, u32)>, Vec<ForeignMark>), Error> {
+) -> Result<Marks, Error> {
     let book = BookRef::path(path)?;
     let (mut input, mut out) = (buffer(1024)?, buffer(SERVICE_BUFFER)?);
     let mut marks = Vec::new();
