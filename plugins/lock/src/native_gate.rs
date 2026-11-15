@@ -55,6 +55,35 @@ pub trait Device {
     /// # Errors
     /// `NoMemory`, or the host's refusal.
     fn open_unlock(&self) -> Result<(), Error>;
+    /// Keeps `tries` wrong tries in a row on the card (0: none).
+    ///
+    /// # Errors
+    /// `NoMemory`, or the host's refusal.
+    fn keep_tries(&self, tries: u8) -> Result<(), Error>;
+    /// A notice with the text of `key`.
+    ///
+    /// # Errors
+    /// `NoMemory`, or the host's refusal.
+    fn notice(&self, key: &'static str) -> Result<(), Error>;
+}
+
+/// The notice for wrong tries the card did not keep.
+pub const TRIES_NOT_KEPT: &str = "lock.tries-not-kept";
+
+/// Keeps the wrong tries on the card. The count holds in memory either way,
+/// so a card that refuses it (full, read only) only means it is lost at the
+/// next start: that is said once, and the try itself is not refused, for a
+/// card that cannot be written would lock the owner out with no way to mend
+/// it. Whether the card kept them.
+pub fn keep_tries(device: &impl Device, tries: u8) -> bool {
+    if device.keep_tries(tries).is_ok() {
+        return true;
+    }
+    // Forgetting them (0) failing leaves a count that is too high: no notice.
+    if tries > 0 {
+        let _ = device.notice(TRIES_NOT_KEPT);
+    }
+    false
 }
 
 /// What the plugin knows of the lock screen it asked for.
@@ -125,9 +154,12 @@ pub fn started(
     let stored = device.stored();
     let (asked, locked) = locked(device, lock, door, &stored, true);
     let repaired = repair(device, &stored);
-    let tries = device
-        .tries()
-        .map(|tries| lock.attempts.restore(tries, now_ms));
+    // Tries the card cannot tell are taken as all used: a read that fails is
+    // no way to a count of none (the wait ends by itself, after half a minute).
+    let tries = device.tries();
+    lock.attempts
+        .restore(tries.as_ref().map_or(model::TRIES, |t| *t), now_ms);
+    let tries = tries.map(drop);
     settle(asked, locked.and(repaired).and(tries))
 }
 
