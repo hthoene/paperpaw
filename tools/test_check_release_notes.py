@@ -29,6 +29,7 @@ class ReleaseNotes(unittest.TestCase):
         self.assertIn("no ", self.check())
         self.assertIn("is empty", self.check(b""))
         self.assertIn("is empty", self.check(b" \n\t\n"))
+        self.assertIn("is empty", self.check(b"\xef\xbb\xbf\n"))
 
     def test_over_the_limit_is_wrong(self):
         self.assertIn("at most 125000", self.check(b"a" * 125_001))

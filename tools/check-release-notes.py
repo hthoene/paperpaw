@@ -23,7 +23,7 @@ def problem(path):
         text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         return f"{path} is not UTF-8", 0
-    if not text.strip():
+    if not text.lstrip("\ufeff").strip():
         return f"{path} is empty", 0
     if len(text) > LIMIT:
         return f"{path} is {len(text)} characters: GitHub takes at most {LIMIT}", len(text)
