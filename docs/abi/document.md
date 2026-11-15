@@ -172,7 +172,8 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   `doc_state.flags` bit 1 (has a table of contents), bit 2 (has XPointers) and bit 4 (has page
   labels), which only a shown book needs, unset in its answer to such an open, and a later open
   without `background` finds them out), bit 3 `details` (the host's own, below); `image_side` the
-  longest side of a page's picture (0: interface 6 `IMAGE_FIT`, 1,600; at most 1,600, the most a
+  longest side of a page's picture (0: the screen's long side, as large as a page shows a picture
+  whichever way the screen is turned, at most 1,600; a side named is at most 1,600, the most a
   picture is ever decoded to, larger is `ERR_INVALID`),
   `cover_side` of the cover (0: interface 6 `cover_fit`, the larger of 300 and 3/8 of the screen's
   long side; at most the screen's long side); `css_path` a file of user CSS (at most 65,536 bytes,
@@ -418,9 +419,10 @@ host passes them on after checking them.
 
 - [D] **Picture sides are the host's.** A format never asks for the screen and never sees a side
   of 0: in `open` the host turns a `cover_side` of 0 into its default (the larger of 300 and 3/8
-  of the screen's long side, at most that side) and an `image_side` of 0 into 1,600 **before** the
-  conversion key is made, so an open with 0 and one with the same sides spelled out share one
-  cache; ops 2, 17 and 18 always carry both sides, set by the host.
+  of the screen's long side, at most that side) and an `image_side` of 0 into the screen's long
+  side, at most 1,600, **before** the conversion key is made, so an open with 0 and one with the
+  same sides spelled out share one cache; ops 2, 17 and 18 always carry both sides, set by the
+  host.
 - [D] **Paged replies** (ops 7, 9, 14, 16): whole rows, then exactly one `fmt.end` (the
   `service.end` row), the paging of `registry.md` 2.1: `flags` bit 0 the last page, `next` the
   `cursor` of the next call, `total` the rows of the whole list, `generation` the format's own for

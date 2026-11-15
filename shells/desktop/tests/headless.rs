@@ -641,6 +641,50 @@ fn a_picture_follows_the_text_of_its_page_in_a_frame_of_its_own() {
     );
 }
 
+/// The pictures a book's pages show are decoded no larger than the screen is
+/// long, as Beta 3 decoded them: Alice's cover of 800 x 1,104 pixels is kept
+/// as 580 x 800 on the X4 (464 KB on the card where the picture's own size
+/// took 883 KB, written in pieces while the book opens, #250) and at its own
+/// size on a screen 1,448 pixels long.
+#[test]
+#[cfg_attr(
+    not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+    ignore = "needs the native reader (the desktop's `native-linked`, #243)"
+)]
+fn a_page_picture_is_decoded_no_larger_than_the_screen_is_long() {
+    for (profile, long, wanted) in [
+        ("xteink-x4", 800, (580, 800)),
+        ("kobo-clara-bw", 1448, (800, 1104)),
+    ] {
+        let library = library(&format!("picture-side-{profile}"));
+        let state = library.join(".paperpaw/plugins/reader");
+        fs::create_dir_all(&state).unwrap();
+        fs::write(
+            state.join("state.ini"),
+            "[reader]\nlast = books/alice-in-wonderland.epub\n",
+        )
+        .unwrap();
+        let opened = run_in(&library, profile, "wait:8000", &[]);
+        // The decoded pictures in the book's cache: `PPGI`, width, height.
+        let decoded: Vec<(u32, u32, u64)> = files_under(&library.join(".paperpaw/cache"))
+            .iter()
+            .filter(|path| path.extension().is_some_and(|e| e == "gray"))
+            .map(|path| {
+                let bytes = fs::read(path).unwrap();
+                let side = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+                (side(4), side(8), bytes.len() as u64)
+            })
+            .collect();
+        let _ = fs::remove_dir_all(&library);
+        assert!(opened.ok, "{profile}: {}", opened.stderr);
+        assert_eq!(opened.screen(), "reader.screen", "{profile}");
+        assert_eq!(decoded.len(), 1, "{profile}: the cover alone: {decoded:?}");
+        let (width, height, bytes) = decoded[0];
+        assert_eq!((width, height), wanted, "{profile}");
+        assert!(bytes <= long * long + 12, "{profile}: {bytes} bytes");
+    }
+}
+
 /// The card files' library with two decks' files in a folder.
 fn card_files_library(name: &str) -> PathBuf {
     let library = library(name);
