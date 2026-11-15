@@ -175,8 +175,8 @@ impl Plugin for NativeHome {
                     Some(Slot::Add(_) | Slot::Items(_))
                 );
                 self.screens.close(instance);
-                if edited {
-                    self.invalidate_covered();
+                if edited && self.invalidate_covered() {
+                    self.refresh(host)?;
                 }
                 Ok(())
             }
@@ -199,22 +199,30 @@ impl Plugin for NativeHome {
                     .tick(host, self.ui.as_ref().ok_or(Error::State)?);
                 self.refresh(host)
             }
-            Event::WidgetChanged { .. } if token == WIDGET_CHANGED => self.refresh(host),
+            Event::WidgetChanged { .. } if token == WIDGET_CHANGED => {
+                // Under another screen the page is laid out when it is shown.
+                self.invalidate_covered();
+                self.refresh(host)
+            }
             Event::StackChanged { .. } if token == STACK_CHANGED => self.covered(host),
             // What the page reads was changed (a plugin came or went, a menu
             // or widget changed): a page kept under another screen is laid out
             // again when it is shown.
             Event::RegistryChanged { .. } if token == REGISTRY_CHANGED => {
-                self.invalidate_covered();
+                if self.invalidate_covered() {
+                    self.refresh(host)?;
+                }
                 Ok(())
             }
             // The grid's columns or rows changed: the pages are fitted to it.
             Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {
+                let again = self.invalidate_covered();
                 if is_grid_setting(key) {
                     fit(host)?;
                     self.refresh(host)?;
+                } else if again {
+                    self.refresh(host)?;
                 }
-                self.invalidate_covered();
                 Ok(())
             }
             _ => Ok(()),
@@ -296,13 +304,16 @@ impl NativeHome {
     }
 
     /// A setting or the registry changed: a dashboard under another screen is
-    /// laid out again when it is shown.
-    fn invalidate_covered(&mut self) {
+    /// laid out again when it is shown; `true` where one on top, shown a moment
+    /// ago, has to be drawn again.
+    fn invalidate_covered(&mut self) -> bool {
+        let mut again = false;
         for slot in self.screens.all() {
             if let Slot::Dashboard(dashboard) = slot {
-                dashboard.invalidate_covered();
+                again |= dashboard.invalidate_covered();
             }
         }
+        again
     }
 
     /// The stack changed: a dashboard under another screen keeps its page (a

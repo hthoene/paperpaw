@@ -41,10 +41,19 @@ fn has_recent(host: &Host<'_>) -> Option<bool> {
 impl Dashboard {
     /// A setting or the registry changed (or a plugin came or went) while
     /// another screen is over this one: the page it kept is laid out again when
-    /// it is shown.
-    pub fn invalidate_covered(&mut self) {
+    /// it is shown. Where it is on top and was shown again a moment ago (the
+    /// event reached it after the show's draw), it answers `true`: to be drawn
+    /// again.
+    pub fn invalidate_covered(&mut self) -> bool {
         if self.covered || self.returned {
             self.stale = true;
+            false
+        } else if self.fresh {
+            self.stale = true;
+            self.fresh = false;
+            true
+        } else {
+            false
         }
     }
 
@@ -59,5 +68,59 @@ impl Dashboard {
             return true;
         };
         laid.kept.differs(host, &display)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shown_and_drawn(covered: bool) -> Dashboard {
+        let mut dashboard = Dashboard::new();
+        dashboard.stale = false;
+        dashboard.covered = covered;
+        dashboard.shown(None);
+        // The draw that follows the show takes the mark.
+        dashboard.returned = false;
+        dashboard.stale = false;
+        dashboard
+    }
+
+    #[test]
+    fn a_change_that_reaches_the_page_after_its_show_lays_it_out_again() {
+        let mut dashboard = shown_and_drawn(true);
+        assert!(dashboard.invalidate_covered());
+        assert!(dashboard.stale);
+        // Once: the next change is for the draw that follows.
+        dashboard.stale = false;
+        assert!(!dashboard.invalidate_covered());
+        assert!(!dashboard.stale);
+    }
+
+    #[test]
+    fn the_minute_ends_the_window_of_a_page_just_shown() {
+        let mut dashboard = shown_and_drawn(true);
+        dashboard.mark_stale();
+        dashboard.stale = false;
+        assert!(!dashboard.invalidate_covered());
+        assert!(!dashboard.stale);
+    }
+
+    #[test]
+    fn a_change_under_another_screen_marks_the_page_and_draws_nothing() {
+        let mut dashboard = Dashboard::new();
+        dashboard.stale = false;
+        dashboard.covered = true;
+        assert!(!dashboard.invalidate_covered());
+        assert!(dashboard.stale);
+    }
+
+    #[test]
+    fn a_show_nothing_said_was_covered_lays_the_page_out_again() {
+        let mut dashboard = Dashboard::new();
+        dashboard.stale = false;
+        dashboard.shown(None);
+        assert!(dashboard.stale);
+        assert!(!shown_and_drawn(true).stale);
     }
 }

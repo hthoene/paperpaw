@@ -155,6 +155,10 @@ pub struct Dashboard {
     /// Shown again with its page kept: what the book widgets' heights depend on
     /// and the display are looked at once before it draws.
     returned: bool,
+    /// Drawn after it was shown again: an event that changes what it shows,
+    /// which reaches it one call after the show, lays it out again (until the
+    /// next minute or the next cover).
+    fresh: bool,
     /// What the reader used last before the show (`None`: not known).
     last_input: Option<InputMode>,
     /// Editing the home screen: the pencil is *Done*, *Add* shows; what is
@@ -205,6 +209,7 @@ impl Dashboard {
     /// What shows is read and laid out again before the next draw or input.
     pub fn mark_stale(&mut self) {
         self.stale = true;
+        self.fresh = false;
     }
 
     /// Shown again (above another screen closed, a book left), after the
@@ -212,8 +217,14 @@ impl Dashboard {
     pub fn shown(&mut self, last_input: Option<InputMode>) {
         // The page it kept is not laid out again for nothing: only what
         // [`Dashboard::changed_while_covered`] finds.
+        // Nothing said it was covered (the stack query failed, or the cover
+        // came and went in one call): what it shows is not known to be as it was.
+        if !self.covered {
+            self.stale = true;
+        }
         self.covered = false;
         self.returned = true;
+        self.fresh = true;
         self.reshow = true;
         self.last_input = last_input;
         // A finger's drag does not outlive the screen's being covered.
@@ -646,6 +657,7 @@ impl Dashboard {
     pub fn cover(&mut self) {
         if self.laid.is_some() {
             self.covered = true;
+            self.fresh = false;
         }
     }
 
