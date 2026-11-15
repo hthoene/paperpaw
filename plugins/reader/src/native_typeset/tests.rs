@@ -129,10 +129,44 @@ fn a_refusal_is_noted_and_the_layout_goes_on() {
 }
 
 #[test]
-fn the_table_has_a_slot_for_every_key() {
-    for key in [1u64 << 63, u64::MAX, 0x41 | (1 << 63), 0x5_0000_0041] {
-        assert!(slot(key) < CACHE_ENTRIES);
+fn the_tables_find_what_they_keep_and_nothing_else() {
+    let tables = Tables::new().unwrap();
+    for c in ['a', 'Z', ' ', '\u{e4}', '\u{2019}'] {
+        assert_eq!(tables.width(Role::Reading, 20.0, c), None);
+        tables.keep_width(Role::Reading, 20.0, c, 7.25);
+        assert_eq!(tables.width(Role::Reading, 20.0, c), Some(7.25));
+        // Another size or role is another context.
+        assert_eq!(tables.width(Role::Reading, 21.0, c), None);
+        assert_eq!(tables.width(Role::Bold, 20.0, c), None);
     }
+}
+
+#[test]
+fn tables_with_no_room_keep_nothing_and_every_ask_goes_to_the_host() {
+    let none = Tables::default();
+    none.keep_width(Role::Reading, 20.0, 'a', 3.0);
+    assert_eq!(none.width(Role::Reading, 20.0, 'a'), None);
+    let fake = Fake::default();
+    let faces = Faces::with_tables(&fake, 20.0, 1.0, none).unwrap();
+    let plain = face(TextStyle::REGULAR, 0, 0);
+    let before = fake.asked.get();
+    assert!((faces.advance(plain, 'a') - 10.0).abs() < 1e-4);
+    assert!((faces.advance(plain, 'a') - 10.0).abs() < 1e-4);
+    assert_eq!(fake.asked.get(), before + 2);
+}
+
+#[test]
+fn a_context_is_emptied_for_a_fifth_one() {
+    let tables = Tables::new().unwrap();
+    for size in [10.0, 11.0, 12.0, 13.0] {
+        tables.keep_width(Role::Reading, size, 'a', size);
+    }
+    // The least used (10) goes for a fifth.
+    assert_eq!(tables.width(Role::Reading, 11.0, 'a'), Some(11.0));
+    tables.keep_width(Role::Reading, 14.0, 'a', 14.0);
+    assert_eq!(tables.width(Role::Reading, 10.0, 'a'), None);
+    assert_eq!(tables.width(Role::Reading, 14.0, 'a'), Some(14.0));
+    assert_eq!(tables.width(Role::Reading, 11.0, 'a'), Some(11.0));
 }
 
 #[test]

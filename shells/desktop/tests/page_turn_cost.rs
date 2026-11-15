@@ -48,7 +48,11 @@ const CEILINGS: &[(&str, u32, &str)] = &[
         300,
         "one per piece of text, not per band (261)",
     ),
-    ("text_measure", 300, "layout of the next page (230)"),
+    (
+        "text_measure",
+        50,
+        "layout of the next page, widths kept for the book (41; 224 before)",
+    ),
     (
         "storage_read_at",
         150,
@@ -57,8 +61,8 @@ const CEILINGS: &[(&str, u32, &str)] = &[
     ("service_call", 30, "document service and status line (17)"),
 ];
 
-/// All slots together, one turn (652 now).
-const TOTAL_CEILING: u32 = 800;
+/// All slots together, one turn (323 now).
+const TOTAL_CEILING: u32 = 340;
 
 /// Floors, so that a turn which does nothing cannot pass: every measured turn
 /// enters at least this many slots (the quietest, a page with one picture,
@@ -130,7 +134,8 @@ fn a_page_turn_stays_within_its_host_crossings() {
         press(&mut device, ButtonState::Released);
         let counts = slot_counts::snapshot();
         eprintln!(
-            "page turn: reads {} service {} settings {} inked {}",
+            "page turn: measures {} reads {} service {} settings {} inked {}",
+            count_of(&counts, "text_measure"),
             count_of(&counts, "storage_read_at"),
             count_of(&counts, "service_call"),
             count_of(&counts, "settings_read"),

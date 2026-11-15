@@ -1311,12 +1311,17 @@ impl Open {
     ) -> Result<(Page, bool), Error> {
         let area = self.area(setup).ok_or(Error::NoSpace)?;
         let fonts = HostFonts::acquire(host)?;
-        let page =
-            Faces::new(&fonts, setup.base(), setup.reading.spacing_factor()).and_then(|faces| {
-                let faces = faces.word_spacing(setup.reading.word_factor());
-                let page = self.lay_with(host, docs, &faces, setup, start, area)?;
-                Ok((page, faces.take_failed()))
-            });
+        let page = Faces::with_tables(
+            &fonts,
+            setup.base(),
+            setup.reading.spacing_factor(),
+            self.settings.tables(),
+        )
+        .and_then(|faces| {
+            let faces = faces.word_spacing(setup.reading.word_factor());
+            let page = self.lay_with(host, docs, &faces, setup, start, area)?;
+            Ok((page, faces.take_failed()))
+        });
         let released = fonts.release();
         page.and_then(|page| released.map(|()| page))
     }
@@ -1368,8 +1373,13 @@ impl Open {
         frame: &mut DrawFrame<'_>,
         (setup, fonts, area): (&Setup, &HostFonts<'_>, native_pages::Box),
     ) -> Result<(), Error> {
-        let faces = Faces::new(fonts, setup.base(), setup.reading.spacing_factor())?
-            .word_spacing(setup.reading.word_factor());
+        let faces = Faces::with_tables(
+            fonts,
+            setup.base(),
+            setup.reading.spacing_factor(),
+            self.settings.tables(),
+        )?
+        .word_spacing(setup.reading.word_factor());
         // A turned screen or a changed reading setting (the host may draw before
         // the plugin is told): the page is laid out again, its trail found anew.
         let key = self.key(setup);
