@@ -5259,6 +5259,15 @@
           "ordinal": null,
           "since": 1,
           "type": "str"
+        },
+        {
+          "default": "",
+          "max_bytes": 64,
+          "name": "icon",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "str"
         }
       ],
       "id": 1031,

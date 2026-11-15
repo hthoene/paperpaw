@@ -52,13 +52,17 @@ struct App {
 impl App {
     /// The app on a card with a book, drawn in bands of `rows` rows or at once.
     fn new(rows: Option<u16>) -> Self {
+        Self::on_device(DEVICE, rows)
+    }
+
+    fn on_device(device: DeviceInfo, rows: Option<u16>) -> Self {
         let text = "A walk along the river, and back by the mill.\n\n".repeat(200);
         let card = native_activation::SharedCard::new(
             MemoryStorage::new()
                 .with(".paperpaw/plugins/setup/done", Vec::new())
                 .with(BOOK, text.into_bytes()),
         );
-        let mut builder = Kernel::builder(DEVICE)
+        let mut builder = Kernel::builder(device)
             .storage(card.clone())
             .user_config(native_activation::QUIET);
         if let Some(rows) = rows {
@@ -188,5 +192,37 @@ fn a_screen_drawn_in_bands_is_the_screen_drawn_at_once() {
             }
         }
         assert!(faults.is_empty(), "{}", faults.join("\n"));
+    }
+}
+
+/// Exact comparisons catch a missing widget strip even when snapshots tolerate it.
+#[test]
+#[cfg_attr(not(feature = "native-linked-reading"), ignore = "needs native Home")]
+fn home_bands_match_whole_frames_on_rotated_x3_and_large_profiles() {
+    for (width, height, dpi, rotation) in [
+        (800, 480, 220, Rotation::Deg90),
+        (480, 800, 220, Rotation::Deg90),
+        (528, 792, 260, Rotation::Deg90),
+        (1264, 1680, 300, Rotation::Deg0),
+    ] {
+        let device = DeviceInfo::new(
+            "home-band-test",
+            "Home band test",
+            DisplayInfo::new(width, height, dpi, PixelFormat::Gray2, rotation, None),
+            DEVICE.input,
+            MemoryClass::Large,
+        );
+        let (expected, bands) = App::on_device(device, None).frame();
+        assert_eq!(bands, 1);
+        for rows in [56, 96, 192] {
+            let (found, bands) = App::on_device(device, Some(rows)).frame();
+            assert!(bands > 1);
+            assert_eq!(expected.len(), found.len());
+            assert!(
+                difference(&expected, &found, usize::from(width)).is_none(),
+                "{width}x{height}, {rotation:?}, {rows} rows: {:?}",
+                difference(&expected, &found, usize::from(width)),
+            );
+        }
     }
 }

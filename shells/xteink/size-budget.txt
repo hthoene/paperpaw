@@ -39,7 +39,33 @@
 # Beyond the installer slot (6,553,600 bytes, CrossPoint's): x4-pro and
 # x4-classic (they fit `ota_0`, 8,323,072 bytes: install by flashing only,
 # Decision 179). Lower the lines again as the images shrink (the plan of #258).
-image x4 6493952
-image x3 6505744
-image x4-pro 7062560
-image x4-classic 6612704
+#
+# Train t41 (levers of #258 and the interface-6 removals): measured on
+# `train/t41` (db1e6c619), local build of the release-like image, as above: x4
+# 6,220,480, x3 6,232,464, x4-pro 6,789,312, x4-classic 6,338,896 (all four
+# 270,000 bytes or so below t40); the lines are those plus 16,000. The x4, the
+# x3 and the x4-classic are inside stage 1 (6,400,000 bytes) now; only the
+# x4-pro exceeds it, and the installer slot (6,553,600 bytes), by Decision 184.
+#
+# Train t43 (#1488/#1491, #1492, #1494, #1485, #1483, #1484, #1489, #1493, #1487
+# on t42's base): measured on `train/t43` (10ba216ea), local build of the
+# release-like image, as above: x4 6,248,400, x3 6,260,416, x4-pro 6,817,648,
+# x4-classic 6,367,232 (against train t42: x4 +15,120, x3 +15,168, x4-pro
+# +22,224, x4-classic +21,520); the lines are those plus 16,000. x4, x3 and
+# x4-classic are inside stage 1 (6,400,000 bytes); the x4-pro exceeds it and the
+# installer slot (Decision 184, Decision 179).
+#
+# Train t45 (#1490/#1499, #1508, #1509, #1510/#1512, #1511, #1513, #1514, #1515,
+# #1517, #1518 on t44b's base `f3b519ad8`): measured on `train/t45` (961949f1c),
+# local build of the release-like image at one path, as above: x4 6,260,352, x3
+# 6,272,336, x4-pro 6,829,216, x4-classic 6,379,632 (against `f3b519ad8` built at
+# the same path: x4 +5,248, x4-classic +4,656; per PR on #258); the lines are
+# those plus 16,000. The CI room under the old lines was only 3,600 to 4,432
+# bytes, and two builds of the same code differ by up to 9,696 bytes by their
+# build folder (see above), so the lines go up before the train's CI run, not
+# after a red one. x4, x3 and x4-classic stay inside stage 1 (6,400,000 bytes);
+# the x4-pro exceeds it and the installer slot (Decision 184, Decision 179).
+image x4 6276352
+image x3 6288336
+image x4-pro 6845216
+image x4-classic 6395632

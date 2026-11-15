@@ -338,9 +338,10 @@ fn room_asked_above_the_lines_lowers_them_and_ends_the_page_sooner() {
 #[test]
 #[ignore = "interlinear reading needs page layers and text filters the native reader does not host (the interface-6 ones are removed, #244); Kernel P3 in #1252"]
 fn a_layer_that_asks_gets_the_pages_words_with_the_room_free_above_them() {
-    // A page of the story, past the title.
+    // A page of the story, past the title and the chapter's heading (a
+    // heading's words stand taller than its line's box).
     let mut app = App::new(true);
-    app.turn(3);
+    app.turn(4);
     let seen = app.seen.borrow();
     assert!(seen.words.len() > 20, "{:?}", seen.words);
     // The words the reader has for the page, in reading order, each in a

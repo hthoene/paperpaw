@@ -433,6 +433,7 @@ impl World {
                             page: "",
                             order: g.order,
                             title: &g.title,
+                            icon: "",
                         }))
                         .unwrap()
                     })

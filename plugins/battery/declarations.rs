@@ -29,10 +29,14 @@ pub const SCREEN_TOKEN: u32 = 10;
 pub const OPEN_TOKEN: u32 = 11;
 
 pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
-    use paperpaw_sdk::native::declare::{ActionDecl, ScreenDecl};
+    use paperpaw_sdk::native::declare::{ActionDecl, MenuEntryDecl, ScreenDecl};
     let mut declarations = Declarations::new(sink);
     declarations.screen(ScreenDecl::new("screen", "battery.title", SCREEN_TOKEN))?;
     declarations.action(ActionDecl::new("open", "battery.title", OPEN_TOKEN))?;
+    let mut entry = MenuEntryDecl::new("core.tools", "battery.open");
+    entry.order = 37;
+    declarations.menu_entry(entry)?;
+    declarations.icon("battery.open", "battery")?;
     declarations.submit()
 }
 

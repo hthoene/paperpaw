@@ -89,10 +89,14 @@ const MAX_MARGIN: u16 = 1000;
 /// Longer paragraphs are split into continued blocks; no record's text
 /// is longer.
 pub(crate) const LIMIT: usize = 4000;
-/// Output is written to storage in chunks of about this size.
-const FLUSH: usize = 1024;
-/// Index and anchors are written in chunks of about this size.
-const FLUSH_SMALL: usize = 256;
+/// Output is written to storage in chunks of about this size: each write is a
+/// host call and a write to the card (about 27 ms on the X4, #250), so a book
+/// opened for the first time makes few and large ones. 4,096 would save
+/// about a third of the writes more for 7 KiB more heap at the peak.
+const FLUSH: usize = 2048;
+/// Index, positions, cross references and anchors are written in chunks of
+/// about this size.
+const FLUSH_SMALL: usize = 1024;
 /// Elements nested deeper are read as part of the deepest one.
 pub(crate) const MAX_DEPTH: usize = 128;
 /// Element names are kept to this length (no HTML name is longer).
@@ -1488,6 +1492,10 @@ fn budget(size: u64) -> u64 {
     clippy::too_many_arguments,
     reason = "what a chapter is converted with, each of it different; a struct would be built for one call"
 )]
+// On the S3 the HTML provider's `converted` took this inline and its frame came to
+// the 2,048 B the packer refuses (#263); apart, this keeps the 1,984 B the epub
+// plugin has. The X4's code is as it was.
+#[cfg_attr(target_arch = "xtensa", inline(never))]
 pub(crate) fn convert(
     storage: &dyn Storage,
     source: &Source<'_>,
@@ -1641,18 +1649,7 @@ pub(crate) fn convert(
             }
         }
         Source::Html { path, .. } => {
-            let mut chunk = [0u8; 1024];
-            let mut at = 0u64;
-            while !full.get() {
-                let n = storage.read_at(path, at, &mut chunk)?;
-                if n == 0 {
-                    break;
-                }
-                tokenizer
-                    .try_feed(&chunk[..n], &mut handle)
-                    .map_err(|_| DocumentError::OutOfMemory)?;
-                at += n as u64;
-            }
+            feed_html(storage, path, &full, &mut tokenizer, &mut handle)?;
         }
         Source::Fb2 { path, encoding } => {
             crate::fb2::feed(storage, path, *encoding, &mut tokenizer, &mut handle)?;
@@ -1685,9 +1682,36 @@ pub(crate) fn convert(
     // picture found no room to be decoded: that picture is its alternative
     // text for now, and the next opening converts the chapter again.
     if complete {
-        storage.write(&paths.end, &length.to_le_bytes())?;
+        paths.complete(storage, length)?;
     }
     Ok(length)
+}
+
+/// Feeds the HTML file at `path` to the tokenizer, a piece at a time,
+/// until `full` says the budget is spent.
+// Its own frame, as a FictionBook's (`fb2::feed`): the piece read is not
+// in `convert`'s, which stays under the firmware's frame limit.
+#[inline(never)]
+fn feed_html(
+    storage: &dyn Storage,
+    path: &str,
+    full: &core::cell::Cell<bool>,
+    tokenizer: &mut Tokenizer,
+    emit: &mut dyn FnMut(Token<'_>),
+) -> Result<(), DocumentError> {
+    let mut chunk = [0u8; 1024];
+    let mut at = 0u64;
+    while !full.get() {
+        let n = storage.read_at(path, at, &mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        tokenizer
+            .try_feed(&chunk[..n], emit)
+            .map_err(|_| DocumentError::OutOfMemory)?;
+        at += n as u64;
+    }
+    Ok(())
 }
 
 /// Pictures noted or decoded together, so the list of noted ones (or a

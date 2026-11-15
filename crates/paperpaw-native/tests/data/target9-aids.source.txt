@@ -1,0 +1,9 @@
+target9-aids.ppn: the X4 Pro's file of the first-party plugin `aids` (target 9), as packed by the
+real packer, unsigned. The tests of tests/target9_files.rs hold for any such file; replace it with
+a newer one when the plugin's file format changes.
+
+source commit:  a98ee57bfd008c92acb6ec51052b366585801ff6 (fw/target9-pack-263-b, PR #1465)
+command:        tools/plugin-files7/build.sh x4-pro <out-dir> --only aids
+                cp <out-dir>/aids-1.1.5-x4-pro.ppn crates/paperpaw-native/tests/data/target9-aids.ppn
+compiler:       the pinned Rust 1.99.0 plus espup's xtensa compiler (`source ~/export-esp.sh`)
+size, sha256:   15,236 bytes, 610f50d925462cad3b4bb1f055a58bebcc876108d4df7bfd27da2bd80e2f5854

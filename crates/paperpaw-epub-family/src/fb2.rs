@@ -561,7 +561,7 @@ pub struct Fb2Document {
     path: String,
     paths: CachePaths,
     /// The block found last (see [`cached::block_at`]).
-    last: core::cell::Cell<Option<u32>>,
+    seek: core::cell::RefCell<cached::Seek>,
     /// Where an anchor was found last.
     anchors: cached::AnchorHint,
     encoding: Encoding,
@@ -658,7 +658,7 @@ impl Fb2Document {
         Ok(Self {
             path: file,
             paths,
-            last: core::cell::Cell::new(None),
+            seek: core::cell::RefCell::default(),
             anchors: cached::AnchorHint::default(),
             encoding,
             metadata,
@@ -851,18 +851,15 @@ impl Document for Fb2Document {
             return Ok(None);
         }
         let (length, blocks) = self.converted(storage)?;
-        let mut last = self.last.get();
-        let block = cached::block_at(
+        cached::block_at(
             storage,
             &self.paths,
             length,
             blocks,
             at.offset,
             self.color,
-            &mut last,
-        );
-        self.last.set(last);
-        block
+            &mut self.seek.borrow_mut(),
+        )
     }
 
     fn toc_len(&self, _: &dyn Storage) -> u32 {

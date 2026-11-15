@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-lock"
 description = "PaperPaw screen lock: a PIN, a pattern or a password when the device wakes up"
-version = "1.0.4"
+version = "1.0.5"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
