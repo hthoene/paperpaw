@@ -664,9 +664,9 @@ type Regs = [Held; 16];
 /// its literal; a write of a register, a call (the registers from its rotation
 /// up), `entry` or a window register makes the registers it takes unknown; the
 /// state where paths meet keeps a register only if all of them agree. The
-/// flow goes by fall-through and branch targets, and every address a word of
-/// the image points at inside the function (a jump table) is an entry with
-/// nothing known.
+/// flow goes by fall-through and branch targets, and in a function that has
+/// a `jx`, every address a word of the image points at inside it (a jump
+/// table) is an entry with nothing known.
 ///
 /// The reading assumes `LITBASE` is off, as the S3's toolchain leaves it (an
 /// `l32r` is `pc`-relative: `regs::Insn::l32r`); a firmware that enabled the
@@ -693,10 +693,9 @@ fn resolve(
     let end = insns.last().map_or(start_addr, |i| i.next());
     let index: BTreeMap<u32, usize> = insns.iter().enumerate().map(|(n, i)| (i.pc, n)).collect();
     // Every address inside the function that a word of the image points at is
-    // a place the flow may enter from outside this function's own
-    // instructions (a jump table, here or in another function): an entry with
-    // nothing known. A `jx` with no such address to go to is a jump this
-    // reading cannot place: it gives the function up.
+    // a place its `jx` may go to (a jump table): an entry with nothing known.
+    // A `jx` with no such address to go to is a jump this reading cannot
+    // place: it gives the function up.
     let mut entries: Vec<usize> = Vec::new();
     for p in around.pointed.range(start_addr..end) {
         // A word that is no instruction's start is not a jump target (the
@@ -714,8 +713,16 @@ fn resolve(
     // The function's own start does not count as an address to jump to: a
     // vtable or a function pointer holds it, a jump table does not. Jump
     // tables are taken to hold absolute addresses of the instructions.
-    if entries.iter().all(|&n| n == 0) && insns.iter().any(|i| i.is_jx()) {
+    let jumps = insns.iter().any(|i| i.is_jx());
+    if entries.iter().all(|&n| n == 0) && jumps {
         return give_up(reads);
+    }
+    // Only the function's own `jx` goes there (a jump table is its function's
+    // own; the image has no split-off function parts). With none, such a word
+    // is a number or text (`0SUB` in the pin names is 0x42555330) that follows
+    // the layout: no entry.
+    if !jumps {
+        entries.clear();
     }
     let mut next: Vec<Vec<usize>> = vec![Vec::new(); insns.len()];
     for (n, i) in insns.iter().enumerate() {
