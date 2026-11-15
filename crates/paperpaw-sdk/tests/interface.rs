@@ -1254,11 +1254,7 @@ fn the_toolchains_named_are_the_releases() {
         "native::TOOLCHAIN names esp {esp}"
     );
     assert!(!TOOLCHAIN.is_empty());
-    for project in [
-        "../..",
-        "../../samples/hello-native",
-        "../../tools/plugin-files7",
-    ] {
+    for project in ["../..", "../../tools/plugin-files7"] {
         let pinned = value(
             &read(&format!("{project}/rust-toolchain.toml")).unwrap(),
             "channel",
@@ -1280,22 +1276,6 @@ fn the_toolchains_named_are_the_releases() {
             "tool: cargo-public-api\n          version: {public_api}\n"
         )),
         "tools/interface.py and ci.yml name the same cargo-public-api"
-    );
-}
-
-/// Every plugin project of the repository links with the format's own
-/// linker script.
-#[test]
-fn plugin_projects_link_with_the_formats_script() {
-    let Some(script) = read("../paperpaw-native/paperpaw-plugin.x") else {
-        return;
-    };
-    let project = "../../samples/hello-native";
-    let copy = read(&format!("{project}/paperpaw-plugin.x"));
-    assert_eq!(
-        copy.as_deref(),
-        Some(script.as_str()),
-        "{project}/paperpaw-plugin.x"
     );
 }
 

@@ -1,0 +1,234 @@
+== home
+Button "Start reading, Choose a book from your library." at 47,378 1170x283
+Button "Edit" at 1134,1597 83x83
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Button "Library" at 47,71 374x283
+Button "Vocabulary" at 445,71 374x283
+Button "Flash cards" at 843,71 374x283
+Button "News" at 47,378 374x283
+Button "Files" at 445,378 374x283
+Button "Catalogs" at 843,378 374x283
+Button "Wi-Fi transfer" at 47,685 374x283
+Button "Plugin store" at 445,685 374x283
+Button "Settings" at 843,685 374x283
+Button "Edit" at 1134,1597 83x83
+Text "<time>"
+Button "Start reading, Choose a book from your library." at 47,378 1170x283
+Button "Edit" at 1134,1597 83x83
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Button "10:41, Wednesday, 14 October" at 47,71 1170x283
+Button "Start reading, Choose a book from your library." at 47,378 1170x283
+Button "" at 47,685 1170x283
+Button "+" at 47,1597 166x83
+Button "Done" at 1051,1597 166x83
+Text "<time>"
+Button "Start reading, Choose a book from your library." at 47,378 1170x283
+Button "Edit" at 1134,1597 83x83
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Text "All tools" at 109,16 129x55
+Button "Library" (focused) at 47,136 292x233
+Button "Vocabulary" at 339,136 292x233
+Button "Flash cards" at 631,136 292x233
+Button "News" at 923,136 292x233
+Button "Files" at 47,417 292x233
+Button "Catalogs" at 339,417 292x233
+Button "Wi-Fi transfer" at 631,417 292x233
+Button "Plugin store" at 923,417 292x233
+Button "Settings" at 47,698 292x233
+Button "Start reading, Choose a book from your library." at 47,378 1170x283
+Button "Edit" at 1134,1597 83x83
+Text "<time>"
+Text "<date>"
+Text "<time>"
+boox-go-7: screen home.dashboard
+== tools
+Text "Library" at 109,16 114x55
+Text "Show" at 47,128 79x48
+Text "All books · 4 books" at 959,128 258x48
+Text "Alice's Adventures in Wonderland" at 164,205 466x48
+Text "Lewis Carroll" at 164,253 135x36
+Text "A" at 79,232 28x71
+Text "Alice's Adventures in Wonderland" at 164,353 466x48
+Text "Lewis Carroll" at 164,401 135x36
+Text "A" at 79,380 28x71
+Text "Die Verwandlung" at 164,501 238x48
+Text "Franz Kafka" at 164,549 122x36
+Text "D" at 78,528 31x71
+Text "Die Verwandlung" at 164,649 238x48
+Text "Franz Kafka" at 164,697 122x36
+Text "D" at 78,676 31x71
+Heading "Vocabulary" at 0,0 1264x88
+Text "No words yet" at 527,837 210x55
+Text "Words you look up while reading appear here, with their sentences." at 281,916 701x36
+Heading "Flash cards" at 0,0 1264x88
+Row "Review, 0 cards due" (focused) at 0,112 1264x130
+Row "Edit with your phone, Make your first deck on a phone: type cards, or add many from a CSV, TSV or Anki file." at 0,242 1264x130
+Row "Cards on the SD card, Choose this to make the folder Flashcards for CSV, TSV or Anki files." at 0,372 1264x130
+Heading "News" at 0,0 1264x88
+Row "Add a feed, Its address (RSS or Atom), from the website." (focused) at 0,112 1264x130
+Text "No feeds yet" at 533,885 198x55
+Text "Add the feed of a newspaper or a blog (its RSS address, from its website). Fetching then makes a book" at 104,964 1055x36
+Text "of its newest articles, to read like any other." at 406,999 451x36
+Text "Device" at 109,16 107x55
+Text "books" at 47,128 86x48
+Text "New folder" at 555,1589 153x48
+Heading "Catalogs" at 0,0 1264x88
+Row "Project Gutenberg, www.gutenberg.org" (focused) at 0,112 1264x130
+Row "Add catalog" at 0,242 1264x83
+Text "Hold a catalog to sync, edit or remove it." at 47,1559 420x36
+Heading "Wi-Fi transfer" at 0,0 1264x88
+Text "<address with a key>"
+Text "Open this address in a browser on a phone or computer in the same Wi-Fi, or scan the code. The transfer runs" at 65,1376 1134x36
+Text "while this page is open." at 510,1411 244x36
+Heading "Plugin store" at 0,0 1264x88
+Row "Search" (focused) at 0,112 1264x83
+Row "New" at 0,195 1264x83
+Row "Reading, 2" at 0,278 1264x83
+Row "Look, 1" at 0,361 1264x83
+Text "1 / 2" at 1133,26 44x36
+Heading "Settings" at 0,0 1264x88
+Row "Search" (focused) at 0,112 1264x83
+Heading "Books" at 0,195 1264x68
+Row "Reading" at 0,263 1264x83
+Row "Library" at 0,346 1264x83
+Heading "Device" at 0,429 1264x68
+Row "Display" at 0,497 1264x83
+Row "Sleep screen" at 0,580 1264x83
+Row "Controls" at 0,663 1264x83
+Row "Keyboard" at 0,746 1264x83
+Row "Wi-Fi" at 0,829 1264x83
+Row "Bluetooth" at 0,912 1264x83
+Row "Power" at 0,995 1264x83
+Row "Date and time" at 0,1078 1264x83
+Row "System" at 0,1161 1264x83
+Row "Screen lock" at 0,1244 1264x83
+Row "Updates" at 0,1327 1264x83
+Row "Set up PaperPaw" at 0,1410 1264x83
+Row "About PaperPaw" at 0,1493 1264x83
+boox-go-7: screen home.dashboard
+== settings
+Text "1 / 2" at 1133,26 44x36
+Heading "Settings" at 0,0 1264x88
+Row "Search" (focused) at 0,112 1264x83
+Heading "Books" at 0,195 1264x68
+Row "Reading" at 0,263 1264x83
+Row "Library" at 0,346 1264x83
+Heading "Device" at 0,429 1264x68
+Row "Display" at 0,497 1264x83
+Row "Sleep screen" at 0,580 1264x83
+Row "Controls" at 0,663 1264x83
+Row "Keyboard" at 0,746 1264x83
+Row "Wi-Fi" at 0,829 1264x83
+Row "Bluetooth" at 0,912 1264x83
+Row "Power" at 0,995 1264x83
+Row "Date and time" at 0,1078 1264x83
+Row "System" at 0,1161 1264x83
+Row "Screen lock" at 0,1244 1264x83
+Row "Updates" at 0,1327 1264x83
+Row "Set up PaperPaw" at 0,1410 1264x83
+Row "About PaperPaw" at 0,1493 1264x83
+Heading "Display" at 0,0 1264x88
+Row "Turn the screen, Upright, Upright or on its side. With “Only this book” on, it applies to that book alone." (focused) at 0,112 1264x130
+Row "Front light, 0, How bright the front light shines; 0 is off. The emulated screen stays dark." at 0,242 1264x130
+Button "−" at 1075,242 83x83
+Button "+" at 1158,242 83x83
+Row "Light colour, 76, How warm (yellow) the light is, kinder to the eyes in the evening." at 0,372 1264x130
+Button "−" at 1075,372 83x83
+Button "+" at 1158,372 83x83
+Row "More" at 0,502 1264x83
+Row "Reset to defaults" at 0,585 1264x83
+Heading "Display" at 0,0 1264x88
+Row "Turn the screen, Upright, Upright or on its side. With “Only this book” on, it applies to that book alone." at 0,112 1264x130
+Row "Front light, 1, How bright the front light shines; 0 is off. The emulated screen stays dark." (focused) at 0,242 1264x130
+Button "−" at 1075,242 83x83
+Button "+" at 1158,242 83x83
+Row "Light colour, 76, How warm (yellow) the light is, kinder to the eyes in the evening." at 0,372 1264x130
+Button "−" at 1075,372 83x83
+Button "+" at 1158,372 83x83
+Row "More" at 0,502 1264x83
+Row "Reset to defaults" at 0,585 1264x83
+Heading "Display · More" at 0,0 1264x88
+Row "Flash on screen change, Redraw fully when a screen opens: no traces of the last one, but slower." (focused) (on) at 0,112 1264x130
+Row "Full refresh in menus, 0, A flash after this many menu changes removes ghosting; 0 never flashes." at 0,242 1264x130
+Button "−" at 1075,242 83x83
+Button "+" at 1158,242 83x83
+Row "Reset to defaults" at 0,372 1264x83
+Heading "Display · More" at 0,0 1264x88
+Row "Flash on screen change, Redraw fully when a screen opens: no traces of the last one, but slower." (focused) (off) at 0,112 1264x130
+Row "Full refresh in menus, 0, A flash after this many menu changes removes ghosting; 0 never flashes." at 0,242 1264x130
+Button "−" at 1075,242 83x83
+Button "+" at 1158,242 83x83
+Row "Reset to defaults" at 0,372 1264x83
+Heading "Display · More" at 0,0 1264x88
+Row "Flash on screen change, Redraw fully when a screen opens: no traces of the last one, but slower." (off) at 0,112 1264x130
+Row "Full refresh in menus, 0, A flash after this many menu changes removes ghosting; 0 never flashes." at 0,242 1264x130
+Button "−" at 1075,242 83x83
+Button "+" at 1158,242 83x83
+Row "Reset to defaults" (focused) at 0,372 1264x83
+Text "Settings" at 47,1407 1217x83
+Row "Yes, reset" at 0,1490 1264x83
+Row "Cancel" at 0,1573 1264x83
+Heading "Display · More" at 0,0 1264x88
+Row "Flash on screen change, Redraw fully when a screen opens: no traces of the last one, but slower." (off) at 0,112 1264x130
+Row "Full refresh in menus, 0, A flash after this many menu changes removes ghosting; 0 never flashes." at 0,242 1264x130
+Button "−" at 1075,242 83x83
+Button "+" at 1158,242 83x83
+Row "Reset to defaults" (focused) at 0,372 1264x83
+Button "Start reading, Choose a book from your library." at 47,378 1170x283
+Button "Edit" at 1134,1597 83x83
+Text "<time>"
+Text "<date>"
+Text "<time>"
+boox-go-7: screen home.dashboard
+== book
+Text "Library" at 109,16 114x55
+Text "Show" at 47,128 79x48
+Text "All books · 4 books" at 959,128 258x48
+Text "Alice's Adventures in Wonderland" at 164,205 466x48
+Text "Lewis Carroll" at 164,253 135x36
+Text "A" at 79,232 28x71
+Text "Alice's Adventures in Wonderland" at 164,353 466x48
+Text "Lewis Carroll" at 164,401 135x36
+Text "A" at 79,380 28x71
+Text "Die Verwandlung" at 164,501 238x48
+Text "Franz Kafka" at 164,549 122x36
+Text "D" at 78,528 31x71
+Text "Die Verwandlung" at 164,649 238x48
+Text "Franz Kafka" at 164,697 122x36
+Text "D" at 78,676 31x71
+Text "<time>"
+Text "0 %" at 1178,1617 39x36
+Text "Alice's Adventures in Wonderland" at 47,1617 349x36
+Text "<time>"
+Text "0 %" at 1178,1617 39x36
+Text "Contents" at 47,1617 95x36
+Text "<time>"
+Text "0 %" at 1178,1617 39x36
+Text "Alice's Adventures in Wonderland" at 47,1617 349x36
+Text "Library" at 109,16 114x55
+Text "Show" at 47,128 79x48
+Text "All books · 4 books" at 959,128 258x48
+Text "Alice's Adventures in Wonderland" at 164,205 466x48
+Text "Lewis Carroll" at 164,253 135x36
+Text "A" at 79,232 28x71
+Text "Alice's Adventures in Wonderland" at 164,353 466x48
+Text "Lewis Carroll" at 164,401 135x36
+Text "A" at 79,380 28x71
+Text "Die Verwandlung" at 164,501 238x48
+Text "Franz Kafka" at 164,549 122x36
+Text "D" at 78,528 31x71
+Text "Die Verwandlung" at 164,649 238x48
+Text "Franz Kafka" at 164,697 122x36
+Text "D" at 78,676 31x71
+Button "Continue reading, Alice's Adventures in Wonderland, 0 %" at 47,378 1170x283
+Button "Edit" at 1134,1597 83x83
+Text "<time>"
+Text "<date>"
+Text "<time>"
+boox-go-7: screen home.dashboard

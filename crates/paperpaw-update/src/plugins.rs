@@ -15,6 +15,14 @@ pub const PLUGINS_FORMAT: u16 = 1;
 pub const PLUGINS_HEAD_LEN: usize = 12;
 /// The longest text taken, plenty for hundreds of plugins.
 pub const PLUGINS_MAX_LEN: usize = 16 * 1024;
+/// The list is padded with zeros so that its section ends on a multiple of
+/// this many bytes of the image's data address space (the descriptor starts
+/// on one). The linker then adds no gap before the next section
+/// (esp-hal's `.rodata_merge` pads to the alignment of `.rodata`, 8 or 16
+/// bytes now), and `espflash` makes one data segment of the image; with a gap
+/// it makes two, and the bootloader of the ESP32-S3 maps only the last, so
+/// the firmware reads its own list, in the first, from the wrong flash page.
+const SECTION_END_ALIGN: usize = 64;
 
 /// A plugin crate built in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,8 +113,10 @@ impl Plugins {
         core::str::from_utf8(text).ok()
     }
 
-    /// The list's bytes, head and text, for `crates`; `None` if the text
-    /// is longer than [`PLUGINS_MAX_LEN`], which readers refuse.
+    /// The list's bytes, head and text, for `crates`, padded with zeros so
+    /// that the list ends on a multiple of 64 bytes where it sits
+    /// ([`PLUGINS_AT`]); `None` if the text is longer than
+    /// [`PLUGINS_MAX_LEN`], which readers refuse.
     pub fn record<'a>(crates: impl IntoIterator<Item = PluginCrate<'a>>) -> Option<Vec<u8>> {
         let mut text = String::new();
         for c in crates {
@@ -123,6 +133,12 @@ impl Plugins {
         bytes.extend_from_slice(&PLUGINS_FORMAT.to_le_bytes());
         bytes.extend_from_slice(&u16::try_from(text.len()).ok()?.to_le_bytes());
         bytes.extend_from_slice(text.as_bytes());
+        // Readers take the length from the head, so the zeros are not read.
+        let end = PLUGINS_AT + bytes.len();
+        bytes.resize(
+            bytes.len() + end.next_multiple_of(SECTION_END_ALIGN) - end,
+            0,
+        );
         Some(bytes)
     }
 
@@ -214,6 +230,30 @@ mod tests {
             Plugins::text_len(&bytes),
             Some("paperpaw-plugin-stats 0.4.0\npaperpaw-plugin-chess 1.2.0\n".len())
         );
+    }
+
+    /// A list of any length ends on a 64-byte boundary of the image, with at
+    /// most 63 zero bytes added, and reads back unchanged.
+    #[test]
+    fn the_list_is_padded_to_end_on_a_boundary() {
+        for n in 0..200 {
+            let name = std::format!("paperpaw-plugin-{}", "x".repeat(n));
+            let one = [PluginCrate {
+                name: &name,
+                version: "0.4.0",
+            }];
+            let bytes = Plugins::record(one).unwrap();
+            let text = Plugins::text_len(&bytes).unwrap();
+            assert_eq!((PLUGINS_AT + bytes.len()) % 64, 0, "name of {n} x");
+            let padding = bytes.len() - PLUGINS_HEAD_LEN - text;
+            assert!(padding < 64, "{padding} bytes of padding");
+            assert!(bytes[PLUGINS_HEAD_LEN + text..].iter().all(|&b| b == 0));
+            let list = Plugins::read(&bytes).unwrap();
+            assert_eq!(list.iter().collect::<Vec<_>>(), one);
+        }
+        // The empty list too.
+        let empty = Plugins::record([]).unwrap();
+        assert_eq!((PLUGINS_AT + empty.len()) % 64, 0);
     }
 
     #[test]

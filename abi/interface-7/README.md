@@ -16,8 +16,9 @@ no draft steps, no carrier pull requests just to bless, no baseline replacements
 - **What it no longer checks.** Whether a change is an addition only, and whether it is named in
   `blessings.txt`. Both come back at the release: once a minor is released (`released_minor` in the lock), the
   lock is append-only against the trusted base again, and the frozen reference files change only with a raise.
-- **Interface 6** (Beta 3) is released. Its plugins are refused by the fingerprint and the table check
-  (`tools/table-compat.sh`); that gate stays.
+- **Interface 6** (Beta 3) is released. Its plugin files (the format before 5) are refused when they are read
+  (`paperpaw_core::code_plugin::file_problem`: "made for an older PaperPaw"); no code of interface 6 is built or
+  loaded any more (#244), so the old-plugin check (`tools/table-compat.sh`) is gone with the plugin it built.
 - **Freezing** at 1.0 is the owner's decision. The freeze PR deletes `native::DRAFT` and the line `draft = N` of
   `interface.txt`, appends `0 frozen ... (#...)` to `blessings.txt` (which otherwise keeps the history of the
   drafts as it was) and releases the lock (`released_minor` = the schema's minor). The reference check refuses a
