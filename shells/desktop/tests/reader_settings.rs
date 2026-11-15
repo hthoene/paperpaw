@@ -132,18 +132,20 @@ fn shown(name: &str, book: &str, ini: &str, requests: &[String]) -> Vec<u8> {
 #[test]
 fn hanging_punctuation_moves_commas_and_quotes_into_the_margin() {
     // A page of the story (past the cover and the contents), justified: the
-    // comma that ends a line hangs out of the text's edge.
+    // comma that ends a line hangs out of the text's edge. The page is one
+    // where a line ends in one: kerning moved the line breaks, and the page
+    // after 14 turns has none now.
     let ini = |hanging: &str| {
         format!("[core]\nfont-size = 12\njustify = on\nhanging-punctuation = {hanging}\n")
     };
     let book = "alice-in-wonderland.epub";
-    let off = shown("hang-off", book, &ini("off"), &turns(14));
+    let off = shown("hang-off", book, &ini("off"), &turns(13));
     assert_eq!(
         off,
-        shown("hang-off2", book, &ini("off"), &turns(14)),
+        shown("hang-off2", book, &ini("off"), &turns(13)),
         "the page is not steady"
     );
-    let on = shown("hang-on", book, &ini("on"), &turns(14));
+    let on = shown("hang-on", book, &ini("on"), &turns(13));
     assert_ne!(off, on, "hanging punctuation changed nothing on the page");
 }
 
