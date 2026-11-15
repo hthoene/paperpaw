@@ -217,7 +217,7 @@ const _: () = assert!(KIND_COUNT <= u64::BITS as usize);
 
 impl Kind {
     /// Every kind, in order.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub(crate) const ALL: [Self; KIND_COUNT] = [
         Self::Group,
         Self::Spec,
