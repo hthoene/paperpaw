@@ -178,32 +178,6 @@ pub fn fetched_plugin(name: &str) -> Option<&str> {
         .filter(|id| crate::install::is_plugin_name(id))
 }
 
-/// The plugins fetched for a firmware update that wait for this one
-/// (`native`): their folders ([`fetched_folder`]) hold code built for it
-/// and fetched by the update plugin ([`remember_fetched`]), not put
-/// there otherwise. Their ids and the SHA-256 of their headers, sorted;
-/// the kernel installs them at the start, before plugins are found.
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub fn fetched_for(storage: &dyn Storage, native: &Native) -> Vec<(String, [u8; 32])> {
-    let mut ids: Vec<String> = Vec::new();
-    let _ = storage.list(crate::builtin::PLUGIN_DIR, &mut |entry| {
-        if entry.is_dir
-            && let Some(id) = fetched_plugin(entry.name)
-        {
-            ids.push(String::from(id));
-        }
-    });
-    paperpaw_sort::sort(&mut ids);
-    ids.into_iter()
-        .filter_map(|id| {
-            let header = read_header(storage, &native.path(&fetched_folder(&id)))?;
-            (native.fits(&header) && fetched_code(storage, &id) == Some(header.sha256))
-                .then_some((id, header.sha256))
-        })
-        .collect()
-}
-
 /// Checks the plugin file at `path` whole, reading it once: its header,
 /// its length, its digest and, if it is signed, its author's signature.
 /// Its header and its author's signature (`None` if it is not signed);
