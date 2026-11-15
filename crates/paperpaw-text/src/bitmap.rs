@@ -362,6 +362,7 @@ impl BitmapFont {
         let base = HEADER + index * STRIKE;
         let d = &self.data;
         Some(Tables {
+            size: f32::from(u16_at(d, base)?) / 4.0,
             glyphs: u32_at(d, base + 16)? as usize,
             glyph_table: u32_at(d, base + 20)? as usize,
             bitmaps: u32_at(d, base + 24)? as usize,
@@ -512,6 +513,10 @@ impl BitmapFont {
             // Packed: the glyph's stream, as far as the pack goes (the
             // decoder stops at the glyph's last pixel).
             let (format, data) = if strike.packed {
+                // The data does not bound the decoding, the size does.
+                if !crate::glyph::fits(usize::from(width), usize::from(height), strike.size) {
+                    return None;
+                }
                 (crate::glyph::PACKED4, d.get(start..)?)
             } else {
                 let len = usize::from(width).div_ceil(2) * usize::from(height);
@@ -566,6 +571,8 @@ impl BitmapFont {
 
 /// Where a strike's glyphs are (see [`BitmapFont::tables`]).
 struct Tables {
+    /// Pixels.
+    size: f32,
     glyphs: usize,
     glyph_table: usize,
     bitmaps: usize,
@@ -1022,7 +1029,7 @@ mod tests {
             ),
             (
                 20.0,
-                strike(&[('a', 11, 18), ('b', 192, 20), ('c', 30, 30)]),
+                strike(&[('a', 11, 18), ('b', 150, 20), ('c', 30, 30)]),
             ),
             // A glyph too wide to pack leaves its whole strike plain.
             (40.0, strike(&[('a', 21, 36), ('b', 200, 8)])),
@@ -1066,6 +1073,26 @@ mod tests {
         // Only the strikes that could be packed are.
         assert!(packed.tables(0).unwrap().packed && packed.tables(1).unwrap().packed);
         assert!(!packed.tables(2).unwrap().packed);
+    }
+
+    #[test]
+    fn a_packed_glyph_of_an_impossible_size_reads_as_empty() {
+        let mut builder = PackBuilder::new();
+        builder.compact();
+        builder.add_strike(
+            10.0,
+            LineMetrics::fallback(10.0),
+            alloc::vec![('a', noisy(6, 8, 3))],
+        );
+        let mut data = builder.build();
+        let font = BitmapFont::new(data.clone()).unwrap();
+        assert_eq!(font.glyph('a', 10.0).height, 8);
+        let record = font.record(&font.tables(0).unwrap(), 'a').unwrap();
+        // A damaged pack: a height no glyph at 10 px has, which the data
+        // does not bound, as it bounds a plain bitmap.
+        data[record + 14..record + 16].copy_from_slice(&u16::MAX.to_le_bytes());
+        let damaged = BitmapFont::new(data).unwrap();
+        assert!(damaged.glyph('a', 10.0).is_empty());
     }
 }
 
