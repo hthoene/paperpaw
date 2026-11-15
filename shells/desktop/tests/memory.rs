@@ -483,8 +483,21 @@ fn the_store_with_the_devices_tls_stays_within_the_x4_budget() {
 /// the old one beside it. 12.6 KiB with the store's own changes (#1452), 13.4 KiB
 /// with the font change of #1457 beside them (its install peak is 0.8 KiB
 /// higher): the line is that plus a margin of 0.2 KiB. The second install
-/// measures 13.6 KiB since T41: on the line.
-const INSTALL_GROWTH_KIB: f64 = 13.6;
+/// measured 13.6 KiB since T41: on the line, and one build of the same source
+/// (the Home PR #1552, another target directory) gave 13.7 KiB once. The line
+/// is 13.8 KiB since 2026-11-16 (#271): on integration `e2c186c66` one binary
+/// gave 13.6 / 13.4 KiB (install / install2) in 20 runs, 10 and 10 with 32
+/// busy loops beside it (the machine's load was above 40 in both), the live
+/// heap after each step the same in all of them (see [`INSTALL_LIVE_GROWTH_KIB`]):
+/// no spread from load was seen, so the 0.2 KiB over the highest peak seen is
+/// for the build-to-build difference. The live growth is what pins a real
+/// regression.
+const INSTALL_GROWTH_KIB: f64 = 13.8;
+
+/// What an install leaves live after it, over what was live before it (KiB, as
+/// printed): the same in every run measured (#271), no margin but the printed
+/// tenth.
+const INSTALL_LIVE_GROWTH_KIB: [(&str, f64); 2] = [("install", 2.6), ("install2", 0.9)];
 
 /// The run prints tenths of a KiB, and the difference of two of them is not
 /// exact as a float (137.3 - 123.7 is 13.600000000000009): half a tenth is
@@ -551,15 +564,26 @@ fn each_step_of_the_store_stays_within_the_x4_budget() {
     assert_eq!(names[1..], steps, "{stdout}");
     let allowed = 256.0 * MARGIN_PERCENT / 100.0;
     for pair in measured.windows(2) {
-        let ((_, _, before), (name, peak, _)) = (&pair[0], &pair[1]);
+        let ((_, _, before), (name, peak, live)) = (&pair[0], &pair[1]);
         eprintln!(
-            "x4 store {name}: peak {peak} KiB (+{:.1} KiB), + {STORE_DEVICE_EXTRA_KIB} KiB of the device of {allowed} KiB",
-            peak - before
+            "x4 store {name}: peak {peak} KiB (+{:.1} KiB), live {live} KiB (+{:.1} KiB), + {STORE_DEVICE_EXTRA_KIB} KiB of the device of {allowed} KiB",
+            peak - before,
+            live - before
         );
         assert!(
             peak + STORE_DEVICE_EXTRA_KIB <= allowed,
             "store {name}: peak {peak} KiB + {STORE_DEVICE_EXTRA_KIB} KiB of the device, over {allowed} KiB"
         );
+        if let Some((_, growth)) = INSTALL_LIVE_GROWTH_KIB
+            .iter()
+            .find(|(step, _)| step == name)
+        {
+            assert!(
+                live - before <= growth + PRINTED_TENTH_KIB,
+                "{name} left {:.1} KiB live, more than the {growth} KiB measured",
+                live - before
+            );
+        }
         if name.starts_with("install") {
             assert!(
                 peak - before <= INSTALL_GROWTH_KIB + PRINTED_TENTH_KIB,
