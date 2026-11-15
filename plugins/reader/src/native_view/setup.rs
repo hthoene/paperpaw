@@ -180,19 +180,34 @@ fn font_name<'a>(read: Result<SettingValue<'a>, Error>) -> Result<&'a str, Error
     }
 }
 
+/// Whether Korean is broken between words only (`core.korean-breaks`).
+fn korean_by_word(host: &Host<'_>) -> Result<bool, Error> {
+    let mut bytes = [0; 64];
+    Ok(matches!(
+        settings::read_setting(host, "core.korean-breaks", &mut bytes)?,
+        SettingValue::Text("core.korean-breaks.word")
+    ))
+}
+
 /// `reading` with the reading font and the hyphenation settings it is laid
-/// out with (`Reading::with_text`).
+/// out with (`Reading::with_text`), and the scripts' breaks.
 fn text_of(host: &Host<'_>, reading: Reading) -> Result<Reading, Error> {
     let mut name = [0; 96];
     let font = font_name(settings::read_setting(host, "core.reading-font", &mut name))?;
-    Ok(reading.with_text(
-        font,
-        (
-            flag(host, "core.hyphenate")?,
-            integer(host, "core.hyphen-min-left")?,
-            integer(host, "core.hyphen-min-right")?,
-        ),
-    ))
+    let scripts = (
+        flag(host, "core.hanging-punctuation")?,
+        korean_by_word(host)?,
+    );
+    Ok(reading
+        .with_text(
+            font,
+            (
+                flag(host, "core.hyphenate")?,
+                integer(host, "core.hyphen-min-left")?,
+                integer(host, "core.hyphen-min-right")?,
+            ),
+        )
+        .with_scripts(scripts.0, scripts.1))
 }
 
 impl Setup {

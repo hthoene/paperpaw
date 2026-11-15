@@ -428,3 +428,93 @@ fn a_file_of_another_interface_says_so() {
     let other = Fingerprint::of(INTERFACE, build ^ 1);
     assert!(other.misfit().unwrap().contains("same plugin interface"));
 }
+
+/// Interface-7 plugin files (format 5), checked whole as the format before
+/// is: what an installer names as the code installed.
+#[cfg(feature = "kernel")]
+mod either_format {
+    use super::super::{Problem, check_code, code_sha256, signature};
+    use crate::MemoryStorage;
+    use paperpaw_platform::Storage;
+
+    /// The X4's (ESP32-C3) and the X4 Pro's (ESP32-S3) files.
+    const X4: &[u8] = include_bytes!("../../../paperpaw-native/tests/data/abi7-x4-min.ppn");
+    const X4_PRO: &[u8] = include_bytes!("../../../paperpaw-native/tests/data/target9-aids.ppn");
+
+    fn card(file: &[u8]) -> MemoryStorage {
+        let card = MemoryStorage::new();
+        card.write("code.ppn", file).unwrap();
+        card
+    }
+
+    #[test]
+    fn an_interface_7_file_is_checked_whole_for_either_chip() {
+        for file in [X4, X4_PRO] {
+            // Without its author's signature, where it has one.
+            let signed = file.len() as u64 - signature::SIGNATURE_LEN as u64;
+            let sha256: [u8; 32] = file[64..96].try_into().unwrap();
+            let checked = check_code(&card(file), "code.ppn").unwrap();
+            assert_eq!(checked.0, sha256);
+            assert_eq!(code_sha256(&card(file), "code.ppn"), Some(sha256));
+            if let Some(signature) = checked.1 {
+                assert_eq!(u64::from(signature.signed_len), signed);
+            }
+        }
+    }
+
+    #[test]
+    fn a_signed_interface_7_file_names_its_author_and_a_changed_one_is_refused() {
+        let seed = [7u8; 32];
+        let trailer = signature::sign(X4, &seed);
+        let mut file = X4.to_vec();
+        file.extend_from_slice(&trailer.to_bytes());
+        let (_, signature) = check_code(&card(&file), "code.ppn").unwrap();
+        assert_eq!(signature.map(|s| s.key), Some(trailer.key));
+        // A byte of the image changed: the digest no longer holds.
+        let mut changed = file.clone();
+        changed[200] ^= 1;
+        assert_eq!(
+            check_code(&card(&changed), "code.ppn"),
+            Err(Problem::Damaged)
+        );
+        // A byte of the signature changed: the digest holds, the signature not.
+        let mut forged = file.clone();
+        *forged.last_mut().unwrap() ^= 1;
+        assert_eq!(
+            check_code(&card(&forged), "code.ppn"),
+            Err(Problem::Signature)
+        );
+    }
+
+    #[test]
+    fn what_is_no_whole_plugin_file_is_refused_without_a_panic() {
+        assert_eq!(
+            check_code(&card(&X4[..X4.len() - 1]), "code.ppn"),
+            Err(Problem::Length)
+        );
+        assert_eq!(
+            check_code(&card(&X4[..95]), "code.ppn"),
+            Err(Problem::Length)
+        );
+        assert_eq!(check_code(&card(b"PPNP"), "code.ppn"), Err(Problem::Length));
+        assert_eq!(
+            check_code(&card(&[0; 300]), "code.ppn"),
+            Err(Problem::NotAPlugin)
+        );
+        // A format after 5, and a chip this build does not know.
+        let mut newer = X4.to_vec();
+        newer[4] = 6;
+        assert_eq!(
+            check_code(&card(&newer), "code.ppn"),
+            Err(Problem::NewerFormat)
+        );
+        let mut chip = X4.to_vec();
+        chip[6] = 77;
+        assert_eq!(
+            check_code(&card(&chip), "code.ppn"),
+            Err(Problem::UnknownChip)
+        );
+        assert_eq!(code_sha256(&card(&chip), "code.ppn"), None);
+        assert_eq!(code_sha256(&card(b"PPNP"), "code.ppn"), None);
+    }
+}
