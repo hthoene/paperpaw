@@ -748,10 +748,10 @@ impl FormatProvider {
             block.start
         };
         records(&block, cache, &weights, &mut tags, image_index, &mut list)?;
-        let last = document
-            .block_at(io, Locator::new(call.section, block.end))
-            .map_err(|e| document_error(&e))?
-            .is_none();
+        // The last of its section: nothing begins at its end. The section's length
+        // is known once a block was read from it (asking for the next block read
+        // and decoded it only to learn that, #250).
+        let last = block.end >= document.section_len(call.section);
         fragment(&list, call.cursor, generation, block.end, last, out)
     }
 }
