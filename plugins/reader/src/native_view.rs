@@ -1332,7 +1332,12 @@ impl Open {
     ) -> Result<Page, Error> {
         let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?
             .filtered(&self.filters, &self.path);
-        let style = setup.style(faces.line_height());
+        let style = setup
+            .style(faces.line_height())
+            .script_options(native_pages::script_options(
+                &self.language,
+                setup.reading.scripts,
+            ));
         let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces);
         layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
             match document_error_kind(&error) {
