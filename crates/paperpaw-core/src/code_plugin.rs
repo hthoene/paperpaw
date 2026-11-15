@@ -103,7 +103,7 @@ pub(crate) fn fetched(
 }
 
 /// Whether a start with code plugins would load any this firmware loads
-/// ([`code_that_fits`]: `loader` is what its loader reads of interface-7
+/// (`code_that_fits`: `loader` is what its loader reads of interface-7
 /// files, `None` where it reads none): one installed (a folder of
 /// [`PLUGIN_DIR`](paperpaw_sdk::builtin::PLUGIN_DIR) with its code) or
 /// fetched for a firmware update. A start without them (an update on trial)
@@ -142,7 +142,7 @@ pub trait CodeLoader {
     /// installed) is [`PluginProblem::Changed`], and its content must hold
     /// to its header. `Ok(None)` is "not a file I run" (not an interface-7
     /// file, or a loader that runs none): the kernel says why from the file
-    /// itself ([`file_problem`]: built for an older PaperPaw, needing a
+    /// itself (`file_problem`: built for an older PaperPaw, needing a
     /// newer one, or damaged). The code runs nothing of the plugin's before
     /// the kernel admits it: the kernel registers its declarations (screens,
     /// settings, actions, …) with the callbacks it committed, all or none.

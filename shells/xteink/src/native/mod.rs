@@ -39,7 +39,7 @@ use core::cell::RefCell;
 use critical_section::Mutex;
 use log::warn;
 use paperpaw_core::{CodeFile, CodeLoader};
-use paperpaw_native::{HEADER_LEN, Problem};
+use paperpaw_native::Problem;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::PluginProblem;
 use paperpaw_sdk::native::FINGERPRINT;
@@ -569,7 +569,7 @@ impl CodeLoader for Loader {
         code: &CodeFile<'_>,
     ) -> Result<Option<Box<dyn paperpaw_core::NativeAdmission>>, PluginProblem> {
         let path = code.path;
-        let mut head = [0; HEADER_LEN];
+        let mut head = [0; paperpaw_native::header5::HEADER_LEN];
         read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
         if !ppn5::is_format5(&head) {
             return Ok(None);
