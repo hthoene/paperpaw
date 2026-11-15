@@ -914,44 +914,6 @@ impl Native {
         }
     }
 
-    /// Whether a plugin file with `header` runs here: of this fingerprint,
-    /// and of this compiler where the shell names one. Installers check
-    /// it before a file is installed or placed, as the shell does before
-    /// it loads one.
-    pub fn fits(&self, header: &Header) -> bool {
-        self.problem(header).is_none()
-    }
-
-    /// Why a plugin file with `header` does not run here, if it does not:
-    /// built for an older or a newer plugin interface, needing more of
-    /// the firmware than it has, or of another build.
-    pub fn problem(&self, header: &Header) -> Option<PluginProblem> {
-        if header.interface < INTERFACE {
-            return Some(PluginProblem::OlderInterface {
-                built_for: header.interface,
-            });
-        }
-        let families = header.chip == paperpaw_native::Chip::Esp32C3;
-        let misfit = if families {
-            paperpaw_table::misfit(&header.families, &self.family_min, &self.family_revs)
-        } else {
-            None
-        };
-        if header.interface > INTERFACE
-            || header.needs_api > self.api_size
-            || misfit == Some(paperpaw_table::Misfit::Newer)
-        {
-            return Some(PluginProblem::NeedsNewerPaperPaw);
-        }
-        if misfit == Some(paperpaw_table::Misfit::Older) {
-            return Some(PluginProblem::OlderInterface {
-                built_for: header.interface,
-            });
-        }
-        let compiler = self.compiler == 0 || header.compiler == self.compiler;
-        (header.fingerprint != self.fingerprint.0 || !compiler).then_some(PluginProblem::OtherBuild)
-    }
-
     /// Why a plugin file whose header [`Header::read`] refused with
     /// `problem` does not run: a file of an older format was built for an
     /// older PaperPaw ([`Header::read_older`] tells it from a damaged
