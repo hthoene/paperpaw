@@ -155,15 +155,13 @@ pub(crate) fn decode_entry(
             color,
         );
     }
-    let streamed = match archive.reader(storage, entry) {
-        Ok(reader) => {
-            let mut source = EntrySource { storage, reader };
-            decode_source(storage, &mut source, cache, fit, color)
-        }
-        Err(paperpaw_sdk::zip::ZipError::OutOfMemory) => {
-            Err(paperpaw_sdk::image::ImageError::OutOfMemory)
-        }
-        Err(e) => return Err(error(e)),
+    // A reader that finds no memory ends it here: the copy below asks for
+    // the same and would be refused again, after two writes to the card
+    // (its file made and removed) on every try (#250).
+    let streamed = {
+        let reader = archive.reader(storage, entry).map_err(error)?;
+        let mut source = EntrySource { storage, reader };
+        decode_source(storage, &mut source, cache, fit, color)
     };
     if streamed != Err(paperpaw_sdk::image::ImageError::OutOfMemory) {
         return streamed.map_err(image_error);

@@ -33,6 +33,12 @@ std::thread_local! {
     /// Above 0: after the refused allocation, every one of this size or more
     /// is refused too (memory stays short for the large pieces).
     static THEN: Cell<usize> = const { Cell::new(0) };
+    /// Whether an allocation refused was one of a picture's reader
+    /// (`ZipArchive::reader` asked by `decode_entry` itself, not by the
+    /// copy).
+    static READER: Cell<bool> = const { Cell::new(false) };
+    /// Writes to and removals of an `image.tmp`.
+    static TEMP: Cell<u32> = const { Cell::new(0) };
     /// Developer aid (`list_infallible_sites`): note where the parser
     /// allocates outside `try_reserve`.
     static SITES: std::cell::RefCell<Option<std::collections::BTreeMap<String, u64>>> =
@@ -85,7 +91,11 @@ fn refused(size: usize) -> bool {
             let nth = REFUSE.with(Cell::get);
             let then = THEN.with(Cell::get);
             let short = then > 0 && nth > 0 && count > nth && size >= then;
-            (count == nth || short) && !in_sdk_image()
+            let refuse = (count == nth || short) && !in_sdk_image();
+            if refuse && in_picture_reader() {
+                READER.with(|reader| reader.set(true));
+            }
+            refuse
         })
         .unwrap_or(false)
 }
@@ -101,6 +111,26 @@ fn in_sdk_image() -> bool {
         || backtrace.contains("paperpaw_image::Decoded>::header");
     PAUSED.with(|paused| paused.set(paused.get() - 1));
     inside
+}
+
+/// Whether the allocation asked for is one of the reader `decode_entry`
+/// makes to decode a picture as it is inflated (not the reader of the copy
+/// to `image.tmp`, which `ZipArchive::stream` makes).
+fn in_picture_reader() -> bool {
+    PAUSED.with(|paused| paused.set(paused.get() + 1));
+    let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+    let inside = backtrace.contains("paperpaw_zip::ZipArchive>::reader")
+        && backtrace.contains("decode_entry")
+        && !backtrace.contains("paperpaw_zip::ZipArchive>::stream");
+    PAUSED.with(|paused| paused.set(paused.get() - 1));
+    inside
+}
+
+/// Counts what is done to an `image.tmp`.
+fn note_temp(path: &str) {
+    if path.ends_with("/image.tmp") {
+        TEMP.with(|temp| temp.set(temp.get() + 1));
+    }
 }
 
 // SAFETY: allocations and frees are the system allocator's; a refusal is a
@@ -167,9 +197,11 @@ impl Storage for Host {
         host(|| self.0.size(path))
     }
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        note_temp(path);
         host(|| self.0.write(path, data))
     }
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        note_temp(path);
         host(|| self.0.append(path, data))
     }
     fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
@@ -182,6 +214,7 @@ impl Storage for Host {
         host(|| self.0.list(dir, visit))
     }
     fn remove(&self, path: &str) -> Result<(), StorageError> {
+        note_temp(path);
         host(|| self.0.remove(path))
     }
     fn modified(&self, path: &str) -> Option<i64> {
@@ -766,4 +799,41 @@ fn a_picture_copy_that_stops_on_a_damaged_stream_leaves_no_temporary_file() {
     let extra = usize::from(u16::from_le_bytes([book[at - 2], book[at - 1]]));
     book[at + name.len() + extra] = 0x07;
     no_temporary_file_stays(&book, 0);
+}
+
+/// A picture whose reader finds no memory is given up at once: the copy to
+/// `image.tmp` asks for the same memory, so no such file is made and
+/// removed for it, on any try (#250). Each allocation is refused in turn
+/// and every later one of 8 KiB or more (the reader's inflater state is
+/// about 11 KiB); where one of the picture's reader was refused, nothing
+/// touched `image.tmp`.
+#[test]
+fn a_picture_whose_reader_finds_no_room_writes_no_temporary_file() {
+    let book = epub_fixture();
+    let fresh = || Host(MemoryStorage::new().with("book.epub", book.clone()));
+    let storage = fresh();
+    COUNT.with(|count| count.set(0));
+    REFUSE.with(|refuse| refuse.set(0));
+    ARMED.with(|armed| armed.set(true));
+    let _ = read(&storage, &open_epub);
+    let total = COUNT.with(Cell::get);
+    ARMED.with(|armed| armed.set(false));
+    let mut readers = 0;
+    for nth in 1..=total {
+        let storage = fresh();
+        COUNT.with(|count| count.set(0));
+        REFUSE.with(|refuse| refuse.set(nth));
+        READER.with(|reader| reader.set(false));
+        TEMP.with(|temp| temp.set(0));
+        THEN.with(|size| size.set(8 * 1024));
+        ARMED.with(|armed| armed.set(true));
+        let _ = read(&storage, &open_epub);
+        ARMED.with(|armed| armed.set(false));
+        THEN.with(|size| size.set(0));
+        if READER.with(Cell::get) {
+            readers += 1;
+            assert_eq!(TEMP.with(Cell::get), 0, "allocation {nth} refused");
+        }
+    }
+    assert!(readers > 0, "no refusal was the picture reader's");
 }
