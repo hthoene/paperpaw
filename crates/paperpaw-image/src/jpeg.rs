@@ -152,7 +152,10 @@ impl<'r, 'a> Bits<'r, 'a> {
 
     /// Takes bytes until more than 24 bits are at hand (zeros after a
     /// marker or the end of the data, which a file without its end
-    /// marker reaches while its last bits are looked ahead of).
+    /// marker reaches while its last bits are looked ahead of). Not
+    /// inlined: the bits at hand are looked at where they are asked for,
+    /// and this is called once in a few of them.
+    #[inline(never)]
     fn fill(&mut self) -> Result<(), ImageError> {
         while self.count <= 24 {
             let byte = if self.marker.is_some() || self.ended {
@@ -215,7 +218,9 @@ impl<'r, 'a> Bits<'r, 'a> {
         blocks <= self.reader.position().saturating_mul(BLOCKS_PER_BYTE)
     }
 
-    /// The next `n` bits (at most 24), not taken.
+    /// The next `n` bits (at most 24), not taken. Inlined: with the bits
+    /// at hand it is a shift and a mask, asked for twice a coefficient.
+    #[inline(always)]
     fn peek(&mut self, n: u32) -> Result<u32, ImageError> {
         if self.count < n {
             self.fill()?;
@@ -229,10 +234,10 @@ impl<'r, 'a> Bits<'r, 'a> {
         Ok(bit)
     }
 
+    #[inline]
     pub(crate) fn receive(&mut self, n: u32) -> Result<i32, ImageError> {
         if n > 16 {
-            let high = self.receive(n - 16)?;
-            return Ok(high << 16 | self.receive(16)?);
+            return self.receive_wide(n);
         }
         if n == 0 {
             return Ok(0);
@@ -240,6 +245,13 @@ impl<'r, 'a> Bits<'r, 'a> {
         let v = self.peek(n)?;
         self.count -= n;
         Ok(v as i32)
+    }
+
+    /// [`Bits::receive`] of more than 16 bits (no valid file asks for it).
+    #[inline(never)]
+    fn receive_wide(&mut self, n: u32) -> Result<i32, ImageError> {
+        let high = self.receive(n - 16)?;
+        Ok(high << 16 | self.receive(16)?)
     }
 
     pub(crate) fn extend(v: i32, n: u32) -> i32 {
@@ -252,6 +264,7 @@ impl<'r, 'a> Bits<'r, 'a> {
         }
     }
 
+    #[inline]
     pub(crate) fn decode(&mut self, table: &Huffman) -> Result<u8, ImageError> {
         let next = self.peek(FAST_BITS)?;
         let entry = table.fast[next as usize];
@@ -259,7 +272,13 @@ impl<'r, 'a> Bits<'r, 'a> {
             self.count -= u32::from(entry >> 8);
             return Ok(entry as u8);
         }
-        // A longer code: bit by bit from there.
+        self.decode_long(table, next)
+    }
+
+    /// A code longer than [`FAST_BITS`], whose first bits are `next`: bit
+    /// by bit from there.
+    #[inline(never)]
+    fn decode_long(&mut self, table: &Huffman, next: u32) -> Result<u8, ImageError> {
         self.count -= FAST_BITS;
         let mut code = next as i32;
         for len in FAST_BITS as usize + 1..=16 {
@@ -732,6 +751,9 @@ fn scan(
         Vec::new()
     };
     let mut block = [0u8; 64];
+    // Zeroed for each block that is shown: a dropped one (chroma, for
+    // gray: two of three blocks) keeps none of its coefficients.
+    let mut coef = [0i32; 64];
     let mut bits = Bits::new(reader);
     let mut until_restart = restart_interval;
     let mut emitted = 0u32;
@@ -784,7 +806,9 @@ fn scan(
                             let dc_value = component.prediction.saturating_mul(i32::from(q[0]));
                             block[..n * n].fill(dc_level(dc_value));
                         } else {
-                            let mut coef = [0i32; 64];
+                            if shown {
+                                coef = [0i32; 64];
+                            }
                             let t = bits.decode(dc)?;
                             if t > 16 {
                                 return Err(ImageError::Invalid("bad DC"));
