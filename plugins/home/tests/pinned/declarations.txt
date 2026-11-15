@@ -77,6 +77,7 @@ edit-pages|home.edit-pages
 [events]
 3:4
 64:3
+75:7
 81:6
 86:5
 [others]

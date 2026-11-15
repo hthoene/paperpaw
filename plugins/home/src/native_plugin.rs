@@ -169,7 +169,15 @@ impl Plugin for NativeHome {
                 Ok(())
             }
             Event::ScreenClosed { instance, .. } => {
+                // *Add* and the items editor change what the page shows.
+                let edited = matches!(
+                    self.screens.get(instance),
+                    Some(Slot::Add(_) | Slot::Items(_))
+                );
                 self.screens.close(instance);
+                if edited {
+                    self.invalidate_covered();
+                }
                 Ok(())
             }
             // The minute tick, and a widget that says it shows something new
