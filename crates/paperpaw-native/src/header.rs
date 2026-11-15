@@ -6,6 +6,7 @@ use core::fmt;
 use paperpaw_digest::sha256::Sha256;
 
 use crate::interface::ENTRY_LEN;
+#[cfg(test)]
 use crate::signature::Signature;
 
 /// A plugin file's first bytes.
@@ -163,7 +164,7 @@ pub struct Header {
     /// The hot code's bytes (0: none).
     pub hot_len: u32,
     /// How many patches follow the words to relocate: the instructions
-    /// that reach across the hot code's edge (see [`Relocator`](crate::Relocator)).
+    /// that reach across the hot code's edge (see the relocator).
     pub patches: u32,
     /// The bytes of the firmware's [`Api`](crate::Api) the plugin may use
     /// ([`Entry::needs_api`](crate::Entry::needs_api)).
@@ -418,8 +419,10 @@ impl Header {
 
     /// The header of a whole plugin file and its author's signature, if
     /// it is signed, all checked (its length, its digest, its
-    /// relocations, the signature).
-    pub fn check_file(file: &[u8]) -> Result<(Header, Option<Signature>), Problem> {
+    /// relocations, the signature). For tests: nothing reads such a file
+    /// whole any more.
+    #[cfg(test)]
+    pub(crate) fn check_file(file: &[u8]) -> Result<(Header, Option<Signature>), Problem> {
         let header = Header::read(file)?;
         let end = header.file_len() as usize;
         let signed = header.signed(file.len() as u64)?;
@@ -441,6 +444,7 @@ impl Header {
     }
 
     /// The words after the image in a whole file whose length was checked.
+    #[cfg(test)]
     fn words<'a>(&self, file: &'a [u8]) -> impl Iterator<Item = u32> + 'a {
         let at = self.relocs_at() as usize;
         file[at..]
