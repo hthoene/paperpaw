@@ -22,7 +22,7 @@ while [ $# -gt 0 ]; do
 done
 tree="${CANARY_DIR:-$repo/../canary-worktree-$$}"
 git -C "$repo" worktree add -q --detach "$tree" "$base"
-cleanup() { [ "$keep" -eq 1 ] || git -C "$repo" worktree remove --force "$tree" >/dev/null 2>&1 || true; }
+cleanup() { [ "$keep" -eq 1 ] || git -C "$repo" worktree remove "$tree" >/dev/null 2>&1 || echo "canary worktree left in place (not clean): $tree" >&2; }
 trap cleanup EXIT
 echo "canary worktree: $tree ($(git -C "$tree" rev-parse HEAD))"
 python3 "$here/canaries.py" "$mode" --tree "$tree" --out "$here" --file "$here/canaries.txt" ${pass[@]+"${pass[@]}"}
