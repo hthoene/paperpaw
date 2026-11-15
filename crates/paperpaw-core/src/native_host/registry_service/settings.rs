@@ -443,12 +443,13 @@ fn choices(
 /// the language's name in that language as its catalog gives it (`Deutsch`;
 /// a language pack's own), or the tag where the catalog gives none.
 fn languages(i18n: &paperpaw_i18n::Translator) -> impl Iterator<Item = (&str, &str)> {
-    let named = |(tag, name): (_, &str)| (tag, if name.is_empty() { tag } else { name });
     i18n.languages()
         .into_iter()
         .filter(|(tag, _)| tag.len() <= CHOICE_VALUE)
-        .map(named)
-        .map(|(tag, name)| (tag, clip(name, caps::TITLE)))
+        .map(|(tag, name)| {
+            let name = if name.is_empty() { tag } else { name };
+            (tag, clip(name, caps::TITLE))
+        })
 }
 
 /// The setting `id` itself (a placement's id names no setting here).
@@ -500,6 +501,7 @@ pub(super) fn detail(
 fn extra_row(
     spec: &SettingSpec,
     shown: &Shown<'_>,
+    i18n: &paperpaw_i18n::Translator,
     visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
 ) -> Result<(), i32> {
     let (min, max) = match &spec.kind {
