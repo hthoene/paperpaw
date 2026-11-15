@@ -33,6 +33,8 @@ use paperpaw_platform::{ButtonState, InputEvent, buttons};
 /// kerning and ligatures off 151 (224).
 const CHINESE: (u32, u32) = (2_430, 2_742);
 const CYRILLIC: (u32, u32) = (40, 420);
+/// The same book declared Russian: no table, so one ask for the whole book.
+const RUSSIAN: (u32, u32) = (40, 295);
 const VIETNAMESE: (u32, u32) = (260, 560);
 const PLAIN: (u32, u32) = (200, 560);
 
@@ -216,13 +218,21 @@ fn chinese_book() -> Vec<u8> {
 
 /// A Latin specimen that takes the first 96 characters the reader numbers (all
 /// of ASCII and of the Latin-1 letters), then pages of Cyrillic.
-fn cyrillic_after_latin_book() -> Vec<u8> {
+///
+/// `lang` is the language the book declares (`""`: none, which the reader takes
+/// for English: the English table is asked about Cyrillic words).
+fn cyrillic_after_latin_book(lang: &str) -> Vec<u8> {
     let mut seed = 54_321_u32;
     let mut next = |most: u32| {
         seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
         (seed >> 16) % most
     };
-    let mut html = String::from("<html><head><title>Cyrillic</title></head><body><p>");
+    let attribute = if lang.is_empty() {
+        String::new()
+    } else {
+        format!(" lang=\"{lang}\"")
+    };
+    let mut html = format!("<html{attribute}><head><title>Cyrillic</title></head><body><p>");
     for c in (33..127u8).map(char::from) {
         match c {
             '<' => html.push_str("&lt;"),
@@ -325,9 +335,10 @@ struct Case<'a> {
 /// What a book of another script, a book that starts in Latin and goes on in
 /// Cyrillic, Vietnamese and a reader with kerning and ligatures off cost.
 fn cases_over(alice: &[u8], over: &mut Vec<String>) {
-    let (chinese, cyrillic, vietnamese) = (
+    let (chinese, cyrillic, russian, vietnamese) = (
         chinese_book(),
-        cyrillic_after_latin_book(),
+        cyrillic_after_latin_book(""),
+        cyrillic_after_latin_book("ru"),
         vietnamese_book(),
     );
     let case = |label, name, book, ini, ceilings| Case {
@@ -340,6 +351,7 @@ fn cases_over(alice: &[u8], over: &mut Vec<String>) {
     let cases = [
         case("chinese", "chinese.html", &chinese[..], "", CHINESE),
         case("cyrillic", "cyrillic.html", &cyrillic[..], "", CYRILLIC),
+        case("russian", "russian.html", &russian[..], "", RUSSIAN),
         case(
             "vietnamese",
             "vietnamese.html",
