@@ -24,7 +24,7 @@ de.name = "Literata"
 de.description = "Literata für Buchtext: normal, fett und kursiv. Wähle sie in den Einstellungen unter Lesen als Schriftart."
 
 [literata-large]
-version = "1.1.0"
+version = "1.1.1"
 group = "look"
 licence = "OFL-1.1"
 devices = ["x4", "x4-pro", "x4-classic"]
