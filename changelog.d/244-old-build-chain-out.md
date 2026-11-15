@@ -1,0 +1,4 @@
+### Changed
+
+- **The build of plugin files of the format before interface 7 is gone** (#244). `samples/hello-native`, the test plugin built apart (`crates/paperpaw-core/tests/native-plugin`), the reproducible-build check, the "same in any folder" check and the old-plugin check (`tools/table-compat.sh`) with their CI steps. `paperpaw-dev new --github <id> --code` says that the tool does not yet support plugins with code for the new plugin interface (data plugins are supported), and the author release workflow releases a plugin without code only. Devices refuse such files since the old loader went; nothing a reader has changes.
+- **Known gap: no template for community plugins with code on interface 7** (#244). `paperpaw-dev new` and the author release workflow scaffold, build and release plugins without code only. A scaffold and a release workflow for plugins with code on the new interface are not written yet.
