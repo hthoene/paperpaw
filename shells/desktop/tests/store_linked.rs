@@ -238,7 +238,6 @@ impl Shop {
     }
 }
 
-
 /// The library offers `stats` as a code plugin of the X4 (a plugin file).
 fn offered_stats() -> Offered {
     let mut stats = Offered::data("stats", "Reading statistics", "1.0.9");

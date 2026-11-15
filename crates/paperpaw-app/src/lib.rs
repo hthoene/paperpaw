@@ -233,7 +233,10 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     #[cfg(feature = "native-linked-store")]
     ("reading-goal", &paperpaw_plugin_reading_goal::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
-    ("notes-overview", &paperpaw_plugin_notes_overview::NATIVE_ENTRY),
+    (
+        "notes-overview",
+        &paperpaw_plugin_notes_overview::NATIVE_ENTRY,
+    ),
     #[cfg(feature = "native-linked-store")]
     ("weather", &paperpaw_plugin_weather::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
