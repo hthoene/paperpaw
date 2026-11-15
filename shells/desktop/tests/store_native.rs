@@ -3,9 +3,11 @@
 //! recorded answers (the route the emulator sends its requests through instead
 //! of the network). Driven through the buttons: the list, the install of a
 //! plugin (download, the host's confirmation, the install), a declined install
-//! and the stage a power cut left. Not run here (gaps, see the PR's coverage
-//! table): the update, the removal, what other plugins ask for, *Discover
-//! fonts*; they are tested on the pieces (`tests/native_*.rs`).
+//! and the stage a power cut left, the update of an installed plugin and its
+//! removal (#273: the host jobs the X4 family's firmware wires the same way,
+//! `paperpaw_x4::host_jobs`). Not run here (gaps, see the PR's coverage
+//! table): what other plugins ask for, *Discover fonts*; they are tested on the
+//! pieces (`tests/native_*.rs`).
 #![cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
 #![allow(
     clippy::unwrap_used,
@@ -631,4 +633,71 @@ fn the_list_of_the_store_is_drawn_in_part_as_it_is_drawn_whole() {
     }
     // Each step moved the focus and drew something.
     assert!(changed >= 10, "{changed} of 12 steps changed the panel");
+}
+
+/// The card of a device that has `pack-a` installed at `version` (its manifest
+/// as the library serves it).
+fn card_with_pack_a(version: &str) -> MemoryStorage {
+    let manifest = Offered::data("pack-a", "Pack A", "0").manifest;
+    let manifest = manifest.replace("version = 0", &format!("version = {version}"));
+    MemoryStorage::new().with("plugins/pack-a/plugin.ini", manifest)
+}
+
+/// An installed plugin whose library has a newer version is updated from its
+/// page: downloaded, confirmed by the user, and replaced whole (the plugin
+/// folder is the new version's, the staged files are gone).
+#[test]
+fn an_installed_plugin_is_updated_to_the_newer_version_of_the_library() {
+    let mut shop = Shop::on(
+        card_with_pack_a("1.0.0"),
+        &[Offered::data("pack-a", "Pack A", "1.1.0")],
+    );
+    shop.run("store.open");
+    shop.settle(2000);
+    shop.keys("open:store.plugin:id=pack-a");
+    shop.settle(3000);
+    shop.choose("Update");
+    shop.settle(3000);
+    assert_eq!(confirm_screen(&mut shop), "core.firmware-confirm");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    let shown = shop.shown();
+    assert!(shown.contains("Installed: version 1.1.0"), "{shown}");
+    let mut ini = [0_u8; 512];
+    let n = shop
+        .card
+        .read_at("plugins/pack-a/plugin.ini", 0, &mut ini)
+        .unwrap();
+    assert!(String::from_utf8_lossy(&ini[..n]).contains("version = 1.1.0"));
+    assert!(
+        !shop
+            .card
+            .exists(".paperpaw/plugins/store/stage/pack-a/plugin.ini")
+    );
+}
+
+/// Removing asks first (*Remove* or *Keep*), then the host asks again before
+/// it touches the card; a *Keep* at the first question changes nothing, a
+/// confirmed removal takes the plugin's folder away.
+#[test]
+fn an_installed_plugin_is_removed_after_the_reader_confirmed_twice() {
+    let mut shop = Shop::on(
+        card_with_pack_a("1.0.0"),
+        &[Offered::data("pack-a", "Pack A", "1.0.0")],
+    );
+    shop.run("store.open");
+    shop.settle(2000);
+    shop.keys("open:store.plugin:id=pack-a");
+    shop.settle(3000);
+    shop.choose("Remove");
+    answer_dialog(&mut shop, "Keep");
+    assert!(shop.card.exists("plugins/pack-a/plugin.ini"));
+    shop.choose("Remove");
+    answer_dialog(&mut shop, "Remove");
+    assert_eq!(confirm_screen(&mut shop), "core.firmware-confirm");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    assert!(!shop.card.exists("plugins/pack-a/plugin.ini"));
 }

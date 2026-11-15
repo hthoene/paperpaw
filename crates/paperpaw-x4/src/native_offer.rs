@@ -115,7 +115,9 @@ const fn build_services<const N: usize>(
 
 /// How many features a list holds.
 const fn features_len(secrets: bool, work: bool, card: bool, wifi: bool) -> usize {
-    2 + secrets as usize + work as usize + 2 * card as usize + wifi as usize
+    // The registry, the power view, and the two the plugin jobs back
+    // (`host_jobs`): `uses.install` and `uses.firmware`.
+    4 + secrets as usize + work as usize + 2 * card as usize + wifi as usize
 }
 
 /// The consent features a linked plugin may ask for, as one list of `N`.
@@ -126,9 +128,15 @@ const fn build_features<const N: usize>(
     wifi: bool,
 ) -> [Feature<'static>; N] {
     let mut list = [feature("uses.registry"); N];
-    let keys: [(bool, &str); 7] = [
+    let keys: [(bool, &str); 9] = [
         (true, "uses.registry"),
         (true, "uses.power"),
+        // Plugin installs, updates, removals and checks, and the firmware's
+        // own update: the kernel's jobs over the host `host_jobs` gives it,
+        // on every device of the family. Linked plugins only: a card plugin
+        // never installs plugins (`card_features`).
+        (true, "uses.install"),
+        (true, "uses.firmware"),
         (secrets, "uses.secrets"),
         // One feature for HTTP and sockets (`network.md` 1).
         (work, "uses.network"),
@@ -301,8 +309,10 @@ pub fn card_host(
 }
 
 /// The consent features a linked plugin may ask for (`uses.*`), with the
-/// families that back them. Not offered: `uses.bluetooth`, `uses.install` and
-/// `uses.firmware` (not backed yet: dual boot, todo 450): a plugin that needs
+/// families that back them: `uses.install` and `uses.firmware` are backed by
+/// the jobs of `host_jobs` (the firmware's update where the device has a second
+/// app partition, else every firmware job is refused as not here). Not
+/// offered: `uses.bluetooth` (not backed on these devices): a plugin that needs
 /// one is refused at admission. A list in the program's read-only data (no
 /// heap).
 #[must_use]
@@ -369,7 +379,12 @@ mod tests {
                 services.extend(keys.iter().map(|key| (*key, 1)));
             }
         }
-        let mut features = vec![("uses.registry", 1), ("uses.power", 1)];
+        let mut features = vec![
+            ("uses.registry", 1),
+            ("uses.power", 1),
+            ("uses.install", 1),
+            ("uses.firmware", 1),
+        ];
         for (on, keys) in [
             (wired.secrets, &["uses.secrets"][..]),
             (wired.work, &["uses.network"][..]),
@@ -411,6 +426,17 @@ mod tests {
                 .iter()
                 .any(|f| f.key == "uses.secrets")
         );
+    }
+
+    #[test]
+    fn the_jobs_of_the_host_are_offered_to_every_linked_plugin() {
+        // Whatever is wired: plugin jobs and the firmware's update are the
+        // kernel's (`host_jobs`), not a family the start wires.
+        for wired in every_combination() {
+            for key in ["uses.install", "uses.firmware"] {
+                assert!(features(wired).iter().any(|f| f.key == key), "{key}");
+            }
+        }
     }
 
     #[test]
