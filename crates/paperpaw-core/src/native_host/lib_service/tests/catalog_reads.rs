@@ -203,3 +203,58 @@ fn a_query_of_the_adapter_passes_the_services_checks_and_pages() {
         Err(paperpaw_native::host_glue::ERR_STATE)
     );
 }
+
+/// Op 5 over the adapter: every list passes the service's checks of a page
+/// (whole rows, then the end that counts them).
+#[test]
+fn the_facets_of_the_adapter_pass_the_services_checks() {
+    let card = card();
+    let host = host(&card);
+    let list = |facet: u32| {
+        let ask = Record::ServiceLibQuery(wire::ServiceLibQuery {
+            show: 0,
+            sort: 0,
+            flags: 0,
+            words: "",
+            author: "",
+            series: "",
+            tag: "",
+            folder: "",
+            added_since: 0,
+            cursor: 0,
+            generation: 0,
+            facet,
+        });
+        let reply = call(&host, 5, &[ask]).unwrap();
+        let (mut rows, mut end) = (std::vec::Vec::new(), None);
+        let mut at = 0;
+        while at < reply.len() {
+            let (record, used) = wire::record_decode_prefix(&reply[at..]).unwrap();
+            at += used;
+            match record {
+                Record::ServiceLibFacet(row) => {
+                    rows.push((std::string::String::from(row.text), row.count, row.first));
+                }
+                Record::ServiceEnd(last) => end = Some((last.flags, last.total, last.next)),
+                other => panic!("{other:?}"),
+            }
+        }
+        (rows, end)
+    };
+    let names = |facet: u32| -> std::vec::Vec<std::string::String> {
+        list(facet).0.into_iter().map(|row| row.0).collect()
+    };
+    let (authors, end) = list(0);
+    let jumps: std::vec::Vec<u32> = authors.iter().map(|row| row.2).collect();
+    assert_eq!(names(0), ["Ada", "Bea", "Cy", "Eve"]);
+    assert_eq!(jumps, [0, 1, 2, 3]);
+    // The last page: flag bit 0, and the end counts the four names.
+    assert_eq!(end, Some((1, 4, 4)));
+    assert_eq!(names(1), ["Series"]);
+    assert_eq!(names(2), ["x", "y", "z"]);
+    assert_eq!(names(3), ["#", "C", "E", "T"]);
+    assert_eq!(
+        list(4).0,
+        [(std::string::String::from("books"), 4, u32::MAX)]
+    );
+}

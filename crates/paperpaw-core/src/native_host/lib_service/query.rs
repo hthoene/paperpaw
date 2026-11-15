@@ -74,9 +74,15 @@ pub(crate) trait LibQuery {
     ) -> Result<(), i32> {
         Err(ERR_UNSUPPORTED)
     }
-    /// Op 5: `lib_facet` rows of `query.facet` (1-4 bounded), the other fields
-    /// filter; the paging of op 2.
-    fn facets(&self, _query: &wire::ServiceLibQuery<'_>, _visit: Rows<'_>) -> Result<RowsEnd, i32> {
+    /// Op 5: `lib_facet` rows of `query.facet` (0 authors, 1 series, 2 tags,
+    /// 3 first letters, 4 folders), the other fields filter; the paging and
+    /// the `archive` of op 2. `total` is the number of rows there are.
+    fn facets(
+        &self,
+        _query: &wire::ServiceLibQuery<'_>,
+        _archive: &str,
+        _visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
         Err(ERR_UNSUPPORTED)
     }
     /// Op 6: the `lib_entry` after the book in its series, `ERR_NOT_FOUND`
@@ -268,17 +274,17 @@ fn catalog(
         cursor: query.cursor,
         generation: query.generation,
     };
+    // The setting is read only for a query that leaves the archive out.
+    let archive = if query.flags & 0b10 != 0 {
+        frame.settings().text(ARCHIVE_SETTING)
+    } else {
+        ""
+    };
     if facets {
         page::list(out, rows, check::Row::Facet, request, |visit| {
-            host.facets(&query, visit)
+            host.facets(&query, archive, visit)
         })
     } else {
-        // The setting is read only for a query that leaves the archive out.
-        let archive = if query.flags & 0b10 != 0 {
-            frame.settings().text(ARCHIVE_SETTING)
-        } else {
-            ""
-        };
         page::list(out, rows, check::Row::Entry, request, |visit| {
             host.query(&query, archive, visit)
         })
