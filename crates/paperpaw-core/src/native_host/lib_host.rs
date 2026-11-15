@@ -204,6 +204,20 @@ impl LibQuery for LibraryHost {
             visit,
         )
     }
+    fn facets(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.view_asked();
+        self.reads.facets_hiding(
+            query,
+            archive,
+            &|path| self.deleted(BookRef::Path(path)),
+            visit,
+        )
+    }
     fn next_in_series(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;
         self.reads

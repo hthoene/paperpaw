@@ -68,10 +68,13 @@ USAGE:
         Prints the fingerprint native plugins must have to run on a
         firmware (16 hexadecimal digits), as its ELF file names it.
     paperpaw-sign abi <firmware.elf>
-        Prints a release's -abi.txt for a firmware: its fingerprint, then
-        `interface:`, `api:` (the size of its table for plugins),
-        `families:` and `min:` (each family's revision and the oldest it
-        runs, eight numbers), as its ELF file says them.
+        Prints a release's -abi.txt for a firmware: two lines, `interface:`
+        (the plugin interface) and `minor:` (the newest minor of it a
+        plugin file may need to run there), as its ELF file says them.
+    paperpaw-sign fits <firmware.elf> <plugin.ppn>...
+        Checks that each plugin file (interface 7) runs on the firmware:
+        built for its chip and its interface, needing no newer minor than
+        it has. The release runs it on the plugins it builds for the store.
     paperpaw-sign pack <plugin.elf> <plugin.ppn> [--key <secret-key-file>]
         Makes a native plugin file from a plugin linked with
         paperpaw-plugin.x and --emit-relocs, or says what keeps it from
@@ -172,6 +175,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["plugins", image] => firmware::plugins(image),
         ["fingerprint", elf] => firmware::fingerprint(elf),
         ["abi", elf] => firmware::abi(elf),
+        ["fits", elf, files @ ..] if !files.is_empty() => firmware::fits(elf, files),
         ["frames", elf, rest @ ..] => frames_command(elf, rest),
         ["frames-s3", elf, "--budget", budget] => chain_xtensa::run(elf, budget),
         ["pack", elf, out] => plugin::pack(elf, out, None),

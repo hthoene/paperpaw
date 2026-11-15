@@ -39,13 +39,13 @@ use paperpaw_sdk::digest::fnv1a64;
 use paperpaw_sdk::library::{self, catalog};
 
 /// Slots a pass keeps: the page, or a step towards the cursor.
-const WINDOW: usize = 32;
+pub(super) const WINDOW: usize = 32;
 /// Bytes of the lowercase text a key holds.
-const KEY_TEXT: usize = 96;
+pub(super) const KEY_TEXT: usize = 96;
 /// Books the opened list names at most (the SDK's `MAX_OPENED`).
 const OPENED_MAX: usize = 100;
 /// Tries at a catalog that changes under the call.
-const TRIES: usize = 3;
+pub(super) const TRIES: usize = 3;
 /// Bytes of the cut forms in a `lib_entry`.
 const TITLE: usize = 128;
 const AUTHOR: usize = 96;
@@ -61,9 +61,9 @@ const NEVER_OPENED: u32 = 255;
 /// Compared as they are laid out; the text holds no NUL ([`push_lower`] drops
 /// it), so the buffer orders as the text and then the path would.
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
-struct Key {
-    first: u32,
-    text: String,
+pub(super) struct Key {
+    pub(super) first: u32,
+    pub(super) text: String,
 }
 
 impl Key {
@@ -136,7 +136,7 @@ impl Selection {
 /// `text` appended to `out` in lowercase, reserved as it grows, until `out`
 /// is `cap` bytes (a character may pass it by two). A NUL is left out: it ends
 /// the text of a [`Key`].
-fn push_lower(out: &mut String, text: &str, cap: usize) -> Result<(), i32> {
+pub(super) fn push_lower(out: &mut String, text: &str, cap: usize) -> Result<(), i32> {
     for ch in text.chars() {
         if out.len() >= cap {
             break;
@@ -152,14 +152,14 @@ fn push_lower(out: &mut String, text: &str, cap: usize) -> Result<(), i32> {
     Ok(())
 }
 
-fn push(out: &mut String, text: &str) -> Result<(), i32> {
+pub(super) fn push(out: &mut String, text: &str) -> Result<(), i32> {
     out.try_reserve(text.len()).map_err(|_| ERR_NO_MEMORY)?;
     out.push_str(text);
     Ok(())
 }
 
 /// A copy of `text`, reserved fallibly.
-fn copy(text: &str) -> Result<String, i32> {
+pub(super) fn copy(text: &str) -> Result<String, i32> {
     let mut out = String::new();
     push(&mut out, text)?;
     Ok(out)
@@ -186,8 +186,8 @@ enum Order {
 
 /// What the call asks, made ready: the conditions of the books, the order,
 /// and the opened list for sort 4.
-struct Engine<'a> {
-    reads: &'a CatalogReads,
+pub(super) struct Engine<'a> {
+    pub(super) reads: &'a CatalogReads,
     /// Show (but `new`), author, series, tag, folder and day.
     base: catalog::Query,
     new_only: bool,
@@ -201,7 +201,7 @@ struct Engine<'a> {
 }
 
 impl<'a> Engine<'a> {
-    fn new(
+    pub(super) fn new(
         reads: &'a CatalogReads,
         q: &wire::ServiceLibQuery<'_>,
         archive: &str,
@@ -267,7 +267,7 @@ impl<'a> Engine<'a> {
     }
 
     /// Whether the book is found.
-    fn keeps(&self, record: &catalog::Record, words: &mut String) -> Result<bool, i32> {
+    pub(super) fn keeps(&self, record: &catalog::Record, words: &mut String) -> Result<bool, i32> {
         if (self.hide)(&record.path) || !self.base.finds(record) {
             return Ok(false);
         }
@@ -310,7 +310,7 @@ impl<'a> Engine<'a> {
 
     /// Where the book goes in the order, made in `key` (its buffers are
     /// reused, and the text stops at [`KEY_TEXT`] bytes).
-    fn fill(&self, record: &catalog::Record, key: &mut Key) -> Result<(), i32> {
+    pub(super) fn fill(&self, record: &catalog::Record, key: &mut Key) -> Result<(), i32> {
         key.text.clear();
         key.first = 0;
         let text = &mut key.text;

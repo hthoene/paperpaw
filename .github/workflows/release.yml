@@ -8,8 +8,8 @@ name: Release
 # flash (which paperpaw.org offers for flashing in the browser) with a
 # signature file of its own, and the update file, both signed with the
 # firmware's key (the update is installed on the device); the list of the
-# plugins built in; the fingerprint native code plugins must have to run
-# on it (ADR 0024); their checksums. The core libraries code plugins for
+# plugins built in; the plugin interface and its minor, which say the code
+# plugins that run on it (`-abi.txt`); their checksums. The core libraries code plugins for
 # the ESP32-S3 link with (`paperpaw-xtensa-std-<version>.tar.gz`,
 # tools/xtensa-std), built once here, with a checksum and a signature of
 # their own. PaperPaw's own plugins that the store
@@ -229,7 +229,10 @@ jobs:
           - { os: windows-latest, target: windows-x64, rust: "" }
           - { os: macos-14, target: macos-arm64, rust: "" }
           - { os: macos-14, target: macos-x64, rust: x86_64-apple-darwin }
-          - { os: ubuntu-latest, target: linux-x64, rust: "" }
+          # Built on the oldest image we support: a binary needs at most the
+          # glibc of the machine that built it (Debian 12 has 2.36, Ubuntu
+          # 22.04 has 2.35). `ubuntu-latest` (24.04, 2.39) left both out (#125).
+          - { os: ubuntu-22.04, target: linux-x64, rust: "" }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -261,6 +264,11 @@ jobs:
           mkdir -p dist/pkg
           tools=("paperpaw-emu$exe" "paperpaw-dev$exe" "paperpaw-sign$exe")
           for tool in "${tools[@]}"; do cp "$built/$tool" dist/pkg/; done
+          # Linux: what they ask of the system's glibc is what the zip
+          # promises (Debian 12 and Ubuntu 22.04 start them).
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            tools/check-glibc.sh 2.35 "$built/paperpaw-emu" "$built/paperpaw-dev" "$built/paperpaw-sign" "$built/paperpaw-fontgen"
+          fi
           # Their licence and the notices of what they hold (tools/licences).
           cp LICENSE NOTICE dist/pkg/
           # Where it runs as built: it answers over --stdio, as the
@@ -427,24 +435,19 @@ jobs:
       # the bootloader maps whole and that fits them (and CrossPoint's).
       - name: Updates have somewhere to go
         run: cargo run -q --release -p paperpaw-sign -- check-image "dist/paperpaw-$DEVICE-$VERSION.bin"
-      # Which code plugins run on it, for the plugin library and authors:
-      # the fingerprint (16 hexadecimal digits, the first line, which
-      # store-plugin.yml reads), then its table for plugins (`interface:`,
-      # `api:`, `families:`, `min:`), as the firmware's ELF file says them,
-      # for the store and the web flasher.
-      - name: The sample code plugin fits the firmware
-        id: native
-        uses: ./.github/actions/native-sample
-      - name: The fingerprint and the table
-        env:
-          FINGERPRINT: ${{ steps.native.outputs.fingerprint }}
+      # Which code plugins run on it, for the plugin library, the store and
+      # the web flasher: the plugin interface and its minor (`interface:`,
+      # `minor:`, nothing else), as the firmware's ELF file says them. An
+      # interface-7 plugin file has no fingerprint, so the file has none.
+      - name: The table for plugins
         run: |
           abi="dist/paperpaw-$DEVICE-$VERSION-abi.txt"
           cargo run -q --release -p paperpaw-sign -- abi \
             "shells/xteink/target/$FIRMWARE_TARGET/release/paperpaw-xteink" > "$abi"
           cat "$abi"
-          if [[ "$(head -n 1 "$abi")" != "$FINGERPRINT" ]]; then
-            echo "::error::$abi does not begin with the fingerprint $FINGERPRINT"
+          if ! grep -Eqx 'interface: 7' "$abi" || ! grep -Eqx 'minor: [0-9]+' "$abi" \
+            || [[ "$(wc -l < "$abi")" != 2 ]]; then
+            echo "::error::$abi is not the two lines 'interface: 7' and 'minor: N'"
             exit 1
           fi
       # PaperPaw's own plugins that the store offers, built for this
@@ -458,6 +461,10 @@ jobs:
           # the X4 Pro's and X4 Classic's target 9.
           mkdir -p dist/plugins
           tools/plugin-files7/build.sh "$DEVICE" dist/plugins
+          # Each of them runs on this firmware: its chip, its interface, and
+          # no newer minor than the table above names.
+          cargo run -q --release -p paperpaw-sign -- fits \
+            "shells/xteink/target/$FIRMWARE_TARGET/release/paperpaw-xteink" dist/plugins/*.ppn
           # The signing tool, built before the key comes near the disk.
           cargo build -q --release -p paperpaw-sign
       # A dry run signs with keys made for the job (the real ones are for a
