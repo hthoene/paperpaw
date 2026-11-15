@@ -544,22 +544,27 @@ fn every_allocation_of_a_facets_page_refuses_cleanly() {
     assert!(counts.iter().all(|&n| n >= 1), "{counts:?}");
 }
 
+/// The most one `facets` call may hold with the longest names.
+const LONGEST: usize = 32_768;
+
 /// The heap one `facets` call holds at its most: over a shelf of 300 books
 /// of 300 authors with the names of a real one, and over 3,000 books of
 /// 3,000 authors, where the names are counted in parts. The window of 32
 /// names (with the key of each one's first book where there is a jump), the
 /// hashes of the count (4 KiB at most) and a line: the same for both shelves.
+/// With names, titles and folders far beyond the 256 bytes a row carries it
+/// is more (each kept name has its key and its text), and as bounded.
 #[test]
 fn the_heap_one_facets_page_holds_at_its_most_does_not_grow_with_the_shelf() {
     use paperpaw_sdk::MemoryStorage;
     reset(NORMAL);
-    let shelf = |books: u32| {
+    let shelf = |books: u32, pad: &str| {
         let mut text = std::string::String::from("\tcatalog\t2\t1\n");
         for n in 0..books {
             text.push_str(&std::format!(
-                "books/library/Some Folder {}/{n:04}-a-reasonably-long-file-name.epub\t\
-                 Firstname Lastname {n}\tA Reasonably Long Book Title, Number {n}\t\
-                 A Series Name {}\t{}\tfiction\u{1f}tag {}\t\t\t19990\t\t123456\n",
+                "books/library/Some Folder {}{pad}/{n:04}-a-reasonably-long-file-name.epub\t\
+                 Firstname Lastname {n}{pad}\tA Reasonably Long Book Title, Number {n}{pad}\t\
+                 A Series Name {}{pad}\t{}\tfiction\u{1f}tag {}{pad}\t\t\t19990\t\t123456\n",
                 n % 40,
                 n % 90,
                 n % 12,
@@ -589,15 +594,21 @@ fn the_heap_one_facets_page_holds_at_its_most_does_not_grow_with_the_shelf() {
             card,
         )
     };
-    let (small, large) = (shelf(300), shelf(3_000));
+    let (small, large) = (shelf(300, ""), shelf(3_000, ""));
+    // 300 bytes of two-byte characters after each name: every cut is taken.
+    let (wide, wider) = (shelf(300, &"é".repeat(150)), shelf(3_000, &"é".repeat(150)));
     let peaks = |card: &Card| [0, 1, 2, 3, 4].map(|facet| run(card, facet, 0));
     let (few, many) = (peaks(&small), peaks(&large));
+    let (long, longer) = (peaks(&wide), peaks(&wider));
     let deep = run(&large, 0, 2_900);
     std::eprintln!(
         "FACETS HEAP PEAKS (authors, series, tags, letters, folders): 300 books {few:?}, \
-         3,000 books {many:?}, authors from 2,900: {deep}"
+         3,000 books {many:?}, authors from 2,900: {deep}; the longest names: 300 books \
+         {long:?}, 3,000 books {longer:?}"
     );
     assert!(few.iter().all(|&peak| peak <= 12_288), "{few:?}");
     assert!(many.iter().all(|&peak| peak <= 12_288), "{many:?}");
     assert!(deep <= 12_288, "{deep}");
+    assert!(long.iter().all(|&peak| peak <= LONGEST), "{long:?}");
+    assert!(longer.iter().all(|&peak| peak <= LONGEST), "{longer:?}");
 }

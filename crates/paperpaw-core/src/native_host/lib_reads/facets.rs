@@ -25,10 +25,11 @@
 //! number of
 //! names (`end.total`) is counted with at most [`HASHES`] 64-bit hashes at
 //! once (4 KiB, grown as names are found): a catalog with more names is
-//! counted in more passes, each over a part of the hashes, so the number is
-//! exact whatever the catalog holds. Scans of a page: `cursor / 32 + 1`, one
-//! more where there is a jump, and about `names / 256` more where the names
-//! are more than [`HASHES`]. Heap of a call at its most, measured
+//! counted in more passes, each over a part of the hashes, so the number
+//! holds whatever the catalog holds (two names of one hash count as one).
+//! Scans of a page: `cursor / 32 + 1`, one more where there is a jump, and
+//! about `names / 256` more where the names are more than [`HASHES`]. Heap
+//! of a call at its most, measured
 //! (`lib_reads_oom_tests`): see there; it does not grow with the catalog.
 use super::query::{Engine, KEY_TEXT, Key, TRIES, WINDOW, copy, head, push, push_lower};
 use super::{CatalogReads, fail};
@@ -429,8 +430,17 @@ impl Lists<'_> {
             .try_reserve_exact(names.len())
             .map_err(|_| ERR_NO_MEMORY)?;
         order.extend(0..names.len());
-        if jump == Jump::Book {
-            order.sort_unstable_by(|a, b| before(&names[*a].first_book, &names[*b].first_book));
+        match jump {
+            Jump::Book => {
+                order.sort_unstable_by(|a, b| before(&names[*a].first_book, &names[*b].first_book));
+            }
+            // By the cut the books are counted by: a character across it is
+            // left out, which can put a name before one it is kept after.
+            Jump::Block(cut) => order.sort_unstable_by(|a, b| {
+                let (one, other) = (head(names[*a].lower(), cut), head(names[*b].lower(), cut));
+                before_text(one, other).then(a.cmp(b))
+            }),
+            Jump::None => {}
         }
         let mut steps = zeroes(names.len())?;
         let (mut words, mut book) = (String::new(), Key::default());

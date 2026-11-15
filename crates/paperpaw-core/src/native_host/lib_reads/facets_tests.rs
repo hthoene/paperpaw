@@ -12,7 +12,7 @@ use alloc::string::ToString;
 use core::cell::Cell;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_STATE;
-use paperpaw_platform::Storage;
+use paperpaw_platform::{DirEntry, Storage, StorageError};
 use paperpaw_sdk::MemoryStorage;
 use std::format;
 use std::string::String;
@@ -418,6 +418,48 @@ fn a_book_being_deleted_is_under_no_name() {
 /// and begin together (their books lie mixed, by title); a name longer than
 /// a row's text is cut at a character, and a page that is full ends where
 /// its last row does.
+/// Op 2's key of a series is cut at 85 bytes and a character across the cut
+/// is left out: such series begin where the books of their cut begin in op
+/// 2's list by series, also where the names' own order (by 96 bytes) puts
+/// another series before them.
+#[test]
+fn a_series_with_a_character_across_the_cut_of_the_key_begins_with_its_cut() {
+    let stem = "a".repeat(84);
+    let (b, c, f) = (format!("{stem}éb"), format!("{stem}éc"), format!("{stem}f"));
+    let (reads, _) = reads(&[
+        book("1.epub", "x", "t1", &f, "", ""),
+        book("2.epub", "x", "t2", &c, "", ""),
+        book("3.epub", "x", "t3", "", "", ""),
+        book("4.epub", "x", "t4", &b, "", ""),
+        book("5.epub", "x", "t5", &stem, "", ""),
+        book("6.epub", "x", "t6", &c, "", ""),
+    ]);
+    // The list by series: 3 (no series), then 2, 4, 5, 6 (one cut), then 1.
+    let mut by_series = ask(0);
+    by_series.sort = 2;
+    let mut titles = Vec::new();
+    reads
+        .query_hiding(&by_series, "", &|_| false, &mut |record| {
+            if let Record::ServiceLibEntry(row) = record {
+                titles.push(row.title.to_string());
+            }
+            ControlFlow::Continue(())
+        })
+        .unwrap();
+    assert_eq!(titles, ["t3", "t2", "t4", "t5", "t6", "t1"]);
+    let (rows, end) = page(&reads, &ask(1));
+    assert_eq!(
+        rows,
+        [
+            row(&stem, 1, 1),
+            row(&f, 1, 5),
+            row(&b, 1, 1),
+            row(&c, 2, 1)
+        ]
+    );
+    assert_eq!(end.total, 4);
+}
+
 #[test]
 fn names_keep_their_case_and_long_ones_are_cut() {
     let long = "é".repeat(200);
@@ -433,4 +475,108 @@ fn names_keep_their_case_and_long_ones_are_cut() {
     assert_eq!(end.total, 3);
     let (rows, end) = page_archived(&reads, &ask(0), "", 2).unwrap();
     assert_eq!((rows.len(), end.total, end.next), (2, 3, 2));
+}
+
+/// A card that counts the bytes read from the catalog.
+struct Counted {
+    inner: MemoryStorage,
+    read: Cell<u64>,
+}
+
+impl Storage for Counted {
+    fn read_at(&self, path: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        let n = self.inner.read_at(path, at, buf)?;
+        if path == CATALOG {
+            self.read.set(self.read.get() + n as u64);
+        }
+        Ok(n)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.inner.size(path)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.inner.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.inner.append(p, d)
+    }
+    fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.inner.list(d, v)
+    }
+    fn list_from(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.inner.list_from(dir, from, visit)
+    }
+    fn remove(&self, p: &str) -> Result<(), StorageError> {
+        self.inner.remove(p)
+    }
+    fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
+        self.inner.rename(f, t)
+    }
+    fn create_dir(&self, p: &str) -> Result<(), StorageError> {
+        self.inner.create_dir(p)
+    }
+    fn remove_dir_all(&self, p: &str) -> Result<(), StorageError> {
+        self.inner.remove_dir_all(p)
+    }
+    fn sync(&self) -> Result<(), StorageError> {
+        self.inner.sync()
+    }
+}
+
+/// How often one call reads the catalog through (there are no checkpoints
+/// yet, `docs/abi/library.md` 2.1): once for each 32 names up to the cursor
+/// and once for the page, once more where the rows have a jump, and where a
+/// list has more than 512 names, more to count them. 1,000 books of 700
+/// authors, 61 series and 29 tags.
+#[test]
+fn a_call_reads_the_catalog_as_often_as_the_cursor_is_deep() {
+    let mut text = String::from(HEADER);
+    for n in 0..1_000_u32 {
+        text.push_str(&book(
+            &format!("books/folder {}/{n:04}.epub", n % 17),
+            &format!("Writer {:04}", n % 700),
+            &format!("A Usual Title, Number {n}"),
+            &format!("Series {}", n % 61),
+            &format!("shelf {}", n % 29),
+            "",
+        ));
+    }
+    let size = text.len() as u64;
+    let storage = Rc::new(Counted {
+        inner: MemoryStorage::new().with(CATALOG, text.into_bytes()),
+        read: Cell::new(0),
+    });
+    let env = Rc::new(Env {
+        walking: Cell::new(None),
+        today: Cell::new(Some(20_000)),
+    });
+    let reads = CatalogReads::new(storage.clone(), env);
+    let scans = |facet: u32, cursor: u32| {
+        storage.read.set(0);
+        let mut q = ask(facet);
+        q.cursor = cursor;
+        let (_, end) = page(&reads, &q);
+        assert_ne!(end.total, 0);
+        // Whole scans, the changes' log and the header's own reads left out.
+        storage.read.get() / size
+    };
+    let got = [
+        scans(0, 0),
+        scans(0, 320),
+        scans(0, 672),
+        scans(1, 0),
+        scans(2, 0),
+        scans(3, 0),
+        scans(4, 0),
+    ];
+    std::eprintln!(
+        "FACETS SCANS of a {size} B catalog (authors from 0, 320, 672; series; tags; letters; \
+         folders): {got:?}"
+    );
+    assert_eq!(got, [4, 14, 25, 2, 1, 2, 1]);
 }
