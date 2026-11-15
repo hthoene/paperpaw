@@ -21,14 +21,24 @@ use paperpaw_emulator::{device::Device, headless::run_script, profiles};
 const BOOK: &str = "books/alice-in-wonderland.epub";
 
 /// The host slots a return may enter, all together and the settings reads
-/// (emulator, X4, Home with its default page). Measured with the page kept: 966
-/// slots and 423 reads; laid out again on every return, as before: 1,349 and
-/// 712 (a draw alone is about 640 and 270; the return draws twice, grays on).
-const KEPT_ALL_SLOTS: u32 = 1050;
-const KEPT_SETTINGS: u32 = 470;
+/// (emulator, X4, Home with its default page). Measured with the page and its
+/// look kept: 517-528 slots and 23-36 reads; with the page kept and its look
+/// read at every draw: 857-868 and 333-346 (967-978 and 423-436 before the
+/// names and widgets kept theirs); laid out again on every return, as before:
+/// 1,349 and 712.
+const KEPT_ALL_SLOTS: u32 = 560;
+const KEPT_SETTINGS: u32 = 60;
+/// A full redraw (five bands) of a page whose look is kept: slots, settings reads
+/// (622 and 270 before the look was kept; 330 and about 12 measured).
+const STEADY_SLOTS: u32 = 370;
+const STEADY_READS: u32 = 40;
+/// The first redraw after a setting changed reads the look of the page and of
+/// each of its widgets again: 160 reads measured, 142 where the page forgets
+/// nothing, 36 where its widgets forget nothing (18 in a steady redraw).
+const CHANGED_READS: u32 = 150;
 /// A return that lays the page out again reads at least this many settings
 /// (614 measured, with a grid of three columns).
-const LAID_SETTINGS: u32 = 550;
+const LAID_SETTINGS: u32 = 120;
 
 /// An X4 at the home screen (or in the book, `last`), the help hint off.
 fn device(last: bool) -> Device {
@@ -214,5 +224,77 @@ fn a_return_from_a_book_read_for_minutes_keeps_the_page() {
     assert!(
         all <= KEPT_ALL_SLOTS + 100 && settings <= KEPT_SETTINGS,
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
+    );
+}
+
+/// The host slots and the settings reads of `redraw` (the whole screen drawn
+/// again; the X4 draws it in five bands), as `counted` counts.
+fn redrawn(device: &mut Device) -> (u32, u32) {
+    counted(device, &["redraw"])
+}
+
+#[test]
+fn a_changed_setting_makes_home_read_its_look_again_once() {
+    let mut device = device(false);
+    // A page just shown is laid out again by the first change that reaches it
+    // (the show's window); a change after that finds the page and the widgets
+    // as they are and must have them read their look again.
+    device.call(|kernel, now| {
+        kernel
+            .set_setting(now, "home.clock.frame", "core.frame.line")
+            .unwrap()
+    });
+    run_script(&mut device, "wait:2000,redraw").unwrap();
+    // The look was read by the draws; a draw of five bands reads none again.
+    run_script(&mut device, "redraw").unwrap();
+    let (steady, steady_reads) = redrawn(&mut device);
+    eprintln!("steady redraw {steady} slots, {steady_reads} reads");
+    assert!(steady <= STEADY_SLOTS && steady_reads <= STEADY_READS);
+    let before = shot(&mut device, "look-before");
+    // The change, the event that reaches Home and what is drawn after it.
+    slot_counts::reset();
+    device.call(|kernel, now| {
+        kernel
+            .set_setting(now, "home.continue.frame", "core.frame.dark")
+            .unwrap()
+    });
+    run_script(&mut device, "wait:1000,redraw").unwrap();
+    let counts = slot_counts::snapshot();
+    let changed: u32 = counts.iter().map(|(_, n)| *n).sum();
+    let changed_reads = counts
+        .iter()
+        .find(|(name, _)| *name == "settings_read")
+        .map_or(0, |(_, n)| *n);
+    eprintln!("changed redraw {changed} slots, {changed_reads} reads");
+    assert!(
+        changed_reads >= CHANGED_READS,
+        "the look of Home and of its widgets was not read again: {changed_reads} reads"
+    );
+    assert_ne!(
+        shot(&mut device, "look-after"),
+        before,
+        "the frame of the card does not show"
+    );
+    let (again, again_reads) = redrawn(&mut device);
+    eprintln!("next redraw {again} slots, {again_reads} reads");
+    assert!(again <= STEADY_SLOTS + 40 && again_reads <= STEADY_READS);
+}
+
+#[test]
+fn repeated_returns_do_not_grow_the_heap() {
+    let mut device = device(false);
+    let mut live = 0;
+    for round in 0..14 {
+        back_from_the_drawer(&mut device);
+        if round == 3 {
+            live = paperpaw_emulator::budget::stats().live;
+        }
+    }
+    let now = paperpaw_emulator::budget::stats().live;
+    eprintln!("HEAP returns: live {live} after 4 returns, {now} after 14");
+    assert!(
+        now <= live + 256,
+        "the heap grew by {} B over ten returns",
+        now.saturating_sub(live)
     );
 }
