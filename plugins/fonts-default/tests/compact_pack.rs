@@ -80,3 +80,61 @@ fn the_icons_packed_are_the_plain_ones_pixel_for_pixel() {
     let n = same_pixels(&plain, &packed, &chars);
     assert!(n >= SIZES.len() * 100, "{n} glyphs compared");
 }
+
+/// A measure, not a gate: reading every pixel of a screen of text (about 300
+/// glyphs at 24 and 28 px) from the plain pack and from the packed one.
+/// `cargo test --release -p paperpaw-plugin-fonts-default --test compact_pack -- --ignored --nocapture`
+#[test]
+#[ignore = "a measurement"]
+fn time_of_reading_a_screen_of_text() {
+    use std::time::Instant;
+    let font = OutlineFont::new(
+        SANS.to_vec(),
+        &[("wght", paperpaw_plugin_fonts_default::UI_WEIGHT)],
+    )
+    .unwrap();
+    let text: Vec<char> = "Reading statistics, Library and Settings: the quick brown fox jumps over the lazy dog 0123456789. "
+        .chars()
+        .cycle()
+        .take(300)
+        .collect();
+    let mut chars: Vec<char> = text.clone();
+    chars.sort();
+    chars.dedup();
+    let mut scan = |compact: bool| {
+        let mut builder = PackBuilder::new();
+        if compact {
+            builder.compact();
+        }
+        for size in [24.0, 28.0] {
+            let glyphs = font.rasterize_chars(chars.iter().copied(), size, Hinting::Light);
+            builder.add_strike(size, font.line_metrics(size), glyphs);
+        }
+        let pack = BitmapFont::new(builder.build()).unwrap();
+        let start = Instant::now();
+        let mut sum = 0u64;
+        for _ in 0..200 {
+            for size in [24.0, 28.0] {
+                for &ch in &text {
+                    let g = pack.glyph(ch, size);
+                    let level = g.levels();
+                    for y in 0..u32::from(g.height) {
+                        for x in 0..u32::from(g.width) {
+                            sum += u64::from(level(x, y));
+                        }
+                    }
+                }
+            }
+        }
+        (start.elapsed(), sum)
+    };
+    let (plain, a) = scan(false);
+    let (packed, b) = scan(true);
+    assert_eq!(a, b);
+    println!(
+        "600 glyphs x 200: plain {plain:?}, packed {packed:?}, per screen of 300 glyphs at two sizes: {:?} vs {:?} ({:+.0} %)",
+        plain / 200,
+        packed / 200,
+        (packed.as_secs_f64() / plain.as_secs_f64() - 1.0) * 100.0
+    );
+}
