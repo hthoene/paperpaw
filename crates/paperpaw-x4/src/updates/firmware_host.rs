@@ -67,6 +67,14 @@ impl<T> Held<T> {
     }
 }
 
+impl<T> Held<T> {
+    /// The value, moved out of its box.
+    fn take(self) -> T {
+        let [value] = *self.0;
+        value
+    }
+}
+
 impl<T> core::ops::Deref for Held<T> {
     type Target = T;
     fn deref(&self) -> &T {
@@ -95,14 +103,12 @@ fn reason_of(failure: InstallFailure) -> Reason {
     }
 }
 
-/// How the image is verified as it is read.
-#[expect(
-    clippy::large_enum_variant,
-    reason = "one at a time; the signature's state stays where it was"
-)]
+/// How the image is verified as it is read. The state of either check is
+/// about a kilobyte: held on the heap (a job is, too), the enum moves as a
+/// pointer, not as a kilobyte through every frame that passes it on.
 enum Verify {
-    Signed(Check),
-    Foreign(ForeignCheck),
+    Signed(Held<Check>),
+    Foreign(Held<ForeignCheck>),
 }
 
 impl Verify {
@@ -115,8 +121,8 @@ impl Verify {
 
     fn finish(self) -> Result<(), Reason> {
         match self {
-            Verify::Signed(check) => check.finish().map_err(|_| Reason::DAMAGED),
-            Verify::Foreign(check) => check.finish().map_err(reason_of),
+            Verify::Signed(check) => check.take().finish().map_err(|_| Reason::DAMAGED),
+            Verify::Foreign(check) => check.take().finish().map_err(reason_of),
         }
     }
 }
@@ -183,10 +189,6 @@ pub(super) struct WriteJob {
     stage: Stage,
 }
 
-#[expect(
-    clippy::large_enum_variant,
-    reason = "one at a time, held in place so that nothing is allocated for it"
-)]
 enum Stage {
     /// The image's head not read yet (the first step does: the card is
     /// not asked in `begin_write`).
@@ -250,7 +252,9 @@ impl<F: Flash> Updates<F> {
                 signer: Signer::Unsigned,
                 foreign: true,
             };
-            let verify = Verify::Foreign(ForeignCheck::new(this.chip, self.board, image.len));
+            let verify = Verify::Foreign(Held::new(ForeignCheck::new(
+                this.chip, self.board, image.len,
+            ))?);
             return Ok((meta, verify, image.len));
         }
         let size = storage.size(path).map_err(|_| Reason::CARD)?;
@@ -287,7 +291,8 @@ impl<F: Flash> Updates<F> {
             signer,
             foreign: false,
         };
-        let verify = Verify::Signed(Check::new(&trailer).map_err(|_| Reason::DAMAGED)?);
+        let check = Check::new(&trailer).map_err(|_| Reason::DAMAGED)?;
+        let verify = Verify::Signed(Held::new(check)?);
         Ok((meta, verify, u64::from(trailer.image_len)))
     }
 
