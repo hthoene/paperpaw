@@ -2559,7 +2559,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-txt"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.15"
+version = "1.0.16"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

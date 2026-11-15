@@ -753,6 +753,7 @@ impl NativeReader {
         // What the screens kept of the settings is out of date.
         for view in self.screens.all() {
             view.forget_settings();
+            view.forget_status();
         }
         if key == "core.smooth-text" {
             let instances: alloc::vec::Vec<Instance> = self

@@ -137,7 +137,8 @@ impl<'a> OpenBook<'a> {
         self.flags |= 1 << 2;
         self
     }
-    /// The longest side of a page's picture, 1 to 1,600 (0 leaves it to the host).
+    /// The longest side of a page's picture, 1 to 1,600 (0 leaves it to the host:
+    /// the screen's long side, at most 1,600).
     #[must_use]
     pub const fn image_side(mut self, side: u32) -> Self {
         self.image_side = side;
