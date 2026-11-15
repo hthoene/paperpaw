@@ -164,6 +164,9 @@ const DIRECTORY: usize = SLOTS * 4;
 const TABLE_HEAD: usize = 8;
 const STRIKE: usize = 32;
 const RECORD: usize = 20;
+/// The strike's flag (the reserved field after its size): its bitmaps are
+/// stored packed (`crate::packed`); 0, as before, as 4-bit coverage.
+pub(crate) const STRIKE_PACKED: u16 = 1;
 /// Where in the first strike's header the kerning table's offset is.
 const KERNING: usize = HEADER + 28;
 
@@ -506,14 +509,18 @@ impl BitmapFont {
                 .bitmaps
                 .checked_add(u32_at(d, offset + 16)? as usize)?;
             let len = usize::from(width).div_ceil(2) * usize::from(height);
+            let (format, data) = (
+                crate::glyph::COVERAGE4,
+                d.get(start..start.checked_add(len)?)?,
+            );
             Some(GlyphRef {
-                format: crate::glyph::COVERAGE4,
+                format,
                 advance: q6(i32_at(d, offset + 4)?).max(0.0),
                 left: i16_at(d, offset + 8)?,
                 top: i16_at(d, offset + 10)?,
                 width,
                 height,
-                data: d.get(start..start.checked_add(len)?)?,
+                data,
             })
         };
         read().unwrap_or(empty)
@@ -566,6 +573,9 @@ pub struct PackBuilder {
     /// The tables of slots 0 to 6, with their heads (see
     /// [`PackBuilder::table`]).
     tables: [Vec<u8>; 7],
+    /// Store the bitmaps packed where every glyph of a strike can be
+    /// ([`PackBuilder::compact`]).
+    compact: bool,
 }
 
 #[derive(Debug)]
@@ -578,6 +588,15 @@ struct StrikeData {
 impl PackBuilder {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Stores each strike's bitmaps packed (`crate::packed`, about half the
+    /// bytes, the same pixels), for the packs a firmware carries; a strike
+    /// with a glyph too wide for it stays as it is. Readers that know the
+    /// strike flag only: the packs of cards and stores are built without.
+    pub fn compact(&mut self) -> &mut Self {
+        self.compact = true;
+        self
     }
 
     /// Adds a strike; glyphs may come in any order.
@@ -637,9 +656,26 @@ impl PackBuilder {
             let glyph_table = out.len();
             out.resize(glyph_table + glyphs.len() * RECORD, 0);
             let bitmaps = out.len();
+            // Every bitmap of the strike packed, or none of them.
+            let packed: Option<Vec<Vec<u8>>> = self
+                .compact
+                .then(|| {
+                    glyphs
+                        .iter()
+                        .map(|(_, glyph)| {
+                            (glyph.format == crate::glyph::COVERAGE4)
+                                .then(|| crate::packed::encode(&glyph.data, glyph.width, glyph.height))
+                                .flatten()
+                        })
+                        .collect()
+                })
+                .flatten();
             for (i, (ch, glyph)) in glyphs.iter().enumerate() {
                 let data_offset = (out.len() - bitmaps) as u32;
-                out.extend_from_slice(&glyph.data);
+                match &packed {
+                    Some(all) => out.extend_from_slice(&all[i]),
+                    None => out.extend_from_slice(&glyph.data),
+                }
                 let mut record = Vec::with_capacity(RECORD);
                 record.extend_from_slice(&(*ch as u32).to_le_bytes());
                 record.extend_from_slice(&to_q6(glyph.advance).to_le_bytes());
@@ -653,7 +689,7 @@ impl PackBuilder {
             }
             let mut header = Vec::with_capacity(STRIKE);
             header.extend_from_slice(&((size * 4.0 + 0.5) as u16).to_le_bytes());
-            header.extend_from_slice(&[0, 0]);
+            header.extend_from_slice(&if packed.is_some() { STRIKE_PACKED } else { 0 }.to_le_bytes());
             header.extend_from_slice(&to_q6(metrics.ascent).to_le_bytes());
             header.extend_from_slice(&to_q6(metrics.descent).to_le_bytes());
             header.extend_from_slice(&to_q6(metrics.line_height).to_le_bytes());

@@ -51,6 +51,7 @@ mod kern_table;
 mod kerning;
 mod layout;
 mod linebreak;
+mod packed;
 mod mark_table;
 #[cfg(feature = "outline")]
 mod marks;
