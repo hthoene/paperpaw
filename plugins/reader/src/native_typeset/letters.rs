@@ -4,7 +4,10 @@
 //! layout learns a pair's kerning from the width of the pair against its
 //! letters, kept in a small table; a ligature is the one letter U+FB00 to
 //! U+FB04 the plugin draws in place of its letters, where the font has it.
-use super::{Faces, Measure, Role, small_capital, tables::quantised};
+use super::{
+    Faces, Measure, Role, small_capital,
+    tables::{kerns, quantised},
+};
 use paperpaw_sdk::layout::Face;
 
 /// The widest letter spacing, in percent of the text size (`core.letter-spacing`).
@@ -122,6 +125,10 @@ impl<M: Measure> Faces<M> {
     /// How much `right` moves when it follows `left` set by the font alone: its
     /// kerning, as the host's text calls set a pair.
     fn host_kern(&self, role: Role, size: f32, (left, right): (char, char)) -> f32 {
+        // A pair the tables cannot keep is not asked at every use.
+        if self.tables.leaves_out((left, right)) {
+            return 0.0;
+        }
         if let Some(kern) = self.tables.pair(role, size, (left, right)) {
             return kern;
         }
@@ -178,6 +185,8 @@ impl<M: Measure> Faces<M> {
             || right == ' '
             || paperpaw_sdk::text::is_invisible(left)
             || paperpaw_sdk::text::is_invisible(right)
+            || !kerns(left)
+            || !kerns(right)
         {
             return 0.0;
         }

@@ -46,6 +46,8 @@ pub(super) fn draw_apart<M: Measure>(
     let mut at = 0;
     while let Some(c) = word.get(at..).and_then(|rest| rest.chars().next()) {
         if paperpaw_sdk::text::is_invisible(c) {
+            // The layout sets no pair across what is not drawn.
+            before = None;
             at += c.len_utf8();
             continue;
         }

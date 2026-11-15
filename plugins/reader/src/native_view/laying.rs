@@ -26,7 +26,7 @@ impl Open {
         start: (u32, u32),
     ) -> Result<(Page, bool), Error> {
         let area = self.area(setup).ok_or(Error::NoSpace)?;
-        let tables = self.settings.tables(setup.reading.letters);
+        let tables = self.settings.tables();
         let fonts = HostFonts::acquire(host)?;
         let page = Faces::with_tables(&fonts, setup.base(), setup.reading.spacing_factor(), tables)
             .and_then(|faces| {
@@ -105,7 +105,7 @@ impl Open {
         frame: &mut DrawFrame<'_>,
         (setup, fonts, area): (&Setup, &HostFonts<'_>, native_pages::Box),
     ) -> Result<(), Error> {
-        let tables = self.settings.tables(setup.reading.letters);
+        let tables = self.settings.tables();
         let faces =
             Faces::with_tables(fonts, setup.base(), setup.reading.spacing_factor(), tables)?
                 .word_spacing(setup.reading.word_factor())

@@ -561,6 +561,20 @@ impl View {
         redraw(host, RedrawMode::Full)
     }
 
+    /// Whether the open book holds tables of the fonts' letters.
+    #[must_use]
+    pub fn holds_tables(&self) -> bool {
+        matches!(&self.body, Body::Open(open) if open.settings.has_tables())
+    }
+
+    /// Lets go of the tables of the fonts' letters (the reading screen is
+    /// covered); the next page makes them again.
+    pub fn free_tables(&self) {
+        if let Body::Open(open) = &self.body {
+            open.settings.drop_tables();
+        }
+    }
+
     /// A setting changed: the reading settings are read again at the next use.
     pub fn forget_settings(&self) {
         if let Body::Open(open) = &self.body {

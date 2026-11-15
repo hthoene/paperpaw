@@ -131,7 +131,7 @@ fn a_refusal_is_noted_and_the_layout_goes_on() {
 
 #[test]
 fn the_tables_find_what_they_keep_and_nothing_else() {
-    let tables = Tables::new(Letters::DEFAULT).unwrap();
+    let tables = Tables::new().unwrap();
     for c in ['a', 'Z', ' ', '\u{e4}', '\u{2019}'] {
         assert_eq!(tables.width(Role::Reading, 20.0, c), None);
         tables.keep_width(Role::Reading, 20.0, c, 7.25);
@@ -172,7 +172,7 @@ fn tables_with_no_room_keep_nothing_and_every_ask_goes_to_the_host() {
 
 #[test]
 fn a_context_is_emptied_for_a_fifth_one_and_a_kerned_pair_pushed_out_is_asked_again() {
-    let tables = Tables::new(Letters::DEFAULT).unwrap();
+    let tables = Tables::new().unwrap();
     for size in [10.0, 11.0, 12.0, 13.0] {
         tables.keep_width(Role::Reading, size, 'a', size);
     }
@@ -341,4 +341,157 @@ fn a_host_that_refuses_a_pair_is_a_refused_measure() {
     fake.refuse.set(true);
     assert!(faces.kern(face(TextStyle::REGULAR, 0, 0), 'a', 'b').abs() < 1e-4);
     assert!(faces.take_failed());
+}
+
+/// 96 letters of one script: the alphabet is full after them.
+fn full_alphabet(tables: &Tables) {
+    for n in 0..96u32 {
+        let c = char::from_u32(0x100 + n).unwrap();
+        tables.keep_width(Role::Reading, 20.0, c, 7.0);
+    }
+}
+
+#[test]
+fn a_new_letter_takes_the_number_of_the_one_used_least_lately() {
+    let tables = Tables::new().unwrap();
+    full_alphabet(&tables);
+    tables.keep_pair(Role::Reading, 20.0, ('\u{0100}', '\u{0101}'), -1.5);
+    tables.keep_pair(Role::Reading, 20.0, ('\u{0105}', '\u{0100}'), -0.5);
+    // The letters but the first are used again; the first is the oldest.
+    for n in 1..96u32 {
+        let c = char::from_u32(0x100 + n).unwrap();
+        assert_eq!(tables.width(Role::Reading, 20.0, c), Some(7.0));
+    }
+    let new = '\u{0436}';
+    assert_eq!(tables.width(Role::Reading, 20.0, new), None);
+    // Every letter was used a moment ago: the new one has no number (its width
+    // is kept apart, and its pairs are neither kept nor asked), and loses none.
+    tables.keep_width(Role::Reading, 20.0, new, 7.25);
+    assert!(tables.leaves_out((new, '\u{0101}')));
+    assert_eq!(tables.width(Role::Reading, 20.0, '\u{0103}'), Some(7.0));
+    // After a while only one letter is in use; the first of the others, the one
+    // used least lately, gives its number.
+    for _ in 0..3_000 {
+        tables.width(Role::Reading, 20.0, '\u{0102}');
+    }
+    assert!(!tables.leaves_out((new, '\u{0102}')));
+    let kept = tables.keep_width(Role::Reading, 20.0, new, 7.25);
+    assert_eq!(tables.width(Role::Reading, 20.0, new), Some(kept));
+    // The first letter lost its width and its pairs; the others kept theirs.
+    assert_eq!(tables.width(Role::Reading, 20.0, '\u{0100}'), None);
+    assert_eq!(
+        tables.pair(Role::Reading, 20.0, ('\u{0100}', '\u{0101}')),
+        None
+    );
+    assert_eq!(
+        tables.pair(Role::Reading, 20.0, ('\u{0105}', '\u{0100}')),
+        None
+    );
+    assert_eq!(tables.width(Role::Reading, 20.0, '\u{0101}'), Some(7.0));
+    // The new letter has pairs of its own; no pair of the old one is in its.
+    assert_eq!(tables.pair(Role::Reading, 20.0, (new, '\u{0101}')), None);
+    tables.keep_pair(Role::Reading, 20.0, (new, '\u{0101}'), -1.0);
+    assert_eq!(
+        tables.pair(Role::Reading, 20.0, (new, '\u{0101}')),
+        Some(-1.0)
+    );
+}
+
+#[test]
+fn the_widths_of_characters_fonts_do_not_kern_are_kept_exactly_and_they_have_no_pairs() {
+    let tables = Tables::new().unwrap();
+    let (a, b) = ('\u{4e2d}', '\u{6587}');
+    assert_eq!(tables.width(Role::Reading, 20.0, a), None);
+    // Kept in sixty-fourths of a pixel, and that is what the keep gives back.
+    let kept = tables.keep_width(Role::Reading, 20.0, a, 20.3);
+    assert!((kept - 1299.0 / 64.0).abs() < 1e-6, "{kept}");
+    assert_eq!(tables.width(Role::Reading, 20.0, a), Some(kept));
+    // Another character, size or role is another entry.
+    assert_eq!(tables.width(Role::Reading, 20.0, b), None);
+    assert_eq!(tables.width(Role::Reading, 21.0, a), None);
+    assert_eq!(tables.width(Role::Bold, 20.0, a), None);
+    // No pair is kept.
+    tables.keep_pair(Role::Reading, 20.0, (a, b), -1.5);
+    assert_eq!(tables.pair(Role::Reading, 20.0, (a, b)), None);
+    // A width the table cannot hold is the host's, and not kept.
+    assert!((tables.keep_width(Role::Reading, 20.0, b, 900.0) - 900.0).abs() < 1e-6);
+    assert_eq!(tables.width(Role::Reading, 20.0, b), None);
+    // A context emptied for a fifth takes its entries with it.
+    for size in [21.0, 22.0, 23.0, 24.0] {
+        tables.keep_width(Role::Reading, size, 'a', size);
+    }
+    assert_eq!(tables.width(Role::Reading, 20.0, a), None);
+}
+
+#[test]
+fn a_page_of_another_script_after_a_full_alphabet_asks_once_and_is_kerned_like_the_first() {
+    let fake = Fake::default();
+    let faces = Faces::new(&fake, 20.0, 1.0)
+        .unwrap()
+        .with_letters(Letters::DEFAULT);
+    let plain = face(TextStyle::REGULAR, 0, 0);
+    // A Latin front matter takes the alphabet; then Cyrillic text, twice.
+    for n in 0..96u32 {
+        faces.advance(plain, char::from_u32(0x100 + n).unwrap());
+    }
+    let text: Vec<char> = ('\u{0430}'..='\u{044f}').collect();
+    let turn = |faces: &Faces<&Fake>| {
+        for pair in text.windows(2) {
+            faces.advance(plain, pair[0]);
+            faces.kern(plain, pair[0], pair[1]);
+        }
+    };
+    // The first pages: the Latin letters are still in use, the Cyrillic ones
+    // are set without kerning; some pages later they have the numbers.
+    for _ in 0..40 {
+        turn(&faces);
+    }
+    let before = fake.asked.get();
+    turn(&faces);
+    turn(&faces);
+    // Nothing is asked once the letters and their pairs are kept.
+    let again = fake.asked.get() - before;
+    assert!(
+        before > 2 * text.len(),
+        "{before} asked: pairs were left out"
+    );
+    assert_eq!(again, 0, "the pages asked the host again");
+}
+
+#[test]
+fn ideographs_are_set_one_after_the_other_and_no_pair_is_asked() {
+    let fake = Fake::default();
+    let faces = Faces::new(&fake, 20.0, 1.0)
+        .unwrap()
+        .with_letters(Letters::DEFAULT);
+    let plain = face(TextStyle::REGULAR, 0, 0);
+    let before = fake.asked.get();
+    for pair in [
+        ('\u{4e2d}', '\u{6587}'),
+        ('\u{3042}', '\u{3044}'),
+        ('\u{d55c}', 'a'),
+    ] {
+        assert!(faces.kern(plain, pair.0, pair.1).abs() < 1e-6);
+        assert!(faces.font_kern(plain, pair.0, pair.1).abs() < 1e-6);
+    }
+    assert_eq!(fake.asked.get(), before, "a pair of them went to the host");
+}
+
+#[test]
+fn with_kerning_and_ligatures_off_a_pair_is_still_asked_once() {
+    // A word drawn in pieces asks the font for each pair (`font_kern`) at every
+    // draw: the tables keep them as they do for the default settings.
+    let fake = Fake::default();
+    // The tables as the reader makes them for these settings.
+    let faces = Faces::with_tables(&fake, 20.0, 1.0, Tables::new().unwrap())
+        .unwrap()
+        .with_letters(Letters::new(0, false, false));
+    let plain = face(TextStyle::REGULAR, 0, 0);
+    assert!(faces.font_kern(plain, 'a', 'b').abs() < 1e-4);
+    let first = fake.asked.get();
+    assert!(first > 0);
+    for _ in 0..3 {
+        assert!(faces.font_kern(plain, 'a', 'b').abs() < 1e-4);
+    }
+    assert_eq!(fake.asked.get(), first);
 }
