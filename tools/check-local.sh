@@ -30,6 +30,9 @@
 #   --features LIST   also clippy and test with --features LIST (e.g. linked)
 #   --all-linked      test-linked for every package with a `linked` feature,
 #                     not only the changed ones (the train smoke)
+#   --no-dependents   only the changed packages, not the ones that depend on
+#                     them (found packages get their dependents checked too;
+#                     crates named on the command line are taken as they are)
 #   --only a,b,c      run only these steps
 #   --skip a,b,c      skip these steps
 #   --online          let lockfiles use the network (default: --offline)
@@ -62,6 +65,7 @@ base="origin/abi7/integration"
 jobs=4
 crates=()
 all_linked=0
+with_dependents=1
 known=" fmt fmt-shells fmt-fuzz clippy clippy-features clippy-native test test-features test-linked test-native doc changelog lockfiles licences checks abi-metadata "
 
 check_names() { # LIST OPTION: every name must be a known step
@@ -77,6 +81,7 @@ while (($#)); do
         --only) check_names "${2:?--only needs a list}" --only; only=",$2,"; shift 2 ;;
         --skip) check_names "${2:?--skip needs a list}" --skip; skip=",$2,"; shift 2 ;;
         --all-linked) all_linked=1; shift ;;
+        --no-dependents) with_dependents=0; shift ;;
         --online) lock_args=""; shift ;;
         --base) base="${2:?--base needs a revision}"; shift 2 ;;
         --jobs) jobs="${2:?--jobs needs a number}"; shift 2 ;;
@@ -95,6 +100,7 @@ logs="$(mktemp -d "${TMPDIR:-/tmp}/check-local.XXXXXX")" || exit 2
 not_checked=()
 warnings=()
 detected=()
+dependents=()
 merge_base=""
 explicit=0
 ((${#crates[@]} > 0)) && explicit=1
@@ -148,20 +154,43 @@ with open(sys.argv[2], encoding="utf-8") as stream:
                     if where not in separate:
                         separate.append(where)
                 break
+# What depends on a changed package, in any kind of dependency (a change in
+# a library is felt by the tests of every package that builds it).
+names = set(members.values())
+users = {}
+for package in metadata["packages"]:
+    for dep in package.get("dependencies", []):
+        if dep["name"] in names:
+            users.setdefault(dep["name"], set()).add(package["name"])
+dependents, queue = [], list(packages)
+while queue:
+    for user in sorted(users.get(queue.pop(0), ())):
+        if user not in packages and user not in dependents:
+            dependents.append(user)
+            queue.append(user)
 for name in packages:
     print("PKG", name)
+for name in dependents:
+    print("DEP", name)
 for where in separate:
     print("SEPARATE", where)
 PY
     while read -r kind value; do
         case "$kind" in
             PKG) detected+=("$value") ;;
+            DEP) dependents+=("$value") ;;
             SEPARATE) not_checked+=("NOT CHECKED: $value/ (separate workspace; build it there)") ;;
         esac
     done < "$logs/classified.txt"
 fi
 if ((explicit == 0)) && ((${#detected[@]} > 0)); then
     crates=("${detected[@]}")
+    # The packages that depend on a changed one are checked too: its tests, its
+    # linked tests and test-native are where a change in a library shows up.
+    if ((with_dependents == 1)) && ((${#dependents[@]} > 0)); then
+        echo "check-local: ${#dependents[@]} dependent package(s) of the changed ones are checked too (--no-dependents: not)"
+        crates+=("${dependents[@]}")
+    fi
 fi
 pkgs=()
 for crate in "${crates[@]}"; do pkgs+=(-p "$crate"); done

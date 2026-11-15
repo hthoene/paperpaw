@@ -602,6 +602,9 @@ fn prepare() -> Ready {
     if let Some(message) = &panicked {
         crash::keep(storage.as_ref(), message);
     }
+    // The run before's lows, a line on the card (test image).
+    #[cfg(feature = "test-image")]
+    high_water::note_to_card(storage.as_ref());
     #[cfg(feature = "remote")]
     remote::note_panic(panicked);
     let mut panel = board.panel;
@@ -868,15 +871,7 @@ fn native(
 /// Loads nothing: in safe mode the kernel asks for no code.
 struct NoCode;
 
-impl paperpaw_core::CodeLoader for NoCode {
-    fn load(
-        &mut self,
-        _: &dyn Storage,
-        _: &paperpaw_core::CodeFile<'_>,
-    ) -> Result<Box<dyn paperpaw_sdk::Plugin>, paperpaw_sdk::PluginProblem> {
-        Err(paperpaw_sdk::PluginProblem::SafeMode)
-    }
-}
+impl paperpaw_core::CodeLoader for NoCode {}
 
 /// Whether code plugins are loaded at this start, after the key for safe
 /// mode was looked for and the failed starts counted.
@@ -903,9 +898,7 @@ fn code_plugins(
     #[cfg(feature = "esp32s3")]
     let place = {
         let _ = flash;
-        // SAFETY: the board does not use SHA; this loader owns it until
-        // all plugins are loaded, before the radio is started.
-        native::Place::new(unsafe { esp_hal::peripherals::SHA::steal() })
+        native::Place::new()
     };
     #[cfg(feature = "esp32c3")]
     let place = native::Place::new(flash.clone());
@@ -1038,6 +1031,9 @@ fn kernel(
         Some(trouble) => builder.card_trouble(trouble),
         None => builder,
     };
+    // A card folder with code never takes the id of a plugin linked into
+    // this firmware (a plugin of Beta 3 that is built in now), on any start.
+    let builder = builder.built_in_ids(paperpaw_app::is_linked_id);
     let builder = match code {
         CodePlugins::Load(loader) => {
             builder.code_plugins(native(staged.not_installed), Box::new(loader))

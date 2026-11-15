@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use paperpaw_i18n::check::{self, Issue};
-use paperpaw_i18n::{Catalog, FALLBACK_LANGUAGE, PluralCategory, PluralRule, Translator};
+use paperpaw_i18n::{Catalog, FALLBACK_LANGUAGE, PluralCategory, PluralRule};
 
 use crate::report::{Finding, Level};
 
@@ -62,13 +62,6 @@ pub fn merge<'a>(catalogs: impl IntoIterator<Item = &'a Catalog>) -> Vec<Languag
         }
     }
     languages.sort_by_key(|l| (l.code != FALLBACK_LANGUAGE, l.code.clone()));
-    languages
-}
-
-/// Every language the translator has but the pseudo-language.
-pub fn languages(translator: &Translator) -> Vec<Language> {
-    let mut languages = merge(&translator.catalogs());
-    languages.retain(|l| l.code != super::PSEUDO);
     languages
 }
 

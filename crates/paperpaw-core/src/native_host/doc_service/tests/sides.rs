@@ -11,7 +11,7 @@ fn open_with(fake: &Rc<Fake>, image_side: u32, cover_side: u32) -> u32 {
 }
 
 #[test]
-fn a_zero_cover_side_is_the_default_of_the_screen_and_shares_the_cache() {
+fn zero_sides_are_the_defaults_of_the_screen_and_share_the_cache() {
     for (long_side, cover) in [(800, 300), (1448, 543)] {
         // Two opens at once: the large device's limit, not the X4's.
         let fake = Fake::new(Limits::LARGE);
@@ -19,13 +19,50 @@ fn a_zero_cover_side_is_the_default_of_the_screen_and_shares_the_cache() {
         open_with(&fake, 0, 0);
         // An explicit open of the same sides is the same conversion key
         // input, so the two share one cache.
-        open_with(&fake, 1600, cover);
+        open_with(&fake, long_side, cover);
         let keyed = fake.keyed.borrow().clone();
-        assert_eq!(keyed, [(1600, cover), (1600, cover)], "screen {long_side}");
+        let sides = (long_side, cover);
+        assert_eq!(keyed, [sides, sides], "screen {long_side}");
         let calls = fake.calls.borrow();
-        assert_eq!((calls[0][6], calls[0][7]), (1600, cover));
-        assert_eq!((calls[1][6], calls[1][7]), (1600, cover));
+        assert_eq!((calls[0][6], calls[0][7]), sides);
+        assert_eq!((calls[1][6], calls[1][7]), sides);
     }
+}
+
+/// An open that names no picture side decodes page pictures no larger than
+/// the screen is long, as Beta 3 did, and never larger than 1,600: the X4
+/// family's 800, the X3's 792, a 1,448 and a 1,680 pixel screen (#250). The
+/// side is the long one, so a turned screen is the same conversion.
+#[test]
+fn a_zero_image_side_is_the_screens_long_side_at_most_1600() {
+    for (long_side, wanted) in [(800, 800), (792, 792), (1448, 1448), (1680, 1600)] {
+        let fake = Fake::new(Limits::X4);
+        fake.long_side.set(long_side);
+        open_with(&fake, 0, 300);
+        assert_eq!(
+            fake.keyed.borrow()[0].0,
+            wanted,
+            "screen {long_side}: the key"
+        );
+        assert_eq!(
+            fake.calls.borrow()[0][6],
+            wanted,
+            "screen {long_side}: the format"
+        );
+    }
+    // No screen told: never 0 to a format.
+    assert_eq!(args::default_image_side(0), 1600);
+}
+
+/// A side an open names is taken as it is: a reader that wants the most
+/// still gets 1,600 on a small screen.
+#[test]
+fn a_named_image_side_is_not_bound_by_the_screen() {
+    let fake = Fake::new(Limits::X4);
+    fake.long_side.set(800);
+    open_with(&fake, 1600, 300);
+    assert_eq!(fake.keyed.borrow()[0].0, 1600);
+    assert_eq!(fake.calls.borrow()[0][6], 1600);
 }
 
 #[test]

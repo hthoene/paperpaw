@@ -113,7 +113,7 @@ impl Open {
             now: native_place::wall_seconds(host),
         };
         let done = native_bookmark::toggle(host, library, &self.path, &shown)?;
-        self.bookmarks_toggled(shown.range, done);
+        self.bookmarks_toggled(shown.range, done, &text);
         // The ribbon comes or goes; a refused redraw is no lost bookmark (the
         // next draw shows it).
         self.redraw_ribbon(host).ok();

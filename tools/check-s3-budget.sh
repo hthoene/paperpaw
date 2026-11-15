@@ -54,12 +54,14 @@
 # target directory at the end (delete it when the disk is tight, the next run
 # rebuilds). Both devices build into the same directory, side by side.
 #
-# KNOWN DIFFERENCE: the same source (train 3, `9d278c315`) that CI's x4-pro job
-# passed gives here one extra followed call (5826 against 5825), so one `allow`
-# line (`drop_glue<paperpaw_text::stored::Kept>` indirect 1) "matches nothing any
-# more". The cause is not found (same paths, flags and sources). A stale `allow`
-# line permits nothing, so when EVERY error of a scan is of that kind the script
-# prints the lines, says so and still exits 0; CI's run decides on them.
+# A stale `allow` line (one that "matches nothing any more") is an error in CI, so it is
+# one here. Train 3 (`9d278c315`) once gave one extra followed call here (5826 against
+# 5825; cause not found), but on train 40 (`0b0b143a3`) this scan and CI's agreed on
+# everything: the same counts of functions, roots, followed and unfollowed calls on both S3
+# devices, and the two lines this scan called stale (`icons::char`, classic's
+# `SettingIdentity::secret`) were the two CI reported (todo 642). So remove what the scan
+# calls stale. `CHECK_S3_BUDGET_TOLERATE_STALE=1` brings the old behaviour back (the
+# script prints the lines and exits 0 when they are all that is wrong).
 #
 # The toolchain and registry paths of CI's runner (`/home/runner/...`) still
 # differ from this machine's, so a line may differ from CI's even so; a pass is
@@ -175,9 +177,10 @@ for device in "${devices[@]}"; do
     head -c 3000 "$out/$device.scan.txt"
     if [[ $code -eq 0 ]]; then
         echo "check-s3-budget: $device: the budget holds"
-    elif [[ -z "$(grep -E '^  ' "$out/$device.scan.txt" | grep -v 'matches nothing any more')" ]] \
+    elif [[ -n "${CHECK_S3_BUDGET_TOLERATE_STALE:-}" ]] \
+        && [[ -z "$(grep -E '^  ' "$out/$device.scan.txt" | grep -v 'matches nothing any more')" ]] \
         && grep -q 'matches nothing any more' "$out/$device.scan.txt"; then
-        echo "check-s3-budget: $device: the budget holds, but with stale \`allow\` lines (layout-dependent: CI decides on them)"
+        echo "check-s3-budget: $device: the budget holds, but with stale \`allow\` lines (tolerated: remove them)"
     else
         echo "check-s3-budget: $device: FAILED ($code); the full scan is $out/$device.scan.txt" >&2
         status=1

@@ -10,12 +10,12 @@
 
 mod native_activation;
 
-use paperpaw_core::{CodeFile, CodeLoader, Kernel};
+use paperpaw_core::{CodeLoader, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
 use paperpaw_sdk::native::{Native, NotInstalled, NotInstalledReason, SafeMode, SafeModeReason};
-use paperpaw_sdk::{Id, MemoryStorage, Plugin, PluginProblem, Storage};
+use paperpaw_sdk::{Id, MemoryStorage};
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "test-x4",
@@ -33,15 +33,7 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 /// Loads nothing: no plugin here has code.
 struct NoCode;
 
-impl CodeLoader for NoCode {
-    fn load(
-        &mut self,
-        _: &dyn Storage,
-        _: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        Err(PluginProblem::Unsupported)
-    }
-}
+impl CodeLoader for NoCode {}
 
 fn fonts() -> paperpaw_app::Fonts {
     #[cfg(any(feature = "packs", not(feature = "outline")))]

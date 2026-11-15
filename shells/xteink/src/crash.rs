@@ -124,7 +124,9 @@ fn handle(info: &core::panic::PanicInfo<'_>, entry: usize) -> ! {
         });
     }
     let blame = paperpaw_x4::blame::blame(
-        crate::native::api::panic_is_a_plugins(),
+        // No plugin panics through the firmware any more: that was the
+        // table of the plugin files before interface 7 (`Api::panic`).
+        false,
         from_exception,
         fault_in_plugin,
     );

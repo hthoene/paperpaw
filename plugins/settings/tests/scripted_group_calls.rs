@@ -193,6 +193,7 @@ fn answer_registry(host: &ScriptedHost, asked: &Asked) {
                     page: "",
                     order: 0,
                     title: id,
+                    icon: "",
                 })
             })
             .collect();

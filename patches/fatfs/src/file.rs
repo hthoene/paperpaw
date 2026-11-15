@@ -22,6 +22,12 @@ pub struct File<'a, IO: ReadWriteSeek, TP, OCC> {
     entry: Option<DirEntryEditor>,
     // file-system reference
     fs: &'a FileSystem<IO, TP, OCC>,
+    // Modified for PaperPaw: the clusters taken beyond the one needed when the file grows (0: one at a
+    // time, as before); see `reserve_ahead`.
+    ahead: u32,
+    // Modified for PaperPaw: clusters were taken beyond the file's end and may still be there; see
+    // `trim_ahead`.
+    ahead_taken: bool,
 }
 
 /// An extent containing a file's data on disk.
@@ -47,7 +53,56 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
             fs,
             current_cluster: None, // cluster before first one
             offset: 0,
+            ahead: 0,
+            ahead_taken: false,
         }
+    }
+
+    // Modified for PaperPaw: added.
+    /// Makes a file that grows past its last cluster take `clusters` more than that one, in a row where
+    /// they are free, in one go (0: one at a time). The FAT is written once for the run instead of once
+    /// for each cluster; the clusters beyond what is written stay linked after it, and are used by the
+    /// writes that follow. [`trim_ahead`](Self::trim_ahead) gives back what is left of them. Not for a
+    /// directory.
+    pub fn reserve_ahead(&mut self, clusters: u32) {
+        self.ahead = clusters.min(crate::table::MAX_RUN - 1);
+    }
+
+    // Modified for PaperPaw: added.
+    /// Makes [`trim_ahead`](Self::trim_ahead) look at the end of the chain once: a cut may have left
+    /// clusters taken ahead there (the size in the entry is older), and a write that ends inside the
+    /// last cluster in use would not meet them. Not for a directory.
+    pub fn maybe_ahead(&mut self) {
+        self.ahead_taken = true;
+    }
+
+    // Modified for PaperPaw: added.
+    /// Whether [`trim_ahead`](Self::trim_ahead) has something to do.
+    #[must_use]
+    pub fn ahead_taken(&self) -> bool {
+        self.ahead_taken
+    }
+
+    // Modified for PaperPaw: added.
+    /// Frees the clusters this file took beyond its end (see [`reserve_ahead`](Self::reserve_ahead)),
+    /// and makes the cluster of its last byte the end of its chain. The position is where the file
+    /// ends afterwards. Cut off before this, the clusters stay linked after the last one used, with
+    /// the size in the file's entry unchanged: they are read as no data; the next write takes them,
+    /// and removing the file frees them.
+    ///
+    /// # Errors
+    ///
+    /// `Error::Io` will be returned if the underlying storage object returned an I/O error.
+    pub fn trim_ahead(&mut self) -> Result<(), Error<IO::Error>> {
+        if !self.ahead_taken {
+            return Ok(());
+        }
+        self.seek(SeekFrom::End(0))?;
+        if let Some(cluster) = self.current_cluster {
+            self.fs.truncate_cluster_chain_run(cluster)?;
+        }
+        self.ahead_taken = false;
+        Ok(())
     }
 
     /// Truncate file in current position.
@@ -315,6 +370,10 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> File<'_, IO, TP, OCC> {
 
 impl<IO: ReadWriteSeek, TP, OCC> Drop for File<'_, IO, TP, OCC> {
     fn drop(&mut self) {
+        // Modified for PaperPaw: what was taken ahead of an append is given back first.
+        if let Err(err) = self.trim_ahead() {
+            error!("trim failed {:?}", err);
+        }
         if let Err(err) = self.flush() {
             error!("flush failed {:?}", err);
         }
@@ -330,6 +389,9 @@ impl<IO: ReadWriteSeek, TP, OCC> Clone for File<'_, IO, TP, OCC> {
             offset: self.offset,
             entry: self.entry.clone(),
             fs: self.fs,
+            // A copy takes clusters as one at a time and has none to give back.
+            ahead: 0,
+            ahead_taken: false,
         }
     }
 }
@@ -433,7 +495,16 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
                 n
             } else {
                 // end of chain reached - allocate new cluster
-                let new_cluster = self.fs.alloc_cluster(self.current_cluster, self.is_dir())?;
+                // Modified for PaperPaw: a file (not a directory) that was asked to may take a run.
+                let new_cluster = if self.is_dir() {
+                    self.fs.alloc_cluster(self.current_cluster, true)?
+                } else {
+                    let (first, count) = self.fs.alloc_clusters(self.current_cluster, 1 + self.ahead)?;
+                    if count > 1 {
+                        self.ahead_taken = true;
+                    }
+                    first
+                };
                 trace!("allocated cluster {}", new_cluster);
                 if self.first_cluster.is_none() {
                     self.set_first_cluster(new_cluster);

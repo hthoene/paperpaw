@@ -313,7 +313,7 @@ impl Computer {
                     .storage(kernel_card.clone())
                     .network(true)
                     .wifi(true)
-                    .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+                    .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
                     .plugin(Catalogs)
                     // What installs the plugin sent (a firmware host's queue
                     // takes plugin jobs; the X4's loader checks them).

@@ -178,32 +178,6 @@ pub fn fetched_plugin(name: &str) -> Option<&str> {
         .filter(|id| crate::install::is_plugin_name(id))
 }
 
-/// The plugins fetched for a firmware update that wait for this one
-/// (`native`): their folders ([`fetched_folder`]) hold code built for it
-/// and fetched by the update plugin ([`remember_fetched`]), not put
-/// there otherwise. Their ids and the SHA-256 of their headers, sorted;
-/// the kernel installs them at the start, before plugins are found.
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub fn fetched_for(storage: &dyn Storage, native: &Native) -> Vec<(String, [u8; 32])> {
-    let mut ids: Vec<String> = Vec::new();
-    let _ = storage.list(crate::builtin::PLUGIN_DIR, &mut |entry| {
-        if entry.is_dir
-            && let Some(id) = fetched_plugin(entry.name)
-        {
-            ids.push(String::from(id));
-        }
-    });
-    paperpaw_sort::sort(&mut ids);
-    ids.into_iter()
-        .filter_map(|id| {
-            let header = read_header(storage, &native.path(&fetched_folder(&id)))?;
-            (native.fits(&header) && fetched_code(storage, &id) == Some(header.sha256))
-                .then_some((id, header.sha256))
-        })
-        .collect()
-}
-
 /// Checks the plugin file at `path` whole, reading it once: its header,
 /// its length, its digest and, if it is signed, its author's signature.
 /// Its header and its author's signature (`None` if it is not signed);
@@ -236,46 +210,202 @@ pub(crate) fn checked_file(
     let mut head = [0u8; HEADER_LEN];
     read_exact(storage, path, 0, &mut head)?;
     let header = Header::read(&head)?;
-    let size = storage.size(path).map_err(|_| Problem::Length)?;
-    let end = header.file_len();
-    let signature = if header.signed(size)? {
-        let mut trailer = [0u8; signature::SIGNATURE_LEN];
-        read_exact(storage, path, end, &mut trailer)?;
-        let signature = Signature::read(&trailer).ok_or(Problem::Signature)?;
-        if u64::from(signature.signed_len) != end {
-            return Err(Problem::Signature);
-        }
-        Some(signature)
-    } else {
-        None
-    };
-    let mut author = match &signature {
-        Some(signature) => Some(author_check(signature)?),
-        None => None,
-    };
-    if let Some([check]) = author.as_deref_mut() {
-        check.absorb(&head);
-    }
-    let mut digest = header.digest();
-    let mut buf = [0u8; 512];
-    let mut at = HEADER_LEN as u64;
-    while at < end {
-        let len = (end - at).min(buf.len() as u64) as usize;
-        read_exact(storage, path, at, &mut buf[..len])?;
-        digest.update(&buf[..len]);
-        if let Some([check]) = author.as_deref_mut() {
-            check.absorb(&buf[..len]);
-        }
-        at += len as u64;
-    }
-    if !header.holds(digest) {
-        return Err(Problem::Damaged);
-    }
-    if let Some(check) = author {
-        let [check] = *check;
-        check.finish().map_err(|_| Problem::Signature)?;
-    }
+    let mut whole = Whole::before_interface_7(head, &header, storage, path)?;
+    let signature = whole.check(storage, path)?;
     Ok((header, signature))
+}
+
+/// A plugin file of either format as its header describes it, to check
+/// whole: the header's bytes (the first `head_len` of `head`), where the
+/// file ends without its author's signature, whether one follows, the
+/// SHA-256 the header carries and the digest begun with the header's part.
+struct Whole {
+    head: [u8; HEADER_LEN],
+    head_len: usize,
+    end: u64,
+    signed: bool,
+    sha256: [u8; 32],
+    digest: paperpaw_digest::sha256::Sha256,
+}
+
+impl Whole {
+    /// A file of the format before interface 7, by its header (`head` its
+    /// bytes).
+    fn before_interface_7(
+        head: [u8; HEADER_LEN],
+        header: &Header,
+        storage: &dyn Storage,
+        path: &str,
+    ) -> Result<Whole, Problem> {
+        let size = storage.size(path).map_err(|_| Problem::Length)?;
+        Ok(Whole {
+            head,
+            head_len: HEADER_LEN,
+            end: header.file_len(),
+            signed: header.signed(size)?,
+            sha256: header.sha256,
+            digest: header.digest(),
+        })
+    }
+
+    /// Nothing read yet (see [`Whole::read`]).
+    #[cfg(feature = "kernel")]
+    fn unread() -> Whole {
+        Whole {
+            head: [0; HEADER_LEN],
+            head_len: 0,
+            end: 0,
+            signed: false,
+            sha256: [0; 32],
+            digest: paperpaw_digest::sha256::Sha256::new(),
+        }
+    }
+
+    /// Reads the header of the file at `path`, of interface 7 (format 5) or
+    /// of the format before, into this. Not inlined, and into the caller's
+    /// place: what reading either header takes (the headers themselves,
+    /// some 600 bytes on the X4) is gone from the stack before the file is
+    /// checked, an install's deepest calls (#250).
+    #[cfg(feature = "kernel")]
+    #[inline(never)]
+    fn read(&mut self, storage: &dyn Storage, path: &str) -> Result<(), Problem> {
+        read_exact(storage, path, 0, &mut self.head)?;
+        match Header::read(&self.head) {
+            Ok(header) => {
+                *self = Whole::before_interface_7(self.head, &header, storage, path)?;
+            }
+            Err(Problem::NewerFormat) => {
+                // The same bytes again, as far as this header goes.
+                let (head5, header) = read_header5(storage, path)?;
+                self.head_len = head5.len();
+                self.end = header.file_len();
+                self.signed = header.signed;
+                self.sha256 = header.sha256;
+                self.digest = header.digest();
+            }
+            Err(problem) => return Err(problem),
+        }
+        Ok(())
+    }
+
+    /// Reads the file once after its header: its digest and, if it is
+    /// signed, its author's signature over all of it.
+    /// [`Problem::Other`]`(`[`NO_MEMORY`]`)` where the author's check found
+    /// no memory. Not inlined: one frame for both formats, under the
+    /// caller's small one.
+    #[inline(never)]
+    fn check(&mut self, storage: &dyn Storage, path: &str) -> Result<Option<Signature>, Problem> {
+        let head_len = self.head_len;
+        let end = self.end;
+        let signature = if self.signed {
+            let mut trailer = [0u8; signature::SIGNATURE_LEN];
+            read_exact(storage, path, end, &mut trailer)?;
+            let signature = Signature::read(&trailer).ok_or(Problem::Signature)?;
+            if u64::from(signature.signed_len) != end {
+                return Err(Problem::Signature);
+            }
+            Some(signature)
+        } else {
+            None
+        };
+        let mut author = match &signature {
+            Some(signature) => Some(author_check(signature)?),
+            None => None,
+        };
+        if let Some([check]) = author.as_deref_mut() {
+            check.absorb(&self.head[..head_len]);
+        }
+        let mut buf = [0u8; 512];
+        let mut at = head_len as u64;
+        while at < end {
+            let len = (end - at).min(buf.len() as u64) as usize;
+            read_exact(storage, path, at, &mut buf[..len])?;
+            self.digest.update(&buf[..len]);
+            if let Some([check]) = author.as_deref_mut() {
+                check.absorb(&buf[..len]);
+            }
+            at += len as u64;
+        }
+        let digest = core::mem::replace(&mut self.digest, paperpaw_digest::sha256::Sha256::new());
+        if digest.finish() != self.sha256 {
+            return Err(Problem::Damaged);
+        }
+        if let Some(check) = author {
+            let [check] = *check;
+            check.finish().map_err(|_| Problem::Signature)?;
+        }
+        Ok(signature)
+    }
+}
+
+/// The header of an interface-7 plugin file (format 5) at `path`, read for
+/// what it says of the file itself (its length, its digest), whatever chip
+/// and minor it is made for: whether it runs here is the loader's to say.
+/// The header's bytes with it.
+#[cfg(feature = "kernel")]
+fn read_header5(
+    storage: &dyn Storage,
+    path: &str,
+) -> Result<
+    (
+        [u8; paperpaw_native::header5::HEADER_LEN],
+        paperpaw_native::header5::Header5,
+    ),
+    Problem,
+> {
+    use paperpaw_native::header5::{Header5, Host, Refusal};
+    let mut head = [0u8; paperpaw_native::header5::HEADER_LEN];
+    read_exact(storage, path, 0, &mut head)?;
+    let size = storage.size(path).map_err(|_| Problem::Length)?;
+    let host = match Chip::from_id(u16::from_le_bytes([head[6], head[7]])) {
+        Some(Chip::Esp32C3) => Host::x4(u16::MAX),
+        Some(Chip::Esp32S3) => Host::x4_pro(u16::MAX),
+        _ => return Err(Problem::UnknownChip),
+    };
+    let header = Header5::read(&head, size, &host).map_err(|why| match why {
+        Refusal::NotAPlugin => Problem::NotAPlugin,
+        Refusal::Truncated | Refusal::Length => Problem::Length,
+        Refusal::OlderFormat | Refusal::OlderInterface => Problem::OlderFormat,
+        Refusal::NewerFormat | Refusal::NewerInterface => Problem::NewerFormat,
+        Refusal::UnknownChip | Refusal::NoProfile | Refusal::OtherChip => Problem::UnknownChip,
+        _ => Problem::Malformed,
+    })?;
+    Ok((head, header))
+}
+
+/// The SHA-256 the header of the code file at `path` carries, of a file
+/// of interface 7 (format 5) or of the format before: what names the code
+/// installed ([`remember_code`]). Its header only: the rest is not checked.
+/// Not inlined: the headers it reads stay out of its caller's frame, which
+/// an install's deepest calls stand on (#250).
+#[cfg(feature = "kernel")]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+#[inline(never)]
+pub fn code_sha256(storage: &dyn Storage, path: &str) -> Option<[u8; 32]> {
+    match read_header(storage, path) {
+        Some(header) => Some(header.sha256),
+        None => read_header5(storage, path)
+            .ok()
+            .map(|(_, header)| header.sha256),
+    }
+}
+
+/// [`check_file`] for a code file of interface 7 (format 5) or of the
+/// format before: the file read once and checked whole (its length, its
+/// digest and, if it is signed, its author's signature). The SHA-256 its
+/// header carries and the signature (`None` if it is not signed); whether
+/// it runs on this device is for the loader to see.
+#[cfg(feature = "kernel")]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub fn check_code(
+    storage: &dyn Storage,
+    path: &str,
+) -> Result<([u8; 32], Option<Signature>), Problem> {
+    let mut whole = Whole::unread();
+    whole.read(storage, path)?;
+    let sha256 = whole.sha256;
+    let signature = whole.check(storage, path)?;
+    Ok((sha256, signature))
 }
 
 /// The author's check of a signed file, on the heap. Not inlined: the check
