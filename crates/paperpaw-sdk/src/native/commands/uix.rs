@@ -1,6 +1,8 @@
 //! Typed screen navigation and messages.
 use super::{CommandSender, Error, wire};
-use crate::native::ui::{Instance, Notify, Open, ScreenPolicy, SpeechRequest, navigation::full_id};
+use crate::native::ui::{
+    ButtonHint, Instance, Notify, Open, ScreenPolicy, SpeechRequest, navigation::full_id,
+};
 
 impl CommandSender<'_, '_> {
     /// Set runtime policies for a decoded own instance, or None for own top.
@@ -81,6 +83,17 @@ impl CommandSender<'_, '_> {
     /// Returns buffer limits or the host's refusal.
     pub fn show_hints(&mut self) -> Result<(), Error> {
         self.submit(wire::Command::ShowHints {})
+    }
+    /// Label a button in the row of button hints while the submitter's own top
+    /// screen shows (a key that says *Try again* here). On a device without a
+    /// hint row the host accepts it and does nothing.
+    ///
+    /// # Errors
+    /// Returns buffer limits or the host's refusal: State outside the own top
+    /// screen, NotFound for an unknown icon, Denied for hiding a way out,
+    /// NoSpace for a ninth action of one instance.
+    pub fn set_hint(&mut self, hint: ButtonHint<'_>) -> Result<(), Error> {
+        self.submit(hint.command())
     }
     /// Raise a device input or an input owned by the submitting plugin.
     ///

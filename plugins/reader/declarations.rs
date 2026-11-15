@@ -344,7 +344,11 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     ] {
         // One instance for each set of parameters (the book, the section), as in
         // interface 6.
-        let decl = ScreenDecl::new(name, title, token).instances(Instances::PerParams);
+        let mut decl = ScreenDecl::new(name, title, token).instances(Instances::PerParams);
+        // The page of the book shows no row of button hints, as in Beta 3.
+        if token == SCREEN {
+            decl = decl.hints_hidden();
+        }
         // The note and the skim bar are laid over the page, which shows above them.
         d.screen(if matches!(token, FOOTNOTE | SKIM) {
             decl.overlay()

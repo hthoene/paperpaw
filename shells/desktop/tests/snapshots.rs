@@ -6,18 +6,23 @@
 //! The emulator's clock and battery are fixed, and every run starts from
 //! a fresh library with the sample books and the pages of
 //! `tests/fixtures` (for what the samples do not show, such as small
-//! capitals), so the pictures repeat. A few
-//! pixels may differ between computers where glyph edges round
-//! differently; more than that fails.
+//! capitals), so the pictures repeat to the pixel: the fonts are in the
+//! build, the outline rasteriser uses its own `libm`, and the layout is
+//! integer. A picture therefore equals its reference exactly; one pixel
+//! of difference fails (a tolerance once hid a missing icon, #668).
 //!
-//! After a change meant to alter a screen, write the references anew:
+//! After a change meant to alter a screen, write the references anew, only
+//! the ones that differ (a picture equal to its reference is never rewritten):
 //!
 //! ```sh
 //! PAPERPAW_BLESS=1 cargo test -p paperpaw-emulator --test snapshots
+//! PAPERPAW_BLESS=name,other-name cargo test -p paperpaw-emulator --test snapshots
 //! ```
 //!
-//! and look at the changed pictures before committing them. A failing
-//! test leaves what it drew in `target/snapshots`.
+//! The second form writes only the cases named (any other that differs
+//! still fails); name them in the commit and say why each changed. Look at
+//! the changed pictures before committing them. A failing test leaves what
+//! it drew in `target/snapshots`.
 
 #![allow(
     clippy::unwrap_used,
@@ -250,15 +255,15 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    // The plugin store on the X4, its list kept from before (the library
-    // asked for does not answer): search, the newest, then the groups with
-    // how many plugins for the X4 each has.
+    // The plugin store on the X4 with no library that answers (a refused
+    // connection): the store waits 30 s for a network, then says there is no
+    // connection and how to try again.
     Case {
         name: "x4-store",
         profile: "xteink-x4",
         book: None,
         sets: &["store.catalog=http://127.0.0.1:9/plugins.json"],
-        script: "run:store.open,wait:6000",
+        script: "run:store.open,wait:35000",
         colour: 0,
         fixtures: false,
     },
@@ -368,6 +373,16 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
+        name: "x4-highlight",
+        profile: "xteink-x4",
+        book: Some("books/alice-in-wonderland.epub"),
+        sets: &[],
+        script: "page-forward,page-forward,run:reader.select-text,wait:500,confirm,right,right,\
+                 confirm,wait:400,back,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
         name: "x4-settings-display",
         profile: "xteink-x4",
         book: None,
@@ -410,6 +425,15 @@ const CASES: &[Case] = &[
         profile: "xteink-x4",
         book: None,
         sets: &[],
+        script: "run:transfer.open,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-transfer-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
         script: "run:transfer.open,wait:300",
         colour: 0,
         fixtures: false,
@@ -625,6 +649,15 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    Case {
+        name: "x4-quick-panel-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:core.quick-panel,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
     // The reader's panel on the X4, the row that opens the fonts focused:
     // its whole name and value on the focus bar, aligned with the rows
     // below.
@@ -703,10 +736,39 @@ const CASES: &[Case] = &[
     },
 ];
 
-/// Pixels whose gray differs by more than this count as different.
-const LEVELS: u8 = 48;
-/// The share of pixels that may differ, in parts per ten thousand.
-const ALLOWED: usize = 20;
+/// Whether `PAPERPAW_BLESS` asks to write the reference of case `name`: set to
+/// nothing, `1` or `all` it asks for every case that differs, otherwise for the
+/// names in its comma-separated list.
+fn blessed(name: &str) -> bool {
+    match std::env::var("PAPERPAW_BLESS") {
+        Ok(wanted) => {
+            matches!(wanted.as_str(), "" | "1" | "all")
+                || wanted.split(',').any(|one| one.trim() == name)
+        }
+        Err(_) => false,
+    }
+}
+
+/// What a count from [`differing`] says, in words.
+fn shown(differing: usize, drawn: (u32, u32), reference: (u32, u32)) -> String {
+    if differing == usize::MAX {
+        format!(
+            "size {}x{} instead of {}x{}, all pixels",
+            drawn.0, drawn.1, reference.0, reference.1
+        )
+    } else {
+        format!("{differing} pixels differ")
+    }
+}
+
+/// How many pixels of `gray` differ from `expected` (every one if the sizes differ).
+fn differing(size: (u32, u32), gray: &[u8], expected: (u32, u32, &[u8])) -> usize {
+    if size == (expected.0, expected.1) {
+        gray.iter().zip(expected.2).filter(|(a, b)| a != b).count()
+    } else {
+        usize::MAX
+    }
+}
 
 /// The repository: two folders above this crate.
 fn root() -> PathBuf {
@@ -718,12 +780,15 @@ fn root() -> PathBuf {
         .to_path_buf()
 }
 
+static NEXT_LIBRARY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// A library with only the sample books (and the book to reopen).
 fn library(case: &Case) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "paperpaw-snapshot-{}-{}",
+        "paperpaw-snapshot-{}-{}-{}",
         case.name,
-        std::process::id()
+        std::process::id(),
+        NEXT_LIBRARY.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let _ = fs::remove_dir_all(&dir);
     let books = dir.join("books");
@@ -843,7 +908,6 @@ fn draw(case: &Case) -> (u32, u32, Vec<u8>, usize) {
 
 #[test]
 fn screens_look_as_before() {
-    let bless = std::env::var_os("PAPERPAW_BLESS").is_some();
     let references = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
     let failed_dir = root().join("target/snapshots");
     let mut failures = Vec::new();
@@ -856,37 +920,36 @@ fn screens_look_as_before() {
             ));
         }
         let reference = references.join(format!("{}.png", case.name));
-        if bless || !reference.exists() {
+        if !reference.exists() {
             write_gray(&reference, width, height, &gray);
             continue;
         }
         let (w, h, expected) = grays(&reference);
-        let differing = if (w, h) == (width, height) {
-            gray.iter()
-                .zip(&expected)
-                .filter(|(a, b)| a.abs_diff(**b) > LEVELS)
-                .count()
-        } else {
-            usize::MAX
-        };
-        if differing > gray.len() * ALLOWED / 10_000 {
-            let drawn = failed_dir.join(format!("{}.png", case.name));
-            write_gray(&drawn, width, height, &gray);
-            failures.push(format!(
-                "{}: {} pixels differ (drawn: {})",
-                case.name,
-                if differing == usize::MAX {
-                    format!("size {width}x{height} instead of {w}x{h}, all")
-                } else {
-                    differing.to_string()
-                },
-                drawn.display()
-            ));
+        let differing = differing((width, height), &gray, (w, h, &expected));
+        if differing == 0 {
+            continue;
         }
+        if blessed(case.name) {
+            eprintln!(
+                "blessed {}: {}",
+                case.name,
+                shown(differing, (width, height), (w, h))
+            );
+            write_gray(&reference, width, height, &gray);
+            continue;
+        }
+        let drawn = failed_dir.join(format!("{}.png", case.name));
+        write_gray(&drawn, width, height, &gray);
+        failures.push(format!(
+            "{}: {} (drawn: {})",
+            case.name,
+            shown(differing, (width, height), (w, h)),
+            drawn.display()
+        ));
     }
     assert!(
         failures.is_empty(),
-        "screens changed; if meant, run with PAPERPAW_BLESS=1:\n{}",
+        "screens changed; if meant, run with PAPERPAW_BLESS=<the names that changed>:\n{}",
         failures.join("\n")
     );
 }
@@ -924,8 +987,9 @@ fn screens_say_what_they_show() {
     );
     // The pages tapped by their names, the rows with their title, value and text.
     assert!(text.contains("Heading \"Display\""), "{text}");
+    // A switch is told as one, its state after the text, not as a word in it.
     assert!(
-        text.contains("Row \"Night mode, Off, White text on black.\""),
+        text.contains("Row \"Night mode, White text on black.\" (focused) (off)"),
         "{text}"
     );
     // A number says its unit in words, not as the catalog's key.
@@ -1058,4 +1122,56 @@ fn headers_are_centred_by_their_capitals() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn standalone_picture_book_is_not_blank() {
+    let case = CASES
+        .iter()
+        .find(|case| case.name == "x4-pictures-book")
+        .unwrap();
+    let (_, _, gray, _) = draw(case);
+    assert!(
+        gray.iter().filter(|pixel| **pixel < 128).count() > gray.len() / 10,
+        "standalone picture book must draw its picture"
+    );
+}
+
+fn helper_screen_cases(names: &[&str]) {
+    let references = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
+    for name in names {
+        let case = CASES.iter().find(|case| case.name == *name).unwrap();
+        let (width, height, gray, _) = draw(case);
+        let reference = references.join(format!("{name}.png"));
+        if !reference.exists() && blessed(name) {
+            write_gray(&reference, width, height, &gray);
+            continue;
+        }
+        let (w, h, expected) = grays(&reference);
+        let differing = differing((width, height), &gray, (w, h, &expected));
+        if differing != 0 && blessed(name) {
+            write_gray(&reference, width, height, &gray);
+        } else {
+            assert!(
+                differing == 0,
+                "{name}: screen changed ({})",
+                shown(differing, (width, height), (w, h))
+            );
+        }
+    }
+}
+
+#[test]
+fn transfer_offline_has_icon_and_bottom_button() {
+    helper_screen_cases(&["x4-transfer", "x4-transfer-de"]);
+}
+
+#[test]
+fn quick_panel_values_use_the_row_text_size() {
+    helper_screen_cases(&[
+        "x4-quick-panel",
+        "x4-quick-panel-de",
+        "x4-pro-quick-panel",
+        "boox-quick-panel",
+    ]);
 }

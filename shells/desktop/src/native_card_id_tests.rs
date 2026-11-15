@@ -20,20 +20,12 @@ const CARD_KEY: &str = "help.card-folder-only";
 struct EveryFileNative(HostLoader);
 
 impl CodeLoader for EveryFileNative {
-    fn load(
-        &mut self,
-        _: &dyn Storage,
-        _: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        Err(PluginProblem::Unsupported)
-    }
-
     fn load_native(
         &mut self,
         storage: &dyn Storage,
         code: &CodeFile<'_>,
     ) -> Result<Option<Box<dyn paperpaw_core::NativeAdmission>>, PluginProblem> {
-        let bytes = read_installed(storage, &Installed::of(code))?;
+        let bytes = read_installed(storage, code)?;
         self.0.native(&bytes, code).map(Some)
     }
 }

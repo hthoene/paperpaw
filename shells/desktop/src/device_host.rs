@@ -50,7 +50,7 @@ pub fn caps_of(profile: &Profile) -> u64 {
     let device = &profile.device;
     let bit = |on: bool, bit: u64| if on { bit } else { 0 };
     // The emulator builds the kernel with the network on, a rotatable screen
-    // and no system clipboard, power off or firmware.
+    // and no system clipboard or firmware (power off where the profile has it).
     caps::NETWORK
         | caps::ROTATION
         | bit(device.input.touch, caps::TOUCH)
@@ -58,6 +58,7 @@ pub fn caps_of(profile: &Profile) -> u64 {
         | bit(profile.bluetooth > 0, caps::BLUETOOTH)
         | bit(profile.speech, caps::SPEECH)
         | bit(profile.sleep, caps::SLEEP)
+        | bit(profile.power_off, caps::POWER_OFF)
         | bit(profile.colors, caps::COLOURS)
         | bit(!profile.button_row.is_empty(), caps::BUTTON_ROW)
         | bit(profile.light.is_some(), caps::FRONTLIGHT)

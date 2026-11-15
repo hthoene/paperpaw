@@ -76,7 +76,7 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | 1 | `settings` | `reg_query` (`scope`: group id, plugin id or empty for all) | `reg_setting`*, `end` | registry order |
 | 2 | `setting` | `reg_key` | `reg_setting`, `reg_setting_extra`, `reg_text`? | one setting in full (help text) |
 | 3 | `choices` | `reg_query` (`scope`: setting id) | `reg_choice`*, `end` | own and foreign choices, in order |
-| 4 | `groups` | `reg_query` (`scope`: parent group or empty) | `reg_group`*, `end` | a group's children; empty: every group, each row with its `parent` |
+| 4 | `groups` | `reg_query` (`scope`: parent group or empty) | `reg_group`*, `end` | a group's children; empty: every group, each row with its `parent`; `icon` names the group's icon (an `icon.spec` or a code plugin's for the group's id), `puzzle` where none is declared |
 | 5 | `plugins` | `reg_query` (`scope` empty) | `reg_plugin`*, `end` | every plugin the host knows, loaded or not |
 | 6 | `plugin` | `reg_key` | `reg_plugin`, `reg_text`? | description; requirements are op 20 |
 | 7 | `actions` | `reg_query` (`scope`: plugin id or empty) | `reg_item`*, `end` | |
@@ -151,7 +151,7 @@ Ids (`key`, `plugin`, `item`, ...) are never cut: a declaration that admitted th
 | 1028 | `service.reg_setting_extra` | `min: i32`, `max: i32`, `step: i32`, `unit: str 96`, `section: str 128`, `follows: str 128`, `shown_id: str 128`, `shown_value: str 128`, `editor_kind: u32`, `editor: str 128`, `choices: u32` |
 | 1029 | `service.reg_choice` | `value: str 64`, `title: str 128` |
 | 1030 | `service.reg_text` | `text: str 1024` |
-| 1031 | `service.reg_group` | `id: str 128`, `parent: str 128`, `page: str 128`, `order: i32`, `title: str 128` |
+| 1031 | `service.reg_group` | `id: str 128`, `parent: str 128`, `page: str 128`, `order: i32`, `title: str 128`, `icon: str 64` (optional, ordinal 0, empty default) |
 | 1032 | `service.reg_plugin` | `id: str 64`, `name: str 128`, `version: str 32`, `kind: u32`, `state: u32`, `flags: u32`, `problem: u32`, `problem_arg: u32`, `update: str 32` |
 | 1033 | `service.reg_need` | `kind: u32`, `key: str 128`, `version: str 32`, `flags: u32` |
 | 1034 | `service.reg_item` | `id: str 128`, `plugin: str 64`, `flags: u32`, `title: str 128` |

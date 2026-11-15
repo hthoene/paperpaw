@@ -7,6 +7,8 @@
 )]
 use super::*;
 
+mod built_in;
+
 /// Configures and creates a [`Kernel`].
 ///
 /// What it holds lies on the heap: each call moves the builder, and a
@@ -32,6 +34,9 @@ struct BuilderParts {
     /// What plugin checks, installs and removals compare a plugin with.
     plugin_host: Option<crate::native_host::plugin_job::PluginHost>,
     code: Option<crate::code_plugin::CodePlugins>,
+    /// The ids of plugins built in that register after the build
+    /// ([`KernelBuilder::built_in_ids`]).
+    built_in_ids: Option<fn(&str) -> bool>,
     /// A shell without a code loader that serves `text.hyphenate`
     /// ([`KernelBuilder::hyphenation_sink`]).
     hyphenation: Option<crate::hyphen_feed::MakeSink>,
@@ -89,6 +94,15 @@ impl KernelBuilder {
     pub fn plugin_off(mut self, plugin: impl Plugin + 'static) -> Self {
         self.0.off.push(String::from(plugin.manifest().id.as_str()));
         self.plugin(plugin)
+    }
+
+    /// Adds the fonts the program is built with: a table in the program,
+    /// listed as a plugin of data is and registered where it is named,
+    /// among the plugins (those registered later win priority ties).
+    #[must_use]
+    pub fn built_in_fonts(mut self, fonts: &'static paperpaw_sdk::BuiltInFonts) -> Self {
+        self.0.plugins.push(Box::new(built_in::BuiltIn(fonts)));
+        self
     }
 
     /// The device's firmware: what installs and checks a firmware image
@@ -369,6 +383,17 @@ impl KernelBuilder {
             loader,
             safe_mode: None,
         });
+        self
+    }
+
+    /// The ids of the plugins built into the program that register only
+    /// after the build (linked native plugins): a card folder with code never
+    /// takes one. It is listed as refused for its id with nothing of it
+    /// loaded, on every start (also one without code plugins, and in safe
+    /// mode), and the built-in plugin's row takes its place.
+    #[must_use]
+    pub fn built_in_ids(mut self, is: fn(&str) -> bool) -> Self {
+        self.0.built_in_ids = Some(is);
         self
     }
 
@@ -655,8 +680,13 @@ impl BuilderParts {
             && self.safe_mode.is_none()
         {
             let storage = kernel.shared.storage.clone();
-            self.staged
-                .extend(crate::code_plugin::fetched(storage.as_ref(), &code.native));
+            // What the loader itself reads, as the shell's restart check has it.
+            let loader = code.loader.reads();
+            self.staged.extend(crate::code_plugin::fetched(
+                storage.as_ref(),
+                &code.native,
+                loader.as_ref(),
+            ));
         }
         // A plugin install or removal a cut left is finished (or set aside)
         // before any plugin is found, so a plugin is the old or the new one.
@@ -681,12 +711,16 @@ impl BuilderParts {
             dirs,
             mem::take(&mut self.font_dirs),
             &configs,
-            self.code
-                .take()
-                .map(|code| crate::code_plugin::CodePlugins {
-                    safe_mode: self.safe_mode.take(),
-                    ..code
-                }),
+            crate::code_plugin::CodeAtStart {
+                plugins: self
+                    .code
+                    .take()
+                    .map(|code| crate::code_plugin::CodePlugins {
+                        safe_mode: self.safe_mode.take(),
+                        ..code
+                    }),
+                built_in: self.built_in_ids,
+            },
         );
         if let Some(make) = self.hyphenation.take() {
             kernel.attach_hyphenation_sink(make);
@@ -712,6 +746,7 @@ impl BuilderParts {
         kernel.restore_timing();
         kernel.apply_reading_font();
         kernel.apply_status_font();
+        kernel.apply_widget_fonts();
         kernel.validate();
         kernel.rebuild_keymap();
         // Memory given back before the language is read in: its catalogs
@@ -1032,7 +1067,7 @@ impl Kernel {
         plugin_dirs: Vec<String>,
         font_dirs: Vec<String>,
         configs: &[&str],
-        code: Option<crate::code_plugin::CodePlugins>,
+        code: crate::code_plugin::CodeAtStart,
     ) {
         self.shared.menus.set_capabilities(self.shared.caps);
         // Colour screens open documents with colour pictures (ADR 0015).
@@ -1321,6 +1356,15 @@ impl Kernel {
                 Err(error) => Err(error),
             };
             if let Err(error) = set {
+                // A widget's font may come with a plugin registered later
+                // (#262): the value waits until the start has hosted all.
+                let waits = self.native_registering
+                    && matches!(error, paperpaw_sdk::SettingError::InvalidValue)
+                    && crate::font_refresh::widget_fonts::is_setting(&id);
+                if waits {
+                    left.push((id, value, line));
+                    continue;
+                }
                 self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
             }
         }
@@ -1369,6 +1413,7 @@ impl Kernel {
             firmware_host: None,
             plugin_host: None,
             code: None,
+            built_in_ids: None,
             hyphenation: None,
             after_trial: None,
             safe_mode: None,

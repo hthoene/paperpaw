@@ -253,6 +253,20 @@ thread_local! {
     static CLOCK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
+thread_local! {
+    /// The plugin callbacks that ended with an error on this thread, as a
+    /// shell logs them ([`take_failed_calls`]). `None` until a test asks:
+    /// the tests that count the heap must not see this list grow.
+    static FAILED: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The plugin callbacks that ended with an error since the last asking, as a
+/// shell logs them (`<plugin>: call <tag> ended with <status>`). They are
+/// kept from the first asking on, so a test asks once before what it checks.
+pub fn take_failed_calls() -> Vec<String> {
+    FAILED.with(|failed| failed.replace(Some(Vec::new())).unwrap_or_default())
+}
+
 /// Sets the clock the host families read to `ms`, the time the test gives
 /// the kernel: declared work then comes due as on a device (#248).
 pub fn set_clock(ms: u64) {
@@ -494,6 +508,11 @@ mod linked {
 
     fn report(_: &Heap, plugin: &str, tag: u32, status: i32) {
         eprintln!("native plugin {plugin}: call {tag} ended with {status}");
+        super::FAILED.with(|failed| {
+            if let Some(failed) = failed.borrow_mut().as_mut() {
+                failed.push(format!("{plugin}: call {tag} ended with {status}"));
+            }
+        });
     }
 
     /// What the host offers: the data services, `core.device`, and the ones the

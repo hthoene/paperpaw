@@ -135,6 +135,9 @@ jobs:
       # store that carry a copy of their card files for the apps read the card without it;
       # the kernel without panes is that of the Xteink devices.
       - run: cargo test --no-fail-fast -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features
+      # The nested-call gate closed on the small class (the X3's firmware builds so;
+      # open by default since #250): the tests that expect refusals run here.
+      - run: cargo test --no-fail-fast -p paperpaw-core --lib --features x4-gate-closed native_host
       # The kernel of a build with the linked native reader (the app's
       # `native-linked-reading`): its book menu has no *Open with…* (todo 544).
       - run: cargo test --no-fail-fast -p paperpaw-core --lib --features native-reading open_with
@@ -159,6 +162,9 @@ jobs:
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands
       # The Settings and the menu its tests open are native: the app's own plugins, as the lean
       # firmware has them (#244).
+      # The nested-call gate closed (the X3): the host that refuses the Preview widget (#250).
+      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading,native-linked-store,x4-gate-closed --test home_native preview
+      - run: cargo test --no-fail-fast -p paperpaw-plugin-picture-home --features linked,x4-gate-closed --test hosted_page
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test sets --test standard
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test readers
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test partial_redraw -- --exact table_of_contents
@@ -381,9 +387,11 @@ jobs:
     name: Firmware (${{ matrix.device }})
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    # Normally 3-20 minutes. An apt mirror that stalls once held a run for 45
+    # Normally 3-20 minutes; the S3 devices run longer, 22-30 (their plain and S3
+    # builds, the plugin packs; run 43647500792 hit 30 in its last step, #259), so
+    # they get 45. An apt mirror that stalls once held a run for 45
     # (build-prerequisites.sh): fail then and rerun.
-    timeout-minutes: 30
+    timeout-minutes: ${{ (matrix.device == 'x4-pro' || matrix.device == 'x4-classic') && 45 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -483,6 +491,23 @@ jobs:
           cargo run -q --release -p paperpaw-sign -- frames-s3 \
             shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink \
             --budget "$budget"
+      # The same image again with the linked plugins' own code rooted and every
+      # function of their families held to the frame limit
+      # (`frame-budget-s3-linked.txt`). A second scan, not an include in the
+      # budgets above: the plain scan stays exact per function (Senior #2897 C2).
+      # Blocking (Senior #2899 R1): every frame of the limit or more is a named
+      # `allow frame` line in the linked file with its owner's todo, so a new one fails at once.
+      # The release check for any x4-pro/x4-classic image with native plugins (an owner test
+      # image, the Beta 4 images; todo 639): no `allow frame` line left but `main`.
+      - name: The S3's linked plugins' frames and calls fit under the band
+        if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
+        run: |
+          budget=shells/xteink/frame-budget-s3.txt
+          [[ "$DEVICE" == x4-classic ]] && budget=shells/xteink/frame-budget-s3-classic.txt
+          { cat "$budget"; echo "include frame-budget-s3-linked.txt"; } > shells/xteink/.scan-linked.txt
+          cargo run -q --release -p paperpaw-sign -- frames-s3 \
+            shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink \
+            --budget shells/xteink/.scan-linked.txt
       # The S3's start and main-loop paths keep 2 KB above the band (the team's
       # rule for a route), as the X4's job below keeps 512 B for its own.
       - name: The S3's start and main-loop stack paths stay above the band
@@ -524,40 +549,21 @@ jobs:
             --profile minimal --target riscv32imc-unknown-none-elf
           tools/plugin-files/anywhere.sh x4 "$RUNNER_TEMP/anywhere-x4"
           tools/plugin-files/anywhere.sh x4-pro "$RUNNER_TEMP/anywhere-x4-pro"
-      # PaperPaw's own plugins that the store offers, as the release
-      # builds them (unsigned here): each packs, for this chip, with the
-      # firmware's fingerprint.
-      # Signed with a key made for this run, and their catalogue entries
-      # made, as the release does.
-      # The X3 takes the X4's builds (the same chip and fingerprint).
+      # PaperPaw's own plugins that the store offers, as the release builds them:
+      # interface 7 (format 5, no fingerprint), each packed for this chip (the X4's
+      # target 5; the X4 Pro's and X4 Classic's target 9, built with espup's
+      # compiler and the release's core libraries), signed with a key made for
+      # this run, and their catalogue entries made, as the release does.
+      # The X3 takes the X4's builds (the same chip).
       - name: The store's first-party plugins fit the firmware
         if: matrix.device != 'x3'
-        env:
-          FINGERPRINT: ${{ steps.native.outputs.fingerprint }}
         run: |
           out="$RUNNER_TEMP/plugins"
-          tools/plugin-files/build.sh "$DEVICE" "$out" --fingerprint "$FINGERPRINT"
           cargo build -q --release -p paperpaw-sign
           target/release/paperpaw-sign key "$RUNNER_TEMP/ci.key" > /dev/null
-          tools/plugin-files/sign.sh "$out" target/release/paperpaw-sign --key "$RUNNER_TEMP/ci.key"
+          tools/plugin-files7/build.sh "$DEVICE" "$out" --key "$RUNNER_TEMP/ci.key"
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
           python3 tools/plugin-files/catalogue.py "$out" "$version" https://example.invalid/ci
-      # Interface 7 (decision 142): every first-party plugin with a native
-      # entry builds and links for the ESP32-S3 (espup's compiler, the
-      # release's core libraries). Packing waits for the target-9 profile of
-      # abi/ppn5.md; until then this is the build, not the file. The X4 Classic
-      # runs the X4 Pro's code, so one device builds it.
-      - name: The interface-7 plugins build for the S3
-        if: matrix.device == 'x4-pro'
-        run: |
-          # Exit 4 is "pending": the S3's generated ABI metadata does not exist
-          # yet. Shown as a notice, never as a pass; every other failure fails.
-          rc=0
-          tools/plugin-files7/build.sh x4-pro "$RUNNER_TEMP/plugins7-s3" || rc=$?
-          if [[ $rc = 4 ]]; then
-            echo "::notice title=S3 interface-7 plugins::NOT BUILT: the target-9 metadata profile is not there yet (decision 142)"
-          fi
-          [[ $rc = 0 || $rc = 4 ]]
       # espup's toolchain is cached between runs (xteink-tools): the core
       # libraries installed into it go again, so that no run finds those
       # of another commit.
@@ -767,6 +773,10 @@ jobs:
         run: python3 tools/plugin-files/versions.py
       - name: The size gate fails when an image is over its budget or a file is missing
         run: python3 -m unittest discover -s tools -p "test_size_report.py"
+      - name: The owner-image check refuses an app-only image and a changed partition table
+        run: python3 -m unittest discover -s tools -p "test_check_owner_image.py"
+      - name: The S3 release check names every exception frame still left but main
+        run: python3 -m unittest discover -s tools -p "test_check_s3_release_exceptions.py"
       - name: The handbook holds the SDK and PaperPaw's own plugins, without tests
         run: python3 -m unittest discover -s tools -p "test_handbook.py"
       - name: CI tool setup verifies binaries and keeps its missing-tool fallback

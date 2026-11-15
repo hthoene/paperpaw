@@ -73,7 +73,8 @@ pub const fn pace(class: Option<DeviceClass>) -> (usize, u32) {
     }
 }
 
-/// What a layout is made of, as text: the settings and the display, in whole
+/// What a layout is made of, as text: the settings (the reading font and the
+/// hyphenation among them) and the display, in whole
 /// numbers (no float formatting on the small device).
 ///
 /// # Errors
@@ -85,10 +86,10 @@ pub fn layout_text(
     filtered: u64,
 ) -> Result<String, Error> {
     let mut text = String::new();
-    text.try_reserve(96).map_err(|_| Error::NoMemory)?;
+    text.try_reserve(112).map_err(|_| Error::NoMemory)?;
     write!(
         text,
-        "{}/{}/{}/{}/{}/{}/{}x{}x{}/{}/{}-{}/{}:{}/{}:{}/{}/{:x}",
+        "{}/{}/{}/{}/{}/{}/{}x{}x{}/{}/{}-{}/{}:{}/{}:{}/{}/{:x}/{:x}",
         (reading.size_pt * 10.0) as u32,
         reading.line_spacing,
         reading.word_spacing,
@@ -109,6 +110,8 @@ pub fn layout_text(
         reading.lines_kept.1,
         u8::from(reading.balanced),
         reading.book,
+        // The font and the hyphenation: other letters, other pages.
+        reading.text,
     )
     .map_err(|_| Error::NoMemory)?;
     // The text filters' rules (none: the name stays as it was).
@@ -501,6 +504,32 @@ mod tests {
             Step::Done
         );
         assert_eq!(counter.pages(), Some(3));
+    }
+
+    #[test]
+    fn the_name_follows_the_font_and_the_hyphenation() {
+        let base = Reading::new(12, 120, 100, 4, 4, true);
+        let name = |reading: &Reading| {
+            let layout = layout_text(reading, (480, 800, 220), false, 0).unwrap();
+            file_name("/b.epub", 1, &layout).unwrap()
+        };
+        let sans = base.with_text("Source Sans 3", (true, 0, 0));
+        assert_eq!(name(&sans), name(&sans));
+        // Another font, another pagination.
+        assert_ne!(name(&sans), name(&base.with_text("Literata", (true, 0, 0))));
+        // Hyphenation on or off, and its minimums.
+        assert_ne!(
+            name(&sans),
+            name(&base.with_text("Source Sans 3", (false, 0, 0)))
+        );
+        assert_ne!(
+            name(&sans),
+            name(&base.with_text("Source Sans 3", (true, 3, 0)))
+        );
+        assert_ne!(
+            name(&sans),
+            name(&base.with_text("Source Sans 3", (true, 0, 3)))
+        );
     }
 
     #[test]

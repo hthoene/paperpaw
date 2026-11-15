@@ -316,19 +316,43 @@ fn the_device_loads_at_start_and_again_at_restart_only_with_the_switch() {
     std::fs::remove_dir_all(&root).unwrap();
 }
 
-/// With the switch on the interface-6 loader takes interface-6 libraries
-/// only: one exporting both kinds, neither, or interface 7 is not its to take.
-/// With the switch off it decides as before (no classification at all).
+/// A library built for interface 6 (it exports `PAPERPAW_API`, as `plugin!`
+/// made it for Beta 3) on a card whose code is trusted is listed as built
+/// for an older PaperPaw, as the devices list Beta 3's files: told from its
+/// bytes, nothing of it loaded. One that is neither kind, or both, is no
+/// library of a plugin.
 #[test]
-fn the_interface_6_loader_takes_only_interface_6_with_the_switch_on() {
-    use crate::native::interface6_only;
-    let (six, both, neither) = (interface6_like(), both(), neither());
-    assert!(interface6_only(&six, true));
-    for refused in [sample_bytes(), &both, &neither, b"junk"] {
-        assert!(!interface6_only(refused, true));
-    }
-    for any in [&six[..], sample_bytes(), &both, &neither, b"junk"] {
-        assert!(interface6_only(any, false), "off: as before");
+fn an_interface_6_library_is_listed_as_built_for_an_older_paperpaw() {
+    use paperpaw_core::sdk::PluginProblem;
+    let _one = crate::one_device_at_a_time();
+    let said = |bytes: &[u8]| {
+        let root = crate::private::dir("paperpaw-older-library").unwrap();
+        let hello = root.join("plugins/hello");
+        std::fs::create_dir_all(&hello).unwrap();
+        std::fs::write(
+            hello.join("plugin.ini"),
+            "[plugin]\nid = hello\nname = Hello\nversion = 0.1.0\n",
+        )
+        .unwrap();
+        std::fs::write(hello.join(crate::native::file_name()), bytes).unwrap();
+        assert_eq!(crate::native::trust(&root).unwrap(), ["hello"]);
+        crate::device::set_code_plugins(true);
+        let storage = crate::device::library(&root).unwrap();
+        let profile = crate::profiles::find("boox-go-7").unwrap();
+        let device = crate::device::Device::new(profile, None, storage, true).unwrap();
+        let hello = device.kernel.plugins().get("hello").unwrap();
+        let said = (hello.state, hello.problem);
+        crate::device::set_code_plugins(false);
+        let _ = std::fs::remove_dir_all(&root);
+        said
+    };
+    let failed = paperpaw_core::sdk::PluginState::Failed;
+    assert_eq!(
+        said(&interface6_like()),
+        (failed, Some(PluginProblem::OlderInterface { built_for: 6 }))
+    );
+    for bytes in [&both()[..], &neither(), b"junk"] {
+        assert_eq!(said(bytes), (failed, Some(PluginProblem::Damaged)));
     }
 }
 

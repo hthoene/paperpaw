@@ -27,7 +27,9 @@ default = ["x4", "remote", "waveform-lab"]
 # `versions.env`, `cargo +esp x4pro`, `cargo +esp x4classic`). Exactly
 # one.
 x4 = ["esp32c3", "asleep-light", "native-on"]
-x3 = ["esp32c3", "asleep-light", "native-on"]
+# The X3 keeps the nested-call gate closed (`x4-gate-closed`): it is in the
+# small class but no X3 has measured the gate's stack yet (#250).
+x3 = ["esp32c3", "asleep-light", "native-on", "x4-gate-closed"]
 # The reader sleeps lightly before it switches itself off (`firmware.rs`
 # `sleep_lightly`, `paperpaw_x4::sleeping`): the X4, the X3 and the X4 Pro
 # (#153); the X4 Classic keeps its deep sleep.
@@ -60,6 +62,9 @@ native-on = ["ppn5", "paperpaw-app/native-linked", "paperpaw-app/native-linked-r
 # release: `release` refuses it at compile time and
 # `tools/checks/tests/test_image_guard.rs` (CI) refuses it in the shipped lists.
 test-image = ["native-on"]
+# Closes the nested-callback stack gate on the small class again (#250: the X4
+# measured it open; the X3 builds with this until it is measured).
+x4-gate-closed = ["paperpaw-core/x4-gate-closed"]
 # Marks a build as a release (beta.1 and later); set by the release build.
 release = []
 # What both ESP32-C3 devices build with; chosen by `x4` or `x3`, not by
