@@ -29,12 +29,11 @@ use paperpaw_native::index::Mark;
 use paperpaw_native::index::{Index, Layout, Placement, Region, SECTOR};
 #[cfg(feature = "ppn5")]
 use paperpaw_native::stream5::{Cached, Relocator5, Written};
-use paperpaw_native::{CODE_OFFSET, HEADER_LEN, Header, LINK_BASE, Relocator};
+use paperpaw_native::{CODE_OFFSET, LINK_BASE};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::PluginProblem;
 use paperpaw_sdk::native::CodeRoom;
 
-use super::api::API;
 use super::partition::{Behind, PAGE, behind_image, running_partition};
 
 /// An app slot of PaperPaw's own layout (`partitions.csv`).
@@ -111,10 +110,13 @@ impl Flash {
                     base: region.base,
                 });
                 let found = read_index(flash, region.start);
+                // No table of the firmware's is written into an image any
+                // more (the files before interface 7 had one): none, in every
+                // placement of this firmware.
                 Some(Layout::new(
                     region,
                     firmware,
-                    &API as *const _ as u32,
+                    0,
                     super::hot::arena(),
                     found,
                 ))
@@ -128,100 +130,8 @@ impl Flash {
         }
     }
 
-    /// Writes the image of the plugin file at `path` into the region,
-    /// relocated, unless it lies there already, and copies its hot code
-    /// into the arena; its data address and where its hot code runs (0:
-    /// in place). `words` follow the image in the file.
-    pub fn put(
-        &mut self,
-        storage: &dyn Storage,
-        path: &str,
-        header: &Header,
-        words: &[u32],
-    ) -> Result<(u32, u32), PluginProblem> {
-        let flash = &self.flash;
-        let layout = self
-            .layout
-            .get_or_insert_with(|| Self::layout(&mut flash.borrow_mut()))
-            .as_mut()
-            .ok_or(PluginProblem::NoRoom)?;
-        let placement = layout.place(header).map_err(|_| PluginProblem::NoRoom)?;
-        self.placed += 1;
-        if placement.present {
-            info!("native: {path} lies in flash at {:#x}", placement.at);
-            return copy_hot(header.hot_at, header.hot_len, &placement)
-                .map(|hot| (placement.base, hot));
-        }
-        // A sector at a time, for checking and for writing; written only
-        // once checked whole, so a damaged file never gets into the index.
-        let mut piece = Vec::new();
-        piece
-            .try_reserve_exact(SECTOR as usize)
-            .map_err(|_| PluginProblem::NoRoom)?;
-        piece.resize(SECTOR as usize, 0);
-        check(storage, path, header, words, &mut piece)?;
-        if placement.erase_index && !self.erased {
-            let start = layout.region().start;
-            self.flash
-                .borrow_mut()
-                .erase(start, start + SECTOR)
-                .map_err(|e| written_not(path, e))?;
-            self.erased = true;
-        }
-        // Erased at once, to the end of its last 64 KiB block: what lies
-        // behind is free or written anew, and blocks erase faster than
-        // their sectors.
-        let end = (placement.at + header.image_len)
-            .next_multiple_of(PAGE)
-            .min(layout.region().end);
-        self.flash
-            .borrow_mut()
-            .erase(placement.at, end)
-            .map_err(|e| written_not(path, e))?;
-        let mut relocator = Relocator::new(header, words, placement.base, &API as *const _ as u32)
-            .map_err(super::problem)?;
-        if placement.hot != 0 {
-            relocator = relocator.hot_at(placement.hot).map_err(super::problem)?;
-        }
-        // The families' words get the firmware's tables with the rest.
-        let tables = super::api::tables();
-        let mut done = 0;
-        while done < header.image_len {
-            crate::power::feed();
-            let len = (header.image_len - done).min(SECTOR) as usize;
-            let bytes = &mut piece[..len];
-            super::read_exact(storage, path, HEADER_LEN as u64 + u64::from(done), bytes)
-                .map_err(|_| PluginProblem::Damaged)?;
-            relocator
-                .apply_with(done, bytes, &tables)
-                .map_err(super::problem)?;
-            // Whole words: the last piece filled up as erased flash.
-            let words_len = len.next_multiple_of(4);
-            piece[len..words_len].fill(0xFF);
-            let at = placement.at + done;
-            self.flash
-                .borrow_mut()
-                .write_nor(at, &piece[..words_len])
-                .map_err(|e| written_not(path, e))?;
-            done += len as u32;
-        }
-        // Nothing of what the region held before stays in the caches.
-        let len = header.image_len.next_multiple_of(4);
-        // SAFETY: ROM functions on addresses mapped to this region.
-        unsafe {
-            Cache_Invalidate_Addr(placement.base, len);
-            Cache_Invalidate_Addr(placement.base + CODE_OFFSET, len);
-        }
-        info!(
-            "native: {path} written into flash at {:#x} ({} sectors)",
-            placement.at,
-            header.image_len.div_ceil(SECTOR)
-        );
-        copy_hot(header.hot_at, header.hot_len, &placement).map(|hot| (placement.base, hot))
-    }
-
-    /// [`Flash::put`] for a format-5 file (`ppn5.rs`): the same room, the
-    /// same index, written in the same order, but the file is read through
+    /// Writes the image of a format-5 file (`ppn5.rs`) into the region,
+    /// relocated, unless it lies there already: the file is read through
     /// `paperpaw_native::stream5` (no words held in memory), and every check
     /// that can refuse it (the digest and each word to relocate) runs
     /// before the flash is touched. A file refused at any point after it
@@ -543,36 +453,6 @@ fn copy_hot(hot_at: u32, hot_len: u32, placement: &Placement) -> Result<u32, Plu
 fn written_not(path: &str, error: impl core::fmt::Debug) -> PluginProblem {
     warn!("native: {path}: the flash: {error:?}");
     PluginProblem::NoRoom
-}
-
-/// Checks the file's digest, reading its image once, a `buf` at a time.
-fn check(
-    storage: &dyn Storage,
-    path: &str,
-    header: &Header,
-    words: &[u32],
-    buf: &mut [u8],
-) -> Result<(), PluginProblem> {
-    let mut sha = header.digest();
-    let mut done = 0u32;
-    while done < header.image_len {
-        let len = (header.image_len - done).min(buf.len() as u32) as usize;
-        super::read_exact(
-            storage,
-            path,
-            HEADER_LEN as u64 + u64::from(done),
-            &mut buf[..len],
-        )
-        .map_err(|_| PluginProblem::Damaged)?;
-        sha.update(&buf[..len]);
-        done += len as u32;
-    }
-    super::digest_words(&mut sha, words);
-    if header.holds(sha) {
-        Ok(())
-    } else {
-        Err(PluginProblem::Damaged)
-    }
 }
 
 /// The region behind the running firmware's image, mapped, and the
