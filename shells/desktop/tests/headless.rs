@@ -326,6 +326,79 @@ fn power_sleeps_and_only_power_wakes() {
     assert_eq!(woken.screen(), "home.dashboard");
 }
 
+/// The power button held opens the power menu (#266); its answer reaches the
+/// power plugin whatever token it comes with. *Sleep* puts the device to sleep
+/// with the sleep screen, *Switch off* (where PaperPaw switches off: the X4s)
+/// shows the sleep screen and switches off, *Restart* restarts.
+#[test]
+fn the_power_menu_sleeps_switches_off_and_restarts() {
+    let menu = "long:power,wait:500";
+    let sleep = run(
+        "power-menu-sleep",
+        "xteink-x4",
+        &format!("{menu},confirm,wait:1500"),
+        &[],
+    );
+    assert!(sleep.ok, "{}", sleep.stderr);
+    assert!(
+        sleep.stderr.contains("xteink-x4: asleep"),
+        "{}",
+        sleep.stderr
+    );
+    assert_eq!(sleep.screen(), "sleep.screen");
+    let off = run(
+        "power-menu-off",
+        "xteink-x4",
+        &format!("{menu},page-forward,confirm,wait:1500"),
+        &[],
+    );
+    assert!(off.ok, "{}", off.stderr);
+    assert!(
+        off.stderr.contains("xteink-x4: power off"),
+        "{}",
+        off.stderr
+    );
+    assert_eq!(off.screen(), "sleep.screen");
+    let restart = run(
+        "power-menu-restart",
+        "xteink-x4",
+        &format!("{menu},page-forward,page-forward,confirm,wait:1500"),
+        &[],
+    );
+    assert!(restart.ok, "{}", restart.stderr);
+    assert!(
+        restart.stderr.contains("xteink-x4: restarting"),
+        "{}",
+        restart.stderr
+    );
+    // A device that cannot switch off does not offer it.
+    let menu_only = run(
+        "power-menu-none",
+        "boox-go-7",
+        &format!("{menu},describe"),
+        &[],
+    );
+    assert!(
+        !menu_only.stdout.contains("Switch off"),
+        "{}",
+        menu_only.stdout
+    );
+}
+
+/// The power menu used once does not stop the power settings from opening
+/// (the plugin holds one `core.ui`, and uses it for both).
+#[test]
+fn the_power_settings_open_after_the_power_menu_was_used() {
+    let run = run(
+        "power-menu-settings",
+        "xteink-x4",
+        "long:power,wait:500,back,wait:500,run:power.open,wait:500",
+        &[],
+    );
+    assert!(run.ok, "{}", run.stderr);
+    assert_eq!(run.screen(), "settings.list", "{}", run.stdout);
+}
+
 /// `type:` types into the keyboard shown as if on its keys, umlauts and
 /// all; `type-enter:` confirms what was typed, and the keyboard closes.
 #[test]

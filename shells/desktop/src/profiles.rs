@@ -331,6 +331,10 @@ pub struct Profile {
     /// PaperPaw shows its sleep screen and the device sleeps (the power
     /// button); Android shows its own.
     pub sleep: bool,
+    /// PaperPaw switches the device off (a plugin's request, the power menu's
+    /// *Switch off*): the X4s do; here the device is as asleep, the power button
+    /// wakes it.
+    pub power_off: bool,
     /// The buttons in a row below the screen, left to right (see
     /// `KernelBuilder::button_row`).
     pub button_row: &'static [&'static str],
@@ -382,6 +386,7 @@ pub const PROFILES: &[Profile] = &[
         bluetooth: 0,
         catalog_device: Some("x4"),
         sleep: true,
+        power_off: true,
         button_row: &X4_ROW,
         light: None,
         body: X4_BODY,
@@ -416,6 +421,7 @@ pub const PROFILES: &[Profile] = &[
         bluetooth: 2,
         catalog_device: Some("x4-pro"),
         sleep: true,
+        power_off: true,
         button_row: &[],
         // As the X4 Pro's shell has it: brightness in single percents,
         // cool and warm LEDs mixed in fives.
@@ -451,6 +457,7 @@ pub const PROFILES: &[Profile] = &[
         bluetooth: 0,
         catalog_device: Some("x4-classic"),
         sleep: true,
+        power_off: true,
         button_row: &X4_ROW,
         light: None,
         body: X4_BODY,
@@ -482,6 +489,7 @@ pub const PROFILES: &[Profile] = &[
         bluetooth: 0,
         catalog_device: Some("x4"),
         sleep: true,
+        power_off: true,
         button_row: &X4_ROW,
         light: None,
         body: X4_BODY,
@@ -518,6 +526,7 @@ pub const PROFILES: &[Profile] = &[
         bluetooth: 0,
         catalog_device: Some("android"),
         sleep: false,
+        power_off: false,
         button_row: &[],
         // Unverified: Onyx's levels from 0 to 255, warm and cool LEDs;
         // the Android shell takes the device's range, in steps of 1.
@@ -559,6 +568,7 @@ pub const PROFILES: &[Profile] = &[
         bluetooth: 0,
         catalog_device: None,
         sleep: true,
+        power_off: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -586,6 +596,7 @@ pub const PROFILES: &[Profile] = &[
         bluetooth: 0,
         catalog_device: None,
         sleep: true,
+        power_off: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -613,6 +624,7 @@ pub const PROFILES: &[Profile] = &[
         bluetooth: 0,
         catalog_device: None,
         sleep: true,
+        power_off: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -641,6 +653,7 @@ pub const PROFILES: &[Profile] = &[
         bluetooth: 0,
         catalog_device: None,
         sleep: true,
+        power_off: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,

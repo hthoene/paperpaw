@@ -1016,10 +1016,16 @@ impl Device {
             return self.execute(effects);
         }
         self.wake_at = effects.wake_at();
-        if effects.sleep() && !self.asleep {
-            // The sleep screen is shown: plugins save, the device sleeps.
+        if (effects.sleep() || effects.power_off()) && !self.asleep {
+            // The sleep screen is shown: plugins save, the device sleeps (or is
+            // switched off, which the emulator shows as a sleep the power button ends).
             self.asleep = true;
-            eprintln!("{}: asleep", self.profile.device.id);
+            let what = if effects.power_off() {
+                "power off"
+            } else {
+                "asleep"
+            };
+            eprintln!("{}: {what}", self.profile.device.id);
             let now = self.now();
             let effects = budget::track(|| self.kernel.suspend(now));
             self.execute(effects);
@@ -1118,6 +1124,7 @@ impl Device {
             Ok(storage) => storage,
             Err(e) => return eprintln!("restart: {:?}: {e}", self.library),
         };
+        eprintln!("{}: restarting", self.profile.device.id);
         // Plugins save what is pending, as on the device before it restarts.
         let now = self.now();
         budget::track(|| self.kernel.stop(now));
@@ -1236,6 +1243,7 @@ fn build_kernel(
             .bluetooth(profile.bluetooth)
             .speech(profile.speech)
             .sleep(profile.sleep)
+            .power_off(profile.power_off)
             .button_row(profile.button_row)
             .rotation(true);
         // Scalable fonts only where the emulated device renders them.
