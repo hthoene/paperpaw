@@ -1,0 +1,2 @@
+paperpaw-core/lib	registry::tests::each_slot_screen_walks_as_slot_screens_lists
+paperpaw-core/lib	tests::services_declared::slots_and_bindings_are_readable
