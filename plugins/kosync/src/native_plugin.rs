@@ -713,6 +713,10 @@ impl NativeKosync {
             }
             at = end;
         }
+        if at != len {
+            wipe(&mut bytes);
+            return Ok(None);
+        }
         let remote = match core::str::from_utf8(bytes.get(..at).unwrap_or_default()) {
             Ok(text) => native_model::read_answer(text),
             Err(_) => Ok(None),

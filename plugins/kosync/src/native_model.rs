@@ -334,6 +334,10 @@ pub fn remote_progress(text: &str) -> Result<Option<f64>, Error> {
 }
 
 fn read_remote(text: &str, body: &[(String, json::Value)]) -> Option<f64> {
+    let text = text.trim();
+    if !text.starts_with('{') || !text.ends_with('}') {
+        return None;
+    }
     if body.is_empty() {
         let inner = text
             .trim()
