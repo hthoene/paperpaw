@@ -1,25 +1,21 @@
 //! Code plugins in the emulator (ADR 0024): a plugin's crate built for
-//! this computer (`cargo build --release`, a `cdylib` with `plugin!`) is
+//! this computer (an interface-7 library, `tools/plugin-host-libs`) is
 //! `code-host.dll`, `code-host.so` or `code-host.dylib` in its folder of
-//! the emulated card (`plugins/<id>/`), beside its `plugin.ini`; the emulator loads it
-//! with the same entry and table as `.ppn` files on the X4 (Android loads no
-//! code plugins). It must be built by the same compiler, for this computer,
-//! against the same SDK as this emulator ([`FINGERPRINT`], which
-//! `--stdio` says; `built_here` checks the compiler), and installed: only a file whose SHA-256 the card
-//! has (`native::remember_code`) runs, as on the devices, which
-//! [`trust`] gives every one on a card (`--trust-code`).
+//! the emulated card (`plugins/<id>/`), beside its `plugin.ini`. The
+//! emulator hosts it as the devices host their `.ppn` files: its bytes are
+//! checked before anything of it runs, and the kernel admits it with
+//! everything it declares (`native_runtime`; Linux on x86-64, where that
+//! loader is built: elsewhere a card's code is not supported, as on
+//! Android). It must be installed: only a file whose SHA-256 the card has
+//! (`native::remember_code`) runs, as on the devices, which [`trust`] gives
+//! every one on a card (`--trust-code`).
 //!
-//! Each file is copied before it is loaded, so a new build can replace
-//! it while the emulator runs; it is loaded anew at the next start (a
-//! restart, `reload` over `--stdio`).
+//! A library built for interface 6 (with `plugin!`, as for Beta 3) is told
+//! from its bytes and listed as built for an older PaperPaw: nothing of it
+//! is loaded.
 
-use std::alloc::Layout;
-use std::sync::OnceLock;
-use std::time::Instant as Clock;
-
-use paperpaw_core::sdk::native::support::{Api, ApiSlot, Entry};
-use paperpaw_core::sdk::native::{FINGERPRINT, Native, take};
-use paperpaw_core::sdk::{Plugin, PluginProblem};
+use paperpaw_core::sdk::PluginProblem;
+use paperpaw_core::sdk::native::Native;
 use paperpaw_core::{CodeFile, CodeLoader};
 use paperpaw_platform::{MemoryClass, Storage};
 
@@ -40,90 +36,9 @@ pub fn native() -> Native {
 /// The largest code plugin file read.
 const MAX_FILE: usize = 256 << 20;
 
-/// The folder this process copies code plugins into before it loads
-/// them: its own, made at the first ([`crate::private::dir`]).
-fn copies() -> std::io::Result<&'static std::path::Path> {
-    static COPIES: OnceLock<std::path::PathBuf> = OnceLock::new();
-    if let Some(dir) = COPIES.get() {
-        return Ok(dir);
-    }
-    let dir = crate::private::dir("paperpaw-code")?;
-    Ok(COPIES.get_or_init(|| dir))
-}
-
-unsafe extern "C" fn alloc(size: usize, align: usize) -> *mut u8 {
-    match Layout::from_size_align(size, align) {
-        // SAFETY: not zero-sized, as `GlobalAlloc::alloc`.
-        Ok(layout) if size > 0 => unsafe { std::alloc::alloc(layout) },
-        _ => std::ptr::null_mut(),
-    }
-}
-
-unsafe extern "C" fn dealloc(ptr: *mut u8, size: usize, align: usize) {
-    if let Ok(layout) = Layout::from_size_align(size, align) {
-        // SAFETY: given by `alloc` or `realloc` with this layout.
-        unsafe { std::alloc::dealloc(ptr, layout) }
-    }
-}
-
-unsafe extern "C" fn realloc(ptr: *mut u8, size: usize, align: usize, new_size: usize) -> *mut u8 {
-    match Layout::from_size_align(size, align) {
-        // SAFETY: given by `alloc` or `realloc` with this layout.
-        Ok(layout) if new_size > 0 => unsafe { std::alloc::realloc(ptr, layout, new_size) },
-        _ => std::ptr::null_mut(),
-    }
-}
-
-unsafe extern "C" fn panic(message: *const u8, len: usize) -> ! {
-    // SAFETY: the plugin's message, `len` bytes.
-    let bytes = unsafe { std::slice::from_raw_parts(message, len) };
-    panic!("a code plugin panicked: {}", String::from_utf8_lossy(bytes));
-}
-
-extern "C" fn micros() -> u64 {
-    static START: OnceLock<Clock> = OnceLock::new();
-    START.get_or_init(Clock::now).elapsed().as_micros() as u64
-}
-
-unsafe extern "C" fn icon(name: *const u8, len: usize) -> u32 {
-    // SAFETY: the plugin's text, `len` bytes, read while this answers.
-    let bytes = unsafe { std::slice::from_raw_parts(name, len) };
-    std::str::from_utf8(bytes)
-        .ok()
-        .and_then(paperpaw_core::sdk::icons::char)
-        .map_or(0, u32::from)
-}
-
-/// The emulator's table, as a firmware's: the computer's heap (one for
-/// both sides), its clock.
-static API: Api = Api {
-    size: Api::SIZE,
-    alloc,
-    dealloc,
-    realloc,
-    panic,
-    micros,
-    icon,
-    alloc_in,
-    // a computer shares no functions: plugins keep their copies.
-    family_revs: [0; 8],
-    family_min: [0; 8],
-    build: BUILD.as_ptr(),
-    build_len: BUILD.len() as u32,
-};
-
-/// What the logs call this build.
-const BUILD: &str = concat!("PaperPaw ", env!("CARGO_PKG_VERSION"));
-
-/// One heap here: wherever asked, as `alloc`.
-unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mut u8 {
-    // SAFETY: as `alloc`.
-    unsafe { alloc(size, align) }
-}
-
 /// Loads code plugins built for this computer.
 ///
-/// An interface-7 library (only with the developer switch on) is hosted over
+/// An interface-7 library is hosted over
 /// its pinned owner and admitted by the kernel
 /// ([`CodeLoader::load_native`]); every such plugin of this loader shares one
 /// [`DispatchDepth`](paperpaw_core::native_host::DispatchDepth), the device-wide nesting budget.
@@ -136,9 +51,9 @@ pub struct HostLoader {
     /// The memory class the device this loader runs on declares (the
     /// profile's), which sizes the `core.ui` store.
     memory: MemoryClass,
-    /// The file `load_native` read and found not to be interface 7, for the
-    /// `load` that follows it for the same plugin (read once, not twice).
-    read: Option<(String, [u8; 32], Vec<u8>)>,
+    /// It hosts the card's code plugins; not the loader of a start without
+    /// them, which serves the linked plugins alone ([`Self::linked_only`]).
+    card_code: bool,
 }
 
 impl HostLoader {
@@ -157,8 +72,16 @@ impl HostLoader {
             pool,
             resources: None,
             memory,
-            read: None,
+            card_code: true,
         }
+    }
+
+    /// For a start that loads no code from the card: what the linked
+    /// plugins need is served, nothing for card plugins.
+    #[must_use]
+    pub fn linked_only(mut self) -> Self {
+        self.card_code = false;
+        self
     }
 }
 
@@ -250,50 +173,19 @@ fn new_resources(memory: MemoryClass) -> Option<paperpaw_core::native_host::Host
 }
 
 impl CodeLoader for HostLoader {
-    fn load(
-        &mut self,
-        storage: &dyn Storage,
-        code: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        let installed = Installed::of(code);
-        // Not the device's heap: its code lies in flash (or the PSRAM it
-        // runs from), never on the heap a plugin's budget counts.
-        crate::budget::untracked(|| {
-            let bytes = match self.read.take() {
-                Some((path, sha256, bytes))
-                    if path == installed.path && sha256 == installed.sha256 =>
-                {
-                    bytes
-                }
-                _ => read_installed(storage, &installed)?,
-            };
-            // An interface-7 library is the kernel's to admit
-            // ([`Self::load_native`]), never an interface-6 plugin.
-            if dev_switch() && is_interface7(&bytes) {
-                return Err(PluginProblem::Unsupported);
-            }
-            load_bytes(&bytes, &installed)
-        })
-    }
-
-    /// An interface-7 library (only with the developer switch on) is hosted
-    /// for the kernel to admit with everything it declares.
+    /// A library of the card, the file installed, is hosted for the kernel
+    /// to admit with everything it declares; one built for interface 6, one
+    /// that is no library of either kind, and any where this loader is not
+    /// built or switched off are refused with why (`Self::native`).
     fn load_native(
         &mut self,
         storage: &dyn Storage,
         code: &CodeFile<'_>,
     ) -> Result<Option<Box<dyn paperpaw_core::NativeAdmission>>, PluginProblem> {
-        let installed = Installed::of(code);
+        // Not the device's heap: its code lies in flash (or the PSRAM it
+        // runs from), never on the heap a plugin's budget counts.
         crate::budget::untracked(|| {
-            if !dev_switch() {
-                return Ok(None);
-            }
-            let bytes = read_installed(storage, &installed)?;
-            if !is_interface7(&bytes) {
-                // `load` follows for this file: it is not read again.
-                self.read = Some((installed.path.into(), installed.sha256, bytes));
-                return Ok(None);
-            }
+            let bytes = read_installed(storage, code)?;
             self.native(&bytes, code).map(Some)
         })
     }
@@ -308,7 +200,8 @@ impl CodeLoader for HostLoader {
         use paperpaw_core::native_host::HostWiring;
         // The linked plugins (the app's own, `native-linked`) read the tables
         // as the card ones do, switch or not; as the firmware's sink is.
-        if !dev_switch() && !cfg!(feature = "native-linked") {
+        let hosts = self.card_code && cfg!(all(target_os = "linux", target_arch = "x86_64"));
+        if !hosts && !cfg!(feature = "native-linked") {
             return None;
         }
         if self.resources.is_none() {
@@ -347,7 +240,8 @@ impl HostLoader {
         self.pool.depth().ok_or(PluginProblem::NoRoom)
     }
 
-    /// The interface-7 library `bytes` of `code`, checked and hosted for the
+    /// The library `bytes` of `code`, told from its bytes: an interface-7 one is
+    /// checked and hosted for the
     /// kernel to admit: nothing of it runs but what the kernel's admission
     /// calls (`make`), and what it declared is registered with it or the
     /// plugin is refused, never loaded without it.
@@ -357,9 +251,23 @@ impl HostLoader {
         bytes: &[u8],
         code: &CodeFile<'_>,
     ) -> Result<Box<dyn paperpaw_core::NativeAdmission>, PluginProblem> {
-        use crate::native_runtime::Refusal;
+        use crate::native_runtime::{Kind, Refusal};
         let id = code.id.as_str();
+        // First, whatever the file is: the id is the folder's.
         refuse_linked_id(id)?;
+        match crate::native_runtime::classify(bytes) {
+            Kind::Interface7 => {}
+            Kind::Interface6 => {
+                eprintln!(
+                    "code plugin {id}: built for interface 6 (an older PaperPaw); not loaded"
+                );
+                return Err(PluginProblem::OlderInterface { built_for: 6 });
+            }
+            Kind::Unclear => {
+                eprintln!("code plugin {id}: no library of a plugin; not loaded");
+                return Err(PluginProblem::Damaged);
+            }
+        }
         let depth = self.shared_depth()?;
         if self.resources.is_none() {
             self.resources = Some(
@@ -409,18 +317,6 @@ fn refuse_linked_id(id: &str) -> Result<(), PluginProblem> {
     Ok(())
 }
 
-/// Whether `bytes` is an interface-7 library (never where that loader is not
-/// built).
-fn is_interface7(bytes: &[u8]) -> bool {
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    return crate::native_runtime::classify(bytes) == crate::native_runtime::Kind::Interface7;
-    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-    {
-        let _ = bytes;
-        false
-    }
-}
-
 /// Code plugins built for this computer, from the card (`on`: `device::set_code_plugins`).
 pub fn code_plugins(
     builder: paperpaw_core::KernelBuilder,
@@ -431,7 +327,7 @@ pub fn code_plugins(
     if !on {
         // No code is loaded (and so no code device): the linked plugins'
         // `text.hyphenate` still reads the hyphenation packs on the card (todo 613).
-        let mut loader = HostLoader::for_device_in(memory, pool.clone());
+        let mut loader = HostLoader::for_device_in(memory, pool.clone()).linked_only();
         return builder
             .hyphenation_sink(move |card| CodeLoader::hyphenation_sink(&mut loader, card));
     }
@@ -441,173 +337,14 @@ pub fn code_plugins(
     )
 }
 
-/// [`load`] with its memory not counted against the budget (the file read
-/// here, then loaded as an interface-6 library).
-#[cfg(test)]
-fn load_installed(
-    storage: &dyn Storage,
-    code: &Installed<'_>,
-) -> Result<Box<dyn Plugin>, PluginProblem> {
-    crate::budget::untracked(|| load_bytes(&read_installed(storage, code)?, code))
-}
-
-/// What [`load`] needs of a [`CodeFile`]: the plugin and the file installed.
-/// The kernel's `host` handle is not part of it (it has no public
-/// constructor), so that tests can load a file without a kernel.
-#[derive(Debug, Clone, Copy)]
-struct Installed<'a> {
-    id: &'a paperpaw_core::sdk::Id,
-    path: &'a str,
-    sha256: [u8; 32],
-}
-
-impl<'a> Installed<'a> {
-    fn of(code: &CodeFile<'a>) -> Self {
-        Self {
-            id: code.id,
-            path: code.path,
-            sha256: code.sha256,
-        }
-    }
-}
-
-/// Whether the interface-7 developer switch is on (never where that loader is
-/// not built).
-fn dev_switch() -> bool {
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    return crate::native_runtime::enabled();
-    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-    false
-}
-
-/// Whether this (interface-6) loader may take the library: always with the
-/// developer switch off, else only one told from its bytes to be interface 6.
-pub(crate) fn interface6_only(bytes: &[u8], switch_on: bool) -> bool {
-    if !switch_on {
-        return true;
-    }
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    return crate::native_runtime::classify(bytes) == crate::native_runtime::Kind::Interface6;
-    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-    {
-        let _ = bytes;
-        true
-    }
-}
-
 /// The installed file, read: only the file installed may run.
-fn read_installed(storage: &dyn Storage, code: &Installed<'_>) -> Result<Vec<u8>, PluginProblem> {
+fn read_installed(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Vec<u8>, PluginProblem> {
     let bytes = paperpaw_core::sdk::read_file(storage, code.path, MAX_FILE)
         .map_err(|_| PluginProblem::Damaged)?;
     if paperpaw_core::sdk::digest::sha256::digest(&bytes) != code.sha256 {
         return Err(PluginProblem::Changed);
     }
     Ok(bytes)
-}
-
-/// Loads the interface-6 library `bytes` of the installed file `code`.
-fn load_bytes(bytes: &[u8], code: &Installed<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
-    // A copy of its own (the build may change the file meanwhile), in a
-    // folder this process made for itself, made anew, then read back and
-    // checked again: only what was checked is loaded.
-    let copy = copies().map_err(|_| PluginProblem::Damaged)?.join(format!(
-        "{}-{}{}",
-        code.id.as_str(),
-        paperpaw_core::sdk::digest::hex::encode(&code.sha256[..8]),
-        std::env::consts::DLL_SUFFIX
-    ));
-    if !copy.exists() {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&copy)
-            .map_err(|_| PluginProblem::Damaged)?;
-        std::io::Write::write_all(&mut file, bytes).map_err(|_| PluginProblem::Damaged)?;
-        // Written once: read-only from here on.
-        let mut permissions = file
-            .metadata()
-            .map_err(|_| PluginProblem::Damaged)?
-            .permissions();
-        permissions.set_readonly(true);
-        file.set_permissions(permissions)
-            .map_err(|_| PluginProblem::Damaged)?;
-    }
-    // Opened once: what is read, checked and loaded is this one file, not
-    // whatever the name leads to at the moment of loading (ADR 0034 section 6).
-    let mut copy_file = std::fs::File::open(&copy).map_err(|_| PluginProblem::Damaged)?;
-    let mut copied = Vec::new();
-    std::io::Read::read_to_end(&mut copy_file, &mut copied).map_err(|_| PluginProblem::Damaged)?;
-    if paperpaw_core::sdk::digest::sha256::digest(&copied) != code.sha256 {
-        return Err(PluginProblem::Changed);
-    }
-    // Before anything of it can run: a library's initialisers run while
-    // the system loads it, so what it holds is read from its bytes first.
-    if let Err(why) = preflight(&copied) {
-        eprintln!(
-            "code plugin {}: refused before loading ({why:?})",
-            code.id.as_str()
-        );
-        return Err(PluginProblem::Damaged);
-    }
-    // With the interface-7 developer switch on, this loader takes interface-6
-    // libraries only: one that also exports interface 7's metadata (or neither
-    // kind) is refused, and an interface-7 library is left to the other loader.
-    if !interface6_only(&copied, dev_switch()) {
-        eprintln!(
-            "code plugin {}: not an interface-6 library (the interface-7 developer switch is on)",
-            code.id.as_str()
-        );
-        return Err(PluginProblem::Damaged);
-    }
-    if let Err(why) = built_here(&copied) {
-        eprintln!("code plugin {}: {why}", code.id.as_str());
-        return Err(PluginProblem::OtherBuild);
-    }
-    // SAFETY: a file the reader installed on the card (`trust`), its
-    // SHA-256 the one installed; a code plugin runs as part of
-    // PaperPaw, without a sandbox (ADR 0024).
-    let held =
-        unsafe { HeldLibrary::open(&copy, copy_file) }.map_err(|_| PluginProblem::Damaged)?;
-    let library = &held.library;
-    // SAFETY: the statics `plugin!` exports, of these types.
-    let (slot, entry) = unsafe {
-        let slot = library
-            .get::<*const ApiSlot>(b"PAPERPAW_API\0")
-            .map_err(|_| PluginProblem::Damaged)?;
-        let entry = library
-            .get::<*const Entry>(b"PAPERPAW_ENTRY\0")
-            .map_err(|_| PluginProblem::Damaged)?;
-        (&**slot, *entry)
-    };
-    // The fingerprint first, through a pointer: an entry of another
-    // interface may be shorter than this one's `Entry`.
-    // SAFETY: the static `plugin!` exports, which every interface's entry
-    // begins with its fingerprint, aligned to 8.
-    if unsafe { Entry::fingerprint_at(entry) } != FINGERPRINT.0 {
-        return Err(PluginProblem::OtherBuild);
-    }
-    // SAFETY: an entry of this build's interface, as its fingerprint says.
-    let entry = unsafe { &*entry };
-    // A library built in table mode calls shared functions this shell does
-    // not have (it shares none): refused before anything of it runs.
-    if let Some(misfit) = paperpaw_table::misfit(&entry.families, &API.family_min, &API.family_revs)
-    {
-        eprintln!(
-            "code plugin {}: calls shared functions this build has not ({misfit:?})",
-            code.id.as_str()
-        );
-        return Err(PluginProblem::NeedsNewerPaperPaw);
-    }
-    slot.set(&API);
-    // SAFETY: a plugin of this build's fingerprint, made once.
-    let plugin = unsafe { take((entry.make)()) }.ok_or(PluginProblem::Damaged)?;
-    if plugin.manifest().id != *code.id {
-        return Err(PluginProblem::Mismatch);
-    }
-    // Its code stays loaded as long as the emulator runs: what it made
-    // is in use. Its file stays open as long: see [`HeldLibrary`].
-    held.leak();
-    Ok(plugin)
 }
 
 /// A loaded library and the open file it was loaded from. The system loader
@@ -618,7 +355,8 @@ fn load_bytes(bytes: &[u8], code: &Installed<'_>) -> Result<Box<dyn Plugin>, Plu
 pub(super) struct HeldLibrary {
     /// First, so it is unloaded before its file is closed.
     pub(super) library: libloading::Library,
-    file: std::fs::File,
+    /// Held, never read: open as long as the library is loaded.
+    _file: std::fs::File,
 }
 
 impl HeldLibrary {
@@ -645,14 +383,10 @@ impl HeldLibrary {
         // SAFETY: as documented.
         #[cfg(not(unix))]
         let library = unsafe { libloading::Library::new(load_path(path, &file)) }?;
-        Ok(Self { library, file })
-    }
-
-    /// Keeps both for the life of the process.
-    fn leak(self) {
-        let Self { library, file } = self;
-        std::mem::forget(library);
-        std::mem::forget(file);
+        Ok(Self {
+            library,
+            _file: file,
+        })
     }
 }
 
@@ -669,89 +403,6 @@ fn load_path(_path: &std::path::Path, file: &std::fs::File) -> std::path::PathBu
 #[cfg(not(target_os = "linux"))]
 fn load_path(path: &std::path::Path, _file: &std::fs::File) -> std::path::PathBuf {
     path.to_path_buf()
-}
-
-/// The preflight of ADR 0034 section 6 for this computer's libraries:
-/// refuses every way to run code while the library loads.
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
-fn preflight(bytes: &[u8]) -> Result<(), paperpaw_native::preflight::Refusal> {
-    let machine = if cfg!(target_arch = "x86_64") {
-        62
-    } else {
-        183
-    };
-    paperpaw_native::preflight::check_elf64_le(bytes, machine)
-}
-
-/// Mach-O and PE libraries are not yet checked before loading (their
-/// preflight comes with the generated metadata, ADR 0034 M1), so they are
-/// refused. Whoever starts the emulator may say, in the open, that unchecked
-/// libraries are loaded anyway: `PAPERPAW_UNCHECKED_CODE_PLUGINS=1`, which
-/// is said on standard error for every library it lets through. It never
-/// applies where a check exists.
-#[cfg(not(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-)))]
-fn preflight(_bytes: &[u8]) -> Result<(), paperpaw_native::preflight::Refusal> {
-    if std::env::var_os("PAPERPAW_UNCHECKED_CODE_PLUGINS").is_some_and(|v| v == "1") {
-        eprintln!(
-            "code plugin loaded without the pre-load check (PAPERPAW_UNCHECKED_CODE_PLUGINS=1)"
-        );
-        return Ok(());
-    }
-    Err(paperpaw_native::preflight::Refusal::UnsupportedPlatform)
-}
-
-/// Whether the library `bytes` was built by the compiler that built the
-/// emulator: Rust types cross as they are until PaperPaw 1.0 (ADR 0026).
-/// A library for Linux or Android names the compiler's release (in
-/// `.comment`); every library names the commit of its `std` in the paths
-/// of its sources (`/rustc/<commit>/library/…`). One that tells neither is
-/// refused too.
-fn built_here(bytes: &[u8]) -> Result<(), String> {
-    let ours = env!("PAPERPAW_RUSTC");
-    let releases = paperpaw_core::sdk::native::compiler::named_in(bytes);
-    if let Some(other) = releases.iter().find(|r| **r != ours) {
-        return Err(format!(
-            "built by rustc {other}, the emulator by rustc {ours}"
-        ));
-    }
-    let commits = commits_in(bytes);
-    let commit = env!("PAPERPAW_RUSTC_COMMIT");
-    if let Some(other) = commits.iter().find(|c| **c != commit) {
-        return Err(format!(
-            "its std is of the compiler {other}, the emulator's of {commit}"
-        ));
-    }
-    if releases.is_empty() && commits.is_empty() {
-        return Err(String::from("it does not tell which compiler built it"));
-    }
-    Ok(())
-}
-
-/// The commits of the compilers whose `std` built into `bytes`, each once.
-fn commits_in(bytes: &[u8]) -> Vec<&str> {
-    const MARK: &[u8] = b"/rustc/";
-    let mut found = Vec::new();
-    let mut at = 0;
-    while let Some(start) = bytes[at..].windows(MARK.len()).position(|w| w == MARK) {
-        let from = at + start + MARK.len();
-        let hash = bytes.get(from..from + 41);
-        if let Some(hash) = hash
-            && hash[40] == b'/'
-            && hash[..40].iter().all(u8::is_ascii_hexdigit)
-            && let Ok(hash) = std::str::from_utf8(&hash[..40])
-            && !found.contains(&hash)
-        {
-            found.push(hash);
-        }
-        at = from;
-    }
-    found
 }
 
 /// Installs every code plugin built for this computer on the card in
@@ -793,31 +444,31 @@ mod card_id_tests;
 mod tests {
     use super::*;
 
-    /// What a file that is not a library comes to: refused before it is
-    /// loaded (where no check exists yet, a library is refused too, unless the
-    /// opt-in `PAPERPAW_UNCHECKED_CODE_PLUGINS` is set, which the tests do not).
+    /// What a file that is no library of a plugin comes to: told from its
+    /// bytes and refused before anything of it is loaded; where this loader is
+    /// not built (not Linux on x86-64) a card's code is not supported at all.
     fn not_a_library() -> PluginProblem {
-        PluginProblem::Damaged
+        if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+            PluginProblem::Damaged
+        } else {
+            PluginProblem::Unsupported
+        }
     }
 
-    /// A library is loaded only where it names the emulator's compiler,
-    /// by its release or by the commit of its `std`, and none other.
-    #[test]
-    fn only_libraries_of_this_compiler_are_loaded() {
-        let release = format!("rustc version {}\0", env!("PAPERPAW_RUSTC"));
-        let std = format!(
-            "/rustc/{}/library/core/src/str.rs",
-            env!("PAPERPAW_RUSTC_COMMIT")
-        );
-        assert_eq!(built_here(release.as_bytes()), Ok(()));
-        assert_eq!(built_here(std.as_bytes()), Ok(()));
-        let both = format!("{release}{std}{std}");
-        assert_eq!(built_here(both.as_bytes()), Ok(()));
-        let other_release = b"rustc version 1.2.3 (aaaaaaaaa 2020-01-01)\0";
-        assert!(built_here(other_release).is_err());
-        let other_std = format!("{std}/rustc/{}/library/std/src/io.rs", "a".repeat(40));
-        assert!(built_here(other_std.as_bytes()).is_err());
-        assert!(built_here(b"no compiler at all").is_err());
+    const INI: &str = "[plugin]\nid = hello\nname = Hello\nversion = 0.1.0\n";
+
+    /// What the plugin manager says of the code plugin `hello` of the card in
+    /// `root` with code plugins on (`--trust-code`): the loader's answer, by
+    /// the way a start goes (the card read, the file installed, [`HostLoader`]).
+    fn said(root: &std::path::Path) -> Option<PluginProblem> {
+        let _one = crate::one_device_at_a_time();
+        crate::device::set_code_plugins(true);
+        let storage = crate::device::library(root).unwrap();
+        let profile = crate::profiles::find("boox-go-7").unwrap();
+        let device = crate::device::Device::new(profile, None, storage, true).unwrap();
+        let problem = device.kernel.plugins().get("hello").and_then(|p| p.problem);
+        crate::device::set_code_plugins(false);
+        problem
     }
 
     /// A library that has a code plugin installed runs none of it unless
@@ -878,23 +529,17 @@ version = 0.1.0
             paperpaw_core::sdk::native::installed_code(&storage, "hello"),
             Some(paperpaw_core::sdk::digest::sha256::digest(b"not a library"))
         );
-        // Installed but not a library the preflight reads: said, not fatal.
-        let id = paperpaw_core::sdk::Id::new_static("hello");
-        let path = format!("plugins/hello/{}", file_name());
-        let code = Installed {
-            id: &id,
-            path: &path,
-            sha256: paperpaw_core::sdk::digest::sha256::digest(b"not a library"),
+        // Installed but no library of a plugin: said, not fatal.
+        std::fs::write(hello.join("plugin.ini"), INI).unwrap();
+        assert_eq!(said(&root), Some(not_a_library()));
+        // Changed since it was installed: not the file installed.
+        std::fs::write(hello.join(file_name()), b"another file").unwrap();
+        let changed = if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+            PluginProblem::Changed
+        } else {
+            PluginProblem::Unsupported
         };
-        assert_eq!(load_installed(&storage, &code).err(), Some(not_a_library()));
-        let changed = Installed {
-            sha256: [0; 32],
-            ..code
-        };
-        assert_eq!(
-            load_installed(&storage, &changed).err(),
-            Some(PluginProblem::Changed)
-        );
+        assert_eq!(said(&root), Some(changed));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -999,10 +644,7 @@ version = 0.1.0
     /// A library whose relocation points outside the library makes the system
     /// loader fault (SIGSEGV) while it loads. It is refused before it is loaded.
     /// The control loads it by hand in a child process and sees the crash.
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
     fn a_library_whose_relocation_points_outside_is_refused_before_it_is_loaded() {
         use std::os::unix::process::ExitStatusExt;
@@ -1083,20 +725,11 @@ pub static TABLE: [extern "C" fn() -> u32; 2] = [f, f];
             "the library with a false relocation count loads"
         );
         // The loader refuses each and the process lives.
-        let storage = crate::device::library(&root).unwrap();
-        let id = paperpaw_core::sdk::Id::new_static("hello");
-        let path = format!("plugins/hello/{}", file_name());
+        std::fs::write(hello.join("plugin.ini"), INI).unwrap();
         for bad in [&moved, &counted] {
             std::fs::write(&lib, bad).unwrap();
-            let code = Installed {
-                id: &id,
-                path: &path,
-                sha256: paperpaw_core::sdk::digest::sha256::digest(bad),
-            };
-            assert_eq!(
-                load_installed(&storage, &code).err(),
-                Some(PluginProblem::Damaged)
-            );
+            assert_eq!(trust(&root).unwrap(), ["hello"]);
+            assert_eq!(said(&root), Some(PluginProblem::Damaged));
         }
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1104,10 +737,7 @@ pub static TABLE: [extern "C" fn() -> u32; 2] = [f, f];
     /// ADR 0034 section 6: a library whose initialiser runs when it is loaded
     /// is refused before it is loaded. The control loads the same library
     /// by hand and sees the initialiser run, so the test can fail.
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    ))]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
     fn a_library_with_an_initialiser_is_refused_before_it_is_loaded() {
         let root = std::env::temp_dir().join(format!("paperpaw-init-{}", std::process::id()));
@@ -1191,19 +821,9 @@ static INIT: extern "C" fn() = make_marker;
         std::fs::remove_file(&marker).unwrap();
         std::fs::write(&lib, &moved).unwrap();
         // The loader refuses it and never loads it.
-        let bytes = std::fs::read(&lib).unwrap();
-        let storage = crate::device::library(&root).unwrap();
-        let id = paperpaw_core::sdk::Id::new_static("hello");
-        let path = format!("plugins/hello/{}", file_name());
-        let code = Installed {
-            id: &id,
-            path: &path,
-            sha256: paperpaw_core::sdk::digest::sha256::digest(&bytes),
-        };
-        assert_eq!(
-            load_installed(&storage, &code).err(),
-            Some(PluginProblem::Damaged)
-        );
+        std::fs::write(hello.join("plugin.ini"), INI).unwrap();
+        assert_eq!(trust(&root).unwrap(), ["hello"]);
+        assert_eq!(said(&root), Some(PluginProblem::Damaged));
         assert!(
             !marker.exists(),
             "the initialiser ran while the loader refused it"
@@ -1281,25 +901,22 @@ static INIT: extern "C" fn() = make_marker;
     }
 
     /// Where interface-7 plugins run (the developer switch), the loader wires
-    /// `core.ui` for its device beside `text.hyphenate`, once; with the switch
-    /// off it wires nothing.
+    /// `core.ui` for its device beside `text.hyphenate`, once; a loader for a
+    /// start without card code wires nothing for card plugins.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
-    fn the_loader_wires_core_ui_only_with_the_developer_switch() {
+    fn the_loader_wires_core_ui_only_where_it_hosts_card_code() {
         use paperpaw_core::native_host::HostWiring;
         let _one = crate::one_device_at_a_time();
         let storage: std::rc::Rc<dyn Storage> =
             std::rc::Rc::new(paperpaw_core::sdk::MemoryStorage::new());
-        let was = crate::native_runtime::enabled();
-        crate::native_runtime::set_enabled(false);
-        let mut off = HostLoader::for_device(MemoryClass::Small);
-        // With the linked plugins built in, the tables are wired switch or not.
+        let mut off = HostLoader::for_device(MemoryClass::Small).linked_only();
+        // With the linked plugins built in, the tables are wired card code or not.
         assert_eq!(
             off.hyphenation_sink(&storage).is_some(),
             cfg!(feature = "native-linked")
         );
         assert_eq!(off.resources.is_some(), cfg!(feature = "native-linked"));
-        crate::native_runtime::set_enabled(true);
         for device in [MemoryClass::Small, MemoryClass::Large] {
             let mut on = HostLoader::for_device(device);
             assert!(on.hyphenation_sink(&storage).is_some(), "{device:?}");
@@ -1312,7 +929,6 @@ static INIT: extern "C" fn() = make_marker;
                     .is_err()
             );
         }
-        crate::native_runtime::set_enabled(was);
     }
 
     /// Two plugins admitted by one loader share its one device-wide dispatch

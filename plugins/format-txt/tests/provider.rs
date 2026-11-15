@@ -465,6 +465,29 @@ fn metadata_sections_progress_and_texts() {
     assert_eq!(ppm(u32::MAX), 1_000_000);
 }
 
+/// The SDK takes a page of the list only when its end names the cursor after
+/// the rows (`next`), and the last page ends at the total: the reader's
+/// progress (its status line's "0 %") is made of this list.
+#[test]
+fn the_section_list_ends_as_the_sdk_takes_it() {
+    let io = Roots::new(sample());
+    let mut p = TxtProvider::new();
+    open(&mut p, &io);
+    for (cursor, rows) in [(0, 1), (1, 0)] {
+        let reply = run(&mut p, &io, &call(7, 1, |c| c.cursor = cursor)).unwrap();
+        let records: Vec<_> = stage::reply_decode(&reply)
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let Some(stage::Record::FmtEnd(end)) = records.last() else {
+            panic!("no end");
+        };
+        assert_eq!(records.len(), rows + 1);
+        assert_eq!(end.next, cursor + rows as u32, "cursor {cursor}");
+        assert_eq!((end.flags, end.total, end.next), (1, 1, end.total));
+    }
+}
+
 #[test]
 fn bad_calls_get_their_refusals() {
     let io = Roots::new(sample());

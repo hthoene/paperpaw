@@ -1,5 +1,5 @@
 Default fonts brings the fonts PaperPaw comes with: Literata for reading books, with regular, bold, italic and bold italic, and Source Sans 3 for menus and lists (on the Xteink readers PaperPaw Sans, made from it). It also supplies the icons of the menus.
 
-Literata is what books are set in unless you choose another font in Settings, under Reading, as Font in the Text section; on devices that draw scalable fonts (not the X4 and X4 Pro), a book that brings its own fonts can use them too. Source Sans (or PaperPaw Sans) is used for everything outside the book. The licences of these fonts are in About PaperPaw, under Licences.
+Literata is what books are set in unless you choose another font in Settings, under Reading, as Font in the Text section. The Xteink readers have no room for Literata in their firmware: there books are set in the menus' font, and Literata is one of the fonts to choose once its plugin (Literata) is on the card, which More fonts downloads. On devices that draw scalable fonts (not the X4 and X4 Pro), a book that brings its own fonts can use them too. Source Sans (or PaperPaw Sans) is used for everything outside the book. The licences of these fonts are in About PaperPaw, under Licences.
 
 To read with other fonts, download some with More fonts. Devices that draw scalable fonts also read .ttf or .otf files copied into the fonts folder.

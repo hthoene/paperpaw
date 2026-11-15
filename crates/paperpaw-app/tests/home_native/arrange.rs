@@ -363,6 +363,17 @@ fn an_item_is_removed_by_buttons_and_by_touch() {
 
 /// Opens *Add a widget* while editing: the plus below the page, tapped,
 /// or reached with the buttons past the items.
+/// The gallery of a widget's variants: the first is chosen. With the nested-call gate
+/// open (the X4 too, #250) each variant is drawn live under its title, so a finger taps
+/// the title (with the gate closed the gallery was a list of rows).
+fn pick_first_widget(app: &mut App) {
+    if app.kernel.device().input.touch {
+        app.tap_on("Date");
+    } else {
+        app.run(actions::CONFIRM);
+    }
+}
+
 fn open_add(app: &mut App) {
     if app.kernel.device().input.touch {
         // The plus at the bottom left: the middle of what is drawn there.
@@ -417,17 +428,7 @@ fn a_widget_added_gets_a_placement_of_its_own() {
         choose(&mut app, "Time and date");
         assert_eq!(app.screen(), "home.add-widget");
         // The gallery: the first widget is chosen.
-        if device.input.touch {
-            let first = app
-                .parts()
-                .into_iter()
-                .find(|p| p.role == Role::Row)
-                .unwrap()
-                .area;
-            app.tap(center(first));
-        } else {
-            app.run(actions::CONFIRM);
-        }
+        pick_first_widget(&mut app);
         assert_eq!(app.screen(), HOME, "{}", app.described());
         let items: Vec<String> = page(&app, 1).split(", ").map(String::from).collect();
         assert_eq!(items.len(), 5, "{items:?}");
@@ -436,17 +437,7 @@ fn a_widget_added_gets_a_placement_of_its_own() {
         // Added twice: each its own placement.
         open_add(&mut app);
         choose(&mut app, "Time and date");
-        if device.input.touch {
-            let first = app
-                .parts()
-                .into_iter()
-                .find(|p| p.role == Role::Row)
-                .unwrap()
-                .area;
-            app.tap(center(first));
-        } else {
-            app.run(actions::CONFIRM);
-        }
+        pick_first_widget(&mut app);
         let page = page(&app, 1);
         let base = added.split('@').next().unwrap();
         if page.contains(&format!("{base}@2 ")) {

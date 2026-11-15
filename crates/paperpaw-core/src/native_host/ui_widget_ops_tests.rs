@@ -381,6 +381,7 @@ fn the_kernels_items_are_answered_without_a_call_on_the_x4_too() {
         w.reply(A, 1, Ok(values(&[("a.one", 0, "open")])));
         let ask = "core.status.clock\ncore.status.battery\na.one\ncore.status.gone";
         // The X4 first: the other run caches the plugin's value.
+        let mut cached = false;
         for x4 in [true, false] {
             w.x4.set(x4);
             w.asked.borrow_mut().clear();
@@ -401,10 +402,18 @@ fn the_kernels_items_are_answered_without_a_call_on_the_x4_too() {
                 .unwrap();
             assert_eq!((target.owner, target.token), (host_status::HOST, 3));
             drop(handles);
-            // A plugin's item: its owner's call, but not on the X4.
-            let plugin = if x4 { String::new() } else { "open".into() };
+            // A plugin's item: its owner's call, but not on the X4 with the
+            // nested-call gate closed (open by default, see `x4-gate-closed`).
+            let refused = x4 && cfg!(feature = "x4-gate-closed");
+            let plugin = if refused {
+                String::new()
+            } else {
+                "open".into()
+            };
             assert_eq!(rows[2], ("a.one".into(), 0, 0, plugin), "x4 {x4}");
-            assert_eq!(w.asked.borrow().len(), usize::from(!x4));
+            // Asked once: a run after one that asked reads the cache.
+            assert_eq!(w.asked.borrow().len(), usize::from(!refused && !cached));
+            cached |= !refused;
             // Neither the kernel's nor declared: no value.
             assert_eq!(rows[3], ("core.status.gone".into(), 0, 0, String::new()));
         }
@@ -519,7 +528,10 @@ fn values_are_cached_until_the_status_changes_and_private_ones_hidden_under_a_gu
 }
 
 #[test]
-#[cfg_attr(feature = "x4-nested", ignore = "x4-nested opens the X4 gate (#250)")]
+#[cfg_attr(
+    not(feature = "x4-gate-closed"),
+    ignore = "the X4 gate is open by default (#250); run with x4-gate-closed"
+)]
 fn ops_14_and_15_are_depth_one_only_and_a_plugins_items_go_without_value_on_the_x4() {
     world(|w| {
         w.depth.set(2);

@@ -514,20 +514,29 @@ impl PanelView {
                     ink,
                     Some(rect),
                 )?;
-                let wide = font.measure_text(style.small, &shown)?;
+                let value_size = self.value_size(style);
+                let wide = font.measure_text(value_size, &shown)?;
                 let right =
                     f32::from(rect.x) + f32::from(rect.width) - f32::from(style.margin) - wide;
                 text::label(
                     body,
                     font,
                     &shown,
-                    style.small,
+                    value_size,
                     right.max(0.0),
                     rect,
                     style.muted,
                     Some(rect),
                 )
             }
+        }
+    }
+
+    fn value_size(&self, style: &Style) -> f32 {
+        if self.menu == paperpaw_sdk::builtin::menus::QUICK.as_str() {
+            style.text
+        } else {
+            style.small
         }
     }
 

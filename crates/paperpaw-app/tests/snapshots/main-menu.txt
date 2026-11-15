@@ -7,5 +7,5 @@ Row "Home"
 Row "Library"
 Row "Tools"
 Row "Edit home screen"
-Row "Night mode, Off" (off)
+Row "Night mode" (off)
 Row "Settings"

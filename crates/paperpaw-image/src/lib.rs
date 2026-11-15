@@ -376,19 +376,26 @@ impl<'a> Reader<'a> {
         self.before + self.pos as u64
     }
 
-    /// The next byte, `None` at the end.
+    /// The next byte, `None` at the end. Inlined where it is called: a
+    /// byte at hand is a load and a step (it was a call for every byte of
+    /// a picture's data, #250).
+    #[inline]
     fn next(&mut self) -> Result<Option<u8>, ImageError> {
-        if self.pos == self.len {
-            self.before += self.len as u64;
-            (self.pos, self.len) = (0, 0);
-            // A source that says it read more than asked for is not believed.
-            self.len = self.source.read(&mut self.buf)?.min(self.buf.len());
-            if self.len == 0 {
-                return Ok(None);
-            }
+        if self.pos == self.len && !self.more()? {
+            return Ok(None);
         }
         self.pos += 1;
         Ok(Some(self.buf[self.pos - 1]))
+    }
+
+    /// Reads the next bytes of the source; whether there were any.
+    #[inline(never)]
+    fn more(&mut self) -> Result<bool, ImageError> {
+        self.before += self.len as u64;
+        (self.pos, self.len) = (0, 0);
+        // A source that says it read more than asked for is not believed.
+        self.len = self.source.read(&mut self.buf)?.min(self.buf.len());
+        Ok(self.len > 0)
     }
 
     fn byte(&mut self) -> Result<u8, ImageError> {

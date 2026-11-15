@@ -34,7 +34,7 @@ pub struct HtmlDocument {
     path: String,
     paths: CachePaths,
     /// The block found last (see [`cached::block_at`]).
-    last: core::cell::Cell<Option<u32>>,
+    seek: core::cell::RefCell<cached::Seek>,
     /// Where an anchor was found last.
     anchors: cached::AnchorHint,
     metadata: Metadata,
@@ -297,7 +297,7 @@ impl HtmlDocument {
         Ok(Self {
             path: fallible::string(path)?,
             paths,
-            last: core::cell::Cell::new(None),
+            seek: core::cell::RefCell::default(),
             anchors: cached::AnchorHint::default(),
             metadata,
             focus: found.focus,
@@ -379,18 +379,15 @@ impl Document for HtmlDocument {
             return Ok(None);
         }
         let (length, blocks) = self.converted(storage)?;
-        let mut last = self.last.get();
-        let block = cached::block_at(
+        cached::block_at(
             storage,
             &self.paths,
             length,
             blocks,
             at.offset,
             false,
-            &mut last,
-        );
-        self.last.set(last);
-        block
+            &mut self.seek.borrow_mut(),
+        )
     }
 
     fn links(&self, storage: &dyn Storage, section: u32, from: u32, to: u32) -> Vec<Link> {

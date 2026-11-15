@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-fonts-default"
 description = "PaperPaw default fonts: Literata for reading, Source Sans 3 for the UI"
-version = "1.0.2"
+version = "1.0.3"
 edition.workspace = true
 rust-version.workspace = true
 # The code is Apache-2.0; the bundled fonts are under the SIL Open Font
@@ -19,11 +19,12 @@ default = ["outline"]
 # build time (for devices like the ESP32-C3); sizes can be chosen with the
 # PAPERPAW_FONT_SIZES environment variable, e.g. "20,24,28,32".
 outline = ["paperpaw-sdk/outline"]
-# Also ship bitmap packs next to the scalable fonts (DefaultFontPacks).
+# Also ship bitmap packs next to the scalable fonts (`DEFAULT_FONT_PACKS`).
 packs = []
 
 [dependencies]
-paperpaw-sdk.workspace = true
+# `kernel`: the table of fonts the kernel registers (`BuiltInFonts`).
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
 [build-dependencies]
 paperpaw-text = { workspace = true, features = ["outline"] }

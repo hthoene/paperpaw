@@ -87,8 +87,10 @@ impl Plugin for NativePower {
                     Ok(())
                 }
             }
-            (EVENTS_TOKEN, Event::Answered { answer, .. }) => self.answered(host, answer),
-            (OPEN_TOKEN, Event::ActionRun { action: OPEN, .. }) => open_settings(host),
+            // Whatever the token: the host hands the dialog's answer to the asker on its own,
+            // under no subscription's token (see `declarations::events`).
+            (_, Event::Answered { answer, .. }) => self.answered(host, answer),
+            (OPEN_TOKEN, Event::ActionRun { action: OPEN, .. }) => self.open_settings(host),
             (MENU_TOKEN, Event::ActionRun { action: MENU, .. }) => self.ask(host),
             (STATUS_TOKEN, Event::StageCall { stage, payload, .. }) => {
                 status(host, stage, payload, reply)
@@ -165,7 +167,27 @@ impl NativePower {
         else {
             return Ok(());
         };
-        run(host, model::plan(item, asked.caps))
+        let step = model::plan(item, asked.caps);
+        // The service the menu was asked with, not a second one: the host gives a plugin
+        // one `core.ui` (a second open is `Full`, which left *Switch off* undone).
+        let ui = self.ui(host)?;
+        run(host, ui, step)
+    }
+
+    /// Opens the power settings: what a tap on the mode's status item runs.
+    #[inline(never)]
+    fn open_settings(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let ui = self.ui(host)?;
+        let mut input = buffer(UI_BUFFER)?;
+        let mut out = buffer(UI_BUFFER)?;
+        let handover = ui.handover(
+            host,
+            &[Param::new(paperpaw_sdk::builtin::params::ID, GROUP)?],
+            &mut input,
+            &mut out,
+        )?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).open(Open::slot(SETTINGS_SLOT)?.handover(handover))
     }
 }
 
@@ -196,33 +218,13 @@ fn decode<'a>(incoming: &Incoming<'a>) -> Result<Option<Event<'a>>, Error> {
     Ok(None)
 }
 
-/// Opens the power settings: what a tap on the mode's status item runs.
-#[inline(never)]
-fn open_settings(host: &Host<'_>) -> Result<(), Error> {
-    let ui = Ui::open(host)?;
-    let result = (|| {
-        let mut input = buffer(UI_BUFFER)?;
-        let mut out = buffer(UI_BUFFER)?;
-        let handover = ui.handover(
-            host,
-            &[Param::new(paperpaw_sdk::builtin::params::ID, GROUP)?],
-            &mut input,
-            &mut out,
-        )?;
-        let mut scratch = [0; 256];
-        CommandSender::new(host, &mut scratch).open(Open::slot(SETTINGS_SLOT)?.handover(handover))
-    })();
-    let released = ui.release(host);
-    result.and(released)
-}
-
 /// Does what a step of the power menu says.
 #[inline(never)]
-fn run(host: &Host<'_>, step: Step) -> Result<(), Error> {
+fn run(host: &Host<'_>, ui: &Ui, step: Step) -> Result<(), Error> {
     let mut scratch = [0; 512];
     match step {
-        Step::SleepWithScreen => show_then(host, PowerAction::Sleep, false, &mut scratch),
-        Step::OffWithScreen => show_then(host, PowerAction::PowerOff, true, &mut scratch),
+        Step::SleepWithScreen => show_then(host, ui, PowerAction::Sleep, false, &mut scratch),
+        Step::OffWithScreen => show_then(host, ui, PowerAction::PowerOff, true, &mut scratch),
         Step::Sleep => CommandSender::new(host, &mut scratch).sleep(),
         Step::Off => CommandSender::new(host, &mut scratch).power_off(),
         Step::Restart => CommandSender::new(host, &mut scratch).restart(),
@@ -237,6 +239,7 @@ fn run(host: &Host<'_>, step: Step) -> Result<(), Error> {
 #[inline(never)]
 fn show_then(
     host: &Host<'_>,
+    ui: &Ui,
     action: PowerAction,
     off: bool,
     scratch: &mut [u8],
@@ -244,17 +247,11 @@ fn show_then(
     let shown = (|| {
         if off {
             // `off`: the sleep screen's parameter (plugin `sleep`).
-            let ui = Ui::open(host)?;
-            let result = (|| {
-                let mut input = buffer(UI_BUFFER)?;
-                let mut out = buffer(UI_BUFFER)?;
-                let handover =
-                    ui.handover(host, &[Param::new("off", "1")?], &mut input, &mut out)?;
-                CommandSender::new(host, scratch)
-                    .show_then(Open::slot(SLEEP_SLOT)?.handover(handover), action)
-            })();
-            let released = ui.release(host);
-            result.and(released)
+            let mut input = buffer(UI_BUFFER)?;
+            let mut out = buffer(UI_BUFFER)?;
+            let handover = ui.handover(host, &[Param::new("off", "1")?], &mut input, &mut out)?;
+            CommandSender::new(host, scratch)
+                .show_then(Open::slot(SLEEP_SLOT)?.handover(handover), action)
         } else {
             CommandSender::new(host, scratch).show_then(Open::slot(SLEEP_SLOT)?, action)
         }

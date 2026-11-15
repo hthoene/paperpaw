@@ -1095,3 +1095,102 @@ fn the_draw_scratch_is_the_devices_32_kib_on_the_x4_and_more_elsewhere() {
     );
     assert!(gray(&canvas, 20, 15) < 255);
 }
+
+/// A card that counts the bytes read from it.
+struct Counted {
+    card: MemoryStorage,
+    read: core::cell::Cell<u64>,
+}
+
+impl paperpaw_sdk::Storage for Counted {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_sdk::StorageError> {
+        let n = self.card.read_at(path, offset, buf)?;
+        self.read.set(self.read.get() + n as u64);
+        Ok(n)
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_sdk::StorageError> {
+        self.card.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        self.card.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        self.card.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+    ) -> Result<(), paperpaw_sdk::StorageError> {
+        self.card.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        self.card.remove(path)
+    }
+}
+
+/// A plugin's picture drawn by the host (slot 37) in the bands of a frame is
+/// read once for the frame: each band goes on where the one above ended. The
+/// X4 read a cover 2.5 times for its four bands, every band from the
+/// picture's first row (#250). The pixels are those of the frame in one band,
+/// and a frame drawn once more after its end (sent again, the kept copy lost)
+/// reads and shows the same.
+#[test]
+fn the_bands_of_a_frame_read_a_plugins_picture_once() {
+    let t = ImageTable::new();
+    let card = MemoryStorage::new();
+    let (width, height) = (400_u32, 600_u32);
+    let mut writer = GrayWriter::new(&card, "c/cover.gray");
+    writer.start(width, height).unwrap();
+    for y in 0..height {
+        let row: std::vec::Vec<u8> = (0..width)
+            .map(|x| ((x * 255 / (width - 1) + y * 3) % 256) as u8)
+            .collect();
+        writer.row(&row).unwrap();
+    }
+    writer.finish().unwrap();
+    let id = t
+        .add(A, doc(1, 0), "c/cover.gray", width, height, false)
+        .unwrap();
+    let storage = Counted {
+        card,
+        read: core::cell::Cell::new(0),
+    };
+    // A frame of 220 x 320 in bands of `rows` rows: its pixels and the bytes
+    // read for it.
+    let frame = |rows: u16| {
+        let before = storage.read.get();
+        let mut joined = Framebuffer::new(220, 320, PixelFormat::Mono1).unwrap();
+        let mut band = Framebuffer::banded(220, 320, rows, PixelFormat::Mono1).unwrap();
+        for top in (0..320).step_by(usize::from(rows)) {
+            band.set_top(top);
+            band.canvas().clear(paperpaw_platform::Color::WHITE);
+            t.draw(A, id, &mut band.canvas(), &storage, 10, 12, 200, 300, 0)
+                .unwrap();
+            joined.write_rows(top, band.view());
+        }
+        band.end_frame();
+        (joined.view().data.to_vec(), storage.read.get() - before)
+    };
+    let (whole, once) = frame(320);
+    assert!(once >= 200_000, "{once} bytes for the picture in one band");
+    for rows in [80, 64, 36] {
+        let bands = 320_u64.div_ceil(u64::from(rows));
+        // Each call may read a last chunk of rows (8 KiB) beyond its own.
+        let most = once + bands * 8 * 1024;
+        let (first, read) = frame(rows);
+        assert_eq!(whole, first, "bands of {rows} rows");
+        assert!(
+            read <= most,
+            "{read} bytes in bands of {rows} rows, {once} in one"
+        );
+        let (again, read) = frame(rows);
+        assert_eq!(whole, again, "bands of {rows} rows, drawn once more");
+        assert!(read <= most, "{read} bytes the second time");
+    }
+}

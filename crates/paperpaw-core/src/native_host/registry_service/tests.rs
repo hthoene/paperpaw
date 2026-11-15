@@ -58,6 +58,7 @@ impl Plugin for Demo {
         child.parent = Some(id("demo.top"));
         r.add_setting_group(SettingGroupSpec::new(id("demo.top"), "demo.group.top").order(1))?;
         r.add_setting_group(child)?;
+        r.add_icon(id("demo.top"), "book")?;
         r.add_input(InputSpec::new(id("demo.chord"), "demo.input.chord"))?;
         Ok(())
     }
@@ -211,8 +212,8 @@ pub(super) fn read(reply: &[u8]) -> (Vec<String>, Option<wire::ServiceEnd>) {
                 format!("item {} {} {} {}", r.id, r.plugin, r.flags, r.title)
             }
             Record::ServiceRegGroup(r) => format!(
-                "group {} parent={} page={} order={} {}",
-                r.id, r.parent, r.page, r.order, r.title
+                "group {} parent={} page={} order={} {} icon={}",
+                r.id, r.parent, r.page, r.order, r.title, r.icon
             ),
             Record::ServiceRegSlot(r) => format!(
                 "slot {} screen={} default={} flags={} {}",
@@ -409,11 +410,52 @@ fn groups_carry_their_parent_page_and_order() {
     let (rows, _) = page(&kernel, schema::OP_GROUPS, "demo.top");
     assert_eq!(
         rows,
-        ["group demo.child parent=demo.top page= order=2 demo.group.child"]
+        ["group demo.child parent=demo.top page= order=2 demo.group.child icon=puzzle"]
     );
     let (rows, _) = page(&kernel, schema::OP_GROUPS, "");
-    assert!(rows.contains(&"group demo.top parent= page= order=1 demo.group.top".into()));
+    assert!(rows.contains(&"group demo.top parent= page= order=1 demo.group.top icon=book".into()));
     assert!(rows.iter().any(|row| row.starts_with("group demo.child ")));
+}
+
+/// A group's row names its icon, as Beta 3's Settings showed one on every
+/// group (#268: the reply had none): the one the kernel or a code plugin
+/// registered, else a natively declared one, else `puzzle`.
+#[test]
+fn a_group_names_its_icon_and_puzzle_where_none_is_declared() {
+    let kernel = kernel(0);
+    let groups = |directory| {
+        let ask = query_flags("", 0, 0, 0);
+        let reply = call_in(&kernel, directory, schema::OP_GROUPS, &ask, 4096).unwrap();
+        read(&reply).0
+    };
+    let icon_of = |rows: &[String], group: &str| {
+        let row = rows
+            .iter()
+            .find(|row| row.starts_with(&format!("group {group} ")))
+            .unwrap();
+        String::from(row.rsplit_once(" icon=").unwrap().1)
+    };
+    let rows = groups(None);
+    assert_eq!(icon_of(&rows, "demo.top"), "book");
+    assert_eq!(icon_of(&rows, "demo.child"), "puzzle");
+    // The kernel's own groups, as it registers their icons.
+    assert_eq!(icon_of(&rows, "core.group.reading"), "book");
+    assert!(rows.iter().all(|row| !row.ends_with(" icon=")), "{rows:?}");
+    // Natively declared (`icon.spec`): taken where the environment names
+    // none, and the environment's stays where both name one.
+    let directory = super::menus_tests::declarations(&[
+        Record::IconSpec(wire::IconSpec {
+            item: "demo.child",
+            icon: "moon",
+        }),
+        Record::IconSpec(wire::IconSpec {
+            item: "demo.top",
+            icon: "leaf",
+        }),
+    ]);
+    let rows = groups(Some(&directory));
+    assert_eq!(icon_of(&rows, "demo.child"), "moon");
+    assert_eq!(icon_of(&rows, "demo.top"), "book");
 }
 
 #[test]

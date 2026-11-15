@@ -1,8 +1,9 @@
-# Vocabulary on interface 7 (partly ported)
+# Vocabulary on interface 7
 
-Status: **not complete.** The interface-6 plugin (registration, screens, widget, marks,
-flash cards, phone page, sync, apkg) is still in place. It is removed in the PR that finishes
-the port.
+Status: **complete.** The interface-6 plugin (registration, screens, widget, marks, flash cards,
+phone page, sleep card, its tests) is removed (#244); what is below is the native port, with
+what was done on purpose differently. Interface-6 tests that were deleted with it are mapped
+to native ones in the PR text of #1452 (coverage table, with the gaps named).
 
 ## Ported: the words' data layer (`src/store.rs`, `src/lines.rs`, `src/files.rs`)
 
@@ -135,14 +136,14 @@ native screens replace these callers.
   native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
   The flash cards' action, entry and screens are declared (next section).
 
-## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
+## Not ported (follow-ups)
 
 - `sdcard`, `sdmenu` (done: see *Ported: the card files*), `phone` (done: see *Ported: the phone page*);
   `fsrs.rs` is pure and needs nothing.
 - The rest of the native shell: the scan action, events and help.
 - The sleep card: done, see *Ported: the sleep card* below.
 - The widgets: done, see *Ported: the home widgets* below.
-- The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
+- The dictionary hand-off (tap a word): done on `core.lookup` (`native_marks_stage`, `native_list`).
 - Marks in books: done on the stage, see *Ported: the marks in books* below (the reader's side asks the stage per page: Plugin Engineer, after #1275).
 - Phone page (`phone.rs`): done, see *Ported: the phone page* below.
 - Card-folder files: done, see *Ported: the card files* below.
@@ -177,8 +178,7 @@ native screens replace these callers.
   `vocabulary.mark` (off: no marks).
 - **A tap** on a mark of the role (`decorate.tapped`) opens the lookup slot `core.lookup` with the word (the punctuation around
   it cut) and the language it was kept in, and answers `decorate.taken` 1; a mark of another role is not ours.
-- Remarks: the reply's marks are up to 600 a fire; the reader keeps at most 256 a page. **Not run on a host:** the reader does not
-  ask the stage yet (`tests/acceptance_pending.rs`); the scripted host lends events no reply buffer, so the reply is tested as
+- Remarks: the reply's marks are up to 600 a fire; the reader keeps at most 256 a page. **Not run on a host:** the scripted host lends events no reply buffer, so the reply is tested as
   records (`native_marks_stage`) and the search on a list (`native_marks`). The interface-6 `marks.rs` and its decorator go with
   the interface-6 removal.
 
@@ -243,7 +243,7 @@ native screens replace these callers.
 - Time: `HostTime` reads the snapshot's wall clock and zone offset for each input (the device may have
   none: the last time known stands, as in `cards::now_of`).
 - Not offered until their screens exist: the scan action (`vocabulary.scan-card`), the words' list
-  (done: next section), marks in books. Each is an ignored case in `tests/acceptance_pending.rs`.
+  (done: next section), marks in books.
 - Not proved here: drawing and input of the two screens on a scripted host (H1: the scripted host
   refuses screen commands), a snapshot of the review.
 
@@ -345,8 +345,7 @@ takes the kit's helpers (and, where it keeps its own keys, swaps left and right 
 - One difference from interface 6: where the device does not know the day, the word of the day is picked by a
   seed made when the widget is made (the plugin has no random source), so it changes each time the screen
   makes the widget, not at each reading of the words.
-- Not proved here: measuring and drawing a widget on a scripted host (`tests/acceptance_pending.rs`, hosted
-  construction #944). The declarations and the made/dropped events are tested (`tests/declarations.rs`,
+- Not proved here: measuring and drawing a widget on a scripted host (hosted construction #944). The declarations and the made/dropped events are tested (`tests/declarations.rs`,
   `tests/scripted_widgets.rs`). The interface-6 widgets (`widget.rs`) go with the interface-6 removal.
 
 ## Ported: the sleep card (`native_sleep_card.rs`, `declarations.rs` `navigation`)
@@ -391,3 +390,13 @@ takes the kit's helpers (and, where it keeps its own keys, swaps left and right 
 - No interface-6 code is in this path (`phone.rs` stays only in the interface-6 plugin, removed with #1026).
   The cases that need the real server on a host are ignored until native activation (headless test in
   `shells/desktop/tests/headless.rs`).
+
+## End to end through the emulator (open)
+
+The placeholders of `tests/acceptance_pending.rs` (a word kept and listed, the card files' screens, the
+tapped word's hand-off, the widgets, marks in books, the phone page, Export and Go to, the sleep card)
+were deleted: every host piece they waited for exists now, and each part is tested where the plugin has it
+(`native_collect`, `native_list`, `native_export`, `native_goto`, `native_widgets` with
+`tests/scripted_widgets.rs`, `native_marks*`, `native_phone*`, `native_sd*`, `native_sleep_card`). What no test
+does yet is run them through the emulator's production loader against a frame; that needs a script per screen
+in `shells/desktop/tests` (none is planned).
