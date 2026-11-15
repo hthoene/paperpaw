@@ -513,10 +513,11 @@ fn open_replies_with_the_hosts_own_fields_not_the_formats() {
     );
     assert_eq!((state.state, state.flags), (READY_STATE, 0b10));
     // The format was called with op 2, this id, the open flags, and the
-    // default picture sizes (1,600 and the larger of 300 and 3/8 of 800).
+    // default picture sizes (the screen's 800 and the larger of 300 and 3/8
+    // of 800).
     assert_eq!(
         fake.calls.borrow()[0],
-        [fmt::OPEN, 1, 0, 0, 0b101, 0, 1600, 300]
+        [fmt::OPEN, 1, 0, 0, 0b101, 0, 800, 300]
     );
 }
 const READY_STATE: u32 = 0;

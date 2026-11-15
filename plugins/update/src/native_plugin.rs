@@ -361,6 +361,7 @@ impl NativeUpdate {
 
     /// What there is now: an install going on, one waiting for its restart, or
     /// the files on the card.
+    #[inline(never)]
     fn look(&mut self, host: &Host<'_>) -> Result<Page, Error> {
         let Some(running) = self.firmware(host)? else {
             return build(host, View::Unsupported, "", Caps::default());
@@ -515,6 +516,7 @@ impl NativeUpdate {
 
     /// A check ended: what the device says of the file, then the next check, or
     /// the end of them all.
+    #[inline(never)]
     fn checked(&mut self, host: &Host<'_>, done: &InstallDone<'_>) -> Result<(), Error> {
         let Some(scan) = self.scan.as_ref() else {
             return Ok(());
@@ -773,6 +775,7 @@ impl NativeUpdate {
     }
 
     /// An install ended (exactly once, to this plugin).
+    #[inline(never)]
     fn install_done(&mut self, host: &Host<'_>, done: &InstallDone<'_>) -> Result<(), Error> {
         if done.kind() != InstallKind::Firmware
             || done.request().map(DeviceRequest::get) != Some(REQUEST)
@@ -821,6 +824,7 @@ impl NativeUpdate {
     }
 
     /// The device's progress (a hint, at most every 250 ms): the bar of the page.
+    #[inline(never)]
     fn progress(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let before = match self.screens.top(PAGE).map(|page| &page.view) {
             Some(View::Installing(before)) => *before,
@@ -841,6 +845,7 @@ impl NativeUpdate {
 
     /// At start: how an install went, said once, its update file removed, the
     /// weekly look declared.
+    #[inline(never)]
     fn started(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let card = self.started_card(host);
         // Where the setting is on; a device without declared work has no look.

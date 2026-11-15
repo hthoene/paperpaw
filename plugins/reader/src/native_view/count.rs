@@ -38,7 +38,7 @@ impl Open {
     /// A book just opened: its pages are to be counted, and (a book of the
     /// library) it is the one read last.
     pub(super) fn begin(&mut self, host: &Host<'_>, library_book: bool) {
-        if let Ok(setup) = Setup::read(host) {
+        if let Ok(setup) = self.settings.setup(host) {
             self.ensure_counter(host, &setup);
         }
         if library_book {
@@ -48,7 +48,7 @@ impl Open {
 
     /// One step of the count; the wait before the next one while pages remain.
     pub(super) fn count_step(&mut self, host: &Host<'_>, docs: &Documents) -> Option<u32> {
-        let setup = Setup::read(host).ok()?;
+        let setup = self.settings.setup(host).ok()?;
         self.ensure_counter(host, &setup);
         let mut counter = self.counter.take()?;
         let (per_step, delay) = native_index::pace(self.device_class(host));
@@ -138,7 +138,7 @@ impl View {
     /// layout).
     pub fn prepare_count(&mut self, host: &Host<'_>) {
         if let Body::Open(open) = &mut self.body
-            && let Ok(setup) = Setup::read(host)
+            && let Ok(setup) = open.settings.setup(host)
         {
             open.ensure_counter(host, &setup);
         }

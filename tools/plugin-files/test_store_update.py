@@ -26,8 +26,8 @@ class Classify(unittest.TestCase):
     def test_the_plugin_its_tooling_and_the_texts_are_its_own(self):
         own, workspace, named, refused = store_update.classify(
             ["plugins/notes-vault/src/lib.rs", "tools/plugin-files/plugins.txt",
-             "tools/plugin-files/src/bin/notes-vault.rs", "tools/plugin-files/Cargo.toml",
-             "tools/plugin-files/Cargo.lock", "CHANGELOG.md", "docs/data-files.md",
+             "tools/plugin-files7/src/bin/notes-vault.rs", "tools/plugin-files7/Cargo.toml",
+             "tools/plugin-files7/Cargo.lock", "CHANGELOG.md", "docs/data-files.md",
              "changelog.d/226-changelog-fragments.md"],
             "notes-vault")
         self.assertEqual((len(own), workspace, named, refused), (8, [], [], []))
@@ -35,9 +35,9 @@ class Classify(unittest.TestCase):
     def test_the_scripts_and_the_workflows_are_never_the_branch_s(self):
         # What runs the checks, the build and the signing is the trusted checkout's.
         scripts = ["tools/plugin-files/store_update.py", "tools/plugin-files/sign.sh",
-                   "tools/plugin-files/build.sh", "tools/plugin-files/check_files.sh",
-                   "tools/plugin-files/catalogue.py", "tools/plugin-files/paperpaw-plugin.x",
-                   "tools/plugin-files/rust-toolchain.toml", "tools/plugin-files/keyboards/x.ini",
+                   "tools/plugin-files7/build.sh", "tools/plugin-files/check_files.sh",
+                   "tools/plugin-files/catalogue.py", "tools/plugin-files7/paperpaw-plugin7.x",
+                   "tools/plugin-files7/rust-toolchain.toml", "tools/plugin-files/keyboards/x.ini",
                    ".github/workflows/store-plugin.yml", ".github/actions/xteink-tools/action.yml",
                    "tools/xtensa-std/build.sh", "tools/ci/build-prerequisites.sh"]
         own, workspace, named, refused = store_update.classify(scripts, "notes-vault")

@@ -30,6 +30,7 @@ use paperpaw_ui_kit::{
 };
 
 mod build;
+mod preview;
 use build::{
     build_choose, build_group, build_list, build_search, build_themes, context, look_settings,
     refresh_row, set_value,
@@ -229,6 +230,11 @@ struct GroupView {
     editing: Option<Editing>,
     touch: bool,
     stale: bool,
+    /// The widget that previews the page's group (or its parent's), shown above
+    /// the rows.
+    preview: Option<String>,
+    /// The host refused the widget: the page goes without it.
+    preview_refused: bool,
 }
 
 /// Choosing a value of a setting.
@@ -398,8 +404,8 @@ impl Plugin for NativeSettings {
             }
             View::Group(v) => {
                 let title = copy(&v.title)?;
-                v.list
-                    .draw_with(host, &mut frame, &title, true, Footer::None)
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                preview::draw(host, ui, v, &mut frame, &title)
             }
             View::Choose(v) => {
                 let title = copy(&v.title)?;

@@ -176,7 +176,7 @@ fn invalid_sizes_overlong_text_and_released_handles_never_reach_host() {
 }
 
 #[test]
-fn default_metrics_and_ink_slots_are_unsupported() {
+fn default_metrics_are_unsupported_and_ink_not_wired_is_no_ink_known() {
     let table = abi::host_table();
     let host = super::super::Host {
         table: &table,
@@ -187,7 +187,10 @@ fn default_metrics_and_ink_slots_are_unsupported() {
         handle: Some(1),
     };
     assert_eq!(font.read_line_metrics(12.0), Err(Error::Unsupported));
-    assert_eq!(font.ink(12.0, "text"), Err(Error::Unsupported));
+    // The X4's host does not wire `text.ink`: a plugin places the text by
+    // its metrics, as where the text has no ink. An error here failed the
+    // whole draw of every screen that centres text or an icon by its ink.
+    assert_eq!(font.ink(12.0, "text"), Ok(None));
 }
 
 #[test]

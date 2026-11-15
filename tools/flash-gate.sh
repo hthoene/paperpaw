@@ -11,7 +11,7 @@
 #                       [--plugin-elf FILE]...
 #
 # Like for like (Manager ruling on decision 136): the gate counts the image
-# AND the plugin files (`tools/plugin-files/build.sh x4`, the `.ppn` the store
+# AND the plugin files (`tools/plugin-files/build.sh x4` in Beta 3, `tools/plugin-files7/build.sh x4` now, the `.ppn` the store
 # offers) of both trees, for the same features. A plugin that Beta 3 built into
 # the image and that is a file now (ported) counts in the head's files; one
 # not ported yet stays in the image (listed, flagged NOT PORTED); one that did
@@ -137,21 +137,26 @@ build() { # name rev sha features
     cp "$ours/tree/shells/xteink/partitions.csv" "$ours/$name.csv"
     echo "$tool" > "$ours/$name.tool"
     if [ "$image_only" = 0 ]; then
-        echo "== $name: the plugin files (tools/plugin-files/build.sh x4)" >&2
-        [ -x "$ours/tree/tools/plugin-files/build.sh" ] || die "$name: no tools/plugin-files/build.sh"
-        # The remap is set here too: Beta 3's build.sh does not do it itself.
-        env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS CARGO_TARGET_DIR="$ours/ppn-target-$name" \
-            CARGO_TARGET_RISCV32IMC_UNKNOWN_NONE_ELF_RUSTFLAGS="--remap-path-prefix=$ours/tree=/build --remap-path-prefix=$ours/ppn-target-$name=/target --remap-path-prefix=$cargo_home=/cargo" \
-            "$ours/tree/tools/plugin-files/build.sh" x4 "$ours/ppn-$name" >&2 ||
-            { echo "plugin files failed: $name" >&2; exit 2; }
-        rm -rf "$ours/ppn-target-$name"
-        # As many files as the tree's list has plugins: a plugin left out
-        # (or one the build did not make) would lower the sum.
-        local listed made
-        listed="$(sed -e 's/#.*//' "$ours/tree/tools/plugin-files/plugins.txt" | awk 'NF { n++ } END { print n + 0 }')"
-        made="$(find "$ours/ppn-$name" -maxdepth 1 -name '*.ppn' | wc -l)"
-        [ "$listed" -gt 0 ] && [ "$made" = "$listed" ] ||
-            { echo "$name: $made plugin files for $listed plugins in plugins.txt" >&2; exit 2; }
+        # Beta 3's tree builds its plugin files with tools/plugin-files/build.sh;
+        # a tree after the interface-6 removal has none (its files are the
+        # interface-7 ones below).
+        mkdir -p "$ours/ppn-$name"
+        if [ -x "$ours/tree/tools/plugin-files/build.sh" ]; then
+            echo "== $name: the plugin files (tools/plugin-files/build.sh x4)" >&2
+            # The remap is set here too: Beta 3's build.sh does not do it itself.
+            env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS CARGO_TARGET_DIR="$ours/ppn-target-$name" \
+                CARGO_TARGET_RISCV32IMC_UNKNOWN_NONE_ELF_RUSTFLAGS="--remap-path-prefix=$ours/tree=/build --remap-path-prefix=$ours/ppn-target-$name=/target --remap-path-prefix=$cargo_home=/cargo" \
+                "$ours/tree/tools/plugin-files/build.sh" x4 "$ours/ppn-$name" >&2 ||
+                { echo "plugin files failed: $name" >&2; exit 2; }
+            rm -rf "$ours/ppn-target-$name"
+            # As many files as the tree's list has plugins: a plugin left out
+            # (or one the build did not make) would lower the sum.
+            local listed made
+            listed="$(sed -e 's/#.*//' "$ours/tree/tools/plugin-files/plugins.txt" | awk 'NF { n++ } END { print n + 0 }')"
+            made="$(find "$ours/ppn-$name" -maxdepth 1 -name '*.ppn' | wc -l)"
+            [ "$listed" -gt 0 ] && [ "$made" = "$listed" ] ||
+                { echo "$name: $made plugin files for $listed plugins in plugins.txt" >&2; exit 2; }
+        fi
         # The interface-7 (format 5) files of the plugins that have a native
         # entry (`tools/plugin-files7/build.sh`), where the tree has the
         # pipeline: the head counts them in place of the current builds. A

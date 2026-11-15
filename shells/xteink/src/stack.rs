@@ -153,7 +153,7 @@ pub fn check() {
 const TRIGGER: u32 = 2;
 
 /// Whether the band is armed now: the plugins of interface 7 run only
-/// where it is (`native::load_file` refuses them otherwise).
+/// where it is (the loader's `load_native` refuses them otherwise).
 static ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 /// Set when a re-arm found the trigger taken after the band had been armed.

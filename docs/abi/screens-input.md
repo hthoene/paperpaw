@@ -354,6 +354,19 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   the card is asked once for each callback, not at every text call, so a file rewritten within the
   callback that draws from it is noticed at the next callback (what a pack cannot read draws
   nothing).
+- [D] **A widget's font** (#262, additive: no record, slot or lock change): key `widget:<widget
+  id>` (with a placement's `@n`), the font the reader chose for that widget: its setting
+  `<widget id>.font` (a placement's value first), which the host gives every natively declared
+  widget that has a settings group of its id and no `font` setting of its own, else or where that
+  says `core.widgets.font.all` the setting for all widgets `core.widgets.font`:
+  `core.widgets.font.menus` (the default) is `role:ui`, `core.widgets.font.book` is
+  `role:reading`, any other value a family, whose regular face the host keeps open (at most 3
+  families beside the roles'). It never fails for the choice: a family that is not open, was
+  closed since the acquire, or has no size near the call's `size` (a font pack sets text up to
+  2 px past its largest size; the X4's card fonts have 20 to 36 px) draws that call in `role:ui`.
+  Any id acquires (an unknown widget follows `core.widgets.font`); it counts towards the 8
+  handles and keeps the family's font id (<= 128 B) while a family is chosen, a few bytes
+  otherwise.
 - [D] **Named icons** (Port Reviewer, #344; draft 25): host slot 40 `icon.glyph(ctx, name: bytes,
   out: buffer) -> length`, `query`, writes the UTF-8 of the named icon's character in the bound
   icon font (at most 4 bytes; a smaller `out` is `ERR_NO_SPACE`) into `out` and returns its
@@ -368,6 +381,13 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   stale. Bolder or monospaced text is a font the plugin acquires by id (a font pack), or text
   drawn bolder with slot 41, not a role: there is no `role:ui-bold` or `role:mono`
   (`ERR_NOT_FOUND`, as every unknown role).
+- [D] **Faux bold** (#258): while the family of the regular book text has no bold face, so that
+  `role:reading-bold` is `role:reading` (and `role:reading-bold-italic` with it), the host draws
+  the text of that role bolder itself: `text.draw` and `text.draw_inked` widen every glyph to the
+  right by one pixel for every 24 px of `size` (rounded, at least 1, at most 16), on top of the
+  call's own `extra`, and `text.ink` counts it. The advances, `text.measure` and the metrics stay
+  those of the regular face, so a layout need not know. A family with its bold face, every other
+  role and a font acquired by id are never widened.
 - [D] Handles: at most 8 font handles per plugin, roles and font ids together (`ERR_FULL`
   beyond; a reading plugin holds five roles). This cap is the font family's own: blobs and
   operations count against their families' caps, not against it (section 7). X4 cost: a role
@@ -410,8 +430,11 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
     intersected with its own and restores the parent's when it ends.
   - A stale font handle is `ERR_STATE`, `size` must be finite and > 0, as for `text.measure`.
   - Host implementation notes: `text.ink` over up to 4096 bytes uses a bounded scratch buffer (no
-    allocation per glyph) and is timed on the X4 before it is wired there; `canvas.clip` does
-    its bounds arithmetic in 64 bits (`x + width` cannot overflow).
+    allocation per glyph) and is timed on the X4 before it is wired there: until then the X4's
+    host answers `ERR_UNSUPPORTED` (the core feature `x4-ink` wires it, for the test image that
+    times it), and the SDK's `Font::ink` gives `None`, as for text without ink, so a plugin
+    places the text by its metrics. `canvas.clip` does its bounds arithmetic in 64 bits
+    (`x + width` cannot overflow).
 - [D] **Glyph coverage** (draft 25; the keyboard hides layouts its fonts cannot draw, interface 6
   `Font::has_char`): host slot 39 `text.covers(ctx, font: handle, text: bytes) -> length`,
   `query`. `text` is UTF-8 of at most 1,024 bytes (`ERR_INVALID` above, `ERR_UTF8` if not); the
@@ -532,7 +555,11 @@ draw(state: pointer, token: u32, input: bytes) -> i32
 - [D] `id` and `payload` are defined by the owner of the purpose, for example the reader's insert
   id. A screen gets an empty payload and `id = 0`, but for bit 0: set on every draw of the frame
   that draws the follow-up of its `redraw_area` rectangles (section 3), on each band of it and
-  when that frame is sent again (the X4 sends a frame twice). Other bits are 0.
+  when that frame is sent again (the X4 sends a frame twice). Bit 1 `pictures_only`: the host
+  draws the screen aside, whole, to count the pictures it draws (whether the page is shown in
+  grays), and shows nothing of the draw. A screen may leave out all but its pictures in it
+  (text, lines, status items); one that ignores the bit draws as always and is counted the
+  same. Not set on a draw whose parts are asked for (6.1). Other bits are 0.
 - [D] Drawing outside the clip is clipped by the canvas slots, not refused.
 
 ### 6.1 Telling what is drawn (slot 42, #243)
@@ -568,9 +595,10 @@ draw callback tells its parts with this slot.
   heading, a button) is told before the text inside it is drawn: a row with an empty label takes
   the texts drawn inside it as its label, in reading order; a part with a label of its own keeps
   it. A switch told inside a row makes the row on or off.
-- [D] Not told as text yet: text drawn with `text.draw_inked` (slot 41) and icons (glyphs of
-  `role:icons`, which the merge rules drop as saying nothing). A part whose words are drawn that
-  way gives them in its own `label`.
+- [D] Icons are never told as text: text drawn with a `role:icons` font handle (an icon glyph is
+  a picture, and says nothing) is left out, so it is not a part of its own and no word of a row's
+  label. Not told as text yet: text drawn with `text.draw_inked` (slot 41). A part whose words
+  are drawn that way gives them in its own `label`.
 - [D] No reply, no event, no state across draws. The slot announces itself in the X4 frame gate
   like the other canvas slots; it needs no buffer of its own.
 

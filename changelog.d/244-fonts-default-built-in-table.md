@@ -1,0 +1,3 @@
+### Changed
+
+- **The default fonts are a table in the program, not an interface-6 plugin.** `fonts-default` (1.0.3) implements no `Plugin` any more: `DEFAULT_FONTS`, `DEFAULT_FONT_PACKS` and `LEAN_FONT_PACKS` are tables (`paperpaw_sdk::BuiltInFonts`, kernel feature), and a shell or test adds one with `KernelBuilder::built_in_fonts(&TABLE)` where it wrote `.plugin(DefaultFonts)`. The same fonts, roles, families and names are registered in the same order, and the list of plugins shows "Default fonts" as before. The startup screen makes the UI font alone from the table. With this no plugin under `plugins/` implements the interface-6 `Plugin` trait (#244).

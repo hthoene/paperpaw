@@ -5,16 +5,29 @@ use alloc::{boxed::Box, format};
 use paperpaw_sdk::{MemoryStorage, Plugin, PluginProblem, native::Native};
 
 struct Loader<F>(F);
+
+/// The adapter a test made, registered as the plugin's own when the kernel
+/// admits it (a hosted plugin's registrations reach the kernel so too).
+struct Made(Box<dyn Plugin>);
+impl crate::NativeAdmission for Made {
+    fn admit(self: Box<Self>, kernel: &mut Kernel, _: &str) -> Result<(), PluginProblem> {
+        let manifest = self.0.manifest();
+        kernel.register_plugin(self.0.as_ref(), manifest);
+        Ok(())
+    }
+}
+
 impl<F> CodeLoader for Loader<F>
 where
     F: FnMut(&CodeFile<'_>) -> Result<Box<dyn Plugin>, PluginProblem>,
 {
-    fn load(
+    fn load_native(
         &mut self,
         _: &dyn paperpaw_platform::Storage,
         code: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        (self.0)(code)
+    ) -> Result<Option<Box<dyn crate::NativeAdmission>>, PluginProblem> {
+        let made = (self.0)(code)?;
+        Ok(Some(Box::new(Made(made))))
     }
 }
 

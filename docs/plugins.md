@@ -1983,11 +1983,10 @@ plugin boundary of 1.0 (ADR 0034), may still change until it is frozen at
 ### The file in the emulator
 
 The desktop emulator loads a plugin's code built for the computer it runs
-on: a `cdylib` crate with the same
-`plugin!` line, built with the emulator's toolchain against its SDK with
-the `outline` feature (the target section above gives it), is `code-host.dll`, `code-host.so` or `code-host.dylib`
-in the plugin's folder (`plugins/<id>/` of the emulator's library,
-beside its `plugin.ini`). The emulator runs such code only when it is started
+on: an interface-7 `cdylib` library (it exports `PAPERPAW_METADATA`;
+`tools/plugin-host-libs` builds some of PaperPaw's own this way) is
+`code-host.so` in the plugin's folder (`plugins/<id>/` of the emulator's
+library, beside its `plugin.ini`). The emulator runs such code only when it is started
 with `--trust-code`, which installs every such file in the library first
 (as on a device, only code installed runs); without it, none, whatever
 the library says is installed: a library copied from elsewhere runs no
@@ -2024,6 +2023,14 @@ Over `--stdio`, `start` with `"trust_code": true` does the same, and
 `reload` loads a new build; `ready` says the fingerprint and compiler
 the emulator takes.
 
+With `--trust-code` the emulator hosts the interface-7 libraries of the
+library's plugin folders as the devices host their plugin files (Linux
+x86-64; on other computers a card's code is listed as not supported): each
+is checked from its bytes before anything of it runs, and the kernel admits
+it with everything it declares. A library built for interface 6 (with
+`plugin!`, as for Beta 3) is told from its bytes and listed as *built for an
+older PaperPaw*; nothing of it is loaded. No other switch is needed.
+
 #### Interface-7 libraries (developer switch)
 
 For work on the interface-7 loader, the emulator can load interface-7 host
@@ -2031,8 +2038,8 @@ plugins from the library. It is off by default and independent of
 `--trust-code`: start with `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1`
 (Linux x86-64 only). A plugin folder's `code-host.so` is told from its bytes:
 `PAPERPAW_METADATA` alone is interface 7, `PAPERPAW_API` alone is
-interface 6 and left to the loader above, anything else is refused and
-said. Nothing is guessed.
+interface 6 (built for an older PaperPaw: never loaded), anything else is
+refused and said. Nothing is guessed.
 
 For each interface-7 file the emulator checks the strict freestanding rule
 (no `NEEDED`, no undefined symbols, only the two entry exports), opens a
