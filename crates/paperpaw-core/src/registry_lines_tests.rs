@@ -11,6 +11,7 @@ use crate::native_host::{
 };
 use alloc::{rc::Rc, string::String, vec, vec::Vec};
 use paperpaw_sdk::builtin::{events, slots};
+use paperpaw_sdk::keys::KeyBindings as _;
 use paperpaw_sdk::{Id, Manifest, Priority, Version};
 
 struct Blank;
@@ -23,6 +24,9 @@ impl paperpaw_sdk::Screen for Blank {
 
 const LOW: Id = Id::new_static("shelf.low");
 const HIGH: Id = Id::new_static("shelf.high");
+const TIDY: Id = Id::new_static("shelf.tidy");
+const SORT: Id = Id::new_static("shelf.sort");
+const MENU: Id = Id::new_static("shelf.menu");
 
 struct Shelf;
 impl paperpaw_sdk::Plugin for Shelf {
@@ -40,7 +44,53 @@ impl paperpaw_sdk::Plugin for Shelf {
         // The lower one is offered first: the order tried is by priority.
         r.bind_slot(slots::HOME, LOW, Priority::DEFAULT)?;
         r.bind_slot(slots::HOME, HIGH, Priority::PREFERRED)?;
-        r.subscribe(events::BOOK_CLOSED, alloc::boxed::Box::new(|_, _, _| {}))
+        r.subscribe(events::BOOK_CLOSED, alloc::boxed::Box::new(|_, _, _| {}))?;
+        r.add_action(paperpaw_sdk::ActionSpec::new(TIDY, "shelf.tidy"))?;
+        r.add_action(paperpaw_sdk::ActionSpec::new(SORT, "shelf.sort"))?;
+        // Entered against their order: a menu's rows stand by order.
+        r.add_menu_entry(paperpaw_sdk::MenuEntry::new(MENU, TIDY).order(30))?;
+        r.add_menu_entry(paperpaw_sdk::MenuEntry::new(MENU, SORT).order(10))?;
+        // Two layers of its own, the later name first.
+        r.add_keymap(
+            "[keymap.shelf.zeta]\ntap.center = shelf.tidy\n[keymap.shelf.alpha]\nswipe.up = shelf.sort\n",
+        )?;
+        r.override_action(TIDY, |_, _, _| {}, Priority::DEFAULT)?;
+        r.observe_actions(paperpaw_sdk::ObserverSpec::new(
+            Id::new_static("shelf.seen"),
+            |_, _, _, _| {},
+        ))
+    }
+}
+
+/// A second plugin, registered after `shelf` though its name sorts before:
+/// a handler of the same priority in the place of `shelf`'s action, and an
+/// observer of actions.
+struct Desk;
+impl paperpaw_sdk::Plugin for Desk {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("desk"), "Desk", Version::new(1, 0, 0))
+    }
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.override_action(TIDY, |_, _, _| {}, Priority::DEFAULT)?;
+        r.observe_actions(paperpaw_sdk::ObserverSpec::new(
+            Id::new_static("desk.seen"),
+            |_, _, _, _| {},
+        ))
+    }
+}
+
+/// The old-API side of `clock`: the action its natively declared menu row
+/// names.
+struct Clock;
+impl paperpaw_sdk::Plugin for Clock {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("clock"), "Clock", Version::new(1, 0, 0))
+    }
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.add_action(paperpaw_sdk::ActionSpec::new(
+            Id::new_static("clock.go"),
+            "clock.go",
+        ))
     }
 }
 
@@ -64,6 +114,8 @@ impl ImageOwner for Declarer {
 fn kernel() -> crate::Kernel {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .plugin(Shelf)
+        .plugin(Desk)
+        .plugin(Clock)
         .build()
         .unwrap();
     let directory = Shared::try_new(NativeDeclarations::default()).unwrap();
@@ -76,8 +128,16 @@ fn kernel() -> crate::Kernel {
         token: 3,
         flags: 0,
     });
+    // A row of `shelf`'s menu, between its own two by its order.
+    let row = Record::MenuEntry(wire::MenuEntry {
+        menu: "shelf.menu",
+        item: "clock.go",
+        order: 20,
+        place: 0,
+        anchor: "",
+    });
     let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
-    let len = records_encode(&[record], &mut bytes).unwrap();
+    let len = records_encode(&[record, row], &mut bytes).unwrap();
     let mut allocations = Allocations::default();
     let source: Rc<dyn ImageOwner> = Rc::new(Declarer);
     let mut pending = PendingDeclarations::new(Id::new_static("clock"), source);
@@ -120,6 +180,11 @@ fn a_slots_screens_stand_in_the_order_they_are_tried_not_in_the_lines_order() {
         part(&lines, "slot-order core.home"),
         ["| shelf.high", "| shelf.low", "| core.placeholder"]
     );
+    // The list of the slot's screens is code of its own, in the same order.
+    assert_eq!(
+        part(&lines, "slot-list core.home"),
+        part(&lines, "slot-order core.home")
+    );
     assert!(
         part(&lines, "slot core.home")
             .iter()
@@ -138,6 +203,50 @@ fn a_slots_screens_stand_in_the_order_they_are_tried_not_in_the_lines_order() {
             .iter()
             .any(|line| line.starts_with("plugin | shelf 1.0.0 "))
     );
+}
+
+/// Two handlers of one priority in one action's place, and two observers of
+/// actions, stand in the kernel's order (the plugins' order of registering),
+/// not in their names': a sort of the lines would lose which runs first.
+#[test]
+fn equal_handlers_and_observers_stand_in_the_order_of_registering() {
+    let lines = kernel().registry_lines();
+    assert_eq!(
+        part(&lines, "action-override shelf.tidy"),
+        ["| shelf", "| desk"]
+    );
+    let observers: Vec<&str> = part(&lines, "action-observer")
+        .into_iter()
+        .filter(|line| line.ends_with(".seen"))
+        .collect();
+    assert_eq!(observers, ["| shelf.seen", "| desk.seen"]);
+}
+
+#[test]
+fn a_menus_rows_of_both_kinds_stand_in_the_one_order_a_view_gets() {
+    let lines = kernel().registry_lines();
+    let items: Vec<&str> = part(&lines, "menu-merged shelf.menu")
+        .into_iter()
+        .filter_map(|line| line.split(' ').nth(1))
+        .collect();
+    assert_eq!(
+        items,
+        ["shelf.sort", "clock.go", "shelf.tidy"],
+        "{lines:#?}"
+    );
+}
+
+#[test]
+fn the_key_map_layers_stand_as_the_kernel_walks_them() {
+    let kernel = kernel();
+    let lines = kernel.registry_lines();
+    let mut walked = Vec::new();
+    let _ = kernel.shared.keymap.each_layer(&mut |layer| {
+        walked.push(alloc::format!("| {layer}"));
+        core::ops::ControlFlow::Continue(())
+    });
+    assert!(walked.len() >= 3, "{walked:?}");
+    assert_eq!(part(&lines, "key-layer"), walked);
 }
 
 #[test]
