@@ -6,7 +6,7 @@
 //! U+FB04 the plugin draws in place of its letters, where the font has it.
 use super::{
     Faces, Measure, Role, small_capital,
-    tables::{kerns, quantised},
+    tables::{Kerning, kerns, quantised},
 };
 use paperpaw_sdk::layout::Face;
 
@@ -126,18 +126,15 @@ impl<M: Measure> Faces<M> {
     /// kerning, as the host's text calls set a pair.
     fn host_kern(&self, role: Role, size: f32, (left, right): (char, char)) -> f32 {
         // A pair the tables cannot keep is not asked at every use.
-        if self.tables.leaves_out((left, right)) {
-            return 0.0;
+        match self.tables.kerning(role, size, (left, right)) {
+            Kerning::LeftOut => return 0.0,
+            Kerning::Known(kern) => return kern,
+            Kerning::Unknown => {}
         }
-        if let Some(kern) = self.tables.pair(role, size, (left, right)) {
-            return kern;
-        }
-        let (mut a, mut b, mut both) = ([0u8; 4], [0u8; 4], [0u8; 8]);
-        let (l, r) = (left.encode_utf8(&mut a), right.encode_utf8(&mut b));
-        let len = l.len();
-        both[..len].copy_from_slice(l.as_bytes());
-        both[len..len + r.len()].copy_from_slice(r.as_bytes());
-        let pair = core::str::from_utf8(&both[..len + r.len()]).unwrap_or("");
+        let mut both = [0u8; 8];
+        let len = left.encode_utf8(&mut both).len();
+        let end = len + right.encode_utf8(&mut both[len..]).len();
+        let pair = core::str::from_utf8(&both[..end]).unwrap_or("");
         let measured = self.measure.width(role, size, pair);
         let kern = match measured {
             Ok(width) if width.is_finite() => {

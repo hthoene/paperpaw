@@ -42,7 +42,7 @@ const PAIR_BYTES: usize = ALPHABET * ALPHABET / 8;
 /// 8 bytes each, a key in one of two).
 const EXTRA: usize = 256;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct State {
     /// The font and size of each context (0: none) and when it was last used.
     heads: [(u64, u32); CONTEXTS],
@@ -69,11 +69,25 @@ struct State {
     no_extra: bool,
 }
 
+/// What the tables know of the kerning of a pair.
+pub(super) enum Kerning {
+    LeftOut,
+    Unknown,
+    Known(f32),
+}
+
 /// The tables of one book, shared by the pages that are set from them. None
 /// (`default`) keeps nothing.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct Tables(Option<Rc<RefCell<State>>>);
 
+impl core::fmt::Debug for Tables {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Tables")
+    }
+}
+
+#[inline(never)]
 fn filled<T: Clone>(entries: usize, empty: T) -> Result<Vec<T>, Error> {
     let mut table = Vec::new();
     table
@@ -124,15 +138,33 @@ impl Tables {
         self.0.as_ref()?.try_borrow_mut().ok()
     }
 
-    /// Whether the pair is one that cannot be kept now and is not asked of the
-    /// host: one of the letters has no number and none can be given (all are in
-    /// use). It is set unkerned, as before kerning was set at all.
-    pub(super) fn leaves_out(&self, (left, right): (char, char)) -> bool {
-        self.state().is_some_and(|mut state| {
-            let numbered =
-                state.letter(left, false).is_some() && state.letter(right, false).is_some();
-            !numbered && state.next >= ALPHABET && state.oldest().is_none()
-        })
+    /// What is kept of the kerning of a pair of letters in one look: `LeftOut`
+    /// where the pair cannot be kept now and is not asked of the host (one of
+    /// the letters has no number and none can be given: all are in use; it is
+    /// set unkerned, as before kerning was set at all), `Known` where it is
+    /// kept, else `Unknown`.
+    pub(super) fn kerning(&self, role: Role, size: f32, (left, right): (char, char)) -> Kerning {
+        let Some(mut state) = self.state() else {
+            return Kerning::Unknown;
+        };
+        let (a, b) = (state.letter(left, false), state.letter(right, false));
+        let (Some(a), Some(b)) = (a, b) else {
+            let out = state.next >= ALPHABET && state.oldest().is_none();
+            return if out {
+                Kerning::LeftOut
+            } else {
+                Kerning::Unknown
+            };
+        };
+        state
+            .kept_pair(role, size, a * ALPHABET + b)
+            .map_or(Kerning::Unknown, Kerning::Known)
+    }
+
+    /// Whether the pair is left out (see [`Tables::kerning`]).
+    #[cfg(test)]
+    pub(super) fn leaves_out(&self, pair: (char, char)) -> bool {
+        matches!(self.kerning(Role::Reading, 0.0, pair), Kerning::LeftOut)
     }
 
     /// The width kept for the letter `c` in `role` at `size`.
@@ -176,23 +208,12 @@ impl Tables {
     }
 
     /// The kerning kept for `left` then `right` in `role` at `size`.
-    pub(super) fn pair(&self, role: Role, size: f32, (left, right): (char, char)) -> Option<f32> {
-        let mut state = self.state()?;
-        let context = state.context(role, size, false)?;
-        let (Some(a), Some(b)) = (state.letter(left, false), state.letter(right, false)) else {
-            return None;
-        };
-        let pair = a * ALPHABET + b;
-        if state.known.get(context * PAIR_BYTES + pair / 8)? >> (pair % 8) & 1 == 0 {
-            return None;
+    #[cfg(test)]
+    pub(super) fn pair(&self, role: Role, size: f32, pair: (char, char)) -> Option<f32> {
+        match self.kerning(role, size, pair) {
+            Kerning::Known(kern) => Some(kern),
+            _ => None,
         }
-        let key = (context as u32) << 14 | pair as u32;
-        let entry = *state.kerned.get(slot(key))?;
-        Some(if entry >> 16 == (key + 1) & 0xffff {
-            f32::from(entry as u16 as i16) / 64.0
-        } else {
-            0.0
-        })
     }
 
     pub(super) fn keep_pair(&self, role: Role, size: f32, (left, right): (char, char), kern: f32) {
@@ -274,6 +295,21 @@ pub(super) fn quantised(kern: f32) -> i16 {
 }
 
 impl State {
+    /// The kerning kept for the pair of numbers `pair` (`a * ALPHABET + b`).
+    fn kept_pair(&mut self, role: Role, size: f32, pair: usize) -> Option<f32> {
+        let context = self.context(role, size, false)?;
+        if self.known.get(context * PAIR_BYTES + pair / 8)? >> (pair % 8) & 1 == 0 {
+            return None;
+        }
+        let key = (context as u32) << 14 | pair as u32;
+        let entry = *self.kerned.get(slot(key))?;
+        Some(if entry >> 16 == (key + 1) & 0xffff {
+            f32::from(entry as u16 as i16) / 64.0
+        } else {
+            0.0
+        })
+    }
+
     /// The number of `c` among the characters met; it is numbered now if
     /// `assign` (the number of the letter used least lately where all are
     /// taken). `None` for a character that is not kept.
@@ -419,12 +455,21 @@ impl State {
         let Some(two) = self.extra.get_mut(at..at + 2) else {
             return false;
         };
+        let new = key | u64::from(value as u16);
         let place = two
             .iter()
             .position(|&entry| entry >> 16 == key >> 16)
-            .or_else(|| two.iter().position(|&entry| entry == 0))
-            .unwrap_or((key >> 19 & 1) as usize);
-        two[place] = key | u64::from(value as u16);
+            .or_else(|| two.iter().position(|&entry| entry == 0));
+        match (place, two) {
+            (Some(place), two) => two[place] = new,
+            // Both are taken by others: the first one moves to the second,
+            // the new one is the first.
+            (None, [first, second]) => {
+                *second = *first;
+                *first = new;
+            }
+            _ => return false,
+        }
         true
     }
 
