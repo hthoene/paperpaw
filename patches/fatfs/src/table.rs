@@ -304,8 +304,10 @@ where
     let size: u64 = if fat_type == FatType::Fat32 { 4 } else { 2 };
     let begin = u64::from(cluster) * size;
     let end = begin + bytes.len() as u64;
-    // The cut points: every block boundary inside.
-    let mut parts = [0usize; MAX_RUN as usize + 2];
+    // The cut points: every block boundary inside. The entries of a run are fewer bytes than a
+    // block (`MAX_RUN` + 1 of them), so there is one boundary at most: three points.
+    debug_assert!(bytes.len() as u64 <= BLOCK);
+    let mut parts = [0usize; 3];
     let mut n = 0;
     let mut at = 0usize;
     parts[n] = 0;

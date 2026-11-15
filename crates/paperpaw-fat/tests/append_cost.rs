@@ -186,14 +186,16 @@ fn used_clusters(bytes: &[u8]) -> usize {
     fat_entries(bytes).iter().filter(|&&v| v != 0).count()
 }
 
-/// Cut off before any write command of a stream of appends (of sizes that cross FAT
-/// blocks, on a small cluster so that they do), and after it: the FAT never links into a
-/// free cluster or twice to one, the file reads as a prefix of what was appended, the next
-/// append goes on from there, and removing the file gives all its clusters back.
-#[test]
-fn a_cut_in_a_stream_of_appends_leaves_a_sound_volume() {
-    // FAT16 with clusters of 512 B: a run crosses blocks of the FAT every 256 clusters.
-    let bytes = Rc::new(RefCell::new(vec![0u8; 24 << 20]));
+/// The card before a stream, its write commands, what was appended, the clusters taken before.
+type Stream = (Vec<u8>, Vec<(u32, Vec<u8>)>, Vec<u8>, usize);
+
+/// The write commands of a stream of appends (sizes that cross FAT blocks, on clusters of
+/// 512 B so that they do), each written back after the piece (the entry holds a size while
+/// the next piece takes a run: a cut leaves a file with a size and a chain longer than it, a
+/// run part used). The card as it was before, the commands, what was appended and the
+/// clusters taken before.
+fn a_stream(fat_type: FatType, card_bytes: usize) -> Stream {
+    let bytes = Rc::new(RefCell::new(vec![0u8; card_bytes]));
     let counted = Counted {
         bytes: bytes.clone(),
         counts: Rc::default(),
@@ -203,7 +205,7 @@ fn a_cut_in_a_stream_of_appends_leaves_a_sound_volume() {
         paperpaw_fat::fatfs::format_volume(
             &mut disk,
             FormatVolumeOptions::new()
-                .fat_type(FatType::Fat16)
+                .fat_type(fat_type)
                 .bytes_per_cluster(512),
         )
         .unwrap();
@@ -230,6 +232,7 @@ fn a_cut_in_a_stream_of_appends_leaves_a_sound_volume() {
         let piece: Vec<u8> = (0..*size).map(|k| (k * 7 + i * 13) as u8).collect();
         storage.append("cache/img.gray", &piece).unwrap();
         whole.extend_from_slice(&piece);
+        storage.sync().unwrap();
     }
     storage.sync().unwrap();
     let log = std::mem::take(&mut counted.counts.borrow_mut().kept);
@@ -237,14 +240,86 @@ fn a_cut_in_a_stream_of_appends_leaves_a_sound_volume() {
     // Clean end: the file is whole and takes the clusters it needs, no more.
     let end_bytes = bytes.borrow().clone();
     check_chains(&end_bytes, "after the stream");
-    let used_after = used_clusters(&end_bytes);
     assert_eq!(
-        used_after - used_before,
+        used_clusters(&end_bytes) - used_before,
         whole.len().div_ceil(512) + 1,
         "clusters taken (and the folder's)"
     );
+    (before_stream, log, whole, used_before)
+}
 
-    let mut image = before_stream.clone();
+/// A few bytes appended and written back to the card as it is (cut off before command
+/// `k`), ending inside the last cluster in use: what a cut left taken after it is given
+/// back all the same. What removing frees is the file's chain: as long as its size needs
+/// (clusters a cut left taken and linked from nowhere are not part of it).
+fn a_short_append_after_the_cut(k: usize, image: &[u8], size: usize) {
+    let copy = Rc::new(RefCell::new(image.to_vec()));
+    let card = common::Card::mount(common::Bytes(copy.clone()));
+    card.storage.append("cache/img.gray", &[7u8; 100]).unwrap();
+    card.storage.sync().unwrap();
+    let held = used_clusters(&copy.borrow());
+    card.storage.remove("cache/img.gray").unwrap();
+    card.storage.sync().unwrap();
+    assert_eq!(
+        held - used_clusters(&copy.borrow()),
+        (size + 100).div_ceil(512),
+        "before command {k}: the chain after a short append and a sync"
+    );
+}
+
+/// The next append goes on from the card as it is (cut off before command `k`), and
+/// removing the file frees every cluster it holds.
+fn the_next_append_and_a_remove_after_the_cut(
+    k: usize,
+    card: &common::Card,
+    size: usize,
+    whole: &[u8],
+    used_before: usize,
+    lost_ok: usize,
+) {
+    let rest = &whole[size..];
+    if !rest.is_empty() {
+        card.storage
+            .append("cache/img.gray", &rest[..rest.len().min(5000)])
+            .unwrap();
+    }
+    card.storage.sync().unwrap();
+    let got = common::read(card.storage, "cache/img.gray");
+    assert_eq!(
+        got,
+        whole[..got.len()],
+        "before command {k}: after one append more"
+    );
+    card.storage.remove("cache/img.gray").unwrap();
+    card.storage.sync().unwrap();
+    let after = card.bytes.0.borrow().clone();
+    check_chains(&after, &format!("after removing, cut at {k}"));
+    // A file whose entry holds a size has its whole chain freed, the clusters taken ahead
+    // of its end too: nothing stays taken. As found, this fails on FAT32 where a cut fell
+    // between the writes of the two FAT blocks a run straddles (the later block is written
+    // first, the link last): the clusters of the run stay taken and linked from nowhere
+    // (up to 32 of them), and with clusters taken one at a time one stays (ticket #269).
+    let leaked = used_clusters(&after) - (used_before + 1);
+    if size > 0 {
+        assert!(
+            leaked <= lost_ok,
+            "removing the file after a cut at command {k} leaves {leaked} clusters taken"
+        );
+    } else {
+        assert!(
+            leaked <= whole.len().div_ceil(512) + 128,
+            "removing the file after a cut at command {k}: {leaked} clusters lost"
+        );
+    }
+}
+
+/// Cut off before any write command of a stream of appends, and after it: the FAT never
+/// links into a free cluster or twice to one, the file reads as a prefix of what was
+/// appended, a short or longer append goes on from there, and removing the file gives all
+/// its clusters back.
+fn cut_at_every_command(fat_type: FatType, card_bytes: usize, lost_ok: usize) {
+    let (before_stream, log, whole, used_before) = a_stream(fat_type, card_bytes);
+    let mut image = before_stream;
     for (k, (index, data)) in log.iter().enumerate() {
         // Before command k.
         let copy = Rc::new(RefCell::new(image.clone()));
@@ -259,48 +334,35 @@ fn a_cut_in_a_stream_of_appends_leaves_a_sound_volume() {
                 "before command {k}: what is read is not what was appended"
             );
         }
-        // The next append goes on from there, and removing frees every cluster.
+        if k % 3 == 1 && size > 0 && !size.is_multiple_of(512) {
+            a_short_append_after_the_cut(k, &image, size);
+        }
         if k % 9 == 0 {
-            let rest = &whole[size..];
-            if !rest.is_empty() {
-                card.storage
-                    .append("cache/img.gray", &rest[..rest.len().min(5000)])
-                    .unwrap();
-            }
-            card.storage.sync().unwrap();
-            let got = common::read(card.storage, "cache/img.gray");
-            assert_eq!(
-                got,
-                whole[..got.len()],
-                "before command {k}: after one append more"
+            the_next_append_and_a_remove_after_the_cut(
+                k,
+                &card,
+                size,
+                &whole,
+                used_before,
+                lost_ok,
             );
-            card.storage.remove("cache/img.gray").unwrap();
-            card.storage.sync().unwrap();
-            let after = card.bytes.0.borrow().clone();
-            check_chains(&after, &format!("after removing, cut at {k}"));
-            // A file whose entry holds a size has its whole chain freed, the clusters
-            // taken ahead of its end too. Where the cut came before the entry was
-            // written (the entry is written when the file is written back), the
-            // chain written so far is not reachable from anywhere: a card check takes
-            // those clusters back, as it did when clusters were taken one at a time
-            // (then it was the whole chain so far, now it is that and a run more).
-            let leaked = used_clusters(&after) - (used_before + 1);
-            if size > 0 {
-                assert_eq!(
-                    leaked, 0,
-                    "removing the file after a cut at command {k} leaves clusters taken"
-                );
-            } else {
-                assert!(
-                    leaked <= whole.len().div_ceil(512) + 128,
-                    "removing the file after a cut at command {k}: {leaked} clusters lost"
-                );
-            }
         }
         let at = *index as usize * BLOCK;
         image[at..at + data.len()].copy_from_slice(data);
     }
     check_chains(&image, "the end");
+}
+
+/// FAT16: a run crosses blocks of the FAT every 256 clusters.
+#[test]
+fn a_cut_in_a_stream_of_appends_leaves_a_sound_volume() {
+    cut_at_every_command(FatType::Fat16, 24 << 20, 0);
+}
+
+/// FAT32 (128 entries to a block of the FAT).
+#[test]
+fn a_cut_in_a_stream_of_appends_leaves_a_sound_volume_on_fat32() {
+    cut_at_every_command(FatType::Fat32, 40 << 20, 0);
 }
 
 /// The free space the storage reports (it follows the clusters the file system marks taken

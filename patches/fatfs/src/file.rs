@@ -69,6 +69,14 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     }
 
     // Modified for PaperPaw: added.
+    /// Makes [`trim_ahead`](Self::trim_ahead) look at the end of the chain once: a cut may have left
+    /// clusters taken ahead there (the size in the entry is older), and a write that ends inside the
+    /// last cluster in use would not meet them. Not for a directory.
+    pub fn maybe_ahead(&mut self) {
+        self.ahead_taken = true;
+    }
+
+    // Modified for PaperPaw: added.
     /// Whether [`trim_ahead`](Self::trim_ahead) has something to do.
     #[must_use]
     pub fn ahead_taken(&self) -> bool {

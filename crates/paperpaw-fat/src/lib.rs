@@ -149,6 +149,9 @@ struct Open<IO: ReadWriteSeek + 'static> {
     len: u64,
     /// Appended to since it was last written back.
     dirty: bool,
+    /// Whether an append has looked, once, for clusters an earlier cut left taken
+    /// ahead after its last one in use (see `append`).
+    looked: bool,
 }
 
 impl<IO: ReadWriteSeek + 'static> Open<IO> {
@@ -859,6 +862,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                     file,
                     len,
                     dirty: false,
+                    looked: false,
                 });
             }
         }
@@ -1195,6 +1199,15 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
                 return Err(StorageError::Io);
             }
             o.dirty = true;
+            // The first append since it was opened: clusters an earlier cut left taken
+            // ahead are given back when it is written back, even where the append ends
+            // inside the last cluster in use.
+            if !o.looked {
+                o.looked = true;
+                if o.len > 0 && self.reserve.get() {
+                    o.file.maybe_ahead();
+                }
+            }
             // A file that has grown to some size takes its next clusters in a
             // run (up to about 64 KB, half its size at most): the FAT is
             // written once for the run, not once for each cluster. What is not
