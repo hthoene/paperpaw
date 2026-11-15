@@ -5,7 +5,7 @@
 # kept in step, by design: a plugin that became a data plugin (data.toml)
 # leaves this list and stays in `store-plugins` until its code is removed.
 # aids reading  (no file until the store build moves to interface 7, #228)
-# battery system  (no file until the store build moves to interface 7, #228)
+battery system
 # browser news  (no file until the store build moves to interface 7, #228)
 # calibre library  (no file until the store build moves to interface 7, #228)
 # diagnostics system  (no file until the store build moves to interface 7, #228)
