@@ -1155,13 +1155,18 @@ impl Firmware {
         // As after every refresh, both memories hold what is shown.
         let panel = &mut self.panel;
         let kept = !send_again
-            || sent.replay(&mut |top, rows| {
-                if let Err(e) = panel.write_rows(top, rows, Planes::BOTH) {
-                    warn!("display: {e:?}");
-                }
-            });
+            || sent.replay_or_stale(
+                &mut |top, rows| {
+                    if let Err(e) = panel.write_rows(top, rows, Planes::BOTH) {
+                        warn!("display: {e:?}");
+                    }
+                },
+                &mut self.state.frame_stale,
+            );
         if !kept {
-            warn!("busy mark not kept");
+            // The kernel went on meanwhile, so it cannot draw the mark's frame
+            // again: the next frame is shown whole instead of leaving the mark.
+            warn!("busy mark not kept: the next frame is shown whole");
         }
         info!(
             "mark {},{} {}x{}: work took {} ms, waited {} ms more",
