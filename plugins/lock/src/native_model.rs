@@ -220,17 +220,19 @@ pub fn wipe_string(text: &mut String) {
 /// The longest file of the tries read.
 pub const MAX_TRIES_FILE: usize = 16;
 
-/// The wrong tries in a row as the card keeps them (a number); 0 where there is
-/// none or it is not one.
+/// The wrong tries in a row as the card keeps them (a number). A file that is
+/// none (cut, damaged, too long) counts as all [`TRIES`] used: fail closed,
+/// the next try waits. Where there is no file at all the count is none
+/// (`native_store::tries`, which does not call this then).
 #[must_use]
 pub fn parse_tries(bytes: &[u8]) -> u8 {
     if bytes.len() > MAX_TRIES_FILE {
-        return 0;
+        return TRIES;
     }
     core::str::from_utf8(bytes)
         .ok()
         .and_then(|n| n.trim().parse::<u8>().ok())
-        .unwrap_or(0)
+        .unwrap_or(TRIES)
 }
 
 /// The tries as they are kept; 0 is kept as no file at all.
