@@ -119,15 +119,6 @@ mod titled;
 pub use paperpaw_sort as sort;
 mod settings;
 pub mod setup;
-#[cfg(all(
-    any(test, feature = "kernel"),
-    not(any(
-        all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"),
-        paperpaw_table_host
-    ))
-))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub mod shared;
 mod shared_str;
 mod sockets;
 pub mod sound;
