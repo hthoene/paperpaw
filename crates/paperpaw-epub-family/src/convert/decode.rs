@@ -171,16 +171,17 @@ pub(crate) fn decode_entry(
     let temp = alloc::format!("{dir}/image.tmp");
     storage.write(&temp, &[])?;
     let mut failed = None;
-    archive
-        .stream(storage, entry, &mut |chunk| {
-            failed = storage.append(&temp, chunk).err();
-            failed.is_none()
-        })
-        .map_err(error)?;
-    let result = match failed {
-        Some(e) => Err(DocumentError::Storage(e)),
-        None => decode_range(storage, &temp, 0, u64::from(entry.size), cache, fit, color),
+    let copied = archive.stream(storage, entry, &mut |chunk| {
+        failed = storage.append(&temp, chunk).err();
+        failed.is_none()
+    });
+    let result = match (copied, failed) {
+        (Err(e), _) => Err(error(e)),
+        (Ok(()), Some(e)) => Err(DocumentError::Storage(e)),
+        (Ok(()), None) => decode_range(storage, &temp, 0, u64::from(entry.size), cache, fit, color),
     };
+    // On every way out: a copy that found no memory left an empty file
+    // behind (#250).
     let _ = storage.remove(&temp);
     result
 }

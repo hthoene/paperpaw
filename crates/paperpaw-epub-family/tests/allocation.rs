@@ -30,6 +30,9 @@ std::thread_local! {
     /// Above 0: the storage (the host's) is allocating, not the parser.
     static PAUSED: Cell<u32> = const { Cell::new(0) };
     static ARMED: Cell<bool> = const { Cell::new(false) };
+    /// Above 0: after the refused allocation, every one of this size or more
+    /// is refused too (memory stays short for the large pieces).
+    static THEN: Cell<usize> = const { Cell::new(0) };
     /// Developer aid (`list_infallible_sites`): note where the parser
     /// allocates outside `try_reserve`.
     static SITES: std::cell::RefCell<Option<std::collections::BTreeMap<String, u64>>> =
@@ -68,7 +71,7 @@ fn note_site() {
 
 struct Refusing;
 
-fn refused() -> bool {
+fn refused(size: usize) -> bool {
     ARMED
         .try_with(|armed| {
             if !armed.get() || PAUSED.with(Cell::get) > 0 {
@@ -79,7 +82,10 @@ fn refused() -> bool {
                 count.set(count.get() + 1);
                 count.get()
             });
-            count == REFUSE.with(Cell::get) && !in_sdk_image()
+            let nth = REFUSE.with(Cell::get);
+            let then = THEN.with(Cell::get);
+            let short = then > 0 && nth > 0 && count > nth && size >= then;
+            (count == nth || short) && !in_sdk_image()
         })
         .unwrap_or(false)
 }
@@ -101,14 +107,14 @@ fn in_sdk_image() -> bool {
 // null return, which `GlobalAlloc` allows.
 unsafe impl GlobalAlloc for Refusing {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if refused() {
+        if refused(layout.size()) {
             trace();
             return core::ptr::null_mut();
         }
         unsafe { System.alloc(layout) }
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        if refused() {
+        if refused(layout.size()) {
             trace();
             return core::ptr::null_mut();
         }
@@ -118,7 +124,7 @@ unsafe impl GlobalAlloc for Refusing {
         unsafe { System.dealloc(ptr, layout) }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        if refused() {
+        if refused(size) {
             trace();
             return core::ptr::null_mut();
         }
@@ -702,4 +708,62 @@ fn a_refused_reconversion_is_never_taken_for_the_chapter_the_book_had() {
         );
     }
     assert!(refusals > 0, "no refusal answered OutOfMemory");
+}
+
+/// Sweeps a cold open and read of `book` with each allocation refused in
+/// turn and, with `then` above 0, every later one of that size or more: no
+/// `image.tmp` may stay in the book's cache.
+fn no_temporary_file_stays(book: &[u8], then: usize) {
+    let fresh = || Host(MemoryStorage::new().with("book.epub", book.to_vec()));
+    // What one cold open and read allocates.
+    let storage = fresh();
+    COUNT.with(|count| count.set(0));
+    REFUSE.with(|refuse| refuse.set(0));
+    ARMED.with(|armed| armed.set(true));
+    let _ = read(&storage, &open_epub);
+    let total = COUNT.with(Cell::get);
+    ARMED.with(|armed| armed.set(false));
+    assert!(total > 20, "{total} allocations is not representative");
+    assert!(cache_files(&storage, "image.tmp").is_empty());
+    for nth in 1..=total {
+        let storage = fresh();
+        COUNT.with(|count| count.set(0));
+        REFUSE.with(|refuse| refuse.set(nth));
+        THEN.with(|size| size.set(then));
+        ARMED.with(|armed| armed.set(true));
+        let _ = read(&storage, &open_epub);
+        ARMED.with(|armed| armed.set(false));
+        THEN.with(|size| size.set(0));
+        assert_eq!(
+            cache_files(&storage, "image.tmp"),
+            Vec::<String>::new(),
+            "allocation {nth} refused"
+        );
+    }
+}
+
+/// A compressed picture that finds no room while it is decoded is copied to
+/// a temporary file first. Where the copy finds none either (the inflater's
+/// state, about 11 KiB, is refused again), no empty `image.tmp` stays in
+/// the book's cache (#250).
+#[test]
+fn a_picture_copy_that_finds_no_room_leaves_no_temporary_file() {
+    no_temporary_file_stays(&epub_fixture(), 8 * 1024);
+}
+
+/// Nor where the copy stops on a damaged stream, after the decoding found
+/// no room once.
+#[test]
+fn a_picture_copy_that_stops_on_a_damaged_stream_leaves_no_temporary_file() {
+    let mut book = epub_fixture();
+    // The picture's compressed data begins after its local header's name
+    // and extra field; a first block of the reserved type is no stream.
+    let name = b"OEBPS/pic.png";
+    let at = book
+        .windows(name.len())
+        .position(|bytes| bytes == name)
+        .expect("the picture's local header");
+    let extra = usize::from(u16::from_le_bytes([book[at - 2], book[at - 1]]));
+    book[at + name.len() + extra] = 0x07;
+    no_temporary_file_stays(&book, 0);
 }
