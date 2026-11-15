@@ -30,7 +30,7 @@ Options: `--file FILE` (the canaries, default: beside this script), `--out DIR`
 (where `.fails` live, default: beside this script), `--only ID[,ID]`,
 `--sets ID[,ID]` (default: all), `--set-args "ARGS"` (an ad-hoc set instead of
 those of ci.yml, repeatable), `--target DIR` (the target folder, default
-`<tree>/target`), `-j N`.
+`<tree>/target`), `--merge` (add to an earlier `.fails`), `-j N`.
 """
 import argparse
 import importlib.util
@@ -215,6 +215,7 @@ def main():
     parser.add_argument("--sets")
     parser.add_argument("--set-args", action="append")
     parser.add_argument("--target")
+    parser.add_argument("--merge", action="store_true", help="run: keep the names of an earlier `.fails` and add the new ones (more sets for the canaries no set caught yet)")
     parser.add_argument("-j", "--jobs", type=int)
     args = parser.parse_args()
 
@@ -286,6 +287,8 @@ def main():
             results.append((c, "ERROR", error.splitlines()[0]))
             continue
         got = sorted(names | crashed)
+        if args.command == "run" and args.merge and committed.exists():
+            got = sorted(set(got) | {l for l in committed.read_text(encoding="utf-8").splitlines() if l})
         if args.command == "run":
             committed.write_text("".join(f"{l}\n" for l in got), encoding="utf-8")
             results.append((c, "CAUGHT" if got else "NOT CAUGHT", f"{len(got)} failing: " + "; ".join(l.replace(chr(9), '::') for l in got[:3])))
