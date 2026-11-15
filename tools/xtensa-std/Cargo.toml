@@ -14,7 +14,7 @@ path = "src/lib.rs"
 test = false
 bench = false
 
-# As code plugins are built (samples/hello-native, tools/plugin-files),
+# As code plugins are built (tools/plugin-files7),
 # so that the libraries are compiled as before: small code, one unit, no
 # unwinding, lines for naming a crash's calls. Their bitcode goes in too
 # (build.sh), for the plugins' link time optimisation.

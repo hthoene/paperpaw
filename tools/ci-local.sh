@@ -26,8 +26,8 @@
 #
 # CI jobs that cannot run here: the X4 Pro and X4 Classic firmware (Xtensa
 # compiler, `esp` toolchain), the Windows and macOS emulator, the update path
-# (needs the release before's image), Android's APK (needs the SDK), the
-# reproducible build, CodeQL, release.
+# (needs the release before's image), Android's APK (needs the SDK),
+# CodeQL, release.
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -204,18 +204,6 @@ g_sdk() {
     else
         skip "sdk: shared-table" "tools/shared-table.py is not in this tree (interface 5)"
     fi
-    if [[ -f tools/table-compat.sh ]]; then
-        # As CI: the baseline table-baseline.txt names, unless the caller
-        # names another in TABLE_BASELINE.
-        if [[ -n "${TABLE_BASELINE:-}" ]]; then
-            run "sdk: table-compat against $TABLE_BASELINE" "tools/table-compat.sh '$TABLE_BASELINE'"
-        else
-            run "sdk: table-compat against table-baseline.txt" "tools/table-compat.sh"
-        fi
-        # As CI's second step: this tree's own plugin, so that the "runs"
-        # path is exercised while the baseline is of an older draft.
-        run "sdk: table-compat against HEAD (the plugin runs)" "tools/table-compat.sh HEAD"
-    fi
 }
 
 # Keep the baseline supplied independently by the caller. Missing input fails
@@ -250,7 +238,7 @@ g_miri-stage() {
 }
 
 g_native() {
-    run "native: plugin from another workspace" "cargo build --release --manifest-path crates/paperpaw-core/tests/native-plugin/Cargo.toml --target-dir crates/paperpaw-core/tests/native-plugin/target && cargo test -p paperpaw-core --test native_plugin -- --ignored && cargo test -p paperpaw-native --test real_plugin -- --ignored"
+    run "native: the preflight accepts a real plugin library" "cargo test -p paperpaw-native --test real_plugin -- --ignored"
     run "native: the SDK keeps no mutable statics" '
         CARGO_PROFILE_RELEASE_LTO=false cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-sdk --target-dir target/statics
         CARGO_PROFILE_RELEASE_LTO=false cargo run --release -p paperpaw-sign -- statics target/statics/riscv32imc-unknown-none-elf/release/deps/*.rlib'
@@ -262,26 +250,6 @@ g_native() {
         else
           echo "paperpaw.org serves no store rules: not compared"
         fi'
-    run "native: sample and templates name the firmware compilers" '
-        x4="$(sed -n "s/^channel = \"\(.*\)\"/\1/p" shells/xteink/rust-toolchain.toml)"
-        . shells/xteink/versions.env
-        template=samples/hello-native/.github/workflows/build.yml
-        release=tools/dev/templates/.github/workflows/paperpaw-release.yml
-        status=0
-        for found in \
-          "samples/hello-native/rust-toolchain.toml:channel = \"$x4\"" \
-          "$template:RUST_X4: \"$x4\"" \
-          "$template:RUST_X4_PRO: \"$ESP_RUST_VERSION\"" \
-          "$template:ESP_GCC: \"$ESP_GCC_VERSION\"" \
-          "$release:RUST_X4: \"$x4\"" \
-          "$release:RUST_X4_PRO: \"$ESP_RUST_VERSION\"" \
-          "$release:ESP_GCC: \"$ESP_GCC_VERSION\""; do
-          if ! grep -qF -- "${found#*:}" "${found%%:*}"; then
-            echo "${found%%:*} should say ${found#*:}"
-            status=1
-          fi
-        done
-        exit $status'
 }
 
 g_architecture() {
@@ -391,11 +359,6 @@ g_firmware-build() {
     fi
     run "firmware-build: x4 release build" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4"
     run "firmware-build: no float parser or formatter in the image" "tools/firmware-symbols.sh shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink"
-    run "firmware-build: sample plugin fits the firmware" '
-        fp="$(cargo run -q --release -p paperpaw-sign -- fingerprint shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink)"
-        (cd samples/hello-native && env -u RUSTFLAGS cargo +'"$x4_toolchain"' x4)
-        cargo run -q --release -p paperpaw-sign -- pack samples/hello-native/target/riscv32imc-unknown-none-elf/release/hello target/ci-local/hello-esp32c3.ppn
-        cargo run -q --release -p paperpaw-sign -- plugin target/ci-local/hello-esp32c3.ppn | grep -Eq "^fingerprint: +$fp\$"'
     run "firmware-build: the panic path's stack frames fit the reserve" '
         cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget.txt'
     run "firmware-build: clippy the interface-7 host code (the native image)" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features x4 -- -D warnings"

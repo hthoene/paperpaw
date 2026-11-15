@@ -11,11 +11,6 @@ use paperpaw_native::header5::Header5;
 use crate::elf::Elf;
 use crate::secret_key;
 
-/// The symbol under which a firmware's ELF file holds the fingerprint
-/// native plugins must have (8 bytes, little-endian), as
-/// `shells/xteink/src/native` exports it.
-const FINGERPRINT_SYMBOL: &str = "PAPERPAW_NATIVE_FINGERPRINT";
-
 pub fn key(file: &str) -> Result<(), String> {
     let mut out = new_key_file(file).map_err(|e| match e.kind() {
         std::io::ErrorKind::AlreadyExists => format!("{file} exists: a key is never overwritten"),
@@ -130,21 +125,6 @@ pub fn plugins(image: &str) -> Result<(), String> {
     }
     print!("{}", list.text());
     Ok(())
-}
-
-pub fn fingerprint(elf: &str) -> Result<(), String> {
-    let data = std::fs::read(elf).map_err(|e| format!("{elf}: {e}"))?;
-    let fingerprint = fingerprint_of(&data).map_err(|e| format!("{elf}: {e}"))?;
-    println!("{fingerprint:016x}");
-    Ok(())
-}
-
-/// The fingerprint a firmware's ELF file names.
-fn fingerprint_of(file: &[u8]) -> Result<u64, String> {
-    let bytes = symbol_bytes(file, FINGERPRINT_SYMBOL, 8)
-        .map_err(|e| format!("{e}: a firmware without code plugins"))?;
-    let bytes: [u8; 8] = bytes.try_into().map_err(|_| "not 8 bytes")?;
-    Ok(u64::from_le_bytes(bytes))
 }
 
 /// The `len` bytes of the object `name` in a firmware's ELF file.
@@ -279,27 +259,6 @@ mod tests {
     use crate::elf::build::Builder;
     use crate::elf::{EM_XTENSA, ET_EXEC, SHF_ALLOC};
 
-    #[test]
-    fn the_firmware_names_its_fingerprint() {
-        let fingerprint = 0x86fe_a46c_f2a7_188a_u64;
-        let mut data = vec![0xAA; 4];
-        data.extend_from_slice(&fingerprint.to_le_bytes());
-        let mut b = Builder::new(EM_XTENSA, ET_EXEC);
-        let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0020, &data, 4);
-        b.symbol(FINGERPRINT_SYMBOL, 0x3c00_0024, 8, rodata as u16, false);
-        assert_eq!(fingerprint_of(&b.build()), Ok(fingerprint));
-
-        let mut b = Builder::new(EM_XTENSA, ET_EXEC);
-        let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0020, &data, 4);
-        b.symbol("main", 0x3c00_0020, 4, rodata as u16, false);
-        assert!(fingerprint_of(&b.build()).unwrap_err().starts_with("no "));
-        // Not in the file.
-        let mut b = Builder::new(EM_XTENSA, ET_EXEC);
-        let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0020, &data, 4);
-        b.symbol(FINGERPRINT_SYMBOL, 0x3c00_0030, 8, rodata as u16, false);
-        assert!(fingerprint_of(&b.build()).is_err());
-    }
-
     /// A firmware's ELF file with `words` under the record's name.
     fn firmware_with(words: &[u32]) -> Vec<u8> {
         let data: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
@@ -344,6 +303,16 @@ mod tests {
         assert!(abi_of(&firmware_with(&[2, 7])).is_err());
         assert!(abi_of(&firmware_with(&[2, 7, 1, 0])).is_err());
         assert!(abi_of(&firmware_with(&[2, 7, 70_000])).is_err());
+        // A firmware without the record, and one whose record is not in the
+        // file.
+        let mut b = Builder::new(EM_XTENSA, ET_EXEC);
+        let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0020, &[0xAA; 12], 4);
+        b.symbol("main", 0x3c00_0020, 4, rodata as u16, false);
+        assert!(abi_of(&b.build()).unwrap_err().starts_with("no "));
+        let mut b = Builder::new(EM_XTENSA, ET_EXEC);
+        let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0020, &[0xAA; 12], 4);
+        b.symbol(ABI_SYMBOL, 0x3c00_0030, 12, rodata as u16, false);
+        assert!(abi_of(&b.build()).is_err());
     }
 
     #[test]

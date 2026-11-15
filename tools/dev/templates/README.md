@@ -18,7 +18,7 @@ These files start it in a plugin's repository. Copy them, then replace
 | `tests/snapshots/cases.ini` | The cases: screens and widgets, the device, settings, script steps. |
 | `tests/flows/open-and-close.flow` | A flow: steps and what should be true after them. Write one for every action of the plugin. |
 | `.github/workflows/paperpaw-dev.yml` | CI: the tests, then `check --plugin my-plugin --quick` and the flows varied at the edges, the reports kept as the run's artifact. |
-| `.github/workflows/paperpaw-release.yml` | CI: on a tag `v1.0.0`, zips the plugin's folder, builds and signs a code plugin for each reader, and makes the GitHub release that paperpaw.org takes the plugin from. |
+| `.github/workflows/paperpaw-release.yml` | CI: on a tag `v1.0.0`, zips the plugin's folder and makes the GitHub release that paperpaw.org takes the plugin from (a plugin without code). |
 
 ## The dependency
 
@@ -117,23 +117,16 @@ no upload form. paperpaw.org lists public repositories with the topic
 GitHub release, checks it as it checks an upload, keeps the files and
 lists the plugin as "Community, unreviewed".
 
-The easiest start is `paperpaw-dev new --github <id>` (with `--code`
-for a plugin with code): it writes the whole repository, the workflow
-with its switches set included. Otherwise:
+The easiest start is `paperpaw-dev new --github <id>`: it writes the
+whole repository, the workflow with its switches set included. The
+workflow releases a plugin without code; it has no build for a plugin
+with code yet. Otherwise:
 
 1. Give the repository the topic `paperpaw-plugin`.
 2. Copy `paperpaw-release.yml` to `.github/workflows/` and set its
-   switches at the top: `CODE` (`"true"` for a plugin with code, `"false"`
-   for a folder of data), the readers to build for (`X4`, `X4_PRO`), the
-   plugin's folder `PLUGIN_DIR` and, for code, the binary `BIN` and the
-   PaperPaw release's pins, as in `samples/hello-native`. The X4 Classic
-   gets the X4 Pro's file under its own name (`X4_CLASSIC`).
-3. For a plugin with code, make a key once with
-   `paperpaw-sign key author.key`, keep the file safe and out of every
-   repository, and paste its contents as the repository's secret
-   `PAPERPAW_PLUGIN_KEY` (*Settings*, *Secrets and variables*,
-   *Actions*). Data plugins need no key.
-4. Raise `version` in `plugin.ini` (and in the code), run
+   switches at the top: the plugin's folder `PLUGIN_DIR` and the PaperPaw
+   release `PAPERPAW`.
+3. Raise `version` in `plugin.ini`, run
    `paperpaw-dev check-publish` (or `paperpaw-sign check-publish .`) and
    fix what it says, commit, then:
 
@@ -144,9 +137,8 @@ git tag v1.0.0 && git push --tags
 The tag must be `v` and `plugin.ini`'s version, or the job stops. It
 runs `check-publish` before it builds and on the files it made, and
 releases nothing where it fails. It makes a published release (not a draft, not a pre-release) with exactly
-`<id>-<version>.zip`, the plugin's folder with its `store/`, and for code
-one signed `<id>-<version>-<device>.ppn` per reader. The site picks it
-up within the hour. What fails its checks is not offered; the warnings
+`<id>-<version>.zip`, the plugin's folder with its `store/`. The site
+picks it up within the hour. What fails its checks is not offered; the warnings
 are shown.
 
 Some things to know:

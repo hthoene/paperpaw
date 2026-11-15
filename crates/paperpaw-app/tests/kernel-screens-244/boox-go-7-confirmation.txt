@@ -1,0 +1,8 @@
+screen core.confirm-dialog
+Button "Start reading, Choose a book from your library." at 47,377 1170x283
+Button "Edit" at 1134,1597 83x83
+Text "Delete this book?" at 488,701 681x56
+Text "It is taken off the card." at 94,804 1076x45
+Button "Yes" at 94,896 514x83
+Button "No" (focused) at 655,896 515x83
+frame 1680 rows, fnv1a64 123f139c77616719
