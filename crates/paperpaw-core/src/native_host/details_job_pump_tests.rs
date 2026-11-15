@@ -94,6 +94,8 @@ struct Format {
     ops: RefCell<Vec<u32>>,
     /// The state its open answers (and its status).
     open: Cell<u32>,
+    /// The state a step of its preparation answers.
+    prepare: Cell<u32>,
     status: Cell<i32>,
     /// The title its `meta` answers.
     title: RefCell<std::string::String>,
@@ -168,7 +170,7 @@ impl Dispatch for Probe {
         let authors = u32::from(!title.is_empty());
         let n = match call.op {
             2 => encoded(state(self.0.open.get(), self.0.status.get()), out),
-            3 => encoded(state(READY, 0), out),
+            3 => encoded(state(self.0.prepare.get(), 0), out),
             5 => encoded(
                 local::Record::FmtMeta(local::FmtMeta::new(
                     &title, "en", "", "", 0, 0, 3, authors, 0, 0, 0,
@@ -490,6 +492,68 @@ fn a_book_whose_job_an_open_took_is_looked_at_again_and_never_holds_the_device_a
     pump(&mut w, 3_000);
     // The same book again first, then the next.
     assert_eq!(w.format.opens(), 3);
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
+    assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn a_walk_that_ends_wakes_the_idle_device_for_its_books() {
+    let mut w = world(&["books/a.epub"]);
+    catalog(&w, &[("books/a.epub", false)]);
+    started(&mut w);
+    // The walk's end as the kernel hears it: an event among the round's
+    // commands, which run after the round's pass of the pump.
+    w.kernel
+        .output
+        .commands
+        .push(events::CATALOG_CHANGED.emit(()));
+    let effects = w.kernel.tick(Instant(5_000));
+    assert!(w.docs.details_job().unwrap().run().armed());
+    assert_eq!(w.format.opens(), 0, "armed after this round's pass");
+    // No key is pressed: the kernel itself asks to be woken, and at once.
+    assert_eq!(w.kernel.native_details_due(), Some(5_000));
+    let mut at = effects.wake_at().expect("a wake for the first look");
+    assert!(at <= Instant(5_000), "at once, not at some later timer");
+    for _ in 0..4 {
+        if kept_title(&w, "books/a.epub").is_some() {
+            break;
+        }
+        at = w.kernel.tick(at).wake_at().expect("the next look's wake");
+    }
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn a_wake_is_spent_while_a_job_has_the_slot_and_none_is_left_in_the_past() {
+    let mut w = world(&["books/a.epub", "books/b.epub"]);
+    catalog(&w, &[("books/a.epub", false), ("books/b.epub", false)]);
+    started(&mut w);
+    w.format.open.set(PREPARING);
+    w.format.prepare.set(PREPARING);
+    w.kernel.native_details_arm();
+    pump(&mut w, 1_000);
+    assert!(w.docs.cover_job_active());
+    assert_eq!(w.kernel.service_due(), Some(Instant(1_100)));
+    // The first step: the book still prepares and has the slot. The look's
+    // wake is spent; the job goes on by the preparing loop's own gap.
+    pump(&mut w, 1_100);
+    assert!(w.docs.cover_job_active());
+    assert_eq!(w.kernel.native_details_due(), None, "spent");
+    assert_eq!(
+        w.kernel.service_due(),
+        Some(Instant(1_200)),
+        "a wake left in the past would wake the device round after round"
+    );
+    // The job's end comes in a pass of the pump, and the next book's look
+    // follows it: both are read by the timed wakes alone.
+    w.format.prepare.set(READY);
+    w.format.open.set(READY);
+    for _ in 0..6 {
+        let Some(at) = w.kernel.service_due() else {
+            break;
+        };
+        pump(&mut w, at.millis());
+    }
     assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
     assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
 }

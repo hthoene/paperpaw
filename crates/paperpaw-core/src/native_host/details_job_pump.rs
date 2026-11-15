@@ -7,7 +7,9 @@
 //! (`library::keep_native_details`); the next walk makes their lines from it.
 //!
 //! **When.** Armed when a walk publishes or `core.catalog-changed` is heard
-//! (`library_events`), disarmed when the catalog has no book left to read. A
+//! (`library_events`), with a timed wake for the first look (the event is
+//! heard after its round's pass of the pump); disarmed when the catalog has
+//! no book left to read. A
 //! book's job begins from the service pump, never in a callback, only once the
 //! kernel's start has returned, when no background job of either kind runs (it
 //! is the device's one slot, `doc_cover_job`), when no book is open for
@@ -301,7 +303,11 @@ impl crate::Kernel {
         if run.running() && !active {
             run.gone();
         }
-        if !run.armed() || active || !run.due(self.now.millis()) {
+        // The wake is spent by this look also where another job has the slot
+        // (`due` before `active`): left in the past it would wake the device
+        // at once, round after round, for as long as that job runs. The
+        // job's end comes in a pass of the pump, and this look follows it.
+        if !run.armed() || !run.due(self.now.millis()) || active {
             return Pass::Nothing;
         }
         match job.may_begin() {
