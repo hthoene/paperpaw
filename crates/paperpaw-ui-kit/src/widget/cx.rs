@@ -21,6 +21,14 @@ use paperpaw_sdk::{
 const ZONE_RULE: &str = "core.time-zone-rule";
 const ZONE: &str = "core.time-zone";
 
+/// The look a widget's context was made with, kept for the next one of the
+/// same display ([`Cx::open_kept`], [`Cx::keep`]).
+#[derive(Debug)]
+pub struct Kept {
+    display: (u16, u16),
+    shape: Shape,
+}
+
 /// One widget's drawing context.
 #[derive(Debug)]
 pub struct Cx<'a> {
@@ -50,6 +58,48 @@ impl<'a> Cx<'a> {
             snapshot,
             messages: Messages::new()?,
         })
+    }
+
+    /// As [`Cx::open`], with the look (the interface's style and the widget's
+    /// own, some thirty settings) taken from `kept` where it is for this
+    /// display, read and made again where it is not. The widget's owner keeps
+    /// the look with [`Cx::keep`] and lets it go where a setting changes.
+    ///
+    /// # Errors
+    /// The host's refusals and [`Error::NoMemory`].
+    pub fn open_kept(
+        host: &'a Host<'a>,
+        widget: &'a str,
+        kept: Option<Kept>,
+    ) -> Result<Self, Error> {
+        let settings = Settings::new(host, widget);
+        let font = widget_font(host, widget)?;
+        let snapshot = snapshot::capture_snapshot(host)?;
+        let display = (snapshot.display_width(), snapshot.display_height());
+        let shape = match kept.filter(|kept| kept.display == display) {
+            Some(kept) => kept.shape,
+            None => Shape::read(&settings, Style::read(host, &snapshot, &font)?)?,
+        };
+        Ok(Self {
+            host,
+            settings,
+            shape,
+            font,
+            snapshot,
+            messages: Messages::new()?,
+        })
+    }
+
+    /// The look of this context, to be kept for the next one ([`Cx::open_kept`]).
+    #[must_use]
+    pub fn keep(self) -> Kept {
+        Kept {
+            display: (
+                self.snapshot.display_width(),
+                self.snapshot.display_height(),
+            ),
+            shape: self.shape,
+        }
     }
 
     /// The style the widget draws in.

@@ -13,6 +13,7 @@
 //! Not yet (ignored acceptance cases, `PORTING-7.md`): the status bar above the
 //! grid, and what the host lacks to run any of it (H1, H4).
 use alloc::{string::String, vec::Vec};
+use core::cell::RefCell;
 use paperpaw_sdk::{
     Handled, Point, Rect,
     keys::InputMode,
@@ -109,15 +110,10 @@ struct Laid {
     /// How far the focus ring reaches outside a target: what a focus step
     /// draws again around it, kept here so that a step reads no style.
     ring_room: i32,
-    /// The look read when the page was laid out: a draw (one per band of the
-    /// frame, and again at every return) reads no setting for it. It lasts as
-    /// long as the page, which is laid out again where a setting, the display
-    /// or the registry changed (`Kept`).
-    style: Style,
-    /// The lines of each tool's name and the top of its cell, wrapped when the
-    /// page was laid out (hyphenation asks, text measures): kept for the same
-    /// reason as `style`.
-    wrapped: Vec<(u16, icons::Name)>,
+    /// The look the page is drawn in and the names of its tools wrapped in it,
+    /// read when the page was laid out: a draw (one per band of the frame, and
+    /// again at every return) reads no setting for it.
+    look: RefCell<Vec<Look>>,
 }
 
 /// Which of the footer's buttons are there.
@@ -127,6 +123,16 @@ struct Buttons {
     editing: bool,
     plus: bool,
     pencil: bool,
+}
+
+impl Buttons {
+    const fn new(editing: bool, pencil: bool) -> Self {
+        Self {
+            editing,
+            plus: editing,
+            pencil,
+        }
+    }
 }
 
 /// What a press on a target leaves to do besides what it did itself.
@@ -144,9 +150,11 @@ enum Next {
 mod area;
 mod arrange;
 mod kept;
+mod look;
 mod names;
 use area::focus_area;
 use kept::Kept;
+use look::Look;
 
 /// The dashboard.
 #[derive(Debug, Default)]
@@ -306,37 +314,23 @@ impl Dashboard {
             wide,
             ..
         } = Shown::read(host, display, font)?;
-        let style = Style::read(host, display, font)?;
-        let ring_room = ring_room(&style);
         let nav = self.nav.get_or_insert(Nav::new(pages.len()));
         nav.resize(pages.len());
         let (page, count) = (nav.page, nav.pages);
         let slot = pages.get(page).map_or(0, |p| p.slot);
-        let items = match pages.get(page) {
-            Some(page) => native_pages::expand(&src, &page.items)?,
-            None => Vec::new(),
-        };
+        let items = pages.get(page).map_or_else(
+            || Ok(Vec::new()),
+            |page| native_pages::expand(&src, &page.items),
+        )?;
         Self::measure_unplaced(host, ui, &mut src, &frame.geometry, &items)?;
         let (shown, _) = grid::fit(&src, &frame.geometry, &items)?;
         let editing = self.editing;
         let pencil_on = editing || src.pencil;
         let (word, done_word) = self.pencil_word(host, display, font, pencil_on)?;
-        let footer = dash::footer(
-            &metrics,
-            frame.footer,
-            &Wanted {
-                editing,
-                pencil: pencil_on,
-                actions: src.footer.len(),
-                done_word,
-            },
-        )?;
+        let wanted = Wanted::new(editing, pencil_on, src.footer.len(), done_word);
+        let footer = dash::footer(&metrics, frame.footer, &wanted)?;
         let mut cells = Vec::new();
-        let buttons = Buttons {
-            editing,
-            plus: editing,
-            pencil: pencil_on,
-        };
+        let buttons = Buttons::new(editing, pencil_on);
         let made = Self::fill(
             host,
             ui,
@@ -361,28 +355,24 @@ impl Dashboard {
                 return Err(error);
             }
         };
-        let footer_icons = icons::footer(host, &src, &footer.actions);
-        let pencil_icon = icons::pencil(host);
-        let (action_icons, pencil_icon) = match (footer_icons, pencil_icon) {
+        let (action_icons, pencil_icon) = match (
+            icons::footer(host, &src, &footer.actions),
+            icons::pencil(host),
+        ) {
             (Ok(actions), Ok(pencil)) => (actions, pencil),
             (Err(error), _) | (_, Err(error)) => {
                 release_cells(host, ui, cells);
                 return Err(error);
             }
         };
-        let status = match Self::status_bar(host, ui, frame.status) {
-            Ok(status) => status,
+        let (status, look) = match Self::status_and_look(
+            host,
+            ui,
+            (font, display),
+            (&cells, src.tool_labels, frame.status),
+        ) {
+            Ok(both) => both,
             Err(error) => {
-                release_cells(host, ui, cells);
-                return Err(error);
-            }
-        };
-        let wrapped = match Self::tool_lines(host, font, &style, &cells, src.tool_labels) {
-            Ok(wrapped) => wrapped,
-            Err(error) => {
-                if let Some((made, _)) = status {
-                    made.release(host, ui);
-                }
                 release_cells(host, ui, cells);
                 return Err(error);
             }
@@ -406,9 +396,8 @@ impl Dashboard {
             kept: Kept::of(host, display, &shown),
             handle: (metrics.row / 2).max(16),
             status,
-            ring_room,
-            style,
-            wrapped,
+            ring_room: look.first().map_or(0, |look| ring_room(&look.style)),
+            look: RefCell::new(look),
         })
     }
 
@@ -717,35 +706,6 @@ impl Dashboard {
         released
     }
 
-    /// The lines of the name of each tool shown (with names), with the top of its
-    /// cell, in the order of the cells that are tools.
-    fn tool_lines(
-        host: &Host<'_>,
-        font: &Font<'_>,
-        style: &Style,
-        cells: &[Cell],
-        tool_labels: bool,
-    ) -> Result<Vec<(u16, icons::Name)>, Error> {
-        let mut lines = Vec::new();
-        let hyphens = icons::Hyphens::of(host);
-        let mut breaks = |word: &str, out: &mut _| hyphens.breaks(host, word, out);
-        for cell in cells {
-            if cell.face.is_none() {
-                continue;
-            }
-            let own = if tool_labels {
-                icons::name_lines(font, style, cell.rect, &cell.name, &mut breaks)?
-            } else {
-                icons::Name {
-                    size: style.small,
-                    lines: Vec::new(),
-                }
-            };
-            push(&mut lines, (cell.rect.y, own))?;
-        }
-        Ok(lines)
-    }
-
     /// What each target is and which has the focus, for whoever asks what
     /// shows (`canvas.describe`: automation, reading aloud, the tests), as
     /// interface 6 told its cells.
@@ -822,7 +782,12 @@ impl Dashboard {
         font: &Font<'_>,
         laid: &Laid,
     ) -> Result<(), Error> {
-        let style = &laid.style;
+        self.refresh_look(host, font, laid)?;
+        let looks = laid.look.borrow();
+        let Some(look) = looks.first() else {
+            return Ok(());
+        };
+        let style = &look.style;
         let mut below = Vec::new();
         let mut above = Vec::new();
         self.describe_targets(&mut below, paint::asking(frame), laid)?;
@@ -833,7 +798,7 @@ impl Dashboard {
             icons: icon_font.as_ref(),
             circle: circle.as_ref(),
         };
-        let wrapped = &laid.wrapped;
+        let wrapped = &look.wrapped;
         let mut tops: Vec<(u16, usize)> = Vec::new();
         tops.try_reserve_exact(wrapped.len())
             .map_err(|_| Error::NoMemory)?;
@@ -854,7 +819,7 @@ impl Dashboard {
                         style.ink,
                     ),
                 )?;
-                self.corner_mark(&mut below, &style, cell.rect, laid.handle)?;
+                self.corner_mark(&mut below, style, cell.rect, laid.handle)?;
             }
             if let Some(face) = cell.face {
                 let name = wrapped.get(tool).map(|(_, name)| name);
@@ -864,7 +829,7 @@ impl Dashboard {
                     face,
                     row_lines: row_lines.get(tool).copied().unwrap_or(0),
                 };
-                icons::draw_tool(&mut below, &fonts, &style, cell.rect, &shown)?;
+                icons::draw_tool(&mut below, &fonts, style, cell.rect, &shown)?;
                 tool += 1;
             }
         }
@@ -878,7 +843,7 @@ impl Dashboard {
                     *rect,
                     style.note,
                 )?,
-                _ => name(&mut below, font, &style, *rect, word)?,
+                _ => name(&mut below, font, style, *rect, word)?,
             }
         }
         if let Some(icon_font) = fonts.icons {
@@ -896,20 +861,20 @@ impl Dashboard {
             }
         }
         if let Some(rect) = laid.plus {
-            name(&mut below, font, &style, rect, "+")?;
+            name(&mut below, font, style, rect, "+")?;
         }
         if let Some(nav) = self.nav {
             for dot in dash::dots(laid.footer_area(), style.gap, laid.pages, nav.page) {
                 if laid.dots {
-                    self::dot(&mut below, &dot, &style)?;
+                    self::dot(&mut below, &dot, style)?;
                 }
             }
         }
-        self.drag_frame(&mut above, &style, laid)?;
+        self.drag_frame(&mut above, style, laid)?;
         if self.focus.shown()
             && let Some(target) = laid.targets.get(self.focus.at())
         {
-            ring(&mut above, target.rect, &style)?;
+            ring(&mut above, target.rect, style)?;
         }
         paint::replay_icons(frame, font, fonts.icons, below.iter())?;
         Self::compose_widgets(host, ui, frame, laid)?;

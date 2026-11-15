@@ -5,7 +5,7 @@
 //! the continue card and the recent shelf; the status line follows
 //! (`PORTING-7.md`).
 use alloc::{string::String, vec::Vec};
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 use paperpaw_sdk::{
     Rect,
     native::{
@@ -17,7 +17,13 @@ use paperpaw_sdk::{
         ui::{Instance, Open, Param, Ui, WidgetInputKind, WidgetTarget, stages::WidgetCall},
     },
 };
-use paperpaw_ui_kit::{icons, mem::buffer, paint, text::copy, widget::Cx};
+use paperpaw_ui_kit::{
+    icons,
+    mem::buffer,
+    paint,
+    text::copy,
+    widget::{Cx, Kept},
+};
 
 use crate::declarations::{CARD, CLOCK, DATE, SHELF, STATUS_WIDGET};
 use crate::native_recent::{self, Known, Pictures};
@@ -42,6 +48,38 @@ pub struct Mine {
     known: Known,
     /// Where the screen last placed it, for a tap on one of its items.
     placed: Cell<Option<Rect>>,
+    /// The look its settings make, read by the first draw, measure or tap and
+    /// kept for the later ones (a frame draws it once per band): the interface's
+    /// style and its own are some thirty settings. Let go where a setting or the
+    /// registry changes ([`Widgets::forget_looks`]).
+    look: Looks,
+}
+
+/// The look a widget kept: none or one, in a vector so that keeping it is
+/// fallible (a look not kept is read again at the next draw) and an instance
+/// that never drew holds nothing.
+#[derive(Debug, Default)]
+pub struct Looks(RefCell<Vec<Kept>>);
+
+impl Looks {
+    /// The look kept, if any, handed over: the draw that takes it keeps it again.
+    pub fn take(&self) -> Option<Kept> {
+        self.0.borrow_mut().pop()
+    }
+
+    /// Keeps `kept` in place of any other, if there is room.
+    pub fn keep(&self, kept: Kept) {
+        let mut held = self.0.borrow_mut();
+        held.clear();
+        if held.try_reserve_exact(1).is_ok() {
+            held.push(kept);
+        }
+    }
+
+    /// Lets go of what is kept.
+    pub fn forget(&self) {
+        self.0.borrow_mut().clear();
+    }
 }
 
 /// The widget an instance is.
@@ -89,7 +127,13 @@ impl Mine {
             waiting: Cell::new(false),
             known: Known::default(),
             placed: Cell::new(None),
+            look: Looks::default(),
         }))
+    }
+
+    /// Lets go of the look it kept: the next draw reads it again.
+    pub fn forget_look(&self) {
+        self.look.forget();
     }
 
     /// Where the screen placed it, for a tap on one of its items.
@@ -102,15 +146,17 @@ impl Mine {
     /// # Errors
     /// Font and host refusals, [`Error::NoMemory`].
     pub fn measure(&self, host: &Host<'_>, width: u32) -> Result<(u16, u16), Error> {
-        let mut cx = Cx::open(host, &self.widget)?;
+        let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
         let width = u16::try_from(width).unwrap_or(u16::MAX);
-        Ok(match self.token {
+        let size = match self.token {
             DATE => same(native_date::height(&mut cx, width)?),
             CARD => (native_card::height(&cx), native_card::height(&cx) / 2),
             SHELF => native_shelf::height(&cx, &self.known, width)?,
             STATUS_WIDGET => same(native_status::height(&cx)?),
             _ => same(native_clock::height(&mut cx, width)?),
-        })
+        };
+        self.look.keep(cx.keep());
+        Ok(size)
     }
 
     /// What a tap can reach in `rect`: the card's and the shelf's books, the
@@ -127,23 +173,25 @@ impl Mine {
         let mut found: Vec<WidgetTarget> = Vec::new();
         match self.token {
             STATUS_WIDGET => {
-                let cx = Cx::open(host, &self.widget)?;
+                let cx = Cx::open_kept(host, &self.widget, self.look.take())?;
                 let inner = cx.shape.look(rect).area;
                 for (id, at) in native_status::targets(&cx, ui, inner)? {
                     let target = WidgetTarget::new(id, paint::frame_rect(at));
                     paperpaw_ui_kit::mem::push(&mut found, target)?;
                 }
+                self.look.keep(cx.keep());
             }
             CARD => paperpaw_ui_kit::mem::push(
                 &mut found,
                 WidgetTarget::new(native_card::TARGET, paint::frame_rect(rect)),
             )?,
             SHELF => {
-                let mut cx = Cx::open(host, &self.widget)?;
+                let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
                 for (id, at) in native_shelf::targets(&mut cx, &self.known, rect)? {
                     let target = WidgetTarget::new(id, paint::frame_rect(at));
                     paperpaw_ui_kit::mem::push(&mut found, target)?;
                 }
+                self.look.keep(cx.keep());
             }
             _ => {}
         }
@@ -163,9 +211,9 @@ impl Mine {
         area: Rect,
     ) -> Result<(), Error> {
         if self.token == STATUS_WIDGET {
-            return native_status::draw_widget(host, ui, frame, &self.widget, area);
+            return native_status::draw_widget(host, ui, frame, (&self.widget, &self.look), area);
         }
-        let mut cx = Cx::open(host, &self.widget)?;
+        let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
         let mut out = Vec::new();
         let mut pictures = Pictures::default();
         let icons = if self.token == CARD {
@@ -202,6 +250,7 @@ impl Mine {
                 self.waiting.set(true);
             }
         }
+        self.look.keep(cx.keep());
         Ok(())
     }
 
@@ -344,6 +393,14 @@ impl Widgets {
         match self.find(instance.get()) {
             Some(item) => item.mine.tap(host, ui, target, kind),
             None => Ok(false),
+        }
+    }
+
+    /// A setting or the registry changed: what a widget kept of its look is read
+    /// again at its next draw.
+    pub fn forget_looks(&self) {
+        for item in &self.items {
+            item.mine.forget_look();
         }
     }
 

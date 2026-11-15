@@ -57,6 +57,21 @@ impl Dashboard {
         }
     }
 
+    /// A setting or the registry changed: the look the page keeps is read again
+    /// at the next draw (the page itself is laid out again only where
+    /// [`Dashboard::invalidate_covered`] says so).
+    pub fn forget_looks(&self) {
+        if let Some(laid) = &self.laid {
+            if let Some(look) = laid.look.borrow_mut().first_mut() {
+                look.ok = false;
+            }
+            let cells = laid.cells.iter().filter_map(|cell| cell.widget.as_ref());
+            for made in cells.chain(laid.status.iter().map(|(made, _)| made)) {
+                made.forget_look();
+            }
+        }
+    }
+
     /// Whether what a page kept under another screen cannot show any more: the
     /// display changed, or the recent shelf came or went (the books it shows are
     /// read when it draws, the shelf is no rows without one).

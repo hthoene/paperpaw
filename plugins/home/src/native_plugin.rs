@@ -201,6 +201,7 @@ impl Plugin for NativeHome {
             // or widget changed): a page kept under another screen is laid out
             // again when it is shown.
             Event::RegistryChanged { .. } if token == REGISTRY_CHANGED => {
+                self.forget_looks();
                 if self.invalidate_covered() {
                     self.refresh(host)?;
                 }
@@ -208,6 +209,7 @@ impl Plugin for NativeHome {
             }
             // The grid's columns or rows changed: the pages are fitted to it.
             Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {
+                self.forget_looks();
                 let again = self.invalidate_covered();
                 if is_grid_setting(key) {
                     fit(host)?;
@@ -298,6 +300,15 @@ impl NativeHome {
     /// A setting or the registry changed: a dashboard under another screen is
     /// laid out again when it is shown; `true` where one on top, shown a moment
     /// ago, has to be drawn again.
+    fn forget_looks(&mut self) {
+        self.widgets.forget_looks();
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                dashboard.forget_looks();
+            }
+        }
+    }
+
     fn invalidate_covered(&mut self) -> bool {
         let mut again = false;
         for slot in self.screens.all() {
