@@ -293,6 +293,11 @@ jobs:
         run: |
           python3 -I tools/test_interface.py
           python3 tools/interface.py --check
+      - name: Every plugin's library and the UI kit build without the kernel's API
+        # One crate a call: in the workspace's build the kernel turns the SDK's
+        # `kernel` feature on for everyone, which hides a library that names the
+        # old plugin API (#244).
+        run: tools/ci/plugin-libs-alone.sh
       - name: What code plugins see changes only with the plugin interface
         # Those files, the linker script and the release's compilers, as
         # interface.txt and interface/ keep them for native::INTERFACE
