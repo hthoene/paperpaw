@@ -298,21 +298,23 @@ impl<F: Flash> Updates<F> {
         job: &mut CheckJob,
         built_in: &mut dyn FnMut(&str),
     ) -> Result<Option<CheckFacts>, Reason> {
-        let phase = core::mem::replace(&mut job.phase, Phase::Head);
+        // In place: the phase is never moved by value (its streaming state
+        // would be copied into this frame); only a change of phase moves it.
+        let CheckJob { path, buf, phase } = job;
         match phase {
             Phase::Head => {
-                let (meta, verify, len) = self.open_image(storage, &job.path, None)?;
+                let (meta, verify, len) = self.open_image(storage, path, None)?;
                 // The list, where the image has one (an older one does not).
                 let mut head = [0; PLUGINS_HEAD_LEN];
                 let listed = !meta.foreign
-                    && read_exact(storage, &job.path, PLUGINS_AT as u64, &mut head).is_ok();
+                    && read_exact(storage, path, PLUGINS_AT as u64, &mut head).is_ok();
                 let text_len = if listed {
                     Plugins::text_len(&head).map(|n| n as u64)
                 } else {
                     None
                 };
                 let list_at = (PLUGINS_AT + PLUGINS_HEAD_LEN) as u64;
-                job.phase = match text_len {
+                *phase = match text_len {
                     Some(n) if list_at + n <= len => Phase::List(Listing {
                         meta,
                         verify,
@@ -332,23 +334,26 @@ impl<F: Flash> Updates<F> {
                 };
                 Ok(None)
             }
-            Phase::List(mut list) => {
+            Phase::List(list) => {
                 let n = (list.end - list.at).min(PIECE as u64) as usize;
                 if n > 0 {
-                    let piece = &mut job.buf[..n];
-                    read_exact(storage, &job.path, list.at, piece)?;
+                    let piece = &mut buf[..n];
+                    read_exact(storage, path, list.at, piece)?;
                     for &byte in piece.iter() {
                         list.byte(byte, built_in);
                     }
                     list.at += n as u64;
                 }
                 if list.at < list.end {
-                    job.phase = Phase::List(list);
                     return Ok(None);
                 }
                 list.flush(built_in);
-                let Listing { meta, verify, .. } = list;
-                job.phase = Phase::Hash(Hashing {
+                let Phase::List(Listing { meta, verify, .. }) =
+                    core::mem::replace(phase, Phase::Head)
+                else {
+                    return Err(Reason::OTHER);
+                };
+                *phase = Phase::Hash(Hashing {
                     len: u64::from(meta.size),
                     meta,
                     verify,
@@ -357,25 +362,27 @@ impl<F: Flash> Updates<F> {
                 });
                 Ok(None)
             }
-            Phase::Hash(mut hashing) => {
+            Phase::Hash(hashing) => {
                 for _ in 0..STEP_PIECES {
                     let n = (hashing.len - hashing.at).min(PIECE as u64) as usize;
                     if n == 0 {
                         break;
                     }
-                    let piece = &mut job.buf[..n];
-                    read_exact(storage, &job.path, hashing.at, piece)?;
+                    let piece = &mut buf[..n];
+                    read_exact(storage, path, hashing.at, piece)?;
                     hashing.sha.update(piece);
                     hashing.verify.absorb(piece);
                     hashing.at += n as u64;
                 }
                 if hashing.at < hashing.len {
-                    job.phase = Phase::Hash(hashing);
                     return Ok(None);
                 }
-                let Hashing {
+                let Phase::Hash(Hashing {
                     meta, verify, sha, ..
-                } = hashing;
+                }) = core::mem::replace(phase, Phase::Head)
+                else {
+                    return Err(Reason::OTHER);
+                };
                 verify.finish()?;
                 Ok(Some(CheckFacts::new(
                     meta.chip_ok,
@@ -609,7 +616,9 @@ impl<F: Flash> FirmwareHost for Updates<F> {
         if self.dual.is_some() {
             return Err(Reason::NOT_HERE);
         }
-        if !self.free_for_a_job() {
+        // On trial the other slot holds the firmware to go back to: writing
+        // over it would leave a failed trial nothing to return to.
+        if self.trial.is_some() || !self.free_for_a_job() {
             return Err(Reason::OTHER);
         }
         // The buffers first: a refusal for no room leaves the flash and the

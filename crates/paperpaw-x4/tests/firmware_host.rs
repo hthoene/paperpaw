@@ -13,7 +13,8 @@
 
 mod common;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 use common::{FLASH, table};
 use paperpaw_platform::firmware::{FirmwareHost, Reason, Signer, Step, WRITE_BLOCK};
@@ -23,6 +24,7 @@ use paperpaw_sdk::firmware::{
     CHIP_ESP32_C3, CHIP_ESP32_S3, Firmware, InstallFailure, PLUGINS_AT, PluginCrate, Plugins,
 };
 use paperpaw_x4::dual_boot::Source;
+use paperpaw_x4::host_jobs::SharedUpdates;
 use paperpaw_x4::ota::{Flash, FlashError, OtaData, State};
 use paperpaw_x4::partitions::{Slots, TABLE_AT, TABLE_LEN, entries};
 use paperpaw_x4::updates::Updates;
@@ -742,4 +744,92 @@ fn the_interface_6_install_refuses_while_a_job_is_open() {
         device.updates.abandon();
         assert!(device.updates.begin(&card, UPDATE, None, false).is_ok());
     }
+}
+
+/// The kernel's side and the shell's side of one OTA state (`host_jobs`).
+fn shared(device: Device) -> (SharedUpdates<Chip>, Rc<RefCell<Updates<Chip>>>) {
+    let updates = Rc::new(RefCell::new(device.updates));
+    (
+        SharedUpdates::new(updates.clone(), "0.5.0", PROJECT),
+        updates,
+    )
+}
+
+/// What the firmware hands the kernel is the OTA state the shell drives: a
+/// check and an install through it are the `Updates`' own, and the shell sees
+/// the job while it runs (it does not sleep or start another meanwhile).
+#[test]
+fn the_shared_host_installs_as_the_updates_own_and_the_shell_sees_the_job() {
+    let key = paperpaw_update::public_key(&SEED);
+    let device = Device::started(vec![key]);
+    let slots = device.slots;
+    let (mut host, shell) = shared(device);
+    let image = image_0_6(&["paperpaw-plugin-stats"]);
+    let card = Card::with(UPDATE, &signed(&image, &SEED));
+    let (seen, facts, _) = check(&mut host, &card, UPDATE);
+    assert_eq!(seen, ["stats"]);
+    let digest = facts.unwrap().sha256;
+    host.begin_write(UPDATE, digest, None, false).unwrap();
+    assert!(shell.borrow().installing(), "the shell sees the write open");
+    while !matches!(host.write_step(&card), Step::Done(())) {}
+    while !matches!(host.readback_step(), Step::Done(())) {}
+    host.commit().unwrap();
+    assert!(!shell.borrow().installing());
+    let (at, _) = slots.apps[1];
+    assert_eq!(
+        &shell.borrow().flash().bytes[at as usize..at as usize + image.len()],
+        &image[..]
+    );
+}
+
+/// The two sides run in turn on the main loop; if one ever finds the other
+/// in use, it is a refusal that says so, never a panic (a panic here would
+/// repeat on every start that finds the same state).
+#[test]
+fn a_step_while_the_shell_holds_the_state_is_a_refusal_not_a_panic() {
+    let key = paperpaw_update::public_key(&SEED);
+    let (mut host, shell) = shared(Device::started(vec![key]));
+    let image = image_0_6(&[]);
+    let card = Card::with(UPDATE, &signed(&image, &SEED));
+    let held = shell.borrow_mut();
+    assert_eq!(host.begin_check(UPDATE), Err(Reason::OTHER));
+    assert_eq!(
+        host.begin_write(UPDATE, [0; 32], None, false),
+        Err(Reason::OTHER)
+    );
+    assert!(matches!(
+        host.check_step(&card, &mut |_| {}),
+        Step::Failed(Reason::OTHER)
+    ));
+    assert!(matches!(
+        host.write_step(&card),
+        Step::Failed(Reason::OTHER)
+    ));
+    assert!(matches!(host.readback_step(), Step::Failed(Reason::OTHER)));
+    assert_eq!(host.commit(), Err(Reason::OTHER));
+    assert_eq!(host.restart(), Err(Reason::OTHER));
+    host.abandon();
+    assert!(!host.dual_boot_capable());
+    // Told as nothing installable, not as a firmware that has room.
+    assert_eq!(host.running().room, 0);
+    drop(held);
+    assert_eq!(host.begin_check(UPDATE), Ok(()));
+}
+
+/// The kernel is told the firmware the shell runs, and its restart is the
+/// one the shell set (it asks the main loop, which restarts cleanly).
+#[test]
+fn the_shared_host_tells_the_running_firmware_and_restarts_as_the_shell_set() {
+    let device = Device::started(Vec::new());
+    let room = u64::from(device.slots.room(0));
+    let (mut host, shell) = shared(device);
+    let running = host.running();
+    assert_eq!(running.version, "0.5.0");
+    assert_eq!(running.project, PROJECT);
+    assert_eq!(running.chip, CHIP_ESP32_C3);
+    assert_eq!(running.room, room);
+    assert!(!running.undone);
+    assert_eq!(host.restart(), Err(Reason::NOT_HERE));
+    shell.borrow_mut().set_restarter(|| Ok(()));
+    assert_eq!(host.restart(), Ok(()));
 }
