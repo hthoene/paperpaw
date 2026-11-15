@@ -56,6 +56,7 @@ mod mark_table;
 mod marks;
 #[cfg(feature = "outline")]
 mod outline;
+mod packed;
 #[cfg_attr(
     not(feature = "outline"),
     allow(
@@ -298,6 +299,7 @@ fn paint(
         );
     } else if !glyph.is_empty() {
         let width = u32::from(glyph.width);
+        let level = glyph.levels();
         canvas.draw_mask(
             gx,
             gy,
@@ -310,7 +312,7 @@ fn paint(
                 // not rise, so the curve comes first).
                 (0..=u32::from(extra))
                     .filter(|k| *k <= px && px - k < width)
-                    .map(|k| tone.alpha(glyph.level((px - k) as u16, py as u16)))
+                    .map(|k| tone.alpha(level(px - k, py)))
                     .max()
                     .unwrap_or(0)
             },
@@ -342,7 +344,33 @@ pub fn build_pack_hinted(
     chars: impl IntoIterator<Item = char> + Clone,
     hinting: Hinting,
 ) -> alloc::vec::Vec<u8> {
+    build_pack_with(font, sizes, chars, hinting, false)
+}
+
+/// [`build_pack`] with the bitmaps stored packed (see
+/// [`PackBuilder::compact`]): the same pixels in about half the bytes, for the
+/// packs a firmware carries.
+#[cfg(feature = "outline")]
+pub fn build_pack_compact(
+    font: &OutlineFont,
+    sizes: &[f32],
+    chars: impl IntoIterator<Item = char> + Clone,
+) -> alloc::vec::Vec<u8> {
+    build_pack_with(font, sizes, chars, Hinting::None, true)
+}
+
+#[cfg(feature = "outline")]
+fn build_pack_with(
+    font: &OutlineFont,
+    sizes: &[f32],
+    chars: impl IntoIterator<Item = char> + Clone,
+    hinting: Hinting,
+    compact: bool,
+) -> alloc::vec::Vec<u8> {
     let mut builder = PackBuilder::new();
+    if compact {
+        builder.compact();
+    }
     let kerned: alloc::vec::Vec<char> = chars.clone().into_iter().collect();
     builder.kerning(&font.kerning_pairs(&kerned));
     // Every key of a strike, in order, so that a key's anchors are where
