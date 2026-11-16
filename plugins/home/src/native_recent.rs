@@ -129,11 +129,11 @@ impl Listing {
     }
 
     /// The covers are asked about anew at the next draw: one that was being
-    /// made may be ready; the ready ones stay.
+    /// made may be ready; the ready ones and the books without a cover stay.
     pub fn forget_covers(&self) {
         self.covers
             .borrow_mut()
-            .retain(|(.., covered)| matches!(covered, Covered::Ready(_)));
+            .retain(|(.., covered)| settled(covered));
     }
 
     /// The covers are all asked about anew: the host ended a picture.
@@ -559,9 +559,11 @@ mod tests {
         assert_eq!(known.cover_of(&book(2, 8, "B")), Some(Covered::None));
         known.forget_covers();
         assert_eq!(known.cover_of(&a), None);
-        // What the tick found changed forgets what was not ready with the files.
+        // What was settled stays; the host ending a picture lets all go.
         known.keep_cover(&a, Covered::None);
         known.forget_covers();
+        assert_eq!(known.cover_of(&a), Some(Covered::None));
+        known.forget_all_covers();
         assert_eq!(known.cover_of(&a), None);
     }
 
