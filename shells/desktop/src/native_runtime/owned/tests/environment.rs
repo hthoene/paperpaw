@@ -1,8 +1,9 @@
 //! Actual foreign callbacks read the current Env through the pinned owner.
 use super::super::environment as bridge;
 use super::*;
+use paperpaw_core::KernelBuilder;
 use paperpaw_core::native_host::environment::SNAPSHOT_BYTES;
-use paperpaw_core::sdk::{Env, Manifest, Plugin, RegisterError, Registrar, SettingSpec, builtin};
+use paperpaw_core::sdk::{Env, Manifest, SettingSpec, builtin};
 use paperpaw_native::host_glue::PpBuffer;
 use paperpaw_platform::{
     Battery, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -67,26 +68,21 @@ static TEXT: [SettingSpec; 1] = [SettingSpec::text(
 )];
 
 type Run = Rc<dyn Fn(&Env<'_>)>;
-struct Probe {
-    run: Run,
-    specs: &'static [SettingSpec],
-}
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            paperpaw_core::sdk::Id::new_static("abi7-tick-draw"),
-            "Scope probe",
-            paperpaw_core::sdk::Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
-        registrar.add_settings(self.specs)?;
-        let run = self.run.clone();
-        registrar.subscribe(
+/// Settings `specs`, and `run` with the live `Env` when the kernel has started.
+fn probe(builder: KernelBuilder, run: Run, specs: &'static [SettingSpec]) -> KernelBuilder {
+    let manifest = Manifest::new(
+        paperpaw_core::sdk::Id::new_static("abi7-tick-draw"),
+        "Scope probe",
+        paperpaw_core::sdk::Version::new(1, 0, 0),
+    );
+    builder.items(manifest, move |items| {
+        items.add_settings(specs)?;
+        let run = run.clone();
+        items.subscribe(
             builtin::events::STARTED,
             Box::new(move |env, _, _| run(env)),
         )
-    }
+    })
 }
 
 pub(super) fn run(
@@ -101,8 +97,7 @@ pub(super) fn run(
         callback(env);
         observed.set(observed.get() + 1);
     });
-    let mut kernel = paperpaw_core::Kernel::builder(DEVICE)
-        .plugin(Probe { run, specs })
+    let mut kernel = probe(paperpaw_core::Kernel::builder(DEVICE), run, specs)
         .setting_default_text(KEY, value)
         .build()
         .unwrap();

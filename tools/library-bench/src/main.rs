@@ -21,7 +21,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::Relaxed};
 use std::time::Instant;
 
-use paperpaw_core::Kernel;
+use paperpaw_core::{Items, Kernel};
 use paperpaw_fat::fatfs::{FatType, FileSystem, FormatVolumeOptions, FsOptions, Write};
 use paperpaw_fat::{BLOCK, BlockDisk, Blocks, DiskError, FatStorage, SharedDisk};
 use paperpaw_platform::{
@@ -29,7 +29,7 @@ use paperpaw_platform::{
     StorageError,
 };
 use paperpaw_sdk::builtin::{events, settings};
-use paperpaw_sdk::{Env, Id, Manifest, Plugin, RegisterError, Registrar, Version};
+use paperpaw_sdk::{Env, Id, Manifest, RegisterError, Version};
 
 /// The heap now and at its peak, as the program allocates.
 static LIVE: AtomicUsize = AtomicUsize::new(0);
@@ -365,17 +365,18 @@ struct Bench {
     walks: bool,
 }
 
-impl Plugin for Bench {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("bench"), "Bench", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let (more, walks) = (self.more.clone(), self.walks);
+fn bench(kept: Bench) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let (more, walks) = (kept.more.clone(), kept.walks);
         r.on(events::STARTED, move |env: &Env<'_>, _: &(), _| {
             run::all(env, more.as_deref(), walks);
         })
     }
+}
+
+/// What [`bench`] registers under.
+fn bench_manifest() -> Manifest {
+    Manifest::new(Id::new_static("bench"), "Bench", Version::new(1, 0, 0))
 }
 
 fn main() -> Result<(), String> {
@@ -398,7 +399,7 @@ fn main() -> Result<(), String> {
         .setting_default(&settings::LIBRARY_FOLDER, "books".into())
         // EPUB is a native plugin only (format removal): until the host runs
         // native plugins here, the books are listed but not opened.
-        .plugin(Bench { more, walks })
+        .items(bench_manifest(), bench(Bench { more, walks }))
         .build()
         .map_err(|e| format!("{e:?}"))?;
     kernel.start(paperpaw_platform::Instant(0));
