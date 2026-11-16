@@ -373,8 +373,13 @@ mod ui_old;
 /// `kernel`).
 #[cfg(not(any(test, feature = "kernel")))]
 pub mod ui {
-    pub use crate::ui_old::step_focus;
     pub(crate) use crate::ui_old::*;
+    pub use crate::ui_old::{Ink, step_focus};
+    /// What interface-7 code uses of it.
+    pub mod reorder {
+        pub use crate::ui_old::reorder::moved;
+        pub(crate) use crate::ui_old::reorder::*;
+    }
 }
 // end of facade: ui
 pub mod usage;
@@ -403,7 +408,8 @@ pub mod widgets {
     pub mod grid {
         pub(crate) use crate::widgets_old::grid::*;
         pub use crate::widgets_old::grid::{
-            Cells, Geometry, MAX_COLUMNS, MAX_ROWS, columns_for, dragged, free_place,
+            Cells, Geometry, Item, MAX_COLUMNS, MAX_ROWS, What, columns_for, dragged, free_place,
+            parse, write,
         };
     }
 }
