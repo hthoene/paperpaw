@@ -257,7 +257,7 @@ fn covers(
     native_recent::with_library(host, |library| {
         for (book, (place, _)) in books.iter().zip(&parts.places) {
             let covered = if place.height > 0 {
-                native_recent::cover_known(host, ask.known, library, book)?
+                native_recent::cover_known(host, ask.listing, library, book)?
             } else {
                 Covered::None
             };

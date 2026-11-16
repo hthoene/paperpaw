@@ -38,8 +38,9 @@ impl Plugin for Probe {
             token
         };
         self.0.event(host, token, incoming, reply)?;
-        let mine = &self.0.test_widgets().items[0].mine;
-        let cover = with_library(host, |lib| cover_known(host, &mine.known, lib, &book()))?;
+        let widgets = self.0.test_widgets();
+        let (mine, listing) = (&widgets.items[0].mine, &widgets.listing);
+        let cover = with_library(host, |lib| cover_known(host, listing, lib, &book()))?;
         mine.waiting.set(cover == Covered::Busy);
         reply.write(&[u8::from(matches!(cover, Covered::Ready(_)))])
     }

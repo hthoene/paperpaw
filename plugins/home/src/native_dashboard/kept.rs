@@ -73,7 +73,11 @@ impl Dashboard {
             let Some(super::Made::Mine(mine)) = &cell.widget else {
                 continue;
             };
-            if mine.covers_ready()
+            let ready = mine.covers_ready();
+            if ready {
+                self.listing.forget_covers();
+            }
+            if ready
                 && shown
                 && !refused
                 && sender

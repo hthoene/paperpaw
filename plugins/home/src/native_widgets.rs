@@ -151,11 +151,7 @@ impl Mine {
     }
 
     pub fn covers_ready(&self) -> bool {
-        let waiting = self.waiting.replace(false);
-        if waiting {
-            self.known.forget_covers();
-        }
-        waiting
+        self.waiting.replace(false)
     }
 
     /// Where the screen placed it, for a tap on one of its items.
@@ -291,7 +287,7 @@ impl Mine {
             );
             if drawn.is_err() {
                 // The host ended the id: the next tick draws it, asked for anew.
-                self.known.forget_all_covers();
+                listing.forget_all_covers();
                 self.waiting.set(true);
             }
         }
@@ -463,7 +459,11 @@ impl Widgets {
         let mut scratch = [0; 64];
         let mut commands = CommandSender::new(host, &mut scratch);
         for item in &mut self.items {
-            if item.mine.covers_ready() && commands.widget_changed(item.instance).is_err() {
+            let ready = item.mine.covers_ready();
+            if ready {
+                self.listing.forget_covers();
+            }
+            if ready && commands.widget_changed(item.instance).is_err() {
                 item.mine.waiting.set(true);
             }
         }
@@ -498,7 +498,7 @@ impl Widgets {
             let waited = item.mine.waiting.replace(false);
             if waited {
                 // A cover that was being made is asked about anew.
-                item.mine.known.forget_covers();
+                self.listing.forget_covers();
             }
             if (waited || item.shown.is_some_and(|before| before != now))
                 && commands.widget_changed(instance).is_err()

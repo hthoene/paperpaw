@@ -152,7 +152,7 @@ pub fn draw(
     };
     let covered = if cx.settings.shows("cover").unwrap_or(true) {
         native_recent::with_library(host, |library| {
-            native_recent::cover_known(host, ask.known, library, &book)
+            native_recent::cover_known(host, ask.listing, library, &book)
         })?
     } else {
         Covered::None

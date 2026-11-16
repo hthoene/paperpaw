@@ -344,8 +344,7 @@ impl Dashboard {
         let buttons = Buttons::new(editing, pencil_on);
         let made = Self::fill(
             host,
-            ui,
-            &self.listing,
+            (ui, &self.listing),
             &src,
             &frame,
             &shown,
@@ -473,8 +472,7 @@ impl Dashboard {
     /// actions. On an error the caller lets the cells made so far go.
     fn fill(
         host: &Host<'_>,
-        ui: &Ui,
-        listing: &Listing,
+        (ui, listing): (&Ui, &Listing),
         src: &HostSource,
         frame: &Frame,
         shown: &[grid::Item],
