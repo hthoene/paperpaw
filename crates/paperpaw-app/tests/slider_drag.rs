@@ -25,10 +25,10 @@ use paperpaw_platform::{
     Point, PointerEvent, PointerPhase, PointerTool, Rect, RefreshMode, Rotation, Storage,
     StorageError,
 };
+use paperpaw_plugin_menu::native_panel as panel;
 use paperpaw_sdk::builtin::{actions, menus};
 use paperpaw_sdk::semantics::Role;
 use paperpaw_sdk::setting::Setting;
-use paperpaw_sdk::ui::slider::Slider;
 use paperpaw_sdk::{
     Manifest, MemoryStorage, MenuEntry, RegisterError, SettingSpec, SettingValue, Version,
 };
@@ -167,7 +167,10 @@ impl App {
             .storage(storage)
             .frame_rows(96)
             .row_align(8)
-            .user_config("[core]\nlanguage = en\n");
+            .user_config(format!(
+                "[core]\nlanguage = en\n{}",
+                native_activation::QUIET
+            ));
         let mut kernel = paperpaw_app::install(builder, fonts())
             .plugin(Light)
             .build_native();
@@ -207,18 +210,21 @@ impl App {
             1000,
         ));
         let effects = self.kernel.handle(Instant(self.now), event);
+        // Timers wait while the finger is down: a long press is not meant.
+        if phase == PointerPhase::Down {
+            return effects.refresh().map(|(_, mode)| mode);
+        }
         self.settle(effects)
     }
 
     /// The slider's track and the value it shows.
     fn slider(&mut self) -> (Rect, String) {
-        let part = self
-            .kernel
-            .describe()
-            .into_iter()
+        let parts = self.kernel.describe();
+        let part = parts
+            .iter()
             .find(|p| p.role == Role::Slider)
-            .expect("a slider in the quick panel");
-        (part.area, part.label)
+            .unwrap_or_else(|| panic!("a slider in the quick panel: {parts:?}"));
+        (part.area, part.label.clone())
     }
 
     fn count(&mut self, on: bool) -> Vec<String> {
@@ -230,36 +236,38 @@ impl App {
 }
 
 #[test]
-#[ignore = "the native quick panel offers no slider (todo 618) (#244)"]
 fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     let mut app = App::new();
     let effects = app.kernel.run_action(Instant(100), actions::QUICK_PANEL);
     app.settle(effects);
     let (track, shown) = app.slider();
     assert_eq!(shown, "0 %");
-    // On touch screens a slider is a fingertip high and runs across most
-    // of the screen.
-    assert!(track.height >= 55, "{track:?}");
-    assert!(track.width >= 240, "{track:?}");
-    let slider = Slider::new(0, 100).step(5);
+    // On touch screens a slider is a fingertip high. The native panel has it
+    // between its minus and plus in the title's row, not across the screen
+    // as Beta 3 did (a layout choice of the native panel, #257).
+    assert!(track.height >= 40, "{track:?}");
+    assert!(track.width >= 60, "{track:?}");
+    let range = (0, 100, 5);
     let y = i32::from(track.y) + 10;
-    // Far right of the knob: it does not jump there.
+    // Right of the knob: it does not jump there.
     let start = track.right() as i32 - 20;
 
     app.count(true);
     app.finger(PointerPhase::Down, start, y);
     assert_eq!(app.slider().1, "0 %");
     // Less far than a tap may wander (3 mm): nothing yet.
-    assert_eq!(app.finger(PointerPhase::Move, start + 20, y + 5), None);
-    // Moved 60 to the right, in three moves: the knob as far, the value
-    // shown at once with a quick refresh.
+    assert_eq!(app.finger(PointerPhase::Move, start + 15, y + 5), None);
+    // Moved on in three moves: the knob as far from where it was as the
+    // finger from where it came down, the value shown at once with a quick
+    // refresh.
     let mut refreshes = Vec::new();
-    for x in [start + 30, start + 45, start + 60] {
-        refreshes.push(app.finger(PointerPhase::Move, x, y + 15));
+    for dx in [22, 34, 46] {
+        refreshes.push(app.finger(PointerPhase::Move, start + dx, y + 15));
+        let want = panel::value_at(track, panel::knob_x(track, 0, (0, 100)) + dx, range);
+        assert_eq!(app.slider().1, format!("{want} %"), "{dx}");
     }
-    let moved = slider.value_at(track, slider.knob_x(track, 0) + 60);
-    assert!(moved >= 20, "{moved}");
-    assert_eq!(app.slider().1, format!("{moved} %"));
+    let moved = panel::value_at(track, panel::knob_x(track, 0, (0, 100)) + 46, range);
+    assert!((20..100).contains(&moved), "{moved}");
     assert!(
         refreshes.iter().all(|r| *r == Some(RefreshMode::Fast)),
         "{refreshes:?}"
@@ -270,7 +278,7 @@ fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     // Nothing on the card while the finger is down, drawing included.
     assert_eq!(app.count(false), Vec::<String>::new());
     // Lifted: kept, and the panel drawn cleanly.
-    let lifted = app.finger(PointerPhase::Up, start + 60, y + 15);
+    let lifted = app.finger(PointerPhase::Up, start + 46, y + 15);
     assert_eq!(lifted, Some(RefreshMode::Partial));
     assert_eq!(app.kernel.settings().int(LIGHT.as_str()), moved);
     assert_eq!(app.slider().1, format!("{moved} %"));
@@ -287,8 +295,17 @@ fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     app.finger(PointerPhase::Up, start - 2000, y);
     assert_eq!(app.kernel.settings().int(LIGHT.as_str()), 0);
 
-    // A tap beside the slider's + moves it a step.
-    app.finger(PointerPhase::Down, 475, y);
-    app.finger(PointerPhase::Up, 475, y);
+    // A tap on the slider's + moves it a step.
+    let plus = track.right() as i32 + 80;
+    app.finger(PointerPhase::Down, plus, y);
+    app.finger(PointerPhase::Up, plus, y);
     assert_eq!(app.kernel.settings().int(LIGHT.as_str()), 5);
+    // A tap on the track sets the value there.
+    let middle = i32::from(track.x) + i32::from(track.width) / 2;
+    app.finger(PointerPhase::Down, middle, y);
+    app.finger(PointerPhase::Up, middle, y);
+    assert_eq!(
+        app.kernel.settings().int(LIGHT.as_str()),
+        panel::value_at(track, middle, range)
+    );
 }
