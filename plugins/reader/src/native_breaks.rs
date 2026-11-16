@@ -5,7 +5,7 @@
 //! remembered too (one more entry): no word of the book is asked then, until the
 //! tables are dropped (the book is closed, a setting changes, another screen
 //! covers the reader), so a pack installed meanwhile is found when the reader
-//! is shown again. One fixed allocation per book (about 1 KiB),
+//! is shown again. One fixed allocation per book (about 2 KiB),
 //! made at the first page, never grown and freed with the book (or a changed
 //! setting). Where there is no room the reader carries on without it: every
 //! word is asked of the host.
@@ -14,7 +14,7 @@ use core::cell::RefCell;
 use paperpaw_sdk::native::{Error, text as host_text};
 
 /// Words kept (a power of two; a word takes the entry its hash names).
-const ENTRIES: usize = 64;
+const ENTRIES: usize = 128;
 /// What asks the host for the places of a word (the number of them).
 pub type Ask<'a> = dyn Fn(&str, &mut [u8]) -> Result<usize, Error> + 'a;
 /// The entry after the words': the key of the language the host has no table for.
@@ -58,7 +58,7 @@ pub fn break_places(asked: Result<usize, Error>, places: &[u8], out: &mut dyn Fn
 }
 
 impl Breaks {
-    /// Room for 64 words and a language without a table.
+    /// Room for 128 words and a language without a table.
     ///
     /// # Errors
     /// `NoMemory`.
@@ -217,5 +217,29 @@ mod tests {
         assert_eq!(told(&breaks, true, &asks, "слово"), [2]);
         assert_eq!(told(&breaks, true, &asks, "слово"), [2]);
         assert_eq!(asks.get(), 2);
+    }
+
+    #[test]
+    fn a_hundred_and_twenty_eight_words_are_kept_for_the_pages_around() {
+        use alloc::string::String;
+        let (breaks, asks) = (Breaks::new().unwrap(), Cell::new(0));
+        // Words with a slot each: two pages of a book's long words and more.
+        let mut taken = [false; ENTRIES];
+        let words: Vec<String> = (0..100_000)
+            .map(|n| alloc::format!("word{n}"))
+            .filter(|word| {
+                let slot = (key_of("ru", (0, 0), word) >> 40) as usize & (ENTRIES - 1);
+                !core::mem::replace(&mut taken[slot], true)
+            })
+            .collect();
+        assert_eq!(words.len(), 128);
+        for word in &words {
+            told(&breaks, true, &asks, word);
+        }
+        assert_eq!(asks.get(), 128);
+        for word in &words {
+            told(&breaks, true, &asks, word);
+        }
+        assert_eq!(asks.get(), 128);
     }
 }

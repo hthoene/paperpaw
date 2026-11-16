@@ -28,8 +28,8 @@ const GROUP: &str = "update.group";
 /// The server PaperPaw asks unless the setting says otherwise.
 pub const DEFAULT_SERVER: &str = "https://paperpaw.org";
 
-/// The group and its settings: the address of the update server (for
-/// developers, in their group), looking by itself and betas.
+/// The group and its settings: the address of the update server, looking by
+/// itself and betas.
 pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -39,7 +39,7 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     let mut server = SpecDecl::new(
         "server",
         Kind::Text(DEFAULT_SERVER),
-        "core.group.developer",
+        GROUP,
         "update.setting.server",
     );
     server.help = "update.setting.server.help";
