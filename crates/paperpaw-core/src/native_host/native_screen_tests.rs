@@ -733,15 +733,11 @@ fn page_plugin(kept: Rc<Recorder>) -> impl Fn(&mut Items) -> Result<(), Register
     move |r| {
         let dispatch = Rc::clone(&kept);
         const ID: Id = Id::new_static("page.screen");
-        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             ID,
             "page",
             alloc::boxed::Box::new(move |_, _| {
-                alloc::boxed::Box::new(crate::layer::AsOld(NativeScreen::new(
-                    ID,
-                    10,
-                    Rc::clone(&dispatch),
-                )))
+                alloc::boxed::Box::new(NativeScreen::new(ID, 10, Rc::clone(&dispatch)))
             }),
         ))?;
         r.bind_slot(slots::HOME, ID, paperpaw_sdk::Priority::DEFAULT)

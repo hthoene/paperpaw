@@ -9,6 +9,7 @@ use super::*;
 
 mod items;
 pub use items::Items;
+pub(crate) use items::Parts;
 
 /// Configures and creates a [`Kernel`].
 ///

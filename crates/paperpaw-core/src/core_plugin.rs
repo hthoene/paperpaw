@@ -801,11 +801,7 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
         crate::KernelScreen::new(
             screens::STATUS_ITEMS,
             "core.status.choose",
-            |env, params| {
-                crate::layer::old(Box::new(paperpaw_sdk::ui::items::ItemsScreen::open(
-                    env, params,
-                )))
-            },
+            |env, params| Box::new(crate::stock::items::ItemsScreen::open(env, params)),
         ),
         crate::KernelScreen::new(
             screens::STATUS_LINES,
@@ -813,37 +809,25 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
             |env, params| {
                 let params = params
                     .clone()
-                    .with(params::MODE, paperpaw_sdk::ui::items::LINES);
-                crate::layer::old(Box::new(paperpaw_sdk::ui::items::ItemsScreen::open(
-                    env, &params,
-                )))
+                    .with(params::MODE, crate::stock::items::LINES);
+                Box::new(crate::stock::items::ItemsScreen::open(env, &params))
             },
         ),
         crate::KernelScreen::new(
             screens::WIDGET_LIST,
             "core.widgets.edit.screen",
-            |env, params| {
-                crate::layer::old(Box::new(paperpaw_sdk::ui::widget_list::ListScreen::open(
-                    env, params,
-                )))
-            },
+            |env, params| Box::new(crate::stock::widget_list::ListScreen::open(env, params)),
         ),
         crate::KernelScreen::new(
             screens::ADD_WIDGET,
             "core.widgets.edit.add-to-list",
-            |env, params| {
-                crate::layer::old(Box::new(paperpaw_sdk::ui::widget_list::AddScreen::open(
-                    env, params,
-                )))
-            },
+            |env, params| Box::new(crate::stock::widget_list::AddScreen::open(env, params)),
         ),
         crate::KernelScreen::new(screens::CHOICE, "core.choice", |env, params| {
-            crate::layer::old(Box::new(paperpaw_sdk::ui::choice::Choice::new(env, params)))
+            Box::new(crate::stock::choice::Choice::new(env, params))
         }),
         crate::KernelScreen::new(screens::CONFIRM, "core.confirm.screen", |env, params| {
-            crate::layer::old(Box::new(paperpaw_sdk::ui::confirm::Confirm::new(
-                env, params,
-            )))
+            Box::new(crate::stock::confirm::Confirm::new(env, params))
         }),
         crate::KernelScreen::new(notice::SCREEN, notice::TITLE, |env, params| {
             Box::new(notice::Notice::new(env, params))

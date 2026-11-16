@@ -45,6 +45,7 @@ mod builder;
 mod card;
 mod catalog_file;
 mod chrome;
+mod chrome_spec;
 mod code_plugin;
 mod commands;
 mod config;
@@ -80,6 +81,8 @@ mod room;
 mod screens;
 mod secrets_i6;
 mod shared_env;
+pub mod stock;
+pub use chrome_spec::{ChromeSpec, Edge};
 mod tall_band;
 pub use layer::{KernelFactory, KernelScreen, Layer, LayerFactory, LayerSpec};
 use screens::ActiveScreen;
@@ -678,7 +681,7 @@ impl Kernel {
     }
 
     /// Whether what the screen shows is secret now: a PIN or a password
-    /// being entered ([`Screen::secret`]),
+    /// being entered (a layer's `secret`),
     /// or the device guarded. Those who show the screen elsewhere (a
     /// remote control, tools) leave out what its parts say then.
     pub fn is_secret(&self) -> bool {

@@ -716,7 +716,7 @@ pub const PLUGINS_ANSWERED: Event<PluginsAnswered> = Event::new("core.plugins-an
 /// Another screen is shown on top ([`ScreenShown`]): one opened, or
 /// the one below a screen closed. The whole stack is in
 /// [`Env::stack`](crate::Env::stack). For plugins that subscribe:
-/// screens learn that they show from [`Screen::on_show`](crate::Screen::on_show).
+/// screens learn that they show from `on_show`.
 pub const SCREEN_SHOWN: Event<ScreenShown> = Event::new("core.screen-shown");
 /// A menu was redefined or reset ([`MenuChanged`]).
 pub const MENU_CHANGED: Event<MenuChanged> = Event::new("core.menu-changed");
@@ -783,7 +783,7 @@ pub const WORK_ALLOWED: Event<()> = Event::new("core.work-allowed");
 pub const WORK_CHANGED: Event<()> = Event::new("core.work-changed");
 /// The display changed its size, e.g. the device turned or a window was
 /// resized ([`DisplayChanged`]): sent once, after the screens open were
-/// laid out for it ([`Screen::on_resize`](crate::Screen::on_resize)). For
+/// laid out for it (`on_resize`). For
 /// what a plugin keeps outside its screens at a size, e.g. pictures made
 /// for a cell. Screens need not listen: they are laid out anew.
 pub const DISPLAY_CHANGED: Event<DisplayChanged> = Event::new("core.display-changed");
