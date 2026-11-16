@@ -66,7 +66,7 @@ impl Asked {
         self,
         env: &paperpaw_sdk::Env<'_>,
         answer: Answerer,
-    ) -> alloc::boxed::Box<dyn paperpaw_sdk::Screen> {
+    ) -> alloc::boxed::Box<dyn crate::Layer> {
         if self.kind == 1 {
             return alloc::boxed::Box::new(Choice::new(env, self.title, self.lines, answer));
         }

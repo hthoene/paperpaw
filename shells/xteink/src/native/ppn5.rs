@@ -24,7 +24,7 @@
 //! 6. the entry's `make` runs (X2): in the registration scope of the
 //!    core's shared owner (`paperpaw_core::native_host::shell`), as the
 //!    first plugin code the X4 firmware runs for interface 7. Its output is
-//!    committed, wrapped as a core `FlatPlugin` and returned to the kernel.
+//!    committed and handed to the kernel to admit (`HostedAdmission`).
 //!
 //! **Plugin code and the firmware.** The plugin has no sandbox, as format 4.
 //! Around every call into its code (`make`, a callback, its destructor) the
@@ -126,8 +126,12 @@ fn verify(
     super::read_exact(storage, path, 0, &mut head[..have]).map_err(|()| PluginProblem::Damaged)?;
     let header =
         Header5::read(&head[..have], size, &HOST).map_err(|why| refused(path, &head, why))?;
-    // The file installed, not one put in its folder since.
-    if header.sha256 != code.sha256 {
+    // The file installed, not one put in its folder since (a file never
+    // installed holds to its own header, checked with the image).
+    if code
+        .sha256
+        .is_some_and(|installed| header.sha256 != installed)
+    {
         warn!("native: {path} is not the file installed");
         return Err(PluginProblem::Changed);
     }
@@ -835,6 +839,10 @@ mod x4 {
     }
 
     impl NativeAdmission for Measured {
+        fn declares(&self, key: &str) -> bool {
+            self.inner.declares_feature(key)
+        }
+
         fn admit(
             self: Box<Self>,
             kernel: &mut paperpaw_core::Kernel,

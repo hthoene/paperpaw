@@ -116,9 +116,6 @@ remote = [
 waveform-lab = []
 # Scoped slot14 qualification only; not included in any release/default build.
 textprobe = ["remote", "dep:paperpaw-text"]
-# The frame test built in (`samples/frame-test`, ADR 0030), for measuring
-# frames a second, blits and the heap on the device: test builds only.
-frame-test = ["dep:paperpaw-sample-frame-test"]
 # Bluetooth Low Energy, included by x4-pro (`src/bluetooth.rs`, ADR 0027):
 # trouble-host on esp-radio's controller, beside Wi-Fi. The radio stays
 # off until requested; remotes remain manual by default while connected
@@ -138,9 +135,6 @@ bluetooth = [
 [dependencies]
 paperpaw-text = { path = "../../crates/paperpaw-text", optional = true }
 paperpaw-app = { path = "../../crates/paperpaw-app", default-features = false, features = ["packs"] }
-# The sample that runs in real time (ADR 0030), built in for measuring:
-# feature `frame-test`, never in released firmware.
-paperpaw-sample-frame-test = { path = "../../samples/frame-test", optional = true }
 # Without `panes`: no Xteink screen is ever wide enough for two.
 paperpaw-core = { path = "../../crates/paperpaw-core", default-features = false }
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk", features = ["kernel"] }
@@ -270,7 +264,6 @@ paperpaw-plugin-format-mobi = { opt-level = "s" }
 paperpaw-plugin-format-txt = { opt-level = "s" }
 paperpaw-plugin-format-xtc = { opt-level = "s" }
 paperpaw-plugin-reader = { opt-level = "s" }
-paperpaw-sample-frame-test = { opt-level = "s" }
 paperpaw-sdk = { opt-level = "s" }
 paperpaw-sort = { opt-level = "s" }
 paperpaw-text = { opt-level = "s" }

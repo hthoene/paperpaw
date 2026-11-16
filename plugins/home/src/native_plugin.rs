@@ -121,6 +121,7 @@ impl Plugin for NativeHome {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        self.widgets.fresh();
         self.ensure_ui(host)?;
         let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::StackChanged, kinds::RegistryChanged, kinds::LibraryChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
         else {
@@ -245,6 +246,7 @@ impl Plugin for NativeHome {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        self.widgets.fresh();
         self.ensure_ui(host)?;
         let ui = self.ui.as_ref().ok_or(Error::State)?;
         // A tap on a book of the card or the shelf.
