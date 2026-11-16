@@ -81,6 +81,7 @@ fn the_tokens_are_distinct() {
         RESUME,
         WORK_DUE,
         WORK_ALLOWED,
+        WORK_REFUSED,
         HTTP_DONE,
     ];
     tokens.sort_unstable();

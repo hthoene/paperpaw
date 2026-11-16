@@ -275,3 +275,39 @@ fn page_turns_between_pushes_do_not_probe_wifi_or_query_work() {
         }
     }
 }
+
+fn turn(now_ms: u64) -> Vec<u8> {
+    use paperpaw_core::native_host::registrations::{EventPageTurned, Record};
+    paperpaw_scripted_host::event_batch(&Record::EventPageTurned(EventPageTurned {
+        now_ms, section: 0, offset: 20, progress_ppm: 200_000,
+        path: "first.epub", title: "Test", chapter: "", page: None,
+        pages: None, insert: None, chapter_left: None,
+    })).unwrap()
+}
+
+#[test]
+fn a_refused_push_is_declared_again_without_querying_work_state() {
+    use paperpaw_core::native_host::registrations::{EventWorkRefused, Record};
+    use paperpaw_scripted_host::event_batch;
+    use std::{cell::RefCell, rc::Rc};
+    let world = World::new(true);
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let log = calls.clone();
+    world.host.service("core.work", 1, 0, move |op, _| {
+        log.borrow_mut().push(op);
+        Ok(Vec::new())
+    });
+    let plugin = world.load();
+    assert_eq!(world.opened(&plugin, "first.epub", 100_000).status, 0);
+    assert_eq!(world.complete(&plugin, 0, 200, b"{}").status, 0);
+    for now in [1000, 2000] {
+        assert_eq!(plugin.event(tokens::PAGE_TURNED, &turn(now)).unwrap().status, 0);
+    }
+    assert_eq!(*calls.borrow(), [1]);
+    let refused = event_batch(&Record::EventWorkRefused(EventWorkRefused {
+        now_ms: 2500, token: tokens::WORK_DUE, reason: 13, key: tokens::PUSH_WORK,
+    })).unwrap();
+    assert_eq!(plugin.event(13, &refused).unwrap().status, 0);
+    assert_eq!(plugin.event(tokens::PAGE_TURNED, &turn(3000)).unwrap().status, 0);
+    assert_eq!(*calls.borrow(), [1, 1]);
+}

@@ -29,7 +29,7 @@ use paperpaw_ui_kit::{
 
 use crate::declarations::{
     ACCOUNT, BOOK_CLOSED, BOOK_OPENED, HTTP_DONE, PAGE_TURNED, PUSH_WORK, RESUME, SETTING_CHANGED,
-    STARTED, SUSPEND, SYNC_NOW, WORK_ALLOWED, WORK_DUE,
+    STARTED, SUSPEND, SYNC_NOW, WORK_ALLOWED, WORK_DUE, WORK_REFUSED,
 };
 use crate::native_account::{Account, Field, Message, Row, Todo};
 use crate::native_backing::Backing;
@@ -147,7 +147,12 @@ impl Plugin for NativeKosync {
                     engine.send_now(ctx, out)
                 })
             }
+            Event::WorkRefused(refused) if token == WORK_REFUSED && refused.key() == PUSH_WORK => {
+                self.push_declared = false;
+                Ok(())
+            }
             Event::WorkAllowed { now_ms, .. } if token == WORK_ALLOWED => {
+                self.push_declared = false;
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.allowed(ctx, out))
             }
             Event::ActionRun { now_ms, .. } if token == SYNC_NOW => self.sync_now(host, now_ms),
@@ -1231,6 +1236,7 @@ impl NativeKosync {
         self.key = Some(Secret::copy(key)?);
         let mut scratch = [0; 1200];
         CommandSender::new(host, &mut scratch).set_setting(USER, SettingValue::Text(user))?;
+        self.push_declared = false;
         if let Some(engine) = &mut self.engine {
             engine.account_changed();
         }
@@ -1249,6 +1255,7 @@ impl NativeKosync {
         self.key = None;
         let mut scratch = [0; 64];
         CommandSender::new(host, &mut scratch).set_setting(USER, SettingValue::Text(""))?;
+        self.push_declared = false;
         if let Some(engine) = &mut self.engine {
             engine.account_changed();
         }
