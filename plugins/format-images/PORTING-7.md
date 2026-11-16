@@ -21,6 +21,17 @@ A refused allocation is `NoMemory` end to end and an open that hits it leaves no
 interface-6 reader made of the same files), the order and listing of a folder, the 300-page cut, named files that are
 no pictures, too large or damaged (property tests) and the cache keyed by name and size.
 
+## The book's folder (#277, replaces PR #1008)
+
+A picture opens with the pictures after it in its folder as its pages. `HostIo::list` lists root 3 through
+`core.files` (`Files::list`, which takes `Root::Book` since this slice; the host answers it only inside this
+format's own call), a page of 32 names at a time into two buffers of 1.5 and 4 KiB that are taken with `try_reserve`
+and given back at the end of the listing; `pages_from` keeps no more than the 300 names of the pages and sorts in
+place as before. The metadata names the service `core.files` and the host call `services.query`. The
+test is `a_picture_opens_as_a_book_of_the_pictures_after_it` in `crates/paperpaw-app/tests/readers.rs` (the host
+opens the picture through this provider and the folder is listed: it replaces the two pending stubs of
+`tests/provider_pending.rs`).
+
 ## Native entry (slice 3)
 
 `declarations.rs` (`formats`: `format-images.pictures`, extensions `jpg`, `jpeg`, `png` and `gif`, flags `whole_pages` and `siblings`, not `prepared`, no sniffing), `build.rs` (batches built into the image),
@@ -60,8 +71,9 @@ Tests of other crates that read a picture as a book through the app are ignored 
 
 ## Still blocked on the host
 
-- Listing the book's folder (root 3): no SDK function (`native::storage` cannot list root 3), so the pages after
-  the opened picture are not found; `tests/provider_pending.rs`.
+- Listing the book's folder (root 3) is done (#277): `HostIo::list` pages through `core.files` root 3
+  (`Files::list` with `Root::Book`); at most 512 names wait while it runs and 300 are kept. A folder that
+  is not there to list leaves the picture alone; a refused allocation or any other failure is an error.
 - The host admitting format declarations (Core #944) and wiring the `fmt.call` adapter (Host #417): the
   declaration is refused as `Unsupported` today (`tests/hosted_construction.rs`).
 - Sides (Kernel's ruling): the host sends non-zero `cover_side`/`image_side` in ops 2, 17 and 18 (the cover's 3/8 of the screen resolved by the host); the provider uses the side of the call as the longest side, and falls back to 300 / 1,600 (`COVER_FIT`/`IMAGE_FIT`) on 0 without failing.
