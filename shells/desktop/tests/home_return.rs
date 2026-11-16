@@ -4,7 +4,8 @@
 //! widget made) took 2.7 s of a 4.4 s return. This counts the host slots of the
 //! return with the kernel's `slot-counts` feature (the emulator counts like the
 //! device; its milliseconds are not the device's, its call counts are).
-//! One binary, counts are per thread: the tests do not share a thread.
+//! The slot counts are per thread, but the heap budget counts every thread's
+//! allocations: the tests of this binary run one at a time (#292).
 
 #![allow(
     clippy::unwrap_used,
@@ -13,6 +14,7 @@
 )]
 
 use std::rc::Rc;
+use std::sync::{Mutex, MutexGuard};
 
 use paperpaw_core::native_host::host_slot::slot_counts;
 use paperpaw_core::sdk::MemoryStorage;
@@ -50,6 +52,15 @@ const LAID_SETTINGS: u32 = 120;
 /// to reach the hyphen pass (`Einstellungen`).
 const GERMAN_TOOLS: &str = "[core]\nlanguage = de\n[home]\ncolumns = 5\n\
     page-1 = tool:core.library 0/0 1x1, tool:core.settings 1/0 1x1, tool:store.open 2/0 1x1\n";
+
+static ONE: Mutex<()> = Mutex::new(());
+
+/// Held for the whole test: the heap counter is the process's, so a device of
+/// another test, started or dropped meanwhile, moves what the heap test reads.
+fn one_at_a_time() -> MutexGuard<'static, ()> {
+    ONE.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// An X4 at the home screen (or in the book, `last`), the help hint off.
 fn device(last: bool) -> Device {
@@ -123,6 +134,7 @@ fn back_from_the_drawer(device: &mut Device) -> (u32, u32) {
 
 #[test]
 fn the_home_screen_keeps_its_page_while_another_screen_covers_it() {
+    let _one = one_at_a_time();
     let mut device = device(false);
     let (all, settings) = back_from_the_drawer(&mut device);
     assert_eq!(screen(&mut device), "home.dashboard");
@@ -137,6 +149,7 @@ fn the_home_screen_keeps_its_page_while_another_screen_covers_it() {
 /// current, the return costs what it does in English (Senior M1).
 #[test]
 fn a_missing_hyphenation_table_does_not_make_home_read_its_look_at_every_draw() {
+    let _one = one_at_a_time();
     let mut device = device_in(false, GERMAN_TOOLS);
     let (all, settings) = back_from_the_drawer(&mut device);
     assert_eq!(screen(&mut device), "home.dashboard");
@@ -153,6 +166,7 @@ fn a_missing_hyphenation_table_does_not_make_home_read_its_look_at_every_draw() 
 
 #[test]
 fn a_setting_changed_under_the_cover_is_laid_out_when_it_returns() {
+    let _one = one_at_a_time();
     let mut device = device(false);
     let before = shot(&mut device, "before");
     run_script(&mut device, "run:home.all-tools").unwrap();
@@ -174,6 +188,7 @@ fn a_setting_changed_under_the_cover_is_laid_out_when_it_returns() {
 
 #[test]
 fn what_a_book_changed_under_the_cover_shows_when_it_returns() {
+    let _one = one_at_a_time();
     let mut device = device(true);
     // The first return lays the page out (the book was open from the start).
     run_script(&mut device, "back").unwrap();
@@ -213,6 +228,7 @@ fn what_a_book_changed_under_the_cover_shows_when_it_returns() {
 
 #[test]
 fn a_plain_setting_changed_just_before_back_shows_when_it_returns() {
+    let _one = one_at_a_time();
     let mut device = device(false);
     let before = shot(&mut device, "plain-before");
     run_script(&mut device, "run:home.all-tools").unwrap();
@@ -236,6 +252,7 @@ fn a_plain_setting_changed_just_before_back_shows_when_it_returns() {
 
 #[test]
 fn a_return_from_a_book_read_for_minutes_keeps_the_page() {
+    let _one = one_at_a_time();
     let mut device = device(true);
     // The clock is set, so that Home's clock and card change at each minute.
     device.set_time(1_760_000_000_000);
@@ -287,6 +304,7 @@ fn returned(device: &mut Device) -> ((u32, u32), (u32, u32)) {
 
 #[test]
 fn a_changed_setting_makes_home_read_its_look_again_once() {
+    let _one = one_at_a_time();
     let mut device = device(false);
     // A page just shown is laid out again by the first change that reaches it
     // (the show's window); a change after that finds the page and the widgets
@@ -334,6 +352,7 @@ fn a_changed_setting_makes_home_read_its_look_again_once() {
 
 #[test]
 fn repeated_returns_do_not_grow_the_heap() {
+    let _one = one_at_a_time();
     let mut device = device(false);
     let mut live = 0;
     for round in 0..14 {
