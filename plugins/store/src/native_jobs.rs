@@ -507,7 +507,7 @@ impl NativeStore {
     }
 
     #[inline(never)]
-    fn download_failed(&mut self, host: &Host<'_>, _why: Failure) -> Result<(), Error> {
+    fn download_failed(&mut self, host: &Host<'_>, why: Failure) -> Result<(), Error> {
         let storage = DataStorage::new(host);
         let (id, name) = match crate::native_download::Download::progress(&storage)? {
             Some(job) => (job.plugin, job.name),
@@ -515,7 +515,18 @@ impl NativeStore {
         };
         self.installing = None;
         self.sync_step(&id);
-        self.not_installed(host, &id, &name)?;
+        if why == Failure::Memory {
+            // Only a restart gives the memory back: said so.
+            self.noted(
+                host,
+                &id,
+                &name,
+                "store.failed.memory",
+                Result_::NotInstalled,
+            )?;
+        } else {
+            self.not_installed(host, &id, &name)?;
+        }
         self.go_on(host)
     }
 
