@@ -13,52 +13,43 @@ impl Screen for Blank {
     }
 }
 
-struct Plain;
-
-impl Plugin for Plain {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("lm"), "Lm", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
+/// A home screen and another, under "lm".
+fn plain(r: &mut crate::Items) -> Result<(), RegisterError> {
+    for id in ["lm.home", "lm.other"] {
+        r.add_screen(ScreenSpec::new(
+            Id::new_static(id),
+            "screen",
+            Box::new(|_, _| Box::new(Blank)),
+        ))?;
     }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        for id in ["lm.home", "lm.other"] {
-            r.add_screen(ScreenSpec::new(
-                Id::new_static(id),
-                "screen",
-                Box::new(|_, _| Box::new(Blank)),
-            ))?;
-        }
-        r.bind_slot(slots::HOME, Id::new_static("lm.home"), Priority::DEFAULT)
-    }
+    r.bind_slot(slots::HOME, Id::new_static("lm.home"), Priority::DEFAULT)
 }
 
 /// Stands for the plugin manager, which has the list.
-struct Manager;
-
-impl Plugin for Manager {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("plugin-manager"),
-            "Manager",
-            Version::new(1, 0, 0),
-        )
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
-            Id::new_static("plugin-manager.list"),
-            "list",
-            Box::new(|_, _| Box::new(Blank)),
-        ))
-    }
+fn manager(r: &mut crate::Items) -> Result<(), RegisterError> {
+    r.add_screen(ScreenSpec::new(
+        Id::new_static("plugin-manager.list"),
+        "list",
+        Box::new(|_, _| Box::new(Blank)),
+    ))
 }
 
 fn kernel() -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Plain)
-        .plugin(Manager)
+        .items(
+            Manifest::new(Id::new_static("lm"), "Lm", Version::new(1, 0, 0))
+                .uses(paperpaw_sdk::Uses::NOTHING),
+            plain,
+        )
+        .items(
+            Manifest::new(
+                Id::new_static("plugin-manager"),
+                "Manager",
+                Version::new(1, 0, 0),
+            )
+            .uses(paperpaw_sdk::Uses::NOTHING),
+            manager,
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
