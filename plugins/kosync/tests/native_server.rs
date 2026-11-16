@@ -165,7 +165,15 @@ fn a_full_document_slot_neither_sends_empty_pointers_nor_dismisses_go_there() {
         0
     );
     assert_eq!(world.server.borrow().requests.len(), 1);
-    assert_eq!(world.opened(&plugin, "first.epub", 100_000).status, 0);
+    use paperpaw_core::native_host::registrations::{EventActionRun, Record};
+    use paperpaw_scripted_host::event_batch;
+    let sync = event_batch(&Record::EventActionRun(EventActionRun {
+        now_ms: 71_000,
+        action: "kosync.now",
+        flags: 0,
+    }))
+    .unwrap();
+    assert_eq!(plugin.event(tokens::SYNC_NOW, &sync).unwrap().status, 0);
     let remote = br#"{"percentage":0.8,"device":"Other","progress":"/known"}"#;
     assert_eq!(world.complete(&plugin, 1, 200, remote).status, 0);
     let question = world.dialogs.last().unwrap();
@@ -198,4 +206,72 @@ fn a_long_device_name_still_shows_a_short_single_line_offer() {
     assert!(question.text.contains(&format!("{}…", "a".repeat(40))));
     assert!(!question.text.contains('\n'));
     assert!(question.text.len() < 500);
+}
+
+#[test]
+fn a_batch_setting_event_without_started_keeps_the_account() {
+    use paperpaw_core::native_host::registrations::{EventSettingChanged, Record};
+    use paperpaw_scripted_host::event_batch;
+    for (key, removed) in [("", false), ("kosync.server", true)] {
+        let world = World::new(true);
+        let plugin = world.load();
+        let event = event_batch(&Record::EventSettingChanged(EventSettingChanged {
+            now_ms: 0,
+            key,
+            old: &[],
+        }))
+        .unwrap();
+        assert_eq!(
+            plugin
+                .event(tokens::SETTING_CHANGED, &event)
+                .unwrap()
+                .status,
+            0
+        );
+        assert_eq!(world.server.borrow().key.is_none(), removed);
+    }
+}
+
+#[test]
+fn page_turns_between_pushes_do_not_probe_wifi_or_query_work() {
+    use paperpaw_core::native_host::registrations::{EventPageTurned, Record};
+    use paperpaw_scripted_host::event_batch;
+    use std::{cell::RefCell, rc::Rc};
+    let world = World::new(true);
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let log = calls.clone();
+    world.host.service("core.device", 1, 0, move |op, _| {
+        log.borrow_mut().push(("device", op));
+        Err(-1)
+    });
+    let log = calls.clone();
+    world.host.service("core.work", 1, 0, move |op, _| {
+        log.borrow_mut().push(("work", op));
+        Ok(Vec::new())
+    });
+    let plugin = world.load();
+    assert_eq!(world.opened(&plugin, "first.epub", 100_000).status, 0);
+    assert_eq!(world.complete(&plugin, 0, 200, b"{}").status, 0);
+    for now_ms in [1000, 2000, 3000] {
+        let event = event_batch(&Record::EventPageTurned(EventPageTurned {
+            now_ms,
+            section: 0,
+            offset: 20,
+            progress_ppm: 200_000,
+            path: "first.epub",
+            title: "Test",
+            chapter: "",
+            page: None,
+            pages: None,
+            insert: None,
+            chapter_left: None,
+        }))
+        .unwrap();
+        calls.borrow_mut().clear();
+        assert_eq!(plugin.event(tokens::PAGE_TURNED, &event).unwrap().status, 0);
+        println!("turn {now_ms}: {:?}", calls.borrow());
+        if now_ms == 3000 {
+            assert!(calls.borrow().is_empty());
+        }
+    }
 }
