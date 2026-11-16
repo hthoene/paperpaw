@@ -24,9 +24,7 @@ use paperpaw_platform::{
     ButtonState, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat,
     Point, PointerEvent, PointerPhase, PointerTool, Rotation,
 };
-use paperpaw_sdk::{
-    Manifest, MemoryStorage, Params, Plugin, RegisterError, Registrar, Uses, Version,
-};
+use paperpaw_sdk::{Manifest, MemoryStorage, Params, Uses, Version};
 
 const PRO: DeviceInfo = DeviceInfo::new(
     "test-x4-pro",
@@ -44,28 +42,23 @@ const BUTTONS: DeviceInfo = PRO.with_input(InputCaps::new(
 ));
 
 /// What `device::X4` registers of the lab.
-struct X4;
-
-impl Plugin for X4 {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            paperpaw_sdk::Id::new_static("x4"),
-            "Xteink",
-            Version::new(0, 1, 0),
-        )
-        .uses(Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_settings(&lab::SETTINGS)?;
-        r.add_screens(&lab::SCREENS)?;
-        r.add_actions(&lab::ACTIONS)?;
-        r.add_menu_entries(&lab::ENTRIES)?;
-        r.add_translations(Cow::Borrowed(include_str!(
+fn lab_x4(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(
+        paperpaw_sdk::Id::new_static("x4"),
+        "Xteink",
+        Version::new(0, 1, 0),
+    )
+    .uses(Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.add_settings(&lab::SETTINGS)?;
+        items.add_screens(&lab::SCREENS)?;
+        items.add_actions(&lab::ACTIONS)?;
+        items.add_menu_entries(&lab::ENTRIES)?;
+        items.add_translations(Cow::Borrowed(include_str!(
             "../../../shells/xteink/i18n/en.ini"
         )))?;
         Ok(())
-    }
+    })
 }
 
 fn kernel(device: DeviceInfo) -> Kernel {
@@ -74,8 +67,7 @@ fn kernel(device: DeviceInfo) -> Kernel {
         .frame_rows(192)
         .row_align(8)
         .user_config("[help]\nshow = false\n[core]\nlanguage = en\n");
-    let mut kernel = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs)
-        .plugin(X4)
+    let mut kernel = lab_x4(paperpaw_app::install(builder, paperpaw_app::Fonts::Packs))
         .build()
         .unwrap();
     kernel.start(Instant(0));

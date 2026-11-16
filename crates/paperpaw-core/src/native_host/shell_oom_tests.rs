@@ -177,14 +177,11 @@ struct RegistrationProbe<'a> {
     registry_oom: bool,
     refused: Cell<bool>,
 }
-impl paperpaw_sdk::Plugin for RegistrationProbe<'_> {
+impl crate::Plugin for RegistrationProbe<'_> {
     fn manifest(&self) -> Manifest {
         self.plugin.manifest()
     }
-    fn register(
-        &self,
-        registrar: &mut paperpaw_sdk::Registrar,
-    ) -> Result<(), paperpaw_sdk::RegisterError> {
+    fn register(&self, registrar: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
         let result = self.plugin.register(registrar);
         arm_failure(0);
         let expected = if self.registry_oom {
@@ -213,7 +210,8 @@ fn registrar_capacity_oom_refuses_and_releases_the_handler_without_abort() {
 }
 
 fn registration_rollback(registry_oom: bool) {
-    use paperpaw_sdk::{Params, Plugin, PluginState, builtin::events};
+    use crate::Plugin;
+    use paperpaw_sdk::{Params, PluginState, builtin::events};
     reset(NORMAL);
     let host = FlatHost {
         log: Default::default(),

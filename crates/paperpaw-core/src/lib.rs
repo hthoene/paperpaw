@@ -56,6 +56,7 @@ mod effects;
 mod font_refresh;
 mod free_count;
 mod gestures;
+mod gray_later;
 mod hints;
 mod hyphen_feed;
 mod input;
@@ -108,15 +109,15 @@ use paperpaw_sdk::setting::{Setting, SettingType};
 use paperpaw_sdk::{
     Actions, Capabilities, Command, Contribution, Cx, Direction, Env, EnvParts, Fonts, Formats,
     Gesture, GestureKind, Handled, HintVisibility, Hyphenation, Id, Manifest, Menus, Metrics,
-    Output, Params, Plugin, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Screen,
-    Settings, ShowsThrough, StatusItems,
+    Output, Params, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Screen, Settings,
+    ShowsThrough, StatusItems,
 };
 
-pub use crate::builder::{KernelBuilder, KernelError};
+pub use crate::builder::{Items, KernelBuilder, KernelError, Plugin};
 pub use crate::card::CardTrouble;
 pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
-use crate::core_plugin::{CORE, CorePlugin};
+use crate::core_plugin::CORE;
 pub use crate::data_plugin::hyphenation::{ManifestRefusal, hyphenation_tables};
 pub use crate::effects::{Effect, Effects};
 use crate::input::{Recognized, Recognizer, Thresholds};
@@ -133,7 +134,6 @@ use crate::screens::uncovered;
 pub use crate::work::NetworkSettings;
 #[doc(hidden)]
 pub use crate::work::network_specs_of;
-use paperpaw_sdk::Registrar;
 use paperpaw_sdk::filters::InputVerdict;
 pub use paperpaw_sdk::firmware::{Firmware, FirmwareCommand, FirmwareState, InstallFailure};
 pub use paperpaw_sdk::wifi::{JoinFailure, WifiCommand, WifiNetwork, WifiState};
@@ -146,10 +146,8 @@ const MAX_COMMAND_ROUNDS: usize = 16;
 /// with a full refresh: e-paper keeps ghosts of large pictures where text
 /// leaves none. Covers in a list stay below it.
 const PICTURES_PERCENT: u32 = 15;
-/// Of the screen, in percent, pictures of any size cover at least for it
-/// to be shown in grays when drawn whole
-/// ([`settings::PICTURES_IN_GRAYS`](paperpaw_sdk::builtin::settings::PICTURES_IN_GRAYS)):
-/// a cover or two, not an icon.
+/// Of the screen, in percent, pictures cover at least for grays to follow a whole
+/// screen ([`settings::PICTURES_IN_GRAYS`](paperpaw_sdk::builtin::settings::PICTURES_IN_GRAYS)): a cover or two.
 const PICTURES_GRAY_PERCENT: u32 = 2;
 /// How long the row of hints shows on a screen that has it on a press.
 const HINTS_MS: u64 = 4000;
@@ -265,8 +263,7 @@ pub struct Kernel {
     /// Of the commands asked for, those of a screen guarding the device or
     /// one it opened: what they open above it is its own.
     own_trusted: Vec<usize>,
-    /// Notices given while a screen guarded the device, shown in turn once it
-    /// lets go (`notices`).
+    /// Notices held back by a guarding screen (`notices`).
     waiting_notices: notices::Waiting,
     /// When the device was last used (input, a page turned), for sleeping
     /// by itself ([`settings::SLEEP_AFTER`](core_settings::SLEEP_AFTER)).
@@ -300,11 +297,9 @@ pub struct Kernel {
     /// The screen on top when the messages read from the card were last
     /// forgotten (`forget_read_messages`).
     read_top: Option<u32>,
-    /// `paperpaw.ini` is there but could not be read at start: the user
-    /// is told once the first screen shows.
+    /// Unreadable `paperpaw.ini`, reported after the first screen shows.
     config_unreadable: bool,
-    /// The shell found no card it can use: the reader is told why at
-    /// each start.
+    /// No usable card, reported at each start.
     card_trouble: Option<CardTrouble>,
     /// This start ends a sleep that restarted the device (see
     /// [`KernelBuilder::after_sleep`]): [`events::RESUME`] follows
@@ -486,6 +481,7 @@ impl Kernel {
         self.now = now;
         self.last_activity = now;
         self.last_user_input = Some(now);
+        self.gray_postpone();
         // No cover work begins beside what the user does now.
         self.native_cover_input();
         // Not counted while a screen guards the device: it would tell a typed code's length.
@@ -1466,7 +1462,7 @@ struct Shared {
     recall: alloc::rc::Rc<recall::Recall>,
     keymap: Keymap,
     /// The look of the parts of screens a plugin set, and its priority
-    /// (see [`Registrar::set_ui_look`](paperpaw_sdk::Registrar::set_ui_look)).
+    /// (see [`Items::set_ui_look`](paperpaw_sdk::Items::set_ui_look)).
     look: (paperpaw_sdk::ui::look::Look, Option<paperpaw_sdk::Priority>),
     /// What each plugin takes.
     meter: alloc::rc::Rc<meter::Meter>,

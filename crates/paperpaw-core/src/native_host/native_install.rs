@@ -1426,21 +1426,17 @@ mod tests {
 
     /// An interface-6 plugin that offers `vocab.card` for `host.show` (a
     /// native plugin's setting, declared after the kernel is built).
-    struct Offers;
-    impl paperpaw_sdk::Plugin for Offers {
-        fn manifest(&self) -> paperpaw_sdk::Manifest {
-            paperpaw_sdk::Manifest::new(
-                Id::new_static("vocab"),
-                "Vocab",
-                paperpaw_sdk::Version::new(1, 0, 0),
-            )
-        }
-        fn register(
-            &self,
-            r: &mut paperpaw_sdk::Registrar,
-        ) -> Result<(), paperpaw_sdk::RegisterError> {
-            r.add_choice(Id::new_static("host.show"), "vocab.card")
-        }
+    fn offers(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.add_choice(Id::new_static("host.show"), "vocab.card")
+    }
+
+    /// What [`offers`] registers under.
+    fn offers_manifest() -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            Id::new_static("vocab"),
+            "Vocab",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
     }
 
     /// The choice waits for the setting a native plugin declares later
@@ -1450,7 +1446,7 @@ mod tests {
         use paperpaw_sdk::{SettingKind, SettingSpec, SettingValue};
         static MODES: [&str; 1] = ["host.plain"];
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-            .plugin(Offers)
+            .items(offers_manifest(), offers)
             .build()
             .unwrap();
         // As `publish_native` defines the setting and adds the choices.
@@ -1477,7 +1473,7 @@ mod tests {
     #[test]
     fn a_choice_for_a_setting_nobody_declares_goes_at_the_start() {
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-            .plugin(Offers)
+            .items(offers_manifest(), offers)
             .build()
             .unwrap();
         assert_eq!(

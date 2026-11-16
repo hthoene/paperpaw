@@ -170,6 +170,11 @@ pub(crate) trait DocHost {
     fn preparing(&self) -> bool {
         false
     }
+    /// Whether any document is open (a book, a cover to make, a job): the
+    /// heap is not a calm Home's while one is (#248's low-memory look).
+    fn documents_open(&self) -> bool {
+        false
+    }
     fn prepare_step(
         &self,
         _hosts: &super::host_services::HostServices,

@@ -73,6 +73,10 @@ const KEYS: &[&str] = &[
     "core.plugin.remove-data",
     "core.plugin.yes.remove-data",
     "core.plugin.unforgotten",
+    "core.low-memory.title",
+    "core.low-memory.text",
+    "core.low-memory.plugins",
+    "core.low-memory.later",
 ];
 
 fn placeholders(text: &str) -> Vec<&str> {
