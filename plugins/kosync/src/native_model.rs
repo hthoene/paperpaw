@@ -365,10 +365,13 @@ pub fn read_answer(text: &str) -> Result<Option<Remote>, Error> {
                 && fields[index].is_none()
             {
                 let value = match index {
-                    0 => copy(value.get(..64).unwrap_or_else(|| {
-                        let end = value.char_indices().map(|(i, _)| i).take_while(|&i| i <= 64).last().unwrap_or(0);
-                        &value[..end]
-                    })),
+                    0 => {
+                        let mut end = value.len().min(64);
+                        while !value.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        copy(&value[..end])
+                    }
                     1 => device_name(value),
                     _ => copy(value),
                 };
@@ -413,9 +416,13 @@ pub fn read_answer(text: &str) -> Result<Option<Remote>, Error> {
 fn device_name(text: &str) -> Result<String, Error> {
     let mut name = String::new();
     name.try_reserve(163).map_err(|_| Error::NoMemory)?;
-    for (count, c) in text.chars().filter(|c| {
-        !c.is_control() && !matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
-    }).enumerate() {
+    for (count, c) in text
+        .chars()
+        .filter(|c| {
+            !c.is_control() && !matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
+        .enumerate()
+    {
         if count == 40 {
             name.push('…');
             break;
