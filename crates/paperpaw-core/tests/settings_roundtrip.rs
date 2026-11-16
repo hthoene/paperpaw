@@ -16,11 +16,11 @@ mod common;
 use std::borrow::Cow;
 
 use common::{DEVICE, Harness};
+use paperpaw_core::Items;
 use paperpaw_core::Kernel;
 use paperpaw_core::sdk::builtin::CONFIG_FILE;
 use paperpaw_core::sdk::{
-    Command, Manifest, MemoryStorage, Plugin, RegisterError, Registrar, Setting, SettingSpec,
-    SettingValue, Text,
+    Command, Manifest, MemoryStorage, RegisterError, Setting, SettingSpec, SettingValue, Text,
 };
 use paperpaw_platform::Instant;
 use proptest::prelude::*;
@@ -37,14 +37,8 @@ const MIN: i64 = -1_000_000_000_000;
 const MAX: i64 = 1_000_000_000_000;
 
 /// A plugin with a setting of each kind, two of them per book.
-struct Settings;
-
-impl Plugin for Settings {
-    fn manifest(&self) -> Manifest {
-        common::manifest("rt")
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn settings() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_setting(SettingSpec::switch(
             FLAG.static_str(),
             "rt.flag",
@@ -102,10 +96,15 @@ impl Plugin for Settings {
     }
 }
 
+/// What [`settings`] registers under.
+fn settings_manifest() -> Manifest {
+    common::manifest("rt")
+}
+
 fn kernel(harness: &Harness, storage: MemoryStorage) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(harness.plugin())
-        .plugin(Settings)
+        .items(settings_manifest(), settings())
         .storage(storage)
         .build()
         .unwrap();

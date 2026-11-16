@@ -31,11 +31,12 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use common::{DEVICE, Harness};
+use paperpaw_core::Items;
 use paperpaw_core::Kernel;
 use paperpaw_core::sdk::builtin::fonts;
 use paperpaw_core::sdk::{
-    Command, Font, FontFace, FontSpec, Id, Manifest, MemoryStorage, Plugin, Priority,
-    RegisterError, Registrar, SettingKind, SettingValue, Version,
+    Command, Font, FontFace, FontSpec, Id, Manifest, MemoryStorage, Priority, RegisterError,
+    SettingKind, SettingValue, Version,
 };
 use paperpaw_platform::{DirEntry, Instant, Storage, StorageError};
 use paperpaw_text::{Glyph, LineMetrics, PackBuilder};
@@ -64,19 +65,8 @@ fn pack(sizes: &[f32], advance: f32) -> Vec<u8> {
 /// What the lean firmware has (`plugins/fonts-default`, `LEAN_FONT_PACKS`):
 /// the UI font up to 32 px, for the menus and for book text, and the
 /// name of Literata's regular face in the plugin's folder on the card.
-struct Lean;
-
-impl Plugin for Lean {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("fonts-default"),
-            "Fonts",
-            Version::new(1, 0, 0),
-        )
-        .uses(paperpaw_core::sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn lean() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         let font = Font::from_data(pack(&[20.0, 32.0], 6.0), &[]).unwrap();
         let sans = Id::new_static(SANS);
         r.add_font(FontSpec::new(sans.clone(), font).family("PaperPaw Sans", false, false))?;
@@ -90,6 +80,16 @@ impl Plugin for Lean {
             false,
         ))
     }
+}
+
+/// What [`lean`] registers under.
+fn lean_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("fonts-default"),
+        "Fonts",
+        Version::new(1, 0, 0),
+    )
+    .uses(paperpaw_core::sdk::Uses::NOTHING)
 }
 
 /// As `tools/plugin-files/data.py` and `tools/literata-packs.py` write it.
@@ -166,7 +166,7 @@ fn started_with(card: MemoryStorage, config: &str) -> Kernel {
 /// The kernel started and what it warned of, as text.
 fn started_warned(card: MemoryStorage, config: &str) -> (Kernel, Vec<String>) {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Lean)
+        .items(lean_manifest(), lean())
         .storage(card)
         .user_config(config)
         .build()
@@ -334,7 +334,7 @@ fn a_proposal_without_a_font_gives_way_to_the_next() {
         ),
     );
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Lean)
+        .items(lean_manifest(), lean())
         .storage(card)
         .user_config("[fonts]\ncore.font-reading = fonts-default.literata\n")
         .build()
@@ -413,7 +413,7 @@ impl Running {
             busy: busy.clone(),
         };
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(Lean)
+            .items(lean_manifest(), lean())
             .plugin(harness.plugin())
             .storage(shared)
             .build()

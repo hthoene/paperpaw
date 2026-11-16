@@ -16,13 +16,14 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use common::{BASE, DEVICE, Harness, LATER};
-use paperpaw_core::Kernel;
+use paperpaw_core::Items;
 use paperpaw_core::sdk::builtin::{events, slots};
 use paperpaw_core::sdk::secrets::{FILE as SECRETS, SecretChange};
 use paperpaw_core::sdk::{
-    Battery, DirEntry, Manifest, MemoryStorage, Params, Plugin, RegisterError, Registrar, Storage,
+    Battery, DirEntry, Manifest, MemoryStorage, Params, Plugin, RegisterError, Storage,
     StorageError, SystemStatus, WallClock,
 };
+use paperpaw_core::{Kernel, KernelBuilder};
 use paperpaw_platform::Instant;
 use proptest::prelude::*;
 use proptest::test_runner::Config;
@@ -32,12 +33,8 @@ struct Listener {
     harness: Harness,
 }
 
-impl Plugin for Listener {
-    fn manifest(&self) -> Manifest {
-        common::manifest("listener")
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn listener(kept: Listener) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         for event in [
             events::STARTED.id().clone(),
             events::STATUS_CHANGED.id().clone(),
@@ -46,7 +43,7 @@ impl Plugin for Listener {
             events::RESUME.id().clone(),
             events::STOPPING.id().clone(),
         ] {
-            let log = self.harness.log.clone();
+            let log = kept.harness.log.clone();
             r.subscribe(
                 event.clone(),
                 Box::new(move |_, _, _| log.borrow_mut().push(format!("heard {event}"))),
@@ -54,6 +51,11 @@ impl Plugin for Listener {
         }
         Ok(())
     }
+}
+
+/// What [`listener`] registers under.
+fn listener_manifest() -> Manifest {
+    common::manifest("listener")
 }
 
 /// A storage that counts how often it is told to write back what it kept
@@ -102,9 +104,12 @@ impl Storage for Synced {
 fn kernel(harness: &Harness, storage: impl Storage + 'static) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(harness.plugin())
-        .plugin(Listener {
-            harness: harness.clone(),
-        })
+        .items(
+            listener_manifest(),
+            listener(Listener {
+                harness: harness.clone(),
+            }),
+        )
         .storage(storage)
         .build()
         .unwrap();
@@ -237,9 +242,12 @@ fn a_start_that_ends_a_sleep_is_a_waking_too() {
         let harness = Harness::new();
         let mut kernel = Kernel::builder(DEVICE)
             .plugin(harness.plugin())
-            .plugin(Listener {
-                harness: harness.clone(),
-            })
+            .items(
+                listener_manifest(),
+                listener(Listener {
+                    harness: harness.clone(),
+                }),
+            )
             .after_sleep(after_sleep)
             .build()
             .unwrap();
@@ -383,7 +391,7 @@ impl Plugin for Looks {
         common::manifest(self.name)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         for (painters, priority) in &self.looks {
             r.set_ui_look(painters, *priority)?;
         }
@@ -440,13 +448,9 @@ struct Asker {
     bind: bool,
 }
 
-impl Plugin for Asker {
-    fn manifest(&self) -> Manifest {
-        common::manifest("asker")
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        if self.bind {
+fn asker(kept: Asker) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        if kept.bind {
             let screen = paperpaw_core::sdk::Id::new_static("asker.choice");
             let seen = Rc::new(std::cell::RefCell::new(String::new()));
             r.add_screen(paperpaw_core::sdk::ScreenSpec::new(
@@ -460,6 +464,11 @@ impl Plugin for Asker {
     }
 }
 
+/// What [`asker`] registers under.
+fn asker_manifest() -> Manifest {
+    common::manifest("asker")
+}
+
 /// Every plugin's questions go to slot `core.choice`: the kernel's
 /// dialog, or the screen another plugin binds there.
 #[test]
@@ -469,7 +478,7 @@ fn questions_are_asked_where_the_choice_slot_says() {
     const CHOSEN: Event<Picked> = Event::new("asker.chosen");
     for (bind, expected) in [(false, "core.choice-dialog"), (true, "asker.choice")] {
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(Asker { bind })
+            .items(asker_manifest(), asker(Asker { bind }))
             .storage(MemoryStorage::new())
             .build()
             .unwrap();
@@ -570,10 +579,6 @@ fn a_yes_or_no_question_is_answered_by_buttons_and_by_touch() {
     assert_eq!(answers(), []);
 }
 
-/// A name typed for a setting, and a number whose check refuses large
-/// values.
-struct Checked;
-
 fn at_most_five(
     _: &paperpaw_core::sdk::Settings,
     value: &paperpaw_core::sdk::SettingValue,
@@ -604,14 +609,15 @@ static CHECKED_SETTINGS: [paperpaw_core::sdk::SettingSpec; 2] = [
     .with_extra(&AT_MOST_FIVE),
 ];
 
-impl Plugin for Checked {
-    fn manifest(&self) -> Manifest {
-        common::manifest("checked")
-    }
+/// A name typed for a setting, and a number whose check refuses large
+/// values.
+fn checked() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| r.add_settings(&CHECKED_SETTINGS)
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_settings(&CHECKED_SETTINGS)
-    }
+/// What [`checked`] registers under.
+fn checked_manifest() -> Manifest {
+    common::manifest("checked")
 }
 
 /// Text typed for a setting is set by the kernel, whichever screen asked;
@@ -621,7 +627,9 @@ fn typed_settings_are_set_and_refused_values_told() {
     use paperpaw_core::sdk::builtin::{events, params};
     use paperpaw_core::sdk::event::EventData;
     let harness = Harness::default();
-    let mut kernel = kernel_with(&harness, Checked);
+    let mut kernel = kernel_with(&harness, |builder| {
+        builder.items(checked_manifest(), checked())
+    });
     let typed =
         paperpaw_core::sdk::Typed::new("  Ann ", Params::new().with(params::ID, "checked.name"));
     kernel.send_event(
@@ -656,10 +664,8 @@ fn typed_settings_are_set_and_refused_values_told() {
     assert_eq!(effects.wake_at(), Some(Instant(4_200)), "no new notice");
 }
 
-fn kernel_with(harness: &Harness, plugin: impl Plugin + 'static) -> Kernel {
-    let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
-        .plugin(plugin)
+fn kernel_with(harness: &Harness, plugin: impl Fn(KernelBuilder) -> KernelBuilder) -> Kernel {
+    let mut kernel = plugin(Kernel::builder(DEVICE).plugin(harness.plugin()))
         .storage(MemoryStorage::new())
         .build()
         .unwrap();
@@ -712,23 +718,19 @@ impl paperpaw_core::sdk::Screen for TwoButtons {
     }
 }
 
-impl Plugin for Focused {
-    fn manifest(&self) -> Manifest {
-        common::manifest("focused")
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn focused(kept: Focused) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         let screen = paperpaw_core::sdk::Id::new_static("focused.home");
         r.add_screen(paperpaw_core::sdk::ScreenSpec::new(
             screen.clone(),
             "focused.home",
             {
-                let secret = self.secret;
+                let secret = kept.secret;
                 Box::new(move |_, _| Box::new(TwoButtons(0, secret)))
             },
         ))?;
         r.bind_slot(slots::HOME, screen, paperpaw_core::sdk::Priority(1000))?;
-        let heard = self.heard.clone();
+        let heard = kept.heard.clone();
         r.on(events::FOCUS_CHANGED, move |_, focus, _| {
             heard
                 .borrow_mut()
@@ -737,15 +739,23 @@ impl Plugin for Focused {
     }
 }
 
+/// What [`focused`] registers under.
+fn focused_manifest() -> Manifest {
+    common::manifest("focused")
+}
+
 /// A plugin that listens hears where the focus goes, once each time.
 #[test]
 fn plugins_hear_where_the_focus_goes() {
     let heard = Rc::new(std::cell::RefCell::new(Vec::new()));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Focused {
-            heard: heard.clone(),
-            secret: false,
-        })
+        .items(
+            focused_manifest(),
+            focused(Focused {
+                heard: heard.clone(),
+                secret: false,
+            }),
+        )
         .storage(MemoryStorage::new())
         .build()
         .unwrap();
@@ -765,10 +775,13 @@ fn plugins_hear_where_the_focus_goes() {
 fn the_focus_on_a_secret_screen_is_not_told() {
     let heard = Rc::new(std::cell::RefCell::new(Vec::new()));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Focused {
-            heard: heard.clone(),
-            secret: true,
-        })
+        .items(
+            focused_manifest(),
+            focused(Focused {
+                heard: heard.clone(),
+                secret: true,
+            }),
+        )
         .storage(MemoryStorage::new())
         .build()
         .unwrap();
@@ -785,13 +798,9 @@ struct Spy {
     heard: Rc<std::cell::RefCell<Vec<String>>>,
 }
 
-impl Plugin for Spy {
-    fn manifest(&self) -> Manifest {
-        common::manifest("spy")
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let heard = self.heard.clone();
+fn spy(kept: Spy) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let heard = kept.heard.clone();
         r.on(
             paperpaw_core::sdk::builtin::events::SETTING_TYPED,
             move |_, typed, _| {
@@ -799,6 +808,11 @@ impl Plugin for Spy {
             },
         )
     }
+}
+
+/// What [`spy`] registers under.
+fn spy_manifest() -> Manifest {
+    common::manifest("spy")
 }
 
 /// A password typed reaches the plugin that asked for it alone; an
@@ -809,10 +823,13 @@ fn passwords_typed_reach_the_asker_alone() {
     use paperpaw_core::sdk::event::EventData;
     let heard = Rc::new(std::cell::RefCell::new(Vec::new()));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Checked)
-        .plugin(Spy {
-            heard: heard.clone(),
-        })
+        .items(checked_manifest(), checked())
+        .items(
+            spy_manifest(),
+            spy(Spy {
+                heard: heard.clone(),
+            }),
+        )
         .storage(MemoryStorage::new())
         .build()
         .unwrap();
@@ -845,13 +862,9 @@ struct Watcher {
     seen: Rc<std::cell::Cell<u32>>,
 }
 
-impl Plugin for Watcher {
-    fn manifest(&self) -> Manifest {
-        common::manifest("watcher")
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let seen = self.seen.clone();
+fn watcher(kept: Watcher) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let seen = kept.seen.clone();
         r.add_input_filter(paperpaw_core::sdk::filters::InputFilterSpec::new(
             paperpaw_core::sdk::Id::new_static("watcher.filter"),
             "watcher.filter",
@@ -863,6 +876,11 @@ impl Plugin for Watcher {
     }
 }
 
+/// What [`watcher`] registers under.
+fn watcher_manifest() -> Manifest {
+    common::manifest("watcher")
+}
+
 /// While a PIN or a password is entered, other plugins' input filters
 /// see none of its keys.
 #[test]
@@ -870,11 +888,14 @@ fn input_filters_see_no_key_of_a_secret() {
     for secret in [false, true] {
         let seen = Rc::new(std::cell::Cell::new(0));
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(Focused {
-                heard: Rc::new(std::cell::RefCell::new(Vec::new())),
-                secret,
-            })
-            .plugin(Watcher { seen: seen.clone() })
+            .items(
+                focused_manifest(),
+                focused(Focused {
+                    heard: Rc::new(std::cell::RefCell::new(Vec::new())),
+                    secret,
+                }),
+            )
+            .items(watcher_manifest(), watcher(Watcher { seen: seen.clone() }))
             .storage(MemoryStorage::new())
             .build()
             .unwrap();
@@ -928,7 +949,7 @@ impl Plugin for Vault {
         common::manifest(self.name)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         if self.name == "vault" {
             r.add_settings(&VAULT_SETTINGS)?;
             r.subscribe(
@@ -1006,14 +1027,8 @@ fn ask_keyboard(id: &str) -> paperpaw_core::sdk::Command {
 }
 
 /// A keyboard that answers at once what it is asked, with `keyed`.
-struct Keys;
-
-impl Plugin for Keys {
-    fn manifest(&self) -> Manifest {
-        common::manifest("keys")
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn keys() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         use paperpaw_core::sdk::builtin::slots;
         let screen = paperpaw_core::sdk::Id::new_static("keys.screen");
         r.add_screen(paperpaw_core::sdk::ScreenSpec::new(
@@ -1030,6 +1045,11 @@ impl Plugin for Keys {
         )?;
         Ok(())
     }
+}
+
+/// What [`keys`] registers under.
+fn keys_manifest() -> Manifest {
+    common::manifest("keys")
 }
 
 /// The keyboard's screen: answers as it shows, then closes.
@@ -1075,7 +1095,7 @@ fn vault(storage: MemoryStorage) -> (Kernel, Heard) {
             name: "spy",
             heard: heard.clone(),
         })
-        .plugin(Keys)
+        .items(keys_manifest(), keys())
         .storage(storage)
         .build()
         .unwrap();

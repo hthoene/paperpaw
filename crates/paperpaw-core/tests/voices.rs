@@ -16,8 +16,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use common::{DEVICE, Harness, REPLY};
+use paperpaw_core::Items;
 use paperpaw_core::sdk::voices::VoiceSpec;
-use paperpaw_core::sdk::{Command, Id, Manifest, Params, Plugin, RegisterError, Registrar, Speech};
+use paperpaw_core::sdk::{Command, Id, Manifest, Params, RegisterError, Speech};
 use paperpaw_core::{Io, Kernel, SpeechCall};
 use paperpaw_platform::Instant;
 
@@ -25,15 +26,9 @@ use paperpaw_platform::Instant;
 type Heard = Rc<RefCell<Vec<String>>>;
 
 /// A voice for English that answers at once.
-struct Echo(Heard);
-
-impl Plugin for Echo {
-    fn manifest(&self) -> Manifest {
-        common::manifest("echo")
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let (said, stopped) = (self.0.clone(), self.0.clone());
+fn echo(kept: Heard) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let (said, stopped) = (kept.clone(), kept.clone());
         r.add_voice(
             VoiceSpec::new(
                 Id::new_static("echo.voice"),
@@ -48,16 +43,15 @@ impl Plugin for Echo {
     }
 }
 
+/// What [`echo`] registers under.
+fn echo_manifest() -> Manifest {
+    common::manifest("echo")
+}
+
 /// A voice for German, telling `heard` too.
-struct Deutsch(Heard);
-
-impl Plugin for Deutsch {
-    fn manifest(&self) -> Manifest {
-        common::manifest("deutsch")
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let (said, stopped) = (self.0.clone(), self.0.clone());
+fn deutsch(kept: Heard) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let (said, stopped) = (kept.clone(), kept.clone());
         r.add_voice(
             VoiceSpec::new(
                 Id::new_static("deutsch.voice"),
@@ -69,11 +63,16 @@ impl Plugin for Deutsch {
     }
 }
 
+/// What [`deutsch`] registers under.
+fn deutsch_manifest() -> Manifest {
+    common::manifest("deutsch")
+}
+
 fn kernel(harness: &Harness, heard: &Heard, config: &str, system: bool) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(harness.plugin())
-        .plugin(Echo(heard.clone()))
-        .plugin(Deutsch(heard.clone()))
+        .items(echo_manifest(), echo(heard.clone()))
+        .items(deutsch_manifest(), deutsch(heard.clone()))
         .speech(system)
         .user_config(config.to_string())
         .build()

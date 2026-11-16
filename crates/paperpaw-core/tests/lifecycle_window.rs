@@ -18,11 +18,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use common::Harness;
+use paperpaw_core::Items;
 use paperpaw_core::Kernel;
 use paperpaw_core::sdk::builtin::events;
-use paperpaw_core::sdk::{
-    DirEntry, Manifest, MemoryStorage, Plugin, RegisterError, Registrar, Storage, StorageError,
-};
+use paperpaw_core::sdk::{DirEntry, Manifest, MemoryStorage, RegisterError, Storage, StorageError};
 use paperpaw_platform::Instant;
 
 /// What the storage was told, in order, and how much of it no sync has
@@ -105,14 +104,10 @@ struct Saver {
     results: Rc<RefCell<Vec<Result<(), StorageError>>>>,
 }
 
-impl Plugin for Saver {
-    fn manifest(&self) -> Manifest {
-        common::manifest("saver")
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn saver(kept: Saver) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         for (event, name) in [(events::SUSPEND, "suspend"), (events::STOPPING, "stopping")] {
-            let results = self.results.clone();
+            let results = kept.results.clone();
             r.subscribe(
                 event,
                 Box::new(move |env, _, _| {
@@ -127,13 +122,21 @@ impl Plugin for Saver {
     }
 }
 
+/// What [`saver`] registers under.
+fn saver_manifest() -> Manifest {
+    common::manifest("saver")
+}
+
 fn kernel(storage: &Ordered, results: &Rc<RefCell<Vec<Result<(), StorageError>>>>) -> Kernel {
     let harness = Harness::new();
     let mut kernel = Kernel::builder(common::DEVICE)
         .plugin(harness.plugin())
-        .plugin(Saver {
-            results: results.clone(),
-        })
+        .items(
+            saver_manifest(),
+            saver(Saver {
+                results: results.clone(),
+            }),
+        )
         .storage(storage.clone())
         .build()
         .unwrap();
