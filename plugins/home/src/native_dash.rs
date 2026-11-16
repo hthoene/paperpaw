@@ -128,6 +128,19 @@ pub struct Wanted {
     pub done_word: u16,
 }
 
+impl Wanted {
+    /// What the footer is to hold.
+    #[must_use]
+    pub const fn new(editing: bool, pencil: bool, actions: usize, done_word: u16) -> Self {
+        Self {
+            editing,
+            pencil,
+            actions,
+            done_word,
+        }
+    }
+}
+
 /// The footer's buttons in `footer`: add and done are buttons a finger finds
 /// while editing, at least two rows wide (a tick alone was too small to hit: a
 /// missed tap fell on the page and turned it); the actions go left of the

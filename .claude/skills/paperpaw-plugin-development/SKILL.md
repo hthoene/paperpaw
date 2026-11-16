@@ -32,11 +32,11 @@ Read, in this order, and skim what is relevant to the task:
    rules for screens, memory, testing, data plugins.
 2. `CONTRIBUTING.md`: the architecture rules reviews check, and the
    checks CI runs.
-3. `samples/hello-plugin`: a complete small plugin with a test; the best
-   template. `samples/plugins` holds data plugins. (The sample that
-   built a plugin with code as a file, `samples/hello-native`, is gone
-   with plugin interface 6, #244; there is no such sample for interface
-   7 yet.)
+3. `paperpaw-dev new --github <id> --code`: a complete small plugin with
+   code for plugin interface 7 (a screen, an action, a setting, an event),
+   the best template; `paperpaw-dev build --device emulator` and
+   `paperpaw-emu --library dist/emulator --trust-code` run it.
+   `samples/plugins` holds data plugins.
 4. The SDK's API: `cargo doc -p paperpaw-sdk --open`, and
    `crates/paperpaw-sdk/api.txt` (every public item, kept current).
 5. `CHANGELOG.md`, its top section: what changed lately (renamed or

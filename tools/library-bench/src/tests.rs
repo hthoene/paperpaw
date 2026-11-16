@@ -16,21 +16,16 @@ const BOOKS: usize = 60;
 
 /// EPUB as a format plugin of the kernel under test: it is a native plugin
 /// only now (interface 6 is removed, #244), which this kernel does not host.
-struct TestEpub;
-
-impl Plugin for TestEpub {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            paperpaw_epub_family::PLUGIN,
-            "EPUB",
-            paperpaw_sdk::package_version!(),
-        )
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_book_cache(Env::plugin_dir("format-epub"), "")?;
-        r.add_format(paperpaw_sdk::FormatSpec::new(
+fn test_epub(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(
+        paperpaw_epub_family::PLUGIN,
+        "EPUB",
+        paperpaw_sdk::package_version!(),
+    )
+    .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.add_book_cache(Env::plugin_dir("format-epub"), "")?;
+        items.add_format(paperpaw_sdk::FormatSpec::new(
             Id::new_static("format-epub.epub"),
             "format-epub.title",
             vec![std::borrow::Cow::Borrowed("epub")],
@@ -39,7 +34,7 @@ impl Plugin for TestEpub {
                     .map(|d| Box::new(d) as Box<dyn paperpaw_sdk::document::Document>)
             }),
         ))
-    }
+    })
 }
 
 /// A small EPUB without a cover, as the X4 test's books are.
@@ -69,15 +64,11 @@ fn epub(n: usize) -> Vec<u8> {
 /// What the walk took on the card, per kind of path.
 static TAKEN: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
-struct Walker;
-
-impl Plugin for Walker {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("walker"), "Walker", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.on(events::STARTED, |env: &Env<'_>, _: &(), _| {
+/// Walks the library when the kernel has started, and notes what it took on the card.
+fn walker(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(Id::new_static("walker"), "Walker", Version::new(1, 0, 0));
+    builder.items(manifest, |items| {
+        items.on(events::STARTED, |env: &Env<'_>, _: &(), _| {
             let _ = tallied();
             let (read, written) = (READ.load(Relaxed), WRITTEN.load(Relaxed));
             let mut walk = paperpaw_sdk::library::catalog::Walk::start(env, Vec::new()).unwrap();
@@ -85,7 +76,7 @@ impl Plugin for Walker {
             let (read, written) = (READ.load(Relaxed) - read, WRITTEN.load(Relaxed) - written);
             *TAKEN.lock().unwrap() = format!("{read} r {written} w; {}", tallied());
         })
-    }
+    })
 }
 
 /// Blocks written to paths of `kind` in `taken`, as [`tallied`] says.
@@ -123,13 +114,10 @@ fn the_first_walk_writes_next_to_nothing_of_the_books_formats() {
         card.write(&format!("books/f{}/b{n}.epub", n % 6), &epub(n))
             .unwrap();
     }
-    let mut kernel = Kernel::builder(DEVICE)
+    let builder = Kernel::builder(DEVICE)
         .storage(card)
-        .setting_default(&settings::LIBRARY_FOLDER, "books".into())
-        .plugin(TestEpub)
-        .plugin(Walker)
-        .build()
-        .unwrap();
+        .setting_default(&settings::LIBRARY_FOLDER, "books".into());
+    let mut kernel = walker(test_epub(builder)).build().unwrap();
     kernel.start(paperpaw_platform::Instant(0));
     let taken = TAKEN.lock().unwrap().clone();
     println!("{BOOKS} books: {taken}");
@@ -157,13 +145,10 @@ fn the_first_walk_writes_next_to_nothing_of_the_books_formats() {
     // written of them.
     card.remove(&format!("{}/catalog.txt", paperpaw_sdk::library::DIR))
         .unwrap();
-    let mut kernel = Kernel::builder(DEVICE)
+    let builder = Kernel::builder(DEVICE)
         .storage(card)
-        .setting_default(&settings::LIBRARY_FOLDER, "books".into())
-        .plugin(TestEpub)
-        .plugin(Walker)
-        .build()
-        .unwrap();
+        .setting_default(&settings::LIBRARY_FOLDER, "books".into());
+    let mut kernel = walker(test_epub(builder)).build().unwrap();
     kernel.start(paperpaw_platform::Instant(0));
     let again = TAKEN.lock().unwrap().clone();
     println!("again: {again}");

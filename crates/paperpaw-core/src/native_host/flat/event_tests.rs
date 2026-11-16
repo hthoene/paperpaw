@@ -451,11 +451,11 @@ struct ScopeConflict {
     seen: Rc<Observed>,
     handler: Rc<paperpaw_sdk::EventHandler>,
 }
-impl paperpaw_sdk::Plugin for ScopeConflict {
+impl crate::Plugin for ScopeConflict {
     fn manifest(&self) -> Manifest {
         Manifest::new(Id::new_static("flat"), "Conflict", Version::new(1, 0, 0))
     }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+    fn register(&self, r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
         let seen = Rc::clone(&self.seen);
         let handler = Rc::clone(&self.handler);
         r.subscribe(
@@ -479,8 +479,8 @@ fn occupied_environment_scope_refuses_before_foreign_dispatch_and_resets() {
         &["flat"],
         move |code| {
             let flat = plugin_with_host(&observed, &[32], code);
-            let mut registrar = paperpaw_sdk::Registrar::new(Id::new_static("flat"));
-            paperpaw_sdk::Plugin::register(&flat, &mut registrar).unwrap();
+            let mut registrar = crate::Items::new(Id::new_static("flat"));
+            crate::Plugin::register(&flat, &mut registrar).unwrap();
             let handler = registrar
                 .into_contributions()
                 .into_iter()

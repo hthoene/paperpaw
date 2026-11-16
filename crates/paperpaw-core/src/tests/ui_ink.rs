@@ -25,7 +25,13 @@ fn set(kernel: &mut Kernel, id: &Id, value: &str) {
 
 #[test]
 fn the_ui_font_carries_the_ink_of_the_setting_and_the_language() {
-    let mut kernel = Kernel::builder(DEVICE).plugin(FontPlugin).build().unwrap();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(
+            crate::tests::font_plugin_manifest(),
+            crate::tests::font_plugin(),
+        )
+        .build()
+        .unwrap();
     assert_eq!(ui_ink(&kernel), TextInk::DEFAULT);
     let curve = settings::UI_TEXT_CURVE.id().clone();
     set(&mut kernel, &curve, "contrast:2");
@@ -61,7 +67,10 @@ fn the_ui_font_says_its_lines_run_right_to_left_in_arabic() {
         .with("plugins/arabic/plugin.ini", "[plugin]\nname = Arabic\n")
         .with("plugins/arabic/i18n/ar.ini", arabic);
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(FontPlugin)
+        .items(
+            crate::tests::font_plugin_manifest(),
+            crate::tests::font_plugin(),
+        )
         .storage(storage)
         .build()
         .unwrap();

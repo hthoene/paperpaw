@@ -2,11 +2,9 @@
 //! back, readings that make no sense.
 
 use super::*;
+use crate::Items;
 use paperpaw_platform::{SystemStatus, WallClock};
 use paperpaw_sdk::semantics::Role;
-
-/// Rows of which one has the focus, moved by *Down*.
-struct RowsPlugin;
 
 struct Rows {
     focus: usize,
@@ -33,13 +31,9 @@ impl Screen for Rows {
     }
 }
 
-impl Plugin for RowsPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("rows"), "Rows", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+/// Rows of which one has the focus, moved by *Down*.
+fn rows_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_screen(ScreenSpec::new(
             Id::new_static("rows.screen"),
             "rows",
@@ -52,6 +46,12 @@ impl Plugin for RowsPlugin {
         )?;
         Ok(())
     }
+}
+
+/// What [`rows_plugin`] registers under.
+fn rows_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("rows"), "Rows", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// What the shell is asked to say.
@@ -72,7 +72,7 @@ fn said(kernel: &mut Kernel) -> Vec<String> {
 #[test]
 fn the_focus_is_said_in_place_of_what_was_said_of_it() {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(RowsPlugin)
+        .items(rows_plugin_manifest(), rows_plugin())
         .speech(true)
         .setting_default(&settings::SPEAK_FOCUS, true)
         .build()
@@ -170,31 +170,23 @@ fn wall_clock_readings_that_make_no_sense_do_not_panic() {
 }
 
 /// Switches the device off as soon as PaperPaw started.
-struct OffAtStart;
-
-impl Plugin for OffAtStart {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("off"), "Off", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn off_at_start() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.on(paperpaw_sdk::builtin::events::STARTED, |_, _, out| {
             out.push(Command::PowerOff);
         })
     }
 }
 
+/// What [`off_at_start`] registers under.
+fn off_at_start_manifest() -> Manifest {
+    Manifest::new(Id::new_static("off"), "Off", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// The same, its subscription kept in the program.
-struct OffAtStartFixed;
-
-impl Plugin for OffAtStartFixed {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("off"), "Off", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn off_at_start_fixed() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         static HEARS: [paperpaw_sdk::FixedSubscription; 2] = [
             paperpaw_sdk::hears!(paperpaw_sdk::builtin::events::STARTED, |_, _, out| {
                 out.push(Command::PowerOff);
@@ -211,10 +203,16 @@ impl Plugin for OffAtStartFixed {
     }
 }
 
+/// What [`off_at_start_fixed`] registers under.
+fn off_at_start_fixed_manifest() -> Manifest {
+    Manifest::new(Id::new_static("off"), "Off", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn subscriptions_kept_in_the_program_are_heard() {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OffAtStartFixed)
+        .items(off_at_start_fixed_manifest(), off_at_start_fixed())
         .power_off(true)
         .build()
         .unwrap();
@@ -228,12 +226,8 @@ struct Drive {
     log: Log,
 }
 
-impl Plugin for Drive {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("drive"), "Drive", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn drive(kept: Drive) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         use paperpaw_sdk::builtin::events;
         r.on(events::STARTED, |_, _, out| out.push(Command::UsbDrive))?;
         for (event, name) in [
@@ -241,7 +235,7 @@ impl Plugin for Drive {
             (events::USB_DRIVE_ENDED.id(), "ended"),
             (events::LIBRARY_CHANGED.id(), "library"),
         ] {
-            let log = self.log.clone();
+            let log = kept.log.clone();
             r.subscribe(
                 event.clone(),
                 Box::new(move |_, _, _| log.borrow_mut().push(String::from(name))),
@@ -251,17 +245,22 @@ impl Plugin for Drive {
     }
 }
 
+/// What [`drive`] registers under.
+fn drive_manifest() -> Manifest {
+    Manifest::new(Id::new_static("drive"), "Drive", Version::new(1, 0, 0))
+}
+
 #[test]
 fn the_card_goes_to_a_computer_as_a_drive_where_the_device_can() {
     // Where it cannot, nothing happens.
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Drive { log: log.clone() })
+        .items(drive_manifest(), drive(Drive { log: log.clone() }))
         .build()
         .unwrap();
     assert!(!kernel.start(Instant(0)).usb_drive());
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Drive { log: log.clone() })
+        .items(drive_manifest(), drive(Drive { log: log.clone() }))
         .capability(paperpaw_sdk::Capability::USB_DRIVE)
         .build()
         .unwrap();
@@ -286,10 +285,13 @@ fn the_card_goes_to_a_computer_as_a_drive_where_the_device_can() {
 #[test]
 fn plugins_switch_the_device_off_where_the_shell_can() {
     // Where the system decides (Android), nothing happens.
-    let mut kernel = Kernel::builder(DEVICE).plugin(OffAtStart).build().unwrap();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(off_at_start_manifest(), off_at_start())
+        .build()
+        .unwrap();
     assert!(!kernel.start(Instant(0)).power_off());
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OffAtStart)
+        .items(off_at_start_manifest(), off_at_start())
         .power_off(true)
         .build()
         .unwrap();
@@ -330,19 +332,13 @@ fn plugins_hear_how_long_the_device_slept() {
     assert_eq!(slept, Some(core::time::Duration::from_secs(3_600)));
 }
 
-/// Hears whether its sound played.
-struct Listener(Log);
-
 const PLAYED: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Played> =
     paperpaw_sdk::event::Event::new("ear.played");
 
-impl Plugin for Listener {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("ear"), "Ear", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
+/// Hears whether its sound played.
+fn listener(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
         r.on(PLAYED, move |_, played, _| {
             let word = played.context.get("word").unwrap_or_default();
             log.borrow_mut()
@@ -351,13 +347,18 @@ impl Plugin for Listener {
     }
 }
 
+/// What [`listener`] registers under.
+fn listener_manifest() -> Manifest {
+    Manifest::new(Id::new_static("ear"), "Ear", Version::new(1, 0, 0))
+}
+
 /// No shell plays sound yet (reserved): a sound asked for is answered at
 /// once, not played, with its parameters; stopping one does nothing.
 #[test]
 fn sounds_are_answered_not_played() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Listener(log.clone()))
+        .items(listener_manifest(), listener(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));

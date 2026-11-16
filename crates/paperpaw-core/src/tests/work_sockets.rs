@@ -5,6 +5,7 @@
 //! before, tied to the screens.
 
 use super::*;
+use crate::Items;
 use core::cell::Cell;
 use paperpaw_sdk::Params;
 use paperpaw_sdk::work::{Step, Work, WorkSpec};
@@ -39,13 +40,8 @@ fn connect(socket: &'static str) -> Command {
     Command::connect(Id::new_static(socket), "mail.example.org", 993, events)
 }
 
-impl Plugin for SocketWork {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("ws"), "Socket work", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NETWORK)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn socket_work(kept: SocketWork) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         for id in ["ws.home", "ws.page"] {
             r.add_screen(ScreenSpec::new(
                 Id::new_static(id),
@@ -59,7 +55,7 @@ impl Plugin for SocketWork {
             Id::new_static("ws.open"),
             Box::new(|_, _, out| out.push(connect("ws.own"))),
         )?;
-        let fail = Rc::clone(&self.fail);
+        let fail = Rc::clone(&kept.fail);
         let steps = Rc::new(Cell::new(0u32));
         r.add_work(WorkSpec::new(JOB, "job", move |_, _, out| {
             steps.set(steps.get() + 1);
@@ -90,11 +86,20 @@ impl Plugin for SocketWork {
     }
 }
 
+/// What [`socket_work`] registers under.
+fn socket_work_manifest() -> Manifest {
+    Manifest::new(Id::new_static("ws"), "Socket work", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NETWORK)
+}
+
 fn kernel(fail: bool) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(SocketWork {
-            fail: Rc::new(Cell::new(fail)),
-        })
+        .items(
+            socket_work_manifest(),
+            socket_work(SocketWork {
+                fail: Rc::new(Cell::new(fail)),
+            }),
+        )
         .network(true)
         .build()
         .unwrap();

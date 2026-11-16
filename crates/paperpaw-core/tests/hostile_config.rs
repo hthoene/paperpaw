@@ -12,6 +12,8 @@
 
 mod common;
 
+use common::AddDriver;
+
 use common::{DEVICE, Harness, press, render};
 use paperpaw_core::sdk::MemoryStorage;
 use paperpaw_core::sdk::builtin::CONFIG_FILE;
@@ -22,7 +24,7 @@ use proptest::prelude::*;
 /// A kernel with the driver plugin and `config` as given by the shell.
 fn with_config(harness: &Harness, config: &str) -> (Kernel, Vec<Warning>) {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .user_config(config)
         .build()
         .unwrap();
@@ -38,7 +40,7 @@ fn with_config(harness: &Harness, config: &str) -> (Kernel, Vec<Warning>) {
 fn with_stored_config(harness: &Harness, bytes: &[u8]) -> (Kernel, Vec<Warning>) {
     let storage = MemoryStorage::new().with(CONFIG_FILE, bytes.to_vec());
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .storage(storage)
         .build()
         .unwrap();
@@ -139,7 +141,7 @@ fn colour_codes_that_are_no_colours_show_black_on_white() {
              paper-color = core.paper.own\npaper-color-own = \"{paper}\"\n"
         );
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(harness.plugin())
+            .driver(harness.plugin())
             .colors(true)
             .user_config(config)
             .build()
@@ -154,7 +156,7 @@ fn colour_codes_that_are_no_colours_show_black_on_white() {
     }
     // Short codes are taken.
     let kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .colors(true)
         .user_config("[core]\ntext-color = core.color.own\ntext-color-own = #f00\n")
         .build()
@@ -166,7 +168,7 @@ fn colour_codes_that_are_no_colours_show_black_on_white() {
 fn a_rotation_that_is_none_keeps_the_screen_upright() {
     let harness = Harness::new();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .rotation(true)
         .user_config("[core]\nrotation = core.rotation.45\n")
         .build()
@@ -256,7 +258,7 @@ fn bindings_to_unknown_actions_are_reported_and_do_nothing() {
 fn a_broken_device_key_map_is_reported_as_the_devices() {
     let harness = Harness::new();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .device_keymap("[keymap.global]\nbutton.x = !\n[core]\nui-size = 3\nnot a line\n")
         .build()
         .unwrap();

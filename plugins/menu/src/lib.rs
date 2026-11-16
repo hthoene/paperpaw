@@ -2,7 +2,7 @@
 //!
 //! Shows the menu named by the `menu` parameter at the bottom of the screen,
 //! above whatever is open. Entries come from every plugin (see
-//! `Registrar::add_menu_entry`) or from the user's `[menus]` definitions.
+//! `Items::add_menu_entry`) or from the user's `[menus]` definitions.
 //! Choosing an action closes the menu and runs it. Settings show their
 //! current value and change in place, so the menu stays open: switches
 //! toggle, numbers have − and + buttons, choices open a list. An entry
