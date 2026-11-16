@@ -31,7 +31,7 @@ const KEPT_SETTINGS: u32 = 60;
 /// The step after the return, where the library announces a cover that became
 /// ready and Home draws that cell only (355 slots measured; a full draw is
 /// 520 and more, a laid-out page over 1,300).
-const COVER_CELL_SLOTS: u32 = 400;
+const COVER_READY_SLOTS: u32 = 400;
 /// A full redraw (five bands) of a page whose look is kept: slots, settings reads
 /// (622 and 270 before the look was kept; 330 and about 12 measured).
 const STEADY_SLOTS: u32 = 370;
@@ -199,7 +199,7 @@ fn what_a_book_changed_under_the_cover_shows_when_it_returns() {
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
     );
     assert!(
-        cover <= COVER_CELL_SLOTS && cover_settings <= KEPT_SETTINGS,
+        cover <= COVER_READY_SLOTS && cover_settings <= KEPT_SETTINGS,
         "the ready cover made {cover} host slots ({cover_settings} settings reads): more than its cell"
     );
     assert_ne!(
@@ -263,7 +263,7 @@ fn a_return_from_a_book_read_for_minutes_keeps_the_page() {
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
     );
     assert!(
-        cover <= COVER_CELL_SLOTS && cover_settings <= KEPT_SETTINGS,
+        cover <= COVER_READY_SLOTS && cover_settings <= KEPT_SETTINGS,
         "the ready cover made {cover} host slots ({cover_settings} settings reads): more than its cell"
     );
 }
