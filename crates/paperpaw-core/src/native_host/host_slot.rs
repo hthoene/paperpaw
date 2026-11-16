@@ -72,6 +72,7 @@ slot_ids! {
         CanvasClip => "canvas_clip",
         CanvasDescribe => "canvas_describe",
         CanvasDrawLine => "canvas_draw_line",
+        CanvasFillPattern => "canvas_fill_pattern",
         CanvasFillRect => "canvas_fill_rect",
         CanvasFillRound => "canvas_fill_round",
         CanvasStrokeRound => "canvas_stroke_round",

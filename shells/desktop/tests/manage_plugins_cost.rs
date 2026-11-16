@@ -44,7 +44,8 @@ fn the_first_frame_of_manage_plugins_stays_within_its_host_crossings() {
         .map_or(0, |(_, n)| *n);
     // Measured: 6,211 slots with 4,304 measures (every band measured the notes
     // of all rows, one word at a time); 1,829 and 279 with the heights kept,
-    // one measure for a note and the rows outside a band not laid out.
+    // one measure for a note and the rows outside a band not laid out; 1,016
+    // with the stippled separators drawn in one slot each (836 fills before).
     assert!(measures <= 330, "{measures} text measures: {counts:?}");
-    assert!(total <= 1950, "{total} host slots: {counts:?}");
+    assert!(total <= 1050, "{total} host slots: {counts:?}");
 }

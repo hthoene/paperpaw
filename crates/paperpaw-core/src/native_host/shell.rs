@@ -245,6 +245,7 @@ pub const fn host_table<S: Services + 'static>() -> PpHost {
     table.canvas_stroke_round = canvas_stroke_round::<S>;
     table.canvas_clip = canvas_clip::<S>;
     table.canvas_describe = canvas_describe::<S>;
+    table.canvas_fill_pattern = canvas_fill_pattern::<S>;
     table.storage_size = storage_externs::storage_size::<S>;
     table.storage_read_at = storage_externs::storage_read_at::<S>;
     table.storage_write = storage_externs::storage_write::<S>;
@@ -846,6 +847,28 @@ unsafe extern "C" fn canvas_fill_rect<S: 'static>(
     // The plugin waits for the host from here to the return.
     let _slot = super::host_slot::enter_as(super::host_slot::Id::CanvasFillRect);
     context.canvas.fill_rect_raw(x, y, width, height, color)
+}
+
+/// Slot 43 (`canvas.fill_pattern`): [`CanvasScope::fill_pattern`] with the
+/// scalars unchanged (`screens-input.md` 4.1).
+unsafe extern "C" fn canvas_fill_pattern<S: 'static>(
+    ctx: *mut c_void,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    color: u32,
+    pattern: u32,
+) -> i32 {
+    // SAFETY: a nonnull context is exactly the pinned Context<S> given to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter_as(super::host_slot::Id::CanvasFillPattern);
+    context
+        .canvas
+        .fill_pattern(x, y, width, height, color, pattern)
 }
 
 /// What a dispatch hands to the callback.
