@@ -368,6 +368,13 @@ impl Engine {
         Ok(())
     }
 
+    /// Whether another periodic push can be attempted.
+    #[must_use]
+    pub fn push_due(&self, now_ms: u64) -> bool {
+        self.last_push
+            .is_none_or(|at| now_ms.saturating_sub(at) >= PUSH_EVERY_MS)
+    }
+
     /// A page turned.
     ///
     /// # Errors
@@ -379,9 +386,7 @@ impl Engine {
         out: &mut Vec<Action>,
     ) -> Result<(), Error> {
         self.current = Some(position);
-        let due = self
-            .last_push
-            .is_none_or(|at| ctx.now_ms.saturating_sub(at) >= PUSH_EVERY_MS);
+        let due = self.push_due(ctx.now_ms);
         if due && ctx.may_send() && ctx.radio_on_anyway {
             self.push(ctx, out, false)
         } else if ctx.active() {

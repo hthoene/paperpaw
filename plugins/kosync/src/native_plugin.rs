@@ -97,6 +97,7 @@ pub struct NativeKosync {
     offers: Vec<Asked>,
     /// The server the account belongs to; another one signs out.
     server: Option<String>,
+    push_declared: bool,
 }
 
 impl Plugin for NativeKosync {
@@ -141,6 +142,7 @@ impl Plugin for NativeKosync {
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.resumed(ctx, out))
             }
             Event::WorkDue(due) if token == WORK_DUE && due.key() == PUSH_WORK => {
+                self.push_declared = false;
                 self.with_engine(host, due.now_ms(), |engine, ctx, out| {
                     engine.send_now(ctx, out)
                 })
@@ -292,7 +294,9 @@ impl NativeKosync {
         ctx.network = self.net.is_some();
         ctx.auto = Self::auto(host)?;
         ctx.signed_in = signed_in;
-        ctx.radio_on_anyway = self.radio_on_anyway(host);
+        ctx.radio_on_anyway = ctx.active()
+            && self.engine.as_ref().is_none_or(|engine| engine.push_due(now_ms))
+            && self.radio_on_anyway(host);
         Ok(ctx)
     }
 
@@ -520,6 +524,7 @@ impl NativeKosync {
     }
 
     fn send(&mut self, host: &Host<'_>, _ctx: Ctx, position: &Position) -> Result<(), Error> {
+        self.push_declared = false;
         match self.start_send(host, position) {
             Ok(true) => Ok(()),
             Ok(false) | Err(Error::Busy | Error::NoMemory) => {
@@ -613,27 +618,24 @@ impl NativeKosync {
     }
 
     fn push_later(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        if !self.backing.can_send() {
+        if self.push_declared || !self.backing.can_send() {
             return Ok(());
         }
         let Some(work) = &self.work else {
             return Ok(());
         };
         let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
-        // Declared already: left as it is (declaring again would move its time).
-        let waiting = work
-            .state(host, &mut input, &mut out)
-            .is_ok_and(|rows| rows.get(PUSH_WORK).is_some());
-        if waiting {
-            return Ok(());
-        }
         let spec = WorkSpec::new(PUSH_WORK, WORK_DUE)?
             .network()
             .within_ms(PUSH_WITHIN_MS)
             .at_moment(Moment::Online);
         match work.declare(host, &spec, &mut input, &mut out) {
             // No room for it: the progress goes with the next page or when the book closes.
-            Ok(()) | Err(Error::Full | Error::Denied | Error::Unsupported) => Ok(()),
+            Ok(()) => {
+                self.push_declared = true;
+                Ok(())
+            }
+            Err(Error::Full | Error::Denied | Error::Unsupported) => Ok(()),
             Err(error) => Err(error),
         }
     }
