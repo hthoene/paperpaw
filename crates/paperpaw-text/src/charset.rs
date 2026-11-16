@@ -101,7 +101,6 @@ const ARABIC: &[RangeInclusive<char>] = &[
 /// presentation forms (letters with points, wide letters).
 const HEBREW: &[RangeInclusive<char>] = &['\u{590}'..='\u{5ff}', '\u{fb1d}'..='\u{fb4f}'];
 
-paperpaw_table::shared! {
 /// A character of nearly the same look, for `ch` where a font lacks it,
 /// tried before the replacement character: a non-breaking hyphen as a
 /// hyphen, the long s as s, rare punctuation as its common cousin.
@@ -130,7 +129,6 @@ pub fn stand_in(ch: char) -> Option<char> {
         '\u{2bb}' => '\u{2018}', // turned comma: left quote
         _ => return None,
     })
-} @ text::CHARSET_STAND_IN
 }
 
 /// A character set by name (see [`names`]).

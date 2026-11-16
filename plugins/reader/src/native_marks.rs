@@ -281,7 +281,11 @@ fn has_text(words: &[WordBox], at: (u32, u32), lead: &Lead) -> bool {
     let mut text = String::new();
     let from = (at.0, at.1.saturating_sub(SHIFT));
     let first = words.partition_point(|w| (w.end.section, w.end.offset) <= from);
-    for word in words.iter().skip(first) {
+    for (at, word) in words.iter().enumerate().skip(first) {
+        // The second part of a word the layout broke says the word again.
+        if crate::native_selection::continues(words, at) {
+            continue;
+        }
         if text.len() > LEAD_MAX + 2 * SHIFT as usize
             || text.try_reserve(word.text.len() + 1).is_err()
         {

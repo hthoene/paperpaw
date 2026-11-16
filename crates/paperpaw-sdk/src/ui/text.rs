@@ -18,7 +18,6 @@ pub const NOTE_LINES_MOST: usize = 4;
 /// Line height of notes, relative to the small text size.
 pub(super) const NOTE_LINE_HEIGHT: f32 = 1.3;
 
-paperpaw_table::shared! {
 /// Draws icon `name` ([`icons`](crate::icons)) `size` pixels high,
 /// vertically centred in `area`, starting at `x`; returns its width, 0 if
 /// there is no icon font or no such icon.
@@ -37,14 +36,11 @@ pub fn draw_icon(
     let mut text = [0u8; 4];
     let text = ch.encode_utf8(&mut text);
     draw_text(canvas, &font, None, size, x, area, text, color)
-} @ ui::TEXT_DRAW_ICON
 }
 
-paperpaw_table::shared! {
 /// The width of icon `name` at `size` pixels, 0 if it cannot be drawn.
 pub fn icon_width(env: &Env<'_>, name: &str, size: f32) -> f32 {
     icon(env, name).map_or(0.0, |(font, ch)| font.advance(size, ch))
-} @ ui::TEXT_ICON_WIDTH
 }
 
 /// Where icon `name`'s ink begins and ends across at `size`, from where it
@@ -55,7 +51,6 @@ pub fn icon_ink(env: &Env<'_>, name: &str, size: f32) -> Option<(i32, i32)> {
     font.ink_across(size, ch.encode_utf8(&mut text))
 }
 
-paperpaw_table::shared! {
 /// The icon font and the character of icon `name`, where it has a drawing
 /// (its own, or an icon pack's). A semantic icon
 /// ([`icons::BACK`](crate::icons::BACK) and the others) is the icon a
@@ -71,7 +66,6 @@ pub(crate) fn icon<'f>(env: &Env<'f>, name: &str) -> Option<(FontHandle<'f>, cha
     let font = env.fonts().bound(crate::builtin::fonts::ICONS.as_str())?;
     let ch = crate::icons::char(name)?;
     font.has_char(ch).then_some((font, ch))
-} @ ui::TEXT_ICON
 }
 
 /// Whether icon `name` has a drawing here (see [`draw_icon`]), e.g. a
@@ -80,7 +74,6 @@ pub fn has_icon(env: &Env<'_>, name: &str) -> bool {
     icon(env, name).is_some()
 }
 
-paperpaw_table::shared! {
 /// Draws icon `name` `size` pixels high with its ink centred at
 /// `(x, y)`; `false`, drawing nothing, where it has no drawing.
 pub fn draw_icon_at(
@@ -91,7 +84,7 @@ pub fn draw_icon_at(
     at: (i32, i32),
     color: Color,
 ) -> bool {
-        let (x, y) = at;
+    let (x, y) = at;
     let Some((first, last)) = icon_ink(env, name, size) else {
         return false;
     };
@@ -105,7 +98,6 @@ pub fn draw_icon_at(
     let start = x as f32 - (first + last) as f32 / 2.0;
     draw_icon(canvas, env, name, size, start, area, color);
     true
-} @ ui::TEXT_DRAW_ICON_AT
 }
 
 /// Draws icon `name` `size` pixels high from `x` with its ink centred
@@ -134,7 +126,6 @@ pub(crate) fn draw_icon_centred(
     font.draw(canvas, size, x, baseline, text, color)
 }
 
-paperpaw_table::shared! {
 /// The height of a section's heading in a list (see [`Rows`]): small
 /// text with a little room above it.
 pub fn heading_height(env: &Env<'_>, style: &UiStyle) -> u16 {
@@ -142,10 +133,8 @@ pub fn heading_height(env: &Env<'_>, style: &UiStyle) -> u16 {
         f.line_metrics(style.small).line_height
     });
     (line * 1.25) as u16 + style.gap as u16
-} @ ui::TEXT_HEADING_HEIGHT
 }
 
-paperpaw_table::shared! {
 /// Draws a section's heading in `rect`: small and gray, low in its room,
 /// so it reads as belonging to the entries below; between the margins, a
 /// long one shortened with "…" as the rows' titles are.
@@ -202,7 +191,6 @@ pub(crate) fn draw_heading(
         text,
         style.ink(Ink::MUTED),
     );
-} @ ui::TEXT_DRAW_HEADING
 }
 
 /// The switch of an on/off setting at the end of `row`: its right one,
@@ -279,7 +267,6 @@ pub(crate) fn draw_switch(
 /// Icons in lists are this much larger than the text beside them.
 pub const ICON_SCALE: f32 = 1.25;
 
-paperpaw_table::shared! {
 /// The room icons take at the start of list rows (icon and gap), or 0
 /// without an icon font or when `any` row has none.
 pub fn icon_room(env: &Env<'_>, style: &UiStyle, any: bool) -> u16 {
@@ -288,10 +275,8 @@ pub fn icon_room(env: &Env<'_>, style: &UiStyle, any: bool) -> u16 {
     } else {
         0
     }
-} @ ui::TEXT_ICON_ROOM
 }
 
-paperpaw_table::shared! {
 /// Draws a list row's icon at the margin, centred on the row's first
 /// line (`rect`), and returns the rest of the row for its label: the
 /// label starts where it would after any icon, so rows line up.
@@ -329,7 +314,6 @@ pub(crate) fn draw_row_icon(
         rect.width.saturating_sub(room),
         rect.height,
     )
-} @ ui::TEXT_DRAW_ROW_ICON
 }
 
 /// Draws a row with `title` and a switch for `on` at its end, with
@@ -380,7 +364,6 @@ pub fn has_icons(env: &Env<'_>) -> bool {
         .is_some()
 }
 
-paperpaw_table::shared! {
 /// The translation of `key` for how the device is used: where there is
 /// no touch screen, `<key>.buttons` if there is one (e.g. "Select a rule
 /// to pause it" for "Tap a rule to pause it"), else `key`'s own. Notes
@@ -393,10 +376,8 @@ pub fn tr_input<'a>(env: &Env<'a>, key: &'a str) -> &'a str {
         return text;
     }
     env.i18n().tr(key)
-} @ ui::TEXT_TR_INPUT
 }
 
-paperpaw_table::shared! {
 /// Draws `text` vertically centred in `area`, starting at `x`; text
 /// longer than the rest of the area is shortened with "…", so a label
 /// never runs into what is next to it.
@@ -417,10 +398,8 @@ pub fn draw_label(
     let at = Rect::new(x.max(0.0) as u16, area.y, room.max(0.0) as u16, area.height);
     canvas.describe(Role::Text, text, at);
     draw_text(canvas, font, None, size, x, area, text, color)
-} @ ui::TEXT_DRAW_LABEL
 }
 
-paperpaw_table::shared! {
 /// [`draw_label`] for text that follows the look: `role` says what the
 /// text is ([`TextRole::BUTTON`], [`TextRole::HINT`], [`TextRole::TITLE`]
 /// …) and the look's text painter, if it has one and draws it, paints it
@@ -451,7 +430,6 @@ pub fn draw_label_in(
         text,
         color,
     )
-} @ ui::TEXT_DRAW_LABEL_IN
 }
 
 /// [`draw_label_in`] for a label laid out left to right (from `x`, its room
@@ -537,7 +515,6 @@ pub(super) fn draw_run_out(
     font.draw(canvas, size, x, baseline, text, color)
 }
 
-paperpaw_table::shared! {
 /// [`draw_label`] without telling what it draws (icons say nothing), and
 /// by the look's text painter where it has `look` (style and role).
 #[allow(clippy::too_many_arguments, reason = "one run of text")]
@@ -561,10 +538,8 @@ pub(crate) fn draw_text(
         return put_run(canvas, font, look, size, x, baseline, area, &text, color);
     }
     put_run(canvas, font, look, size, x, baseline, area, text, color)
-} @ ui::TEXT_DRAW_TEXT
 }
 
-paperpaw_table::shared! {
 /// One run of text: by the look's text painter, if there is a `look`, it
 /// has one and draws it, else as usual; its width.
 #[allow(clippy::too_many_arguments, reason = "one run of text")]
@@ -589,10 +564,8 @@ pub(crate) fn put_run(
         }
     }
     font.draw(canvas, size, x, baseline, text, color)
-} @ ui::TEXT_PUT_RUN
 }
 
-paperpaw_table::shared! {
 /// The baseline that centres the capitals of `size` in `band` (from the
 /// baseline to the top of an *H*), rather than the line, which leaves
 /// more room above the letters than below them, or the ink of the text
@@ -608,10 +581,8 @@ pub(crate) fn cap_baseline(font: &FontHandle<'_>, band: Rect, size: f32) -> i32 
     let room = i32::from(band.height) - (bottom - top);
     // Rounded down: an odd pixel goes below, where the eye expects it.
     i32::from(band.y) + room.div_euclid(2) - top
-} @ ui::TEXT_CAP_BASELINE
 }
 
-paperpaw_table::shared! {
 /// [`draw_label`] on `baseline` rather than centred in `area`, by the
 /// look's text painter where it has `look` (style and role).
 #[allow(
@@ -637,10 +608,8 @@ pub(crate) fn draw_label_on(
         return put_run(canvas, font, look, size, x, baseline, area, &text, color);
     }
     put_run(canvas, font, look, size, x, baseline, area, text, color)
-} @ ui::TEXT_DRAW_LABEL_ON
 }
 
-paperpaw_table::shared! {
 /// A title and a value side by side in `width` pixels: both as they are
 /// if they fit, else shortened with "…". The title says what the row is,
 /// so it keeps up to 60 % of the width; the value gets the rest. Returns
@@ -661,10 +630,8 @@ pub fn fit_pair(
     let value_width = font.measure(size, &value);
     let title = fit(font, size, title, (room - value_width).max(0.0) + 1.0);
     (title, value, value_width)
-} @ ui::TEXT_FIT_PAIR
 }
 
-paperpaw_table::shared! {
 /// The height [`Ui::message`](super::Ui::message) needs for all of `text` in an area
 /// `width` wide.
 pub fn message_height(env: &Env<'_>, style: &UiStyle, width: u16, text: &str) -> u16 {
@@ -674,10 +641,8 @@ pub fn message_height(env: &Env<'_>, style: &UiStyle, width: u16, text: &str) ->
     let room = (f32::from(width) - 2.0 * style.margin as f32).max(1.0);
     let lines = font.wrap(style.text, text, room).len().max(1);
     (font.line_metrics(style.text).line_height * lines as f32) as u16 + 1
-} @ ui::TEXT_MESSAGE_HEIGHT
 }
 
-paperpaw_table::shared! {
 /// Draws wrapped, centred message text in `area` ([`message_height`]
 /// high holds all of it).
 pub(crate) fn draw_message(
@@ -715,7 +680,6 @@ pub(crate) fn draw_message(
         baseline += line_height;
     }
     canvas.describe(Role::Text, &as_shown(text, &lines, cut, &last), area);
-} @ ui::TEXT_DRAW_MESSAGE
 }
 
 /// What a block of `text` wrapped on `lines` says as it is drawn: all of
@@ -733,7 +697,6 @@ fn as_shown<'a>(
     }
 }
 
-paperpaw_table::shared! {
 /// The height [`Ui::note_line`](super::Ui::note_line) needs for all of `text` in an area
 /// `width` wide: its light line and the lines of the text.
 pub fn note_line_height(env: &Env<'_>, style: &UiStyle, width: u16, text: &str) -> u16 {
@@ -744,10 +707,8 @@ pub fn note_line_height(env: &Env<'_>, style: &UiStyle, width: u16, text: &str) 
     let lines = font.wrap(style.small, text, room).len().max(1);
     let line = font.line_metrics(style.small).line_height;
     style.line as u16 + (line * lines as f32) as u16 + 1
-} @ ui::TEXT_NOTE_LINE_HEIGHT
 }
 
-paperpaw_table::shared! {
 /// A note at the bottom of a screen (what a tap or a hold does there, or
 /// what just happened): a light line above it, then `text` in small gray
 /// letters, wrapped on as many lines as `area` holds (the last one
@@ -813,10 +774,8 @@ pub(crate) fn draw_note_line(
         y += line;
     }
     canvas.describe(Role::Text, &as_shown(text, &lines, cut, &last), block);
-} @ ui::TEXT_DRAW_NOTE_LINE
 }
 
-paperpaw_table::shared! {
 /// `text` shortened with an ellipsis to fit `width` pixels, its pairs
 /// kerned as [`FontHandle::measure`] sets them (a pair kerned apart, `f\`
 /// in the UI font, takes more than its advances).
@@ -851,7 +810,6 @@ pub fn fit(font: &FontHandle<'_>, size: f32, text: &str, width: f32) -> String {
         }
     }
     result
-} @ ui::TEXT_FIT
 }
 
 /// How wide an empty state's words are in an area `width` wide: twice
@@ -899,7 +857,6 @@ fn empty_title_height(font: &FontHandle<'_>, size: f32, count: usize) -> f32 {
     line + font.heading_line_height(size) * count.saturating_sub(1) as f32
 }
 
-paperpaw_table::shared! {
 /// The height [`Ui::empty`](super::Ui::empty) needs in an area `width` wide for all of
 /// `title` and `text` in their full sizes, without its icon (which it
 /// shows where there is room for it as well).
@@ -918,10 +875,8 @@ pub fn empty_height(env: &Env<'_>, style: &UiStyle, width: u16, title: &str, tex
     let text = font.line_metrics(style.text).line_height * lines as f32;
     let gap = if lines > 0 { style.gap as f32 } else { 0.0 };
     (words + gap + text) as u16 + 1
-} @ ui::TEXT_EMPTY_HEIGHT
 }
 
-paperpaw_table::shared! {
 /// An empty screen or list, saying what would be here and how it gets
 /// filled: a large `icon` in gray, a short `title`, and `text` below it,
 /// together a little above the middle of `area`. The icon is left out
@@ -930,9 +885,9 @@ paperpaw_table::shared! {
     clippy::too_many_arguments,
     reason = "its inputs are separate things; a struct of them would serve this call alone"
 )]
-#[allow(
+#[expect(
     clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed (`allow`: clippy does not measure functions inside `shared!`)"
+    reason = "longer than the limit from before it was set; split it when it is next changed"
 )]
 pub(crate) fn draw_empty(
     canvas: &mut Canvas<'_>,
@@ -1058,5 +1013,4 @@ pub(crate) fn draw_empty(
         y += line;
     }
     canvas.describe(Role::Text, text, block);
-} @ ui::TEXT_DRAW_EMPTY
 }

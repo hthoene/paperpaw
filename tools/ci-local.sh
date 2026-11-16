@@ -199,11 +199,6 @@ g_sdk() {
         skip "sdk: interface.py --check" "cargo-public-api or ${nightly:-the nightly} missing"
     fi
     run "sdk: interface test" "cargo test -p paperpaw-sdk --test interface"
-    if [[ -f tools/shared-table.py ]]; then
-        run "sdk: shared table's index and signatures" "python3 tools/shared-table.py --check && python3 -I tools/test_shared_table.py"
-    else
-        skip "sdk: shared-table" "tools/shared-table.py is not in this tree (interface 5)"
-    fi
 }
 
 # Keep the baseline supplied independently by the caller. Missing input fails

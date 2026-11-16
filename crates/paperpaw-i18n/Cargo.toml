@@ -16,9 +16,7 @@ keywords = ["i18n", "translation", "no-std"]
 kernel = []
 
 [dependencies]
-# The shared function table (`paperpaw_table::shared!`).
 paperpaw-sort.workspace = true
-paperpaw-table.workspace = true
 paperpaw-config.workspace = true
 paperpaw-lang.workspace = true
 

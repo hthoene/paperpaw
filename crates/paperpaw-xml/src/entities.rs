@@ -84,7 +84,6 @@ const NAMED: &[(&str, char)] = &[
     ("Ccedil", 'Ç'),
 ];
 
-paperpaw_table::shared! {
 /// Decodes character and entity references; unknown or malformed ones are
 /// kept as written.
 pub fn decode(text: &str) -> Cow<'_, str> {
@@ -94,7 +93,6 @@ pub fn decode(text: &str) -> Cow<'_, str> {
     let mut out = String::with_capacity(text.len());
     decode_into(text, &mut out);
     Cow::Owned(out)
-} @ data::XML_DECODE
 }
 
 /// As [`decode`], with the memory error instead of an abort: the decoded

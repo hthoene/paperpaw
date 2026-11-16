@@ -35,6 +35,19 @@ fn the_text_of_chosen_words_is_one_line() {
 }
 
 #[test]
+fn a_broken_word_is_said_once_in_the_text_of_chosen_words() {
+    let mut page = words("one two three");
+    // A word of text has a place of a length.
+    (page[1].start, page[1].end) = (Locator::new(0, 4), Locator::new(0, 7));
+    // `two` broken by the layout: its second part has its text and place.
+    page[2].text = page[1].text.clone();
+    (page[2].start, page[2].end) = (page[1].start, page[1].end);
+    assert_eq!(text_of(&page, 0, 2).unwrap(), "one two");
+    assert_eq!(text_of(&page, 1, 2).unwrap(), "two");
+    assert_eq!(text_of(&page, 2, 2).unwrap(), "two");
+}
+
+#[test]
 fn the_bar_has_extend_on_buttons_and_cancel_on_touch() {
     let last = |touch| *bar::items(touch, None).last().unwrap();
     assert_eq!(last(false), Item::Extend);

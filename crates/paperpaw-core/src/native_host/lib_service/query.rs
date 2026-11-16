@@ -85,6 +85,9 @@ pub(crate) trait LibQuery {
     ) -> Result<RowsEnd, i32> {
         Err(ERR_UNSUPPORTED)
     }
+    /// A plugin stopped: what op 5 kept for the page after its last one is
+    /// dropped. Default: nothing is kept.
+    fn facets_ended(&self) {}
     /// Op 6: the `lib_entry` after the book in its series, `ERR_NOT_FOUND`
     /// for none.
     fn next_in_series(&self, _book: BookRef<'_>, _visit: One<'_>) -> Result<(), i32> {

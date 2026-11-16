@@ -101,7 +101,6 @@ impl Font {
         Font::from_cow(data.into(), variations)
     }
 
-    paperpaw_table::shared! {
     /// [`Font::from_data`] without generics, the one of it that is shared
     /// with the firmware.
     pub fn from_cow(
@@ -120,10 +119,8 @@ impl Font {
             let _ = variations;
             Err(FontError::OutlinesNotSupported)
         }
-    } @ text::FONT_FROM_COW
     }
 
-    paperpaw_table::shared! {
     /// The size `text` is drawn at when asked for `size`: of a pack, the
     /// nearest size that has all its characters, the large ones made for a
     /// few only for a `display` (see [`BitmapFont::size_for`]); else
@@ -133,10 +130,8 @@ impl Font {
             Font::Bitmap(font) => font.size_for(size, text, display),
             _ => size,
         }
-    } @ text::FONT_SIZE_FOR
     }
 
-    paperpaw_table::shared! {
     /// The largest size text can be set in, in pixels: a pack's largest
     /// with every character; `None` for a scalable font, which has every
     /// size.
@@ -147,10 +142,8 @@ impl Font {
             #[cfg(feature = "outline")]
             Font::Outline(_) => None,
         }
-    } @ text::FONT_LARGEST_SIZE
     }
 
-    paperpaw_table::shared! {
     pub fn line_metrics(&self, size: f32) -> LineMetrics {
         match self {
             Font::Bitmap(font) => font.line_metrics(size),
@@ -158,10 +151,8 @@ impl Font {
             #[cfg(feature = "outline")]
             Font::Outline(font) => font.line_metrics(size),
         }
-    } @ text::FONT_LINE_METRICS
     }
 
-    paperpaw_table::shared! {
     pub fn advance(&self, ch: char, size: f32) -> f32 {
         let ch = self.shown(ch);
         match self {
@@ -170,10 +161,8 @@ impl Font {
             #[cfg(feature = "outline")]
             Font::Outline(font) => font.advance(ch, size),
         }
-    } @ text::FONT_ADVANCE
     }
 
-    paperpaw_table::shared! {
     /// How much the pair `left`, `right` moves the second character, in
     /// pixels at `size` (negative: closer): the font's kerning, of the
     /// characters drawn for them ([`Font::shown`]). 0 for a pack read a
@@ -188,7 +177,6 @@ impl Font {
             #[cfg(feature = "outline")]
             Font::Outline(font) => font.kern(left, right, size),
         }
-    } @ text::FONT_KERN
     }
 
     /// Where marks sit on `ch` at `size` (see [`crate::anchors`]); for
@@ -216,7 +204,6 @@ impl Font {
         }
     }
 
-    paperpaw_table::shared! {
     /// Whether the font draws `ch`: its own glyph, or for a jamo of a
     /// modern Hangul syllable, the syllables it is set as. A font that
     /// holds 가 is taken to hold all modern syllables (as the Korean packs
@@ -230,10 +217,8 @@ impl Font {
             Font::Outline(font) => font.has_char(ch),
         };
         has(ch) || (crate::hangul::composes(ch) && has(crate::hangul::FIRST_SYLLABLE))
-    } @ text::FONT_HAS_CHAR
     }
 
-    paperpaw_table::shared! {
     /// The character drawn for `ch`: itself, or where the font lacks it,
     /// a stand-in of nearly the same look it has
     /// ([`charset::stand_in`](crate::charset::stand_in)); else `ch`, for
@@ -251,6 +236,5 @@ impl Font {
             shown = next;
         }
         if self.has_char(shown) { shown } else { ch }
-    } @ text::FONT_SHOWN
     }
 }
