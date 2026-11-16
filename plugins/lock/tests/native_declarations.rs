@@ -29,14 +29,14 @@ type Group = (&'static str, Vec<Vec<u8>>, &'static [&'static [u8]], usize);
 
 /// Each group of declarations: its name, what the builder makes, what the image
 /// holds and how many records each batch has (the settings: the group, three
-/// settings and the kind's editor).
+/// settings, the kind's editor and the touch lock's need).
 fn groups() -> [Group; 4] {
     [
         (
             "settings",
             batches!(declarations::settings),
             image::SETTINGS,
-            6,
+            7,
         ),
         (
             "screens",

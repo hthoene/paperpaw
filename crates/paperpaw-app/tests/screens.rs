@@ -81,6 +81,9 @@ impl App {
         // On touch screens without the hints over it all; the linked plugins on the same card.
         let (builder, card) =
             native_activation::quiet_on(device, storage, "[core]\nlanguage = en\n");
+        // As the X4 has them: a sleep screen and a Bluetooth radio, which the
+        // settings of the plugins that need them ask for.
+        let builder = builder.sleep(true).bluetooth(1);
         let mut kernel = native_activation::build_on(paperpaw_app::install(builder, fonts()), card);
         let effects = kernel.start(Instant(0));
         let mut app = Self { kernel, now: 0 };
