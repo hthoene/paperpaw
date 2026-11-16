@@ -137,6 +137,7 @@
 
 mod family;
 mod regs;
+mod tables;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -994,35 +995,6 @@ impl Image<'_> {
             let word = bytes.get(from..from.checked_add(4)?)?;
             Some(u32::from_le_bytes(word.try_into().ok()?))
         })
-    }
-
-    /// Every address inside a function that a word outside the functions
-    /// (data, or the literal pools between them) holds: where a jump table or
-    /// a function pointer can send the flow, so a place another path enters.
-    fn pointed(&self) -> BTreeSet<u32> {
-        let mut found = BTreeSet::new();
-        let mut take = |base: u32, bytes: &[u8], skip_functions: bool| {
-            let first = (4 - base % 4) % 4;
-            let Some(bytes) = bytes.get(first as usize..) else {
-                return;
-            };
-            for (n, word) in bytes.as_chunks::<4>().0.iter().enumerate() {
-                let value = u32::from_le_bytes(*word);
-                if skip_functions && self.at(base + first + 4 * n as u32).is_some() {
-                    continue;
-                }
-                if self.at(value).is_some() {
-                    found.insert(value);
-                }
-            }
-        };
-        for (base, bytes) in &self.data {
-            take(*base, bytes, false);
-        }
-        for (base, bytes) in &self.exec {
-            take(*base, bytes, true);
-        }
-        found
     }
 
     /// The function holding `address`, as an index into `funcs`.
