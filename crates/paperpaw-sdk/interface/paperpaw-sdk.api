@@ -2520,7 +2520,7 @@ pub const fn paperpaw_sdk::native::events::PluginRequestId::get(self) -> u32
 pub struct paperpaw_sdk::native::events::PowerChange<'a>
 impl<'a> paperpaw_sdk::native::events::PowerChange<'a>
 pub fn paperpaw_sdk::native::events::PowerChange<'a>::automatic(&self) -> bool
-pub fn paperpaw_sdk::native::events::PowerChange<'a>::level(&self) -> paperpaw_sdk::power::PowerLevel
+pub fn paperpaw_sdk::native::events::PowerChange<'a>::level(&self) -> paperpaw_sdk::native::device::PowerLevel
 pub fn paperpaw_sdk::native::events::PowerChange<'a>::mode(&self) -> &'a str
 pub fn paperpaw_sdk::native::events::PowerChange<'a>::now_ms(&self) -> u64
 pub fn paperpaw_sdk::native::events::PowerChange<'a>::stretch(&self) -> u32
