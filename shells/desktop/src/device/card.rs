@@ -182,6 +182,8 @@ mod tests {
 
     #[test]
     fn a_card_that_is_out_is_gone_until_it_is_back_or_a_device_is_made() {
+        // It makes devices and takes the card out for the whole process.
+        let _one = crate::one_device_at_a_time();
         let dir = crate::private::dir("paperpaw-card-out").unwrap();
         let card = Card::Dir(library(&dir).unwrap());
         card.write("a.txt", b"a").unwrap();
