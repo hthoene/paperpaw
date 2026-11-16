@@ -388,7 +388,7 @@ pub fn read_answer(text: &str) -> Result<Option<Remote>, Error> {
                 progress = None;
             }
         }
-        Event::Close(path) if path.is_empty() => closed = true,
+        Event::Close([]) => closed = true,
         _ => {}
     };
     let read = parser
