@@ -622,17 +622,12 @@ fn configured_wifi_offers_two_buttons_and_opens_the_literata_store_page() {
             paperpaw_core::sdk::Handled::No
         }
     }
-    struct Store(Rc<RefCell<String>>);
-    impl Plugin for Store {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(
-                Id::new_static("store"),
-                "Store probe",
-                Version::new(1, 0, 0),
-            )
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-            let target = self.0.clone();
+    let target = Rc::new(RefCell::new(String::new()));
+    // What the store opens the Literata page as: the plugin it is opened for.
+    let store = {
+        let target = target.clone();
+        move |r: &mut Items| -> Result<(), RegisterError> {
+            let target = target.clone();
             r.add_screen(ScreenSpec::new(
                 Id::new_static("store.plugin"),
                 "Store",
@@ -642,13 +637,19 @@ fn configured_wifi_offers_two_buttons_and_opens_the_literata_store_page() {
                 }),
             ))
         }
-    }
-    let target = Rc::new(RefCell::new(String::new()));
+    };
     let harness = Harness::new();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Lean)
-        .plugin(harness.plugin())
-        .plugin(Store(target.clone()))
+        .items(lean_manifest(), lean())
+        .driver(harness.plugin())
+        .items(
+            Manifest::new(
+                Id::new_static("store"),
+                "Store probe",
+                Version::new(1, 0, 0),
+            ),
+            store,
+        )
         .wifi(true)
         .storage(card(Styles::None, false).with("paperpaw.ini", CHOSEN))
         .user_config(CHOSEN)
