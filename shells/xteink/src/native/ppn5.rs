@@ -24,7 +24,7 @@
 //! 6. the entry's `make` runs (X2): in the registration scope of the
 //!    core's shared owner (`paperpaw_core::native_host::shell`), as the
 //!    first plugin code the X4 firmware runs for interface 7. Its output is
-//!    committed, wrapped as a core `FlatPlugin` and returned to the kernel.
+//!    committed and handed to the kernel to admit (`HostedAdmission`).
 //!
 //! **Plugin code and the firmware.** The plugin has no sandbox, as format 4.
 //! Around every call into its code (`make`, a callback, its destructor) the
