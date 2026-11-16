@@ -14,6 +14,8 @@
 
 mod common;
 
+use common::AddDriver;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -130,7 +132,7 @@ fn saver_manifest() -> Manifest {
 fn kernel(storage: &Ordered, results: &Rc<RefCell<Vec<Result<(), StorageError>>>>) -> Kernel {
     let harness = Harness::new();
     let mut kernel = Kernel::builder(common::DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .items(
             saver_manifest(),
             saver(Saver {

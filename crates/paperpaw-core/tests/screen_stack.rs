@@ -14,6 +14,8 @@
 
 mod common;
 
+use common::AddDriver;
+
 use common::{BASE, DEVICE, DIMS, FULL, Harness, OVERLAY, REGION, SCREEN, pointer, tap, within};
 use paperpaw_core::sdk::builtin::slots;
 use paperpaw_core::sdk::{Command, Params};
@@ -38,7 +40,7 @@ fn config(cases: u32) -> Config {
 /// A kernel with the driver, drawn whole or in bands of `rows` aligned
 /// to `align`.
 fn kernel(harness: &Harness, bands: Option<(u16, u16)>) -> Kernel {
-    let builder = Kernel::builder(DEVICE).plugin(harness.plugin());
+    let builder = Kernel::builder(DEVICE).driver(harness.plugin());
     let builder = match bands {
         Some((rows, align)) => builder.frame_rows(rows).row_align(align),
         None => builder,

@@ -50,7 +50,7 @@ fn weather_manifest() -> Manifest {
 fn services_by_contract_and_version() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .items(weather_manifest(), weather())
         .build()
         .unwrap();
@@ -88,8 +88,8 @@ fn services_by_contract_and_version() {
 fn slots_and_bindings_are_readable() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
-        .plugin(TestPlugin {
+        .test_plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin {
             priority: Priority(10),
             ..TestPlugin::new("b", &log)
         })

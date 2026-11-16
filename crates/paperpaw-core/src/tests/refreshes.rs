@@ -384,7 +384,7 @@ fn startup_overlay_replaces_every_row_and_preserves_start_effects() {
 #[test]
 fn a_full_redraw_keeps_deferred_work_and_its_final_frame() {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Opener)
+        .items(crate::tests::opener_manifest(), crate::tests::opener())
         .busy_mark(true)
         .clock(still_clock)
         .frame_rows(10)
@@ -415,7 +415,10 @@ fn a_full_redraw_keeps_deferred_work_and_its_final_frame() {
 fn two_small_items_far_apart_are_no_page_and_keep_a_picture_in_place() {
     let shown = Rc::new(RefCell::new(true));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(PicturePlugin(shown.clone()))
+        .items(
+            crate::tests::picture_plugin_manifest(),
+            crate::tests::picture_plugin(shown.clone()),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));

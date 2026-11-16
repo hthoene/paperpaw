@@ -17,7 +17,10 @@ fn cleaning_up_keeps_what_belongs_to_files_still_there() {
         .with(&annotations("Books/a.txt"), "a note")
         .with(&annotations("Books/gone.txt"), "a note");
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(NoticePlugin { log: log() })
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(NoticePlugin { log: log() }),
+        )
         .storage(storage)
         .build()
         .unwrap();
@@ -70,7 +73,10 @@ fn cleaning_up_asks_before_the_notes_of_books_not_found_go() {
         .with(&cover, "a cover");
     let heard = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(NoticePlugin { log: log() })
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(NoticePlugin { log: log() }),
+        )
         .items(heard_manifest(), self::heard(heard.clone()))
         .user_config("[core]\nlanguage = en\n")
         .storage(storage)

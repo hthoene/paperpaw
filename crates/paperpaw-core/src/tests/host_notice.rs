@@ -94,7 +94,13 @@ fn a_notice_shows_as_long_as_set_and_a_new_one_replaces_it() {
 /// A text too long for three lines is cut on the third, never more lines.
 #[test]
 fn a_long_text_is_cut_to_three_lines() {
-    let kernel = Kernel::builder(DEVICE).plugin(FontPlugin).build().unwrap();
+    let kernel = Kernel::builder(DEVICE)
+        .items(
+            crate::tests::font_plugin_manifest(),
+            crate::tests::font_plugin(),
+        )
+        .build()
+        .unwrap();
     let env = kernel.shared.env(Instant(0));
     let long = "aaaa ".repeat(400);
     let notice = crate::native_host::notice::Notice::new(

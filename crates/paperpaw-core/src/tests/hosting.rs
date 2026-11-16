@@ -108,7 +108,10 @@ fn host_plugin_manifest() -> Manifest {
 fn a_screen_hosts_another_in_a_part_of_it() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(NoticePlugin { log: super::log() })
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(NoticePlugin { log: super::log() }),
+        )
         .items(host_plugin_manifest(), host_plugin(log.clone()))
         .build()
         .unwrap();

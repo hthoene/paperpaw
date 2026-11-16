@@ -160,7 +160,10 @@ fn fit_kernel(log: &Log, revision: u16, takes: bool, home: Id) -> Kernel {
         home,
     };
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(NoticePlugin { log: super::log() })
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(NoticePlugin { log: super::log() }),
+        )
         .items(fit_plugin_manifest(), fit_plugin(plugin))
         .build()
         .unwrap();

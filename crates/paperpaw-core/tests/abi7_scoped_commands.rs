@@ -12,8 +12,8 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
 use paperpaw_sdk::{
-    Canvas, Command, Commands, Env, Id, Manifest, Plugin, Priority, RegisterError, Screen,
-    ScreenSpec, SettingExtra, SettingSpec, SettingValue, builtin,
+    Canvas, Command, Commands, Env, Id, Manifest, Priority, RegisterError, Screen, ScreenSpec,
+    SettingExtra, SettingSpec, SettingValue, builtin,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -480,7 +480,7 @@ struct GuardedWriter {
     authority: Rc<Cell<Option<CommandAuthority>>>,
     expected: i32,
 }
-impl Plugin for GuardedWriter {
+impl GuardedWriter {
     fn manifest(&self) -> Manifest {
         let id = if self.editor { "editor" } else { "other" };
         Manifest::new(
@@ -489,10 +489,12 @@ impl Plugin for GuardedWriter {
             paperpaw_sdk::Version::new(1, 0, 0),
         )
     }
+}
 
-    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
-        let owner = self.manifest().id;
-        if self.editor {
+fn guarded_writer(kept: GuardedWriter) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let owner = kept.manifest().id;
+        if kept.editor {
             let screen = Id::new_static("editor.settings");
             r.add_screen(ScreenSpec::new(
                 screen.clone(),
@@ -503,8 +505,8 @@ impl Plugin for GuardedWriter {
         } else {
             r.add_settings(&FOREIGN)?;
         }
-        let authority = self.authority.clone();
-        let expected = self.expected;
+        let authority = kept.authority.clone();
+        let expected = kept.expected;
         r.subscribe(
             builtin::events::STARTED,
             Box::new(move |env, _, out| {
@@ -540,7 +542,7 @@ fn run_guarded_writer(editor: bool, resolve_authority: bool) {
         builder = builder.items(other_manifest(), other());
     }
     let owner = writer.manifest().id;
-    let mut kernel = builder.plugin(writer).build().unwrap();
+    let mut kernel = builder.guarded_writer(writer).build().unwrap();
     if resolve_authority {
         authority.set(Some(kernel.command_settings_authority(&owner)));
     }
@@ -561,4 +563,15 @@ fn a_plugins_own_guarded_setting_is_admitted() {
 #[test]
 fn no_host_authority_means_no_foreign_guarded_exemption() {
     run_guarded_writer(true, false);
+}
+
+/// Adds the fixtures that keep their fields (`TestPlugin`, `ServicePlugin`) to a builder.
+trait AddFixture {
+    fn guarded_writer(self, plugin: GuardedWriter) -> Self;
+}
+
+impl AddFixture for paperpaw_core::KernelBuilder {
+    fn guarded_writer(self, plugin: GuardedWriter) -> Self {
+        self.items(plugin.manifest(), guarded_writer(plugin))
+    }
 }

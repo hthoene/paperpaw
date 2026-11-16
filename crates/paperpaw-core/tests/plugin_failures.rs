@@ -13,6 +13,8 @@
 
 mod common;
 
+use common::AddDriver;
+
 use std::borrow::Cow;
 
 use common::{BASE, DEVICE, Harness, press};
@@ -108,7 +110,7 @@ fn faulty(harness: &Harness, fault: Fault) -> (Kernel, Vec<Warning>) {
             fault,
             harness: harness.clone(),
         })
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .build()
         .unwrap();
     let warnings = kernel.take_warnings();
@@ -182,7 +184,7 @@ fn a_failing_plugin_switched_off_is_listed_without_a_warning() {
             fault: Fault::Late,
             harness: harness.clone(),
         })
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .user_config("[plugins]\nbad = off\n")
         .build()
         .unwrap();
@@ -214,7 +216,7 @@ impl Plugin for Named {
 fn plugins_with_taken_dotted_or_reserved_ids_are_refused() {
     let harness = Harness::new();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .plugin(Named { id: "drv" })
         .plugin(Named { id: "core" })
         .plugin(Named { id: "drv.sub" })
@@ -297,7 +299,7 @@ fn broken_data_plugins_are_reported_and_good_ones_still_load() {
     ]);
     let harness = Harness::new();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .storage(storage)
         .build()
         .unwrap();
@@ -347,7 +349,7 @@ fn broken_data_plugins_are_reported_and_good_ones_still_load() {
 fn commands_for_plugins_that_are_not_data_plugins_are_refused() {
     let harness = Harness::new();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .storage(MemoryStorage::new().with("books/a.txt", b"keep".to_vec()))
         .build()
         .unwrap();
@@ -405,7 +407,7 @@ proptest! {
         ]);
         let harness = Harness::new();
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(harness.plugin())
+            .driver(harness.plugin())
             .storage(storage)
             .build()
             .unwrap();

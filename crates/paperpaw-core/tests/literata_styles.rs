@@ -27,6 +27,8 @@
 
 mod common;
 
+use common::AddDriver;
+
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -414,7 +416,7 @@ impl Running {
         };
         let mut kernel = Kernel::builder(DEVICE)
             .items(lean_manifest(), lean())
-            .plugin(harness.plugin())
+            .driver(harness.plugin())
             .storage(shared)
             .build()
             .unwrap();

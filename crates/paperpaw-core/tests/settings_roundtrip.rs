@@ -13,6 +13,8 @@
 
 mod common;
 
+use common::AddDriver;
+
 use std::borrow::Cow;
 
 use common::{DEVICE, Harness};
@@ -103,7 +105,7 @@ fn settings_manifest() -> Manifest {
 
 fn kernel(harness: &Harness, storage: MemoryStorage) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .items(settings_manifest(), settings())
         .storage(storage)
         .build()

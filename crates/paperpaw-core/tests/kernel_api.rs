@@ -12,6 +12,8 @@
 
 mod common;
 
+use common::AddDriver;
+
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -20,8 +22,8 @@ use paperpaw_core::Items;
 use paperpaw_core::sdk::builtin::{events, slots};
 use paperpaw_core::sdk::secrets::{FILE as SECRETS, SecretChange};
 use paperpaw_core::sdk::{
-    Battery, DirEntry, Manifest, MemoryStorage, Params, Plugin, RegisterError, Storage,
-    StorageError, SystemStatus, WallClock,
+    Battery, DirEntry, Manifest, MemoryStorage, Params, RegisterError, Storage, StorageError,
+    SystemStatus, WallClock,
 };
 use paperpaw_core::{Kernel, KernelBuilder};
 use paperpaw_platform::Instant;
@@ -103,7 +105,7 @@ impl Storage for Synced {
 
 fn kernel(harness: &Harness, storage: impl Storage + 'static) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .items(
             listener_manifest(),
             listener(Listener {
@@ -241,7 +243,7 @@ fn a_start_that_ends_a_sleep_is_a_waking_too() {
     ] {
         let harness = Harness::new();
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(harness.plugin())
+            .driver(harness.plugin())
             .items(
                 listener_manifest(),
                 listener(Listener {
@@ -386,18 +388,20 @@ impl paperpaw_core::sdk::Screen for LookScreen {
     }
 }
 
-impl Plugin for Looks {
+impl Looks {
     fn manifest(&self) -> Manifest {
         common::manifest(self.name)
     }
+}
 
-    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
-        for (painters, priority) in &self.looks {
+fn looks_items(kept: Looks) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        for (painters, priority) in &kept.looks {
             r.set_ui_look(painters, *priority)?;
         }
-        if self.name == "looks-a" {
+        if kept.name == "looks-a" {
             let screen = paperpaw_core::sdk::Id::new_static("looks-a.home");
-            let seen = self.seen.clone();
+            let seen = kept.seen.clone();
             r.add_screen(paperpaw_core::sdk::ScreenSpec::new(
                 screen.clone(),
                 "looks-a.home",
@@ -429,9 +433,9 @@ fn the_look_of_the_highest_priority_is_used_of_equal_ones_the_later() {
         seen: seen.clone(),
     };
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(looks("looks-a", vec![(&PLAIN, Priority::DEFAULT)]))
-        .plugin(looks("looks-b", vec![(&SWITCHES, Priority::PREFERRED)]))
-        .plugin(looks(
+        .looks_plugin(looks("looks-a", vec![(&PLAIN, Priority::DEFAULT)]))
+        .looks_plugin(looks("looks-b", vec![(&SWITCHES, Priority::PREFERRED)]))
+        .looks_plugin(looks(
             "looks-c",
             vec![(&FOCUS, Priority::PREFERRED), (&PLAIN, Priority::FALLBACK)],
         ))
@@ -665,7 +669,7 @@ fn typed_settings_are_set_and_refused_values_told() {
 }
 
 fn kernel_with(harness: &Harness, plugin: impl Fn(KernelBuilder) -> KernelBuilder) -> Kernel {
-    let mut kernel = plugin(Kernel::builder(DEVICE).plugin(harness.plugin()))
+    let mut kernel = plugin(Kernel::builder(DEVICE).driver(harness.plugin()))
         .storage(MemoryStorage::new())
         .build()
         .unwrap();
@@ -944,13 +948,15 @@ struct Vault {
     heard: Heard,
 }
 
-impl Plugin for Vault {
+impl Vault {
     fn manifest(&self) -> Manifest {
         common::manifest(self.name)
     }
+}
 
-    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
-        if self.name == "vault" {
+fn vault_items(kept: Vault) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        if kept.name == "vault" {
             r.add_settings(&VAULT_SETTINGS)?;
             r.subscribe(
                 paperpaw_core::sdk::Id::new_static("vault.forget"),
@@ -965,7 +971,7 @@ impl Plugin for Vault {
                 Box::new(|_, _, out| out.push(ask_keyboard("vault.key"))),
             )?;
         }
-        if self.name == "spy" {
+        if kept.name == "spy" {
             // Tries to overwrite the vault's secret: set, typed for, reset.
             r.subscribe(
                 paperpaw_core::sdk::Id::new_static("spy.try"),
@@ -1007,7 +1013,7 @@ impl Plugin for Vault {
                 }),
             )?;
         }
-        let (name, heard) = (self.name, self.heard.clone());
+        let (name, heard) = (kept.name, kept.heard.clone());
         r.subscribe(
             events::SETTING_CHANGED.id().clone(),
             Box::new(move |_, params, _| heard.borrow_mut().push(format!("{name} {params:?}"))),
@@ -1087,11 +1093,11 @@ impl paperpaw_core::sdk::Screen for Answering {
 fn vault(storage: MemoryStorage) -> (Kernel, Heard) {
     let heard = Heard::default();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Vault {
+        .vault_plugin(Vault {
             name: "vault",
             heard: heard.clone(),
         })
-        .plugin(Vault {
+        .vault_plugin(Vault {
             name: "spy",
             heard: heard.clone(),
         })
@@ -1215,4 +1221,19 @@ fn text_typed_for_a_placement_is_its_own() {
         String::from(settings.text("vault.box.note"))
     });
     assert_eq!(placed, "second");
+}
+
+/// Adds the fixtures that keep their fields (`TestPlugin`, `ServicePlugin`) to a builder.
+trait AddFixture {
+    fn looks_plugin(self, plugin: Looks) -> Self;
+    fn vault_plugin(self, plugin: Vault) -> Self;
+}
+
+impl AddFixture for paperpaw_core::KernelBuilder {
+    fn looks_plugin(self, plugin: Looks) -> Self {
+        self.items(plugin.manifest(), looks_items(plugin))
+    }
+    fn vault_plugin(self, plugin: Vault) -> Self {
+        self.items(plugin.manifest(), vault_items(plugin))
+    }
 }

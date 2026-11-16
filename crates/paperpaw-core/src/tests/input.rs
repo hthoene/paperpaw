@@ -35,7 +35,7 @@ fn nothing_held(kernel: &Kernel) -> bool {
 /// dropped.
 fn shown_kernel(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", log))
+        .test_plugin(TestPlugin::new("a", log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -63,7 +63,7 @@ fn a_dropped_press_pressed_again_after_the_frame_does_not_stick() {
 fn a_held_press_pressed_again_before_the_frame_keeps_its_release() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -98,7 +98,7 @@ fn a_press_dropped_after_the_clock_went_back_does_not_stick() {
 fn a_finger_down_again_before_the_frame_does_not_stick() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -122,7 +122,7 @@ fn a_finger_down_again_before_the_frame_does_not_stick() {
 fn a_swapped_page_button_pressed_again_keeps_its_release() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .user_config(
             "[slots]
 core.reader = a.screen
@@ -192,7 +192,7 @@ fn any_order_of_presses_leaves_the_buttons_working() {
 fn two_fingers_resting_wake_the_shell_no_more() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -340,7 +340,7 @@ fn right_held_opens_the_quick_panel_and_pressed_still_goes_right() {
 fn a_press_while_a_new_screen_refreshes_counts() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));

@@ -142,7 +142,7 @@ fn observed() -> (Kernel, Log) {
 fn observed_with_screen() -> (Kernel, Log, Log) {
     let (log, screen) = (log(), log());
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &screen))
+        .test_plugin(TestPlugin::new("a", &screen))
         .plugin(Observing(log.clone()))
         .plugin(Guarding(log.clone()))
         .build()
@@ -519,7 +519,7 @@ mod above_the_guard {
     fn what_no_guard_let_pass_opens_below_it() {
         let log = log();
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(TestPlugin::new("a", &log))
+            .test_plugin(TestPlugin::new("a", &log))
             .plugin(GatePlugin)
             .plugin(Up)
             .build()
@@ -625,7 +625,7 @@ mod secrets_of_others {
     fn only_a_plugin_changes_its_secrets() {
         let log = log();
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(TestPlugin::new("a", &log))
+            .test_plugin(TestPlugin::new("a", &log))
             .plugin(Snoop)
             .plugin(Editor)
             .build()
@@ -707,7 +707,7 @@ mod originals_work {
     fn the_originals_work_is_kept() {
         let log = log();
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(TestPlugin::new("a", &log))
+            .test_plugin(TestPlugin::new("a", &log))
             .plugin(Worker)
             .plugin(Wrapper)
             .build()
@@ -735,7 +735,7 @@ fn a_sealed_action_keeps_its_handler_in_either_order() {
     );
     let (log, screen) = (log(), log());
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &screen))
+        .test_plugin(TestPlugin::new("a", &screen))
         .plugin(Guarding(log.clone()))
         .plugin(Observing(log.clone()))
         .build()
@@ -824,7 +824,7 @@ mod guarded_settings {
             .with("plugins/macro/plugin.ini", "[plugin]\nformats = 3\n")
             .with("plugins/macro/actions.ini", "[off]\nrun = safe.on=false\n");
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(TestPlugin::new("a", &log))
+            .test_plugin(TestPlugin::new("a", &log))
             .plugin(Safe)
             .plugin(Other)
             .storage(storage)

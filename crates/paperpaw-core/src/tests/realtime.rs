@@ -309,7 +309,7 @@ fn leased(asked: u32, free: u32, log: &Log) -> Kernel {
                 mode: ScreenMode::new().raw_keys().memory(asked),
             }),
         )
-        .plugin(TestPlugin::new("b", log))
+        .test_plugin(TestPlugin::new("b", log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -327,7 +327,7 @@ fn leased(asked: u32, free: u32, log: &Log) -> Kernel {
 fn exhausted_keys_keep_slot_screen_for_new_screen_or_new_params() {
     let log = log();
     let mut kernel = kernel(
-        Kernel::builder(DEVICE).plugin(TestPlugin::new("b", &log)),
+        Kernel::builder(DEVICE).test_plugin(TestPlugin::new("b", &log)),
         ScreenMode::new(),
         &log,
     );
@@ -370,7 +370,7 @@ fn exhausted_keys_keep_slot_screen_for_new_screen_or_new_params() {
 fn key_exhaustion_preserves_replace_and_saved_task_state() {
     let log = log();
     let mut kernel = kernel(
-        Kernel::builder(DEVICE).plugin(TestPlugin::new("b", &log)),
+        Kernel::builder(DEVICE).test_plugin(TestPlugin::new("b", &log)),
         ScreenMode::new(),
         &log,
     );
@@ -424,7 +424,7 @@ fn room_closures_reserve_restore_keys_and_refuse_when_none_remain() {
                     mode: ScreenMode::new().memory(64_000),
                 }),
             )
-            .plugin(TestPlugin::new("b", &log))
+            .test_plugin(TestPlugin::new("b", &log))
             .build()
             .unwrap();
         kernel.start(Instant(0));
@@ -649,7 +649,7 @@ fn holding(config: &'static str) -> Kernel {
         .user_config(config)
         .sleep(true)
         .items(holder_manifest(), holder_items())
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));

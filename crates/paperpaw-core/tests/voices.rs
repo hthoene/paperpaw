@@ -12,6 +12,8 @@
 
 mod common;
 
+use common::AddDriver;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -70,7 +72,7 @@ fn deutsch_manifest() -> Manifest {
 
 fn kernel(harness: &Harness, heard: &Heard, config: &str, system: bool) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .items(echo_manifest(), echo(heard.clone()))
         .items(deutsch_manifest(), deutsch(heard.clone()))
         .speech(system)

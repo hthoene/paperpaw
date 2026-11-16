@@ -13,7 +13,7 @@ use paperpaw_sdk::{Gesture, GestureKind, Params};
 /// A kernel showing plugin `a`'s screen, with its key map `keymap`.
 fn kernel_with(log: &Log, keymap: &'static str) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin {
+        .test_plugin(TestPlugin {
             keymap: Some(keymap),
             ..TestPlugin::new("a", log)
         })
@@ -232,7 +232,7 @@ impl Plugin for LayerPlugin {
 fn layered(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(LayerPlugin(log.clone()))
-        .plugin(TestPlugin::new("b", log))
+        .test_plugin(TestPlugin::new("b", log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -323,7 +323,7 @@ impl Plugin for Filters {
 fn filters_cancel_and_replace_inputs() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .plugin(Filters)
         .build()
         .unwrap();
@@ -413,7 +413,7 @@ impl Plugin for FlickPlugin {
 
 fn flick_kernel(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", log))
+        .test_plugin(TestPlugin::new("a", log))
         .plugin(FlickPlugin)
         .plugin(LockPlugin(log.clone()))
         .plugin(Filters)
@@ -560,7 +560,7 @@ fn recognizers_see_nothing_under_a_guard() {
 fn recognizers_follow_the_screens_policy() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin {
+        .test_plugin(TestPlugin {
             keymap: Some("[keymap.a.screen]\ngestures.policy = core.gestures.own\n"),
             ..TestPlugin::new("a", &log)
         })
@@ -604,12 +604,12 @@ fn a_waiting_press_keeps_its_screen() {
     let log = log();
     let keymap = "[keymap.a.screen]\ndouble.confirm = core.home\nbutton.confirm = a.special\n";
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin {
+        .test_plugin(TestPlugin {
             keymap: Some(keymap),
             priority: Priority(10),
             ..TestPlugin::new("a", &log)
         })
-        .plugin(TestPlugin::new("b", &log))
+        .test_plugin(TestPlugin::new("b", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -743,7 +743,10 @@ fn screens_follow_the_interfaces_direction_unless_they_have_their_own() {
 fn a_hovering_pen_reaches_no_screen() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(EdgeHolderPlugin(log.clone(), true))
+        .items(
+            crate::tests::edge_holder_plugin_manifest(),
+            crate::tests::edge_holder_plugin(log.clone(), true),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));

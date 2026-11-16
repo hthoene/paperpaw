@@ -77,7 +77,10 @@ fn nothing_shows_above_a_guarding_screen_but_its_own() {
     let locked = Rc::new(Cell::new(true));
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(GuardPlugin(locked.clone()))
-        .plugin(NoticePlugin { log: log() })
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(NoticePlugin { log: log() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -112,10 +115,13 @@ fn no_plugins_are_asked_for_while_locked() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(GuardPlugin(locked.clone()))
-        .plugin(super::plugins_loaded::Store {
-            log: log.clone(),
-            installs: true,
-        })
+        .items(
+            super::plugins_loaded::store_manifest(),
+            super::plugins_loaded::store(super::plugins_loaded::Store {
+                log: log.clone(),
+                installs: true,
+            }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -188,7 +194,10 @@ fn notices_held_by_a_guard_wait_in_a_queue_and_show_in_turn() {
         let locked = Rc::new(Cell::new(true));
         let mut kernel = Kernel::builder(DEVICE.with_memory(memory))
             .plugin(GuardPlugin(locked))
-            .plugin(NoticePlugin { log: log() })
+            .items(
+                crate::tests::notice_plugin_manifest(),
+                crate::tests::notice_plugin(NoticePlugin { log: log() }),
+            )
             .build()
             .unwrap();
         kernel.start(Instant(0));
