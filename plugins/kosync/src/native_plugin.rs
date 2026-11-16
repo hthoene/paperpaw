@@ -295,7 +295,10 @@ impl NativeKosync {
         ctx.auto = Self::auto(host)?;
         ctx.signed_in = signed_in;
         ctx.radio_on_anyway = ctx.active()
-            && self.engine.as_ref().is_none_or(|engine| engine.push_due(now_ms))
+            && self
+                .engine
+                .as_ref()
+                .is_none_or(|engine| engine.push_due(now_ms))
             && self.radio_on_anyway(host);
         Ok(ctx)
     }
