@@ -431,17 +431,20 @@ fn a_cover_that_comes_after_the_first_frame_gets_one_pass_after_the_calm() {
     let effects = kernel.tick(Instant(3_200));
     assert!(effects.refresh().is_some() && effects.grays());
     render(&mut kernel);
-    // A part frame is never marked in grays (the shell skips a small frame
-    // over grays). A second cover after the pass has pictures: grays are due
-    // again, once.
+    // On the X4 a frame while grays are shown is drawn again whole (the
+    // shell's `draw_again`, the part itself is never rendered), and a part is
+    // never marked in grays. A second cover after the pass has pictures: that
+    // frame counts them, and grays are due again, exactly once.
     late.set(true);
     kernel.invalidate(Rect::new(40, 10, 20, 20));
     let effects = kernel.finish();
     assert!(effects.refresh().is_some() && !effects.grays());
+    let effects = kernel.draw_again(Instant(4_000));
+    assert!(effects.refresh().is_some() && !effects.grays());
     render(&mut kernel);
     assert_eq!(kernel.frame.gray_later.phase, Phase::Pictured);
-    kernel.tick(Instant(4_000));
-    let effects = kernel.tick(Instant(7_000));
+    kernel.tick(Instant(4_100));
+    let effects = kernel.tick(Instant(7_100));
     assert!(effects.refresh().is_some() && effects.grays());
     render(&mut kernel);
     let effects = kernel.tick(Instant(20_000));
