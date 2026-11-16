@@ -10,8 +10,11 @@
 //!
 //! ```
 //! use paperpaw_sdk::help::{self, HelpHint, Zone};
-//! # fn register(r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-//! help::add(r, "my.screen", &[
+//! # use paperpaw_sdk::{Id, RegisterError};
+//! # fn register(
+//! #     mut contribute: impl FnMut(Id, String) -> Result<(), RegisterError>,
+//! # ) -> Result<(), RegisterError> {
+//! help::add(&mut contribute, "my.screen", &[
 //!     HelpHint::touch("my.help.next").zone(Zone::new(667, 0, 333, 1000)),
 //!     HelpHint::buttons("my.help.select"),
 //! ])?;
@@ -37,7 +40,7 @@ use alloc::vec::Vec;
 use crate::builtin::events::ScreenShown;
 use crate::env::Env;
 use crate::event::Event;
-use crate::{Command, Id, Rect, RegisterError, Registrar};
+use crate::{Command, Id, Rect, RegisterError};
 
 /// The point hints go to.
 pub const POINT: &str = "help.hints";
@@ -171,14 +174,19 @@ impl HelpHint {
     }
 }
 
-/// Adds `hints` for `screen`.
-pub fn add(r: &mut Registrar, screen: &str, hints: &[HelpHint]) -> Result<(), RegisterError> {
+/// Adds `hints` for `screen` through `contribute` (the kernel's
+/// `Items::contribute`).
+pub fn add(
+    contribute: &mut dyn FnMut(Id, String) -> Result<(), RegisterError>,
+    screen: &str,
+    hints: &[HelpHint],
+) -> Result<(), RegisterError> {
     let mut text = String::new();
     for hint in hints {
         text.push_str(&hint.line(screen));
         text.push('\n');
     }
-    r.contribute(Id::new_static(POINT), text)
+    contribute(Id::new_static(POINT), text)
 }
 
 /// Sent by a screen whose hints wait ([`wait`]) once it shows what it is
@@ -187,8 +195,11 @@ pub const READY: Event<ScreenShown> = Event::new("help.ready");
 
 /// The hints of `screen` wait until it says it is ready ([`ready`]),
 /// rather than show as it opens.
-pub fn wait(r: &mut Registrar, screen: &str) -> Result<(), RegisterError> {
-    r.contribute(
+pub fn wait(
+    contribute: &mut dyn FnMut(Id, String) -> Result<(), RegisterError>,
+    screen: &str,
+) -> Result<(), RegisterError> {
+    contribute(
         Id::new_static(POINT),
         format!(
             "{screen} wait

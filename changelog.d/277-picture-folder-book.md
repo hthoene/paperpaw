@@ -1,0 +1,3 @@
+### Fixed
+
+- **A folder of pictures is one book again** (#277). Opening a picture from the library opens it with the pictures after it in its folder as the pages, in name order, as in Beta 3; before, each picture was a book of one page. The picture format reads its book's folder through the files service, a page of names at a time. `Files::list` and `Files::stat` take the book root (`Root::Book`, wire root 3) as `docs/abi/files.md` section 1.1 allows: inside a `core.format` call of a folder or siblings document a format lists the folder and stats its entries; the host answers Unsupported outside one, and every changing call still refuses the book root before any call.

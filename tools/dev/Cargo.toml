@@ -22,17 +22,14 @@ paperpaw-digest.workspace = true
 paperpaw-fs.workspace = true
 paperpaw-graphics = { workspace = true, features = ["color"] }
 paperpaw-i18n.workspace = true
+# The list a plugin with code keeps of what it calls (`metadata`).
+paperpaw-json.workspace = true
 paperpaw-native = { workspace = true, features = ["kernel"] }
 paperpaw-platform.workspace = true
 # The plugin store's rules and the check before publishing (`check-publish`).
 paperpaw-publish.workspace = true
 paperpaw-sdk.workspace = true
 png = "0.18"
-
-[dev-dependencies]
-# The SDK's sample plugin, run through the harness as a plugin's own
-# repository runs its plugin (tests/harness.rs).
-paperpaw-sample-hello = { path = "../../samples/hello-plugin" }
 
 [lints]
 workspace = true

@@ -46,6 +46,9 @@ pub(crate) struct FrameState {
     /// The screen whose follow-up the frame to draw is (its draws are marked,
     /// also when it is drawn again for the panel).
     pub(crate) followup_frame: Option<paperpaw_sdk::ScreenKey>,
+    /// The grays a screen with pictures gets after its frame in black and
+    /// white, once calm (`gray_later.rs`).
+    pub(crate) gray_later: crate::gray_later::GrayLater,
 }
 
 /// Refreshes deferred in a row at most: the next is made whatever the
@@ -267,6 +270,8 @@ impl Kernel {
         let big = pictured.saturating_mul(100) >= screen.saturating_mul(PICTURES_PERCENT);
         let most = u32::from(region.width) * u32::from(region.height) * 2 >= screen;
         self.frame.pictures_shown = big || (self.frame.pictures_shown && !most);
+        let all = self.framebuffer.take_all_pictured();
+        self.gray_seen(all, screen);
         if let Some(path) = shot {
             let saved = writer.is_some_and(|w| w.is_complete());
             if !saved {

@@ -15,6 +15,7 @@ use paperpaw_ui_kit::{
 };
 
 use crate::native_lines;
+use crate::native_widgets::Looks;
 
 /// The three lists and the chosen whole line of the widget `cx` is open on: of
 /// the lines the setting lists, the first that is there, by its id now
@@ -83,13 +84,13 @@ pub fn draw_widget(
     host: &Host<'_>,
     ui: &Ui,
     frame: &mut DrawFrame<'_>,
-    widget: &str,
+    (widget, kept): (&str, &Looks),
     area: Rect,
 ) -> Result<(), Error> {
     // The buffers outlive the context: the drawn values borrow the host for the
     // callback and are composed in before it ends.
     let mut buffers = [Vec::new(), Vec::new()];
-    let cx = Cx::open(host, widget)?;
+    let cx = Cx::open_kept(host, widget, kept.take())?;
     let mut out = Vec::new();
     let mut placed = Vec::new();
     let look = cx.shape.paint(&mut out, area, 256)?;
@@ -118,5 +119,6 @@ pub fn draw_widget(
         // An owner that cannot draw now (busy, gone) leaves its place empty.
         Ui::compose(host, item.target, item.rect).ok();
     }
+    kept.keep(cx.keep());
     Ok(())
 }

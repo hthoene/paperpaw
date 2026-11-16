@@ -59,7 +59,7 @@ impl Plugin for RustListener {
     fn manifest(&self) -> Manifest {
         Manifest::new(Id::new_static("rust"), "Rust", Version::new(1, 0, 0))
     }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         let calls = Rc::clone(&self.0);
         r.subscribe(
             builtin::STARTED,
@@ -109,7 +109,7 @@ impl Plugin for GuardPlugin {
     fn manifest(&self) -> Manifest {
         Manifest::new(Id::new_static("guard"), "Guard", Version::new(1, 0, 0))
     }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         r.add_screen(ScreenSpec::new(
             Id::new_static("guard.screen"),
             "guard",
@@ -186,7 +186,7 @@ impl Plugin for ReentryDriver {
     fn manifest(&self) -> Manifest {
         Manifest::new(Id::new_static("flat"), "Reentry", Version::new(1, 0, 0))
     }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         let calls = Rc::clone(&self.calls);
         let drops = Rc::clone(&self.drops);
         let meter = Rc::clone(&self.host.meter);

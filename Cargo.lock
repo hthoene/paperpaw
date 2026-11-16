@@ -1738,6 +1738,7 @@ dependencies = [
  "paperpaw-plugin-widgets",
  "paperpaw-sdk",
  "paperpaw-sort",
+ "paperpaw-stack-budget",
  "paperpaw-text",
  "png",
  "proptest",
@@ -1765,10 +1766,10 @@ dependencies = [
  "paperpaw-fs",
  "paperpaw-graphics",
  "paperpaw-i18n",
+ "paperpaw-json",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-publish",
- "paperpaw-sample-hello",
  "paperpaw-sdk",
  "png",
 ]
@@ -1798,6 +1799,7 @@ dependencies = [
  "aes-gcm",
  "chrono",
  "getrandom 0.4.3",
+ "libc",
  "libloading 0.9.0",
  "paperpaw-app",
  "paperpaw-core",
@@ -1811,7 +1813,6 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sample-frame-test",
- "paperpaw-sample-hello",
  "paperpaw-sample-interlinear",
  "paperpaw-sdk",
  "paperpaw-serve",
@@ -2822,16 +2823,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-sample-hello"
-version = "0.6.0-beta.3"
-dependencies = [
- "paperpaw-core",
- "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-sample-interlinear"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2921,6 +2912,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-stack-budget"
+version = "0.0.0"
+dependencies = [
+ "paperpaw-fat",
+ "paperpaw-plugin-format-images",
+ "paperpaw-sdk",
+ "paperpaw-x4",
+]
+
+[[package]]
 name = "paperpaw-stardict"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2969,7 +2970,6 @@ dependencies = [
  "paperpaw-dev",
  "paperpaw-emulator",
  "paperpaw-platform",
- "paperpaw-sample-hello",
  "paperpaw-x4",
 ]
 

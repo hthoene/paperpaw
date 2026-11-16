@@ -158,24 +158,21 @@ impl Storage for Card {
 /// The plugin's two catalogs as the kernel reads them: the production host does
 /// not load a native plugin's `i18n/*.ini` yet, so a test-only plugin registers
 /// them (as in the about page's hosted test).
-struct Catalogs;
-impl paperpaw_sdk::Plugin for Catalogs {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            paperpaw_sdk::Id::new_static("transfer"),
-            "Transfer catalogs",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+fn catalogs(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = paperpaw_sdk::Manifest::new(
+        paperpaw_sdk::Id::new_static("transfer"),
+        "Transfer catalogs",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    );
+    builder.items(manifest, |items| {
         for text in [
             include_str!("../i18n/en.ini"),
             include_str!("../i18n/de.ini"),
         ] {
-            r.add_translations(std::borrow::Cow::Borrowed(text))?;
+            items.add_translations(std::borrow::Cow::Borrowed(text))?;
         }
         Ok(())
-    }
+    })
 }
 
 /// The X4's firmware as the kernel's plugin jobs need it: nothing of an
@@ -309,28 +306,29 @@ impl Computer {
             })
             .config("[core]\nlanguage = en\n")
             .with_kernel(move |builder| {
-                builder
-                    .storage(kernel_card.clone())
-                    .network(true)
-                    .wifi(true)
-                    .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
-                    .plugin(Catalogs)
-                    // What installs the plugin sent (a firmware host's queue
-                    // takes plugin jobs; the X4's loader checks them).
-                    .firmware_host(Box::new(firmware()))
-                    // The confirmation's nonce (none: it ends dismissed).
-                    .random(fill)
-                    .plugin_host(
-                        paperpaw_native::header5::Host::x4(1),
-                        paperpaw_native::metadata::Host {
-                            abi_major: 7,
-                            minor: 1,
-                            profile: paperpaw_native::header5::X4_PROFILE,
-                            services: &[],
-                            features: &[],
-                        },
-                        &[],
-                    )
+                catalogs(
+                    builder
+                        .storage(kernel_card.clone())
+                        .network(true)
+                        .wifi(true)
+                        .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS),
+                )
+                // What installs the plugin sent (a firmware host's queue
+                // takes plugin jobs; the X4's loader checks them).
+                .firmware_host(Box::new(firmware()))
+                // The confirmation's nonce (none: it ends dismissed).
+                .random(fill)
+                .plugin_host(
+                    paperpaw_native::header5::Host::x4(1),
+                    paperpaw_native::metadata::Host {
+                        abi_major: 7,
+                        minor: 1,
+                        profile: paperpaw_native::header5::X4_PROFILE,
+                        services: &[],
+                        features: &[],
+                    },
+                    &[],
+                )
             });
         let mut device = hosted::install_in(
             &setup,

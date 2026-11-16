@@ -36,6 +36,8 @@ struct Probe {
     told: Told,
     /// The page titles it was told of.
     titles: Rc<RefCell<Vec<String>>>,
+    /// The page-turned records it was told, as they came.
+    pages: Rc<RefCell<Vec<Vec<u8>>>>,
     /// Fails every call when set.
     fails: Rc<Cell<bool>>,
 }
@@ -79,6 +81,7 @@ impl NativeInstance for Probe {
             }
             wire::Record::EventPageTurned(event) => {
                 self.titles.borrow_mut().push(event.title.into());
+                self.pages.borrow_mut().push(bytes.to_vec());
                 (wire::EVENT_PAGE_TURNED_TAG, event.now_ms)
             }
             _ => return Err(ERR_INVALID),
@@ -121,24 +124,37 @@ struct World {
     b: u64,
     told: Told,
     titles: Rc<RefCell<Vec<String>>>,
+    pages: Rc<RefCell<Vec<Vec<u8>>>>,
     fails: Rc<Cell<bool>>,
+    /// Makes plugin `b` alone fail every call when set.
+    b_fails: Rc<Cell<bool>>,
 }
 
 /// Plugin `a` hears the tags `a_tags`, plugin `b` the tags `b_tags`.
 fn world(a_tags: &'static [u32], b_tags: &'static [u32]) -> World {
-    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .build()
-        .unwrap();
+    world_on(crate::Kernel::builder(crate::tests::DEVICE), a_tags, b_tags)
+}
+
+/// [`world`] on a kernel made of `builder`.
+fn world_on(
+    builder: crate::KernelBuilder,
+    a_tags: &'static [u32],
+    b_tags: &'static [u32],
+) -> World {
+    let mut kernel = builder.build().unwrap();
     let told = Told::default();
     let titles = Rc::new(RefCell::new(Vec::new()));
+    let pages = Rc::new(RefCell::new(Vec::new()));
     let fails = Rc::new(Cell::new(false));
+    let b_fails = Rc::new(Cell::new(false));
     let mut add = |name: char, tags: &'static [u32]| {
         let probe = Probe {
             name,
             tags,
             told: Rc::clone(&told),
             titles: Rc::clone(&titles),
-            fails: Rc::clone(&fails),
+            pages: Rc::clone(&pages),
+            fails: Rc::clone(if name == 'b' { &b_fails } else { &fails }),
         };
         kernel
             .shared
@@ -158,7 +174,9 @@ fn world(a_tags: &'static [u32], b_tags: &'static [u32]) -> World {
         b,
         told,
         titles,
+        pages,
         fails,
+        b_fails,
     }
 }
 
@@ -643,3 +661,9 @@ fn a_move_without_both_paths_is_dropped_without_a_panic() {
     raise(&mut w.kernel, wire::EVENT_BOOK_MOVED_TAG, &params);
     assert!(tags(&w, 'a').is_empty());
 }
+
+/// The page conversion and the minute tick on the production route; they
+/// were pinned through the old adapter (`flat/event_tests.rs`,
+/// `flat/routing_tests.rs`) until #244.
+#[path = "core_events_redrive_tests.rs"]
+mod redrive;

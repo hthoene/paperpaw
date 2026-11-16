@@ -13,13 +13,12 @@
 
 use std::cell::{Cell, RefCell};
 
-use paperpaw_core::KernelBuilder;
+use paperpaw_core::{Items, KernelBuilder};
 use paperpaw_platform::Rect;
 use paperpaw_sdk::ui::{self, UiStyle};
 use paperpaw_sdk::widgets::{Widget, WidgetSpec};
 use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, Plugin, RegisterError, Registrar, Screen, ScreenSpec,
-    Version,
+    Canvas, Cx, Env, Handled, Id, Manifest, RegisterError, Screen, ScreenSpec, Version,
 };
 
 use crate::AddPlugins;
@@ -55,7 +54,7 @@ pub fn set_target(add: Option<AddPlugins>) {
 
 /// Adds the probe and the target's plugins (see [`set_target`]).
 pub fn add(builder: KernelBuilder) -> KernelBuilder {
-    let builder = builder.plugin(Probe);
+    let builder = builder.items(probe_manifest(), probe());
     match TARGET.get() {
         Some(add) => add(builder),
         None => builder,
@@ -72,21 +71,8 @@ pub fn area() -> Option<Rect> {
     AREA.get()
 }
 
-#[derive(Debug)]
-struct Probe;
-
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static(PLUGIN),
-            "paperpaw-dev",
-            Version::new(0, 1, 0),
-        )
-        .description("Measures where widgets are drawn, for paperpaw-dev.")
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn probe() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_widget(WidgetSpec::new(WIDGET, "paperpaw-dev.probe", |_| {
             Box::new(Noting)
         }))?;
@@ -96,6 +82,17 @@ impl Plugin for Probe {
             Box::new(|_, _| Box::new(Measuring)),
         ))
     }
+}
+
+/// What [`probe`] registers under.
+fn probe_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static(PLUGIN),
+        "paperpaw-dev",
+        Version::new(0, 1, 0),
+    )
+    .description("Measures where widgets are drawn, for paperpaw-dev.")
+    .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// Measures every setting's description against its row's lines.

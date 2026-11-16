@@ -16,7 +16,7 @@ use native_activation::BuildNative as _;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use paperpaw_core::{Effects, Kernel};
+use paperpaw_core::{Effects, Items, Kernel, Plugin};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat,
     PointerEvent, PointerPhase, PointerTool, Rotation,
@@ -26,8 +26,8 @@ use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::layers::{PageFrameSpec, PageLayerSpec, Side};
 use paperpaw_sdk::setting::Setting;
 use paperpaw_sdk::{
-    Color, Id, Manifest, MemoryStorage, Params, Plugin, Point, Rect, RegisterError, Registrar,
-    SDK_VERSION, SettingSpec,
+    Color, Id, Manifest, MemoryStorage, Params, Point, Rect, RegisterError, SDK_VERSION,
+    SettingSpec,
 };
 
 /// Buttons and a touch screen.
@@ -77,7 +77,7 @@ impl Plugin for Margin {
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         let (seen, side) = (self.0.clone(), self.1);
         r.add_page_layer(
             PageLayerSpec::new(BAR, "margin.bar", move |canvas, _, page| {

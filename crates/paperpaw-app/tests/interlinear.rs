@@ -21,7 +21,7 @@ use native_activation::BuildNative as _;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use paperpaw_core::{Effects, Kernel};
+use paperpaw_core::{Effects, Items, Kernel, Plugin};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat,
     PointerEvent, PointerPhase, PointerTool, Rotation,
@@ -34,8 +34,8 @@ use paperpaw_sdk::layers::{LayerItem, PageLayerSpec};
 use paperpaw_sdk::reading::PageWords;
 use paperpaw_sdk::setting::Setting;
 use paperpaw_sdk::{
-    ActionSpec, Commands, Env, Id, Manifest, MemoryStorage, Params, Plugin, Point, Rect,
-    RegisterError, Registrar, SDK_VERSION, SettingSpec,
+    ActionSpec, Commands, Env, Id, Manifest, MemoryStorage, Params, Point, Rect, RegisterError,
+    SDK_VERSION, SettingSpec,
 };
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
@@ -105,7 +105,7 @@ impl Plugin for Interlinear {
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         r.add_settings(&SETTINGS)?;
         r.add_text_filter(TextFilterSpec::new(
             Id::new_static("interlinear.room"),

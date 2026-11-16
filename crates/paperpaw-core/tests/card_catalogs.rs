@@ -12,6 +12,8 @@
 
 mod common;
 
+use common::AddDriver;
+
 use std::rc::Rc;
 
 use common::{DEVICE, Harness, press};
@@ -51,7 +53,7 @@ fn card(catalog: Vec<u8>) -> Rc<MemoryStorage> {
 fn started(card: &Rc<MemoryStorage>, language: &str) -> Kernel {
     let harness = Harness::new();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .storage(Shared(card.clone()))
         .user_config(format!("[core]\nlanguage = {language}\n"))
         .build()

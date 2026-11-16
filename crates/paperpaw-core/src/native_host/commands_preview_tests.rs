@@ -11,7 +11,8 @@ use paperpaw_sdk::{Env, Params, builtin::groups};
 /// A kernel with two plugins: `probe` (a number, a text, a secret, two
 /// screens) and `other` (a guarded switch, a number, a screen).
 fn kernel() -> crate::Kernel {
-    use paperpaw_sdk::{Manifest, Plugin, Registrar, Screen, ScreenSpec, Version};
+    use crate::Items;
+    use paperpaw_sdk::{Manifest, Screen, ScreenSpec, Version};
     struct Empty;
     impl Screen for Empty {
         fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}
@@ -19,25 +20,24 @@ fn kernel() -> crate::Kernel {
             paperpaw_sdk::Handled::No
         }
     }
-    struct Screens(
-        &'static str,
-        &'static [&'static str],
-        fn() -> Vec<SettingSpec>,
-    );
-    impl Plugin for Screens {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static(self.0), "Probe", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-            for id in self.1 {
+    fn screens_manifest(id: &'static str) -> Manifest {
+        Manifest::new(Id::new_static(id), "Probe", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn screens(
+        names: &'static [&'static str],
+        settings: fn() -> Vec<SettingSpec>,
+    ) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
+        move |r| {
+            for id in names {
                 r.add_screen(ScreenSpec::new(
                     Id::new_static(id),
                     "probe.title",
                     alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Empty)),
                 ))?;
             }
-            for setting in (self.2)() {
+            for setting in settings() {
                 r.add_setting(setting)?;
             }
             Ok(())
@@ -57,8 +57,11 @@ fn kernel() -> crate::Kernel {
         ]
     };
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Screens("probe", &["probe.base", "probe.second"], probe))
-        .plugin(Screens("other", &["other.base"], other))
+        .items(
+            screens_manifest("probe"),
+            screens(&["probe.base", "probe.second"], probe),
+        )
+        .items(screens_manifest("other"), screens(&["other.base"], other))
         .build()
         .unwrap();
     kernel.apply(Command::OpenScreen(

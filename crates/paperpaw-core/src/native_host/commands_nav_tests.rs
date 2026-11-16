@@ -285,7 +285,8 @@ fn more_than_sixteen_screens_fail_closed() {
 /// A kernel with the screens of plugin `lock` (`lock.screen` guards the
 /// device) and of plugin `probe`.
 fn guarded_kernel() -> crate::Kernel {
-    use paperpaw_sdk::{Manifest, Plugin, Registrar, Screen, ScreenSpec, Version};
+    use crate::Items;
+    use paperpaw_sdk::{Manifest, Screen, ScreenSpec, Version};
     struct Plain;
     impl Screen for Plain {
         fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
@@ -303,14 +304,16 @@ fn guarded_kernel() -> crate::Kernel {
             true
         }
     }
-    struct Screens(&'static str, &'static [&'static str]);
-    impl Plugin for Screens {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static(self.0), self.0, Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-            for id in self.1 {
+    fn screens_manifest(id: &'static str) -> Manifest {
+        Manifest::new(Id::new_static(id), id, Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn screens(
+        names: &'static [&'static str],
+    ) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
+        move |r| {
+            for id in names {
                 let guard = id.ends_with(".screen");
                 r.add_screen(ScreenSpec::new(
                     Id::new_static(id),
@@ -328,8 +331,14 @@ fn guarded_kernel() -> crate::Kernel {
         }
     }
     crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Screens("probe", &["probe.base", "probe.old", "probe.more"]))
-        .plugin(Screens("lock", &["lock.screen", "lock.next"]))
+        .items(
+            screens_manifest("probe"),
+            screens(&["probe.base", "probe.old", "probe.more"]),
+        )
+        .items(
+            screens_manifest("lock"),
+            screens(&["lock.screen", "lock.next"]),
+        )
         .build()
         .unwrap()
 }

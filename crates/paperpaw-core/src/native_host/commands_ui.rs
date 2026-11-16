@@ -781,7 +781,8 @@ mod tests {
     use paperpaw_platform::Instant;
 
     fn screens_kernel() -> crate::Kernel {
-        use paperpaw_sdk::{Manifest, Plugin, Registrar, Screen, ScreenSpec, Version};
+        use crate::Items;
+        use paperpaw_sdk::{Manifest, RegisterError, Screen, ScreenSpec, Version};
         struct Empty;
         impl Screen for Empty {
             fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}
@@ -793,13 +794,8 @@ mod tests {
                 paperpaw_sdk::Handled::No
             }
         }
-        struct Screens;
-        impl Plugin for Screens {
-            fn manifest(&self) -> Manifest {
-                Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
-                    .uses(paperpaw_sdk::Uses::NOTHING)
-            }
-            fn register(&self, r: &mut Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        fn screens() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+            |r| {
                 for id in ["probe.base", "probe.old", "probe.new"] {
                     r.add_screen(ScreenSpec::new(
                         Id::new_static(id),
@@ -810,8 +806,14 @@ mod tests {
                 Ok(())
             }
         }
+
+        /// What [`screens`] registers under.
+        fn screens_manifest() -> Manifest {
+            Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
+                .uses(paperpaw_sdk::Uses::NOTHING)
+        }
         crate::Kernel::builder(crate::tests::DEVICE)
-            .plugin(Screens)
+            .items(screens_manifest(), screens())
             .build()
             .unwrap()
     }

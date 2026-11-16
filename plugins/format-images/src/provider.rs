@@ -14,6 +14,7 @@ use paperpaw_sdk::document::{Block, BlockKind, Document, DocumentError, Locator}
 use paperpaw_sdk::image::Fit;
 use paperpaw_sdk::native::{
     Error, Host,
+    files::{self, Files},
     stage_schemas::core_format_v1::{self as stage, Record},
     storage::{self, Root},
 };
@@ -36,7 +37,7 @@ pub const MAX_DOCUMENTS: usize = 8;
 /// The format's id: the declaration's plugin id and format name.
 const FORMAT_ID: &str = "format-images.pictures";
 /// The code a refused allocation travels as through `StorageError`.
-const NO_MEMORY: u16 = 0x6e6d;
+pub(crate) const NO_MEMORY: u16 = 0x6e6d;
 const TEXT: usize = 1024;
 /// Rows of a reply, one of them the closing `fmt.end`.
 const ROWS: usize = 64;
@@ -133,8 +134,17 @@ impl Storage for HostIo<'_, '_> {
         Ok(())
     }
 
-    fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
-        Err(StorageError::Unsupported)
+    /// The book's folder (root 3, `core.files`) a page of names at a time:
+    /// nothing is kept of a page after its names were visited.
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        if dir.starts_with(CACHE) {
+            return Err(StorageError::Unsupported);
+        }
+        let files = Files::open(self.host).map_err(storage_error)?;
+        let listed = list_pages(self.host, &files, dir, visit);
+        let released = files.release(self.host);
+        listed?;
+        released.map_err(storage_error)
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {
@@ -143,6 +153,42 @@ impl Storage for HostIo<'_, '_> {
             return Err(StorageError::Unsupported);
         }
         storage::remove(self.host, root, name).map_err(storage_error)
+    }
+}
+
+/// The listing of root 3's `dir` through `files`, its two buffers (the only
+/// memory of the listing, given back at its end) taken fallibly.
+fn list_pages(
+    host: &Host<'_>,
+    files: &Files,
+    dir: &str,
+    visit: &mut dyn FnMut(DirEntry<'_>),
+) -> Result<(), StorageError> {
+    let mut input: Vec<u8> = Vec::new();
+    let mut output: Vec<u8> = Vec::new();
+    for (buffer, size) in [
+        (&mut input, files::INPUT_BYTES),
+        (&mut output, files::OUTPUT_BYTES),
+    ] {
+        buffer
+            .try_reserve_exact(size)
+            .map_err(|_| StorageError::Other(NO_MEMORY))?;
+        buffer.resize(size, 0);
+    }
+    let mut cursor = 0;
+    loop {
+        let page = files
+            .list(host, Root::Book, dir, cursor, &mut input, &mut output)
+            .map_err(storage_error)?;
+        for entry in page.entries() {
+            if !entry.unaddressable() {
+                visit(DirEntry::new(entry.name(), entry.is_folder(), entry.size()));
+            }
+        }
+        match page.next() {
+            Some(next) => cursor = next,
+            None => return Ok(()),
+        }
     }
 }
 
