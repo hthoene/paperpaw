@@ -10,8 +10,12 @@
 use super::*;
 use paperpaw_sdk::event::EventData;
 
+/// A page turn as told: section, offset, progress, the lengths of path,
+/// title and chapter, page and pages.
+type Turn = (u32, u32, u32, usize, usize, usize, Option<u32>, Option<u32>);
+
 /// The page-turned records plugin `a` was told, decoded.
-fn turns(w: &World) -> Vec<(u32, u32, u32, usize, usize, usize, Option<u32>, Option<u32>)> {
+fn turns(w: &World) -> Vec<Turn> {
     w.pages
         .borrow()
         .iter()
@@ -130,7 +134,7 @@ fn a_page_turn_s_progress_is_clamped_rounded_and_never_not_a_number() {
 fn told_counters(page: u32, pages: u32) -> (Option<u32>, Option<u32>) {
     let mut w = world(ALL, &[]);
     let mut params = page_with("page", &alloc::format!("{page}"));
-    params.set("pages", &alloc::format!("{pages}"));
+    params.set("pages", alloc::format!("{pages}"));
     raise(&mut w.kernel, wire::EVENT_PAGE_TURNED_TAG, &params);
     assert_eq!(tags(&w, 'a'), [wire::EVENT_PAGE_TURNED_TAG], "not dropped");
     last_counters(&w)
