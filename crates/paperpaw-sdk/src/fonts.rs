@@ -642,7 +642,6 @@ impl Fonts {
         self.cache.borrow().bytes()
     }
 
-    paperpaw_table::shared! {
     /// How many times a font pack read from a card could not read an
     /// advance or a glyph (a card pulled, memory short), over the fonts
     /// loaded, wrapping. A layout that keeps pages (a book's page index)
@@ -653,10 +652,8 @@ impl Fonts {
             .iter()
             .filter_map(|entry| entry.font.as_ref())
             .fold(0, |sum, font| sum.wrapping_add(font.failed_reads()))
-    } @ text::FONTS_FAILED_READS
     }
 
-    paperpaw_table::shared! {
     /// A handle of loaded entry `index`, with the fonts asked for the
     /// characters it lacks: its extensions, the fallback font and the
     /// fallback's extensions.
@@ -721,7 +718,6 @@ impl Fonts {
             ligatures: false,
             ink: paperpaw_text::TextInk::DEFAULT,
         }
-    } @ text::FONTS_HANDLE
     }
 
     /// The loaded packs that extend entry `index`.
@@ -887,7 +883,6 @@ impl<'a> FontHandle<'a> {
         self.font
     }
 
-    paperpaw_table::shared! {
     /// The largest size text can be set in, in pixels: a font pack has
     /// the sizes it was made in, and those of a pack that extends it with
     /// larger ones; `None` for a scalable font, which has every size.
@@ -897,7 +892,6 @@ impl<'a> FontHandle<'a> {
             Some(larger) => Some(own.map_or(larger, |own| own.max(larger))),
             None => own,
         }
-    } @ text::HANDLE_LARGEST_SIZE
     }
 
     /// The handle of the pack that extends this one with larger sizes, for
@@ -915,7 +909,6 @@ impl<'a> FontHandle<'a> {
         })
     }
 
-    paperpaw_table::shared! {
     /// Ascent, descent and line height at `size` pixels: of the size text
     /// is drawn at (see [`FontHandle::size_for`]; for a display, the size
     /// asked).
@@ -925,10 +918,8 @@ impl<'a> FontHandle<'a> {
         }
         self.font()
             .line_metrics(self.font().size_for(size, "", self.display))
-    } @ text::HANDLE_LINE_METRICS
     }
 
-    paperpaw_table::shared! {
     /// How far apart the lines of a heading or title set on more lines
     /// are, in pixels: closer than those of text (its line height, about
     /// 1.4 times the size with the default font), 1.2 times the size, so
@@ -943,7 +934,6 @@ impl<'a> FontHandle<'a> {
         // In whole pixels, rounded up (no float rounding in `no_std`).
         let apart = (drawn * HEADING_LEADING + 0.999) as u32 as f32;
         apart.min(self.line_metrics(size).line_height)
-    } @ text::HANDLE_HEADING_LINE_HEIGHT
     }
 
     /// The font that draws `ch` and its number in the cache: this one,
@@ -961,7 +951,6 @@ impl<'a> FontHandle<'a> {
             .unwrap_or((self.font, self.index))
     }
 
-    paperpaw_table::shared! {
     /// Whether this font (or its fallback) draws `ch`; without it, the
     /// character would show as a question mark or not at all.
     pub fn has_char(&self, ch: char) -> bool {
@@ -971,15 +960,12 @@ impl<'a> FontHandle<'a> {
                 .iter()
                 .flatten()
                 .any(|(font, _)| font.has_char(ch))
-    } @ text::HANDLE_HAS_CHAR
     }
 
-    paperpaw_table::shared! {
     /// Horizontal advance of one character in pixels, at the size it is
     /// drawn at alone (see [`FontHandle::size_for`]).
     pub fn advance(&self, size: f32, ch: char) -> f32 {
         self.advance_by(size, ch, None)
-    } @ text::HANDLE_ADVANCE
     }
 
     /// [`FontHandle::advance`], `font` the one [`FontHandle::pick`] gives
@@ -1031,7 +1017,6 @@ impl<'a> FontHandle<'a> {
         self.ink
     }
 
-    paperpaw_table::shared! {
     /// How much `right` moves when it follows `left` at `size`, in pixels
     /// (negative: closer), as [`FontHandle::measure`] and the drawing
     /// methods set the pair: the font's kerning (none where the two are
@@ -1062,7 +1047,6 @@ impl<'a> FontHandle<'a> {
             false => size,
         };
         self.pair_in(font, size, left, right)
-    } @ text::HANDLE_KERN
     }
 
     /// The adjustment of a pair both drawn by `font` at `size` (see
@@ -1093,7 +1077,6 @@ impl<'a> FontHandle<'a> {
         }
     }
 
-    paperpaw_table::shared! {
     /// The size `text` is drawn at when asked for `size`: the nearest size
     /// of a pack that has all of its characters (see
     /// [`FontHandle::display`]), one for the whole text; `size` where the
@@ -1103,10 +1086,8 @@ impl<'a> FontHandle<'a> {
             return larger.size_for(size, text);
         }
         self.font.size_for(size, text, self.display)
-    } @ text::HANDLE_SIZE_FOR
     }
 
-    paperpaw_table::shared! {
     /// Width of a single line of text in pixels, its pairs kerned (see
     /// [`FontHandle::kern`]); with letters of right-to-left scripts, as
     /// [`FontHandle::draw`] sets them (Arabic joined).
@@ -1143,10 +1124,8 @@ impl<'a> FontHandle<'a> {
             before = Some((ch, index));
         }
         width
-    } @ text::HANDLE_MEASURE
     }
 
-    paperpaw_table::shared! {
     /// How far the ink of one line of `text` reaches above and below its
     /// baseline, in pixels (above negative), counting pixels at least half
     /// covered, as panels of black and white show them: what centres it
@@ -1169,11 +1148,7 @@ impl<'a> FontHandle<'a> {
         for ch in text.chars() {
             let (font, index) = self.pick(ch);
             let glyph = cache.glyph(index, font, ch, size);
-            let inked = |y: u16| (0..glyph.width).any(|x| glyph.coverage(x, y) >= 128);
-            let (Some(first), Some(last)) = (
-                (0..glyph.height).find(|y| inked(*y)),
-                (0..glyph.height).rev().find(|y| inked(*y)),
-            ) else {
+            let Some((first, last, ..)) = glyph.ink_box() else {
                 continue;
             };
             let top = i32::from(glyph.top) + i32::from(first);
@@ -1181,10 +1156,8 @@ impl<'a> FontHandle<'a> {
             ink = Some(ink.map_or((top, bottom), |(t, b)| (t.min(top), b.max(bottom))));
         }
         ink
-    } @ text::HANDLE_INK
     }
 
-    paperpaw_table::shared! {
     /// Where the ink of `text` at `size` begins and ends across, from the
     /// pen's start, in pixels (counting pixels at least half covered, as
     /// [`FontHandle::ink`] does): what centres it by its ink rather than by
@@ -1217,21 +1190,15 @@ impl<'a> FontHandle<'a> {
             // Where it is drawn ([`FontHandle::draw`]).
             let at = paperpaw_text::glyph_x(pen, glyph.left, mark && !based);
             based |= !mark;
-            let inked = |x: u16| (0..glyph.height).any(|y| glyph.coverage(x, y) >= 128);
-            if let (Some(first), Some(last)) = (
-                (0..glyph.width).find(|x| inked(*x)),
-                (0..glyph.width).rev().find(|x| inked(*x)),
-            ) {
+            if let Some((.., first, last)) = glyph.ink_box() {
                 let (left, right) = (at + i32::from(first), at + i32::from(last) + 1);
                 ink = Some(ink.map_or((left, right), |(l, r)| (l.min(left), r.max(right))));
             }
             pen += glyph.advance;
         }
         ink
-    } @ text::HANDLE_INK_ACROSS
     }
 
-    paperpaw_table::shared! {
     /// Breaks `text` into lines that fit `max_width`, its pairs kerned
     /// within each line as drawn; Arabic letters as wide as drawn joined.
     pub fn wrap(&self, size: f32, text: &str, max_width: f32) -> Vec<Range<usize>> {
@@ -1247,7 +1214,9 @@ impl<'a> FontHandle<'a> {
             // In the form its neighbours give it, as drawn (a line breaks
             // at a space mostly, which no letter joins).
             let before = text.get(..at).and_then(|t| t.chars().rev().find(shown));
-            let after = text.get(at + ch.len_utf8()..).and_then(|t| t.chars().find(shown));
+            let after = text
+                .get(at + ch.len_utf8()..)
+                .and_then(|t| t.chars().find(shown));
             self.measure_in(size, one, &line.with_context(before, after))
         };
         let kern = |_: usize, left: char, right: char| self.kern(size, left, right);
@@ -1255,10 +1224,8 @@ impl<'a> FontHandle<'a> {
             .into_iter()
             .map(|line| line.range)
             .collect()
-    } @ text::HANDLE_WRAP
     }
 
-    paperpaw_table::shared! {
     /// Draws one line with its baseline at `baseline`; returns its width.
     /// Letters of right-to-left scripts are shown in their order, Arabic
     /// joined: on a line running right to left where the handle's ink says
@@ -1278,10 +1245,8 @@ impl<'a> FontHandle<'a> {
         color: Color,
     ) -> f32 {
         self.draw_bolder(canvas, size, x, baseline, text, color, 0)
-    } @ text::HANDLE_DRAW
     }
 
-    paperpaw_table::shared! {
     /// Like [`FontHandle::draw`], with glyphs widened by `extra` pixels
     /// (e.g. a reader's font weight setting).
     #[allow(
@@ -1300,10 +1265,8 @@ impl<'a> FontHandle<'a> {
     ) -> f32 {
         let tone = self.ink.tone();
         self.draw_toned(canvas, size, x, baseline, text, color, extra, tone)
-    } @ text::HANDLE_DRAW_BOLDER
     }
 
-    paperpaw_table::shared! {
     /// Like [`FontHandle::draw_bolder`], the glyphs' coverage drawn in
     /// `tone`: on a contrast curve, or without grays (e.g. a reader's
     /// settings for book text).
@@ -1364,10 +1327,8 @@ impl<'a> FontHandle<'a> {
             rest = &rest[end..];
         }
         pen - x
-    } @ text::HANDLE_DRAW_TONED
     }
 
-    paperpaw_table::shared! {
     /// Width of `text` at `size` as [`FontHandle::draw_in`] sets it.
     pub fn measure_in(&self, size: f32, text: &str, around: &paperpaw_text::Around) -> f32 {
         if let Some(larger) = self.larger_for(size) {
@@ -1385,10 +1346,8 @@ impl<'a> FontHandle<'a> {
             true => width,
             false => paperpaw_text::measure_in(self.pick_text(text).0, size, text, around),
         }
-    } @ text::HANDLE_MEASURE_IN
     }
 
-    paperpaw_table::shared! {
     /// Draws one line of `text` as what lies `around` it asks (see
     /// [`Around`](paperpaw_text::Around)): its characters in the order
     /// they are shown, Arabic letters joined (also with `around`'s
@@ -1460,7 +1419,6 @@ impl<'a> FontHandle<'a> {
             text,
             around,
         )
-    } @ text::HANDLE_DRAW_IN
     }
 }
 

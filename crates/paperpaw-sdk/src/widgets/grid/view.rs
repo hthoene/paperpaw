@@ -1329,7 +1329,7 @@ fn fill_plate(canvas: &mut Canvas<'_>, env: &Env<'_>, shown: &Shown, plate: Plat
     // past its corners or beside its shadow; a tool's square.
     let (area, radius) = match &shown.item.what {
         What::Widget(id) => env.settings().with_placement(Some(id), || {
-            crate::widgets::shape::plate_shape(env, crate::widgets::base(id), shown.area)
+            super::super::shape::plate_shape(env, crate::widgets::base(id), shown.area)
         }),
         What::Tool(_) => (shown.area, 0),
     };
@@ -1354,7 +1354,7 @@ fn shows_nothing(shown: &Shown, env: &Env<'_>) -> bool {
 /// The ink of the lines drawn while editing, which read on `plate`.
 fn plate_ink(plate: Plate) -> Color {
     match plate {
-        Plate::Colour(colour) if crate::widgets::colours::is_dark(colour) => Color::WHITE,
+        Plate::Colour(colour) if super::super::colours::is_dark(colour) => Color::WHITE,
         _ => Color::BLACK,
     }
 }

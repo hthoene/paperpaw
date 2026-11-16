@@ -574,7 +574,12 @@ fn walk_menu(device: DeviceInfo, open: Id, buttons: bool) -> Vec<(String, String
         reached.push((row.clone(), app.screen()));
         let warnings = app.warnings();
         assert!(warnings.is_empty(), "{row}: {warnings:?}");
-        // And left again.
+        // And left again, after a pass of the services, as a key's press
+        // gives them before its release runs the action: what the first draw
+        // left for the plugin is heard while its screen is still there.
+        app.now += 50;
+        let effects = app.kernel.tick(Instant(app.now));
+        app.settle(effects);
         app.run(actions::BACK);
         let _ = app.parts();
     }

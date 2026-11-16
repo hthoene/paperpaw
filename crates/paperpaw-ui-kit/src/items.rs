@@ -19,6 +19,8 @@ use paperpaw_sdk::{
 
 mod empty;
 mod grip;
+mod row;
+pub(crate) use row::draw_row;
 mod stepper;
 use empty::draw_empty;
 use grip::{draw_drag, draw_row_with_grip};
@@ -617,6 +619,7 @@ impl ItemList {
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
         let mut style = Style::read(host, &display, &font)?;
+        let cards = crate::cards::Cards::read(host, &display)?;
         style.describing = paint::asking(frame);
         let (width, height) = (display.display_width(), display.display_height());
         let top = style.header.saturating_add(style.gap);
@@ -655,40 +658,27 @@ impl ItemList {
         let end = starts.get(page + 1).copied().unwrap_or(self.items.len());
         let mut body = Vec::new();
         paint::push(&mut body, Paint::Fill(style.page(area), style.paper))?;
-        let mut hits = Vec::new();
-        let mut steps = Vec::new();
-        let mut grip_rects = Vec::new();
         let mut y = top;
         let on_page = if page == 0 { head_high } else { 0 };
         let head_at =
             self.draw_head(&mut body, (&font, &style), Rect::new(0, y, width, on_page))?;
         y = y.saturating_add(on_page);
-        for (index, &high) in heights.iter().enumerate().take(end).skip(starts[page]) {
-            let rect = Rect::new(0, y, width, high);
-            let focused = shown && index == self.focus;
-            match &self.items[index] {
-                Item::Heading(text) => heading(&mut body, &font, &style, rect, text)?,
-                Item::Row(row) => {
-                    let grip = (index < self.grips).then_some((&mut grip_rects, index));
-                    if let Some((minus, plus)) =
-                        draw_row_with_grip(&mut body, &font, &style, rect, row, focused, grip)?
-                    {
-                        steps.try_reserve(1).map_err(|_| Error::NoMemory)?;
-                        steps.push((minus, plus, index));
-                    }
-                    hits.try_reserve(1).map_err(|_| Error::NoMemory)?;
-                    hits.push((rect, index));
-                }
-            }
-            y = y.saturating_add(high);
-        }
+        let drawn = row::paint_rows(
+            self,
+            &mut body,
+            (&font, &style),
+            &heights,
+            starts[page]..end,
+            Rect::new(0, y, width, area.height),
+            (shown, cards),
+        )?;
         if let Some((from, to)) = self.drag {
-            draw_drag(&mut body, &style, &hits, from, to)?;
+            draw_drag(&mut body, &style, &drawn.hits, from, to)?;
         }
         if let Some((rect, lines)) = &note {
             draw_note(&mut body, &font, &style, *rect, lines)?;
         }
-        let below = Rect::new(0, y, width, height.saturating_sub(y));
+        let below = Rect::new(0, drawn.y, width, height.saturating_sub(drawn.y));
         let code = footer_below(
             &mut body,
             &font,
@@ -705,9 +695,9 @@ impl ItemList {
         header.paint = Vec::new();
         self.header = header;
         self.starts = starts;
-        self.hits = hits;
-        self.steps = steps;
-        self.grip_rects = grip_rects;
+        self.hits = drawn.hits;
+        self.steps = drawn.steps;
+        self.grip_rects = drawn.grips;
         self.head_at = head_at;
         self.origin = (frame.rect.x, frame.rect.y);
         Ok(())
@@ -1320,99 +1310,6 @@ pub(crate) const fn disabled_ink(style: &Style) -> paperpaw_sdk::Color {
     } else {
         style.disabled
     }
-}
-
-pub(crate) fn draw_row(
-    paint: &mut Vec<Paint>,
-    font: &Font<'_>,
-    style: &Style,
-    rect: Rect,
-    row: &RowItem,
-    focused: bool,
-) -> Result<Option<(Rect, Rect)>, Error> {
-    let own = looked(style, row);
-    let style = own.as_ref().unwrap_or(style);
-    row_backdrop(paint, style, rect, row, focused)?;
-    paint::describe(
-        paint,
-        style.describing,
-        PartRole::Row,
-        rect,
-        focused,
-        row.disabled,
-    )?;
-    if let Some(on) = row.on {
-        paint::describe_switch(paint, style.describing, rect, on, row.disabled)?;
-    }
-    let ground = if focused && !style.ring {
-        style.ink
-    } else {
-        style.paper
-    };
-    let ink = if row.disabled {
-        disabled_ink(style)
-    } else {
-        ink(style, focused)
-    };
-    let (title_block, band_height) = title_lines(font, style, rect.width, row)?;
-    let mut band = Rect::new(rect.x, rect.y, rect.width, band_height.min(rect.height));
-    let mut note_at = rect;
-    if let Some(zone) = row.zone {
-        let shift = zone_room(style).min(rect.width);
-        zone_picture(paint, style, band, zone, ink)?;
-        (band, note_at) = shifted(rect, band, shift);
-    } else if let Some(glyph) = row.icon {
-        let shift = row_icon(paint, style, (rect, band), glyph, ink)?;
-        (band, note_at) = shifted(rect, band, shift);
-    }
-    // Laid out left to right; where the interface runs right to left the
-    // parts are where their mirror images are.
-    band = style.flip(rect, band);
-    note_at = style.flip(rect, note_at);
-    let mut buttons = None;
-    // Where the title and the value go: the row less the stepper's buttons.
-    let mut cols = band;
-    if let Some(on) = row.on {
-        // The switch at the end of the row's first line; the title keeps the
-        // room before it, and the value of such a row is not shown.
-        let room = switch_room(style);
-        switch_pill(paint, style, band, on, (ink, ground))?;
-        cols = Rect::new(band.x, band.y, band.width.saturating_sub(room), band.height);
-    }
-    if row.stepper {
-        let (free, pair) = draw_stepper(paint, (font, style), band, row, ink)?;
-        cols = free;
-        buttons = Some(pair);
-    }
-    draw_title(paint, (font, style), cols, row, &title_block, ink)?;
-    if row.note.is_empty() {
-        return Ok(buttons);
-    }
-    let color = if focused && !style.ring {
-        style.on_bar()
-    } else {
-        style.note
-    };
-    let lines = note_lines(font, style, rect.width, row)?;
-    let line = crate::geometry::line_px(font, style.small)?;
-    let mut y = band.y.saturating_add(band.height);
-    for text in &lines {
-        let area = Rect::new(note_at.x, y, note_at.width, line);
-        text::label_in(
-            paint,
-            font,
-            style.rtl,
-            note_at,
-            text,
-            style.small,
-            f32::from(note_at.x) + f32::from(style.margin),
-            area,
-            color,
-            Some(rect),
-        )?;
-        y = y.saturating_add(line);
-    }
-    Ok(buttons)
 }
 
 /// Where a field row's outline goes: its rectangle, corner radius and line

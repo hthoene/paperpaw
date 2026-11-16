@@ -87,7 +87,6 @@ struct paperpaw_native::interface::Api #{"repr": {"align": null, "int": null, "k
 struct paperpaw_native::interface::Entry #{"repr": {"align": null, "int": null, "kind": "c", "packed": null}} { fingerprint: u64, make: unsafe extern "C" fn() -> *mut core::ffi::c_void, needs_api: u16, interface: u16, families: [u16; 8] }
 struct paperpaw_native::preflight::elf::DataExport<'a> { bytes: &'a [u8], address: u64 }
 struct paperpaw_native::profile::Profile<'a> { target: &'a str, entry_layout: u16, entry_bytes: u16 }
-struct paperpaw_native::reloc::Relocator<'a> { header: &'a paperpaw_native::header::Header, words: &'a [u32], patches: &'a [[u32; 2]], hi20: usize, base: u32, delta: u32, hot: u32, api: u32 }
 struct paperpaw_native::signature::BadSignature
 struct paperpaw_native::signature::Signature { signed_len: u32, key: [u8; 32], signature: [u8; 64] }
 struct paperpaw_native::signature::SignatureCheck { state: ed25519_compact::ed25519::VerifyingState, signed: [u8; 44], signed_len: u32, absorbed: u64 }

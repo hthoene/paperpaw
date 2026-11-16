@@ -49,6 +49,9 @@ pub(crate) mod firmware_cell;
     reason = "the pump opens it once a shell wires the firmware host; tests do today"
 )]
 pub(crate) mod firmware_confirm;
+#[cfg(any(test, feature = "testing"))]
+#[path = "native_host/firmware_confirm_hook.rs"]
+mod firmware_confirm_hook;
 #[path = "native_host/firmware_driver.rs"]
 #[allow(
     dead_code,

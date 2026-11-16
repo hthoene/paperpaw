@@ -12,8 +12,6 @@ categories = ["no-std", "parser-implementations"]
 keywords = ["json", "streaming", "no-std"]
 
 [dependencies]
-# The shared function table (`paperpaw_table::shared!`).
-paperpaw-table.workspace = true
 paperpaw-platform.workspace = true
 
 [dev-dependencies]

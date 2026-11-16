@@ -72,6 +72,7 @@ pub use plural::{PluralCategory, PluralRule, cldr_rules};
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::ops::ControlFlow;
 
 use catalog::{LATIN as LATIN_DIGITS, Parked};
 
@@ -321,6 +322,48 @@ impl Translator {
         languages
     }
 
+    /// [`Translator::languages`] without a list: `visit` is given each
+    /// available language once, its tag and its name, in the same order
+    /// (English first, then the others by tag; a language of several
+    /// catalogs is named by the one added first), until it breaks. Nothing
+    /// is allocated: each language is found by a walk of the catalogs.
+    pub fn each_language(&self, visit: &mut dyn FnMut(&str, &str) -> ControlFlow<()>) {
+        fn key(tag: &str) -> (bool, &str) {
+            (!(tag == "en" || tag.starts_with("en-")), tag)
+        }
+        let mut last: Option<&str> = None;
+        loop {
+            // The next in the order after `last`, and the first added of it.
+            let mut next: Option<(u32, &str, &str)> = None;
+            let live = self
+                .catalogs
+                .iter()
+                .map(|c| (c.added, c.language(), c.name()));
+            let parked = self
+                .parked
+                .iter()
+                .map(|p| (p.added, p.language(), p.name()));
+            for (added, tag, name) in live.chain(parked) {
+                if last.is_some_and(|last| key(tag) <= key(last)) {
+                    continue;
+                }
+                let sooner = next.is_none_or(|(first, best, _)| {
+                    key(tag) < key(best) || (tag == best && added < first)
+                });
+                if sooner {
+                    next = Some((added, tag, name));
+                }
+            }
+            let Some((_, tag, name)) = next else {
+                return;
+            };
+            if visit(tag, name).is_break() {
+                return;
+            }
+            last = Some(tag);
+        }
+    }
+
     /// The bytes the catalogs' indexes take on the heap (see
     /// [`Translator::fixed_indexes`]).
     pub fn indexes_on_heap(&self) -> usize {
@@ -337,11 +380,9 @@ impl Translator {
         all
     }
 
-    paperpaw_table::shared! {
     /// The message for `key`, if a catalog has it.
     pub fn get(&self, key: &str) -> Option<&str> {
         self.ordered().find_map(|catalog| catalog.get(key))
-    } @ data::I18N_GET as for<'s> fn(&'s Self, &str) -> Option<&'s str>
     }
 
     /// The message for `key`, or `key` itself if no catalog has it.
@@ -382,14 +423,11 @@ impl Translator {
         None
     }
 
-    paperpaw_table::shared! {
     /// The message for `key` with `{placeholders}` replaced by `args`.
     pub fn format(&self, key: &str, args: &[(&str, Arg<'_>)]) -> String {
         format::interpolate(self.tr(key), args, self.digits.as_ref())
-    } @ data::I18N_FORMAT
     }
 
-    paperpaw_table::shared! {
     /// Selects the plural form of `key` for `count`, then formats it.
     ///
     /// Looks up `key.<category>` (e.g. `library.books.few`) using each
@@ -412,7 +450,6 @@ impl Translator {
             }
             None => String::from(key),
         }
-    } @ data::I18N_PLURAL
     }
 
     fn ordered(&self) -> impl Iterator<Item = &Catalog> {
@@ -776,6 +813,19 @@ mod tests {
         t.add(Catalog::parse(DE_OVERRIDE).unwrap());
         let tags: Vec<&str> = t.languages().into_iter().map(|(tag, _)| tag).collect();
         assert_eq!(tags, ["en", "de", "de-AT"]);
+        // The walk without a list gives the same, in the same order.
+        let mut walked = Vec::new();
+        t.each_language(&mut |tag, name| {
+            walked.push((String::from(tag), String::from(name)));
+            ControlFlow::Continue(())
+        });
+        let listed: Vec<_> = t.languages();
+        assert!(
+            walked
+                .iter()
+                .map(|(t, n)| (t.as_str(), n.as_str()))
+                .eq(listed)
+        );
     }
 
     /// A catalog finds none of the keys before its first or after its

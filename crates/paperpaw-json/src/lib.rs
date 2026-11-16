@@ -21,35 +21,28 @@ pub enum Value {
     Other,
 }
 
-paperpaw_table::shared! {
 /// The members of a JSON object; empty if `text` is none.
 pub fn object(text: &str) -> Vec<(String, Value)> {
     let mut p = Parser(text.trim().chars().peekable());
     p.object().unwrap_or_default()
-} @ data::JSON_OBJECT
 }
 
-paperpaw_table::shared! {
 /// The string member `key` of an object.
 pub fn text<'a>(members: &'a [(String, Value)], key: &str) -> Option<&'a str> {
     members.iter().find_map(|(k, v)| match v {
         Value::Str(s) if k == key => Some(s.as_str()),
         _ => None,
     })
-} @ data::JSON_TEXT
 }
 
-paperpaw_table::shared! {
 /// The number member `key` of an object.
 pub fn number(members: &[(String, Value)], key: &str) -> Option<f64> {
     members.iter().find_map(|(k, v)| match v {
         Value::Num(n) if k == key => Some(*n),
         _ => None,
     })
-} @ data::JSON_NUMBER
 }
 
-paperpaw_table::shared! {
 /// `text` as a JSON string literal.
 pub fn string(text: &str) -> String {
     let mut out = String::from("\"");
@@ -66,10 +59,8 @@ pub fn string(text: &str) -> String {
     }
     out.push('"');
     out
-} @ data::JSON_STRING
 }
 
-paperpaw_table::shared! {
 /// The JSON text of member `key` of the object `text`, as it is written
 /// (nested objects and arrays whole), e.g. to keep a value as it came.
 pub fn raw_member<'a>(text: &'a str, key: &str) -> Option<&'a str> {
@@ -101,17 +92,13 @@ pub fn raw_member<'a>(text: &'a str, key: &str) -> Option<&'a str> {
             _ => return None,
         }
     }
-} @ data::JSON_RAW_MEMBER
 }
 
-paperpaw_table::shared! {
 /// The string a JSON string literal (with its quotes) stands for.
 pub fn unquote(literal: &str) -> Option<String> {
     Parser(literal.trim().chars().peekable()).string()
-} @ data::JSON_UNQUOTE
 }
 
-paperpaw_table::shared! {
 /// The strings of a JSON array literal; other items are left out.
 pub fn string_array(literal: &str) -> Vec<String> {
     let bytes = literal.as_bytes();
@@ -135,7 +122,6 @@ pub fn string_array(literal: &str) -> Vec<String> {
             _ => return out,
         }
     }
-} @ data::JSON_STRING_ARRAY
 }
 
 fn skip_space(bytes: &[u8], mut i: usize) -> usize {

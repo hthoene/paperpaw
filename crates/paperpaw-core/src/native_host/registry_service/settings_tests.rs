@@ -772,6 +772,44 @@ fn choices_are_the_settings_own_then_those_others_added() {
 }
 
 #[test]
+fn a_language_settings_choices_are_the_languages_by_their_own_names() {
+    let mut kernel = kernel();
+    let greek = format!("language = el\nname = {}", "\u{e9}".repeat(100));
+    let greek_row = format!("choice el {}", "\u{e9}".repeat(64));
+    // A language pack's name is its own; one that gives none goes by its tag.
+    for meta in [
+        "language = de\nname = Deutsch",
+        "language = en\nname = English",
+        "language = fr-CA",
+        greek.as_str(),
+    ] {
+        let catalog = format!("[meta]\n{meta}\nplural = one-other\n\n[messages]\n");
+        kernel
+            .shared
+            .translator
+            .add(paperpaw_i18n::Catalog::parse(Cow::Owned(catalog)).unwrap());
+    }
+    // English first, then by tag; the value is the tag the setting holds.
+    let (rows, end) = page(&kernel, schema::OP_CHOICES, "core.language");
+    assert_eq!(
+        rows,
+        [
+            "choice en English",
+            "choice de Deutsch",
+            greek_row.as_str(),
+            "choice fr-CA fr-CA"
+        ]
+    );
+    assert_eq!((end.flags, end.total), (1, 4));
+    // The detail counts them, so the editors ask for the names.
+    let detail = detail_as(&kernel, "reader", schema::OP_SETTING, "core.language").unwrap();
+    assert!(detail[1].ends_with("choices=4"), "{}", detail[1]);
+    // The names are the same whatever the user's language is.
+    kernel.shared.translator.set_language("de");
+    assert_eq!(page(&kernel, schema::OP_CHOICES, "core.language").0, rows);
+}
+
+#[test]
 fn presets_are_listed_by_kind_and_one_has_a_description() {
     let mut kernel = kernel();
     // The built-in power modes come first, then those of `cfg` as added.

@@ -424,7 +424,6 @@ pub fn choice_setting(
     spec
 }
 
-paperpaw_table::shared! {
 /// `widget`'s place inside its frame in `area` and the colours there,
 /// without drawing (e.g. for its targets). Its content keeps from the
 /// frame as its [`padding`] says, but never more than a quarter of the
@@ -435,7 +434,10 @@ paperpaw_table::shared! {
 pub fn widget_look(env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook {
     let style = super::shape::styled(env, widget, UiStyle::new(env));
     let frame = frame(env, widget);
-    let area = super::shape::plate_of(area, super::shape::shadow_offset(env, widget, &style, frame));
+    let area = super::shape::plate_of(
+        area,
+        super::shape::shadow_offset(env, widget, &style, frame),
+    );
     let pad = padding(env, widget).pixels(&style, frame);
     let pad_x = pad.min(area.width / 4);
     let pad_y = pad.min(area.height / 4);
@@ -453,10 +455,8 @@ pub fn widget_look(env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook {
         paper,
         frame,
     }
-} @ widgets::WIDGET_LOOK
 }
 
-paperpaw_table::shared! {
 /// Draws `widget`'s frame in `area` (cleared before), in its corners and
 /// line, its shadow below it, and returns where its content goes and in
 /// which colours ([`widget_look`]).
@@ -484,17 +484,14 @@ pub fn draw_frame(canvas: &mut Canvas<'_>, env: &Env<'_>, widget: &str, area: Re
         crate::ui::layout::paint_frame(canvas, &style, plate, look.frame);
     }
     look
-} @ widgets::WIDGET_DRAW_FRAME
 }
 
-paperpaw_table::shared! {
 /// The height `widget`'s frame takes above and below its content, as its
 /// settings make it ([`widget_look`]): what a widget adds to the height of what
 /// it shows.
 pub fn frame_height(env: &Env<'_>, widget: &str) -> u16 {
     let probe = Rect::new(0, 0, 1000, 1000);
     1000 - widget_look(env, widget, probe).area.height
-} @ widgets::WIDGET_FRAME_HEIGHT
 }
 
 /// The height of a line of text `size` pixels large in the UI font.
@@ -540,7 +537,6 @@ fn ink_room(area: Rect) -> Rect {
     )
 }
 
-paperpaw_table::shared! {
 /// Draws `text` small at the top of `look`'s area, placed as `widget`'s
 /// alignment says ([`align`](super::align)), e.g. "Today" over the
 /// numbers; returns the area left below it.
@@ -572,7 +568,6 @@ pub fn draw_caption(
         );
     }
     Rect::new(area.x, area.y + height, area.width, area.height - height)
-} @ widgets::WIDGET_DRAW_CAPTION
 }
 
 /// The largest size from `max` down to `min` at which `fits` holds, or

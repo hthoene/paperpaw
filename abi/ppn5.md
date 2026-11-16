@@ -68,9 +68,9 @@ before any other field is read.
 
 ## Identity: no fingerprint, no draft number
 
-- `FINGERPRINT` is not used for a format-5 file. `Native::fits` / `Fingerprint::misfit` keep
-  deciding interface-6 (format-4) files only, and those are refused by their format number first
-  ("built for an older PaperPaw"), as ADR 0034 section 6 says. So `native::DRAFT` (PR #186) cannot
+- `FINGERPRINT` is not used for a format-5 file. An interface-6 (format-4) file is
+  refused by its format number ("built for an older PaperPaw", `Native::problem_of_file`), as
+  ADR 0034 section 6 says, and no code decides by a fingerprint any more. So `native::DRAFT` (PR #186) cannot
   reach the format-5 decision either way.
 - **There is no draft field in the file.** The C boundary is append-only against the trusted lock
   during the draft as well as after it, and the major-7 lock is never re-baselined, so a number in

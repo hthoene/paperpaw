@@ -227,48 +227,10 @@ fn fingerprints_as_text() {
     assert_eq!(Fingerprint::parse("+085073a61323717"), None);
 }
 
-/// A plugin of another interface, or needing more than this
-/// PaperPaw has, is said to be older or to need a newer PaperPaw, not
-/// "another build".
+/// A file of an older format is said to be older, by the interface its
+/// fingerprint names.
 #[test]
 fn older_and_newer_plugins_are_said_as_such() {
-    let native = Native::new("code.ppn");
-    let header = Header::read(&file()).unwrap();
-    let fits = Header {
-        fingerprint: FINGERPRINT.0,
-        ..header
-    };
-    assert_eq!(native.problem(&fits), None);
-    assert_eq!(native.problem(&header), Some(PluginProblem::OtherBuild));
-    let older = Header {
-        interface: INTERFACE - 1,
-        ..fits
-    };
-    assert_eq!(
-        native.problem(&older),
-        Some(PluginProblem::OlderInterface {
-            built_for: INTERFACE - 1
-        })
-    );
-    for newer in [
-        Header {
-            interface: INTERFACE + 1,
-            ..fits
-        },
-        Header {
-            needs_api: native.api_size + 4,
-            ..fits
-        },
-        Header {
-            families: [native.family_revs[0] + 1, 0, 0, 0, 0, 0, 0, 0],
-            ..fits
-        },
-    ] {
-        assert_eq!(
-            native.problem(&newer),
-            Some(PluginProblem::NeedsNewerPaperPaw)
-        );
-    }
     // A file of an older format: its fingerprint names its interface.
     let mut old = file();
     old[4] = 3;

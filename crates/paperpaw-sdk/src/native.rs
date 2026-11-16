@@ -1,14 +1,8 @@
 //! Native code plugins (ADR 0024): a plugin built into a file that a
 //! device loads at its start, without a new firmware. It runs as part of
 //! PaperPaw, with no sandbox, and its code is the same as a plugin built
-//! in: one more crate makes the file, with [`plugin!`](crate::plugin).
-//!
-//! ```ignore
-//! #![no_std]
-//! #![no_main]
-//!
-//! paperpaw_sdk::plugin!(my_plugin::MyPlugin::default());
-//! ```
+//! in: one more crate makes the file, with
+//! [`native_plugin!`](crate::native_plugin).
 //!
 //! A plugin file fits a PaperPaw of the same plugin interface
 //! ([`INTERFACE`]: what of the SDK plugins see, the layouts of the types
@@ -96,7 +90,6 @@ pub const CROSSING_CRATES: &[&str] = &[
     "paperpaw_qr",
     "paperpaw_native",
     "paperpaw_lang",
-    "paperpaw_table",
     "paperpaw_sort",
 ];
 
@@ -892,11 +885,11 @@ pub struct Native {
     /// The bytes of the shell's [`Api`](paperpaw_native::Api): a plugin
     /// that needs more ([`Header::needs_api`]) needs a newer PaperPaw.
     pub api_size: u32,
-    /// The revision of each family of shared functions the shell has
-    /// (0: none); on RISC-V chips only (`paperpaw_table`).
-    pub family_revs: paperpaw_table::Revisions,
-    /// The oldest revision of each family whose plugins the shell runs.
-    pub family_min: paperpaw_table::Revisions,
+    /// Not used: the revisions of the shared function tables, which are
+    /// gone. All 0; kept so that the fingerprint stays as it is.
+    pub family_revs: [u16; 8],
+    /// Not used, as [`family_revs`](Self::family_revs).
+    pub family_min: [u16; 8],
     /// The interface-7 minor this PaperPaw loads: a format-5 plugin file
     /// runs here when its `needs_minor` is at most this (a store compares
     /// the catalogue's `abi` "7.<needs_minor>" with it).
@@ -914,48 +907,10 @@ impl Native {
             safe_mode: None,
             not_installed: Vec::new(),
             api_size: paperpaw_native::Api::SIZE,
-            family_revs: paperpaw_table::REVISIONS,
-            family_min: paperpaw_table::OLDEST,
+            family_revs: [0; 8],
+            family_min: [0; 8],
             minor: paperpaw_native::host_glue::MINOR,
         }
-    }
-
-    /// Whether a plugin file with `header` runs here: of this fingerprint,
-    /// and of this compiler where the shell names one. Installers check
-    /// it before a file is installed or placed, as the shell does before
-    /// it loads one.
-    pub fn fits(&self, header: &Header) -> bool {
-        self.problem(header).is_none()
-    }
-
-    /// Why a plugin file with `header` does not run here, if it does not:
-    /// built for an older or a newer plugin interface, needing more of
-    /// the firmware than it has, or of another build.
-    pub fn problem(&self, header: &Header) -> Option<PluginProblem> {
-        if header.interface < INTERFACE {
-            return Some(PluginProblem::OlderInterface {
-                built_for: header.interface,
-            });
-        }
-        let families = header.chip == paperpaw_native::Chip::Esp32C3;
-        let misfit = if families {
-            paperpaw_table::misfit(&header.families, &self.family_min, &self.family_revs)
-        } else {
-            None
-        };
-        if header.interface > INTERFACE
-            || header.needs_api > self.api_size
-            || misfit == Some(paperpaw_table::Misfit::Newer)
-        {
-            return Some(PluginProblem::NeedsNewerPaperPaw);
-        }
-        if misfit == Some(paperpaw_table::Misfit::Older) {
-            return Some(PluginProblem::OlderInterface {
-                built_for: header.interface,
-            });
-        }
-        let compiler = self.compiler == 0 || header.compiler == self.compiler;
-        (header.fingerprint != self.fingerprint.0 || !compiler).then_some(PluginProblem::OtherBuild)
     }
 
     /// Why a plugin file whose header [`Header::read`] refused with
@@ -1053,211 +1008,11 @@ pub enum NotInstalledReason {
     Damaged,
 }
 
-/// The plugin a plugin file's entry made, for the shell that loaded it.
-///
-/// # Safety
-///
-/// `made` must be what [`Entry::make`](paperpaw_native::Entry) of a plugin
-/// file with this build's [`FINGERPRINT`] returned, taken once.
-pub unsafe fn take(made: *mut core::ffi::c_void) -> Option<alloc::boxed::Box<dyn crate::Plugin>> {
-    if made.is_null() {
-        return None;
-    }
-    // SAFETY: made by `plugin!` (`support::make`) from this box, with the
-    // same layout: the fingerprint says the same plugin interface and
-    // layouts, and the shell checked the compiler.
-    Some(*unsafe {
-        alloc::boxed::Box::from_raw(made.cast::<alloc::boxed::Box<dyn crate::Plugin>>())
-    })
-}
-
-/// Makes a crate a native plugin file: defines its entry, its heap (the
-/// kernel's) and its panic handler, around the plugin `$plugin` makes.
-/// The crate is `#![no_std]`; for the X4 (`riscv32imc-unknown-none-elf`)
-/// and the X4 Pro (`xtensa-esp32s3-none-elf`) a `#![no_main]` binary,
-/// linked with `paperpaw-plugin.x` and packed by `paperpaw-sign pack`;
-/// where a system loads libraries (a computer) a `cdylib` with
-/// the same entry. See the [module documentation](crate::native).
-#[macro_export]
-macro_rules! plugin {
-    ($plugin:expr) => {
-        /// The firmware's table, whose address the loader wrote into the
-        /// word `paperpaw-plugin.x` makes before any code of the plugin
-        /// ran.
-        #[cfg(target_os = "none")]
-        fn paperpaw_api() -> &'static $crate::native::support::Api {
-            unsafe extern "C" {
-                static PAPERPAW_API: *const $crate::native::support::Api;
-            }
-            // SAFETY: a table that lives as long as the firmware runs.
-            unsafe { &*PAPERPAW_API }
-        }
-
-        /// Where the shell puts its table before it makes the plugin: a
-        /// library the system loads may have data of its own.
-        #[cfg(not(target_os = "none"))]
-        #[unsafe(no_mangle)]
-        pub static PAPERPAW_API: $crate::native::support::ApiSlot =
-            $crate::native::support::ApiSlot::new();
-
-        #[cfg(not(target_os = "none"))]
-        fn paperpaw_api() -> &'static $crate::native::support::Api {
-            PAPERPAW_API.get()
-        }
-
-        #[global_allocator]
-        static PAPERPAW_HEAP: $crate::native::support::Heap =
-            $crate::native::support::Heap(paperpaw_api);
-
-        #[panic_handler]
-        fn paperpaw_panic(info: &::core::panic::PanicInfo<'_>) -> ! {
-            $crate::native::support::panic(paperpaw_api(), info)
-        }
-
-        /// A library a system loads takes `core` and `alloc` as the
-        /// toolchain built them, for unwinding: their code names the
-        /// unwinder's personality, which a plugin that never unwinds
-        /// (`panic = "abort"`) does not have, and Linux loads no library
-        /// with a name left open. Never called; should an unwind from a
-        /// shell built to unwind ever reach the plugin, it panics, and the
-        /// plugin's panics abort.
-        #[cfg(all(not(target_os = "none"), panic = "abort"))]
-        #[unsafe(no_mangle)]
-        extern "C" fn rust_eh_personality() -> ! {
-            ::core::panic!("unwinding into a plugin")
-        }
-
-        unsafe extern "C" fn paperpaw_make() -> *mut ::core::ffi::c_void {
-            $crate::native::support::make($plugin)
-        }
-
-        #[unsafe(no_mangle)]
-        #[cfg_attr(target_os = "none", unsafe(link_section = ".rodata.paperpaw_entry"))]
-        pub static PAPERPAW_ENTRY: $crate::native::support::Entry =
-            $crate::native::support::Entry {
-                fingerprint: $crate::native::FINGERPRINT.0,
-                make: paperpaw_make,
-                needs_api: $crate::native::support::Api::SIZE as u16,
-                interface: $crate::native::INTERFACE,
-                families: $crate::native::support::REVISIONS,
-            };
-    };
-}
-
 mod hot;
 
 /// The layouts [`LAYOUT`] digests, and the hash the fingerprint is made
 /// with.
 mod layout;
-
-/// What [`plugin!`] expands to uses, and what a shell that loads plugins
-/// as libraries hands them; not for plugins themselves.
-#[doc(hidden)]
-pub mod support {
-    use alloc::boxed::Box;
-    use core::alloc::{GlobalAlloc, Layout};
-    use core::fmt::Write;
-    use core::sync::atomic::{AtomicPtr, Ordering};
-
-    pub use paperpaw_native::{Api, Entry};
-    pub use paperpaw_table::BUILT_WITH as REVISIONS;
-
-    /// The shell's table, where a library the system loads keeps it
-    /// (`PAPERPAW_API`): set before the plugin is made.
-    #[derive(Debug)]
-    pub struct ApiSlot(AtomicPtr<Api>);
-
-    impl ApiSlot {
-        pub const fn new() -> Self {
-            Self(AtomicPtr::new(core::ptr::null_mut()))
-        }
-
-        /// Gives the plugin the shell's table (the shell, once, before it
-        /// makes the plugin).
-        pub fn set(&self, api: &'static Api) {
-            self.0
-                .store(core::ptr::from_ref(api).cast_mut(), Ordering::Release);
-        }
-
-        pub fn get(&self) -> &'static Api {
-            // SAFETY: set by the shell before it made the plugin, to a
-            // table that lives as long as the shell runs.
-            unsafe { &*self.0.load(Ordering::Acquire) }
-        }
-    }
-
-    impl Default for ApiSlot {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    /// The plugin's heap: the kernel's (through the table the function
-    /// gives), so boxes cross both ways.
-    #[derive(Debug)]
-    pub struct Heap(pub fn() -> &'static Api);
-
-    // SAFETY: the firmware's allocator, which keeps `GlobalAlloc`'s rules.
-    unsafe impl GlobalAlloc for Heap {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            // SAFETY: as `GlobalAlloc::alloc`.
-            unsafe { (self.0().alloc)(layout.size(), layout.align()) }
-        }
-
-        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-            // SAFETY: as `GlobalAlloc::dealloc`.
-            unsafe { (self.0().dealloc)(ptr, layout.size(), layout.align()) }
-        }
-
-        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-            // SAFETY: as `GlobalAlloc::realloc`.
-            unsafe { (self.0().realloc)(ptr, layout.size(), layout.align(), new_size) }
-        }
-    }
-
-    /// The plugin made, as [`take`](super::take) reads it back.
-    pub fn make(plugin: impl crate::Plugin + 'static) -> *mut core::ffi::c_void {
-        let plugin: Box<dyn crate::Plugin> = Box::new(plugin);
-        Box::into_raw(Box::new(plugin)).cast()
-    }
-
-    /// Writes into a fixed buffer, cutting what does not fit.
-    struct Cut {
-        buf: [u8; 192],
-        len: usize,
-    }
-
-    impl Write for Cut {
-        fn write_str(&mut self, s: &str) -> core::fmt::Result {
-            for c in s.chars() {
-                let mut bytes = [0; 4];
-                let bytes = c.encode_utf8(&mut bytes).as_bytes();
-                if self.len + bytes.len() > self.buf.len() {
-                    break;
-                }
-                self.buf[self.len..self.len + bytes.len()].copy_from_slice(bytes);
-                self.len += bytes.len();
-            }
-            Ok(())
-        }
-    }
-
-    /// The plugin panicked: the firmware's panic, with what it says.
-    pub fn panic(api: &Api, info: &core::panic::PanicInfo<'_>) -> ! {
-        let mut cut = Cut {
-            buf: [0; 192],
-            len: 0,
-        };
-        let _ = write!(cut, "{}", info.message());
-        if let Some(at) = info.location() {
-            let file = at.file().rsplit(['/', '\\']).next().unwrap_or(at.file());
-            let _ = write!(cut, " ({file}:{})", at.line());
-        }
-        // SAFETY: the firmware's table; the message lives on the stack
-        // until the firmware has taken it.
-        unsafe { (api.panic)(cut.buf.as_ptr(), cut.len) }
-    }
-}
 
 #[cfg(test)]
 pub(crate) mod tests;

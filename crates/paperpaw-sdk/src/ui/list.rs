@@ -58,7 +58,6 @@ impl ListChange {
     }
 }
 
-paperpaw_table::shared! {
 /// How far a navigation action moves a focus: one back for up, left and
 /// previous, one on for down, right and next, `page` for the next page
 /// and back for the previous one; `None` for any other action. Screens
@@ -72,7 +71,6 @@ pub fn list_step(action: &crate::Id, page: isize) -> Option<isize> {
         a if *a == PREV_PAGE => Some(-page),
         _ => None,
     }
-} @ ui::LIST_STEP
 }
 
 /// A paged, focusable list: the basic building block of menus, the
@@ -137,7 +135,6 @@ impl ListView {
         self.focus
     }
 
-    paperpaw_table::shared! {
     /// Puts the focus on item `index` (see [`ListView::set_len`] to keep
     /// it among the items there are); what that changed on the screen.
     pub fn set_focus(&mut self, index: usize) -> ListChange {
@@ -152,7 +149,6 @@ impl ListView {
         } else {
             ListChange::Page
         }
-    } @ ui::LIST_SET_FOCUS
     }
 
     /// Whether the focused row is highlighted; off while the focus is on
@@ -175,7 +171,6 @@ impl ListView {
         self.shown = shown;
     }
 
-    paperpaw_table::shared! {
     /// The focus as it last moved within the page: from the item focused
     /// before to the one focused now (both the same where it only came to
     /// show, as after [`confirm`](Self::confirm)).
@@ -185,7 +180,6 @@ impl ListView {
             self.row_rect(self.before % rows),
             self.row_rect(self.focus % rows),
         )
-    } @ ui::LIST_FOCUS_CHANGE
     }
 
     /// A grid of `columns` items a row instead of a list (rows are then
@@ -244,12 +238,10 @@ impl ListView {
         self.focus / self.rows()
     }
 
-    paperpaw_table::shared! {
     /// The page and the number of pages, e.g. for [`Header::draw`]; always
     /// `Some` (a list of one page shows no page number there).
     pub fn paging(&self, len: usize) -> Option<super::Paging> {
         Some(super::Paging::new(self.page(), self.pages(len)))
-    } @ ui::LIST_PAGING
     }
 
     pub fn pages(&self, len: usize) -> usize {
@@ -333,7 +325,6 @@ impl ListView {
         self.focus_change()
     }
 
-    paperpaw_table::shared! {
     /// Moves the focus by `delta` rows within `0..len`; one step past
     /// either end goes round to the other (quicker with few buttons),
     /// larger steps (pages) stop at the end.
@@ -361,10 +352,8 @@ impl ListView {
         } else {
             ListChange::Page
         }
-    } @ ui::LIST_MOVE_FOCUS
     }
 
-    paperpaw_table::shared! {
     /// The rectangle of visible item `slot` (0 = top left of the page).
     pub fn row_rect(&self, slot: usize) -> Rect {
         let columns = self.columns as usize;
@@ -376,10 +365,8 @@ impl ListView {
             width,
             row as u16,
         )
-    } @ ui::LIST_ROW_RECT
     }
 
-    paperpaw_table::shared! {
     /// The index of the item at `point`, if any.
     pub fn hit(&self, point: Point, len: usize) -> Option<usize> {
         if !self.area.contains(point) {
@@ -391,7 +378,6 @@ impl ListView {
         let slot = line * self.columns as usize + column.min(self.columns as usize - 1);
         let index = self.page() * self.rows() + slot;
         (slot < self.rows() && index < len).then_some(index)
-    } @ ui::LIST_HIT
     }
 
     /// Draws the visible rows: the focused row inverted, the others with a

@@ -30,8 +30,6 @@ Freeze checklist, beside the above (Manager decisions on PR #191, 2026-11-06 11:
 
 - The packer writes no draft: the X4 `.ppn` header has no draft field (format 5 is final from the start), so
   nothing about drafts is left in plugin files. `native::DRAFT` only shapes the Rust-side fingerprint.
-- The first PR after the freeze sets `crates/paperpaw-table/table-baseline.txt` to the frozen commit (step 7
-  below).
 
 **The C boundary during drafts (Manager decision, 2026-11-06 11:21).** With no draft in the X4 header, the lock's
 append-only rule is all that keeps a plugin built at an earlier draft safe on later firmware:
@@ -100,9 +98,10 @@ These are not rows of their own, but the raise is not complete without them (all
 5. Retarget the trusted-base ABI CI (#147/#150) to the draft-7 baseline: `tools/abi-frozen6-check.py` becomes
    `tools/abi-reference-check.py` (rules in `README.md`), still against the PR's base.
 6. Record the raise in `CHANGELOG.md`.
-7. Retarget the old-plugin check (`tools/table-compat.sh`, CI job "Old plugins, new firmware"): a baseline of an
+7. (Done then; the check, its script and its CI job are gone since #244, as no plugin of interface 6 is built any
+   more.) Retarget the old-plugin check (`tools/table-compat.sh`, CI job "Old plugins, new firmware"): a baseline of an
    older interface or an older draft (`interface`/`draft` of its `interface.txt`) builds a plugin this firmware
-   must refuse at load (fingerprint, `Native::problem`), before anything of it runs; only a baseline of this
+   must refuse at load (by its fingerprint), before anything of it runs; only a baseline of this
    interface and draft must still run and agree. `crates/paperpaw-table/table-baseline.txt` stays at the
    interface-6 commit while interface 7 is a draft (a draft build is never the frozen baseline), so the job asserts the
    refusal; the first PR after the freeze sets it to the frozen commit (tag `interface-7`), and from then on the
