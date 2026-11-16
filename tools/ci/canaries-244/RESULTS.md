@@ -4,34 +4,34 @@ Base: integration e2c186c66 (train 49) + Kernel `registry_lines` b07fe406b. Stag
 
 | canary | side | result | tests failing (first catching set) |
 |---|---|---|---|
-| close-request-order | ? | **NOT CAUGHT** | 0 |
-| dims-refresh-region | ? | CAUGHT | 3 |
-| failed-plugin-listed | ? | CAUGHT | 3 |
-| firmware-answer-source | ? | CAUGHT | 14 |
-| guard-event-screens | ? | **NOT CAUGHT** | 0 |
-| guard-flag | ? | CAUGHT | 28 |
-| guard-let-pass | ? | CAUGHT | 2 |
-| guard-shut-out | ? | **NOT CAUGHT** | 0 |
-| keymap-layer-order | ? | CAUGHT | 2 |
-| keymap-origin | ? | CAUGHT | 6 |
-| merge-error-dropped | ? | **NOT CAUGHT** | 0 |
-| observer-order | ? | CAUGHT | 3 |
-| observer-under-guard | ? | CAUGHT | 1 |
-| overlay-draw-base | ? | **NOT CAUGHT** | 0 |
-| override-tie | ? | **NOT CAUGHT** | 0 |
-| override-under-guard | ? | CAUGHT | 1 |
-| passes-through | ? | CAUGHT | 3 |
-| password-event | ? | CAUGHT | 2 |
-| sealed-override | ? | CAUGHT | 3 |
-| secret-flag | ? | CAUGHT | 2 |
-| secret-owner | ? | **NOT CAUGHT** | 0 |
-| secret-setting-owner | ? | CAUGHT | 2 |
-| slot-list-order | ? | CAUGHT | 2 |
-| slot-priority | ? | CAUGHT | 322 |
-| subscriber-order | ? | CAUGHT | 2 |
-| takes-buttons | ? | **NOT CAUGHT** | 0 |
-| tap-outside-ignored | ? | CAUGHT | 1 |
-| topmost-guard | ? | **NOT CAUGHT** | 0 |
+| close-request-order | stack | **NOT CAUGHT** | 0 |
+| dims-refresh-region | stack | CAUGHT | 3 |
+| failed-plugin-listed | kernel | CAUGHT | 3 |
+| firmware-answer-source | kernel | CAUGHT | 14 |
+| guard-event-screens | kernel | **NOT CAUGHT** | 0 |
+| guard-flag | stack | CAUGHT | 28 |
+| guard-let-pass | stack | CAUGHT | 2 |
+| guard-shut-out | stack | **NOT CAUGHT** | 0 |
+| keymap-layer-order | stack | CAUGHT | 2 |
+| keymap-origin | stack | CAUGHT | 6 |
+| merge-error-dropped | kernel | **NOT CAUGHT** | 0 |
+| observer-order | kernel | CAUGHT | 3 |
+| observer-under-guard | kernel | CAUGHT | 1 |
+| overlay-draw-base | stack | **NOT CAUGHT** | 0 |
+| override-tie | kernel | **NOT CAUGHT** | 0 |
+| override-under-guard | kernel | CAUGHT | 1 |
+| passes-through | stack | CAUGHT | 3 |
+| password-event | kernel | CAUGHT | 2 |
+| sealed-override | kernel | CAUGHT | 3 |
+| secret-flag | stack | CAUGHT | 2 |
+| secret-owner | stack | **NOT CAUGHT** | 0 |
+| secret-setting-owner | kernel | CAUGHT | 2 |
+| slot-list-order | kernel | CAUGHT | 2 |
+| slot-priority | kernel | CAUGHT | 322 |
+| subscriber-order | kernel | CAUGHT | 2 |
+| takes-buttons | stack | **NOT CAUGHT** | 0 |
+| tap-outside-ignored | stack | CAUGHT | 1 |
+| topmost-guard | stack | **NOT CAUGHT** | 0 |
 
 Caught 19 of 28; not caught 9.
 
