@@ -1036,6 +1036,7 @@ action update.check | title=update.check sealed=false runs-itself=true native=So
 action update.open | title=update.title sealed=false runs-itself=true native=Some(1)
 action vocabulary.flash-cards | title=vocabulary.cards.title sealed=false runs-itself=true native=Some(2)
 action vocabulary.open | title=vocabulary.title sealed=false runs-itself=true native=Some(4)
+action vocabulary.scan-card | title=vocabulary.sd.scan sealed=false runs-itself=true native=Some(18)
 action widgets.todo.open | title=widgets.todo sealed=false runs-itself=true native=Some(11)
 action wifi.open | title=wifi.title sealed=false runs-itself=true native=Some(1)
 screen about.screen | title=about.title hints=Shown
@@ -2393,6 +2394,7 @@ native Action update | ActionSpec(ActionSpec { name: "open", title: "update.titl
 native Action update | ActionSpec(ActionSpec { name: "check", title: "update.check", token: 2, flags: 0 })
 native Action vocabulary | ActionSpec(ActionSpec { name: "open", title: "vocabulary.title", token: 4, flags: 0 })
 native Action vocabulary | ActionSpec(ActionSpec { name: "flash-cards", title: "vocabulary.cards.title", token: 2, flags: 0 })
+native Action vocabulary | ActionSpec(ActionSpec { name: "scan-card", title: "vocabulary.sd.scan", token: 18, flags: 0 })
 native Action widgets | ActionSpec(ActionSpec { name: "todo.open", title: "widgets.todo", token: 11, flags: 0 })
 native Action wifi | ActionSpec(ActionSpec { name: "open", title: "wifi.title", token: 1, flags: 0 })
 native Widget home | WidgetSpec(WidgetSpec { name: "date", title: "home.widget.date", category: "core.widgets.time", previews: "", cells: 0, token: 20, flags: 1 })
@@ -2581,6 +2583,7 @@ native MenuNeed bluetooth | MenuNeed(MenuNeed { item: "bluetooth.remotes", need:
 native MenuNeed files | MenuNeed(MenuNeed { item: "files.covers", need: 9, capability: 0 })
 native MenuNeed home | MenuNeed(MenuNeed { item: "home.focus-at-once", need: 3, capability: 0 })
 native MenuNeed keyboard | MenuNeed(MenuNeed { item: "keyboard.key-shape", need: 4, capability: 0 })
+native MenuNeed lock | MenuNeed(MenuNeed { item: "lock.touch", need: 4, capability: 0 })
 native MenuNeed picture-home | MenuNeed(MenuNeed { item: "picture-home.focus-at-once", need: 3, capability: 0 })
 native MenuNeed reader | MenuNeed(MenuNeed { item: "reader.read-aloud", need: 0, capability: 0 })
 native MenuNeed reader | MenuNeed(MenuNeed { item: "reader.selection.read-aloud", need: 0, capability: 0 })
