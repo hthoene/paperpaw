@@ -21,11 +21,37 @@ use super::*;
 
 /// Held by every test of this binary that tracks allocations or sets a
 /// budget.
-pub(crate) static LOCK: Mutex<()> = Mutex::new(());
+static LOCK: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    /// Whether this thread holds [`LOCK`] (see [`Held`]).
+    static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// [`LOCK`], held by this thread: what [`hold`] gives.
+pub(crate) struct Held(#[allow(dead_code, reason = "held until dropped")] MutexGuard<'static, ()>);
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        HELD.with(|held| held.set(false));
+    }
+}
+
+/// Takes [`LOCK`] for this thread until the guard is dropped.
+pub(crate) fn hold() -> Held {
+    let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    HELD.with(|held| held.set(true));
+    Held(guard)
+}
+
+/// Whether this thread holds [`LOCK`].
+pub(crate) fn held() -> bool {
+    HELD.with(std::cell::Cell::get)
+}
 
 /// The counters to themselves, the budget lifted, as no profile set one.
-fn alone() -> MutexGuard<'static, ()> {
-    let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+fn alone() -> Held {
+    let guard = hold();
     OVERRIDDEN.store(false, Ordering::Relaxed);
     set_limit(None);
     guard
