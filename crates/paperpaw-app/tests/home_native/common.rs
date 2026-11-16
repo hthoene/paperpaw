@@ -343,6 +343,21 @@ impl App {
         app
     }
 
+    /// The device tells the time (a shell does), so that the clock draws: what
+    /// the default home page holds depends on it.
+    pub fn tell_time(&mut self) {
+        let status = paperpaw_platform::SystemStatus::new(
+            Some(paperpaw_platform::WallClock::new(
+                Instant(self.now),
+                1_791_967_260_000,
+                Some(120),
+            )),
+            None,
+        );
+        let effects = self.kernel.set_status(Instant(self.now), status);
+        self.settle(effects);
+    }
+
     /// A new kernel over the same storage, as after a restart.
     pub fn restart(self) -> Self {
         let device = *self.kernel.device();

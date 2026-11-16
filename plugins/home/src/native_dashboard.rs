@@ -152,6 +152,7 @@ mod arrange;
 mod kept;
 mod look;
 mod names;
+mod turn;
 use area::focus_area;
 use kept::Kept;
 use look::Look;
@@ -314,8 +315,12 @@ impl Dashboard {
             wide,
             ..
         } = Shown::read(host, display, font)?;
+        let turned = self.page_after_turn(&src, &pages, wide)?;
         let nav = self.nav.get_or_insert(Nav::new(pages.len()));
         nav.resize(pages.len());
+        if let Some(at) = turned {
+            nav.page = at;
+        }
         let (page, count) = (nav.page, nav.pages);
         let slot = pages.get(page).map_or(0, |p| p.slot);
         let items = pages.get(page).map_or_else(
