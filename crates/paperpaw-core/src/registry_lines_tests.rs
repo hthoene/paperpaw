@@ -29,11 +29,11 @@ const SORT: Id = Id::new_static("shelf.sort");
 const MENU: Id = Id::new_static("shelf.menu");
 
 struct Shelf;
-impl paperpaw_sdk::Plugin for Shelf {
+impl crate::Plugin for Shelf {
     fn manifest(&self) -> Manifest {
         Manifest::new(Id::new_static("shelf"), "Shelf", Version::new(1, 0, 0))
     }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+    fn register(&self, r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
         for id in [LOW, HIGH] {
             r.add_screen(paperpaw_sdk::ScreenSpec::new(
                 id,
@@ -66,11 +66,11 @@ impl paperpaw_sdk::Plugin for Shelf {
 /// a handler of the same priority in the place of `shelf`'s action, and an
 /// observer of actions.
 struct Desk;
-impl paperpaw_sdk::Plugin for Desk {
+impl crate::Plugin for Desk {
     fn manifest(&self) -> Manifest {
         Manifest::new(Id::new_static("desk"), "Desk", Version::new(1, 0, 0))
     }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+    fn register(&self, r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
         r.override_action(TIDY, |_, _, _| {}, Priority::DEFAULT)?;
         r.observe_actions(paperpaw_sdk::ObserverSpec::new(
             Id::new_static("desk.seen"),
@@ -82,11 +82,11 @@ impl paperpaw_sdk::Plugin for Desk {
 /// The old-API side of `clock`: the action its natively declared menu row
 /// names.
 struct Clock;
-impl paperpaw_sdk::Plugin for Clock {
+impl crate::Plugin for Clock {
     fn manifest(&self) -> Manifest {
         Manifest::new(Id::new_static("clock"), "Clock", Version::new(1, 0, 0))
     }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+    fn register(&self, r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
         r.add_action(paperpaw_sdk::ActionSpec::new(
             Id::new_static("clock.go"),
             "clock.go",

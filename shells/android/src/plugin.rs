@@ -4,11 +4,12 @@
 use std::borrow::Cow;
 
 use android_activity::AndroidApp;
+use paperpaw_core::Items;
 use paperpaw_sdk::builtin::{events, groups, menus, params};
 use paperpaw_sdk::document::Document;
 use paperpaw_sdk::{
     ActionSpec, Canvas, Command, Cx, Env, FormatSpec, Handled, Id, Manifest, MenuEntry, MenuNeed,
-    Params, Plugin, Rect, RegisterError, Registrar, Screen, ScreenSpec, SettingSpec, Version,
+    Params, Rect, RegisterError, Screen, ScreenSpec, SettingSpec, Version,
 };
 
 use crate::lights::Lights;
@@ -51,14 +52,17 @@ pub struct AndroidPlugin {
     pub screen: (u32, u32),
 }
 
-impl Plugin for AndroidPlugin {
-    fn manifest(&self) -> Manifest {
+impl AndroidPlugin {
+    /// What [`AndroidPlugin::register`] registers under.
+    pub fn manifest() -> Manifest {
         Manifest::new(PLUGIN, "Android", Version::new(0, 1, 0))
             .description("Connects PaperPaw to Android, e.g. to your book folders.")
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    /// Its actions, settings, format and texts (`KernelBuilder::items` with
+    /// [`AndroidPlugin::manifest`]).
+    pub fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         let app = self.app.clone();
         r.add_action(
             ActionSpec::new(ALLOW_STORAGE, "android.allow-storage").handler(
@@ -127,7 +131,7 @@ static SLIDER: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new().sl
 impl AndroidPlugin {
     /// The voice for reading aloud, with its other settings; it is
     /// chosen in the system's speech settings.
-    fn register_voice(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register_voice(&self, r: &mut Items) -> Result<(), RegisterError> {
         r.add_setting(
             SettingSpec::text(VOICE.static_str(), "android.voice", "", groups::READING)
                 .with_extra(&VOICE_EXTRA)
@@ -147,7 +151,7 @@ impl AndroidPlugin {
     /// change goes to the device.
     fn register_frontlight(
         &self,
-        r: &mut Registrar,
+        r: &mut Items,
         frontlight: Frontlight,
     ) -> Result<(), RegisterError> {
         let lights = frontlight.lights;

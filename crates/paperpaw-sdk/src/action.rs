@@ -15,8 +15,7 @@ use crate::plugin::Priority;
 pub type ActionHandler = Box<dyn Fn(&Env<'_>, &Params, &mut crate::Commands)>;
 
 /// A handler put in place of an action's own
-/// ([`Registrar::override_action`](crate::Registrar::override_action)).
-#[non_exhaustive]
+/// (the kernel's `Items::override_action`).
 pub struct ActionOverride {
     pub action: Id,
     pub handler: ActionHandler,
@@ -37,9 +36,9 @@ impl fmt::Debug for ActionOverride {
 pub type Observer = Box<dyn Fn(&Env<'_>, &Id, &Params, &mut crate::Commands)>;
 
 /// Something that sees every action run
-/// ([`Registrar::observe_actions`](crate::Registrar::observe_actions)) or
+/// (`Items::observe_actions`) or
 /// every event emitted
-/// ([`Registrar::observe_events`](crate::Registrar::observe_events)): a
+/// (`Items::observe_events`): a
 /// macro recorder, a rule on any event. It runs for each, so it does
 /// little; an observer of events must not emit an event for every event
 /// it sees.
@@ -151,7 +150,7 @@ impl ActionSpec {
     }
 
     /// No handler of another plugin is put in its place
-    /// ([`Registrar::override_action`](crate::Registrar::override_action)):
+    /// (`Items::override_action`):
     /// for actions that keep the device safe, such as locking it.
     pub fn sealed(mut self) -> Self {
         self.extra().sealed = true;
@@ -197,7 +196,7 @@ impl fmt::Debug for ActionSpec {
 pub type FixedHandler = fn(&Env<'_>, &Params, &mut crate::Commands);
 
 /// An action kept in the program: as an [`ActionSpec`], in a `static`
-/// list ([`Registrar::add_actions`](crate::Registrar::add_actions)), so
+/// list (`Items::add_actions`), so
 /// it takes next to no memory where an [`ActionSpec`] takes some 90
 /// bytes. Its handler is a function ([`FixedHandler`]); an action whose
 /// handler needs state of its own is an [`ActionSpec`].
@@ -616,7 +615,7 @@ impl Actions {
 
     /// Puts `handler` of `plugin` in place of action `action`'s own,
     /// at `priority` (see
-    /// [`Registrar::override_action`](crate::Registrar::override_action)).
+    /// `Items::override_action`).
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn add_override(

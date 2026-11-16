@@ -6,9 +6,10 @@
 
 use super::shared::{self, Shared};
 use super::{DispatchDepth, Error, FlatHost, environment::EnvironmentScope, events};
+use crate::{Items, Plugin};
 use alloc::{boxed::Box, format, rc::Rc, string::String};
 use core::{fmt, pin::Pin};
-use paperpaw_sdk::{Env, Id, Manifest, Params, Plugin, RegisterError, Registrar, Version};
+use paperpaw_sdk::{Env, Id, Manifest, Params, RegisterError, Version};
 
 #[path = "flat/page.rs"]
 pub(super) mod page;
@@ -223,7 +224,7 @@ impl Plugin for FlatPlugin {
     /// The kernel discards the entire registrar on error, including subscriptions
     /// added before a later subscription failed. Contributions are staged only
     /// after registration succeeds.
-    fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, registrar: &mut Items) -> Result<(), RegisterError> {
         let mut result = Ok(());
         self.instance.registrations(&mut |registration| {
             let FlatRegistration::Event {

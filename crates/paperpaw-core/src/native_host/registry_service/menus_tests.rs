@@ -9,6 +9,7 @@ use super::{
     schema,
     tests::{call_in, page, query_flags, read},
 };
+use crate::Items;
 use crate::native_host::{
     declaration_store::{Allocations, DeclarationStore, ImageOwner, PendingDeclarations},
     native_declarations::NativeDeclarations,
@@ -19,8 +20,8 @@ use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 use paperpaw_sdk::{
     ActionSpec, Canvas, Cx, Env, Handled, Id, ItemState, Manifest, MenuEntry, MenuNeed,
-    MenuSection, Plugin, RegisterError, Registrar, Screen, ScreenSpec, SettingKind, SettingSpec,
-    SettingValue, Version,
+    MenuSection, RegisterError, Screen, ScreenSpec, SettingKind, SettingSpec, SettingValue,
+    Version,
     setup::{SetupPage, SetupStepSpec},
     widgets::{CellSpan, Drawn, PlaceKind, WidgetPlace, WidgetSpec, categories},
 };
@@ -41,14 +42,8 @@ const LISTS: &[Id] = &[Id::new_static("demo.list")];
 const OFF_LISTS: &[Id] = &[Id::new_static("demo.off-list")];
 
 /// Everything the ops read from the environment.
-struct Demo;
-impl Plugin for Demo {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("demo"), "Demo", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn demo() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_screen(ScreenSpec::new(
             id("demo.main"),
             "demo.screen.main",
@@ -93,7 +88,13 @@ impl Plugin for Demo {
     }
 }
 
-fn register_menus(r: &mut Registrar) -> Result<(), RegisterError> {
+/// What [`demo`] registers under.
+fn demo_manifest() -> Manifest {
+    Manifest::new(Id::new_static("demo"), "Demo", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
+fn register_menus(r: &mut Items) -> Result<(), RegisterError> {
     let menu = id("demo.menu");
     for (item, order) in [
         ("demo.open", 10),
@@ -127,7 +128,7 @@ fn register_menus(r: &mut Registrar) -> Result<(), RegisterError> {
     Ok(())
 }
 
-fn register_ui(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_ui(r: &mut Items) -> Result<(), RegisterError> {
     r.add_widget(
         WidgetSpec::drawn(
             id("demo.clock"),
@@ -187,13 +188,8 @@ fn register_ui(r: &mut Registrar) -> Result<(), RegisterError> {
 
 /// The actions of the plugin the native rows belong to: its `action.spec`
 /// rows are merged into the registries when it installs.
-struct Nat;
-impl Plugin for Nat {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("nat"), "Nat", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn nat() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         for name in ["first", "go", "last", "speaks", "future"] {
             r.add_action(ActionSpec::new(id(&format!("nat.{name}")), "nat.action"))?;
         }
@@ -201,11 +197,17 @@ impl Plugin for Nat {
     }
 }
 
+/// What [`nat`] registers under.
+fn nat_manifest() -> Manifest {
+    Manifest::new(Id::new_static("nat"), "Nat", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn kernel() -> crate::Kernel {
     crate::Kernel::builder(crate::tests::DEVICE)
         .device_keymap("[keymap.global]\nswipe.right = demo.save\n")
-        .plugin(Demo)
-        .plugin(Nat)
+        .items(demo_manifest(), demo())
+        .items(nat_manifest(), nat())
         .build()
         .unwrap()
 }
@@ -612,13 +614,8 @@ fn op_12_unknown_or_empty_scope_is_an_empty_page() {
 
 #[test]
 fn op_12_pages_by_cursor_and_a_stale_generation_is_a_state_error() {
-    struct Many;
-    impl Plugin for Many {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("many"), "Many", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn many() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        |r| {
             for at in 0..40 {
                 let item = id(&format!("many.item{at:02}"));
                 r.add_action(ActionSpec::new(item.clone(), "many.action"))?;
@@ -627,8 +624,14 @@ fn op_12_pages_by_cursor_and_a_stale_generation_is_a_state_error() {
             Ok(())
         }
     }
+
+    /// What [`many`] registers under.
+    fn many_manifest() -> Manifest {
+        Manifest::new(Id::new_static("many"), "Many", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Many)
+        .items(many_manifest(), many())
         .build()
         .unwrap();
     let first = call_in(

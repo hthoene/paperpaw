@@ -2,14 +2,11 @@
 //! overlays at the edge of the screen.
 
 use super::*;
+use crate::Items;
 use paperpaw_sdk::Params;
 
 const BASE: Id = Id::new_static("frames.base");
 const PANEL: Id = Id::new_static("frames.panel");
-
-/// A full screen on the home slot, and an overlay on the menu slot from
-/// row `top` (its parameter) down, reaching past the screen with `past`.
-struct FramesPlugin(Log);
 
 struct Panel {
     region: Rect,
@@ -46,14 +43,11 @@ impl Screen for Base {
     }
 }
 
-impl Plugin for FramesPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("frames"), "Frames", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
+/// A full screen on the home slot, and an overlay on the menu slot from
+/// row `top` (its parameter) down, reaching past the screen with `past`.
+fn frames_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
         r.add_screen(ScreenSpec::new(
             BASE,
             "base",
@@ -80,8 +74,17 @@ impl Plugin for FramesPlugin {
     }
 }
 
+/// What [`frames_plugin`] registers under.
+fn frames_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("frames"), "Frames", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn frames_kernel(builder: crate::KernelBuilder, log: &Log) -> Kernel {
-    let mut kernel = builder.plugin(FramesPlugin(log.clone())).build().unwrap();
+    let mut kernel = builder
+        .items(frames_plugin_manifest(), frames_plugin(log.clone()))
+        .build()
+        .unwrap();
     kernel.start(Instant(0));
     render(&mut kernel);
     kernel
@@ -153,15 +156,8 @@ fn turning_the_screen_makes_the_screens_once() {
 
 /// Turns the first refresh full, as a plugin that flashes on some page
 /// turns does.
-struct Flash;
-
-impl Plugin for Flash {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("flash"), "Flash", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn flash() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         let seen = core::cell::Cell::new(0u32);
         r.add_refresh_filter(paperpaw_sdk::filters::RefreshFilterSpec::new(
             Id::new_static("flash.first"),
@@ -178,6 +174,12 @@ impl Plugin for Flash {
     }
 }
 
+/// What [`flash`] registers under.
+fn flash_manifest() -> Manifest {
+    Manifest::new(Id::new_static("flash"), "Flash", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// A full refresh a refresh filter made starts the count of partial
 /// refreshes anew: the periodic full refresh comes as many refreshes
 /// after it as after any other.
@@ -185,7 +187,7 @@ impl Plugin for Flash {
 fn a_full_refresh_from_a_filter_starts_the_count_anew() {
     let log = log();
     let builder = Kernel::builder(DEVICE)
-        .plugin(Flash)
+        .items(flash_manifest(), flash())
         .setting_default(&settings::FULL_REFRESH_INTERVAL, 3);
     let mut kernel = frames_kernel(builder, &log);
     let mut modes = Vec::new();
@@ -210,4 +212,52 @@ fn the_full_refresh_interval_may_be_a_books_own() {
         .spec("core.full-refresh-interval")
         .unwrap();
     assert!(spec.scoped);
+}
+
+/// A frame of many bands is drawn in half the passes where the heap has the
+/// room for a taller band and a picture's block after it, passed on in the
+/// pieces of the bands there are, with the same pixels (#267).
+#[test]
+fn a_frame_of_many_bands_is_drawn_in_taller_bands_where_there_is_room() {
+    static LARGEST: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    fn largest() -> Option<paperpaw_sdk::memory::MemoryUse> {
+        let bytes = LARGEST.load(core::sync::atomic::Ordering::Relaxed);
+        Some(paperpaw_sdk::memory::MemoryUse::new(bytes, 256 * 1024).with_largest_free(bytes))
+    }
+    let run = |bytes: u32| {
+        LARGEST.store(bytes, core::sync::atomic::Ordering::Relaxed);
+        let log = log();
+        let mut kernel = Kernel::builder(DEVICE)
+            .items(
+                overlay_plugin_manifest(),
+                overlay_plugin(OverlayPlugin { log: log.clone() }),
+            )
+            .frame_rows(16)
+            .memory(largest)
+            .build()
+            .unwrap();
+        kernel.start(Instant(0));
+        log.borrow_mut().clear();
+        let mut copy = paperpaw_graphics::Framebuffer::new(90, 90, DEVICE.display.format).unwrap();
+        let mut pieces = Vec::new();
+        kernel.render(&mut |top, rows| {
+            pieces.push(rows.height);
+            copy.write_rows(top, rows);
+        });
+        let passes = log
+            .borrow()
+            .iter()
+            .filter(|l| l.starts_with("draw base"))
+            .count();
+        assert_eq!(kernel.framebuffer.rows(), 16, "the band is as it was");
+        (passes, pieces, copy.view().data.to_vec())
+    };
+    let (few, few_pieces, few_pixels) = run(10_000_000);
+    let (many, many_pieces, many_pixels) = run(1_000);
+    assert!(few < many, "{few} passes with room, {many} without");
+    assert_eq!(few_pixels, many_pixels);
+    for pieces in [&few_pieces, &many_pieces] {
+        assert!(pieces.iter().all(|rows| *rows <= 16), "{pieces:?}");
+        assert_eq!(pieces.iter().sum::<u16>(), 90);
+    }
 }
