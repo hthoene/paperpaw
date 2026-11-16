@@ -6,6 +6,7 @@
     clippy::expect_used,
     reason = "fixture failures fail acceptance"
 )]
+use paperpaw_core::sdk::{Env, Id, Manifest, Version, builtin};
 use paperpaw_core::{
     Kernel, KernelBuilder,
     native_host::{DispatchDepth, HostResources, shell},
@@ -22,7 +23,6 @@ use paperpaw_sdk::native::{
     events::{Event, Incoming},
     reply::Reply,
 };
-use paperpaw_sdk::{Env, Id, Manifest, Version, builtin};
 use std::{alloc::Layout, cell::RefCell, rc::Rc};
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
