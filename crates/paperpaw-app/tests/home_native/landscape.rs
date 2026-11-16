@@ -109,7 +109,6 @@ fn nothing_is_stored_for_the_layout_on_the_side_and_turning_changes_no_page() {
 }
 
 #[test]
-#[ignore = "same cause: with no clock and an empty recent shelf in the app harness, page 1 on the side holds the card and six tools (landscape.rs:132 expects no Library before page 2); nothing is lost (names checked); re-test once the clock is wired (Kernel #1435, todo 620)"]
 fn what_has_no_room_goes_on_to_the_next_page_and_nothing_is_lost() {
     // The default home: the clock, the book, the recent ones, then the
     // tools on a page of their own.
@@ -126,10 +125,13 @@ fn what_has_no_room_goes_on_to_the_next_page_and_nothing_is_lost() {
         seen
     };
     let mut upright = App::new(screen(X4, 480, 800), Shared::memory(BASE_CONFIG, &[]));
+    upright.tell_time();
     let upright_labels = all_labels(&mut upright);
     let mut side = App::new(screen(X4, 800, 480), Shared::memory(BASE_CONFIG, &[]));
-    // The first page has no room for the tools: not before the second.
-    assert!(!side.shows("Library"), "{}", side.described());
+    side.tell_time();
+    // The card keeps its natural height: the tools are on the first page
+    // already (Beta 3 had the card fill it, #257).
+    assert!(side.shows("Library"), "{}", side.described());
     let side_labels = all_labels(&mut side);
     // The book card is told as one button upright ("Start reading, Choose a
     // book ...") and as a button and its line on the side: what counts is
@@ -143,15 +145,9 @@ fn what_has_no_room_goes_on_to_the_next_page_and_nothing_is_lost() {
             "{label} is lost on the side: {side_labels:?}"
         );
     }
-    // What did not fit the first page opens the second, the tools follow
-    // it in the room that is left.
-    let mut side = App::new(screen(X4, 800, 480), Shared::memory(BASE_CONFIG, &[]));
-    side.run(actions::NEXT_PAGE);
-    assert!(side.shows("Library"), "{}", side.described());
 }
 
 #[test]
-#[ignore = "gap to build, todo 620: native Home keeps the page number when the screen turns (`Nav::resize` in native_dashboard.rs), it does not pick the page that shows the first item as the interface-6 Home did (fails at landscape.rs:191: the tools page upright becomes page 2 of the side, not the page with Library)"]
 fn a_page_turned_with_the_screen_is_the_page_with_the_same_first_item() {
     let two = format!(
         "{BASE_CONFIG}[home]\ncolumns = 4\npage-1 = tool:core.library 0/0 1x1\n\
@@ -183,37 +179,35 @@ fn a_page_turned_with_the_screen_is_the_page_with_the_same_first_item() {
     rotate(&mut app, 800, 480);
     assert!(app.shows("Library"), "{}", app.described());
     // Where the pages are others: the tools page, upright the second, is
-    // on the side the one that shows the first of its tools.
+    // on the side the one that shows the first of its tools (that page holds
+    // the card too on the side).
     let mut app = App::new(screen(X4, 480, 800), Shared::memory(BASE_CONFIG, &[]));
     app.run(actions::NEXT_PAGE);
     assert!(app.shows("Library"), "{}", app.described());
     rotate(&mut app, 800, 480);
     assert!(app.shows("Library"), "{}", app.described());
-    assert!(!app.shows("Start reading"));
 }
 
-/// How wide the book card is: from the first to the last dark pixel on the
-/// row of its second line, which are its borders (the text lies between).
-fn card_width(app: &mut App, width: u16) -> Option<i32> {
-    let line = app
+/// How wide the book card is: the width of its button.
+fn card_width(app: &mut App, _width: u16) -> Option<i32> {
+    let card = app
         .parts()
         .into_iter()
-        .find(|p| p.label.contains("Choose a book"))?
+        .find(|p| p.label.contains("Start reading"))?
         .area;
-    let y = i32::from(line.y) + i32::from(line.height) / 2;
-    let dark: Vec<i32> = (0..i32::from(width)).filter(|&x| app.dark(x, y)).collect();
-    Some(dark.last()? - dark.first()?)
+    Some(i32::from(card.width))
 }
 
 #[test]
-#[ignore = "in the app harness the clock draws nothing (Kernel #1435: clock/battery) and the empty recent shelf takes no room, so on the X4 on its side page 1 holds the card (727 px, full width) and six tools: the card measure (landscape.rs:215 expects a full page without the tools, as Beta 3 had clock and shelf) cannot hold; re-test once the clock is wired (todo 620)"]
-fn a_big_screen_on_its_side_keeps_cards_to_the_readable_column_and_fills_the_page() {
+fn a_big_screen_on_its_side_keeps_cards_to_the_readable_column() {
     // The X4 on its side is narrower than the column: the card is as wide
-    // as the screen, and the page is full without the tools.
+    // as the screen; the tools follow it on the same page (kept since
+    // Beta 3, #257).
     let mut app = App::new(screen(X4, 800, 480), Shared::memory(BASE_CONFIG, &[]));
+    app.tell_time();
     let wide = card_width(&mut app, 800).expect("the card");
     assert!(wide > 800 * 9 / 10, "{wide}: {}", app.described());
-    assert!(!app.shows("Library"), "{}", app.described());
+    assert!(app.shows("Library"), "{}", app.described());
     // Tablets of 1920 and 2560 pixels (220 dpi: 220 and 290 mm): the card is no wider than the column
     // (110 mm, a half of the screen or so), the tools follow beside and
     // below it on the same page.

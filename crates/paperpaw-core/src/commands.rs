@@ -6,6 +6,7 @@
     reason = "a part of the kernel, which sees all of it; not every part uses every name"
 )]
 use super::*;
+use crate::gray_later::GrayRule;
 use crate::native_host::speech as native_speech;
 
 /// Runs a plugin's handler with a [`Commands`](paperpaw_sdk::Commands) of
@@ -146,6 +147,7 @@ impl Kernel {
             self.frame.followup_frame = None;
         }
         let followup = self.run_followup();
+        let gray_pass = self.gray_step();
         if mem::take(&mut self.output.redraw)
             && let Some(top) = self.stack.len().checked_sub(1)
         {
@@ -215,29 +217,26 @@ impl Kernel {
             {
                 requested = RefreshMode::Full;
             }
-            // A screen with pictures drawn whole, or most of it, in grays
-            // too where asked; not when drawn again after grays, not what
-            // changes on it after, and not where the screen set its
-            // refresh exactly (a focus moved far: the parts apart).
-            let grays = grays
-                || (whole
-                    && set.is_none()
-                    && !mode.does_clean_itself()
-                    && pictures
-                    && !again
-                    && weight * 2 >= area(screen)
-                    && self.shared.device.display.format.gray_levels() == Some(2)
-                    && self
-                        .shared
-                        .settings
-                        .bool(core_settings::PICTURES_IN_GRAYS.as_str())
-                    && self.pictures_drawn());
+            // A screen with pictures drawn whole, or most of it, in black and
+            // white first, its grays after a calm (`gray_later`, Decision
+            // 196); not what changes on it after, and not where the screen
+            // set its refresh exactly (a focus moved far: the parts apart).
+            let big = set.is_none() && !mode.does_clean_itself() && weight * 2 >= area(screen);
+            let (grays, gray_frame) = self.gray_decide(GrayRule {
+                grays,
+                pass: gray_pass,
+                again,
+                whole,
+                big,
+                pictures,
+                sleeping: effects.sleep || effects.power_off,
+            });
             // A page's pictures drawn after its text are no page turned,
             // however large: not counted, nor made the full refresh of the
             // whole screen that is due (leaving them refreshes in full).
             // What a filter deferred rides along uncounted too (above); no
             // filter of this tree defers (todo: count it apart).
-            let counted = if followup { 0 } else { weight };
+            let counted = if followup || gray_pass { 0 } else { weight };
             self.frame.refresh.weigh(Some(counted));
             let (mode, region) = self.frame.refresh.decide(requested, dirty, screen, every);
             let top = self.stack.last();
@@ -276,6 +275,7 @@ impl Kernel {
                     self.frame.refresh.weigh(None);
                     effects.refresh = Some((refresh.region, refresh.mode));
                     effects.grays = refresh.grays;
+                    self.gray_frame(gray_frame);
                     self.frame_asked();
                     self.shared.usage.refreshed(refresh.mode, refresh.region);
                     let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
@@ -333,6 +333,7 @@ impl Kernel {
             self.service_due(),
             self.work_pump_due(),
             self.followup_due(effects.refresh.is_some()),
+            self.gray_wake(effects.refresh.is_some()),
         ]
         .into_iter()
         .flatten()
