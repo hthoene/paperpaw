@@ -261,6 +261,20 @@ pub fn new(args: &[String]) -> Result<bool, String> {
     if sdk.is_some() && !code {
         return Err("--sdk goes with --code: only a plugin with code is built with the SDK".into());
     }
+    if code && !id.starts_with(|c: char| c.is_ascii_lowercase()) {
+        return Err(format!(
+            "`{id}` cannot have code: the id is the package's name, which Cargo wants to begin \
+             with a letter"
+        ));
+    }
+    // Cargo reads the path from the new repository's folder, not from here.
+    let sdk = match sdk {
+        Some(path) => Some(
+            std::path::absolute(&path)
+                .map_err(|error| format!("--sdk {}: {error}", path.display()))?,
+        ),
+        None => None,
+    };
     let dir = dir.unwrap_or_else(|| PathBuf::from(&id));
     let mut all: Vec<(String, Vec<u8>)> = files(&id)
         .into_iter()

@@ -12,7 +12,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
-        declare::{ActionDecl, Declarations, MenuEntryDecl, ScreenDecl},
+        declare::{ActionDecl, Declarations, DeclareError, MenuEntryDecl, ScreenDecl},
         events::{Event, Incoming, kinds},
         fonts::{Font, FontRole, TextOrigin},
         registrations,
@@ -27,20 +27,23 @@ const OPEN: u32 = 2;
 /// The plugin's state: what it keeps between calls. Nothing yet.
 struct @TYPE@;
 
+/// What the plugin brings: the screen, the action that opens it and where the action shows.
+/// The ids get the plugin's id in front (`@ID@.screen`); the titles are keys of
+/// `plugin/i18n/<language>.ini`.
+fn declare(host: &Host<'_>) -> Result<(), DeclareError> {
+    let mut declarations =
+        Declarations::new(|batch| registrations::submit(host, batch).map_err(i32::from));
+    declarations.screen(ScreenDecl::new("screen", "@ID@.title", SCREEN))?;
+    declarations.action(ActionDecl::new("open", "@ID@.title", OPEN))?;
+    declarations.menu_entry(MenuEntryDecl::new("core.tools", "@ID@.open"))?;
+    declarations.submit()
+}
+
 impl Plugin for @TYPE@ {
-    /// Called once when the plugin is loaded: declare the screen, the action that opens it and
-    /// where the action shows. The ids get the plugin's id in front (`@ID@.screen`); the
-    /// titles are keys of `plugin/i18n/<language>.ini`.
+    /// Called once when the plugin is loaded. A declaration the device refuses ends the load
+    /// with its cause.
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        let mut declarations =
-            Declarations::new(|batch| registrations::submit(host, batch).map_err(i32::from));
-        let declared = (|| {
-            declarations.screen(ScreenDecl::new("screen", "@ID@.title", SCREEN))?;
-            declarations.action(ActionDecl::new("open", "@ID@.title", OPEN))?;
-            declarations.menu_entry(MenuEntryDecl::new("core.tools", "@ID@.open"))?;
-            declarations.submit()
-        })();
-        declared.map_err(|_| Error::Invalid)?;
+        declare(host).map_err(DeclareError::to_error)?;
         Ok(Self)
     }
 
