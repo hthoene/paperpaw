@@ -108,7 +108,11 @@ impl Known {
         let mut covers = self.covers.borrow_mut();
         // At most the rows one page holds; a refused allocation keeps nothing,
         // and the next draw asks again.
-        if covers.len() < PAGE && covers.try_reserve(1).is_ok() {
+        covers.retain(|(g, ..)| *g == generation);
+        if covers.capacity() == 0 && covers.try_reserve_exact(PAGE).is_err() {
+            return;
+        }
+        if covers.len() < PAGE {
             covers.push((generation, key, covered));
         }
     }
