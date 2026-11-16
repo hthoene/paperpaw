@@ -39,6 +39,19 @@ fn has_recent(host: &Host<'_>) -> Option<bool> {
 }
 
 impl Dashboard {
+    pub fn covers_ready(&self) -> bool {
+        let Some(laid) = &self.laid else {
+            return false;
+        };
+        let mut changed = false;
+        for cell in &laid.cells {
+            if let Some(super::Made::Mine(mine)) = &cell.widget {
+                changed |= mine.covers_ready();
+            }
+        }
+        changed
+    }
+
     /// A setting or the registry changed (or a plugin came or went) while
     /// another screen is over this one: the page it kept is laid out again when
     /// it is shown. Where it is on top and was shown again a moment ago (the

@@ -27,6 +27,7 @@ pub const STACK_CHANGED: u32 = 6;
 /// The registry changed (`event.registry_changed`): a page kept under another
 /// screen is laid out again when it is shown.
 pub const REGISTRY_CHANGED: u32 = 7;
+pub const LIBRARY_CHANGED: u32 = 8;
 /// Widget tokens: the widget's own callbacks (made, dropped, measured, drawn).
 pub const DATE: u32 = 20;
 pub const CLOCK: u32 = 21;
@@ -238,6 +239,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::WidgetChanged, WIDGET_CHANGED)?;
     d.subscribe_event(EventKind::StackChanged, STACK_CHANGED)?;
     d.subscribe_event(EventKind::RegistryChanged, REGISTRY_CHANGED)?;
+    d.subscribe_event(EventKind::LibraryChanged, LIBRARY_CHANGED)?;
     d.submit()
 }
 
