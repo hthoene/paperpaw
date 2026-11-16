@@ -195,5 +195,6 @@ pub(crate) fn line(block: &Block, cap: Cap, (x, baseline): (f32, f32), section: 
         inserted: false,
         annotations: Vec::new(),
         bidi: LineBidi::new(0, LineBidi::DROP_CAP),
+        hyphen: false,
     }
 }

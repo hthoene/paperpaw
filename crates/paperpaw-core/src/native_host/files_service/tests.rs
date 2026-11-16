@@ -87,6 +87,9 @@ pub(super) struct Card {
     pub(super) total: Cell<Option<u64>>,
     /// Counts of the storage calls that change the card.
     pub(super) changes: Cell<u32>,
+    /// A storage that answers the listings instead of the tables (a real FAT
+    /// card, for the stack depth of the route, #256).
+    pub(super) backing: Cell<Option<&'static dyn Storage>>,
 }
 
 fn parent(path: &str) -> &str {
@@ -104,6 +107,7 @@ impl Card {
             free: Cell::new(Some(100 << 20)),
             total: Cell::new(Some(1 << 30)),
             changes: Cell::new(0),
+            backing: Cell::new(None),
         }
     }
 
@@ -289,6 +293,9 @@ impl Storage for Card {
         from: u64,
         visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
     ) -> Result<Option<u64>, StorageError> {
+        if let Some(backing) = self.backing.get() {
+            return backing.list_from(dir, from, visit);
+        }
         self.check()?;
         self.folder(dir)?;
         let mut at = from;

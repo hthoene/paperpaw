@@ -2,6 +2,7 @@
 //! long presses, fingers resting together, the edges.
 
 use super::*;
+use crate::Items;
 
 /// A button going down or up at `at`.
 fn button(kernel: &mut Kernel, at: u64, name: &'static str, state: ButtonState) {
@@ -34,7 +35,7 @@ fn nothing_held(kernel: &Kernel) -> bool {
 /// dropped.
 fn shown_kernel(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", log))
+        .test_plugin(TestPlugin::new("a", log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -62,7 +63,7 @@ fn a_dropped_press_pressed_again_after_the_frame_does_not_stick() {
 fn a_held_press_pressed_again_before_the_frame_keeps_its_release() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -97,7 +98,7 @@ fn a_press_dropped_after_the_clock_went_back_does_not_stick() {
 fn a_finger_down_again_before_the_frame_does_not_stick() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -121,7 +122,7 @@ fn a_finger_down_again_before_the_frame_does_not_stick() {
 fn a_swapped_page_button_pressed_again_keeps_its_release() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .user_config(
             "[slots]
 core.reader = a.screen
@@ -191,7 +192,7 @@ fn any_order_of_presses_leaves_the_buttons_working() {
 fn two_fingers_resting_wake_the_shell_no_more() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -209,9 +210,6 @@ fn two_fingers_resting_wake_the_shell_no_more() {
     assert!(!kernel.settings().read(&settings::NIGHT_MODE));
     assert!(nothing_held(&kernel));
 }
-
-/// A home screen that notes the gestures and actions it gets.
-struct GesturePlugin(Log);
 
 struct GestureScreen(Log);
 
@@ -231,14 +229,10 @@ impl Screen for GestureScreen {
     }
 }
 
-impl Plugin for GesturePlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("g"), "Gestures", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
+/// A home screen that notes the gestures and actions it gets.
+fn gesture_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
         r.add_screen(ScreenSpec::new(
             Id::new_static("g.screen"),
             "g",
@@ -257,11 +251,17 @@ edge.right = core.back
     }
 }
 
+/// What [`gesture_plugin`] registers under.
+fn gesture_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("g"), "Gestures", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn a_finger_held_at_an_edge_is_a_long_press() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(GesturePlugin(log.clone()))
+        .items(gesture_plugin_manifest(), gesture_plugin(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -302,7 +302,7 @@ fn a_finger_held_at_an_edge_is_a_long_press() {
 fn a_thumb_resting_at_an_edge_leaves_long_presses_elsewhere() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(GesturePlugin(log.clone()))
+        .items(gesture_plugin_manifest(), gesture_plugin(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -340,7 +340,7 @@ fn right_held_opens_the_quick_panel_and_pressed_still_goes_right() {
 fn a_press_while_a_new_screen_refreshes_counts() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));

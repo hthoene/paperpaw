@@ -4,6 +4,7 @@
 //! walk, and a walk that fails told to the views.
 
 use super::*;
+use crate::Items;
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
@@ -19,12 +20,8 @@ struct LibraryPlugin {
     log: Log,
 }
 
-impl Plugin for LibraryPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("lib"), "Library", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn library_plugin(kept: LibraryPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         r.add_format(FormatSpec::new(
             Id::new_static("lib.txt"),
             "TXT",
@@ -56,17 +53,22 @@ impl Plugin for LibraryPlugin {
             Id::new_static("lib.list"),
             Priority(i16::MAX),
         )?;
-        let log = self.log.clone();
+        let log = kept.log.clone();
         r.subscribe(
             events::CATALOG_FAILED.id().clone(),
             Box::new(move |_, _, _| log.borrow_mut().push(String::from("failed"))),
         )?;
-        let log = self.log.clone();
+        let log = kept.log.clone();
         r.subscribe(
             events::CATALOG_CHANGED.id().clone(),
             Box::new(move |_, _, _| log.borrow_mut().push(String::from("catalog"))),
         )
     }
+}
+
+/// What [`library_plugin`] registers under.
+fn library_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("lib"), "Library", Version::new(1, 0, 0))
 }
 
 /// A book's page.
@@ -87,7 +89,10 @@ fn library(storage: MemoryStorage) -> (Kernel, Log, u64) {
 fn library_on(device: DeviceInfo, storage: MemoryStorage) -> (Kernel, Log, u64) {
     let log = log();
     let mut kernel = Kernel::builder(device)
-        .plugin(LibraryPlugin { log: log.clone() })
+        .items(
+            library_plugin_manifest(),
+            library_plugin(LibraryPlugin { log: log.clone() }),
+        )
         .storage(storage)
         .build()
         .unwrap();
@@ -246,7 +251,10 @@ fn woken_with_the_library_open_it_is_walked_at_once() {
 fn a_start_after_a_sleep_walks_the_library_once() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(LibraryPlugin { log: log.clone() })
+        .items(
+            library_plugin_manifest(),
+            library_plugin(LibraryPlugin { log: log.clone() }),
+        )
         .storage(two_books())
         .after_sleep(true)
         .build()
@@ -446,7 +454,10 @@ fn a_walk_that_fails_is_told_and_a_later_one_tells_the_catalog() {
     let broken = Rc::new(core::cell::Cell::new(true));
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(LibraryPlugin { log: log.clone() })
+        .items(
+            library_plugin_manifest(),
+            library_plugin(LibraryPlugin { log: log.clone() }),
+        )
         .storage(BrokenFolder {
             files: two_books(),
             broken: Rc::clone(&broken),
@@ -538,7 +549,10 @@ fn a_walk_that_cannot_write_is_told_and_tried_again() {
         damaged: false,
     };
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(LibraryPlugin { log: log.clone() })
+        .items(
+            library_plugin_manifest(),
+            library_plugin(LibraryPlugin { log: log.clone() }),
+        )
         .storage(card)
         .build()
         .unwrap();
@@ -574,7 +588,10 @@ fn an_old_folder_that_cannot_be_read_does_not_keep_the_catalog_from_being_made()
         damaged: true,
     };
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(LibraryPlugin { log: log() })
+        .items(
+            library_plugin_manifest(),
+            library_plugin(LibraryPlugin { log: log() }),
+        )
         .storage(card)
         .build()
         .unwrap();
@@ -730,7 +747,10 @@ fn walking(books: usize, battery: Option<u8>) -> Kernel {
         storage = storage.with(&alloc::format!("books/b{n:04}.txt"), "x");
     }
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(LibraryPlugin { log: log() })
+        .items(
+            library_plugin_manifest(),
+            library_plugin(LibraryPlugin { log: log() }),
+        )
         .storage(storage)
         .user_config("[core]\nsleep-after = 1\n")
         .sleep(true)
@@ -917,4 +937,23 @@ fn the_walks_hour_is_not_restarted_by_a_sleep_put_off_for_speech() {
         .find(|minute| kernel.tick(Instant(minute * 60_000)).sleep())
         .expect("slept after the speech, not an hour later");
     assert!(minute <= 72, "slept at minute {minute}");
+}
+
+/// *Look for new books* (#277): the kernel's action walks the library
+/// again, though it was walked since the start, and finds a book copied
+/// meanwhile.
+#[test]
+fn looking_for_new_books_walks_the_library_again() {
+    let (mut kernel, log, now) = library(two_books());
+    let now = want(&mut kernel, now, false);
+    assert_eq!(log.borrow().len(), 1);
+    kernel.storage().write("books/c.txt", b"three").unwrap();
+    let look = Id::new_static("core.library.look-again");
+    let effects = kernel.run_action(Instant(now), look);
+    run(&mut kernel, now, effects);
+    assert_eq!(
+        paths(&kernel),
+        ["books/a.txt", "books/b.txt", "books/c.txt"]
+    );
+    assert_eq!(log.borrow().len(), 2);
 }

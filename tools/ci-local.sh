@@ -199,11 +199,6 @@ g_sdk() {
         skip "sdk: interface.py --check" "cargo-public-api or ${nightly:-the nightly} missing"
     fi
     run "sdk: interface test" "cargo test -p paperpaw-sdk --test interface"
-    if [[ -f tools/shared-table.py ]]; then
-        run "sdk: shared table's index and signatures" "python3 tools/shared-table.py --check && python3 -I tools/test_shared_table.py"
-    else
-        skip "sdk: shared-table" "tools/shared-table.py is not in this tree (interface 5)"
-    fi
 }
 
 # Keep the baseline supplied independently by the caller. Missing input fails
@@ -214,8 +209,8 @@ g_abi() {
 }
 
 g_embedded() {
-    run "embedded: kernel and plugins, riscv32imc" "cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat"
-    run "embedded: kernel and plugins, wasm32" "cargo build --release --target wasm32-unknown-unknown -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat"
+    run "embedded: kernel and plugins, riscv32imc" "cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-x4 -p paperpaw-fat"
+    run "embedded: kernel and plugins, wasm32" "cargo build --release --target wasm32-unknown-unknown -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-x4 -p paperpaw-fat"
     run "embedded: lint the web emulator" "cargo clippy --target wasm32-unknown-unknown -p paperpaw-web -- -D warnings"
     # 16.4 MB: 16 held until the Mail plugin (about 0.25 MB of code and
     # texts, with what its generics pull in) came, 16.3 with it; 0.6.0-beta.1's
@@ -256,6 +251,7 @@ g_architecture() {
     run "architecture: plugins depend on the SDK only" '
         status=0
         for manifest in plugins/*/Cargo.toml samples/*/Cargo.toml; do
+          case "$manifest" in samples/frame-test/*|samples/interlinear/*) continue ;; esac
           if awk "/^\[/ { part = \$0 } part == \"[dependencies]\" && /^paperpaw-core/" "$manifest" | grep -q .; then
             echo "$manifest: plugins must depend on paperpaw-sdk, not paperpaw-core"
             status=1

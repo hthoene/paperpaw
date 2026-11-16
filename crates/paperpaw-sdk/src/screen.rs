@@ -132,7 +132,7 @@ impl ScreenSpec {
 pub type FixedFactory = fn(&Env<'_>, &Params) -> Box<dyn Screen>;
 
 /// A screen contribution kept in the program: as a [`ScreenSpec`], in a
-/// `static` list ([`Registrar::add_screens`](crate::Registrar::add_screens)),
+/// `static` list (`Items::add_screens`),
 /// so it takes next to no memory where a [`ScreenSpec`] takes some 60
 /// bytes. Its factory is a function ([`FixedFactory`]); a screen whose
 /// factory needs state of its own is a [`ScreenSpec`].
@@ -292,7 +292,7 @@ impl fmt::Debug for ScreenSpec {
 
 /// When a screen shows the row of hints for the buttons below it, on
 /// devices that have such a row (see
-/// [`Registrar::set_screen_hints`](crate::Registrar::set_screen_hints)).
+/// `Items::set_screen_hints`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum HintVisibility {
@@ -679,7 +679,7 @@ pub trait Screen {
 
     /// When it shows the row of hints, where it knows better than the
     /// plugin said for all its openings
-    /// ([`Registrar::set_screen_hints`](crate::Registrar::set_screen_hints)):
+    /// (`Items::set_screen_hints`):
     /// read when it is opened, for the part of the screen it is made for,
     /// and whenever the row would come for a while ([`HintVisibility::OnPress`]).
     fn hints(&self) -> Option<HintVisibility> {

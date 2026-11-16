@@ -43,10 +43,28 @@ COMMANDS:
                 A plugin's own repository (and its release's files) checked by the
                 plugin store's rules at paperpaw.org, saying what to change: run it
                 before tagging; the release workflow runs it too
-    new --github <id> [--dir <path>]
+    new --github <id> [--code] [--sdk <path>] [--dir <path>]
                 A plugin's own repository for GitHub that check-publish passes: the
                 plugin's folder, store/store.ini, the release workflow, README,
-                .gitignore (a plugin without code; none with code yet)
+                .gitignore. With --code also a plugin with code for plugin interface
+                7: its crate, the X4's build configuration and what it calls of the
+                device (CODE.md says how to build it); --sdk names a PaperPaw
+                checkout's crates/paperpaw-sdk instead of the published SDK
+    build [plugin's folder] [--device <x4|x3|x4-pro|x4-classic|emulator>]
+          [--sign-tool <path>]
+                A plugin with code, from its repository to dist/<device>/<id>, its
+                folder as it goes onto a card: the records of what it calls, the
+                compiler checked (with how to install what is missing), the build for
+                the device's chip, and the packing by paperpaw-sign into code.ppn. The
+                code is not signed. `--device emulator` (Linux, x86-64) builds it for
+                this computer and leaves dist/emulator, a library to start the
+                emulator with: paperpaw-emu --library dist/emulator --trust-code
+    metadata [plugin's folder] [--check]
+                A plugin with code: writes native/metadata.bin (X4, X3),
+                native/metadata.s3.bin (X4 Pro, X4 Classic) and native/metadata.host.bin
+                (the emulator) from native/metadata.json,
+                the list of the device's functions the code calls. Run it after
+                changing the list; --check only says whether they are current
     ui-kit      Every building block of the SDK's `ui` module, as the gallery shows
                 screens (every device, look, light and dark), checked as `visual`
                 checks; a label shortened to fit is an error
@@ -249,6 +267,8 @@ pub fn run(args: impl Iterator<Item = String>, add: Option<AddPlugins>) -> Resul
     match args.first().map(String::as_str) {
         Some("check-publish") => return crate::publish::check(&args[1..]),
         Some("new") => return crate::publish::new(&args[1..]),
+        Some("build") => return crate::build::run(&args[1..]),
+        Some("metadata") => return crate::metadata::run(&args[1..]),
         _ => {}
     }
     let Some((command, mut context)) = parse(args.into_iter())? else {

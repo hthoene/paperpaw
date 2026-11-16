@@ -278,6 +278,17 @@ pub fn clock() -> u64 {
     CLOCK.with(std::cell::Cell::get)
 }
 
+thread_local! {
+    /// Whether the harness wires `core.lookup` (the dictionary's), as the
+    /// desktop does; off, so that the tests that never asked see what they saw.
+    static LOOKUP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Wires `core.lookup` in the kernels this thread builds from now on.
+pub fn wire_lookup() {
+    LOOKUP.with(|lookup| lookup.set(true));
+}
+
 /// The plugins the app lets sleep (`paperpaw_app::sleeps`).
 fn app_sleeps(id: &str) -> bool {
     #[cfg(feature = "native-linked")]
@@ -422,6 +433,11 @@ mod linked {
 
         /// `wiring` with the families a shell wires over its card, on `card`.
         pub fn wire(wiring: HostWiring, card: Rc<dyn Storage>) -> HostWiring {
+            let wiring = if super::super::LOOKUP.with(std::cell::Cell::get) {
+                wiring.lookup()
+            } else {
+                wiring
+            };
             wiring
                 .documents(MemoryClass::Small, 800)
                 .library(card.clone(), Rc::new(NoCatalog))

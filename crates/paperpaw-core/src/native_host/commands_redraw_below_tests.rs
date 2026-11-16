@@ -3,14 +3,15 @@
 //! overlays over it drawn again; a full screen or a guard above refuses it.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 use super::*;
+use crate::Items;
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_native::host_glue::ERR_STATE;
 use paperpaw_platform::{Color, Instant, Rect, RefreshMode};
 use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Manifest, Params, Plugin, RegisterError, Registrar, Screen,
-    ScreenKey, ScreenSpec, Version,
+    Canvas, Cx, Env, Handled, Manifest, Params, RegisterError, Screen, ScreenKey, ScreenSpec,
+    Version,
 };
 
 /// A screen of one of the kinds the tests stack: a full page that is black or
@@ -51,15 +52,8 @@ impl Screen for Probe {
     }
 }
 
-struct Probes(Rc<Cell<bool>>);
-
-impl Plugin for Probes {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn probes(kept: Rc<Cell<bool>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         for (id, kind) in [
             ("probe.page", "page"),
             ("probe.full", "full"),
@@ -67,7 +61,7 @@ impl Plugin for Probes {
             ("probe.dimbar", "dimbar"),
             ("probe.pin", "pin"),
         ] {
-            let white = Rc::clone(&self.0);
+            let white = Rc::clone(&kept);
             r.add_screen(ScreenSpec::new(
                 Id::new_static(id),
                 "probe.title",
@@ -83,11 +77,17 @@ impl Plugin for Probes {
     }
 }
 
+/// What [`probes`] registers under.
+fn probes_manifest() -> Manifest {
+    Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// A kernel with the screens `ids` opened, bottom first, drawn once.
 fn stacked(ids: &[&'static str]) -> (crate::Kernel, Rc<Cell<bool>>) {
     let white = Rc::new(Cell::new(false));
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Probes(Rc::clone(&white)))
+        .items(probes_manifest(), probes(Rc::clone(&white)))
         .build()
         .unwrap();
     kernel.start(Instant(0));

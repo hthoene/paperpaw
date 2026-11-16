@@ -16,12 +16,13 @@ mod snapshot;
 pub mod snapshot_wire;
 
 use context::{Frame, FrameSlot};
+use paperpaw_core::Items;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE, OK, PpBuffer};
 use paperpaw_platform::{
     Battery, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
     SystemStatus, WallClock,
 };
-use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, Settings, Version};
+use paperpaw_sdk::{Id, Manifest, RegisterError, Settings, Version};
 use snapshot_wire::{SNAPSHOT_BYTES, SNAPSHOT_MAX_BYTES, Snapshot, snapshot_decode};
 use std::{cell::RefCell, mem::MaybeUninit, pin::pin, ptr, rc::Rc};
 
@@ -245,17 +246,9 @@ fn scope_cleanup_and_nested_refusal_preserve_the_current_snapshot() {
         .unwrap();
 }
 
-struct Probe(Rc<RefCell<Vec<Snapshot>>>);
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("snapshot-probe"),
-            "Snapshot probe",
-            Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let seen = self.0.clone();
+fn probe(kept: Rc<RefCell<Vec<Snapshot>>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let seen = kept.clone();
         r.subscribe(
             paperpaw_sdk::builtin::events::STARTED,
             Box::new(move |env, _, _| {
@@ -280,11 +273,20 @@ impl Plugin for Probe {
     }
 }
 
+/// What [`probe`] registers under.
+fn probe_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("snapshot-probe"),
+        "Snapshot probe",
+        Version::new(1, 0, 0),
+    )
+}
+
 #[test]
 fn actual_kernel_event_env_can_supply_the_scoped_snapshot() {
     let seen = Rc::new(RefCell::new(Vec::new()));
     let mut kernel = paperpaw_core::Kernel::builder(DEVICE)
-        .plugin(Probe(seen.clone()))
+        .items(probe_manifest(), probe(seen.clone()))
         .build()
         .unwrap();
     kernel.set_status(

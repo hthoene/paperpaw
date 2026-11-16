@@ -27,5 +27,3 @@ paperpaw-x4.workspace = true
 workspace = true
 
 [dev-dependencies]
-# A plugin with code to add (`set_plugins`) and check.
-paperpaw-sample-hello = { path = "../../samples/hello-plugin" }

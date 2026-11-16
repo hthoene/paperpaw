@@ -7,7 +7,7 @@
 //! A plugin names the event that brings it, e.g.
 //! `const FETCHED: Event<HttpReply> = Event::new("news.fetched")`, passes
 //! it with the request, and hears it with
-//! [`Registrar::on`](crate::Registrar::on) or reads it on a screen with
+//! `Items::on` or reads it on a screen with
 //! [`Event::read`](crate::event::Event::read). The parameters it gave the
 //! request come back as [`HttpReply::context`] (and so on), to tell its
 //! requests apart.
@@ -135,7 +135,7 @@ impl core::fmt::Display for HttpError {
 
 /// The answer to an HTTP request ([`Command::Http`](crate::Command::Http)).
 ///
-/// Heard with [`Registrar::on`](crate::Registrar::on), its body comes as
+/// Heard with `Items::on`, its body comes as
 /// the shell gave it, without a copy. Observers of events see its other
 /// values, not the body.
 #[derive(Debug, Clone, PartialEq, Eq)]

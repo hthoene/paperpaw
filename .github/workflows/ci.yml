@@ -202,14 +202,16 @@ jobs:
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test linked_settings_tables --test settings_value_labels
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
       # The menu is native only (#244): its entries and the tools list are tested linked.
-      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands
+      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands --test registry_golden
+      # The kernel's own screens, one golden each (#244).
+      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked,native-linked-reading,native-linked-store --test kernel_screens
       # The Settings and the menu its tests open are native: the app's own plugins, as the lean
       # firmware has them (#244).
       # The nested-call gate closed (the X3): the host that refuses the Preview widget (#250).
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading,native-linked-store,x4-gate-closed --test home_native preview
       - run: cargo test --no-fail-fast -p paperpaw-plugin-picture-home --features linked,x4-gate-closed --test hosted_page
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test sets --test standard
-      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test readers
+      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading,native-linked-store --test readers
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test partial_redraw -- --exact table_of_contents
 
   check:
@@ -338,12 +340,11 @@ jobs:
         run: |
           python3 -I tools/test_interface.py
           python3 tools/interface.py --check
-      - name: The shared function tables' index and signatures are shared.list's
-        # crates/paperpaw-table: src/index.rs and table.sig from shared.list
-        # and the `shared!` declarations; entries only appended.
-        run: |
-          python3 tools/shared-table.py --check
-          python3 -I tools/test_shared_table.py
+      - name: Every plugin's library and the UI kit build without the kernel's API
+        # One crate a call: in the workspace's build the kernel turns the SDK's
+        # `kernel` feature on for everyone, which hides a library that names the
+        # old plugin API (#244).
+        run: tools/ci/plugin-libs-alone.sh
       - name: What code plugins see changes only with the plugin interface
         # Those files, the linker script and the release's compilers, as
         # interface.txt and interface/ keep them for native::INTERFACE
@@ -408,7 +409,7 @@ jobs:
           cargo build --release --target ${{ matrix.target }}
           -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics
           -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict
-          -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat
+          -p paperpaw-x4 -p paperpaw-fat
       - name: SDK interface-7 entry packs and rejects misalignment
         if: matrix.target == 'riscv32imc-unknown-none-elf'
         run: CARGO_TARGET_DIR="$PWD/target/abi7-sdk-entry" samples/abi7-sdk-entry/check.sh
@@ -562,6 +563,12 @@ jobs:
             "shells/xteink/target/$FIRMWARE_TARGET/release/paperpaw-xteink" "$out"/*.ppn
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
           python3 tools/plugin-files/catalogue.py "$out" "$version" https://example.invalid/ci
+      # What `paperpaw-dev new --code` writes for an author still builds against
+      # this checkout's SDK, packs and passes the packer's check (#244), for
+      # each chip once (the X3 and the X4 Classic take the other's build).
+      - name: The author's template builds and packs
+        if: matrix.device == 'x4' || matrix.device == 'x4-pro'
+        run: tools/ci/author-template.sh "$RUNNER_TEMP/author" "$DEVICE"
       # espup's toolchain is cached between runs (xteink-tools): the core
       # libraries installed into it go again, so that no run finds those
       # of another commit.
@@ -918,10 +925,13 @@ jobs:
           # The history and the tags, for the plugins' versions.
           fetch-depth: 0
       - name: Plugins depend on the SDK only
-        # Their tests may run them in a kernel (dev-dependencies).
+        # Their tests may run them in a kernel (dev-dependencies). Two samples
+        # are the old registry's fixtures: they register on the kernel's own
+        # `Plugin` and `Items` (#244 D4b), so they depend on paperpaw-core.
         run: |
           status=0
           for manifest in plugins/*/Cargo.toml samples/*/Cargo.toml; do
+            case "$manifest" in samples/frame-test/*|samples/interlinear/*) continue ;; esac
             if awk '/^\[/ { part = $0 } part == "[dependencies]" && /^paperpaw-core/' "$manifest" | grep -q .; then
               echo "::error file=$manifest::plugins must depend on paperpaw-sdk, not paperpaw-core"
               status=1

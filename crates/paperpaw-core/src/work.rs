@@ -1217,9 +1217,7 @@ impl crate::Shared {
 /// wants one (`event.network_wanted`/`idle` go to it alone): the Wi-Fi plugin,
 /// as in Beta 3. Where there is none by that id the events go nowhere; empty
 /// (or another id) is the user's choice, and a reset brings the default back.
-pub(crate) fn register_network(
-    r: &mut paperpaw_sdk::Registrar,
-) -> Result<(), paperpaw_sdk::RegisterError> {
+pub(crate) fn register_network(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
     use paperpaw_sdk::{Id, SettingGroupSpec, SettingSpec, builtin::groups};
     // Each plugin's network (its settings made by the kernel).
     static NETWORK: SettingGroupSpec = SettingGroupSpec::new(NETWORK_GROUP, "core.group.network")

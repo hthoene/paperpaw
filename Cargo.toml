@@ -11,7 +11,6 @@ members = [
     "crates/paperpaw-i18n",
     "crates/paperpaw-graphics",
     "crates/paperpaw-lang",
-    "crates/paperpaw-table",
     "crates/paperpaw-text",
     "crates/paperpaw-document",
     "crates/paperpaw-layout",
@@ -93,7 +92,6 @@ members = [
     "plugins/setup",
     "plugins/update",
     "plugins/widgets",
-    "samples/hello-plugin",
     "samples/frame-test",
     "samples/interlinear",
     "plugins/news",
@@ -112,6 +110,7 @@ members = [
     "tools/dev",
     "tools/checks",
     "tools/library-bench",
+    "tools/stack-budget",
 ]
 
 [workspace.package]
@@ -131,7 +130,6 @@ paperpaw-serve = { path = "crates/paperpaw-serve", version = "0.6.0-beta.3" }
 paperpaw-i18n = { path = "crates/paperpaw-i18n", version = "0.6.0-beta.3" }
 paperpaw-graphics = { path = "crates/paperpaw-graphics", version = "0.6.0-beta.3" }
 paperpaw-lang = { path = "crates/paperpaw-lang", version = "0.6.0-beta.3" }
-paperpaw-table = { path = "crates/paperpaw-table", version = "0.6.0-beta.3" }
 paperpaw-sort = { path = "crates/paperpaw-sort", version = "0.6.0-beta.3" }
 paperpaw-text = { path = "crates/paperpaw-text", version = "0.6.0-beta.3" }
 paperpaw-document = { path = "crates/paperpaw-document", version = "0.6.0-beta.3" }
@@ -146,6 +144,7 @@ paperpaw-update = { path = "crates/paperpaw-update", version = "0.6.0-beta.3" }
 paperpaw-digest = { path = "crates/paperpaw-digest", version = "0.6.0-beta.3" }
 paperpaw-native = { path = "crates/paperpaw-native", version = "0.6.0-beta.3" }
 paperpaw-publish = { path = "tools/publish" }
+paperpaw-stack-budget = { path = "tools/stack-budget" }
 paperpaw-json = { path = "crates/paperpaw-json", version = "0.6.0-beta.3" }
 paperpaw-qr = { path = "crates/paperpaw-qr", version = "0.6.0-beta.3" }
 paperpaw-ui-kit = { path = "crates/paperpaw-ui-kit", version = "0.6.0-beta.3" }
@@ -226,7 +225,7 @@ proptest = { version = "1.5", default-features = false, features = ["std"] }
 unsafe_op_in_unsafe_fn = "deny"
 # `paperpaw_plugin`: set where plugin files of the format before interface 7
 # were built (ADR 0024). `fuzzing`: set by cargo-fuzz.
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(paperpaw_plugin)", "cfg(paperpaw_table_host)", "cfg(fuzzing)"] }
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(paperpaw_plugin)", "cfg(fuzzing)"] }
 missing_debug_implementations = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
 

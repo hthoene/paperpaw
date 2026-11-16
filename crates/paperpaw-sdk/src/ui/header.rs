@@ -232,7 +232,6 @@ impl HeaderParts {
 }
 
 impl Header {
-    paperpaw_table::shared! {
     /// A header at the top of the screen; `back` is `false` for root
     /// screens such as the home screen.
     pub fn new(env: &Env<'_>, style: &UiStyle, back: bool) -> Self {
@@ -244,7 +243,6 @@ impl Header {
             back: back && touch,
             arrows: touch,
         }
-    } @ ui::HEADER_NEW
     }
 
     /// Where it is: across the top of the screen.
@@ -349,13 +347,12 @@ impl Header {
         title_fits(&font, style, high, room, title)
     }
 
-    paperpaw_table::shared! {
     /// Draws the header: the title, an optional note right of it (e.g. a
     /// sort order) and the page number of a paged list (`page` is the
     /// page shown and the number of pages).
-    #[allow(
+    #[expect(
         clippy::too_many_lines,
-        reason = "grew by the role each label now names; split it when it is next changed (`allow`: clippy does not measure functions inside `shared!`)"
+        reason = "grew by the role each label now names; split it when it is next changed"
     )]
     pub fn draw(
         &self,
@@ -507,10 +504,8 @@ impl Header {
             title,
             ink,
         );
-    } @ ui::HEADER_DRAW
     }
 
-    paperpaw_table::shared! {
     /// The action a tap at `point` stands for: back, or the previous or
     /// next page. `None` outside the header or on its title.
     pub fn tap(
@@ -538,7 +533,6 @@ impl Header {
         } else {
             None
         }
-    } @ ui::HEADER_TAP
     }
 
     /// Whether `point` is on the page number between the arrows, e.g. to
@@ -693,7 +687,6 @@ pub(super) fn center(area: Rect) -> (i32, i32) {
     )
 }
 
-paperpaw_table::shared! {
 /// The arrow of semantic icon `icon` ([`icons::BACK`](crate::icons::BACK),
 /// [`PREV`](crate::icons::PREV), [`NEXT`](crate::icons::NEXT)) centred
 /// at `at`: the icon a theme gave it, as tall as titles, else a chevron
@@ -710,7 +703,6 @@ pub fn draw_arrow(
     if !draw_icon_at(canvas, env, icon, style.title, at, color) {
         draw_chevron(canvas, style, at.0, at.1, left, color);
     }
-} @ ui::HEADER_DRAW_ARROW
 }
 
 /// An arrow head pointing left or right, centred at `(x, y)` and as tall

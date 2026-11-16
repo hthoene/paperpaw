@@ -38,7 +38,11 @@ pub fn word_boxes<M: Measure>(
 ) -> Result<Vec<WordBox>, Error> {
     let (left, top) = (f32::from(area.x), f32::from(area.y));
     let mut words: Vec<WordBox> = Vec::new();
+    // The last word of the line before, where it ended with a hyphen the
+    // layout put there: its word goes on with the first of this line.
+    let mut broken: Option<usize> = None;
     for line in page.lines.iter().filter(|l| !l.inserted) {
+        let first = words.len();
         let mut x = left + line.x;
         // Inside a word that goes on in the next run (a bold start, say).
         let mut joined = false;
@@ -83,14 +87,119 @@ pub fn word_boxes<M: Measure>(
                             )
                             .bidi(line.bidi),
                         );
+                        if let Some(head) = broken.take() {
+                            join_broken(&mut words, head)?;
+                        }
                     }
                 }
                 x += width;
                 joined = true;
             }
         }
+        // A hyphen of the layout's ends this line's last word, which goes on
+        // in the next line (not in a page of its own: a page ends with it).
+        broken = (line.hyphen && words.len() > first).then(|| words.len() - 1);
     }
     Ok(words)
+}
+
+/// The word at `head`, which ends a line with a hyphen the layout put there,
+/// and the word after it, its other part: each is the whole word (without that
+/// hyphen) with its whole place in the book, so that a touch on either part
+/// chooses the word, and what is kept of it is the word, by its place.
+fn join_broken(words: &mut [WordBox], head: usize) -> Result<(), Error> {
+    let tail = head + 1;
+    let Some((front, back)) = words.get(head).zip(words.get(tail)) else {
+        return Ok(());
+    };
+    let part = front.text.strip_suffix('-').unwrap_or(&front.text);
+    let mut whole = String::new();
+    whole
+        .try_reserve(part.len() + back.text.len())
+        .map_err(|_| Error::NoMemory)?;
+    whole.push_str(part);
+    whole.push_str(&back.text);
+    let (start, end) = (front.start, back.end);
+    let mut again = String::new();
+    push_str(&mut again, &whole)?;
+    for (at, text) in [(head, whole), (tail, again)] {
+        if let Some(word) = words.get_mut(at) {
+            word.text = text;
+            word.start = start;
+            word.end = end;
+        }
+    }
+    Ok(())
+}
+
+/// Whether the page's last word is one the layout broke at the page's end: its
+/// other part is the first word of the next page, which this page does not hold.
+#[must_use]
+pub fn ends_open(words: &[WordBox], page: &Page) -> bool {
+    let Some(line) = page.lines.iter().rev().find(|l| !l.inserted) else {
+        return false;
+    };
+    let last = words.last();
+    line.hyphen
+        && page.end != page.start
+        && last
+            .zip(line.words.last())
+            .is_some_and(|(word, &(_, end))| {
+                word.end == Locator::new(line.section, end) && word.text.ends_with('-')
+            })
+}
+
+/// The first word of the first line of `page`, whole, with where it ends: the
+/// other part of a word the page before broke at its end.
+///
+/// # Errors
+/// `NoMemory` when the word cannot be allocated.
+pub fn first_word(page: &Page) -> Result<Option<(String, Locator)>, Error> {
+    let Some(line) = page.lines.iter().find(|l| !l.inserted) else {
+        return Ok(None);
+    };
+    let Some(&(_, end)) = line.words.first() else {
+        return Ok(None);
+    };
+    let mut word = String::new();
+    // Past the word: a space (or a no-break one) after it.
+    let mut done = false;
+    for run in &line.runs {
+        let Some(text) = line.text.get(run.start..run.end) else {
+            continue;
+        };
+        for (n, part) in text.split([' ', '\u{a0}']).enumerate() {
+            if n > 0 {
+                done |= !word.is_empty();
+            }
+            if part.is_empty() || done {
+                continue;
+            }
+            push_str(&mut word, part)?;
+        }
+    }
+    Ok((!word.is_empty()).then(|| (word, Locator::new(line.section, end))))
+}
+
+/// The page's last word, broken at its end, made whole with `rest` (the first
+/// word of the next page), which ends at `end`.
+///
+/// # Errors
+/// `NoMemory` when the word cannot be allocated.
+pub fn join_open_end(words: &mut [WordBox], rest: &str, end: Locator) -> Result<(), Error> {
+    let Some(word) = words.last_mut() else {
+        return Ok(());
+    };
+    let part = word.text.strip_suffix('-').unwrap_or(&word.text);
+    let mut whole = String::new();
+    whole
+        .try_reserve(part.len() + rest.len())
+        .map_err(|_| Error::NoMemory)?;
+    whole.push_str(part);
+    whole.push_str(rest);
+    word.text = whole;
+    word.end = end;
+    Ok(())
 }
 
 fn push_str(to: &mut String, text: &str) -> Result<(), Error> {

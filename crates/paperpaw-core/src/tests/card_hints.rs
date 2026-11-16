@@ -4,6 +4,7 @@
 //! read until the messages read are forgotten.
 
 use super::*;
+use crate::Items;
 use paperpaw_platform::buttons;
 use paperpaw_sdk::{Hint, Params};
 
@@ -27,15 +28,8 @@ impl Screen for Wordy {
     }
 }
 
-struct WordyPlugin;
-
-impl Plugin for WordyPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("wordy"), "Wordy", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn wordy_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_screen(ScreenSpec::new(
             WORDY,
             "wordy",
@@ -47,6 +41,12 @@ impl Plugin for WordyPlugin {
             }),
         ))
     }
+}
+
+/// What [`wordy_plugin`] registers under.
+fn wordy_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("wordy"), "Wordy", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// A card with the data plugin `pack`: the language `xx`, whose words for
@@ -72,7 +72,7 @@ fn card() -> paperpaw_sdk::MemoryStorage {
 
 fn kernel(language: &str) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WordyPlugin)
+        .items(wordy_plugin_manifest(), wordy_plugin())
         .storage(card())
         .button_row(&[
             buttons::BACK,

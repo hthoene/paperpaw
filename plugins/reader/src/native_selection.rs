@@ -3,4 +3,4 @@ pub mod moves;
 #[cfg(test)]
 mod moves_tests;
 
-pub use moves::{Mode, Selection, line_boxes};
+pub use moves::{Mode, Selection, continues, line_boxes};
