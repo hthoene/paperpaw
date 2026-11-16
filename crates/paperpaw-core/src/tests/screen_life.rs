@@ -3,6 +3,7 @@
 //! while it is open.
 
 use super::*;
+use crate::Items;
 use core::cell::Cell;
 use paperpaw_sdk::SCREEN_REVISION;
 use paperpaw_sdk::builtin::events;
@@ -13,11 +14,6 @@ const MENU: Id = Id::new_static("book.menu");
 const FULL: Id = Id::new_static("book.full");
 const CLOSED: Id = Id::new_static("book.closed");
 const BOOK_SETTINGS: &str = "books/a/settings.ini";
-
-/// A reader that keeps a book's own settings while it is open and asks
-/// for a timer when a setting changes; a menu over the lower half of the
-/// screen and a full screen, each saying when its timer comes.
-struct BookPlugin(Log, Asks);
 
 /// What the reader says of its time below overlays
 /// ([`Screen::times_under_overlays`]) and its revision.
@@ -93,14 +89,12 @@ impl Screen for Other {
     }
 }
 
-impl Plugin for BookPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("book"), "Book", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let (log, asks) = (self.0.clone(), self.1.clone());
+/// A reader that keeps a book's own settings while it is open and asks
+/// for a timer when a setting changes; a menu over the lower half of the
+/// screen and a full screen, each saying when its timer comes.
+fn book_plugin(kept0: Log, kept1: Asks) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let (log, asks) = (kept0.clone(), kept1.clone());
         r.add_screen(ScreenSpec::new(
             READER,
             "reader",
@@ -116,7 +110,7 @@ impl Plugin for BookPlugin {
             (MENU, "menu", Some(Rect::new(0, 45, 90, 45))),
             (FULL, "full", None),
         ] {
-            let log = self.0.clone();
+            let log = kept0.clone();
             r.add_screen(ScreenSpec::new(
                 id,
                 "other",
@@ -133,13 +127,22 @@ impl Plugin for BookPlugin {
     }
 }
 
+/// What [`book_plugin`] registers under.
+fn book_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("book"), "Book", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn book_kernel(log: &Log) -> Kernel {
     book_kernel_asking(log, &Rc::new(Cell::new((false, SCREEN_REVISION))))
 }
 
 fn book_kernel_asking(log: &Log, asks: &Asks) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(BookPlugin(log.clone(), asks.clone()))
+        .items(
+            book_plugin_manifest(),
+            book_plugin(log.clone(), asks.clone()),
+        )
         .storage(MemoryStorage::new())
         .build()
         .unwrap();

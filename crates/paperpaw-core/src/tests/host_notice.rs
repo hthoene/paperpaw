@@ -3,18 +3,12 @@
 //! a plugin's screen bound there still wins.
 
 use super::*;
+use crate::Items;
 use paperpaw_sdk::Params;
 
 /// Fills the notice slot as the interface-6 menu did.
-struct OwnNotice;
-
-impl Plugin for OwnNotice {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("on"), "Own notice", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn own_notice() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_screen(ScreenSpec::new(
             Id::new_static("on.notice"),
             "notice",
@@ -26,6 +20,12 @@ impl Plugin for OwnNotice {
             Priority::DEFAULT,
         )
     }
+}
+
+/// What [`own_notice`] registers under.
+fn own_notice_manifest() -> Manifest {
+    Manifest::new(Id::new_static("on"), "Own notice", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 #[test]
@@ -145,7 +145,10 @@ fn back_closes_the_notice_opened_as_a_screen() {
 
 #[test]
 fn a_plugins_notice_wins_over_the_hosts() {
-    let mut kernel = Kernel::builder(DEVICE).plugin(OwnNotice).build().unwrap();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(own_notice_manifest(), own_notice())
+        .build()
+        .unwrap();
     kernel.start(Instant(0));
     assert_eq!(
         kernel.shared.registry.resolve_slot(slots::NOTICE.as_str()),

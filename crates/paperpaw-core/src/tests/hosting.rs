@@ -2,6 +2,7 @@
 //! way back.
 
 use super::*;
+use crate::Items;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::host::ScreenHost;
@@ -66,16 +67,9 @@ impl Screen for Tabs {
     }
 }
 
-struct HostPlugin(Log);
-
-impl Plugin for HostPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("host"), "Host", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
+fn host_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
         r.add_screen(ScreenSpec::new(
             PAGE,
             "page",
@@ -90,7 +84,7 @@ impl Plugin for HostPlugin {
                 })
             }),
         ))?;
-        let log = self.0.clone();
+        let log = kept.clone();
         r.add_screen(ScreenSpec::new(
             LIST,
             "list",
@@ -101,6 +95,12 @@ impl Plugin for HostPlugin {
     }
 }
 
+/// What [`host_plugin`] registers under.
+fn host_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("host"), "Host", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// A screen made by another plugin's, in a part of it: drawn there from
 /// its own corner, the size of its part; taps there reach it in its
 /// coordinates; what it asks for reaches the kernel, moved to the screen.
@@ -109,7 +109,7 @@ fn a_screen_hosts_another_in_a_part_of_it() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(NoticePlugin { log: super::log() })
-        .plugin(HostPlugin(log.clone()))
+        .items(host_plugin_manifest(), host_plugin(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -154,7 +154,7 @@ fn a_screen_hosts_another_in_a_part_of_it() {
 fn tasks_keep_their_own_way_back() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(HostPlugin(log.clone()))
+        .items(host_plugin_manifest(), host_plugin(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -183,7 +183,7 @@ fn tasks_keep_their_own_way_back() {
 fn tasks_kept_follow_their_books() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(HostPlugin(log.clone()))
+        .items(host_plugin_manifest(), host_plugin(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
