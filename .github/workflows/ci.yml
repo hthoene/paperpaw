@@ -91,7 +91,12 @@ jobs:
         with:
           shared-key: check
           save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
-      - run: cargo test --no-fail-fast --workspace
+      # Without the app (its tests are the job "Tests (the app)"): `testing` is the
+      # one feature of the workspace's resolution that only the app brings
+      # (it enables it on paperpaw-core), so it is named here; with it every
+      # crate builds with the features it has in the whole workspace's run
+      # (compare `cargo tree --workspace`).
+      - run: cargo test --no-fail-fast --workspace --exclude paperpaw-app --features paperpaw-core/testing
       # The line-break table (crates/paperpaw-text/src/linebreak) is made from
       # Unicode 17.0.0's files, pinned by SHA-256 in the generator (a changed
       # mirror fails here, never passes); the conformance test needs them too.
@@ -113,6 +118,26 @@ jobs:
           done
           python3 tools/linebreak-table.py "$dir" --check
           PAPERPAW_UCD_TESTS="$dir" PAPERPAW_REQUIRE_UCD=1 cargo test -p paperpaw-text --lib linebreak
+
+  # The app's own tests, beside the rest of the workspace's (they were its
+  # second half). The same packages and features as `cargo test --workspace`
+  # gives them: `cargo tree -p paperpaw-app` resolves to the workspace run's features.
+  test-app:
+    name: Tests (the app)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      # Reads the cache the test job saves (shared-key check); never saves.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: check
+          save-if: false
+      - run: cargo test --no-fail-fast -p paperpaw-app
 
   # The feature builds of the tests run beside the workspace run (they were
   # its tail, about 16 minutes after it): the same commands, a job of their own.
@@ -142,6 +167,23 @@ jobs:
       # The kernel of a build with the linked native reader (the app's
       # `native-linked-reading`): its book menu has no *Open with…* (todo 544).
       - run: cargo test --no-fail-fast -p paperpaw-core --lib --features native-reading open_with
+
+  # The second half of the feature builds, the app's: the same commands, a job of
+  # their own (they were 6 of the 13 minutes of the first).
+  test-features-app:
+    name: Tests (feature builds, the app)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: check
+          save-if: false
       # The app's flows with the linked native plugins, and the plugins that
       # may sleep (#248): each behaves the same parked as awake, also parked
       # again on standby, and 50 standby cycles leave no heap and no handle
@@ -177,17 +219,20 @@ jobs:
     # Runs whatever the parts did (a failed or cancelled part must not leave
     # this check missing or skipped), but not for a draft pull request.
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    needs: [lint, test, test-features]
+    needs: [lint, test, test-app, test-features, test-features-app]
     runs-on: ubuntu-latest
     env:
       LINT: ${{ needs.lint.result }}
       TEST: ${{ needs.test.result }}
+      TEST_APP: ${{ needs.test-app.result }}
       TEST_FEATURES: ${{ needs.test-features.result }}
+      TEST_FEATURES_APP: ${{ needs.test-features-app.result }}
     steps:
       - name: All parts passed
         run: |
-          echo "lint: $LINT, test: $TEST, test-features: $TEST_FEATURES"
-          [ "$LINT" = success ] && [ "$TEST" = success ] && [ "$TEST_FEATURES" = success ]
+          echo "lint: $LINT, test: $TEST, test-app: $TEST_APP, test-features: $TEST_FEATURES, test-features-app: $TEST_FEATURES_APP"
+          [ "$LINT" = success ] && [ "$TEST" = success ] && [ "$TEST_APP" = success ] \
+            && [ "$TEST_FEATURES" = success ] && [ "$TEST_FEATURES_APP" = success ]
 
   screens:
     name: Screens checked (paperpaw-dev)
@@ -430,20 +475,25 @@ jobs:
       # back, which keeps it.
       - name: espflash
         uses: ./.github/actions/espflash
-      - name: Lint and build
+      # The S3 devices' lint is the job firmware-s3-lint (beside this build).
+      - name: Lint
+        if: matrix.device == 'x4' || matrix.device == 'x3'
         working-directory: shells/xteink
         # Linted with remote control over USB, as for testing, and
-        # without, as released; built as released.
-        # Without the job's RUSTFLAGS (-D warnings): they would replace the
-        # flags of shells/xteink/.cargo/config.toml (no jump tables, frame
-        # pointers), which the frame budgets are measured with. Clippy denies
-        # the warnings itself; build.rs fails the build if the flags are missing.
-        # The build remaps the runner's paths as the release's does
-        # (tools/ci/firmware-remap.sh): the image here is the released one's
-        # size (shells/xteink/size-budget.txt).
+        # without, as released. Without the job's RUSTFLAGS (-D warnings): they
+        # would replace the flags of shells/xteink/.cargo/config.toml (no jump
+        # tables, frame pointers), which the frame budgets are measured with.
+        # Clippy denies the warnings itself; build.rs fails the build if the
+        # flags are missing.
         run: |
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,remote" -- -D warnings
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE" -- -D warnings
+      - name: Build
+        working-directory: shells/xteink
+        # Built as released, the flags as above. The build remaps the runner's
+        # paths as the release's does (tools/ci/firmware-remap.sh): the image
+        # here is the released one's size (shells/xteink/size-budget.txt).
+        run: |
           remap="$("$GITHUB_WORKSPACE/tools/ci/firmware-remap.sh" "$FIRMWARE_TARGET" "$FIRMWARE_TOOLCHAIN")"
           env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE"
       # `core`'s parser and formatter of floats stay out of the image
@@ -452,10 +502,9 @@ jobs:
       - name: The firmware links no float parser or formatter
         run: tools/firmware-symbols.sh "shells/xteink/target/$FIRMWARE_TARGET/release/paperpaw-xteink"
       # The released build's install image against its size budget
-      # (shells/xteink/size-budget.txt, ticket #258). Measured here, before the
-      # next step rebuilds the same file with `ppn5` and legacy symbol names on
-      # the S3: the later install-image step packs that build, not this one.
-      # Fails when the image is over its line, and when the image or the line
+      # (shells/xteink/size-budget.txt, ticket #258). The S3's install
+      # image for the update path is the `ppn5` build's (job firmware-s3-ppn5),
+      # not this one. Fails when the image is over its line, and when the image or the line
       # is missing (tools/size-report.py).
       - name: The install image stays within its size budget
         uses: ./.github/actions/install-image
@@ -469,70 +518,19 @@ jobs:
       # first where a gap is left (shells/xteink/build.rs); this reads the image.
       - name: The image has one data segment
         run: cargo run -q --release -p paperpaw-sign -- check-app "$RUNNER_TEMP/released.bin"
-      # The loader's S3 code (format-5 files in PSRAM, `ppn5`) is not part of
-      # the S3 device features yet and so not in the lint and build above; the
-      # X4's native image has its own job (firmware-host-frames). Without the
-      # job's RUSTFLAGS, as above.
-      - name: Lint and build the S3 with interface-7 plugins
-        if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
-        working-directory: shells/xteink
-        run: |
-          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,ppn5" -- -D warnings
-          # Built with legacy symbol mangling (espup's compiler defaults to v0,
-          # which the scan's paths do not name: shells/xteink/frame-budget-s3.txt);
-          # the names are the only difference from the release's build.
-          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE,ppn5" \
-            --config 'target.xtensa-esp32s3-none-elf.rustflags=["-Z","unstable-options","-C","symbol-mangling-version=legacy"]'
-      # What a plugin's code can call into on the S3, as for the X4 below: the
-      # host table's entries and what they reach (every direct call, and every
-      # call through an `l32r` literal), each held under the 2 KiB band; the calls
-      # it cannot follow are listed one by one in the budget, with their reasons
-      # (`shells/xteink/frame-budget-s3.txt`, and `-classic.txt` for the X4 Classic).
-      - name: The S3's host frames and calls fit under the band
-        if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
-        run: |
-          # The X4 Pro and the X4 Classic are two builds with their own symbols:
-          # one budget each.
-          budget=shells/xteink/frame-budget-s3.txt
-          [[ "$DEVICE" == x4-classic ]] && budget=shells/xteink/frame-budget-s3-classic.txt
-          cargo run -q --release -p paperpaw-sign -- frames-s3 \
-            shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink \
-            --budget "$budget"
-      # The same image again with the linked plugins' own code rooted and every
-      # function of their families held to the frame limit
-      # (`frame-budget-s3-linked.txt`). A second scan, not an include in the
-      # budgets above: the plain scan stays exact per function (Senior #2897 C2).
-      # Blocking (Senior #2899 R1): every frame of the limit or more is a named
-      # `allow frame` line in the linked file with its owner's todo, so a new one fails at once.
-      # The release check for any x4-pro/x4-classic image with native plugins (an owner test
-      # image, the Beta 4 images; todo 639): no `allow frame` line left but `main`.
-      - name: The S3's linked plugins' frames and calls fit under the band
-        if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
-        run: |
-          budget=shells/xteink/frame-budget-s3.txt
-          [[ "$DEVICE" == x4-classic ]] && budget=shells/xteink/frame-budget-s3-classic.txt
-          { cat "$budget"; echo "include frame-budget-s3-linked.txt"; } > shells/xteink/.scan-linked.txt
-          cargo run -q --release -p paperpaw-sign -- frames-s3 \
-            shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink \
-            --budget shells/xteink/.scan-linked.txt
-      # The S3's start and main-loop paths keep 2 KB above the band (the team's
-      # rule for a route), as the X4's job below keeps 512 B for its own.
-      - name: The S3's start and main-loop stack paths stay above the band
-        if: matrix.device == 'x4-pro' || matrix.device == 'x4-classic'
-        run: |
-          python3 -I tools/check-x4-start-stack.py --s3 --margin 2048 \
-            shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink
       # As the release makes it: the build fails when CrossPoint's menu
-      # could no longer install it.
+      # could no longer install it. (The S3's: job firmware-s3-ppn5.)
       - name: The install image fits the app partition
+        if: matrix.device == 'x4' || matrix.device == 'x3'
         uses: ./.github/actions/install-image
         with:
           out: ${{ runner.temp }}/install.bin
-      # The build with interface-7 plugins too (the S3's has its own code).
       - name: The install image has one data segment
+        if: matrix.device == 'x4' || matrix.device == 'x3'
         run: cargo run -q --release -p paperpaw-sign -- check-app "$RUNNER_TEMP/install.bin"
       # For the update path (job update-path).
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.device == 'x4' || matrix.device == 'x3'
         with:
           name: install-image-${{ matrix.device }}
           path: ${{ runner.temp }}/install.bin
@@ -550,9 +548,10 @@ jobs:
       # target 5; the X4 Pro's and X4 Classic's target 9, built with espup's
       # compiler and the release's core libraries), signed with a key made for
       # this run, and their catalogue entries made, as the release does.
-      # The X3 takes the X4's builds (the same chip).
+      # The X3 takes the X4's builds (the same chip). The S3 devices': jobs
+      # firmware-s3-plugins and firmware-s3-fit.
       - name: The store's first-party plugins fit the firmware
-        if: matrix.device != 'x3'
+        if: matrix.device == 'x4'
         run: |
           out="$RUNNER_TEMP/plugins"
           cargo build -q --release -p paperpaw-sign
@@ -576,6 +575,231 @@ jobs:
       - name: The core libraries out of the cached toolchain
         if: always() && matrix.device != 'x4' && matrix.device != 'x3'
         run: rm -rf "$(rustc +esp --print sysroot)/lib/rustlib/xtensa-esp32s3-none-elf"
+
+  # The S3 devices' firmware work, split into jobs that run side by side (it
+  # was one serial chain of 25-30 minutes in `firmware`, #285): lint here; the
+  # released build and its size in `firmware`; the build with interface-7
+  # plugins, its frames and its install image in firmware-s3-ppn5; the store's
+  # plugins in firmware-s3-plugins; whether they fit that build in firmware-s3-fit.
+  firmware-s3-lint:
+    name: Firmware lint (${{ matrix.device }})
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [x4-pro, x4-classic]
+    env:
+      DEVICE: ${{ matrix.device }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/xteink-tools
+        with:
+          device: ${{ matrix.device }}
+          clang-fallback: "true"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
+          workspaces: |
+            shells/xteink
+            .
+          shared-key: firmware-s3-lint
+      # Linted with remote control over USB, as for testing, as released, and
+      # with the loader's S3 code (format-5 files in PSRAM, `ppn5`), which is not
+      # part of the S3 device features yet and so not in the build of `firmware`.
+      # Without the job's RUSTFLAGS (-D warnings): they would replace the flags
+      # of shells/xteink/.cargo/config.toml. Clippy denies the warnings itself.
+      - name: Lint
+        working-directory: shells/xteink
+        run: |
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,remote" -- -D warnings
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE" -- -D warnings
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" clippy $FIRMWARE_CARGO --features "$DEVICE,ppn5" -- -D warnings
+
+  firmware-s3-ppn5:
+    name: Firmware interface-7 build (${{ matrix.device }})
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [x4-pro, x4-classic]
+    env:
+      DEVICE: ${{ matrix.device }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/xteink-tools
+        with:
+          device: ${{ matrix.device }}
+          clang-fallback: "true"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
+          workspaces: |
+            shells/xteink
+            .
+          shared-key: firmware-s3-ppn5
+      # As in `firmware`: the core libraries of the release first, espflash for the image.
+      - uses: ./.github/actions/xtensa-std
+      - uses: ./.github/actions/espflash
+      # Built with legacy symbol mangling (espup's compiler defaults to v0,
+      # which the scan's paths do not name: shells/xteink/frame-budget-s3.txt);
+      # the names are the only difference from the release's build. Without the
+      # job's RUSTFLAGS, as in `firmware`.
+      - name: Build the S3 with interface-7 plugins
+        working-directory: shells/xteink
+        run: |
+          env -u RUSTFLAGS cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --features "$DEVICE,ppn5" \
+            --config 'target.xtensa-esp32s3-none-elf.rustflags=["-Z","unstable-options","-C","symbol-mangling-version=legacy"]'
+      # What a plugin's code can call into on the S3, as for the X4 below: the
+      # host table's entries and what they reach (every direct call, and every
+      # call through an `l32r` literal), each held under the 2 KiB band; the calls
+      # it cannot follow are listed one by one in the budget, with their reasons
+      # (`shells/xteink/frame-budget-s3.txt`, and `-classic.txt` for the X4 Classic).
+      - name: The S3's host frames and calls fit under the band
+        run: |
+          # The X4 Pro and the X4 Classic are two builds with their own symbols:
+          # one budget each.
+          budget=shells/xteink/frame-budget-s3.txt
+          [[ "$DEVICE" == x4-classic ]] && budget=shells/xteink/frame-budget-s3-classic.txt
+          cargo run -q --release -p paperpaw-sign -- frames-s3 \
+            shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink \
+            --budget "$budget"
+      # The same image again with the linked plugins' own code rooted and every
+      # function of their families held to the frame limit
+      # (`frame-budget-s3-linked.txt`). A second scan, not an include in the
+      # budgets above: the plain scan stays exact per function (Senior #2897 C2).
+      # Blocking (Senior #2899 R1): every frame of the limit or more is a named
+      # `allow frame` line in the linked file with its owner's todo, so a new one fails at once.
+      # The release check for any x4-pro/x4-classic image with native plugins (an owner test
+      # image, the Beta 4 images; todo 639): no `allow frame` line left but `main`.
+      - name: The S3's linked plugins' frames and calls fit under the band
+        run: |
+          budget=shells/xteink/frame-budget-s3.txt
+          [[ "$DEVICE" == x4-classic ]] && budget=shells/xteink/frame-budget-s3-classic.txt
+          { cat "$budget"; echo "include frame-budget-s3-linked.txt"; } > shells/xteink/.scan-linked.txt
+          cargo run -q --release -p paperpaw-sign -- frames-s3 \
+            shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink \
+            --budget shells/xteink/.scan-linked.txt
+      # The S3's start and main-loop paths keep 2 KB above the band (the team's
+      # rule for a route), as the X4's job below keeps 512 B for its own.
+      - name: The S3's start and main-loop stack paths stay above the band
+        run: |
+          python3 -I tools/check-x4-start-stack.py --s3 --margin 2048 \
+            shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink
+      # As the release makes it: the build fails when CrossPoint's menu
+      # could no longer install it.
+      - name: The install image fits the app partition
+        uses: ./.github/actions/install-image
+        with:
+          out: ${{ runner.temp }}/install.bin
+      - name: The install image has one data segment
+        run: cargo run -q --release -p paperpaw-sign -- check-app "$RUNNER_TEMP/install.bin"
+      # For the update path (job update-path).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: install-image-${{ matrix.device }}
+          path: ${{ runner.temp }}/install.bin
+          retention-days: 1
+      # For firmware-s3-fit: the plugins must fit this build.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: firmware-elf-${{ matrix.device }}
+          path: shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink
+          retention-days: 1
+      - name: The core libraries out of the cached toolchain
+        if: always()
+        run: rm -rf "$(rustc +esp --print sysroot)/lib/rustlib/xtensa-esp32s3-none-elf"
+
+  firmware-s3-plugins:
+    name: Firmware store plugins (${{ matrix.device }})
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [x4-pro, x4-classic]
+    env:
+      DEVICE: ${{ matrix.device }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/xteink-tools
+        with:
+          device: ${{ matrix.device }}
+          clang-fallback: "true"
+      # Reads the cache of `firmware` (paperpaw-sign is built there too); never saves.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: false
+          workspaces: |
+            shells/xteink
+            .
+          shared-key: firmware-s3
+      - uses: ./.github/actions/xtensa-std
+      # PaperPaw's own plugins that the store offers, as the release builds them:
+      # interface 7 (format 5, no fingerprint), each packed for this chip (target
+      # 9, built with espup's compiler and the release's core libraries), signed
+      # with a key made for this run. That they fit the firmware is checked in
+      # firmware-s3-fit, with the firmware of firmware-s3-ppn5.
+      - name: The store's first-party plugins build
+        run: |
+          out="$RUNNER_TEMP/plugins"
+          cargo build -q --release -p paperpaw-sign
+          target/release/paperpaw-sign key "$RUNNER_TEMP/ci.key" > /dev/null
+          tools/plugin-files7/build.sh "$DEVICE" "$out" --key "$RUNNER_TEMP/ci.key"
+          mkdir -p "$RUNNER_TEMP/sign"
+          cp target/release/paperpaw-sign "$RUNNER_TEMP/sign/"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plugins-${{ matrix.device }}
+          path: ${{ runner.temp }}/plugins
+          retention-days: 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: paperpaw-sign-${{ matrix.device }}
+          path: ${{ runner.temp }}/sign/paperpaw-sign
+          retention-days: 1
+      - name: The core libraries out of the cached toolchain
+        if: always()
+        run: rm -rf "$(rustc +esp --print sysroot)/lib/rustlib/xtensa-esp32s3-none-elf"
+
+  # Each store plugin runs on the S3 firmware, as the release checks it: its
+  # chip, its interface, and no newer minor than the firmware has; the catalogue
+  # entries are made. Needs no toolchain: the signer and the files come from
+  # firmware-s3-plugins, the firmware from firmware-s3-ppn5.
+  firmware-s3-fit:
+    name: Firmware store plugins fit (${{ matrix.device }})
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    needs: [firmware-s3-ppn5, firmware-s3-plugins]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [x4-pro, x4-classic]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: firmware-elf-${{ matrix.device }}
+          path: ${{ runner.temp }}/firmware
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: plugins-${{ matrix.device }}
+          path: ${{ runner.temp }}/plugins
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: paperpaw-sign-${{ matrix.device }}
+          path: ${{ runner.temp }}/sign
+      - name: The store's first-party plugins fit the firmware
+        run: |
+          chmod +x "$RUNNER_TEMP/sign/paperpaw-sign"
+          "$RUNNER_TEMP/sign/paperpaw-sign" fits "$RUNNER_TEMP/firmware/paperpaw-xteink" "$RUNNER_TEMP/plugins"/*.ppn
+          version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
+          python3 tools/plugin-files/catalogue.py "$RUNNER_TEMP/plugins" "$version" https://example.invalid/ci
 
   # The whole update path on a computer, with the real files
   # (crates/paperpaw-x4/tests/update_path.rs): for each device, the
@@ -601,7 +825,7 @@ jobs:
   update-path:
     name: Update path (this build's installer, from the release before's image)
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    needs: [firmware]
+    needs: [firmware, firmware-s3-ppn5]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -927,7 +1151,9 @@ jobs:
           workspaces: |
             shells/xteink
             .
-          key: ${{ matrix.device }}-ppn5
+          # The X4 and the X3 build the same dependencies: one entry, not two
+          # (1.4 and 1.75 GB of the 10 the repository may keep).
+          shared-key: riscv-ppn5
       - name: Lint the X4 with interface-7 plugins
         working-directory: shells/xteink
         # The `ppn5` code sites are not in the other jobs' lint.
@@ -959,7 +1185,7 @@ jobs:
   prune-caches:
     name: Old Rust caches removed
     if: ${{ always() && github.event_name == 'push' }}
-    needs: [check, test, screens, msrv, sdk, abi7, embedded, firmware, update-path, native, architecture, emulator, android, fuzz, deny, firmware-host-frames]
+    needs: [check, test, test-app, test-features, test-features-app, screens, msrv, sdk, abi7, embedded, firmware, firmware-s3-lint, firmware-s3-ppn5, firmware-s3-plugins, firmware-s3-fit, update-path, native, architecture, emulator, android, fuzz, deny, firmware-host-frames]
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
