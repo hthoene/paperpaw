@@ -218,6 +218,9 @@ impl LibQuery for LibraryHost {
             visit,
         )
     }
+    fn facets_ended(&self) {
+        self.reads.names_ended();
+    }
     fn next_in_series(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;
         self.reads
