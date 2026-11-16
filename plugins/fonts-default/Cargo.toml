@@ -37,6 +37,11 @@ paperpaw-i18n.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-text.workspace = true
 
+# The test builds packs from the scalable fonts, which only `outline` brings.
+[[test]]
+name = "compact_pack"
+required-features = ["outline"]
+
 [package.metadata.paperpaw]
 # Large files embedded on purpose (`paperpaw-dev package` says nothing of them).
 embedded-assets = "built into the firmware: the reading fonts must be there on first start, before any installer has run"

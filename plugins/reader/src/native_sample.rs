@@ -253,8 +253,9 @@ fn draw_with(
     (text, reading, base): (&SampleText, &Reading, f32),
     (room, look): (native_pages::Box, Look),
 ) -> Result<(), Error> {
-    let faces =
-        Faces::new(fonts, base, reading.spacing_factor())?.word_spacing(reading.word_factor());
+    let faces = Faces::new(fonts, base, reading.spacing_factor())?
+        .word_spacing(reading.word_factor())
+        .with_letters(reading.letters);
     let page = lay_out(&faces, text, room, (base, reading.justify))?;
     let rect: FrameRect = frame.rect;
     let canvas = frame.draw_canvas()?;
