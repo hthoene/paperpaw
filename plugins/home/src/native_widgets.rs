@@ -167,7 +167,12 @@ impl Mine {
     ///
     /// # Errors
     /// Font and host refusals, [`Error::NoMemory`].
-    pub fn measure(&self, host: &Host<'_>, listing: &Listing, width: u32) -> Result<(u16, u16), Error> {
+    pub fn measure(
+        &self,
+        host: &Host<'_>,
+        listing: &Listing,
+        width: u32,
+    ) -> Result<(u16, u16), Error> {
         let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
         let width = u16::try_from(width).unwrap_or(u16::MAX);
         let size = match self.token {
@@ -268,7 +273,9 @@ impl Mine {
                 (&mut pictures, self.ask(listing)),
                 area,
             )?,
-            SHELF => native_shelf::draw(&mut cx, &mut out, (&mut pictures, self.ask(listing)), area)?,
+            SHELF => {
+                native_shelf::draw(&mut cx, &mut out, (&mut pictures, self.ask(listing)), area)?
+            }
             _ => native_clock::draw(&mut cx, &mut out, area)?,
         }
         self.waiting.set(pictures.busy);
@@ -312,13 +319,13 @@ impl Mine {
             return status_tap(host, ui, self, target);
         }
         let book = match self.token {
-            CARD => native_recent::read(host, listing, 0, 1)?
-                .into_iter()
-                .next(),
+            CARD => native_recent::read(host, listing, 0, 1)?.into_iter().next(),
             SHELF => {
                 let cx = Cx::open(host, &self.widget)?;
                 let at = usize::try_from(target - 1).map_err(|_| Error::Invalid)?;
-                native_shelf::books(&cx, self.ask(listing))?.into_iter().nth(at)
+                native_shelf::books(&cx, self.ask(listing))?
+                    .into_iter()
+                    .nth(at)
             }
             _ => return Ok(false),
         };

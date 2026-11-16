@@ -1,0 +1,3 @@
+### Changed
+
+- **Home's first frame after "Back" makes 11 service calls where it made 18** (#267, emulator, card and a shelf of six books; the X4 made 19 to 20, about 37 ms each). The continue card, the recent shelf and the check that tells whether the shelf had a book share one library listing for a frame (one query instead of three), a book whose file the library found on the card stays so across the catalog's generations (no `library.book` call after each book read), and a book without a cover is not asked about again. A cover that is ready stays known when the tick asks about covers that were still being made.

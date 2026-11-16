@@ -88,7 +88,9 @@ impl Listing {
             .borrow()
             .iter()
             .find(|v| {
-                v.key == book.key && v.title == title && (!v.gone || v.generation == book.generation)
+                v.key == book.key
+                    && v.title == title
+                    && (!v.gone || v.generation == book.generation)
             })
             .map(|v| v.gone)
     }
@@ -179,7 +181,7 @@ pub struct Ask<'a> {
 pub struct Known {
     /// Where each book's cover stood when it was last asked (generation, key):
     /// a draw asks the host once, not once for each band of a frame.
-    /// A cover that is ready is kept across generations (the key and the title
+    /// A cover that is ready, or none, is kept across generations (the key and the title
     /// tell the book): the catalog changes with every book read, and the
     /// host's look at the book's files costs more than a half second on the X4.
     covers: RefCell<Vec<(u32, u32, u64, Covered)>>,
@@ -243,9 +245,7 @@ impl Known {
             .borrow()
             .iter()
             .find(|(g, k, t, covered)| {
-                *k == book.key
-                    && (*g == book.generation
-                        || (*t == title && matches!(covered, Covered::Ready(_))))
+                *k == book.key && (*g == book.generation || (*t == title && settled(covered)))
             })
             .map(|(.., covered)| *covered)
     }
@@ -255,8 +255,7 @@ impl Known {
         let mut covers = self.covers.borrow_mut();
         // Only what is ready outlives its generation, and a book has one place.
         covers.retain(|(g, k, t, old)| {
-            (*g == book.generation || matches!(old, Covered::Ready(_)))
-                && !(*k == book.key && *t == title)
+            (*g == book.generation || settled(old)) && !(*k == book.key && *t == title)
         });
         // At most the rows one page holds; a refused allocation keeps nothing,
         // and the next draw asks again.
@@ -268,6 +267,12 @@ impl Known {
         }
         covers.push((book.generation, book.key, title, covered));
     }
+}
+
+/// A cover answer that holds for the book whatever the catalog's generation: a
+/// picture that is ready, or a book that has none.
+fn settled(covered: &Covered) -> bool {
+    matches!(covered, Covered::Ready(_) | Covered::None)
 }
 
 /// FNV-1a of a title, to tell a book of one generation from another's.
@@ -553,6 +558,8 @@ mod tests {
         assert_eq!(known.cover_of(&b), Some(Covered::None));
         // Another generation of the catalog is another question.
         assert_eq!(known.cover_of(&book(2, 7, "A")), None);
+        // A book without a cover has none in the next generation, too.
+        assert_eq!(known.cover_of(&book(2, 8, "B")), Some(Covered::None));
         known.forget_covers();
         assert_eq!(known.cover_of(&a), None);
         // What the tick found changed forgets what was not ready with the files.

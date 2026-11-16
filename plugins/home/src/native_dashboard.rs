@@ -44,8 +44,8 @@ use crate::native_grid::{self as grid, What};
 use crate::native_icons::{self as icons, Face, Fonts, NAME_LINES, Tool};
 use crate::native_made::Made;
 use crate::native_measure::{self as measure, PLACE};
-use crate::native_recent::Listing;
 use crate::native_pages;
+use crate::native_recent::Listing;
 use crate::native_shown::Shown;
 use crate::native_source::HostSource;
 
@@ -482,7 +482,8 @@ impl Dashboard {
         cells: &mut Vec<Cell>,
     ) -> Result<(Vec<Target>, Actions), Error> {
         for (index, item) in shown.iter().enumerate() {
-            if let Some(cell) = Self::cell(host, ui, listing, src, &frame.geometry, (index, item))? {
+            if let Some(cell) = Self::cell(host, ui, listing, src, &frame.geometry, (index, item))?
+            {
                 push(cells, cell)?;
             }
         }
@@ -556,7 +557,9 @@ impl Dashboard {
                 return Err(error);
             }
         };
-        let measured = widget.as_ref().map(|made| made.measure(host, ui, listing, geometry));
+        let measured = widget
+            .as_ref()
+            .map(|made| made.measure(host, ui, listing, geometry));
         let least = match measured {
             Some(Ok((_, least))) => least,
             Some(Err(Error::NoMemory)) => {

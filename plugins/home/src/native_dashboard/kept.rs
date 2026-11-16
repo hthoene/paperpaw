@@ -1,10 +1,10 @@
 //! What a page was laid out for, looked at again when it is shown after another
 //! screen was over it.
-use crate::native_recent::Listing;
 use super::{
     CommandSender, Dashboard, Error, Host, RedrawMode, Snapshot, What, focus_area, grid,
     native_pages, redraw, snapshot,
 };
+use crate::native_recent::Listing;
 
 /// What a page was laid out for: the display (width, height), whether it has a
 /// recent shelf, and whether that had a book (the shelf is no rows without one).

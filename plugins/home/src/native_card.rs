@@ -144,7 +144,10 @@ pub fn draw(
 ) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
     let host = cx.host;
-    let Some(book) = native_recent::read(host, ask.listing, 0, 1)?.into_iter().next() else {
+    let Some(book) = native_recent::read(host, ask.listing, 0, 1)?
+        .into_iter()
+        .next()
+    else {
         return empty(cx, out, icons, &look);
     };
     let covered = if cx.settings.shows("cover").unwrap_or(true) {
