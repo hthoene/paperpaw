@@ -1,0 +1,2 @@
+paperpaw-core/lib	native_host::environment::event_tests::later_listeners_run_after_an_earlier_plugin_refuses
+paperpaw-core/lib	native_host::environment::event_tests::only_registered_kinds_and_each_registration_index_receive_the_event

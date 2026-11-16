@@ -1,0 +1,178 @@
+# The canaries of #244 item 3 (design note `old-api-removal-244.md`, recipe Q3): one-line
+# breakages of the kernel that the tests must catch, before and after the fixtures are ported.
+# The runner applies one at a time (`run.sh`): the old line must be in the file exactly once.
+# A canary whose build fails is an ERROR, never a catch.
+#
+# A block: `== <id> (<side>)`, `# <what breaks>`, the file, `-<the exact old line>`, `+<the new
+# line>`
+# (the first character of the last two is the mark, the rest the line with its indentation).
+# Sides: `kernel` (registration, dispatch order, priority, guard rules, confirmation, all-or-none)
+# and `stack` (flags of screens, overlay order, close requests, refresh, key map).
+
+== slot-priority (kernel)
+# the lowest priority wins a slot, not the highest
+crates/paperpaw-core/src/registry.rs
+-            .max_by_key(|c| c.priority)
++            .min_by_key(|c| c.priority)
+
+== slot-list-order (kernel)
+# a slot's screens are listed lowest priority first
+crates/paperpaw-core/src/registry.rs
+-        paperpaw_sort::sort_by_key(&mut candidates, |c| core::cmp::Reverse(c.priority));
++        paperpaw_sort::sort_by_key(&mut candidates, |c| c.priority);
+
+== override-tie (kernel)
+# of two handlers of one priority put in an action's place the later runs
+crates/paperpaw-sdk/src/action.rs
+-            .position(|(_, p, ..)| *p < priority)
++            .position(|(_, p, ..)| *p <= priority)
+
+== override-under-guard (kernel)
+# under a guard another plugin's handler runs in an action's place, the guard's own does not
+crates/paperpaw-core/src/gestures.rs
+-            .find(|(plugin, _)| guard.is_none_or(|ns| plugin.as_str() == ns));
++            .find(|(plugin, _)| guard.is_none_or(|ns| plugin.as_str() != ns));
+
+== observer-under-guard (kernel)
+# under a guard the other plugins' observers see actions and events, the guard's own do not
+crates/paperpaw-core/src/gestures.rs
+-            if guard.is_some_and(|ns| spec.id.namespace() != ns) {
++            if guard.is_some_and(|ns| spec.id.namespace() == ns) {
+
+== sealed-override (kernel)
+# a handler is put in the place of a sealed action (and refused for the others)
+crates/paperpaw-core/src/plugins.rs
+-                .is_some_and(paperpaw_sdk::Action::is_sealed)
++                .is_some_and(|spec| !spec.is_sealed())
+
+== password-event (kernel)
+# a typed password reaches every subscriber, not the asker alone
+crates/paperpaw-core/src/commands.rs
+-        let secret = params.get(paperpaw_sdk::builtin::params::MODE) == Some("password");
++        let secret = params.get(paperpaw_sdk::builtin::params::MODE) == Some("passw0rd");
+
+== secret-setting-owner (kernel)
+# every plugin hears which secret setting changed, not its owner alone
+crates/paperpaw-core/src/commands.rs
+-            self.emit_to(&event, &params, Some(id.namespace()));
++            self.emit_to(&event, &params, None);
+
+== guard-event-screens (kernel)
+# a guard's event reaches every screen above it, not only those it opened
+crates/paperpaw-core/src/commands.rs
+-                .filter(|&i| i == guard || self.stack[i].by_guard)
++                .filter(|&i| i >= guard)
+
+== failed-plugin-listed (kernel)
+# a plugin whose registration failed is listed as running
+crates/paperpaw-core/src/plugins.rs
+-                self.list_plugin(manifest, PluginState::Failed, true);
++                self.list_plugin(manifest, PluginState::Running, true);
+
+== merge-error-dropped (kernel)
+# a refused merge of a plugin's contributions is not an error: no all-or-none
+crates/paperpaw-core/src/plugins.rs
+-        staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
++        let _ = staging.merge_into(&mut self.shared.registry, &mut self.shared.actions);
+
+== firmware-answer-source (kernel)
+# the firmware confirmation's answer is taken from every screen but the confirmation
+crates/paperpaw-core/src/screens.rs
+-        if self.stack[index].id == crate::native_host::firmware_confirm::SCREEN {
++        if self.stack[index].id != crate::native_host::firmware_confirm::SCREEN {
+
+== subscriber-order (kernel)
+# an event's subscribers are called last first: a later plugin's hear it before an earlier plugin's
+crates/paperpaw-core/src/commands.rs
+-            .filter(|(id, plugin, _)| *id == event && hears(plugin.as_str()))
++            .filter(|(id, plugin, _)| *id == event && hears(plugin.as_str())).collect::<alloc::vec::Vec<_>>().into_iter().rev()
+
+== observer-order (kernel)
+# a later plugin's action observers see an action before an earlier plugin's
+crates/paperpaw-core/src/plugins.rs
+-        self.action_observers.append(&mut staging.action_observers);
++        self.action_observers.splice(0..0, staging.action_observers.drain(..));
+
+== guard-flag (stack)
+# a kernel-trait screen's own answer to `guards` is ignored
+crates/paperpaw-core/src/screens.rs
+-            .map_or_else(|| self.screen.guards(), |bits| bits & POLICY_GUARDS != 0)
++            .map_or_else(|| false, |bits| bits & POLICY_GUARDS != 0)
+
+== secret-flag (stack)
+# a kernel-trait screen's own answer to `secret` is ignored
+crates/paperpaw-core/src/screens.rs
+-            || self.screen.secret(),
++            || false,
+
+== topmost-guard (stack)
+# of two guards the lower one counts
+crates/paperpaw-core/src/screens.rs
+-        self.stack.iter().rposition(ActiveScreen::guards)
++        self.stack.iter().position(ActiveScreen::guards)
+
+== guard-shut-out (stack)
+# a screen the guard opened above itself gets no input
+crates/paperpaw-core/src/gestures.rs
+-            .find(|&i| guard.is_none_or(|g| i <= g || self.stack[i].by_guard))
++            .find(|&i| guard.is_none_or(|g| i <= g))
+
+== passes-through (stack)
+# an action goes on to the screen below exactly where the one above does not pass it through
+crates/paperpaw-core/src/gestures.rs
+-            if index == 0 || !self.stack[index].screen.passes_through() {
++            if index == 0 || self.stack[index].screen.passes_through() {
+
+== guard-let-pass (stack)
+# an action the guard itself was offered and let pass does not count as passed
+crates/paperpaw-core/src/gestures.rs
+-            .is_some_and(|guard| self.offered_down_to <= guard);
++            .is_some_and(|guard| self.offered_down_to < guard);
+
+== takes-buttons (stack)
+# no screen is offered buttons by name: all go through the key map
+crates/paperpaw-core/src/gestures.rs
+-            .is_some_and(|index| self.stack[index].screen.takes_buttons())
++            .is_some_and(|index| index > self.stack.len())
+
+== tap-outside-ignored (stack)
+# a tap outside an overlay that ignores them closes it
+crates/paperpaw-core/src/gestures.rs
+-                        paperpaw_sdk::Outside::Ignore => return,
++                        paperpaw_sdk::Outside::Ignore => return self.close_top(paperpaw_sdk::CloseCause::TapOutside),
+
+== close-request-order (stack)
+# screens are asked whether they may close from the lowest up, not the top one first
+crates/paperpaw-core/src/screens.rs
+-        (index..self.stack.len()).rev().all(|i| {
++        (index..self.stack.len()).all(|i| {
+
+== dims-refresh-region (stack)
+# an overlay that dims what is below changes its own region only, one that does not the whole screen
+crates/paperpaw-core/src/screens.rs
+-        if self.overlay(index).is_some() && self.stack[index].screen.dims_below() {
++        if self.overlay(index).is_some() && !self.stack[index].screen.dims_below() {
+
+== overlay-draw-base (stack)
+# drawing begins at the lowest full screen, not at the topmost one
+crates/paperpaw-core/src/drawing.rs
+-        let full = regions.iter().rposition(Option::is_none).unwrap_or(0);
++        let full = regions.iter().position(Option::is_none).unwrap_or(0);
+
+== keymap-origin (stack)
+# a later binding of the same origin no longer replaces an earlier one
+crates/paperpaw-core/src/keymap.rs
+-            let overrides = bindings.get(&input).is_none_or(|b| origin >= b.origin);
++            let overrides = bindings.get(&input).is_none_or(|b| origin > b.origin);
+
+== keymap-layer-order (stack)
+# the last layer that binds a key wins, not the first
+crates/paperpaw-core/src/keymap.rs
+-            .find_map(|layer| self.layers.get(*layer)?.get(input))
++            .rev().find_map(|layer| self.layers.get(*layer)?.get(input))
+
+== secret-owner (stack)
+# of two secret screens the lower one's plugin owns what is typed
+crates/paperpaw-core/src/lib.rs
+-            .or_else(|| self.stack.iter().rev().find(|s| s.secret()))
++            .or_else(|| self.stack.iter().find(|s| s.secret()))

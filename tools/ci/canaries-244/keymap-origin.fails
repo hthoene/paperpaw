@@ -1,0 +1,6 @@
+paperpaw-core/lib	native_host::registry_service::menus_tests::op_13_lists_layers_with_origin_and_nothing_for_an_unknown_one
+paperpaw-core/lib	tests::key_guard::the_warning_is_once_also_after_the_warnings_were_taken
+paperpaw-core/lib	tests::key_guard::under_a_guard_another_plugins_binding_does_nothing_and_is_logged_once
+paperpaw-core/lib	tests::key_guard::when_the_guard_ends_the_other_binding_runs_again
+paperpaw-core/lib	tests::key_guard::without_a_guard_every_binding_runs
+paperpaw-core/lib	tests::plugins_loaded::a_plugin_updated_or_removed_takes_its_styles_and_bindings_along

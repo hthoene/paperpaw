@@ -1,0 +1,3 @@
+paperpaw-core/lib	tests::input::a_swapped_page_button_pressed_again_keeps_its_release
+paperpaw-core/lib	tests::input_kinds::a_waiting_press_keeps_its_screen
+paperpaw-core/lib	tests::stack::overlays_say_what_a_tap_outside_and_input_they_leave_do

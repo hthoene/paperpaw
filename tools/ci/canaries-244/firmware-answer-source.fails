@@ -1,0 +1,14 @@
+paperpaw-core/lib	native_host::firmware_confirm::tests::kernel_side::a_yes_on_the_screen_starts_the_write
+paperpaw-core/lib	native_host::firmware_confirm::tests::kernel_side::back_dismisses_after_the_guard_time
+paperpaw-core/lib	native_host::firmware_confirm::tests::kernel_side::input_within_500_ms_of_showing_is_dropped_and_counts_after
+paperpaw-core/lib	native_host::firmware_confirm::tests::kernel_side::only_the_screen_answers_not_an_event_with_the_right_nonce
+paperpaw-core/lib	native_host::firmware_confirm::tests::kernel_side::ten_minutes_without_an_answer_dismiss_it
+paperpaw-core/lib	native_host::plugin_confirm::tests::kernel_side::a_data_plugin_whose_swap_a_sleep_finishes_is_loaded_too
+paperpaw-core/lib	native_host::plugin_confirm::tests::kernel_side::a_data_plugin_with_the_id_of_one_built_in_never_unloads_it
+paperpaw-core/lib	native_host::plugin_confirm::tests::kernel_side::a_removal_shows_three_buttons_and_the_focus_starts_on_cancel
+paperpaw-core/lib	native_host::plugin_confirm::tests::kernel_side::a_yes_on_the_screen_ends_the_job_with_0
+paperpaw-core/lib	native_host::plugin_confirm::tests::kernel_side::an_installed_data_plugin_loads_at_once_and_the_list_changes
+paperpaw-core/lib	native_host::plugin_confirm::tests::kernel_side::back_and_ten_minutes_are_dismissed_not_a_no
+paperpaw-core/lib	native_host::plugin_confirm::tests::kernel_side::back_dismisses_a_removal_and_nothing_is_removed
+paperpaw-core/lib	native_host::plugin_confirm::tests::kernel_side::only_the_screen_answers_no_is_2_and_an_event_with_the_nonce_changes_nothing
+paperpaw-core/lib	native_host::plugin_confirm::tests::kernel_side::the_first_yes_keeps_the_data_and_the_middle_one_removes_it_too
