@@ -61,20 +61,23 @@ impl Dashboard {
         };
         let mut scratch = [0; 64];
         let mut sender = CommandSender::new(host, &mut scratch);
+        // Every card forgets first; a refused part draws the page once, after.
+        let mut refused = false;
         for cell in &laid.cells {
             let Some(super::Made::Mine(mine)) = &cell.widget else {
                 continue;
             };
             if mine.covers_ready()
                 && shown
+                && !refused
                 && sender
                     .queue_redraw_area(RedrawMode::Partial, focus_area(cell.rect, 0, self.origin))
                     .is_err()
             {
-                return redraw(host);
+                refused = true;
             }
         }
-        Ok(())
+        if refused { redraw(host) } else { Ok(()) }
     }
 
     /// A setting or the registry changed (or a plugin came or went) while

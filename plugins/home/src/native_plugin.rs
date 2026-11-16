@@ -297,12 +297,17 @@ impl NativeHome {
             .any(|slot| matches!(slot, Slot::Dashboard(dashboard) if dashboard.waits_for_covers()));
         // Asked only where a card waits: the stack is not read for nothing.
         let shown = waiting && self.stack_top(host)? == self.screens.top_instance(DASHBOARD);
+        // Every page forgets; the first refusal is the answer.
+        let mut result = Ok(());
         for slot in self.screens.all() {
             if let Slot::Dashboard(dashboard) = slot {
-                dashboard.covers_ready(host, shown)?;
+                let drawn = dashboard.covers_ready(host, shown);
+                if result.is_ok() {
+                    result = drawn;
+                }
             }
         }
-        Ok(())
+        result
     }
 
     /// The dashboard shows something new (the minute passed, a widget
