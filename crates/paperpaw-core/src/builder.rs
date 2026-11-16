@@ -1089,14 +1089,14 @@ impl Kernel {
         disabled.extend(off.into_iter().filter(|id| !on.contains(id)));
         // The device's name the default of its setting.
         let name = paperpaw_sdk::device_name::default_name(&self.shared.device);
-        let core = CorePlugin(name);
         // Their lists asked for once, at their size: the start's peak is
         // not the lists doubled (each plugin is listed, and brings about
         // one catalog in each language chosen).
         let count = plugins.len() + 1;
         self.shared.plugins.reserve(count);
         self.shared.translator.reserve(count);
-        self.add_plugin(&core, &disabled);
+        let core = |items: &mut Items| core_plugin::items(&name, items);
+        self.add_items(core_plugin::manifest(), &core, &disabled);
         for source in plugins {
             source.add_to(self, &disabled);
         }
