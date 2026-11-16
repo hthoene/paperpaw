@@ -84,8 +84,10 @@ mod shared_env;
 pub mod stock;
 pub use chrome_spec::{ChromeSpec, Edge};
 mod tall_band;
+mod warning;
 pub use layer::{KernelFactory, KernelScreen, Layer, LayerFactory, LayerSpec};
 use screens::ActiveScreen;
+pub use warning::{Warning, WarningSource};
 #[cfg(test)]
 mod tests;
 mod timing;
@@ -161,40 +163,6 @@ const HINTS_MS: u64 = 4000;
 const MAX_SECRETS: usize = 64 * 1024;
 /// Default memory for glyphs rasterized at runtime.
 const DEFAULT_GLYPH_CACHE: usize = 32 * 1024;
-
-/// Where a warning comes from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum WarningSource {
-    Plugin(Id),
-    DeviceKeymap,
-    UserConfig,
-    Runtime,
-}
-
-/// A non-fatal problem. PaperPaw keeps running with sensible defaults and
-/// reports what it ignored.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Warning {
-    pub source: WarningSource,
-    pub line: Option<u32>,
-    pub message: String,
-}
-
-impl fmt::Display for Warning {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.source {
-            WarningSource::Plugin(id) => write!(f, "plugin `{id}`")?,
-            WarningSource::DeviceKeymap => f.write_str("device key map")?,
-            WarningSource::UserConfig => f.write_str("user configuration")?,
-            WarningSource::Runtime => f.write_str("runtime")?,
-        }
-        if let Some(line) = self.line {
-            write!(f, ", line {line}")?;
-        }
-        write!(f, ": {}", self.message)
-    }
-}
 
 /// An open screen kept while its task is not shown
 /// ([`Command::SwitchTask`]): its id, slot and params.
