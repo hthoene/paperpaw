@@ -160,7 +160,9 @@ jobs:
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test linked_settings_tables --test settings_value_labels
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
       # The menu is native only (#244): its entries and the tools list are tested linked.
-      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands
+      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands --test registry_golden
+      # The kernel's own screens, one golden each (#244).
+      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked,native-linked-reading,native-linked-store --test kernel_screens
       # The Settings and the menu its tests open are native: the app's own plugins, as the lean
       # firmware has them (#244).
       # The nested-call gate closed (the X3): the host that refuses the Preview widget (#250).
@@ -362,7 +364,7 @@ jobs:
           cargo build --release --target ${{ matrix.target }}
           -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics
           -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict
-          -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat
+          -p paperpaw-x4 -p paperpaw-fat
       - name: SDK interface-7 entry packs and rejects misalignment
         if: matrix.target == 'riscv32imc-unknown-none-elf'
         run: CARGO_TARGET_DIR="$PWD/target/abi7-sdk-entry" samples/abi7-sdk-entry/check.sh
@@ -562,6 +564,12 @@ jobs:
             "shells/xteink/target/$FIRMWARE_TARGET/release/paperpaw-xteink" "$out"/*.ppn
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
           python3 tools/plugin-files/catalogue.py "$out" "$version" https://example.invalid/ci
+      # What `paperpaw-dev new --code` writes for an author still builds against
+      # this checkout's SDK, packs and passes the packer's check (#244), for
+      # each chip once (the X3 and the X4 Classic take the other's build).
+      - name: The author's template builds and packs
+        if: matrix.device == 'x4' || matrix.device == 'x4-pro'
+        run: tools/ci/author-template.sh "$RUNNER_TEMP/author" "$DEVICE"
       # espup's toolchain is cached between runs (xteink-tools): the core
       # libraries installed into it go again, so that no run finds those
       # of another commit.

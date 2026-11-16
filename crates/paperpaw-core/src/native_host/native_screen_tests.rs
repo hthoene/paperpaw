@@ -777,16 +777,15 @@ fn page_comes_up(picture: bool) -> (bool, Rc<Recorder>) {
 }
 
 #[test]
-fn a_page_that_draws_only_its_pictures_when_told_still_comes_up_in_grays() {
+fn a_page_with_pictures_comes_up_in_black_and_white_without_a_draw_to_count_them() {
+    // Black and white first (the grays follow after a calm, `gray_later`): no
+    // draw aside to find out whether there are pictures, which was the
+    // slowest part of the frame.
     let (grays, dispatch) = page_comes_up(true);
-    assert!(grays);
-    // Counted in one draw marked for it, where the page left its text out.
+    assert!(!grays);
     let marked = |id: &&u32| **id == PICTURES_ONLY_ID;
-    assert_eq!(dispatch.ids.borrow().iter().filter(marked).count(), 1);
-    let unmarked = dispatch.ids.borrow().len() - 1;
-    assert_eq!(dispatch.texts.get(), unmarked);
-    // A page without a picture is asked the same and comes up without.
+    assert_eq!(dispatch.ids.borrow().iter().filter(marked).count(), 0);
     let (grays, dispatch) = page_comes_up(false);
     assert!(!grays);
-    assert_eq!(dispatch.ids.borrow().iter().filter(marked).count(), 1);
+    assert_eq!(dispatch.ids.borrow().iter().filter(marked).count(), 0);
 }

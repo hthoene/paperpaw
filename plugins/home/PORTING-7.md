@@ -575,15 +575,24 @@ card, shelf and status line visible on the home screen and in the gallery) is ba
   batches submitted at `make`) as interface 6 declared them; `tests/abi7_declarations.rs` pins the
   nine and their texts in both languages.
 
-## Home state while another screen is over it (#248)
+## Home state while another screen is over it (#248, #267)
 
-The dashboard holds its laid-out page (cells, targets, texts, the widgets made for it) only while it
-is on top. `event.stack_changed` (token `STACK_CHANGED`) reads the stack top; a dashboard under
-another screen lets its page and widgets go (`Dashboard::cover`) and sets `stale`, so the next
-`ScreenShown` lays it out again, which it always did (`shown()` marks the page stale). A page with
-options open, an item being moved or a finger's drag is kept. The stack is read only when a page is
-held; the request buffer is 256 bytes, the reply 4,096.
-`Screens::open` grows exactly since #1184 (a dashboard's state is 600 bytes).
+The dashboard keeps its laid-out page (cells, targets, texts, the widgets made for it) while another
+screen is over it: the lay-out was 2.7 s of the 4.4 s back to Home on the X4. `event.stack_changed`
+(token `STACK_CHANGED`) reads the stack top and marks a dashboard under another screen
+`covered` (`Dashboard::cover`); `ScreenShown` marks it `returned`, no longer `stale`. The next draw
+(`ensure`) lays the page out again only if
+
+- a setting changed while it was covered (`event.setting_changed`, every key), or the registry did
+  (`event.registry_changed`, token `REGISTRY_CHANGED`: a plugin came or went, a menu or widget changed),
+  which marks it `stale` (`Dashboard::invalidate_covered`);
+- the display is another size (a turned screen), or the recent shelf has books where it had none or
+  none where it had (`Kept::differs`: the shelf is no rows without a book).
+
+What the books changed (the continue card's book and progress, the recent shelf's books, the clock) is
+read when a widget draws, so the kept page shows it without a lay-out. The stack is read only when a
+page is held; the request buffer is 256 bytes, the reply 4,096. The page is held while a book is read:
+1.3 KiB of live heap in the emulator (reader open, Alice: 124,801 to 126,092 B).
 
 ## The picker of the status line's line (#257)
 

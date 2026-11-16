@@ -78,6 +78,10 @@ pub fn opening<'a>(
     }
 }
 
+pub(crate) fn names_place<'a>(get: impl Fn(&str) -> Option<&'a str> + Copy, sections: u32) -> bool {
+    matches!(opening(get, |p| p.section < sections), Start::At(_))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

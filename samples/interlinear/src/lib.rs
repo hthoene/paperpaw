@@ -29,6 +29,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+use paperpaw_core::{Items, Plugin};
 use paperpaw_sdk::builtin::{events, groups};
 use paperpaw_sdk::document::{Block, BlockKind, Locator, Run, TextStyle};
 use paperpaw_sdk::filters::TextFilterSpec;
@@ -37,8 +38,8 @@ use paperpaw_sdk::reading::WordBox;
 use paperpaw_sdk::setting::Setting;
 use paperpaw_sdk::ui::{self, UiStyle};
 use paperpaw_sdk::{
-    Canvas, Color, Command, Env, Id, Manifest, Plugin, Rect, RefreshMode, RegisterError, Registrar,
-    SettingSpec, Version,
+    Canvas, Color, Command, Env, Id, Manifest, Rect, RefreshMode, RegisterError, SettingSpec,
+    Version,
 };
 
 /// Ids start with the plugin's id: `interlinear.…`.
@@ -162,7 +163,7 @@ impl Plugin for Interlinear {
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         r.add_settings(&SETTINGS)?;
         r.add_text_filter(TextFilterSpec::new(
             FILTER,

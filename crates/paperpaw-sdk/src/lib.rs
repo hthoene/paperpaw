@@ -17,8 +17,8 @@
 //! - **Ids** ([`Id`]): every contribution has a namespaced id such as
 //!   `diagnostics.screen`. The namespace is the plugin id; `core` is
 //!   reserved for the kernel.
-//! - **Plugins** ([`Plugin`]): a [`Manifest`] plus a `register` function that
-//!   adds contributions through a [`Registrar`].
+//! - **Plugins** (`Plugin`): a [`Manifest`] plus a `register` function that
+//!   adds contributions through a `Items`.
 //! - **Contributions**: actions ([`ActionSpec`]), screens ([`ScreenSpec`]),
 //!   slots ([`SlotSpec`]), settings ([`SettingSpec`]), fonts ([`FontSpec`]),
 //!   file formats ([`FormatSpec`]), event subscriptions ([`EventHandler`]),
@@ -459,13 +459,8 @@ pub use command::{http_params, server_params, socket_params, speech_params};
 pub use commands::Commands;
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use commands::Commands;
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use contribution::Registrar;
-#[cfg(not(any(test, feature = "kernel")))]
-pub(crate) use contribution::Registrar;
 /// What a plugin added, for the kernel to apply: opaque to plugins, which
-/// add through [`Registrar`]'s methods.
+/// add through `Items`'s methods.
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use contribution::item::Contribution;
@@ -527,9 +522,9 @@ pub use params::Params;
 pub(crate) use params::Params;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use plugin::{Manifest, Plugin, Priority, RegisterError, SlotSpec, Uses};
+pub use plugin::{Manifest, Priority, RegisterError, SlotSpec, Uses};
 #[cfg(not(any(test, feature = "kernel")))]
-pub(crate) use plugin::{Manifest, Plugin, Priority, RegisterError, SlotSpec, Uses};
+pub(crate) use plugin::{Manifest, Priority, RegisterError, SlotSpec, Uses};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use plugins::requires;

@@ -11,7 +11,7 @@
 //! the default.
 //!
 //! Plugins give their menu entries icons by name
-//! ([`Registrar::add_icon`](crate::Registrar::add_icon)); an icon without
+//! (`Items::add_icon`); an icon without
 //! a drawing draws nothing.
 //!
 //! A native plugin file (ADR 0024) built with `--cfg paperpaw_plugin`
@@ -21,7 +21,7 @@
 include!("icon_table.rs");
 
 /// What an icon says rather than which it is: drawn with the icon a
-/// plugin names for it ([`Registrar::add_icon`](crate::Registrar::add_icon),
+/// plugin names for it (`Items::add_icon`,
 /// e.g. `r.add_icon(icons::BACK, "arrow-big-left".into())`), else with
 /// its default ([`default_of`]), else as PaperPaw draws it itself (the
 /// arrows of headers and the keyboard's keys).

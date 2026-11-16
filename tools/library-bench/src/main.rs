@@ -374,7 +374,7 @@ fn bench(kept: Bench) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     }
 }
 
-/// What [`bench`] registers under.
+/// What [`bench()`] registers under.
 fn bench_manifest() -> Manifest {
     Manifest::new(Id::new_static("bench"), "Bench", Version::new(1, 0, 0))
 }

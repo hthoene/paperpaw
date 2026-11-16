@@ -3,11 +3,12 @@
 //! (`KernelBuilder::built_in_fonts` of `paperpaw-core`).
 
 use alloc::borrow::Cow;
+use alloc::boxed::Box;
 
 use paperpaw_text::Font;
 
 use super::{FontFace, FontSpec};
-use crate::contribution::Registrar;
+use crate::contribution::item::Contribution;
 use crate::id::Id;
 use crate::plugin::{Manifest, Priority, RegisterError};
 
@@ -52,29 +53,42 @@ pub struct BuiltInFonts {
 }
 
 impl BuiltInFonts {
-    /// Registers the translations and the fonts, in the table's order.
-    pub fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    /// Registers the translations and the fonts, in the table's order,
+    /// through `add` (the kernel's `Items::add`).
+    pub fn register(
+        &self,
+        add: &mut dyn FnMut(Contribution) -> Result<(), RegisterError>,
+    ) -> Result<(), RegisterError> {
+        let binding = |role: &Id, font: &Id| Contribution::FontBinding {
+            role: role.clone(),
+            font: font.clone(),
+            priority: Priority::DEFAULT,
+        };
         for source in self.translations {
-            r.add_translations(Cow::Borrowed(*source))?;
+            add(Contribution::Translations(Cow::Borrowed(*source)))?;
         }
         for font in self.fonts {
             match font {
                 BuiltInFont::Data { id, role, .. } => {
                     if let Some(spec) = font.spec() {
-                        r.add_font(spec?)?;
+                        add(Contribution::Font(Box::new(spec?)))?;
                     }
-                    r.bind_font(role.clone(), id.clone(), Priority::DEFAULT)?;
+                    add(binding(role, id))?;
                 }
-                BuiltInFont::Role { role, font } => {
-                    r.bind_font(role.clone(), font.clone(), Priority::DEFAULT)?;
-                }
+                BuiltInFont::Role { role, font } => add(binding(role, font))?,
                 BuiltInFont::File {
                     id,
                     path,
                     family,
                     bold,
                     italic,
-                } => r.add_font_face(FontFace::new(id.clone(), *path, *family, *bold, *italic))?,
+                } => add(Contribution::FontFace(Box::new(FontFace::new(
+                    id.clone(),
+                    *path,
+                    *family,
+                    *bold,
+                    *italic,
+                ))))?,
             }
         }
         Ok(())
@@ -128,8 +142,9 @@ impl BuiltInFont {
 mod tests {
     use alloc::string::ToString;
 
+    use alloc::vec::Vec;
+
     use super::*;
-    use crate::contribution::item::Contribution;
     use crate::version::Version;
 
     const ID: Id = Id::new_static("demo.face");
@@ -158,12 +173,16 @@ mod tests {
             italic: false,
         }];
         let fonts = table(&DAMAGED);
-        let mut r = Registrar::new(Id::new_static("demo"));
-        let Err(RegisterError::Invalid { message }) = fonts.register(&mut r) else {
+        let mut all = Vec::new();
+        let mut add = |c| {
+            all.push(c);
+            Ok(())
+        };
+        let Err(RegisterError::Invalid { message }) = fonts.register(&mut add) else {
             panic!("refused");
         };
         assert!(message.starts_with("demo.face: "), "{message}");
-        assert!(r.into_contributions().is_empty());
+        assert!(all.is_empty());
         let made = fonts.font(&ID).map(|made| made.map_err(|e| e.to_string()));
         assert!(matches!(made, Some(Err(_))), "{made:?}");
     }
@@ -186,9 +205,12 @@ mod tests {
             },
         ];
         let fonts = table(&FONTS);
-        let mut r = Registrar::new(Id::new_static("demo"));
-        fonts.register(&mut r).unwrap();
-        let all = r.into_contributions();
+        let mut all = Vec::new();
+        let mut add = |c| {
+            all.push(c);
+            Ok(())
+        };
+        fonts.register(&mut add).unwrap();
         assert!(
             matches!(&all[0], Contribution::FontBinding { role, font, .. }
             if *role == ROLE && *font == ID)

@@ -1765,10 +1765,10 @@ dependencies = [
  "paperpaw-fs",
  "paperpaw-graphics",
  "paperpaw-i18n",
+ "paperpaw-json",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-publish",
- "paperpaw-sample-hello",
  "paperpaw-sdk",
  "png",
 ]
@@ -1798,6 +1798,7 @@ dependencies = [
  "aes-gcm",
  "chrono",
  "getrandom 0.4.3",
+ "libc",
  "libloading 0.9.0",
  "paperpaw-app",
  "paperpaw-core",
@@ -1811,7 +1812,6 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sample-frame-test",
- "paperpaw-sample-hello",
  "paperpaw-sample-interlinear",
  "paperpaw-sdk",
  "paperpaw-serve",
@@ -2336,6 +2336,15 @@ name = "paperpaw-plugin-kosync"
 version = "1.0.10"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-plugin-format-txt",
+ "paperpaw-plugin-keyboard",
+ "paperpaw-plugin-menu",
+ "paperpaw-plugin-reader",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]
@@ -2813,16 +2822,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-sample-hello"
-version = "0.6.0-beta.3"
-dependencies = [
- "paperpaw-core",
- "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-sample-interlinear"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2960,7 +2959,6 @@ dependencies = [
  "paperpaw-dev",
  "paperpaw-emulator",
  "paperpaw-platform",
- "paperpaw-sample-hello",
  "paperpaw-x4",
 ]
 

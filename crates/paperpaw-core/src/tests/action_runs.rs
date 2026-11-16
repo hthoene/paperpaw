@@ -409,7 +409,7 @@ fn an_action_runs_again_with_other_params() {
 /// action as it is registered, of another's as the kernel takes it.
 #[test]
 fn a_sealed_action_keeps_its_handler() {
-    let mut r = Registrar::new(Id::new_static("p"));
+    let mut r = Items::new(Id::new_static("p"));
     r.add_action(ActionSpec::new(Id::new_static("p.x"), "x").sealed())
         .unwrap();
     assert!(
@@ -720,7 +720,7 @@ mod originals_work {
 /// came first.
 #[test]
 fn a_sealed_action_keeps_its_handler_in_either_order() {
-    let mut r = Registrar::new(Id::new_static("p"));
+    let mut r = Items::new(Id::new_static("p"));
     r.override_action(Id::new_static("p.x"), |_, _, _| {}, Priority(1))
         .unwrap();
     assert!(
