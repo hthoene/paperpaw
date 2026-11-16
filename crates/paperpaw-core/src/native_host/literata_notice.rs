@@ -36,13 +36,13 @@ impl Literata {
             })),
             String::from(tr.tr("core.literata-pack.dismiss")),
         ];
-        let buttons = if store { &labels[..] } else { &labels[..1] };
-        let buttons: alloc::vec::Vec<&str> = buttons.iter().map(String::as_str).collect();
+        let buttons = [labels[0].as_str(), labels[1].as_str()];
+        let buttons = if store { &buttons[..] } else { &buttons[..1] };
         let board = ConfirmBox::new(
             env,
             tr.tr("core.literata-pack.title"),
             tr.tr("core.literata-pack.text"),
-            &buttons,
+            buttons,
             usize::from(store),
         );
         Self {

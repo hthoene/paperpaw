@@ -695,7 +695,8 @@ impl Kernel {
         let missing = matches!(error, SettingError::InvalidValue)
             && fonts.iter().any(|font| font.as_str() == id)
             && self.shared.fonts.has_family(&value);
-        self.waiting_notices.literata.pending |= missing && id == "core.reading-font" && value == "Literata";
+        self.waiting_notices.literata.pending |=
+            missing && id == "core.reading-font" && value == "Literata";
         let message = if missing {
             format!(
                 "`{id}`: the font {value} is not on the card (install the plugin that brings \
