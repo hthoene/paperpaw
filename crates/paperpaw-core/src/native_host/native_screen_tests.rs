@@ -1,9 +1,11 @@
 //! Native screen wrappers encode scoped input without fabricating subscriptions.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 use super::*;
+use crate::Items;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_platform::{Instant, PixelFormat};
+use paperpaw_sdk::{Manifest, RegisterError};
 
 type DrawCall = (u32, u32, u32, i32, i32, Rect);
 
@@ -727,17 +729,9 @@ fn only_the_draw_that_counts_pictures_is_marked_as_one() {
 }
 
 /// A plugin whose home screen is a native one, drawn by `Recorder`.
-struct PagePlugin(Rc<Recorder>);
-
-impl paperpaw_sdk::Plugin for PagePlugin {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        let id = Id::new_static("page");
-        paperpaw_sdk::Manifest::new(id, "Page", paperpaw_sdk::Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-        let dispatch = Rc::clone(&self.0);
+fn page_plugin(kept: Rc<Recorder>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let dispatch = Rc::clone(&kept);
         const ID: Id = Id::new_static("page.screen");
         r.add_screen(paperpaw_sdk::ScreenSpec::new(
             ID,
@@ -748,6 +742,13 @@ impl paperpaw_sdk::Plugin for PagePlugin {
         ))?;
         r.bind_slot(slots::HOME, ID, paperpaw_sdk::Priority::DEFAULT)
     }
+}
+
+/// What [`page_plugin`] registers under.
+fn page_plugin_manifest() -> Manifest {
+    let id = Id::new_static("page");
+    paperpaw_sdk::Manifest::new(id, "Page", paperpaw_sdk::Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// A black and white panel coming up with [`PagePlugin`]'s page, with a
@@ -767,7 +768,7 @@ fn page_comes_up(picture: bool) -> (bool, Rc<Recorder>) {
     dispatch.picture.set(picture);
     let mut kernel = crate::Kernel::builder(device)
         .storage(storage)
-        .plugin(PagePlugin(Rc::clone(&dispatch)))
+        .items(page_plugin_manifest(), page_plugin(Rc::clone(&dispatch)))
         .build()
         .unwrap();
     let effects = kernel.start(Instant(0));

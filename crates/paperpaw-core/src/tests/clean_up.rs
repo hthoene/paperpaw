@@ -2,6 +2,7 @@
 //! (`core.clean-up`).
 
 use super::*;
+use crate::Items;
 use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::library::key;
 
@@ -32,16 +33,9 @@ fn cleaning_up_keeps_what_belongs_to_files_still_there() {
 
 /// Hears the answers to the question whether the notes of books not
 /// found go: the question asked.
-struct Heard(Log);
-
-impl Plugin for Heard {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("heard"), "Heard", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
+fn heard(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
         let answered: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Confirmed> =
             paperpaw_sdk::event::Event::new("core.clean-up-answered");
         r.on(answered, move |_, answer, _| {
@@ -53,6 +47,12 @@ impl Plugin for Heard {
                 .push(alloc::format!("{asked} {}", answer.yes));
         })
     }
+}
+
+/// What [`heard`] registers under.
+fn heard_manifest() -> Manifest {
+    Manifest::new(Id::new_static("heard"), "Heard", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// What the reader keeps for a book not found (renamed on a computer, on
@@ -71,7 +71,7 @@ fn cleaning_up_asks_before_the_notes_of_books_not_found_go() {
     let heard = log();
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(NoticePlugin { log: log() })
-        .plugin(Heard(heard.clone()))
+        .items(heard_manifest(), self::heard(heard.clone()))
         .user_config("[core]\nlanguage = en\n")
         .storage(storage)
         .build()
