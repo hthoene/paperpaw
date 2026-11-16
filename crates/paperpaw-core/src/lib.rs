@@ -56,6 +56,7 @@ mod effects;
 mod font_refresh;
 mod free_count;
 mod gestures;
+mod gray_later;
 mod hints;
 mod hyphen_feed;
 mod input;
@@ -145,10 +146,8 @@ const MAX_COMMAND_ROUNDS: usize = 16;
 /// with a full refresh: e-paper keeps ghosts of large pictures where text
 /// leaves none. Covers in a list stay below it.
 const PICTURES_PERCENT: u32 = 15;
-/// Of the screen, in percent, pictures of any size cover at least for it
-/// to be shown in grays when drawn whole
-/// ([`settings::PICTURES_IN_GRAYS`](paperpaw_sdk::builtin::settings::PICTURES_IN_GRAYS)):
-/// a cover or two, not an icon.
+/// Of the screen, in percent, pictures cover at least for grays to follow a whole
+/// screen ([`settings::PICTURES_IN_GRAYS`](paperpaw_sdk::builtin::settings::PICTURES_IN_GRAYS)): a cover or two.
 const PICTURES_GRAY_PERCENT: u32 = 2;
 /// How long the row of hints shows on a screen that has it on a press.
 const HINTS_MS: u64 = 4000;
@@ -485,6 +484,7 @@ impl Kernel {
         self.now = now;
         self.last_activity = now;
         self.last_user_input = Some(now);
+        self.gray_postpone();
         // No cover work begins beside what the user does now.
         self.native_cover_input();
         // Not counted while a screen guards the device: it would tell a typed code's length.
