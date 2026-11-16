@@ -96,7 +96,7 @@ impl ImagePump {
     }
 }
 
-/// Where a plugin's root 0 and root 1 paths are on the card.
+/// Where a plugin's root 0, root 1 and root 2 paths are on the card.
 struct Roots<'a> {
     plugin: &'a str,
     hosts: &'a HostServices,
@@ -104,6 +104,16 @@ struct Roots<'a> {
 
 impl ImageRoots for Roots<'_> {
     fn resolve(&self, _owner: u64, root: u32, path: &str) -> Result<String, i32> {
+        if root == 2 {
+            // The plugin's own install folder, by the id the host stamped. One
+            // linked into the firmware has none (`files.md` 1.1), and neither
+            // has any plugin where no files host says which are linked.
+            let built_in = self
+                .hosts
+                .files()
+                .is_none_or(|files| files.0.built_in(self.plugin));
+            return super::image_service::commands::bundle_source(self.plugin, built_in, path);
+        }
         let first = path.split('/').next().unwrap_or_default();
         // The storage folder `first` is in, as the files service names it.
         let parent = if root == 0 {

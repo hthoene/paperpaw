@@ -5,6 +5,7 @@
 //! forward from the section's start). The interface-6 screen is the
 //! reference until it goes at activation. Everything is allocation-free
 //! or fallible.
+use crate::native_typeset::Letters;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     layout::{BookStyles, ScriptOptions, Style},
@@ -68,6 +69,9 @@ pub struct Reading {
     /// between words only (`core.korean-breaks.word`; Korean books only,
     /// see [`script_options`]).
     pub scripts: (bool, bool),
+    /// The space between letters, kerning and ligatures (`core.letter-spacing`,
+    /// `core.kerning`, `core.ligatures`).
+    pub letters: Letters,
     /// A signature of the reading font's name and the hyphenation settings
     /// (`core.reading-font`, `core.hyphenate`, `core.hyphen-min-left`,
     /// `core.hyphen-min-right`): other letters or other breaks, other pages
@@ -111,6 +115,7 @@ impl Reading {
             balanced: false,
             book: u16::MAX,
             scripts: (false, false),
+            letters: Letters::DEFAULT,
             text: 0,
         }
     }
@@ -156,6 +161,14 @@ impl Reading {
                 self.text = paperpaw_sdk::digest::fnv1a64(&key).max(1);
             }
         }
+        self
+    }
+
+    /// The same with the letters set as `letters` says: other widths, other
+    /// pages (see [`layout_text`](crate::native_index::layout_text)).
+    #[must_use]
+    pub const fn with_letters(mut self, letters: Letters) -> Self {
+        self.letters = letters;
         self
     }
 

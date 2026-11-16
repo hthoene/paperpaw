@@ -1169,11 +1169,7 @@ impl<'a> FontHandle<'a> {
         for ch in text.chars() {
             let (font, index) = self.pick(ch);
             let glyph = cache.glyph(index, font, ch, size);
-            let inked = |y: u16| (0..glyph.width).any(|x| glyph.coverage(x, y) >= 128);
-            let (Some(first), Some(last)) = (
-                (0..glyph.height).find(|y| inked(*y)),
-                (0..glyph.height).rev().find(|y| inked(*y)),
-            ) else {
+            let Some((first, last, ..)) = glyph.ink_box() else {
                 continue;
             };
             let top = i32::from(glyph.top) + i32::from(first);
@@ -1217,11 +1213,7 @@ impl<'a> FontHandle<'a> {
             // Where it is drawn ([`FontHandle::draw`]).
             let at = paperpaw_text::glyph_x(pen, glyph.left, mark && !based);
             based |= !mark;
-            let inked = |x: u16| (0..glyph.height).any(|y| glyph.coverage(x, y) >= 128);
-            if let (Some(first), Some(last)) = (
-                (0..glyph.width).find(|x| inked(*x)),
-                (0..glyph.width).rev().find(|x| inked(*x)),
-            ) {
+            if let Some((.., first, last)) = glyph.ink_box() {
                 let (left, right) = (at + i32::from(first), at + i32::from(last) + 1);
                 ink = Some(ink.map_or((left, right), |(l, r)| (l.min(left), r.max(right))));
             }

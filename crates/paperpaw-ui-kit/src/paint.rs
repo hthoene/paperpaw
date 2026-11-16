@@ -5,7 +5,7 @@ use paperpaw_sdk::{
     native::{
         Error,
         callbacks::{DrawFrame, FrameRect},
-        canvas::{PartFlags, PartRole},
+        canvas::{Canvas, PartFlags, PartRole},
         fonts::{Font, IconGlyph, Ink, TextOrigin},
     },
 };
@@ -21,6 +21,14 @@ pub enum Paint {
     Stipple(Rect, Color),
     /// A rounded rectangle: bounds, radius, stroke thickness (`None`: filled), colour.
     Focus(Rect, u32, Option<u32>, Color),
+    /// A section card extended past a page cut, clipped to its visible rows.
+    Section {
+        rect: FrameRect,
+        clip: Rect,
+        radius: u32,
+        thickness: Option<u32>,
+        color: Color,
+    },
     /// A straight line from one point to the other, `width` pixels thick.
     Line {
         /// Where it starts.
@@ -425,6 +433,7 @@ pub fn replay_icons<'a>(
                 }
                 None => canvas.fill_rounded_rectangle(frame_rect(*rect), *radius, *color)?,
             },
+            section @ Paint::Section { .. } => replay_section(&mut canvas, section)?,
             Paint::Line {
                 from,
                 to,
@@ -466,6 +475,25 @@ pub fn replay_icons<'a>(
                 }
             }
         }
+    }
+    Ok(())
+}
+
+fn replay_section(canvas: &mut Canvas<'_>, op: &Paint) -> Result<(), Error> {
+    if let Paint::Section {
+        rect,
+        clip,
+        radius,
+        thickness,
+        color,
+    } = op
+    {
+        let clipped = canvas.clip_region(frame_rect(*clip))?;
+        match thickness {
+            Some(line) => clipped.stroke_rounded_rectangle(*rect, *radius, *line, *color)?,
+            None => clipped.fill_rounded_rectangle(*rect, *radius, *color)?,
+        }
+        clipped.restore()?;
     }
     Ok(())
 }
