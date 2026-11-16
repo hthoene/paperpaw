@@ -44,6 +44,7 @@ use crate::native_grid::{self as grid, What};
 use crate::native_icons::{self as icons, Face, Fonts, NAME_LINES, Tool};
 use crate::native_made::Made;
 use crate::native_measure::{self as measure, PLACE};
+use crate::native_recent::Listing;
 use crate::native_pages;
 use crate::native_shown::Shown;
 use crate::native_source::HostSource;
@@ -190,6 +191,9 @@ pub struct Dashboard {
     /// The top left of the screen's region at the last draw: where the
     /// cells' places are counted from when a part of it is drawn again.
     origin: (i32, i32),
+    /// What the card and the shelf of the page share of the library: the books
+    /// listed and what the host said of their files (#267).
+    listing: Listing,
 }
 
 impl Dashboard {
@@ -307,6 +311,8 @@ impl Dashboard {
         display: &Snapshot,
         font: &Font<'_>,
     ) -> Result<Laid, Error> {
+        // Laid out anew: what the host said of the books is asked again.
+        self.listing.forget();
         let Shown {
             mut src,
             metrics,
@@ -339,6 +345,7 @@ impl Dashboard {
         let made = Self::fill(
             host,
             ui,
+            &self.listing,
             &src,
             &frame,
             &shown,
@@ -398,7 +405,7 @@ impl Dashboard {
             items,
             slot,
             wide,
-            kept: Kept::of(host, display, &shown),
+            kept: Kept::of(host, &self.listing, display, &shown),
             handle: (metrics.row / 2).max(16),
             status,
             ring_room: look.first().map_or(0, |look| ring_room(&look.style)),
@@ -467,6 +474,7 @@ impl Dashboard {
     fn fill(
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         src: &HostSource,
         frame: &Frame,
         shown: &[grid::Item],
@@ -474,11 +482,11 @@ impl Dashboard {
         cells: &mut Vec<Cell>,
     ) -> Result<(Vec<Target>, Actions), Error> {
         for (index, item) in shown.iter().enumerate() {
-            if let Some(cell) = Self::cell(host, ui, src, &frame.geometry, (index, item))? {
+            if let Some(cell) = Self::cell(host, ui, listing, src, &frame.geometry, (index, item))? {
                 push(cells, cell)?;
             }
         }
-        let targets = Self::targets(host, ui, cells, footer, buttons)?;
+        let targets = Self::targets(host, ui, listing, cells, footer, buttons)?;
         let mut actions = Vec::new();
         let shown = src.footer.iter().take(footer.actions.len());
         // A nameless action is told by a word for any action, not as nothing.
@@ -498,6 +506,7 @@ impl Dashboard {
     fn cell(
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         src: &HostSource,
         geometry: &Geometry,
         (index, item): (usize, &grid::Item),
@@ -547,7 +556,7 @@ impl Dashboard {
                 return Err(error);
             }
         };
-        let measured = widget.as_ref().map(|made| made.measure(host, ui, geometry));
+        let measured = widget.as_ref().map(|made| made.measure(host, ui, listing, geometry));
         let least = match measured {
             Some(Ok((_, least))) => least,
             Some(Err(Error::NoMemory)) => {
@@ -589,6 +598,7 @@ impl Dashboard {
     fn targets(
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         cells: &[Cell],
         footer: &Footer,
         buttons: Buttons,
@@ -612,7 +622,7 @@ impl Dashboard {
                     },
                 )?,
                 Some(made) => {
-                    for (target, rect) in made.targets(host, ui, cell.rect)? {
+                    for (target, rect) in made.targets(host, (ui, listing), cell.rect)? {
                         push(
                             &mut targets,
                             Target {
@@ -761,6 +771,7 @@ impl Dashboard {
     fn compose_widgets(
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         frame: &mut DrawFrame<'_>,
         laid: &Laid,
     ) -> Result<(), Error> {
@@ -774,7 +785,7 @@ impl Dashboard {
                 .filter_map(|cell| Some((cell.widget.as_ref()?, cell.rect)))
                 .chain(laid.status.as_ref().map(|(made, rect)| (made, *rect))),
             band,
-            |made, rect| made.draw(host, ui, frame, rect),
+            |made, rect| made.draw(host, ui, listing, frame, rect),
         )
         .map(drop)
     }
@@ -912,7 +923,7 @@ impl Dashboard {
             ring(&mut above, target.rect, style)?;
         }
         paint::replay_icons(frame, font, fonts.icons, below.iter())?;
-        Self::compose_widgets(host, ui, frame, laid)?;
+        Self::compose_widgets(host, ui, &self.listing, frame, laid)?;
         paint::replay(frame, font, above.iter())?;
         let mut dialog = Vec::new();
         self.dialog_paint(font, &mut dialog)?;
@@ -1044,11 +1055,11 @@ impl Dashboard {
                 .filter(|(_, rect)| inside(*rect, point))
         {
             // A refusal of the line's targets leaves the tap to the grid.
-            match made.targets(host, ui, *rect) {
+            match made.targets(host, (ui, &self.listing), *rect) {
                 Ok(found) => {
                     for (target, at) in found {
                         if inside(at, point) {
-                            made.input(host, ui, target, point, kind)?;
+                            made.input(host, (ui, &self.listing), target, point, kind)?;
                             return Ok(Handled::Yes);
                         }
                     }
@@ -1132,7 +1143,7 @@ impl Dashboard {
                     return Ok(Next::Nothing);
                 };
                 let (point, kind) = touched.unwrap_or((middle(target.rect), WidgetInputKind::Tap));
-                made.input(host, ui, id, point, kind)?;
+                made.input(host, (ui, &self.listing), id, point, kind)?;
             }
             Owner::Button(_) => {}
         }

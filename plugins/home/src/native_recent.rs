@@ -200,7 +200,7 @@ impl Known {
         self.covers
             .borrow_mut()
             .retain(|(.., covered)| matches!(covered, Covered::Ready(_)));
-        listing.forget();
+        listing.fresh();
         self.fresh();
     }
 

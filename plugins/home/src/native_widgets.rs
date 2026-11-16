@@ -96,6 +96,8 @@ struct Item {
 #[derive(Debug, Default)]
 pub struct Widgets {
     items: Vec<Item>,
+    /// What the instances' card and shelf share of the library.
+    listing: Listing,
 }
 
 /// The token of the widget the host calls `widget` (`home.date`, or placed
@@ -381,7 +383,7 @@ impl Widgets {
         let written = match call {
             WidgetCall::Measure { instance, width } => {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
-                let (height, least) = item.mine.measure(host, width)?;
+                let (height, least) = item.mine.measure(host, &self.listing, width)?;
                 call.reply_size(u32::from(height), u32::from(least), &mut out)?
             }
             WidgetCall::Place { instance, rect } => {
@@ -392,7 +394,7 @@ impl Widgets {
             WidgetCall::Targets { instance, rect } => {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
                 item.mine.place(to_rect(rect));
-                let found = item.mine.targets(host, ui, to_rect(rect))?;
+                let found = item.mine.targets(host, ui, &self.listing, to_rect(rect))?;
                 call.reply_targets(&found, &mut out)?
             }
             _ => return Err(Error::Unsupported),
@@ -411,7 +413,7 @@ impl Widgets {
         }
         let item = self.find(frame.id).ok_or(Error::NotFound)?;
         let area = to_rect(frame.rect);
-        item.mine.draw(host, ui, &mut frame, area)
+        item.mine.draw(host, ui, &self.listing, &mut frame, area)
     }
 
     /// A tap on a target of the card or the shelf opens the book it shows (the
@@ -428,7 +430,7 @@ impl Widgets {
         kind: WidgetInputKind,
     ) -> Result<bool, Error> {
         match self.find(instance.get()) {
-            Some(item) => item.mine.tap(host, ui, target, kind),
+            Some(item) => item.mine.tap(host, ui, &self.listing, target, kind),
             None => Ok(false),
         }
     }
@@ -436,6 +438,7 @@ impl Widgets {
     /// A call into the plugin that is no draw: the books the card and the shelf
     /// kept are asked of the library again at their next draw.
     pub fn fresh(&self) {
+        self.listing.fresh();
         for item in &self.items {
             item.mine.known.fresh();
         }
@@ -483,7 +486,7 @@ impl Widgets {
             // the books show.
             if item.shown.is_some_and(|before| before != now) {
                 // The books changed: the card is asked about their files anew.
-                item.mine.known.forget();
+                item.mine.known.forget(&self.listing);
             }
             let waited = item.mine.waiting.replace(false);
             if waited {
