@@ -1,6 +1,7 @@
 //! A native plugin's `slot.offer` reaches the registry the kernel opens slots
 //! by, so a plugin that asks `Env::has_slot` sees it; it goes with the plugin.
 use super::*;
+use crate::Items;
 
 const FOLDER: Option<&str> = None;
 
@@ -88,17 +89,17 @@ fn a_priority_outside_i16_counts_as_the_nearest_end_and_the_plugin_installs() {
 }
 
 /// A plugin of the program offering `core.translate` at `priority`.
-struct Other(i16);
-impl paperpaw_sdk::Plugin for Other {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            Id::new_static("other"),
-            "Other",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+fn other_manifest() -> paperpaw_sdk::Manifest {
+    paperpaw_sdk::Manifest::new(
+        Id::new_static("other"),
+        "Other",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
+    .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
+fn other(priority: i16) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
+    move |r| {
         struct Empty;
         impl paperpaw_sdk::Screen for Empty {
             fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
@@ -118,7 +119,7 @@ impl paperpaw_sdk::Plugin for Other {
         r.bind_slot(
             Id::new_static("core.translate"),
             Id::new_static("other.screen"),
-            paperpaw_sdk::Priority(self.0),
+            paperpaw_sdk::Priority(priority),
         )
     }
 }
@@ -130,7 +131,7 @@ fn two_plugins_offering_one_slot_leave_the_other_when_one_unloads() {
     for (priority, first) in [(10, "other.screen"), (-5, "factory.screen")] {
         reset(NORMAL);
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-            .plugin(Other(priority))
+            .items(other_manifest(), other(priority))
             .build()
             .unwrap();
         install_resources(&mut kernel, 8, FOLDER).unwrap();
