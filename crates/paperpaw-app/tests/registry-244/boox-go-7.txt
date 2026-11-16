@@ -958,6 +958,7 @@ action core.gestures.standard | title=core.gestures.standard sealed=false runs-i
 action core.home | title=core.action.home sealed=false runs-itself=true native=None
 action core.left | title=core.action.left sealed=false runs-itself=false native=None
 action core.library | title=core.action.library sealed=false runs-itself=true native=None
+action core.library.look-again | title=core.library.look-again sealed=false runs-itself=true native=None
 action core.long-confirm | title=core.action.long-confirm sealed=false runs-itself=true native=None
 action core.menu | title=core.action.menu sealed=false runs-itself=true native=None
 action core.next | title=core.action.next sealed=false runs-itself=true native=None
@@ -1036,6 +1037,7 @@ action update.check | title=update.check sealed=false runs-itself=true native=So
 action update.open | title=update.title sealed=false runs-itself=true native=Some(1)
 action vocabulary.flash-cards | title=vocabulary.cards.title sealed=false runs-itself=true native=Some(2)
 action vocabulary.open | title=vocabulary.title sealed=false runs-itself=true native=Some(4)
+action vocabulary.scan-card | title=vocabulary.sd.scan sealed=false runs-itself=true native=Some(18)
 action widgets.todo.open | title=widgets.todo sealed=false runs-itself=true native=Some(11)
 action wifi.open | title=wifi.title sealed=false runs-itself=true native=Some(1)
 screen about.screen | title=about.title hints=Shown
@@ -1274,6 +1276,7 @@ menu-merged core.tools | core.screenshot by=core order=95 kind=0 flags=0x22
 menu-merged files.menu | files.sort by=files order=10 kind=1 flags=0x22
 menu-merged files.menu | files.view by=files order=11 kind=1 flags=0x22
 menu-merged files.menu | files.search by=files order=21 kind=0 flags=0x22
+menu-merged files.menu | core.library.look-again by=files order=25 kind=0 flags=0x22
 menu-merged files.menu | files.shelves by=files order=30 kind=2 flags=0x22
 menu-merged files.menu | core.library-folder by=files order=80 kind=1 flags=0x22
 menu-merged files.menu | core.settings by=files order=90 kind=0 flags=0x22
@@ -1418,6 +1421,7 @@ subscription core.book-removed | core
 subscription core.catalog-wanted | core
 subscription core.clean-up-answered | core
 subscription core.library-changed | core
+subscription core.library-look-again-wanted | core
 subscription core.page-turned | core
 subscription core.reading-app-picked | core
 subscription core.reading-app-wanted | core
@@ -2393,6 +2397,7 @@ native Action update | ActionSpec(ActionSpec { name: "open", title: "update.titl
 native Action update | ActionSpec(ActionSpec { name: "check", title: "update.check", token: 2, flags: 0 })
 native Action vocabulary | ActionSpec(ActionSpec { name: "open", title: "vocabulary.title", token: 4, flags: 0 })
 native Action vocabulary | ActionSpec(ActionSpec { name: "flash-cards", title: "vocabulary.cards.title", token: 2, flags: 0 })
+native Action vocabulary | ActionSpec(ActionSpec { name: "scan-card", title: "vocabulary.sd.scan", token: 18, flags: 0 })
 native Action widgets | ActionSpec(ActionSpec { name: "todo.open", title: "widgets.todo", token: 11, flags: 0 })
 native Action wifi | ActionSpec(ActionSpec { name: "open", title: "wifi.title", token: 1, flags: 0 })
 native Widget home | WidgetSpec(WidgetSpec { name: "date", title: "home.widget.date", category: "core.widgets.time", previews: "", cells: 0, token: 20, flags: 1 })
@@ -2459,6 +2464,7 @@ native MenuEntry files | MenuEntry(MenuEntry { menu: "files.shelves", item: "fil
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.sort", order: 10, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.view", order: 11, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.search", order: 21, place: 0, anchor: "" })
+native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "core.library.look-again", order: 25, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.shelves", order: 30, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "core.library-folder", order: 80, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "core.settings", order: 90, place: 0, anchor: "" })
@@ -2581,6 +2587,7 @@ native MenuNeed bluetooth | MenuNeed(MenuNeed { item: "bluetooth.remotes", need:
 native MenuNeed files | MenuNeed(MenuNeed { item: "files.covers", need: 9, capability: 0 })
 native MenuNeed home | MenuNeed(MenuNeed { item: "home.focus-at-once", need: 3, capability: 0 })
 native MenuNeed keyboard | MenuNeed(MenuNeed { item: "keyboard.key-shape", need: 4, capability: 0 })
+native MenuNeed lock | MenuNeed(MenuNeed { item: "lock.touch", need: 4, capability: 0 })
 native MenuNeed picture-home | MenuNeed(MenuNeed { item: "picture-home.focus-at-once", need: 3, capability: 0 })
 native MenuNeed reader | MenuNeed(MenuNeed { item: "reader.read-aloud", need: 0, capability: 0 })
 native MenuNeed reader | MenuNeed(MenuNeed { item: "reader.selection.read-aloud", need: 0, capability: 0 })

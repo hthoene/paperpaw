@@ -70,6 +70,21 @@ impl App {
         }
     }
 
+    /// `ms` of time going by, the kernel ticked as a shell does.
+    fn wait(&mut self, ms: u64) {
+        for _ in 0..ms / 500 {
+            self.now += 500;
+            let effects = self.kernel.tick(Instant(self.now));
+            self.settle(effects);
+        }
+    }
+
+    fn run(&mut self, action: paperpaw_sdk::Id) {
+        self.now += 100;
+        let effects = self.kernel.run_action(Instant(self.now), action);
+        self.settle(effects);
+    }
+
     /// The screen the book at `path` opens in, as a shell opens it.
     fn book(&mut self, path: &str) -> String {
         self.now += 100;
@@ -131,4 +146,37 @@ fn a_book_gone_from_the_card_says_its_file_is_no_longer_there() {
         labels.iter().any(|l| l.contains("no longer there")),
         "{labels:?}"
     );
+}
+
+/// A folder of pictures is one book, as in Beta 3: the opened picture and those
+/// after it in name order are its pages. One page forward in a book of three
+/// is a third of the way (a picture alone has no page to turn to). #277: the
+/// format reads its book's folder through `core.files` root 3.
+#[test]
+#[cfg_attr(
+    not(all(feature = "native-linked-reading", feature = "native-linked-store")),
+    ignore = "needs the native reader and the picture format: they run with `native-linked-reading` and `native-linked-store` (the test-native step)"
+)]
+fn a_picture_opens_as_a_book_of_the_pictures_after_it() {
+    let picture = &include_bytes!("../../../crates/paperpaw-image/tests/data/colors-rgb.png")[..];
+    let card = MemoryStorage::new()
+        .with("books/pics/01.png", picture)
+        .with("books/pics/02.png", picture)
+        .with("books/pics/03.png", picture)
+        .with("books/pics/notes.txt", "not a picture");
+    let mut app = App::new(card, "");
+    assert_eq!(app.book("books/pics/01.png"), SHIPPED);
+    app.wait(20_000);
+    app.run(paperpaw_sdk::builtin::actions::NEXT_PAGE);
+    app.wait(5_000);
+    app.run(paperpaw_sdk::builtin::actions::HOME);
+    // A screen with pictures is shown at once in black and white and its grays
+    // follow after 3 s of calm (#267, Decision 196): the card shows the book
+    // from that second frame on.
+    app.wait(2_000);
+    app.kernel.render(&mut |_, _| {});
+    app.wait(3_000);
+    app.kernel.render(&mut |_, _| {});
+    let labels: Vec<String> = app.kernel.describe().into_iter().map(|p| p.label).collect();
+    assert!(labels.iter().any(|l| l.contains("33 %")), "{labels:?}");
 }
