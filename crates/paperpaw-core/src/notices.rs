@@ -19,6 +19,9 @@ const SMALL: usize = 2;
 /// of memory (`memory_notice`).
 pub(crate) struct Waiting {
     pub(crate) literata: crate::font_refresh::literata_notice::LiterataNotice,
+    /// A start notice (Literata, low memory) showed since the start: the next
+    /// one waits for the next start (#798).
+    pub(crate) start_notice_shown: bool,
     texts: VecDeque<String>,
     cap: usize,
     /// "Not enough memory", made while there was room; `None` while it shows.
@@ -50,6 +53,7 @@ impl Waiting {
         };
         Self {
             literata: Default::default(),
+            start_notice_shown: false,
             texts: VecDeque::new(),
             cap,
             memory: None,
