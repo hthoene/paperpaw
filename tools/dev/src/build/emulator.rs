@@ -3,11 +3,11 @@
 //! file in the emulator").
 //!
 //! The emulator takes a library that imports nothing and exports its two
-//! entry symbols alone. The plugin's crate is a program for the devices, so
+//! entry symbols and its heap word alone. The plugin's crate is a program for the devices, so
 //! this links the same program as such a library: without the C startup
 //! files, with the memory functions the compiler calls, with the entry
-//! record among the relocated read-only data, and with everything but the
-//! two entry symbols kept local. `tools/plugin-host-libs` builds PaperPaw's
+//! record among the relocated read-only data, and with everything but
+//! those three symbols kept local. `tools/plugin-host-libs` builds PaperPaw's
 //! own plugins so; its two files are used here.
 
 use std::path::{Path, PathBuf};
@@ -21,7 +21,7 @@ const FILE: &str = "code-host.so";
 /// `memcpy` and the like, which such a library brings itself.
 const MEMORY: &str = include_str!("../../../plugin-host-libs/mem.s");
 const LINKER: &str = include_str!("../../../plugin-host-libs/paperpaw-host.ld");
-const EXPORTS: &str = "{ global: PAPERPAW_ENTRY; PAPERPAW_METADATA; local: *; };\n";
+const EXPORTS: &str = "{ global: PAPERPAW_ENTRY; PAPERPAW_METADATA; PAPERPAW_HEAP; local: *; };\n";
 
 /// Writes `text` to `name` in `work`.
 fn kept(work: &Path, name: &str, text: &str) -> Result<PathBuf, String> {

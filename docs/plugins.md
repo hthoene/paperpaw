@@ -2055,7 +2055,8 @@ interface 6 (built for an older PaperPaw: never loaded), anything else is
 refused and said. Nothing is guessed.
 
 For each interface-7 file the emulator checks the strict freestanding rule
-(no `NEEDED`, no undefined symbols, only the two entry exports), opens a
+(no `NEEDED`, no undefined symbols, only the two entry exports and the heap
+word `PAPERPAW_HEAP`, which it fills before the plugin starts), opens a
 private read-only copy under the id of the plugin's *folder* (never the id the
 library reports), and stages what the plugin declares. What is staged is
 kept, not applied: nothing a plugin declares reaches the app yet, and no draw
