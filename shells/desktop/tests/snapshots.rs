@@ -670,7 +670,8 @@ const CASES: &[Case] = &[
         profile: "xteink-x4-pro",
         book: Some("books/alice-in-wonderland.epub"),
         sets: &[],
-        script: "run:core.quick-panel,wait:300,down:300:318,move:330:320,move:360:322,wait:100",
+        // The grays of the page under it follow once calm (3 s).
+        script: "run:core.quick-panel,wait:300,down:300:318,move:330:320,move:360:322,wait:100,wait:3200",
         colour: 0,
         fixtures: false,
     },
