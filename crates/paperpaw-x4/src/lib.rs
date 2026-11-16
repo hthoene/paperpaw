@@ -72,6 +72,7 @@ pub mod premake;
 pub mod probe;
 pub mod provision;
 pub mod remote;
+pub mod reset_note;
 pub mod rtc_guard;
 pub mod s3_band;
 pub mod sent;

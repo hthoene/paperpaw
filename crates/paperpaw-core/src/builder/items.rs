@@ -1,18 +1,14 @@
-//! Contributions given to the builder as a closure (#244, slice D2's target
-//! for tests): what a test fixture wrote as a type with `impl Plugin` it
-//! writes as [`KernelBuilder::items`], and names neither `Plugin` nor
-//! `Items`.
+//! Contributions given to the builder as a closure (#244): what registers in
+//! the kernel without a plugin file is a manifest and a function over
+//! [`Items`] ([`KernelBuilder::items`]).
 //!
 //! [`Items`] is the kernel's own type (until slice D4b it was the SDK's
-//! `Items` under another name), with every call a fixture made in
-//! `register`: handlers that get the live `Env`, catalogs
-//! (`add_translations`), screens that are still an old `Screen`. The calls
-//! stay when the old `Plugin` goes; a fixture ported to this is not
-//! touched again.
+//! `Registrar`), with the calls such a function makes: handlers that get the
+//! live `Env`, catalogs (`add_translations`), screens that are still an old
+//! `Screen`.
 //!
 //! The builder's list of what registers is a list of [`Source`]s: the kernel
-//! registers each through a function over `Items` (`Kernel::add_items`), and
-//! an old `Plugin` is one of them in an adapter, never the reverse.
+//! registers each through a function over `Items` (`Kernel::add_items`).
 
 use super::KernelBuilder;
 use crate::Kernel;
@@ -24,21 +20,8 @@ mod calls;
 
 pub use calls::Items;
 
-/// An old plugin: a manifest and a function that adds through [`Items`].
-/// Until #244's slice D4b this was the SDK's `Plugin`; it is the kernel's
-/// own now, kept for what still registers this way
-/// ([`KernelBuilder::plugin`]), and goes with it.
-pub trait Plugin {
-    fn manifest(&self) -> Manifest;
-
-    /// Adds the plugin's contributions with `registrar`.
-    fn register(&self, registrar: &mut Items) -> Result<(), RegisterError>;
-}
-
 /// One entry of the builder's list of what registers, in the order given.
 pub(super) enum Source {
-    /// An old `Plugin` ([`KernelBuilder::plugin`]); goes with the trait.
-    Old(Box<dyn Plugin>),
     /// The fonts the program is built with ([`KernelBuilder::built_in_fonts`]).
     Fonts(&'static BuiltInFonts),
     /// A closure ([`KernelBuilder::items`]). Boxed, so that an entry of the
@@ -59,7 +42,6 @@ impl Source {
     /// Whose contributions these are.
     pub(super) fn manifest(&self) -> Manifest {
         match self {
-            Self::Old(plugin) => plugin.manifest(),
             Self::Fonts(fonts) => fonts.manifest.clone(),
             Self::Given(given) => given.manifest.clone(),
         }
@@ -68,7 +50,6 @@ impl Source {
     /// Registers it with `kernel`, or only lists it where `disabled` names it.
     pub(super) fn add_to(&self, kernel: &mut Kernel, disabled: &[String]) {
         match self {
-            Self::Old(plugin) => kernel.add_plugin(plugin.as_ref(), disabled),
             Self::Fonts(fonts) => {
                 kernel.add_items(
                     fonts.manifest.clone(),
@@ -85,10 +66,10 @@ impl Source {
 
 impl KernelBuilder {
     /// Adds what `register` contributes, under `manifest` (its id is the
-    /// namespace). It is a plugin in every way [`KernelBuilder::plugin`]'s
-    /// is: listed, switched off and on, registered again when the plugins
-    /// change (so `register` may run more than once), and one that fails
-    /// leaves nothing behind.
+    /// namespace). It is a plugin in every way: listed, switched off and on,
+    /// registered again when the plugins change (so `register` may run more
+    /// than once), and one that fails leaves nothing behind. Plugins added
+    /// later win priority ties.
     pub fn items(
         mut self,
         manifest: Manifest,
@@ -101,8 +82,8 @@ impl KernelBuilder {
         self
     }
 
-    /// As [`KernelBuilder::items`], off until the user switches it on
-    /// ([`KernelBuilder::plugin_off`]).
+    /// As [`KernelBuilder::items`], off until the user switches it on (e.g.
+    /// in the plugin manager), for features not everyone wants.
     pub fn items_off(
         mut self,
         manifest: Manifest,

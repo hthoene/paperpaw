@@ -13,10 +13,22 @@
 )]
 
 use std::rc::Rc;
+use std::sync::{Mutex, MutexGuard};
 
 use paperpaw_core::native_host::host_slot::slot_counts;
 use paperpaw_core::sdk::MemoryStorage;
 use paperpaw_emulator::{device::Device, headless::run_script, profiles};
+
+/// The emulator's heap counter is one for the process: a test that reads it
+/// (the repeated returns) must not run beside one that holds a device. Every
+/// test holds this for its whole run.
+static SERIAL: Mutex<()> = Mutex::new(());
+
+fn serial() -> MutexGuard<'static, ()> {
+    SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 const BOOK: &str = "books/alice-in-wonderland.epub";
 
@@ -58,6 +70,14 @@ fn device(last: bool) -> Device {
 
 /// As [`device`], with `ini` before the help hint's lines in `paperpaw.ini`.
 fn device_in(last: bool, ini: &str) -> Device {
+    let mut device = unstarted(last, ini);
+    device.start();
+    run_script(&mut device, "wait:3000").unwrap();
+    device
+}
+
+/// As [`device_in`], before its start.
+fn unstarted(last: bool, ini: &str) -> Device {
     let mut files = MemoryStorage::new()
         .with(
             BOOK,
@@ -73,10 +93,7 @@ fn device_in(last: bool, ini: &str) -> Device {
     }
     paperpaw_emulator::budget::override_limit(None);
     let profile = profiles::find("xteink-x4").unwrap();
-    let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
-    device.start();
-    run_script(&mut device, "wait:3000").unwrap();
-    device
+    Device::in_memory(profile, None, Rc::new(files), true, None).unwrap()
 }
 
 fn screen(device: &mut Device) -> String {
@@ -123,6 +140,7 @@ fn back_from_the_drawer(device: &mut Device) -> (u32, u32) {
 
 #[test]
 fn the_home_screen_keeps_its_page_while_another_screen_covers_it() {
+    let _serial = serial();
     let mut device = device(false);
     let (all, settings) = back_from_the_drawer(&mut device);
     assert_eq!(screen(&mut device), "home.dashboard");
@@ -137,6 +155,7 @@ fn the_home_screen_keeps_its_page_while_another_screen_covers_it() {
 /// current, the return costs what it does in English (Senior M1).
 #[test]
 fn a_missing_hyphenation_table_does_not_make_home_read_its_look_at_every_draw() {
+    let _serial = serial();
     let mut device = device_in(false, GERMAN_TOOLS);
     let (all, settings) = back_from_the_drawer(&mut device);
     assert_eq!(screen(&mut device), "home.dashboard");
@@ -151,8 +170,35 @@ fn a_missing_hyphenation_table_does_not_make_home_read_its_look_at_every_draw() 
     );
 }
 
+/// Home's tool names are never hyphenated (#267): a name no line holds ends in
+/// "…", and the host is not asked where it may break (on the X4 each ask reads
+/// the language's table from the card, 13 ms, 21 in a frame; a frame is drawn
+/// in bands and the look is read again after a setting).
+#[test]
+fn home_does_not_ask_the_host_to_hyphenate_its_tool_names() {
+    let _serial = serial();
+    let mut device = unstarted(false, GERMAN_TOOLS);
+    slot_counts::reset();
+    device.start();
+    run_script(&mut device, "wait:3000").unwrap();
+    let counts = slot_counts::snapshot();
+    let at = |slot: &str| {
+        counts
+            .iter()
+            .find(|(name, _)| *name == slot)
+            .map_or(0, |c| c.1)
+    };
+    assert!(at("text_measure") > 0, "Home did not draw: {counts:?}");
+    assert_eq!(
+        at("text_hyphenate"),
+        0,
+        "Home asked for hyphenation: {counts:?}"
+    );
+}
+
 #[test]
 fn a_setting_changed_under_the_cover_is_laid_out_when_it_returns() {
+    let _serial = serial();
     let mut device = device(false);
     let before = shot(&mut device, "before");
     run_script(&mut device, "run:home.all-tools").unwrap();
@@ -174,6 +220,7 @@ fn a_setting_changed_under_the_cover_is_laid_out_when_it_returns() {
 
 #[test]
 fn what_a_book_changed_under_the_cover_shows_when_it_returns() {
+    let _serial = serial();
     let mut device = device(true);
     // The first return lays the page out (the book was open from the start).
     run_script(&mut device, "back").unwrap();
@@ -213,6 +260,7 @@ fn what_a_book_changed_under_the_cover_shows_when_it_returns() {
 
 #[test]
 fn a_plain_setting_changed_just_before_back_shows_when_it_returns() {
+    let _serial = serial();
     let mut device = device(false);
     let before = shot(&mut device, "plain-before");
     run_script(&mut device, "run:home.all-tools").unwrap();
@@ -236,6 +284,7 @@ fn a_plain_setting_changed_just_before_back_shows_when_it_returns() {
 
 #[test]
 fn a_return_from_a_book_read_for_minutes_keeps_the_page() {
+    let _serial = serial();
     let mut device = device(true);
     // The clock is set, so that Home's clock and card change at each minute.
     device.set_time(1_760_000_000_000);
@@ -287,6 +336,7 @@ fn returned(device: &mut Device) -> ((u32, u32), (u32, u32)) {
 
 #[test]
 fn a_changed_setting_makes_home_read_its_look_again_once() {
+    let _serial = serial();
     let mut device = device(false);
     // A page just shown is laid out again by the first change that reaches it
     // (the show's window); a change after that finds the page and the widgets
@@ -334,6 +384,7 @@ fn a_changed_setting_makes_home_read_its_look_again_once() {
 
 #[test]
 fn repeated_returns_do_not_grow_the_heap() {
+    let _serial = serial();
     let mut device = device(false);
     let mut live = 0;
     for round in 0..14 {
