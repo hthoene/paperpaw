@@ -261,9 +261,15 @@ pub fn note(say: &mut impl Say, row: &PluginRow, description: &str) -> Result<St
     };
     let version = say.say_with("plugin-manager.version", "version", &row.version)?;
     let mut parts: Vec<String> = Vec::new();
-    for part in [what, Some(copy(description)?), code, unsigned, Some(version)]
-        .into_iter()
-        .flatten()
+    for part in [
+        what,
+        Some(copy(description)?),
+        code,
+        unsigned,
+        Some(version),
+    ]
+    .into_iter()
+    .flatten()
     {
         if !part.is_empty() {
             push(&mut parts, part)?;
