@@ -11,11 +11,9 @@ use std::ptr;
 use paperpaw_native::host_glue::{
     ENTRY_SYMBOL, HEAP_SYMBOL, METADATA_SYMBOL, OK, PpEntry, PpHeap, PpHost, PpPlugin,
 };
-use paperpaw_native::preflight::{FreestandingRefusal, check_freestanding, data_export};
-
-/// What a hosted library may export: its two entry symbols and, if it
-/// allocates, the heap word (`abi/heap-word.md` section 2).
-const EXPORTS: &[&str] = &[METADATA_SYMBOL, ENTRY_SYMBOL, HEAP_SYMBOL];
+use paperpaw_native::preflight::{
+    FreestandingRefusal, HOSTED_EXPORTS, PLUGIN_EXPORTS, check_freestanding, data_export,
+};
 
 use crate::host_services::DesktopHost;
 use crate::native::HeldLibrary;
@@ -178,7 +176,7 @@ pub unsafe fn load(
 ) -> Result<LoadedPlugin, RuntimeError> {
     // SAFETY: the same authorization and immutable-file contract applies.
     let CheckedLibrary { library, make, .. } =
-        unsafe { checked_library(path, digest, host.table(), &[], WIRED_FEATURES) }?;
+        unsafe { checked_library(path, digest, host.table(), &[], WIRED_FEATURES, false) }?;
     let mut out = ptr::null();
     // SAFETY: table and context outlive the plugin; output storage is writable.
     let status = unsafe { make(host.table(), host.ctx(), &mut out) };
@@ -317,6 +315,9 @@ unsafe fn checked_library(
     host: &PpHost,
     services: &[paperpaw_native::metadata::Service<'_>],
     features: &'static [paperpaw_native::metadata::Feature<'static>],
+    // Whether the caller fills a heap word: one that does not keeps refusing
+    // a library that has the word, which would run with no heap.
+    fills_heap: bool,
 ) -> Result<CheckedLibrary, RuntimeError> {
     let mut file = std::fs::File::open(path).map_err(|_| RuntimeError::File)?;
     let mut bytes = Vec::new();
@@ -332,7 +333,12 @@ unsafe fn checked_library(
     // PR #133: a plugin needs no library, binds no symbol of the process and
     // exports nothing but its two entry symbols and the heap word. One rule,
     // shared with the packager.
-    check_freestanding(&bytes, 62, EXPORTS).map_err(|refusal| match refusal {
+    let exports = if fills_heap {
+        HOSTED_EXPORTS
+    } else {
+        PLUGIN_EXPORTS
+    };
+    check_freestanding(&bytes, 62, exports).map_err(|refusal| match refusal {
         FreestandingRefusal::UndefinedImport | FreestandingRefusal::NeededLibrary => {
             RuntimeError::Import
         }
@@ -357,11 +363,19 @@ unsafe fn checked_library(
         return Err(RuntimeError::Entry);
     }
     // The heap word, where the library has one: a pointer of zero in its
-    // read-only data. One that is anything else is found out below.
+    // read-only data, apart from the entry record and the metadata. One that
+    // is anything else is found out below.
     let heap_word = data_export(&bytes, 62, HEAP_SYMBOL, true)
         .ok()
         .filter(|word| {
-            word.bytes == [0; size_of::<usize>()] && word.address % align_of::<usize>() as u64 == 0
+            let end = word.address.saturating_add(word.bytes.len() as u64);
+            let apart = |start: u64, len: usize| {
+                end <= start || start.saturating_add(len as u64) <= word.address
+            };
+            word.bytes == [0; size_of::<usize>()]
+                && word.address % align_of::<usize>() as u64 == 0
+                && apart(entry.address, entry.bytes.len())
+                && apart(locator.address, locator.bytes.len())
         });
     // SAFETY: authorization and immutability are required above; both exports
     // were checked before the system loader can execute anything.
