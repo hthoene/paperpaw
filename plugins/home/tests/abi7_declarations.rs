@@ -48,12 +48,14 @@ fn the_declarations_are_the_pinned_ones() {
     assert_eq!(native.menu_entries.len(), 2);
     assert_eq!(native.needs, ["home.focus-at-once|NoTouch"]);
     assert_eq!(native.actions.len(), 2);
-    assert_eq!(native.events.len(), 4, "{:?}", native.events);
+    assert_eq!(native.events.len(), 6, "{:?}", native.events);
     for token in [
         declarations::SETTING_CHANGED,
         declarations::TICK,
         declarations::WIDGET_CHANGED,
         declarations::STACK_CHANGED,
+        declarations::REGISTRY_CHANGED,
+        declarations::LIBRARY_CHANGED,
     ] {
         assert!(
             native
