@@ -167,9 +167,9 @@ pub fn code_files(id: &str, sdk: Option<&Path>) -> Vec<(String, Vec<u8>)> {
                  `rust-toolchain.toml` names the X4's compiler, `.cargo/config.toml` and \
                  `paperpaw-plugin7.x` how the program is linked; leave `RUSTFLAGS` unset. Commit \
                  the `Cargo.lock` the first build writes: `check-publish` asks for it.\n\
-                 - **Try it:** copy the folder `dist/x4/{id}` (or `dist/x4-pro/{id}`) into the \
-                 folder `plugins` of the card. A device runs a plugin from the card without a \
-                 signature; the plugin store signs what it publishes.\n\
+                 - **What the build leaves:** `dist/x4/{id}` (or `dist/x4-pro/{id}`) is the plugin's \
+                 folder as it lies in the folder `plugins` of a card, with the code in it. The \
+                 code is not signed.\n\
                  - **What it may call:** `native/metadata.json` lists the device's functions the code \
                  calls. `paperpaw-dev metadata` (and every build) makes the records of it, \
                  `native/metadata.bin` and `native/metadata.s3.bin`, one for each chip. A call that \

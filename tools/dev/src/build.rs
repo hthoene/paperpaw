@@ -265,9 +265,8 @@ pub fn run(args: &[String]) -> Result<bool, String> {
     )?;
     println!(
         "\n{} is the plugin for {} (`--device {}`).\n\
-         To try it, copy that folder into the folder `plugins` of the card and start the \
-         device. Its code is not signed: a device runs an unsigned plugin from the card, and \
-         the plugin store signs what it publishes.",
+         It is the plugin's folder as it lies in the folder `plugins` of a card. Its code is \
+         not signed.",
         folder.display(),
         chip.devices,
         chip.device

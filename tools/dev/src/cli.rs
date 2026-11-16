@@ -55,7 +55,7 @@ COMMANDS:
                 folder as it goes onto a card: the records of what it calls, the
                 compiler checked (with how to install what is missing), the build for
                 the device's chip, and the packing by paperpaw-sign into code.ppn. The
-                code is not signed: copy the folder into the card's plugins to try it
+                code is not signed
     metadata [plugin's folder] [--check]
                 A plugin with code: writes native/metadata.bin (X4, X3) and
                 native/metadata.s3.bin (X4 Pro, X4 Classic) from native/metadata.json,
