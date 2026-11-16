@@ -3,6 +3,7 @@
 //! value a setting had.
 
 use super::*;
+use crate::Items;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::{ObserverSpec, Params};
 
@@ -14,122 +15,122 @@ const LOCK: Id = Id::new_static("g.lock");
 
 /// Actions of its own, two handlers in place of one of them, and
 /// observers of actions and of settings changed.
-struct Observing(Log);
+fn observing(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| observing_items(&kept, r)
+}
 
-impl Plugin for Observing {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("obs"), "Observing", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
-        r.add_action(
-            ActionSpec::new(APPLY, "obs.apply").handler(move |_, params, _| {
-                let profile = params.get("profile").unwrap_or("none");
-                log.borrow_mut().push(alloc::format!("apply {profile}"));
-            }),
-        )?;
-        let log = self.0.clone();
-        r.add_action(
-            ActionSpec::new(PLAIN, "obs.plain")
-                .describe("obs.plain.help")
-                .keywords("obs.plain.words")
-                .handler(move |_, _, _| log.borrow_mut().push(String::from("plain"))),
-        )?;
-        r.add_action(ActionSpec::new(SCREEN_ONLY, "obs.screen-only"))?;
-        for (priority, name) in [(1, "low"), (5, "high")] {
-            let log = self.0.clone();
-            r.override_action(
-                Id::new_static("obs.overridden"),
-                move |_, _, _| log.borrow_mut().push(String::from(name)),
-                Priority(priority),
-            )?;
-        }
-        r.add_action(ActionSpec::new(
+/// What [`observing`] adds (a function of its own for its length).
+fn observing_items(kept: &Log, r: &mut Items) -> Result<(), RegisterError> {
+    let log = kept.clone();
+    r.add_action(
+        ActionSpec::new(APPLY, "obs.apply").handler(move |_, params, _| {
+            let profile = params.get("profile").unwrap_or("none");
+            log.borrow_mut().push(alloc::format!("apply {profile}"));
+        }),
+    )?;
+    let log = kept.clone();
+    r.add_action(
+        ActionSpec::new(PLAIN, "obs.plain")
+            .describe("obs.plain.help")
+            .keywords("obs.plain.words")
+            .handler(move |_, _, _| log.borrow_mut().push(String::from("plain"))),
+    )?;
+    r.add_action(ActionSpec::new(SCREEN_ONLY, "obs.screen-only"))?;
+    for (priority, name) in [(1, "low"), (5, "high")] {
+        let log = kept.clone();
+        r.override_action(
             Id::new_static("obs.overridden"),
-            "obs.overridden",
-        ))?;
-        // An action of its own, wrapped by a handler in its place that
-        // runs the original, tries to run itself and runs another.
-        let log = self.0.clone();
-        r.add_action(
-            ActionSpec::new(WRAPPED, "obs.wrapped")
-                .handler(move |_, _, _| log.borrow_mut().push(String::from("inner"))),
+            move |_, _, _| log.borrow_mut().push(String::from(name)),
+            Priority(priority),
         )?;
-        let log = self.0.clone();
-        r.override_action(
-            WRAPPED,
-            move |_, params, out| {
-                log.borrow_mut().push(String::from("outer"));
-                out.push(Command::RunOriginal(WRAPPED, params.clone()));
-                out.push(Command::run(WRAPPED));
-                out.push(Command::run(PLAIN));
-            },
-            Priority::DEFAULT,
-        )?;
-        // Opens a screen of its own; a step through profiles, run again
-        // with the next.
-        r.add_screen(ScreenSpec::new(
-            Id::new_static("obs.page"),
-            "page",
-            Box::new(|_, _| Box::new(Lock)),
-        ))?;
-        r.add_action(
-            ActionSpec::new(Id::new_static("obs.open"), "obs.open").handler(|_, _, out| {
-                out.push(Command::OpenScreen(
-                    Id::new_static("obs.page"),
-                    Params::new(),
-                ));
-            }),
-        )?;
-        let log = self.0.clone();
-        r.add_action(
-            ActionSpec::new(Id::new_static("obs.step"), "obs.step").handler(
-                move |_, params, out| {
-                    let n: u8 = params.get("n").and_then(|n| n.parse().ok()).unwrap_or(0);
-                    log.borrow_mut().push(alloc::format!("step {n}"));
-                    if n < 2 {
-                        let next = Params::new().with("n", alloc::format!("{}", n + 1));
-                        out.push(Command::RunAction(Id::new_static("obs.step"), next));
-                    }
-                    // The same again: dropped.
-                    out.push(Command::RunAction(
-                        Id::new_static("obs.step"),
-                        params.clone(),
-                    ));
-                },
-            ),
-        )?;
-        let log = self.0.clone();
-        r.add_action(
-            ActionSpec::new(Id::new_static("obs.sealed"), "obs.sealed")
-                .handler(move |_, _, _| log.borrow_mut().push(String::from("sealed")))
-                .sealed(),
-        )?;
-        // In place of another plugin's action, which its screen takes.
-        let log = self.0.clone();
-        r.override_action(
-            Id::new_static("a.special"),
-            move |_, _, _| log.borrow_mut().push(String::from("obs special")),
-            Priority::DEFAULT,
-        )?;
-        let log = self.0.clone();
-        r.observe_actions(ObserverSpec::new(
-            Id::new_static("obs.actions"),
-            move |_, id, _, _| log.borrow_mut().push(alloc::format!("saw {id}")),
-        ))?;
-        let log = self.0.clone();
-        r.observe_events(ObserverSpec::new(
-            Id::new_static("obs.events"),
-            move |_, id, params, _| {
-                if *id == events::SETTING_CHANGED {
-                    let old = params.get("old").unwrap_or("?");
-                    log.borrow_mut().push(alloc::format!("changed from {old}"));
-                }
-            },
-        ))
     }
+    r.add_action(ActionSpec::new(
+        Id::new_static("obs.overridden"),
+        "obs.overridden",
+    ))?;
+    // An action of its own, wrapped by a handler in its place that
+    // runs the original, tries to run itself and runs another.
+    let log = kept.clone();
+    r.add_action(
+        ActionSpec::new(WRAPPED, "obs.wrapped")
+            .handler(move |_, _, _| log.borrow_mut().push(String::from("inner"))),
+    )?;
+    let log = kept.clone();
+    r.override_action(
+        WRAPPED,
+        move |_, params, out| {
+            log.borrow_mut().push(String::from("outer"));
+            out.push(Command::RunOriginal(WRAPPED, params.clone()));
+            out.push(Command::run(WRAPPED));
+            out.push(Command::run(PLAIN));
+        },
+        Priority::DEFAULT,
+    )?;
+    // Opens a screen of its own; a step through profiles, run again
+    // with the next.
+    r.add_screen(ScreenSpec::new(
+        Id::new_static("obs.page"),
+        "page",
+        Box::new(|_, _| Box::new(Lock)),
+    ))?;
+    r.add_action(
+        ActionSpec::new(Id::new_static("obs.open"), "obs.open").handler(|_, _, out| {
+            out.push(Command::OpenScreen(
+                Id::new_static("obs.page"),
+                Params::new(),
+            ));
+        }),
+    )?;
+    let log = kept.clone();
+    r.add_action(
+        ActionSpec::new(Id::new_static("obs.step"), "obs.step").handler(move |_, params, out| {
+            let n: u8 = params.get("n").and_then(|n| n.parse().ok()).unwrap_or(0);
+            log.borrow_mut().push(alloc::format!("step {n}"));
+            if n < 2 {
+                let next = Params::new().with("n", alloc::format!("{}", n + 1));
+                out.push(Command::RunAction(Id::new_static("obs.step"), next));
+            }
+            // The same again: dropped.
+            out.push(Command::RunAction(
+                Id::new_static("obs.step"),
+                params.clone(),
+            ));
+        }),
+    )?;
+    let log = kept.clone();
+    r.add_action(
+        ActionSpec::new(Id::new_static("obs.sealed"), "obs.sealed")
+            .handler(move |_, _, _| log.borrow_mut().push(String::from("sealed")))
+            .sealed(),
+    )?;
+    // In place of another plugin's action, which its screen takes.
+    let log = kept.clone();
+    r.override_action(
+        Id::new_static("a.special"),
+        move |_, _, _| log.borrow_mut().push(String::from("obs special")),
+        Priority::DEFAULT,
+    )?;
+    let log = kept.clone();
+    r.observe_actions(ObserverSpec::new(
+        Id::new_static("obs.actions"),
+        move |_, id, _, _| log.borrow_mut().push(alloc::format!("saw {id}")),
+    ))?;
+    let log = kept.clone();
+    r.observe_events(ObserverSpec::new(
+        Id::new_static("obs.events"),
+        move |_, id, params, _| {
+            if *id == events::SETTING_CHANGED {
+                let old = params.get("old").unwrap_or("?");
+                log.borrow_mut().push(alloc::format!("changed from {old}"));
+            }
+        },
+    ))
+}
+
+/// What [`observing`] registers under.
+fn observing_manifest() -> Manifest {
+    Manifest::new(Id::new_static("obs"), "Observing", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 fn observed() -> (Kernel, Log) {
@@ -143,8 +144,8 @@ fn observed_with_screen() -> (Kernel, Log, Log) {
     let (log, screen) = (log(), log());
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(TestPlugin::new("a", &screen))
-        .plugin(Observing(log.clone()))
-        .plugin(Guarding(log.clone()))
+        .items(observing_manifest(), observing(log.clone()))
+        .items(guarding_manifest(), guarding(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -152,10 +153,6 @@ fn observed_with_screen() -> (Kernel, Log, Log) {
     screen.borrow_mut().clear();
     (kernel, log, screen)
 }
-
-/// A lock that takes no action itself, a handler of its own plugin in
-/// place of `obs.plain`'s, and an observer of actions.
-struct Guarding(Log);
 
 struct Lock;
 
@@ -179,19 +176,16 @@ impl Screen for Lock {
     }
 }
 
-impl Plugin for Guarding {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("g"), "Guarding", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+/// A lock that takes no action itself, a handler of its own plugin in
+/// place of `obs.plain`'s, and an observer of actions.
+fn guarding(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         r.add_screen(ScreenSpec::new(
             LOCK,
             "lock",
             Box::new(|_, _| Box::new(Lock)),
         ))?;
-        let log = self.0.clone();
+        let log = kept.clone();
         r.override_action(
             Id::new_static("obs.guarded"),
             move |_, _, _| log.borrow_mut().push(String::from("g guarded")),
@@ -199,12 +193,18 @@ impl Plugin for Guarding {
         )?;
         // In place of a sealed action: refused when the kernel takes it.
         r.override_action(Id::new_static("obs.sealed"), |_, _, _| {}, Priority(50))?;
-        let log = self.0.clone();
+        let log = kept.clone();
         r.observe_actions(ObserverSpec::new(
             Id::new_static("g.actions"),
             move |_, id, _, _| log.borrow_mut().push(alloc::format!("g saw {id}")),
         ))
     }
+}
+
+/// What [`guarding`] registers under.
+fn guarding_manifest() -> Manifest {
+    Manifest::new(Id::new_static("g"), "Guarding", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// While a screen guards the device, handlers another plugin put in
@@ -466,15 +466,8 @@ mod above_the_guard {
         }
     }
 
-    struct GatePlugin;
-
-    impl Plugin for GatePlugin {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("gate"), "Gate", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn gate_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        |r| {
             r.add_screen(ScreenSpec::new(
                 Id::new_static("gate.lock"),
                 "lock",
@@ -483,15 +476,14 @@ mod above_the_guard {
         }
     }
 
-    struct Up;
+    /// What [`gate_plugin`] registers under.
+    fn gate_plugin_manifest() -> Manifest {
+        Manifest::new(Id::new_static("gate"), "Gate", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
 
-    impl Plugin for Up {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("up"), "Up", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn up() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        |r| {
             for id in ["up.top", "up.evil"] {
                 r.add_screen(ScreenSpec::new(
                     Id::parse(id).unwrap(),
@@ -515,13 +507,19 @@ mod above_the_guard {
         }
     }
 
+    /// What [`up`] registers under.
+    fn up_manifest() -> Manifest {
+        Manifest::new(Id::new_static("up"), "Up", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
     #[test]
     fn what_no_guard_let_pass_opens_below_it() {
         let log = log();
         let mut kernel = Kernel::builder(DEVICE)
             .plugin(TestPlugin::new("a", &log))
-            .plugin(GatePlugin)
-            .plugin(Up)
+            .items(gate_plugin_manifest(), gate_plugin())
+            .items(up_manifest(), up())
             .build()
             .unwrap();
         kernel.start(Instant(0));
@@ -549,15 +547,8 @@ mod secrets_of_others {
     use paperpaw_sdk::secrets::SecretChange;
 
     /// The settings editor: the screen of the settings slot.
-    struct Editor;
-
-    impl Plugin for Editor {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("editor"), "Editor", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn editor() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        |r| {
             r.add_screen(ScreenSpec::new(
                 Id::new_static("editor.screen"),
                 "editor",
@@ -580,15 +571,14 @@ mod secrets_of_others {
         }
     }
 
-    struct Snoop;
+    /// What [`editor`] registers under.
+    fn editor_manifest() -> Manifest {
+        Manifest::new(Id::new_static("editor"), "Editor", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
 
-    impl Plugin for Snoop {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("snoop"), "Snoop", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn snoop() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        |r| {
             r.add_action(
                 ActionSpec::new(Id::new_static("snoop.rename"), "x").handler(|_, _, out| {
                     out.push(Command::set_secret(SecretChange::keep(
@@ -621,13 +611,19 @@ mod secrets_of_others {
         }
     }
 
+    /// What [`snoop`] registers under.
+    fn snoop_manifest() -> Manifest {
+        Manifest::new(Id::new_static("snoop"), "Snoop", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
     #[test]
     fn only_a_plugin_changes_its_secrets() {
         let log = log();
         let mut kernel = Kernel::builder(DEVICE)
             .plugin(TestPlugin::new("a", &log))
-            .plugin(Snoop)
-            .plugin(Editor)
+            .items(snoop_manifest(), snoop())
+            .items(editor_manifest(), editor())
             .build()
             .unwrap();
         kernel.start(Instant(0));
@@ -661,15 +657,8 @@ mod originals_work {
     use super::*;
     use paperpaw_sdk::work::Work;
 
-    struct Worker;
-
-    impl Plugin for Worker {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("wk"), "Worker", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn worker() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        |r| {
             r.add_action(
                 ActionSpec::new(Id::new_static("wk.plan"), "plan").handler(|_, _, out| {
                     out.push(Command::work(Work::at(
@@ -681,15 +670,14 @@ mod originals_work {
         }
     }
 
-    struct Wrapper;
+    /// What [`worker`] registers under.
+    fn worker_manifest() -> Manifest {
+        Manifest::new(Id::new_static("wk"), "Worker", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
 
-    impl Plugin for Wrapper {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("wrap"), "Wrapper", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn wrapper() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        |r| {
             r.override_action(
                 Id::new_static("wk.plan"),
                 |_, params, out| {
@@ -703,13 +691,19 @@ mod originals_work {
         }
     }
 
+    /// What [`wrapper`] registers under.
+    fn wrapper_manifest() -> Manifest {
+        Manifest::new(Id::new_static("wrap"), "Wrapper", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
     #[test]
     fn the_originals_work_is_kept() {
         let log = log();
         let mut kernel = Kernel::builder(DEVICE)
             .plugin(TestPlugin::new("a", &log))
-            .plugin(Worker)
-            .plugin(Wrapper)
+            .items(worker_manifest(), worker())
+            .items(wrapper_manifest(), wrapper())
             .build()
             .unwrap();
         kernel.start(Instant(0));
@@ -736,8 +730,8 @@ fn a_sealed_action_keeps_its_handler_in_either_order() {
     let (log, screen) = (log(), log());
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(TestPlugin::new("a", &screen))
-        .plugin(Guarding(log.clone()))
-        .plugin(Observing(log.clone()))
+        .items(guarding_manifest(), guarding(log.clone()))
+        .items(observing_manifest(), observing(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -762,15 +756,8 @@ fn a_sealed_action_keeps_its_handler_in_either_order() {
 mod guarded_settings {
     use super::*;
 
-    struct Safe;
-
-    impl Plugin for Safe {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("safe"), "Safe", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn safe() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        |r| {
             r.add_setting(
                 SettingSpec::new(
                     Id::new_static("safe.on"),
@@ -792,15 +779,14 @@ mod guarded_settings {
         }
     }
 
-    struct Other;
+    /// What [`safe`] registers under.
+    fn safe_manifest() -> Manifest {
+        Manifest::new(Id::new_static("safe"), "Safe", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
 
-    impl Plugin for Other {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("other"), "Other", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn other() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        |r| {
             r.set_setting_default(Id::new_static("safe.on"), Cow::Borrowed("false"))?;
             r.add_action(ActionSpec::new(Id::new_static("other.off"), "off").handler(
                 |_, _, out| {
@@ -817,6 +803,12 @@ mod guarded_settings {
         }
     }
 
+    /// What [`other`] registers under.
+    fn other_manifest() -> Manifest {
+        Manifest::new(Id::new_static("other"), "Other", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
     #[test]
     fn a_guarded_setting_is_its_plugins() {
         let log = log();
@@ -825,8 +817,8 @@ mod guarded_settings {
             .with("plugins/macro/actions.ini", "[off]\nrun = safe.on=false\n");
         let mut kernel = Kernel::builder(DEVICE)
             .plugin(TestPlugin::new("a", &log))
-            .plugin(Safe)
-            .plugin(Other)
+            .items(safe_manifest(), safe())
+            .items(other_manifest(), other())
             .storage(storage)
             .build()
             .unwrap();
