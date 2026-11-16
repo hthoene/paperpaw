@@ -24,7 +24,7 @@ runs:
   steps:
     - name: The versions
       shell: bash
-      run: grep -E '^[A-Z_]+=' shells/xteink/versions.env >> "$GITHUB_ENV"
+      run: grep -E '^[A-Z0-9_]+=' shells/xteink/versions.env >> "$GITHUB_ENV"
     # tools/check-x4-start-stack.py reads the firmware's symbols with rustup's
     # llvm-nm, which is in the `llvm-tools` component of the repository's
     # toolchain (rust-toolchain.toml); no step of any device adds it otherwise.
