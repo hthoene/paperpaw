@@ -222,7 +222,7 @@ fn with_row<R>(
     .unwrap_or_else(|_| (extra.slider, settings.shows(spec)));
     // Not for this device (a front light it lacks): as the settings screen of
     // interface 6 left it out, so does this row say it is not shown.
-    let shown = shown && env.menus().available(id);
+    let shown = shown && env.menus().available(id) && native_need_met(sources, id);
     let mut flags = 0;
     for (on, bit) in [
         (spec.guarded, GUARDED),
@@ -558,4 +558,16 @@ pub(super) mod built {
     pub(in crate::native_host::registry_service) fn take() -> usize {
         BUILT.with(|built| built.replace(0))
     }
+}
+
+/// Whether the device meets the `menu.need` rows a native plugin declared for
+/// the setting `id`; a store that is busy or absent asks nothing of it.
+fn native_need_met(sources: &Sources<'_>, id: &str) -> bool {
+    let Some(directory) = sources.directory else {
+        return true;
+    };
+    let Ok(store) = directory.store.try_borrow() else {
+        return true;
+    };
+    super::menu_native::Native::new(&store, sources.env.caps()).need_met(id, false)
 }
