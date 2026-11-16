@@ -10,6 +10,7 @@ mod placeholder;
 mod reading;
 mod widget_settings;
 
+use crate::Items;
 use crate::native_host::book_data_steps::{follow_move, follow_removal};
 use crate::native_host::notice;
 use alloc::borrow::Cow;
@@ -27,9 +28,8 @@ use paperpaw_sdk::time::{self, AUTO, CLOCK_12H, CLOCK_24H, TIME_ZONES};
 use paperpaw_sdk::widgets::{self, Drawn, WidgetSpec};
 use paperpaw_sdk::{
     ActionHint, Canvas, Command, Commands, Cx, Env, FixedAction, FixedScreen, Handled, Id,
-    Manifest, MenuEntry, Params, Plugin, Priority, RegisterError, Registrar, Screen, SettingExtra,
-    SettingGroupSpec, SettingKind, SettingSpec, SettingValue, SlotSpec, StatusItemSpec,
-    StatusValue,
+    Manifest, MenuEntry, Params, Priority, RegisterError, Screen, SettingExtra, SettingGroupSpec,
+    SettingKind, SettingSpec, SettingValue, SlotSpec, StatusItemSpec, StatusValue,
 };
 
 pub(crate) const CORE: Id = Id::new_static("core");
@@ -38,67 +38,67 @@ pub(crate) const CORE: Id = Id::new_static("core");
 const NIGHT_MODE: Id = Id::new_static(settings::NIGHT_MODE.static_str());
 const ROTATION: Id = Id::new_static(settings::ROTATION.static_str());
 
-#[derive(Debug)]
-pub(crate) struct CorePlugin(pub(crate) String);
+/// What the kernel's own contributions are listed and registered under.
+pub(crate) fn manifest() -> Manifest {
+    Manifest::new(CORE, "PaperPaw kernel", paperpaw_sdk::package_version!())
+        .description("Runs screens, input, settings and plugins.")
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
 
-impl Plugin for CorePlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(CORE, "PaperPaw kernel", paperpaw_sdk::package_version!())
-            .description("Runs screens, input, settings and plugins.")
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        register_screen_actions(r)?;
-        register_moving(r)?;
-        crate::panes::register(r)?;
-        register_device_actions(r)?;
-        register_library(r)?;
-        register_reading_apps(r)?;
-        register_screens(r)?;
-        register_menus(r)?;
-        register_general_settings(r)?;
-        r.add_setting(paperpaw_sdk::device_name::setting(self.0.clone()))?;
-        register_look_settings(r)?;
-        register_device_settings(r)?;
-        register_spaces(r)?;
-        register_colors(r)?;
-        reading::register(r)?;
-        marks::register(r)?;
-        register_time_and_battery(r)?;
-        register_keymaps_and_setup(r)?;
-        r.add_presets(&POWER_MODES)?;
-        // Text typed for a setting (`ui::setting_opens`), whichever screen asked.
-        r.on(events::SETTING_TYPED, |env, typed, out| {
-            // Only once the reader is done typing, not at each key.
-            if typed.typing {
-                return;
-            }
-            let id = typed
-                .context
-                .get(params::ID)
-                .and_then(|id| Id::parse(id).ok());
-            // The id typed for, a placement's too (`widgets.countdown@2.title`):
-            // its spec is the plain setting's.
-            let Some(id) = id else {
-                return;
-            };
-            // Asked without its spec: what was typed is not dropped for
-            // lack of room to read one (#248); the change itself says so.
-            if !env.settings().knows(id.as_str()) {
-                return;
-            }
-            // A secret setting's text is kept with the secrets, never in
-            // the settings (see `Kernel::apply_setting`).
-            let text = typed.text.trim();
-            out.push(Command::SetSetting(
-                id,
-                paperpaw_sdk::SettingValue::Text(Cow::Owned(String::from(text))),
-            ));
-        })?;
-        crate::work::register_network(r)?;
-        Ok(())
-    }
+/// The kernel's own contributions; `device_name` is the default of the
+/// device's name.
+pub(crate) fn items(device_name: &str, r: &mut Items) -> Result<(), RegisterError> {
+    register_screen_actions(r)?;
+    register_moving(r)?;
+    crate::panes::register(r)?;
+    register_device_actions(r)?;
+    register_library(r)?;
+    register_reading_apps(r)?;
+    register_screens(r)?;
+    register_menus(r)?;
+    register_general_settings(r)?;
+    r.add_setting(paperpaw_sdk::device_name::setting(String::from(
+        device_name,
+    )))?;
+    register_look_settings(r)?;
+    register_device_settings(r)?;
+    register_spaces(r)?;
+    register_colors(r)?;
+    reading::register(r)?;
+    marks::register(r)?;
+    register_time_and_battery(r)?;
+    register_keymaps_and_setup(r)?;
+    r.add_presets(&POWER_MODES)?;
+    // Text typed for a setting (`ui::setting_opens`), whichever screen asked.
+    r.on(events::SETTING_TYPED, |env, typed, out| {
+        // Only once the reader is done typing, not at each key.
+        if typed.typing {
+            return;
+        }
+        let id = typed
+            .context
+            .get(params::ID)
+            .and_then(|id| Id::parse(id).ok());
+        // The id typed for, a placement's too (`widgets.countdown@2.title`):
+        // its spec is the plain setting's.
+        let Some(id) = id else {
+            return;
+        };
+        // Asked without its spec: what was typed is not dropped for
+        // lack of room to read one (#248); the change itself says so.
+        if !env.settings().knows(id.as_str()) {
+            return;
+        }
+        // A secret setting's text is kept with the secrets, never in
+        // the settings (see `Kernel::apply_setting`).
+        let text = typed.text.trim();
+        out.push(Command::SetSetting(
+            id,
+            paperpaw_sdk::SettingValue::Text(Cow::Owned(String::from(text))),
+        ));
+    })?;
+    crate::work::register_network(r)?;
+    Ok(())
 }
 
 /// The power modes built in (ADR 0025): a level, how much longer
@@ -144,7 +144,7 @@ const ALWAYS: &str = "core.reading-app.always";
 /// file manager's) lists the readers of the book, the other ways to open it
 /// plugins add (`menus::OPEN_WITH`) and *Always open it with…*: the one
 /// chosen opens it this time.
-fn register_reading_apps(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_reading_apps(r: &mut Items) -> Result<(), RegisterError> {
     use paperpaw_sdk::readers::{self, Choice};
     #[cfg(not(feature = "native-reading"))]
     register_open_with(r)?;
@@ -229,7 +229,7 @@ fn register_reading_apps(r: &mut Registrar) -> Result<(), RegisterError> {
 /// reader (`native-reading`): the one-time choice there is the file
 /// manager's, and this one's resolver is interface 6's.
 #[cfg(not(feature = "native-reading"))]
-fn register_open_with(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_open_with(r: &mut Items) -> Result<(), RegisterError> {
     use paperpaw_sdk::readers;
     // What it does is asked once the book is known (`BOOK_CHOSEN` below).
     static OPEN_WITH: [FixedAction; 1] =
@@ -255,7 +255,7 @@ fn register_open_with(r: &mut Registrar) -> Result<(), RegisterError> {
 
 /// The actions screens give a meaning of their own (with their hints in
 /// the row), and how a screen takes gestures.
-fn register_screen_actions(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_screen_actions(r: &mut Items) -> Result<(), RegisterError> {
     static SCREEN_ACTIONS: [FixedAction; 10] = [
         FixedAction::new(actions::NEXT_PAGE, "core.action.next-page")
             .hint(ActionHint::Icon("chevron-down")),
@@ -282,7 +282,7 @@ fn register_screen_actions(r: &mut Registrar) -> Result<(), RegisterError> {
 
 /// The actions screens are moved and left with, and what opens the
 /// kernel's slots and menus.
-fn register_moving(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_moving(r: &mut Items) -> Result<(), RegisterError> {
     static MOVING: [FixedAction; 11] = [
         FixedAction::new(actions::REFRESH_SCREEN, "core.action.refresh-screen").handler(
             |_, _, out| {
@@ -333,7 +333,7 @@ fn register_moving(r: &mut Registrar) -> Result<(), RegisterError> {
 
 /// The actions of the device: cleaning up, screenshots, the tools,
 /// sleep and night mode.
-fn register_device_actions(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_device_actions(r: &mut Items) -> Result<(), RegisterError> {
     static DEVICE: [FixedAction; 5] = [
         FixedAction::new(actions::CLEAN_UP, "core.action.clean-up")
             .handler(|env, _, out| ask_clean_up(env, out)),
@@ -542,7 +542,7 @@ impl Catalog {
 
 /// The library service and what plugins keep for books, which follow
 /// the books.
-fn register_library(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_library(r: &mut Items) -> Result<(), RegisterError> {
     use alloc::rc::Rc;
     use paperpaw_sdk::work::WorkSpec;
 
@@ -675,7 +675,7 @@ fn register_library(r: &mut Registrar) -> Result<(), RegisterError> {
 type Recorded = alloc::rc::Rc<core::cell::RefCell<Option<(String, u8)>>>;
 
 fn register_reading(
-    r: &mut Registrar,
+    r: &mut Items,
     catalog: &alloc::rc::Rc<Catalog>,
     recorded: &Recorded,
 ) -> Result<(), RegisterError> {
@@ -779,7 +779,7 @@ fn declare_clean_up(env: &Env<'_>, out: &mut Commands) {
 
 /// The kernel's slots, with a placeholder under each, and its own
 /// screens.
-fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
     for (id, title) in [
         (slots::HOME, "core.slot.home"),
         (slots::READER, "core.slot.reader"),
@@ -896,7 +896,7 @@ impl Screen for FolderEditor {
 
 /// The main menu, the tools, the quick panel and the settings' sections
 /// and groups.
-fn register_menus(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_menus(r: &mut Items) -> Result<(), RegisterError> {
     // Every reader's submenu "More" (`menus::READER_MORE`): a submenu is
     // an action named like its menu, which the menu shows as a submenu
     // and which opens the menu when bound to a key. The same for what
@@ -1148,7 +1148,7 @@ static LIBRARY: [SettingSpec; 1] = [SettingSpec::text(
 .kept_on_reset()
 .description("core.setting.library-folder.help")];
 
-fn register_general_settings(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_general_settings(r: &mut Items) -> Result<(), RegisterError> {
     r.add_settings(&GENERAL)?;
     r.add_settings(&LIBRARY)?;
     r.set_menu_need(settings::MONO_TEXT, paperpaw_sdk::MenuNeed::BlackAndWhite)?;
@@ -1312,7 +1312,7 @@ static LOOK: [SettingSpec; 14] = [
     .description("core.setting.ui-text-curve.help"),
 ];
 
-fn register_look_settings(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_look_settings(r: &mut Items) -> Result<(), RegisterError> {
     r.add_settings(&LOOK)?;
     r.add_settings(&look_more::LOOK_MORE)?;
     r.add_settings(&widget_settings::ALL_WIDGETS)
@@ -1482,7 +1482,7 @@ static DEVICE: [SettingSpec; 17] = [
     .description("core.setting.frontlight-warmth.help"),
 ];
 
-fn register_device_settings(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_device_settings(r: &mut Items) -> Result<(), RegisterError> {
     r.add_settings(&DEVICE)?;
     r.set_menu_need(settings::SLEEP_AFTER, paperpaw_sdk::MenuNeed::Sleep)?;
     r.set_menu_need(settings::ROTATION, paperpaw_sdk::MenuNeed::Rotation)?;
@@ -1544,7 +1544,7 @@ static COLOR_SETTINGS: [SettingSpec; 4] = [
     .description("core.setting.color-own.help"),
 ];
 
-fn register_colors(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_colors(r: &mut Items) -> Result<(), RegisterError> {
     r.add_settings(&COLOR_SETTINGS)?;
     for id in [
         settings::TEXT_COLOR,
@@ -1633,7 +1633,7 @@ fn items_line<'e>(
 
 /// The time of day and the battery, for status lines; the line of a
 /// place's items.
-fn register_time_and_battery(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_time_and_battery(r: &mut Items) -> Result<(), RegisterError> {
     r.add_settings(&TIME)?;
     r.add_status_line(
         paperpaw_sdk::StatusLineSpec::new(
@@ -1717,7 +1717,7 @@ fn register_time_and_battery(r: &mut Registrar) -> Result<(), RegisterError> {
 }
 
 /// The key maps and the first-run setup, and the kernel's words.
-fn register_keymaps_and_setup(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_keymaps_and_setup(r: &mut Items) -> Result<(), RegisterError> {
     r.add_keymap(Cow::Borrowed(include_str!("../keymaps/default.ini")))?;
     r.add_keymap_preset(
         keymap_presets::TWO_BUTTONS,
@@ -1810,7 +1810,7 @@ static SPACE: [SettingSpec; 1] = [SettingSpec::choice(
 
 /// The widgets for room between the others: a gap of a set height, and
 /// the room left (see `paperpaw_sdk::widgets`).
-fn register_spaces(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_spaces(r: &mut Items) -> Result<(), RegisterError> {
     // As `widgets::settings_group` makes it, kept in the program (#248, B).
     static SPACE_GROUP: SettingGroupSpec =
         SettingGroupSpec::new(Id::new_static(widgets::SPACE), "core.widget.space");
