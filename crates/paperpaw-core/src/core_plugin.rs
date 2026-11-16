@@ -5,6 +5,7 @@
 mod catalog_job;
 mod clean_up;
 mod finishing;
+mod look_again;
 mod look_more;
 mod placeholder;
 mod reading;
@@ -602,6 +603,7 @@ fn register_library(r: &mut Registrar) -> Result<(), RegisterError> {
         })?;
     }
     catalog_job::register_sorted(r, &catalog)?;
+    look_again::register(r, &catalog)?;
     {
         let catalog = Rc::clone(&catalog);
         r.on(events::LIBRARY_CHANGED, move |_, _, out| {
