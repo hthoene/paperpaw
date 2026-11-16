@@ -5,10 +5,15 @@
 //! characters are kept in a small table, so a page does not ask the host for
 //! the same letter twice. A host that refuses a measure is not an error of the
 //! layout: the width is 0 and `failed` says so, for the view to show a notice
-//! instead of a page it cannot trust. Small capitals, superscripts and kerning
-//! are not set yet (`PORTING-7.md`).
-use alloc::vec::Vec;
-use core::cell::{Cell, RefCell};
+//! instead of a page it cannot trust. Letter spacing, kerning and ligatures are
+//! set in `letters`; superscripts are not set yet (`PORTING-7.md`).
+mod letters;
+mod tables;
+
+pub use letters::Letters;
+pub use tables::Tables;
+
+use core::cell::Cell;
 use paperpaw_sdk::{
     layout::{Face, Typesetter},
     native::{Error, Host, fonts::Font},
@@ -16,8 +21,6 @@ use paperpaw_sdk::{
 
 /// Relative sizes of headings 1 to 6.
 pub const HEADING_SCALE: [f32; 6] = [1.6, 1.4, 1.2, 1.1, 1.0, 1.0];
-/// Entries of the table of widths (a power of two).
-pub const CACHE_ENTRIES: usize = 256;
 /// The size of a small capital against the text's (Beta 3's).
 pub const SMALL_CAPS: f32 = 0.78;
 
@@ -88,6 +91,12 @@ pub trait Measure {
     /// # Errors
     /// The host's refusal.
     fn metrics(&self, role: Role, size: f32) -> Result<(f32, f32), Error>;
+
+    /// Whether the font of `role` has the letter `c` (a ligature): a host that
+    /// cannot tell says no, and the letters are drawn apart.
+    fn covers(&self, _role: Role, _c: char) -> bool {
+        false
+    }
 }
 
 impl<M: Measure + ?Sized> Measure for &M {
@@ -97,6 +106,10 @@ impl<M: Measure + ?Sized> Measure for &M {
 
     fn metrics(&self, role: Role, size: f32) -> Result<(f32, f32), Error> {
         (**self).metrics(role, size)
+    }
+
+    fn covers(&self, role: Role, c: char) -> bool {
+        (**self).covers(role, c)
     }
 }
 
@@ -152,10 +165,15 @@ impl Measure for HostFonts<'_> {
         let metrics = self.font_of(role).read_line_metrics(size)?;
         Ok((metrics.ascent, metrics.descent))
     }
-}
 
-/// One entry of the table of widths: the key, 0 for none, and the width.
-type Slot = (u64, f32);
+    fn covers(&self, role: Role, c: char) -> bool {
+        let mut buffer = [0u8; 4];
+        let text = &*c.encode_utf8(&mut buffer);
+        self.font_of(role)
+            .covers(text)
+            .is_ok_and(|bytes| bytes == text.len())
+    }
+}
 
 /// A layout typesetter over `M`.
 #[derive(Debug)]
@@ -167,18 +185,35 @@ pub struct Faces<M> {
     word_spacing: f32,
     /// Ascent and line height of body text: the reader's line spacing.
     body: (f32, f32),
-    table: RefCell<Vec<Slot>>,
+    /// What the fonts said, kept (see [`Tables`]).
+    tables: Tables,
+    /// Which ligature letters the fonts have: two bits each, 1 yes, 2 no.
+    have: Cell<u64>,
+    /// The letters as set, and the reader's space after each in pixels.
+    letters: Letters,
+    spacing: f32,
     failed: Cell<bool>,
 }
 
 impl<M: Measure> Faces<M> {
     /// Body text of `base` pixels with the line spacing `spacing` (1.0 is the
-    /// size; at least the font's own distance, below 1.0 that much of it).
+    /// size; at least the font's own distance, below 1.0 that much of it), with
+    /// tables of its own.
     ///
     /// # Errors
     /// `Invalid` for a size or spacing that is not positive and finite, or a
-    /// font that cannot be measured; `NoMemory` for the table.
+    /// font that cannot be measured; `NoMemory` for the tables.
     pub fn new(measure: M, base: f32, spacing: f32) -> Result<Self, Error> {
+        Self::with_tables(measure, base, spacing, Tables::new()?)
+    }
+
+    /// [`Faces::new`] remembering the fonts in `tables`, which the pages of a
+    /// book share.
+    ///
+    /// # Errors
+    /// `Invalid` for a size or spacing that is not positive and finite, or a
+    /// font that cannot be measured.
+    pub fn with_tables(measure: M, base: f32, spacing: f32, tables: Tables) -> Result<Self, Error> {
         if !(base.is_finite() && base > 0.0 && spacing.is_finite() && spacing > 0.0) {
             return Err(Error::Invalid);
         }
@@ -189,17 +224,15 @@ impl<M: Measure> Faces<M> {
         if !(body.0.is_finite() && body.1.is_finite()) {
             return Err(Error::Invalid);
         }
-        let mut table = Vec::new();
-        table
-            .try_reserve_exact(CACHE_ENTRIES)
-            .map_err(|_| Error::NoMemory)?;
-        table.resize(CACHE_ENTRIES, (0, 0.0));
         Ok(Self {
             measure,
             base,
             word_spacing: 1.0,
             body,
-            table: RefCell::new(table),
+            tables,
+            have: Cell::new(0),
+            letters: Letters::DEFAULT,
+            spacing: 0.0,
             failed: Cell::new(false),
         })
     }
@@ -260,24 +293,11 @@ impl<M: Measure> Faces<M> {
     }
 }
 
-const fn slot(key: u64) -> usize {
-    (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 56) as usize & (CACHE_ENTRIES - 1)
-}
-
-impl<M: Measure> Typesetter for Faces<M> {
-    fn advance(&self, face: Face, c: char) -> f32 {
-        // What is not drawn takes no room (zero-width and control characters).
-        if paperpaw_sdk::text::is_invisible(c) {
-            return 0.0;
-        }
-        let role = Role::of(face);
-        let (c, size) = small_capital(c, face.style.small_caps(), self.size(face));
-        let key = u64::from(c) | (role as u64) << 24 | u64::from(size.to_bits()) << 32 | 1 << 63;
-        let at = slot(key);
-        if let Ok(table) = self.table.try_borrow()
-            && let Some(&(found, width)) = table.get(at)
-            && found == key
-        {
+impl<M: Measure> Faces<M> {
+    /// The width of the letter `c` in `role` at `size` pixels, from the table or
+    /// the host (0 where it refuses, which `failed` says).
+    pub(super) fn width_of(&self, role: Role, size: f32, c: char) -> f32 {
+        if let Some(width) = self.tables.width(role, size, c) {
             return width;
         }
         let mut buffer = [0u8; 4];
@@ -291,12 +311,28 @@ impl<M: Measure> Typesetter for Faces<M> {
             }
             _ => return self.refused(),
         };
-        if let Ok(mut table) = self.table.try_borrow_mut()
-            && let Some(entry) = table.get_mut(at)
-        {
-            *entry = (key, width);
+        self.tables.keep_width(role, size, c, width)
+    }
+}
+
+impl<M: Measure> Typesetter for Faces<M> {
+    fn advance(&self, face: Face, c: char) -> f32 {
+        // What is not drawn takes no room (zero-width and control characters).
+        if paperpaw_sdk::text::is_invisible(c) {
+            return 0.0;
         }
-        width
+        let width = self.bare_advance(face, c);
+        // No letter space after a space, and no float to add where none is set.
+        match self.spacing(face) {
+            spacing if c == ' ' || spacing.to_bits() == 0 => width,
+            spacing => width + spacing,
+        }
+    }
+
+    /// The pair as it is drawn: the font's kerning, or the room a ligature of
+    /// the two saves (`letters`).
+    fn kern(&self, face: Face, left: char, right: char) -> f32 {
+        self.set_pair(face, (left, right), true)
     }
 
     /// Body text keeps the reader's ascent and line height, scaled by the

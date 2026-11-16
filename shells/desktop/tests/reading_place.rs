@@ -377,3 +377,56 @@ fn a_highlight_the_page_does_not_draw_stays_in_the_file_when_its_words_are_highl
         "the old row was changed:\n{saved}"
     );
 }
+
+/// The page-count files of the reader on `card` (`pages-<hash>.bin`).
+fn page_counts(dir: &Path, found: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            page_counts(&path, found);
+        } else if path.file_name().is_some_and(|name| {
+            let name = name.to_string_lossy();
+            name.starts_with("pages-") && name.ends_with(".bin")
+        }) {
+            found.push(path);
+        }
+    }
+}
+
+#[test]
+fn the_place_and_the_marks_stay_where_they_were_when_the_page_counts_are_made_again() {
+    // An update of the letter settings names the page counts anew: the old
+    // ones are left, the new ones made. Places and marks are by text position,
+    // not by page number, so the book opens on the same page with the same
+    // highlight. The counts are taken away here, as the new name finds none.
+    let card = new_card("recount");
+    let mut keys = turns(2);
+    keys.push("{\"op\": \"run\", \"action\": \"reader.select-text\"}".to_string());
+    keys.push("{\"op\": \"wait\", \"ms\": 500}".to_string());
+    for name in ["confirm", "right", "right", "confirm", "back"] {
+        keys.extend(press(name));
+    }
+    session(&card, &card.join("selecting.png"), &keys);
+    let place = fs::read_to_string(positions(&card)).unwrap();
+    let before = opens_at(&card, "before");
+    let mut counts = Vec::new();
+    page_counts(&card.join(".paperpaw"), &mut counts);
+    assert!(
+        !counts.is_empty(),
+        "the reader kept no page count to take away"
+    );
+    for file in &counts {
+        fs::remove_file(file).unwrap();
+    }
+    let after = opens_at(&card, "after");
+    assert_eq!(before, after, "the book opened on another page");
+    assert_eq!(place, fs::read_to_string(positions(&card)).unwrap());
+    // The highlight is still drawn on it.
+    let marks = card.join(".paperpaw/annotations");
+    fs::rename(&marks, card.join("kept")).unwrap();
+    let without = opens_at(&card, "without");
+    assert_ne!(
+        after, without,
+        "the highlight is not drawn after the recount"
+    );
+}

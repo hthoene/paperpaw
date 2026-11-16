@@ -127,6 +127,7 @@ pub fn paperpaw_i18n::Translator::built_messages(&mut self, &'static paperpaw_i1
 pub fn paperpaw_i18n::Translator::catalogs(&self) -> alloc::vec::Vec<paperpaw_i18n::Catalog>
 pub fn paperpaw_i18n::Translator::digits(&self) -> [char; 10]
 pub fn paperpaw_i18n::Translator::direction(&self) -> paperpaw_lang::Direction
+pub fn paperpaw_i18n::Translator::each_language(&self, &mut dyn core::ops::function::FnMut(&str, &str) -> core::ops::control_flow::ControlFlow<()>)
 pub fn paperpaw_i18n::Translator::fixed_indexes(&mut self, paperpaw_i18n::FixedIndexes)
 pub fn paperpaw_i18n::Translator::forget_read(&mut self)
 pub fn paperpaw_i18n::Translator::format(&self, &str, &[(&str, paperpaw_i18n::Arg<'_>)]) -> alloc::string::String

@@ -336,6 +336,17 @@ fn the_heap_one_catalog_read_holds_at_its_most_is_small() {
             && peaks[7] <= 1_280,
         "{peaks:?}"
     );
+    // The key of a book the catalog does not know yet holds no more.
+    card.storage.write("books/new.epub", &[7_u8; 10]).unwrap();
+    let new = peak(
+        |r| {
+            r.book_key(BookRef::Path("books/new.epub"), &mut |_| ())
+                .unwrap();
+        },
+        &card,
+    );
+    std::eprintln!("heap peak (book_key, not in the catalog): {new}");
+    assert!(new <= 256, "{new}");
 }
 
 /// A query reads every line of the catalog and makes a key for each book

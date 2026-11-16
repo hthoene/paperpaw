@@ -27,6 +27,7 @@ mod fail_alloc;
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
+mod cards;
 pub mod chips;
 pub mod covers;
 pub mod dashboard;
