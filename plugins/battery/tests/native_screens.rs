@@ -6,8 +6,9 @@
     clippy::expect_used,
     reason = "fixture failures fail acceptance"
 )]
+use paperpaw_core::sdk::{Env, Id, Manifest, Version, builtin};
 use paperpaw_core::{
-    Kernel,
+    Kernel, KernelBuilder,
     native_host::{DispatchDepth, HostResources, shell},
 };
 use paperpaw_native::host_glue::Services;
@@ -22,7 +23,6 @@ use paperpaw_sdk::native::{
     events::{Event, Incoming},
     reply::Reply,
 };
-use paperpaw_sdk::{Env, Id, Manifest, Plugin, RegisterError, Registrar, Version, builtin};
 use std::{alloc::Layout, cell::RefCell, rc::Rc};
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
@@ -120,22 +120,20 @@ fn report(
     eprintln!("native teardown {s:?}: {e:?}");
 }
 type Run = Rc<dyn Fn(&Env<'_>)>;
-struct Capture(Run);
-impl Plugin for Capture {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("native-screen-capture"),
-            "Native screen capture",
-            Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let run = Rc::clone(&self.0);
-        r.subscribe(
+/// Runs `run` with the live `Env` when the kernel has started.
+fn capture(builder: KernelBuilder, run: Run) -> KernelBuilder {
+    let manifest = Manifest::new(
+        Id::new_static("native-screen-capture"),
+        "Native screen capture",
+        Version::new(1, 0, 0),
+    );
+    builder.items(manifest, move |items| {
+        let run = Rc::clone(&run);
+        items.subscribe(
             builtin::events::STARTED,
             Box::new(move |env, _, _| run(env)),
         )
-    }
+    })
 }
 fn declared_services() -> shell::DeclaredServices {
     use paperpaw_native::metadata::{self, Host as AdmissionHost, Profile, Service};
@@ -208,14 +206,12 @@ fn env_only_dispatch_refuses_core_only_services() {
         let run = Rc::new(move |env: &Env<'_>| {
             *captured.borrow_mut() = Some(dispatch_without_core_views(env));
         });
-        let mut kernel = Kernel::builder(DEVICE)
+        let builder = Kernel::builder(DEVICE)
             .user_config(format!(
                 "[core]\nlanguage = {language}\n[battery]\nenabled = off\n"
             ))
-            .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
-            .plugin(Capture(run))
-            .build()
-            .unwrap();
+            .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS);
+        let mut kernel = capture(builder, run).build().unwrap();
         kernel.start(Instant(0));
         let status = result.borrow_mut().take().expect("capture ran");
         assert_eq!(status, paperpaw_native::host_glue::ERR_STATE);
