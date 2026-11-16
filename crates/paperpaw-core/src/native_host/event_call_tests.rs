@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::*;
+use crate::Items;
 use crate::native_host::{
     commands::{WireCommand, commands_decode, commands_encode},
     native_instances::{NativeInstance, NativeLease},
@@ -17,6 +18,7 @@ use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Id, ScreenKey, StackEntry};
+use paperpaw_sdk::{Manifest, RegisterError};
 
 /// A plugin that submits a redraw in every callback and returns `answer`.
 struct Probe {
@@ -126,10 +128,6 @@ impl Dispatch for Probe {
     fn dropped(&self, _: u32, _: i32) {}
 }
 
-/// A plugin that binds the notice slot to a plain overlay, so that a notice
-/// can show.
-struct NoticeSlot;
-
 struct Overlay;
 
 impl paperpaw_sdk::Screen for Overlay {
@@ -140,17 +138,10 @@ impl paperpaw_sdk::Screen for Overlay {
     }
 }
 
-impl paperpaw_sdk::Plugin for NoticeSlot {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            Id::new_static("nt"),
-            "Notice",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+/// A plugin that binds the notice slot to a plain overlay, so that a notice
+/// can show.
+fn notice_slot() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_screen(paperpaw_sdk::ScreenSpec::new(
             Id::new_static("nt.notice"),
             "notice",
@@ -162,6 +153,16 @@ impl paperpaw_sdk::Plugin for NoticeSlot {
             paperpaw_sdk::Priority::DEFAULT,
         )
     }
+}
+
+/// What [`notice_slot`] registers under.
+fn notice_slot_manifest() -> Manifest {
+    paperpaw_sdk::Manifest::new(
+        Id::new_static("nt"),
+        "Notice",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
+    .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 struct World {
@@ -180,7 +181,7 @@ fn world(submits: bool) -> World {
 
 fn world_with(submits: bool, order: Option<Rc<RefCell<Vec<char>>>>) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(NoticeSlot)
+        .items(notice_slot_manifest(), notice_slot())
         .build()
         .unwrap();
     // The plugin's screen is on the stack: a redraw is for it.
