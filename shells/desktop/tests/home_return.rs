@@ -40,15 +40,25 @@ const CHANGED_READS: u32 = 150;
 /// (614 measured, with a grid of three columns).
 const LAID_SETTINGS: u32 = 120;
 
+/// German, and a page of five columns with tools whose names are long enough
+/// to reach the hyphen pass (`Einstellungen`).
+const GERMAN_TOOLS: &str = "[core]\nlanguage = de\n[home]\ncolumns = 5\n\
+    page-1 = tool:core.library 0/0 1x1, tool:core.settings 1/0 1x1, tool:store.open 2/0 1x1\n";
+
 /// An X4 at the home screen (or in the book, `last`), the help hint off.
 fn device(last: bool) -> Device {
+    device_in(last, "")
+}
+
+/// As [`device`], with `ini` before the help hint's lines in `paperpaw.ini`.
+fn device_in(last: bool, ini: &str) -> Device {
     let mut files = MemoryStorage::new()
         .with(
             BOOK,
             include_bytes!("../../../samples/library/books/alice-in-wonderland.epub").as_slice(),
         )
         .with(".paperpaw/plugins/setup/done", "")
-        .with("paperpaw.ini", "[help]\nshow = false\n");
+        .with("paperpaw.ini", format!("{ini}[help]\nshow = false\n"));
     if last {
         files = files.with(
             ".paperpaw/plugins/reader/state.ini",
@@ -113,6 +123,25 @@ fn the_home_screen_keeps_its_page_while_another_screen_covers_it() {
     assert!(
         all <= KEPT_ALL_SLOTS && settings <= KEPT_SETTINGS,
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
+    );
+}
+
+/// German with only the English hyphenation table: the host answers "no table"
+/// for the names that reach the hyphen pass, a final answer. The look stays
+/// current, the return costs what it does in English (Senior M1).
+#[test]
+fn a_missing_hyphenation_table_does_not_make_home_read_its_look_at_every_draw() {
+    let mut device = device_in(false, GERMAN_TOOLS);
+    let (all, settings) = back_from_the_drawer(&mut device);
+    assert_eq!(screen(&mut device), "home.dashboard");
+    assert!(
+        all <= KEPT_ALL_SLOTS && settings <= KEPT_SETTINGS,
+        "the return made {all} host slots ({settings} settings reads) in German: the look is read again"
+    );
+    let (steady, steady_reads) = redrawn(&mut device);
+    assert!(
+        steady <= STEADY_SLOTS && steady_reads <= STEADY_READS,
+        "a redraw made {steady} slots ({steady_reads} reads) in German"
     );
 }
 
