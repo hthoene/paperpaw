@@ -28,6 +28,10 @@ const BOOK: &str = "books/alice-in-wonderland.epub";
 /// 1,349 and 712.
 const KEPT_ALL_SLOTS: u32 = 560;
 const KEPT_SETTINGS: u32 = 60;
+/// The step after the return, where the library announces a cover that became
+/// ready and Home draws that cell only (355 slots measured; a full draw is
+/// 520 and more, a laid-out page over 1,300).
+const COVER_CELL_SLOTS: u32 = 400;
 /// A full redraw (five bands) of a page whose look is kept: slots, settings reads
 /// (622 and 270 before the look was kept; 330 and about 12 measured).
 const STEADY_SLOTS: u32 = 370;
@@ -188,11 +192,15 @@ fn what_a_book_changed_under_the_cover_shows_when_it_returns() {
     }
     let heap = paperpaw_emulator::budget::stats();
     eprintln!("HEAP reader open: live {} peak {}", heap.live, heap.peak);
-    let (all, settings) = counted(&mut device, &["back", "wait:3000"]);
+    let ((all, settings), (cover, cover_settings)) = returned(&mut device);
     assert_eq!(screen(&mut device), "home.dashboard");
     assert!(
         all <= KEPT_ALL_SLOTS && settings <= KEPT_SETTINGS,
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
+    );
+    assert!(
+        cover <= COVER_CELL_SLOTS && cover_settings <= KEPT_SETTINGS,
+        "the ready cover made {cover} host slots ({cover_settings} settings reads): more than its cell"
     );
     assert_ne!(
         shot(&mut device, "card-after"),
@@ -245,7 +253,7 @@ fn a_return_from_a_book_read_for_minutes_keeps_the_page() {
     for _ in 0..8 {
         run_script(&mut device, "wait:15000,page-forward").unwrap();
     }
-    let (all, settings) = counted(&mut device, &["back", "wait:3000"]);
+    let ((all, settings), (cover, cover_settings)) = returned(&mut device);
     assert_eq!(screen(&mut device), "home.dashboard");
     // A return that lays the page out again reads over 550 settings (614 and
     // 1,298 slots measured); the widgets of the new minute draw a few slots
@@ -254,12 +262,25 @@ fn a_return_from_a_book_read_for_minutes_keeps_the_page() {
         all <= KEPT_ALL_SLOTS + 100 && settings <= KEPT_SETTINGS,
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
     );
+    assert!(
+        cover <= COVER_CELL_SLOTS && cover_settings <= KEPT_SETTINGS,
+        "the ready cover made {cover} host slots ({cover_settings} settings reads): more than its cell"
+    );
 }
 
 /// The host slots and the settings reads of `redraw` (the whole screen drawn
 /// again; the X4 draws it in five bands), as `counted` counts.
 fn redrawn(device: &mut Device) -> (u32, u32) {
     counted(device, &["redraw"])
+}
+
+/// The return from a book in two parts, as `counted` counts each: the Back up
+/// to the first frame of Home, and the wait after it, in which the library
+/// announces the covers that became ready and Home draws their cells.
+fn returned(device: &mut Device) -> ((u32, u32), (u32, u32)) {
+    let first = counted(device, &["back"]);
+    let then = counted(device, &["wait:3000"]);
+    (first, then)
 }
 
 #[test]
