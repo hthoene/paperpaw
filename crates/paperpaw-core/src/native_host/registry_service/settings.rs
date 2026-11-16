@@ -539,6 +539,18 @@ fn extra_row(
     ))
 }
 
+/// Whether the device meets the `menu.need` rows a native plugin declared for
+/// the setting `id`; a store that is busy or absent asks nothing of it.
+fn native_need_met(sources: &Sources<'_>, id: &str) -> bool {
+    let Some(directory) = sources.directory else {
+        return true;
+    };
+    let Ok(store) = directory.store.try_borrow() else {
+        return true;
+    };
+    super::menu_native::Native::new(&store, sources.env.caps()).need_met(id, false)
+}
+
 /// How many rows [`with_row`] built on this thread, for the tests that hold
 /// a list to the rows it answers.
 #[cfg(test)]
@@ -558,16 +570,4 @@ pub(super) mod built {
     pub(in crate::native_host::registry_service) fn take() -> usize {
         BUILT.with(|built| built.replace(0))
     }
-}
-
-/// Whether the device meets the `menu.need` rows a native plugin declared for
-/// the setting `id`; a store that is busy or absent asks nothing of it.
-fn native_need_met(sources: &Sources<'_>, id: &str) -> bool {
-    let Some(directory) = sources.directory else {
-        return true;
-    };
-    let Ok(store) = directory.store.try_borrow() else {
-        return true;
-    };
-    super::menu_native::Native::new(&store, sources.env.caps()).need_met(id, false)
 }
