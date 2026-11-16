@@ -93,8 +93,8 @@ impl Screen for Literata {
             self.answer(self.board.focus(), cx);
         } else if *action == actions::BACK {
             self.answer(1, cx);
-        } else {
-            let _ = self.board.on_action(action, cx);
+        } else if !self.board.on_action(action, cx) {
+            return Handled::No;
         }
         Handled::Yes
     }
