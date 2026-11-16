@@ -26,7 +26,7 @@ struct Fitting {
     build: Build,
 }
 
-impl Screen for Fitting {
+impl crate::Layer for Fitting {
     // A screen built before: what plugins never write (see the docs).
     fn revision(&self) -> u16 {
         self.build.revision
@@ -84,7 +84,7 @@ impl Host {
     }
 }
 
-impl Screen for Host {
+impl crate::Layer for Host {
     fn revision(&self) -> u16 {
         self.host.revision()
     }
@@ -120,20 +120,22 @@ struct FitPlugin {
 fn fit_plugin(kept: FitPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let (log, build) = (kept.log.clone(), kept.build);
-        r.add_screen(ScreenSpec::new(
+        // An old SDK screen, as the host that holds it can hold only such
+        // (the host goes with it, #244 D6b).
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
             FIT,
             "fit",
             Box::new(move |env, _| {
                 let display = env.device().display;
                 log.borrow_mut()
                     .push(alloc::format!("made {}x{}", display.width, display.height));
-                Box::new(Fitting {
+                Box::new(crate::layer::AsOld(Fitting {
                     log: log.clone(),
                     build,
-                })
+                }))
             }),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             HOST,
             "host",
             Box::new(|_, _| {
@@ -217,13 +219,13 @@ fn items_newer_than_a_screens_revision_are_never_called() {
     assert_eq!(*log.borrow(), ["close", "drop", "made 120x60"]);
     log.borrow_mut().clear();
     let screen = kernel.stack[0].screen.as_mut();
-    let pane = paperpaw_sdk::call_since(screen, 2, Pane::FULL, |screen| screen.pane());
+    let pane = crate::layer::call_since(screen, 2, Pane::FULL, |screen| screen.pane());
     assert_eq!(pane, Pane::FULL);
     assert!(log.borrow().is_empty(), "{:?}", log.borrow());
     // Of revision 2, it is asked.
     let mut kernel = fit_kernel(&log, 2, true, FIT);
     let screen = kernel.stack[0].screen.as_mut();
-    let pane = paperpaw_sdk::call_since(screen, 2, Pane::FULL, |screen| screen.pane());
+    let pane = crate::layer::call_since(screen, 2, Pane::FULL, |screen| screen.pane());
     assert_eq!(pane, Pane::DETAIL);
     assert_eq!(*log.borrow(), ["pane"]);
 }

@@ -517,7 +517,7 @@ impl FlatInstance for Loaded {
                     record_tag: DRAW_RECORD_TAG,
                 },
                 // A kind this build does not know is no event: it is told by
-                // the tag 0, which `FlatPlugin::new` refuses as unrouted.
+                // the tag 0, which no dispatcher routes.
                 _ => FlatRegistration::Other { record_tag: 0 },
             });
         }

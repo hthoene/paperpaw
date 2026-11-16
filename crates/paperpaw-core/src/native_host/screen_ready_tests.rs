@@ -14,7 +14,7 @@ use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Handled, Id, Manifest, Params, RegisterError, Screen, ScreenSpec, Version};
+use paperpaw_sdk::{Handled, Id, Manifest, Params, RegisterError, Version};
 
 /// (screen, instance) of each 87 a subscriber was told.
 type Told = Rc<RefCell<Vec<(String, u32)>>>;
@@ -70,7 +70,7 @@ impl Dispatch for Probe {
 }
 
 struct Plain;
-impl Screen for Plain {
+impl crate::Layer for Plain {
     fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> Handled {
         Handled::No
@@ -79,7 +79,7 @@ impl Screen for Plain {
 
 /// An overlay that covers all of the content: what lies below is not drawn.
 struct Cover;
-impl Screen for Cover {
+impl crate::Layer for Cover {
     fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> Handled {
         Handled::No
@@ -97,13 +97,13 @@ impl Screen for Cover {
 fn screens() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         for name in ["s.one", "s.two"] {
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(crate::LayerSpec::new(
                 Id::try_parse(name).unwrap(),
                 "screen",
                 Box::new(|_, _| Box::new(Plain)),
             ))?;
         }
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::try_parse("s.cover").unwrap(),
             "screen",
             Box::new(|_, _| Box::new(Cover)),

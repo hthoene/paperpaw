@@ -1,3 +1,0 @@
-Der Bildtest zeigt ein bewegtes Muster in festem Takt und erledigt für jedes Bild eine feste Menge Arbeit, wie ein Spiel oder ein Emulator. Er zeigt, wie viele Bilder pro Sekunde der Bildschirm schafft, wie lange die Arbeit als schneller Code und als gewöhnlicher Code dauerte, wie lange das Zeichnen des Musters dauerte und wie viel Speicher frei ist.
-
-Links und rechts bewegen das Quadrat. Hoch und runter verdoppeln oder halbieren die Arbeit. Bestätigen wechselt zwischen schnellem und gewöhnlichem Code. Nächste Seite reinigt den Bildschirm. Zurück verlässt ihn; Zurück zwei Sekunden halten verlässt ihn immer.

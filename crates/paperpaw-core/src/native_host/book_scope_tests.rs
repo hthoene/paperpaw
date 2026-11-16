@@ -79,9 +79,9 @@ fn a_book_key_is_sixteen_hex_digits() {
 /// A kernel with the screens of the plugin `probe`, its `probe.main` on top.
 fn kernel() -> crate::Kernel {
     use crate::Items;
-    use paperpaw_sdk::{Manifest, Screen, ScreenSpec, Version};
+    use paperpaw_sdk::{Manifest, Version};
     struct Empty;
-    impl Screen for Empty {
+    impl crate::Layer for Empty {
         fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
         fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
@@ -90,7 +90,7 @@ fn kernel() -> crate::Kernel {
     fn probe() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         |r| {
             for id in ["probe.home", "probe.main"] {
-                r.add_screen(ScreenSpec::new(
+                r.add_layer(crate::LayerSpec::new(
                     Id::new_static(id),
                     "probe.title",
                     alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Empty)),
