@@ -136,6 +136,11 @@ impl Mine {
         self.look.forget();
     }
 
+    /// Whether it waits for a library cover.
+    pub fn waits_for_cover(&self) -> bool {
+        self.waiting.get()
+    }
+
     pub fn covers_ready(&self) -> bool {
         let waiting = self.waiting.replace(false);
         if waiting {

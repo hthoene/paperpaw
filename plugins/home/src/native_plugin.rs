@@ -291,7 +291,12 @@ impl NativeHome {
 
     fn covers_ready(&mut self, host: &Host<'_>) -> Result<(), Error> {
         self.widgets.covers_ready(host);
-        let shown = self.stack_top(host)? == self.screens.top_instance(DASHBOARD);
+        let waiting = self
+            .screens
+            .all()
+            .any(|slot| matches!(slot, Slot::Dashboard(dashboard) if dashboard.waits_for_covers()));
+        // Asked only where a card waits: the stack is not read for nothing.
+        let shown = waiting && self.stack_top(host)? == self.screens.top_instance(DASHBOARD);
         for slot in self.screens.all() {
             if let Slot::Dashboard(dashboard) = slot {
                 dashboard.covers_ready(host, shown)?;

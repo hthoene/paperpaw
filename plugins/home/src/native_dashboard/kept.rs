@@ -42,8 +42,17 @@ fn has_recent(host: &Host<'_>) -> Option<bool> {
 }
 
 impl Dashboard {
+    /// Whether a card waits for a library cover.
+    pub fn waits_for_covers(&self) -> bool {
+        self.laid.as_ref().is_some_and(|laid| {
+            laid.cells.iter().any(
+                |cell| matches!(&cell.widget, Some(super::Made::Mine(mine)) if mine.waits_for_cover()),
+            )
+        })
+    }
+
     /// A library cover a card waited for is ready: the card forgets what it
-    /// knew of covers and, where `shown`, only its cell is drawn again (a page
+    /// knew of covers and, where the page is shown, only its cell is drawn again (a page
     /// drawn anew costs the return from a book a second full draw). A host that
     /// refuses the part draws the page.
     pub fn covers_ready(&self, host: &Host<'_>, shown: bool) -> Result<(), Error> {
