@@ -1,6 +1,9 @@
 //! What a page was laid out for, looked at again when it is shown after another
 //! screen was over it.
-use super::{Dashboard, Host, Snapshot, What, grid, native_pages, snapshot};
+use super::{
+    CommandSender, Dashboard, Error, Host, RedrawMode, Snapshot, What, focus_area, grid,
+    native_pages, redraw, snapshot,
+};
 
 /// What a page was laid out for: the display (width, height), whether it has a
 /// recent shelf, and whether that had a book (the shelf is no rows without one).
@@ -39,17 +42,30 @@ fn has_recent(host: &Host<'_>) -> Option<bool> {
 }
 
 impl Dashboard {
-    pub fn covers_ready(&self) -> bool {
+    /// A library cover a card waited for is ready: the card forgets what it
+    /// knew of covers and, where `shown`, only its cell is drawn again (a page
+    /// drawn anew costs the return from a book a second full draw). A host that
+    /// refuses the part draws the page.
+    pub fn covers_ready(&self, host: &Host<'_>, shown: bool) -> Result<(), Error> {
         let Some(laid) = &self.laid else {
-            return false;
+            return Ok(());
         };
-        let mut changed = false;
+        let mut scratch = [0; 64];
+        let mut sender = CommandSender::new(host, &mut scratch);
         for cell in &laid.cells {
-            if let Some(super::Made::Mine(mine)) = &cell.widget {
-                changed |= mine.covers_ready();
+            let Some(super::Made::Mine(mine)) = &cell.widget else {
+                continue;
+            };
+            if mine.covers_ready()
+                && shown
+                && sender
+                    .queue_redraw_area(RedrawMode::Partial, focus_area(cell.rect, 0, self.origin))
+                    .is_err()
+            {
+                return redraw(host);
             }
         }
-        changed
+        Ok(())
     }
 
     /// A setting or the registry changed (or a plugin came or went) while

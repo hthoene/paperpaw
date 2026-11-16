@@ -291,14 +291,11 @@ impl NativeHome {
 
     fn covers_ready(&mut self, host: &Host<'_>) -> Result<(), Error> {
         self.widgets.covers_ready(host);
-        let mut changed = false;
+        let shown = self.stack_top(host)? == self.screens.top_instance(DASHBOARD);
         for slot in self.screens.all() {
             if let Slot::Dashboard(dashboard) = slot {
-                changed |= dashboard.covers_ready();
+                dashboard.covers_ready(host, shown)?;
             }
-        }
-        if changed && self.stack_top(host)? == self.screens.top_instance(DASHBOARD) {
-            redraw(host)?;
         }
         Ok(())
     }
