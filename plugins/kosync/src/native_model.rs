@@ -364,7 +364,15 @@ pub fn read_answer(text: &str) -> Result<Option<Remote>, Error> {
             if let Some(index) = field
                 && fields[index].is_none()
             {
-                match copy(value) {
+                let value = match index {
+                    0 => copy(value.get(..64).unwrap_or_else(|| {
+                        let end = value.char_indices().map(|(i, _)| i).take_while(|&i| i <= 64).last().unwrap_or(0);
+                        &value[..end]
+                    })),
+                    1 => device_name(value),
+                    _ => copy(value),
+                };
+                match value {
                     Ok(value) => fields[index] = Some(value),
                     Err(_) => refused = true,
                 }
@@ -400,6 +408,24 @@ pub fn read_answer(text: &str) -> Result<Option<Remote>, Error> {
         device,
         xpointer,
     }))
+}
+
+fn device_name(text: &str) -> Result<String, Error> {
+    let mut name = String::new();
+    name.try_reserve(163).map_err(|_| Error::NoMemory)?;
+    for (count, c) in text.chars().filter(|c| {
+        !c.is_control() && !matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+    }).enumerate() {
+        if count == 40 {
+            name.push('…');
+            break;
+        }
+        name.push(c);
+    }
+    if name.is_empty() {
+        name.push('?');
+    }
+    Ok(name)
 }
 
 /// What a fetched position means for the book open here.

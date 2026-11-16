@@ -186,3 +186,16 @@ fn a_full_document_slot_neither_sends_empty_pointers_nor_dismisses_go_there() {
             .all(|r| r.method == "GET")
     );
 }
+
+#[test]
+fn a_long_device_name_still_shows_a_short_single_line_offer() {
+    let world = World::new(true);
+    let plugin = world.load();
+    assert_eq!(world.opened(&plugin, "first.epub", 100_000).status, 0);
+    let body = format!(r#"{{"percentage":0.8,"device":"{}"}}"#, "a\\n".repeat(1000));
+    assert_eq!(world.complete(&plugin, 0, 200, body.as_bytes()).status, 0);
+    let question = world.dialogs.last().unwrap();
+    assert!(question.text.contains(&format!("{}…", "a".repeat(40))));
+    assert!(!question.text.contains('\n'));
+    assert!(question.text.len() < 500);
+}
