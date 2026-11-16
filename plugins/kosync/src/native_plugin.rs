@@ -54,7 +54,7 @@ const PUSH_WITHIN_MS: u32 = 30 * 60 * 1000;
 /// Digits of a `u32`.
 const DIGITS: usize = 10;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 enum PushWork {
     #[default]
     Idle,
