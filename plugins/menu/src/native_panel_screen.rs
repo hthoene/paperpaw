@@ -354,12 +354,10 @@ impl PanelView {
             if let (Some(track), Some(part)) =
                 (row.track, row.label.and_then(|i| self.parts.get(i)))
             {
-                let held = self
-                    .drag
-                    .filter(|d| Some(d.row) == row.label)
-                    .map(|d| d.value);
+                let at = row.label.unwrap_or_default();
+                let held = self.drag.filter(|d| d.row == at).map(|d| d.value);
                 if style.describing {
-                    let shown = self.number_text(host, &mut messages, part, held)?;
+                    let shown = self.number_text(host, &mut messages, part, at)?;
                     let disabled = !part.row.choosable();
                     let told = (PartRole::Slider, track);
                     paint::describe_named(body, true, told.0, told.1, &shown, false, disabled)?;
@@ -487,11 +485,7 @@ impl PanelView {
             Control::Step(_, step) => {
                 button(body, if step < 0 { "\u{2212}" } else { "+" }, false)?;
                 if step > 0 {
-                    let held = self
-                        .drag
-                        .filter(|d| d.row == control.row())
-                        .map(|d| d.value);
-                    let shown = self.number_text(host, messages, part, held)?;
+                    let shown = self.number_text(host, messages, part, control.row())?;
                     self.draw_number(body, font, style, &shown, rect)?;
                 }
                 Ok(())
@@ -565,7 +559,7 @@ impl PanelView {
         host: &Host<'_>,
         messages: &mut Messages,
         part: &Part,
-        held: Option<i64>,
+        row: usize,
     ) -> Result<String, Error> {
         let Some(info) = part.info.as_ref() else {
             return Ok(String::new());
@@ -573,6 +567,8 @@ impl PanelView {
         let Some(Value::Int(now)) = info.value.as_ref() else {
             return Ok(String::new());
         };
+        // The knob a finger holds shows its number, not the one kept.
+        let held = self.drag.filter(|d| d.row == row).map(|d| d.value);
         let now = held.as_ref().unwrap_or(now);
         model::said_with_unit(*now, &info.unit, &mut |key, n| {
             crate::native_plugin::say(messages, host, key, Some(n))
