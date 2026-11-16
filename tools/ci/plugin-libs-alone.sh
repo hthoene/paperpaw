@@ -5,21 +5,24 @@
 # public (#244): a library that names it fails here. The workspace's own build proves nothing
 # of this, because there the kernel turns the feature on for everyone.
 #
-# Feature sets, each without `kernel`: a crate's defaults, and one build each with `linked`
-# (what the firmware and the app turn on), `native-entry` (the plugin file's build) and every
-# further feature of a plugin that one of those builds turns on.
+# Feature sets: a crate's defaults, and one build for each feature it declares (`cargo metadata`
+# says which: `linked`, what the firmware and the app turn on, `native-entry`, the plugin
+# file's build, and whatever a plugin adds).
+#
+# A build proves something only where the SDK is built without `kernel`, so each one is asked
+# first (`cargo tree -e normal,features -i paperpaw-sdk`). The crates below turn `kernel` on
+# themselves and are built all the same; any other crate whose build has it on fails, also one
+# that only depends on one of them.
 #
 #   tools/ci/plugin-libs-alone.sh            # all of them
 #   tools/ci/plugin-libs-alone.sh <crate>..  # these only
-#
-# Two plugins name `kernel` themselves and are listed, not skipped: `fonts-default` (the table
-# of fonts the kernel registers) and `store` (it installs plugins).
 set -o pipefail
 cd "$(dirname "$0")/../.." || exit 2
-features="linked native-entry packs outline embedded-quotes embedded-page x4-gate-closed"
-sets="$(cargo metadata --format-version 1 --no-deps | FEATURES="$features" ONLY="$*" python3 -I -c '
+# `fonts-default`: the table of fonts the kernel registers. `store`: it installs plugins.
+with_kernel=" paperpaw-plugin-fonts-default paperpaw-plugin-store "
+sets="$(cargo metadata --format-version 1 --no-deps | ONLY="$*" python3 -I -c '
 import json, os, sys
-want, only = os.environ["FEATURES"].split(), os.environ["ONLY"].split()
+only = os.environ["ONLY"].split()
 for package in json.load(sys.stdin)["packages"]:
     manifest, name = package["manifest_path"], package["name"]
     if "/plugins/" not in manifest and name != "paperpaw-ui-kit":
@@ -29,8 +32,8 @@ for package in json.load(sys.stdin)["packages"]:
     if not any("lib" in target["kind"] or "rlib" in target["kind"] for target in package["targets"]):
         continue
     print(name, "-")
-    for feature in want:
-        if feature in package["features"]:
+    for feature in sorted(package["features"]):
+        if feature != "default":
             print(name, feature)
 ')" || exit 2
 [[ -n "$sets" ]] || { echo "plugin-libs-alone: no crate to check" >&2; exit 2; }
@@ -40,6 +43,18 @@ while read -r crate feature; do
     checked=$((checked + 1))
     args=()
     [[ "$feature" == - ]] || args=(--features "$feature")
+    if ! cargo tree -q -p "$crate" "${args[@]}" -e normal,features -i paperpaw-sdk > "$log" 2>&1; then
+        red=$((red + 1))
+        echo "FAILED: $crate (${feature/#-/defaults}): cargo tree could not say what the SDK is built with"
+        head -20 "$log"
+        continue
+    fi
+    if grep -q 'paperpaw-sdk feature "kernel"' "$log" && [[ "$with_kernel" != *" $crate "* ]]; then
+        red=$((red + 1))
+        echo "FAILED: $crate (${feature/#-/defaults}): the SDK is built with \`kernel\` here, so the build proves nothing. What asks for it:"
+        grep -A3 'paperpaw-sdk feature "kernel"' "$log" | head -12
+        continue
+    fi
     if ! cargo check -q -p "$crate" --lib "${args[@]}" > "$log" 2>&1; then
         red=$((red + 1))
         echo "FAILED: $crate (${feature/#-/defaults})"
