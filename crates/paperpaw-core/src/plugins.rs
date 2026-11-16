@@ -69,17 +69,35 @@ impl Kernel {
         }
     }
 
+    /// A plugin of data registered, or only listed if the user switched it off.
+    pub(crate) fn add_data(&mut self, plugin: &data_plugin::DataPlugin, disabled: &[String]) {
+        self.add_items(plugin.manifest(), &|items| plugin.register(items), disabled);
+    }
+
+    /// A plugin of data registered under `manifest`.
+    pub(crate) fn register_data(&mut self, plugin: &data_plugin::DataPlugin, manifest: Manifest) {
+        self.register_items(manifest, &|items| plugin.register(items));
+    }
+
+    /// A plugin of data listed as off under `manifest` ([`Kernel::list_off`]).
+    pub(crate) fn list_data_off(&mut self, plugin: &data_plugin::DataPlugin, manifest: Manifest) {
+        self.list_off(manifest, &|items| plugin.register(items));
+    }
+
     /// An old [`Plugin`] added as the rest is ([`Kernel::add_items`]).
     pub(crate) fn add_plugin(&mut self, plugin: &dyn Plugin, disabled: &[String]) {
         self.add_items(plugin.manifest(), &|items| plugin.register(items), disabled);
     }
 
-    /// An old [`Plugin`] registered as the rest is ([`Kernel::register_items`]).
+    /// An old [`Plugin`] registered as the rest is ([`Kernel::register_items`]):
+    /// what old fixtures call; goes with the trait.
+    #[cfg(test)]
     pub(crate) fn register_plugin(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
         self.register_items(manifest, &|items| plugin.register(items));
     }
 
-    /// An old [`Plugin`] listed as off ([`Kernel::list_off`]).
+    /// An old [`Plugin`] listed as off ([`Kernel::list_off`]); as above.
+    #[cfg(test)]
     pub(crate) fn register_off(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
         self.list_off(manifest, &|items| plugin.register(items));
     }
@@ -849,9 +867,9 @@ impl Kernel {
             self.add_code_plugin_later(&plugin, off);
         } else if off {
             plugin.keep_listing_only();
-            self.register_off(&plugin, manifest);
+            self.list_data_off(&plugin, manifest);
         } else {
-            self.register_plugin(&plugin, manifest);
+            self.register_data(&plugin, manifest);
             self.add_hyphenation_tables(&plugin);
             if let Some(info) = self.shared.plugin_mut(id.as_str()) {
                 info.kind = paperpaw_sdk::PluginKind::Data;

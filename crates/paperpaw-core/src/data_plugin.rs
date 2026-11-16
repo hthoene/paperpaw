@@ -57,10 +57,13 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+use crate::Items;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::FontFace;
+#[cfg(test)]
+use paperpaw_sdk::Registrar;
 use paperpaw_sdk::presets::Preset;
-use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, Version};
+use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 
 mod formats;
 pub(crate) mod hyphenation;
@@ -195,16 +198,17 @@ impl DataPlugin {
     }
 }
 
-impl Plugin for DataPlugin {
-    fn manifest(&self) -> Manifest {
+impl DataPlugin {
+    pub(crate) fn manifest(&self) -> Manifest {
         self.manifest.clone()
     }
 
+    /// Adds what its folder declares (`Kernel::add_data`).
     #[expect(
         clippy::too_many_lines,
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    pub(crate) fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         for source in self.translations.take() {
             r.add_translations(Cow::Owned(source))?;
         }

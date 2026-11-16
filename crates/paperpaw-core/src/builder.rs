@@ -1148,7 +1148,7 @@ impl Kernel {
                     with_code.push(plugin);
                     continue;
                 }
-                self.add_plugin(&plugin, &disabled);
+                self.add_data(&plugin, &disabled);
                 if let Some(info) = self.shared.plugin_mut(plugin.manifest().id.as_str()) {
                     info.kind = paperpaw_sdk::PluginKind::Data;
                 }
@@ -1160,7 +1160,7 @@ impl Kernel {
         if !font_dirs.is_empty()
             && let Some(plugin) = data_plugin::font_folder(self.shared.storage.as_ref(), &font_dirs)
         {
-            self.add_plugin(&plugin, &disabled);
+            self.add_data(&plugin, &disabled);
         }
         self.shared.font_dirs = font_dirs;
         self.find_required_plugins();
