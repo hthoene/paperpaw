@@ -779,6 +779,66 @@ impl Dashboard {
         .map(drop)
     }
 
+    /// The tools of the page (and, while editing, the marks of every cell) into
+    /// `below`; a tool of another band than `band` (rows of the region) draws
+    /// nothing here: its cell and the name below its icon lie outside it.
+    fn paint_tools(
+        &self,
+        below: &mut Vec<Paint>,
+        fonts: &Fonts<'_, '_>,
+        look: &Look,
+        laid: &Laid,
+        band: (i32, i32),
+    ) -> Result<(), Error> {
+        let style = &look.style;
+        let wrapped = &look.wrapped;
+        let mut tops: Vec<(u16, usize)> = Vec::new();
+        tops.try_reserve_exact(wrapped.len())
+            .map_err(|_| Error::NoMemory)?;
+        for (top, name) in wrapped {
+            tops.push((*top, name.lines.len()));
+        }
+        let row_lines = icons::row_lines(&tops)?;
+        let mut tool = 0;
+        for cell in &laid.cells {
+            if self.editing {
+                // The cells show while editing.
+                paintpush(
+                    below,
+                    Paint::Focus(
+                        cell.rect,
+                        style.corner,
+                        Some(u32::from(style.line).max(1)),
+                        style.ink,
+                    ),
+                )?;
+                self.corner_mark(below, style, cell.rect, laid.handle)?;
+            }
+            if let Some(face) = cell.face {
+                let name = wrapped.get(tool).map(|(_, name)| name);
+                let shown = Tool {
+                    lines: name.map_or(&[][..], |name| name.lines.as_slice()),
+                    size: name.map_or(style.small, |name| name.size),
+                    face,
+                    row_lines: row_lines.get(tool).copied().unwrap_or(0),
+                };
+                // A tool of another band draws nothing here: its cell, and the
+                // name below its icon, lie outside this band.
+                let room = (style.small * 3.0) as i32;
+                let (top, bottom) = (
+                    i32::from(cell.rect.y).saturating_sub(room),
+                    (i32::from(cell.rect.y) + i32::from(cell.rect.height)).saturating_add(room),
+                );
+                if top < band.1 && bottom > band.0 {
+                    let shape = look.shape_of(tool, fonts, cell.rect, &shown)?;
+                    icons::draw_tool(below, fonts, style, cell.rect, &shown, &shape)?;
+                }
+                tool += 1;
+            }
+        }
+        Ok(())
+    }
+
     fn paint(
         &self,
         host: &Host<'_>,
@@ -803,41 +863,11 @@ impl Dashboard {
             icons: icon_font.as_ref(),
             circle: circle.as_ref(),
         };
-        let wrapped = &look.wrapped;
-        let mut tops: Vec<(u16, usize)> = Vec::new();
-        tops.try_reserve_exact(wrapped.len())
-            .map_err(|_| Error::NoMemory)?;
-        for (top, name) in wrapped {
-            tops.push((*top, name.lines.len()));
-        }
-        let row_lines = icons::row_lines(&tops)?;
-        let mut tool = 0;
-        for cell in &laid.cells {
-            if self.editing {
-                // The cells show while editing.
-                paintpush(
-                    &mut below,
-                    Paint::Focus(
-                        cell.rect,
-                        style.corner,
-                        Some(u32::from(style.line).max(1)),
-                        style.ink,
-                    ),
-                )?;
-                self.corner_mark(&mut below, style, cell.rect, laid.handle)?;
-            }
-            if let Some(face) = cell.face {
-                let name = wrapped.get(tool).map(|(_, name)| name);
-                let shown = Tool {
-                    lines: name.map_or(&[][..], |name| name.lines.as_slice()),
-                    size: name.map_or(style.small, |name| name.size),
-                    face,
-                    row_lines: row_lines.get(tool).copied().unwrap_or(0),
-                };
-                icons::draw_tool(&mut below, &fonts, style, cell.rect, &shown)?;
-                tool += 1;
-            }
-        }
+        let band = (
+            frame.clip_top.saturating_sub(frame.rect.y),
+            frame.clip_bottom.saturating_sub(frame.rect.y),
+        );
+        self.paint_tools(&mut below, &fonts, look, laid, band)?;
         if let Some((rect, word)) = &laid.pencil {
             match (self.editing, fonts.icons, laid.pencil_icon.as_ref()) {
                 (false, Some(_), Some(glyph)) => paperpaw_ui_kit::icons::draw_centred(
