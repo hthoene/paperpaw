@@ -7,7 +7,6 @@
 )]
 use super::*;
 
-mod built_in;
 mod items;
 pub use items::Items;
 
@@ -21,7 +20,7 @@ pub struct KernelBuilder(Box<BuilderParts>);
 /// What a [`KernelBuilder`] was told.
 struct BuilderParts {
     device: DeviceInfo,
-    plugins: Vec<Box<dyn Plugin>>,
+    plugins: Vec<items::Source>,
     /// Plugins shipped switched off, until the user switches them on.
     off: Vec<String>,
     device_keymap: Option<Cow<'static, str>>,
@@ -87,7 +86,7 @@ impl fmt::Debug for KernelBuilder {
 impl KernelBuilder {
     /// Adds a plugin. Plugins registered later win priority ties.
     pub fn plugin(mut self, plugin: impl Plugin + 'static) -> Self {
-        self.0.plugins.push(Box::new(plugin));
+        self.0.plugins.push(items::Source::Old(Box::new(plugin)));
         self
     }
 
@@ -103,7 +102,7 @@ impl KernelBuilder {
     /// among the plugins (those registered later win priority ties).
     #[must_use]
     pub fn built_in_fonts(mut self, fonts: &'static paperpaw_sdk::BuiltInFonts) -> Self {
-        self.0.plugins.push(Box::new(built_in::BuiltIn(fonts)));
+        self.0.plugins.push(items::Source::Fonts(fonts));
         self
     }
 
@@ -1064,7 +1063,7 @@ impl Kernel {
     /// or shipped off (`off`) and not switched on.
     fn add_plugins(
         &mut self,
-        plugins: Vec<Box<dyn Plugin>>,
+        plugins: Vec<items::Source>,
         off: Vec<String>,
         plugin_dirs: Vec<String>,
         font_dirs: Vec<String>,
@@ -1090,15 +1089,16 @@ impl Kernel {
         disabled.extend(off.into_iter().filter(|id| !on.contains(id)));
         // The device's name the default of its setting.
         let name = paperpaw_sdk::device_name::default_name(&self.shared.device);
-        let core: Box<dyn Plugin> = Box::new(CorePlugin(name));
+        let core = CorePlugin(name);
         // Their lists asked for once, at their size: the start's peak is
         // not the lists doubled (each plugin is listed, and brings about
         // one catalog in each language chosen).
         let count = plugins.len() + 1;
         self.shared.plugins.reserve(count);
         self.shared.translator.reserve(count);
-        for plugin in core::iter::once(core).chain(plugins) {
-            self.add_plugin(plugin.as_ref(), &disabled);
+        self.add_plugin(&core, &disabled);
+        for source in plugins {
+            source.add_to(self, &disabled);
         }
         // Data plugins from the storage, after the built-in ones.
         let dirs = if plugin_dirs.is_empty() {

@@ -53,18 +53,38 @@ impl Shared {
     }
 }
 
+/// What adds a plugin's contributions: the kernel's own function, a plugin
+/// of data's, a closure given to the builder, or an old [`Plugin`]'s
+/// `register` in an adapter ([`Kernel::register_plugin`]).
+pub(crate) type Adds<'a> = &'a dyn Fn(&mut Items) -> Result<(), RegisterError>;
+
 impl Kernel {
-    /// Registers `plugin`, or only lists it if the user switched it off.
-    pub(crate) fn add_plugin(&mut self, plugin: &dyn Plugin, disabled: &[String]) {
-        let manifest = plugin.manifest();
+    /// Registers what `adds` adds under `manifest`, or only lists it if the
+    /// user switched it off.
+    pub(crate) fn add_items(&mut self, manifest: Manifest, adds: Adds<'_>, disabled: &[String]) {
         if manifest.id != CORE && disabled.iter().any(|id| id == manifest.id.as_str()) {
-            self.register_off(plugin, manifest);
+            self.list_off(manifest, adds);
         } else {
-            self.register_plugin(plugin, manifest);
+            self.register_items(manifest, adds);
         }
     }
 
+    /// An old [`Plugin`] added as the rest is ([`Kernel::add_items`]).
+    pub(crate) fn add_plugin(&mut self, plugin: &dyn Plugin, disabled: &[String]) {
+        self.add_items(plugin.manifest(), &|items| plugin.register(items), disabled);
+    }
+
+    /// An old [`Plugin`] registered as the rest is ([`Kernel::register_items`]).
     pub(crate) fn register_plugin(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
+        self.register_items(manifest, &|items| plugin.register(items));
+    }
+
+    /// An old [`Plugin`] listed as off ([`Kernel::list_off`]).
+    pub(crate) fn register_off(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
+        self.list_off(manifest, &|items| plugin.register(items));
+    }
+
+    pub(crate) fn register_items(&mut self, manifest: Manifest, adds: Adds<'_>) {
         let id = manifest.id.clone();
         let source = || WarningSource::Plugin(id.clone());
         if id.as_str() != id.namespace() {
@@ -88,10 +108,9 @@ impl Kernel {
             return self.list_plugin(manifest, PluginState::Failed, true);
         }
         let mut staging = Staging::default();
-        let mut registrar = Registrar::new(id.clone());
-        let result = plugin
-            .register(&mut registrar)
-            .and_then(|()| registry::stage(&id, registrar.into_contributions(), &mut staging))
+        let mut items = Items::new(id.clone());
+        let result = adds(&mut items)
+            .and_then(|()| registry::stage(&id, items.into_contributions(), &mut staging))
             .and_then(|()| self.merge(&id, staging));
         match result {
             Ok(()) => self.list_plugin(manifest, PluginState::Running, true),
@@ -109,21 +128,21 @@ impl Kernel {
     /// Lists a plugin the user switched off. Only its translations are
     /// loaded, so plugin managers can show its name and description in the
     /// user's language.
-    pub(crate) fn register_off(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
+    pub(crate) fn list_off(&mut self, manifest: Manifest, adds: Adds<'_>) {
         let id = manifest.id.clone();
         if id.as_str() != id.namespace() || self.shared.plugins.get(id.as_str()).is_some() {
             return;
         }
         if RESERVED_IDS.contains(&id.as_str()) {
-            return self.register_plugin(plugin, manifest);
+            return self.register_items(manifest, adds);
         }
         // As for one switched on: no row, nothing of it (#248, todo 568).
         let Some(manifest) = self.copy_manifest(manifest) else {
             return;
         };
-        let mut registrar = Registrar::new(id.clone());
-        if plugin.register(&mut registrar).is_ok() {
-            for contribution in registrar.into_contributions() {
+        let mut items = Items::new(id.clone());
+        if adds(&mut items).is_ok() {
+            for contribution in items.into_contributions() {
                 match contribution {
                     Contribution::Translations(source) => {
                         if let Ok(catalog) = registry::catalog(source) {
