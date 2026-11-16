@@ -1039,6 +1039,8 @@ pub paperpaw_sdk::native::declare::DeclareError::Range
 pub paperpaw_sdk::native::declare::DeclareError::SecretScoped
 pub paperpaw_sdk::native::declare::DeclareError::Sink(i32)
 pub paperpaw_sdk::native::declare::DeclareError::TooLong(&'static str)
+impl paperpaw_sdk::native::declare::DeclareError
+pub const fn paperpaw_sdk::native::declare::DeclareError::to_error(self) -> paperpaw_sdk::native::Error
 impl core::fmt::Display for paperpaw_sdk::native::declare::DeclareError
 pub fn paperpaw_sdk::native::declare::DeclareError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::EditorDecl<'a>
