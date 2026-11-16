@@ -5,9 +5,10 @@ use super::{
     native_values::Callback,
     shell,
 };
+use crate::Layer;
 use alloc::boxed::Box;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
-use paperpaw_sdk::{Id, Instances, Screen};
+use paperpaw_sdk::{Id, Instances};
 
 pub(crate) struct NativeScreenSpec {
     /// Its id and title: a linked plugin's entry kept in the program, or a
@@ -65,7 +66,7 @@ impl NativeMade {
         &self,
         id: &Id,
         params: &paperpaw_sdk::Params,
-    ) -> Result<Box<dyn Screen>, i32> {
+    ) -> Result<Box<dyn Layer>, i32> {
         let result = (|| {
             self.instance.check_running()?;
             // A parked plugin is made here at a safe point, so that one
@@ -84,7 +85,7 @@ impl NativeMade {
             let screen = NativeScreen::new(id, self.token, instance)
                 .with_flags(self.flags)
                 .with_params_count(count);
-            let screen: Box<dyn Screen> = shell::try_box(screen).map_err(|_| ERR_NO_MEMORY)?;
+            let screen: Box<dyn Layer> = shell::try_box(screen).map_err(|_| ERR_NO_MEMORY)?;
             Ok(screen)
         })();
         if let Err(status) = result {
