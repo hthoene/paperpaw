@@ -1,0 +1,3 @@
+### Added
+
+- **A one-time notice when memory is short** (#248). On the X4 family, when the largest free block is under 40 KB with plugins from the store loaded, the home screen shows one notice: "With these plugins memory is short. Pictures and covers may be missing, and books open more slowly. Switch one off under Plugins." with *Plugins* (opens the plugin list) and *Not now*. It comes once for each set of running plugins (again only when the set changes, also after a restart: the card keeps eight digits in `paperpaw/low-memory.txt`), only over the home screen after the start has settled, never over the first-run setup, a book, a dialog or the sleep screen. There is no limit on plugins.
