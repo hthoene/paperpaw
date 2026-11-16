@@ -16,6 +16,10 @@ impl crate::NativeAdmission for Made {
         kernel.register_plugin(self.0.as_ref(), manifest);
         Ok(())
     }
+
+    fn declares(&self, _: &str) -> bool {
+        false
+    }
 }
 
 impl<F> CodeLoader for Loader<F>
