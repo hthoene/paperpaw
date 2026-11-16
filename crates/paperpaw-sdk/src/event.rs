@@ -27,7 +27,7 @@
 //! Underneath, what an event carries travels as [`Params`] (named
 //! strings), so it can cross to plugins in other languages and be
 //! declared as work ([`work`](crate::work)); events of other plugins, known only
-//! at run time, are heard by id ([`Registrar::subscribe`](crate::Registrar::subscribe)).
+//! at run time, are heard by id (`Items::subscribe`).
 
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
@@ -48,10 +48,10 @@ use crate::params::Params;
 pub type EventHandler = Box<dyn Fn(&Env<'_>, &Params, &mut crate::Commands)>;
 
 /// A subscription kept in the program, in a `static` list of them
-/// ([`Registrar::add_subscriptions`](crate::Registrar::add_subscriptions)):
+/// (`Items::add_subscriptions`):
 /// it takes next to no memory, where each added with
-/// [`Registrar::on`](crate::Registrar::on) or
-/// [`subscribe`](crate::Registrar::subscribe) takes some thirty bytes.
+/// `Items::on` or
+/// `Items::subscribe` takes some thirty bytes.
 /// Its handler reads what the event carries itself (e.g.
 /// [`Event::read`]):
 ///
@@ -267,7 +267,7 @@ pub fn take<T: ParamValue>(params: &Params, key: &str) -> Option<T> {
 /// assert_eq!(read.page, Some(12));
 /// ```
 /// A [`FixedSubscription`] of `event` (an [`Event`] constant) calling
-/// `handler` with what it carries, as [`Registrar::on`](crate::Registrar::on)
+/// `handler` with what it carries, as `Items::on`
 /// would; `handler` a function or a closure that captures nothing:
 ///
 /// ```
@@ -401,7 +401,7 @@ impl<P: EventData> Event<P> {
     }
 
     /// Calls `handler` with what `params` carry, without a copy where they
-    /// carry it as it is ([`Registrar::on`](crate::Registrar::on) does the
+    /// carry it as it is (`Items::on` does the
     /// same): for handlers kept in the program ([`FixedSubscription`],
     /// [`hears!`](crate::hears)). Not called where they lack what it
     /// needs.

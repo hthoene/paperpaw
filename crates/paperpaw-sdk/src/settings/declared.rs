@@ -149,7 +149,7 @@ impl Settings {
     }
 
     /// Changes a setting's default as plugin `by` gives it (its
-    /// `settings.ini` or [`Registrar::set_setting_default`](crate::Registrar::set_setting_default)),
+    /// `settings.ini` or `Items::set_setting_default`),
     /// which [`Settings::default_from`] names from then on (where the
     /// setting is another plugin's).
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]

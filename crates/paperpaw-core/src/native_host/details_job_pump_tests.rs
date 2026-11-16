@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
+use crate::Items;
 use crate::native_host::{
     declaration_store::{Allocations, ImageOwner, PendingDeclarations},
     doc_host::DocState,
@@ -24,6 +25,7 @@ use alloc::{rc::Rc, string::ToString, vec, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_platform::{DirEntry, Instant};
+use paperpaw_sdk::RegisterError;
 use paperpaw_sdk::{Command, Id, Manifest, MemoryStorage, Params, PluginState, Version};
 
 /// The card, shared by the kernel and the hosts.
@@ -187,9 +189,6 @@ impl Dispatch for Probe {
     }
 }
 
-/// A plugin with home's screen (offered for slot `core.home`) and a page of
-/// its own (offered for none), as the store's.
-struct Shelf;
 const HOME_SCREEN: Id = Id::new_static("shelf.home");
 const PAGE: Id = Id::new_static("shelf.page");
 
@@ -201,12 +200,10 @@ impl paperpaw_sdk::Screen for Blank {
     }
 }
 
-impl paperpaw_sdk::Plugin for Shelf {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("shelf"), "Shelf", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+/// A plugin with home's screen (offered for slot `core.home`) and a page of
+/// its own (offered for none), as the store's.
+fn shelf() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         for id in [HOME_SCREEN, PAGE] {
             r.add_screen(paperpaw_sdk::ScreenSpec::new(
                 id,
@@ -216,6 +213,12 @@ impl paperpaw_sdk::Plugin for Shelf {
         }
         r.bind_slot(slots::HOME, HOME_SCREEN, paperpaw_sdk::Priority::DEFAULT)
     }
+}
+
+/// What [`shelf`] registers under.
+fn shelf_manifest() -> Manifest {
+    Manifest::new(Id::new_static("shelf"), "Shelf", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// No walk runs, no clock.
@@ -247,7 +250,7 @@ fn world(books: &[&str]) -> World {
     let card = Rc::new(card);
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .storage(Card(card.clone()))
-        .plugin(Shelf)
+        .items(shelf_manifest(), shelf())
         .build()
         .unwrap();
     kernel.open(HOME_SCREEN, Some(slots::HOME), &Params::default());

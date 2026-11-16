@@ -53,18 +53,38 @@ impl Shared {
     }
 }
 
+/// What adds a plugin's contributions: the kernel's own function, a plugin
+/// of data's, a closure given to the builder, or an old `Plugin`'s
+/// `register` in an adapter ([`Kernel::register_plugin`]).
+pub(crate) type Adds<'a> = &'a dyn Fn(&mut Items) -> Result<(), RegisterError>;
+
 impl Kernel {
-    /// Registers `plugin`, or only lists it if the user switched it off.
-    pub(crate) fn add_plugin(&mut self, plugin: &dyn Plugin, disabled: &[String]) {
-        let manifest = plugin.manifest();
+    /// Registers what `adds` adds under `manifest`, or only lists it if the
+    /// user switched it off.
+    pub(crate) fn add_items(&mut self, manifest: Manifest, adds: Adds<'_>, disabled: &[String]) {
         if manifest.id != CORE && disabled.iter().any(|id| id == manifest.id.as_str()) {
-            self.register_off(plugin, manifest);
+            self.list_off(manifest, adds);
         } else {
-            self.register_plugin(plugin, manifest);
+            self.register_items(manifest, adds);
         }
     }
 
-    pub(crate) fn register_plugin(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
+    /// A plugin of data registered, or only listed if the user switched it off.
+    pub(crate) fn add_data(&mut self, plugin: &data_plugin::DataPlugin, disabled: &[String]) {
+        self.add_items(plugin.manifest(), &|items| plugin.register(items), disabled);
+    }
+
+    /// A plugin of data registered under `manifest`.
+    pub(crate) fn register_data(&mut self, plugin: &data_plugin::DataPlugin, manifest: Manifest) {
+        self.register_items(manifest, &|items| plugin.register(items));
+    }
+
+    /// A plugin of data listed as off under `manifest` ([`Kernel::list_off`]).
+    pub(crate) fn list_data_off(&mut self, plugin: &data_plugin::DataPlugin, manifest: Manifest) {
+        self.list_off(manifest, &|items| plugin.register(items));
+    }
+
+    pub(crate) fn register_items(&mut self, manifest: Manifest, adds: Adds<'_>) {
         let id = manifest.id.clone();
         let source = || WarningSource::Plugin(id.clone());
         if id.as_str() != id.namespace() {
@@ -88,10 +108,9 @@ impl Kernel {
             return self.list_plugin(manifest, PluginState::Failed, true);
         }
         let mut staging = Staging::default();
-        let mut registrar = Registrar::new(id.clone());
-        let result = plugin
-            .register(&mut registrar)
-            .and_then(|()| registry::stage(&id, registrar.into_contributions(), &mut staging))
+        let mut items = Items::new(id.clone());
+        let result = adds(&mut items)
+            .and_then(|()| registry::stage(&id, items.into_contributions(), &mut staging))
             .and_then(|()| self.merge(&id, staging));
         match result {
             Ok(()) => self.list_plugin(manifest, PluginState::Running, true),
@@ -109,21 +128,21 @@ impl Kernel {
     /// Lists a plugin the user switched off. Only its translations are
     /// loaded, so plugin managers can show its name and description in the
     /// user's language.
-    pub(crate) fn register_off(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
+    pub(crate) fn list_off(&mut self, manifest: Manifest, adds: Adds<'_>) {
         let id = manifest.id.clone();
         if id.as_str() != id.namespace() || self.shared.plugins.get(id.as_str()).is_some() {
             return;
         }
         if RESERVED_IDS.contains(&id.as_str()) {
-            return self.register_plugin(plugin, manifest);
+            return self.register_items(manifest, adds);
         }
         // As for one switched on: no row, nothing of it (#248, todo 568).
         let Some(manifest) = self.copy_manifest(manifest) else {
             return;
         };
-        let mut registrar = Registrar::new(id.clone());
-        if plugin.register(&mut registrar).is_ok() {
-            for contribution in registrar.into_contributions() {
+        let mut items = Items::new(id.clone());
+        if adds(&mut items).is_ok() {
+            for contribution in items.into_contributions() {
                 match contribution {
                     Contribution::Translations(source) => {
                         if let Ok(catalog) = registry::catalog(source) {
@@ -646,7 +665,7 @@ impl Kernel {
     /// into the program (its `i18n/<language>.ini`): the texts the plugin
     /// reads through `core.i18n`. Only text with the program's lifetime
     /// (`&'static str`, `include_str!`): a catalog on the storage is
-    /// `Registrar::add_translation_file`. One that does not parse is reported
+    /// `Items::add_translation_file`. One that does not parse is reported
     /// and left out.
     pub fn add_catalog(&mut self, source: &'static str) {
         match registry::catalog(alloc::borrow::Cow::Borrowed(source)) {
@@ -680,7 +699,7 @@ impl Kernel {
         self.shared.translator.reserve(plugins);
     }
 
-    /// Opens the compiled catalog `path` (`Registrar::add_translation_file`)
+    /// Opens the compiled catalog `path` (`Items::add_translation_file`)
     /// and adds it; one that cannot be opened is reported.
     pub(crate) fn add_translation_file(&mut self, plugin: &Id, path: String) {
         let file =
@@ -830,9 +849,9 @@ impl Kernel {
             self.add_code_plugin_later(&plugin, off);
         } else if off {
             plugin.keep_listing_only();
-            self.register_off(&plugin, manifest);
+            self.list_data_off(&plugin, manifest);
         } else {
-            self.register_plugin(&plugin, manifest);
+            self.register_data(&plugin, manifest);
             self.add_hyphenation_tables(&plugin);
             if let Some(info) = self.shared.plugin_mut(id.as_str()) {
                 info.kind = paperpaw_sdk::PluginKind::Data;
@@ -1133,7 +1152,7 @@ impl Kernel {
         let version = plugin.manifest().version;
         // Registered aside first (its translations, key map, settings): one
         // that would fail leaves the version before in place.
-        let mut registrar = Registrar::new(id.clone());
+        let mut registrar = Items::new(id.clone());
         let staged = plugin.register(&mut registrar).and_then(|()| {
             registry::stage(id, registrar.into_contributions(), &mut Staging::default())
         });

@@ -6,11 +6,10 @@
 
 use std::borrow::Cow;
 
+use paperpaw_core::Items;
 use paperpaw_core::sdk::builtin::{groups, menus};
 use paperpaw_core::sdk::setting::Setting;
-use paperpaw_core::sdk::{
-    Id, Manifest, MenuEntry, Plugin, RegisterError, Registrar, SettingSpec, Version,
-};
+use paperpaw_core::sdk::{Id, Manifest, MenuEntry, RegisterError, SettingSpec, Version};
 
 /// How bright the light is (0 off).
 pub const FRONTLIGHT: Setting<i64> = Setting::new("emulator.frontlight");
@@ -29,10 +28,6 @@ pub struct Light {
     /// The step of its warmth, where that can be set too.
     pub warmth: Option<i64>,
 }
-
-/// The plugin that registers a profile's light.
-#[derive(Debug)]
-pub struct Emulated(pub Light);
 
 const EN: &str = "[meta]
 language = en
@@ -58,19 +53,20 @@ emulator.warmth = Lichtfarbe
 emulator.warmth.help = Wie warm (gelb) das Licht ist, angenehmer für die Augen am Abend.
 ";
 
-impl Plugin for Emulated {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("emulator"),
-            "Front light",
-            Version::new(0, 1, 0),
-        )
-        .description("The emulated device's front light, set as on the device.")
-        .uses(paperpaw_core::sdk::Uses::NOTHING)
-    }
+/// What [`emulated`] registers under.
+pub fn manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("emulator"),
+        "Front light",
+        Version::new(0, 1, 0),
+    )
+    .description("The emulated device's front light, set as on the device.")
+    .uses(paperpaw_core::sdk::Uses::NOTHING)
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let light = self.0;
+/// Registers a profile's light (`KernelBuilder::items` with [`manifest`]).
+pub fn emulated(light: Light) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         // The light's range and steps come from the device's profile, so
         // its extra is made now.
         let number = |setting: &Setting<i64>, title: &'static str, default: i64, step: i64| {

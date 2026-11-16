@@ -30,7 +30,7 @@ pub enum MenuPlace {
 }
 
 /// What a menu shows of an entry now, where it changes (see
-/// [`Registrar::set_item_state`](crate::Registrar::set_item_state)).
+/// `Items::set_item_state`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ItemState {
@@ -132,7 +132,7 @@ pub struct MenuEntry {
 impl MenuEntry {
     /// Made of what it needs; the rest as set with its methods. A `const`
     /// fn, so that a plugin's entries can be a `static` list
-    /// ([`Registrar::add_menu_entries`](crate::Registrar::add_menu_entries)).
+    /// (`Items::add_menu_entries`).
     pub const fn new(menu: Id, item: Id) -> Self {
         Self {
             menu,
@@ -175,7 +175,7 @@ impl MenuEntry {
 }
 
 /// A heading in a menu: the entries after it, up to the next heading,
-/// belong to it (see [`Registrar::add_menu_section`](crate::Registrar::add_menu_section)).
+/// belong to it (see `Items::add_menu_section`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct MenuSection {
@@ -206,7 +206,7 @@ impl MenuSection {
 }
 
 /// What a menu entry needs to be offered (see
-/// [`Registrar::set_menu_need`](crate::Registrar::set_menu_need)), so
+/// `Items::set_menu_need`), so
 /// menus stay short on every device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]

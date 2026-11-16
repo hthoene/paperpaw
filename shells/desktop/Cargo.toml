@@ -33,12 +33,8 @@ softbuffer = { version = "0.4", optional = true }
 # Without client-side decorations on Wayland: they pull in the unmaintained
 # `ttf-parser` (RUSTSEC-2026-0192).
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"], optional = true }
-# The sample plugin of `docs/plugins.md`, with `--features hello`.
-paperpaw-sample-hello = { path = "../../samples/hello-plugin", optional = true }
 # The sample that runs in real time (ADR 0030), with `--features frame-test`.
 paperpaw-sample-frame-test = { path = "../../samples/frame-test", optional = true }
-# The interlinear sample (ADR 0032), with `--features interlinear`.
-paperpaw-sample-interlinear = { path = "../../samples/interlinear", optional = true }
 
 # What a browser does not give Rust: it hands time and random numbers in
 # (see `host`).
@@ -85,9 +81,7 @@ default = ["window", "native-linked"]
 # The `paperpaw-emu` window; without it the device model alone, for tools
 # and for the browser (`shells/web`).
 window = ["dep:winit", "dep:softbuffer"]
-hello = ["dep:paperpaw-sample-hello"]
 frame-test = ["dep:paperpaw-sample-frame-test"]
-interlinear = ["dep:paperpaw-sample-interlinear"]
 # The first-party plugins that are interface-7 plugins, linked in and
 # registered by `linked` (the shell's part: the secrets' sealing). ON by
 # default (#243, the one switch of the flip): `default` names it. What the app
@@ -106,6 +100,8 @@ native-linked = ["dep:aes-gcm", "dep:zeroize"]
 # interface-6 app: nothing registers a linked plugin there.
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 paperpaw-app = { workspace = true, features = ["native-linked", "native-linked-store", "native-linked-reading"] }
+# `mprotect` for the one write of a hosted library's heap word (`native_runtime`).
+libc = "0.2"
 
 [lints]
 workspace = true

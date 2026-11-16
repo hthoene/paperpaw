@@ -8,6 +8,7 @@
 //! pencil its word.
 use crate::native_source::HostSource;
 use alloc::{string::String, vec::Vec};
+use core::cell::Cell;
 use paperpaw_sdk::{
     Rect,
     native::{
@@ -131,6 +132,19 @@ impl Hyphens {
     /// Where `word` breaks in the interface language ([`Breaks`]): only a
     /// word of letters is asked, and any refusal leaves it whole.
     pub fn breaks(&self, host: &Host<'_>, word: &str, out: &mut [u8; MAX_BREAKS]) -> usize {
+        self.breaks_noting(host, word, out, &Cell::new(false))
+    }
+
+    /// As [`Hyphens::breaks`], and `refused` is set where the host refused the
+    /// call (not where the word has no place to break): a name kept whole for
+    /// that is not to be kept (only a busy host is noted).
+    pub fn breaks_noting(
+        &self,
+        host: &Host<'_>,
+        word: &str,
+        out: &mut [u8; MAX_BREAKS],
+        refused: &Cell<bool>,
+    ) -> usize {
         let language = self
             .language
             .get(..self.len)
@@ -139,8 +153,20 @@ impl Hyphens {
         if language.is_empty() || word.is_empty() || !word.chars().all(char::is_alphabetic) {
             return 0;
         }
-        words::hyphenate(host, language, word, 0, 0, out).unwrap_or(0)
+        note_refusal(words::hyphenate(host, language, word, 0, 0, out), refused)
     }
+}
+
+/// The places of an answer, none where the host did not give any. `refused` is
+/// set only where the host was busy (its answer comes later): every other
+/// refusal (no table for the language, say) is a final answer, which is kept.
+fn note_refusal(answer: Result<usize, Error>, refused: &Cell<bool>) -> usize {
+    answer.unwrap_or_else(|error| {
+        if error == Error::Busy {
+            refused.set(true);
+        }
+        0
+    })
 }
 
 /// The name `name` as it fits `cell` (see [`fit_name`]); `breaks` says
@@ -459,6 +485,20 @@ pub fn draw_tool(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_busy_host_is_noted_for_a_new_try() {
+        let refused = Cell::new(false);
+        assert_eq!(note_refusal(Ok(0), &refused), 0);
+        assert_eq!(note_refusal(Ok(2), &refused), 2);
+        // A final answer: no table for the language, or nothing it can do.
+        for final_answer in [Error::NotFound, Error::Unsupported, Error::Invalid] {
+            assert_eq!(note_refusal(Err(final_answer), &refused), 0);
+            assert!(!refused.get(), "{final_answer:?} is not to be asked again");
+        }
+        assert_eq!(note_refusal(Err(Error::Busy), &refused), 0);
+        assert!(refused.get());
+    }
 
     /// Every letter half as wide as the size: `name` fitted in 80 pixels at 17.
     /// Widths of 0.5 of the size a character: at 17, nine characters fit in

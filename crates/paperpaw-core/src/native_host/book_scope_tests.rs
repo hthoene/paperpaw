@@ -11,6 +11,7 @@ use crate::{Command, Id};
 use alloc::{vec, vec::Vec};
 use paperpaw_native::host_glue::{ERR_STATE, OK};
 use paperpaw_platform::{DirEntry, Instant, Storage, StorageError};
+use paperpaw_sdk::RegisterError;
 use paperpaw_sdk::{MemoryStorage, Params, SettingValue};
 
 const BOOK: &str = "books/a.epub";
@@ -77,7 +78,8 @@ fn a_book_key_is_sixteen_hex_digits() {
 
 /// A kernel with the screens of the plugin `probe`, its `probe.main` on top.
 fn kernel() -> crate::Kernel {
-    use paperpaw_sdk::{Manifest, Plugin, Registrar, Screen, ScreenSpec, Version};
+    use crate::Items;
+    use paperpaw_sdk::{Manifest, Screen, ScreenSpec, Version};
     struct Empty;
     impl Screen for Empty {
         fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
@@ -85,13 +87,8 @@ fn kernel() -> crate::Kernel {
             paperpaw_sdk::Handled::No
         }
     }
-    struct Probe;
-    impl Plugin for Probe {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+    fn probe() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        |r| {
             for id in ["probe.home", "probe.main"] {
                 r.add_screen(ScreenSpec::new(
                     Id::new_static(id),
@@ -101,6 +98,12 @@ fn kernel() -> crate::Kernel {
             }
             Ok(())
         }
+    }
+
+    /// What [`probe`] registers under.
+    fn probe_manifest() -> Manifest {
+        Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
     }
     let beta3 = alloc::format!("{}/settings.ini", beta3_dir("probe", BOOK));
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -112,7 +115,7 @@ fn kernel() -> crate::Kernel {
                 )
                 .with(BOOK, b"x".to_vec()),
         )
-        .plugin(Probe)
+        .items(probe_manifest(), probe())
         .build()
         .unwrap();
     // `probe.main` over another screen of the plugin, so it can close.

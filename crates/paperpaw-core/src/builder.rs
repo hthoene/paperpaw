@@ -7,7 +7,8 @@
 )]
 use super::*;
 
-mod built_in;
+mod items;
+pub use items::Items;
 
 /// Configures and creates a [`Kernel`].
 ///
@@ -19,7 +20,7 @@ pub struct KernelBuilder(Box<BuilderParts>);
 /// What a [`KernelBuilder`] was told.
 struct BuilderParts {
     device: DeviceInfo,
-    plugins: Vec<Box<dyn Plugin>>,
+    plugins: Vec<items::Source>,
     /// Plugins shipped switched off, until the user switches them on.
     off: Vec<String>,
     device_keymap: Option<Cow<'static, str>>,
@@ -83,25 +84,12 @@ impl fmt::Debug for KernelBuilder {
 }
 
 impl KernelBuilder {
-    /// Adds a plugin. Plugins registered later win priority ties.
-    pub fn plugin(mut self, plugin: impl Plugin + 'static) -> Self {
-        self.0.plugins.push(Box::new(plugin));
-        self
-    }
-
-    /// Adds a plugin that is off until the user switches it on (e.g. in
-    /// the plugin manager), for features not everyone wants.
-    pub fn plugin_off(mut self, plugin: impl Plugin + 'static) -> Self {
-        self.0.off.push(String::from(plugin.manifest().id.as_str()));
-        self.plugin(plugin)
-    }
-
     /// Adds the fonts the program is built with: a table in the program,
     /// listed as a plugin of data is and registered where it is named,
     /// among the plugins (those registered later win priority ties).
     #[must_use]
     pub fn built_in_fonts(mut self, fonts: &'static paperpaw_sdk::BuiltInFonts) -> Self {
-        self.0.plugins.push(Box::new(built_in::BuiltIn(fonts)));
+        self.0.plugins.push(items::Source::Fonts(fonts));
         self
     }
 
@@ -902,6 +890,7 @@ impl BuilderParts {
                 defers: 0,
                 followup: None,
                 followup_frame: None,
+                gray_later: crate::gray_later::GrayLater::default(),
             },
             input: gestures::InputState {
                 recognizer: Recognizer::default(),
@@ -1062,7 +1051,7 @@ impl Kernel {
     /// or shipped off (`off`) and not switched on.
     fn add_plugins(
         &mut self,
-        plugins: Vec<Box<dyn Plugin>>,
+        plugins: Vec<items::Source>,
         off: Vec<String>,
         plugin_dirs: Vec<String>,
         font_dirs: Vec<String>,
@@ -1088,15 +1077,16 @@ impl Kernel {
         disabled.extend(off.into_iter().filter(|id| !on.contains(id)));
         // The device's name the default of its setting.
         let name = paperpaw_sdk::device_name::default_name(&self.shared.device);
-        let core: Box<dyn Plugin> = Box::new(CorePlugin(name));
         // Their lists asked for once, at their size: the start's peak is
         // not the lists doubled (each plugin is listed, and brings about
         // one catalog in each language chosen).
         let count = plugins.len() + 1;
         self.shared.plugins.reserve(count);
         self.shared.translator.reserve(count);
-        for plugin in core::iter::once(core).chain(plugins) {
-            self.add_plugin(plugin.as_ref(), &disabled);
+        let core = |items: &mut Items| core_plugin::items(&name, items);
+        self.add_items(core_plugin::manifest(), &core, &disabled);
+        for source in plugins {
+            source.add_to(self, &disabled);
         }
         // Data plugins from the storage, after the built-in ones.
         let dirs = if plugin_dirs.is_empty() {
@@ -1146,7 +1136,7 @@ impl Kernel {
                     with_code.push(plugin);
                     continue;
                 }
-                self.add_plugin(&plugin, &disabled);
+                self.add_data(&plugin, &disabled);
                 if let Some(info) = self.shared.plugin_mut(plugin.manifest().id.as_str()) {
                     info.kind = paperpaw_sdk::PluginKind::Data;
                 }
@@ -1158,7 +1148,7 @@ impl Kernel {
         if !font_dirs.is_empty()
             && let Some(plugin) = data_plugin::font_folder(self.shared.storage.as_ref(), &font_dirs)
         {
-            self.add_plugin(&plugin, &disabled);
+            self.add_data(&plugin, &disabled);
         }
         self.shared.font_dirs = font_dirs;
         self.find_required_plugins();

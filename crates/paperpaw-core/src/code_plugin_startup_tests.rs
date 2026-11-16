@@ -44,7 +44,7 @@ impl CodeLoader for Loader {
         _: &dyn Storage,
         file: &CodeFile<'_>,
     ) -> Result<Option<Box<dyn NativeAdmission>>, PluginProblem> {
-        assert_eq!(file.sha256, [7; 32]);
+        assert_eq!(file.sha256, Some([7; 32]));
         self.0.set(self.0.get() + 1);
         Ok(Some(Box::new(Admitted)))
     }

@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::super::event_pending::Visibility;
+use crate::Items;
 use crate::native_host::{
     codec,
     commands::CommandStage,
@@ -15,8 +16,7 @@ use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_sdk::{
-    Id, Manifest, Plugin, RegisterError, Registrar, SettingExtra, SettingKind, SettingSpec,
-    SettingValue, Version,
+    Id, Manifest, RegisterError, SettingExtra, SettingKind, SettingSpec, SettingValue, Version,
 };
 
 /// What a plugin was told: the key and the old value's bytes.
@@ -111,14 +111,14 @@ impl Dispatch for Probe {
 /// Declares settings: its own `id.plain` (readable by all), and one secret
 /// and one secret with a placement (`id.widget.token`, placed as
 /// `id.widget@2.token`).
-struct Declares(&'static str, [&'static str; 3]);
-impl Plugin for Declares {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static(self.0), "Declares", Version::new(1, 0, 0))
-    }
-    fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
+fn declares_manifest(id: &'static str) -> Manifest {
+    Manifest::new(Id::new_static(id), "Declares", Version::new(1, 0, 0))
+}
+
+fn declares(names: [&'static str; 3]) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |registrar| {
         static SECRET: SettingExtra = SettingExtra::new().secret();
-        let [plain, token, widget] = self.1;
+        let [plain, token, widget] = names;
         registrar.add_setting(SettingSpec::new(
             Id::new_static(plain),
             "plain",
@@ -160,9 +160,18 @@ fn world(b_subscribes: bool) -> World {
 fn world_with(b_tags: &'static [u32]) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .wifi(true)
-        .plugin(Declares("a", ["a.plain", "a.token", "a.widget.token"]))
-        .plugin(Declares("b", ["b.plain", "b.token", "b.widget.token"]))
-        .plugin(Declares("c", ["c.size", "c.token", "c.widget.token"]))
+        .items(
+            declares_manifest("a"),
+            declares(["a.plain", "a.token", "a.widget.token"]),
+        )
+        .items(
+            declares_manifest("b"),
+            declares(["b.plain", "b.token", "b.widget.token"]),
+        )
+        .items(
+            declares_manifest("c"),
+            declares(["c.size", "c.token", "c.widget.token"]),
+        )
         .build()
         .unwrap();
     let order = Rc::new(RefCell::new(Vec::new()));
