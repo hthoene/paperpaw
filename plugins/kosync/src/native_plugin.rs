@@ -217,6 +217,9 @@ impl NativeKosync {
     /// Opens the services once. A device without a network has no `net`; one
     /// without secrets has no `secrets` (the account's key is then not kept).
     fn ensure(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.server.is_none() {
+            self.server = Some(Self::server(host)?);
+        }
         if self.ui.is_none() {
             self.ui = Some(Ui::open(host)?);
         }
@@ -386,12 +389,13 @@ impl NativeKosync {
         if key != SERVER && !key.is_empty() {
             return Ok(());
         }
+        let unknown_change = self.server.is_none() && key == SERVER;
         self.ensure(host)?;
         self.read_key(host)?;
         let now = Self::server(host)?;
         let before = self.server.replace(copy(&now)?);
         let signed_in = self.key.is_some() && !Self::text_setting(host, USER)?.is_empty();
-        if before.as_deref() != Some(now.as_str()) && signed_in {
+        if (unknown_change || before.as_deref() != Some(now.as_str())) && signed_in {
             self.sign_out(host)?;
         }
         Ok(())
