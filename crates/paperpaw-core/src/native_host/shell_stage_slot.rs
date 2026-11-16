@@ -19,7 +19,8 @@ pub(super) unsafe extern "C" fn run<S: 'static>(
     };
     // The plugin waits for the host (and the broker's subscribers, which are
     // plugin calls of their own) from here to the return.
-    let _slot = crate::native_host::host_slot::enter_as(crate::native_host::host_slot::Id::StageRun);
+    let _slot =
+        crate::native_host::host_slot::enter_as(crate::native_host::host_slot::Id::StageRun);
     context
         .environment
         .with_frame(|frame| {
