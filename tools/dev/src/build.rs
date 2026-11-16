@@ -13,7 +13,10 @@
 //! [--sign-tool <path>]` leaves `dist/<device>/<id>/`: the plugin's folder as
 //! it goes onto a card, with the packed code in it. The repository's own
 //! `plugin` folder is not touched (the plugin store takes no code file in
-//! it).
+//! it). `--device emulator` builds the plugin for this computer instead
+//! ([`emulator`]).
+
+mod emulator;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -42,6 +45,13 @@ const X4: Chip = Chip {
     device: "x4",
     devices: "the Xteink X4 and X3",
     triple: "riscv32imc-unknown-none-elf",
+    toolchain: None,
+};
+/// This computer: the library the emulator loads ([`emulator`]).
+const EMULATOR: Chip = Chip {
+    device: "emulator",
+    devices: "the emulator on this computer",
+    triple: "x86_64-unknown-linux-gnu",
     toolchain: None,
 };
 const X4_PRO: Chip = Chip {
@@ -216,7 +226,12 @@ pub fn run(args: &[String]) -> Result<bool, String> {
                 chip = match args.next().map(String::as_str) {
                     Some("x4" | "x3") => &X4,
                     Some("x4-pro" | "x4-classic") => &X4_PRO,
-                    _ => return Err("--device is one of x4, x3, x4-pro, x4-classic".into()),
+                    Some("emulator") => &EMULATOR,
+                    _ => {
+                        return Err(
+                            "--device is one of x4, x3, x4-pro, x4-classic, emulator".into()
+                        );
+                    }
                 }
             }
             "--sign-tool" => {
@@ -229,6 +244,13 @@ pub fn run(args: &[String]) -> Result<bool, String> {
         }
     }
     let id = package(&dir)?;
+    let target =
+        std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| dir.join("target"), PathBuf::from);
+    if chip.device == EMULATOR.device {
+        crate::metadata::write(&dir, false)?;
+        compiler(&dir, chip)?;
+        return emulator::build(&dir, &id, &target);
+    }
     // The packer first: without it nothing below ends in a file.
     let tool = sign_tool(tool)?;
     crate::metadata::write(&dir, false)?;
@@ -245,8 +267,6 @@ pub fn run(args: &[String]) -> Result<bool, String> {
     }
     step(&mut cargo, "the build (cargo)")?;
 
-    let target =
-        std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| dir.join("target"), PathBuf::from);
     let built = target.join(chip.triple).join("release").join(&id);
     // The folder as it goes onto the card: what `plugin` holds, and the code.
     let folder = dir.join("dist").join(chip.device).join(&id);

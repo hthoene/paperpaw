@@ -1,0 +1,3 @@
+### Added
+
+- **`paperpaw-dev build --device emulator` builds a plugin with code for the emulator** (#244): on Linux (x86-64) it links the plugin's program as the library the emulator loads and leaves `dist/emulator`, a library with the plugin in it; `paperpaw-emu --library dist/emulator --trust-code` starts it as an X4 with the X4's memory. `paperpaw-dev metadata` writes a third record for it, `native/metadata.host.bin`, and `new --code` writes a plugin that uses it; a plugin made before adds the three lines that choose the record in `src/main.rs`. `CODE.md` says how to try a plugin in the emulator and what the packer's two refusals mean.

@@ -4,12 +4,13 @@
 //! calls and the callbacks it has; the packer puts the record made from it
 //! (`native/metadata.bin`, for the X4 Pro and X4 Classic `metadata.s3.bin`)
 //! into the plugin's file, and a device reads from it whether it can run the
-//! plugin. In PaperPaw's repository `tools/abi-metadata.py` makes the record
+//! plugin; the emulator reads `metadata.host.bin` from the plugin built for
+//! the computer. In PaperPaw's repository `tools/abi-metadata.py` makes the record
 //! from the interface's schema; an author has neither. This makes the same
 //! bytes from a table of that schema the tool carries (`metadata/table.txt`,
 //! written by `tools/abi-metadata-table.py`).
 //!
-//! - `metadata [<plugin's folder>]` writes both records beside the list;
+//! - `metadata [<plugin's folder>]` writes the records beside the list;
 //! - `metadata --check [<plugin's folder>]` fails if one is missing or is not
 //!   what the list gives.
 
@@ -23,11 +24,14 @@ const TABLE: &str = include_str!("metadata/table.txt");
 pub const X4_TARGET: &str = "esp32c3-riscv32imc-ilp32-soft-le";
 /// The X4 Pro's and X4 Classic's chip: the same list, its own record.
 pub const S3_TARGET: &str = "esp32s3-xtensa-lx7-ilp32-windowed-le";
-/// The plugin's list, and the two records made from it.
+/// The emulator on a computer (Linux, x86-64): the same list again.
+pub const HOST_TARGET: &str = "linux-x86_64-sysv64-le";
+/// The plugin's list, and the records made from it.
 pub const LIST: &str = "native/metadata.json";
-const RECORDS: [(&str, &str); 2] = [
+const RECORDS: [(&str, &str); 3] = [
     ("native/metadata.bin", X4_TARGET),
     ("native/metadata.s3.bin", S3_TARGET),
+    ("native/metadata.host.bin", HOST_TARGET),
 ];
 
 /// A name with numbers: a profile, an export, a service, a feature.
@@ -395,7 +399,7 @@ fn record(table: &Table, list: &List, target: &str) -> Result<Vec<u8>, String> {
 /// A record and the file it belongs in, from the plugin's folder.
 pub type Record = (&'static str, Vec<u8>);
 
-/// The two records of the list `text`, each with the file it belongs in
+/// The records of the list `text`, each with the file it belongs in
 /// (from the plugin's folder), and the interface's minor the plugin needs.
 ///
 /// # Errors
@@ -466,7 +470,7 @@ mod tests {
     use super::*;
 
     /// Every plugin of PaperPaw's own with code, and the template of
-    /// `new --code`: both records are byte for byte what the Python tools
+    /// `new --code`: the records are byte for byte what the Python tools
     /// wrote beside the list (`tools/abi-metadata.py`,
     /// `tools/plugin-files7/s3-metadata.py`).
     #[test]
@@ -485,7 +489,7 @@ mod tests {
                 compared += 1;
             }
         }
-        assert!(compared >= 100, "only {compared} records compared");
+        assert!(compared >= 150, "only {compared} records compared");
         let template = root.join("tools/dev/templates/code");
         let text = std::fs::read_to_string(template.join("metadata.json")).unwrap();
         let (made, needs) = records(&text).unwrap();

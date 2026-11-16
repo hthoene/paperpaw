@@ -33,13 +33,16 @@ const CODE_METADATA_BYTES: &[u8] = include_bytes!("../templates/code/metadata.bi
 /// The linker script of a plugin file, the release's own.
 const CODE_LINKER: &str = include_str!("../../../crates/paperpaw-native/paperpaw-plugin7.x");
 
-/// The template's record for the X4 Pro and X4 Classic, made of its list.
-fn s3_record() -> Vec<u8> {
+/// The template's records beside the X4's (for the X4 Pro and X4 Classic, and
+/// for the emulator), made of its list.
+fn other_records() -> Vec<(String, Vec<u8>)> {
     crate::metadata::records(CODE_METADATA)
-        .ok()
-        .and_then(|(made, _)| made.into_iter().nth(1))
-        .map(|(_, bytes)| bytes)
+        .map(|(made, _)| made)
         .unwrap_or_default()
+        .into_iter()
+        .skip(1)
+        .map(|(file, bytes)| (file.to_string(), bytes))
+        .collect()
 }
 
 /// `check-publish`: whether the plugin store takes it.
@@ -133,7 +136,7 @@ pub fn code_files(id: &str, sdk: Option<&Path>) -> Vec<(String, Vec<u8>)> {
             .replace("@SDK@", &sdk)
             .into_bytes()
     };
-    vec![
+    let mut files = vec![
         ("Cargo.toml".to_string(), set(CODE_CARGO)),
         ("src/main.rs".to_string(), set(CODE_MAIN)),
         (".cargo/config.toml".to_string(), set(CODE_CONFIG)),
@@ -144,7 +147,6 @@ pub fn code_files(id: &str, sdk: Option<&Path>) -> Vec<(String, Vec<u8>)> {
             "native/metadata.bin".to_string(),
             CODE_METADATA_BYTES.to_vec(),
         ),
-        ("native/metadata.s3.bin".to_string(), s3_record()),
         (
             "plugin/i18n/en.ini".to_string(),
             format!(
@@ -170,15 +172,28 @@ pub fn code_files(id: &str, sdk: Option<&Path>) -> Vec<(String, Vec<u8>)> {
                  - **What the build leaves:** `dist/x4/{id}` (or `dist/x4-pro/{id}`) is the plugin's \
                  folder as it lies in the folder `plugins` of a card, with the code in it. The \
                  code is not signed.\n\
+                 - **Try it in the emulator** (Linux, x86-64): `paperpaw-dev build --device emulator` \
+                 builds the plugin for the computer and leaves `dist/emulator`, a library for the \
+                 emulator with the plugin in it; `paperpaw-emu --library dist/emulator --trust-code` \
+                 starts it as an X4, with the X4's memory. Build again and start again to see a \
+                 change. The emulator comes with PaperPaw and must be built by the compiler \
+                 `rust-toolchain.toml` names: the build says how to install it.\n\
+                 - **If the packer refuses the program:** it says which function or data it is \
+                 about. A plugin keeps no data it writes outside what `make` returns (no `static \
+                 mut`, no cell in a `static`), and no function of it may take 2,048 bytes of stack \
+                 or more: put a large buffer on the heap.\n\
                  - **What it may call:** `native/metadata.json` lists the device's functions the code \
-                 calls. `paperpaw-dev metadata` (and every build) makes the records of it, \
-                 `native/metadata.bin` and `native/metadata.s3.bin`, one for each chip. A call that \
-                 is not listed is refused on the device: add it to the list with the code.\n\
+                 calls. `paperpaw-dev metadata` (and every build) makes the records of it: \
+                 `native/metadata.bin` and `native/metadata.s3.bin`, one for each chip, and \
+                 `native/metadata.host.bin` for the emulator. A call that is not listed is \
+                 refused: add it to the list with the code.\n\
                  - **Its words:** `plugin/i18n/en.ini`; add a file for each language.\n"
             )
             .into_bytes(),
         ),
-    ]
+    ];
+    files.extend(other_records());
+    files
 }
 
 /// `store/store.ini`, with a group of the store's and room for the rest.
@@ -416,7 +431,7 @@ mod tests {
             CODE_METADATA_BYTES
         );
         assert_eq!(read("paperpaw-plugin7.x"), CODE_LINKER);
-        // Both chips' records are what the list gives.
+        // The records are what the list gives.
         assert_eq!(crate::metadata::write(&dir, true), Ok(true));
         // `--sdk` without `--code` builds nothing.
         let alone: Vec<String> = ["--github", "x", "--sdk", "."]

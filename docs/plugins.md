@@ -1997,6 +1997,14 @@ with `--trust-code`, which installs every such file in the library first
 the library says is installed: a library copied from elsewhere runs no
 code of its own.
 
+A plugin made by `paperpaw-dev new --code` needs none of what follows:
+`paperpaw-dev build --device emulator` (Linux, x86-64) links its program as
+such a library and leaves `dist/emulator`, a library for the emulator with
+the plugin in it, and `paperpaw-emu --library dist/emulator --trust-code`
+starts it as an X4 with the X4's memory. The emulator takes the plugin only
+if the compiler that built it built the plugin too (the one the plugin's
+`rust-toolchain.toml` names).
+
 On Linux, the plugin's own `build.rs` must disable the C startup files for
 its shared library. Those files add initializers that interface 7's host
 plugin preflight refuses. A dependency's build script cannot set this flag
