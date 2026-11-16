@@ -58,6 +58,14 @@ fn device(last: bool) -> Device {
 
 /// As [`device`], with `ini` before the help hint's lines in `paperpaw.ini`.
 fn device_in(last: bool, ini: &str) -> Device {
+    let mut device = unstarted(last, ini);
+    device.start();
+    run_script(&mut device, "wait:3000").unwrap();
+    device
+}
+
+/// As [`device_in`], before its start.
+fn unstarted(last: bool, ini: &str) -> Device {
     let mut files = MemoryStorage::new()
         .with(
             BOOK,
@@ -73,10 +81,7 @@ fn device_in(last: bool, ini: &str) -> Device {
     }
     paperpaw_emulator::budget::override_limit(None);
     let profile = profiles::find("xteink-x4").unwrap();
-    let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
-    device.start();
-    run_script(&mut device, "wait:3000").unwrap();
-    device
+    Device::in_memory(profile, None, Rc::new(files), true, None).unwrap()
 }
 
 fn screen(device: &mut Device) -> String {
@@ -148,6 +153,31 @@ fn a_missing_hyphenation_table_does_not_make_home_read_its_look_at_every_draw() 
     assert!(
         steady <= STEADY_SLOTS && steady_reads <= STEADY_READS,
         "a redraw made {steady} slots ({steady_reads} reads) in German"
+    );
+}
+
+/// Home's tool names are never hyphenated (#267): a name no line holds ends in
+/// "…", and the host is not asked where it may break (on the X4 each ask reads
+/// the language's table from the card, 13 ms, 21 in a frame; a frame is drawn
+/// in bands and the look is read again after a setting).
+#[test]
+fn home_does_not_ask_the_host_to_hyphenate_its_tool_names() {
+    let mut device = unstarted(false, GERMAN_TOOLS);
+    slot_counts::reset();
+    device.start();
+    run_script(&mut device, "wait:3000").unwrap();
+    let counts = slot_counts::snapshot();
+    let at = |slot: &str| {
+        counts
+            .iter()
+            .find(|(name, _)| *name == slot)
+            .map_or(0, |c| c.1)
+    };
+    assert!(at("text_measure") > 0, "Home did not draw: {counts:?}");
+    assert_eq!(
+        at("text_hyphenate"),
+        0,
+        "Home asked for hyphenation: {counts:?}"
     );
 }
 

@@ -22,7 +22,7 @@ pub(super) unsafe extern "C" fn image_info<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = host_slot::enter();
+    let _slot = host_slot::enter_as(host_slot::Id::ImageInfo);
     // SAFETY: the generated slot contract supplies a live output pair.
     unsafe { image_service::info_slot(&context.resources, image, out) }
 }
@@ -41,7 +41,7 @@ pub(super) unsafe extern "C" fn canvas_draw_image<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = host_slot::enter();
+    let _slot = host_slot::enter_as(host_slot::Id::ImageDraw);
     image_service::draw_slot(
         &context.canvas,
         &context.environment,
@@ -65,7 +65,7 @@ pub(super) unsafe extern "C" fn icon_glyph<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = host_slot::enter();
+    let _slot = host_slot::enter_as(host_slot::Id::IconGlyph);
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe { fonts::icon_glyph(&context.environment, name, out) }
 }
@@ -83,7 +83,7 @@ pub(super) unsafe extern "C" fn text_hyphenate<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = host_slot::enter();
+    let _slot = host_slot::enter_as(host_slot::Id::TextHyphenate);
     // SAFETY: generated slot contracts supply live, disjoint input and output pairs.
     unsafe { hyphen_service::slot(&context.resources, language, word, left, right, out) }
 }
