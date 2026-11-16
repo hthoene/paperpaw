@@ -20,7 +20,7 @@ use alloc::vec::Vec;
 use paperpaw_native::header5;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::native::{Native, SafeMode, SafeModeReason};
-use paperpaw_sdk::{Id, Plugin, PluginKind, PluginProblem, PluginState};
+use paperpaw_sdk::{Id, PluginKind, PluginProblem, PluginState};
 
 use crate::data_plugin::DataPlugin;
 use crate::{Kernel, WarningSource};
@@ -347,7 +347,7 @@ impl Kernel {
             // earlier try ran into goes, whatever this one ends in.
             let id = self.begin_try(&manifest.id);
             if disabled.iter().any(|d| d == id.as_str()) {
-                self.register_off(&plugin, manifest);
+                self.list_data_off(&plugin, manifest);
                 self.set_code_info(&id, None);
                 continue;
             }
@@ -465,7 +465,7 @@ impl Kernel {
         };
         match admitted {
             Ok(()) => {
-                self.register_plugin(plugin, manifest);
+                self.register_data(plugin, manifest);
                 self.set_code_info(&id, None);
             }
             Err(problem) => {
@@ -542,7 +542,7 @@ impl Kernel {
         if problem == PluginProblem::Mismatch {
             self.list_bare(manifest);
         } else {
-            self.register_off(plugin, manifest);
+            self.list_data_off(plugin, manifest);
         }
         let on = !disabled.iter().any(|d| d == id.as_str());
         if let Some(info) = self.shared.plugin_mut(id.as_str()) {
