@@ -677,10 +677,8 @@ impl Kernel {
         }
     }
 
-    /// Whether what the screen shows is secret now: a PIN or a password
-    /// being entered ([`Screen::secret`]),
-    /// or the device guarded. Those who show the screen elsewhere (a
-    /// remote control, tools) leave out what its parts say then.
+    /// Whether what the screen shows is secret now: a PIN or a password being entered
+    /// (`Layer::secret`), or the device guarded; remote controls and tools leave it out.
     pub fn is_secret(&self) -> bool {
         self.guard().is_some() || self.stack.iter().any(ActiveScreen::secret)
     }
