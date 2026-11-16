@@ -27,7 +27,11 @@ pub(super) fn register(r: &mut Registrar, catalog: &Rc<Catalog>) -> Result<(), R
         if env.formats().is_empty() {
             return;
         }
-        let walking = catalog.job.borrow().as_ref().is_some_and(CatalogJob::is_walk);
+        let walking = catalog
+            .job
+            .borrow()
+            .as_ref()
+            .is_some_and(CatalogJob::is_walk);
         catalog.want_walk(true, false, out);
         let said = if walking {
             "core.library.look-again.busy"

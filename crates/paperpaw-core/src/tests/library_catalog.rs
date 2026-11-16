@@ -931,6 +931,9 @@ fn looking_for_new_books_walks_the_library_again() {
     let look = Id::new_static("core.library.look-again");
     let effects = kernel.run_action(Instant(now), look);
     run(&mut kernel, now, effects);
-    assert_eq!(paths(&kernel), ["books/a.txt", "books/b.txt", "books/c.txt"]);
+    assert_eq!(
+        paths(&kernel),
+        ["books/a.txt", "books/b.txt", "books/c.txt"]
+    );
     assert_eq!(log.borrow().len(), 2);
 }
