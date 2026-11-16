@@ -723,6 +723,15 @@ impl Engine {
         Ok(())
     }
 
+    /// A chosen destination is temporarily unavailable; offer it on the next fetch.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn retry_offer(&mut self, path: &str) -> Result<(), Error> {
+        self.last_pull = None;
+        self.unread(path, None)
+    }
+
     /// The user closed the offer to go where another device is.
     ///
     /// # Errors

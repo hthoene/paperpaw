@@ -110,6 +110,7 @@ impl Backing {
             if pointers && !xpointer.is_empty() {
                 match documents.locate(host, id, xpointer, input, out) {
                     Ok(at) => return Ok(Some((at.section, at.offset))),
+                    Err(Error::Full) => return Err(Error::Busy),
                     Err(error @ (Error::NoMemory | Error::Busy)) => return Err(error),
                     Err(_) => {}
                 }
@@ -133,20 +134,24 @@ impl Backing {
             return Ok(None);
         };
         let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
-        let (id, usable, pointers) =
-            match documents.open_book(host, &OpenBook::new(path), &mut input, &mut out) {
-                Ok(state) => {
-                    let ready = state.preparation() == Preparation::Ready;
-                    // A book still converting: asked again at the next chance.
-                    if state.preparation() == Preparation::Preparing {
-                        let id = state.id();
-                        close(documents, host, id, &mut input, &mut out);
-                        return Err(Error::Busy);
-                    }
-                    (state.id(), ready, state.has_xpointers())
+        let (id, usable, pointers) = match documents.open_book(
+            host,
+            &OpenBook::new(path).background(),
+            &mut input,
+            &mut out,
+        ) {
+            Ok(state) => {
+                let ready = state.preparation() == Preparation::Ready;
+                // A book still converting: asked again at the next chance.
+                if state.preparation() == Preparation::Preparing {
+                    let id = state.id();
+                    close(documents, host, id, &mut input, &mut out);
+                    return Err(Error::Busy);
                 }
-                Err(error) => return unavailable(error),
-            };
+                (state.id(), ready, state.has_xpointers())
+            }
+            Err(error) => return unavailable(error),
+        };
         let found = if usable {
             ask(documents, id, pointers, &mut input, &mut out)
         } else {
@@ -177,6 +182,7 @@ fn optional<T>(opened: Result<T, Error>) -> Result<Option<T>, Error> {
 /// (not found, denied, unsupported, invalid) is "unavailable".
 fn unavailable<T>(error: Error) -> Result<Option<T>, Error> {
     match error {
+        Error::Full => Err(Error::Busy),
         Error::NoMemory | Error::Busy => Err(error),
         _ => Ok(None),
     }

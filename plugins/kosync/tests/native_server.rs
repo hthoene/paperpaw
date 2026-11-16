@@ -152,3 +152,37 @@ fn an_unconfirmed_offer_never_writes_a_library_position() {
         );
     }
 }
+
+#[test]
+fn a_full_document_slot_neither_sends_empty_pointers_nor_dismisses_go_there() {
+    let world = World::new(true);
+    world.host.service("core.document", 1, 0, |_, _| Err(-11));
+    let plugin = world.load();
+    assert_eq!(world.opened(&plugin, "first.epub", 100_000).status, 0);
+    assert_eq!(world.complete(&plugin, 0, 200, b"{}").status, 0);
+    assert_eq!(
+        world.closed(&plugin, "first.epub", 200_000, 70_000).status,
+        0
+    );
+    assert_eq!(world.server.borrow().requests.len(), 1);
+    assert_eq!(world.opened(&plugin, "first.epub", 100_000).status, 0);
+    let remote = br#"{"percentage":0.8,"device":"Other","progress":"/known"}"#;
+    assert_eq!(world.complete(&plugin, 1, 200, remote).status, 0);
+    let question = world.dialogs.last().unwrap();
+    let answer = world
+        .dialogs
+        .answer(question.request, &Answer::Confirm(true))
+        .unwrap();
+    assert_eq!(plugin.event(tokens::ACCOUNT, &answer).unwrap().status, 0);
+    assert_eq!(world.opened(&plugin, "first.epub", 100_000).status, 0);
+    assert_eq!(world.complete(&plugin, 2, 200, remote).status, 0);
+    assert_ne!(world.dialogs.last().unwrap().request, question.request);
+    assert!(
+        world
+            .server
+            .borrow()
+            .requests
+            .iter()
+            .all(|r| r.method == "GET")
+    );
+}

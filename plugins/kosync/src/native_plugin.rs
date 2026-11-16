@@ -823,7 +823,18 @@ impl NativeKosync {
         let answered = answer.outcome() == AnswerOutcome::Answered;
         let go = answered && answer.choice() == 1;
         let stay = answered && answer.choice() == 0;
-        let went = go && self.go_there(host, &offer)?;
+        let went = if go {
+            match self.go_there(host, &offer) {
+                Ok(went) => went,
+                Err(Error::Busy | Error::Full) => {
+                    self.engine(host, now_ms)?.retry_offer(&offer.path)?;
+                    return self.notice_key(host, "kosync.unreadable", 0);
+                }
+                Err(error) => return Err(error),
+            }
+        } else {
+            false
+        };
         let ctx = self.ctx(host, now_ms)?;
         let mut out = Vec::new();
         let chose = Chose {
