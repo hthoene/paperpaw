@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # What `paperpaw-dev new --github <id> --code` writes is a plugin an author
-# can build: made against this checkout's SDK, built for the X4, packed as a
-# format-5 file, and passed by the packer's own check (#244). Interface 7 still
-# changes in place, so the template can stop compiling without this.
+# can build: made against this checkout's SDK, then built for the X4 and
+# packed by `paperpaw-dev build`, as an author does it (#244). Interface 7
+# still changes in place, so the template can stop compiling without this.
+# The X4 Pro's build needs espup's compiler and is not run here.
 #
 #   tools/ci/author-template.sh <empty work folder>
 set -euo pipefail
@@ -12,15 +13,15 @@ plugin="$work/night-owl"
 rm -rf "$plugin"
 mkdir -p "$work"
 cd "$root"
-cargo build -q --release -p paperpaw-sign
-cargo run -q -p paperpaw-dev -- new --github night-owl --code \
-    --sdk crates/paperpaw-sdk --dir "$plugin"
-# The tool's table of the interface is current, and it writes the plugin's
-# records of what it calls (the X4 Pro's is not part of the template).
+# The tool's table of the interface is current.
 python3 tools/abi-metadata-table.py --check
-cargo run -q -p paperpaw-dev -- metadata "$plugin"
-# The plugin's own configuration builds it (its compiler, its linker script).
-(cd "$plugin" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS CARGO_TARGET_DIR="$plugin/target" cargo x4)
-built="$plugin/target/riscv32imc-unknown-none-elf/release/night-owl"
-target/release/paperpaw-sign pack "$built" "$work/night-owl.ppn"
-target/release/paperpaw-sign plugin "$work/night-owl.ppn"
+cargo build -q --release -p paperpaw-sign
+cargo build -q -p paperpaw-dev
+dev="${CARGO_TARGET_DIR:-$root/target}/debug/paperpaw-dev"
+sign="${CARGO_TARGET_DIR:-$root/target}/release/paperpaw-sign"
+"$dev" new --github night-owl --code --sdk crates/paperpaw-sdk --dir "$plugin"
+# In the plugin's own target folder, with its own configuration.
+env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS -u CARGO_TARGET_DIR \
+    "$dev" build "$plugin" --sign-tool "$sign"
+test -s "$plugin/dist/x4/night-owl/code.ppn"
+test -s "$plugin/dist/x4/night-owl/plugin.ini"

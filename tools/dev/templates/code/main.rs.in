@@ -85,7 +85,13 @@ impl Plugin for @TYPE@ {
     }
 }
 
-// The plugin's entry, its heap and its panic handler. `native/metadata.bin` lists the device's
-// functions the plugin calls (`native/metadata.json` is its source); a call that is not listed
-// is refused on the device.
-paperpaw_sdk::native_plugin!(@TYPE@, metadata = include_bytes!("../native/metadata.bin"));
+// What the plugin calls of the device, as the record the packer puts into its file: one for
+// each chip, both made from `native/metadata.json` by `paperpaw-dev metadata` (and by
+// `paperpaw-dev build`). A call that is not listed is refused on the device.
+#[cfg(not(target_arch = "xtensa"))]
+const CALLS: &[u8] = include_bytes!("../native/metadata.bin");
+#[cfg(target_arch = "xtensa")]
+const CALLS: &[u8] = include_bytes!("../native/metadata.s3.bin");
+
+// The plugin's entry, its heap and its panic handler.
+paperpaw_sdk::native_plugin!(@TYPE@, metadata = CALLS);

@@ -33,6 +33,15 @@ const CODE_METADATA_BYTES: &[u8] = include_bytes!("../templates/code/metadata.bi
 /// The linker script of a plugin file, the release's own.
 const CODE_LINKER: &str = include_str!("../../../crates/paperpaw-native/paperpaw-plugin7.x");
 
+/// The template's record for the X4 Pro and X4 Classic, made of its list.
+fn s3_record() -> Vec<u8> {
+    crate::metadata::records(CODE_METADATA)
+        .ok()
+        .and_then(|(made, _)| made.into_iter().nth(1))
+        .map(|(_, bytes)| bytes)
+        .unwrap_or_default()
+}
+
 /// `check-publish`: whether the plugin store takes it.
 pub fn check(args: &[String]) -> Result<bool, String> {
     let problems = paperpaw_publish::run(args, None)?;
@@ -135,6 +144,7 @@ pub fn code_files(id: &str, sdk: Option<&Path>) -> Vec<(String, Vec<u8>)> {
             "native/metadata.bin".to_string(),
             CODE_METADATA_BYTES.to_vec(),
         ),
+        ("native/metadata.s3.bin".to_string(), s3_record()),
         (
             "plugin/i18n/en.ini".to_string(),
             format!(
@@ -149,17 +159,22 @@ pub fn code_files(id: &str, sdk: Option<&Path>) -> Vec<(String, Vec<u8>)> {
                 "# {name}: the code\n\n\
                  `src/main.rs` is the plugin: an entry in the tools menu that opens a screen. It is \
                  written for PaperPaw's plugin interface 7 and built without the standard library.\n\n\
-                 - **Build it for the Xteink X4 and X3:** `cargo x4`. `rust-toolchain.toml` names the \
-                 compiler, `.cargo/config.toml` and `paperpaw-plugin7.x` how the program is linked; \
-                 leave `RUSTFLAGS` unset. Commit the `Cargo.lock` the first build writes: \
-                 `check-publish` asks for it.\n\
+                 - **Build it:** `paperpaw-dev build` for the Xteink X4 and X3, \
+                 `paperpaw-dev build --device x4-pro` for the X4 Pro and X4 Classic. It says what is \
+                 missing of the compiler and how to install it, builds the program, packs it \
+                 (the packer `paperpaw-sign` comes with PaperPaw) and leaves the plugin as it \
+                 goes onto a card in `dist/<device>/{id}`. \
+                 `rust-toolchain.toml` names the X4's compiler, `.cargo/config.toml` and \
+                 `paperpaw-plugin7.x` how the program is linked; leave `RUSTFLAGS` unset. Commit \
+                 the `Cargo.lock` the first build writes: `check-publish` asks for it.\n\
+                 - **Try it:** copy the folder `dist/x4/{id}` (or `dist/x4-pro/{id}`) into the \
+                 folder `plugins` of the card. A device runs a plugin from the card without a \
+                 signature; the plugin store signs what it publishes.\n\
                  - **What it may call:** `native/metadata.json` lists the device's functions the code \
-                 calls, `native/metadata.bin` is the record made of it. A call that is not listed is \
-                 refused on the device, so the two change together with the code.\n\
-                 - **Its words:** `plugin/i18n/en.ini`; add a file for each language.\n\n\
-                 The built program is not a plugin file yet: packing it into `plugin/code.ppn`, \
-                 building it for the X4 Pro and checking it against a firmware are not part of \
-                 `paperpaw-dev` yet.\n"
+                 calls. `paperpaw-dev metadata` (and every build) makes the records of it, \
+                 `native/metadata.bin` and `native/metadata.s3.bin`, one for each chip. A call that \
+                 is not listed is refused on the device: add it to the list with the code.\n\
+                 - **Its words:** `plugin/i18n/en.ini`; add a file for each language.\n"
             )
             .into_bytes(),
         ),
@@ -401,6 +416,8 @@ mod tests {
             CODE_METADATA_BYTES
         );
         assert_eq!(read("paperpaw-plugin7.x"), CODE_LINKER);
+        // Both chips' records are what the list gives.
+        assert_eq!(crate::metadata::write(&dir, true), Ok(true));
         // `--sdk` without `--code` builds nothing.
         let alone: Vec<String> = ["--github", "x", "--sdk", "."]
             .iter()

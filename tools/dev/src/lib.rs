@@ -28,6 +28,7 @@
 //! and `report.json` in the output folder, `target/paperpaw-dev` unless
 //! `--out` says otherwise); errors make the run fail, for CI.
 
+pub mod build;
 pub mod cases;
 pub mod cli;
 pub mod data;
