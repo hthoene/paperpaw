@@ -18,6 +18,9 @@
 use super::{Allow, Around, Budget, Function, Image, read_function};
 use std::collections::BTreeMap;
 
+/// Per `allow indirect-in` line: the calls counted so far, and each function's.
+pub(super) type Sites = BTreeMap<usize, (u32, Vec<(String, u32)>)>;
+
 /// The crate a function belongs to: the first segment of its path, or, for a
 /// method of a trait impl (whose path is the method's name), the crate of the
 /// type in the symbol (`_ZN<n>_$LT$crate..module..Type$u20$as$u20$…`).
@@ -169,7 +172,7 @@ pub(super) fn parse_line(words: &[&str]) -> Option<(Allow, String)> {
 pub(super) fn in_a_family(
     budget: &Budget,
     used: &mut [bool],
-    sites: &mut BTreeMap<usize, u32>,
+    sites: &mut Sites,
     f: &Function,
     count: u32,
 ) -> bool {
@@ -181,7 +184,9 @@ pub(super) fn in_a_family(
             && family_matches(family, &krate)
         {
             used[n] = true;
-            *sites.entry(n).or_default() += count;
+            let (total, of) = sites.entry(n).or_default();
+            *total += count;
+            of.push((f.shown.clone(), count));
             return true;
         }
     }
@@ -189,14 +194,18 @@ pub(super) fn in_a_family(
 }
 
 /// The families whose calls through a register are more than their line allows.
-pub(super) fn ceilings_exceeded(budget: &Budget, sites: &BTreeMap<usize, u32>) -> Vec<String> {
+pub(super) fn ceilings_exceeded(budget: &Budget, sites: &Sites) -> Vec<String> {
     let mut out = Vec::new();
-    for (&n, &count) in sites {
+    for (&n, (count, of)) in sites {
         if let Allow::IndirectIn { family, max } = &budget.allow[n].0
-            && count > *max
+            && count > max
         {
+            // Each function with its count, to set against the base's list.
+            let mut list: Vec<_> = of.iter().map(|(f, c)| format!("  `{f}` {c}")).collect();
+            list.sort();
             out.push(format!(
-                "the functions of `{family}` have {count} call(s) through a register that no line of their own lists, above the {max} `allow indirect-in` allows"
+                "the functions of `{family}` have {count} call(s) through a register that no line of their own lists, above the {max} `allow indirect-in` allows; by function:\n{}",
+                list.join("\n")
             ));
         }
     }

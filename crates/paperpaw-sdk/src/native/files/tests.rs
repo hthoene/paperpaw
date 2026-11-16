@@ -255,7 +255,7 @@ fn stat_and_space_are_typed() {
     // Roots the service does not know are refused before the call.
     let calls = state.calls.get();
     assert!(matches!(
-        files.stat(&host, Root::Book, "", &mut input, &mut out),
+        files.stat(&host, Root::UserCss, "", &mut input, &mut out),
         Err(Error::Unsupported)
     ));
     assert_eq!(state.calls.get(), calls);
@@ -513,7 +513,7 @@ fn refusals_come_through_and_short_buffers_are_refused_before_a_call() {
     state.error.set(0);
     // Reserved roots never leave, whichever call.
     let calls = state.calls.get();
-    for root in [Root::Book, Root::UserCss, Root::DocumentCache] {
+    for root in [Root::UserCss, Root::DocumentCache] {
         assert_eq!(
             files
                 .list(&host, root, "", 0, &mut input, &mut out)
@@ -531,6 +531,22 @@ fn refusals_come_through_and_short_buffers_are_refused_before_a_call() {
             Err(Error::Unsupported)
         );
     }
+    assert_eq!(state.calls.get(), calls);
+    // The book root (3) only lists and stats; every changing op stays here.
+    assert_eq!(
+        files.make_dir(&host, Root::Book, "a", &mut input, &mut out),
+        Err(Error::Unsupported)
+    );
+    assert_eq!(
+        files
+            .space(&host, Root::Book, &mut input, &mut out)
+            .map(|s| s.free()),
+        Err(Error::Unsupported)
+    );
+    assert_eq!(
+        files.remove_step(&host, Root::Book, "a", 0, &mut input, &mut out),
+        Err(Error::Unsupported)
+    );
     assert_eq!(state.calls.get(), calls);
     // The bundle root (2) is read only: the host says Denied, and it comes through.
     state.error.set(abi::ERR_DENIED);
@@ -555,6 +571,68 @@ fn refusals_come_through_and_short_buffers_are_refused_before_a_call() {
     let mut short_in = [0u8; 4];
     assert_eq!(
         files.make_dir(&host, Root::Data, "a", &mut short_in, &mut out),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(state.calls.get(), calls);
+}
+
+#[test]
+fn the_book_folder_lists_and_stats_through_root_3_and_the_host_decides_when() {
+    open_files!(state, host, files);
+    let (mut input, mut out) = ([0; INPUT_BYTES], [0; OUTPUT_BYTES]);
+    reply(
+        &state,
+        &[&[
+            entry("cover.jpg", 0, 900, None),
+            entry("page1.png", 0, 1200, None),
+            end(1, None),
+        ]],
+    );
+    let page = files
+        .list(&host, Root::Book, "", 0, &mut input, &mut out)
+        .unwrap();
+    assert_eq!(state.op.get(), schema::OP_LIST);
+    assert_eq!(
+        page.entries().map(|e| e.name()).collect::<Vec<_>>(),
+        ["cover.jpg", "page1.png"]
+    );
+    assert_eq!(page.next(), None);
+    let bytes = sent(&state);
+    let batch = wire::records_decode(&bytes).unwrap();
+    assert!(matches!(
+        batch.iter().next(),
+        Some(Record::ServiceFsList(r)) if (r.root, r.path, r.cursor) == (3, "", 0)
+    ));
+    reply(&state, &[&[entry("page1.png", 0, 1200, None)]]);
+    let e = files
+        .stat(&host, Root::Book, "page1.png", &mut input, &mut out)
+        .unwrap();
+    assert_eq!((e.name(), e.size()), ("page1.png", 1200));
+    let bytes = sent(&state);
+    let batch = wire::records_decode(&bytes).unwrap();
+    assert!(matches!(
+        batch.iter().next(),
+        Some(Record::ServiceFsPath(r)) if (r.root, r.path) == (3, "page1.png")
+    ));
+    // Outside a folder or siblings document's format call the host says
+    // Unsupported, and a book that is one file has no folder to list.
+    for status in [abi::ERR_UNSUPPORTED, abi::ERR_NOT_FOUND] {
+        state.error.set(status);
+        assert_eq!(
+            files
+                .list(&host, Root::Book, "", 0, &mut input, &mut out)
+                .map(|p| p.len()),
+            Err(Error::from_status(status))
+        );
+    }
+    // A long path is still refused before the call.
+    state.error.set(0);
+    let calls = state.calls.get();
+    let long = "x".repeat(MAX_PATH + 1);
+    assert_eq!(
+        files
+            .list(&host, Root::Book, &long, 0, &mut input, &mut out)
+            .map(|p| p.len()),
         Err(Error::NoSpace)
     );
     assert_eq!(state.calls.get(), calls);
