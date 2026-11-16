@@ -223,7 +223,18 @@ impl Kernel {
         let gray = self.frame.gray_later;
         match gray.phase {
             Phase::Asked if refreshing => Some(self.now),
-            Phase::At(at) if self.gray_screen() == Some(gray.screen) => Some(at),
+            // Not while another frame waits (the step cannot start the pass
+            // then, and a time in the past would wake the shell at once, again
+            // and again); that frame's own wake and refresh bring the call.
+            Phase::At(at)
+                if self.gray_screen() == Some(gray.screen)
+                    && (at > self.now
+                        || (self.frame.pending.is_none()
+                            && self.frame.unrendered.is_none()
+                            && self.frame.deferred.is_none())) =>
+            {
+                Some(at)
+            }
             _ => None,
         }
     }
