@@ -431,23 +431,25 @@ fn a_cover_that_comes_after_the_first_frame_gets_one_pass_after_the_calm() {
     let effects = kernel.tick(Instant(3_200));
     assert!(effects.refresh().is_some() && effects.grays());
     render(&mut kernel);
-    // On the X4 a frame while grays are shown is drawn again whole (the shell
-    // asks for `draw_again`), so a part with pictures after the pass counts as
-    // the whole screen: no second pass, and the part is never marked in grays.
+    // A part frame is never marked in grays (the shell skips a small frame
+    // over grays). A second cover after the pass has pictures: grays are due
+    // again, once.
     late.set(true);
     kernel.invalidate(Rect::new(40, 10, 20, 20));
     let effects = kernel.finish();
     assert!(effects.refresh().is_some() && !effects.grays());
-    let effects = kernel.draw_again(Instant(4_000));
-    assert!(effects.refresh().is_some() && !effects.grays());
     render(&mut kernel);
-    assert_eq!(kernel.frame.gray_later.phase, Phase::Done);
+    assert_eq!(kernel.frame.gray_later.phase, Phase::Pictured);
+    kernel.tick(Instant(4_000));
+    let effects = kernel.tick(Instant(7_000));
+    assert!(effects.refresh().is_some() && effects.grays());
+    render(&mut kernel);
     let effects = kernel.tick(Instant(20_000));
     assert!(effects.refresh().is_none() && effects.wake_at().is_none());
 }
 
 #[test]
-fn a_part_after_the_grays_as_the_clock_makes_it_costs_no_pass() {
+fn a_part_without_pictures_leaves_the_grays_of_the_screen_as_they_are() {
     use crate::gray_later::Phase;
     let (mut kernel, late) = late_kernel();
     a_cover_comes(&mut kernel, &late);
@@ -456,19 +458,15 @@ fn a_part_after_the_grays_as_the_clock_makes_it_costs_no_pass() {
     assert!(kernel.tick(Instant(3_200)).grays());
     render(&mut kernel);
     assert_eq!(kernel.frame.gray_later.phase, Phase::Done);
-    // The clock: a small part with no key, which the X4's shell does not
-    // render but draws again whole. The whole Home has covers, and still no
-    // pass is due: not a minute after minute.
-    for minute in 1..=3 {
-        kernel.invalidate(Rect::new(40, 40, 10, 10));
-        let effects = kernel.finish();
-        assert!(effects.refresh().is_some() && !effects.grays());
-        kernel.draw_again(Instant(60_000 * minute));
-        render(&mut kernel);
-        assert_eq!(kernel.frame.gray_later.phase, Phase::Done);
-        let effects = kernel.tick(Instant(60_000 * minute + 10_000));
-        assert!(effects.refresh().is_none() && effects.wake_at().is_none());
-    }
+    // The clock: a small part with no picture, not in grays, no pass after.
+    late.set(false);
+    kernel.invalidate(Rect::new(40, 40, 10, 10));
+    let effects = kernel.finish();
+    assert!(effects.refresh().is_some() && !effects.grays());
+    render(&mut kernel);
+    assert_eq!(kernel.frame.gray_later.phase, Phase::Done);
+    let effects = kernel.tick(Instant(20_000));
+    assert!(effects.refresh().is_none() && effects.wake_at().is_none());
 }
 
 #[test]
