@@ -15,38 +15,13 @@ use std::sync::Mutex;
 
 use paperpaw_core::KernelBuilder;
 use paperpaw_core::sdk::ui::{self, UiStyle};
-use paperpaw_core::sdk::{
-    Canvas, Env, Id, Manifest, MemoryStorage, Plugin, RegisterError, Registrar, Screen, ScreenSpec,
-    Version,
-};
+use paperpaw_core::sdk::{Canvas, Env, Id, Manifest, MemoryStorage, Screen, ScreenSpec, Version};
 use paperpaw_emulator::{device::Device, headless, profiles};
 
 /// The descriptions found too long: device, language, setting, text.
 static CUT: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-/// Looks at every setting's description when its screen is drawn.
-struct Probe;
-
 const SCREEN: Id = Id::new_static("help-probe.screen");
-
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("help-probe"),
-            "Help probe",
-            Version::new(0, 1, 0),
-        )
-        .uses(paperpaw_core::sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
-            SCREEN,
-            "Help probe",
-            Box::new(|_, _| Box::new(Look)),
-        ))
-    }
-}
 
 struct Look;
 
@@ -90,8 +65,21 @@ fn look(env: &Env<'_>) {
     }
 }
 
+/// Adds the screen that looks at every setting's description when it is drawn.
 fn add(builder: KernelBuilder) -> KernelBuilder {
-    builder.plugin(Probe)
+    let manifest = Manifest::new(
+        Id::new_static("help-probe"),
+        "Help probe",
+        Version::new(0, 1, 0),
+    )
+    .uses(paperpaw_core::sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.add_screen(ScreenSpec::new(
+            SCREEN,
+            "Help probe",
+            Box::new(|_, _| Box::new(Look)),
+        ))
+    })
 }
 
 #[test]

@@ -212,8 +212,8 @@ X4 Pro, those not built into the firmware are files from the plugin
 store, signed by their authors, or one's own builds sent over USB or the
 Wi-Fi transfer ([docs/usb-transfer.md](docs/usb-transfer.md)), with no
 firmware rebuild. [Writing plugins](docs/plugins.md)
-walks through [`samples/hello-plugin`](samples/hello-plugin/src/lib.rs), a
-small one to start from.
+walks through the small plugin `paperpaw-dev new --code` makes, to start
+from.
 
 ## Try it in the emulator
 
