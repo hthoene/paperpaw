@@ -53,7 +53,6 @@ paperpaw_platform::geometry::Point
 paperpaw_platform::geometry::Rect
 paperpaw_platform::input::Instant
 paperpaw_platform::pixel::Color
-paperpaw_sdk::Priority
 paperpaw_sdk::SettingCheck
 paperpaw_sdk::native::Fingerprint
 paperpaw_sdk::ui::sections::Section
