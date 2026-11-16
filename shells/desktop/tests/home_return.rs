@@ -262,15 +262,15 @@ fn the_return_from_a_book_does_not_ask_the_library_for_each_band() {
     slot_counts::reset();
     run_script(&mut device, "back").unwrap();
     let calls = slot_counts::service_calls();
-    let of = |name: &str| {
+    let of = |op: &str| {
         calls
             .iter()
-            .filter(|(_, service, _)| *service == name)
+            .filter(|(_, service, name)| *service == "core.library" && *name == op)
             .count()
     };
-    let queries = of("core.library.query");
+    let queries = of("query");
     assert!(
-        (1..=3).contains(&queries) && of("core.library.book") <= 2 && of("core.library.cover") <= 1,
+        (1..=3).contains(&queries) && of("book") <= 2 && of("cover") <= 1,
         "the return asked the library {queries} times for its books: {calls:?}"
     );
 }
