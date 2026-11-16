@@ -265,6 +265,7 @@ impl Device {
         add: Option<AddPlugins>,
     ) -> Result<Self, KernelError> {
         budget::set_limit(profile.heap_budget);
+        card::insert();
         let config = user_config.as_deref();
         #[cfg_attr(
             not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),

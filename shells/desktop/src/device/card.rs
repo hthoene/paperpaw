@@ -15,13 +15,21 @@ pub enum Card {
 }
 
 thread_local! {
-    /// The card is out of its slot ([`super::Device::card_out`]).
+    /// The card is out of its slot ([`super::Device::card_out`]). Every
+    /// card a device opens obeys it, so it is kept by thread; a device
+    /// starts with its card in ([`insert`]).
     static CARD_OUT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Takes the card out of its slot or puts it back.
 pub(super) fn set_out(out: bool) {
     CARD_OUT.set(out);
+}
+
+/// A new device has its card: one made earlier on this thread may have
+/// ended with it out.
+pub(super) fn insert() {
+    set_out(false);
 }
 
 /// The answer of a card that is out: [`StorageError::CARD_GONE`].
@@ -134,9 +142,12 @@ impl Storage for Card {
         self.on(|s| s.remove_dir_all(path))
     }
     fn ignores_case(&self) -> bool {
+        // A property of the card, not something read from it: answered
+        // while it is out as well.
         self.on(|s| s.ignores_case())
     }
     fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        card_in().ok()?;
         self.on(|s| s.same_entry(a, b))
     }
     fn free_space(&self) -> Option<u64> {
@@ -148,6 +159,10 @@ impl Storage for Card {
         self.on(|s| s.total_space())
     }
     fn local_path(&self, path: &str, with: &mut dyn FnMut(&str)) {
-        self.on(|s| s.local_path(path, with));
+        // No path on the computer while the card is out: what reads the
+        // file by it would still find it.
+        if card_in().is_ok() {
+            self.on(|s| s.local_path(path, with));
+        }
     }
 }
