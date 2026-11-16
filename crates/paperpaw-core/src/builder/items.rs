@@ -30,7 +30,7 @@ pub(super) enum Source {
     /// The fonts the program is built with ([`KernelBuilder::built_in_fonts`]).
     Fonts(&'static BuiltInFonts),
     /// A closure ([`KernelBuilder::items`]). Boxed, so that an entry of the
-    /// list stays two words whatever a manifest holds.
+    /// list stays three words whatever a manifest holds.
     Given(Box<Given>),
 }
 
