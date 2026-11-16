@@ -346,7 +346,17 @@ fn refused_declarations_wait_for_allowance_or_the_full_retry_interval() {
         let world = World::new(true);
         let calls = Rc::new(Cell::new(0));
         let count = calls.clone();
-        world.host.service("core.device", 1, 0, |_, _| Err(-1));
+        world.host.service("core.device", 1, 0, |_, _| {
+            use paperpaw_core::native_host::registrations::ServiceDevWifi;
+            paperpaw_scripted_host::row(&Record::ServiceDevWifi(ServiceDevWifi {
+                state: 0,
+                ssid: "",
+                address: "",
+                host_name: "",
+                guests: 0,
+                flags: 0,
+            }))
+        });
         world.host.service("core.work", 1, 0, move |op, _| {
             assert_eq!(op, 1, "no work.state calls");
             count.set(count.get() + 1);
@@ -365,17 +375,6 @@ fn refused_declarations_wait_for_allowance_or_the_full_retry_interval() {
             );
         }
         assert_eq!(calls.get(), 1);
-        world.host.service("core.device", 1, 0, |_, _| {
-            use paperpaw_core::native_host::registrations::ServiceDevWifi;
-            paperpaw_scripted_host::row(&Record::ServiceDevWifi(ServiceDevWifi {
-                state: 0,
-                ssid: "",
-                address: "",
-                host_name: "",
-                guests: 0,
-                flags: 0,
-            }))
-        });
         if error == -11 {
             assert_eq!(
                 plugin
