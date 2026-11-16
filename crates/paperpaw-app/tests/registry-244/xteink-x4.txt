@@ -1049,6 +1049,7 @@ screen core.confirm-dialog | title=core.confirm.screen hints=Shown
 screen core.finishing-update | title=core.finishing-update.title hints=Shown
 screen core.firmware-confirm | title=core.firmware.title hints=Shown
 screen core.folder-editor | title=core.setting.library-folder hints=Shown
+screen core.low-memory | title=core.low-memory.title hints=Shown
 screen core.notice-box | title=core.notice-box hints=Shown
 screen core.placeholder | title=core.screen.placeholder hints=Shown
 screen core.status-items | title=core.status.choose hints=Shown

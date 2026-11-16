@@ -196,7 +196,7 @@ impl Screens {
     }
 
     /// Adds screens kept in the program, in place of those of their ids.
-    fn insert_fixed(&mut self, screens: &'static [paperpaw_sdk::FixedScreen]) {
+    pub(crate) fn insert_fixed(&mut self, screens: &'static [paperpaw_sdk::FixedScreen]) {
         for screen in screens {
             self.forget(screen.id().as_str());
             match self.find_fixed(screen.id().as_str()) {
