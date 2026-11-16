@@ -76,6 +76,8 @@ pub(crate) mod literata_notice;
 pub(crate) mod low_memory;
 #[path = "native_host/notice.rs"]
 pub(crate) mod notice;
+#[path = "native_host/start_notice.rs"]
+pub(crate) mod start_notice;
 
 #[path = "native_host/install_grants.rs"]
 pub(crate) mod install_grants;
