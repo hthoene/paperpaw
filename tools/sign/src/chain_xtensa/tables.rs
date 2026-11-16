@@ -8,6 +8,15 @@ use super::Image;
 /// The fewest words in a jump table: LLVM's default `min-jump-table-entries`.
 const JUMP_TABLE_MIN: usize = 4;
 
+/// What the data holds of jump tables.
+#[derive(Default)]
+pub(super) struct Tables {
+    /// Every address inside a function that a table holds.
+    pub(super) entries: BTreeSet<u32>,
+    /// The most tables the runs found hold (tables lie next to each other), by the start of the function.
+    pub(super) per_function: std::collections::BTreeMap<u32, u32>,
+}
+
 impl Image<'_> {
     /// Every address inside a function that a jump table holds: a run of at
     /// least [`JUMP_TABLE_MIN`] words next to each other outside the
@@ -19,8 +28,8 @@ impl Image<'_> {
     /// everything, and an entry for one made the result of the scan follow
     /// the layout (the same function resolved fewer calls after unrelated code
     /// moved, #271).
-    pub(super) fn pointed(&self) -> BTreeSet<u32> {
-        let mut found = BTreeSet::new();
+    pub(super) fn pointed(&self) -> Tables {
+        let mut found = Tables::default();
         let mut take = |base: u32, bytes: &[u8], skip_functions: bool| {
             let first = (4 - base % 4) % 4;
             let Some(bytes) = bytes.get(first as usize..) else {
@@ -29,9 +38,11 @@ impl Image<'_> {
             // The words of the run so far, and the function they are in.
             let mut run: Vec<u32> = Vec::new();
             let mut of = usize::MAX;
-            let mut flush = |run: &mut Vec<u32>| {
+            let mut flush = |run: &mut Vec<u32>, of: usize| {
                 if run.len() >= JUMP_TABLE_MIN {
-                    found.extend(run.iter().copied());
+                    found.entries.extend(run.iter().copied());
+                    *found.per_function.entry(self.funcs[of].start).or_default() +=
+                        (run.len() / JUMP_TABLE_MIN) as u32;
                 }
                 run.clear();
             };
@@ -43,17 +54,17 @@ impl Image<'_> {
                 match inside {
                     Some(f) if f == of => run.push(value),
                     Some(f) => {
-                        flush(&mut run);
+                        flush(&mut run, of);
                         of = f;
                         run.push(value);
                     }
                     None => {
-                        flush(&mut run);
+                        flush(&mut run, of);
                         of = usize::MAX;
                     }
                 }
             }
-            flush(&mut run);
+            flush(&mut run, of);
         };
         for (base, bytes) in &self.data {
             take(*base, bytes, false);

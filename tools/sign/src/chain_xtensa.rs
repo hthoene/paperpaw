@@ -543,6 +543,8 @@ fn named_form(w: u32) -> Option<(String, Option<u32>, bool)> {
 struct Around<'a> {
     word: &'a dyn Fn(u32) -> Option<u32>,
     pointed: &'a BTreeSet<u32>,
+    /// The jump tables found in each function (by its start).
+    tables: &'a BTreeMap<u32, u32>,
 }
 
 fn read_function(code: &[u8], start_addr: u32, around: &Around<'_>) -> Reads {
@@ -714,15 +716,19 @@ fn resolve(
     // The function's own start does not count as an address to jump to: a
     // vtable or a function pointer holds it, a jump table does not. Jump
     // tables are taken to hold absolute addresses of the instructions.
-    let jumps = insns.iter().any(|i| i.is_jx());
-    if entries.iter().all(|&n| n == 0) && jumps {
+    let jumps = insns.iter().filter(|i| i.is_jx()).count();
+    // A `jx` whose table was not found (one of fewer words than a table has)
+    // leaves blocks this reading would not see reached: more `jx` than
+    // tables gives the function up.
+    let tables = around.tables.get(&start_addr).copied().unwrap_or(0) as usize;
+    if (entries.iter().all(|&n| n == 0) || jumps > tables) && jumps > 0 {
         return give_up(reads);
     }
     // Only the function's own `jx` goes there (a jump table is its function's
     // own: `no_split_parts` refuses an image where it may not be). With none,
     // such a word is a number or text (`0SUB` in the pin names is 0x42555330)
     // that follows the layout: no entry.
-    if !jumps {
+    if jumps == 0 {
         entries.clear();
     }
     let mut next: Vec<Vec<usize>> = vec![Vec::new(); insns.len()];
@@ -1335,11 +1341,12 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     let mut used = vec![false; budget.allow.len()];
     let mut queue: VecDeque<usize> = VecDeque::new();
     let mut seen: BTreeSet<usize> = BTreeSet::new();
-    let pointed = image.pointed();
+    let tables = image.pointed();
     let word = |address: u32| image.word(address);
     let around = Around {
         word: &word,
-        pointed: &pointed,
+        pointed: &tables.entries,
+        tables: &tables.per_function,
     };
     let mut family_sites = family::Sites::new();
     seed(&image, budget, &mut report, &mut queue, &mut seen);
@@ -1465,3 +1472,5 @@ pub fn run(elf: &str, budget: &str) -> Result<(), String> {
 mod tests;
 #[cfg(test)]
 mod tests_frames;
+#[cfg(test)]
+mod tests_tables;
