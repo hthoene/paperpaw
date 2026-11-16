@@ -1,3 +1,0 @@
-Hallo grüßt dich mit Namen und zählt die Bücher, die du seit dem Start von PaperPaw geöffnet hast.
-
-Öffne es aus dem Werkzeugmenü. Deinen Namen stellst du in den Einstellungen unter Dein Name ein.

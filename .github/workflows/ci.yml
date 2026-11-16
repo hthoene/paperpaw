@@ -364,7 +364,7 @@ jobs:
           cargo build --release --target ${{ matrix.target }}
           -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics
           -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict
-          -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat
+          -p paperpaw-x4 -p paperpaw-fat
       - name: SDK interface-7 entry packs and rejects misalignment
         if: matrix.target == 'riscv32imc-unknown-none-elf'
         run: CARGO_TARGET_DIR="$PWD/target/abi7-sdk-entry" samples/abi7-sdk-entry/check.sh
@@ -564,6 +564,12 @@ jobs:
             "shells/xteink/target/$FIRMWARE_TARGET/release/paperpaw-xteink" "$out"/*.ppn
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
           python3 tools/plugin-files/catalogue.py "$out" "$version" https://example.invalid/ci
+      # What `paperpaw-dev new --code` writes for an author still builds against
+      # this checkout's SDK, packs and passes the packer's check (#244), for
+      # each chip once (the X3 and the X4 Classic take the other's build).
+      - name: The author's template builds and packs
+        if: matrix.device == 'x4' || matrix.device == 'x4-pro'
+        run: tools/ci/author-template.sh "$RUNNER_TEMP/author" "$DEVICE"
       # espup's toolchain is cached between runs (xteink-tools): the core
       # libraries installed into it go again, so that no run finds those
       # of another commit.
