@@ -563,6 +563,11 @@ jobs:
             "shells/xteink/target/$FIRMWARE_TARGET/release/paperpaw-xteink" "$out"/*.ppn
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
           python3 tools/plugin-files/catalogue.py "$out" "$version" https://example.invalid/ci
+      # What `paperpaw-dev new --code` writes for an author still builds against
+      # this checkout's SDK, packs and passes the packer's check (#244).
+      - name: The author's template builds and packs
+        if: matrix.device == 'x4'
+        run: tools/ci/author-template.sh "$RUNNER_TEMP/author"
       # espup's toolchain is cached between runs (xteink-tools): the core
       # libraries installed into it go again, so that no run finds those
       # of another commit.
