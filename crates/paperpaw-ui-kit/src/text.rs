@@ -275,6 +275,7 @@ const NEAR_EDGE: f32 = 0.04;
 ///
 /// # Errors
 /// Propagates errors of `measure` and allocation errors.
+#[inline(never)]
 pub fn wrap_with(
     mut measure: impl FnMut(&str) -> Result<f32, Error>,
     text: &str,
