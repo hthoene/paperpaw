@@ -1066,8 +1066,7 @@ fn a_jx_needs_an_address_to_jump_to_and_its_table_words_are_entries() {
     // No table: the `jx` cannot be placed, nothing is resolved (the `jx` is
     // counted as one indirect call too).
     assert_eq!(outcome(&lits, &funcs, &[]), (0, 2));
-    // The table (four words next to each other, LLVM's least) holds the
-    // `l32r`: reached, the literal loaded.
+    // The table (four words, LLVM's least) holds the `l32r`: reached, loaded.
     assert_eq!(outcome(&lits, &funcs, &[at + 6; 4]), (1, 1));
     // The table holds the `callx8`: reached with nothing loaded.
     assert_eq!(outcome(&lits, &funcs, &[at + 9; 4]), (0, 2));
@@ -1092,8 +1091,7 @@ fn a_jx_needs_an_address_to_jump_to_and_its_table_words_are_entries() {
 #[test]
 fn a_lone_word_that_equals_an_address_is_no_entry_even_where_a_jx_has_a_table() {
     let at = BASE + 0x40;
-    // entry; jx a3; l32r a8; callx8 a8; retw.n, as above: the table sends the
-    // flow to the `l32r`, so the call is resolved.
+    // As above: the table sends the flow to the `l32r`, the call is resolved.
     let code = [
         &entry(32)[..],
         &[0xa0, 0x03, 0x00],
@@ -1392,15 +1390,10 @@ fn an_indirect_in_line_is_a_ceiling_for_the_crates_functions_and_must_match_one(
         &["root"],
         &format!("allow indirect-in paperpaw_plugin_* 2{why}"),
     );
+    // The failure names each function and its count: to set against the base's.
     assert!(
-        over.problems.iter().any(|p| p.contains("have 3 call(s)")),
-        "{:?}",
-        over.problems
-    );
-    // The failure names each function and its count: to set against the base.
-    let named = over.problems.iter().find(|p| p.contains("have 3 call(s)"));
-    assert!(
-        named.is_some_and(|p| p.contains("`paperpaw_plugin_one::run` 2")
+        over.problems.iter().any(|p| p.contains("have 3 call(s)")
+            && p.contains("`paperpaw_plugin_one::run` 2")
             && p.contains("`paperpaw_plugin_two::go` 1")),
         "{:?}",
         over.problems
