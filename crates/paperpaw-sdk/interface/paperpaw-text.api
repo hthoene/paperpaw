@@ -135,7 +135,9 @@ pub paperpaw_text::GlyphRef::top: i16
 pub paperpaw_text::GlyphRef::width: u16
 impl paperpaw_text::GlyphRef<'_>
 pub fn paperpaw_text::GlyphRef<'_>::coverage(&self, u16, u16) -> u8
+pub fn paperpaw_text::GlyphRef<'_>::ink_box(&self) -> core::option::Option<(u16, u16, u16, u16)>
 pub fn paperpaw_text::GlyphRef<'_>::is_empty(&self) -> bool
+pub fn paperpaw_text::GlyphRef<'_>::levels(&self) -> impl core::ops::function::Fn(u32, u32) -> u8 + '_
 #[non_exhaustive] pub struct paperpaw_text::Line
 pub paperpaw_text::Line::hyphen: bool
 pub paperpaw_text::Line::last: bool
@@ -154,6 +156,7 @@ pub struct paperpaw_text::PackBuilder
 impl paperpaw_text::PackBuilder
 pub fn paperpaw_text::PackBuilder::add_strike(&mut self, f32, paperpaw_text::LineMetrics, alloc::vec::Vec<(char, paperpaw_text::Glyph)>)
 pub fn paperpaw_text::PackBuilder::build(&self) -> alloc::vec::Vec<u8>
+pub fn paperpaw_text::PackBuilder::compact(&mut self) -> &mut Self
 pub fn paperpaw_text::PackBuilder::kerning(&mut self, &[(char, char, f32)])
 pub fn paperpaw_text::PackBuilder::new() -> Self
 pub fn paperpaw_text::PackBuilder::table(&mut self, usize, u8, &[u8])

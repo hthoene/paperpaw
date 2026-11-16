@@ -72,6 +72,7 @@ pub use plural::{PluralCategory, PluralRule, cldr_rules};
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::ops::ControlFlow;
 
 use catalog::{LATIN as LATIN_DIGITS, Parked};
 
@@ -319,6 +320,48 @@ impl Translator {
         let english = |tag: &str| tag == "en" || tag.starts_with("en-");
         paperpaw_sort::sort_by_key(&mut languages, |&(tag, _)| (!english(tag), tag));
         languages
+    }
+
+    /// [`Translator::languages`] without a list: `visit` is given each
+    /// available language once, its tag and its name, in the same order
+    /// (English first, then the others by tag; a language of several
+    /// catalogs is named by the one added first), until it breaks. Nothing
+    /// is allocated: each language is found by a walk of the catalogs.
+    pub fn each_language(&self, visit: &mut dyn FnMut(&str, &str) -> ControlFlow<()>) {
+        fn key(tag: &str) -> (bool, &str) {
+            (!(tag == "en" || tag.starts_with("en-")), tag)
+        }
+        let mut last: Option<&str> = None;
+        loop {
+            // The next in the order after `last`, and the first added of it.
+            let mut next: Option<(u32, &str, &str)> = None;
+            let live = self
+                .catalogs
+                .iter()
+                .map(|c| (c.added, c.language(), c.name()));
+            let parked = self
+                .parked
+                .iter()
+                .map(|p| (p.added, p.language(), p.name()));
+            for (added, tag, name) in live.chain(parked) {
+                if last.is_some_and(|last| key(tag) <= key(last)) {
+                    continue;
+                }
+                let sooner = next.is_none_or(|(first, best, _)| {
+                    key(tag) < key(best) || (tag == best && added < first)
+                });
+                if sooner {
+                    next = Some((added, tag, name));
+                }
+            }
+            let Some((_, tag, name)) = next else {
+                return;
+            };
+            if visit(tag, name).is_break() {
+                return;
+            }
+            last = Some(tag);
+        }
     }
 
     /// The bytes the catalogs' indexes take on the heap (see
@@ -770,6 +813,19 @@ mod tests {
         t.add(Catalog::parse(DE_OVERRIDE).unwrap());
         let tags: Vec<&str> = t.languages().into_iter().map(|(tag, _)| tag).collect();
         assert_eq!(tags, ["en", "de", "de-AT"]);
+        // The walk without a list gives the same, in the same order.
+        let mut walked = Vec::new();
+        t.each_language(&mut |tag, name| {
+            walked.push((String::from(tag), String::from(name)));
+            ControlFlow::Continue(())
+        });
+        let listed: Vec<_> = t.languages();
+        assert!(
+            walked
+                .iter()
+                .map(|(t, n)| (t.as_str(), n.as_str()))
+                .eq(listed)
+        );
     }
 
     /// A catalog finds none of the keys before its first or after its

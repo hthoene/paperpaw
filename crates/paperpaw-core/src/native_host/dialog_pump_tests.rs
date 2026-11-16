@@ -31,6 +31,11 @@ std::thread_local! {
 }
 
 std::thread_local! {
+    /// Whether the asker opens the keyboard screen when it hears its answer.
+    static OPENS: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+std::thread_local! {
     /// Whether the next dialog shown closes itself.
     static SPAWN: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 }
@@ -152,11 +157,23 @@ impl NativeInstance for Asker {
         &self,
         bytes: &[u8],
         _: &Env<'_>,
-        _: &mut crate::native_host::commands::CommandStage<'_>,
+        stage: &mut crate::native_host::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
+        use crate::native_host::commands::{WireCommand, commands_decode, commands_encode};
         self.hear(bytes);
         if let Ok(wire::Record::EventAnswered(answered)) = wire::records_decode_single(bytes) {
             self.seen.borrow_mut().push(answered);
+            if OPENS.with(core::cell::Cell::take) {
+                let open = WireCommand::Open {
+                    target: "d.keyboard",
+                    mode: 0,
+                    slot: "",
+                    handover: 0,
+                };
+                let mut bytes = [0; 64];
+                let len = commands_encode(&[open], &mut bytes).unwrap();
+                assert_eq!(stage.stage(&commands_decode(&bytes[..len]).unwrap()), OK);
+            }
         }
         self.status
     }
@@ -480,14 +497,32 @@ fn a_confirm_question_is_answered_by_the_host_dialog() {
     );
     act(&mut w, 10, actions::CONFIRM);
     w.kernel.native_dialog_pump();
-    // Yes is choice 1, outcome 0; the reply event reached nobody else.
-    assert_eq!(answers(&w), [(2, 0, 1, 0)]);
+    // Yes is choice 1, outcome 0, the dialog closed by then (bit 0); the reply
+    // event reached nobody else.
+    assert_eq!(answers(&w), [(2, 0, 1, 1)]);
     assert_eq!(w.seen.borrow()[0].request, id);
     assert_eq!(w.store.request_count(), 0);
     assert_ne!(
         w.kernel.active_screen().map(Id::as_str),
         Some("core.confirm-dialog")
     );
+}
+
+/// An action run for a shell's remote control or a test closes the dialog
+/// before the asker hears the answer, as a key press does (#266): the screen
+/// the answer opens is not what the dialog's own close takes.
+#[test]
+fn a_screen_the_answer_opens_stays_on_top_after_an_action_that_was_run() {
+    use paperpaw_sdk::builtin::actions;
+    let mut w = world(Ok(OK));
+    ask_with(&w, 2, 1 << 9, "", 1);
+    w.kernel.native_dialog_pump();
+    OPENS.with(|opens| opens.set(true));
+    act(&mut w, 10, actions::CONFIRM);
+    let _ = w.kernel.tick(Instant(20));
+    // Bit 0: the dialog was closed when the answer was heard, as after a tap.
+    assert_eq!(answers(&w), [(2, 0, 1, 1)]);
+    assert_eq!(w.kernel.active_screen().map(Id::as_str), Some("d.keyboard"));
 }
 
 #[test]
@@ -519,7 +554,7 @@ fn a_choice_question_answers_the_line_chosen_commas_kept() {
     act(&mut w, 20, actions::DOWN);
     act(&mut w, 30, actions::CONFIRM);
     w.kernel.native_dialog_pump();
-    assert_eq!(answers(&w), [(1, 0, 1, 0)]);
+    assert_eq!(answers(&w), [(1, 0, 1, 1)]);
 }
 
 #[test]
@@ -570,7 +605,7 @@ fn equal_lines_answer_their_own_index_and_commas_stay() {
         }
         act(&mut w, 50, actions::CONFIRM);
         w.kernel.native_dialog_pump();
-        assert_eq!(answers(&w), [(1, 0, expected, 0)], "after {steps} steps");
+        assert_eq!(answers(&w), [(1, 0, expected, 1)], "after {steps} steps");
     }
 }
 
@@ -661,9 +696,33 @@ fn a_tap_on_a_line_of_a_host_choice_answers_it() {
     let y = i32::from(region.y) + i32::from(region.height) - gap - row / 2;
     tap_at(&mut w, 100, x, y);
     w.kernel.native_dialog_pump();
-    // The dialog is gone by then: bit 0 may be set, the answer is the same.
-    let seen: Vec<(u32, u32, u32)> = answers(&w).iter().map(|a| (a.0, a.1, a.2)).collect();
-    assert_eq!(seen, [(1, 0, 0)]);
+    // The dialog is gone by then: bit 0 is set.
+    assert_eq!(answers(&w), [(1, 0, 0, 1)]);
+}
+
+/// A tap (a real input, `Kernel::handle`) and an action that was run
+/// (`Kernel::run_action`, a shell's remote control) answer alike, the dialog
+/// closed in both when the asker hears of it: the two do not drift apart (#266).
+#[test]
+fn an_action_that_was_run_answers_a_host_choice_as_a_tap_does() {
+    use paperpaw_sdk::builtin::actions;
+    let mut tapped = world(Ok(OK));
+    ask_with(&tapped, 1, 0, "only", 1);
+    tapped.kernel.native_dialog_pump();
+    let (region, row, gap, _) = geometry(&tapped, 10);
+    let x = i32::from(region.x) + i32::from(region.width) / 2;
+    let y = i32::from(region.y) + i32::from(region.height) - gap - row / 2;
+    tap_at(&mut tapped, 100, x, y);
+    tapped.kernel.native_dialog_pump();
+    let mut run = world(Ok(OK));
+    ask_with(&run, 1, 0, "only", 1);
+    run.kernel.native_dialog_pump();
+    // The first step shows the focus, on the only line.
+    act(&mut run, 10, actions::DOWN);
+    act(&mut run, 20, actions::CONFIRM);
+    run.kernel.native_dialog_pump();
+    assert_eq!(answers(&tapped), [(1, 0, 0, 1)]);
+    assert_eq!(answers(&run), answers(&tapped));
 }
 
 /// More lines than the screen holds go on pages: the pager turns the page and
@@ -713,7 +772,7 @@ fn a_long_title_does_not_stop_a_host_choice_or_confirm() {
     act(&mut w, 20, actions::DOWN);
     act(&mut w, 30, actions::CONFIRM);
     w.kernel.native_dialog_pump();
-    assert_eq!(answers(&w), [(1, 0, 1, 0)]);
+    assert_eq!(answers(&w), [(1, 0, 1, 1)]);
     ask_titled(&w, 2, &long, "");
     w.kernel.native_dialog_pump();
     w.kernel.render(&mut |_, _| {});
@@ -855,13 +914,12 @@ fn a_staged_secret_question_is_secret_and_a_second_one_is_refused() {
     assert_eq!(w.store.request_count(), 1);
 }
 
-/// A question Back cancelled reaches its asker before anything else of the
+/// A question cancelled after a pass reaches its asker before anything else of the
 /// next pass (here the change of the stack the close made): what is served
 /// after it (a computer's next request on the cable) never finds the
 /// question still open.
 #[test]
 fn a_cancelled_question_is_told_before_the_next_passes_events() {
-    use paperpaw_sdk::builtin::actions;
     let mut w = world(Ok(OK));
     let heard = Rc::new(RefCell::new(Vec::new()));
     let owner = w
@@ -894,8 +952,11 @@ fn a_cancelled_question_is_told_before_the_next_passes_events() {
         .ask(who, None, &question, false, None, false)
         .unwrap();
     let _ = w.kernel.tick(Instant(5));
-    // Back: the pass of this call ran before the dialog closed.
-    act(&mut w, 10, actions::BACK);
+    // The close is queued (as one a plugin stages from an event of the
+    // pass): the pass of this call runs before the dialog closes.
+    w.kernel.output.commands.push(paperpaw_sdk::Command::Back);
+    let _ = w.kernel.tick(Instant(10));
+    assert!(w.kernel.native_dialog_answers_waiting());
     heard.borrow_mut().clear();
     let _ = w.kernel.tick(Instant(20));
     assert_eq!(

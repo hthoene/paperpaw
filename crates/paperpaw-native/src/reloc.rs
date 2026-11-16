@@ -51,6 +51,7 @@ impl PatchKind {
     }
 
     /// The bits of the instruction a patch keeps.
+    #[cfg(any(test, feature = "kernel"))]
     pub(crate) const fn kept(self) -> u32 {
         match self {
             PatchKind::Hi20 => 0x0000_0FFF,
@@ -62,6 +63,7 @@ impl PatchKind {
     /// The bits a patch writes for the distance `distance`, as `auipc`
     /// and its partner split it: the upper part rounded, so the lower one
     /// is signed.
+    #[cfg(any(test, feature = "kernel"))]
     pub(crate) const fn bits(self, distance: u32) -> u32 {
         let hi = distance.wrapping_add(0x800) & 0xFFFF_F000;
         let lo = distance.wrapping_sub(hi);

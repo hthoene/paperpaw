@@ -81,6 +81,11 @@ fn world(subscribed: bool) -> World {
             .row(&storage, ".paperpaw/plugins/a/p.png", &[90_u8; 40])
             .unwrap();
     }
+    // Its install folder (root 2) holds the one it ships, of another size.
+    let mut writer = PngWriter::new(&storage, BUNDLED, 30, 10).unwrap();
+    for _ in 0..10 {
+        writer.row(&storage, BUNDLED, &[200_u8; 30]).unwrap();
+    }
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .storage(storage)
         .build()
@@ -105,6 +110,26 @@ fn world(subscribed: bool) -> World {
         told,
         answer,
     }
+}
+
+/// The picture the plugin `a` ships, in its install folder.
+const BUNDLED: &str = "plugins/a/pictures/cat.png";
+
+/// Wires the files host that says which plugins are linked: `linked` ones.
+fn wire_files(w: &World, linked: &[&'static str]) {
+    use crate::native_host::{linked_plugins::LinkedPlugins, storage_files::StorageFiles};
+    let set = Rc::new(LinkedPlugins::default());
+    for id in linked {
+        set.add(id).unwrap();
+    }
+    let storage: Rc<dyn paperpaw_platform::Storage> = Rc::new(MemoryStorage::new());
+    w.kernel
+        .shared
+        .native_instances
+        .hosts()
+        .unwrap()
+        .wire_files(Rc::new(StorageFiles::new(storage, Rc::default(), set)))
+        .unwrap();
 }
 
 fn prepare(root: u32, path: &str, cookie: u32) -> ImageCommand {
@@ -178,10 +203,45 @@ fn root_one_never_reaches_the_plugins_folder_or_the_hosts() {
     let mut told = w.told();
     told.sort_unstable();
     // Each is answered with the card status (4), none was decoded; the
-    // folder of a plugin that is no running data plugin is not there (6).
+    // folder of a plugin that is no running data plugin is not there (6),
+    // and neither is a file its own install folder does not hold.
     assert_eq!(
         told.iter().map(|t| (t.0, t.1)).collect::<Vec<_>>(),
-        [(1, 6), (2, 4), (3, 4), (4, 4)]
+        [(1, 6), (2, 4), (3, 4), (4, 6)]
+    );
+}
+
+#[test]
+fn a_picture_a_plugin_ships_is_decoded_from_its_own_install_folder() {
+    let mut w = world(true);
+    wire_files(&w, &[]);
+    w.apply(std::vec![
+        prepare(2, "pictures/cat.png", 1),
+        // Not there, and nothing above the folder or of another plugin.
+        prepare(2, "pictures/dog.png", 2),
+        prepare(2, "../a/pictures/cat.png", 3),
+        prepare(2, "../../.paperpaw/plugins/a/p.png", 4),
+    ]);
+    while w.kernel.native_image_pump() {}
+    let mut told = w.told();
+    told.sort_unstable();
+    // The shipped one is ready with its own size (not root 0's 40x20).
+    assert_eq!(told[0], (1, 0, 30, 10));
+    assert_eq!(
+        told[1..].iter().map(|t| (t.0, t.1)).collect::<Vec<_>>(),
+        [(2, 6), (3, 4), (4, 4)]
+    );
+}
+
+#[test]
+fn a_linked_plugin_has_no_install_folder_whatever_the_card_holds() {
+    let mut w = world(true);
+    wire_files(&w, &["a"]);
+    w.apply(std::vec![prepare(2, "pictures/cat.png", 1)]);
+    while w.kernel.native_image_pump() {}
+    assert_eq!(
+        w.told().iter().map(|t| (t.0, t.1)).collect::<Vec<_>>(),
+        [(1, 6)]
     );
 }
 

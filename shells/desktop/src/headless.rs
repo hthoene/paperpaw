@@ -16,6 +16,7 @@
 //! | `run:calibre.open` | run an action, as a button bound to it would |
 //! | `open:home.add-widget:kind=core.widgets.books` | open a screen with its parameters, as a plugin would |
 //! | `redraw` | draw the whole screen again, nothing on it changed |
+//! | `card-out`, `card-in` | the card is taken out of its slot (everything asked of the storage fails as on a card that went) and put back |
 //! | `phone-joins` | a phone joins the device's own network (the setup with a phone) |
 //! | `ble-key:right` | the pretend Bluetooth remote's key pressed (`right`, `left`, `up`, `down`, `page-down`, `page-up`, `space`, `enter`, `escape`, `volume-up`, `volume-down`), once its keys go to the key maps |
 //! | `reset-peak` | measure the heap's peak anew from now (what one step takes) |
@@ -109,6 +110,8 @@ fn run_step(device: &mut Device, step: &str) -> Result<(), String> {
             device.open_screen(screen, params);
         }
         ["redraw"] => device.draw_again(),
+        ["card-out"] => device.card_out(true),
+        ["card-in"] => device.card_out(false),
         ["phone-joins"] => device.phone_joins(),
         ["ble-key", key] => {
             if !device.ble_key(key) {

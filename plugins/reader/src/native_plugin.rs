@@ -857,12 +857,15 @@ impl NativeReader {
 
     /// The screen stack changed: where the reading screen is no longer on top,
     /// nothing is read aloud (the table of contents, a menu, another plugin's
-    /// screen, the library). Asked only while something is read aloud.
+    /// screen, the library), and the books' tables of letters are let go (the
+    /// store over a book needs the room; they are made again on the next page).
+    /// Asked only while something is read aloud or a book holds tables.
     fn stacked(&mut self, host: &Host<'_>) -> Result<(), Error> {
         // *Read aloud* kept for the book opening at the start goes with any other
         // screen on top of its reading screen.
         let kept = self.aloud_asked.is_some() && self.screens.top_instance(SCREEN).is_some();
-        if !kept && !self.screens.all().any(|view| view.reading_aloud()) {
+        let aloud = kept || self.screens.all().any(|view| view.reading_aloud());
+        if !aloud && !self.screens.all().any(|view| view.holds_tables()) {
             return Ok(());
         }
         if self.ui.is_none() {
@@ -870,8 +873,13 @@ impl NativeReader {
         }
         let top = self.stack_top(host)?;
         if top.is_none() || top != self.screens.top_instance(SCREEN) {
-            self.aloud_asked = None;
-            self.stop_speech(host);
+            for view in self.screens.all() {
+                view.free_tables();
+            }
+            if aloud {
+                self.aloud_asked = None;
+                self.stop_speech(host);
+            }
         }
         Ok(())
     }
