@@ -36,7 +36,9 @@ use crate::native_backing::Backing;
 use crate::native_flow::{Call, Pending, Purpose, Table, create_body};
 use crate::native_model::{self, MAX_ANSWER, Remote, Secret, failure, percent_text, progress_body};
 use crate::native_store as store;
-use crate::native_sync::{Action, Answer, Answered as Chose, Ctx, Engine, Notice, Offer, Position};
+use crate::native_sync::{
+    Action, Answer, Answered as Chose, Ctx, Engine, Notice, Offer, PUSH_EVERY_MS, Position,
+};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/kosync_declarations.rs"));
@@ -51,6 +53,15 @@ const MOST_OFFERS: usize = 4;
 const PUSH_WITHIN_MS: u32 = 30 * 60 * 1000;
 /// Digits of a `u32`.
 const DIGITS: usize = 10;
+
+#[derive(Default)]
+enum PushWork {
+    #[default]
+    Idle,
+    Declared,
+    Denied,
+    Full(u64),
+}
 
 /// The screen: the account and the rows it shows.
 struct View {
@@ -97,7 +108,7 @@ pub struct NativeKosync {
     offers: Vec<Asked>,
     /// The server the account belongs to; another one signs out.
     server: Option<String>,
-    push_declared: bool,
+    push_work: PushWork,
 }
 
 impl Plugin for NativeKosync {
@@ -142,17 +153,17 @@ impl Plugin for NativeKosync {
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.resumed(ctx, out))
             }
             Event::WorkDue(due) if token == WORK_DUE && due.key() == PUSH_WORK => {
-                self.push_declared = false;
+                self.push_work = PushWork::Idle;
                 self.with_engine(host, due.now_ms(), |engine, ctx, out| {
                     engine.send_now(ctx, out)
                 })
             }
             Event::WorkRefused(refused) if token == WORK_REFUSED && refused.key() == PUSH_WORK => {
-                self.push_declared = false;
+                self.push_work = PushWork::Idle;
                 Ok(())
             }
             Event::WorkAllowed { now_ms, .. } if token == WORK_ALLOWED => {
-                self.push_declared = false;
+                self.push_work = PushWork::Idle;
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.allowed(ctx, out))
             }
             Event::ActionRun { now_ms, .. } if token == SYNC_NOW => self.sync_now(host, now_ms),
@@ -456,7 +467,7 @@ impl NativeKosync {
                 Action::Send(position) => self.send(host, ctx, &position)?,
                 Action::Offer(offer) => self.offer(host, offer)?,
                 Action::Notice(notice) => self.notice(host, notice)?,
-                Action::PushLater => self.push_later(host)?,
+                Action::PushLater => self.push_later(host, ctx.now_ms)?,
             }
         }
         Ok(())
@@ -532,7 +543,7 @@ impl NativeKosync {
     }
 
     fn send(&mut self, host: &Host<'_>, _ctx: Ctx, position: &Position) -> Result<(), Error> {
-        self.push_declared = false;
+        self.push_work = PushWork::Idle;
         match self.start_send(host, position) {
             Ok(true) => Ok(()),
             Ok(false) | Err(Error::Busy | Error::NoMemory) => {
@@ -625,8 +636,14 @@ impl NativeKosync {
         self.table.add(pending)
     }
 
-    fn push_later(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        if self.push_declared || !self.backing.can_send() {
+    fn push_later(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
+        if !self.backing.can_send()
+            || match self.push_work {
+                PushWork::Idle => false,
+                PushWork::Full(at) => now_ms.saturating_sub(at) < PUSH_EVERY_MS,
+                PushWork::Declared | PushWork::Denied => true,
+            }
+        {
             return Ok(());
         }
         let Some(work) = &self.work else {
@@ -640,10 +657,17 @@ impl NativeKosync {
         match work.declare(host, &spec, &mut input, &mut out) {
             // No room for it: the progress goes with the next page or when the book closes.
             Ok(()) => {
-                self.push_declared = true;
+                self.push_work = PushWork::Declared;
                 Ok(())
             }
-            Err(Error::Full | Error::Denied | Error::Unsupported) => Ok(()),
+            Err(Error::Full) => {
+                self.push_work = PushWork::Full(now_ms);
+                Ok(())
+            }
+            Err(Error::Denied | Error::Unsupported) => {
+                self.push_work = PushWork::Denied;
+                Ok(())
+            }
             Err(error) => Err(error),
         }
     }
@@ -1236,7 +1260,7 @@ impl NativeKosync {
         self.key = Some(Secret::copy(key)?);
         let mut scratch = [0; 1200];
         CommandSender::new(host, &mut scratch).set_setting(USER, SettingValue::Text(user))?;
-        self.push_declared = false;
+        self.push_work = PushWork::Idle;
         if let Some(engine) = &mut self.engine {
             engine.account_changed();
         }
@@ -1255,7 +1279,7 @@ impl NativeKosync {
         self.key = None;
         let mut scratch = [0; 64];
         CommandSender::new(host, &mut scratch).set_setting(USER, SettingValue::Text(""))?;
-        self.push_declared = false;
+        self.push_work = PushWork::Idle;
         if let Some(engine) = &mut self.engine {
             engine.account_changed();
         }

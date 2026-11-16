@@ -279,10 +279,19 @@ fn page_turns_between_pushes_do_not_probe_wifi_or_query_work() {
 fn turn(now_ms: u64) -> Vec<u8> {
     use paperpaw_core::native_host::registrations::{EventPageTurned, Record};
     paperpaw_scripted_host::event_batch(&Record::EventPageTurned(EventPageTurned {
-        now_ms, section: 0, offset: 20, progress_ppm: 200_000,
-        path: "first.epub", title: "Test", chapter: "", page: None,
-        pages: None, insert: None, chapter_left: None,
-    })).unwrap()
+        now_ms,
+        section: 0,
+        offset: 20,
+        progress_ppm: 200_000,
+        path: "first.epub",
+        title: "Test",
+        chapter: "",
+        page: None,
+        pages: None,
+        insert: None,
+        chapter_left: None,
+    }))
+    .unwrap()
 }
 
 #[test]
@@ -301,13 +310,98 @@ fn a_refused_push_is_declared_again_without_querying_work_state() {
     assert_eq!(world.opened(&plugin, "first.epub", 100_000).status, 0);
     assert_eq!(world.complete(&plugin, 0, 200, b"{}").status, 0);
     for now in [1000, 2000] {
-        assert_eq!(plugin.event(tokens::PAGE_TURNED, &turn(now)).unwrap().status, 0);
+        assert_eq!(
+            plugin
+                .event(tokens::PAGE_TURNED, &turn(now))
+                .unwrap()
+                .status,
+            0
+        );
     }
     assert_eq!(*calls.borrow(), [1]);
     let refused = event_batch(&Record::EventWorkRefused(EventWorkRefused {
-        now_ms: 2500, token: tokens::WORK_DUE, reason: 13, key: tokens::PUSH_WORK,
-    })).unwrap();
+        now_ms: 2500,
+        token: tokens::WORK_DUE,
+        reason: 13,
+        key: tokens::PUSH_WORK,
+    }))
+    .unwrap();
     assert_eq!(plugin.event(13, &refused).unwrap().status, 0);
-    assert_eq!(plugin.event(tokens::PAGE_TURNED, &turn(3000)).unwrap().status, 0);
+    assert_eq!(
+        plugin
+            .event(tokens::PAGE_TURNED, &turn(3000))
+            .unwrap()
+            .status,
+        0
+    );
     assert_eq!(*calls.borrow(), [1, 1]);
+}
+
+#[test]
+fn refused_declarations_wait_for_allowance_or_the_full_retry_interval() {
+    use paperpaw_core::native_host::registrations::{EventWorkAllowed, Record};
+    use paperpaw_scripted_host::event_batch;
+    use std::{cell::Cell, rc::Rc};
+    for error in [-12, -11] {
+        let world = World::new(true);
+        let calls = Rc::new(Cell::new(0));
+        let count = calls.clone();
+        world.host.service("core.device", 1, 0, |_, _| Err(-1));
+        world.host.service("core.work", 1, 0, move |op, _| {
+            assert_eq!(op, 1, "no work.state calls");
+            count.set(count.get() + 1);
+            Err(error)
+        });
+        let plugin = world.load();
+        assert_eq!(world.opened(&plugin, "first.epub", 100_000).status, 0);
+        assert_eq!(world.complete(&plugin, 0, 200, b"{}").status, 0);
+        for now in 1..=12 {
+            assert_eq!(
+                plugin
+                    .event(tokens::PAGE_TURNED, &turn(now * 1000))
+                    .unwrap()
+                    .status,
+                0
+            );
+        }
+        assert_eq!(calls.get(), 1);
+        world.host.service("core.device", 1, 0, |_, _| {
+            use paperpaw_core::native_host::registrations::ServiceDevWifi;
+            paperpaw_scripted_host::row(&Record::ServiceDevWifi(ServiceDevWifi {
+                state: 0,
+                ssid: "",
+                address: "",
+                host_name: "",
+                guests: 0,
+                flags: 0,
+            }))
+        });
+        if error == -11 {
+            assert_eq!(
+                plugin
+                    .event(tokens::PAGE_TURNED, &turn(62_000))
+                    .unwrap()
+                    .status,
+                0
+            );
+            assert_eq!(calls.get(), 2);
+        }
+        let allowed = event_batch(&Record::EventWorkAllowed(EventWorkAllowed {
+            now_ms: 63_000,
+        }))
+        .unwrap();
+        assert_eq!(
+            plugin.event(tokens::WORK_ALLOWED, &allowed).unwrap().status,
+            0
+        );
+        let before = calls.get();
+        assert_eq!(
+            plugin
+                .event(tokens::PAGE_TURNED, &turn(64_000))
+                .unwrap()
+                .status,
+            0
+        );
+        assert_eq!(calls.get(), before + 1);
+    }
 }
