@@ -64,6 +64,7 @@ mod input_filters;
 mod io;
 mod key_guard;
 mod keymap;
+mod layer;
 mod memory_notice;
 mod meter;
 pub mod native_host;
@@ -79,6 +80,8 @@ mod room;
 mod screens;
 mod secrets_i6;
 mod shared_env;
+mod tall_band;
+use layer::Layer;
 use screens::ActiveScreen;
 #[cfg(test)]
 mod tests;
@@ -109,7 +112,7 @@ use paperpaw_sdk::setting::{Setting, SettingType};
 use paperpaw_sdk::{
     Actions, Capabilities, Command, Contribution, Cx, Direction, Env, EnvParts, Fonts, Formats,
     Gesture, GestureKind, Handled, HintVisibility, Hyphenation, Id, Manifest, Menus, Metrics,
-    Output, Params, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Screen, Settings,
+    Output, Params, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Settings,
     ShowsThrough, StatusItems,
 };
 
@@ -223,7 +226,7 @@ pub struct Kernel {
     /// Work plugins declared, timers among it (see [`work`]).
     works: work::Queue,
     /// The short message showing ([`Command::Notify`]) and until when.
-    notice: Option<(Box<dyn Screen>, Instant)>,
+    notice: Option<(Box<dyn Layer>, Instant)>,
     stack: Vec<ActiveScreen>,
     output: Output,
     warnings: Vec<Warning>,
