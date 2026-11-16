@@ -2,9 +2,10 @@
 
 #![allow(clippy::unwrap_used, reason = "tests fail on unexpected errors")]
 
+use crate::Items;
 use alloc::{format, rc::Rc, string::String, vec::Vec};
 use paperpaw_i18n::{Catalog, CatalogFile, MAX_READ};
-use paperpaw_sdk::{ActionSpec, Command, Id, Manifest, Plugin, RegisterError, Registrar, Version};
+use paperpaw_sdk::{ActionSpec, Command, Id, Manifest, RegisterError, Version};
 
 use crate::{Kernel, tests::DEVICE};
 
@@ -27,14 +28,8 @@ impl CatalogFile for File {
 const FILL: Id = Id::new_static("cache.fill");
 const CHECK: Id = Id::new_static("cache.check");
 
-struct Reader;
-
-impl Plugin for Reader {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("cache"), "Cache", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn reader() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_action(ActionSpec::new(FILL, "Fill").handler(|env, _, _| {
             for n in 0..1000 {
                 let _ = env.i18n().tr(&format!("filler.{n}"));
@@ -49,6 +44,11 @@ impl Plugin for Reader {
     }
 }
 
+/// What [`reader`] registers under.
+fn reader_manifest() -> Manifest {
+    Manifest::new(Id::new_static("cache"), "Cache", Version::new(1, 0, 0))
+}
+
 fn kernel() -> Kernel {
     let mut source = String::from(
         "[meta]\nlanguage = es\n[messages]\nlate.notice = Translated notice\nlate.button = Translated button\n",
@@ -59,7 +59,10 @@ fn kernel() -> Kernel {
         ));
     }
     let bytes = Catalog::compile(&source).unwrap();
-    let mut kernel = Kernel::builder(DEVICE).plugin(Reader).build().unwrap();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(reader_manifest(), reader())
+        .build()
+        .unwrap();
     kernel
         .shared
         .translator

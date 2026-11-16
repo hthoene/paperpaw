@@ -6,8 +6,10 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::super::*;
 use super::{BOUND, STAGED, STAGED_ANSWER, STAGED_HANDOVER, STAGED_ON_SHOWN, key};
+use crate::Items;
 use crate::native_host::commands::{WireCommand, commands_encode};
 use paperpaw_sdk::{Id, Params};
+use paperpaw_sdk::{Manifest, RegisterError};
 
 /// The notice slot's screen: a plain overlay (the kernel keeps a notice over the stack).
 struct NoticeScreen;
@@ -20,19 +22,8 @@ impl paperpaw_sdk::Screen for NoticeScreen {
     }
 }
 
-struct NoticePlugin;
-
-impl paperpaw_sdk::Plugin for NoticePlugin {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            Id::new_static("nt"),
-            "Notice",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+fn notice_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_screen(paperpaw_sdk::ScreenSpec::new(
             Id::new_static("nt.notice"),
             "notice",
@@ -45,6 +36,16 @@ impl paperpaw_sdk::Plugin for NoticePlugin {
         )?;
         Ok(())
     }
+}
+
+/// What [`notice_plugin`] registers under.
+fn notice_plugin_manifest() -> Manifest {
+    paperpaw_sdk::Manifest::new(
+        Id::new_static("nt"),
+        "Notice",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
+    .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// The screen ids on the stack, bottom to top.
@@ -60,7 +61,7 @@ fn staged(policy: u32, commands: &[WireCommand<'_>], on_shown: bool, answer: i32
     super::super::ARMS.with(|arms| arms.set(1));
     super::super::MENUS.with(|menus| menus.set(BOUND));
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(NoticePlugin)
+        .items(notice_plugin_manifest(), notice_plugin())
         .build()
         .unwrap();
     install(&mut kernel, policy << 6).unwrap();
