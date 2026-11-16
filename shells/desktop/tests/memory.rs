@@ -483,15 +483,15 @@ fn the_store_with_the_devices_tls_stays_within_the_x4_budget() {
 /// the old one beside it. 12.6 KiB with the store's own changes (#1452), 13.4 KiB
 /// with the font change of #1457 beside them (its install peak is 0.8 KiB
 /// higher): the line is that plus a margin of 0.2 KiB. The second install
-/// measured 13.6 KiB since T41: on the line, and one build of the same source
-/// (the Home PR #1552, another target directory) gave 13.7 KiB once. The line
-/// is 13.8 KiB since 2026-11-16 (#271): on integration `e2c186c66` one binary
-/// gave 13.6 / 13.4 KiB (install / install2) in 20 runs, 10 and 10 with 32
-/// busy loops beside it (the machine's load was above 40 in both), the live
-/// heap after each step the same in all of them (see [`INSTALL_LIVE_GROWTH_KIB`]):
-/// no spread from load was seen, so the 0.2 KiB over the highest peak seen is
-/// for the build-to-build difference. The live growth is what pins a real
-/// regression.
+/// measured 13.6 KiB since T41: on the line. The line is 13.8 KiB since 2026-11-16
+/// (#271): on integration `e2c186c66` one binary gave 13.6 / 13.4 KiB (install /
+/// install2) in 20 runs, 10 and 10 with 32 busy loops beside it (the machine's
+/// load was above 40 in both), the live heap after each step the same in all of
+/// them (see [`INSTALL_LIVE_GROWTH_KIB`]): no spread from load. The 13.7 KiB seen
+/// on the train tree comes with the source of #1547, not with the build (QA's
+/// bisect). The 0.2 KiB over the highest peak seen is the margin of the line; a
+/// member that grows the live heap more than the pins below is named and the pin
+/// set to what was measured.
 const INSTALL_GROWTH_KIB: f64 = 13.8;
 
 /// What an install leaves live after it, over what was live before it (KiB, as
