@@ -1736,11 +1736,6 @@ reason).lasting(...))` on a screen (it ends when the screen closes), or
 `Command::KeepAwake` from work and services; renew it before it ends,
 let go with `Command::LetSleep`. The reader can switch holds off.
 
-`samples/frame-test` does all of this and shows what it measures (frames
-a second, the work as hot and as ordinary code, the drawing, the heap):
-`cargo run -p paperpaw-emulator --features frame-test`, then *Frame
-test* in the tools.
-
 ### Work in the background
 
 What a plugin does on its own, not because the reader just asked for
