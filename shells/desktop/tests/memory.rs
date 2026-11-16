@@ -496,8 +496,10 @@ const INSTALL_GROWTH_KIB: f64 = 13.8;
 
 /// What an install leaves live after it, over what was live before it (KiB, as
 /// printed): the same in every run measured (#271), no margin but the printed
-/// tenth.
-const INSTALL_LIVE_GROWTH_KIB: [(&str, f64); 2] = [("install", 2.6), ("install2", 0.9)];
+/// tenth. `install` is 2.7 KiB with the source of #1547 (2.6 without it; QA's train 51
+/// smoke, bisected: #1569 and #1551 leave 2.6): the member is named, the pin set
+/// to what was measured.
+const INSTALL_LIVE_GROWTH_KIB: [(&str, f64); 2] = [("install", 2.7), ("install2", 0.9)];
 
 /// The run prints tenths of a KiB, and the difference of two of them is not
 /// exact as a float (137.3 - 123.7 is 13.600000000000009): half a tenth is
