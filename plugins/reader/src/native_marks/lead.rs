@@ -7,14 +7,18 @@
 //! where the page has the text the mark kept: a wrong place is hidden, never
 //! shown. Nothing is rewritten.
 //!
-//! Only the first [`LEAD_MAX`] bytes are compared, white space as one space; a
-//! page that ends inside them still matches by what it has (at least
-//! [`LEAD_MIN`] bytes), as the mark's text goes on over the page break.
+//! Only the first [`LEAD_MAX`] bytes are compared, white space as one space, soft
+//! hyphens left out; a page that ends inside them still matches by what it has
+//! (at least [`LEAD_MIN`] bytes, or [`TAIL_MIN`] where it starts a word), as the
+//! mark's text goes on over the page break.
 
 /// Most bytes of a mark's text that are compared (and held for a highlight).
 pub const LEAD_MAX: usize = 32;
 /// The least bytes that tell a place: a shorter text is on too many pages.
 pub const LEAD_MIN: usize = 8;
+/// The least bytes at a page's end that tell a mark that starts a word there:
+/// its place is on this page, no other page has it.
+pub const TAIL_MIN: usize = 4;
 
 /// The first [`LEAD_MAX`] bytes of a mark's `text`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,7 +96,12 @@ fn plain(text: &str) -> impl Iterator<Item = char> + Clone + '_ {
     let mut before = ' ';
     core::iter::from_fn(move || {
         loop {
-            let c = chars.next()?;
+            let c = match chars.next()? {
+                // Where a conversion hyphenates, the other may not.
+                '\u{ad}' => continue,
+                '\u{2010}' | '\u{2011}' => '-',
+                c => c,
+            };
             if c == '-' && before.is_alphabetic() && chars.peek() == Some(&' ') {
                 chars.next();
                 before = c;
@@ -106,24 +115,26 @@ fn plain(text: &str) -> impl Iterator<Item = char> + Clone + '_ {
 
 fn has(needle: &str, page: &str) -> bool {
     let mut hay = plain(page);
+    let mut word_start = true;
     loop {
-        if starts(needle, hay.clone()) {
+        if starts(needle, hay.clone(), word_start) {
             return true;
         }
-        if hay.next().is_none() {
-            return false;
+        match hay.next() {
+            Some(c) => word_start = c == ' ',
+            None => return false,
         }
     }
 }
 
 /// Whether `hay` begins with `needle`, or ends inside it after at least
-/// [`LEAD_MIN`] bytes of it.
-fn starts(needle: &str, mut hay: impl Iterator<Item = char>) -> bool {
+/// [`LEAD_MIN`] bytes of it ([`TAIL_MIN`] if it starts a word: `word_start`).
+fn starts(needle: &str, mut hay: impl Iterator<Item = char>, word_start: bool) -> bool {
     let mut matched = 0usize;
     for want in needle.chars() {
         match hay.next() {
             Some(got) if got == want => matched += want.len_utf8(),
-            None => return matched >= LEAD_MIN,
+            None => return matched >= if word_start { TAIL_MIN } else { LEAD_MIN },
             Some(_) => return false,
         }
     }
