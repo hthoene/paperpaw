@@ -348,7 +348,14 @@ impl Screen for LateScreen {
                 width: 8,
                 height: 8,
             };
-            paperpaw_sdk::ui::draw_image(canvas, env.storage(), &image, Rect::new(10, 10, 20, 20));
+            for x in [10, 40] {
+                paperpaw_sdk::ui::draw_image(
+                    canvas,
+                    env.storage(),
+                    &image,
+                    Rect::new(x, 10, 20, 20),
+                );
+            }
         }
     }
 
@@ -424,13 +431,41 @@ fn a_cover_that_comes_after_the_first_frame_gets_one_pass_after_the_calm() {
     let effects = kernel.tick(Instant(3_200));
     assert!(effects.refresh().is_some() && effects.grays());
     render(&mut kernel);
-    // A second cover after it is in grays at once: no second pass.
+    // A part frame is never marked in grays (the shell skips a small frame
+    // over grays). A second cover after the pass has pictures: grays are due
+    // again, once.
     late.set(true);
     kernel.invalidate(Rect::new(40, 10, 20, 20));
     let effects = kernel.finish();
+    assert!(effects.refresh().is_some() && !effects.grays());
+    render(&mut kernel);
+    assert_eq!(kernel.frame.gray_later.phase, Phase::Pictured);
+    kernel.tick(Instant(4_000));
+    let effects = kernel.tick(Instant(7_000));
     assert!(effects.refresh().is_some() && effects.grays());
     render(&mut kernel);
-    let effects = kernel.tick(Instant(9_000));
+    let effects = kernel.tick(Instant(20_000));
+    assert!(effects.refresh().is_none() && effects.wake_at().is_none());
+}
+
+#[test]
+fn a_part_without_pictures_leaves_the_grays_of_the_screen_as_they_are() {
+    use crate::gray_later::Phase;
+    let (mut kernel, late) = late_kernel();
+    a_cover_comes(&mut kernel, &late);
+    render(&mut kernel);
+    kernel.tick(Instant(200));
+    assert!(kernel.tick(Instant(3_200)).grays());
+    render(&mut kernel);
+    assert_eq!(kernel.frame.gray_later.phase, Phase::Done);
+    // The clock: a small part with no picture, not in grays, no pass after.
+    late.set(false);
+    kernel.invalidate(Rect::new(40, 40, 10, 10));
+    let effects = kernel.finish();
+    assert!(effects.refresh().is_some() && !effects.grays());
+    render(&mut kernel);
+    assert_eq!(kernel.frame.gray_later.phase, Phase::Done);
+    let effects = kernel.tick(Instant(20_000));
     assert!(effects.refresh().is_none() && effects.wake_at().is_none());
 }
 
