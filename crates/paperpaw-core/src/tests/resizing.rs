@@ -217,13 +217,13 @@ fn items_newer_than_a_screens_revision_are_never_called() {
     assert_eq!(*log.borrow(), ["close", "drop", "made 120x60"]);
     log.borrow_mut().clear();
     let screen = kernel.stack[0].screen.as_mut();
-    let pane = paperpaw_sdk::call_since(screen, 2, Pane::FULL, |screen| screen.pane());
+    let pane = crate::layer::call_since(screen, 2, Pane::FULL, |screen| screen.pane());
     assert_eq!(pane, Pane::FULL);
     assert!(log.borrow().is_empty(), "{:?}", log.borrow());
     // Of revision 2, it is asked.
     let mut kernel = fit_kernel(&log, 2, true, FIT);
     let screen = kernel.stack[0].screen.as_mut();
-    let pane = paperpaw_sdk::call_since(screen, 2, Pane::FULL, |screen| screen.pane());
+    let pane = crate::layer::call_since(screen, 2, Pane::FULL, |screen| screen.pane());
     assert_eq!(pane, Pane::DETAIL);
     assert_eq!(*log.borrow(), ["pane"]);
 }
