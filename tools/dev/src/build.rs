@@ -14,7 +14,7 @@
 //! it goes onto a card, with the packed code in it. The repository's own
 //! `plugin` folder is not touched (the plugin store takes no code file in
 //! it). `--device emulator` builds the plugin for this computer instead
-//! ([`emulator`]).
+//! (`build/emulator.rs`).
 
 mod emulator;
 
