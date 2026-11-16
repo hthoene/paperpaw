@@ -2,7 +2,7 @@
 //! it (the standard one is the dictionary's panel in the slot
 //! [`slots::LOOKUP`](crate::builtin::slots::LOOKUP)).
 //!
-//! A provider ([`LookupProviderSpec`], `Registrar::add_lookup_provider`)
+//! A provider ([`LookupProviderSpec`], `Items::add_lookup_provider`)
 //! answers a [`LookupQuery`] at once with its entries
 //! ([`LookupAnswer::Ready`]), or starts work (an HTTP request, say) and
 //! answers later ([`LookupAnswer::Pending`]): its plugin then emits the

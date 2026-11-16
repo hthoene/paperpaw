@@ -14,6 +14,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use paperpaw_core::Items;
 use paperpaw_core::sdk::bluetooth::{
     self, BtEvent, DeviceId, Handle, ScanPower, Security, Uuid, ValueKind,
 };
@@ -21,7 +22,7 @@ use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::replies::Confirmed;
 use paperpaw_core::sdk::{
     ActionSpec, Canvas, Command, Cx, Env, Event, EventData, Handled, Id, Manifest, MemoryStorage,
-    Params, Plugin, Priority, RegisterError, Registrar, Screen, ScreenSpec, Uses, Version,
+    Params, Priority, RegisterError, Screen, ScreenSpec, Uses, Version,
 };
 use paperpaw_core::{BtCall, BtReport, Found, Io, Kernel, PairQuestion};
 use paperpaw_platform::{
@@ -74,28 +75,30 @@ struct Pulse {
     log: Log,
 }
 
-impl Plugin for Pulse {
+impl Pulse {
     fn manifest(&self) -> Manifest {
         Manifest::new(Id::new_static(self.id), "Pulse", Version::new(1, 0, 0)).uses(self.uses)
     }
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let go = Id::parse(&format!("{}.go", self.id)).unwrap();
-        let queue = self.queue.clone();
+fn pulse(kept: Pulse) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let go = Id::parse(&format!("{}.go", kept.id)).unwrap();
+        let queue = kept.queue.clone();
         r.add_action(ActionSpec::new(go, "go").handler(move |_, _, out| {
             out.extend(queue.borrow_mut().drain(..));
         }))?;
         for event in [FOUND, LINK, OTHER_FOUND] {
-            if event.id().namespace() != self.id {
+            if event.id().namespace() != kept.id {
                 continue;
             }
-            let log = self.log.clone();
+            let log = kept.log.clone();
             r.on(event.clone(), move |_, heard: &BtEvent, _| {
                 log.borrow_mut().push(format!("{}: {heard:?}", event.id()));
             })?;
         }
-        if self.id == "pulse" {
-            let log = self.log.clone();
+        if kept.id == "pulse" {
+            let log = kept.log.clone();
             r.add_screen(ScreenSpec::new(
                 HOME,
                 "home",
@@ -107,7 +110,7 @@ impl Plugin for Pulse {
                 }),
             ))?;
             r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)?;
-            let log = self.log.clone();
+            let log = kept.log.clone();
             r.add_screen(ScreenSpec::new(
                 ASK,
                 "ask",
@@ -152,8 +155,8 @@ language = en
 ",
             ))
             .bluetooth(2)
-            .plugin(plugin("pulse", Uses::BLUETOOTH))
-            .plugin(plugin("other", Uses::NOTHING))
+            .pulse(plugin("pulse", Uses::BLUETOOTH))
+            .pulse(plugin("other", Uses::NOTHING))
             .build()
             .unwrap();
         kernel.start(Instant(0));
@@ -405,7 +408,7 @@ fn a_bonded_remotes_keys_run_what_the_key_maps_bind() {
         let mut kernel = Kernel::builder(DEVICE)
             .storage(MemoryStorage::new().with(paperpaw_core::sdk::secrets::FILE, storage_secrets))
             .bluetooth(2)
-            .plugin(Pulse {
+            .pulse(Pulse {
                 id: "pulse",
                 uses: Uses::BLUETOOTH,
                 queue: queue.clone(),
@@ -459,4 +462,15 @@ fn a_bonded_remotes_keys_run_what_the_key_maps_bind() {
             .any(|h| *h == format!("home action {}", actions::NEXT_PAGE)),
         "{heard:?}"
     );
+}
+
+/// Adds the fixtures that keep their fields (`TestPlugin`, `ServicePlugin`) to a builder.
+trait AddFixture {
+    fn pulse(self, plugin: Pulse) -> Self;
+}
+
+impl AddFixture for paperpaw_core::KernelBuilder {
+    fn pulse(self, plugin: Pulse) -> Self {
+        self.items(plugin.manifest(), pulse(plugin))
+    }
 }

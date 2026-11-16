@@ -745,6 +745,9 @@ fn the_lists_by_author_series_and_tag_show_the_librarys_names() {
         app.now += 500;
         let effects = app.kernel.tick(Instant(app.now));
         app.settle(effects);
+        // Drawn as a shell does: what the home screen shows starts the walk
+        // (before, the drawing of the pictures rule's count did).
+        app.kernel.render(&mut |_, _| {});
     }
     assert!(read(&catalog()), "{}", catalog());
     for (action, names) in [

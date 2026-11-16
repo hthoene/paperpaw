@@ -7,7 +7,7 @@
 //!   all tools. The status line sits above the grid. Swipes and the page
 //!   buttons go from page to page; dots below show where one is.
 //! - **Items**: widgets (the home screen's own and any
-//!   plugin's, `Registrar::add_widget`) and tools (actions, as icons),
+//!   plugin's, `Items::add_widget`) and tools (actions, as icons),
 //!   each taking a rectangle of cells; empty cells stay empty.
 //! - **Targets**: what an item does when tapped (open a book, a tool).
 //!   With buttons, left and right (or up and down) go from target to
@@ -20,7 +20,7 @@
 //!   and adds or removes pages.
 //! - **Tools**: the entries of the `home.actions` menu (the library by
 //!   default) and of the tools menu; plugins add their own with
-//!   `Registrar::add_menu_entry`.
+//!   `Items::add_menu_entry`.
 //!
 //! The recently read books and their covers come from the library service
 //! (`paperpaw_sdk::library`), which follows the standard reading events,

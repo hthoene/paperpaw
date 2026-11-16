@@ -37,8 +37,8 @@ use paperpaw_sdk::builtin::{actions, params, slots};
 use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::widgets::categories;
 use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, MemoryStorage, Params, Plugin, RegisterError,
-    Registrar, SDK_VERSION, Screen, ScreenSpec, library,
+    Canvas, Cx, Env, Handled, Id, Manifest, MemoryStorage, Params, SDK_VERSION, Screen, ScreenSpec,
+    library,
 };
 
 /// An X4 as the emulator's profile and the firmware have it: buttons, no
@@ -575,22 +575,17 @@ impl Screen for Reads {
     }
 }
 
-struct Probe;
-
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("probe"), "Probe", SDK_VERSION)
-            .description("A screen that reads while it draws.")
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn probe(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(Id::new_static("probe"), "Probe", SDK_VERSION)
+        .description("A screen that reads while it draws.")
+        .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.add_screen(ScreenSpec::new(
             Id::new_static("probe.reads"),
             "probe.reads",
             Box::new(|_, _| Box::new(Reads)),
         ))
-    }
+    })
 }
 
 /// What the check above looks for, it finds: a screen reading a small
@@ -603,7 +598,7 @@ impl Plugin for Probe {
 )]
 fn a_screen_reading_while_it_draws_is_found() {
     let card = [("notes.txt".to_string(), b"Remember the milk".to_vec())];
-    let mut app = App::with(&card, |builder| builder.plugin(Probe));
+    let mut app = App::with(&card, probe);
     app.open(&Id::new_static("probe.reads"), Params::new());
     assert_eq!(app.shown(), "probe.reads");
     let found = app.reads_in_draw();
