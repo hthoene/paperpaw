@@ -64,6 +64,7 @@ mod input_filters;
 mod io;
 mod key_guard;
 mod keymap;
+mod layer;
 mod memory_notice;
 mod meter;
 pub mod native_host;
@@ -79,6 +80,8 @@ mod room;
 mod screens;
 mod secrets_i6;
 mod shared_env;
+mod tall_band;
+use layer::Layer;
 use screens::ActiveScreen;
 #[cfg(test)]
 mod tests;
@@ -109,11 +112,11 @@ use paperpaw_sdk::setting::{Setting, SettingType};
 use paperpaw_sdk::{
     Actions, Capabilities, Command, Contribution, Cx, Direction, Env, EnvParts, Fonts, Formats,
     Gesture, GestureKind, Handled, HintVisibility, Hyphenation, Id, Manifest, Menus, Metrics,
-    Output, Params, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Screen, Settings,
+    Output, Params, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Settings,
     ShowsThrough, StatusItems,
 };
 
-pub use crate::builder::{Items, KernelBuilder, KernelError, Plugin};
+pub use crate::builder::{Items, KernelBuilder, KernelError};
 pub use crate::card::CardTrouble;
 pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
@@ -223,7 +226,7 @@ pub struct Kernel {
     /// Work plugins declared, timers among it (see [`work`]).
     works: work::Queue,
     /// The short message showing ([`Command::Notify`]) and until when.
-    notice: Option<(Box<dyn Screen>, Instant)>,
+    notice: Option<(Box<dyn Layer>, Instant)>,
     stack: Vec<ActiveScreen>,
     output: Output,
     warnings: Vec<Warning>,
@@ -263,8 +266,7 @@ pub struct Kernel {
     /// Of the commands asked for, those of a screen guarding the device or
     /// one it opened: what they open above it is its own.
     own_trusted: Vec<usize>,
-    /// Notices given while a screen guarded the device, shown in turn once it
-    /// lets go (`notices`).
+    /// Notices held back by a guarding screen (`notices`).
     waiting_notices: notices::Waiting,
     /// When the device was last used (input, a page turned), for sleeping
     /// by itself ([`settings::SLEEP_AFTER`](core_settings::SLEEP_AFTER)).
@@ -298,11 +300,9 @@ pub struct Kernel {
     /// The screen on top when the messages read from the card were last
     /// forgotten (`forget_read_messages`).
     read_top: Option<u32>,
-    /// `paperpaw.ini` is there but could not be read at start: the user
-    /// is told once the first screen shows.
+    /// Unreadable `paperpaw.ini`, reported after the first screen shows.
     config_unreadable: bool,
-    /// The shell found no card it can use: the reader is told why at
-    /// each start.
+    /// No usable card, reported at each start.
     card_trouble: Option<CardTrouble>,
     /// This start ends a sleep that restarted the device (see
     /// [`KernelBuilder::after_sleep`]): [`events::RESUME`] follows
@@ -675,7 +675,7 @@ impl Kernel {
     }
 
     /// Whether what the screen shows is secret now: a PIN or a password
-    /// being entered ([`Screen::secret`]),
+    /// being entered (`Screen::secret`),
     /// or the device guarded. Those who show the screen elsewhere (a
     /// remote control, tools) leave out what its parts say then.
     pub fn is_secret(&self) -> bool {

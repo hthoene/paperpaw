@@ -197,7 +197,7 @@ impl Kernel {
         let bounds = self.framebuffer.bounds();
         // Rows are passed whole: drawn in bands, the rest of a row would be
         // left from another band. And aligned as the shell asks.
-        let rows = self.framebuffer.rows();
+        let (narrow, rows) = self.widen_band(region);
         let region = if rows < bounds.height {
             Rect::new(0, region.y, bounds.width, region.height)
         } else {
@@ -249,7 +249,7 @@ impl Kernel {
                         }
                     }
                 }
-                out(part.y, view);
+                self.pass_pieces(part, narrow, out);
                 // A row not written: no more of them, a picture with a
                 // gap is none.
                 if failed.is_some() {
@@ -261,7 +261,7 @@ impl Kernel {
                 break;
             }
         }
-        self.framebuffer.end_frame();
+        self.end_frame_narrow(narrow);
         self.shared.stack_rows.set_followup(None);
         // Large pictures on the screen now: the next change of most of it
         // refreshes in full.

@@ -3,11 +3,11 @@
 //! instance; those that come meanwhile wait in the order they came, at most
 //! four (two on the X4), the oldest dropped when one more comes. Without a
 //! guard a new notice replaces the one on screen.
+use crate::Layer;
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
 use alloc::string::String;
 use paperpaw_platform::MemoryClass;
-use paperpaw_sdk::Screen;
 
 /// Notices that wait at most.
 const LARGE: usize = 4;
@@ -18,10 +18,14 @@ const SMALL: usize = 2;
 /// The waiting notices, oldest first, and the notice made ahead for a lack
 /// of memory (`memory_notice`).
 pub(crate) struct Waiting {
+    pub(crate) literata: crate::font_refresh::literata_notice::LiterataNotice,
+    /// A start notice (Literata, low memory) showed since the start: the next
+    /// one waits for the next start (#798).
+    pub(crate) start_notice_shown: bool,
     texts: VecDeque<String>,
     cap: usize,
     /// "Not enough memory", made while there was room; `None` while it shows.
-    memory: Option<Box<dyn Screen>>,
+    memory: Option<Box<dyn Layer>>,
     /// The notice showing is the one above: it comes back when it ends.
     memory_shown: bool,
     /// How often one was made (tests tell a new one from the old).
@@ -48,6 +52,8 @@ impl Waiting {
             SMALL
         };
         Self {
+            literata: Default::default(),
+            start_notice_shown: false,
             texts: VecDeque::new(),
             cap,
             memory: None,
@@ -59,7 +65,7 @@ impl Waiting {
 
     /// Keeps `notice` as the one for a lack of memory, in place of the one
     /// before; one showing now is not taken back when it ends.
-    pub(crate) fn keep_memory_notice(&mut self, notice: Option<Box<dyn Screen>>) {
+    pub(crate) fn keep_memory_notice(&mut self, notice: Option<Box<dyn Layer>>) {
         #[cfg(test)]
         {
             self.made += u32::from(notice.is_some());
@@ -75,7 +81,7 @@ impl Waiting {
 
     /// The notice for a lack of memory, to show; it comes back through
     /// [`Self::ended`].
-    pub(crate) fn show_memory_notice(&mut self) -> Option<Box<dyn Screen>> {
+    pub(crate) fn show_memory_notice(&mut self) -> Option<Box<dyn Layer>> {
         let notice = self.memory.take()?;
         self.memory_shown = true;
         Some(notice)
@@ -102,7 +108,7 @@ impl Waiting {
 
     /// The notice that showed ended: the one for a lack of memory is kept for
     /// the next time, any other dropped.
-    pub(crate) fn ended(&mut self, notice: Box<dyn Screen>) {
+    pub(crate) fn ended(&mut self, notice: Box<dyn Layer>) {
         if core::mem::take(&mut self.memory_shown) {
             self.memory = Some(notice);
         }

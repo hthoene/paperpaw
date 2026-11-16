@@ -35,8 +35,6 @@ softbuffer = { version = "0.4", optional = true }
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"], optional = true }
 # The sample that runs in real time (ADR 0030), with `--features frame-test`.
 paperpaw-sample-frame-test = { path = "../../samples/frame-test", optional = true }
-# The interlinear sample (ADR 0032), with `--features interlinear`.
-paperpaw-sample-interlinear = { path = "../../samples/interlinear", optional = true }
 
 # What a browser does not give Rust: it hands time and random numbers in
 # (see `host`).
@@ -84,7 +82,6 @@ default = ["window", "native-linked"]
 # and for the browser (`shells/web`).
 window = ["dep:winit", "dep:softbuffer"]
 frame-test = ["dep:paperpaw-sample-frame-test"]
-interlinear = ["dep:paperpaw-sample-interlinear"]
 # The first-party plugins that are interface-7 plugins, linked in and
 # registered by `linked` (the shell's part: the secrets' sealing). ON by
 # default (#243, the one switch of the flip): `default` names it. What the app

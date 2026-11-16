@@ -413,16 +413,47 @@ fn opening_reads_each_sector_of_the_patterns_about_once() {
             set.name
         );
         // Not one read per block: at most about one per sector, plus the
-        // check, the index and the exceptions.
+        // check, the index and the exceptions; a table with a filter of its
+        // keys is read a second time for it, again about once per sector.
+        let passes = if (1..=512).contains(&blocks) { 2 } else { 1 };
         assert!(
-            reads <= sectors + sectors / 8 + 16,
+            reads <= passes * (sectors + sectors / 8) + 16,
             "{}: {reads} reads",
             set.name
         );
         assert!(
-            reads < u64::from(blocks.max(1)) + 16,
+            reads < passes * u64::from(blocks.max(1)) + 16,
             "{}: {reads} reads",
             set.name
         );
     }
+}
+
+/// Most of what a word asks of a table is no pattern: where the table is
+/// small enough to keep a filter of its keys, such keys read no block, so a
+/// word costs a few reads instead of about twenty, and says the same.
+#[test]
+fn a_small_table_reads_few_blocks_for_a_word() {
+    let set = shipped()
+        .into_iter()
+        .find(|s| s.name == "hyphenation")
+        .unwrap();
+    let words = common::words(&set, 400, 3);
+    let count = std::rc::Rc::new(std::cell::Cell::new(0));
+    let mut stored =
+        StoredPatterns::open(Counted(Mem::new(set.table.clone()), count.clone()), 1, 4).unwrap();
+    let whole = Patterns::new(&set.table).unwrap();
+    let after_open = count.get();
+    for word in &words {
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        stored.hyphenate(word, &mut |at| a.push(at));
+        whole.hyphenate(word, &mut |at| b.push(at));
+        assert_eq!(a, b, "{word}");
+    }
+    let reads = count.get() - after_open;
+    assert!(
+        reads < 8 * words.len() as u64,
+        "{reads} reads for {} words",
+        words.len()
+    );
 }

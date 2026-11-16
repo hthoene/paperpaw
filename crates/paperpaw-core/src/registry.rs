@@ -61,11 +61,25 @@ impl Maker<'_> {
         self,
         env: &paperpaw_sdk::Env<'_>,
         params: &paperpaw_sdk::Params,
-    ) -> Result<alloc::boxed::Box<dyn paperpaw_sdk::Screen>, i32> {
+    ) -> Result<alloc::boxed::Box<dyn crate::Layer>, i32> {
         match self {
-            Maker::Added(made) => Ok((made.factory)(env, params)),
-            Maker::Fixed(fixed) => Ok(fixed.make(env, params)),
+            Maker::Added(made) => Ok(crate::layer::old((made.factory)(env, params))),
+            Maker::Fixed(fixed) => Ok(crate::layer::old(fixed.make(env, params))),
             Maker::Native(id, made) => made.make(id, params),
+        }
+    }
+
+    /// An old [`paperpaw_sdk::Screen`], for an old host that holds one; a
+    /// layer is not one.
+    pub(crate) fn make_old(
+        self,
+        env: &paperpaw_sdk::Env<'_>,
+        params: &paperpaw_sdk::Params,
+    ) -> Option<alloc::boxed::Box<dyn paperpaw_sdk::Screen>> {
+        match self {
+            Maker::Added(made) => Some((made.factory)(env, params)),
+            Maker::Fixed(fixed) => Some(fixed.make(env, params)),
+            Maker::Native(..) => None,
         }
     }
 
@@ -73,7 +87,7 @@ impl Maker<'_> {
     pub(crate) fn prepare_native(
         self,
         params: &paperpaw_sdk::Params,
-    ) -> Result<Option<alloc::boxed::Box<dyn paperpaw_sdk::Screen>>, i32> {
+    ) -> Result<Option<alloc::boxed::Box<dyn crate::Layer>>, i32> {
         match self {
             Maker::Native(id, made) => made.make(id, params).map(Some),
             _ => Ok(None),
@@ -83,13 +97,13 @@ impl Maker<'_> {
     /// Native wrappers keep their instance identity while the viewport changes.
     pub(crate) fn remake(
         self,
-        screen: &mut alloc::boxed::Box<dyn paperpaw_sdk::Screen>,
+        screen: &mut alloc::boxed::Box<dyn crate::Layer>,
         env: &paperpaw_sdk::Env<'_>,
         params: &paperpaw_sdk::Params,
     ) {
         match self {
-            Maker::Added(made) => *screen = (made.factory)(env, params),
-            Maker::Fixed(fixed) => *screen = fixed.make(env, params),
+            Maker::Added(made) => *screen = crate::layer::old((made.factory)(env, params)),
+            Maker::Fixed(fixed) => *screen = crate::layer::old(fixed.make(env, params)),
             Maker::Native(..) => {}
         }
     }
@@ -196,7 +210,7 @@ impl Screens {
     }
 
     /// Adds screens kept in the program, in place of those of their ids.
-    fn insert_fixed(&mut self, screens: &'static [paperpaw_sdk::FixedScreen]) {
+    pub(crate) fn insert_fixed(&mut self, screens: &'static [paperpaw_sdk::FixedScreen]) {
         for screen in screens {
             self.forget(screen.id().as_str());
             match self.find_fixed(screen.id().as_str()) {
@@ -533,8 +547,7 @@ impl paperpaw_sdk::ScreenMaker for Registry {
         env: &paperpaw_sdk::Env<'_>,
         params: &paperpaw_sdk::Params,
     ) -> Option<alloc::boxed::Box<dyn paperpaw_sdk::Screen>> {
-        let maker = self.screens.get(id.as_str())?;
-        maker.make(env, params).ok()
+        self.screens.get(id.as_str())?.make_old(env, params)
     }
 
     fn slot_screen(&self, slot: &str) -> Option<&Id> {

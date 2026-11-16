@@ -24,7 +24,7 @@ use alloc::format;
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use paperpaw_core::{Items, Plugin};
+use paperpaw_core::Items;
 use paperpaw_sdk::builtin::menus;
 use paperpaw_sdk::memory::{self, Placement};
 use paperpaw_sdk::realtime::{KeyEvent, ScreenMode};
@@ -65,15 +65,21 @@ static HOW: [(&str, &str); 2] = [
     ("de", include_str!("../how/de.txt")),
 ];
 
-impl Plugin for FrameTest {
-    fn manifest(&self) -> Manifest {
+impl FrameTest {
+    /// What it registers under.
+    #[must_use]
+    pub fn manifest(&self) -> Manifest {
         Manifest::new(PLUGIN, "Frame test", Version::new(0, 1, 0))
             .description("Runs in real time and measures it.")
             .how(&HOW)
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
+    /// Adds its action, menu entry, screen and texts.
+    ///
+    /// # Errors
+    /// What the kernel refuses of them.
+    pub fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         r.add_action(
             ActionSpec::new(OPEN, "frame-test.title").handler(|_, _, out| {
                 out.push(Command::OpenScreen(SCREEN, Params::new()));
