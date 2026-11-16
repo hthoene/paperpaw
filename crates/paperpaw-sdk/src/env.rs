@@ -207,16 +207,16 @@ pub struct Env<'a> {
     /// [`readers`](crate::readers)).
     pub(crate) readers: &'a crate::readers::Readers,
     /// Plugins' stylesheets for books, in the order of the plugins (see
-    /// [`Registrar::add_stylesheet`](crate::Registrar::add_stylesheet)).
+    /// `Items::add_stylesheet`).
     pub(crate) stylesheets: &'a [alloc::borrow::Cow<'static, str>],
     /// Folders of what plugins keep for each book
-    /// ([`Registrar::add_book_data`](crate::Registrar::add_book_data)).
+    /// (`Items::add_book_data`).
     pub(crate) book_data: &'a [crate::library::BookData],
     /// Fields plugins keep with books
-    /// ([`Registrar::add_book_field`](crate::Registrar::add_book_field)).
+    /// (`Items::add_book_field`).
     pub(crate) book_fields: &'a [crate::library::BookField],
     /// Badges plugins put on books' rows
-    /// ([`Registrar::add_book_badge`](crate::Registrar::add_book_badge)).
+    /// (`Items::add_book_badge`).
     pub(crate) book_badges: &'a [crate::library::BookBadge],
     /// Widgets for screens that show them, from every plugin.
     pub(crate) widgets: &'a crate::widgets::Widgets,
@@ -228,7 +228,7 @@ pub struct Env<'a> {
     /// What buttons, taps and swipes do (see [`keys`](crate::keys)).
     pub(crate) keys: &'a dyn crate::keys::KeyBindings,
     /// The look a plugin gave the parts of screens, set with
-    /// [`Registrar::set_ui_look`](crate::Registrar::set_ui_look) (see
+    /// `Items::set_ui_look` (see
     /// [`ui::look`](crate::ui::look)).
     pub(crate) look: crate::ui::look::Look,
     /// What the device and its shell can do (network, speech, the sleep
@@ -442,25 +442,25 @@ impl<'a> Env<'a> {
     }
 
     /// Plugins' stylesheets for books, in the order of the plugins (see
-    /// [`Registrar::add_stylesheet`](crate::Registrar::add_stylesheet)).
+    /// `Items::add_stylesheet`).
     pub fn stylesheets(&self) -> &'a [alloc::borrow::Cow<'static, str>] {
         self.stylesheets
     }
 
     /// Folders of what plugins keep for each book
-    /// ([`Registrar::add_book_data`](crate::Registrar::add_book_data)).
+    /// (`Items::add_book_data`).
     pub fn book_data(&self) -> &'a [crate::library::BookData] {
         self.book_data
     }
 
     /// Fields plugins keep with books
-    /// ([`Registrar::add_book_field`](crate::Registrar::add_book_field)).
+    /// (`Items::add_book_field`).
     pub fn book_fields(&self) -> &'a [crate::library::BookField] {
         self.book_fields
     }
 
     /// Badges plugins put on books' rows
-    /// ([`Registrar::add_book_badge`](crate::Registrar::add_book_badge)).
+    /// (`Items::add_book_badge`).
     pub fn book_badges(&self) -> &'a [crate::library::BookBadge] {
         self.book_badges
     }
@@ -487,7 +487,7 @@ impl<'a> Env<'a> {
     }
 
     /// The look a plugin gave the parts of screens, set with
-    /// [`Registrar::set_ui_look`](crate::Registrar::set_ui_look) (see
+    /// `Items::set_ui_look` (see
     /// [`ui::look`](crate::ui::look)).
     pub fn look(&self) -> crate::ui::look::Look {
         self.look
@@ -737,16 +737,16 @@ pub struct EnvParts<'a> {
     /// [`readers`](crate::readers)).
     pub readers: &'a crate::readers::Readers,
     /// Plugins' stylesheets for books, in the order of the plugins (see
-    /// [`Registrar::add_stylesheet`](crate::Registrar::add_stylesheet)).
+    /// `Items::add_stylesheet`).
     pub stylesheets: &'a [alloc::borrow::Cow<'static, str>],
     /// Folders of what plugins keep for each book
-    /// ([`Registrar::add_book_data`](crate::Registrar::add_book_data)).
+    /// (`Items::add_book_data`).
     pub book_data: &'a [crate::library::BookData],
     /// Fields plugins keep with books
-    /// ([`Registrar::add_book_field`](crate::Registrar::add_book_field)).
+    /// (`Items::add_book_field`).
     pub book_fields: &'a [crate::library::BookField],
     /// Badges plugins put on books' rows
-    /// ([`Registrar::add_book_badge`](crate::Registrar::add_book_badge)).
+    /// (`Items::add_book_badge`).
     pub book_badges: &'a [crate::library::BookBadge],
     /// Widgets for screens that show them, from every plugin.
     pub widgets: &'a crate::widgets::Widgets,
@@ -758,7 +758,7 @@ pub struct EnvParts<'a> {
     /// What buttons, taps and swipes do (see [`keys`](crate::keys)).
     pub keys: &'a dyn crate::keys::KeyBindings,
     /// The look a plugin gave the parts of screens, set with
-    /// [`Registrar::set_ui_look`](crate::Registrar::set_ui_look) (see
+    /// `Items::set_ui_look` (see
     /// [`ui::look`](crate::ui::look)).
     pub look: crate::ui::look::Look,
     /// What the device and its shell can do (network, speech, the sleep
@@ -1054,7 +1054,7 @@ impl Env<'_> {
     /// `.paperpaw/plugins/reader` (in PaperPaw's own folder,
     /// [`data::DIR`](crate::data::DIR)).
     pub fn plugin_dir(plugin: &str) -> alloc::string::String {
-        alloc::format!("{}/plugins/{plugin}", crate::data::DIR)
+        crate::data::plugin_dir(plugin)
     }
 }
 

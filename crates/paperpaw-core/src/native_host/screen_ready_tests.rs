@@ -2,6 +2,7 @@
 //! instance, only to subscribers, never for one closed before it was drawn.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
+use crate::Items;
 use crate::native_host::{
     codec,
     commands::CommandStage,
@@ -13,9 +14,7 @@ use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{
-    Handled, Id, Manifest, Params, Plugin, RegisterError, Registrar, Screen, ScreenSpec, Version,
-};
+use paperpaw_sdk::{Handled, Id, Manifest, Params, RegisterError, Screen, ScreenSpec, Version};
 
 /// (screen, instance) of each 87 a subscriber was told.
 type Told = Rc<RefCell<Vec<(String, u32)>>>;
@@ -95,13 +94,8 @@ impl Screen for Cover {
     }
 }
 
-struct Screens;
-impl Plugin for Screens {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("s"), "Screens", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn screens() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         for name in ["s.one", "s.two"] {
             r.add_screen(ScreenSpec::new(
                 Id::try_parse(name).unwrap(),
@@ -118,9 +112,15 @@ impl Plugin for Screens {
     }
 }
 
+/// What [`screens`] registers under.
+fn screens_manifest() -> Manifest {
+    Manifest::new(Id::new_static("s"), "Screens", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn world(subscribed: bool) -> (crate::Kernel, Told) {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Screens)
+        .items(screens_manifest(), screens())
         .build()
         .unwrap();
     kernel.start(Instant(0));

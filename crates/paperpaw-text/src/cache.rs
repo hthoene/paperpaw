@@ -95,12 +95,10 @@ impl fmt::Debug for GlyphCache {
 }
 
 impl GlyphCache {
-    paperpaw_table::shared! {
     /// A cache holding at most `capacity` bytes of glyphs: the firmware's
     /// code, so that how it keeps them is the firmware's too.
     pub fn new(capacity: usize) -> GlyphCache {
         GlyphCache(Box::new(Lru::new(capacity)))
-    } @ text::CACHE_NEW
     }
 
     /// Bytes currently used.

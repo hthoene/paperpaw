@@ -15,31 +15,28 @@ use paperpaw_sdk::{Env, Id, Instant, MemoryStorage};
 /// The plugin's catalogs as the kernel reads them: the production host does not load a
 /// native plugin's `i18n/*.ini` yet, so a test-only plugin registers them (as in About's
 /// hosted test).
-struct Catalogs;
-impl paperpaw_sdk::Plugin for Catalogs {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            Id::new_static("fonts-browser"),
-            "Fonts catalogs",
-            paperpaw_sdk::Version::new(1, 0, 8),
-        )
-    }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+fn catalogs(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = paperpaw_sdk::Manifest::new(
+        Id::new_static("fonts-browser"),
+        "Fonts catalogs",
+        paperpaw_sdk::Version::new(1, 0, 8),
+    );
+    builder.items(manifest, |items| {
         for text in [
             include_str!("../i18n/en.ini"),
             include_str!("../i18n/de.ini"),
         ] {
-            r.add_translations(std::borrow::Cow::Borrowed(text))?;
+            items.add_translations(std::borrow::Cow::Borrowed(text))?;
         }
         Ok(())
-    }
+    })
 }
 
 /// What *Your own fonts* writes, with the user's configuration `config`.
 fn own_page(config: &str) -> String {
     let setup = hosted::Setup::x4()
         .config(config)
-        .with_kernel(|b| b.storage(MemoryStorage::default()).plugin(Catalogs));
+        .with_kernel(|b| catalogs(b.storage(MemoryStorage::default())));
     let mut installed = hosted::install_in(
         &setup,
         paperpaw_plugin_fonts_browser::NATIVE_ENTRY.entry(),

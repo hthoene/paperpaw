@@ -1,0 +1,3 @@
+### Added
+
+- **`paperpaw-dev metadata` writes a code plugin's record of what it calls on the device** (#244): `native/metadata.bin` (X4, X3) and `native/metadata.s3.bin` (X4 Pro, X4 Classic) from `native/metadata.json`, outside PaperPaw's repository. Until now only Python tools of the repository could make them, so a plugin that called one more function than the template could not be built elsewhere. The bytes are those the Python tools write: a test compares both records of every plugin of PaperPaw's own. `--check` says whether they are current; a name the interface does not have is refused with the name. The tool carries a table of the interface's schema (`tools/abi-metadata-table.py` writes it).

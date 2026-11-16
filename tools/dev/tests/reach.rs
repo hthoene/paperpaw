@@ -19,7 +19,7 @@ use paperpaw_sdk::builtin::menus;
 use paperpaw_sdk::semantics::Role;
 use paperpaw_sdk::{
     ActionSpec, Canvas, Command, Commands, Cx, Env, Handled, Id, Manifest, MenuEntry, Params,
-    Plugin, RegisterError, Registrar, Screen, ScreenSpec, Version,
+    Screen, ScreenSpec, Version,
 };
 
 const OPEN: Id = Id::new_static("trapped.open");
@@ -28,33 +28,28 @@ const HIDDEN: Id = Id::new_static("trapped.hidden");
 
 /// A tool whose screen keeps every button to itself, and a screen
 /// nothing opens.
-struct Trapped;
-
-impl Plugin for Trapped {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("trapped"), "Trapped", Version::new(0, 1, 0))
-            .description("Fails the reach check on purpose.")
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn trapped(builder: KernelBuilder) -> KernelBuilder {
+    let manifest = Manifest::new(Id::new_static("trapped"), "Trapped", Version::new(0, 1, 0))
+        .description("Fails the reach check on purpose.")
+        .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.add_screen(ScreenSpec::new(
             STUCK,
             "trapped.stuck",
             Box::new(|_, _| Box::new(Stuck)),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        items.add_screen(ScreenSpec::new(
             HIDDEN,
             "trapped.hidden",
             Box::new(|_, _| Box::new(Hidden)),
         ))?;
-        r.add_action(ActionSpec::new(OPEN, "trapped.open").handler(
+        items.add_action(ActionSpec::new(OPEN, "trapped.open").handler(
             |_: &Env<'_>, _, out: &mut Commands| {
                 out.push(Command::OpenScreen(STUCK, Params::new()));
             },
         ))?;
-        r.add_menu_entry(MenuEntry::new(menus::TOOLS, OPEN))
-    }
+        items.add_menu_entry(MenuEntry::new(menus::TOOLS, OPEN))
+    })
 }
 
 fn rows(canvas: &mut Canvas<'_>, labels: &[&str], focused: Option<usize>) {
@@ -93,7 +88,7 @@ impl Screen for Hidden {
 }
 
 fn add(builder: KernelBuilder) -> KernelBuilder {
-    builder.plugin(Trapped)
+    trapped(builder)
 }
 
 fn found<'a>(report: &'a Report, check: &str, place: &str) -> Option<&'a Finding> {

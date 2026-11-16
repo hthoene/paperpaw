@@ -35,8 +35,8 @@ mod image {
 }
 
 use crate::declarations::{
-    ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, SETTING_CHANGED, STACK_CHANGED, STATUS_ITEMS,
-    STATUS_PARTS, TICK, WIDGET_CHANGED,
+    ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, LIBRARY_CHANGED, REGISTRY_CHANGED,
+    SETTING_CHANGED, STACK_CHANGED, STATUS_ITEMS, STATUS_PARTS, TICK, WIDGET_CHANGED,
 };
 use crate::native_add_screen::{self as add_screen, AddScreen};
 use crate::native_dashboard::{Dashboard, redraw};
@@ -122,7 +122,7 @@ impl Plugin for NativeHome {
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::StackChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::StackChanged, kinds::RegistryChanged, kinds::LibraryChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
         else {
             return Ok(());
         };
@@ -191,12 +191,33 @@ impl Plugin for NativeHome {
                     .tick(host, self.ui.as_ref().ok_or(Error::State)?);
                 self.refresh(host)
             }
-            Event::WidgetChanged { .. } if token == WIDGET_CHANGED => self.refresh(host),
+            Event::WidgetChanged { .. } if token == WIDGET_CHANGED => {
+                // Under another screen the page is laid out when it is shown.
+                self.invalidate_covered();
+                self.refresh(host)
+            }
+            Event::LibraryChanged { what, .. } if token == LIBRARY_CHANGED && what.cover() => {
+                self.covers_ready(host)
+            }
             Event::StackChanged { .. } if token == STACK_CHANGED => self.covered(host),
+            // What the page reads was changed (a plugin came or went, a menu
+            // or widget changed): a page kept under another screen is laid out
+            // again when it is shown.
+            Event::RegistryChanged { .. } if token == REGISTRY_CHANGED => {
+                self.forget_looks();
+                if self.invalidate_covered() {
+                    self.refresh(host)?;
+                }
+                Ok(())
+            }
             // The grid's columns or rows changed: the pages are fitted to it.
             Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {
+                self.forget_looks();
+                let again = self.invalidate_covered();
                 if is_grid_setting(key) {
                     fit(host)?;
+                    self.refresh(host)?;
+                } else if again {
                     self.refresh(host)?;
                 }
                 Ok(())
@@ -251,6 +272,11 @@ impl Plugin for NativeHome {
 const STACK_REQUEST: usize = 256;
 
 impl NativeHome {
+    #[cfg(test)]
+    pub(crate) fn test_widgets(&mut self) -> &mut Widgets {
+        &mut self.widgets
+    }
+
     /// Opens `core.ui` in the first live callback; the handle serves later ones.
     fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
@@ -261,6 +287,27 @@ impl NativeHome {
 
     fn ui(&self) -> Result<&Ui, Error> {
         self.ui.as_ref().ok_or(Error::State)
+    }
+
+    fn covers_ready(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.widgets.covers_ready(host);
+        let waiting = self
+            .screens
+            .all()
+            .any(|slot| matches!(slot, Slot::Dashboard(dashboard) if dashboard.waits_for_covers()));
+        // Asked only where a card waits: the stack is not read for nothing.
+        let shown = waiting && self.stack_top(host)? == self.screens.top_instance(DASHBOARD);
+        // Every page forgets; the first refusal is the answer.
+        let mut result = Ok(());
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                let drawn = dashboard.covers_ready(host, shown);
+                if result.is_ok() {
+                    result = drawn;
+                }
+            }
+        }
+        result
     }
 
     /// The dashboard shows something new (the minute passed, a widget
@@ -279,8 +326,30 @@ impl NativeHome {
         redraw(host)
     }
 
-    /// The stack changed: a dashboard under another screen lets its page go (a
-    /// book is read, the page is not held; it is laid out again when shown).
+    /// A setting or the registry changed: a dashboard under another screen is
+    /// laid out again when it is shown; `true` where one on top, shown a moment
+    /// ago, has to be drawn again.
+    fn forget_looks(&mut self) {
+        self.widgets.forget_looks();
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                dashboard.forget_looks();
+            }
+        }
+    }
+
+    fn invalidate_covered(&mut self) -> bool {
+        let mut again = false;
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                again |= dashboard.invalidate_covered();
+            }
+        }
+        again
+    }
+
+    /// The stack changed: a dashboard under another screen keeps its page (a
+    /// book is read, the page is laid out only if something it shows changed).
     fn covered(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let holding = self
             .screens
@@ -290,12 +359,11 @@ impl NativeHome {
             return Ok(());
         }
         let top = self.stack_top(host)?;
-        let ui = self.ui.as_ref().ok_or(Error::State)?;
         for (instance, slot) in self.screens.all_with_instance() {
             if let Slot::Dashboard(dashboard) = slot
                 && Some(instance) != top
             {
-                dashboard.cover(host, ui);
+                dashboard.cover();
             }
         }
         Ok(())

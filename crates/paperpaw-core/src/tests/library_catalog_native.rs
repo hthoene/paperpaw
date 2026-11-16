@@ -5,6 +5,7 @@
 //! takes its books out at the next walk.
 
 use super::*;
+use crate::Items;
 use crate::native_host::native_book_formats::tests::{Plugin as FormatPlugin, declare};
 use crate::native_host::native_declarations::NativeDeclarations;
 use crate::native_host::shared::Shared;
@@ -16,14 +17,8 @@ use paperpaw_sdk::library::catalog;
 use paperpaw_sdk::{FormatSpec, MemoryStorage};
 
 /// An interface 6 format of TXT, beside them.
-struct Txt;
-
-impl Plugin for Txt {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("txt"), "TXT", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn txt_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_format(FormatSpec::new(
             Id::new_static("txt.txt"),
             "TXT",
@@ -31,6 +26,11 @@ impl Plugin for Txt {
             Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
         ))
     }
+}
+
+/// What [`txt_items`] registers under.
+fn txt_manifest() -> Manifest {
+    Manifest::new(Id::new_static("txt"), "TXT", Version::new(1, 0, 0))
 }
 
 fn books() -> MemoryStorage {
@@ -63,7 +63,7 @@ fn run(kernel: &mut Kernel, mut now: u64, mut effects: crate::Effects) -> u64 {
 fn started(txt: bool) -> (Kernel, Rc<FormatPlugin>, u64) {
     let mut builder = Kernel::builder(DEVICE).storage(books());
     if txt {
-        builder = builder.plugin(Txt);
+        builder = builder.items(txt_manifest(), txt_items());
     }
     let mut kernel = builder.build().unwrap();
     let directory = Shared::try_new(NativeDeclarations::default()).unwrap();

@@ -5,15 +5,16 @@
 use crate::native_data::Reader;
 use crate::native_model::{self as model, Kind, Row, SettingInfo, SettingKind, Value};
 use crate::native_panel::{
-    self as panel, Control, Entry, Geometry, Layout, MAX_SEGMENTS, Measure, button_text,
+    self as panel, Control, Drag, Entry, Geometry, Layout, MAX_SEGMENTS, Measure, button_text,
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled, Point, Rect,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
-        commands::CommandSender,
+        callbacks::{DrawFrame, DrawPurpose, FrameRect, Input, InputGestureKind, PointerPhase},
+        canvas::PartRole,
+        commands::{CommandSender, PreviewSetting, RedrawMode},
         fonts::{Font, FontRole},
         formatting::Arg,
         settings::SettingValue,
@@ -72,6 +73,8 @@ pub struct PanelView {
     region: Rect,
     /// Made anew when it shows again.
     stale: bool,
+    /// The knob a finger holds.
+    drag: Option<Drag>,
 }
 
 /// The width of text in one font at one size.
@@ -250,7 +253,8 @@ impl PanelView {
     ) -> Result<Rect, Error> {
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let style = Style::read(host, &display, &font)?;
+        let mut style = Style::read(host, &display, &font)?;
+        style.describing = matches!(frame.purpose, DrawPurpose::Screen) && paint::asking(frame);
         let layout = self.lay_out(
             &font,
             &style,
@@ -350,7 +354,15 @@ impl PanelView {
             if let (Some(track), Some(part)) =
                 (row.track, row.label.and_then(|i| self.parts.get(i)))
             {
-                Self::draw_slider(body, style, track, part)?;
+                let at = row.label.unwrap_or_default();
+                let held = self.drag.filter(|d| d.row == at).map(|d| d.value);
+                if style.describing {
+                    let shown = self.number_text(host, &mut messages, part, at)?;
+                    let disabled = !part.row.choosable();
+                    let told = (PartRole::Slider, track);
+                    paint::describe_named(body, true, told.0, told.1, &shown, false, disabled)?;
+                }
+                Self::draw_slider(body, style, track, part, held)?;
             }
         }
         if let Some(bar) = layout.pager {
@@ -473,7 +485,7 @@ impl PanelView {
             Control::Step(_, step) => {
                 button(body, if step < 0 { "\u{2212}" } else { "+" }, false)?;
                 if step > 0 {
-                    let shown = self.number_text(host, messages, part)?;
+                    let shown = self.number_text(host, messages, part, control.row())?;
                     self.draw_number(body, font, style, &shown, rect)?;
                 }
                 Ok(())
@@ -547,6 +559,7 @@ impl PanelView {
         host: &Host<'_>,
         messages: &mut Messages,
         part: &Part,
+        row: usize,
     ) -> Result<String, Error> {
         let Some(info) = part.info.as_ref() else {
             return Ok(String::new());
@@ -554,6 +567,9 @@ impl PanelView {
         let Some(Value::Int(now)) = info.value.as_ref() else {
             return Ok(String::new());
         };
+        // The knob a finger holds shows its number, not the one kept.
+        let held = self.drag.filter(|d| d.row == row).map(|d| d.value);
+        let now = held.as_ref().unwrap_or(now);
         model::said_with_unit(*now, &info.unit, &mut |key, n| {
             crate::native_plugin::say(messages, host, key, Some(n))
         })
@@ -565,11 +581,12 @@ impl PanelView {
         style: &Style,
         track: Rect,
         part: &Part,
+        held: Option<i64>,
     ) -> Result<(), Error> {
         let Some(info) = part.info.as_ref().filter(|i| i.slider()) else {
             return Ok(());
         };
-        let Some(Value::Int(now)) = info.value else {
+        let Some(Value::Int(now)) = held.map(Value::Int).or(info.value.clone()) else {
             return Ok(());
         };
         let ink = if part.row.choosable() {
@@ -658,8 +675,129 @@ impl PanelView {
                 kind: InputGestureKind::Tap,
                 ..
             } => self.on_tap(host, position, layout),
+            Input::Pointer {
+                position,
+                phase,
+                contact,
+                ..
+            } => self.on_pointer(host, (contact, position), phase, layout),
             _ => Ok(Outcome::Handled(Handled::No)),
         }
+    }
+
+    /// A finger on a slider's track: a knob it moves shows the number at once
+    /// without keeping it (a quick refresh of the slider's row), and lifting
+    /// the finger keeps it. A finger that stays within the reach of a tap is
+    /// left to the tap.
+    fn on_pointer(
+        &mut self,
+        host: &Host<'_>,
+        (contact, at): (u32, Point),
+        phase: PointerPhase,
+        layout: &Layout,
+    ) -> Result<Outcome, Error> {
+        let (yes, no) = (Handled::Yes, Handled::No);
+        let held = self.drag.filter(|d| d.contact == contact);
+        match (phase, held) {
+            (PointerPhase::Down, _) if self.touch => {
+                self.drag = None;
+                if let Some((row, track)) = layout.track_at(self.page, at) {
+                    self.drag = self.begin_drag((contact, row), track, at.x);
+                }
+                // A finger taken is the slider's alone, up to its lifting.
+                Ok(Outcome::Handled(if self.drag.is_some() { yes } else { no }))
+            }
+            (PointerPhase::Move, Some(mut drag)) => {
+                let moved = drag.follow(at.x);
+                self.drag = Some(drag);
+                if let Some(value) = moved {
+                    self.show_drag(host, &drag, value, layout)?;
+                }
+                Ok(Outcome::Handled(yes))
+            }
+            (PointerPhase::Up, Some(mut drag)) => {
+                self.drag = None;
+                if !drag.moved() {
+                    // A tap on the track: the value there.
+                    return self.set_by_tap(host, drag.row, drag.track(), at);
+                }
+                drag.follow(at.x);
+                self.keep_drag(host, &drag)?;
+                Ok(Outcome::Handled(yes))
+            }
+            (PointerPhase::Cancel, Some(drag)) => {
+                self.drag = None;
+                if drag.moved() {
+                    CommandSender::new(host, &mut [0; 64]).end_preview()?;
+                    self.redraw(host)?;
+                }
+                Ok(Outcome::Handled(yes))
+            }
+            _ => Ok(Outcome::Handled(no)),
+        }
+    }
+
+    /// The knob taken where a finger came down on `track` of the slider `row`.
+    fn begin_drag(&self, (contact, row): (u32, usize), track: Rect, x: i32) -> Option<Drag> {
+        let part = self.parts.get(row)?;
+        let info = part.info.as_ref().filter(|i| i.slider())?;
+        let Some(Value::Int(now)) = info.value else {
+            return None;
+        };
+        part.row.choosable().then(|| {
+            let range = (info.min, info.max, info.step);
+            Drag::begin(
+                (contact, row),
+                track,
+                range,
+                x,
+                now.clamp(info.min, info.max),
+            )
+        })
+    }
+
+    /// The number dragged to, shown and not kept: the setting previewed (what
+    /// it changes shows at once) and the slider's row drawn again, quickly.
+    fn show_drag(
+        &self,
+        host: &Host<'_>,
+        drag: &Drag,
+        value: i64,
+        layout: &Layout,
+    ) -> Result<(), Error> {
+        let Some(part) = self.parts.get(drag.row) else {
+            return Ok(());
+        };
+        let Some(info) = part.info.as_ref() else {
+            return Ok(());
+        };
+        let mut scratch = buffer(1024)?;
+        let mut encoded = [0; 64];
+        CommandSender::new(host, &mut scratch).preview_settings(
+            &[PreviewSetting::new(&info.key, SettingValue::Int(value))],
+            &mut encoded,
+        )?;
+        let Some(row) = layout.rows.iter().find(|r| r.label == Some(drag.row)) else {
+            return Ok(());
+        };
+        let area = FrameRect::new(
+            i32::from(row.area.x),
+            i32::from(row.area.y),
+            u32::from(row.area.width),
+            u32::from(row.area.height),
+        );
+        CommandSender::new(host, &mut [0; 128]).queue_redraw_area(RedrawMode::Fast, area)
+    }
+
+    /// The finger lifted off a knob it moved: the number is kept, the panel
+    /// drawn cleanly.
+    fn keep_drag(&mut self, host: &Host<'_>, drag: &Drag) -> Result<(), Error> {
+        let Some(info) = self.parts.get(drag.row).and_then(|p| p.info.as_ref()) else {
+            return Ok(());
+        };
+        CommandSender::new(host, &mut [0; 64]).end_preview()?;
+        let mut scratch = buffer(1024)?;
+        CommandSender::new(host, &mut scratch).set_setting(&info.key, SettingValue::Int(drag.value))
     }
 
     fn on_tap(&mut self, host: &Host<'_>, at: Point, layout: &Layout) -> Result<Outcome, Error> {

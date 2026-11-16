@@ -27,6 +27,17 @@ pub const PLUGIN_EXPORTS: &[&str] = &[
     crate::host_glue::ENTRY_SYMBOL,
 ];
 
+/// What a library a computer's loader hosts may export: the entry symbols
+/// and, if it allocates, the heap word, which such a loader fills before
+/// `make` (`abi/heap-word.md` section 2). One list for the loader and for
+/// the tool that checks a library for it.
+#[cfg(feature = "kernel")]
+pub const HOSTED_EXPORTS: &[&str] = &[
+    crate::host_glue::METADATA_SYMBOL,
+    crate::host_glue::ENTRY_SYMBOL,
+    crate::host_glue::HEAP_SYMBOL,
+];
+
 #[cfg(all(test, feature = "kernel"))]
 mod export_list_tests {
     extern crate std;

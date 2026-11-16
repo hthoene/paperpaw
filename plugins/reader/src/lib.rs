@@ -50,6 +50,7 @@ pub mod native_annotations;
 pub mod native_annotations_view;
 pub mod native_block;
 pub mod native_bookmark;
+pub mod native_breaks;
 pub mod native_chapter;
 pub mod native_decor;
 pub mod native_decorations;
@@ -156,7 +157,7 @@ pub const TOC_SCREEN: Id = Id::new_static("reader.toc");
 /// The bookmarks and highlights of a book; parameter `path`.
 pub const ANNOTATIONS_SCREEN: Id = Id::new_static("reader.annotations");
 /// The actions offered for selected text, as a menu: plugins add their own
-/// with `Registrar::add_menu_entry`, users reorder them in `[menus]`. The
+/// with `Items::add_menu_entry`, users reorder them in `[menus]`. The
 /// standard one, so plugins need not know this reader.
 pub const SELECTION_MENU: Id = menus::SELECTION;
 /// Search results for a book; parameters `path` and `text`.

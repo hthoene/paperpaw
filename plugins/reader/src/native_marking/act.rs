@@ -36,7 +36,11 @@ fn ends_sentence(word: &str) -> bool {
 /// The text of the page's words `lo..=hi`, a space between them.
 pub fn text_of(words: &[WordBox], lo: usize, hi: usize) -> Result<String, Error> {
     let mut text = String::new();
-    for word in words.get(lo..=hi).unwrap_or(&[]) {
+    for (at, word) in words.iter().enumerate().take(hi + 1).skip(lo) {
+        // The second part of a word the layout broke says the word again.
+        if at > lo && crate::native_selection::continues(words, at) {
+            continue;
+        }
         let room = word.text.len() + 1;
         text.try_reserve(room).map_err(|_| Error::NoMemory)?;
         if !text.is_empty() {

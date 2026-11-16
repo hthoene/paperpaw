@@ -1,7 +1,5 @@
-//! A render hook is accepted by the registrar in the plugin's namespace
-//! and once per id, the capabilities that tell whether the kernel runs
-//! hooks are off in a device that is not told, and a hook gets only the
-//! narrow context.
+//! The capabilities that tell whether the kernel runs hooks are off in a
+//! device that is not told, and a hook gets only the narrow context.
 
 #![allow(
     clippy::unwrap_used,
@@ -14,10 +12,7 @@ use std::rc::Rc;
 
 use paperpaw_sdk::builtin::settings;
 use paperpaw_sdk::render::{BandView, FramePass, HookCx, HookStage, RenderHookSpec};
-use paperpaw_sdk::{
-    Capabilities, Capability, Contribution, Id, Lang, PixelFormat, Rect, RegisterError, Registrar,
-    Settings,
-};
+use paperpaw_sdk::{Capabilities, Capability, Id, Lang, PixelFormat, Rect, Settings};
 
 fn spec(
     id: &'static str,
@@ -30,22 +25,6 @@ fn spec(
         Id::new_static("demo.hook-on"),
         Box::new(hook),
     )
-}
-
-#[test]
-fn a_hook_is_accepted_in_the_plugin_s_namespace_and_once_per_id() {
-    let mut r = Registrar::new(Id::new_static("demo"));
-    r.add_render_hook(spec("demo.night", |_, _| {})).unwrap();
-    assert!(matches!(
-        r.add_render_hook(spec("demo.night", |_, _| {})),
-        Err(RegisterError::Duplicate { .. })
-    ));
-    assert!(matches!(
-        r.add_render_hook(spec("other.night", |_, _| {})),
-        Err(RegisterError::Namespace { .. })
-    ));
-    let kinds: Vec<&str> = r.contributions().iter().map(Contribution::kind).collect();
-    assert_eq!(kinds, ["render-hook"]);
 }
 
 #[test]

@@ -13,6 +13,8 @@
 
 mod common;
 
+use common::AddDriver;
+
 use common::{DEVICE, Harness, REPLY};
 use paperpaw_core::sdk::wifi::{NETWORK_WAIT_MS, WifiState};
 use paperpaw_core::sdk::{
@@ -30,7 +32,7 @@ const SOCKET: Id = Id::new_static("drv.socket");
 
 fn kernel(harness: &Harness, setup: impl FnOnce(KernelBuilder) -> KernelBuilder) -> Kernel {
     let builder = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .storage(MemoryStorage::new());
     let mut kernel = setup(builder).build().unwrap();
     kernel.start(Instant(0));

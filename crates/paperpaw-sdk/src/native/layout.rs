@@ -59,6 +59,16 @@ pub(super) const TARGET: &str = if cfg!(target_arch = "riscv32") {
     "other"
 };
 
+/// The layout of what collected a plugin's contributions until it became
+/// the kernel's own type (`paperpaw_core::Items`, #244): its id and its
+/// list. Kept in the digest so that [`DIGEST`] and with it the fingerprint
+/// stay what they were; it goes when the fingerprint is next made anew.
+#[allow(dead_code, reason = "only its size and alignment are read")]
+struct Collected {
+    plugin: crate::Id,
+    contributions: alloc::vec::Vec<crate::contribution::item::Contribution>,
+}
+
 /// Sizes and alignments of `$t`, in order.
 macro_rules! layouts {
     ($($t:ty),* $(,)?) => {
@@ -74,7 +84,7 @@ const CROSSING: &[(u64, u64)] = &layouts![
     crate::env::EnvParts<'static>,
     crate::Capabilities,
     crate::Metrics,
-    crate::Registrar,
+    Collected,
     crate::contribution::item::Contribution,
     crate::Command,
     crate::Cx<'static, 'static>,
@@ -116,7 +126,9 @@ const CROSSING: &[(u64, u64)] = &layouts![
     crate::Instant,
     super::Native,
     super::Fingerprint,
-    alloc::boxed::Box<dyn crate::Plugin>,
+    // An old plugin in its box, while the SDK had the trait (#244): two
+    // words, as any boxed trait object is.
+    alloc::boxed::Box<dyn core::any::Any>,
     alloc::boxed::Box<dyn crate::Screen>,
     &'static dyn crate::Storage,
     // Not `Api`: it grows at its end without a raise; `TABLE` keeps
@@ -208,7 +220,7 @@ const CROSSING: &[(u64, u64)] = &layouts![
     crate::StorageError,
     crate::DirEntry<'static>,
     // What the shared text functions take and give by value, between the
-    // firmware's code and the plugin's (`paperpaw_table`): the plugin
+    // firmware's code and the plugin's: the plugin
     // lives on across firmware releases, so a moved field of one of these
     // is an interface change. (The font crates they hold are pinned with
     // `=` in paperpaw-text; `tools/interface.py` digests those pins.)

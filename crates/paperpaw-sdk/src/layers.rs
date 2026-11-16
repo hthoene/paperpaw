@@ -1,7 +1,7 @@
 //! Page layers and page frames: what plugins draw on a book's pages
 //! beside the words, and how the text is set in columns.
 //!
-//! - A *layer* ([`PageLayerSpec`], `Registrar::add_page_layer`) draws on
+//! - A *layer* ([`PageLayerSpec`], `Items::add_page_layer`) draws on
 //!   every page a reader shows: side notes in a margin, a reading ruler,
 //!   change bars, a sign that the page turned. It gets where the page's
 //!   lines are ([`PageView`]) and draws statelessly, on some devices once
@@ -13,7 +13,7 @@
 //! - A layer that [takes taps](PageLayerSpec::taps) hears
 //!   [`events::PAGE_LAYER_TAPPED`](crate::builtin::events::PAGE_LAYER_TAPPED)
 //!   when its room is tapped, or chosen with the buttons as links are.
-//! - A *frame* ([`PageFrameSpec`], `Registrar::add_page_frame`) sets a
+//! - A *frame* ([`PageFrameSpec`], `Items::add_page_frame`) sets a
 //!   page's text in columns: two columns, two pages side by side. The
 //!   setting [`PAGE_FRAME`](crate::builtin::settings::PAGE_FRAME) (each
 //!   book may have its own) chooses one; its name is the translation of

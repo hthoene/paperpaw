@@ -307,3 +307,13 @@ drafts:
   stay byte for byte, a draft never moves back, and a change without a
   new line naming the candidate's draft is refused.
 - Freezing is the owner's decision, named with draft 0.
+
+## Amendment: the shared function tables are gone (2026-11, #244)
+
+Interface 7 does not use them: a plugin file of format 5 carries its own
+copies and calls PaperPaw through the host slots (`abi/`). With the last
+code for plugin files of the formats before it, the tables went too: the
+crate `paperpaw-table`, the `shared!` declarations, `shared.list`,
+`table.sig`, `table.body` and `tools/shared-table.py`. "Shared functions
+run the firmware's body" above no longer applies: a change to the body
+of such a function is an ordinary change.

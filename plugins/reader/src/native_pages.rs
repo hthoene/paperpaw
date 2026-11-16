@@ -72,6 +72,10 @@ pub struct Reading {
     /// The space between letters, kerning and ligatures (`core.letter-spacing`,
     /// `core.kerning`, `core.ligatures`).
     pub letters: Letters,
+    /// Words broken at line ends (`core.hyphenate`), keeping at least so many
+    /// letters before and after the break (`core.hyphen-min-left`, `-right`;
+    /// 0: the table's own), 0 to 16.
+    pub hyphens: (bool, u8, u8),
     /// A signature of the reading font's name and the hyphenation settings
     /// (`core.reading-font`, `core.hyphenate`, `core.hyphen-min-left`,
     /// `core.hyphen-min-right`): other letters or other breaks, other pages
@@ -116,6 +120,7 @@ impl Reading {
             book: u16::MAX,
             scripts: (false, false),
             letters: Letters::DEFAULT,
+            hyphens: (false, 0, 0),
             text: 0,
         }
     }
@@ -169,6 +174,15 @@ impl Reading {
     #[must_use]
     pub const fn with_letters(mut self, letters: Letters) -> Self {
         self.letters = letters;
+        self
+    }
+
+    /// The same breaking words at line ends where `on`, keeping `left` and
+    /// `right` letters at least (0 to 16; 0 leaves it to the language's table).
+    #[must_use]
+    pub fn with_hyphens(mut self, on: bool, (left, right): (i64, i64)) -> Self {
+        let kept = |v: i64| u8::try_from(v.clamp(0, 16)).unwrap_or(0);
+        self.hyphens = (on, kept(left), kept(right));
         self
     }
 

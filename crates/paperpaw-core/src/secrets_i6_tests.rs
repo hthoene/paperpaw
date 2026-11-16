@@ -229,9 +229,12 @@ fn a_card_from_another_device_is_told_once_per_start() {
     let theirs = seal_text(&veiled(&[("mail.pw", "one")]), "", &Fake::new(3)).unwrap();
     let mut kernel = Kernel::builder(crate::tests::DEVICE)
         .storage(MemoryStorage::new().with(FILE, theirs.as_bytes()))
-        .plugin(crate::tests::NoticePlugin {
-            log: crate::tests::log(),
-        })
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(crate::tests::NoticePlugin {
+                log: crate::tests::log(),
+            }),
+        )
         .build()
         .unwrap();
     kernel.start(paperpaw_platform::Instant(0));
@@ -258,9 +261,12 @@ fn told_kernel(text: &str, sealer: Fake) -> Kernel {
     use crate::native_host::shell_wiring::{SecretsInputs, SecretsLifecycle};
     let mut kernel = Kernel::builder(crate::tests::DEVICE)
         .storage(MemoryStorage::new().with(FILE, text.as_bytes()))
-        .plugin(crate::tests::NoticePlugin {
-            log: crate::tests::log(),
-        })
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(crate::tests::NoticePlugin {
+                log: crate::tests::log(),
+            }),
+        )
         .build()
         .unwrap();
     kernel.start(paperpaw_platform::Instant(0));

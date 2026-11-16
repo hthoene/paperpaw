@@ -26,6 +26,34 @@ fn it_reads_the_catalog() {
     assert_eq!(books, Some(4));
 }
 
+/// The place a page of names kept is gone when a plugin stops or is parked:
+/// none stays on the heap while no Library is there to go on from it.
+#[test]
+fn a_stopped_plugin_leaves_no_place_of_the_names() {
+    let host = host();
+    let authors = wire::ServiceLibQuery {
+        show: 0,
+        sort: 0,
+        flags: 0,
+        words: "",
+        author: "",
+        series: "",
+        tag: "",
+        folder: "",
+        added_since: 0,
+        cursor: 0,
+        generation: 0,
+        facet: 0,
+    };
+    for parking in [false, true] {
+        host.facets(&authors, "", &mut |_| core::ops::ControlFlow::Continue(()))
+            .unwrap();
+        assert!(host.reads.names_kept());
+        crate::native_host::lib_service::owner_stopped(&host, 7, parking).unwrap();
+        assert!(!host.reads.names_kept());
+    }
+}
+
 #[test]
 fn it_has_no_writes_and_says_so() {
     let host = host();
