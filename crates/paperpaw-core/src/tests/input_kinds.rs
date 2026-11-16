@@ -4,6 +4,7 @@
 //! recognizers.
 
 use super::*;
+use crate::Items;
 use crate::gestures;
 use paperpaw_sdk::keys::{
     GestureRecognizer, GestureSpec, InputMode, InputSpec, PointerVerdict, Recognition,
@@ -108,16 +109,12 @@ impl Screen for Taps {
     }
 }
 
-struct TapsPlugin(Log, Option<bool>);
-
-impl Plugin for TapsPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("taps"), "Taps", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let (log, doubles) = (self.0.clone(), self.1);
+fn taps_plugin(
+    kept0: Log,
+    kept1: Option<bool>,
+) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let (log, doubles) = (kept0.clone(), kept1);
         r.add_screen(ScreenSpec::new(
             Id::new_static("taps.screen"),
             "taps",
@@ -136,6 +133,12 @@ impl Plugin for TapsPlugin {
     }
 }
 
+/// What [`taps_plugin`] registers under.
+fn taps_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("taps"), "Taps", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// A screen that takes double taps gets the second tap as one, as a tap
 /// where it does not take it; other screens get taps.
 #[test]
@@ -148,7 +151,7 @@ fn screens_get_double_taps_or_taps() {
     for (doubles, seen) in cases {
         let log = log();
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(TapsPlugin(log.clone(), doubles))
+            .items(taps_plugin_manifest(), taps_plugin(log.clone(), doubles))
             .build()
             .unwrap();
         kernel.start(Instant(0));
@@ -204,16 +207,9 @@ impl Screen for Layered {
     }
 }
 
-struct LayerPlugin(Log);
-
-impl Plugin for LayerPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("lay"), "Layers", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
+fn layer_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
         r.add_screen(ScreenSpec::new(
             Id::new_static("lay.screen"),
             "layered",
@@ -229,9 +225,15 @@ impl Plugin for LayerPlugin {
     }
 }
 
+/// What [`layer_plugin`] registers under.
+fn layer_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("lay"), "Layers", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn layered(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(LayerPlugin(log.clone()))
+        .items(layer_plugin_manifest(), layer_plugin(log.clone()))
         .test_plugin(TestPlugin::new("b", log))
         .build()
         .unwrap();
@@ -285,15 +287,8 @@ fn inputs_raised_and_layers_put_in_front() {
 
 /// Cancels the back button and the second finger; makes the menu button
 /// confirm.
-struct Filters;
-
-impl Plugin for Filters {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("filters"), "Filters", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn filters() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         use paperpaw_sdk::filters::{InputFilterSpec, InputVerdict};
         r.add_input_filter(InputFilterSpec::new(
             Id::new_static("filters.input"),
@@ -316,6 +311,12 @@ impl Plugin for Filters {
     }
 }
 
+/// What [`filters`] registers under.
+fn filters_manifest() -> Manifest {
+    Manifest::new(Id::new_static("filters"), "Filters", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// A filter cancels an input: nothing comes of it, nothing waits for a
 /// long press. It replaces one: the other runs. What the reader used last
 /// is known.
@@ -324,7 +325,7 @@ fn filters_cancel_and_replace_inputs() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
         .test_plugin(TestPlugin::new("a", &log))
-        .plugin(Filters)
+        .items(filters_manifest(), filters())
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -386,15 +387,8 @@ impl GestureRecognizer for Flick {
     }
 }
 
-struct FlickPlugin;
-
-impl Plugin for FlickPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("g"), "Gestures", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn flick_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_gesture(GestureSpec::new(
             Id::new_static("g.flick"),
             "g.flick",
@@ -411,12 +405,18 @@ impl Plugin for FlickPlugin {
     }
 }
 
+/// What [`flick_plugin`] registers under.
+fn flick_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("g"), "Gestures", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn flick_kernel(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
         .test_plugin(TestPlugin::new("a", log))
-        .plugin(FlickPlugin)
-        .plugin(LockPlugin(log.clone()))
-        .plugin(Filters)
+        .items(flick_plugin_manifest(), flick_plugin())
+        .items(lock_plugin_manifest(), lock_plugin(log.clone()))
+        .items(filters_manifest(), filters())
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -507,22 +507,21 @@ impl Screen for Lock {
     }
 }
 
-struct LockPlugin(Log);
-
-impl Plugin for LockPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("lock"), "Lock", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
+fn lock_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
         r.add_screen(ScreenSpec::new(
             Id::new_static("lock.screen"),
             "lock",
             Box::new(move |_, _| Box::new(Lock(log.clone()))),
         ))
     }
+}
+
+/// What [`lock_plugin`] registers under.
+fn lock_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("lock"), "Lock", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// While a screen of another plugin guards the device, recognizers see
@@ -564,7 +563,7 @@ fn recognizers_follow_the_screens_policy() {
             keymap: Some("[keymap.a.screen]\ngestures.policy = core.gestures.own\n"),
             ..TestPlugin::new("a", &log)
         })
-        .plugin(FlickPlugin)
+        .items(flick_plugin_manifest(), flick_plugin())
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -655,9 +654,6 @@ fn a_guard_takes_the_fingers_of_recognizers() {
     assert_eq!(kernel.stack[0].key_layer, None);
 }
 
-/// A screen of direction `.1` bound to Home; it logs the actions it gets.
-struct WayPlugin(Log, paperpaw_sdk::lang::Direction);
-
 struct WayScreen(Log, paperpaw_sdk::lang::Direction);
 
 impl Screen for WayScreen {
@@ -673,14 +669,13 @@ impl Screen for WayScreen {
     }
 }
 
-impl Plugin for WayPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("way"), "Ways", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let (log, way) = (self.0.clone(), self.1);
+/// A screen of direction `.1` bound to Home; it logs the actions it gets.
+fn way_plugin(
+    kept0: Log,
+    kept1: paperpaw_sdk::lang::Direction,
+) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let (log, way) = (kept0.clone(), kept1);
         r.add_screen(ScreenSpec::new(
             Id::new_static("way.screen"),
             "way",
@@ -697,6 +692,12 @@ impl Plugin for WayPlugin {
     }
 }
 
+/// What [`way_plugin`] registers under.
+fn way_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("way"), "Ways", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// What a tap at the right and a swipe to the left run on a screen of
 /// direction `way`, in the interface of `language` (`ar` goes right to
 /// left).
@@ -708,7 +709,7 @@ fn right_side(way: paperpaw_sdk::lang::Direction, language: &str) -> Vec<String>
         .with("plugins/arabic/plugin.ini", "[plugin]\nname = Arabic\n")
         .with("plugins/arabic/i18n/ar.ini", arabic);
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WayPlugin(log.clone(), way))
+        .items(way_plugin_manifest(), way_plugin(log.clone(), way))
         .storage(storage)
         .user_config(alloc::format!("[core]\nlanguage = {language}\n"))
         .build()
