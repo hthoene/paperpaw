@@ -24,7 +24,10 @@ impl crate::Kernel {
     /// or a reader that is reopening its book. This is not called from input.
     #[inline(never)]
     pub(crate) fn offer_literata_notice(&mut self) -> bool {
-        if !self.waiting_notices.literata.pending || self.waiting_notices.literata.seen {
+        if !self.waiting_notices.literata.pending
+            || self.waiting_notices.literata.seen
+            || self.waiting_notices.start_notice_shown
+        {
             return false;
         }
         let home = self.stack.len() == 1
@@ -64,6 +67,7 @@ impl crate::Kernel {
             &Params::new().with("store", if store { "yes" } else { "no" }),
         );
         self.waiting_notices.literata.seen = true;
+        self.waiting_notices.start_notice_shown = true;
         self.waiting_notices.literata.pending = false;
         true
     }
