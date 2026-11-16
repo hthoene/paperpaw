@@ -2813,7 +2813,7 @@ struct paperpaw_sdk::menus::Menus { entries: alloc::vec::Vec<paperpaw_sdk::menus
 struct paperpaw_sdk::menus::StateFn(0: paperpaw_sdk::menus::ItemStateFn)
 struct paperpaw_sdk::native::CodeRoom { total: u64, used: u64, granule: u32, max_plugins: core::option::Option<u32>, placed: u32, shared: bool, larger: core::option::Option<u64> }
 struct paperpaw_sdk::native::Fingerprint(0: u64)
-struct paperpaw_sdk::native::Native { fingerprint: paperpaw_sdk::native::Fingerprint, toolchain: alloc::borrow::Cow<'static, str>, compiler: u32, file: alloc::borrow::Cow<'static, str>, safe_mode: core::option::Option<paperpaw_sdk::native::SafeMode>, not_installed: alloc::vec::Vec<paperpaw_sdk::native::NotInstalled>, api_size: u32, family_revs: paperpaw_table::Revisions, family_min: paperpaw_table::Revisions, minor: u16 }
+struct paperpaw_sdk::native::Native { fingerprint: paperpaw_sdk::native::Fingerprint, toolchain: alloc::borrow::Cow<'static, str>, compiler: u32, file: alloc::borrow::Cow<'static, str>, safe_mode: core::option::Option<paperpaw_sdk::native::SafeMode>, not_installed: alloc::vec::Vec<paperpaw_sdk::native::NotInstalled>, api_size: u32, family_revs: [u16; 8], family_min: [u16; 8], minor: u16 }
 struct paperpaw_sdk::native::NotInstalled { plugin: paperpaw_sdk::id::Id, reason: paperpaw_sdk::native::NotInstalledReason }
 struct paperpaw_sdk::native::SafeMode { reason: paperpaw_sdk::native::SafeModeReason, last_loaded: core::option::Option<alloc::string::String>, crashed: core::option::Option<alloc::string::String>, switched_off: alloc::vec::Vec<paperpaw_sdk::id::Id> }
 struct paperpaw_sdk::native::binding::Host<'cb> { table: &'cb paperpaw_native::host_glue::generated::PpHost, ctx: *mut core::ffi::c_void }

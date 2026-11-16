@@ -12,9 +12,7 @@ categories = ["no-std", "config", "parser-implementations"]
 keywords = ["ini", "config", "no-std"]
 
 [dependencies]
-# The shared function table (`paperpaw_table::shared!`).
 paperpaw-sort.workspace = true
-paperpaw-table.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

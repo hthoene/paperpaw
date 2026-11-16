@@ -1718,7 +1718,6 @@ name = "paperpaw-config"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-sort",
- "paperpaw-table",
  "proptest",
 ]
 
@@ -1739,7 +1738,6 @@ dependencies = [
  "paperpaw-plugin-widgets",
  "paperpaw-sdk",
  "paperpaw-sort",
- "paperpaw-table",
  "paperpaw-text",
  "png",
  "proptest",
@@ -1817,7 +1815,6 @@ dependencies = [
  "paperpaw-sample-interlinear",
  "paperpaw-sdk",
  "paperpaw-serve",
- "paperpaw-table",
  "paperpaw-text",
  "paperpaw-x4",
  "paperpaw-zip",
@@ -1872,7 +1869,6 @@ name = "paperpaw-graphics"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
  "proptest",
 ]
 
@@ -1909,7 +1905,6 @@ dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
  "paperpaw-sort",
- "paperpaw-table",
  "proptest",
 ]
 
@@ -1927,7 +1922,6 @@ name = "paperpaw-json"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
  "proptest",
 ]
 
@@ -2878,7 +2872,6 @@ dependencies = [
  "paperpaw-qr",
  "paperpaw-sdk",
  "paperpaw-sort",
- "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
@@ -2907,7 +2900,6 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-publish",
- "paperpaw-table",
  "paperpaw-update",
  "paperpaw-x4",
 ]
@@ -2940,10 +2932,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-table"
-version = "0.6.0-beta.3"
-
-[[package]]
 name = "paperpaw-text"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2953,7 +2941,6 @@ dependencies = [
  "paperpaw-lang",
  "paperpaw-platform",
  "paperpaw-sort",
- "paperpaw-table",
  "proptest",
  "read-fonts",
  "skrifa",
@@ -3011,7 +2998,6 @@ dependencies = [
 name = "paperpaw-xml"
 version = "0.6.0-beta.3"
 dependencies = [
- "paperpaw-table",
  "proptest",
 ]
 

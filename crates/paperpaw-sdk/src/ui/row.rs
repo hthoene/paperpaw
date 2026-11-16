@@ -127,7 +127,6 @@ impl<'r> Row<'r> {
         self.kind
     }
 
-    paperpaw_table::shared! {
     /// How high it is `width` wide: a row (a noted one with a note),
     /// taller where its title takes more lines beside what it shows.
     pub fn height(&self, env: &Env<'_>, style: &UiStyle, width: u16) -> u16 {
@@ -142,10 +141,8 @@ impl<'r> Row<'r> {
                 super::noted_row_height(env, style, width, self.title, value, self.note)
             }
         }
-    } @ ui::ROW_HEIGHT
     }
 
-    paperpaw_table::shared! {
     /// Draws it in `rect`.
     pub fn draw(&self, ui: &mut Ui<'_>, rect: Rect) {
         let (env, style) = (ui.env(), ui.style());
@@ -171,10 +168,8 @@ impl<'r> Row<'r> {
                 }
             }
         }
-    } @ ui::ROW_DRAW
     }
 
-    paperpaw_table::shared! {
     /// What `point` is on, the row drawn in `rect`; none outside it.
     pub fn hit(&self, env: &Env<'_>, style: &UiStyle, rect: Rect, point: Point) -> Option<RowPart> {
         if !rect.contains(point) {
@@ -198,6 +193,5 @@ impl<'r> Row<'r> {
             }
             _ => Some(RowPart::Row),
         }
-    } @ ui::ROW_HIT
     }
 }

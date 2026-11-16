@@ -66,7 +66,6 @@ pub struct Value<'a> {
 }
 
 impl<'a> Value<'a> {
-    paperpaw_table::shared! {
     /// The value as text, with escape sequences resolved.
     pub fn as_str(&self) -> Cow<'a, str> {
         if !self.quoted || !self.raw.contains('\\') {
@@ -96,7 +95,6 @@ impl<'a> Value<'a> {
             }
         }
         Cow::Owned(out)
-    } @ data::CONFIG_AS_STR
     }
 
     /// Whether [`Value::as_str`] has to allocate: a quoted value with escape
@@ -132,16 +130,12 @@ impl<'a> Value<'a> {
         }
     }
 
-    paperpaw_table::shared! {
     pub fn as_i64(&self) -> Option<i64> {
         self.raw.parse().ok()
-    } @ data::CONFIG_AS_I64
     }
 
-    paperpaw_table::shared! {
     pub fn as_u32(&self) -> Option<u32> {
         self.raw.parse().ok()
-    } @ data::CONFIG_AS_U32
     }
 
     /// The value exactly as written, without surrounding quotes.
@@ -204,7 +198,6 @@ pub struct Parser<'a> {
 impl<'a> Iterator for Parser<'a> {
     type Item = Result<Entry<'a>, ParseError>;
 
-    paperpaw_table::shared! {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let raw_line = self.lines.next()?;
@@ -251,7 +244,6 @@ impl<'a> Iterator for Parser<'a> {
                 line: self.line,
             }));
         }
-    } @ data::CONFIG_NEXT
     }
 }
 
@@ -351,7 +343,6 @@ fn parse_unicode_escape(s: &str) -> Option<(char, usize)> {
     Some((char::from_u32(code)?, end + 2))
 }
 
-paperpaw_table::shared! {
 /// Returns `source` with `key` in `section` set to `value`.
 ///
 /// Edits as little as possible, so hand-written files keep their comments,
@@ -365,7 +356,6 @@ paperpaw_table::shared! {
 /// is. For more than a few keys, [`set_all`] edits the file only once.
 pub fn set(source: &str, section: &str, key: &str, value: &str) -> String {
     set_all(source, [(section, key, value)])
-} @ data::CONFIG_SET
 }
 
 /// Returns `source` with each `(section, key, value)` of `entries` set, as
@@ -506,7 +496,6 @@ where
     out
 }
 
-paperpaw_table::shared! {
 /// Returns `source` without `key` in `section`; the rest stays as it is.
 pub fn remove(source: &str, section: &str, key: &str) -> String {
     let mut current = "";
@@ -529,7 +518,6 @@ pub fn remove(source: &str, section: &str, key: &str) -> String {
         return String::from(source);
     }
     join(&out)
-} @ data::CONFIG_REMOVE
 }
 
 fn join(lines: &[&str]) -> String {
@@ -538,7 +526,6 @@ fn join(lines: &[&str]) -> String {
     out
 }
 
-paperpaw_table::shared! {
 /// A value as written in a file: quoted and escaped if it would not
 /// survive unquoted (leading or trailing spaces, empty, starting with a
 /// quote, or more than one line), as it is otherwise.
@@ -563,7 +550,6 @@ pub fn quote(value: &str) -> Cow<'_, str> {
     }
     out.push('"');
     Cow::Owned(out)
-} @ data::CONFIG_QUOTE
 }
 
 #[cfg(test)]

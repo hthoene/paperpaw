@@ -755,7 +755,6 @@ impl UiStyle {
         direction: 0,
     };
 
-    paperpaw_table::shared! {
     pub fn new(env: &Env<'_>) -> Self {
         let m = env.metrics();
         let base = env.settings().read(&settings::UI_SIZE).clamp(6, 40) as f32;
@@ -836,7 +835,6 @@ impl UiStyle {
             palette: Palette::parse(s.text(settings::UI_PALETTE.as_str())),
             direction: u8::from(env.direction() == paperpaw_lang::Direction::Rtl),
         }
-    } @ ui::STYLE_NEW
     }
 
     /// The radius of the corners of a shape `height` pixels high: half
@@ -985,12 +983,10 @@ impl UiStyle {
         env.fonts().role(fonts::UI.as_str())
     }
 
-    paperpaw_table::shared! {
     /// Height of a row with a note: the title line, then up to
     /// [`NOTE_LINES`] lines of small text (see [`Row::value`](super::Row::value)).
     pub fn noted_row(&self) -> u32 {
         self.noted_row_of(NOTE_LINES)
-    } @ ui::STYLE_NOTED_ROW
     }
 
     /// Height of a row with a note of `lines` lines (e.g. 1 for denser
@@ -1037,7 +1033,6 @@ pub fn focus_rect(style: &UiStyle, rect: Rect) -> Rect {
     rect.inset(side.min(rect.width / 8), edge)
 }
 
-paperpaw_table::shared! {
 /// Draws the focus of the row or item in `rect` (see [`focus_rect`]):
 /// black, for content drawn white on it. Every list draws its focus this
 /// way, so it looks the same everywhere.
@@ -1066,10 +1061,8 @@ pub(crate) fn draw_focus(canvas: &mut Canvas<'_>, style: &UiStyle, rect: Rect) {
         }
         Focus::Soft => canvas.stroke_round(r, ring, radius, Color::BLACK),
     }
-} @ ui::STYLE_DRAW_FOCUS
 }
 
-paperpaw_table::shared! {
 /// Draws the line below the row in `rect` as the style's separators
 /// are: `indent` is where the row's text starts after the margin (e.g.
 /// right of an icon), where faint lines start.
@@ -1106,7 +1099,6 @@ pub(crate) fn draw_separator(canvas: &mut Canvas<'_>, style: &UiStyle, rect: Rec
         }
         Separators::None => {}
     }
-} @ ui::STYLE_DRAW_SEPARATOR
 }
 
 /// Fills a rectangle with the style's corners.
