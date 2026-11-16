@@ -79,6 +79,7 @@ mod room;
 mod screens;
 mod secrets_i6;
 mod shared_env;
+mod tall_band;
 use screens::ActiveScreen;
 #[cfg(test)]
 mod tests;
