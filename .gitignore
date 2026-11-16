@@ -7,10 +7,6 @@
 /tools/*/target/
 # The X4's firmware builds on its own (see shells/xteink).
 /shells/xteink/target/
-# Native plugins, built in workspaces of their own.
-/samples/hello-native/target/
-/crates/paperpaw-core/tests/native-plugin/target/
-/tools/plugin-files/target/
 **/*.rs.bk
 
 # Emulator output

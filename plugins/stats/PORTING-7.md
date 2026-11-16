@@ -427,11 +427,17 @@ The X4 file (`stats`) packs at 486,328 B (format 5, interface 7.1, version 1.0.8
 
 ## The stage of Reading goal
 
-- Reading goal owns the stage `reading-goal.read-today` (Kernel's ruling) and the statistics subscribe to it
-  (`declarations::stages`, token 5; `native_plugin.rs` `tell_today`). Asked with nothing or today's day they
-  answer the day and the seconds read on it (8 bytes, little-endian); another day is `NotFound`, a payload of
-  another length `Invalid`; nothing where the date is not known. The stage `stats.read-today` of the earlier
-  slices is gone (nothing asked it).
+- Reading goal owns the stage `reading-goal.read-today` (schema 1) and statistics subscribe
+  (`declarations::stages`, token 5; `native_plugin.rs` `tell_today`). Input stays empty for
+  today or a little-endian `i32` day. Reply is one `today.reading` record with `known: u32`,
+  `day: i32`, `seconds: u32`, 16 bytes including framing. `known=1` carries the figure;
+  `known=0, day=0, seconds=0` is the valid unknown-date answer. Another requested day
+  returns `NotFound`; invalid input length returns `Invalid`. Schema 1 is corrected before
+  either plugin's first interface-7 publication, without an SDK or interface change.
+  The payload schema and compact codec are owned by Reading goal:
+  `plugins/reading-goal/payloads/reading-goal.read-today-reply@1.def` and its
+  `src/read_today.rs`. Stats includes that codec directly; store builds use the repository
+  tree, so no second source or schema copy is needed.
 
 ## Widgets and the settings pages
 

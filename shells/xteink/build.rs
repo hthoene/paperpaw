@@ -44,11 +44,13 @@ fn main() {
         println!("cargo::rustc-link-arg=-nostartfiles");
         println!("cargo::rustc-link-arg=-Wl,-Tlinkall.x");
         stack_floor(&out);
+        no_rodata_gap(&out);
         return;
     }
     std::fs::copy("memory-x4.x", out.join("memory.x")).expect("memory-x4.x");
     println!("cargo::rustc-link-search={}", out.display());
     println!("cargo::rustc-link-arg=-Tlinkall.x");
+    no_rodata_gap(&out);
     if std::env::var_os("CARGO_FEATURE_PPN5").is_some() {
         stack_floor_x4(&out);
     }
@@ -125,6 +127,27 @@ fn stack_floor(out: &std::path::Path) {
          {floor} bytes: give the heap less (HEAP_SIZE)\");\n"
     );
     std::fs::write(&script, text).expect("stack-floor.x");
+    println!("cargo::rustc-link-arg={}", script.display());
+}
+
+/// Fails the link where a gap is left between the application descriptor's
+/// section (with the plugin list: `plugins()` pads it) and `.rodata`: esp-hal's
+/// script pads there (`.rodata_merge`) to the alignment `.rodata` asks for,
+/// and `espflash` then makes two data segments of the image, of which the
+/// ESP32-S3's bootloader maps the last only: the firmware would read its
+/// own plugin list from the wrong flash page (`paperpaw-sign check-image`
+/// finds the two segments in an image). Where `.rodata` asks for more than
+/// the list's padding (`paperpaw_update::Plugins::record`, 64 bytes) keeps, the link
+/// fails here, at once, and the padding is raised.
+fn no_rodata_gap(out: &std::path::Path) {
+    let script = out.join("rodata-gap.x");
+    // By addresses, not by the gap section's size: a renamed or dropped
+    // `.rodata_merge` would read 0 and pass; a missing section named here
+    // fails the link instead.
+    let text = "ASSERT(ADDR(.rodata) == ADDR(.flash.appdesc) + SIZEOF(.flash.appdesc), \
+                \"a gap is left between the application descriptor's section and \
+                .rodata: raise SECTION_END_ALIGN in crates/paperpaw-update/src/plugins.rs\");\n";
+    std::fs::write(&script, text).expect("rodata-gap.x");
     println!("cargo::rustc-link-arg={}", script.display());
 }
 

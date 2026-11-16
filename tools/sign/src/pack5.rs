@@ -2,13 +2,12 @@
 //! `abi/ppn5.md`) from a plugin linked with `paperpaw-plugin7.x` and
 //! `--emit-relocs`.
 //!
-//! The image is the same as format 4's (the linked `.rodata`, then `.text`),
-//! and so are the words to relocate, the hot code and the patches that move
-//! it ([`crate::pack::Image`], [`crate::hot`]). What differs is what the
-//! file says: no fingerprint, no compiler, no table words and no family
-//! revisions, but the entry (20 bytes on the ESP32-C3, `PAPERPAW_ENTRY`) and
-//! the metadata record (`PAPERPAW_METADATA`) the generator wrote, whose
-//! interface and minor are the header's. **There is no draft field**
+//! The image is the linked `.rodata`, then `.text`, with the words to
+//! relocate, the hot code and the patches that move it
+//! ([`crate::pack::Image`], [`crate::hot`]). The file says the entry (20
+//! bytes on the ESP32-C3, `PAPERPAW_ENTRY`) and the metadata record
+//! (`PAPERPAW_METADATA`) the generator wrote, whose interface and minor are
+//! the header's. **There is no draft field**
 //! (`abi/ppn5.md`, "Identity"): nothing in the file says what draft of the
 //! interface it was built at.
 //!
@@ -31,7 +30,7 @@ use paperpaw_native::header5::{ABI_MAJOR, HEADER_LEN, Header5, Host, META_MAX, R
 use paperpaw_native::host_glue::{ENTRY_SYMBOL, METADATA_SYMBOL, MINOR};
 use paperpaw_native::preflight::PLUGIN_EXPORTS;
 use paperpaw_native::stream5::{MAX_PATCHES, Relocator5};
-use paperpaw_native::{API_SYMBOL, Chip, LINK_BASE, Signature};
+use paperpaw_native::{Chip, LINK_BASE, Signature};
 
 use crate::elf::{EM_RISCV, EM_XTENSA, ET_EXEC, ET_REL, Elf, STT_SECTION, Symbol};
 use crate::hot::Hot;
@@ -68,31 +67,25 @@ pub struct Packed5 {
     pub file: Vec<u8>,
 }
 
-/// Which interface the linked plugin is built for, by what it defines: the
-/// metadata record of interface 7, or the table word of interface 6; a plugin
-/// that has both or neither is no plugin of either.
-pub fn is_interface7(elf: &[u8]) -> Result<bool, String> {
+/// Whether the linked plugin is one of interface 7: it defines the metadata
+/// record `paperpaw-plugin7.x` keeps. One that does not (a plugin of the
+/// interface before, linked with the script of that time, among them) is
+/// refused, saying so.
+pub fn is_interface7(elf: &[u8]) -> Result<(), String> {
     let elf = Elf::parse(elf)?;
     let (_, symbols) = elf
         .symbols()?
         .ok_or("no symbol table: do not strip the plugin")?;
-    let defines = |name: &str| {
-        symbols
-            .iter()
-            .any(|s| s.name == name && s.shndx != crate::elf::SHN_UNDEF)
-    };
-    match (defines(METADATA_SYMBOL), defines(API_SYMBOL)) {
-        (true, false) => Ok(true),
-        (false, true) => Ok(false),
-        (true, true) => Err(format!(
-            "it defines both `{METADATA_SYMBOL}` (interface 7) and `{API_SYMBOL}` (interface 6): \
-             link it with one of paperpaw-plugin7.x and paperpaw-plugin.x"
-        )),
-        (false, false) => Err(format!(
-            "it defines neither `{METADATA_SYMBOL}` (interface 7) nor `{API_SYMBOL}` (interface 6): \
-             link it with paperpaw-plugin7.x or paperpaw-plugin.x"
-        )),
+    let defined = symbols
+        .iter()
+        .any(|s| s.name == METADATA_SYMBOL && s.shndx != crate::elf::SHN_UNDEF);
+    if defined {
+        return Ok(());
     }
+    Err(format!(
+        "it does not define `{METADATA_SYMBOL}`: link it with paperpaw-plugin7.x (a plugin \
+         of the interface before 7 is no longer packed)"
+    ))
 }
 
 /// The format-5 file of the linked plugin `elf`.
@@ -106,8 +99,8 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
     let chip = match elf.machine {
         EM_RISCV => Chip::Esp32C3,
         // Target 9 (decision 142): the same format with no hot code and no
-        // patches, the words to relocate of format 4's Xtensa table
-        // (`R_XTENSA_32` only), and the frame scan of the windowed ABI.
+        // patches, the words to relocate of the Xtensa table (`R_XTENSA_32`
+        // only), and the frame scan of the windowed ABI.
         EM_XTENSA => Chip::Esp32S3,
         other => {
             return Err(format!(
@@ -124,14 +117,7 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
     let (entry, meta_at, record) = locate(&image, &symbols, &host)?;
     let heap_at = heap_word(&image, &symbols)?;
     let facts = record_facts(record, &host, chip)?;
-    let mut used = [false; paperpaw_native::TABLE_SYMBOLS.len()];
-    let words = image.words(&elf, chip, symtab, &symbols, &mut used)?;
-    if let Some(n) = used.iter().position(|&u| u) {
-        return Err(format!(
-            "the code reads `{}`, a family of shared functions: interface 7 has none",
-            paperpaw_native::TABLE_SYMBOLS[n]
-        ));
-    }
+    let words = image.words(&elf, chip, symtab, &symbols)?;
     // After what is wrong with the file's identity, before it is made: the
     // frames the code takes on the stack.
     stack_frames(&elf, &image, chip, &symbols, &words)?;
@@ -276,7 +262,7 @@ pub fn check_file5(file: &[u8]) -> Result<(Header5, Option<Signature>), String> 
 /// site of its `auipc` and `to` what that `auipc`'s upper part reaches: the
 /// loader looks nothing up, so **this is where it is guaranteed** that a lower
 /// part's `auipc` is patched, and that no instruction is patched twice.
-fn records(pairs: &[[u32; 2]]) -> Result<Vec<[u32; 3]>, String> {
+pub(crate) fn records(pairs: &[[u32; 2]]) -> Result<Vec<[u32; 3]>, String> {
     use paperpaw_native::PatchKind;
     let mut upper = std::collections::BTreeMap::new();
     for &[record, reference] in pairs {

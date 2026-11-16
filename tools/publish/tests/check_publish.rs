@@ -10,8 +10,9 @@
 
 use std::path::{Path, PathBuf};
 
+use paperpaw_native::header5::Header5;
 use paperpaw_native::signature::sign;
-use paperpaw_native::{Chip, Header, LINK_BASE};
+use paperpaw_native::{Chip, LINK_BASE};
 use paperpaw_publish::{Level, Problem, run};
 use paperpaw_zip::testing::ZipBuilder;
 
@@ -64,24 +65,24 @@ fn data_repo(name: &str) -> PathBuf {
 /// the key of `seed` (or not).
 fn ppn(chip: Chip, interface: u16, seed: Option<[u8; 32]>) -> Vec<u8> {
     let image = [0u8; 128];
-    let mut header = Header {
-        chip,
-        fingerprint: (u64::from(interface) << 48) | 0x0123_4567,
+    let mut header = Header5 {
+        target: chip,
+        abi_major: interface,
+        needs_minor: 0,
         base: LINK_BASE,
         image_len: image.len() as u32,
         code_at: 96,
         entry: 0,
-        api: 32,
+        meta_at: 32,
+        meta_len: 4,
         relocs: 0,
         align: 16,
-        compiler: 1,
         hot_at: 0,
         hot_len: 0,
         patches: 0,
-        needs_api: 64,
-        families: [0; 8],
-        interface: interface.max(1),
+        heap_at: None,
         sha256: [0; 32],
+        signed: false,
     };
     let mut sha = header.digest();
     sha.update(&image);
@@ -298,6 +299,36 @@ fn release_files_the_site_refuses_are_found() {
     says(
         &problems,
         "a plugin with code needs a signed build for each reader",
+    );
+}
+
+#[test]
+fn a_build_no_reader_takes_is_refused() {
+    let dir = code_repo("code-refused");
+    let release = dir.join("release");
+    let r = release.display().to_string();
+    let good = ppn(Chip::Esp32C3, 2, Some(AUTHOR));
+    // A file of the format before 5.
+    let mut old = good.clone();
+    old[4..6].copy_from_slice(&4u16.to_le_bytes());
+    write(&release, "clock-1.0.0-x4.ppn", old);
+    says(
+        &check(&dir, &["--release-dir", &r]),
+        "a plugin file of format 4",
+    );
+    // One byte of the image changed: the digest no longer holds.
+    let mut changed = good.clone();
+    changed[100] ^= 1;
+    write(&release, "clock-1.0.0-x4.ppn", changed);
+    says(
+        &check(&dir, &["--release-dir", &r]),
+        "readers refuse it: Damaged",
+    );
+    // Cut short.
+    write(&release, "clock-1.0.0-x4.ppn", &good[..good.len() - 1]);
+    says(
+        &check(&dir, &["--release-dir", &r]),
+        "readers refuse it: Length",
     );
 }
 

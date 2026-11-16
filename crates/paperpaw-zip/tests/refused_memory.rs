@@ -22,7 +22,13 @@ struct Arm {
     armed: Cell<bool>,
     left: Cell<usize>,
     refused: Cell<usize>,
+    /// The other way to refuse ([`in_one_block`]): what is left of the one
+    /// large free block, while set.
+    block: Cell<Option<usize>>,
 }
+
+/// The largest piece the small free blocks of [`in_one_block`] hold.
+const SMALL: usize = 16 * 1024;
 
 thread_local! {
     static ARM: Arm = const {
@@ -30,12 +36,26 @@ thread_local! {
             armed: Cell::new(false),
             left: Cell::new(0),
             refused: Cell::new(0),
+            block: Cell::new(None),
         }
     };
 }
 
-fn allowed() -> bool {
+fn allowed(size: usize) -> bool {
     ARM.try_with(|arm| {
+        // A heap of one large free block and small ones, first fit: a piece
+        // is cut from the large block while it fits there, else it needs a
+        // small block.
+        if let Some(left) = arm.block.get() {
+            if size <= left {
+                arm.block.set(Some(left - size));
+                return true;
+            }
+            if size > SMALL {
+                arm.refused.set(arm.refused.get() + 1);
+            }
+            return size <= SMALL;
+        }
         if !arm.armed.get() {
             return true;
         }
@@ -59,7 +79,7 @@ struct Refusing;
 // `GlobalAlloc` allows.
 unsafe impl GlobalAlloc for Refusing {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if !allowed() {
+        if !allowed(layout.size()) {
             return core::ptr::null_mut();
         }
         // SAFETY: the caller's layout, passed on.
@@ -72,7 +92,7 @@ unsafe impl GlobalAlloc for Refusing {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        if !allowed() {
+        if !allowed(size) {
             return core::ptr::null_mut();
         }
         // SAFETY: the caller's block and layout, passed on.
@@ -88,8 +108,26 @@ struct Armed;
 
 impl Drop for Armed {
     fn drop(&mut self) {
-        ARM.with(|arm| arm.armed.set(false));
+        ARM.with(|arm| {
+            arm.armed.set(false);
+            arm.block.set(None);
+        });
     }
+}
+
+/// Runs `f` on a heap whose free memory is one block of `block` bytes and
+/// small ones (of [`SMALL`] at most), first fit; also tells how many
+/// allocations found no room.
+fn in_one_block<T>(block: usize, f: impl FnOnce() -> T) -> (T, usize) {
+    ARM.with(|arm| {
+        arm.refused.set(0);
+        arm.block.set(Some(block));
+    });
+    let out = {
+        let _armed = Armed;
+        f()
+    };
+    (out, ARM.with(|arm| arm.refused.get()))
 }
 
 /// Runs `f` with this thread's allocations after the first `left`
@@ -175,4 +213,26 @@ fn every_allocation_refused_while_reading_is_an_error() {
         assert_eq!(refused, 1, "stops at the first refusal (allocation {left})");
         assert_eq!(read, Err(ZipError::OutOfMemory), "allocation {left}");
     }
+}
+
+#[test]
+fn a_long_entry_is_read_where_one_block_of_33_kib_and_small_ones_are_free() {
+    // Longer than the deflate history, so its window is the full 32 KiB.
+    let text: String = (0..6000).map(|i| format!("Zeile {i}: Größe\n")).collect();
+    let storage = OneFile(ZipBuilder::new().deflated("long.txt", text.clone()).build());
+    let archive = ZipArchive::open(&storage, "x").unwrap();
+    let entry = archive.entry(&storage, "long.txt").unwrap().unwrap();
+    assert!(entry.size > 32 * 1024);
+    // The window takes the large block; the input buffer and the decoder's
+    // state (4 and about 11 KiB) fit the small ones.
+    let (read, refused) = in_one_block(33 * 1024, || {
+        let mut total = 0;
+        archive
+            .stream(&storage, &entry, &mut |chunk| {
+                total += chunk.len();
+                true
+            })
+            .map(|()| total)
+    });
+    assert_eq!((read, refused), (Ok(text.len()), 0));
 }

@@ -5,6 +5,8 @@
 //! of the letters' edges the reading settings give (`native_look`). Lines of mixed direction are set in logical
 //! order; the lines under, over and through runs and a table's rules are drawn
 //! (`native_decor`), and so are pictures (`canvas.draw_image`).
+mod letters;
+
 use crate::native_decor::{decorate, draw_rules};
 use crate::native_look::Look;
 use crate::native_typeset::{Faces, HostFonts, Measure, Role};
@@ -151,7 +153,9 @@ pub fn draw_page<M: Measure>(
                     at += 1;
                 }
                 let start = x;
-                x += if run.face.style.small_caps() {
+                x += if !faces.drawn_at_once(run.face, word) {
+                    letters::draw_apart(ink, faces, run.face, (x, baseline), word)?
+                } else if run.face.style.small_caps() {
                     draw_small_caps(ink, (role, size), x, baseline, word)?
                 } else {
                     draw_word(ink, (role, size), x, baseline, word)?

@@ -602,10 +602,17 @@ impl ZipArchive {
     ) -> Result<EntryReader<'_>, ZipError> {
         let offset = self.data_offset(storage, entry)?;
         let remaining = u64::from(entry.compressed_size);
-        let input = zeroed(CHUNK.min(remaining as usize).max(1))?;
+        // Largest first: the window is the one large piece (the 32 KiB
+        // history for a long entry), and after the small ones took a part of
+        // the largest free block it found no room where there was enough
+        // (#250). An entry that fits the deflate history is inflated whole
+        // into a window of exactly its size (#248: an 8.1 KiB package
+        // document no longer takes 16 KiB); a longer one wraps through the
+        // full history (a power of two).
         let inflate = match entry.method {
             Method::Stored => None,
             Method::Deflate => {
+                let window = zeroed((entry.size as usize).clamp(1, WINDOW))?;
                 let mut decoder: Vec<DecompressorOxide> = Vec::new();
                 decoder
                     .try_reserve_exact(1)
@@ -613,18 +620,10 @@ impl ZipArchive {
                 // Made in place: built as a value first, its 10 KB would
                 // be on the stack, deep in the opening of a book.
                 decoder.resize_with(1, DecompressorOxide::default);
-                // An entry that fits the deflate history is inflated whole
-                // into a window of exactly its size (#248: an 8.1 KiB
-                // package document no longer takes 16 KiB); a longer one
-                // wraps through the full history (a power of two).
-                let window_len = if entry.size as usize <= WINDOW {
-                    (entry.size as usize).max(1)
-                } else {
-                    WINDOW
-                };
-                Some((decoder, zeroed(window_len)?))
+                Some((decoder, window))
             }
         };
+        let input = zeroed(CHUNK.min(remaining as usize).max(1))?;
         Ok(EntryReader {
             path: &self.path,
             offset,

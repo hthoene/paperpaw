@@ -3,23 +3,23 @@
 # trusted checkout's tool (store-plugin.yml: the build is the branch's, the
 # signing is not):
 #
-#   tools/plugin-files/check_files.sh <dir> <paperpaw-sign> <chip-id> <fingerprint> <file-name>
+#   tools/plugin-files/check_files.sh <dir> <paperpaw-sign> <chip-id> none <file-name>
 #
 # <dir> holds <file-name> (<id>-<version>-<device>.ppn) alone, for the chip
-# <chip-id> (5: the X4's, 9: the X4 Pro's and the X4 Classic's), with the
-# firmware's <fingerprint> (the base release's): anything else fails. A file of
-# interface 7 (format 5, abi/ppn5.md) has no fingerprint: with `none` it must say
-# "format: 5" and the chip.
+# <chip-id> (5: the X4's, 9: the X4 Pro's and the X4 Classic's): anything else
+# fails. The file is of interface 7 (format 5, abi/ppn5.md) and must say
+# "format: 5" and the chip. The fourth word is `none`: such a file has no
+# fingerprint, and files with one (the interface before 7) are no longer made.
 set -euo pipefail
 
-[[ $# -eq 5 ]] || { echo "usage: $0 <dir> <paperpaw-sign> <chip-id> <fingerprint> <file-name>" >&2; exit 2; }
+[[ $# -eq 5 ]] || { echo "usage: $0 <dir> <paperpaw-sign> <chip-id> none <file-name>" >&2; exit 2; }
 dir=$1
 sign=$2
 chip=$3
 fingerprint=$4
 name=$5
 
-[[ -n "$fingerprint" ]] || { echo "no fingerprint to check against" >&2; exit 1; }
+[[ "$fingerprint" == none ]] || { echo "the fourth word is none: files with a fingerprint are no longer made" >&2; exit 1; }
 [[ "$name" == */* ]] && { echo "$name: a file name, not a path" >&2; exit 2; }
 shopt -s nullglob dotglob
 found=("$dir"/*)
@@ -33,18 +33,9 @@ if ! grep -Eq "^chip: .*\($chip\)\$" <<< "$shown"; then
     echo "$shown" >&2
     exit 1
 fi
-if [[ "$fingerprint" == none ]]; then
-    if ! grep -Eq '^format: +5 ' <<< "$shown"; then
-        echo "$name: not a file of interface 7 (format 5)" >&2
-        echo "$shown" >&2
-        exit 1
-    fi
-    echo "$name: chip $chip, format 5"
-    exit 0
-fi
-if ! grep -Eq "^fingerprint: +$fingerprint\$" <<< "$shown"; then
-    echo "$name does not fit the firmware (fingerprint $fingerprint)" >&2
+if ! grep -Eq '^format: +5 ' <<< "$shown"; then
+    echo "$name: not a file of interface 7 (format 5)" >&2
     echo "$shown" >&2
     exit 1
 fi
-echo "$name: chip $chip, fingerprint $fingerprint"
+echo "$name: chip $chip, format 5"

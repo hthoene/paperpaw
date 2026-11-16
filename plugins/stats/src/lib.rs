@@ -51,6 +51,8 @@ mod native_widgets;
 pub use native_entry::NATIVE_ENTRY;
 /// The interface-7 plugin.
 pub mod native_plugin;
+#[path = "../../reading-goal/src/read_today.rs"]
+mod read_today;
 
 mod book_list;
 mod book_rows;
