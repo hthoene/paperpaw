@@ -62,9 +62,15 @@ impl Fixed {
 }
 
 pub(crate) struct AddedMade {
-    pub(crate) factory: paperpaw_sdk::ScreenFactory,
+    pub(crate) factory: AddedFactory,
     pub(crate) refresh_on_open: Option<paperpaw_sdk::RefreshMode>,
     pub(crate) instances: paperpaw_sdk::Instances,
+}
+
+/// What makes a screen a plugin added: an old SDK screen or a layer.
+pub(crate) enum AddedFactory {
+    Old(paperpaw_sdk::ScreenFactory),
+    Layer(crate::LayerFactory),
 }
 
 /// What makes a screen of either kind.
@@ -86,7 +92,10 @@ impl Maker<'_> {
         params: &paperpaw_sdk::Params,
     ) -> Result<alloc::boxed::Box<dyn crate::Layer>, i32> {
         match self {
-            Maker::Added(made) => Ok(crate::layer::old((made.factory)(env, params))),
+            Maker::Added(made) => Ok(match &made.factory {
+                AddedFactory::Old(factory) => crate::layer::old(factory(env, params)),
+                AddedFactory::Layer(factory) => factory(env, params),
+            }),
             Maker::Fixed(Fixed::Old(fixed)) => Ok(crate::layer::old(fixed.make(env, params))),
             Maker::Fixed(Fixed::Kernel(fixed)) => Ok(fixed.make(env, params)),
             Maker::Native(id, made) => made.make(id, params),
@@ -101,7 +110,10 @@ impl Maker<'_> {
         params: &paperpaw_sdk::Params,
     ) -> Option<alloc::boxed::Box<dyn paperpaw_sdk::Screen>> {
         match self {
-            Maker::Added(made) => Some((made.factory)(env, params)),
+            Maker::Added(made) => match &made.factory {
+                AddedFactory::Old(factory) => Some(factory(env, params)),
+                AddedFactory::Layer(_) => None,
+            },
             Maker::Fixed(Fixed::Old(fixed)) => Some(fixed.make(env, params)),
             Maker::Fixed(Fixed::Kernel(_)) | Maker::Native(..) => None,
         }
@@ -126,7 +138,12 @@ impl Maker<'_> {
         params: &paperpaw_sdk::Params,
     ) {
         match self {
-            Maker::Added(made) => *screen = crate::layer::old((made.factory)(env, params)),
+            Maker::Added(made) => {
+                *screen = match &made.factory {
+                    AddedFactory::Old(factory) => crate::layer::old(factory(env, params)),
+                    AddedFactory::Layer(factory) => factory(env, params),
+                };
+            }
             Maker::Fixed(Fixed::Old(fixed)) => {
                 *screen = crate::layer::old(fixed.make(env, params));
             }
@@ -270,10 +287,31 @@ impl Screens {
             ..
         } = spec;
         let made = AddedMade {
-            factory,
+            factory: AddedFactory::Old(factory),
             refresh_on_open,
             instances,
         };
+        self.insert_made(id, title, made);
+    }
+
+    /// Adds the layer `spec`, in place of a screen of its id.
+    fn insert_layer(&mut self, spec: crate::LayerSpec) {
+        let crate::LayerSpec {
+            id,
+            title,
+            factory,
+            refresh_on_open,
+            instances,
+        } = spec;
+        let made = AddedMade {
+            factory: AddedFactory::Layer(factory),
+            refresh_on_open,
+            instances,
+        };
+        self.insert_made(id, title, made);
+    }
+
+    fn insert_made(&mut self, id: Id, title: Cow<'static, str>, made: AddedMade) {
         if let Ok(at) = self.find_fixed(id.as_str()) {
             self.fixed.remove(at);
             self.fixed_titles.remove(at);
@@ -733,6 +771,7 @@ pub(crate) struct Staging {
     /// Interface-7 plugins' actions, kept without a handler (#248).
     native_actions: Vec<paperpaw_sdk::NativeAction>,
     screens: Vec<ScreenSpec>,
+    layer_screens: Vec<crate::LayerSpec>,
     native_screens: Vec<crate::native_host::native_screen_factory::NativeScreenSpec>,
     slots: Vec<SlotSpec>,
     candidates: Vec<SlotCandidate>,
@@ -842,6 +881,7 @@ impl Staging {
             .iter()
             .any(|other| other.titled.id() == id)
             || self.screens.iter().any(|other| &other.id == id)
+            || self.layer_screens.iter().any(|other| &other.id == id)
             || self.fixed_screens.iter().any(|other| other.id() == id)
         {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
@@ -1000,6 +1040,7 @@ impl Staging {
                 self.screens
                     .iter()
                     .map(|s| &s.id)
+                    .chain(self.layer_screens.iter().map(|s| &s.id))
                     .chain(self.native_screens.iter().map(|s| s.titled.id()))
                     .chain(self.fixed_screens.iter().map(|s| s.id()))
                     .find(|id| registry.screens.contains_key(id.as_str()))
@@ -1048,6 +1089,9 @@ impl Staging {
         for screen in self.screens.drain(..) {
             registry.screens.insert(screen);
         }
+        for screen in self.layer_screens.drain(..) {
+            registry.screens.insert_layer(screen);
+        }
         for screen in self.native_screens.drain(..) {
             registry.screens.insert_native(screen);
         }
@@ -1073,7 +1117,8 @@ pub(crate) fn stage(
     items: crate::Items,
     staging: &mut Staging,
 ) -> Result<(), RegisterError> {
-    let (contributions, kernel_screens) = items.into_parts();
+    let (contributions, kernel_screens, layers) = items.into_parts();
+    staging.layer_screens.extend(layers);
     for list in kernel_screens {
         staging.fixed_screens.extend(list.iter().map(Fixed::Kernel));
     }

@@ -26,7 +26,7 @@ struct Fitting {
     build: Build,
 }
 
-impl Screen for Fitting {
+impl crate::Layer for Fitting {
     // A screen built before: what plugins never write (see the docs).
     fn revision(&self) -> u16 {
         self.build.revision
@@ -84,7 +84,7 @@ impl Host {
     }
 }
 
-impl Screen for Host {
+impl crate::Layer for Host {
     fn revision(&self) -> u16 {
         self.host.revision()
     }
@@ -120,7 +120,7 @@ struct FitPlugin {
 fn fit_plugin(kept: FitPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let (log, build) = (kept.log.clone(), kept.build);
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             FIT,
             "fit",
             Box::new(move |env, _| {
@@ -133,7 +133,7 @@ fn fit_plugin(kept: FitPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterErro
                 })
             }),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             HOST,
             "host",
             Box::new(|_, _| {

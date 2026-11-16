@@ -12,12 +12,12 @@ use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Screen,
-    ScreenSpec, SettingGroupSpec, Settings, SlotSpec, Version, keys::InputSpec,
+    ActionSpec, Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, SettingGroupSpec,
+    Settings, SlotSpec, Version, keys::InputSpec,
 };
 
 struct Quiet;
-impl Screen for Quiet {
+impl crate::Layer for Quiet {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
@@ -35,7 +35,7 @@ fn id(text: &str) -> Id {
 
 fn demo(kept: Demo) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             id("demo.main"),
             "demo.screen.main",
             Box::new(|_, _| Box::new(Quiet)),

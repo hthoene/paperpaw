@@ -160,6 +160,61 @@ pub trait Layer {
     }
 }
 
+/// What makes a layer a plugin added ([`LayerSpec`]): it may hold state.
+pub type LayerFactory = Box<dyn Fn(&Env<'_>, &Params) -> Box<dyn Layer>>;
+
+/// A screen a plugin adds that the kernel makes as a [`Layer`]
+/// ([`Items::add_layer`](crate::Items::add_layer)): as the old SDK's
+/// `ScreenSpec` (#244, slice D6a).
+pub struct LayerSpec {
+    pub id: Id,
+    /// Translation key of the screen's display name.
+    pub title: alloc::borrow::Cow<'static, str>,
+    pub factory: LayerFactory,
+    /// How the panel is refreshed when it opens, in place of the kernel's
+    /// choice.
+    pub refresh_on_open: Option<RefreshMode>,
+    /// How many of it may be open at once.
+    pub instances: Instances,
+}
+
+impl LayerSpec {
+    /// Made of what it needs; the rest as set with its methods.
+    pub fn new(
+        id: Id,
+        title: impl Into<alloc::borrow::Cow<'static, str>>,
+        factory: LayerFactory,
+    ) -> Self {
+        Self {
+            id,
+            title: title.into(),
+            factory,
+            refresh_on_open: None,
+            instances: Instances::PER_PARAMS,
+        }
+    }
+
+    /// How the panel is refreshed when it opens.
+    #[must_use]
+    pub fn refresh_on_open(mut self, mode: RefreshMode) -> Self {
+        self.refresh_on_open = Some(mode);
+        self
+    }
+
+    /// How many of it may be open at once.
+    #[must_use]
+    pub fn instances(mut self, instances: Instances) -> Self {
+        self.instances = instances;
+        self
+    }
+}
+
+impl core::fmt::Debug for LayerSpec {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("LayerSpec").field(&self.id).finish()
+    }
+}
+
 /// What makes a [`KernelScreen`] with the params it is opened with.
 pub type KernelFactory = fn(&Env<'_>, &Params) -> Box<dyn Layer>;
 

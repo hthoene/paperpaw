@@ -15,7 +15,7 @@ use paperpaw_core::Kernel;
 use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::{
     ActionSpec, Canvas, Command, Cx, Env, Gesture, Handled, Id, Manifest, Params, Priority,
-    RegisterError, Screen, ScreenSpec, Version,
+    RegisterError, Version,
 };
 use paperpaw_platform::{
     ButtonState, Color, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, PixelFormat,
@@ -178,7 +178,7 @@ fn driver_items(kept: Driver) -> impl Fn(&mut Items) -> Result<(), RegisterError
     move |r| {
         for (id, name) in [(BASE, "base"), (FULL, "full"), (OVERLAY, "overlay")] {
             let log = kept.log.clone();
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(paperpaw_core::LayerSpec::new(
                 id,
                 "drv.screen",
                 Box::new(move |_, params| Box::new(LogScreen::new(name, log.clone(), params))),
@@ -258,7 +258,7 @@ fn parse_rect(text: &str) -> Option<Rect> {
     }
 }
 
-impl Screen for LogScreen {
+impl paperpaw_core::Layer for LogScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         let area = self.region.unwrap_or(SCREEN);
         // Overlays paint all of their region (see `Screen::draw`).

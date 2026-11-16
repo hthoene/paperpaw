@@ -12,14 +12,14 @@ use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Screen, ScreenSpec,
-    SettingExtra, SettingGroupSpec, SettingSpec, SettingValue, Settings, Version,
+    Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, SettingExtra,
+    SettingGroupSpec, SettingSpec, SettingValue, Settings, Version,
     builtin::{groups::OTHER, slots::SETTINGS as SETTINGS_SLOT},
     presets::Preset,
 };
 
 struct Quiet;
-impl Screen for Quiet {
+impl crate::Layer for Quiet {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
@@ -134,7 +134,7 @@ fn cfg_manifest() -> Manifest {
 /// Adds a choice to `cfg.mode`, and is the settings editor.
 fn ed() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             id("ed.main"),
             "ed.screen.main",
             Box::new(|_, _| Box::new(Quiet)),

@@ -419,8 +419,7 @@ mod kernel {
     use paperpaw_graphics::Canvas;
     use paperpaw_native::host_glue::ERR_BUSY;
     use paperpaw_sdk::{
-        ActionSpec, Cx, Env, Handled, Id, Manifest, Params, RegisterError, Screen, ScreenSpec,
-        Uses, Version,
+        ActionSpec, Cx, Env, Handled, Id, Manifest, Params, RegisterError, Uses, Version,
         filters::{InputFilterSpec, InputVerdict},
         keys::InputSpec as PluginInput,
     };
@@ -479,7 +478,7 @@ mod kernel {
     /// A screen that guards the device, one that takes a PIN, and the filter
     /// plugin's own PIN screen.
     struct Seen(bool, bool);
-    impl Screen for Seen {
+    impl crate::Layer for Seen {
         fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
         fn guards(&self) -> bool {
             self.0
@@ -499,18 +498,18 @@ mod kernel {
     fn screens(kept: &'static str) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         move |r| {
             if kept == "g" {
-                r.add_screen(ScreenSpec::new(
+                r.add_layer(crate::LayerSpec::new(
                     LOCK,
                     "lock",
                     Box::new(|_, _| Box::new(Seen(true, false))),
                 ))?;
-                r.add_screen(ScreenSpec::new(
+                r.add_layer(crate::LayerSpec::new(
                     PIN,
                     "pin",
                     Box::new(|_, _| Box::new(Seen(false, true))),
                 ))
             } else {
-                r.add_screen(ScreenSpec::new(
+                r.add_layer(crate::LayerSpec::new(
                     OWN_PIN,
                     "pin",
                     Box::new(|_, _| Box::new(Seen(false, true))),

@@ -19,9 +19,7 @@ use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Manifest, Priority, RegisterError, Screen, ScreenSpec, Version,
-};
+use paperpaw_sdk::{Canvas, Cx, Env, Handled, Manifest, Priority, RegisterError, Version};
 
 const KEYBOARD_SCREEN: Id = Id::new_static("d.keyboard");
 
@@ -42,7 +40,7 @@ std::thread_local! {
 
 struct Dialog;
 
-impl Screen for Dialog {
+impl crate::Layer for Dialog {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
@@ -57,7 +55,7 @@ impl Screen for Dialog {
 /// A plugin that serves the keyboard slot and nothing else.
 fn serves() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             KEYBOARD_SCREEN,
             "keyboard",
             Box::new(|_, params| {
@@ -92,7 +90,7 @@ fn serves_manifest() -> Manifest {
 
 struct Lock;
 
-impl Screen for Lock {
+impl crate::Layer for Lock {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
     fn guards(&self) -> bool {
         true
@@ -105,7 +103,7 @@ impl Screen for Lock {
 /// A plugin `id` with a screen `<id>.lock` that guards the device.
 fn locks_items(kept: &'static str) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::try_parse(&std::format!("{}.lock", kept)).unwrap(),
             "lock",
             Box::new(|_, _| Box::new(Lock)),

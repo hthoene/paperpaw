@@ -146,7 +146,7 @@ fn catalogs() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         // The test shell supplies an actual stack entry for command authority.
         // Pixels still come only from native callbacks on the shared host table.
-        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("battery.screen"),
             "battery.title",
             alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(AcceptanceShell)),
@@ -184,7 +184,7 @@ fn catalogs_manifest() -> Manifest {
     )
 }
 struct AcceptanceShell;
-impl paperpaw_sdk::Screen for AcceptanceShell {
+impl crate::Layer for AcceptanceShell {
     fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
     }

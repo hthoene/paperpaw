@@ -37,6 +37,8 @@ pub struct Items {
     contributions: Vec<Contribution>,
     /// Screens kept in the program that the kernel makes as layers.
     kernel_screens: Vec<&'static [crate::KernelScreen]>,
+    /// Screens added as layers.
+    layers: Vec<crate::LayerSpec>,
 }
 
 impl Items {
@@ -47,6 +49,7 @@ impl Items {
             plugin,
             contributions: Vec::new(),
             kernel_screens: Vec::new(),
+            layers: Vec::new(),
         }
     }
 
@@ -65,10 +68,17 @@ impl Items {
         self.contributions
     }
 
-    /// What was added and the screens kept in the program that are made
-    /// as layers ([`add_kernel_screens`](Self::add_kernel_screens)).
-    pub(crate) fn into_parts(self) -> (Vec<Contribution>, Vec<&'static [crate::KernelScreen]>) {
-        (self.contributions, self.kernel_screens)
+    /// What was added, the screens kept in the program that are made as
+    /// layers ([`add_kernel_screens`](Self::add_kernel_screens)) and those
+    /// added as layers ([`add_layer`](Self::add_layer)).
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        Vec<Contribution>,
+        Vec<&'static [crate::KernelScreen]>,
+        Vec<crate::LayerSpec>,
+    ) {
+        (self.contributions, self.kernel_screens, self.layers)
     }
 
     /// Adds `contribution`; every method below is a shorthand for one.
@@ -183,6 +193,14 @@ impl Items {
         Ok(())
     }
 
+    /// Adds a screen the kernel makes as a layer, as
+    /// [`add_screen`](Self::add_screen) does an old SDK one.
+    pub fn add_layer(&mut self, screen: crate::LayerSpec) -> Result<(), RegisterError> {
+        self.check_screens(core::iter::once(&screen.id))?;
+        self.layers.push(screen);
+        Ok(())
+    }
+
     /// Each of `ids` in the plugin's namespace, once among its screens.
     fn check_screens<'a>(
         &self,
@@ -197,6 +215,7 @@ impl Items {
                 .kernel_screens
                 .iter()
                 .any(|list| list.iter().any(|s| s.id() == id))
+                || self.layers.iter().any(|s| s.id == *id)
         };
         for (n, id) in ids.clone().enumerate() {
             if !id.is_owned_by(&self.plugin) {
