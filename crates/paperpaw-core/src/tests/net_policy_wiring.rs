@@ -49,16 +49,17 @@ struct Asker {
     log: Log,
 }
 
-impl Plugin for Asker {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static(self.id), "Asker", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NETWORK)
-    }
+/// What [`asker`] registers under.
+fn asker_manifest(id: &'static str) -> Manifest {
+    Manifest::new(Id::new_static(id), "Asker", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NETWORK)
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let (policy, log) = (self.policy.clone(), self.log.clone());
+fn asker(kept: Asker) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let (policy, log) = (kept.policy.clone(), kept.log.clone());
         // The very first thing a plugin hears: what it would meet then.
-        let id = self.id;
+        let id = kept.id;
         // What the network manager hears of the demand.
         for (event, what) in [
             (
@@ -124,16 +125,22 @@ pub(super) fn booting_with(
 ) -> (Kernel, Rc<NetPolicy>, Log) {
     let (log, seen) = (log(), Seen::default());
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Asker {
-            id: "wk",
-            policy: seen.clone(),
-            log: log.clone(),
-        })
-        .plugin(Asker {
-            id: "ok",
-            policy: seen.clone(),
-            log: log.clone(),
-        })
+        .items(
+            asker_manifest("wk"),
+            asker(Asker {
+                id: "wk",
+                policy: seen.clone(),
+                log: log.clone(),
+            }),
+        )
+        .items(
+            asker_manifest("ok"),
+            asker(Asker {
+                id: "ok",
+                policy: seen.clone(),
+                log: log.clone(),
+            }),
+        )
         .storage(storage)
         .network(true)
         .wifi(wifi)

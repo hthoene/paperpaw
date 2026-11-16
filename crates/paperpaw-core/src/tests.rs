@@ -15,7 +15,7 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::builtin::{actions, screens, settings, slots};
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError,
+    ActionSpec, Canvas, Command, Cx, Env, Handled, Id, Manifest, Priority, RegisterError,
     Registrar, Screen, ScreenSpec, SettingKind, SettingSpec, SettingValue, Version,
 };
 
