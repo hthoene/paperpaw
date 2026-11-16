@@ -10,11 +10,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use paperpaw_core::Items;
 use paperpaw_core::Kernel;
 use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Gesture, Handled, Id, Manifest, Params, Plugin, Priority,
-    RegisterError, Registrar, Screen, ScreenSpec, Version,
+    ActionSpec, Canvas, Command, Cx, Env, Gesture, Handled, Id, Manifest, Params, Priority,
+    RegisterError, Screen, ScreenSpec, Version,
 };
 use paperpaw_platform::{
     ButtonState, Color, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, PixelFormat,
@@ -102,7 +103,7 @@ impl Harness {
     /// A kernel with the driver, started at 0, its log empty.
     pub fn kernel(&self) -> Kernel {
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(self.plugin())
+            .driver(self.plugin())
             .build()
             .expect("kernel");
         kernel.start(Instant(0));
@@ -167,14 +168,16 @@ pub fn manifest(id: &'static str) -> Manifest {
         .uses(paperpaw_sdk::Uses::NETWORK)
 }
 
-impl Plugin for Driver {
+impl Driver {
     fn manifest(&self) -> Manifest {
         manifest("drv")
     }
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn driver_items(kept: Driver) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         for (id, name) in [(BASE, "base"), (FULL, "full"), (OVERLAY, "overlay")] {
-            let log = self.log.clone();
+            let log = kept.log.clone();
             r.add_screen(ScreenSpec::new(
                 id,
                 "drv.screen",
@@ -184,7 +187,7 @@ impl Plugin for Driver {
         r.bind_slot(slots::HOME, BASE, Priority::DEFAULT)?;
         r.bind_slot(slots::MENU, OVERLAY, Priority::DEFAULT)?;
         r.bind_slot(slots::NOTICE, OVERLAY, Priority::DEFAULT)?;
-        let queue = self.queue.clone();
+        let queue = kept.queue.clone();
         r.add_action(ActionSpec::new(GO, "drv.go").handler(move |_, _, out| {
             out.extend(queue.borrow_mut().drain(..));
         }))?;
@@ -192,7 +195,7 @@ impl Plugin for Driver {
             out.push(Command::run(LOOP));
         }))?;
         for event in [REPLY, LATER, LATER2] {
-            let log = self.log.clone();
+            let log = kept.log.clone();
             r.subscribe(
                 event.clone(),
                 Box::new(move |env, params, out| {
@@ -382,4 +385,15 @@ pub fn within(inner: Rect, outer: Rect) -> bool {
         && inner.y >= outer.y
         && inner.right() <= outer.right()
         && inner.bottom() <= outer.bottom()
+}
+
+/// Adds the fixtures that keep their fields (`TestPlugin`, `ServicePlugin`) to a builder.
+pub trait AddDriver {
+    fn driver(self, plugin: Driver) -> Self;
+}
+
+impl AddDriver for paperpaw_core::KernelBuilder {
+    fn driver(self, plugin: Driver) -> Self {
+        self.items(plugin.manifest(), driver_items(plugin))
+    }
 }

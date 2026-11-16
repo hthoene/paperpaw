@@ -1,13 +1,14 @@
 //! Contributions given to the builder as a closure (#244, slice D2's target
 //! for tests): what a test fixture wrote as a type with `impl Plugin` it
 //! writes as [`KernelBuilder::items`], and names neither `Plugin` nor
-//! `Registrar`.
+//! `Items`.
 //!
-//! [`Items`] is today another name for the SDK's `Registrar`, so every call a
-//! fixture made in `register` is the same call here: handlers that get the
-//! live `Env`, catalogs (`add_translations`), screens that are still an old
-//! `Screen`. The calls stay when `Plugin` and `Registrar` go; a fixture
-//! ported to this is not touched again.
+//! [`Items`] is the kernel's own type (until slice D4b it was the SDK's
+//! `Items` under another name), with every call a fixture made in
+//! `register`: handlers that get the live `Env`, catalogs
+//! (`add_translations`), screens that are still an old `Screen`. The calls
+//! stay when the old `Plugin` goes; a fixture ported to this is not
+//! touched again.
 //!
 //! The builder's list of what registers is a list of [`Source`]s: the kernel
 //! registers each through a function over `Items` (`Kernel::add_items`), and
@@ -17,15 +18,26 @@ use super::KernelBuilder;
 use crate::Kernel;
 use alloc::boxed::Box;
 use alloc::string::String;
-use paperpaw_sdk::{BuiltInFonts, Manifest, Plugin, RegisterError, Registrar};
+use paperpaw_sdk::{BuiltInFonts, Manifest, RegisterError};
 
-/// What a closure given to [`KernelBuilder::items`] adds its contributions
-/// with. The calls are those of the SDK's `Registrar`; name this, not that.
-pub type Items = Registrar;
+mod calls;
+
+pub use calls::Items;
+
+/// An old plugin: a manifest and a function that adds through [`Items`].
+/// Until #244's slice D4b this was the SDK's `Plugin`; it is the kernel's
+/// own now, kept for what still registers this way
+/// ([`KernelBuilder::plugin`]), and goes with it.
+pub trait Plugin {
+    fn manifest(&self) -> Manifest;
+
+    /// Adds the plugin's contributions with `registrar`.
+    fn register(&self, registrar: &mut Items) -> Result<(), RegisterError>;
+}
 
 /// One entry of the builder's list of what registers, in the order given.
 pub(super) enum Source {
-    /// An old [`Plugin`] ([`KernelBuilder::plugin`]); goes with the trait.
+    /// An old `Plugin` ([`KernelBuilder::plugin`]); goes with the trait.
     Old(Box<dyn Plugin>),
     /// The fonts the program is built with ([`KernelBuilder::built_in_fonts`]).
     Fonts(&'static BuiltInFonts),
@@ -60,7 +72,7 @@ impl Source {
             Self::Fonts(fonts) => {
                 kernel.add_items(
                     fonts.manifest.clone(),
-                    &|items| fonts.register(items),
+                    &|items| fonts.register(&mut |c| items.add(c)),
                     disabled,
                 );
             }

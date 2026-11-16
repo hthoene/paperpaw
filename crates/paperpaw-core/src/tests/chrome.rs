@@ -2,6 +2,7 @@
 //! the screens, where things are drawn, where taps go, when they show.
 
 use super::*;
+use crate::Items;
 use core::mem;
 use paperpaw_sdk::chrome::{ChromeSpec, Edge};
 use paperpaw_sdk::{Direction, Gesture, Params, StackEntry};
@@ -152,23 +153,16 @@ fn corner(name: &'static str, log: &Log) -> paperpaw_sdk::ScreenFactory {
 }
 
 /// A bar along `edge`, not over the book, for touch screens.
-struct BarPlugin(Log, Edge);
-
-impl Plugin for BarPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("bar"), "Bar", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(PAGE, "page", corner("page", &self.0)))?;
-        r.add_screen(ScreenSpec::new(BOOK, "book", corner("book", &self.0)))?;
+fn bar_plugin(kept0: Log, kept1: Edge) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        r.add_screen(ScreenSpec::new(PAGE, "page", corner("page", &kept0)))?;
+        r.add_screen(ScreenSpec::new(BOOK, "book", corner("book", &kept0)))?;
         r.add_screen(ScreenSpec::new(
             MENU,
             "menu",
             Box::new(|_, _| Box::new(Panel)),
         ))?;
-        let log = self.0.clone();
+        let log = kept0.clone();
         r.add_screen(ScreenSpec::new(
             LOCK,
             "lock",
@@ -195,7 +189,7 @@ impl Plugin for BarPlugin {
         // screen it is opened on all the same).
         let shown = |_: &Env<'_>, entry: &StackEntry| entry.screen != BOOK && entry.screen != MENU;
         r.add_chrome(
-            ChromeSpec::new(Id::new_static("bar.tabs"), self.1, bar(&self.0))
+            ChromeSpec::new(Id::new_static("bar.tabs"), kept1, bar(&kept0))
                 .size(|env| env.settings().int("bar.size") as u16)
                 .shown(shown)
                 .need(paperpaw_sdk::MenuNeed::Touch),
@@ -203,9 +197,15 @@ impl Plugin for BarPlugin {
     }
 }
 
+/// What [`bar_plugin`] registers under.
+fn bar_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("bar"), "Bar", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn bar_kernel(log: &Log, edge: Edge, device: DeviceInfo) -> Kernel {
     let mut kernel = Kernel::builder(device)
-        .plugin(BarPlugin(log.clone(), edge))
+        .items(bar_plugin_manifest(), bar_plugin(log.clone(), edge))
         .build()
         .unwrap();
     kernel.start(Instant(0));

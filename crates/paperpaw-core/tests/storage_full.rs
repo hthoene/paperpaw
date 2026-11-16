@@ -12,6 +12,8 @@
 
 mod common;
 
+use common::AddDriver;
+
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -93,7 +95,7 @@ impl Storage for Card {
 
 fn kernel(harness: &Harness, card: &Card) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .storage(card.clone())
         .network(true)
         .build()

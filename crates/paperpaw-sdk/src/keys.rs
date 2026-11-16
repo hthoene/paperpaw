@@ -119,10 +119,10 @@ pub struct InputSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum InputKind {
-    /// `input.<id>` ([`Registrar::add_input`](crate::Registrar::add_input)).
+    /// `input.<id>` (`Items::add_input`).
     #[default]
     Input,
-    /// `gesture.<id>` ([`Registrar::add_gesture`](crate::Registrar::add_gesture)).
+    /// `gesture.<id>` (`Items::add_gesture`).
     Gesture,
 }
 

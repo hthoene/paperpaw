@@ -12,7 +12,7 @@
 //!   [`groups::MARKS`]: the plugin gives
 //!   the default, themes and users the rest. [`Decoration::of_role`] reads
 //!   it.
-//! - A *decorator* ([`DecoratorSpec`], `Registrar::add_decorator`) gets the
+//! - A *decorator* ([`DecoratorSpec`], `Items::add_decorator`) gets the
 //!   words of a page ([`PageText`]) and gives back ranges with their roles
 //!   ([`Decorated`]). Readers ask the decorators ([`Decorators`], in
 //!   `Env::decorators`) once a page is laid out, keep the answer with the
@@ -37,8 +37,8 @@ use crate::builtin::groups;
 use crate::document::Locator;
 use crate::setting::Setting;
 use crate::{
-    Canvas, Choices, Color, Env, Id, Rect, RegisterError, Registrar, SettingExtra, SettingKind,
-    SettingSpec, SettingValue,
+    Canvas, Choices, Color, Env, Id, Rect, RegisterError, SettingExtra, SettingKind, SettingSpec,
+    SettingValue,
 };
 
 /// A named tone for backgrounds, ink and lines.
@@ -380,7 +380,8 @@ const ASPECTS: [&str; 7] = [
     "struck",
 ];
 
-/// Adds role `role`: its settings, one per aspect, in the group
+/// Adds role `role` through `add` (the kernel's `Items::add_setting`):
+/// its settings, one per aspect, in the group
 /// [`groups::MARKS`] under a section `title` (the role's name, a
 /// translation key), with `default` as their defaults. The settings are
 /// `<role>.background`, `.ink`, `.line`, `.line-tone`, `.thickness`,
@@ -388,7 +389,7 @@ const ASPECTS: [&str; 7] = [
 /// A role known when the plugin is written takes less memory with
 /// [`role_settings!`](crate::role_settings) instead.
 pub fn add_role(
-    r: &mut Registrar,
+    add: &mut dyn FnMut(SettingSpec) -> Result<(), RegisterError>,
     role: &Id,
     title: impl Into<Cow<'static, str>>,
     default: Decoration,
@@ -464,13 +465,13 @@ pub fn add_role(
         }
         spec.group = groups::MARKS;
         spec.description = Some(crate::Str::new(format!("core.mark.{aspect}.help")));
-        r.add_setting(spec.with_owned_extra(extra))?;
+        add(spec.with_owned_extra(extra))?;
     }
     Ok(())
 }
 
 /// The settings of a role (see [`add_role`]) kept in the program, for
-/// [`Registrar::add_settings`]: made by [`role_settings!`](crate::role_settings).
+/// `Items::add_settings`: made by [`role_settings!`](crate::role_settings).
 #[doc(hidden)]
 pub const fn fixed_role(
     ids: [&'static str; 7],
@@ -547,7 +548,7 @@ pub const fn fixed_role(
 }
 
 /// The settings of a role, as [`add_role`] adds them, kept in the
-/// program: a `static` list for [`Registrar::add_settings`], which takes
+/// program: a `static` list for `Items::add_settings`, which takes
 /// next to no memory. The role and its title (a translation key) are
 /// written out:
 ///

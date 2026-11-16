@@ -2,14 +2,11 @@
 //! overlays at the edge of the screen.
 
 use super::*;
+use crate::Items;
 use paperpaw_sdk::Params;
 
 const BASE: Id = Id::new_static("frames.base");
 const PANEL: Id = Id::new_static("frames.panel");
-
-/// A full screen on the home slot, and an overlay on the menu slot from
-/// row `top` (its parameter) down, reaching past the screen with `past`.
-struct FramesPlugin(Log);
 
 struct Panel {
     region: Rect,
@@ -46,14 +43,11 @@ impl Screen for Base {
     }
 }
 
-impl Plugin for FramesPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("frames"), "Frames", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
+/// A full screen on the home slot, and an overlay on the menu slot from
+/// row `top` (its parameter) down, reaching past the screen with `past`.
+fn frames_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
         r.add_screen(ScreenSpec::new(
             BASE,
             "base",
@@ -80,8 +74,17 @@ impl Plugin for FramesPlugin {
     }
 }
 
+/// What [`frames_plugin`] registers under.
+fn frames_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("frames"), "Frames", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn frames_kernel(builder: crate::KernelBuilder, log: &Log) -> Kernel {
-    let mut kernel = builder.plugin(FramesPlugin(log.clone())).build().unwrap();
+    let mut kernel = builder
+        .items(frames_plugin_manifest(), frames_plugin(log.clone()))
+        .build()
+        .unwrap();
     kernel.start(Instant(0));
     render(&mut kernel);
     kernel
@@ -153,15 +156,8 @@ fn turning_the_screen_makes_the_screens_once() {
 
 /// Turns the first refresh full, as a plugin that flashes on some page
 /// turns does.
-struct Flash;
-
-impl Plugin for Flash {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("flash"), "Flash", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn flash() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         let seen = core::cell::Cell::new(0u32);
         r.add_refresh_filter(paperpaw_sdk::filters::RefreshFilterSpec::new(
             Id::new_static("flash.first"),
@@ -178,6 +174,12 @@ impl Plugin for Flash {
     }
 }
 
+/// What [`flash`] registers under.
+fn flash_manifest() -> Manifest {
+    Manifest::new(Id::new_static("flash"), "Flash", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// A full refresh a refresh filter made starts the count of partial
 /// refreshes anew: the periodic full refresh comes as many refreshes
 /// after it as after any other.
@@ -185,7 +187,7 @@ impl Plugin for Flash {
 fn a_full_refresh_from_a_filter_starts_the_count_anew() {
     let log = log();
     let builder = Kernel::builder(DEVICE)
-        .plugin(Flash)
+        .items(flash_manifest(), flash())
         .setting_default(&settings::FULL_REFRESH_INTERVAL, 3);
     let mut kernel = frames_kernel(builder, &log);
     let mut modes = Vec::new();

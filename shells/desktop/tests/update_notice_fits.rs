@@ -17,10 +17,7 @@ use std::sync::Mutex;
 
 use paperpaw_core::KernelBuilder;
 use paperpaw_core::sdk::ui::UiStyle;
-use paperpaw_core::sdk::{
-    Canvas, Env, Id, Manifest, MemoryStorage, Plugin, RegisterError, Registrar, Screen, ScreenSpec,
-    Version,
-};
+use paperpaw_core::sdk::{Canvas, Env, Id, Manifest, MemoryStorage, Screen, ScreenSpec, Version};
 use paperpaw_emulator::{device::Device, headless, profiles};
 
 /// The most lines the page gives its text (`draw_empty`).
@@ -44,25 +41,20 @@ fn catalogue(language: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-struct Probe;
-
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("notice-probe"),
-            "Notice probe",
-            Version::new(0, 1, 0),
-        )
-        .uses(paperpaw_core::sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn probe(builder: KernelBuilder) -> KernelBuilder {
+    let manifest = Manifest::new(
+        Id::new_static("notice-probe"),
+        "Notice probe",
+        Version::new(0, 1, 0),
+    )
+    .uses(paperpaw_core::sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.add_screen(ScreenSpec::new(
             SCREEN,
             "Notice probe",
             Box::new(|_, _| Box::new(Look)),
         ))
-    }
+    })
 }
 
 struct Look;
@@ -100,7 +92,7 @@ fn look(env: &Env<'_>) {
 }
 
 fn add(builder: KernelBuilder) -> KernelBuilder {
-    builder.plugin(Probe)
+    probe(builder)
 }
 
 #[test]

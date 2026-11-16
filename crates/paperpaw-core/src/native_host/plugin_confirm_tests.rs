@@ -129,10 +129,11 @@ fn the_german_texts_cover_every_english_plugin_key() {
 
 mod kernel_side {
     use super::*;
+    use crate::Items;
     use crate::Kernel;
     use paperpaw_sdk::{
-        Canvas, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError, Registrar, Screen,
-        ScreenSpec, Version, builtin::slots,
+        Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Screen, ScreenSpec,
+        Version, builtin::slots,
     };
 
     fn fill(buf: &mut [u8]) -> bool {
@@ -150,13 +151,8 @@ mod kernel_side {
             Handled::No
         }
     }
-    struct Home;
-    impl Plugin for Home {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("h"), "Home", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        |r| {
             const HOME: Id = Id::new_static("h.home");
             r.add_screen(ScreenSpec::new(
                 HOME,
@@ -165,6 +161,12 @@ mod kernel_side {
             ))?;
             r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)
         }
+    }
+
+    /// What [`home`] registers under.
+    fn home_manifest() -> Manifest {
+        Manifest::new(Id::new_static("h"), "Home", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
     fn kernel(random: bool) -> Kernel {
@@ -185,7 +187,7 @@ mod kernel_side {
         }
         let mut kernel = builder
             .storage(card)
-            .plugin(Home)
+            .items(home_manifest(), home())
             .firmware_host(alloc::boxed::Box::new(fake))
             .plugin_host(loader, offered, &[])
             .build()
@@ -343,7 +345,7 @@ mod kernel_side {
         let mut kernel = Kernel::builder(crate::tests::DEVICE)
             .random(fill)
             .storage(paperpaw_sdk::MemoryStorage::new())
-            .plugin(Home)
+            .items(home_manifest(), home())
             .firmware_host(alloc::boxed::Box::new(fake))
             .plugin_host(loader, offered, &[])
             .build()
@@ -476,7 +478,7 @@ mod kernel_side {
         let mut kernel = Kernel::builder(crate::tests::DEVICE)
             .random(fill)
             .storage(paperpaw_sdk::MemoryStorage::new())
-            .plugin(Home)
+            .items(home_manifest(), home())
             .firmware_host(alloc::boxed::Box::new(FakeFirmware::new(
                 "0.5.0",
                 "paperpaw-x4",

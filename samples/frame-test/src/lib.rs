@@ -24,14 +24,15 @@ use alloc::format;
 use alloc::vec::Vec;
 use core::time::Duration;
 
+use paperpaw_core::{Items, Plugin};
 use paperpaw_sdk::builtin::menus;
 use paperpaw_sdk::memory::{self, Placement};
 use paperpaw_sdk::realtime::{KeyEvent, ScreenMode};
 use paperpaw_sdk::ui::{self, UiStyle};
 use paperpaw_sdk::{
     ActionSpec, Bitmap, BitmapFormat, Blit, Canvas, Command, Cx, Dither, Env, Handled, Id, Instant,
-    Manifest, MenuEntry, Params, Plugin, Point, Rect, RefreshMode, RegisterError, Registrar,
-    Screen, ScreenSpec, Version,
+    Manifest, MenuEntry, Params, Point, Rect, RefreshMode, RegisterError, Screen, ScreenSpec,
+    Version,
 };
 
 pub const PLUGIN: Id = Id::new_static("frame-test");
@@ -72,7 +73,7 @@ impl Plugin for FrameTest {
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         r.add_action(
             ActionSpec::new(OPEN, "frame-test.title").handler(|_, _, out| {
                 out.push(Command::OpenScreen(SCREEN, Params::new()));

@@ -2,6 +2,8 @@
 //! when, and when not (a screen that says no, a refresh set exactly).
 
 use super::*;
+use crate::Items;
+use core::cell::Cell;
 
 /// A home screen with a picture over most of it, which may be shown in
 /// grays or says no.
@@ -49,14 +51,9 @@ impl Screen for OverScreen {
     }
 }
 
-impl Plugin for CoverPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("cover"), "Cover", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let in_grays = self.in_grays;
+fn cover_plugin(kept: CoverPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let in_grays = kept.in_grays;
         r.add_screen(ScreenSpec::new(
             Id::new_static("cover.page"),
             "page",
@@ -88,6 +85,12 @@ impl Plugin for CoverPlugin {
     }
 }
 
+/// What [`cover_plugin`] registers under.
+fn cover_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("cover"), "Cover", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// A kernel showing [`CoverScreen`] on `format`, with `config`; whether
 /// it came up in grays.
 fn comes_up_in_grays(format: PixelFormat, in_grays: bool, config: &str) -> (Kernel, bool) {
@@ -102,7 +105,10 @@ fn comes_up_in_grays(format: PixelFormat, in_grays: bool, config: &str) -> (Kern
     let device = DEVICE.with_display(DEVICE.display.with_format(format));
     let mut kernel = Kernel::builder(device)
         .storage(storage)
-        .plugin(CoverPlugin { in_grays })
+        .items(
+            cover_plugin_manifest(),
+            cover_plugin(CoverPlugin { in_grays }),
+        )
         .build()
         .unwrap();
     let effects = kernel.start(Instant(0));
@@ -334,4 +340,153 @@ fn a_pass_due_in_a_call_that_makes_a_frame_comes_within_the_retry_with_no_event(
     assert!(wake.0 > 3_100 && wake.0 <= 3_100 + 250, "{wake:?}");
     let effects = kernel.tick(wake);
     assert!(effects.refresh().is_some() && effects.grays());
+}
+
+/// A home screen with no picture in its first frame; one cell comes later (a cover).
+struct LateScreen(Rc<Cell<bool>>);
+
+impl Screen for LateScreen {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+        if self.0.get() {
+            let image = paperpaw_sdk::document::ImageRef {
+                path: "p.gray".into(),
+                width: 8,
+                height: 8,
+            };
+            for x in [10, 40] {
+                paperpaw_sdk::ui::draw_image(
+                    canvas,
+                    env.storage(),
+                    &image,
+                    Rect::new(x, 10, 20, 20),
+                );
+            }
+        }
+    }
+
+    fn pictures_in_grays(&self) -> bool {
+        true
+    }
+
+    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+        Handled::No
+    }
+}
+
+/// What registers [`LateScreen`] as the home screen, under "late".
+fn late_plugin(late: Rc<Cell<bool>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let late = late.clone();
+        r.add_screen(ScreenSpec::new(
+            Id::new_static("late.home"),
+            "home",
+            Box::new(move |_, _| Box::new(LateScreen(late.clone()))),
+        ))?;
+        r.bind_slot(slots::HOME, Id::new_static("late.home"), Priority::DEFAULT)
+    }
+}
+
+/// [`LateScreen`] on a panel of black and white, its first frame shown.
+fn late_kernel() -> (Kernel, Rc<Cell<bool>>) {
+    use paperpaw_sdk::image::{GrayWriter, ImageSink};
+    let late = Rc::new(Cell::new(false));
+    let storage = paperpaw_sdk::MemoryStorage::new();
+    let mut writer = GrayWriter::new(&storage, "p.gray");
+    writer.start(8, 8).unwrap();
+    for _ in 0..8 {
+        writer.row(&[90; 8]).unwrap();
+    }
+    writer.finish().unwrap();
+    let device = DEVICE.with_display(DEVICE.display.with_format(PixelFormat::Mono1));
+    let mut kernel = Kernel::builder(device)
+        .storage(storage)
+        .items(
+            Manifest::new(Id::new_static("late"), "Late", Version::new(1, 0, 0))
+                .uses(paperpaw_sdk::Uses::NOTHING),
+            late_plugin(late.clone()),
+        )
+        .build()
+        .unwrap();
+    assert!(kernel.start(Instant(0)).refresh().is_some());
+    render(&mut kernel);
+    kernel.tick(Instant(100));
+    (kernel, late)
+}
+
+/// A cover comes: its cell is drawn in a call of its own (no key).
+fn a_cover_comes(kernel: &mut Kernel, late: &Cell<bool>) -> crate::Effects {
+    late.set(true);
+    kernel.invalidate(Rect::new(10, 10, 20, 20));
+    kernel.finish()
+}
+
+#[test]
+fn a_cover_that_comes_after_the_first_frame_gets_one_pass_after_the_calm() {
+    use crate::gray_later::Phase;
+    let (mut kernel, late) = late_kernel();
+    assert_eq!(kernel.frame.gray_later.phase, Phase::Nothing);
+    // The cell is shown dithered, and grays are due once the calm is over.
+    let effects = a_cover_comes(&mut kernel, &late);
+    assert!(effects.refresh().is_some() && !effects.grays());
+    render(&mut kernel);
+    let calm = kernel.tick(Instant(200)).wake_at();
+    assert_eq!(calm, Some(Instant(3_200)));
+    let effects = kernel.tick(Instant(3_200));
+    assert!(effects.refresh().is_some() && effects.grays());
+    render(&mut kernel);
+    // On the X4 a frame while grays are shown is drawn again whole (the
+    // shell's `draw_again`, the part itself is never rendered), and a part is
+    // never marked in grays. A second cover after the pass has pictures: that
+    // frame counts them, and grays are due again, exactly once.
+    late.set(true);
+    kernel.invalidate(Rect::new(40, 10, 20, 20));
+    let effects = kernel.finish();
+    assert!(effects.refresh().is_some() && !effects.grays());
+    let effects = kernel.draw_again(Instant(4_000));
+    assert!(effects.refresh().is_some() && !effects.grays());
+    render(&mut kernel);
+    assert_eq!(kernel.frame.gray_later.phase, Phase::Pictured);
+    kernel.tick(Instant(4_100));
+    let effects = kernel.tick(Instant(7_100));
+    assert!(effects.refresh().is_some() && effects.grays());
+    render(&mut kernel);
+    let effects = kernel.tick(Instant(20_000));
+    assert!(effects.refresh().is_none() && effects.wake_at().is_none());
+}
+
+#[test]
+fn a_part_without_pictures_leaves_the_grays_of_the_screen_as_they_are() {
+    use crate::gray_later::Phase;
+    let (mut kernel, late) = late_kernel();
+    a_cover_comes(&mut kernel, &late);
+    render(&mut kernel);
+    kernel.tick(Instant(200));
+    assert!(kernel.tick(Instant(3_200)).grays());
+    render(&mut kernel);
+    assert_eq!(kernel.frame.gray_later.phase, Phase::Done);
+    // The clock: a small part with no picture, not in grays, no pass after.
+    late.set(false);
+    kernel.invalidate(Rect::new(40, 40, 10, 10));
+    let effects = kernel.finish();
+    assert!(effects.refresh().is_some() && !effects.grays());
+    render(&mut kernel);
+    assert_eq!(kernel.frame.gray_later.phase, Phase::Done);
+    let effects = kernel.tick(Instant(20_000));
+    assert!(effects.refresh().is_none() && effects.wake_at().is_none());
+}
+
+#[test]
+fn a_focus_moved_over_a_cover_costs_no_pass() {
+    use crate::gray_later::Phase;
+    let (mut kernel, late) = late_kernel();
+    late.set(true);
+    // A key, and its frame is a part of the screen: no wait begins.
+    press(&mut kernel, 500, "down");
+    kernel.invalidate(Rect::new(10, 10, 20, 20));
+    let effects = kernel.finish();
+    assert!(effects.refresh().is_some() && !effects.grays());
+    assert_eq!(kernel.frame.gray_later.phase, Phase::Nothing);
+    render(&mut kernel);
+    let effects = kernel.tick(Instant(9_000));
+    assert!(effects.refresh().is_none() && effects.wake_at().is_none());
 }
