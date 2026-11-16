@@ -1,6 +1,7 @@
 //! Slot-15 SetSetting: whole-batch validation, reserved-setting protection,
 //! and readback of the applied value in the next real callback.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
+use paperpaw_core::Items;
 use paperpaw_core::native_host::commands::{
     COMMAND_MAX_BYTES, CommandAuthority, CommandScope, CommandStage, SecretText, WireCommand,
     commands_decode, commands_encode,
@@ -11,8 +12,8 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
 use paperpaw_sdk::{
-    Canvas, Command, Commands, Env, Id, Manifest, Plugin, Priority, RegisterError, Registrar,
-    Screen, ScreenSpec, SettingExtra, SettingSpec, SettingValue, builtin,
+    Canvas, Command, Commands, Env, Id, Manifest, Priority, RegisterError, Screen, ScreenSpec,
+    SettingExtra, SettingSpec, SettingValue, builtin,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -387,22 +388,14 @@ fn cross_plugin_settings(owner: &Id, env: &Env<'_>, out: &mut Commands) {
     out.extend(stage.into_commands());
 }
 
-struct Probe(Rc<RefCell<Vec<String>>>);
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("probe"),
-            "Probe",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn probe(kept: Rc<RefCell<Vec<String>>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         r.add_settings(&SETTINGS)?;
         r.subscribe(
             builtin::events::STARTED,
             Box::new(|env, _, out| started(env, out)),
         )?;
-        let log = self.0.clone();
+        let log = kept.clone();
         r.subscribe(
             builtin::events::SETTING_CHANGED,
             Box::new(move |env, event, _| {
@@ -422,26 +415,34 @@ impl Plugin for Probe {
     }
 }
 
-struct Other;
-impl Plugin for Other {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("other"),
-            "Other",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_settings(&FOREIGN)
-    }
+/// What [`probe`] registers under.
+fn probe_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("probe"),
+        "Probe",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
+}
+
+fn other() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| r.add_settings(&FOREIGN)
+}
+
+/// What [`other`] registers under.
+fn other_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("other"),
+        "Other",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
 }
 
 #[test]
 fn staged_set_setting_is_read_back_in_the_next_callback() {
     let log = Rc::new(RefCell::new(Vec::new()));
     let mut kernel = paperpaw_core::Kernel::builder(DEVICE)
-        .plugin(Probe(log.clone()))
-        .plugin(Other)
+        .items(probe_manifest(), probe(log.clone()))
+        .items(other_manifest(), other())
         .build()
         .unwrap();
     kernel.start(paperpaw_platform::Instant(0));
@@ -479,7 +480,7 @@ struct GuardedWriter {
     authority: Rc<Cell<Option<CommandAuthority>>>,
     expected: i32,
 }
-impl Plugin for GuardedWriter {
+impl GuardedWriter {
     fn manifest(&self) -> Manifest {
         let id = if self.editor { "editor" } else { "other" };
         Manifest::new(
@@ -488,10 +489,12 @@ impl Plugin for GuardedWriter {
             paperpaw_sdk::Version::new(1, 0, 0),
         )
     }
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let owner = self.manifest().id;
-        if self.editor {
+fn guarded_writer(kept: GuardedWriter) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let owner = kept.manifest().id;
+        if kept.editor {
             let screen = Id::new_static("editor.settings");
             r.add_screen(ScreenSpec::new(
                 screen.clone(),
@@ -502,8 +505,8 @@ impl Plugin for GuardedWriter {
         } else {
             r.add_settings(&FOREIGN)?;
         }
-        let authority = self.authority.clone();
-        let expected = self.expected;
+        let authority = kept.authority.clone();
+        let expected = kept.expected;
         r.subscribe(
             builtin::events::STARTED,
             Box::new(move |env, _, out| {
@@ -536,10 +539,10 @@ fn run_guarded_writer(editor: bool, resolve_authority: bool) {
     };
     let mut builder = paperpaw_core::Kernel::builder(DEVICE);
     if editor {
-        builder = builder.plugin(Other);
+        builder = builder.items(other_manifest(), other());
     }
     let owner = writer.manifest().id;
-    let mut kernel = builder.plugin(writer).build().unwrap();
+    let mut kernel = builder.guarded_writer(writer).build().unwrap();
     if resolve_authority {
         authority.set(Some(kernel.command_settings_authority(&owner)));
     }
@@ -560,4 +563,15 @@ fn a_plugins_own_guarded_setting_is_admitted() {
 #[test]
 fn no_host_authority_means_no_foreign_guarded_exemption() {
     run_guarded_writer(true, false);
+}
+
+/// Adds the fixtures that keep their fields (`TestPlugin`, `ServicePlugin`) to a builder.
+trait AddFixture {
+    fn guarded_writer(self, plugin: GuardedWriter) -> Self;
+}
+
+impl AddFixture for paperpaw_core::KernelBuilder {
+    fn guarded_writer(self, plugin: GuardedWriter) -> Self {
+        self.items(plugin.manifest(), guarded_writer(plugin))
+    }
 }

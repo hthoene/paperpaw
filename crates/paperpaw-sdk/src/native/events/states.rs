@@ -1,10 +1,7 @@
 //! Small event state views carry no owned strings or callback host bindings.
-use crate::{
-    native::{
-        Error,
-        device::{DeviceOutcome, DeviceRequest, InstallKind},
-    },
-    power::PowerLevel,
+use crate::native::{
+    Error,
+    device::{DeviceOutcome, DeviceRequest, InstallKind, PowerLevel},
 };
 
 /// A reading-session edge.

@@ -2,7 +2,7 @@
 //! as the time, the battery or the page.
 //!
 //! Any plugin adds items with
-//! [`Registrar::add_status_item`](crate::Registrar::add_status_item);
+//! `Items::add_status_item`;
 //! screens with a status line let the user choose which items it shows and
 //! where (the reader does this for its lines above and below the text).
 //! An item computes its value from the environment and from the context the
@@ -15,13 +15,13 @@
 //! items, those that matter least are left out first, never cut.
 //!
 //! Plugins can also add whole status lines
-//! ([`Registrar::add_status_line`](crate::Registrar::add_status_line)),
+//! (`Items::add_status_line`),
 //! which draw the line themselves: a progress bar, a large clock, anything.
 //! The reader offers the lines the user chose, above and below the text,
 //! and switches between them when the line is tapped.
 //!
 //! The places where status items show are [`Place`]s
-//! ([`Registrar::add_status_place`](crate::Registrar::add_status_place)):
+//! (`Items::add_status_place`):
 //! three settings of the items for a line's left, centre and right. The
 //! reader has one above and one below the text, the home screen one in
 //! its status widget; a status line drawn in a place is told which

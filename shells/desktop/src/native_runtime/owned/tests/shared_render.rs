@@ -1,13 +1,12 @@
 //! A freestanding loaded plugin draws through core's actual shared host table.
 use super::super::dev::Loaded;
 use super::{environment::DEVICE, foreign::fixture_custom};
+use paperpaw_core::KernelBuilder;
 use paperpaw_core::native_host::{
     DispatchDepth,
     registrations::{self, Registration},
 };
-use paperpaw_core::sdk::{
-    Env, Font, FontSpec, Id, Manifest, Plugin, Priority, RegisterError, Registrar, Version, builtin,
-};
+use paperpaw_core::sdk::{Env, Font, FontSpec, Id, Manifest, Priority, Version, builtin};
 use paperpaw_graphics::Framebuffer;
 use paperpaw_platform::{Color, Instant, PixelFormat, Rect};
 use std::{borrow::Cow, cell::Cell, rc::Rc};
@@ -41,35 +40,32 @@ const DRAW: &str = r#"
 "#;
 
 type Run = Rc<dyn Fn(&Env<'_>)>;
-struct Renderer(Run);
-
-impl Plugin for Renderer {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("render-fixture"),
-            "Render fixture",
-            Version::new(1, 0, 0),
-        )
-    }
-
-    fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
+/// Binds a font of its own as the UI's and runs `run` with the live `Env` when the kernel has
+/// started.
+fn renderer(builder: KernelBuilder, run: Run) -> KernelBuilder {
+    let manifest = Manifest::new(
+        Id::new_static("render-fixture"),
+        "Render fixture",
+        Version::new(1, 0, 0),
+    );
+    builder.items(manifest, move |items| {
         let data: &'static [u8] = include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../plugins/fonts-default/fonts/SourceSans3.ttf"
         ));
         let font = Font::from_data(Cow::Borrowed(data), &[]).unwrap();
-        registrar.add_font(FontSpec::new(Id::new_static("render-fixture.face"), font))?;
-        registrar.bind_font(
+        items.add_font(FontSpec::new(Id::new_static("render-fixture.face"), font))?;
+        items.bind_font(
             builtin::fonts::UI,
             Id::new_static("render-fixture.face"),
             Priority::DEFAULT,
         )?;
-        let run = Rc::clone(&self.0);
-        registrar.subscribe(
+        let run = Rc::clone(&run);
+        items.subscribe(
             builtin::events::STARTED,
             Box::new(move |env, _, _| run(env)),
         )
-    }
+    })
 }
 
 #[test]
@@ -117,8 +113,7 @@ fn loaded_plugin_draws_text_with_metrics_and_clip_through_shared_table() {
         }
         observed.set(observed.get() + 1);
     });
-    let mut kernel = paperpaw_core::Kernel::builder(DEVICE)
-        .plugin(Renderer(run))
+    let mut kernel = renderer(paperpaw_core::Kernel::builder(DEVICE), run)
         .build()
         .unwrap();
     let _effects = kernel.start(Instant(17));

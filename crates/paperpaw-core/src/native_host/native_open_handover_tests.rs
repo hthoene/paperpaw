@@ -3,6 +3,7 @@
 //! of the reader's translate arrives as the hand-over's host text, never as a
 //! param (`docs/abi/ui.md` 1.1).
 use super::*;
+use crate::Items;
 use crate::native_host::{
     commands::{CommandScope, CommandStage, WireCommand, commands_encode},
     shared::Shared,
@@ -330,17 +331,17 @@ fn a_stage_dropped_before_its_drain_frees_what_its_submits_claimed() {
 
 /// A plugin of the program offering `core.translate` first, with a screen of
 /// its own that is not native.
-struct Legacy;
-impl paperpaw_sdk::Plugin for Legacy {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            Id::new_static("legacy"),
-            "Legacy",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+fn legacy_manifest() -> paperpaw_sdk::Manifest {
+    paperpaw_sdk::Manifest::new(
+        Id::new_static("legacy"),
+        "Legacy",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
+    .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
+fn legacy() -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
+    move |r| {
         struct Empty;
         impl paperpaw_sdk::Screen for Empty {
             fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
@@ -370,7 +371,7 @@ fn a_screen_that_is_not_native_keeps_its_params_when_a_native_open_shows_its_slo
     let (_, store) = wired();
     reset(NORMAL);
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Legacy)
+        .items(legacy_manifest(), legacy())
         .build()
         .unwrap();
     install_resources(&mut kernel, 8, None).unwrap();

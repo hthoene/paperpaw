@@ -405,6 +405,7 @@ fn a_display_of_no_size_clamps_to_the_origin_and_does_not_panic() {
 /// lock and PIN screens of another plugin.
 mod kernel {
     use super::*;
+    use crate::Items;
     use crate::native_host::{
         declaration_store::Allocations,
         flat::FlatDepth,
@@ -418,8 +419,8 @@ mod kernel {
     use paperpaw_graphics::Canvas;
     use paperpaw_native::host_glue::ERR_BUSY;
     use paperpaw_sdk::{
-        ActionSpec, Cx, Env, Handled, Id, Manifest, Params, Plugin, RegisterError, Registrar,
-        Screen, ScreenSpec, Uses, Version,
+        ActionSpec, Cx, Env, Handled, Id, Manifest, Params, RegisterError, Screen, ScreenSpec,
+        Uses, Version,
         filters::{InputFilterSpec, InputVerdict},
         keys::InputSpec as PluginInput,
     };
@@ -495,14 +496,9 @@ mod kernel {
         }
     }
 
-    struct Screens(&'static str);
-    impl Plugin for Screens {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static(self.0), "Screens", Version::new(1, 0, 0))
-                .uses(Uses::NOTHING)
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-            if self.0 == "g" {
+    fn screens(kept: &'static str) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        move |r| {
+            if kept == "g" {
                 r.add_screen(ScreenSpec::new(
                     LOCK,
                     "lock",
@@ -539,6 +535,11 @@ mod kernel {
                 ))
             }
         }
+    }
+
+    /// What [`screens`] registers under.
+    fn screens_manifest(kept: &'static str) -> Manifest {
+        Manifest::new(Id::new_static(kept), "Screens", Version::new(1, 0, 0)).uses(Uses::NOTHING)
     }
 
     /// The native filter: counts its calls and passes every input.
@@ -616,8 +617,8 @@ mod kernel {
         GESTURES.set(0);
         ORDER.with(|order| order.borrow_mut().clear());
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-            .plugin(Screens("g"))
-            .plugin(Screens("f"))
+            .items(screens_manifest("g"), screens("g"))
+            .items(screens_manifest("f"), screens("f"))
             .build()
             .unwrap();
         kernel.start(paperpaw_platform::Instant(0));

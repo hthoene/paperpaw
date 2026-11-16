@@ -1070,7 +1070,7 @@ fn kernel(
         paperpaw_app::Fonts::Packs,
         paperpaw_app::StorePlugins::Left,
     )
-    .plugin(device::X4);
+    .items(device::manifest(), device::register);
     #[cfg(feature = "frame-test")]
     let builder = builder.plugin(paperpaw_sample_frame_test::FrameTest);
     // Its warnings are logged as the main loop starts: taken here, the

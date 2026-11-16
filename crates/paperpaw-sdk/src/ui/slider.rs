@@ -42,14 +42,12 @@
 //! ([`RefreshMode::Fast`](crate::RefreshMode::Fast)), and the screen
 //! with a clean one when the finger is lifted.
 
+use super::setting_rows::draw_focused_steps;
 use crate::builtin::actions;
 use crate::id::Id;
 use crate::semantics::Role;
 use crate::settings::{SettingKind, SettingSpec};
-use crate::ui::{
-    UiStyle, button_height, draw_button, draw_focused_steps, draw_note_below, draw_value_row,
-    title_area,
-};
+use crate::ui::{UiStyle, button_height, draw_button, draw_note_below, draw_value_row, title_area};
 use crate::{Canvas, Color, Env, PointerEvent, PointerPhase, Rect};
 
 /// A number from `min` to `max` in steps of `step`, set with a slider.

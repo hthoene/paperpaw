@@ -120,7 +120,10 @@ mod tests {
     /// all its texts in one.
     fn shown(safe_mode: Option<SafeMode>) -> String {
         let builder = crate::Kernel::builder(crate::tests::DEVICE)
-            .plugin(crate::tests::FontPlugin)
+            .items(
+                crate::tests::font_plugin_manifest(),
+                crate::tests::font_plugin(),
+            )
             .code_plugins(Native::new("code.ppn"), Box::new(NoCode));
         let mut kernel = match safe_mode {
             Some(safe_mode) => builder.safe_mode(safe_mode),
@@ -154,7 +157,10 @@ mod tests {
     /// draws, in bands of `rows` rows or (`None`) all at once.
     fn frame(safe_mode: Option<SafeMode>, rows: Option<u16>) -> alloc::vec::Vec<u8> {
         let mut builder = crate::Kernel::builder(crate::tests::DEVICE)
-            .plugin(crate::tests::FontPlugin)
+            .items(
+                crate::tests::font_plugin_manifest(),
+                crate::tests::font_plugin(),
+            )
             .code_plugins(Native::new("code.ppn"), Box::new(NoCode));
         if let Some(safe_mode) = safe_mode {
             builder = builder.safe_mode(safe_mode);
