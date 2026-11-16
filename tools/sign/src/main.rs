@@ -149,6 +149,8 @@ USAGE:
         objects in rlibs (built without LTO); fails if there is one. A
         native plugin has no writable data, so the SDK's crates must keep
         none.
+    paperpaw-sign --version
+        Prints the PaperPaw release this program is of.
 ";
 
 fn main() -> ExitCode {
@@ -203,6 +205,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["store-rules", file] => store_rules(file),
         ["-h" | "--help"] => {
             print!("{USAGE}");
+            Ok(())
+        }
+        // The PaperPaw release this program is of: `paperpaw-dev build` asks.
+        ["--version"] => {
+            println!("paperpaw-sign {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         _ => Err(format!("unexpected arguments\n\n{USAGE}")),
