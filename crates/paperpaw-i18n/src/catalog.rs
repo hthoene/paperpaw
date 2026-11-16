@@ -934,7 +934,6 @@ impl Catalog {
         }
     }
 
-    paperpaw_table::shared! {
     /// The message for `key`, if this catalog has one and is loaded.
     pub fn get(&self, key: &str) -> Option<&str> {
         if let Some(card) = &self.card {
@@ -968,7 +967,6 @@ impl Catalog {
         } else {
             plain_value(&self.source, at)
         }
-    } @ data::I18N_CATALOG_GET as for<'s> fn(&'s Self, &str) -> Option<&'s str>
     }
 
     /// All message keys, sorted; none of a catalog on the card (that

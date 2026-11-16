@@ -1327,7 +1327,6 @@ impl Settings {
             .map(|layer| &layer.by)
     }
 
-    paperpaw_table::shared! {
     /// The current value: the active scope's if it sets one (see
     /// [`Settings::scope`]), else the global value, else the default.
     pub fn get(&self, id: &str) -> Option<&SettingValue> {
@@ -1355,7 +1354,6 @@ impl Settings {
             };
         }
         self.own(id)
-    } @ data::SETTINGS_GET as for<'s> fn(&'s Self, &str) -> Option<&'s SettingValue>
     }
 
     /// The value of `id` without a power mode: the scope's, the reader's,
@@ -1399,7 +1397,6 @@ impl Settings {
             .or_else(|| self.followed_or_default(id, |other| self.values.get(other)))
     }
 
-    paperpaw_table::shared! {
     /// The active scope's value of `id`, if it applies: the setting is
     /// [`scoped`](SettingSpec::scoped) and the scope is switched on
     /// ([`SCOPE_ONLY`](crate::builtin::settings::SCOPE_ONLY)).
@@ -1412,7 +1409,6 @@ impl Settings {
         let value = scope.get(id)?;
         self.specs.where_is(id).filter(|at| at.scoped_flag())?;
         Some(value)
-    } @ data::SETTINGS_SCOPED_VALUE as for<'s> fn(&'s Self, &str) -> Option<&'s SettingValue>
     }
 
     /// The values of the active scope, e.g. of the book being read: scoped
@@ -1461,14 +1457,12 @@ impl Settings {
         }
     }
 
-    paperpaw_table::shared! {
     /// The value of a text or choice setting; `""` if unknown.
     pub fn text(&self, id: &str) -> &str {
         match self.get(id) {
             Some(SettingValue::Text(v)) => v,
             _ => "",
         }
-    } @ data::SETTINGS_TEXT as for<'s> fn(&'s Self, &str) -> &'s str
     }
 
     /// All settings in registration order: plugins registered first come

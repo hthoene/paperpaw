@@ -31,6 +31,16 @@
 //! about `names / 256` more where the names are more than [`HASHES`]. Heap
 //! of a call at its most, measured
 //! (`lib_reads_oom_tests`): see there; it does not grow with the catalog.
+//!
+//! A page that goes on where the call before ended (the same query, the
+//! same generation, its `next` as cursor) starts from the place kept
+//! ([`Kept`]: the last name served and the count), so it costs the scan of
+//! the page and the one of the jumps, not the steps to its cursor. One
+//! place is kept, the last call's (a name key, 353 bytes at most, in the
+//! buffer it was made in, 706 at most): a cache
+//! as library.md 2.1's checkpoints are, though not its table yet. It changes
+//! no answer: it is left unused, and none is kept, while a pending delete
+//! hides a book.
 use super::query::{Engine, KEY_TEXT, Key, TRIES, WINDOW, copy, head, push, push_lower};
 use super::{CatalogReads, fail};
 use crate::abi7::context::RowsEnd;
@@ -38,9 +48,10 @@ use crate::native_host::lib_service::Rows;
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::cell::Cell;
 use core::cmp::Ordering;
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
-use paperpaw_sdk::digest::fnv1a64;
+use paperpaw_sdk::digest::{Fnv1a64, fnv1a64};
 use paperpaw_sdk::library::{catalog, index};
 
 /// Bytes of a `lib_facet.text`.
@@ -265,6 +276,36 @@ impl Distinct {
     }
 }
 
+/// Where a page ended, for the call that goes on from there: the names
+/// before `cursor` are those up to `after` (a name's key), and there are
+/// `total` in all, for the query of `stamp` under `generation`.
+pub(super) struct Kept {
+    stamp: u64,
+    generation: u32,
+    cursor: u32,
+    total: u32,
+    after: String,
+}
+
+/// The mark of what a query lists: its list and direction, its filters, the
+/// archive, the folder the folders are right in, and the day (the new books
+/// are by it). Not its cursor, nor its sort (a list has its own).
+fn stamp(reads: &CatalogReads, q: &wire::ServiceLibQuery<'_>, archive: &str, prefix: &str) -> u64 {
+    let mut hash = Fnv1a64::new();
+    let day = reads.env.today().map_or(0, |day| day.wrapping_add(1));
+    for number in [q.facet, q.flags, q.show, q.added_since, day] {
+        hash.feed(&number.to_le_bytes());
+    }
+    for text in [
+        q.words, q.author, q.series, q.tag, q.folder, archive, prefix,
+    ] {
+        hash.feed(text.as_bytes());
+        // No text holds this byte: where one ends is part of the mark.
+        hash.feed(&[0xff]);
+    }
+    hash.value()
+}
+
 /// What one scan of the catalog does with the names it meets.
 struct Pass<'p> {
     window: &'p mut Window,
@@ -376,9 +417,13 @@ impl Lists<'_> {
 
     /// What the scans found: how many names in all, how many the cursor
     /// skipped (all there are, where it is past them) and the names of the
-    /// page. The first scan counts the names too.
-    fn select(&self, cursor: u32) -> Result<(u32, u32, Vec<Name>), i32> {
-        let (mut after, mut skipped, mut total) = (None::<String>, 0_u32, None);
+    /// page. The first scan counts the names too; from a place kept (`from`,
+    /// which is at `cursor`) the page is the first scan and nothing is counted.
+    fn select(&self, cursor: u32, from: Option<Kept>) -> Result<(u32, u32, Vec<Name>), i32> {
+        let (mut after, mut skipped, mut total) = match from {
+            Some(kept) => (Some(kept.after), kept.cursor, Some(kept.total)),
+            None => (None, 0, None),
+        };
         loop {
             // A step towards the cursor, or at it the page.
             let page = skipped >= cursor;
@@ -485,6 +530,36 @@ impl Lists<'_> {
     }
 }
 
+/// The folder the folders of a query are right in, with its `/` (empty: the
+/// card's top): the query's `folder`, or the library folder where it names
+/// none.
+fn folders_in(reads: &CatalogReads, folder: &str) -> Result<String, i32> {
+    let mut prefix = String::new();
+    let mut failure = None;
+    let mut root = |mut folder: &str| {
+        while let Some(rest) = folder.strip_prefix('/') {
+            folder = rest;
+        }
+        while let Some(rest) = folder.strip_suffix('/') {
+            folder = rest;
+        }
+        if !folder.is_empty() {
+            failure = copy(folder)
+                .and_then(|mut path| push(&mut path, "/").map(|()| prefix = path))
+                .err();
+        }
+    };
+    if folder.is_empty() {
+        reads.library_folder(&mut root);
+    } else {
+        root(folder);
+    }
+    if let Some(status) = failure {
+        return Err(status);
+    }
+    Ok(prefix)
+}
+
 /// The rows from `q.cursor`, and where the page ends. `hide` names the books
 /// a pending delete holds.
 pub(super) fn facets(
@@ -500,33 +575,23 @@ pub(super) fn facets(
         sort: facet.sort(),
         ..*q
     };
-    let mut prefix = String::new();
-    if facet == Facet::Folders {
-        let mut failure = None;
-        let mut root = |mut folder: &str| {
-            while let Some(rest) = folder.strip_prefix('/') {
-                folder = rest;
-            }
-            while let Some(rest) = folder.strip_suffix('/') {
-                folder = rest;
-            }
-            if !folder.is_empty() {
-                failure = copy(folder)
-                    .and_then(|mut path| push(&mut path, "/").map(|()| prefix = path))
-                    .err();
-            }
-        };
-        if q.folder.is_empty() {
-            reads.library_folder(&mut root);
-        } else {
-            root(q.folder);
+    let prefix = if facet == Facet::Folders {
+        folders_in(reads, q.folder)?
+    } else {
+        String::new()
+    };
+    let stamp = stamp(reads, q, archive, &prefix);
+    // Whether a pending delete hid a book from the scans.
+    let hid = Cell::new(false);
+    let hide = |path: &str| {
+        let hidden = hide(path);
+        if hidden {
+            hid.set(true);
         }
-        if let Some(status) = failure {
-            return Err(status);
-        }
-    }
+        hidden
+    };
     let lists = Lists {
-        engine: Engine::new(reads, &sorted, archive, hide)?,
+        engine: Engine::new(reads, &sorted, archive, &hide)?,
         facet,
         prefix,
         descending: q.flags & 1 != 0,
@@ -536,7 +601,23 @@ pub(super) fn facets(
         if q.generation != 0 && q.generation != generation {
             return Err(ERR_STATE);
         }
-        let (total, skipped, mut names) = lists.select(q.cursor)?;
+        // The place the call before ended at, where this one goes on from it.
+        let mut kept = reads.names.take().filter(|kept| {
+            q.cursor != 0
+                && kept.cursor == q.cursor
+                && kept.stamp == stamp
+                && kept.generation == generation
+        });
+        let (total, skipped, mut names) = loop {
+            hid.set(false);
+            let went_on = kept.is_some();
+            let found = lists.select(q.cursor, kept.take())?;
+            // A book being deleted may have taken a name from before the
+            // place: then from the start, as a call without one.
+            if !(went_on && hid.get()) {
+                break found;
+            }
+        };
         let jumps = facet.jump() != Jump::None;
         if jumps && !names.is_empty() {
             lists.firsts(&mut names)?;
@@ -559,6 +640,21 @@ pub(super) fn facets(
                 break;
             }
             rows += 1;
+        }
+        // Where this page ended, for a call that goes on from there.
+        names.truncate(rows as usize);
+        if let Some(last) = names.pop()
+            && !hid.get()
+        {
+            // The key's buffer as it is: shrinking it is an allocation that
+            // cannot be refused, and it holds 706 bytes at most.
+            reads.names.set(Some(Kept {
+                stamp,
+                generation,
+                cursor: skipped + rows,
+                total,
+                after: last.key,
+            }));
         }
         return Ok(RowsEnd {
             total,

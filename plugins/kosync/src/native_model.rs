@@ -4,12 +4,14 @@
 //! nothing to do). Each part is the interface-6 code made fallible, with a
 //! test that both give the same answers.
 //!
-//! The server's JSON is read with `paperpaw_sdk::json` until Kernel's
-//! fallible JSON reader (#414) is on the integration branch: that reader
-//! allocates without a refusal path, so the answer's text is bounded by the
-//! network host's reply cap, not by this crate (`PORTING-7.md`).
+//! The server's bounded JSON is streamed fallibly, retaining only the four
+//! top-level progress fields. A refused allocation is an unreadable answer.
 use alloc::string::String;
-use paperpaw_sdk::{digest::md5::Md5, json, native::Error};
+use paperpaw_sdk::{
+    digest::md5::Md5,
+    json::stream::{Event, Parser},
+    native::Error,
+};
 use paperpaw_ui_kit::{
     mem::{wipe, wipe_text},
     text::{concat, copy, decimal},
@@ -20,8 +22,7 @@ pub use crate::declarations::DEFAULT_SERVER;
 /// The most bytes of a server's answer to a progress fetch that are read: the
 /// request's `max_body` (the answer is a few hundred bytes; the network host's
 /// default would be 45,056 on the X4 and 1,048,576 elsewhere). A longer text is
-/// refused with `NoSpace`, so the interim JSON reader (no refusal path) never
-/// meets more than this.
+/// refused with `NoSpace` before the stream reader sees it.
 pub const MAX_ANSWER: usize = 4096;
 
 /// Another device counts as further from this much more progress (0..1).
@@ -327,48 +328,111 @@ pub struct Remote {
 /// # Errors
 /// `NoSpace` for an answer longer than [`MAX_ANSWER`].
 pub fn remote_progress(text: &str) -> Result<Option<f64>, Error> {
-    if text.len() > MAX_ANSWER {
-        return Err(Error::NoSpace);
-    }
-    Ok(read_remote(text, &json::object(text)))
+    Ok(read_answer(text)?.map(|remote| remote.progress))
 }
 
-fn read_remote(text: &str, body: &[(String, json::Value)]) -> Option<f64> {
-    if body.is_empty() {
-        let inner = text
-            .trim()
-            .strip_prefix('{')
-            .and_then(|t| t.strip_suffix('}'));
-        return inner.is_some_and(|i| i.trim().is_empty()).then_some(0.0);
-    }
-    if !body.iter().any(|(key, _)| key == "percentage") {
-        return Some(0.0);
-    }
-    let progress = json::number(body, "percentage")
-        .or_else(|| json::text(body, "percentage").and_then(|p| p.trim().parse().ok()))?;
-    (0.0..=1.0).contains(&progress).then_some(progress)
-}
-
-/// Reads a server's answer to a progress fetch.
+/// Reads only the top-level progress fields; unreadable or refused memory is no answer.
 ///
 /// # Errors
-/// `NoSpace` for an answer longer than [`MAX_ANSWER`], `NoMemory` when a
-/// text cannot be kept.
+/// `NoSpace` for an answer longer than [`MAX_ANSWER`].
 pub fn read_answer(text: &str) -> Result<Option<Remote>, Error> {
     if text.len() > MAX_ANSWER {
         return Err(Error::NoSpace);
     }
-    let body = json::object(text);
-    let Some(progress) = read_remote(text, &body) else {
+    let text = text.trim();
+    if !text.starts_with('{') || !text.ends_with('}') {
+        return Ok(None);
+    }
+    let mut parser = Parser::default();
+    let mut fields = [None, None, None];
+    let (mut seen, mut member, mut closed, mut refused) = (false, false, false, false);
+    let mut progress = Some(0.0);
+    let mut emit = |event: Event<'_>| match event {
+        Event::Value(path, value) if path.len() == 1 => {
+            member = true;
+            let key = path[0].as_str();
+            if key == "percentage" && !seen {
+                seen = true;
+                progress = value.trim().parse::<f64>().ok();
+            }
+            let field = match key {
+                "device_id" => Some(0),
+                "device" => Some(1),
+                "progress" => Some(2),
+                _ => None,
+            };
+            if let Some(index) = field
+                && fields[index].is_none()
+            {
+                let value = match index {
+                    0 => {
+                        let mut end = value.len().min(64);
+                        while !value.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        copy(&value[..end])
+                    }
+                    1 => device_name(value),
+                    _ => copy(value),
+                };
+                match value {
+                    Ok(value) => fields[index] = Some(value),
+                    Err(_) => refused = true,
+                }
+            }
+        }
+        Event::Open(path) if path.len() == 1 => {
+            member = true;
+            if path[0] == "percentage" && !seen {
+                seen = true;
+                progress = None;
+            }
+        }
+        Event::Close([]) => closed = true,
+        _ => {}
+    };
+    let read = parser
+        .try_feed(text.as_bytes(), &mut emit)
+        .and_then(|()| parser.try_finish(&mut emit));
+    if read.is_err()
+        || refused
+        || !closed
+        || (!member && !text[1..text.len() - 1].trim().is_empty())
+    {
+        return Ok(None);
+    }
+    let Some(progress) = progress.filter(|p| (0.0..=1.0).contains(p)) else {
         return Ok(None);
     };
-    let take = |key: &str| json::text(&body, key).map(copy).transpose();
+    let [device_id, device, xpointer] = fields;
     Ok(Some(Remote {
         progress,
-        device_id: take("device_id")?,
-        device: take("device")?,
-        xpointer: take("progress")?,
+        device_id,
+        device,
+        xpointer,
     }))
+}
+
+fn device_name(text: &str) -> Result<String, Error> {
+    let mut name = String::new();
+    name.try_reserve(163).map_err(|_| Error::NoMemory)?;
+    for (count, c) in text
+        .chars()
+        .filter(|c| {
+            !c.is_control() && !matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        })
+        .enumerate()
+    {
+        if count == 40 {
+            name.push('…');
+            break;
+        }
+        name.push(c);
+    }
+    if name.is_empty() {
+        name.push('?');
+    }
+    Ok(name)
 }
 
 /// What a fetched position means for the book open here.
@@ -438,6 +502,7 @@ mod tests {
     #![allow(clippy::unwrap_used, reason = "fixtures")]
     use super::*;
     use alloc::format;
+    use paperpaw_sdk::json;
 
     #[test]
     fn server_addresses_are_made_base_urls() {
