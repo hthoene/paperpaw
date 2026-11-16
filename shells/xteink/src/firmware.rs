@@ -115,9 +115,8 @@ pub struct State {
     /// pressed again) does not change it. Set only in `step`; it ends in the
     /// power-off or a reset, so nothing clears it.
     escape: bool,
-    /// The one-time low-memory notice (`low_memory`): None until the card's
-    /// note is read.
-    low_memory: Option<paperpaw_x4::low_memory::Notice>,
+    /// The one-time low-memory notice (`low_memory`).
+    low_memory: paperpaw_x4::low_memory::Notice,
     /// The kernel asked to sleep.
     sleep: bool,
     /// The kernel asked to switch the device off (`Effect::PowerOff`).
@@ -1120,7 +1119,9 @@ impl Firmware {
             while let Some(line) = self.kernel.next_cable_line() {
                 esp_println::println!("{line}");
             }
-            if let Some(next) = self.low_memory_notice() {
+            if let Some(next) = self.low_memory_notice(
+                effects.grays() || effects.sleep() || effects.power_off() || effects.restart(),
+            ) {
                 effects = next;
                 continue;
             }

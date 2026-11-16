@@ -97,16 +97,20 @@ impl Screen for LowMemory {
 }
 
 impl Kernel {
+    /// Whether the home screen is on top, with nothing over it.
+    pub fn home_on_top(&self) -> bool {
+        self.stack
+            .last()
+            .is_some_and(|top| top.slot.as_ref() == Some(&slots::HOME) && top.id != SCREEN)
+    }
+
     /// Shows the low-memory notice, once the caller has decided it is due
     /// (the shell's rule); `true` where it shows. Only over the home screen
     /// with nothing above it and nothing guarding the device: anywhere else
-    /// it does nothing and the caller asks again later.
+    /// (or where the screen could not open) it does nothing and the caller
+    /// asks again later.
     pub fn show_low_memory_notice(&mut self, now: Instant) -> (bool, Effects) {
-        let on_home = self
-            .stack
-            .last()
-            .is_some_and(|top| top.slot.as_ref() == Some(&slots::HOME) && top.id != SCREEN);
-        if !on_home || self.held_by_guard() || self.notice.is_some() {
+        if !self.home_on_top() || self.held_by_guard() || self.notice.is_some() {
             return (false, Effects::default());
         }
         self.now = now;
@@ -117,6 +121,7 @@ impl Kernel {
             .with(PLUGINS_WORD, tr.tr("core.low-memory.plugins"))
             .with(LATER_WORD, tr.tr("core.low-memory.later"));
         self.open(SCREEN, None, &params);
-        (true, self.finish())
+        let shown = self.stack.last().is_some_and(|top| top.id == SCREEN);
+        (shown, self.finish())
     }
 }
