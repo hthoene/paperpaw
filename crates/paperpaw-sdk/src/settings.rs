@@ -432,7 +432,7 @@ impl SettingSpec {
     /// A setting of `kind` with its `default`, called `title` (a
     /// translation key), in `group`. Every builder of a spec is `const`, so
     /// a plugin declares its settings as a `static` list registered with
-    /// [`Registrar::add_settings`](crate::Registrar::add_settings): it
+    /// `Items::add_settings`: it
     /// takes next to no memory (on small devices the list stays in flash).
     /// Its unit, section, editor and the like are a [`SettingExtra`], kept
     /// in the program too ([`SettingSpec::with_extra`]).
@@ -458,7 +458,7 @@ impl SettingSpec {
     ///
     /// A spec whose id is known only at run time (one for each plugin, say)
     /// is made with this, and registered with
-    /// [`Registrar::add_setting`](crate::Registrar::add_setting).
+    /// `Items::add_setting`.
     pub const fn new(
         id: Id,
         title: &'static str,
@@ -710,7 +710,7 @@ impl SettingGroupSpec {
     /// Group `id`, called `title` (a translation key); the rest as set
     /// with its methods. All are `const`: a plugin declares its groups as
     /// statics and registers a reference
-    /// ([`Registrar::add_setting_group`](crate::Registrar::add_setting_group)),
+    /// (`Items::add_setting_group`),
     /// which takes next to no memory.
     pub const fn new(id: Id, title: &'static str) -> Self {
         Self {

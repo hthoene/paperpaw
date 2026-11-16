@@ -17,8 +17,8 @@
 //! - **Ids** ([`Id`]): every contribution has a namespaced id such as
 //!   `diagnostics.screen`. The namespace is the plugin id; `core` is
 //!   reserved for the kernel.
-//! - **Plugins** ([`Plugin`]): a [`Manifest`] plus a `register` function that
-//!   adds contributions through a [`Registrar`].
+//! - **Plugins** (`Plugin`): a [`Manifest`] plus a `register` function that
+//!   adds contributions through a `Items`.
 //! - **Contributions**: actions ([`ActionSpec`]), screens ([`ScreenSpec`]),
 //!   slots ([`SlotSpec`]), settings ([`SettingSpec`]), fonts ([`FontSpec`]),
 //!   file formats ([`FormatSpec`]), event subscriptions ([`EventHandler`]),
@@ -53,7 +53,20 @@
 extern crate alloc;
 
 mod action;
+// facade: annotations (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod annotations;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "annotations/mod.rs"]
+mod annotations_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod annotations {
+    pub use crate::annotations_old::Kind;
+    pub(crate) use crate::annotations_old::*;
+}
+// end of facade: annotations
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod ask;
@@ -64,7 +77,22 @@ mod ask;
 pub mod bluetooth;
 #[cfg(not(any(test, feature = "kernel")))]
 mod bluetooth;
+// facade: builtin (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod builtin;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "builtin/mod.rs"]
+mod builtin_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod builtin {
+    pub(crate) use crate::builtin_old::*;
+    pub use crate::builtin_old::{
+        CONFIG_FILE, group_sections, groups, menus, params, settings, slots,
+    };
+}
+// end of facade: builtin
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod chrome;
@@ -83,7 +111,20 @@ pub mod contribution;
 #[cfg(not(any(test, feature = "kernel")))]
 mod contribution;
 pub mod data;
+// facade: decorations (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod decorations;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "decorations.rs"]
+mod decorations_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod decorations {
+    pub(crate) use crate::decorations_old::*;
+    pub use crate::decorations_old::{AS_IS, Decoration, LineKind, NONE, THICKNESS, Tone};
+}
+// end of facade: decorations
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod developer;
@@ -97,13 +138,38 @@ pub mod event;
 #[cfg(not(any(test, feature = "kernel")))]
 mod event;
 pub mod files;
+// facade: filters (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod filters;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "filters.rs"]
+mod filters_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod filters {
+    pub use crate::filters_old::Verdict;
+    pub(crate) use crate::filters_old::*;
+}
+// end of facade: filters
 pub mod firmware;
 mod float_text;
 mod fonts;
 mod formats;
 mod gesture;
+// facade: help (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod help;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "help.rs"]
+mod help_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod help {
+    pub(crate) use crate::help_old::*;
+}
+// end of facade: help
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod host;
@@ -117,16 +183,68 @@ pub use screen::ScreenMaker;
 mod hyphenation;
 pub mod icons;
 mod id;
+// facade: install (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod install;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "install/mod.rs"]
+mod install_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod install {
+    pub(crate) use crate::install_old::*;
+    pub use crate::install_old::{
+        Digest, MAX_FILES, Package, PackageFile, is_plugin_name, is_safe_path,
+    };
+}
+// end of facade: install
 pub mod keys;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod layers;
 #[cfg(not(any(test, feature = "kernel")))]
 mod layers;
+// facade: library (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod library;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "library/mod.rs"]
+mod library_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod library {
+    pub(crate) use crate::library_old::*;
+    pub use crate::library_old::{Fingerprint, kept_path};
+}
+// end of facade: library
+// facade: logo (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod logo;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "logo.rs"]
+mod logo_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod logo {
+    pub(crate) use crate::logo_old::*;
+}
+// end of facade: logo
+// facade: lookup (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod lookup;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "lookup.rs"]
+mod lookup_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod lookup {
+    pub(crate) use crate::lookup_old::*;
+}
+// end of facade: lookup
 pub mod memory;
 mod memory_storage;
 mod menus;
@@ -148,8 +266,33 @@ pub mod presets;
 #[cfg(not(any(test, feature = "kernel")))]
 mod presets;
 pub mod random;
+// facade: readers (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod readers;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "readers.rs"]
+mod readers_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod readers {
+    pub(crate) use crate::readers_old::*;
+}
+// end of facade: readers
+// facade: reading (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod reading;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "reading/mod.rs"]
+mod reading_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod reading {
+    pub(crate) use crate::reading_old::*;
+    pub use crate::reading_old::{PageIndex, WordBox};
+}
+// end of facade: reading
 pub mod realtime;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
@@ -189,9 +332,56 @@ mod sockets;
 pub mod sound;
 #[cfg(not(any(test, feature = "kernel")))]
 mod sound;
+// facade: status (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod status;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "status.rs"]
+mod status_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod status {
+    pub use crate::status_old::item_ids;
+    pub(crate) use crate::status_old::*;
+}
+// end of facade: status
+// facade: time (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod time;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "time.rs"]
+mod time_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod time {
+    pub(crate) use crate::time_old::*;
+    pub use crate::time_old::{
+        CLOCK_12H, LocalTime, TIME_ZONES, TimeZone, UnixTime, civil_from_days, day_of_year,
+        days_from_civil, days_in_month, days_in_year, iso_week, weekday, weekday_of,
+    };
+}
+// end of facade: time
+// facade: ui (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod ui;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "ui/mod.rs"]
+mod ui_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod ui {
+    pub(crate) use crate::ui_old::*;
+    pub use crate::ui_old::{Ink, step_focus};
+    /// What interface-7 code uses of it.
+    pub mod reorder {
+        pub use crate::ui_old::reorder::moved;
+        pub(crate) use crate::ui_old::reorder::*;
+    }
+}
+// end of facade: ui
 pub mod usage;
 mod version;
 #[cfg(any(test, feature = "kernel"))]
@@ -200,7 +390,30 @@ pub mod voices;
 #[cfg(not(any(test, feature = "kernel")))]
 mod voices;
 pub mod web;
+// facade: widgets (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod widgets;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "widgets/mod.rs"]
+mod widgets_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod widgets {
+    pub(crate) use crate::widgets_old::*;
+    pub use crate::widgets_old::{
+        CellSpan, ColourSpec, PAPER_LIGHT_GRAY, PAPER_NONE, PAPER_NORMAL, categories, colour_spec,
+    };
+    /// What interface-7 code uses of it.
+    pub mod grid {
+        pub(crate) use crate::widgets_old::grid::*;
+        pub use crate::widgets_old::grid::{
+            Cells, Geometry, Item, MAX_COLUMNS, MAX_ROWS, What, columns_for, dragged, free_place,
+            parse, write,
+        };
+    }
+}
+// end of facade: widgets
 pub mod wifi;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
@@ -246,13 +459,8 @@ pub use command::{http_params, server_params, socket_params, speech_params};
 pub use commands::Commands;
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use commands::Commands;
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use contribution::Registrar;
-#[cfg(not(any(test, feature = "kernel")))]
-pub(crate) use contribution::Registrar;
 /// What a plugin added, for the kernel to apply: opaque to plugins, which
-/// add through [`Registrar`]'s methods.
+/// add through `Items`'s methods.
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use contribution::item::Contribution;
@@ -314,9 +522,9 @@ pub use params::Params;
 pub(crate) use params::Params;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use plugin::{Manifest, Plugin, Priority, RegisterError, SlotSpec, Uses};
+pub use plugin::{Manifest, Priority, RegisterError, SlotSpec, Uses};
 #[cfg(not(any(test, feature = "kernel")))]
-pub(crate) use plugin::{Manifest, Plugin, Priority, RegisterError, SlotSpec, Uses};
+pub(crate) use plugin::{Manifest, Priority, RegisterError, SlotSpec, Uses};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use plugins::requires;

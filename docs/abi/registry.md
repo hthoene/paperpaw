@@ -187,7 +187,8 @@ Field meanings:
   translated; none where it is empty); in `plugin` the description.
 - `reg_plugin.kind`: 0 built in, 1 data, 2 code; `state`: 0 running, 1 off, 2 failed; `flags`:
   bit 0 enabled, 1 restart needed, 2 required by another enabled plugin, 3 linked into the
-  firmware, 4 safe mode, 5 installed by a store (below); `problem`: interface-6 `PluginProblem`
+  firmware, 4 safe mode, 5 installed by a store (below), 6 not signed (its code was copied to the
+  card, never installed, and runs without a question, Decision 205); `problem`: interface-6 `PluginProblem`
   order (0 none, 1-12, 13 `Other`
   with its code in `problem_arg`), `problem_arg` its number (`built_for`); then the declaration caps
   of interface 7, where a whole declaration batch was refused at one of them and the plugin did

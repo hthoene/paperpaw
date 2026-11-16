@@ -7,8 +7,8 @@
 //! as it would look ([`Command::PreviewSettings`] with
 //! [`Preset::changes`]) and applies the one chosen ([`commands`]). Any
 //! plugin adds presets, also for another plugin's kind: kept in the
-//! program ([`Registrar::add_presets`], costing next to no memory) or made
-//! at start ([`Registrar::add_preset`]). A data plugin brings them in a
+//! program (`Items::add_presets`, costing next to no memory) or made
+//! at start (`Items::add_preset`). A data plugin brings them in a
 //! `presets.ini`, so that anyone can make one and share it:
 //!
 //! ```ini
@@ -26,8 +26,8 @@
 //! its kind that it leaves out go back to their defaults when it is
 //! applied ([`Preset::changes`]).
 //!
-//! [`Registrar::add_presets`]: crate::Registrar::add_presets
-//! [`Registrar::add_preset`]: crate::Registrar::add_preset
+//! `Items::add_presets`: crate::Items::add_presets
+//! `Items::add_preset`: crate::Items::add_preset
 
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
@@ -73,7 +73,7 @@ impl Preset {
     }
 
     /// A preset kept in the program, for a `static` list
-    /// ([`Registrar::add_presets`](crate::Registrar::add_presets)).
+    /// (`Items::add_presets`).
     pub const fn fixed(
         id: &'static str,
         kind: &'static str,

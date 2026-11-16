@@ -1,8 +1,9 @@
 //! Shared fixture route: the kernel supplies the host through CodeFile.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
+use crate::Plugin;
 use crate::{CodeFile, CodeLoader, Kernel, KernelBuilder};
 use alloc::{boxed::Box, format};
-use paperpaw_sdk::{MemoryStorage, Plugin, PluginProblem, native::Native};
+use paperpaw_sdk::{MemoryStorage, PluginProblem, native::Native};
 
 struct Loader<F>(F);
 
@@ -14,6 +15,10 @@ impl crate::NativeAdmission for Made {
         let manifest = self.0.manifest();
         kernel.register_plugin(self.0.as_ref(), manifest);
         Ok(())
+    }
+
+    fn declares(&self, _: &str) -> bool {
+        false
     }
 }
 

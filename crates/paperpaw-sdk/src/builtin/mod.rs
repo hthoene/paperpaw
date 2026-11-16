@@ -50,7 +50,7 @@ pub mod actions {
     /// the library ([`Command::Screenshot`](crate::Command::Screenshot)).
     pub const SCREENSHOT: Id = Id::new_static("core.screenshot");
     /// Removes what plugins kept for books no longer on the storage
-    /// ([`Registrar::add_book_data`](crate::Registrar::add_book_data)),
+    /// (`Items::add_book_data`),
     /// e.g. deleted from a computer.
     pub const CLEAN_UP: Id = Id::new_static("core.clean-up");
     /// Opens the tools menu ([`menus::TOOLS`](super::menus::TOOLS)).
@@ -229,7 +229,7 @@ pub mod slots {
 }
 
 /// Standard menus. Plugins add entries with
-/// [`Registrar::add_menu_entry`](crate::Registrar::add_menu_entry); users can
+/// `Items::add_menu_entry`; users can
 /// redefine any menu in `[menus]`.
 ///
 /// A menu named like a setting with choices (e.g. `core.reading-font`)
@@ -899,7 +899,7 @@ pub mod settings {
 
 /// Key map presets: named sets of bindings users switch between, e.g. for
 /// devices with only two buttons. Plugins add more with
-/// [`Registrar::add_keymap_preset`](crate::Registrar::add_keymap_preset).
+/// `Items::add_keymap_preset`.
 pub mod keymap_presets {
     use crate::Id;
 
@@ -987,7 +987,7 @@ pub mod groups {
 /// the device 51 to 199, customising PaperPaw from 201. A group whose
 /// order is 0, the default, names none: it is listed at the end of the
 /// section for customising, by name. A group shows the icon its plugin
-/// gives it (`Registrar::add_icon` with its id), else a plugin's.
+/// gives it (`Items::add_icon` with its id), else a plugin's.
 pub mod settings_page {
     use crate::Id;
 

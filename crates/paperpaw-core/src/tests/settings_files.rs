@@ -45,7 +45,10 @@ fn bytes(kernel: &Kernel, path: &str) -> Vec<u8> {
 
 fn kernel_with(storage: impl Storage + 'static) -> Kernel {
     Kernel::builder(DEVICE)
-        .plugin(NoticePlugin { log: log() })
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(NoticePlugin { log: log() }),
+        )
         .storage(storage)
         .build()
         .unwrap()
@@ -80,7 +83,10 @@ fn unreadable_configs() -> Vec<(&'static str, Box<dyn Storage>)> {
 fn a_config_that_cannot_be_read_is_said_and_left_as_it_is() {
     for (case, storage) in unreadable_configs() {
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(NoticePlugin { log: log() })
+            .items(
+                crate::tests::notice_plugin_manifest(),
+                crate::tests::notice_plugin(NoticePlugin { log: log() }),
+            )
             .storage_boxed(storage)
             .build()
             .unwrap();

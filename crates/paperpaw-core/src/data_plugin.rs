@@ -32,7 +32,7 @@
 //!                  run = another.action (a step a line, at most 16)
 //!   icons.ini      icons of actions and settings: item = icon-name
 //!   points/*.txt   lines for a point (`<point>.txt`, see
-//!                  `Registrar::contribute`): keyboard layouts, About lines
+//!                  `Items::contribute`): keyboard layouts, About lines
 //!   setup.ini      steps of the first-run setup, a section each: [size]
 //!                  setting = core.font-size (or screen = …), order, title,
 //!                  help
@@ -57,10 +57,11 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+use crate::Items;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::FontFace;
 use paperpaw_sdk::presets::Preset;
-use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, Version};
+use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 
 mod formats;
 pub(crate) mod hyphenation;
@@ -195,16 +196,17 @@ impl DataPlugin {
     }
 }
 
-impl Plugin for DataPlugin {
-    fn manifest(&self) -> Manifest {
+impl DataPlugin {
+    pub(crate) fn manifest(&self) -> Manifest {
         self.manifest.clone()
     }
 
+    /// Adds what its folder declares (`Kernel::add_data`).
     #[expect(
         clippy::too_many_lines,
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    pub(crate) fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         for source in self.translations.take() {
             r.add_translations(Cow::Owned(source))?;
         }
@@ -356,7 +358,7 @@ impl Plugin for DataPlugin {
         if let Some(source) = self.read_later("marks.ini") {
             let marks = paperpaw_sdk::decorations::MarkRules::parse(&self.manifest.id, &source)?;
             for (role, title, look) in marks.roles {
-                paperpaw_sdk::decorations::add_role(r, &role, title, look)?;
+                paperpaw_sdk::decorations::add_role(&mut |s| r.add_setting(s), &role, title, look)?;
             }
             if !marks.decorator.is_empty() {
                 let id = Id::parse(&format!("{}.marks", self.manifest.id)).map_err(|_| {
@@ -1201,7 +1203,7 @@ version = 1.0.0-gamma
         let dirs = [String::from("fonts"), String::from("other")];
         let folder = font_folder(storage.as_ref(), &dirs).unwrap();
         assert!(folder.fonts.borrow().is_empty());
-        let mut r = Registrar::new(Id::new_static("font-folder"));
+        let mut r = Items::new(Id::new_static("font-folder"));
         folder.register(&mut r).unwrap();
         let faces: Vec<(String, String, bool, bool)> = r
             .contributions()
@@ -1473,7 +1475,7 @@ core.font-ui = x.semi
         let later = plugin.later.borrow().clone();
         assert_eq!(later, ["plugins/new/points/core.about.txt"], "too large");
         assert_eq!(plugin.take_problems().len(), 1);
-        let mut r = Registrar::new(Id::new_static("new"));
+        let mut r = Items::new(Id::new_static("new"));
         plugin.register(&mut r).unwrap();
         let lines = r
             .contributions()

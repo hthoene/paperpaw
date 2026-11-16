@@ -16,13 +16,13 @@ use alloc::boxed::Box;
 use alloc::rc::Rc;
 use core::cell::Cell;
 
+use paperpaw_core::{Items, Plugin};
 use paperpaw_sdk::builtin::{actions, events, groups, menus};
 use paperpaw_sdk::setting::{Setting, Text};
 use paperpaw_sdk::ui::{self, UiStyle};
 use paperpaw_sdk::{
     ActionSpec, Arg, Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Id, Manifest,
-    MenuEntry, Params, Plugin, Rect, RegisterError, Registrar, Screen, ScreenSpec, SettingSpec,
-    Version,
+    MenuEntry, Params, Rect, RegisterError, Screen, ScreenSpec, SettingSpec, Version,
 };
 
 /// Ids start with the plugin's id: `hello.…`.
@@ -50,7 +50,7 @@ impl Plugin for Hello {
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         // Books opened since the start, counted by the event below and
         // shown by the screen.
         let opened = Rc::new(Cell::new(0u32));

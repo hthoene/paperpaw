@@ -1,8 +1,9 @@
 //! The public settings bridge uses a real dispatch Env and the existing codec.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
+use paperpaw_core::Items;
 use paperpaw_core::native_host::environment::{EnvironmentScope, SettingValueRef, settings_decode};
 use paperpaw_native::host_glue::{ERR_STATE, ERR_UTF8};
-use paperpaw_sdk::{Manifest, Plugin, RegisterError, Registrar, SettingSpec, builtin};
+use paperpaw_sdk::{Manifest, RegisterError, SettingSpec, builtin};
 use std::{cell::Cell, pin::pin, rc::Rc};
 
 use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
@@ -23,18 +24,10 @@ fn read(scope: &EnvironmentScope, key: &[u8], out: &mut [u8]) -> i32 {
     // SAFETY: borrowed slices are live, exclusive/disjoint and not host state.
     unsafe { scope.settings_read(key.as_ptr(), key.len(), out.as_mut_ptr(), out.len()) }
 }
-struct Probe(Rc<Cell<u32>>);
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            paperpaw_sdk::Id::new_static("probe"),
-            "Probe",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn probe(kept: Rc<Cell<u32>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         r.add_settings(&SETTINGS)?;
-        let count = self.0.clone();
+        let count = kept.clone();
         r.subscribe(
             builtin::events::STARTED,
             Box::new(move |env, _, _| {
@@ -90,11 +83,20 @@ impl Plugin for Probe {
         )
     }
 }
+
+/// What [`probe`] registers under.
+fn probe_manifest() -> Manifest {
+    Manifest::new(
+        paperpaw_sdk::Id::new_static("probe"),
+        "Probe",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
+}
 #[test]
 fn typed_settings_query_and_cleanup_use_actual_dispatch_frame() {
     let count = Rc::new(Cell::new(0));
     let mut kernel = paperpaw_core::Kernel::builder(DEVICE)
-        .plugin(Probe(count.clone()))
+        .items(probe_manifest(), probe(count.clone()))
         .build()
         .unwrap();
     kernel.start(paperpaw_platform::Instant(0));

@@ -582,7 +582,7 @@ pub const BOOK_FINISHED: Event<Reading> = Event::new("core.book-finished");
 /// data by a book's path move it along (progress, notes, statistics).
 pub const BOOK_MOVED: Event<BookMoved> = Event::new("core.book-moved");
 /// A book file was deleted ([`BookRemoved`]): what plugins keep for it
-/// goes ([`Registrar::add_book_data`](crate::Registrar::add_book_data)
+/// goes (`Items::add_book_data`
 /// folders by the kernel; other data by the plugin). Whoever deletes a
 /// book emits it.
 pub const BOOK_REMOVED: Event<BookRemoved> = Event::new("core.book-removed");

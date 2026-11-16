@@ -1881,11 +1881,17 @@ the card, which the X4 and the X4 Pro load at their
 start (ADR 0024): from the plugin store, from the web flasher with the
 firmware, or sent from a computer over the USB cable or the Wi-Fi
 transfer, where the device asks first ([USB transfer](usb-transfer.md)).
-Only code installed runs. An installer names the file by its digest
-(`native::remember_code`, kept in `.paperpaw`, which plugins' folders do
-not reach), and a file put into a plugin's folder otherwise is not run;
-the plugin manager says why. An author trying their own build sends it
-with `tools/usb-transfer.py install <folder>`. Its code is the same as that
+An installed plugin runs only the file installed. An installer names the
+file by its digest (`native::remember_code`, kept in `.paperpaw`, which
+plugins' folders do not reach), and a file put into its folder otherwise
+is not run; the plugin manager says why. Code copied to the card that was
+never installed runs without a question and unsigned (Decision 205); the
+plugin manager marks it "not signed". Three limits hold for it: an id with
+an author's key pinned (a plugin once installed signed) never runs such
+code, the file must still hold to its own header, and a plugin that
+declares `uses.install` or `uses.firmware` is not loaded until it is
+installed. An author trying their own build copies its folder to the card,
+or sends it with `tools/usb-transfer.py install <folder>`. Its code is the same as that
 of a plugin built in, and it runs as part of PaperPaw, at full speed
 and without a sandbox: it can do
 whatever PaperPaw can, also past the SDK. The X4 Pro runs it from its

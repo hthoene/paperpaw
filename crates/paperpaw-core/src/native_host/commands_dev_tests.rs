@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 use super::*;
+use crate::Items;
 use crate::{
     Kernel,
     abi7::commands_wire::{SecretText, commands_decode, commands_encode},
@@ -9,6 +10,7 @@ use crate::{
 use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_FULL, ERR_INVALID, OK};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::Instant;
+use paperpaw_sdk::{Manifest, RegisterError};
 use paperpaw_sdk::{SettingSpec, wifi::WifiState};
 
 const HOST: &[Feature<'static>] = &[
@@ -1045,9 +1047,6 @@ fn the_first_dev_command_makes_the_box_and_a_batch_answered_ok_needs_no_more_mem
     assert!(stage.take_dev_boxed().is_none());
 }
 
-/// A plugin whose screen `lock.screen` guards the device.
-struct LockPlugin;
-
 struct Lock;
 
 impl paperpaw_sdk::Screen for Lock {
@@ -1060,16 +1059,9 @@ impl paperpaw_sdk::Screen for Lock {
     }
 }
 
-impl paperpaw_sdk::Plugin for LockPlugin {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            Id::new_static("lock"),
-            "Lock",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+/// A plugin whose screen `lock.screen` guards the device.
+fn lock_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_screen(paperpaw_sdk::ScreenSpec::new(
             Id::new_static("lock.screen"),
             "lock",
@@ -1078,11 +1070,21 @@ impl paperpaw_sdk::Plugin for LockPlugin {
     }
 }
 
+/// What [`lock_plugin`] registers under.
+fn lock_plugin_manifest() -> Manifest {
+    paperpaw_sdk::Manifest::new(
+        Id::new_static("lock"),
+        "Lock",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
+    .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn a_guard_that_came_up_after_the_submit_drops_power_off_and_restart_of_another_plugin() {
     let mut kernel = Kernel::builder(crate::tests::DEVICE)
         .power_off(true)
-        .plugin(LockPlugin)
+        .items(lock_plugin_manifest(), lock_plugin())
         .build()
         .unwrap();
     let (power, lock) = (Id::new_static("power"), Id::new_static("lock"));

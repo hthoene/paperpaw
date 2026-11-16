@@ -232,7 +232,7 @@ impl Kernel {
     }
 
     /// The values plugins offer among other plugins' choices
-    /// ([`paperpaw_sdk::Registrar::add_choice`]), after the setting's own.
+    /// ([`paperpaw_sdk::Items::add_choice`]), after the setting's own.
     /// A value that cannot be added for lack of memory is kept, with those
     /// after it, for the next refresh. While native plugins register (until
     /// the start), one for a setting nobody declared yet waits too: a native

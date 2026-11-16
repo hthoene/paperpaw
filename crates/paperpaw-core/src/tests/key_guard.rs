@@ -4,6 +4,7 @@
 //! own key layer run.
 
 use super::*;
+use crate::Items;
 use core::cell::Cell;
 use paperpaw_sdk::Params;
 
@@ -37,14 +38,9 @@ struct GuardPlugin {
     log: Log,
 }
 
-impl Plugin for GuardPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("kg"), "Guard", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let locked = self.locked.clone();
+fn guard_plugin(kept: GuardPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let locked = kept.locked.clone();
         r.add_screen(ScreenSpec::new(
             LOCK,
             "lock",
@@ -60,7 +56,7 @@ impl Plugin for GuardPlugin {
                 "kg.action",
             ))?;
         }
-        let log = self.log.clone();
+        let log = kept.log.clone();
         r.add_action(
             ActionSpec::new(Id::new_static("kg.own"), "kg.own")
                 .handler(move |_, _, _| log.borrow_mut().push(String::from("kg.own"))),
@@ -81,16 +77,15 @@ impl Plugin for GuardPlugin {
     }
 }
 
-struct OtherPlugin(Log);
+/// What [`guard_plugin`] registers under.
+fn guard_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("kg"), "Guard", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
 
-impl Plugin for OtherPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("other"), "Other", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
+fn other_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
         r.add_action(
             ActionSpec::new(Id::new_static("other.run"), "other.run")
                 .handler(move |_, _, _| log.borrow_mut().push(String::from("other.run"))),
@@ -98,15 +93,24 @@ impl Plugin for OtherPlugin {
     }
 }
 
+/// What [`other_plugin`] registers under.
+fn other_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("other"), "Other", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn kernel(locked: bool) -> (Kernel, Log, Rc<Cell<bool>>) {
     let log = log();
     let flag = Rc::new(Cell::new(locked));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(GuardPlugin {
-            locked: flag.clone(),
-            log: log.clone(),
-        })
-        .plugin(OtherPlugin(log.clone()))
+        .items(
+            guard_plugin_manifest(),
+            guard_plugin(GuardPlugin {
+                locked: flag.clone(),
+                log: log.clone(),
+            }),
+        )
+        .items(other_plugin_manifest(), other_plugin(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
