@@ -113,7 +113,7 @@ use paperpaw_sdk::{
     Settings, ShowsThrough, StatusItems,
 };
 
-pub use crate::builder::{KernelBuilder, KernelError};
+pub use crate::builder::{Items, KernelBuilder, KernelError};
 pub use crate::card::CardTrouble;
 pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
