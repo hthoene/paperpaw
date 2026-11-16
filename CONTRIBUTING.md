@@ -58,8 +58,7 @@ before 1.0.
    any step failed: do not pipe it through `grep`, and read the exit code or
    the summary, not a marker line.
    Not run there: the Xtensa firmware (X4 Pro, X4 Classic), the Windows and
-   macOS emulators, the update path, the Android APK, the reproducible
-   build, CodeQL. Run it before pushing a pull request: CI minutes are
+   macOS emulators, the update path, the Android APK, CodeQL. Run it before pushing a pull request: CI minutes are
    limited, and a draft pull request skips full CI; the lightweight
    changelog check still runs. A newer push to a pull request or integration
    branch cancels the older run; `main` keeps one full run per commit. A red

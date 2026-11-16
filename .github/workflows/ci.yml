@@ -134,7 +134,8 @@ jobs:
       # Builds without runtime font rendering use bitmap font packs; the plugins of the
       # store that carry a copy of their card files for the apps read the card without it;
       # the kernel without panes is that of the Xteink devices.
-      - run: cargo test --no-fail-fast -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features
+      - run: cargo test --no-fail-fast -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-stats -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features --features paperpaw-plugin-reading-goal/linked,paperpaw-plugin-stats/linked
+      - run: cargo test --no-fail-fast -p paperpaw-plugin-reading-goal --features linked --test acceptance_pending
       # The nested-call gate closed on the small class (the X3's firmware builds so;
       # open by default since #250): the tests that expect refusals run here.
       - run: cargo test --no-fail-fast -p paperpaw-core --lib --features x4-gate-closed native_host
@@ -156,7 +157,7 @@ jobs:
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked,native-linked-reading,native-linked-store --test sleep_parity a_book_ready_at_once_has_its_pages_counted
       # Every linked plugin's screens keep the entry of their titles table (#248):
       # the test is compiled out unless the app's `native-linked*` features are on.
-      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test linked_settings_tables
+      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading --test linked_settings_tables --test settings_value_labels
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables
       # The menu is native only (#244): its entries and the tools list are tested linked.
       - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands
@@ -410,10 +411,9 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
-          # The firmware, the sample code plugin and paperpaw-sign.
+          # The firmware and paperpaw-sign.
           workspaces: |
             shells/xteink
-            samples/hello-native
             .
           # The two S3 devices build the same dependencies (the core library for
           # Xtensa, esp-hal, mbedTLS) and the X4 and the X3 the same for RISC-V:
@@ -462,6 +462,12 @@ jobs:
           out: ${{ runner.temp }}/released.bin
       - name: The released image against shells/xteink/size-budget.txt
         run: python3 -I tools/size-report.py check --device "$DEVICE" --image "$RUNNER_TEMP/released.bin"
+      # One data segment, the application descriptor first in it: the bootloader of
+      # the ESP32-S3 maps only the last, and the firmware reads its own plugin list
+      # (right after the descriptor) through that mapping (#275). The link fails
+      # first where a gap is left (shells/xteink/build.rs); this reads the image.
+      - name: The image has one data segment
+        run: cargo run -q --release -p paperpaw-sign -- check-app "$RUNNER_TEMP/released.bin"
       # The loader's S3 code (format-5 files in PSRAM, `ppn5`) is not part of
       # the S3 device features yet and so not in the lint and build above; the
       # X4's native image has its own job (firmware-host-frames). Without the
@@ -521,15 +527,15 @@ jobs:
         uses: ./.github/actions/install-image
         with:
           out: ${{ runner.temp }}/install.bin
+      # The build with interface-7 plugins too (the S3's has its own code).
+      - name: The install image has one data segment
+        run: cargo run -q --release -p paperpaw-sign -- check-app "$RUNNER_TEMP/install.bin"
       # For the update path (job update-path).
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: install-image-${{ matrix.device }}
           path: ${{ runner.temp }}/install.bin
           retention-days: 1
-      - name: The sample code plugin fits the firmware
-        id: native
-        uses: ./.github/actions/native-sample
       # The panic handler's frames stay within what the stack band keeps
       # for it (`shells/xteink/frame-budget.txt`).
       - name: The panic path's stack frames fit the reserve
@@ -538,17 +544,6 @@ jobs:
           cargo run -q --release -p paperpaw-sign -- frames \
             shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
             --budget shells/xteink/frame-budget.txt
-      # A code plugin's file is the same wherever it is built, as the
-      # plugin library's rebuild needs: the sample, as its author's
-      # repository has it (the SDK from a registry), built in two folders
-      # for each chip and compared byte for byte.
-      - name: Code plugins are the same in any folder
-        if: matrix.device == 'x4-pro'
-        run: |
-          rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' samples/hello-native/rust-toolchain.toml)" \
-            --profile minimal --target riscv32imc-unknown-none-elf
-          tools/plugin-files/anywhere.sh x4 "$RUNNER_TEMP/anywhere-x4"
-          tools/plugin-files/anywhere.sh x4-pro "$RUNNER_TEMP/anywhere-x4-pro"
       # PaperPaw's own plugins that the store offers, as the release builds them:
       # interface 7 (format 5, no fingerprint), each packed for this chip (the X4's
       # target 5; the X4 Pro's and X4 Classic's target 9, built with espup's
@@ -562,6 +557,10 @@ jobs:
           cargo build -q --release -p paperpaw-sign
           target/release/paperpaw-sign key "$RUNNER_TEMP/ci.key" > /dev/null
           tools/plugin-files7/build.sh "$DEVICE" "$out" --key "$RUNNER_TEMP/ci.key"
+          # Each of them runs on this firmware, as the release checks it: its
+          # chip, its interface, and no newer minor than the firmware has.
+          target/release/paperpaw-sign fits \
+            "shells/xteink/target/$FIRMWARE_TARGET/release/paperpaw-xteink" "$out"/*.ppn
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
           python3 tools/plugin-files/catalogue.py "$out" "$version" https://example.invalid/ci
       # espup's toolchain is cached between runs (xteink-tools): the core
@@ -632,15 +631,10 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
-          workspaces: |
-            .
-            crates/paperpaw-core/tests/native-plugin
-      - name: A plugin from another workspace, in a kernel
-        run: |
-          cargo build --release --manifest-path crates/paperpaw-core/tests/native-plugin/Cargo.toml
-          cargo test -p paperpaw-core --test native_plugin -- --ignored
-          # The preflight accepts the real -nostartfiles plugin (guards the default-deny rules)
-          cargo test -p paperpaw-native --test real_plugin -- --ignored
+      - name: The preflight accepts a real plugin library
+        # The interface-7 sample built with -nostartfiles, as the desktop
+        # loads one (guards the default-deny rules).
+        run: cargo test -p paperpaw-native --test real_plugin -- --ignored
       - name: The SDK keeps no mutable statics
         # A plugin file has no writable data, and a plugin has its own
         # copy of the SDK code it uses. Without LTO, each crate's objects
@@ -689,59 +683,6 @@ jobs:
           else
             echo "::notice::paperpaw.org serves no store rules (yet): not compared"
           fi
-      - name: The sample and the CI templates name the firmware's compilers
-        run: |
-          x4="$(sed -n 's/^channel = "\(.*\)"/\1/p' shells/xteink/rust-toolchain.toml)"
-          . shells/xteink/versions.env
-          template=samples/hello-native/.github/workflows/build.yml
-          release=tools/dev/templates/.github/workflows/paperpaw-release.yml
-          status=0
-          for found in \
-            "samples/hello-native/rust-toolchain.toml:channel = \"$x4\"" \
-            "$template:RUST_X4: \"$x4\"" \
-            "$template:RUST_X4_PRO: \"$ESP_RUST_VERSION\"" \
-            "$template:ESP_GCC: \"$ESP_GCC_VERSION\"" \
-            "$release:RUST_X4: \"$x4\"" \
-            "$release:RUST_X4_PRO: \"$ESP_RUST_VERSION\"" \
-            "$release:ESP_GCC: \"$ESP_GCC_VERSION\""; do
-            if ! grep -qF -- "${found#*:}" "${found%%:*}"; then
-              echo "::error file=${found%%:*}::should say ${found#*:}, as shells/xteink does"
-              status=1
-            fi
-          done
-          exit $status
-
-  table-compat:
-    name: Old plugins, new firmware (shared function tables)
-    # A plugin built at the last interface raise calls the firmware's
-    # shared functions by index (ADR 0026): the tables only grow, and a
-    # body changed since then must keep what those plugins expect. See
-    # tools/table-compat.sh; `crates/paperpaw-table/table-baseline.txt`
-    # names the raise's commit (the raise changes it).
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
-          workspaces: |
-            .
-            crates/paperpaw-core/tests/native-plugin
-      - name: The list is only appended to, and old plugins still agree (or, of an older interface or draft, are refused)
-        # The baseline from table-baseline.txt, `none` refused once an
-        # interface with tables is tagged: in the script, as ci-local runs it.
-        run: tools/table-compat.sh
-      - name: This tree's own plugin runs, built with its own copies and in host table mode
-        # While the interface is a draft the step above only asserts that
-        # the interface-6 baseline is refused; the baseline HEAD (this
-        # tree) is of the same interface and draft, so both builds must
-        # run and agree, as they will against the frozen baseline.
-        run: tools/table-compat.sh HEAD
 
   architecture:
     name: Architecture rules
@@ -1008,7 +949,7 @@ jobs:
   prune-caches:
     name: Old Rust caches removed
     if: ${{ always() && github.event_name == 'push' }}
-    needs: [check, test, screens, msrv, sdk, abi7, embedded, firmware, update-path, native, table-compat, architecture, emulator, android, fuzz, deny, firmware-host-frames]
+    needs: [check, test, screens, msrv, sdk, abi7, embedded, firmware, update-path, native, architecture, emulator, android, fuzz, deny, firmware-host-frames]
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:

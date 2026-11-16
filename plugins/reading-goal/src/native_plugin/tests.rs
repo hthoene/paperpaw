@@ -18,15 +18,18 @@ fn delivered(record: Record<'_>, check: impl FnOnce(&Event<'_>)) {
     check(&Event::decode(&bytes[..len]).unwrap());
 }
 
-fn told(day: i32, seconds: u32) -> [u8; 8] {
-    let mut bytes = [0u8; 8];
-    bytes[..4].copy_from_slice(&day.to_le_bytes());
-    bytes[4..].copy_from_slice(&seconds.to_le_bytes());
+fn told(day: i32, seconds: u32) -> [u8; 16] {
+    use crate::read_today::reading_goal_read_today_reply_v1::TodayReading;
+    let mut bytes = [0u8; 16];
+    assert_eq!(
+        TodayReading::new(1, day, seconds).encode(&mut bytes),
+        Ok(16)
+    );
     bytes
 }
 
 #[test]
-fn a_reply_is_a_figure_only_if_it_succeeded_and_is_exactly_a_day_and_the_seconds() {
+fn a_reply_is_a_figure_only_if_it_succeeded_and_is_a_known_record() {
     assert_eq!(figure(Ok(()), &told(20_000, 750)), Some((20_000, 750)));
     assert_eq!(figure(Ok(()), &told(-3, u32::MAX)), Some((-3, u32::MAX)));
     // The statistics not running yet, not knowing the day, busy: no figure,

@@ -210,7 +210,9 @@ pub(crate) struct DetailsRun {
 
 impl DetailsRun {
     /// A walk published, or the catalog changed: the catalog is looked at from
-    /// its start (its lines may have moved).
+    /// its start (its lines may have moved), and at once: a timed wake, since
+    /// the event that arms comes after its round's pass of the pump, and
+    /// nothing else may wake an idle device (#257).
     pub(crate) fn arm(&self, now_ms: u64) {
         if !self.armed.replace(true) && self.filled.get() == 0 {
             self.since.set(now_ms);
@@ -218,7 +220,7 @@ impl DetailsRun {
         self.cursor.set(0);
         self.line.set(0);
         self.later.set(0);
-        self.wake.set(None);
+        self.wake.set(Some(now_ms));
         self.hold_wait.set(0);
     }
     /// Nothing more to read in the catalog.
@@ -306,6 +308,14 @@ impl DetailsRun {
         }
         self.wake.set(None);
         true
+    }
+    /// The look cannot be made at `now_ms`: a wake that came due is moved on
+    /// by `gap_ms`. Left in the past it would wake the device again at once,
+    /// round after round, for as long as the look cannot be made.
+    pub(crate) fn put_off(&self, now_ms: u64, gap_ms: u64) {
+        if self.wake.get().is_some_and(|at| at <= now_ms) {
+            self.wake.set(Some(now_ms.saturating_add(gap_ms)));
+        }
     }
     /// A book's details were kept.
     pub(crate) fn filled(&self) {

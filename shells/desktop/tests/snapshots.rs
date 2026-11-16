@@ -83,6 +83,51 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
+        name: "x4-letters-default",
+        profile: "xteink-x4",
+        book: Some("books/letters.html"),
+        sets: &[],
+        script: "",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-letters-no-kerning",
+        profile: "xteink-x4",
+        book: Some("books/letters.html"),
+        sets: &["core.kerning=false"],
+        script: "",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-letters-no-ligatures",
+        profile: "xteink-x4",
+        book: Some("books/letters.html"),
+        sets: &["core.ligatures=false"],
+        script: "",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-letters-spaced",
+        profile: "xteink-x4",
+        book: Some("books/letters.html"),
+        sets: &["core.letter-spacing=8"],
+        script: "",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-letters-tight",
+        profile: "xteink-x4",
+        book: Some("books/letters.html"),
+        sets: &["core.letter-spacing=-3"],
+        script: "",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
         name: "x4-reader-epub",
         profile: "xteink-x4",
         book: Some("books/alice-in-wonderland.epub"),
@@ -800,6 +845,9 @@ fn library(case: &Case) -> PathBuf {
     }
     if case.name.contains("docx") {
         sources.push(fixtures.with_file_name("fixtures-docx"));
+    }
+    if case.name.contains("letters") {
+        sources.push(fixtures.with_file_name("fixtures-letters"));
     }
     if case.name.contains("pictures") {
         sources.push(fixtures.with_file_name("fixtures-pictures"));

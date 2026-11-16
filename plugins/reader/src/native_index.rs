@@ -86,10 +86,10 @@ pub fn layout_text(
     filtered: u64,
 ) -> Result<String, Error> {
     let mut text = String::new();
-    text.try_reserve(112).map_err(|_| Error::NoMemory)?;
+    text.try_reserve(128).map_err(|_| Error::NoMemory)?;
     write!(
         text,
-        "{}/{}/{}/{}/{}/{}/{}x{}x{}/{}/{}-{}/{}:{}/{}:{}/{}/{:x}/{:x}",
+        "{}/{}/{}/{}/{}/{}/{}x{}x{}/{}/{}-{}/{}:{}/{}:{}/{}/{:x}/{:x}/t{}:{}{}",
         (reading.size_pt * 10.0) as u32,
         reading.line_spacing,
         reading.word_spacing,
@@ -112,6 +112,10 @@ pub fn layout_text(
         reading.book,
         // The font and the hyphenation: other letters, other pages.
         reading.text,
+        // The letters: the space, kerning and ligatures set other widths.
+        reading.letters.spacing,
+        u8::from(reading.letters.kerning),
+        u8::from(reading.letters.ligatures),
     )
     .map_err(|_| Error::NoMemory)?;
     // The text filters' rules (none: the name stays as it was).
@@ -530,6 +534,26 @@ mod tests {
             name(&sans),
             name(&base.with_text("Source Sans 3", (true, 0, 3)))
         );
+    }
+
+    #[test]
+    fn the_name_follows_the_letters_so_old_page_counts_are_left() {
+        use crate::native_typeset::Letters;
+        let base = Reading::new(12, 120, 100, 4, 4, true);
+        let name = |letters: Letters| {
+            let layout =
+                layout_text(&base.with_letters(letters), (480, 800, 220), false, 0).unwrap();
+            file_name("/b.epub", 1, &layout).unwrap()
+        };
+        let default = name(Letters::DEFAULT);
+        assert_eq!(default, name(Letters::DEFAULT));
+        assert_ne!(default, name(Letters::new(8, true, true)));
+        assert_ne!(default, name(Letters::new(0, false, true)));
+        assert_ne!(default, name(Letters::new(0, true, false)));
+        // A count made before the letters were laid is no count of today's pages.
+        let before = layout_text(&base, (480, 800, 220), false, 0).unwrap();
+        assert!(before.ends_with("/t0:11"), "{before}");
+        assert!(!before.is_empty());
     }
 
     #[test]

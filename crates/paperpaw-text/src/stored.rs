@@ -71,6 +71,8 @@ struct Strike {
     metrics: LineMetrics,
     glyph_table: u64,
     bitmaps: u64,
+    /// The bitmaps are stored packed (`crate::packed`): not read here.
+    packed: bool,
 }
 
 /// What the text family reads of a pack: general reading primitives,
@@ -449,6 +451,7 @@ impl Paged {
                 },
                 glyph_table: u64::from(u32_le(s, 20)),
                 bitmaps: u64::from(u32_le(s, 24)),
+                packed: u16_le(s, 2) & crate::bitmap::STRIKE_PACKED != 0,
             });
         }
         let n = glyphs.unwrap_or(0);
@@ -591,7 +594,9 @@ impl Paged {
         let advance = q6(i32_le(&record, 4)).max(0.0);
         let (width, height) = (u16_le(&record, 12), u16_le(&record, 14));
         let (w, h) = (usize::from(width), usize::from(height));
-        if !glyph::fits(w, h, f32::from(strike.size) / 4.0) {
+        // A packed strike is only for the firmware's own packs, read in place
+        // (`BitmapFont`): here it draws as nothing, not as noise.
+        if strike.packed || !glyph::fits(w, h, f32::from(strike.size) / 4.0) {
             // Damaged: drawn as nothing, every time.
             return Some(Glyph::empty(advance));
         }
@@ -824,6 +829,27 @@ mod tests {
         stored.advance('а', 10.0);
         stored.advance('ж', 10.0);
         assert_eq!(memory.1.get(), reads);
+    }
+
+    #[test]
+    fn a_compact_strike_draws_as_nothing_here() {
+        let metrics = LineMetrics::fallback(10.0);
+        let mut builder = PackBuilder::new();
+        builder.compact();
+        builder.add_strike(10.0, metrics, alloc::vec![('а', glyph(3, 255, 3.5))]);
+        let data = builder.build();
+        assert!(
+            BitmapFont::new(data.clone())
+                .unwrap()
+                .glyph('а', 10.0)
+                .width
+                == 3
+        );
+        let stored = StoredPack::open(Rc::new(Memory(data, Cell::new(0)))).unwrap();
+        // Packed bitmaps are for the firmware's own packs, read in place:
+        // not noise here, nothing.
+        assert!(stored.render('а', 10.0).unwrap().width == 0);
+        assert_eq!(stored.advance('а', 10.0), 3.5);
     }
 
     #[test]

@@ -1,6 +1,11 @@
 //! The reading settings and display a page is laid out with (`Setup`), and
 //! the key that says when a laid-out page is stale (`LayoutKey`).
-use crate::{native_look::Look, native_pages::Reading, native_status};
+use crate::{
+    native_look::Look,
+    native_pages::Reading,
+    native_status,
+    native_typeset::{Letters, Tables},
+};
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use paperpaw_sdk::{
@@ -50,6 +55,8 @@ struct State {
     look: Option<(Option<u16>, Look)>,
     /// What the status lines read.
     status: Option<Rc<native_status::Shown>>,
+    /// The widths of letters and the kerning of pairs met so far (`Tables`).
+    tables: Option<Tables>,
 }
 
 impl Kept {
@@ -118,10 +125,42 @@ impl Kept {
         Ok(shown)
     }
 
+    /// What the pages of this book remember of the host's fonts, made for
+    /// the first page and kept until a setting or the screen changes (or the
+    /// book is closed), so that only the first pages ask the host for widths
+    /// and pairs. Where there is no room for them the reader carries on without
+    /// (every ask goes to the host, as before) and tries again at the next page.
+    pub(super) fn tables(&self) -> Tables {
+        let kept = self.0.borrow().tables.clone();
+        if let Some(kept) = kept {
+            return kept;
+        }
+        let made = Tables::new();
+        if let Ok(tables) = &made {
+            self.0.borrow_mut().tables = Some(tables.clone());
+        }
+        carry_on(made)
+    }
+
+    /// Whether tables are held.
+    pub(super) fn has_tables(&self) -> bool {
+        self.0.borrow().tables.is_some()
+    }
+
+    /// Lets go of the tables (the memory they hold); the next page makes them.
+    pub(super) fn drop_tables(&self) {
+        self.0.borrow_mut().tables = None;
+    }
+
     /// A setting changed: the next read asks the host.
     pub(super) fn forget(&self) {
         *self.0.borrow_mut() = State::default();
     }
+}
+
+/// The tables made, or none where there was no room for them.
+fn carry_on(made: Result<Tables, Error>) -> Tables {
+    made.unwrap_or_default()
 }
 
 pub(super) fn integer(host: &Host<'_>, key: &str) -> Result<i64, Error> {
@@ -244,6 +283,11 @@ impl Setup {
                         integer(host, "core.paragraph-space")?,
                     ),
                 )
+                .with_letters(Letters::new(
+                    integer(host, "core.letter-spacing")?,
+                    flag(host, "core.kerning")?,
+                    flag(host, "core.ligatures")?,
+                ))
                 .with_lines(
                     (
                         integer(host, "core.widows")?,
@@ -316,6 +360,13 @@ mod tests {
         assert_eq!(font_name(Err(Error::NoSpace)), Ok(""));
         // Another failure is still one.
         assert_eq!(font_name(Err(Error::NoMemory)), Err(Error::NoMemory));
+    }
+
+    #[test]
+    fn without_room_for_the_tables_the_reader_carries_on_without_them() {
+        // No room: no tables, no error; they are asked for again at the next page.
+        assert!(!carry_on(Err(Error::NoMemory)).has_room());
+        assert!(carry_on(Tables::new()).has_room());
     }
 
     #[test]

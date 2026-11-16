@@ -196,7 +196,11 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   for the walk; a file copied on since the last one), named by `path`, is that book for the ops
   that keep the book's own data by its path: `position`, `set_position`, `annotations`,
   `anchors`, the edit transaction (ops 13-21) and `text` of an annotation's text or note (op 4,
-  kinds 5 and 6), as Beta 3 kept marks and places by path. The card must hold a file at `path`
+  kinds 5 and 6), as Beta 3 kept marks and places by path, and for `book_key` (op 25), whose
+  key, fingerprint and size need the file alone (Beta 3's kosync took them from the file). Op 25
+  so gives a plugin with `uses.library` (without `uses.storage`) the size and the partial MD5 of
+  any file of the card outside the protected names; that a file is there, `position` already told.
+  The card must hold a file at `path`
   (any file, not only a book format, as in Beta 3; a folder is none), else `ERR_NOT_FOUND`; what the catalog answers (`details`, `status`, fields, queries) still
   needs it. The path rules hold as for any `path` (no control character, nothing below
   `plugins/` or `.paperpaw/`, `files.md` 1.1: `ERR_INVALID`). Once the walk catalogues the book,
@@ -244,7 +248,15 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   `shelves::folder_in`) are one level: each folder right inside the query's `folder` (the books'
   root when empty) that holds a matching book at any depth, `text` its whole path and `count` the
   books in it and below; a book right in the query's folder adds no row. Neither only leaf folders
-  nor every ancestor.
+  nor every ancestor. **Names and their order:** an author or a series is the catalog's text whole
+  (a book without an author is under the empty name; one without a series is in no row), a tag is
+  one of the book's tags, a letter is `A` to `Z` without accents or `#`; a name longer than 256
+  bytes is cut at a character. The rows go by the name's lowercase cut at 96 bytes, then by the
+  name as it is, and a descending query (flags bit 0) reverses them. `first` counts in the order
+  of `query` by author, by series or by title: for a letter it is the place of its first book,
+  for an author or a series the place where the books begin whose sort key is the name's (names
+  that differ only in their case, or only beyond the cut of the sort key, begin together).
+  `end.total` is the number of rows there are.
 - [D] `next_in_series` (interface 6 `Index::next_in_series`, Port Reviewer on #696): the series'
   **lowest unread book**, not the book after the given one: of the books in the given book's series
   never opened (`progress` 255 and `lib_entry` flag `opened` clear), the one with the lowest series

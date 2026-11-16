@@ -5,9 +5,8 @@ itself: statistics, widgets, Calibre, KOReader sync and the others in
 `plugins.txt`. The X4 and the X4 Pro leave them out of their released
 firmware: `crates/paperpaw-app` builds them only with the feature
 `store-plugins`, and the diagnostics only with `diagnostics`. Readers
-install those they want from the store. A workspace of its own, as a plugin's
-repository is, set up as `samples/hello-native`: one binary for each
-plugin, `paperpaw_sdk::plugin!` around it.
+install those they want from the store. Their files are built by
+`../plugin-files7`.
 
 The release pipeline (`.github/workflows/release.yml`) builds them for
 every release and device, as the release's firmware is built, signs
@@ -18,7 +17,6 @@ folders and their entries for the plugin library:
 |---|---|
 | `plugins.txt` | the plugins, with their group in the plugin library |
 | `../plugin-files7/build.sh <device> <out> [--key <file>] [--only <id>]` | builds, packs and checks the files of interface 7 (format 5, no fingerprint) for one reader: `<id>-<version>-<device>.ppn`, `<version>` the plugin's own. The interface-6 build that was here is gone (#244). The S3's files wait for the target-9 profile. |
-| `anywhere.sh <x4\|x4-pro> [<work-dir>]` | checks that a plugin's file is the same wherever it is built, as the plugin library's rebuild needs: the sample, with the SDK from a registry as an author's repository has it, built in two folders and compared (CI runs it) |
 | `sign.sh <dir> <paperpaw-sign> --key <file>` | signs the files apart from building them, so the key is on the disk only while it signs |
 | `catalogue.py <dist> <release> <base-url> [--releases <releases.json>]` | makes each plugin's folder as a ZIP with its `plugin.ini` and its How it works, `how/<lang>.txt`, which the store shows. It also makes the entry `catalogue/<id>.toml` for the plugin library, and `SHA256SUMS`. It names each file by <base-url> (the store release this run adds to), or, with `--releases`, by the release that holds it already. It takes `--date YYYY-MM-DD` too, `--only <id>` for one plugin alone and `--tag <tag>` for the tag the files are at (`v<release>` where not given). `test_catalogue.py` tests it: `python3 -m unittest discover -s tools/plugin-files`. |
 | `versions.py [<since>] [--release] [--bytes]` | checks that each plugin that changed since the last release, or its own, has a newer version (CI runs it; see below). `--bytes` (the release's check) builds the store files of the last release's tag and of this tree and fails for a plugin whose file has other bytes under the same version: the SDK and the crates a plugin depends on are no part of `plugins/<id>/`, so the commit check cannot see them |
