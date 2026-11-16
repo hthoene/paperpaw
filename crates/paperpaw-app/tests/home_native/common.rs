@@ -27,10 +27,11 @@ pub use paperpaw_sdk::builtin::{actions, params, slots};
 pub use paperpaw_sdk::semantics::{Part, Role};
 pub use paperpaw_sdk::{DirEntry, Id, MemoryStorage, Params, Storage, StorageError};
 
+use paperpaw_core::{Items, Plugin};
 use paperpaw_sdk::replies::Typed;
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Handled, Manifest, MenuEntry, Priority, Screen,
-    ScreenSpec, Version,
+    ActionSpec, Canvas, Command, Cx, Env, Handled, Manifest, MenuEntry, Priority, RegisterError,
+    Screen, ScreenSpec, Version,
 };
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
@@ -267,7 +268,7 @@ impl Plugin for TestCloser {
         .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         r.add_action(
             ActionSpec::new(Id::new_static("test-closer.go"), "test-closer").handler(|_, _, _| {}),
         )?;
