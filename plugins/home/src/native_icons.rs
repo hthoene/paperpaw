@@ -137,7 +137,7 @@ impl Hyphens {
 
     /// As [`Hyphens::breaks`], and `refused` is set where the host refused the
     /// call (not where the word has no place to break): a name kept whole for
-    /// that is not to be kept.
+    /// that is not to be kept ([`note_refusal`]).
     pub fn breaks_noting(
         &self,
         host: &Host<'_>,
@@ -157,10 +157,14 @@ impl Hyphens {
     }
 }
 
-/// The places of an answer, none where the host refused (`refused` is set).
-fn note_refusal<E>(answer: Result<usize, E>, refused: &Cell<bool>) -> usize {
-    answer.unwrap_or_else(|_| {
-        refused.set(true);
+/// The places of an answer, none where the host did not give any. `refused` is
+/// set only where the host was busy (its answer comes later): every other
+/// refusal (no table for the language, say) is a final answer, which is kept.
+fn note_refusal(answer: Result<usize, Error>, refused: &Cell<bool>) -> usize {
+    answer.unwrap_or_else(|error| {
+        if error == Error::Busy {
+            refused.set(true);
+        }
         0
     })
 }
@@ -483,12 +487,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_refused_hyphenation_is_noted_and_no_break_is_not() {
+    fn only_a_busy_host_is_noted_for_a_new_try() {
         let refused = Cell::new(false);
-        assert_eq!(note_refusal(Ok::<_, ()>(0), &refused), 0);
-        assert_eq!(note_refusal(Ok::<_, ()>(2), &refused), 2);
-        assert!(!refused.get());
-        assert_eq!(note_refusal(Err(()), &refused), 0);
+        assert_eq!(note_refusal(Ok(0), &refused), 0);
+        assert_eq!(note_refusal(Ok(2), &refused), 2);
+        // A final answer: no table for the language, or nothing it can do.
+        for final_answer in [Error::NotFound, Error::Unsupported, Error::Invalid] {
+            assert_eq!(note_refusal(Err(final_answer), &refused), 0);
+            assert!(!refused.get(), "{final_answer:?} is not to be asked again");
+        }
+        assert_eq!(note_refusal(Err(Error::Busy), &refused), 0);
         assert!(refused.get());
     }
 
