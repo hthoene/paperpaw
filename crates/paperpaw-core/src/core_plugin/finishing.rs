@@ -12,7 +12,7 @@ use paperpaw_sdk::ui::{self, Ink, Label, TextRole, UiStyle};
 use paperpaw_sdk::widgets::Align;
 use paperpaw_sdk::{
     Canvas, CloseCause, Color, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Instant,
-    Params, PointerEvent, Rect, RefreshMode, Screen,
+    Params, PointerEvent, Rect, RefreshMode,
 };
 
 /// When the trial began, in milliseconds.
@@ -72,7 +72,7 @@ impl Finishing {
     }
 }
 
-impl Screen for Finishing {
+impl crate::Layer for Finishing {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         // All of its part of the screen: drawn in strips, each clipped.
         let content = env.content();

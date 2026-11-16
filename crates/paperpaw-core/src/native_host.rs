@@ -461,7 +461,7 @@ pub(crate) mod event_producers;
 )]
 #[path = "native_host/event_sink.rs"]
 mod event_sink;
-/// Production event adapter for a shell-owned flat plugin instance.
+/// A shell-owned flat plugin instance: its registrations and the device's dispatch budget.
 #[path = "native_host/flat.rs"]
 pub mod flat;
 /// The `draw.frame` input of `draw` (N2, `docs/abi/screens-input.md` section 6).
@@ -634,12 +634,6 @@ impl FlatHost {
                 .map(Some)
                 .ok_or(paperpaw_native::host_glue::ERR_STATE),
         }
-    }
-    pub(crate) fn try_directory(&self) -> Result<Option<native_declarations::DirectoryWeak>, i32> {
-        self.directory
-            .as_ref()
-            .map(|directory| directory.try_clone().ok_or(ERR_NO_MEMORY))
-            .transpose()
     }
 }
 
