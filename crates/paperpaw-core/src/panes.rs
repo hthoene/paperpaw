@@ -29,7 +29,7 @@ const LINE_TENTHS: u32 = 2;
 
 /// The action that moves input to the other part, list or detail; none
 /// without the `panes` feature.
-pub(crate) fn register(r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+pub(crate) fn register(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
     use paperpaw_sdk::FixedAction;
     use paperpaw_sdk::builtin::actions;
     static PANES: [FixedAction; 1] =

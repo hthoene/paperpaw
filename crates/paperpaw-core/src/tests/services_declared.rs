@@ -3,6 +3,7 @@
 //! bindings of a layer with their origin.
 
 use super::*;
+use crate::Items;
 use paperpaw_sdk::keys::{BindingOrigin, KeyBindings};
 use paperpaw_sdk::services::{EventSpec, PointSpec};
 
@@ -16,15 +17,8 @@ struct Pretender(u64, u64, u64);
 
 paperpaw_sdk::service_type!(Pretender, "weather.forecast/1");
 
-struct Weather;
-
-impl Plugin for Weather {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("weather"), "Weather", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn weather() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.provide(
             Id::new_static("weather.today"),
             Forecast("sunny"),
@@ -43,6 +37,12 @@ impl Plugin for Weather {
     }
 }
 
+/// What [`weather`] registers under.
+fn weather_manifest() -> Manifest {
+    Manifest::new(Id::new_static("weather"), "Weather", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// A service with a contract is found by it and by the version needed;
 /// another type claiming the contract is not; points and events declared
 /// are listed.
@@ -50,8 +50,8 @@ impl Plugin for Weather {
 fn services_by_contract_and_version() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
-        .plugin(Weather)
+        .test_plugin(TestPlugin::new("a", &log))
+        .items(weather_manifest(), weather())
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -88,12 +88,12 @@ fn services_by_contract_and_version() {
 fn slots_and_bindings_are_readable() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
-        .plugin(TestPlugin {
+        .test_plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin {
             priority: Priority(10),
             ..TestPlugin::new("b", &log)
         })
-        .plugin(Weather)
+        .items(weather_manifest(), weather())
         .build()
         .unwrap();
     kernel.start(Instant(0));

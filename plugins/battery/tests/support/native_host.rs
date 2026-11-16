@@ -41,7 +41,7 @@ use std::{
 };
 
 use paperpaw_core::{
-    Kernel,
+    Kernel, KernelBuilder,
     native_host::{
         environment::{EnvironmentScope, SNAPSHOT_BYTES},
         registrations::{Record, ServiceEnd, ServiceUsage, record_encode_one},
@@ -52,7 +52,7 @@ use paperpaw_platform::{
     Battery, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
     SystemStatus, WallClock,
 };
-use paperpaw_sdk::{ActionSpec, Id, Manifest, Plugin, RegisterError, Registrar, SettingSpec};
+use paperpaw_sdk::{ActionSpec, Id, Manifest, SettingSpec};
 
 pub const LOG: &str = "log.csv";
 pub const OLD: &str = "log.old.csv";
@@ -81,14 +81,11 @@ pub fn environment(
     enabled: bool,
 ) -> EnvironmentBytes {
     let result = Rc::new(RefCell::new(None));
-    let mut kernel = Kernel::builder(DEVICE)
-        .user_config(format!(
-            "[battery]\nenabled = {}\n",
-            if enabled { "on" } else { "off" }
-        ))
-        .plugin(Capture(Rc::clone(&result)))
-        .build()
-        .unwrap();
+    let builder = Kernel::builder(DEVICE).user_config(format!(
+        "[battery]\nenabled = {}\n",
+        if enabled { "on" } else { "off" }
+    ));
+    let mut kernel = capture(builder, Rc::clone(&result)).build().unwrap();
     kernel.start(Instant(0));
     let clock = unix.map(|seconds| WallClock::new(Instant(at), seconds * 1000, Some(0)));
     kernel.set_status(Instant(at), SystemStatus::new(clock, battery));
@@ -96,24 +93,23 @@ pub fn environment(
     result.borrow_mut().take().expect("capture action ran")
 }
 
-struct Capture(Rc<RefCell<Option<EnvironmentBytes>>>);
-impl Plugin for Capture {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("battery"),
-            "Wire fixture",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_setting(SettingSpec::switch(
+/// Registers a setting and an action that copies the live `Env` through a pinned scope into
+/// `result`.
+fn capture(builder: KernelBuilder, result: Rc<RefCell<Option<EnvironmentBytes>>>) -> KernelBuilder {
+    let manifest = Manifest::new(
+        Id::new_static("battery"),
+        "Wire fixture",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    );
+    builder.items(manifest, move |items| {
+        items.add_setting(SettingSpec::switch(
             ENABLED,
             "battery.fixture-enabled",
             true,
             Id::new_static("power.group"),
         ))?;
-        let result = Rc::clone(&self.0);
-        r.add_action(ActionSpec::new(CAPTURE, "battery.fixture-capture").handler(
+        let result = Rc::clone(&result);
+        items.add_action(ActionSpec::new(CAPTURE, "battery.fixture-capture").handler(
             move |env, _, _| {
                 let scope = Box::pin(EnvironmentScope::new());
                 scope
@@ -141,7 +137,7 @@ impl Plugin for Capture {
                     .unwrap();
             },
         ))
-    }
+    })
 }
 
 pub fn record(record: Record<'_>) -> Vec<u8> {

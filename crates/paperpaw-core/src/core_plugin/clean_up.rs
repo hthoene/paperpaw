@@ -7,7 +7,7 @@ use super::*;
 
 /// What the kernel keeps for books, and cleaning up what is left of books
 /// no longer found: caches by themselves, the reader's data when asked.
-pub(super) fn register_clean_up(r: &mut Registrar) -> Result<(), RegisterError> {
+pub(super) fn register_clean_up(r: &mut Items) -> Result<(), RegisterError> {
     use paperpaw_sdk::work::WorkSpec;
     // The notes of books are the kernel's, and the details (with the
     // day a book came and plugins' fields, which are not read again).

@@ -12,12 +12,13 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use paperpaw_core::Items;
 use paperpaw_core::sdk::builtin::events;
 use paperpaw_core::sdk::firmware::{
     CHIP_ESP32_C3, Firmware, FirmwareCommand, FirmwareState, INSTALL_BATTERY, InstallFailure,
 };
 use paperpaw_core::sdk::{
-    ActionSpec, Command, Id, Manifest, MemoryStorage, Plugin, RegisterError, Registrar, Version,
+    ActionSpec, Command, Id, Manifest, MemoryStorage, RegisterError, Version,
 };
 use paperpaw_core::{Io, Kernel};
 use paperpaw_platform::{
@@ -42,17 +43,13 @@ struct Asker {
     states: Rc<RefCell<Vec<FirmwareState>>>,
 }
 
-impl Plugin for Asker {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("asker"), "Asker", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let queue = self.queue.clone();
+fn asker(kept: Asker) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let queue = kept.queue.clone();
         r.add_action(ActionSpec::new(GO, "go").handler(move |_, _, out| {
             out.extend(queue.borrow_mut().drain(..));
         }))?;
-        let states = self.states.clone();
+        let states = kept.states.clone();
         r.on(events::FIRMWARE_CHANGED, move |env, (), _| {
             if let Some(firmware) = env.firmware() {
                 states.borrow_mut().push(firmware.state.clone());
@@ -60,6 +57,11 @@ impl Plugin for Asker {
         })?;
         Ok(())
     }
+}
+
+/// What [`asker`] registers under.
+fn asker_manifest() -> Manifest {
+    Manifest::new(Id::new_static("asker"), "Asker", Version::new(1, 0, 0))
 }
 
 struct Test {
@@ -74,10 +76,13 @@ fn kernel() -> Test {
     let mut kernel = Kernel::builder(DEVICE)
         .storage(MemoryStorage::new())
         .firmware(Firmware::new("0.5.0", "paperpaw-xteink", CHIP_ESP32_C3))
-        .plugin(Asker {
-            queue: queue.clone(),
-            states: states.clone(),
-        })
+        .items(
+            asker_manifest(),
+            asker(Asker {
+                queue: queue.clone(),
+                states: states.clone(),
+            }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));

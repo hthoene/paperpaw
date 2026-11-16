@@ -144,6 +144,22 @@ pub enum DeclareError {
     NoMemory,
 }
 
+impl DeclareError {
+    /// The cause as the error a plugin's `make` returns: the host's or the
+    /// encoder's status is kept, no memory stays no memory, and an item that
+    /// was refused before it was sent is [`Error::Invalid`](super::Error::Invalid).
+    #[must_use]
+    pub const fn to_error(self) -> super::Error {
+        match self {
+            DeclareError::Encode(status) | DeclareError::Sink(status) => {
+                super::Error::from_status(status)
+            }
+            DeclareError::NoMemory => super::Error::NoMemory,
+            _ => super::Error::Invalid,
+        }
+    }
+}
+
 impl fmt::Display for DeclareError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

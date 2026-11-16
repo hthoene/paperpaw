@@ -5,6 +5,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::*;
+use crate::Items;
 use crate::native_host::{
     native_instances::{NativeInstance, NativeLease},
     native_screen::Dispatch,
@@ -19,8 +20,7 @@ use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Manifest, Plugin, Priority, RegisterError, Registrar, Screen,
-    ScreenSpec, Version,
+    Canvas, Cx, Env, Handled, Manifest, Priority, RegisterError, Screen, ScreenSpec, Version,
 };
 
 const KEYBOARD_SCREEN: Id = Id::new_static("d.keyboard");
@@ -55,14 +55,8 @@ impl Screen for Dialog {
 }
 
 /// A plugin that serves the keyboard slot and nothing else.
-struct Serves;
-
-impl Plugin for Serves {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("d"), "Dialogs", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn serves() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_screen(ScreenSpec::new(
             KEYBOARD_SCREEN,
             "keyboard",
@@ -90,8 +84,11 @@ impl Plugin for Serves {
     }
 }
 
-/// A plugin `id` with a screen `<id>.lock` that guards the device.
-struct Locks(&'static str);
+/// What [`serves`] registers under.
+fn serves_manifest() -> Manifest {
+    Manifest::new(Id::new_static("d"), "Dialogs", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
 
 struct Lock;
 
@@ -105,18 +102,21 @@ impl Screen for Lock {
     }
 }
 
-impl Plugin for Locks {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static(self.0), "Lock", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+/// A plugin `id` with a screen `<id>.lock` that guards the device.
+fn locks_items(kept: &'static str) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         r.add_screen(ScreenSpec::new(
-            Id::try_parse(&std::format!("{}.lock", self.0)).unwrap(),
+            Id::try_parse(&std::format!("{}.lock", kept)).unwrap(),
             "lock",
             Box::new(|_, _| Box::new(Lock)),
         ))
     }
+}
+
+/// What [`locks_items`] registers under.
+fn locks_manifest(kept: &'static str) -> Manifest {
+    Manifest::new(Id::new_static(kept), "Lock", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// The asker: records the `event.answered` records it was called with.
@@ -213,9 +213,10 @@ fn world(status: Result<i32, i32>) -> World {
 fn world_with(status: Result<i32, i32>, locks: Option<&'static str>) -> World {
     OPENED.with(|opened| opened.borrow_mut().clear());
     let store = Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap();
-    let mut builder = crate::Kernel::builder(crate::tests::DEVICE).plugin(Serves);
+    let mut builder =
+        crate::Kernel::builder(crate::tests::DEVICE).items(serves_manifest(), serves());
     if let Some(name) = locks {
-        builder = builder.plugin(Locks(name));
+        builder = builder.items(locks_manifest(name), locks_items(name));
     }
     let mut kernel = builder.build().unwrap();
     kernel.start(Instant(0));
