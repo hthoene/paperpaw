@@ -1739,6 +1739,7 @@ dependencies = [
  "paperpaw-plugin-widgets",
  "paperpaw-sdk",
  "paperpaw-sort",
+ "paperpaw-stack-budget",
  "paperpaw-table",
  "paperpaw-text",
  "png",
@@ -2917,6 +2918,16 @@ dependencies = [
  "paperpaw-platform",
  "proptest",
  "rusqlite",
+]
+
+[[package]]
+name = "paperpaw-stack-budget"
+version = "0.0.0"
+dependencies = [
+ "paperpaw-fat",
+ "paperpaw-plugin-format-images",
+ "paperpaw-sdk",
+ "paperpaw-x4",
 ]
 
 [[package]]
