@@ -1,6 +1,6 @@
 //! The kernel-owned Literata upgrade dialog, on the host's confirmation box.
 use super::dialogs::{ConfirmBox, Touch};
-use alloc::string::String;
+use alloc::{boxed::Box, string::String};
 use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::{
     Canvas, Command, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Params, Rect, Screen,
@@ -8,6 +8,12 @@ use paperpaw_sdk::{
 
 pub(crate) const SCREEN: Id = Id::new_static("core.literata-notice");
 pub(crate) const ANSWERED: Id = Id::new_static("core.literata-pack-answered");
+
+pub(crate) static SCREENS: [paperpaw_sdk::FixedScreen; 1] = [paperpaw_sdk::FixedScreen::new(
+    SCREEN,
+    "core.literata-pack.title",
+    |env, params| Box::new(Literata::new(env, params)),
+)];
 
 pub(crate) struct Literata {
     board: ConfirmBox,

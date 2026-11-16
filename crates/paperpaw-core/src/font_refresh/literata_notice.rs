@@ -54,6 +54,10 @@ impl crate::Kernel {
                 .iter()
                 .any(|s| s.id.starts_with(paperpaw_sdk::wifi::SECRET_PREFIX))
             && self.shared.registry.screens.contains_key("store.plugin");
+        self.shared
+            .registry
+            .screens
+            .insert_fixed(&crate::native_host::literata_notice::SCREENS);
         self.open(
             crate::native_host::literata_notice::SCREEN,
             None,
