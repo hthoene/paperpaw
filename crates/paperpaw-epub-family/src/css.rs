@@ -478,12 +478,11 @@ const MAX_SIDE: i32 = 1000;
 /// of the firmware (#258): the same float for up to eight digits after
 /// the point, within a unit of its last place for longer ones.
 fn number(text: &str) -> Option<f32> {
-    use paperpaw_sdk::event::ParamValue;
-    // That one takes spaces around a number, which are none here.
+    // Spaces around a number are none here.
     if text.trim().len() != text.len() {
         return None;
     }
-    f32::from_param(text)
+    paperpaw_sdk::numbers::parse_f32(text)
 }
 
 /// A margin or padding at a side, in hundredths of an em: a percentage

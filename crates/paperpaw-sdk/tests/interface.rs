@@ -405,23 +405,6 @@ const API_SHAPE: &str = "struct paperpaw_native::interface::Api";
 const API_FIELD: &str = "pub paperpaw_native::Api::";
 const API_LAST: &str = ", build_len: u32";
 
-/// Whether `path` is a constant that `tools/shared-table.py` derives from
-/// `shared.list` and the signatures (`paperpaw_table::index`): the
-/// revisions, the hash of the tables and the number of entries of a
-/// family. They change where entries are appended or a family is bumped,
-/// which the pinned list and signatures (`shared.list`, `table.sig`:
-/// lines only appended) guard.
-fn table_index_derived(crate_: &str, path: &str) -> bool {
-    let Some(name) = path.strip_prefix("const paperpaw_table::index::") else {
-        return false;
-    };
-    crate_ == "paperpaw-table"
-        && matches!(
-            name.rsplit("::").next(),
-            Some("REVISIONS" | "OLDEST" | "HASH" | "COUNT")
-        )
-}
-
 /// Whether `after` is `before`, the table's shape, with fields appended
 /// after the last of interface 5.
 fn api_appended(path: &str, before: &str, after: &str) -> bool {
@@ -553,9 +536,6 @@ fn api_field_appended(line: &str, kept: &BTreeMap<String, &str>) -> bool {
 
 /// The lists that the plugin interface pins beside the crates, as
 /// `interface/<name>` keeps them: they only grow at their end.
-/// - `shared.list`: the shared function tables (`paperpaw-table`), whose
-///   order is where plugins find each function;
-/// - `table.sig`: the signature of each of those functions;
 /// - `lang.list`: the scripts and regions whose index a `Lang` keeps;
 /// - `i18n.list`: the plural rules, digits and calendars whose index a
 ///   catalog keeps (in these two, each kind of name grows at its own end:
@@ -567,13 +547,6 @@ fn api_field_appended(line: &str, kept: &BTreeMap<String, &str>) -> bool {
 ///   is an interface change. A list of lines, not of entries in order: see
 ///   [`pin_set_changes`].
 fn pins() -> Option<Vec<(&'static str, String)>> {
-    let lines = |text: String| -> String {
-        text.lines()
-            .map(|l| l.split('#').next().unwrap_or_default().trim())
-            .filter(|l| !l.is_empty())
-            .map(|l| format!("{l}\n"))
-            .collect()
-    };
     let lang: String = paperpaw_lang::scripts()
         .map(|s| format!("script {s}\n"))
         .chain(paperpaw_lang::regions().map(|r| format!("region {r}\n")))
@@ -584,8 +557,6 @@ fn pins() -> Option<Vec<(&'static str, String)>> {
         .chain(paperpaw_i18n::calendars().map(|c| format!("calendar {c}\n")))
         .collect();
     Some(vec![
-        ("shared.list", lines(read("../paperpaw-table/shared.list")?)),
-        ("table.sig", lines(read("../paperpaw-table/table.sig")?)),
         ("lang.list", lang),
         ("i18n.list", i18n),
         ("crate-pins.list", crate_pins()?),
@@ -698,8 +669,7 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
                     && !layout_cache_revision(crate_, path, line, now)
                     && !api_appended(path, line, now)
                     && !trait_appended(path, line, now)
-                    && !(screen_grew && screen_revision_grew(path, line, now))
-                    && !table_index_derived(crate_, path) =>
+                    && !(screen_grew && screen_revision_grew(path, line, now)) =>
             {
                 out.breaking
                     .push(format!("{crate_}: changed: {line}\n  now: {now}"));
@@ -816,27 +786,6 @@ fn layout_cache_revision(crate_: &str, path: &str, before: &str, after: &str) ->
         value.parse().ok()
     };
     matches!((revision(before), revision(after)), (Some(old), Some(new)) if new > old)
-}
-
-#[test]
-fn only_what_the_table_list_derives_may_change_in_the_table_index() {
-    for name in ["REVISIONS", "OLDEST", "HASH", "text::COUNT", "ui::COUNT"] {
-        let path = format!("const paperpaw_table::index::{name}");
-        assert!(table_index_derived("paperpaw-table", &path), "{name}");
-        assert!(
-            !table_index_derived("paperpaw-sdk", &path),
-            "{name}, other crate"
-        );
-    }
-    // An index is the plugin interface: it never changes its number.
-    assert!(!table_index_derived(
-        "paperpaw-table",
-        "const paperpaw_table::index::text::TEXT_MEASURE"
-    ));
-    assert!(!table_index_derived(
-        "paperpaw-table",
-        "const paperpaw_table::FAMILIES"
-    ));
 }
 
 #[test]

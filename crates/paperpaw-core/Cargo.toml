@@ -67,7 +67,6 @@ paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 png = "0.18"
 paperpaw-platform = { workspace = true, features = ["fake"] }
 paperpaw-text.workspace = true
-paperpaw-table.workspace = true
 proptest.workspace = true
 
 [lints]

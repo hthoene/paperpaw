@@ -170,12 +170,6 @@ pub fn describe(line: &mut dyn FnMut(&str)) {
     line(&alloc::format!(
         "fingerprint {FINGERPRINT} {TOOLCHAIN}, rustc {COMPILER}"
     ));
-    line(&alloc::format!(
-        "shared functions: revisions {:?}, oldest run {:?}, tables {}",
-        api::SHARED_REVISIONS,
-        api::SHARED_OLDEST,
-        paperpaw_table::HASH
-    ));
     let room = critical_section::with(|cs| ROOM.borrow(cs).get());
     line(&match room {
         Room::Unknown => String::from("room unknown"),

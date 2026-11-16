@@ -54,10 +54,8 @@ static ALLOCATOR: budget::BudgetAllocator = budget::BudgetAllocator;
 /// the budget's own are run: the heap budget counts every thread's (one
 /// device's is the whole budget of an X4).
 #[cfg(test)]
-pub(crate) fn one_device_at_a_time() -> std::sync::MutexGuard<'static, ()> {
-    budget::accounting_tests::LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+pub(crate) fn one_device_at_a_time() -> budget::accounting_tests::Held {
+    budget::accounting_tests::hold()
 }
 
 /// Inactive interface-7 lifecycle qualification; not used by CodeLoader.

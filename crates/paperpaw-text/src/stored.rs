@@ -326,7 +326,6 @@ impl StoredPack {
         StoredPack::open_within(source, PackLimits::SMALL)
     }
 
-    paperpaw_table::shared! {
     /// Reads the pack's header and its characters, within `limits` (the
     /// device's: [`PackLimits::for_memory`]): the firmware's code, so
     /// that how it keeps them is the firmware's too.
@@ -336,7 +335,6 @@ impl StoredPack {
         limits: PackLimits,
     ) -> Result<StoredPack, FontError> {
         Paged::open(source, limits).map(|pack| StoredPack(Rc::new(pack)))
-    } @ text::STORED_OPEN
     }
 
     /// Where table `slot` (0 to 7, see

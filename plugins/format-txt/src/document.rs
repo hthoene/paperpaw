@@ -9,7 +9,7 @@ use crate::PLUGIN;
 use paperpaw_sdk::document::{
     Align, Block, BlockKind, Document, DocumentError, Locator, Metadata, OffsetMap,
 };
-use paperpaw_sdk::{Env, Storage, read_file};
+use paperpaw_sdk::{Storage, read_file};
 
 mod head;
 
@@ -603,7 +603,11 @@ fn utf8_copy(
     size: u32,
     big_endian: bool,
 ) -> Result<String, DocumentError> {
-    let base = paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "", path);
+    let base = paperpaw_sdk::library::kept_path(
+        &paperpaw_sdk::data::plugin_dir(PLUGIN.as_str()),
+        "",
+        path,
+    );
     let (copy, stamp_path) = (format!("{base}.txt"), format!("{base}.source"));
     // Its size and a hash of its first and last 4 KiB tell the file from
     // another of its name (storages tell no time a file was changed).
