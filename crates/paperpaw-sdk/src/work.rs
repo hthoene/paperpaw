@@ -62,13 +62,13 @@
 //!
 //! **Jobs** are work in steps: long work (an install, a catalog synced or
 //! walked, a book's pages counted) registers a step function for its id
-//! ([`WorkSpec`], [`Registrar::add_work`]). When it runs, the kernel calls
+//! ([`WorkSpec`], `Items::add_work`). When it runs, the kernel calls
 //! the step instead of emitting the event, again while it answers
 //! [`Step::Continue`], each time after the frame is drawn and only when no
 //! input waits, so the device answers at once and sleeps between steps.
 //! A step should take a few milliseconds.
 //!
-//! [`Registrar::add_work`]: crate::Registrar::add_work
+//! `Items::add_work`: crate::Items::add_work
 //!
 //! **Nothing is refused silently, nothing nags.** Work held back by the
 //! power mode stays queued and runs when allowed; work that can never run
@@ -662,7 +662,7 @@ pub enum Step {
 pub type StepFn = Box<dyn Fn(&Env<'_>, &Params, &mut crate::Commands) -> Step>;
 
 /// A job: a work done in steps (see the [module](self)), registered with
-/// [`Registrar::add_work`](crate::Registrar::add_work) and run when a
+/// `Items::add_work` and run when a
 /// [`Work`] of its id is due.
 #[non_exhaustive]
 pub struct WorkSpec {

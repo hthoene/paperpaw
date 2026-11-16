@@ -15,7 +15,7 @@
 //! the book right), or leave it.
 //!
 //! Plugins add filters with
-//! [`Registrar::add_text_filter`](crate::Registrar::add_text_filter); a
+//! `Items::add_text_filter`; a
 //! filter decides from the settings whether it does anything. Its
 //! signature tells readers when its effect changed, so pages are laid out
 //! anew (and kept apart from pages laid out without it). A block filter

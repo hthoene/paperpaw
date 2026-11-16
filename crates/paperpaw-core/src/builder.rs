@@ -8,7 +8,7 @@
 use super::*;
 
 mod items;
-pub use items::Items;
+pub use items::{Items, Plugin};
 
 /// Configures and creates a [`Kernel`].
 ///
@@ -903,6 +903,7 @@ impl BuilderParts {
                 defers: 0,
                 followup: None,
                 followup_frame: None,
+                gray_later: crate::gray_later::GrayLater::default(),
             },
             input: gestures::InputState {
                 recognizer: Recognizer::default(),

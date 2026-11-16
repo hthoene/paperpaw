@@ -54,7 +54,7 @@ impl Shared {
 }
 
 /// What adds a plugin's contributions: the kernel's own function, a plugin
-/// of data's, a closure given to the builder, or an old [`Plugin`]'s
+/// of data's, a closure given to the builder, or an old `Plugin`'s
 /// `register` in an adapter ([`Kernel::register_plugin`]).
 pub(crate) type Adds<'a> = &'a dyn Fn(&mut Items) -> Result<(), RegisterError>;
 
@@ -84,22 +84,16 @@ impl Kernel {
         self.list_off(manifest, &|items| plugin.register(items));
     }
 
-    /// An old [`Plugin`] added as the rest is ([`Kernel::add_items`]).
+    /// An old `Plugin` added as the rest is ([`Kernel::add_items`]).
     pub(crate) fn add_plugin(&mut self, plugin: &dyn Plugin, disabled: &[String]) {
         self.add_items(plugin.manifest(), &|items| plugin.register(items), disabled);
     }
 
-    /// An old [`Plugin`] registered as the rest is ([`Kernel::register_items`]):
+    /// An old `Plugin` registered as the rest is ([`Kernel::register_items`]):
     /// what old fixtures call; goes with the trait.
     #[cfg(test)]
     pub(crate) fn register_plugin(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
         self.register_items(manifest, &|items| plugin.register(items));
-    }
-
-    /// An old [`Plugin`] listed as off ([`Kernel::list_off`]); as above.
-    #[cfg(test)]
-    pub(crate) fn register_off(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
-        self.list_off(manifest, &|items| plugin.register(items));
     }
 
     pub(crate) fn register_items(&mut self, manifest: Manifest, adds: Adds<'_>) {
@@ -683,7 +677,7 @@ impl Kernel {
     /// into the program (its `i18n/<language>.ini`): the texts the plugin
     /// reads through `core.i18n`. Only text with the program's lifetime
     /// (`&'static str`, `include_str!`): a catalog on the storage is
-    /// `Registrar::add_translation_file`. One that does not parse is reported
+    /// `Items::add_translation_file`. One that does not parse is reported
     /// and left out.
     pub fn add_catalog(&mut self, source: &'static str) {
         match registry::catalog(alloc::borrow::Cow::Borrowed(source)) {
@@ -717,7 +711,7 @@ impl Kernel {
         self.shared.translator.reserve(plugins);
     }
 
-    /// Opens the compiled catalog `path` (`Registrar::add_translation_file`)
+    /// Opens the compiled catalog `path` (`Items::add_translation_file`)
     /// and adds it; one that cannot be opened is reported.
     pub(crate) fn add_translation_file(&mut self, plugin: &Id, path: String) {
         let file =
@@ -1170,7 +1164,7 @@ impl Kernel {
         let version = plugin.manifest().version;
         // Registered aside first (its translations, key map, settings): one
         // that would fail leaves the version before in place.
-        let mut registrar = Registrar::new(id.clone());
+        let mut registrar = Items::new(id.clone());
         let staged = plugin.register(&mut registrar).and_then(|()| {
             registry::stage(id, registrar.into_contributions(), &mut Staging::default())
         });

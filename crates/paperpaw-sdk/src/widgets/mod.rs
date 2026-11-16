@@ -1,7 +1,7 @@
 //! Widgets: small boxes plugins contribute for screens that show them,
 //! such as the home screen's pages (a clock, the book being read, today's
 //! reading, a grid of tools). Any plugin adds widgets with
-//! [`Registrar::add_widget`](crate::Registrar::add_widget); screens let
+//! `Items::add_widget`; screens let
 //! the user choose which to show and where.
 //!
 //! A screen that shows a widget makes it ([`Widgets::make`]) and keeps
@@ -34,7 +34,7 @@
 //! ([`next_minute`]).
 //!
 //! The places where widgets show are [`WidgetPlace`]s
-//! ([`Registrar::add_widget_place`](crate::Registrar::add_widget_place)):
+//! (`Items::add_widget_place`):
 //! the settings that list them, and whether they show in a grid or above
 //! each other. A plugin asks whether any place shows its widget
 //! ([`Widgets::shown`]), e.g. to fetch the weather only then; the slot
@@ -142,7 +142,7 @@ pub mod categories {
 }
 
 /// A kind of widgets of a plugin's own
-/// ([`Registrar::add_widget_category`](crate::Registrar::add_widget_category)),
+/// (`Items::add_widget_category`),
 /// beside [`categories`]: its id, the translation key of its name, and
 /// its icon. Screens offering widgets list such kinds after the
 /// kernel's.
@@ -460,9 +460,9 @@ impl fmt::Debug for WidgetSpec {
 }
 
 /// A widget kept in the program, in a `static` list of them
-/// ([`Registrar::add_widgets`](crate::Registrar::add_widgets)): it takes
+/// (`Items::add_widgets`): it takes
 /// next to no memory, where each added with
-/// [`add_widget`](crate::Registrar::add_widget) takes some hundred bytes.
+/// `Items::add_widget` takes some hundred bytes.
 /// The same as a [`WidgetSpec`], made by a function:
 ///
 /// ```

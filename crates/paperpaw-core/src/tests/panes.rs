@@ -9,6 +9,7 @@
 )]
 
 use super::*;
+use crate::Items;
 use core::cell::Cell;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::ui::ScreenClass;
@@ -125,14 +126,9 @@ struct PanePlugin {
     log: Log,
 }
 
-impl Plugin for PanePlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("p"), "Panes", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.log.clone();
+fn pane_plugin(kept: PanePlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.log.clone();
         let opened = Rc::new(Cell::new(0));
         r.add_screen(ScreenSpec::new(
             SCREEN,
@@ -148,7 +144,7 @@ impl Plugin for PanePlugin {
         for action in [OPEN, FULL, PING, WAKE, MENU] {
             r.add_action(ActionSpec::new(action, "action"))?;
         }
-        let log = self.log.clone();
+        let log = kept.log.clone();
         r.on(events::DISPLAY_CHANGED, move |_, changed, _| {
             log.borrow_mut().push(alloc::format!(
                 "display {}x{} {} {}",
@@ -162,10 +158,19 @@ impl Plugin for PanePlugin {
     }
 }
 
+/// What [`pane_plugin`] registers under.
+fn pane_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("p"), "Panes", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// The kernel on `device` with the list on top, turned to `size`.
 fn on(device: DeviceInfo, size: (u16, u16), log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(device)
-        .plugin(PanePlugin { log: log.clone() })
+        .items(
+            pane_plugin_manifest(),
+            pane_plugin(PanePlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -460,7 +465,10 @@ fn right_to_left_the_list_is_on_the_right() {
         .with("plugins/arabic/plugin.ini", "[plugin]\nname = Arabic\n")
         .with("plugins/arabic/i18n/ar.ini", arabic);
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(PanePlugin { log: log.clone() })
+        .items(
+            pane_plugin_manifest(),
+            pane_plugin(PanePlugin { log: log.clone() }),
+        )
         .storage(storage)
         .user_config("[core]\nlanguage = ar\n")
         .build()

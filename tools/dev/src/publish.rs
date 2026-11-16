@@ -151,7 +151,9 @@ pub fn code_files(id: &str, sdk: Option<&Path>) -> Vec<(String, Vec<u8>)> {
             "plugin/i18n/en.ini".to_string(),
             format!(
                 "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n[messages]\n\
-                 {id}.plugin.name = {name}\n{id}.title = {name}\n"
+                 {id}.plugin.name = {name}\n{id}.title = {name}\n\
+                 {id}.setting.name = Name to greet\n\
+                 {id}.setting.name.help = Who the greeting on the plugin's screen is for.\n"
             )
             .into_bytes(),
         ),
