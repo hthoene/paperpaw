@@ -96,11 +96,11 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
     ] {
         assert!(all.contains(needle), "{needle} is declared: {all}");
     }
-    // Nothing is offered that ends in a refusal: the scan action is declared
-    // with its port.
-    for absent in ["widget", "scan-card"] {
-        assert!(!all.contains(absent), "{absent} is not declared yet: {all}");
-    }
+    // The scan action of Beta 3 is there for key maps and rules, with no menu
+    // entry of its own.
+    assert!(all.contains("\"scan-card\""), "{all}");
+    assert!(!all.contains("vocabulary.scan-card"), "{all}");
+    assert!(!all.contains("widget"), "{all}");
 }
 
 /// Every record is well formed for the host and admitted (`native_host/declarations.rs`: checked, then

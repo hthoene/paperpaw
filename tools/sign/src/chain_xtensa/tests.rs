@@ -1066,10 +1066,13 @@ fn a_jx_needs_an_address_to_jump_to_and_its_table_words_are_entries() {
     // No table: the `jx` cannot be placed, nothing is resolved (the `jx` is
     // counted as one indirect call too).
     assert_eq!(outcome(&lits, &funcs, &[]), (0, 2));
-    // The table holds the `l32r`: reached, the literal loaded.
-    assert_eq!(outcome(&lits, &funcs, &[at + 6]), (1, 1));
+    // The table (four words, LLVM's least) holds the `l32r`: reached, loaded.
+    assert_eq!(outcome(&lits, &funcs, &[at + 6; 4]), (1, 1));
     // The table holds the `callx8`: reached with nothing loaded.
-    assert_eq!(outcome(&lits, &funcs, &[at + 9]), (0, 2));
+    assert_eq!(outcome(&lits, &funcs, &[at + 9; 4]), (0, 2));
+    // Fewer words than a table has are no table: the `jx` has no place to go.
+    assert_eq!(outcome(&lits, &funcs, &[at + 6; 3]), (0, 2));
+    assert_eq!(outcome(&lits, &funcs, &[at + 6]), (0, 2));
     // A `jx` after a resolvable call: with no table the whole function gives up.
     let code = [
         &entry(32)[..],
@@ -1082,7 +1085,29 @@ fn a_jx_needs_an_address_to_jump_to_and_its_table_words_are_entries() {
     assert_eq!(outcome(&lits, &funcs, &[]), (0, 2));
     // A word that holds the function's own start (a vtable or a function
     // pointer) is no table: the function still gives up.
-    assert_eq!(outcome(&lits, &funcs, &[at]), (0, 2));
+    assert_eq!(outcome(&lits, &funcs, &[at; 4]), (0, 2));
+}
+
+#[test]
+fn a_lone_word_that_equals_an_address_is_no_entry_even_where_a_jx_has_a_table() {
+    let at = BASE + 0x40;
+    // As above: the table sends the flow to the `l32r`, the call is resolved.
+    let code = [
+        &entry(32)[..],
+        &[0xa0, 0x03, 0x00],
+        &l32r(8, at + 6, BASE),
+        &callx_reg(8, 8),
+        &RETW_N,
+    ];
+    let (lits, funcs) = root_of(&code);
+    let table = [at + 6; 4];
+    assert_eq!(outcome(&lits, &funcs, &table), (1, 1));
+    // A number of the data elsewhere that equals the address of the `callx8`
+    // (it moves with the layout) changes nothing: it is no part of a table.
+    let mut with_a_number = table.to_vec();
+    with_a_number.extend([0x1234_5678, at + 9, 0x1234_5678, at + 9]);
+    assert_eq!(outcome(&lits, &funcs, &with_a_number), (1, 1));
+    assert_eq!(outcome(&lits, &funcs, &[table[0], 0, at + 9]), (0, 2));
 }
 
 /// `bf b0, <target>` (`r` 0) or `bt b0, <target>` (`r` 1) at `pc`.
@@ -1365,8 +1390,11 @@ fn an_indirect_in_line_is_a_ceiling_for_the_crates_functions_and_must_match_one(
         &["root"],
         &format!("allow indirect-in paperpaw_plugin_* 2{why}"),
     );
+    // The failure names each function and its count: to set against the base's.
     assert!(
-        over.problems.iter().any(|p| p.contains("have 3 call(s)")),
+        over.problems.iter().any(|p| p.contains("have 3 call(s)")
+            && p.contains("`paperpaw_plugin_one::run` 2")
+            && p.contains("`paperpaw_plugin_two::go` 1")),
         "{:?}",
         over.problems
     );

@@ -242,8 +242,9 @@ native screens replace these callers.
   only when it is shown.
 - Time: `HostTime` reads the snapshot's wall clock and zone offset for each input (the device may have
   none: the last time known stands, as in `cards::now_of`).
-- Not offered until their screens exist: the scan action (`vocabulary.scan-card`), the words' list
-  (done: next section), marks in books.
+- The scan action (`vocabulary.scan-card`) is declared (no menu entry: Beta 3 had none) and opens
+  the update screen with the `force` hand-over, as `vocabulary.flash-cards` opens the decks. The
+  words' list is done (next section), marks in books too.
 - Not proved here: drawing and input of the two screens on a scripted host (H1: the scripted host
   refuses screen commands), a snapshot of the review.
 
