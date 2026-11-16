@@ -5,6 +5,7 @@
 //! opened again.
 
 use super::*;
+use crate::Items;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::{CloseCause, Commands, Gesture, HintVisibility, Instances, Outside, Params};
 
@@ -109,22 +110,15 @@ impl Screen for Configured {
     }
 }
 
-struct StackPlugin(Log);
-
-impl Plugin for StackPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("s"), "Stack", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn stack_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         for (id, home, instances) in [
             (SCREEN, false, Instances::PER_PARAMS),
             (HOME, true, Instances::PER_PARAMS),
             (ONE, false, Instances::SINGLE),
             (MANY, false, Instances::MANY),
         ] {
-            let log = self.0.clone();
+            let log = kept.clone();
             r.add_screen(
                 ScreenSpec::new(
                     id,
@@ -154,7 +148,7 @@ impl Plugin for StackPlugin {
         for action in [CLOSE, WHO] {
             r.add_action(ActionSpec::new(action, "s.action"))?;
         }
-        let log = self.0.clone();
+        let log = kept.clone();
         r.on(events::SCREEN_SHOWN, move |_, shown, _| {
             let slot = shown.slot.as_ref().map_or("-", Id::as_str);
             log.borrow_mut()
@@ -163,13 +157,19 @@ impl Plugin for StackPlugin {
     }
 }
 
+/// What [`stack_plugin`] registers under.
+fn stack_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("s"), "Stack", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn named(name: &str) -> Params {
     Params::new().with("name", String::from(name))
 }
 
 fn stack_kernel(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(StackPlugin(log.clone()))
+        .items(stack_plugin_manifest(), stack_plugin(log.clone()))
         .storage(paperpaw_sdk::MemoryStorage::new())
         .build()
         .unwrap();
@@ -354,7 +354,7 @@ fn overlays_say_what_a_tap_outside_and_input_they_leave_do() {
 fn a_screen_says_its_own_row_of_hints() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(StackPlugin(log.clone()))
+        .items(stack_plugin_manifest(), stack_plugin(log.clone()))
         .button_row(&["back", "confirm", "left", "right"])
         .build()
         .unwrap();
@@ -440,15 +440,8 @@ fn a_screen_opened_again_waits_for_the_ones_above() {
 }
 
 /// Uses the same slot and registered hint policy as a sleep plugin.
-struct HiddenSleepPlugin;
-
-impl Plugin for HiddenSleepPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("quiet"), "Quiet", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn hidden_sleep_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         const SLEEP: Id = Id::new_static("quiet.sleep");
         r.add_screen(ScreenSpec::new(
             SLEEP,
@@ -465,10 +458,16 @@ impl Plugin for HiddenSleepPlugin {
     }
 }
 
+/// What [`hidden_sleep_plugin`] registers under.
+fn hidden_sleep_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("quiet"), "Quiet", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn reader_with_hints() -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(StackPlugin(log()))
-        .plugin(HiddenSleepPlugin)
+        .items(stack_plugin_manifest(), stack_plugin(log()))
+        .items(hidden_sleep_plugin_manifest(), hidden_sleep_plugin())
         .sleep(true)
         .button_row(&["back", "confirm", "left", "right"])
         .build()

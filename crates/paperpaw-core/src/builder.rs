@@ -8,7 +8,7 @@
 use super::*;
 
 mod items;
-pub use items::Items;
+pub use items::{Items, Plugin};
 
 /// Configures and creates a [`Kernel`].
 ///

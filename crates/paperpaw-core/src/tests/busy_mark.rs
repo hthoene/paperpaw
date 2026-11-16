@@ -8,7 +8,7 @@ const TIMING_FILE: &str = ".paperpaw/core/timing.txt";
 
 fn kernel(storage: paperpaw_sdk::MemoryStorage) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Opener)
+        .items(crate::tests::opener_manifest(), crate::tests::opener())
         .busy_mark(true)
         .clock(still_clock)
         .storage(storage)

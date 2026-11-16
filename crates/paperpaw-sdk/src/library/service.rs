@@ -8,7 +8,7 @@
 //! `.paperpaw/library`: each book's details, the books read last, the
 //! favourites and the catalog ([`catalog`], [`index`](mod@super::index)). A replacement
 //! publishes itself as the service [`SERVICE`]
-//! ([`Registrar::provide`](crate::Registrar::provide), a
+//! (`Items::provide`, a
 //! [`LibraryService`] holding a `Box<dyn Library>`) and answers the same questions its own way; views
 //! that ask [`service`] show its books.
 
@@ -257,7 +257,7 @@ pub fn service<'e>(env: &Env<'e>) -> &'e dyn Library {
 /// A field plugins keep with books ([`super::set_field`]), e.g. a rating
 /// or where a book came from: shown on its information page, and kept in
 /// the catalog (to filter and sort by) where `in_catalog`. Added with
-/// [`Registrar::add_book_field`](crate::Registrar::add_book_field).
+/// `Items::add_book_field`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct BookField {
@@ -301,7 +301,7 @@ pub type BadgeFn = Box<dyn Fn(&Env<'_>, &Record) -> Option<Badge>>;
 
 /// A badge plugins put on books' rows in views of the library, e.g. a
 /// rating or "on loan"; views show two at most. Added with
-/// [`Registrar::add_book_badge`](crate::Registrar::add_book_badge).
+/// `Items::add_book_badge`.
 #[non_exhaustive]
 pub struct BookBadge {
     pub id: Id,

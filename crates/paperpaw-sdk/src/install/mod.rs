@@ -16,7 +16,7 @@
 //!
 //! What is left to do is kept in the plugin's own folder, so a download
 //! goes on while none of its screens is open: the plugin hears the
-//! answers with [`Registrar::on`](crate::Registrar::on) and hands them to
+//! answers with `Items::on` and hands them to
 //! [`Installer::received`].
 //!
 //! ```

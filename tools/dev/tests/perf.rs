@@ -11,7 +11,7 @@
 
 use std::sync::Mutex;
 
-use paperpaw_core::KernelBuilder;
+use paperpaw_core::{Items, KernelBuilder, Plugin};
 use paperpaw_dev::cli::Context;
 use paperpaw_dev::perf;
 use paperpaw_dev::report::{Level, Report};
@@ -19,8 +19,7 @@ use paperpaw_dev::target::Target;
 use paperpaw_platform::Rect;
 use paperpaw_sdk::widgets::{Widget, WidgetSpec};
 use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, Plugin, RegisterError, Registrar, SDK_VERSION, Screen,
-    ScreenSpec,
+    Canvas, Cx, Env, Handled, Id, Manifest, RegisterError, SDK_VERSION, Screen, ScreenSpec,
 };
 
 /// Reads a file whenever it is drawn.
@@ -92,7 +91,7 @@ impl Plugin for Probe {
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         r.add_screen(ScreenSpec::new(
             Id::new_static("perf-probe.reads"),
             "perf-probe.reads",

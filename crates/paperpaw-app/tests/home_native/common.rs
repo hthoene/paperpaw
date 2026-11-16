@@ -27,10 +27,11 @@ pub use paperpaw_sdk::builtin::{actions, params, slots};
 pub use paperpaw_sdk::semantics::{Part, Role};
 pub use paperpaw_sdk::{DirEntry, Id, MemoryStorage, Params, Storage, StorageError};
 
+use paperpaw_core::{Items, Plugin};
 use paperpaw_sdk::replies::Typed;
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Handled, Manifest, MenuEntry, Plugin, Priority,
-    RegisterError, Registrar, Screen, ScreenSpec, Version,
+    ActionSpec, Canvas, Command, Cx, Env, Handled, Manifest, MenuEntry, Priority, RegisterError,
+    Screen, ScreenSpec, Version,
 };
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
@@ -165,26 +166,21 @@ thread_local! {
     static ASKED: RefCell<Vec<Params>> = const { RefCell::new(Vec::new()) };
 }
 
+const KEYBOARD_SCREEN: Id = Id::new_static("test-keyboard.screen");
+
 /// The keyboard: shown, it answers with the next text the test typed
 /// ([`App::will_type`]), as the real one does when its text is done; with
 /// nothing typed it stays open, as if the reader were still typing.
-pub struct TestKeyboard;
-
-const KEYBOARD_SCREEN: Id = Id::new_static("test-keyboard.screen");
-
-impl Plugin for TestKeyboard {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("test-keyboard"),
-            "Test keyboard",
-            Version::new(0, 1, 0),
-        )
-        .description("Types what the test says.")
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+pub fn test_keyboard(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(
+        Id::new_static("test-keyboard"),
+        "Test keyboard",
+        Version::new(0, 1, 0),
+    )
+    .description("Types what the test says.")
+    .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.add_screen(ScreenSpec::new(
             KEYBOARD_SCREEN,
             "test-keyboard",
             Box::new(|_, params| {
@@ -194,37 +190,32 @@ impl Plugin for TestKeyboard {
                 })
             }),
         ))?;
-        r.bind_slot(slots::KEYBOARD, KEYBOARD_SCREEN, Priority(100))?;
+        items.bind_slot(slots::KEYBOARD, KEYBOARD_SCREEN, Priority(100))?;
         Ok(())
-    }
+    })
 }
+
+const TEST_TOOLS: [&str; 3] = ["test-tools.one", "test-tools.two", "test-tools.three"];
 
 /// Three more tools in the overview, standing for those that are native
 /// only now (Settings, Wi-Fi, ...), so that it has the six columns of a wide
 /// screen to fill.
-pub struct TestTools;
-
-const TEST_TOOLS: [&str; 3] = ["test-tools.one", "test-tools.two", "test-tools.three"];
-
-impl Plugin for TestTools {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("test-tools"),
-            "Test tools",
-            Version::new(0, 1, 0),
-        )
-        .description("Tools to fill the overview.")
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+pub fn test_tools(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(
+        Id::new_static("test-tools"),
+        "Test tools",
+        Version::new(0, 1, 0),
+    )
+    .description("Tools to fill the overview.")
+    .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
         for id in TEST_TOOLS {
             let id = Id::new_static(id);
-            r.add_action(ActionSpec::new(id.clone(), "test-tools").handler(|_, _, _| {}))?;
-            r.add_menu_entry(MenuEntry::new(paperpaw_sdk::builtin::menus::APPS, id))?;
+            items.add_action(ActionSpec::new(id.clone(), "test-tools").handler(|_, _, _| {}))?;
+            items.add_menu_entry(MenuEntry::new(paperpaw_sdk::builtin::menus::APPS, id))?;
         }
         Ok(())
-    }
+    })
 }
 
 struct Keyboard {
@@ -277,7 +268,7 @@ impl Plugin for TestCloser {
         .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         r.add_action(
             ActionSpec::new(Id::new_static("test-closer.go"), "test-closer").handler(|_, _, _| {}),
         )?;
@@ -322,10 +313,9 @@ impl App {
         let builder = Kernel::builder(device)
             .storage(storage.clone())
             .user_config(crate::native_activation::QUIET);
-        let mut builder =
-            paperpaw_app::install(builder, paperpaw_app::Fonts::Packs).plugin(TestKeyboard);
+        let mut builder = test_keyboard(paperpaw_app::install(builder, paperpaw_app::Fonts::Packs));
         if more_tools {
-            builder = builder.plugin(TestTools);
+            builder = test_tools(builder);
         }
         if CLOSER.with(std::cell::Cell::take) {
             builder = builder.plugin(TestCloser);

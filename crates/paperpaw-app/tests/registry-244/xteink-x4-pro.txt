@@ -958,6 +958,7 @@ action core.gestures.standard | title=core.gestures.standard sealed=false runs-i
 action core.home | title=core.action.home sealed=false runs-itself=true native=None
 action core.left | title=core.action.left sealed=false runs-itself=false native=None
 action core.library | title=core.action.library sealed=false runs-itself=true native=None
+action core.library.look-again | title=core.library.look-again sealed=false runs-itself=true native=None
 action core.long-confirm | title=core.action.long-confirm sealed=false runs-itself=true native=None
 action core.menu | title=core.action.menu sealed=false runs-itself=true native=None
 action core.next | title=core.action.next sealed=false runs-itself=true native=None
@@ -1276,6 +1277,7 @@ menu-merged core.tools | core.screenshot by=core order=95 kind=0 flags=0x22
 menu-merged files.menu | files.sort by=files order=10 kind=1 flags=0x22
 menu-merged files.menu | files.view by=files order=11 kind=1 flags=0x22
 menu-merged files.menu | files.search by=files order=21 kind=0 flags=0x22
+menu-merged files.menu | core.library.look-again by=files order=25 kind=0 flags=0x22
 menu-merged files.menu | files.shelves by=files order=30 kind=2 flags=0x22
 menu-merged files.menu | core.library-folder by=files order=80 kind=1 flags=0x22
 menu-merged files.menu | core.settings by=files order=90 kind=0 flags=0x22
@@ -1420,6 +1422,7 @@ subscription core.book-removed | core
 subscription core.catalog-wanted | core
 subscription core.clean-up-answered | core
 subscription core.library-changed | core
+subscription core.library-look-again-wanted | core
 subscription core.page-turned | core
 subscription core.reading-app-picked | core
 subscription core.reading-app-wanted | core
@@ -2462,6 +2465,7 @@ native MenuEntry files | MenuEntry(MenuEntry { menu: "files.shelves", item: "fil
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.sort", order: 10, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.view", order: 11, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.search", order: 21, place: 0, anchor: "" })
+native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "core.library.look-again", order: 25, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.shelves", order: 30, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "core.library-folder", order: 80, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "core.settings", order: 90, place: 0, anchor: "" })

@@ -32,8 +32,7 @@ pub enum Contribution {
     /// Screens kept in the program (a `static` list).
     FixedScreens(&'static [crate::screen::FixedScreen]),
     Slot(SlotSpec),
-    /// A screen proposed for a slot (see [`Registrar::bind_slot`](crate::Registrar::bind_slot)).
-    #[non_exhaustive]
+    /// A screen proposed for a slot (see `Items::bind_slot`).
     SlotBinding {
         slot: Id,
         screen: Id,
@@ -44,54 +43,47 @@ pub enum Contribution {
     FixedSettings(&'static [SettingSpec]),
     SettingGroup(crate::settings::SettingGroup),
     /// Another default for any plugin's setting (see
-    /// [`Registrar::set_setting_default`](crate::Registrar::set_setting_default)).
-    #[non_exhaustive]
+    /// `Items::set_setting_default`).
     SettingDefault {
         setting: Id,
         value: Cow<'static, str>,
     },
     /// Another value of any plugin's choice setting (see
-    /// [`Registrar::add_choice`](crate::Registrar::add_choice)).
-    #[non_exhaustive]
+    /// `Items::add_choice`).
     Choice {
         setting: Id,
         value: Cow<'static, str>,
     },
-    /// Default key bindings (see [`Registrar::add_keymap`](crate::Registrar::add_keymap)).
+    /// Default key bindings (see `Items::add_keymap`).
     Keymap(Cow<'static, str>),
-    #[non_exhaustive]
     KeymapPreset {
         id: Id,
         source: Cow<'static, str>,
     },
     /// Key bindings that apply while a switch is on (see
-    /// [`Registrar::add_keymap_when`](crate::Registrar::add_keymap_when)).
-    #[non_exhaustive]
+    /// `Items::add_keymap_when`).
     KeymapWhen {
         setting: Id,
         source: Cow<'static, str>,
     },
     Stylesheet(Cow<'static, str>),
     BookData(crate::library::BookData),
-    /// A field kept with books ([`Registrar::add_book_field`](crate::Registrar::add_book_field)).
+    /// A field kept with books (`Items::add_book_field`).
     BookField(Box<crate::library::BookField>),
-    /// A badge on books' rows ([`Registrar::add_book_badge`](crate::Registrar::add_book_badge)).
+    /// A badge on books' rows (`Items::add_book_badge`).
     BookBadge(Box<crate::library::BookBadge>),
     Font(Box<FontSpec>),
-    #[non_exhaustive]
     FontFile {
         id: Id,
         path: String,
     },
-    #[non_exhaustive]
     FontExtension {
         id: Id,
         path: String,
         extends: Id,
     },
-    /// A face of a family in a file (see [`Registrar::add_font_face`](crate::Registrar::add_font_face)).
+    /// A face of a family in a file (see `Items::add_font_face`).
     FontFace(Box<FontFace>),
-    #[non_exhaustive]
     FontBinding {
         role: Id,
         font: Id,
@@ -105,37 +97,30 @@ pub enum Contribution {
     MenuSection(MenuSection),
     /// Icons kept in the program (a `static` list of items and icons).
     FixedIcons(&'static [(Id, &'static str)]),
-    #[non_exhaustive]
     Icon {
         item: Id,
         icon: Cow<'static, str>,
     },
-    #[non_exhaustive]
     MenuNeed {
         item: Id,
         need: MenuNeed,
     },
-    #[non_exhaustive]
     HideMenuEntry {
         menu: Id,
         item: Id,
     },
-    #[non_exhaustive]
     ItemState {
         item: Id,
         state: crate::ItemStateFn,
     },
-    #[non_exhaustive]
     ItemDescription {
         item: Id,
         key: Cow<'static, str>,
     },
-    #[non_exhaustive]
     ScreenHints {
         screen: Id,
         hints: HintVisibility,
     },
-    #[non_exhaustive]
     Subscription {
         event: Id,
         handler: EventHandler,
@@ -165,11 +150,11 @@ pub enum Contribution {
     /// A named input (see [`keys::InputSpec`](crate::keys::InputSpec)).
     Input(crate::keys::InputSpec),
     /// A handler put in place of an action's own, of any plugin
-    /// ([`Registrar::override_action`](crate::Registrar::override_action)).
+    /// (`Items::override_action`).
     ActionOverride(Box<crate::action::ActionOverride>),
-    /// Sees every action run ([`Registrar::observe_actions`](crate::Registrar::observe_actions)).
+    /// Sees every action run (`Items::observe_actions`).
     ActionObserver(Box<crate::action::ObserverSpec>),
-    /// Sees every event emitted ([`Registrar::observe_events`](crate::Registrar::observe_events)).
+    /// Sees every event emitted (`Items::observe_events`).
     EventObserver(Box<crate::action::ObserverSpec>),
     /// A recognizer of gestures (see [`keys::GestureSpec`](crate::keys::GestureSpec)).
     Gesture(Box<crate::keys::GestureSpec>),
@@ -183,19 +168,17 @@ pub enum Contribution {
     Preset(Box<Preset>),
     /// Presets kept in the program.
     FixedPresets(&'static [Preset]),
-    /// A service with the name of its type (see [`Registrar::provide`](crate::Registrar::provide)).
-    #[non_exhaustive]
+    /// A service with the name of its type (see `Items::provide`).
     Published {
         id: Id,
         service: crate::services::Service,
     },
-    /// A point declared to contribute to ([`Registrar::add_point`](crate::Registrar::add_point)).
+    /// A point declared to contribute to (`Items::add_point`).
     Point(Box<crate::services::PointSpec>),
-    /// An event declared ([`Registrar::declare_event`](crate::Registrar::declare_event)).
+    /// An event declared (`Items::declare_event`).
     EventDeclared(Box<crate::services::EventSpec>),
     /// Text for a point another plugin defined (see
     /// [`services`](crate::services)).
-    #[non_exhaustive]
     ToPoint {
         point: Id,
         text: Cow<'static, str>,
@@ -203,17 +186,15 @@ pub enum Contribution {
     /// A translation catalog (see `paperpaw-i18n`).
     Translations(Cow<'static, str>),
     /// A compiled translation catalog on the storage, read as needed
-    /// (see [`Registrar::add_translation_file`](crate::Registrar::add_translation_file)).
+    /// (see `Items::add_translation_file`).
     TranslationFile(String),
-    /// A look for the parts of screens (see [`Registrar::set_ui_look`](crate::Registrar::set_ui_look)).
-    #[non_exhaustive]
+    /// A look for the parts of screens (see `Items::set_ui_look`).
     UiLook {
         painters: &'static crate::ui::look::Painters,
         priority: Priority,
     },
     /// A contribution of a kind that comes after this release, by its key
-    /// (see [`Registrar::add_extended`](crate::Registrar::add_extended)).
-    #[non_exhaustive]
+    /// (see `Items::add_extended`).
     Extended {
         key: Id,
         params: crate::Params,
@@ -348,7 +329,7 @@ impl Contribution {
     }
 
     /// The kind its id is unique within.
-    pub(super) fn id_kind(&self) -> &'static str {
+    pub fn id_kind(&self) -> &'static str {
         match self {
             Contribution::FontFile { .. } | Contribution::FontFace(_) => "font",
             other => other.kind(),

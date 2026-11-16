@@ -28,31 +28,27 @@ const SERVICES: &[&str] = &[
 /// The plugin's two catalogs as the kernel reads them: the production host does not load a
 /// native plugin's `i18n/*.ini` yet (`docs/abi/screens-input.md` [D]), so a test-only plugin
 /// registers them, as `native_battery_pixel_tests.rs` in core does.
-struct Catalogs;
-impl paperpaw_sdk::Plugin for Catalogs {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            paperpaw_sdk::Id::new_static("battery"),
-            "Battery catalogs",
-            paperpaw_sdk::Version::new(1, 0, 8),
-        )
-    }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+fn catalogs(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = paperpaw_sdk::Manifest::new(
+        paperpaw_sdk::Id::new_static("battery"),
+        "Battery catalogs",
+        paperpaw_sdk::Version::new(1, 0, 8),
+    );
+    builder.items(manifest, |items| {
         for text in [
             include_str!("../i18n/en.ini"),
             include_str!("../i18n/de.ini"),
         ] {
-            r.add_translations(std::borrow::Cow::Borrowed(text))?;
+            items.add_translations(std::borrow::Cow::Borrowed(text))?;
         }
         Ok(())
-    }
+    })
 }
 
 fn start(config: &str) -> Session {
     Session::start(
         hosted::Setup::x4().config(config).with_kernel(|b| {
-            b.built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
-                .plugin(Catalogs)
+            catalogs(b.built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS))
         }),
         paperpaw_plugin_battery::NATIVE_ENTRY.entry(),
         "battery",
@@ -268,8 +264,7 @@ fn goldens_of_other_depths_and_colors_compare_as_grays() {
 fn a_wired_start_settles_without_a_refused_callback() {
     let setup = hosted::Setup::x4()
         .with_kernel(|b| {
-            b.built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
-                .plugin(Catalogs)
+            catalogs(b.built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS))
         })
         .wired(|w| w.lookup());
     let mut session = Session::start(

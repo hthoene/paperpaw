@@ -9,6 +9,8 @@
 //! itself again with no key since (Home each minute) keeps them: grays at
 //! once, as before.
 
+use core::mem;
+
 use paperpaw_platform::Instant;
 
 use crate::Kernel;
@@ -42,6 +44,9 @@ pub(crate) enum Phase {
 pub(crate) struct GrayLater {
     pub(crate) phase: Phase,
     pub(crate) screen: u32,
+    /// A part frame of a screen that has its grays is drawn and not counted
+    /// yet: if it has pictures, grays are due again.
+    pub(crate) part: bool,
 }
 
 /// What a frame that was made says to the wait.
@@ -56,8 +61,11 @@ pub(crate) enum Frame {
     /// Most of the screen with no pictures to show in grays (or shown in
     /// grays by the screen itself, or at once before sleep): no pass.
     Whole,
-    /// Anything else (a part of the screen, a refresh set exactly, a frame
-    /// drawn again after grays): the wait is as it was.
+    /// A part of a screen with pictures, drawn by a call with no key (a cover
+    /// that came after the first frame): grays follow if it has none due.
+    Part,
+    /// Anything else (a part of the screen after a key, a refresh set exactly,
+    /// a frame drawn again after grays): the wait is as it was.
     Other,
 }
 
@@ -88,7 +96,7 @@ impl Kernel {
         }
         let screen_grays = rule.whole && rule.grays;
         let big_whole = rule.whole && rule.big;
-        if rule.again || !big_whole {
+        if rule.again {
             return (screen_grays, Frame::Other);
         }
         let eligible = rule.pictures
@@ -97,17 +105,25 @@ impl Kernel {
                 .shared
                 .settings
                 .bool(paperpaw_sdk::builtin::settings::PICTURES_IN_GRAYS.as_str());
+        if !big_whole {
+            // A cover that came after the screen's first frame is a part of
+            // it: its grays follow once, after the calm. Not after a key (a
+            // focus moved over covers costs no pass), nor on a book page.
+            let keyed = self.last_user_input == Some(self.now);
+            let part = rule.whole
+                && eligible
+                && !screen_grays
+                && !keyed
+                && !rule.sleeping
+                && !self.gray_reading();
+            return (screen_grays, if part { Frame::Part } else { Frame::Other });
+        }
         if screen_grays || !eligible {
             return (screen_grays, Frame::Whole);
         }
         // A book page keeps the rule as it was: its grays at once where it
         // has pictures (Decision 196 is about Home and the other screens).
-        let reading = self
-            .stack
-            .last()
-            .and_then(|top| top.slot.as_ref())
-            .is_some_and(|slot| *slot == paperpaw_sdk::builtin::slots::READER);
-        if reading {
+        if self.gray_reading() {
             return (self.pictures_drawn(), Frame::Whole);
         }
         if self.gray_kept() {
@@ -119,6 +135,14 @@ impl Kernel {
             return (true, Frame::Whole);
         }
         (false, Frame::Later)
+    }
+
+    /// Whether the screen on top is a book page (the reader's slot).
+    fn gray_reading(&self) -> bool {
+        self.stack
+            .last()
+            .and_then(|top| top.slot.as_ref())
+            .is_some_and(|slot| *slot == paperpaw_sdk::builtin::slots::READER)
     }
 
     fn gray_screen(&self) -> Option<u32> {
@@ -183,15 +207,30 @@ impl Kernel {
                 self.frame.gray_later = GrayLater {
                     phase: Phase::Done,
                     screen,
+                    part: false,
                 }
             }
             Frame::Later => {
                 self.frame.gray_later = GrayLater {
                     phase: Phase::Asked,
                     screen,
+                    part: false,
                 }
             }
             Frame::Whole => self.frame.gray_later = GrayLater::default(),
+            // A part with pictures: grays follow where no wait is on; where the
+            // screen has its grays, they are due again if this part has pictures.
+            Frame::Part => match self.frame.gray_later.phase {
+                Phase::Nothing => {
+                    self.frame.gray_later = GrayLater {
+                        phase: Phase::Asked,
+                        screen,
+                        part: false,
+                    };
+                }
+                Phase::Done => self.frame.gray_later.part = true,
+                _ => {}
+            },
             Frame::Kept | Frame::Other => {
                 if self.frame.gray_later.phase == Phase::Pass {
                     self.frame.gray_later = GrayLater::default();
@@ -203,9 +242,17 @@ impl Kernel {
     /// The frame is drawn, `pictured` pixels of it pictures: grays follow if
     /// there are enough of them ([`crate::PICTURES_GRAY_PERCENT`] of it).
     pub(crate) fn gray_seen(&mut self, pictured: u32, screen: u32) {
+        let enough =
+            pictured.saturating_mul(100) >= screen.saturating_mul(crate::PICTURES_GRAY_PERCENT);
+        // A part of a screen that had its grays: with pictures of its own,
+        // they are due again; without (the clock), the screen keeps what it had.
+        if mem::take(&mut self.frame.gray_later.part)
+            && self.frame.gray_later.phase == Phase::Done
+            && enough
+        {
+            self.frame.gray_later.phase = Phase::Pictured;
+        }
         if self.frame.gray_later.phase == Phase::Asked {
-            let enough =
-                pictured.saturating_mul(100) >= screen.saturating_mul(crate::PICTURES_GRAY_PERCENT);
             // A page whose pictures come in the frame after it (a follow-up)
             // is counted in that one.
             self.frame.gray_later.phase = if enough {
