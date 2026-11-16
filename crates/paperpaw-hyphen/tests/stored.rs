@@ -434,7 +434,10 @@ fn opening_reads_each_sector_of_the_patterns_about_once() {
 /// word costs a few reads instead of about twenty, and says the same.
 #[test]
 fn a_small_table_reads_few_blocks_for_a_word() {
-    let set = shipped().into_iter().find(|s| s.name == "hyphenation").unwrap();
+    let set = shipped()
+        .into_iter()
+        .find(|s| s.name == "hyphenation")
+        .unwrap();
     let words = common::words(&set, 400, 3);
     let count = std::rc::Rc::new(std::cell::Cell::new(0));
     let mut stored =
