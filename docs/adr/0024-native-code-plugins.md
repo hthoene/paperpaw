@@ -297,6 +297,11 @@ What the spike left open, as the implementation found it (2026-10-20):
   placed. A file never installed is refused (`PluginProblem::NotInstalled`)
   rather than confirmed on the device: copying a file by hand is an
   author's way, who names it over USB (`x4-remote.py --trust-code`).
+  *Amended by Decision 205 (Nov 2026):* a file never installed runs
+  unsigned, without a question (`CodeFile::sha256` is `None`), marked
+  "not signed" in the plugin manager; not for an id with a pinned
+  author's key, and not for a plugin that declares `uses.install` or
+  `uses.firmware`.
   The loader is told the plugin's id from its `plugin.ini`, so safe mode
   and a crash name it by that, in whatever folder it is.
 - **Author signatures** are a trailer in the `.ppn` itself

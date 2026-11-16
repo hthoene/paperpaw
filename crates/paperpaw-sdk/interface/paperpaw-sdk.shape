@@ -3542,12 +3542,12 @@ struct paperpaw_sdk::replies::Played { played: bool, context: paperpaw_sdk::para
 struct paperpaw_sdk::replies::Spoken { spoken: bool, context: paperpaw_sdk::params::Params }
 struct paperpaw_sdk::replies::Typed { text: alloc::string::String, typing: bool, context: paperpaw_sdk::params::Params }
 struct paperpaw_sdk::screen::Cx<'a, 'e> { env: &'a paperpaw_sdk::env::Env<'e>, output: &'a mut paperpaw_sdk::screen::Output, key: core::option::Option<paperpaw_sdk::screen::ScreenKey>, params: &'a paperpaw_sdk::params::Params }
-struct paperpaw_sdk::screen::FixedScreen { id: paperpaw_sdk::id::Id, title: &'static str, factory: fn(&paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::params::Params) -> alloc::boxed::Box<dyn paperpaw_sdk::screen::Screen>, refresh_on_open: core::option::Option<paperpaw_platform::display::RefreshMode>, instances: paperpaw_sdk::screen::Instances, spare: u32 }
+struct paperpaw_sdk::screen::FixedScreen { entry: paperpaw_sdk::titled::TitleEntry, factory: fn(&paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::params::Params) -> alloc::boxed::Box<dyn paperpaw_sdk::screen::Screen>, refresh_on_open: core::option::Option<paperpaw_platform::display::RefreshMode>, instances: paperpaw_sdk::screen::Instances, spare: u32 }
 struct paperpaw_sdk::screen::Instances(0: u8)
 struct paperpaw_sdk::screen::Output { commands: alloc::vec::Vec<paperpaw_sdk::command::Command>, refresh: core::option::Option<paperpaw_platform::display::RefreshMode>, refresh_set: core::option::Option<paperpaw_platform::display::RefreshMode>, refresh_cause: core::option::Option<paperpaw_sdk::filters_old::RefreshCause>, redraw: bool, redraw_area: core::option::Option<paperpaw_platform::geometry::Rect>, wake_at: core::option::Option<paperpaw_platform::input::Instant> }
 struct paperpaw_sdk::screen::Pane(0: u8)
 struct paperpaw_sdk::screen::ScreenKey(0: u32)
-struct paperpaw_sdk::screen::ScreenList<'a> { added: &'a [(paperpaw_sdk::id::Id, alloc::borrow::Cow<'static, str>)], native: &'a [paperpaw_sdk::titled::Titled], fixed: &'a [&'static paperpaw_sdk::screen::FixedScreen] }
+struct paperpaw_sdk::screen::ScreenList<'a> { added: &'a [(paperpaw_sdk::id::Id, alloc::borrow::Cow<'static, str>)], native: &'a [paperpaw_sdk::titled::Titled], fixed: &'a [&'static paperpaw_sdk::titled::TitleEntry] }
 struct paperpaw_sdk::screen::ScreenSpec { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, factory: alloc::boxed::Box<dyn core::ops::function::Fn(&paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::params::Params) -> alloc::boxed::Box<dyn paperpaw_sdk::screen::Screen>>, refresh_on_open: core::option::Option<paperpaw_platform::display::RefreshMode>, instances: paperpaw_sdk::screen::Instances, spare: u32 }
 struct paperpaw_sdk::screen::StackEntry { screen: paperpaw_sdk::id::Id, slot: core::option::Option<paperpaw_sdk::id::Id>, overlay: bool, key: paperpaw_sdk::screen::ScreenKey, guards: bool }
 struct paperpaw_sdk::secrets::Anyone

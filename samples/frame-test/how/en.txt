@@ -1,3 +1,0 @@
-Frame test shows a moving pattern at a fixed pace and does a fixed amount of work for every frame, as a game or an emulator would. It says how many frames a second the screen shows, how long the work took as hot code and as ordinary code, how long drawing the pattern took, and how much memory is free.
-
-Left and right move the square. Up and down double or halve the work. Confirm switches between hot and ordinary code. Next page cleans the screen. Back leaves; holding Back for two seconds always leaves.

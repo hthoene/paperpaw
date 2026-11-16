@@ -127,9 +127,9 @@ fn fixed_stack_and_deferred_cleanup_have_a_bounded_resident_size() {
 fn cleanup_sweep_recovers_more_than_sixteen_closures_and_preserves_live_instances() {
     use crate::Items;
     use alloc::boxed::Box;
-    use paperpaw_sdk::{Manifest, Params, RegisterError, Screen, ScreenSpec, Version};
+    use paperpaw_sdk::{Manifest, Params, RegisterError, Version};
     struct Live;
-    impl Screen for Live {
+    impl crate::Layer for Live {
         fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
         }
@@ -137,7 +137,7 @@ fn cleanup_sweep_recovers_more_than_sixteen_closures_and_preserves_live_instance
     }
     fn live() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         |registrar| {
-            registrar.add_screen(ScreenSpec::new(
+            registrar.add_layer(crate::LayerSpec::new(
                 Id::new_static("live.screen"),
                 "Live",
                 Box::new(|_, _| Box::new(Live)),

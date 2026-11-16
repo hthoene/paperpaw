@@ -27,11 +27,11 @@ pub use paperpaw_sdk::builtin::{actions, params, slots};
 pub use paperpaw_sdk::semantics::{Part, Role};
 pub use paperpaw_sdk::{DirEntry, Id, MemoryStorage, Params, Storage, StorageError};
 
-use paperpaw_core::{Items, Plugin};
+use paperpaw_core::Items;
 use paperpaw_sdk::replies::Typed;
 use paperpaw_sdk::{
     ActionSpec, Canvas, Command, Cx, Env, Handled, Manifest, MenuEntry, Priority, RegisterError,
-    Screen, ScreenSpec, Version,
+    Version,
 };
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
@@ -180,7 +180,7 @@ pub fn test_keyboard(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::Ke
     .description("Types what the test says.")
     .uses(paperpaw_sdk::Uses::NOTHING);
     builder.items(manifest, |items| {
-        items.add_screen(ScreenSpec::new(
+        items.add_layer(paperpaw_core::LayerSpec::new(
             KEYBOARD_SCREEN,
             "test-keyboard",
             Box::new(|_, params| {
@@ -222,7 +222,7 @@ struct Keyboard {
     params: Params,
 }
 
-impl Screen for Keyboard {
+impl paperpaw_core::Layer for Keyboard {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -254,30 +254,28 @@ thread_local! {
     static CLOSER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// A screen that does something and closes in one callback (#267).
-pub struct TestCloser;
+/// What registers a screen that does something and closes in one callback
+/// (#267).
+fn test_closer(r: &mut Items) -> Result<(), RegisterError> {
+    r.add_action(
+        ActionSpec::new(Id::new_static("test-closer.go"), "test-closer").handler(|_, _, _| {}),
+    )?;
+    r.add_layer(paperpaw_core::LayerSpec::new(
+        CLOSER_SCREEN,
+        "test-closer",
+        Box::new(|_, _| Box::new(crate::return_set::Closer)),
+    ))
+}
 
-impl Plugin for TestCloser {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("test-closer"),
-            "Test closer",
-            Version::new(0, 1, 0),
-        )
-        .description("Changes something and closes.")
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
-        r.add_action(
-            ActionSpec::new(Id::new_static("test-closer.go"), "test-closer").handler(|_, _, _| {}),
-        )?;
-        r.add_screen(ScreenSpec::new(
-            CLOSER_SCREEN,
-            "test-closer",
-            Box::new(|_, _| Box::new(crate::return_set::Closer)),
-        ))
-    }
+/// What [`test_closer`] registers under.
+fn test_closer_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("test-closer"),
+        "Test closer",
+        Version::new(0, 1, 0),
+    )
+    .description("Changes something and closes.")
+    .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// The standard app with the test keyboard, over a storage the test keeps.
@@ -295,7 +293,7 @@ impl App {
         Self::at(device, storage, 0, false)
     }
 
-    /// The same with the [`TestCloser`] screen.
+    /// The same with the [`test_closer`] screen.
     pub fn with_closer(device: DeviceInfo, storage: Shared) -> Self {
         CLOSER.with(|closer| closer.set(true));
         Self::at(device, storage, 0, false)
@@ -318,7 +316,7 @@ impl App {
             builder = test_tools(builder);
         }
         if CLOSER.with(std::cell::Cell::take) {
-            builder = builder.plugin(TestCloser);
+            builder = builder.items(test_closer_manifest(), test_closer);
         }
         let mut kernel = crate::native_activation::build_on(builder, card);
         let effects = kernel.start(Instant(now));

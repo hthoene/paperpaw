@@ -12,7 +12,7 @@ struct Panel {
     region: Rect,
 }
 
-impl Screen for Panel {
+impl crate::Layer for Panel {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         let r = self.region;
         canvas.fill_rect(
@@ -35,7 +35,7 @@ impl Screen for Panel {
 
 struct Base;
 
-impl Screen for Base {
+impl crate::Layer for Base {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -48,7 +48,7 @@ impl Screen for Base {
 fn frames_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             BASE,
             "base",
             Box::new(move |_, _| {
@@ -57,7 +57,7 @@ fn frames_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> 
             }),
         ))?;
         r.bind_slot(slots::HOME, BASE, Priority::DEFAULT)?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             PANEL,
             "panel",
             Box::new(|_, params| {
@@ -212,4 +212,52 @@ fn the_full_refresh_interval_may_be_a_books_own() {
         .spec("core.full-refresh-interval")
         .unwrap();
     assert!(spec.scoped);
+}
+
+/// A frame of many bands is drawn in half the passes where the heap has the
+/// room for a taller band and a picture's block after it, passed on in the
+/// pieces of the bands there are, with the same pixels (#267).
+#[test]
+fn a_frame_of_many_bands_is_drawn_in_taller_bands_where_there_is_room() {
+    static LARGEST: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    fn largest() -> Option<paperpaw_sdk::memory::MemoryUse> {
+        let bytes = LARGEST.load(core::sync::atomic::Ordering::Relaxed);
+        Some(paperpaw_sdk::memory::MemoryUse::new(bytes, 256 * 1024).with_largest_free(bytes))
+    }
+    let run = |bytes: u32| {
+        LARGEST.store(bytes, core::sync::atomic::Ordering::Relaxed);
+        let log = log();
+        let mut kernel = Kernel::builder(DEVICE)
+            .items(
+                overlay_plugin_manifest(),
+                overlay_plugin(OverlayPlugin { log: log.clone() }),
+            )
+            .frame_rows(16)
+            .memory(largest)
+            .build()
+            .unwrap();
+        kernel.start(Instant(0));
+        log.borrow_mut().clear();
+        let mut copy = paperpaw_graphics::Framebuffer::new(90, 90, DEVICE.display.format).unwrap();
+        let mut pieces = Vec::new();
+        kernel.render(&mut |top, rows| {
+            pieces.push(rows.height);
+            copy.write_rows(top, rows);
+        });
+        let passes = log
+            .borrow()
+            .iter()
+            .filter(|l| l.starts_with("draw base"))
+            .count();
+        assert_eq!(kernel.framebuffer.rows(), 16, "the band is as it was");
+        (passes, pieces, copy.view().data.to_vec())
+    };
+    let (few, few_pieces, few_pixels) = run(10_000_000);
+    let (many, many_pieces, many_pixels) = run(1_000);
+    assert!(few < many, "{few} passes with room, {many} without");
+    assert_eq!(few_pixels, many_pixels);
+    for pieces in [&few_pieces, &many_pieces] {
+        assert!(pieces.iter().all(|rows| *rows <= 16), "{pieces:?}");
+        assert_eq!(pieces.iter().sum::<u16>(), 90);
+    }
 }

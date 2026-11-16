@@ -123,7 +123,7 @@ impl Kernel {
     /// full screen has), has as the detail of the list on top: where it
     /// says it is one ([`Pane::DETAIL`]), is a full screen, the screen on
     /// top a full screen that is no detail itself, and `area` is wide.
-    pub(crate) fn beside_top(&self, screen: &dyn Screen, pane: Pane, area: Rect) -> Option<Rect> {
+    pub(crate) fn beside_top(&self, screen: &dyn Layer, pane: Pane, area: Rect) -> Option<Rect> {
         if !cfg!(feature = "panes")
             || pane != Pane::DETAIL
             || self.guard().is_some()
@@ -189,7 +189,7 @@ impl Kernel {
     /// Runs `f` with the screen input goes to ([`Kernel::input_index`]).
     pub(crate) fn with_input(
         &mut self,
-        f: impl FnOnce(&mut dyn Screen, &mut Cx<'_, '_>) -> Handled,
+        f: impl FnOnce(&mut dyn Layer, &mut Cx<'_, '_>) -> Handled,
     ) -> Handled {
         match self.input_index() {
             Some(index) => self.with_screen(index, f),

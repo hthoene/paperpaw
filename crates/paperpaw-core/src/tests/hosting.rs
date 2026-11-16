@@ -16,7 +16,7 @@ const LIST: Id = Id::new_static("host.list");
 /// be drawn again on one, and says a word.
 struct Page(Log);
 
-impl Screen for Page {
+impl crate::Layer for Page {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
         let display = env.device().display;
@@ -47,7 +47,7 @@ struct Tabs {
     host: ScreenHost,
 }
 
-impl Screen for Tabs {
+impl crate::Layer for Tabs {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         self.host.draw(canvas, env);
     }
@@ -70,12 +70,14 @@ impl Screen for Tabs {
 fn host_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
-        r.add_screen(ScreenSpec::new(
+        // An old SDK screen, as the host it is shown in can hold only such
+        // (the host goes with it, #244 D6b).
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
             PAGE,
             "page",
-            Box::new(move |_, _| Box::new(Page(log.clone()))),
+            Box::new(move |_, _| Box::new(crate::layer::AsOld(Page(log.clone())))),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             HOST,
             "tabs",
             Box::new(|_, _| {
@@ -85,7 +87,7 @@ fn host_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             }),
         ))?;
         let log = kept.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             LIST,
             "list",
             Box::new(move |_, _| Box::new(Page(log.clone()))),
