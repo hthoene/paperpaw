@@ -120,8 +120,12 @@ jobs:
           PAPERPAW_UCD_TESTS="$dir" PAPERPAW_REQUIRE_UCD=1 cargo test -p paperpaw-text --lib linebreak
 
   # The app's own tests, beside the rest of the workspace's (they were its
-  # second half). The same packages and features as `cargo test --workspace`
-  # gives them: `cargo tree -p paperpaw-app` resolves to the workspace run's features.
+  # second half). With the features `cargo test --workspace` gave them (the
+  # shells and the emulator link the app with the native plugins, the reader and
+  # the store's plugins, outline fonts and bitmap packs): `-p paperpaw-app` alone
+  # has none of them and the tests that open a linked plugin's screen (the quick
+  # panel, the menu) find a placeholder. Compare
+  # `cargo tree --workspace -e features -i paperpaw-app`.
   test-app:
     name: Tests (the app)
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
@@ -137,7 +141,7 @@ jobs:
         with:
           shared-key: check
           save-if: false
-      - run: cargo test --no-fail-fast -p paperpaw-app
+      - run: cargo test --no-fail-fast -p paperpaw-app --features native-linked-reading,native-linked-store,outline,packs
 
   # The feature builds of the tests run beside the workspace run (they were
   # its tail, about 16 minutes after it): the same commands, a job of their own.

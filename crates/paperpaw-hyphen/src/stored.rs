@@ -121,7 +121,7 @@ struct Slot {
 const FILTER_BLOCKS: usize = 512;
 /// Bits kept for each pattern of the filter, and the places a key sets.
 const FILTER_BITS: usize = 8;
-const FILTER_HASHES: u64 = 5;
+const FILTER_HASHES: u32 = 5;
 
 /// Which keys a table may have: a Bloom filter of its patterns. A key it
 /// does not know is no pattern, and the block that would hold it is not read
@@ -158,8 +158,10 @@ impl Filter {
         for &byte in key {
             hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
         }
-        let (first, step) = (hash & 0xffff_ffff, (hash >> 32) | 1);
-        let bits = (bytes * 8) as u64;
+        // 32 bits all through: a 64-bit remainder is a call to a library
+        // function on the S3 (through a register, which the frame scan cannot follow).
+        let (first, step) = (hash as u32, (hash >> 32) as u32 | 1);
+        let bits = (bytes * 8) as u32;
         (0..FILTER_HASHES).map(move |i| {
             let bit = first.wrapping_add(i.wrapping_mul(step)) % bits;
             ((bit / 8) as usize, 1u8 << (bit % 8))
