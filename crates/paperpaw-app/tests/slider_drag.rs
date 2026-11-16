@@ -19,7 +19,7 @@ use native_activation::BuildNative as _;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use paperpaw_core::{Effects, Items, Kernel, Plugin};
+use paperpaw_core::{Effects, Items, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DirEntry, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat,
     Point, PointerEvent, PointerPhase, PointerTool, Rect, RefreshMode, Rotation, Storage,
@@ -66,7 +66,7 @@ static LIGHT_EXTRA: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new
     .step(5)
     .slider();
 
-impl Plugin for Light {
+impl Light {
     fn manifest(&self) -> Manifest {
         Manifest::new(
             paperpaw_sdk::Id::new_static("test"),
@@ -172,7 +172,7 @@ impl App {
                 native_activation::QUIET
             ));
         let mut kernel = paperpaw_app::install(builder, fonts())
-            .plugin(Light)
+            .items(Light.manifest(), |r| Light.register(r))
             .build_native();
         let effects = kernel.start(Instant(0));
         let mut app = Self {

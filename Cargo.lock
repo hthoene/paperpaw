@@ -1812,7 +1812,6 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sample-frame-test",
- "paperpaw-sample-interlinear",
  "paperpaw-sdk",
  "paperpaw-serve",
  "paperpaw-text",
@@ -2480,7 +2479,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-plugin-manager"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2813,16 +2812,6 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-sample-frame-test"
-version = "0.6.0-beta.3"
-dependencies = [
- "paperpaw-app",
- "paperpaw-core",
- "paperpaw-platform",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-sample-interlinear"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-app",
