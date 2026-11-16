@@ -3,9 +3,10 @@
 //! goes on rather than starting over, so pressing again cannot keep the
 //! library from ever finishing.
 
+use crate::Items;
 use alloc::rc::Rc;
 use paperpaw_sdk::event::Event;
-use paperpaw_sdk::{Command, FixedAction, Id, RegisterError, Registrar};
+use paperpaw_sdk::{Command, FixedAction, Id, RegisterError};
 
 use super::{Catalog, catalog_job::CatalogJob};
 
@@ -15,7 +16,7 @@ pub(crate) const LOOK_AGAIN: Id = Id::new_static("core.library.look-again");
 /// What the action's handler (a plain function) passes on to the catalog.
 const LOOK_AGAIN_WANTED: Event<()> = Event::new("core.library-look-again-wanted");
 
-pub(super) fn register(r: &mut Registrar, catalog: &Rc<Catalog>) -> Result<(), RegisterError> {
+pub(super) fn register(r: &mut Items, catalog: &Rc<Catalog>) -> Result<(), RegisterError> {
     static ACTION: [FixedAction; 1] = [FixedAction::new(LOOK_AGAIN, "core.library.look-again")
         .handler(|_, _, out| out.push(LOOK_AGAIN_WANTED.emit(())))];
     static ICON: [(Id, &str); 1] = [(LOOK_AGAIN, "refresh")];
