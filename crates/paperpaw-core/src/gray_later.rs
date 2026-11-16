@@ -15,6 +15,8 @@ use crate::Kernel;
 
 /// How long nothing may happen before the gray pass: no key, no other frame.
 const CALM_MS: u64 = 3_000;
+/// Where the pass is due but a frame waits: when the kernel is called again.
+const RETRY_MS: u64 = 250;
 
 /// Where a screen's gray pass stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -223,17 +225,19 @@ impl Kernel {
         let gray = self.frame.gray_later;
         match gray.phase {
             Phase::Asked if refreshing => Some(self.now),
-            // Not while another frame waits (the step cannot start the pass
-            // then, and a time in the past would wake the shell at once, again
-            // and again); that frame's own wake and refresh bring the call.
-            Phase::At(at)
-                if self.gray_screen() == Some(gray.screen)
-                    && (at > self.now
-                        || (self.frame.pending.is_none()
-                            && self.frame.unrendered.is_none()
-                            && self.frame.deferred.is_none())) =>
-            {
-                Some(at)
+            // Due but another frame waits (the step cannot start the pass
+            // then): a short retry, not the time past (the shell would be
+            // woken at once, again and again), and not nothing (no call
+            // might come to bring the grays after a plain frame).
+            Phase::At(at) if self.gray_screen() == Some(gray.screen) => {
+                let blocked = self.frame.pending.is_some()
+                    || self.frame.unrendered.is_some()
+                    || self.frame.deferred.is_some();
+                Some(if at <= self.now && blocked {
+                    self.now.add_millis(RETRY_MS)
+                } else {
+                    at
+                })
             }
             _ => None,
         }

@@ -319,3 +319,19 @@ fn a_book_page_keeps_its_grays_at_once() {
     let effects = kernel.tick(Instant(9_000));
     assert!(effects.refresh().is_none() && effects.wake_at().is_none());
 }
+
+#[test]
+fn a_pass_due_in_a_call_that_makes_a_frame_comes_within_the_retry_with_no_event() {
+    let (mut kernel, _) = comes_up_in_grays(PixelFormat::Mono1, true, "");
+    render(&mut kernel);
+    assert_eq!(kernel.tick(Instant(100)).wake_at(), Some(Instant(3_100)));
+    // The calm is over in a call that itself draws a part of the screen.
+    kernel.invalidate(Rect::new(0, 0, 8, 8));
+    let effects = kernel.tick(Instant(3_100));
+    assert!(!effects.grays() && effects.refresh().is_some());
+    render(&mut kernel);
+    let wake = effects.wake_at().expect("a call is asked for");
+    assert!(wake.0 > 3_100 && wake.0 <= 3_100 + 250, "{wake:?}");
+    let effects = kernel.tick(wake);
+    assert!(effects.refresh().is_some() && effects.grays());
+}
