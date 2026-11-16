@@ -92,7 +92,6 @@ members = [
     "plugins/setup",
     "plugins/update",
     "plugins/widgets",
-    "samples/hello-plugin",
     "samples/frame-test",
     "samples/interlinear",
     "plugins/news",

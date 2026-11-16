@@ -45,5 +45,16 @@ class PluginMetadataIsFresh(unittest.TestCase):
                                  f'{inspected.name} is stale: regenerate it')
 
 
+class TemplateMetadataIsFresh(unittest.TestCase):
+    def test_the_dev_tools_code_template_has_the_bytes_of_its_input(self):
+        """`paperpaw-dev new --code` writes both files into a new plugin."""
+        schema = GEN.load(ROOT / 'abi/abi.def')
+        GEN.validate(schema)
+        source = ROOT / 'tools/dev/templates/code/metadata.json'
+        self.assertEqual(source.with_name('metadata.bin').read_bytes(),
+                         encode(schema, GEN.load(source)),
+                         'metadata.bin is stale: regenerate it with tools/abi-metadata.py')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -12,7 +12,7 @@
 //! the kind is told from the bytes, never from the name ([`classify`]).
 //! A library with `PAPERPAW_METADATA` is interface 7 and goes on, its bytes
 //! checked before anything of it can run (the strict freestanding rule of
-//! `check_freestanding` with `PLUGIN_EXPORTS`, the metadata, the entry), then
+//! `check_freestanding`: the entry symbols and the heap word, the metadata, the entry), then
 //! `PinnedPlugin::open` with the **folder's** id (never one the library
 //! gives), `HostOwner::begin(id)`, `make` with its registrations staged, and
 //! `commit`. One with `PAPERPAW_API` is interface 6 and is left to the
@@ -251,6 +251,7 @@ fn host_library<M: 'static>(
         library,
         make,
         image,
+        heap,
     } = unsafe {
         checked_library(
             &copy,
@@ -258,6 +259,7 @@ fn host_library<M: 'static>(
             &table,
             offer.map_or(crate::device_host::offered_services(), |o| o.services),
             offer.map_or(crate::native_runtime::WIRED_FEATURES, |o| o.features),
+            true,
         )
     }
     .map_err(|why| {
@@ -265,6 +267,16 @@ fn host_library<M: 'static>(
         let _ = std::fs::remove_file(&copy);
         Refusal::Runtime(why)
     })?;
+    // The plugin's heap: the kernel's table for this shell, before `make`.
+    if let Some(word) = heap {
+        let table = shared_shell::handed_heap::<DesktopServices>();
+        // SAFETY: the checked library's own word; it is loaded and has not run.
+        if let Err(why) = unsafe { crate::native_runtime::fill_heap_word(word, table) } {
+            drop(library);
+            let _ = std::fs::remove_file(&copy);
+            return Err(Refusal::Runtime(why));
+        }
+    }
     // SAFETY: the checked module owns the executable entry and read-only image.
     let plugin = unsafe {
         shared_shell::Hosted::new(
