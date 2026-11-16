@@ -28,10 +28,12 @@ const BOOK: &str = "books/alice-in-wonderland.epub";
 /// 1,349 and 712.
 const KEPT_ALL_SLOTS: u32 = 560;
 const KEPT_SETTINGS: u32 = 60;
-/// The step after the return, where the library announces a cover that became
-/// ready and Home draws that cell only (355 slots measured; a full draw is
-/// 520 and more, a laid-out page over 1,300).
-const COVER_READY_SLOTS: u32 = 400;
+/// The one step "a cover became ready" after the return: the library announces
+/// the card's cover and Home draws that cell, 0.5 to 1.5 s after the first frame
+/// (356 slots, 9 settings reads measured with the black-and-white first frame
+/// of #1569; nothing else happens up to 7 s). The return itself is
+/// `KEPT_ALL_SLOTS`; a laid-out page costs over 1,300.
+const COVER_READY_SLOTS: u32 = 360;
 /// A full redraw (five bands) of a page whose look is kept: slots, settings reads
 /// (622 and 270 before the look was kept; 330 and about 12 measured).
 const STEADY_SLOTS: u32 = 370;
