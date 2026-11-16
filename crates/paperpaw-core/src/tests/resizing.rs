@@ -3,6 +3,7 @@
 //! than a screen's revision never called on it, also through a host.
 
 use super::*;
+use crate::Items;
 use paperpaw_sdk::Pane;
 use paperpaw_sdk::host::ScreenHost;
 use paperpaw_sdk::{Params, SCREEN_REVISION};
@@ -116,14 +117,9 @@ struct FitPlugin {
     home: Id,
 }
 
-impl Plugin for FitPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("fit"), "Fit", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let (log, build) = (self.log.clone(), self.build);
+fn fit_plugin(kept: FitPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let (log, build) = (kept.log.clone(), kept.build);
         r.add_screen(ScreenSpec::new(
             FIT,
             "fit",
@@ -146,8 +142,14 @@ impl Plugin for FitPlugin {
                 })
             }),
         ))?;
-        r.bind_slot(slots::HOME, self.home.clone(), Priority::DEFAULT)
+        r.bind_slot(slots::HOME, kept.home.clone(), Priority::DEFAULT)
     }
+}
+
+/// What [`fit_plugin`] registers under.
+fn fit_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("fit"), "Fit", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 fn fit_kernel(log: &Log, revision: u16, takes: bool, home: Id) -> Kernel {
@@ -159,7 +161,7 @@ fn fit_kernel(log: &Log, revision: u16, takes: bool, home: Id) -> Kernel {
     };
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(NoticePlugin { log: super::log() })
-        .plugin(plugin)
+        .items(fit_plugin_manifest(), fit_plugin(plugin))
         .build()
         .unwrap();
     kernel.start(Instant(0));

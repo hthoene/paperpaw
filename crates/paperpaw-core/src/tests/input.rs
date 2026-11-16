@@ -2,6 +2,7 @@
 //! long presses, fingers resting together, the edges.
 
 use super::*;
+use crate::Items;
 
 /// A button going down or up at `at`.
 fn button(kernel: &mut Kernel, at: u64, name: &'static str, state: ButtonState) {
@@ -210,9 +211,6 @@ fn two_fingers_resting_wake_the_shell_no_more() {
     assert!(nothing_held(&kernel));
 }
 
-/// A home screen that notes the gestures and actions it gets.
-struct GesturePlugin(Log);
-
 struct GestureScreen(Log);
 
 impl Screen for GestureScreen {
@@ -231,14 +229,10 @@ impl Screen for GestureScreen {
     }
 }
 
-impl Plugin for GesturePlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("g"), "Gestures", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
+/// A home screen that notes the gestures and actions it gets.
+fn gesture_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
         r.add_screen(ScreenSpec::new(
             Id::new_static("g.screen"),
             "g",
@@ -257,11 +251,17 @@ edge.right = core.back
     }
 }
 
+/// What [`gesture_plugin`] registers under.
+fn gesture_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("g"), "Gestures", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn a_finger_held_at_an_edge_is_a_long_press() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(GesturePlugin(log.clone()))
+        .items(gesture_plugin_manifest(), gesture_plugin(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -302,7 +302,7 @@ fn a_finger_held_at_an_edge_is_a_long_press() {
 fn a_thumb_resting_at_an_edge_leaves_long_presses_elsewhere() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(GesturePlugin(log.clone()))
+        .items(gesture_plugin_manifest(), gesture_plugin(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));

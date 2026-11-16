@@ -5,6 +5,7 @@
 use core::time::Duration;
 
 use super::*;
+use crate::Items;
 use paperpaw_sdk::Params;
 use paperpaw_sdk::realtime::{KeyEvent, ScreenMode};
 
@@ -14,14 +15,9 @@ struct Game {
     mode: ScreenMode,
 }
 
-impl Plugin for Game {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("game"), "Game", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.log.clone();
+fn game_items(kept: Game) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.log.clone();
         r.add_screen(ScreenSpec::new(
             Id::new_static("game.page"),
             "page",
@@ -33,7 +29,7 @@ impl Plugin for Game {
             }),
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("game.page"), Priority::DEFAULT)?;
-        let (log, mode) = (self.log.clone(), self.mode);
+        let (log, mode) = (kept.log.clone(), kept.mode);
         r.add_screen(ScreenSpec::new(
             Id::new_static("game.play"),
             "play",
@@ -47,6 +43,12 @@ impl Plugin for Game {
             }),
         ))
     }
+}
+
+/// What [`game_items`] registers under.
+fn game_manifest() -> Manifest {
+    Manifest::new(Id::new_static("game"), "Game", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// The game: takes every key but *Menu*, says what it got and which
@@ -90,10 +92,13 @@ impl Screen for Play {
 
 fn kernel(builder: crate::KernelBuilder, mode: ScreenMode, log: &Log) -> Kernel {
     let mut kernel = builder
-        .plugin(Game {
-            log: log.clone(),
-            mode,
-        })
+        .items(
+            game_manifest(),
+            game_items(Game {
+                log: log.clone(),
+                mode,
+            }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -297,10 +302,13 @@ fn leased(asked: u32, free: u32, log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
         .memory(probe)
         .frame_rows(30)
-        .plugin(Game {
-            log: log.clone(),
-            mode: ScreenMode::new().raw_keys().memory(asked),
-        })
+        .items(
+            game_manifest(),
+            game_items(Game {
+                log: log.clone(),
+                mode: ScreenMode::new().raw_keys().memory(asked),
+            }),
+        )
         .plugin(TestPlugin::new("b", log))
         .build()
         .unwrap();
@@ -409,10 +417,13 @@ fn room_closures_reserve_restore_keys_and_refuse_when_none_remain() {
         let log = log();
         let mut kernel = Kernel::builder(DEVICE)
             .memory(|| Some(paperpaw_sdk::memory::MemoryUse::new(1000, 256 * 1024)))
-            .plugin(Game {
-                log: log.clone(),
-                mode: ScreenMode::new().memory(64_000),
-            })
+            .items(
+                game_manifest(),
+                game_items(Game {
+                    log: log.clone(),
+                    mode: ScreenMode::new().memory(64_000),
+                }),
+            )
             .plugin(TestPlugin::new("b", &log))
             .build()
             .unwrap();
@@ -507,22 +518,21 @@ fn squeeze_probe() -> Option<paperpaw_sdk::memory::MemoryUse> {
 
 /// A screen that lets go of 60 KB when squeezed, and makes it again as it
 /// shows.
-struct Squeezer(Log);
-
-impl Plugin for Squeezer {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("sq"), "Squeezer", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
+fn squeezer(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
         r.add_screen(ScreenSpec::new(
             Id::new_static("sq.screen"),
             "squeezer",
             Box::new(move |_, _| Box::new(SqueezerScreen(log.clone()))),
         ))
     }
+}
+
+/// What [`squeezer`] registers under.
+fn squeezer_manifest() -> Manifest {
+    Manifest::new(Id::new_static("sq"), "Squeezer", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 struct SqueezerScreen(Log);
@@ -559,11 +569,14 @@ fn screens_below_are_squeezed_before_they_close() {
     SQUEEZE_FREE.store(1000, core::sync::atomic::Ordering::Relaxed);
     let mut kernel = Kernel::builder(DEVICE)
         .memory(squeeze_probe)
-        .plugin(Game {
-            log: log.clone(),
-            mode: ScreenMode::new().raw_keys().memory(48_000),
-        })
-        .plugin(Squeezer(log.clone()))
+        .items(
+            game_manifest(),
+            game_items(Game {
+                log: log.clone(),
+                mode: ScreenMode::new().raw_keys().memory(48_000),
+            }),
+        )
+        .items(squeezer_manifest(), squeezer(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -588,21 +601,20 @@ fn screens_below_are_squeezed_before_they_close() {
 
 /// A screen that holds the device awake for five minutes when *up* is
 /// pressed, and lets go when *down* is.
-struct Holder;
-
-impl Plugin for Holder {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("holder"), "Holder", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn holder_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_screen(ScreenSpec::new(
             Id::new_static("holder.screen"),
             "holder",
             Box::new(|_, _| Box::new(HolderScreen)),
         ))
     }
+}
+
+/// What [`holder_items`] registers under.
+fn holder_manifest() -> Manifest {
+    Manifest::new(Id::new_static("holder"), "Holder", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 struct HolderScreen;
@@ -636,7 +648,7 @@ fn holding(config: &'static str) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
         .user_config(config)
         .sleep(true)
-        .plugin(Holder)
+        .items(holder_manifest(), holder_items())
         .plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();

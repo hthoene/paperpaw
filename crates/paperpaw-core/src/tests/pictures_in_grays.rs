@@ -2,6 +2,7 @@
 //! when, and when not (a screen that says no, a refresh set exactly).
 
 use super::*;
+use crate::Items;
 
 /// A home screen with a picture over most of it, which may be shown in
 /// grays or says no.
@@ -32,14 +33,9 @@ impl Screen for CoverScreen {
     }
 }
 
-impl Plugin for CoverPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("cover"), "Cover", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let in_grays = self.in_grays;
+fn cover_plugin(kept: CoverPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let in_grays = kept.in_grays;
         r.add_screen(ScreenSpec::new(
             Id::new_static("cover.page"),
             "page",
@@ -47,6 +43,12 @@ impl Plugin for CoverPlugin {
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("cover.page"), Priority::DEFAULT)
     }
+}
+
+/// What [`cover_plugin`] registers under.
+fn cover_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("cover"), "Cover", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// A kernel showing [`CoverScreen`] on `format`, with `config`; whether
@@ -63,7 +65,10 @@ fn comes_up_in_grays(format: PixelFormat, in_grays: bool, config: &str) -> (Kern
     let device = DEVICE.with_display(DEVICE.display.with_format(format));
     let mut kernel = Kernel::builder(device)
         .storage(storage)
-        .plugin(CoverPlugin { in_grays })
+        .items(
+            cover_plugin_manifest(),
+            cover_plugin(CoverPlugin { in_grays }),
+        )
         .build()
         .unwrap();
     let effects = kernel.start(Instant(0));

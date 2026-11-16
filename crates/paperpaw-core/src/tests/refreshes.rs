@@ -3,6 +3,7 @@
 //! mode when it opens.
 
 use super::*;
+use crate::Items;
 use paperpaw_sdk::Params;
 use paperpaw_sdk::filters::{Refresh, RefreshCause, RefreshFilterSpec, RefreshVerdict};
 
@@ -68,15 +69,8 @@ impl Screen for Page {
     }
 }
 
-struct Refreshing(Seen);
-
-impl Plugin for Refreshing {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("r"), "Refreshing", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn refreshing_items(kept: Seen) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         r.add_screen(ScreenSpec::new(
             PAGE,
             "page",
@@ -98,7 +92,7 @@ impl Plugin for Refreshing {
         ))?;
         r.bind_slot(slots::HOME, PAGE, Priority::DEFAULT)?;
         r.bind_slot(slots::READER, READING, Priority::DEFAULT)?;
-        let seen = self.0.clone();
+        let seen = kept.clone();
         r.add_refresh_filter(RefreshFilterSpec::new(
             Id::new_static("r.filter"),
             "",
@@ -116,10 +110,16 @@ impl Plugin for Refreshing {
     }
 }
 
+/// What [`refreshing_items`] registers under.
+fn refreshing_manifest() -> Manifest {
+    Manifest::new(Id::new_static("r"), "Refreshing", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn refreshing() -> (Kernel, Seen) {
     let seen = Seen::default();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Refreshing(seen.clone()))
+        .items(refreshing_manifest(), refreshing_items(seen.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -272,16 +272,9 @@ fn a_screen_opened_is_never_deferred() {
 }
 
 /// Counts the refreshes it sees.
-struct Spy(Rc<core::cell::Cell<u32>>);
-
-impl Plugin for Spy {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("spy"), "Spy", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let seen = self.0.clone();
+fn spy(kept: Rc<core::cell::Cell<u32>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let seen = kept.clone();
         r.add_refresh_filter(RefreshFilterSpec::new(
             Id::new_static("spy.refresh"),
             "",
@@ -293,6 +286,12 @@ impl Plugin for Spy {
     }
 }
 
+/// What [`spy`] registers under.
+fn spy_manifest() -> Manifest {
+    Manifest::new(Id::new_static("spy"), "Spy", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// While a screen guards the device, another plugin's refresh filters see
 /// no refresh, and presses are not counted: neither tells how long a code
 /// typed is.
@@ -300,8 +299,8 @@ impl Plugin for Spy {
 fn nothing_counts_what_is_typed_into_a_guard() {
     let seen = Rc::new(core::cell::Cell::new(0));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Refreshing(Seen::default()))
-        .plugin(Spy(seen.clone()))
+        .items(refreshing_manifest(), refreshing_items(Seen::default()))
+        .items(spy_manifest(), spy(seen.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -316,8 +315,6 @@ fn nothing_counts_what_is_typed_into_a_guard() {
     assert_eq!(kernel.shared.usage.inputs, inputs);
 }
 
-/// A valid home screen that draws only an overlay, as a plugin may do.
-struct OverlayHome;
 struct OverlayHomeScreen;
 
 impl Screen for OverlayHomeScreen {
@@ -334,13 +331,9 @@ impl Screen for OverlayHomeScreen {
     }
 }
 
-impl Plugin for OverlayHome {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("initial"), "Initial", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+/// A valid home screen that draws only an overlay, as a plugin may do.
+fn overlay_home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         const HOME: Id = Id::new_static("initial.home");
         r.add_screen(ScreenSpec::new(
             HOME,
@@ -355,10 +348,16 @@ impl Plugin for OverlayHome {
     }
 }
 
+/// What [`overlay_home`] registers under.
+fn overlay_home_manifest() -> Manifest {
+    Manifest::new(Id::new_static("initial"), "Initial", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn startup_overlay_replaces_every_row_and_preserves_start_effects() {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayHome)
+        .items(overlay_home_manifest(), overlay_home())
         .sleep(true)
         .frame_rows(10)
         .build()
