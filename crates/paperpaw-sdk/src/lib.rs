@@ -77,7 +77,22 @@ mod ask;
 pub mod bluetooth;
 #[cfg(not(any(test, feature = "kernel")))]
 mod bluetooth;
+// facade: builtin (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod builtin;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "builtin/mod.rs"]
+mod builtin_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod builtin {
+    pub(crate) use crate::builtin_old::*;
+    pub use crate::builtin_old::{
+        CONFIG_FILE, group_sections, groups, menus, params, settings, slots,
+    };
+}
+// end of facade: builtin
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod chrome;
@@ -142,7 +157,19 @@ mod float_text;
 mod fonts;
 mod formats;
 mod gesture;
+// facade: help (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod help;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "help.rs"]
+mod help_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod help {
+    pub(crate) use crate::help_old::*;
+}
+// end of facade: help
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod host;
@@ -156,7 +183,22 @@ pub use screen::ScreenMaker;
 mod hyphenation;
 pub mod icons;
 mod id;
+// facade: install (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod install;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "install/mod.rs"]
+mod install_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod install {
+    pub(crate) use crate::install_old::*;
+    pub use crate::install_old::{
+        Digest, MAX_FILES, Package, PackageFile, is_plugin_name, is_safe_path,
+    };
+}
+// end of facade: install
 pub mod keys;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
@@ -177,7 +219,19 @@ pub mod library {
     pub use crate::library_old::{Fingerprint, kept_path};
 }
 // end of facade: library
+// facade: logo (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod logo;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "logo.rs"]
+mod logo_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod logo {
+    pub(crate) use crate::logo_old::*;
+}
+// end of facade: logo
 // facade: lookup (#244, D0)
 #[cfg(any(test, feature = "kernel"))]
 pub mod lookup;
@@ -292,7 +346,23 @@ pub mod status {
     pub(crate) use crate::status_old::*;
 }
 // end of facade: status
+// facade: time (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod time;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "time.rs"]
+mod time_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod time {
+    pub(crate) use crate::time_old::*;
+    pub use crate::time_old::{
+        CLOCK_12H, LocalTime, TIME_ZONES, TimeZone, UnixTime, civil_from_days, day_of_year,
+        days_from_civil, days_in_month, days_in_year, iso_week, weekday, weekday_of,
+    };
+}
+// end of facade: time
 // facade: ui (#244, D0)
 #[cfg(any(test, feature = "kernel"))]
 pub mod ui;
