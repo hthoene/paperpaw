@@ -61,7 +61,7 @@ native-on = ["ppn5", "paperpaw-app/native-linked", "paperpaw-app/native-linked-r
 # #2462, the high-water log every 30 s (`src/high_water.rs`). Never in a
 # release: `release` refuses it at compile time and
 # `tools/checks/tests/test_image_guard.rs` (CI) refuses it in the shipped lists.
-test-image = ["native-on"]
+test-image = ["native-on", "paperpaw-core/slot-names"]
 # Closes the nested-callback stack gate on the small class again (#250: the X4
 # measured it open; the X3 builds with this until it is measured).
 x4-gate-closed = ["paperpaw-core/x4-gate-closed"]

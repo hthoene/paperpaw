@@ -54,7 +54,8 @@ static STAT: Mutex<RefCell<Stat>> = Mutex::new(RefCell::new(Stat {
 
 /// A host slot begins (the hook of `host_slot::set`).
 pub fn begin() {
-    let site = paperpaw_core::native_host::host_slot::last_site();
+    let site = paperpaw_core::native_host::host_slot::last_site()
+        | (u32::from(paperpaw_core::native_host::host_slot::last_id()) << 24);
     let t = crate::micros();
     critical_section::with(|cs| {
         let mut s = STAT.borrow_ref_mut(cs);
@@ -111,7 +112,7 @@ pub fn card(write: bool, blocks: u32, micros: u64) {
     critical_section::with(|cs| {
         let mut s = STAT.borrow_ref_mut(cs);
         let site = if s.depth > 0 && s.depth <= DEPTH {
-            s.stack[s.depth - 1].0
+            s.stack[s.depth - 1].0 & 0xFF_FFFF
         } else {
             1
         };
@@ -194,8 +195,9 @@ pub fn report(what: &str) {
         let Some(b) = best else { break };
         used[b] = true;
         log::info!(
-            "hoststat {what}: site {} x{} {} ms",
-            rows[b].0,
+            "hoststat {what}: site {} {} x{} {} ms",
+            rows[b].0 & 0xFF_FFFF,
+            paperpaw_core::native_host::host_slot::name_of((rows[b].0 >> 24) as u8),
             rows[b].1,
             rows[b].2 / 1000
         );
