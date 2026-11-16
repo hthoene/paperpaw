@@ -11,7 +11,7 @@
 
 use std::sync::Mutex;
 
-use paperpaw_core::{Items, KernelBuilder, Plugin};
+use paperpaw_core::{Items, KernelBuilder};
 use paperpaw_dev::cli::Context;
 use paperpaw_dev::perf;
 use paperpaw_dev::report::{Level, Report};
@@ -84,7 +84,7 @@ impl Widget for ReadsWidget {
 
 struct Probe;
 
-impl Plugin for Probe {
+impl Probe {
     fn manifest(&self) -> Manifest {
         Manifest::new(Id::new_static("perf-probe"), "Perf probe", SDK_VERSION)
             .description("Screens that break the X4's budgets.")
@@ -119,7 +119,7 @@ impl Plugin for Probe {
 }
 
 fn add(builder: KernelBuilder) -> KernelBuilder {
-    builder.plugin(Probe)
+    builder.items(Probe.manifest(), |r| Probe.register(r))
 }
 
 #[test]
