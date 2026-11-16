@@ -60,6 +60,8 @@ use core::cell::RefCell;
 use crate::Items;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::FontFace;
+#[cfg(test)]
+use paperpaw_sdk::Registrar;
 use paperpaw_sdk::presets::Preset;
 use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 
@@ -358,7 +360,7 @@ impl DataPlugin {
         if let Some(source) = self.read_later("marks.ini") {
             let marks = paperpaw_sdk::decorations::MarkRules::parse(&self.manifest.id, &source)?;
             for (role, title, look) in marks.roles {
-                paperpaw_sdk::decorations::add_role(r.old(), &role, title, look)?;
+                paperpaw_sdk::decorations::add_role(r, &role, title, look)?;
             }
             if !marks.decorator.is_empty() {
                 let id = Id::parse(&format!("{}.marks", self.manifest.id)).map_err(|_| {
@@ -1203,10 +1205,9 @@ version = 1.0.0-gamma
         let dirs = [String::from("fonts"), String::from("other")];
         let folder = font_folder(storage.as_ref(), &dirs).unwrap();
         assert!(folder.fonts.borrow().is_empty());
-        let mut r = Items::new(Id::new_static("font-folder"));
+        let mut r = Registrar::new(Id::new_static("font-folder"));
         folder.register(&mut r).unwrap();
         let faces: Vec<(String, String, bool, bool)> = r
-            .old()
             .contributions()
             .iter()
             .filter_map(|c| match c {
@@ -1476,10 +1477,9 @@ core.font-ui = x.semi
         let later = plugin.later.borrow().clone();
         assert_eq!(later, ["plugins/new/points/core.about.txt"], "too large");
         assert_eq!(plugin.take_problems().len(), 1);
-        let mut r = Items::new(Id::new_static("new"));
+        let mut r = Registrar::new(Id::new_static("new"));
         plugin.register(&mut r).unwrap();
         let lines = r
-            .old()
             .contributions()
             .iter()
             .filter(|c| c.kind() == "to-point")

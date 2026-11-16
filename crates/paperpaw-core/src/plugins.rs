@@ -86,24 +86,20 @@ impl Kernel {
 
     /// An old [`Plugin`] added as the rest is ([`Kernel::add_items`]).
     pub(crate) fn add_plugin(&mut self, plugin: &dyn Plugin, disabled: &[String]) {
-        self.add_items(
-            plugin.manifest(),
-            &|items| plugin.register(items.old()),
-            disabled,
-        );
+        self.add_items(plugin.manifest(), &|items| plugin.register(items), disabled);
     }
 
     /// An old [`Plugin`] registered as the rest is ([`Kernel::register_items`]):
     /// what old fixtures call; goes with the trait.
     #[cfg(test)]
     pub(crate) fn register_plugin(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
-        self.register_items(manifest, &|items| plugin.register(items.old()));
+        self.register_items(manifest, &|items| plugin.register(items));
     }
 
     /// An old [`Plugin`] listed as off ([`Kernel::list_off`]); as above.
     #[cfg(test)]
     pub(crate) fn register_off(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
-        self.list_off(manifest, &|items| plugin.register(items.old()));
+        self.list_off(manifest, &|items| plugin.register(items));
     }
 
     pub(crate) fn register_items(&mut self, manifest: Manifest, adds: Adds<'_>) {
@@ -1174,7 +1170,7 @@ impl Kernel {
         let version = plugin.manifest().version;
         // Registered aside first (its translations, key map, settings): one
         // that would fail leaves the version before in place.
-        let mut registrar = Items::new(id.clone());
+        let mut registrar = Registrar::new(id.clone());
         let staged = plugin.register(&mut registrar).and_then(|()| {
             registry::stage(id, registrar.into_contributions(), &mut Staging::default())
         });
