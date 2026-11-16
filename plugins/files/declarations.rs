@@ -187,6 +187,8 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
         (10, SORT),
         (11, VIEW),
         (21, "files.search"),
+        // The kernel's action: the catalog made anew (`LOOK_AGAIN`, #277).
+        (25, "core.library.look-again"),
         (30, "files.shelves"),
         (80, "core.library-folder"),
         (90, "core.settings"),

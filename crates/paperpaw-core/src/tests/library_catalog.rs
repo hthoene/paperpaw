@@ -918,3 +918,22 @@ fn the_walks_hour_is_not_restarted_by_a_sleep_put_off_for_speech() {
         .expect("slept after the speech, not an hour later");
     assert!(minute <= 72, "slept at minute {minute}");
 }
+
+/// *Look for new books* (#277): the kernel's action walks the library
+/// again, though it was walked since the start, and finds a book copied
+/// meanwhile.
+#[test]
+fn looking_for_new_books_walks_the_library_again() {
+    let (mut kernel, log, now) = library(two_books());
+    let now = want(&mut kernel, now, false);
+    assert_eq!(log.borrow().len(), 1);
+    kernel.storage().write("books/c.txt", b"three").unwrap();
+    let look = Id::new_static("core.library.look-again");
+    let effects = kernel.run_action(Instant(now), look);
+    run(&mut kernel, now, effects);
+    assert_eq!(
+        paths(&kernel),
+        ["books/a.txt", "books/b.txt", "books/c.txt"]
+    );
+    assert_eq!(log.borrow().len(), 2);
+}
