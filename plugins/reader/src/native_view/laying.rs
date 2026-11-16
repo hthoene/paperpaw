@@ -40,6 +40,42 @@ impl Open {
         page.and_then(|page| released.map(|()| page))
     }
 
+    /// The page's last word, where the layout broke it at the page's end, made
+    /// whole with the first word of the next page: laid out for it, only when a
+    /// word is being chosen or the touch is on that word (a page turn does not
+    /// lay the next page out twice). A refusal leaves the word as it is.
+    pub(super) fn complete_end(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        setup: &Setup,
+        input: &Input<'_>,
+    ) {
+        let Some(page) = self.page.as_ref() else {
+            return;
+        };
+        let wanted = match *input {
+            Input::Action { action, .. } => {
+                action == crate::native_marking::SELECT || self.marking.chosen()
+            }
+            Input::Gesture { position, .. } => self.words.last().is_some_and(|word| {
+                native_wordbox::word_at(core::slice::from_ref(word), position.x, position.y)
+                    .is_some()
+            }),
+            _ => false,
+        };
+        if !wanted || !native_wordbox::ends_open(&self.words, page) {
+            return;
+        }
+        let end = page.end;
+        let Ok((next, _)) = self.lay_flagged(host, docs, setup, (end.section, end.offset)) else {
+            return;
+        };
+        if let Ok(Some((rest, at))) = native_wordbox::first_word(&next) {
+            native_wordbox::join_open_end(&mut self.words, &rest, at).ok();
+        }
+    }
+
     pub(super) fn lay_with(
         &self,
         host: &Host<'_>,
@@ -57,7 +93,30 @@ impl Open {
                 &self.language,
                 setup.reading.scripts,
             ));
-        let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces);
+        // Words broken at the end of a line where the setting is on: the places
+        // are the host's table for the book's language, kept for the words met.
+        let (on, left, right) = setup.reading.hyphens;
+        let breaks = if on {
+            self.settings.breaks()
+        } else {
+            Breaks::default()
+        };
+        let hyphenate = |word: &str, out: &mut dyn FnMut(usize)| {
+            let (left, right) = (u32::from(left), u32::from(right));
+            let ask = |word: &str, places: &mut [u8]| {
+                paperpaw_sdk::native::text::hyphenate(
+                    host,
+                    &self.language,
+                    word,
+                    left,
+                    right,
+                    places,
+                )
+            };
+            breaks.places(&ask, &self.language, (left, right), word, out);
+        };
+        let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces)
+            .hyphenate(on.then_some(&hyphenate as Hyphenate<'_>));
         layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
             match document_error_kind(&error) {
                 Some(kind) => kind,
