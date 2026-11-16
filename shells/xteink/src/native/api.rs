@@ -1,22 +1,8 @@
 //! What the release reads from the image about the plugins it runs
-//! ([`EXPORTED_ABI`]), the revisions of the shared functions the remote
-//! control describes, and where the SDK's allocations with a placement come
+//! ([`EXPORTED_ABI`]) and where the SDK's allocations with a placement come
 //! ([`alloc_in`]).
 
 use core::alloc::Layout;
-
-/// The revisions of the families of shared functions this firmware has,
-/// and the oldest whose plugins it still runs, for the remote control's
-/// description: the RISC-V chips (X4, X3) share, the X4 Pro's plugins carry
-/// their own copies.
-#[cfg(all(feature = "remote", feature = "esp32c3"))]
-pub(crate) const SHARED_REVISIONS: paperpaw_table::Revisions = paperpaw_table::REVISIONS;
-#[cfg(all(feature = "remote", feature = "esp32c3"))]
-pub(crate) const SHARED_OLDEST: paperpaw_table::Revisions = paperpaw_table::OLDEST;
-#[cfg(all(feature = "remote", feature = "esp32s3"))]
-pub(crate) const SHARED_REVISIONS: paperpaw_table::Revisions = [0; paperpaw_table::FAMILIES];
-#[cfg(all(feature = "remote", feature = "esp32s3"))]
-pub(crate) const SHARED_OLDEST: paperpaw_table::Revisions = [0; paperpaw_table::FAMILIES];
 
 /// What the release writes into its `-abi.txt` (`paperpaw-sign abi`), under a
 /// name of its own in the ELF file: the record's version (2), the plugin

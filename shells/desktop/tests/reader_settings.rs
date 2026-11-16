@@ -311,3 +311,81 @@ fn stretched_lines_of_a_boox_reach_the_margin() {
         }
     }
 }
+
+/// `card` with the English hyphenation pack installed (as the firmware seeds
+/// it: the stdio emulator does not).
+fn with_english_pack(card: &Path) {
+    for (path, bytes) in paperpaw_default_packs::english() {
+        let target = card
+            .join("plugins")
+            .join(paperpaw_default_packs::HYPHENATION)
+            .join(path);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(target, bytes).unwrap();
+    }
+}
+
+/// `card` with the German hyphenation pack installed (as the store puts it).
+fn with_german_pack(card: &Path) {
+    let german = paperpaw_hyphenation_packs::PACKAGES
+        .iter()
+        .find(|package| package.id == "hyphenation-de")
+        .unwrap();
+    let plugins = card.join("plugins");
+    fs::create_dir_all(&plugins).unwrap();
+    paperpaw_hyphenation_packs::build(&root(), &plugins, german).unwrap();
+}
+
+/// The page of `book` after `turned` turns, justified (the gaps show a break),
+/// with the hyphenation `on` or off keeping `left` and `right` letters at least
+/// (0: the table's own), the German pack on the card or not.
+fn broken(book: &str, german: bool, (on, left, right): (bool, u32, u32), turned: usize) -> Vec<u8> {
+    let ini = format!(
+        "[core]\nfont-size = 12\njustify = on\nhyphenate = {}\n\
+         hyphen-min-left = {left}\nhyphen-min-right = {right}\n",
+        if on { "on" } else { "off" }
+    );
+    let name = format!(
+        "hyphens-{:?}-{on}-{left}-{right}",
+        std::thread::current().id()
+    );
+    let card = card(&name, book, &ini);
+    with_english_pack(&card);
+    if german {
+        with_german_pack(&card);
+    }
+    let shot = card.join("page.png");
+    session(&card, &shot, &turns(turned));
+    page(&shot)
+}
+
+#[test]
+fn english_words_break_at_the_line_end_where_the_setting_is_on() {
+    let book = "alice-in-wonderland.epub";
+    let off = broken(book, false, (false, 0, 0), 13);
+    let on = broken(book, false, (true, 0, 0), 13);
+    assert_eq!(on, broken(book, false, (true, 0, 0), 13), "not steady");
+    assert_ne!(off, on, "hyphenation on changed nothing on the page");
+    // Keeping more letters on both sides of a break allows fewer breaks.
+    let wide = broken(book, false, (true, 5, 5), 13);
+    assert_ne!(on, wide, "the minimums changed nothing on the page");
+}
+
+#[test]
+fn german_words_break_at_the_line_end_with_the_german_pack() {
+    let book = "die-verwandlung.epub";
+    let off = broken(book, true, (false, 0, 0), 13);
+    let on = broken(book, true, (true, 0, 0), 13);
+    assert_ne!(off, on, "hyphenation on changed nothing on the page");
+    let wide = broken(book, true, (true, 5, 5), 13);
+    assert_ne!(on, wide, "the minimums changed nothing on the page");
+}
+
+#[test]
+fn a_book_in_a_language_without_a_table_is_set_whole() {
+    // No German pack on the card: the setting changes nothing and nothing fails.
+    let book = "die-verwandlung.epub";
+    let off = broken(book, false, (false, 0, 0), 13);
+    let on = broken(book, false, (true, 0, 0), 13);
+    assert_eq!(off, on, "a page was broken without a table");
+}

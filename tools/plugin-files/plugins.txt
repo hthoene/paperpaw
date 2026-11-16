@@ -16,7 +16,7 @@ end-of-book reading
 # format-images reading  (no file until the store build moves to interface 7, #228)
 # joplin notes  (no file until the store build moves to interface 7, #228)
 keys system
-# kosync sync  (no file until the store build moves to interface 7, #228)
+kosync sync
 koreader sync
 # mail news  (no file until the store build moves to interface 7, #228)
 menu-editor look

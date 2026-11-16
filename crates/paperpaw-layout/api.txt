@@ -103,6 +103,7 @@ pub fn paperpaw_layout::PageImage::new(f32, f32, f32, f32, paperpaw_document::Im
 pub paperpaw_layout::PageLine::annotations: alloc::vec::Vec<paperpaw_layout::LineAnnotation>
 pub paperpaw_layout::PageLine::baseline: f32
 pub paperpaw_layout::PageLine::bidi: paperpaw_layout::LineBidi
+pub paperpaw_layout::PageLine::hyphen: bool
 pub paperpaw_layout::PageLine::inserted: bool
 pub paperpaw_layout::PageLine::leading: f32
 pub paperpaw_layout::PageLine::runs: alloc::vec::Vec<paperpaw_layout::LineRun>

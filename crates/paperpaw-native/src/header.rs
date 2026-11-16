@@ -179,8 +179,7 @@ pub struct Header {
     /// The 16 bits after it (bytes 82 and 83) are reserved: 0. A firmware
     /// refuses a file that sets them as one of a newer format: they are
     /// for what a firmware that doesn't know them must not run, such as
-    /// where the file lists the revisions of chained families 8 and up
-    /// (see `paperpaw_table::FAMILIES`).
+    /// where the file lists the revisions of chained families 8 and up.
     pub interface: u16,
     /// SHA-256 of the header's first 84 bytes and of all after the header
     /// (see [`Header::digest`]).
