@@ -337,11 +337,15 @@ pub fn code_plugins(
     )
 }
 
-/// The installed file, read: only the file installed may run.
+/// The installed file, read: only the file installed may run (a file never
+/// installed runs as it lies, Decision 205).
 fn read_installed(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Vec<u8>, PluginProblem> {
     let bytes = paperpaw_core::sdk::read_file(storage, code.path, MAX_FILE)
         .map_err(|_| PluginProblem::Damaged)?;
-    if paperpaw_core::sdk::digest::sha256::digest(&bytes) != code.sha256 {
+    if code
+        .sha256
+        .is_some_and(|installed| paperpaw_core::sdk::digest::sha256::digest(&bytes) != installed)
+    {
         return Err(PluginProblem::Changed);
     }
     Ok(bytes)

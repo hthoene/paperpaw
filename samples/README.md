@@ -37,12 +37,6 @@ an action in the tools, a screen, a setting and an event.
 with `paperpaw-dev build --device emulator` and
 `paperpaw-emu --library dist/emulator --trust-code`.
 
-`interlinear` writes between a book's lines ([ADR 0032](../docs/adr/0032-writing-between-the-lines.md)):
-a toy translation above each line, starting where each sentence on the
-line starts, which a tap (or Select, chosen with the buttons as links
-are) opens whole; and a translation after each paragraph. Try it with
-`cargo run -p paperpaw-emulator --features interlinear`.
-
 `frame-test` runs in real time ([ADR 0030](../docs/adr/0030-real-time-screens.md)):
 a moving pattern at a fixed pace, drawn with the blit, and work done for
 every frame as hot code and as ordinary code, each measured and shown

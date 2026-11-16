@@ -207,15 +207,9 @@ compiling the module needs, and only the frame needs it. Serve
 `paperpaw-web.wasm` as `application/wasm` (the loader streams it), and
 compressed: it is 14 MB, about 5.7 MB with gzip and less with Brotli.
 
-A code plugin cannot be added to the running module: WebAssembly shares
-no Rust types between modules. A module of its own is: a crate with
-`paperpaw-web` as a library (its `#[no_mangle]` functions are the new
-module's too) and `crate-type = ["cdylib"]`, which exports `pp_plugins`
-calling `paperpaw_web::set_plugins` with the plugins to add. The loader
-calls `pp_plugins` first where a module has it; the frame and its
-messages stay the same, and `check` with `plugins: ["<id>"]` looks at
-the plugin as `paperpaw-dev check --plugin <id>` does (`lint`, `visual`,
-`reach`, `perf`).
+The module runs no plugin with code: an author tries one in the
+emulator (`paperpaw-dev build --device emulator`) and checks it with
+`paperpaw-dev check`; `check` here with `plugins: ["<id>"]` is refused.
 
 ## The module
 
