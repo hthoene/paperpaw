@@ -850,6 +850,34 @@ fn a_removed_plugin_leaves_no_refusal_behind() {
     assert!(!kept(&kernel));
 }
 
+/// Code never installed runs unsigned, and its row says so (bit 6).
+#[test]
+fn a_plugin_running_unsigned_code_says_so() {
+    let kernel = kernel(0);
+    let declared = crate::native_host::native_declarations::NativeDeclarations::default();
+    let rows = |declared| {
+        read(
+            &call_in(
+                &kernel,
+                Some(declared),
+                schema::OP_PLUGINS,
+                &query("", 0, 0),
+                4096,
+            )
+            .unwrap(),
+        )
+        .0
+    };
+    let demo = |rows: Vec<String>| {
+        rows.into_iter()
+            .find(|row| row.starts_with("plugin demo "))
+            .unwrap()
+    };
+    assert!(demo(rows(&declared)).contains(" flags=9 "));
+    assert!(declared.mark_unsigned("demo"));
+    assert!(demo(rows(&declared)).contains(" flags=73 "));
+}
+
 #[test]
 fn a_plugin_a_store_installed_says_so_with_its_release_as_the_store_named_it() {
     // The host's record: a store put in place cosy 2.1 and mine 1.0.0 (since
