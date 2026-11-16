@@ -697,7 +697,7 @@ impl Kernel {
     /// typed on the keyboard), goes to those screens and their plugins
     /// alone.
     pub(crate) fn emit(&mut self, event: &Id, params: &Params) {
-        if *event == crate::font_refresh::literata_notice::ANSWERED {
+        if *event == crate::native_host::literata_notice::ANSWERED {
             self.literata_notice_answer(params);
             return;
         }

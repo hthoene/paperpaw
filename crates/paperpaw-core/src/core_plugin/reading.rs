@@ -444,6 +444,7 @@ const fn reading_group(id: Id, title: &'static str, order: i32) -> paperpaw_sdk:
 }
 
 pub(super) fn register(r: &mut Registrar) -> Result<(), RegisterError> {
+    crate::native_host::literata_notice::register(r)?;
     for group in &READING_GROUPS {
         r.add_setting_group(group)?;
     }

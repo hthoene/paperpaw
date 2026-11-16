@@ -2,8 +2,6 @@
 use paperpaw_sdk::{Command, Id, Params, builtin::slots};
 
 pub(crate) const SEEN: &str = "literata-pack-notice-seen";
-pub(crate) const ANSWERED: paperpaw_sdk::Event<paperpaw_sdk::replies::Confirmed> =
-    paperpaw_sdk::Event::new("core.literata-pack-answered");
 
 #[derive(Default)]
 pub(crate) struct LiterataNotice {
@@ -13,9 +11,7 @@ pub(crate) struct LiterataNotice {
 
 impl crate::Kernel {
     pub(crate) fn literata_notice_answer(&mut self, params: &Params) {
-        if params.get(paperpaw_sdk::ui::confirm::ANSWER) == Some("yes")
-            && params.get("store") == Some("yes")
-        {
+        if params.get("store") == Some("yes") {
             self.output.commands.push(Command::OpenScreen(
                 Id::new_static("store.plugin"),
                 Params::new().with("id", "literata-styles"),
@@ -57,18 +53,11 @@ impl crate::Kernel {
                 .iter()
                 .any(|s| s.id.starts_with(paperpaw_sdk::wifi::SECRET_PREFIX))
             && self.shared.registry.screens.contains_key("store.plugin");
-        let tr = &self.shared.translator;
-        let mut question = paperpaw_sdk::ask::confirm(tr.tr("core.literata-pack.title"), &ANSWERED)
-            .text(tr.tr("core.literata-pack.text"));
-        question = if store {
-            question
-                .yes(tr.tr("core.literata-pack.store"))
-                .no(tr.tr("core.literata-pack.dismiss"))
-                .with("store", "yes")
-        } else {
-            question.only_yes()
-        };
-        self.output.commands.push(question.command());
+        self.open(
+            crate::native_host::literata_notice::SCREEN,
+            None,
+            &Params::new().with("store", if store { "yes" } else { "no" }),
+        );
         self.waiting_notices.literata.seen = true;
         self.waiting_notices.literata.pending = false;
         self.save_config("core", SEEN, "on");

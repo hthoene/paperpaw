@@ -568,7 +568,7 @@ fn a_beta3_literata_card_gets_one_hint_only_without_the_pack() {
     first.kernel.tick(Instant(10));
     assert_eq!(
         first.kernel.active_screen().unwrap().as_str(),
-        "core.confirm-dialog"
+        "core.literata-notice"
     );
     common::press(&mut first.kernel, 20, "back");
     assert_eq!(first.kernel.active_screen(), Some(&common::BASE));
