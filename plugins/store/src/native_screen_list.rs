@@ -343,7 +343,11 @@ pub const fn empty_icon(trouble: Trouble) -> &'static str {
 /// list.
 #[must_use]
 pub fn retry(empty: bool, trouble: Trouble) -> bool {
-    empty && matches!(trouble, Trouble::Offline | Trouble::Failed | Trouble::Memory)
+    empty
+        && matches!(
+            trouble,
+            Trouble::Offline | Trouble::Failed | Trouble::Memory
+        )
 }
 
 /// The screen.
