@@ -797,7 +797,7 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
     // question every plugin asks (`ask::choice`, `ask::confirm`), unless
     // another screen fills the slot; a folder for a setting: the folder
     // chooser's, whichever plugin fills its slot.
-    static SCREENS: [FixedScreen; 11] = [
+    static SCREENS: [FixedScreen; 12] = [
         FixedScreen::new(
             screens::STATUS_ITEMS,
             "core.status.choose",
@@ -848,6 +848,11 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
                     env, params,
                 ))
             },
+        ),
+        FixedScreen::new(
+            crate::native_host::low_memory::SCREEN,
+            "core.low-memory.title",
+            |env, params| Box::new(crate::native_host::low_memory::LowMemory::new(env, params)),
         ),
         FixedScreen::new(
             screens::FOLDER_EDITOR,

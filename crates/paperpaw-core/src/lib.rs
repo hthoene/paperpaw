@@ -265,8 +265,7 @@ pub struct Kernel {
     /// Of the commands asked for, those of a screen guarding the device or
     /// one it opened: what they open above it is its own.
     own_trusted: Vec<usize>,
-    /// Notices given while a screen guarded the device, shown in turn once it
-    /// lets go (`notices`).
+    /// Notices held back by a guarding screen (`notices`).
     waiting_notices: notices::Waiting,
     /// When the device was last used (input, a page turned), for sleeping
     /// by itself ([`settings::SLEEP_AFTER`](core_settings::SLEEP_AFTER)).
@@ -300,11 +299,9 @@ pub struct Kernel {
     /// The screen on top when the messages read from the card were last
     /// forgotten (`forget_read_messages`).
     read_top: Option<u32>,
-    /// `paperpaw.ini` is there but could not be read at start: the user
-    /// is told once the first screen shows.
+    /// Unreadable `paperpaw.ini`, reported after the first screen shows.
     config_unreadable: bool,
-    /// The shell found no card it can use: the reader is told why at
-    /// each start.
+    /// No usable card, reported at each start.
     card_trouble: Option<CardTrouble>,
     /// This start ends a sleep that restarted the device (see
     /// [`KernelBuilder::after_sleep`]): [`events::RESUME`] follows
