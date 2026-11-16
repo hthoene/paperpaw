@@ -1767,6 +1767,7 @@ dependencies = [
  "paperpaw-fs",
  "paperpaw-graphics",
  "paperpaw-i18n",
+ "paperpaw-json",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-publish",

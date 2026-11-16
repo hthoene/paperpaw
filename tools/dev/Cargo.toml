@@ -22,6 +22,8 @@ paperpaw-digest.workspace = true
 paperpaw-fs.workspace = true
 paperpaw-graphics = { workspace = true, features = ["color"] }
 paperpaw-i18n.workspace = true
+# The list a plugin with code keeps of what it calls (`metadata`).
+paperpaw-json.workspace = true
 paperpaw-native = { workspace = true, features = ["kernel"] }
 paperpaw-platform.workspace = true
 # The plugin store's rules and the check before publishing (`check-publish`).

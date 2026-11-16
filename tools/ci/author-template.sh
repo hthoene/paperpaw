@@ -15,6 +15,10 @@ cd "$root"
 cargo build -q --release -p paperpaw-sign
 cargo run -q -p paperpaw-dev -- new --github night-owl --code \
     --sdk crates/paperpaw-sdk --dir "$plugin"
+# The tool's table of the interface is current, and it writes the plugin's
+# records of what it calls (the X4 Pro's is not part of the template).
+python3 tools/abi-metadata-table.py --check
+cargo run -q -p paperpaw-dev -- metadata "$plugin"
 # The plugin's own configuration builds it (its compiler, its linker script).
 (cd "$plugin" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS CARGO_TARGET_DIR="$plugin/target" cargo x4)
 built="$plugin/target/riscv32imc-unknown-none-elf/release/night-owl"

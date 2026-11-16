@@ -37,6 +37,7 @@ pub mod gallery;
 pub mod image;
 pub mod library;
 pub mod lint;
+pub mod metadata;
 pub mod package;
 pub mod perf;
 pub mod ppn;

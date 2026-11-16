@@ -50,6 +50,11 @@ COMMANDS:
                 7: its crate, the X4's build configuration and what it calls of the
                 device (CODE.md says how to build it); --sdk names a PaperPaw
                 checkout's crates/paperpaw-sdk instead of the published SDK
+    metadata [plugin's folder] [--check]
+                A plugin with code: writes native/metadata.bin (X4, X3) and
+                native/metadata.s3.bin (X4 Pro, X4 Classic) from native/metadata.json,
+                the list of the device's functions the code calls. Run it after
+                changing the list; --check only says whether both are current
     ui-kit      Every building block of the SDK's `ui` module, as the gallery shows
                 screens (every device, look, light and dark), checked as `visual`
                 checks; a label shortened to fit is an error
@@ -252,6 +257,7 @@ pub fn run(args: impl Iterator<Item = String>, add: Option<AddPlugins>) -> Resul
     match args.first().map(String::as_str) {
         Some("check-publish") => return crate::publish::check(&args[1..]),
         Some("new") => return crate::publish::new(&args[1..]),
+        Some("metadata") => return crate::metadata::run(&args[1..]),
         _ => {}
     }
     let Some((command, mut context)) = parse(args.into_iter())? else {
