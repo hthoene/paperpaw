@@ -604,3 +604,74 @@ fn a_beta3_literata_card_gets_one_hint_only_without_the_pack() {
     other.kernel.tick(Instant(10));
     assert_eq!(other.kernel.active_screen(), Some(&common::BASE));
 }
+
+#[test]
+fn configured_wifi_offers_two_buttons_and_opens_the_literata_store_page() {
+    use paperpaw_core::sdk::{Canvas, Env, Params, Screen, ScreenSpec, semantics::Role};
+    use std::cell::RefCell;
+    struct Blank;
+    impl Screen for Blank {
+        fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+        fn on_action(
+            &mut self,
+            _: &Id,
+            _: &mut paperpaw_core::sdk::Cx<'_, '_>,
+        ) -> paperpaw_core::sdk::Handled {
+            paperpaw_core::sdk::Handled::No
+        }
+    }
+    struct Store(Rc<RefCell<String>>);
+    impl Plugin for Store {
+        fn manifest(&self) -> Manifest {
+            Manifest::new(
+                Id::new_static("store"),
+                "Store probe",
+                Version::new(1, 0, 0),
+            )
+        }
+        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+            let target = self.0.clone();
+            r.add_screen(ScreenSpec::new(
+                Id::new_static("store.plugin"),
+                "Store",
+                Box::new(move |_, params: &Params| {
+                    *target.borrow_mut() = params.get("id").unwrap_or("").into();
+                    Box::new(Blank)
+                }),
+            ))
+        }
+    }
+    let target = Rc::new(RefCell::new(String::new()));
+    let harness = Harness::new();
+    let mut kernel = Kernel::builder(DEVICE)
+        .plugin(Lean)
+        .plugin(harness.plugin())
+        .plugin(Store(target.clone()))
+        .wifi(true)
+        .storage(card(Styles::None, false).with("paperpaw.ini", CHOSEN))
+        .user_config(CHOSEN)
+        .build()
+        .unwrap();
+    kernel.set_secret(paperpaw_core::sdk::wifi::keep(
+        "Fixture network",
+        "fixture-only",
+    ));
+    kernel.start(Instant(0));
+    kernel.tick(Instant(10));
+    assert_eq!(
+        kernel.active_screen().unwrap().as_str(),
+        "core.literata-notice"
+    );
+    let buttons: Vec<_> = kernel
+        .describe()
+        .into_iter()
+        .filter(|p| p.role == Role::Button)
+        .map(|p| p.label)
+        .collect();
+    assert!(buttons.iter().any(|s| s == "Open store"), "{buttons:?}");
+    assert!(buttons.iter().any(|s| s == "Not now"), "{buttons:?}");
+    kernel.run_action(Instant(100), paperpaw_core::sdk::builtin::actions::LEFT);
+    kernel.run_action(Instant(110), paperpaw_core::sdk::builtin::actions::CONFIRM);
+    assert_eq!(kernel.active_screen().unwrap().as_str(), "store.plugin");
+    assert_eq!(target.borrow().as_str(), "literata-styles");
+}
