@@ -249,6 +249,18 @@ pub struct ItemList {
     head_at: Option<Rect>,
     /// A picture over the words of an empty list ([`Footer::Empty`]).
     empty_icon: Option<paperpaw_sdk::native::fonts::IconGlyph>,
+    /// The heights of the items as the last frame measured them: measuring
+    /// wraps every row's text, which is most of a long list's frame, so a
+    /// frame under the same look and width keeps them. Dropped when an item
+    /// changes.
+    measured: Option<Measured>,
+}
+
+/// The row heights of a frame and what they were measured under.
+#[derive(Debug)]
+struct Measured {
+    under: [u32; 9],
+    heights: Vec<u16>,
 }
 
 impl ItemList {
@@ -266,6 +278,7 @@ impl ItemList {
     /// Replaces the items, keeping the focus where it was (on the nearest row).
     pub fn replace(&mut self, items: Vec<Item>) {
         self.items = items;
+        self.measured = None;
         self.focus = self.nearest(self.focus);
     }
 
@@ -279,6 +292,7 @@ impl ItemList {
     pub fn push(&mut self, item: Item) -> Result<(), Error> {
         self.items.try_reserve(1).map_err(|_| Error::NoMemory)?;
         self.items.push(item);
+        self.measured = None;
         if !self.items.get(self.focus).is_some_and(Item::selectable) {
             self.focus = self.nearest(self.focus);
         }
@@ -289,6 +303,7 @@ impl ItemList {
     /// place: for a number that moves (a download's progress) where the rest
     /// of the list stays as it is. `false` where `index` is no row.
     pub fn set_value(&mut self, index: usize, value: String) -> bool {
+        self.measured = None;
         match self.items.get_mut(index) {
             Some(Item::Row(row)) => {
                 row.value = value;
@@ -301,6 +316,7 @@ impl ItemList {
     /// Zeroes the text of every item and empties the list: for a list that
     /// showed a secret (a password drawn for the user to read) and is closed.
     pub fn wipe(&mut self) {
+        self.measured = None;
         for item in core::mem::take(&mut self.items) {
             match item {
                 Item::Heading(title) => crate::mem::wipe_text(title),
@@ -630,7 +646,21 @@ impl ItemList {
             area.height = area.height.saturating_sub(rect.height);
             note = Some((rect, lines));
         }
-        let heights = heights_of(&font, &style, width, &self.items)?;
+        let under = [
+            u32::from(width),
+            style.text.to_bits(),
+            style.small.to_bits(),
+            style.title.to_bits(),
+            style.head.to_bits(),
+            u32::from(style.row) | u32::from(style.heading) << 16,
+            u32::from(style.margin) | u32::from(style.gap) << 16,
+            u32::from(style.line),
+            self.items.len() as u32,
+        ];
+        let heights = match self.measured.take() {
+            Some(kept) if kept.under == under => kept.heights,
+            _ => heights_of(&font, &style, width, &self.items)?,
+        };
         let head_high = self.head_high(&style, area.height, heights.first().copied());
         let starts = paginate_with(&self.items, &heights, area.height, head_high)?;
         let page = starts
@@ -694,6 +724,7 @@ impl ItemList {
         font.release()?;
         header.paint = Vec::new();
         self.header = header;
+        self.measured = Some(Measured { under, heights });
         self.starts = starts;
         self.hits = drawn.hits;
         self.steps = drawn.steps;

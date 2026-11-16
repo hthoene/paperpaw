@@ -727,6 +727,7 @@ fn error_of(reason: &str) -> HttpError {
         "no such host" | "not an address" => HttpError::Dns,
         "timed out" | SILENT => HttpError::Timeout,
         "could not connect" | "too many redirects" | "too large" => HttpError::Refused,
+        _ if reason.starts_with("not enough memory") => HttpError::Refused,
         _ if reason.contains("certificate") || reason.contains("secure") => HttpError::Tls,
         _ => HttpError::Io,
     }
