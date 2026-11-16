@@ -88,6 +88,19 @@ pub fn frame(
     Ok(Frame { size, top, bottom })
 }
 
+/// The columns of `glyph`'s ink at `size`, as `(first, last)` from the pen's
+/// start: what [`draw`] centres by (the advance where the font has no ink to
+/// tell, as on the X4). The same at every draw, so a page may keep it.
+///
+/// # Errors
+/// Font refusals.
+pub fn extents(icons: &Font<'_>, glyph: &IconGlyph, size: f32) -> Result<(i32, i32), Error> {
+    Ok(match icons.ink(size, glyph.as_str())? {
+        Some(ink) => (ink.left, ink.right),
+        None => (0, icons.measure_text(size, glyph.as_str())? as i32),
+    })
+}
+
 /// Draws `glyph` in `frame` with the middle of its ink at `middle` and the top
 /// of the frame at `y`; where its ink is.
 ///
@@ -101,11 +114,24 @@ pub fn draw(
     (middle, y): (f32, i32),
     color: Color,
 ) -> Result<Rect, Error> {
+    let columns = extents(icons, glyph, frame.size)?;
+    draw_at(out, glyph, frame, columns, (middle, y), color)
+}
+
+/// As [`draw`], with the columns of the ink ([`extents`]) already known: no
+/// call to the font.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn draw_at(
+    out: &mut Vec<Paint>,
+    glyph: &IconGlyph,
+    frame: &Frame,
+    (first, last): (i32, i32),
+    (middle, y): (f32, i32),
+    color: Color,
+) -> Result<Rect, Error> {
     // Centred by its ink, as icons are everywhere.
-    let (first, last) = match icons.ink(frame.size, glyph.as_str())? {
-        Some(ink) => (ink.left, ink.right),
-        None => (0, icons.measure_text(frame.size, glyph.as_str())? as i32),
-    };
     let x = middle - (first.saturating_add(last)) as f32 / 2.0;
     paint::push(
         out,

@@ -138,8 +138,7 @@ pub type FixedFactory = fn(&Env<'_>, &Params) -> Box<dyn Screen>;
 /// factory needs state of its own is a [`ScreenSpec`].
 #[derive(Debug)]
 pub struct FixedScreen {
-    id: Id,
-    title: &'static str,
+    entry: crate::TitleEntry,
     factory: FixedFactory,
     refresh_on_open: Option<RefreshMode>,
     instances: Instances,
@@ -152,8 +151,7 @@ impl FixedScreen {
     /// Screen `id`, called `title` (a translation key), made by `factory`.
     pub const fn new(id: Id, title: &'static str, factory: FixedFactory) -> Self {
         Self {
-            id,
-            title,
+            entry: crate::TitleEntry::new(id, title),
             factory,
             refresh_on_open: None,
             instances: Instances::PER_PARAMS,
@@ -174,12 +172,17 @@ impl FixedScreen {
     }
 
     pub const fn id(&self) -> &Id {
-        &self.id
+        &self.entry.id
     }
 
     /// Translation key of its name.
     pub const fn title(&self) -> &'static str {
-        self.title
+        self.entry.title
+    }
+
+    /// Its id and the translation key of its name.
+    pub const fn entry(&self) -> &crate::TitleEntry {
+        &self.entry
     }
 
     /// The screen, made with `params`.
@@ -205,7 +208,7 @@ impl FixedScreen {
 pub struct ScreenList<'a> {
     added: &'a [(Id, Cow<'static, str>)],
     native: &'a [crate::Titled],
-    fixed: &'a [&'static FixedScreen],
+    fixed: &'a [&'static crate::TitleEntry],
 }
 
 impl<'a> ScreenList<'a> {
@@ -214,7 +217,7 @@ impl<'a> ScreenList<'a> {
     pub fn new(
         added: &'a [(Id, Cow<'static, str>)],
         native: &'a [crate::Titled],
-        fixed: &'a [&'static FixedScreen],
+        fixed: &'a [&'static crate::TitleEntry],
     ) -> Self {
         Self {
             added,
@@ -241,7 +244,7 @@ impl<'a> ScreenList<'a> {
             (Some(_), _) => added.next(),
             (None, _) => native.next(),
         });
-        let fixed = self.fixed.iter().map(|f| (f.id(), f.title()));
+        let fixed = self.fixed.iter().map(|f| (&f.id, f.title));
         merged.chain(fixed)
     }
 

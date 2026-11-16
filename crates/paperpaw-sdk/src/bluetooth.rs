@@ -44,45 +44,6 @@
 //! showing when they were asked for (unless declared work asked for
 //! them), and all before the device sleeps; the radio is off whenever
 //! nothing needs it.
-//!
-//! Registered with the kernel's `Items` (`paperpaw_core`, not a dependency
-//! of this crate's examples), so the example is not built here:
-//!
-//! ```ignore
-//! use paperpaw_core::Items;
-//! use paperpaw_sdk::bluetooth::{self, BtEvent, Uuid};
-//! use paperpaw_sdk::{Event, RegisterError};
-//!
-//! const FOUND: Event<BtEvent> = Event::new("pulse.found");
-//! const LINK: Event<BtEvent> = Event::new("pulse.link");
-//! const HEART_RATE: Uuid = Uuid::sig(0x180D);
-//! const MEASUREMENT: Uuid = Uuid::sig(0x2A37);
-//!
-//! fn register(r: &mut Items) -> Result<(), RegisterError> {
-//!     // A scan for the first heart-rate belt, then its measurements.
-//!     r.on(FOUND, |_, event: &BtEvent, out| {
-//!         if let BtEvent::Found(device) = event {
-//!             out.push(bluetooth::connect(device.id, &LINK).command());
-//!         }
-//!     })?;
-//!     r.on(LINK, |_, event: &BtEvent, out| match event {
-//!         BtEvent::Connected { device, .. } => {
-//!             out.push(bluetooth::subscribe_to(*device, HEART_RATE, MEASUREMENT));
-//!         }
-//!         BtEvent::Value { bytes, .. } => {
-//!             // Flags first; the rate is one byte, or two where flag 0 is set.
-//!             let bpm = match bytes.as_slice() {
-//!                 [flags, low, high, ..] if flags & 1 == 1 => u16::from_le_bytes([*low, *high]),
-//!                 [_, rate, ..] => u16::from(*rate),
-//!                 _ => return,
-//!             };
-//!             let _ = bpm;
-//!         }
-//!         _ => {}
-//!     })
-//! }
-//! # let _ = bluetooth::scan(&FOUND).service(HEART_RATE).first().command();
-//! ```
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

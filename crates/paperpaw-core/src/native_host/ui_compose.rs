@@ -114,7 +114,7 @@ pub(super) unsafe extern "C" fn compose<S: 'static>(
 ) -> i32 {
     // The plugin waits for the host, and for the target's own `draw`, from
     // here to the return (the Power-hold escape must not blame the caller).
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as(super::host_slot::Id::UiCompose);
     // SAFETY: a nonnull context is the pinned Context<S> supplied to make.
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return ERR_INVALID;

@@ -770,7 +770,7 @@ impl Kernel {
 
     pub(crate) fn offer(
         &mut self,
-        f: impl Fn(&mut dyn Screen, &mut Cx<'_, '_>) -> Handled,
+        f: impl Fn(&mut dyn Layer, &mut Cx<'_, '_>) -> Handled,
     ) -> Handled {
         let Some(mut index) = self.input_top() else {
             self.offered_down_to = 0;
