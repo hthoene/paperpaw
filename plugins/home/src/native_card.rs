@@ -144,9 +144,10 @@ pub fn draw(
 ) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
     let host = cx.host;
-    let Some(book) = native_recent::read(host, known, 0, 1)?.into_iter().next() else {
+    let Some(mut book) = native_recent::read(host, known, 0, 1)?.into_iter().next() else {
         return empty(cx, out, icons, &look);
     };
+    native_recent::drawable(&cx.font, &mut book.title)?;
     let covered = if cx.settings.shows("cover").unwrap_or(true) {
         native_recent::with_library(host, |library| {
             native_recent::cover_known(host, known, library, &book)
