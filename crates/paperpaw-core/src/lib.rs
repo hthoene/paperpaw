@@ -1184,6 +1184,7 @@ impl Kernel {
         self.now = now;
         self.last_activity = now;
         self.dispatch(action);
+        self.run_commands(); // As a key press: a dialog's queued close first (#266).
         self.finish()
     }
 

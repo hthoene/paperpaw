@@ -1867,6 +1867,15 @@ The emulator's X4 profile enforces the budget. After a run with
 
 ## Plugins as files
 
+> **Out of date for plugin interface 7 (#244).** What follows describes how a
+> plugin with code was built as a file for the interface before 7. Its sample
+> (`samples/hello-native`), the macro `paperpaw_sdk::plugin!` and the
+> fingerprint check are gone, and devices refuse such files. PaperPaw's own store plugins are built by
+> [`tools/plugin-files7`](../tools/plugin-files7/README.md) with
+> `paperpaw_sdk::native_plugin!`. `paperpaw-dev new --code` and the author
+> release workflow do not yet make a plugin with code for interface 7; plugins
+> without code are not affected.
+
 A code plugin can also be a file, `code.ppn`, in a plugin's folder on
 the card, which the X4 and the X4 Pro load at their
 start (ADR 0024): from the plugin store, from the web flasher with the
@@ -1893,10 +1902,6 @@ from PaperPaw's: a release builds one that did not change again for its
 firmware, at the version it has, and a fix comes as a newer version,
 with a release or alone between releases
 ([`tools/plugin-files`](../tools/plugin-files/README.md)).
-
-[`samples/hello-native`](../samples/hello-native) is the sample plugin
-above as a file, in a workspace of its own as a plugin's own repository
-is, with a CI job to start from.
 
 ### The crate
 

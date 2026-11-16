@@ -35,8 +35,8 @@ pub struct Entry {
     /// The plugin's fingerprint, as its file's header says (the packer
     /// copies it from here).
     pub fingerprint: u64,
-    /// Makes the plugin. What it returns is the SDK's to read (its
-    /// `native::take`): the firmware owns it.
+    /// Makes the plugin. What it returned was the interface-6 SDK's to
+    /// read; no code reads it any more.
     pub make: unsafe extern "C" fn() -> *mut c_void,
     /// The bytes of the firmware's [`Api`] the plugin may use: the
     /// [`Api::SIZE`] of the SDK that built it. A firmware whose table is
