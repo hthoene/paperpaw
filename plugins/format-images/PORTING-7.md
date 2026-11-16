@@ -21,6 +21,17 @@ A refused allocation is `NoMemory` end to end and an open that hits it leaves no
 interface-6 reader made of the same files), the order and listing of a folder, the 300-page cut, named files that are
 no pictures, too large or damaged (property tests) and the cache keyed by name and size.
 
+## The book's folder (#277, replaces PR #1008)
+
+A picture opens with the pictures after it in its folder as its pages. `HostIo::list` lists root 3 through
+`core.files` (`Files::list`, which takes `Root::Book` since this slice; the host answers it only inside this
+format's own call), a page of 32 names at a time into two buffers of 1.5 and 4 KiB that are taken with `try_reserve`
+and given back at the end of the listing; `pages_from` keeps no more than the 300 names of the pages and sorts in
+place as before. The metadata names the service `core.files` and the host call `services.query`. The
+test is `a_picture_opens_as_a_book_of_the_pictures_after_it` in `crates/paperpaw-app/tests/readers.rs` (the host
+opens the picture through this provider and the folder is listed: it replaces the two pending stubs of
+`tests/provider_pending.rs`).
+
 ## Native entry (slice 3)
 
 `declarations.rs` (`formats`: `format-images.pictures`, extensions `jpg`, `jpeg`, `png` and `gif`, flags `whole_pages` and `siblings`, not `prepared`, no sniffing), `build.rs` (batches built into the image),
