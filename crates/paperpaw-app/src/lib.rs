@@ -753,5 +753,5 @@ pub fn install_with(
     // plugins are native plugins only (`NATIVE_PLUGINS`, under `native-linked`):
     // their interface-6 forms are gone (#244).
     // A theme of the app's own, off as it ships, on every device.
-    builder.plugin_off(Pebble)
+    builder.items_off(Pebble::manifest(), Pebble::items)
 }
