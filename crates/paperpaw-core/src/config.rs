@@ -658,7 +658,7 @@ impl Kernel {
         secrets: &mut Vec<(String, String)>,
     ) {
         if section == "core" && key == crate::font_refresh::literata_notice::SEEN {
-            self.literata_notice.seen = value == "on";
+            self.waiting_notices.literata.seen = value == "on";
             return;
         }
         use paperpaw_sdk::SettingError;
@@ -695,7 +695,7 @@ impl Kernel {
         let missing = matches!(error, SettingError::InvalidValue)
             && fonts.iter().any(|font| font.as_str() == id)
             && self.shared.fonts.has_family(&value);
-        self.literata_notice.pending |= missing && id == "core.reading-font" && value == "Literata";
+        self.waiting_notices.literata.pending |= missing && id == "core.reading-font" && value == "Literata";
         let message = if missing {
             format!(
                 "`{id}`: the font {value} is not on the card (install the plugin that brings \

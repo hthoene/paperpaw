@@ -27,7 +27,7 @@ impl crate::Kernel {
     /// or a reader that is reopening its book. This is not called from input.
     #[inline(never)]
     pub(crate) fn offer_literata_notice(&mut self) -> bool {
-        if !self.literata_notice.pending || self.literata_notice.seen {
+        if !self.waiting_notices.literata.pending || self.waiting_notices.literata.seen {
             return false;
         }
         let home = self.stack.len() == 1
@@ -47,7 +47,7 @@ impl crate::Kernel {
             .fonts
             .family_there("Literata", self.shared.storage.as_ref())
         {
-            self.literata_notice.pending = false;
+            self.waiting_notices.literata.pending = false;
             return false;
         }
         let store = self.shared.caps.wifi
@@ -69,8 +69,8 @@ impl crate::Kernel {
             question.only_yes()
         };
         self.output.commands.push(question.command());
-        self.literata_notice.seen = true;
-        self.literata_notice.pending = false;
+        self.waiting_notices.literata.seen = true;
+        self.waiting_notices.literata.pending = false;
         self.save_config("core", SEEN, "on");
         true
     }
