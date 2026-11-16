@@ -244,6 +244,8 @@ impl Dashboard {
             self.stale = true;
         }
         self.covered = false;
+        // What the library listed while it was under another screen is old.
+        self.listing.fresh();
         self.returned = true;
         self.fresh = true;
         self.reshow = true;
