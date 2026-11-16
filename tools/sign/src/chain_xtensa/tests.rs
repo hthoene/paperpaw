@@ -1397,6 +1397,14 @@ fn an_indirect_in_line_is_a_ceiling_for_the_crates_functions_and_must_match_one(
         "{:?}",
         over.problems
     );
+    // The failure names each function and its count: to set against the base.
+    let named = over.problems.iter().find(|p| p.contains("have 3 call(s)"));
+    assert!(
+        named.is_some_and(|p| p.contains("`paperpaw_plugin_one::run` 2")
+            && p.contains("`paperpaw_plugin_two::go` 1")),
+        "{:?}",
+        over.problems
+    );
     // A crate by its exact name covers that crate only: the other is reported.
     let one = run(
         &funcs,

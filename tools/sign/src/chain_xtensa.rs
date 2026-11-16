@@ -1226,7 +1226,7 @@ fn check_indirect(
     budget: &Budget,
     f: &Function,
     count: u32,
-    (used, family_sites): (&mut [bool], &mut BTreeMap<usize, u32>),
+    (used, family_sites): (&mut [bool], &mut family::Sites),
     report: &mut Report,
 ) {
     let own = allowed(
@@ -1341,7 +1341,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         word: &word,
         pointed: &pointed,
     };
-    let mut family_sites: BTreeMap<usize, u32> = BTreeMap::new();
+    let mut family_sites = family::Sites::new();
     seed(&image, budget, &mut report, &mut queue, &mut seen);
     while let Some(i) = queue.pop_front() {
         let f = &funcs[i];
