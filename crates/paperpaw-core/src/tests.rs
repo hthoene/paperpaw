@@ -15,8 +15,8 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::builtin::{actions, screens, settings, slots};
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Handled, Id, Manifest, Priority, RegisterError,
-    Registrar, Screen, ScreenSpec, SettingKind, SettingSpec, SettingValue, Version,
+    ActionSpec, Canvas, Command, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Screen,
+    ScreenSpec, SettingKind, SettingSpec, SettingValue, Version,
 };
 
 use crate::{HttpCall, Io, Kernel, ServerCall, SpeechCall, WarningSource};

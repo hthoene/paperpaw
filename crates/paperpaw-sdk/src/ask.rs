@@ -1,7 +1,7 @@
 //! Asking the reader for text, a folder, one of a few options or yes or
 //! no, with the answer as a typed event ([`Typed`], [`FolderChosen`],
 //! [`Picked`], [`Confirmed`]) the plugin hears with
-//! [`Registrar::on`](crate::Registrar::on):
+//! `Items::on`:
 //!
 //! ```
 //! use paperpaw_sdk::ask;

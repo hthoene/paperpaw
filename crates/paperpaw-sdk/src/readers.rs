@@ -3,7 +3,7 @@
 //! through one call that finds the reader chosen for them.
 //!
 //! - A plugin registers its screen as a reader
-//!   ([`ReaderSpec`], `Registrar::add_reader`): the formats it reads
+//!   ([`ReaderSpec`], `Items::add_reader`): the formats it reads
 //!   (all, where it names none), its name the translation of its id. It
 //!   is opened as the screen bound to
 //!   [`slots::READER`] is, with the

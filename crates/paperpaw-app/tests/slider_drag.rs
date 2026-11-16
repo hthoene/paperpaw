@@ -19,7 +19,7 @@ use native_activation::BuildNative as _;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use paperpaw_core::{Effects, Kernel};
+use paperpaw_core::{Effects, Items, Kernel, Plugin};
 use paperpaw_platform::{
     DeviceInfo, DirEntry, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat,
     Point, PointerEvent, PointerPhase, PointerTool, Rect, RefreshMode, Rotation, Storage,
@@ -30,8 +30,7 @@ use paperpaw_sdk::semantics::Role;
 use paperpaw_sdk::setting::Setting;
 use paperpaw_sdk::ui::slider::Slider;
 use paperpaw_sdk::{
-    Manifest, MemoryStorage, MenuEntry, Plugin, RegisterError, Registrar, SettingSpec,
-    SettingValue, Version,
+    Manifest, MemoryStorage, MenuEntry, RegisterError, SettingSpec, SettingValue, Version,
 };
 
 /// An X4 Pro as the emulator's profile has it: touch and buttons, frames
@@ -78,7 +77,7 @@ impl Plugin for Light {
         .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
         r.add_setting(
             SettingSpec::number(
                 LIGHT.static_str(),

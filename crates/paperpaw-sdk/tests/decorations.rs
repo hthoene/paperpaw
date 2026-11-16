@@ -17,7 +17,7 @@ use paperpaw_sdk::decorations::{
     PageWord, THICKNESS, Tone,
 };
 use paperpaw_sdk::document::Locator;
-use paperpaw_sdk::{Contribution, Id, Rect, Registrar};
+use paperpaw_sdk::{Id, Rect};
 use proptest::prelude::*;
 
 use support::{Device, Harness, drawn_in, drawn_outside, frame};
@@ -28,12 +28,14 @@ const ROLE: Id = Id::new_static("t.learning");
 /// (aspect, value as text) where they take them.
 fn with_role(default: Decoration) -> Harness {
     let mut h = Harness::new(Device::TOUCH);
-    let mut r = Registrar::new(Id::new_static("t"));
-    decorations::add_role(&mut r, &ROLE, "t.role", default).unwrap();
-    for c in r.into_contributions() {
-        if let Contribution::Setting(spec) = c {
-            h.settings.define(*spec).unwrap();
-        }
+    let mut specs = Vec::new();
+    let mut add = |spec| {
+        specs.push(spec);
+        Ok(())
+    };
+    decorations::add_role(&mut add, &ROLE, "t.role", default).unwrap();
+    for spec in specs {
+        h.settings.define(spec).unwrap();
     }
     h
 }

@@ -108,11 +108,11 @@ use paperpaw_sdk::setting::{Setting, SettingType};
 use paperpaw_sdk::{
     Actions, Capabilities, Command, Contribution, Cx, Direction, Env, EnvParts, Fonts, Formats,
     Gesture, GestureKind, Handled, HintVisibility, Hyphenation, Id, Manifest, Menus, Metrics,
-    Output, Params, Plugin, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Screen,
-    Settings, ShowsThrough, StatusItems,
+    Output, Params, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Screen, Settings,
+    ShowsThrough, StatusItems,
 };
 
-pub use crate::builder::{Items, KernelBuilder, KernelError};
+pub use crate::builder::{Items, KernelBuilder, KernelError, Plugin};
 pub use crate::card::CardTrouble;
 pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
@@ -133,7 +133,6 @@ use crate::screens::uncovered;
 pub use crate::work::NetworkSettings;
 #[doc(hidden)]
 pub use crate::work::network_specs_of;
-use paperpaw_sdk::Registrar;
 use paperpaw_sdk::filters::InputVerdict;
 pub use paperpaw_sdk::firmware::{Firmware, FirmwareCommand, FirmwareState, InstallFailure};
 pub use paperpaw_sdk::wifi::{JoinFailure, WifiCommand, WifiNetwork, WifiState};
@@ -1466,7 +1465,7 @@ struct Shared {
     recall: alloc::rc::Rc<recall::Recall>,
     keymap: Keymap,
     /// The look of the parts of screens a plugin set, and its priority
-    /// (see [`Registrar::set_ui_look`](paperpaw_sdk::Registrar::set_ui_look)).
+    /// (see [`Items::set_ui_look`](paperpaw_sdk::Items::set_ui_look)).
     look: (paperpaw_sdk::ui::look::Look, Option<paperpaw_sdk::Priority>),
     /// What each plugin takes.
     meter: alloc::rc::Rc<meter::Meter>,

@@ -24,7 +24,7 @@
 //!   kernel's own question: a plugin only asks.
 //! - **Being seen**: [`advertise`] for a while, and a GATT server of
 //!   services declared at registration
-//!   ([`Registrar::add_gatt_service`](crate::Registrar::add_gatt_service)):
+//!   (`Items::add_gatt_service`):
 //!   centrals' reads and writes come as events, answered with [`respond`]
 //!   or [`refuse`], and [`notify_centrals`] sends to those subscribed.
 //! - **Keys of a remote or a keyboard**: a bonded device that types is the
@@ -47,14 +47,14 @@
 //!
 //! ```
 //! use paperpaw_sdk::bluetooth::{self, BtEvent, Uuid};
-//! use paperpaw_sdk::{Event, Registrar, RegisterError};
+//! use paperpaw_sdk::{Event, Items, RegisterError};
 //!
 //! const FOUND: Event<BtEvent> = Event::new("pulse.found");
 //! const LINK: Event<BtEvent> = Event::new("pulse.link");
 //! const HEART_RATE: Uuid = Uuid::sig(0x180D);
 //! const MEASUREMENT: Uuid = Uuid::sig(0x2A37);
 //!
-//! fn register(r: &mut Registrar) -> Result<(), RegisterError> {
+//! fn register(r: &mut Items) -> Result<(), RegisterError> {
 //!     // A scan for the first heart-rate belt, then its measurements.
 //!     r.on(FOUND, |_, event: &BtEvent, out| {
 //!         if let BtEvent::Found(device) = event {
@@ -1293,7 +1293,7 @@ impl CharacteristicSpec {
 }
 
 /// A service of the device's own GATT server, declared at registration
-/// ([`Registrar::add_gatt_service`](crate::Registrar::add_gatt_service)):
+/// (`Items::add_gatt_service`):
 /// centrals' reads, writes and subscriptions of its characteristics come
 /// as `events`.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,7 +1,6 @@
 use alloc::borrow::Cow;
 use core::fmt;
 
-use crate::contribution::Registrar;
 use crate::id::Id;
 use crate::version::Version;
 
@@ -141,19 +140,6 @@ impl core::ops::BitOr for Uses {
     fn bitor(self, other: Uses) -> Uses {
         Uses(self.0 | other.0)
     }
-}
-
-/// A PaperPaw plugin.
-///
-/// `register` is called once at start-up. It adds the plugin's contributions;
-/// the kernel decides afterwards which ones are active (user configuration
-/// and priorities may override them).
-pub trait Plugin {
-    fn manifest(&self) -> Manifest;
-
-    /// Adds the plugin's contributions with `registrar` (see
-    /// [`contribution`](crate::contribution)).
-    fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError>;
 }
 
 /// Priority of a default binding. Higher wins; an explicit user setting
