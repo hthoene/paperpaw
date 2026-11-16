@@ -25,7 +25,7 @@ use paperpaw_sdk::builtin::{params, slots};
 use paperpaw_sdk::semantics::Part;
 use paperpaw_sdk::{
     ActionSpec, Command, Id, ItemState, Manifest, MemoryStorage, MenuEntry, MenuPlace, Params,
-    Plugin, RegisterError, Registrar, SDK_VERSION,
+    RegisterError, SDK_VERSION,
 };
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
@@ -51,129 +51,109 @@ fn action(id: &'static str) -> ActionSpec {
 
 /// A menu of two entries, A and B, and an action that redefines it as B,
 /// A.
-struct Early;
-
-impl Plugin for Early {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("early"), "Early", SDK_VERSION)
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn early(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(Id::new_static("early"), "Early", SDK_VERSION)
+        .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
         for (id, order) in [("early.a", 10), ("early.b", 20)] {
-            r.add_action(action(id).handler(|_, _, _| {}))?;
-            r.add_menu_entry(MenuEntry::new(MENU, Id::new_static(id)).order(order))?;
-        }
-        r.add_action(action("early.customize").handler(|_, _, out| {
-            let ids = vec![Id::new_static("early.b"), Id::new_static("early.a")];
-            out.push(Command::SetMenu(MENU, Some(ids)));
-        }))?;
-        r.add_translations(Cow::Borrowed(
-            "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n[messages]\nearly.a = Early A\nearly.b = Early B\n",
-        ))
-    }
+                items.add_action(action(id).handler(|_, _, _| {}))?;
+                items.add_menu_entry(MenuEntry::new(MENU, Id::new_static(id)).order(order))?;
+            }
+            items.add_action(action("early.customize").handler(|_, _, out| {
+                let ids = vec![Id::new_static("early.b"), Id::new_static("early.a")];
+                out.push(Command::SetMenu(MENU, Some(ids)));
+            }))?;
+            items.add_translations(Cow::Borrowed(
+                "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n[messages]\nearly.a = Early A\nearly.b = Early B\n",
+            ))
+
+    })
 }
 
 /// Installed later: C right after A; and entries that say what they are
 /// now, one with a line under it.
-struct Late;
-
-impl Plugin for Late {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("late"), "Late", SDK_VERSION).uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn late(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(Id::new_static("late"), "Late", SDK_VERSION)
+        .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
         // Something to open besides.
-        r.add_action(action("late.app").handler(|_, _, _| {}))?;
-        r.add_menu_entry(MenuEntry::new(
-            paperpaw_sdk::builtin::menus::APPS,
-            Id::new_static("late.app"),
-        ))?;
-        for id in ["late.c", "late.on", "late.faint", "late.gone"] {
-            r.add_action(action(id).handler(|_, _, _| {}))?;
-        }
-        r.place_menu_entry(
-            MENU,
-            Id::new_static("late.c"),
-            MenuPlace::After(Id::new_static("early.a")),
-        )?;
-        for id in ["late.on", "late.faint", "late.gone"] {
-            r.place_menu_entry(MENU, Id::new_static(id), MenuPlace::Last)?;
-        }
-        r.set_item_state(Id::new_static("late.on"), |_| {
-            ItemState::new().checked(true)
-        })?;
-        r.set_item_state(Id::new_static("late.faint"), |_| {
-            ItemState::new().enabled(false).label("Not now")
-        })?;
-        r.set_item_state(Id::new_static("late.gone"), |_| {
-            ItemState::new().shown(false)
-        })?;
-        r.describe_item(Id::new_static("late.on"), "late.on.help")?;
-        r.add_translations(Cow::Borrowed(
-            "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n[messages]\nlate.c = Late C\nlate.on = Late on\nlate.faint = Late faint\nlate.gone = Late gone\nlate.on.help = Says what it does\n",
-        ))
-    }
+            items.add_action(action("late.app").handler(|_, _, _| {}))?;
+            items.add_menu_entry(MenuEntry::new(
+                paperpaw_sdk::builtin::menus::APPS,
+                Id::new_static("late.app"),
+            ))?;
+            for id in ["late.c", "late.on", "late.faint", "late.gone"] {
+                items.add_action(action(id).handler(|_, _, _| {}))?;
+            }
+            items.place_menu_entry(
+                MENU,
+                Id::new_static("late.c"),
+                MenuPlace::After(Id::new_static("early.a")),
+            )?;
+            for id in ["late.on", "late.faint", "late.gone"] {
+                items.place_menu_entry(MENU, Id::new_static(id), MenuPlace::Last)?;
+            }
+            items.set_item_state(Id::new_static("late.on"), |_| {
+                ItemState::new().checked(true)
+            })?;
+            items.set_item_state(Id::new_static("late.faint"), |_| {
+                ItemState::new().enabled(false).label("Not now")
+            })?;
+            items.set_item_state(Id::new_static("late.gone"), |_| {
+                ItemState::new().shown(false)
+            })?;
+            items.describe_item(Id::new_static("late.on"), "late.on.help")?;
+            items.add_translations(Cow::Borrowed(
+                "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n[messages]\nlate.c = Late C\nlate.on = Late on\nlate.faint = Late faint\nlate.gone = Late gone\nlate.on.help = Says what it does\n",
+            ))
+
+    })
 }
 
 /// Late after an update: C renamed to *See*, the entries saying what
 /// they are now gone.
-struct Renamed;
-
-impl Plugin for Renamed {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("late"), "Late", SDK_VERSION).uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn renamed(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(Id::new_static("late"), "Late", SDK_VERSION)
+        .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
         for id in ["late.see", "late.on"] {
-            r.add_action(action(id).handler(|_, _, _| {}))?;
-        }
-        r.place_menu_entry(
-            MENU,
-            Id::new_static("late.see"),
-            MenuPlace::After(Id::new_static("early.a")),
-        )?;
-        r.place_menu_entry(MENU, Id::new_static("late.on"), MenuPlace::Last)?;
-        r.add_translations(Cow::Borrowed(
-            "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n[messages]\nlate.see = Late see\nlate.on = Late on\n",
-        ))
-    }
+                items.add_action(action(id).handler(|_, _, _| {}))?;
+            }
+            items.place_menu_entry(
+                MENU,
+                Id::new_static("late.see"),
+                MenuPlace::After(Id::new_static("early.a")),
+            )?;
+            items.place_menu_entry(MENU, Id::new_static("late.on"), MenuPlace::Last)?;
+            items.add_translations(Cow::Borrowed(
+                "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n[messages]\nlate.see = Late see\nlate.on = Late on\n",
+            ))
+
+    })
 }
 
 /// Tries to say what another plugin's entries show.
-struct Meddler;
-
-impl Plugin for Meddler {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("meddler"), "Meddler", SDK_VERSION)
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let state = r.set_item_state(Id::new_static("early.a"), |_| {
+fn meddler(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(Id::new_static("meddler"), "Meddler", SDK_VERSION)
+        .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        let state = items.set_item_state(Id::new_static("early.a"), |_| {
             ItemState::new().label("Meddled").enabled(false)
         });
         assert!(matches!(state, Err(RegisterError::Namespace { .. })));
-        let line = r.describe_item(Id::new_static("early.a"), "meddler.line");
+        let line = items.describe_item(Id::new_static("early.a"), "meddler.line");
         assert!(matches!(line, Err(RegisterError::Namespace { .. })));
         Ok(())
-    }
+    })
 }
 
 /// Takes B out of the menu.
-struct Hider;
-
-impl Plugin for Hider {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("hider"), "Hider", SDK_VERSION)
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.hide_menu_entry(MENU, Id::new_static("early.b"))
-    }
+fn hider(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(Id::new_static("hider"), "Hider", SDK_VERSION)
+        .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.hide_menu_entry(MENU, Id::new_static("early.b"))
+    })
 }
 
 struct App {
@@ -278,7 +258,7 @@ impl App {
 
 #[test]
 fn a_redefined_menu_shows_the_entries_of_plugins_installed_since() {
-    let mut app = App::new("", |b| b.plugin(Early));
+    let mut app = App::new("", early);
     app.run(CUSTOMIZE);
     let config = app.config();
     assert!(
@@ -292,7 +272,7 @@ fn a_redefined_menu_shows_the_entries_of_plugins_installed_since() {
     );
     // The same storage after a plugin was installed: C after A.
     let kept = config.replace("[core]\nlanguage = en\n", "");
-    let mut later = App::new(&kept, |b| b.plugin(Early).plugin(Late));
+    let mut later = App::new(&kept, |b| late(early(b)));
     let entries = later.entries();
     // The user's B and A, C after A, the plugin's last ones last. The entries
     // installed since join the user's list (`Menus::ids`), and a row the user
@@ -312,14 +292,14 @@ fn a_redefined_menu_shows_the_entries_of_plugins_installed_since() {
     );
     // A list kept before entries were known stays as it is.
     let mut old = App::new("[menus]\nearly.menu = early.b, early.a\n", |b| {
-        b.plugin(Early).plugin(Late)
+        late(early(b))
     });
     assert_eq!(old.entries(), ["Early B", "Early A"]);
 }
 
 #[test]
 fn entries_go_where_plugins_place_them_and_are_taken_out() {
-    let mut app = App::new("", |b| b.plugin(Early).plugin(Late).plugin(Hider));
+    let mut app = App::new("", |b| hider(late(early(b))));
     let entries = app.entries();
     // B taken out, C after A, the others last; the hidden one not shown.
     assert_eq!(
@@ -331,7 +311,7 @@ fn entries_go_where_plugins_place_them_and_are_taken_out() {
 
 #[test]
 fn entries_show_what_they_are_now_with_a_line_under_them() {
-    let mut app = App::new("", |b| b.plugin(Early).plugin(Late));
+    let mut app = App::new("", |b| late(early(b)));
     let parts = app.menu();
     let on = parts
         .iter()
@@ -351,16 +331,16 @@ fn entries_show_what_they_are_now_with_a_line_under_them() {
 
 #[test]
 fn what_there_is_to_open_is_a_submenu_of_the_tools_where_there_is_some() {
-    let mut without = App::new("", |b| b.plugin(Early));
+    let mut without = App::new("", early);
     assert!(!without.tools().iter().any(|l| l.starts_with("Apps")));
-    let mut with = App::new("", |b| b.plugin(Early).plugin(Late));
+    let mut with = App::new("", |b| late(early(b)));
     let tools = with.tools();
     assert!(tools.iter().any(|l| l.starts_with("Apps")), "{tools:?}");
 }
 
 #[test]
 fn entries_removed_or_renamed_since_a_menu_was_redefined_are_handled() {
-    let mut app = App::new("", |b| b.plugin(Early).plugin(Late));
+    let mut app = App::new("", |b| late(early(b)));
     app.run(CUSTOMIZE);
     let config = app.config();
     // Late's entries, left out, are known as such; the listed ones not.
@@ -373,14 +353,14 @@ fn entries_removed_or_renamed_since_a_menu_was_redefined_are_handled() {
     let kept = config
         .replace("[core]\nlanguage = en\n", "")
         .replace("early.b, early.a", "early.b, late.c, early.a");
-    let mut later = App::new(&kept, |b| b.plugin(Early).plugin(Renamed));
+    let mut later = App::new(&kept, |b| renamed(early(b)));
     // C is gone, its new name new: after A. *On*, left out, stays out.
     assert_eq!(later.entries(), ["Early B", "Early A", "Late see"]);
 }
 
 #[test]
 fn only_its_own_plugin_says_what_an_entry_shows() {
-    let mut app = App::new("", |b| b.plugin(Early).plugin(Meddler));
+    let mut app = App::new("", |b| meddler(early(b)));
     let parts = app.menu();
     let a = parts
         .iter()
