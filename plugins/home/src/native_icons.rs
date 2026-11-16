@@ -137,7 +137,7 @@ impl Hyphens {
 
     /// As [`Hyphens::breaks`], and `refused` is set where the host refused the
     /// call (not where the word has no place to break): a name kept whole for
-    /// that is not to be kept ([`note_refusal`]).
+    /// that is not to be kept (only a busy host is noted).
     pub fn breaks_noting(
         &self,
         host: &Host<'_>,
