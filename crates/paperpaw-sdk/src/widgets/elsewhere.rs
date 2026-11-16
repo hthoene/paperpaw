@@ -50,7 +50,7 @@ impl Widgets {
 
     /// The translation key of the name of widget `id`, registered here or
     /// declared elsewhere.
-    pub(crate) fn title_of(&self, id: &str) -> Option<Cow<'_, str>> {
+    pub fn title_of(&self, id: &str) -> Option<Cow<'_, str>> {
         match self.title(id) {
             Some(title) => Some(Cow::Borrowed(title)),
             None => self.elsewhere(id).map(|(title, _)| Cow::Owned(title)),
@@ -58,7 +58,7 @@ impl Widgets {
     }
 
     /// The kind of widget `id`, registered here or declared elsewhere.
-    pub(crate) fn kind_of(&self, id: &str) -> Option<Cow<'_, str>> {
+    pub fn kind_of(&self, id: &str) -> Option<Cow<'_, str>> {
         match self.category(id) {
             Some(kind) => Some(Cow::Borrowed(kind)),
             None => self.elsewhere(id).map(|(_, kind)| Cow::Owned(kind)),
@@ -67,7 +67,7 @@ impl Widgets {
 
     /// Every widget for screens to show ([`Widgets::iter`]), then those
     /// declared elsewhere: the id and the translation key of the name.
-    pub(crate) fn offered(&self) -> Vec<(Id, String)> {
+    pub fn offered(&self) -> Vec<(Id, String)> {
         let mut offered: Vec<(Id, String)> = self
             .iter()
             .map(|(id, title)| (id.clone(), String::from(title)))
