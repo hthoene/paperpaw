@@ -24,6 +24,10 @@
     },
     {
       "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "host",
       "name": "storage.size"
     },
     {
@@ -51,6 +55,8 @@
       "name": "dispatch_event"
     }
   ],
-  "services": [],
+  "services": [
+    "core.files"
+  ],
   "features": []
 }

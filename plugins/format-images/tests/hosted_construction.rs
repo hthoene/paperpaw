@@ -14,7 +14,7 @@ fn construct() -> Result<(), String> {
     hosted::try_construct(
         paperpaw_plugin_format_images::NATIVE_ENTRY.entry(),
         "format-images",
-        &[],
+        &["core.files"],
     )
 }
 
