@@ -641,12 +641,6 @@ impl FlatHost {
                 .ok_or(paperpaw_native::host_glue::ERR_STATE),
         }
     }
-    pub(crate) fn try_directory(&self) -> Result<Option<native_declarations::DirectoryWeak>, i32> {
-        self.directory
-            .as_ref()
-            .map(|directory| directory.try_clone().ok_or(ERR_NO_MEMORY))
-            .transpose()
-    }
 }
 
 impl crate::Kernel {
