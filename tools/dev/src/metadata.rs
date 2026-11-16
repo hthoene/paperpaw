@@ -526,7 +526,7 @@ pub fn write(dir: &Path, check: bool) -> Result<bool, String> {
 /// `metadata [--check] [<plugin's folder>]`.
 ///
 /// # Errors
-/// A wrong option, or what [`write`] reports.
+/// A wrong option, or what [`write()`] reports.
 pub fn run(args: &[String]) -> Result<bool, String> {
     let (mut check, mut dir) = (false, PathBuf::from("."));
     for arg in args {
