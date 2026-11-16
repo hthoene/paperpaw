@@ -36,9 +36,3 @@ an action in the tools, a screen, a setting and an event.
 [Writing plugins](../docs/plugins.md) walks through it; try it in the emulator
 with `paperpaw-dev build --device emulator` and
 `paperpaw-emu --library dist/emulator --trust-code`.
-
-`frame-test` runs in real time ([ADR 0030](../docs/adr/0030-real-time-screens.md)):
-a moving pattern at a fixed pace, drawn with the blit, and work done for
-every frame as hot code and as ordinary code, each measured and shown
-with the frames a second and the heap free. Try it with `cargo run -p
-paperpaw-emulator --features frame-test`.
