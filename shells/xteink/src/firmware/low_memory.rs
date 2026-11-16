@@ -31,7 +31,7 @@ impl Firmware {
         let facts = Facts {
             store_plugins: store,
             set,
-            on_home: self.kernel.home_on_top(),
+            on_home: self.kernel.calm_home(),
             radio_on: self.network.radio_on(),
             up_ms: now().0,
             busy,

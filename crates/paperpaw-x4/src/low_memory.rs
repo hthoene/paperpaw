@@ -32,7 +32,9 @@ pub struct Facts {
     pub store_plugins: bool,
     /// The set of plugins running ([`fingerprint`]).
     pub set: u32,
-    /// The home screen is on top, with nothing over it.
+    /// The home screen is on top, with nothing over it and no document open
+    /// (a book, a cover being made, a background job: their memory is not
+    /// Home's).
     pub on_home: bool,
     /// Wi-Fi or Bluetooth is on (a store page, a sync: the heap is not Home's).
     pub radio_on: bool,

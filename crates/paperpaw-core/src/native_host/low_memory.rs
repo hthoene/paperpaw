@@ -104,6 +104,18 @@ impl Kernel {
             .is_some_and(|top| top.slot.as_ref() == Some(&slots::HOME) && top.id != SCREEN)
     }
 
+    /// Whether the home screen is on top and no document is open: no book,
+    /// no cover being made, no background job (their memory is not Home's).
+    pub fn calm_home(&self) -> bool {
+        self.home_on_top()
+            && !self
+                .shared
+                .native_instances
+                .hosts()
+                .and_then(|hosts| hosts.documents())
+                .is_some_and(|documents| documents.0.documents_open())
+    }
+
     /// Shows the low-memory notice, once the caller has decided it is due
     /// (the shell's rule); `true` where it shows. Only over the home screen
     /// with nothing above it and nothing guarding the device: anywhere else
