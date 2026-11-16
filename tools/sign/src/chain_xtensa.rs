@@ -137,6 +137,7 @@
 
 mod family;
 mod regs;
+mod tables;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -996,35 +997,6 @@ impl Image<'_> {
         })
     }
 
-    /// Every address inside a function that a word outside the functions
-    /// (data, or the literal pools between them) holds: where a jump table or
-    /// a function pointer can send the flow, so a place another path enters.
-    fn pointed(&self) -> BTreeSet<u32> {
-        let mut found = BTreeSet::new();
-        let mut take = |base: u32, bytes: &[u8], skip_functions: bool| {
-            let first = (4 - base % 4) % 4;
-            let Some(bytes) = bytes.get(first as usize..) else {
-                return;
-            };
-            for (n, word) in bytes.as_chunks::<4>().0.iter().enumerate() {
-                let value = u32::from_le_bytes(*word);
-                if skip_functions && self.at(base + first + 4 * n as u32).is_some() {
-                    continue;
-                }
-                if self.at(value).is_some() {
-                    found.insert(value);
-                }
-            }
-        };
-        for (base, bytes) in &self.data {
-            take(*base, bytes, false);
-        }
-        for (base, bytes) in &self.exec {
-            take(*base, bytes, true);
-        }
-        found
-    }
-
     /// The function holding `address`, as an index into `funcs`.
     fn at(&self, address: u32) -> Option<usize> {
         let n = self.funcs.partition_point(|f| f.start <= address);
@@ -1254,7 +1226,7 @@ fn check_indirect(
     budget: &Budget,
     f: &Function,
     count: u32,
-    (used, family_sites): (&mut [bool], &mut BTreeMap<usize, u32>),
+    (used, family_sites): (&mut [bool], &mut family::Sites),
     report: &mut Report,
 ) {
     let own = allowed(
@@ -1369,7 +1341,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         word: &word,
         pointed: &pointed,
     };
-    let mut family_sites: BTreeMap<usize, u32> = BTreeMap::new();
+    let mut family_sites = family::Sites::new();
     seed(&image, budget, &mut report, &mut queue, &mut seen);
     while let Some(i) = queue.pop_front() {
         let f = &funcs[i];
