@@ -26,7 +26,7 @@ use paperpaw_ui_kit::{
 };
 
 use crate::declarations::{CARD, CLOCK, DATE, SHELF, STATUS_WIDGET};
-use crate::native_recent::{self, Known, Pictures};
+use crate::native_recent::{self, Ask, Known, Listing, Pictures};
 use crate::{native_card, native_clock, native_date, native_shelf, native_status};
 
 /// The most bytes of a stage reply (sizes and no targets).
@@ -131,6 +131,13 @@ impl Mine {
         }))
     }
 
+    fn ask<'a>(&'a self, listing: &'a Listing) -> Ask<'a> {
+        Ask {
+            known: &self.known,
+            listing,
+        }
+    }
+
     /// Lets go of the look it kept: the next draw reads it again.
     pub fn forget_look(&self) {
         self.look.forget();
@@ -158,13 +165,13 @@ impl Mine {
     ///
     /// # Errors
     /// Font and host refusals, [`Error::NoMemory`].
-    pub fn measure(&self, host: &Host<'_>, width: u32) -> Result<(u16, u16), Error> {
+    pub fn measure(&self, host: &Host<'_>, listing: &Listing, width: u32) -> Result<(u16, u16), Error> {
         let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
         let width = u16::try_from(width).unwrap_or(u16::MAX);
         let size = match self.token {
             DATE => same(native_date::height(&mut cx, width)?),
             CARD => (native_card::height(&cx), native_card::height(&cx) / 2),
-            SHELF => native_shelf::height(&cx, &self.known, width)?,
+            SHELF => native_shelf::height(&cx, self.ask(listing), width)?,
             STATUS_WIDGET => same(native_status::height(&cx)?),
             _ => same(native_clock::height(&mut cx, width)?),
         };
@@ -181,6 +188,7 @@ impl Mine {
         &self,
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         rect: Rect,
     ) -> Result<Vec<WidgetTarget>, Error> {
         let mut found: Vec<WidgetTarget> = Vec::new();
@@ -200,7 +208,7 @@ impl Mine {
             )?,
             SHELF => {
                 let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
-                for (id, at) in native_shelf::targets(&mut cx, &self.known, rect)? {
+                for (id, at) in native_shelf::targets(&mut cx, self.ask(listing), rect)? {
                     let target = WidgetTarget::new(id, paint::frame_rect(at));
                     paperpaw_ui_kit::mem::push(&mut found, target)?;
                 }
@@ -220,13 +228,27 @@ impl Mine {
         &self,
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         frame: &mut DrawFrame<'_>,
         area: Rect,
     ) -> Result<(), Error> {
         if self.token == STATUS_WIDGET {
             return native_status::draw_widget(host, ui, frame, (&self.widget, &self.look), area);
         }
-        self.known.begin_draw(frame.clip_top);
+        self.known.begin_draw(frame.clip_top, listing);
+        listing.drawing(true);
+        let drawn = self.draw_own(host, listing, frame, area);
+        listing.drawing(false);
+        drawn
+    }
+
+    fn draw_own(
+        &self,
+        host: &Host<'_>,
+        listing: &Listing,
+        frame: &mut DrawFrame<'_>,
+        area: Rect,
+    ) -> Result<(), Error> {
         let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
         let mut out = Vec::new();
         let mut pictures = Pictures::default();
@@ -241,10 +263,10 @@ impl Mine {
                 &mut cx,
                 &mut out,
                 icons.as_ref(),
-                (&mut pictures, &self.known),
+                (&mut pictures, self.ask(listing)),
                 area,
             )?,
-            SHELF => native_shelf::draw(&mut cx, &mut out, (&mut pictures, &self.known), area)?,
+            SHELF => native_shelf::draw(&mut cx, &mut out, (&mut pictures, self.ask(listing)), area)?,
             _ => native_clock::draw(&mut cx, &mut out, area)?,
         }
         self.waiting.set(pictures.busy);
@@ -260,7 +282,7 @@ impl Mine {
             );
             if drawn.is_err() {
                 // The host ended the id: the next tick draws it, asked for anew.
-                self.known.forget_covers();
+                self.known.forget_all_covers();
                 self.waiting.set(true);
             }
         }
@@ -277,6 +299,7 @@ impl Mine {
         &self,
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         target: u32,
         kind: WidgetInputKind,
     ) -> Result<bool, Error> {
@@ -287,13 +310,13 @@ impl Mine {
             return status_tap(host, ui, self, target);
         }
         let book = match self.token {
-            CARD => native_recent::read(host, &self.known, 0, 1)?
+            CARD => native_recent::read(host, listing, 0, 1)?
                 .into_iter()
                 .next(),
             SHELF => {
                 let cx = Cx::open(host, &self.widget)?;
                 let at = usize::try_from(target - 1).map_err(|_| Error::Invalid)?;
-                native_shelf::books(&cx, &self.known)?.into_iter().nth(at)
+                native_shelf::books(&cx, self.ask(listing))?.into_iter().nth(at)
             }
             _ => return Ok(false),
         };
