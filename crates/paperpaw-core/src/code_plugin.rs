@@ -377,7 +377,9 @@ impl Kernel {
             // question (Decision 205), unless an author's key is pinned for
             // its id: a copied file never takes over a signed plugin's id.
             let sha256 = installed.get(id.as_str());
-            if sha256.is_none() && crate::native_host::plugin_trust::pinned(storage.as_ref(), id.as_str()) {
+            if sha256.is_none()
+                && crate::native_host::plugin_trust::pinned(storage.as_ref(), id.as_str())
+            {
                 let message =
                     format!("{path}: never installed, and its id has an author's key; not loaded");
                 self.warn(WarningSource::Plugin(id.clone()), None, message);
