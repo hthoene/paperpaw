@@ -58,6 +58,14 @@ fn device(last: bool) -> Device {
 
 /// As [`device`], with `ini` before the help hint's lines in `paperpaw.ini`.
 fn device_in(last: bool, ini: &str) -> Device {
+    let mut device = unstarted(last, ini);
+    device.start();
+    run_script(&mut device, "wait:3000").unwrap();
+    device
+}
+
+/// As [`device_in`], before its start.
+fn unstarted(last: bool, ini: &str) -> Device {
     let mut files = MemoryStorage::new()
         .with(
             BOOK,
@@ -73,10 +81,7 @@ fn device_in(last: bool, ini: &str) -> Device {
     }
     paperpaw_emulator::budget::override_limit(None);
     let profile = profiles::find("xteink-x4").unwrap();
-    let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
-    device.start();
-    run_script(&mut device, "wait:3000").unwrap();
-    device
+    Device::in_memory(profile, None, Rc::new(files), true, None).unwrap()
 }
 
 fn screen(device: &mut Device) -> String {
@@ -108,6 +113,9 @@ fn counted(device: &mut Device, steps: &[&str]) -> (u32, u32) {
             .map_or(0, |(_, n)| *n)
     };
     eprintln!("home return: {counts:?}");
+    for (plugin, service, op) in slot_counts::service_calls() {
+        eprintln!("  service {plugin} {service}.{op}");
+    }
     (counts.iter().map(|(_, n)| *n).sum(), at("settings_read"))
 }
 
@@ -148,6 +156,31 @@ fn a_missing_hyphenation_table_does_not_make_home_read_its_look_at_every_draw() 
     assert!(
         steady <= STEADY_SLOTS && steady_reads <= STEADY_READS,
         "a redraw made {steady} slots ({steady_reads} reads) in German"
+    );
+}
+
+/// Home's tool names are never hyphenated (#267): a name no line holds ends in
+/// "…", and the host is not asked where it may break (on the X4 each ask reads
+/// the language's table from the card, 13 ms, 21 in a frame; a frame is drawn
+/// in bands and the look is read again after a setting).
+#[test]
+fn home_does_not_ask_the_host_to_hyphenate_its_tool_names() {
+    let mut device = unstarted(false, GERMAN_TOOLS);
+    slot_counts::reset();
+    device.start();
+    run_script(&mut device, "wait:3000").unwrap();
+    let counts = slot_counts::snapshot();
+    let at = |slot: &str| {
+        counts
+            .iter()
+            .find(|(name, _)| *name == slot)
+            .map_or(0, |c| c.1)
+    };
+    assert!(at("text_measure") > 0, "Home did not draw: {counts:?}");
+    assert_eq!(
+        at("text_hyphenate"),
+        0,
+        "Home asked for hyphenation: {counts:?}"
     );
 }
 
@@ -208,6 +241,37 @@ fn what_a_book_changed_under_the_cover_shows_when_it_returns() {
         shot(&mut device, "card-after"),
         before,
         "the card shows the old progress"
+    );
+}
+
+/// The library is asked for the recent books by the card and by the shelf, once
+/// each for a frame, not once for each band of it (#267): on the X4 a query is
+/// a score of card reads, and the service calls of the first frame took 1.3 s.
+/// Measured: 5 queries before, 3 after (the card's, the shelf's and its measure).
+#[test]
+fn the_return_from_a_book_does_not_ask_the_library_for_each_band() {
+    let mut device = device(true);
+    run_script(&mut device, "back").unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    run_script(
+        &mut device,
+        "open:reader.screen:path=books/alice-in-wonderland.epub",
+    )
+    .unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    slot_counts::reset();
+    run_script(&mut device, "back").unwrap();
+    let calls = slot_counts::service_calls();
+    let of = |op: &str| {
+        calls
+            .iter()
+            .filter(|(_, service, name)| *service == "core.library" && *name == op)
+            .count()
+    };
+    let queries = of("query");
+    assert!(
+        (1..=3).contains(&queries) && of("book") <= 2 && of("cover") <= 1,
+        "the return asked the library {queries} times for its books: {calls:?}"
     );
 }
 

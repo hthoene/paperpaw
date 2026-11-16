@@ -15,7 +15,7 @@ pub(super) unsafe extern "C" fn copy<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = host_slot::enter();
+    let _slot = host_slot::enter_as(host_slot::Id::I18nCopy);
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe { formatting::copy(&context.environment, key, out) }
 }
@@ -31,7 +31,7 @@ pub(super) unsafe extern "C" fn format<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = host_slot::enter();
+    let _slot = host_slot::enter_as(host_slot::Id::I18nFormat);
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe { formatting::format(&context.environment, key, args, out) }
 }
@@ -46,7 +46,7 @@ pub(super) unsafe extern "C" fn digits<S: 'static>(
         return host_glue::ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = host_slot::enter();
+    let _slot = host_slot::enter_as(host_slot::Id::I18nDigits);
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe { formatting::digits(&context.environment, text, out) }
 }
