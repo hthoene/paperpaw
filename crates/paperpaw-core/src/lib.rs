@@ -303,6 +303,7 @@ pub struct Kernel {
     /// `paperpaw.ini` is there but could not be read at start: the user
     /// is told once the first screen shows.
     config_unreadable: bool,
+    literata_notice: font_refresh::literata_notice::LiterataNotice,
     /// The shell found no card it can use: the reader is told why at
     /// each start.
     card_trouble: Option<CardTrouble>,

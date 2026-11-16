@@ -995,6 +995,7 @@ impl BuilderParts {
             task: None,
             tasks: Vec::new(),
             config_unreadable: false,
+            literata_notice: Default::default(),
             card_trouble: None,
             after_sleep: false,
             secrets_unreadable: false,

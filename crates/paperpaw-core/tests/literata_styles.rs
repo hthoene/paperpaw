@@ -558,3 +558,36 @@ fn a_card_that_cannot_say_takes_no_choice_of_literata_away() {
     assert!(!device.kept_in_the_file());
     assert_ui_font_sets_the_book(&device.kernel);
 }
+
+/// The actual Beta 3 ini: the saved choice is retained, while the upgrade hint
+/// is specific to missing Literata and survives a restart as already shown.
+#[test]
+fn a_beta3_literata_card_gets_one_hint_only_without_the_pack() {
+    let config = include_str!("../../../shells/desktop/tests/beta3-card/paperpaw.ini");
+    let (mut first, _) = Running::on(card(Styles::None, false), config);
+    first.kernel.tick(Instant(10));
+    assert_eq!(
+        first.kernel.active_screen().unwrap().as_str(),
+        "core.confirm-dialog"
+    );
+    common::press(&mut first.kernel, 20, "back");
+    assert_eq!(first.kernel.active_screen(), Some(&common::BASE));
+    let saved = paperpaw_core::sdk::read_file(first.card.as_ref(), "paperpaw.ini", 65536).unwrap();
+    let saved = std::str::from_utf8(&saved).unwrap();
+    assert!(saved.contains("reading-font = Literata"));
+    assert!(saved.contains("literata-pack-notice-seen = on"));
+    let (mut second, _) = Running::again(first.card);
+    second.kernel.tick(Instant(10));
+    assert_eq!(second.kernel.active_screen(), Some(&common::BASE));
+    let (mut installed, _) = Running::on(card(Styles::All, false), config);
+    installed.kernel.tick(Instant(10));
+    assert_eq!(installed.kernel.active_screen(), Some(&common::BASE));
+    assert_eq!(
+        installed.kernel.settings().text("core.reading-font"),
+        "Literata"
+    );
+    let other = config.replace("reading-font = Literata", "reading-font = PaperPaw Sans");
+    let (mut other, _) = Running::on(card(Styles::None, false), &other);
+    other.kernel.tick(Instant(10));
+    assert_eq!(other.kernel.active_screen(), Some(&common::BASE));
+}
