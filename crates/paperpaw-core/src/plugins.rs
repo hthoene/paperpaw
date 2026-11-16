@@ -96,12 +96,6 @@ impl Kernel {
         self.register_items(manifest, &|items| plugin.register(items));
     }
 
-    /// An old [`Plugin`] listed as off ([`Kernel::list_off`]); as above.
-    #[cfg(test)]
-    pub(crate) fn register_off(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
-        self.list_off(manifest, &|items| plugin.register(items));
-    }
-
     pub(crate) fn register_items(&mut self, manifest: Manifest, adds: Adds<'_>) {
         let id = manifest.id.clone();
         let source = || WarningSource::Plugin(id.clone());
