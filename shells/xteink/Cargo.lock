@@ -2311,7 +2311,6 @@ name = "paperpaw-config"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-sort",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -2374,7 +2373,6 @@ name = "paperpaw-graphics"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -2403,7 +2401,6 @@ dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
  "paperpaw-sort",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -2419,7 +2416,6 @@ name = "paperpaw-json"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -2726,6 +2722,7 @@ version = "0.6.0-beta.3"
 name = "paperpaw-sample-frame-test"
 version = "0.6.0-beta.3"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-sdk",
 ]
 
@@ -2747,7 +2744,6 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-qr",
  "paperpaw-sort",
- "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
@@ -2774,10 +2770,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-table"
-version = "0.6.0-beta.3"
-
-[[package]]
 name = "paperpaw-text"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2786,7 +2778,6 @@ dependencies = [
  "paperpaw-lang",
  "paperpaw-platform",
  "paperpaw-sort",
- "paperpaw-table",
  "read-fonts",
  "skrifa",
 ]
@@ -2820,9 +2811,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-xml"
 version = "0.6.0-beta.3"
-dependencies = [
- "paperpaw-table",
-]
 
 [[package]]
 name = "paperpaw-xteink"
@@ -2860,7 +2848,6 @@ dependencies = [
  "paperpaw-plugin-wifi",
  "paperpaw-sample-frame-test",
  "paperpaw-sdk",
- "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-x4",

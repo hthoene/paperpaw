@@ -1,7 +1,7 @@
 //! Voices: what speaks text aloud ([`Command::Speak`](crate::Command::Speak)) besides the
 //! system's.
 //!
-//! A plugin's voice ([`VoiceSpec`], `Registrar::add_voice`) gets each
+//! A plugin's voice ([`VoiceSpec`], `Items::add_voice`) gets each
 //! text to speak while the setting
 //! [`VOICE`](crate::builtin::settings::VOICE) chooses it and it knows the
 //! text's language; the system's voice speaks the rest. It answers as the

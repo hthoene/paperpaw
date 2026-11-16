@@ -27,21 +27,22 @@ use paperpaw_sdk::{Id, Instant, MemoryStorage, Params};
 /// The two plugins' catalogs as the kernel reads them: the production host does
 /// not load a native plugin's `i18n/*.ini` yet, so a test-only plugin registers
 /// them (as in About's hosted test).
-struct Catalogs(&'static str, [&'static str; 2]);
-impl paperpaw_sdk::Plugin for Catalogs {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            Id::new_static(self.0),
-            "Catalogs",
-            paperpaw_sdk::Version::new(1, 0, 2),
-        )
-    }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-        for text in self.1 {
-            r.add_translations(std::borrow::Cow::Borrowed(text))?;
+fn catalogs(
+    builder: paperpaw_core::KernelBuilder,
+    id: &'static str,
+    texts: [&'static str; 2],
+) -> paperpaw_core::KernelBuilder {
+    let manifest = paperpaw_sdk::Manifest::new(
+        Id::new_static(id),
+        "Catalogs",
+        paperpaw_sdk::Version::new(1, 0, 2),
+    );
+    builder.items(manifest, move |items| {
+        for text in texts {
+            items.add_translations(std::borrow::Cow::Borrowed(text))?;
         }
         Ok(())
-    }
+    })
 }
 
 /// No walk under way, no date: the library of a card with no book read.
@@ -107,22 +108,25 @@ impl Screen {
 /// once the picture is made, and the callbacks the host dropped.
 fn dashboard(setup: hosted::Setup) -> (Screen, Vec<(u32, i32)>) {
     let setup = setup.with_kernel(|b| {
-        b.storage(MemoryStorage::new().with("pics/wide.png", WIDE))
-            .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
-            .plugin(Catalogs(
-                "picture-home",
-                [
-                    include_str!("../i18n/en.ini"),
-                    include_str!("../i18n/de.ini"),
-                ],
-            ))
-            .plugin(Catalogs(
-                "home",
-                [
-                    include_str!("../../home/i18n/en.ini"),
-                    include_str!("../../home/i18n/de.ini"),
-                ],
-            ))
+        let b = b
+            .storage(MemoryStorage::new().with("pics/wide.png", WIDE))
+            .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS);
+        let b = catalogs(
+            b,
+            "picture-home",
+            [
+                include_str!("../i18n/en.ini"),
+                include_str!("../i18n/de.ini"),
+            ],
+        );
+        catalogs(
+            b,
+            "home",
+            [
+                include_str!("../../home/i18n/en.ini"),
+                include_str!("../../home/i18n/de.ini"),
+            ],
+        )
     });
     let mut installed = hosted::install_in(
         &setup,

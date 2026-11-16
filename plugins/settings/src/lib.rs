@@ -1,5 +1,5 @@
 //! The settings screens, generated from the settings every plugin declares
-//! (`Registrar::add_setting`), so no plugin needs its own settings UI.
+//! (`Items::add_setting`), so no plugin needs its own settings UI.
 //!
 //! The plugin is native (interface 7): [`native_plugin`] holds the screens,
 //! [`native_secrets`] the passwords and keys, [`native_model`] what the pages

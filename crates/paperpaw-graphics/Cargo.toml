@@ -19,8 +19,6 @@ color = []
 
 [dependencies]
 paperpaw-platform.workspace = true
-# The shared function table (`paperpaw_table::shared!`).
-paperpaw-table.workspace = true
 
 [lints]
 workspace = true

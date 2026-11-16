@@ -142,7 +142,6 @@ impl<'t> Label<'t> {
             .map_or(0.0, |font| font.measure(self.size(style), self.text))
     }
 
-    paperpaw_table::shared! {
     /// How high it is in an area `width` wide: a line, or the lines its
     /// text takes there (up to [`Label::lines`]).
     pub fn height(&self, env: &Env<'_>, style: &UiStyle, width: u16) -> u16 {
@@ -159,7 +158,6 @@ impl<'t> Label<'t> {
                 .clamp(1, self.lines)
         };
         (line * lines as f32) as u16 + 1
-    } @ ui::LABEL_HEIGHT
     }
 
     /// Draws it in `area`, its lines in the middle of the area's height;
@@ -176,7 +174,6 @@ impl<'t> Label<'t> {
         self.draw_lines(ui.canvas(), &font, style, area, color)
     }
 
-    paperpaw_table::shared! {
     /// Draws it on one line from `x` (between pixels, as a line goes on
     /// after another's words) to the right of `area`, in the middle of
     /// its height; where it ends.
@@ -187,7 +184,6 @@ impl<'t> Label<'t> {
         };
         let color = self.paint(style);
         self.draw_line(ui.canvas(), &font, style, x, area, color)
-    } @ ui::LABEL_DRAW_FROM
     }
 
     /// Its colour with `style`.

@@ -11,7 +11,7 @@
 
 use std::borrow::Cow;
 
-use paperpaw_core::KernelBuilder;
+use paperpaw_core::{Items, KernelBuilder};
 use paperpaw_platform::{Color, Rect};
 use paperpaw_sdk::builtin::params;
 use paperpaw_sdk::ui::slider::SliderFocus;
@@ -19,8 +19,7 @@ use paperpaw_sdk::ui::slider::SliderView;
 use paperpaw_sdk::ui::{self, TextRole, UiStyle};
 use paperpaw_sdk::widgets::Frame;
 use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, Params, Plugin, RegisterError, Registrar, Screen,
-    ScreenSpec, Version,
+    Canvas, Cx, Env, Handled, Id, Manifest, Params, RegisterError, Screen, ScreenSpec, Version,
 };
 
 /// The plugin's id.
@@ -28,7 +27,7 @@ pub const PLUGIN: &str = "ui-kit";
 
 /// Adds the kit to the app (an [`AddPlugins`](crate::AddPlugins)).
 pub fn add(app: KernelBuilder) -> KernelBuilder {
-    app.plugin(UiKit)
+    app.items(ui_kit_manifest(), ui_kit())
 }
 
 /// The pages, by screen id and title key.
@@ -221,16 +220,8 @@ ui-kit.chip.shelves = Regale
 ui-kit.long-text = Ein Text, der länger ist als sein Platz, lässt sich verschieben: hoch und runter ein paar Zeilen, die Blättertasten eine Seite, per Touch ein Wischen oder ein Tippen in die obere oder untere Hälfte. Ein Balken rechts zeigt, wo die sichtbaren Zeilen im Ganzen liegen. Diese Zeile und die folgenden kommen beim Verschieben in Sicht. Noch eine. Und die letzte.
 ";
 
-struct UiKit;
-
-impl Plugin for UiKit {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static(PLUGIN), "UI kit", Version::new(0, 1, 0))
-            .description("Every building block of the SDK's user interface.")
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn ui_kit() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_translations(Cow::Borrowed(TEXTS))?;
         r.add_translations(Cow::Borrowed(TEXTS_DE))?;
         for (index, (id, title)) in PAGES.into_iter().enumerate() {
@@ -243,6 +234,13 @@ impl Plugin for UiKit {
         }
         Ok(())
     }
+}
+
+/// What [`ui_kit`] registers under.
+fn ui_kit_manifest() -> Manifest {
+    Manifest::new(Id::new_static(PLUGIN), "UI kit", Version::new(0, 1, 0))
+        .description("Every building block of the SDK's user interface.")
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// The choice page: the SDK's choice overlay, three options.

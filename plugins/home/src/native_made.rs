@@ -54,6 +54,13 @@ impl Made {
         }
     }
 
+    /// Lets go of the look a widget of this plugin's own kept.
+    pub fn forget_look(&self) {
+        if let Self::Mine(mine) = self {
+            mine.forget_look();
+        }
+    }
+
     /// Tells it where it sits (before the first draw there and when that
     /// changes).
     ///

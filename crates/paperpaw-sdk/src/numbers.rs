@@ -33,6 +33,15 @@ pub fn fixed(units: i64, decimals: u32, mark: &str) -> String {
     )
 }
 
+/// A number as written with a point (`1.5`, `-.25`, `1e2`) and nothing
+/// around it; `None` for anything else. Not `core`'s parser of floats,
+/// which is 16 KB of the firmware: the same float for up to eight digits
+/// after the point, within a unit of its last place for longer ones.
+#[must_use]
+pub fn parse_f32(text: &str) -> Option<f32> {
+    crate::float_text::parse_f32(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

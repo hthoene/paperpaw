@@ -131,7 +131,7 @@ mod kernel_side {
         );
         let mut kernel = Kernel::builder(crate::tests::DEVICE)
             .random(fill)
-            .plugin(home::Home)
+            .items(home::home_manifest(), home::home())
             .firmware_host(alloc::boxed::Box::new(fake))
             .build()
             .unwrap();
@@ -142,9 +142,10 @@ mod kernel_side {
     /// A home screen to lie under the confirmation (a screen cannot be
     /// closed where it is the only one).
     mod home {
+        use crate::Items;
         use paperpaw_sdk::{
-            Canvas, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError, Registrar,
-            Screen, ScreenSpec, Version, builtin::slots,
+            Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Screen, ScreenSpec,
+            Version, builtin::slots,
         };
 
         const HOME: Id = Id::new_static("h.home");
@@ -157,13 +158,8 @@ mod kernel_side {
             }
         }
 
-        pub(super) struct Home;
-        impl Plugin for Home {
-            fn manifest(&self) -> Manifest {
-                Manifest::new(Id::new_static("h"), "Home", Version::new(1, 0, 0))
-                    .uses(paperpaw_sdk::Uses::NOTHING)
-            }
-            fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        pub(super) fn home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+            |r| {
                 r.add_screen(ScreenSpec::new(
                     HOME,
                     "home",
@@ -171,6 +167,12 @@ mod kernel_side {
                 ))?;
                 r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)
             }
+        }
+
+        /// What [`home`] registers under.
+        pub(super) fn home_manifest() -> Manifest {
+            Manifest::new(Id::new_static("h"), "Home", Version::new(1, 0, 0))
+                .uses(paperpaw_sdk::Uses::NOTHING)
         }
     }
 
@@ -361,10 +363,11 @@ mod kernel_side {
 
     mod lock {
         use super::*;
+        use crate::Items;
         use core::cell::Cell;
         use paperpaw_sdk::{
-            Canvas, Cx, Env, Handled, Manifest, Plugin, Priority, RegisterError, Registrar, Screen,
-            ScreenSpec, Version, builtin::slots,
+            Canvas, Cx, Env, Handled, Manifest, Priority, RegisterError, Screen, ScreenSpec,
+            Version, builtin::slots,
         };
 
         const LOCK: Id = Id::new_static("g.lock");
@@ -395,14 +398,11 @@ mod kernel_side {
             }
         }
 
-        struct LockPlugin(alloc::rc::Rc<Cell<bool>>);
-        impl Plugin for LockPlugin {
-            fn manifest(&self) -> Manifest {
-                Manifest::new(Id::new_static("g"), "Guard", Version::new(1, 0, 0))
-                    .uses(paperpaw_sdk::Uses::NOTHING)
-            }
-            fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-                let locked = self.0.clone();
+        fn lock_plugin(
+            kept: alloc::rc::Rc<Cell<bool>>,
+        ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+            move |r| {
+                let locked = kept.clone();
                 r.add_screen(ScreenSpec::new(
                     LOCK,
                     "lock",
@@ -419,6 +419,12 @@ mod kernel_side {
             }
         }
 
+        /// What [`lock_plugin`] registers under.
+        fn lock_plugin_manifest() -> Manifest {
+            Manifest::new(Id::new_static("g"), "Guard", Version::new(1, 0, 0))
+                .uses(paperpaw_sdk::Uses::NOTHING)
+        }
+
         #[test]
         fn the_confirmation_waits_while_the_lock_is_up_and_is_never_drawn_over_it() {
             let locked = alloc::rc::Rc::new(Cell::new(true));
@@ -430,7 +436,7 @@ mod kernel_side {
             );
             let mut kernel = Kernel::builder(crate::tests::DEVICE)
                 .random(super::fill)
-                .plugin(LockPlugin(locked.clone()))
+                .items(lock_plugin_manifest(), lock_plugin(locked.clone()))
                 .firmware_host(alloc::boxed::Box::new(fake))
                 .build()
                 .unwrap();

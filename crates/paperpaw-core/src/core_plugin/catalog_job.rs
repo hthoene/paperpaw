@@ -246,7 +246,7 @@ pub(super) fn make_library_folder(env: &Env<'_>) {
 /// ([`library::sorted`]): made where they are not of the library there
 /// is now. And the walk wanted again after a wake.
 pub(super) fn register_sorted(
-    r: &mut paperpaw_sdk::Registrar,
+    r: &mut crate::Items,
     catalog: &alloc::rc::Rc<super::Catalog>,
 ) -> Result<(), paperpaw_sdk::RegisterError> {
     use paperpaw_sdk::builtin::events;

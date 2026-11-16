@@ -81,8 +81,8 @@ fn the_tokens_are_distinct() {
         RESUME,
         WORK_DUE,
         WORK_ALLOWED,
+        WORK_REFUSED,
         HTTP_DONE,
-        SCREEN_SHOWN,
     ];
     tokens.sort_unstable();
     assert!(tokens.windows(2).all(|w| w[0] != w[1]));

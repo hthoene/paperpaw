@@ -1,12 +1,13 @@
 //! The core plugin's translation catalogs.
 
+use crate::Items;
 use alloc::borrow::Cow;
-use paperpaw_sdk::{RegisterError, Registrar};
+use paperpaw_sdk::RegisterError;
 
 /// Adds the catalogs. Each stays under the 15-bit static catalog-index limit
 /// (32 KiB): the host prompts and the `core.setting.*` texts have catalogs
 /// of their own.
-pub(crate) fn add(r: &mut Registrar) -> Result<(), RegisterError> {
+pub(crate) fn add(r: &mut Items) -> Result<(), RegisterError> {
     for source in [
         include_str!("../i18n/en.ini"),
         include_str!("../i18n/de.ini"),

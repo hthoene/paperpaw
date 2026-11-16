@@ -5,6 +5,7 @@
     clippy::expect_used,
     reason = "fixture failures fail acceptance"
 )]
+use crate::Items;
 use crate::{
     Kernel,
     native_host::{DispatchDepth, HostResources, shell},
@@ -23,7 +24,7 @@ use paperpaw_sdk::native::{
     events::{Event, Incoming},
     reply::Reply,
 };
-use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, SettingSpec, Version};
+use paperpaw_sdk::{Id, Manifest, RegisterError, SettingSpec, Version};
 extern crate std;
 use std::eprintln;
 use std::{
@@ -141,16 +142,8 @@ fn report(_: &Heap, _: &str, s: crate::native_host::TeardownStep, e: crate::nati
     eprintln!("native teardown {s:?}: {e:?}");
 }
 // Test-only catalog/settings installation, never a Battery behavior adapter.
-struct Catalogs;
-impl Plugin for Catalogs {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("battery"),
-            "Battery catalogs",
-            Version::new(1, 0, 8),
-        )
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn catalogs() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         // The test shell supplies an actual stack entry for command authority.
         // Pixels still come only from native callbacks on the shared host table.
         r.add_screen(paperpaw_sdk::ScreenSpec::new(
@@ -180,6 +173,15 @@ impl Plugin for Catalogs {
         ))))?;
         Ok(())
     }
+}
+
+/// What [`catalogs`] registers under.
+fn catalogs_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("battery"),
+        "Battery catalogs",
+        Version::new(1, 0, 8),
+    )
 }
 struct AcceptanceShell;
 impl paperpaw_sdk::Screen for AcceptanceShell {
@@ -479,7 +481,7 @@ fn native_battery_pixel_acceptance() {
                 if case.developer { "on" } else { "off" }
             ))
             .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
-            .plugin(Catalogs)
+            .items(catalogs_manifest(), catalogs())
             .build()
             .unwrap();
         kernel.start(Instant(0));

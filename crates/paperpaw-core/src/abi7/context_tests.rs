@@ -1,6 +1,7 @@
 extern crate std;
 
 use super::*;
+use crate::Items;
 use crate::abi7::{
     context::{Error, FrameSlot},
     core_frame::CallbackStamp,
@@ -8,7 +9,7 @@ use crate::abi7::{
 use alloc::{borrow::Cow, string::String};
 use core::{ops::ControlFlow, pin::pin};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, Version};
+use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 
 fn frame<'a>(kernel: &'a crate::Kernel, env: &'a Env<'a>) -> CoreFrame<'a> {
     CoreFrame {
@@ -107,24 +108,23 @@ fn env_only_frames_refuse_core_services() {
     );
 }
 
-struct Named;
-impl Plugin for Named {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("named"),
-            "Manifest name",
-            Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, _: &mut Registrar) -> Result<(), RegisterError> {
-        Ok(())
-    }
+fn named() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |_| Ok(())
+}
+
+/// What [`named`] registers under.
+fn named_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("named"),
+        "Manifest name",
+        Version::new(1, 0, 0),
+    )
 }
 
 #[test]
 fn names_follow_ui_language_and_notes_distinguish_empty_from_absent() {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Named)
+        .items(named_manifest(), named())
         .build()
         .unwrap();
     kernel.shared.translator.add(paperpaw_i18n::Catalog::parse(Cow::Borrowed(
@@ -206,7 +206,7 @@ fn localized_name_caps_preserve_utf8_and_exact_boundary_text() {
         (alloc::format!("{}🦊", "a".repeat(126)), 126),
     ] {
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-            .plugin(Named)
+            .items(named_manifest(), named())
             .build()
             .unwrap();
         let catalog = alloc::format!(
