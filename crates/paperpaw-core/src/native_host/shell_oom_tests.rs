@@ -209,6 +209,41 @@ fn registrar_capacity_oom_refuses_and_releases_the_handler_without_abort() {
     registration_rollback(true);
 }
 
+/// Was `registrar_capacity_oom_refuses_and_releases_the_handler_without_abort`
+/// without the old adapter: where the heap refuses the room for a
+/// contribution, `Items` says so precisely instead of aborting, the plugin is
+/// listed as failed and nothing of it is published (#244).
+#[test]
+fn a_refused_room_for_a_contribution_fails_the_plugin_without_abort_or_anything_published() {
+    use paperpaw_sdk::{ActionSpec, Contribution, PluginState, RegisterError};
+    reset(NORMAL);
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let refused = Cell::new(false);
+    let manifest = Manifest::new(Id::new_static("tight"), "Tight", Version::new(1, 0, 0));
+    kernel.register_items(manifest, &|items: &mut crate::Items| {
+        let go = ActionSpec::new(Id::new_static("tight.go"), "Go");
+        let action = Contribution::Action(Box::new(go));
+        // The first allocation now is the room for the first contribution.
+        arm_failure(1);
+        let result = items.add(action);
+        arm_failure(0);
+        refused.set(matches!(&result,
+            Err(RegisterError::Invalid { message }) if message == "contribution allocation failed"));
+        result
+    });
+    assert!(refused.get(), "the precise refusal, no abort");
+    assert_eq!(
+        kernel.plugins().get("tight").unwrap().state,
+        PluginState::Failed
+    );
+    assert!(
+        kernel.actions().get("tight.go").is_none(),
+        "nothing published"
+    );
+}
+
 fn registration_rollback(registry_oom: bool) {
     use crate::Plugin;
     use paperpaw_sdk::{Params, PluginState, builtin::events};
