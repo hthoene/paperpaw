@@ -11,11 +11,9 @@ use std::ptr;
 use paperpaw_native::host_glue::{
     ENTRY_SYMBOL, HEAP_SYMBOL, METADATA_SYMBOL, OK, PpEntry, PpHeap, PpHost, PpPlugin,
 };
-use paperpaw_native::preflight::{FreestandingRefusal, check_freestanding, data_export};
-
-/// What a hosted library may export: its two entry symbols and, if it
-/// allocates, the heap word (`abi/heap-word.md` section 2).
-const EXPORTS: &[&str] = &[METADATA_SYMBOL, ENTRY_SYMBOL, HEAP_SYMBOL];
+use paperpaw_native::preflight::{
+    FreestandingRefusal, HOSTED_EXPORTS, PLUGIN_EXPORTS, check_freestanding, data_export,
+};
 
 use crate::host_services::DesktopHost;
 use crate::native::HeldLibrary;
@@ -178,7 +176,7 @@ pub unsafe fn load(
 ) -> Result<LoadedPlugin, RuntimeError> {
     // SAFETY: the same authorization and immutable-file contract applies.
     let CheckedLibrary { library, make, .. } =
-        unsafe { checked_library(path, digest, host.table(), &[], WIRED_FEATURES) }?;
+        unsafe { checked_library(path, digest, host.table(), &[], WIRED_FEATURES, false) }?;
     let mut out = ptr::null();
     // SAFETY: table and context outlive the plugin; output storage is writable.
     let status = unsafe { make(host.table(), host.ctx(), &mut out) };
@@ -310,6 +308,56 @@ fn read_only_segment(bytes: &[u8], base: usize, anchor: u64) -> (usize, usize) {
     find().unwrap_or((0, 0))
 }
 
+/// The address of the heap word in the checked file `bytes`, where the
+/// library has one: a pointer of zero in its read-only data, apart from the
+/// entry record and the metadata (each an address and a length). One that is
+/// anything else gives `None` and is found out once the library is loaded
+/// ([`mapped_heap_word`]).
+fn file_heap_word(bytes: &[u8], entry: (u64, usize), metadata: (u64, usize)) -> Option<u64> {
+    let word = data_export(bytes, 62, HEAP_SYMBOL, true).ok()?;
+    let end = word.address.saturating_add(word.bytes.len() as u64);
+    let apart = |(start, len): (u64, usize)| {
+        end <= start || start.saturating_add(len as u64) <= word.address
+    };
+    (word.bytes == [0; size_of::<usize>()]
+        && word.address % align_of::<usize>() as u64 == 0
+        && apart(entry)
+        && apart(metadata))
+    .then_some(word.address)
+}
+
+/// The heap word of the loaded `library`, if it has one: mapped where the
+/// file says (`word`, from [`file_heap_word`]; `base` is where the library
+/// is mapped, as its metadata tells). A library that exports the name but
+/// has no sound word in its file is refused.
+///
+/// # Safety
+///
+/// `library` is loaded from the file `word` was read from.
+unsafe fn mapped_heap_word(
+    library: &HeldLibrary,
+    word: Option<u64>,
+    base: Option<usize>,
+) -> Result<Option<*mut *const PpHeap>, RuntimeError> {
+    // SAFETY: a global object export, if the library has it.
+    let loaded = unsafe {
+        library
+            .library
+            .get::<*mut *const PpHeap>(format!("{HEAP_SYMBOL}\0").as_bytes())
+    }
+    .ok()
+    .map(|word| *word);
+    match (loaded, word) {
+        (None, None) => Ok(None),
+        (Some(loaded), Some(address))
+            if (loaded as usize).checked_sub(address as usize) == base =>
+        {
+            Ok(Some(loaded))
+        }
+        _ => Err(RuntimeError::Export),
+    }
+}
+
 // SAFETY requirements match load: authorized code and immutable checked inode.
 unsafe fn checked_library(
     path: &Path,
@@ -317,6 +365,9 @@ unsafe fn checked_library(
     host: &PpHost,
     services: &[paperpaw_native::metadata::Service<'_>],
     features: &'static [paperpaw_native::metadata::Feature<'static>],
+    // Whether the caller fills a heap word: one that does not keeps refusing
+    // a library that has the word, which would run with no heap.
+    fills_heap: bool,
 ) -> Result<CheckedLibrary, RuntimeError> {
     let mut file = std::fs::File::open(path).map_err(|_| RuntimeError::File)?;
     let mut bytes = Vec::new();
@@ -332,7 +383,12 @@ unsafe fn checked_library(
     // PR #133: a plugin needs no library, binds no symbol of the process and
     // exports nothing but its two entry symbols and the heap word. One rule,
     // shared with the packager.
-    check_freestanding(&bytes, 62, EXPORTS).map_err(|refusal| match refusal {
+    let exports = if fills_heap {
+        HOSTED_EXPORTS
+    } else {
+        PLUGIN_EXPORTS
+    };
+    check_freestanding(&bytes, 62, exports).map_err(|refusal| match refusal {
         FreestandingRefusal::UndefinedImport | FreestandingRefusal::NeededLibrary => {
             RuntimeError::Import
         }
@@ -356,13 +412,11 @@ unsafe fn checked_library(
     {
         return Err(RuntimeError::Entry);
     }
-    // The heap word, where the library has one: a pointer of zero in its
-    // read-only data. One that is anything else is found out below.
-    let heap_word = data_export(&bytes, 62, HEAP_SYMBOL, true)
-        .ok()
-        .filter(|word| {
-            word.bytes == [0; size_of::<usize>()] && word.address % align_of::<usize>() as u64 == 0
-        });
+    let heap_word = file_heap_word(
+        &bytes,
+        (entry.address, entry.bytes.len()),
+        (locator.address, locator.bytes.len()),
+    );
     // SAFETY: authorization and immutability are required above; both exports
     // were checked before the system loader can execute anything.
     let library = unsafe { HeldLibrary::open(path, file) }.map_err(|_| RuntimeError::Load)?;
@@ -398,26 +452,9 @@ unsafe fn checked_library(
         return Err(RuntimeError::Entry);
     }
     let make = entry.make.ok_or(RuntimeError::Entry)?;
-    // SAFETY: a global object export, if the library has it.
-    let loaded_heap = unsafe {
-        library
-            .library
-            .get::<*mut *const PpHeap>(format!("{HEAP_SYMBOL}\0").as_bytes())
-    }
-    .ok()
-    .map(|word| *word);
-    let heap = match (loaded_heap, heap_word) {
-        (None, None) => None,
-        // Mapped where the file says, as the metadata is.
-        (Some(loaded), Some(word))
-            if (loaded as usize).checked_sub(word.address as usize)
-                == (loaded_meta as usize).checked_sub(locator.address as usize) =>
-        {
-            Some(loaded)
-        }
-        // A word that is not a zero pointer in read-only data.
-        _ => return Err(RuntimeError::Export),
-    };
+    let base = (loaded_meta as usize).checked_sub(locator.address as usize);
+    // SAFETY: the library is loaded from the file `heap_word` was read from.
+    let heap = unsafe { mapped_heap_word(&library, heap_word, base) }?;
     let image = read_only_segment(
         &bytes,
         (loaded_meta as usize).wrapping_sub(locator.address as usize),

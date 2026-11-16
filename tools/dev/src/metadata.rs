@@ -186,8 +186,82 @@ struct List {
     features: Vec<(String, bool)>,
 }
 
+/// Whether `text` is one complete JSON value and nothing else. The stream
+/// reader below takes what it gets and says nothing of a file that is cut
+/// off or broken; a list read so would give a shorter record.
+fn complete(text: &str) -> bool {
+    fn space(s: &[u8], mut at: usize) -> usize {
+        while s.get(at).is_some_and(u8::is_ascii_whitespace) {
+            at += 1;
+        }
+        at
+    }
+    fn string(s: &[u8], mut at: usize) -> Option<usize> {
+        (*s.get(at)? == b'"').then_some(())?;
+        loop {
+            at += 1;
+            match *s.get(at)? {
+                b'"' => return Some(at + 1),
+                b'\\' => at += 1,
+                0..0x20 => return None,
+                _ => {}
+            }
+        }
+    }
+    /// The end of the value at `at`; `depth` bounds the nesting.
+    fn value(s: &[u8], at: usize, depth: usize) -> Option<usize> {
+        let at = space(s, at);
+        let (open, close) = match *s.get(at)? {
+            b'"' => return string(s, at),
+            b'{' => (b'{', b'}'),
+            b'[' => (b'[', b']'),
+            _ => {
+                let end = at
+                    + s[at..]
+                        .iter()
+                        .take_while(|b| !b" \t\r\n,]}".contains(b))
+                        .count();
+                let word = core::str::from_utf8(&s[at..end]).ok()?;
+                let number = word
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || b"+-.eE".contains(&b))
+                    && word.parse::<f64>().is_ok();
+                let known = matches!(word, "true" | "false" | "null") || number;
+                return known.then_some(end);
+            }
+        };
+        let mut at = space(s, at + 1);
+        if depth == 0 {
+            return None;
+        }
+        if *s.get(at)? == close {
+            return Some(at + 1);
+        }
+        loop {
+            if open == b'{' {
+                at = space(s, string(s, space(s, at))?);
+                (*s.get(at)? == b':').then_some(())?;
+                at += 1;
+            }
+            at = space(s, value(s, at, depth - 1)?);
+            match *s.get(at)? {
+                b',' => at += 1,
+                end if end == close => return Some(at + 1),
+                _ => return None,
+            }
+        }
+    }
+    let s = text.as_bytes();
+    value(s, 0, 16).is_some_and(|end| space(s, end) == s.len())
+}
+
 impl List {
     fn read(text: &str) -> Result<Self, String> {
+        if !complete(text) {
+            return Err(
+                "the list is not one complete JSON value: it is cut off or broken".to_string(),
+            );
+        }
         let mut list = Self::default();
         let mut wrong = None;
         let (mut used, mut feature) = (Used::default(), (String::new(), false));
@@ -452,7 +526,7 @@ pub fn write(dir: &Path, check: bool) -> Result<bool, String> {
 /// `metadata [--check] [<plugin's folder>]`.
 ///
 /// # Errors
-/// A wrong option, or what [`write`] reports.
+/// A wrong option, or what [`write()`] reports.
 pub fn run(args: &[String]) -> Result<bool, String> {
     let (mut check, mut dir) = (false, PathBuf::from("."));
     for arg in args {
@@ -511,6 +585,22 @@ mod tests {
         let error = |text: String| records(&text).unwrap_err();
         let host = r#"{"kind": "host", "name": "heap.alloc"}"#;
         assert!(records(&list(host)).is_ok());
+        // Cut off or broken: refused, not read as far as it goes.
+        let whole = list(host);
+        for cut in [
+            whole.len() - 1,
+            whole.len() - 3,
+            whole.find("\"services\"").unwrap(),
+        ] {
+            assert!(
+                error(whole[..cut].to_string()).contains("cut off or broken"),
+                "{cut}"
+            );
+        }
+        assert!(error(format!("{whole} x")).contains("cut off or broken"));
+        assert!(
+            error(whole.replace("\"floor\": 1,", "\"floor\": 1")).contains("cut off or broken")
+        );
         assert!(error(list(r#"{"kind": "host", "name": "heap.nothing"}"#)).contains("no function"));
         assert!(error(list(&format!("{host}, {host}"))).contains("twice"));
         assert!(error(list(host).replace(X4_TARGET, S3_TARGET)).contains("`target` must be"));

@@ -259,6 +259,7 @@ fn host_library<M: 'static>(
             &table,
             offer.map_or(crate::device_host::offered_services(), |o| o.services),
             offer.map_or(crate::native_runtime::WIRED_FEATURES, |o| o.features),
+            true,
         )
     }
     .map_err(|why| {

@@ -14,7 +14,7 @@
 //! it goes onto a card, with the packed code in it. The repository's own
 //! `plugin` folder is not touched (the plugin store takes no code file in
 //! it). `--device emulator` builds the plugin for this computer instead
-//! ([`emulator`]).
+//! (`build/emulator.rs`).
 
 mod emulator;
 
@@ -67,6 +67,7 @@ fn said(dir: &Path, program: &str, args: &[&str]) -> Option<String> {
         .args(args)
         .current_dir(dir)
         .env_remove("RUSTFLAGS")
+        .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .output()
         .ok()?;
     output
@@ -155,6 +156,23 @@ fn package(dir: &Path) -> Result<String, String> {
     Err(format!("{}: no name under [package]", manifest.display()))
 }
 
+/// The plugin's id: the crate's name, held to the rule `new --code` holds an
+/// id to before anything is named, made or removed by it (`dist/<device>/<id>`).
+fn id_of(dir: &Path) -> Result<String, String> {
+    let id = package(dir)?;
+    let rules = paperpaw_publish::Rules::built_in();
+    if rules.valid_id(&id) && id.starts_with(|c: char| c.is_ascii_lowercase()) {
+        return Ok(id);
+    }
+    Err(format!(
+        "{}: the package's name `{id}` is no plugin id (lower-case letters, digits and \
+         hyphens, beginning with a letter, at most {}; nothing after it on its line). The \
+         plugin's folder is named by it",
+        dir.join("Cargo.toml").display(),
+        rules.max_id
+    ))
+}
+
 /// The packer: the one named, `$PAPERPAW_SIGN`, the one beside this
 /// program, or the one on the path.
 fn sign_tool(named: Option<PathBuf>) -> Result<PathBuf, String> {
@@ -167,19 +185,39 @@ fn sign_tool(named: Option<PathBuf>) -> Result<PathBuf, String> {
         .or_else(|| std::env::var_os("PAPERPAW_SIGN").map(PathBuf::from))
         .or(beside)
         .unwrap_or_else(|| PathBuf::from(&name));
-    if Command::new(&tool).arg("--help").output().is_ok() {
-        return Ok(tool);
-    }
-    Err(format!(
-        "the packer `paperpaw-sign` was not found ({}). It turns the built program into the \
-         plugin's file and comes with PaperPaw, as a program of its own. Install it beside \
-         paperpaw-dev:\n    \
+    let install = format!(
+        "Install it beside paperpaw-dev:\n    \
          cargo install --locked --git {REPOSITORY} --tag v{PAPERPAW} paperpaw-sign\n\
          or, from a PaperPaw checkout:\n    \
          cargo install --locked --path tools/sign\n\
-         or name the program with `--sign-tool <path>` or in the variable PAPERPAW_SIGN.",
-        tool.display()
-    ))
+         or name the program with `--sign-tool <path>` or in the variable PAPERPAW_SIGN."
+    );
+    let Ok(output) = Command::new(&tool).arg("--version").output() else {
+        return Err(format!(
+            "the packer `paperpaw-sign` was not found ({}). It turns the built program into \
+             the plugin's file and comes with PaperPaw, as a program of its own. {install}",
+            tool.display()
+        ));
+    };
+    same_release(&String::from_utf8_lossy(&output.stdout)).map_err(|is| {
+        format!(
+            "the packer {} is {is}, this paperpaw-dev is of PaperPaw {PAPERPAW}: a plugin's \
+             file is packed by the release it is built for. {install}",
+            tool.display()
+        )
+    })?;
+    Ok(tool)
+}
+
+/// Whether what `paperpaw-sign --version` printed names this tool's release;
+/// else what the packer is, for the message.
+fn same_release(printed: &str) -> Result<(), String> {
+    match printed.trim().strip_prefix("paperpaw-sign ") {
+        Some(version) if version == PAPERPAW => Ok(()),
+        Some(version) => Err(format!("of PaperPaw {version}")),
+        // One from before it knew `--version`.
+        None => Err("of an older PaperPaw".to_string()),
+    }
 }
 
 /// Runs `command`, its output shown as it comes; `what` names it in the
@@ -187,6 +225,7 @@ fn sign_tool(named: Option<PathBuf>) -> Result<PathBuf, String> {
 fn step(command: &mut Command, what: &str) -> Result<(), String> {
     let status = command
         .env_remove("RUSTFLAGS")
+        .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .status()
         .map_err(|e| format!("{what} could not be started: {e}"))?;
     if status.success() {
@@ -243,7 +282,7 @@ pub fn run(args: &[String]) -> Result<bool, String> {
             other => dir = PathBuf::from(other),
         }
     }
-    let id = package(&dir)?;
+    let id = id_of(&dir)?;
     let target =
         std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| dir.join("target"), PathBuf::from);
     if chip.device == EMULATOR.device {
@@ -307,6 +346,42 @@ mod tests {
             "{error}"
         );
         assert!(error.contains("--sign-tool <path>"), "{error}");
+    }
+
+    #[test]
+    fn a_packer_of_another_release_is_told_apart() {
+        assert_eq!(same_release(&format!("paperpaw-sign {PAPERPAW}\n")), Ok(()));
+        assert_eq!(
+            same_release("paperpaw-sign 0.0.1\n"),
+            Err("of PaperPaw 0.0.1".to_string())
+        );
+        assert!(same_release("unexpected arguments").is_err());
+    }
+
+    /// A package name that is no plugin id never reaches a path: `dist/<id>`
+    /// is removed and made anew by the build.
+    #[test]
+    fn a_crate_name_that_is_no_plugin_id_is_refused() {
+        let dir = std::env::temp_dir().join(format!("paperpaw-dev-id-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let named = |line: &str| {
+            std::fs::write(dir.join("Cargo.toml"), format!("[package]\n{line}\n")).unwrap();
+            id_of(&dir)
+        };
+        assert_eq!(named("name = \"night-owl\"").unwrap(), "night-owl");
+        for line in [
+            "name = \"..\"",
+            "name = \"../../elsewhere\"",
+            "name = \"a/b\"",
+            "name = \"\"",
+            "name = \"night-owl\" # the plugin",
+            "name = \"Night\"",
+            "name = \"7-up\"",
+        ] {
+            let error = named(line).unwrap_err();
+            assert!(error.contains("is no plugin id"), "{line}: {error}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
