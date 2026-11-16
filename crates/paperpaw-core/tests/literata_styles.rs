@@ -570,6 +570,19 @@ fn a_beta3_literata_card_gets_one_hint_only_without_the_pack() {
         first.kernel.active_screen().unwrap().as_str(),
         "core.literata-notice"
     );
+    assert!(
+        !String::from_utf8(
+            paperpaw_core::sdk::read_file(first.card.as_ref(), "paperpaw.ini", 65536).unwrap()
+        )
+        .unwrap()
+        .contains("literata-pack-notice-seen = on")
+    );
+    let (after_cut, _) = Running::again(first.card.clone());
+    assert_eq!(
+        after_cut.kernel.active_screen().unwrap().as_str(),
+        "core.literata-notice"
+    );
+    drop(after_cut);
     common::press(&mut first.kernel, 20, "back");
     assert_eq!(first.kernel.active_screen(), Some(&common::BASE));
     let saved = paperpaw_core::sdk::read_file(first.card.as_ref(), "paperpaw.ini", 65536).unwrap();

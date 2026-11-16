@@ -11,6 +11,7 @@ pub(crate) struct LiterataNotice {
 
 impl crate::Kernel {
     pub(crate) fn literata_notice_answer(&mut self, params: &Params) {
+        self.save_config("core", SEEN, "on");
         if params.get("store") == Some("yes") {
             self.output.commands.push(Command::OpenScreen(
                 Id::new_static("store.plugin"),
@@ -60,7 +61,6 @@ impl crate::Kernel {
         );
         self.waiting_notices.literata.seen = true;
         self.waiting_notices.literata.pending = false;
-        self.save_config("core", SEEN, "on");
         true
     }
 }
