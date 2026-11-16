@@ -3,17 +3,15 @@ use super::{
     BluetoothChange, BookKind, ChargeFlags, Error, Event, InstallDone, LibraryChanges, PowerChange,
     ReadingView, WifiDone, WifiLinkState, wire,
 };
-use crate::{
-    native::{
-        declare::settings_value as settings,
-        document::{DocClosedReason, DocId},
-        image::ImageReady,
-        net::{HttpDone, HttpProgress, ServedRequest, ServerEvent},
-        settings::SettingValue,
-        sockets::{BroadcastEvent, SocketEvent},
-        work::{WorkDue, WorkRefused},
-    },
-    power::PowerLevel,
+use crate::native::device::PowerLevel;
+use crate::native::{
+    declare::settings_value as settings,
+    document::{DocClosedReason, DocId},
+    image::ImageReady,
+    net::{HttpDone, HttpProgress, ServedRequest, ServerEvent},
+    settings::SettingValue,
+    sockets::{BroadcastEvent, SocketEvent},
+    work::{WorkDue, WorkRefused},
 };
 
 macro_rules! book {

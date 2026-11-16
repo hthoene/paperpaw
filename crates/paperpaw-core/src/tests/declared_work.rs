@@ -2,6 +2,7 @@
 //! cheap moment, jobs in steps, periods, cancelling.
 
 use super::*;
+use crate::Items;
 use core::cell::Cell;
 use core::time::Duration;
 use paperpaw_sdk::Params;
@@ -32,13 +33,8 @@ impl Screen for Blank {
     }
 }
 
-impl Plugin for WorkPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("wk"), "Work", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NETWORK)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn work_plugin(kept: WorkPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         r.add_screen(ScreenSpec::new(
             Id::new_static("wk.home"),
             "home",
@@ -46,7 +42,7 @@ impl Plugin for WorkPlugin {
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("wk.home"), Priority(i16::MAX))?;
         for event in RAN {
-            let log = self.log.clone();
+            let log = kept.log.clone();
             r.subscribe(
                 Id::new_static(event),
                 Box::new(move |_, params, _| {
@@ -56,7 +52,7 @@ impl Plugin for WorkPlugin {
             )?;
         }
         let steps = Rc::new(Cell::new(0u32));
-        let log = self.log.clone();
+        let log = kept.log.clone();
         r.add_work(WorkSpec::new(JOB, "job", move |_, _, _| {
             steps.set(steps.get() + 1);
             log.borrow_mut()
@@ -67,7 +63,7 @@ impl Plugin for WorkPlugin {
                 Step::Done
             }
         }))?;
-        let log = self.log.clone();
+        let log = kept.log.clone();
         r.subscribe(
             events::WORK_CHANGED.id().clone(),
             Box::new(move |_, params, _| {
@@ -76,7 +72,7 @@ impl Plugin for WorkPlugin {
             }),
         )?;
         // Says whose doing it is handling, run as an action.
-        let log = self.log.clone();
+        let log = kept.log.clone();
         r.add_action(ActionSpec::new(Id::new_static("wk.who"), "who").handler(
             move |env, _, _| {
                 log.borrow_mut()
@@ -97,7 +93,7 @@ impl Plugin for WorkPlugin {
                 )));
             }),
         )?;
-        let log = self.log.clone();
+        let log = kept.log.clone();
         r.subscribe(
             Id::new_static("wk.answered"),
             Box::new(move |_, params, _| {
@@ -111,7 +107,7 @@ impl Plugin for WorkPlugin {
             (events::WORK_ALLOWED.id(), "allowed"),
             (events::WORK_REFUSED.id(), "refused"),
         ] {
-            let log = self.log.clone();
+            let log = kept.log.clone();
             r.subscribe(
                 event.clone(),
                 Box::new(move |_, _, _| log.borrow_mut().push(String::from(name))),
@@ -121,9 +117,18 @@ impl Plugin for WorkPlugin {
     }
 }
 
+/// What [`work_plugin`] registers under.
+fn work_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("wk"), "Work", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NETWORK)
+}
+
 fn kernel(log: &Log, network: bool) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WorkPlugin { log: log.clone() })
+        .items(
+            work_plugin_manifest(),
+            work_plugin(WorkPlugin { log: log.clone() }),
+        )
         .network(network)
         .build()
         .unwrap();
@@ -184,7 +189,10 @@ fn a_deadline_runs_work_that_no_moment_did() {
 fn optional_network_work_waits_until_the_radio_is_on() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WorkPlugin { log: log.clone() })
+        .items(
+            work_plugin_manifest(),
+            work_plugin(WorkPlugin { log: log.clone() }),
+        )
         .network(true)
         .wifi(true)
         .build()
@@ -300,15 +308,8 @@ fn offline_holds_network_work_back() {
 }
 
 /// Says something when its events come, or its action runs.
-struct Sayer;
-
-impl Plugin for Sayer {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("sy"), "Sayer", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn sayer_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         // Notices need a screen to show them.
         r.add_screen(ScreenSpec::new(
             Id::new_static("sy.notice"),
@@ -342,11 +343,17 @@ impl Plugin for Sayer {
     }
 }
 
+/// What [`sayer_items`] registers under.
+fn sayer_manifest() -> Manifest {
+    Manifest::new(Id::new_static("sy"), "Sayer", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn sayer() -> Kernel {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WorkPlugin { log })
-        .plugin(Sayer)
+        .items(work_plugin_manifest(), work_plugin(WorkPlugin { log }))
+        .items(sayer_manifest(), sayer_items())
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -532,7 +539,10 @@ fn an_exempt_plugin_keeps_normal_limits_in_saving() {
 
 fn wifi_kernel(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WorkPlugin { log: log.clone() })
+        .items(
+            work_plugin_manifest(),
+            work_plugin(WorkPlugin { log: log.clone() }),
+        )
         .network(true)
         .wifi(true)
         .build()
@@ -632,8 +642,8 @@ fn work_brought_due_by_the_readers_call_is_still_background() {
 fn a_held_button_is_the_readers_input() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WorkPlugin { log })
-        .plugin(Sayer)
+        .items(work_plugin_manifest(), work_plugin(WorkPlugin { log }))
+        .items(sayer_manifest(), sayer_items())
         .user_config("[keymap.global]\nlong.menu = sy.act\n")
         .build()
         .unwrap();

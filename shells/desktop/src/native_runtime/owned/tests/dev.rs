@@ -3,7 +3,7 @@
 //! clean refusals, unload and reload.
 use super::super::dev::{DevPlugins, Kind, Refusal, classify};
 use super::e2e::sample_bytes;
-use super::foreign::fixture_custom;
+use super::foreign::{fixture_custom, fixture_query};
 use super::*;
 use paperpaw_core::native_host::registrations::{
     REGISTRATION_MAX_BYTES, Record, SettingSpec as SpecRecord, records_encode,
@@ -233,6 +233,37 @@ fn a_library_exporting_more_than_its_entry_symbols_is_refused_before_it_runs() {
         found.refused()
     );
     assert!(!mapped_copy("loud"), "never mapped");
+    drop(found);
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+/// What the library's tick does with its heap word: the word (a static of the
+/// library's own, zero in the file) must hold the host's table, and a block
+/// is taken from it and given back.
+const HEAP_WORD: &str = "
+    #[unsafe(no_mangle)]
+    #[unsafe(link_section = \".rodata.paperpaw_heap\")]
+    pub static PAPERPAW_HEAP: usize = 0;
+    let table = unsafe { core::ptr::read_volatile(&raw const PAPERPAW_HEAP) } as *const PpHeap;
+    if table.is_null() { return ERR_NO_MEMORY; }
+    let (Some(alloc), Some(dealloc)) = (unsafe { (*table).alloc }, unsafe { (*table).dealloc })
+    else { return ERR_NO_MEMORY; };
+    let block = unsafe { alloc(16, 8) };
+    if block.is_null() { return ERR_NO_MEMORY; }
+    unsafe { dealloc(block, 16, 8) };
+";
+
+/// A library with a heap word is taken with its third export and gets the
+/// kernel's heap table written into the word before `make`
+/// (`abi/heap-word.md`): its tick allocates through it.
+#[test]
+fn a_library_with_a_heap_word_allocates_through_it() {
+    let library = fixture_query(&[], false, HEAP_WORD);
+    let bytes = std::fs::read(&library.path).unwrap();
+    let root = card(&[("heapy", bytes.as_slice())]);
+    let found = DevPlugins::load_folder_if(&root, true);
+    assert_eq!(found.ids(), ["heapy"], "{:?}", found.refused());
+    assert_eq!(found.tick(41), [("heapy", vec![host_glue::OK])]);
     drop(found);
     std::fs::remove_dir_all(&root).unwrap();
 }

@@ -2,21 +2,16 @@
 use super::event_pending::{EventBudget, Pending, Ready, Visibility};
 use super::event_producers::EventSink;
 use super::registrations as wire;
+use crate::Items;
 use crate::Kernel;
 use crate::abi7::settings_wire::{SettingValueRef, settings_decode};
 use alloc::{rc::Rc, string::String};
 use core::cell::RefCell;
 use paperpaw_platform::{Battery, Instant, SystemStatus};
-use paperpaw_sdk::{
-    Id, Manifest, Plugin, RegisterError, Registrar, SettingKind, SettingSpec, SettingValue, Version,
-};
+use paperpaw_sdk::{Id, Manifest, RegisterError, SettingKind, SettingSpec, SettingValue, Version};
 
-struct Fixture;
-impl Plugin for Fixture {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("evt"), "EVT fixture", Version::new(1, 0, 0))
-    }
-    fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
+fn fixture_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |registrar| {
         for (id, scoped) in [("evt.global", false), ("evt.scoped", true)] {
             let mut spec = SettingSpec::new(
                 Id::new_static(id),
@@ -30,6 +25,11 @@ impl Plugin for Fixture {
         }
         Ok(())
     }
+}
+
+/// What [`fixture`] registers under.
+fn fixture_manifest() -> Manifest {
+    Manifest::new(Id::new_static("evt"), "EVT fixture", Version::new(1, 0, 0))
 }
 struct Sink(Rc<RefCell<Pending>>);
 impl EventSink for Sink {
@@ -46,7 +46,7 @@ impl EventSink for Sink {
 }
 fn fixture() -> (Kernel, Rc<RefCell<Pending>>) {
     let mut kernel = Kernel::builder(crate::tests::DEVICE)
-        .plugin(Fixture)
+        .items(fixture_manifest(), fixture_items())
         .wifi(true)
         .build()
         .unwrap();

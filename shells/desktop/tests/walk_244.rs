@@ -83,12 +83,21 @@ const BOOX_BOOK: &str = "wait:3000,run:home.all-tools,wait:1200,tap-on:Library,w
 /// The walk that opens each tool of the drawer and leaves it (buttons).
 fn x4_tools() -> String {
     let mut script = String::from("wait:3000");
-    for (at, _) in TOOLS.iter().enumerate() {
+    for (at, tool) in TOOLS.iter().enumerate() {
         script.push_str(",run:core.home,wait:500,run:home.all-tools,wait:1200");
         for _ in 0..at {
             script.push_str(",right");
         }
-        script.push_str(",confirm,wait:2500,describe,back,wait:600");
+        // The transfer's answer ("no network") is delivered at a kernel tick the
+        // emulator makes only when something wakes it (it has no wake of its own
+        // for server answers): the window is long enough for that tick and the
+        // redraw before the look.
+        let wait = if *tool == "Wi-Fi transfer" {
+            3500
+        } else {
+            2500
+        };
+        script.push_str(&format!(",confirm,wait:{wait},describe,back,wait:600"));
     }
     script
 }

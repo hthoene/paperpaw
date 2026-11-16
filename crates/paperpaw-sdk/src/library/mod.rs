@@ -268,8 +268,8 @@ pub fn key(path: &str) -> String {
 /// the key's first two digits (`01/0123…`), where a folder would hold
 /// thousands (a memory card looks through a folder one entry after the
 /// other for a name). Registered with
-/// [`Registrar::add_book_data`](crate::Registrar::add_book_data) or
-/// [`Registrar::add_book_cache`](crate::Registrar::add_book_cache), the
+/// `Items::add_book_data` or
+/// `Items::add_book_cache`, the
 /// kernel moves it with its book ([`move_data`]), removes it with it
 /// ([`remove_data`]) and when its book is no longer there
 /// ([`clean_up_unused`]): a cache by itself, the reader's data only when
@@ -633,8 +633,8 @@ pub(crate) fn split(folder: &str, key: &str) -> String {
 
 /// Where a plugin keeps what it keeps for the book at `book` in folder
 /// `folder` of [`BookData`] (registered with
-/// [`Registrar::add_book_cache`](crate::Registrar::add_book_cache) or
-/// [`add_book_data`](crate::Registrar::add_book_data)), named `prefix` and
+/// `Items::add_book_cache` or
+/// `Items::add_book_data`), named `prefix` and
 /// the book's [`key`]: in the part of the folder of the key's first two
 /// digits, `<folder>/<2 digits>/<prefix><key>`, so that no folder holds
 /// thousands of entries (a memory card looks through a folder one entry

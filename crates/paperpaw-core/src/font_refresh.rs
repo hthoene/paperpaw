@@ -4,6 +4,7 @@
 //! checking: where it cannot, what was chosen and offered before stays and
 //! a line in the warnings says so (the next refresh tries again).
 
+pub(crate) mod literata_notice;
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -232,7 +233,7 @@ impl Kernel {
     }
 
     /// The values plugins offer among other plugins' choices
-    /// ([`paperpaw_sdk::Registrar::add_choice`]), after the setting's own.
+    /// ([`paperpaw_sdk::Items::add_choice`]), after the setting's own.
     /// A value that cannot be added for lack of memory is kept, with those
     /// after it, for the next refresh. While native plugins register (until
     /// the start), one for a setting nobody declared yet waits too: a native

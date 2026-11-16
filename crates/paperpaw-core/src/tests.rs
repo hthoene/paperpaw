@@ -8,14 +8,15 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+use crate::Items;
 use paperpaw_platform::{
     ButtonState, Color, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, PixelFormat,
     Point, PointerEvent, PointerPhase, PointerTool, Rect, RefreshMode, Rotation,
 };
 use paperpaw_sdk::builtin::{actions, screens, settings, slots};
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError,
-    Registrar, Screen, ScreenSpec, SettingKind, SettingSpec, SettingValue, Version,
+    ActionSpec, Canvas, Command, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Screen,
+    ScreenSpec, SettingKind, SettingSpec, SettingValue, Version,
 };
 
 use crate::{HttpCall, Io, Kernel, ServerCall, SpeechCall, WarningSource};
@@ -65,7 +66,7 @@ pub(crate) const DEVICE: DeviceInfo = DeviceInfo::new(
 pub(crate) type Log = Rc<RefCell<Vec<String>>>;
 
 /// A configurable plugin providing one screen bound to the home slot.
-struct TestPlugin {
+pub(crate) struct TestPlugin {
     id: &'static str,
     priority: Priority,
     log: Log,
@@ -90,17 +91,19 @@ impl TestPlugin {
     }
 }
 
-impl Plugin for TestPlugin {
-    fn manifest(&self) -> Manifest {
+impl TestPlugin {
+    pub(crate) fn manifest(&self) -> Manifest {
         Manifest::new(Id::parse(self.id).unwrap(), "Test", Version::new(1, 0, 0))
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.log.clone();
-        let name = self.id;
+fn test_plugin(kept: TestPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.log.clone();
+        let name = kept.id;
         r.add_screen(ScreenSpec::new(
-            self.screen_id(),
+            kept.screen_id(),
             "test.screen",
             Box::new(move |_, _| {
                 Box::new(TestScreen {
@@ -109,22 +112,22 @@ impl Plugin for TestPlugin {
                 })
             }),
         ))?;
-        r.bind_slot(slots::HOME, self.screen_id(), self.priority)?;
+        r.bind_slot(slots::HOME, kept.screen_id(), kept.priority)?;
         r.add_action(ActionSpec::new(
-            Id::parse(&alloc::format!("{}.special", self.id)).unwrap(),
+            Id::parse(&alloc::format!("{}.special", kept.id)).unwrap(),
             "test.special",
         ))?;
         r.add_setting(SettingSpec::new(
-            Id::parse(&alloc::format!("{}.level", self.id)).unwrap(),
+            Id::parse(&alloc::format!("{}.level", kept.id)).unwrap(),
             "test.level",
             SettingKind::Int { min: 1, max: 5 },
             SettingValue::Int(2),
             paperpaw_sdk::builtin::groups::OTHER,
         ))?;
-        if let Some(keymap) = self.keymap {
+        if let Some(keymap) = kept.keymap {
             r.add_keymap(Cow::Borrowed(keymap))?;
         }
-        if self.misbehave {
+        if kept.misbehave {
             r.add_action(ActionSpec::new(Id::new_static("core.stolen"), ""))?;
         }
         Ok(())
@@ -227,25 +230,22 @@ fn highest_priority_wins_and_user_config_overrides() {
     let high = TestPlugin::new("high", &log);
 
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(high)
-        .plugin(low)
+        .test_plugin(high)
+        .test_plugin(low)
         .build()
         .unwrap();
     kernel.start(Instant(0));
     assert_eq!(kernel.active_screen().map(Id::as_str), Some("high.screen"));
 
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("high", &log))
-        .plugin(TestPlugin::new("low", &log))
+        .test_plugin(TestPlugin::new("high", &log))
+        .test_plugin(TestPlugin::new("low", &log))
         .user_config("[slots]\ncore.home = low.screen\n")
         .build()
         .unwrap();
     kernel.start(Instant(0));
     assert_eq!(kernel.active_screen().map(Id::as_str), Some("low.screen"));
 }
-
-/// Opens the placeholder screen on *confirm*: a screen change to time.
-struct Opener;
 
 struct OpenerScreen;
 
@@ -266,13 +266,9 @@ impl Screen for OpenerScreen {
     }
 }
 
-impl Plugin for Opener {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("opener"), "Opener", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+/// Opens the placeholder screen on *confirm*: a screen change to time.
+pub(crate) fn opener() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_screen(ScreenSpec::new(
             Id::new_static("opener.screen"),
             "test.screen",
@@ -286,6 +282,12 @@ impl Plugin for Opener {
     }
 }
 
+/// What [`opener`] registers under.
+pub(crate) fn opener_manifest() -> Manifest {
+    Manifest::new(Id::new_static("opener"), "Opener", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// A clock that stands still: all work takes no time.
 fn still_clock() -> u64 {
     1_000_000
@@ -294,7 +296,7 @@ fn still_clock() -> u64 {
 #[test]
 fn slow_work_shows_the_busy_mark_first() {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Opener)
+        .items(opener_manifest(), opener())
         .busy_mark(true)
         .clock(still_clock)
         .build()
@@ -324,7 +326,7 @@ fn slow_work_shows_the_busy_mark_first() {
 fn presses_while_a_screen_comes_up_are_dropped() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     // The home screen came up; the panel showed it at 1000.
@@ -361,7 +363,7 @@ fn presses_while_a_screen_comes_up_are_dropped() {
 fn buttons_route_through_key_map_to_screen_and_handlers() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -389,7 +391,7 @@ fn screen_layer_overrides_global_layer_and_user_overrides_plugin() {
     let mut plugin = TestPlugin::new("a", &log);
     plugin.keymap = Some("[keymap.a.screen]\nbutton.confirm = a.special\n");
 
-    let mut kernel = Kernel::builder(DEVICE).plugin(plugin).build().unwrap();
+    let mut kernel = Kernel::builder(DEVICE).test_plugin(plugin).build().unwrap();
     kernel.start(Instant(0));
     press(&mut kernel, 100, "confirm");
     assert_eq!(*log.borrow(), ["a:a.special"]);
@@ -398,7 +400,7 @@ fn screen_layer_overrides_global_layer_and_user_overrides_plugin() {
     let mut plugin = TestPlugin::new("a", &log);
     plugin.keymap = Some("[keymap.a.screen]\nbutton.confirm = a.special\n");
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(plugin)
+        .test_plugin(plugin)
         .user_config("[keymap.a.screen]\nbutton.confirm = none\n")
         .build()
         .unwrap();
@@ -413,7 +415,7 @@ fn failing_plugin_leaves_no_traces() {
     let mut plugin = TestPlugin::new("bad", &log);
     plugin.misbehave = true;
 
-    let mut kernel = Kernel::builder(DEVICE).plugin(plugin).build().unwrap();
+    let mut kernel = Kernel::builder(DEVICE).test_plugin(plugin).build().unwrap();
     kernel.start(Instant(0));
     assert_eq!(kernel.active_screen(), Some(&screens::PLACEHOLDER));
     assert!(kernel.settings().get("bad.level").is_none());
@@ -432,7 +434,7 @@ fn failing_plugin_leaves_no_traces() {
 fn disabled_plugins_are_skipped() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("off", &log))
+        .test_plugin(TestPlugin::new("off", &log))
         .user_config("[plugins]\noff = no\n")
         .build()
         .unwrap();
@@ -446,7 +448,7 @@ fn plugins_can_ship_switched_off() {
     let log = log();
     let enabled = |config: &str| {
         let kernel = Kernel::builder(DEVICE)
-            .plugin_off(TestPlugin::new("web", &log))
+            .test_plugin_off(TestPlugin::new("web", &log))
             .user_config(config)
             .build()
             .unwrap();
@@ -475,7 +477,7 @@ web = off
 fn user_settings_are_applied_and_validated() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .user_config(
             "[core]\nlanguage = de\nfull-refresh-interval = 2\n\
              [a]\nlevel = 4\n[b]\nlevel = 1\n[a]\nlevel = 99\n",
@@ -528,7 +530,7 @@ fn long_tap_toggles_night_mode() {
 fn taps_resolve_through_zones() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -557,7 +559,7 @@ fn swipe(kernel: &mut Kernel, at: u64, from: (i32, i32), to: (i32, i32)) {
 fn swipes_in_from_the_edges_come_first() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -610,16 +612,12 @@ impl Screen for EdgeHolder {
     }
 }
 
-struct EdgeHolderPlugin(Log, bool);
-
-impl Plugin for EdgeHolderPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("holder"), "Holder", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let (log, holds) = (self.0.clone(), self.1);
+pub(crate) fn edge_holder_plugin(
+    kept0: Log,
+    kept1: bool,
+) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let (log, holds) = (kept0.clone(), kept1);
         r.add_screen(ScreenSpec::new(
             Id::new_static("holder.screen"),
             "holder",
@@ -638,11 +636,17 @@ impl Plugin for EdgeHolderPlugin {
     }
 }
 
+/// What [`edge_holder_plugin`] registers under.
+pub(crate) fn edge_holder_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("holder"), "Holder", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn the_screen_is_refreshed_whole_on_request() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .user_config(
             "[keymap.global]
 button.menu = core.refresh-screen
@@ -664,7 +668,10 @@ fn screens_may_hold_the_edges() {
     for holds in [true, false] {
         let log = log();
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(EdgeHolderPlugin(log.clone(), holds))
+            .items(
+                edge_holder_plugin_manifest(),
+                edge_holder_plugin(log.clone(), holds),
+            )
             .build()
             .unwrap();
         kernel.start(Instant(0));
@@ -685,7 +692,7 @@ fn tools_with_their_own_gestures_need_a_second_swipe() {
 gestures.policy = core.gestures.own
 ",
     );
-    let mut kernel = Kernel::builder(DEVICE).plugin(plugin).build().unwrap();
+    let mut kernel = Kernel::builder(DEVICE).test_plugin(plugin).build().unwrap();
     kernel.start(Instant(0));
     // Swipes and taps of the key map do nothing: the tool takes them.
     swipe(&mut kernel, 100, (45, 50), (45, 5));
@@ -711,7 +718,7 @@ gestures.policy = core.gestures.own
 ",
     );
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(plugin)
+        .test_plugin(plugin)
         .user_config(
             "[keymap.a.screen]
 gestures.policy = core.gestures.off
@@ -738,15 +745,8 @@ fn reports_unknown_references_in_config() {
 }
 
 /// A plugin contributing two tiny bitmap fonts.
-pub(crate) struct FontPlugin;
-
-impl Plugin for FontPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("type"), "Fonts", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+pub(crate) fn font_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         for name in ["type.serif", "type.sans"] {
             let mut pack = paperpaw_text::PackBuilder::new();
             let metrics = paperpaw_text::LineMetrics::new(8.0, 2.0, 12.0);
@@ -767,9 +767,18 @@ impl Plugin for FontPlugin {
     }
 }
 
+/// What [`font_plugin`] registers under.
+pub(crate) fn font_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("type"), "Fonts", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn font_roles_follow_proposals_and_user_config() {
-    let kernel = Kernel::builder(DEVICE).plugin(FontPlugin).build().unwrap();
+    let kernel = Kernel::builder(DEVICE)
+        .items(font_plugin_manifest(), font_plugin())
+        .build()
+        .unwrap();
     let fonts = kernel.fonts();
     assert_eq!(
         fonts.role("core.font-ui").unwrap().id().as_str(),
@@ -782,7 +791,7 @@ fn font_roles_follow_proposals_and_user_config() {
     );
 
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(FontPlugin)
+        .items(font_plugin_manifest(), font_plugin())
         .user_config(
             "[fonts]
 core.font-ui = type.serif
@@ -802,7 +811,7 @@ core.font-reading = nope.font
 
 /// Subscribes to `core.started`, opens its screen with parameters and runs
 /// a timer started in `on_show`.
-struct LifecyclePlugin {
+pub(crate) struct LifecyclePlugin {
     log: Log,
 }
 
@@ -842,14 +851,11 @@ impl Screen for LifecycleScreen {
     }
 }
 
-impl Plugin for LifecyclePlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("life"), "Lifecycle", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.log.clone();
+pub(crate) fn lifecycle_plugin(
+    kept: LifecyclePlugin,
+) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.log.clone();
         r.add_screen(ScreenSpec::new(
             Id::new_static("life.screen"),
             "life",
@@ -886,6 +892,12 @@ impl Plugin for LifecyclePlugin {
     }
 }
 
+/// What [`lifecycle_plugin`] registers under.
+pub(crate) fn lifecycle_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("life"), "Lifecycle", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 const SWAP: Id = Id::new_static("life.swap");
 
 /// A full screen opened over another hides it ([`Screen::on_hide`]),
@@ -895,7 +907,10 @@ const SWAP: Id = Id::new_static("life.swap");
 fn screens_below_a_full_screen_are_hidden_and_shown_once_on_top() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(LifecyclePlugin { log: log.clone() })
+        .items(
+            lifecycle_plugin_manifest(),
+            lifecycle_plugin(LifecyclePlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -923,7 +938,10 @@ fn screens_below_a_full_screen_are_hidden_and_shown_once_on_top() {
 fn events_open_screens_with_params_and_timers_run() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(LifecyclePlugin { log: log.clone() })
+        .items(
+            lifecycle_plugin_manifest(),
+            lifecycle_plugin(LifecyclePlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     let effects = kernel.start(Instant(100));
@@ -948,7 +966,7 @@ fn events_open_screens_with_params_and_timers_run() {
 }
 
 /// A full screen that logs events, plus an overlay covering the lower half.
-struct OverlayPlugin {
+pub(crate) struct OverlayPlugin {
     log: Log,
 }
 
@@ -998,14 +1016,11 @@ impl Screen for HalfOverlay {
     }
 }
 
-impl Plugin for OverlayPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("ov"), "Overlay", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NETWORK)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.log.clone();
+pub(crate) fn overlay_plugin(
+    kept: OverlayPlugin,
+) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.log.clone();
         r.add_screen(ScreenSpec::new(
             Id::new_static("ov.base"),
             "base",
@@ -1028,11 +1043,20 @@ impl Plugin for OverlayPlugin {
     }
 }
 
+/// What [`overlay_plugin`] registers under.
+pub(crate) fn overlay_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("ov"), "Overlay", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NETWORK)
+}
+
 #[test]
 fn overlays_redraw_only_their_region_and_close_on_outside_taps() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -1067,7 +1091,10 @@ fn overlays_redraw_only_their_region_and_close_on_outside_taps() {
 fn the_active_screen_is_described_alone() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -1091,14 +1118,11 @@ pub(crate) struct NoticePlugin {
     pub(crate) log: Log,
 }
 
-impl Plugin for NoticePlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("nt"), "Notice", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.log.clone();
+pub(crate) fn notice_plugin(
+    kept: NoticePlugin,
+) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.log.clone();
         r.add_screen(ScreenSpec::new(
             Id::new_static("nt.base"),
             "base",
@@ -1119,11 +1143,20 @@ impl Plugin for NoticePlugin {
     }
 }
 
+/// What [`notice_plugin`] registers under.
+pub(crate) fn notice_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("nt"), "Notice", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn notices_show_over_everything_and_go_by_themselves() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(NoticePlugin { log: log.clone() })
+        .items(
+            notice_plugin_manifest(),
+            notice_plugin(NoticePlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -1164,7 +1197,10 @@ fn notices_show_over_everything_and_go_by_themselves() {
 fn scheduled_events_come_at_their_time() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -1190,7 +1226,10 @@ fn scheduled_events_come_at_their_time() {
 fn bindings_change_at_once_and_are_saved() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .storage(paperpaw_sdk::MemoryStorage::new())
         .build()
         .unwrap();
@@ -1231,7 +1270,10 @@ fn bindings_change_at_once_and_are_saved() {
 fn screens_below_overlays_redraw_themselves() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -1287,7 +1329,10 @@ fn effects_shown_together_join() {
 fn open_slots_reopen_for_other_params() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -1319,7 +1364,10 @@ fn open_slots_reopen_for_other_params() {
 fn menus_follow_order_and_user_definitions() {
     let log = log();
     let kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     let env_items = |kernel: &Kernel| -> Vec<String> {
@@ -1344,7 +1392,10 @@ fn menus_follow_order_and_user_definitions() {
     assert!(items.iter().filter(|a| *a == "core.home").count() == 2);
 
     let kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log }),
+        )
         .user_config("[menus]\ncore.main = core.settings, core.toggle-night-mode\n")
         .build()
         .unwrap();
@@ -1353,10 +1404,6 @@ fn menus_follow_order_and_user_definitions() {
         ["core.settings", "core.toggle-night-mode"]
     );
 }
-
-/// A home screen best in grays (a picture), and the half overlay as its
-/// menu.
-struct GrayPlugin;
 
 struct GrayScreen;
 
@@ -1372,13 +1419,10 @@ impl Screen for GrayScreen {
     }
 }
 
-impl Plugin for GrayPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("gray"), "Gray", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+/// A home screen best in grays (a picture), and the half overlay as its
+/// menu.
+pub(crate) fn gray_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         r.add_screen(ScreenSpec::new(
             Id::new_static("gray.page"),
             "page",
@@ -1394,9 +1438,18 @@ impl Plugin for GrayPlugin {
     }
 }
 
+/// What [`gray_plugin`] registers under.
+pub(crate) fn gray_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("gray"), "Gray", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn screens_on_top_say_when_they_are_best_in_grays() {
-    let mut kernel = Kernel::builder(DEVICE).plugin(GrayPlugin).build().unwrap();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(gray_plugin_manifest(), gray_plugin())
+        .build()
+        .unwrap();
     let effects = kernel.start(Instant(0));
     assert!(effects.refresh().is_some() && effects.grays());
     render(&mut kernel);
@@ -1411,7 +1464,10 @@ fn screens_on_top_say_when_they_are_best_in_grays() {
 #[test]
 fn frames_drawn_again_in_grays_in_bands_of_as_many_bytes() {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log() }),
+        )
         .frame_rows(32)
         .row_align(8)
         .build()
@@ -1436,7 +1492,10 @@ fn frames_drawn_again_in_grays_in_bands_of_as_many_bytes() {
 #[test]
 fn drawn_again_whole_and_fully() {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -1459,7 +1518,10 @@ full-refresh-interval = 3
     );
     let mut kernel = Kernel::builder(DEVICE)
         .storage(storage)
-        .plugin(OverlayPlugin { log: log() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -1501,7 +1563,10 @@ ui-size = 12
     );
     let mut kernel = Kernel::builder(DEVICE)
         .storage(storage)
-        .plugin(OverlayPlugin { log })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log }),
+        )
         .build()
         .unwrap();
     let items = |kernel: &Kernel| -> Vec<String> {
@@ -1573,7 +1638,10 @@ fn http_requests_go_to_the_shell_and_answers_come_back() {
     // With network: the shell gets it and answers.
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .network(true)
         .build()
         .unwrap();
@@ -1600,7 +1668,10 @@ fn http_requests_go_to_the_shell_and_answers_come_back() {
     // Without: it fails at once.
     let log = self::log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -1619,7 +1690,10 @@ fn plugins_serve_through_the_shell() {
     use paperpaw_sdk::server_params as p;
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .storage(paperpaw_sdk::MemoryStorage::new())
         .network(true)
         .build()
@@ -1809,7 +1883,10 @@ fn files_go_up_and_come_down() {
 fn copied_text_reaches_plugins_and_the_shell() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -1840,7 +1917,10 @@ fn copied_text_reaches_plugins_and_the_shell() {
     // With it: the shell reads it when asked.
     let log = self::log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .system_clipboard(true)
         .build()
         .unwrap();
@@ -1916,7 +1996,10 @@ fn changed_settings_are_saved_and_announced() {
         .with("paperpaw.ini", "# my settings\n[core]\nui-size = 12\n");
     let mut kernel = Kernel::builder(DEVICE)
         .storage(storage)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     assert_eq!(kernel.settings().int("core.ui-size"), 12);
@@ -1964,9 +2047,12 @@ b = off
     );
     let mut kernel = Kernel::builder(DEVICE)
         .storage(storage)
-        .plugin(OverlayPlugin { log: log.clone() })
-        .plugin(TestPlugin::new("a", &log))
-        .plugin(TestPlugin::new("b", &log))
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
+        .test_plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("b", &log))
         .build()
         .unwrap();
     let states: Vec<(&str, paperpaw_sdk::PluginState)> = kernel
@@ -2305,7 +2391,7 @@ name = Other
 fn page_buttons_stay_outside_the_reader() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .setting_default(&settings::SWAP_PAGE_BUTTONS, true)
         .build()
         .unwrap();
@@ -2323,7 +2409,7 @@ fn page_buttons_stay_outside_the_reader() {
 fn keymap_presets_follow_device_defaults_and_switch_at_runtime() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .setting_default(&settings::KEYMAP_PRESET, "core.two-buttons".into())
         .build()
         .unwrap();
@@ -2392,7 +2478,10 @@ fn banded_frames_match_full_frames() {
         copy.view().data.to_vec()
     }
     let build = |rows: Option<u16>| {
-        let builder = Kernel::builder(DEVICE).plugin(OverlayPlugin { log: log() });
+        let builder = Kernel::builder(DEVICE).items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log() }),
+        );
         match rows {
             Some(rows) => builder.frame_rows(rows),
             None => builder,
@@ -2435,7 +2524,10 @@ fn banded_frames_match_full_frames() {
 fn turned_screens_are_made_anew_for_the_new_size() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -2473,7 +2565,10 @@ fn turned_screens_are_made_anew_for_the_new_size() {
 #[test]
 fn turned_bands_keep_their_memory() {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log() }),
+        )
         .frame_rows(32)
         .row_align(8)
         .build()
@@ -2493,7 +2588,10 @@ fn turned_bands_keep_their_memory() {
 #[test]
 fn bands_pass_whole_aligned_rows_and_again() {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log() }),
+        )
         .frame_rows(16)
         .row_align(8)
         .build()
@@ -2592,7 +2690,10 @@ fn speech_goes_to_the_shell_and_stops_with_its_screen() {
     // Without speech, the reply comes at once.
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -2605,7 +2706,10 @@ fn speech_goes_to_the_shell_and_stops_with_its_screen() {
     // With it: the shell speaks and says when it is done.
     let log = self::log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayPlugin { log: log.clone() })
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
+        )
         .speech(true)
         .build()
         .unwrap();
@@ -2663,13 +2767,13 @@ fn speech_goes_to_the_shell_and_stops_with_its_screen() {
 }
 
 /// Publishes a service and a point (`provider`), or uses them (`user`).
-struct ServicePlugin {
+pub(crate) struct ServicePlugin {
     id: &'static str,
     log: Log,
 }
 
-impl Plugin for ServicePlugin {
-    fn manifest(&self) -> Manifest {
+impl ServicePlugin {
+    pub(crate) fn manifest(&self) -> Manifest {
         Manifest::new(
             Id::parse(self.id).unwrap(),
             "Services",
@@ -2677,9 +2781,11 @@ impl Plugin for ServicePlugin {
         )
         .uses(paperpaw_sdk::Uses::NOTHING)
     }
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        if self.id == "provider" {
+fn service_plugin(kept: ServicePlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        if kept.id == "provider" {
             r.provide(
                 Id::new_static("provider.greeting"),
                 Greeting("hello"),
@@ -2695,7 +2801,7 @@ impl Plugin for ServicePlugin {
             return r.contribute(Id::new_static("provider.shapes"), Cow::Borrowed("circle"));
         }
         r.contribute(Id::new_static("provider.shapes"), Cow::Borrowed("square"))?;
-        let log = self.log.clone();
+        let log = kept.log.clone();
         r.subscribe(
             paperpaw_sdk::builtin::events::STARTED,
             Box::new(
@@ -2718,12 +2824,12 @@ impl Plugin for ServicePlugin {
 fn plugins_offer_each_other_services() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
-        .plugin(ServicePlugin {
+        .test_plugin(TestPlugin::new("a", &log))
+        .service_plugin(ServicePlugin {
             id: "user",
             log: log.clone(),
         })
-        .plugin(ServicePlugin {
+        .service_plugin(ServicePlugin {
             id: "provider",
             log: log.clone(),
         })
@@ -2738,15 +2844,8 @@ fn plugins_offer_each_other_services() {
 
 /// Turns the `menu` button into the next page, swallows `confirm`, and
 /// refreshes everything in full.
-struct FilterPlugin;
-
-impl Plugin for FilterPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("filter"), "Filters", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+pub(crate) fn filter_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    |r| {
         use paperpaw_sdk::filters::{
             InputFilterSpec, InputVerdict, RefreshFilterSpec, RefreshVerdict,
         };
@@ -2779,12 +2878,18 @@ impl Plugin for FilterPlugin {
     }
 }
 
+/// What [`filter_plugin`] registers under.
+pub(crate) fn filter_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("filter"), "Filters", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn filters_see_inputs_and_refreshes_first() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
-        .plugin(FilterPlugin)
+        .test_plugin(TestPlugin::new("a", &log))
+        .items(filter_plugin_manifest(), filter_plugin())
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -2801,10 +2906,6 @@ fn filters_see_inputs_and_refreshes_first() {
     press(&mut kernel, 300, "confirm");
     assert_eq!(log.borrow().len(), 1, "confirm was taken");
 }
-
-/// Screens for the home and the reader slot that note the height they
-/// were made for; the home one names its confirm button.
-struct SizedPlugin(Rc<RefCell<Vec<(&'static str, u16)>>>);
 
 struct SizedScreen;
 
@@ -2824,15 +2925,14 @@ impl Screen for SizedScreen {
     }
 }
 
-impl Plugin for SizedPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("sized"), "Sized", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+/// Screens for the home and the reader slot that note the height they
+/// were made for; the home one names its confirm button.
+pub(crate) fn sized_plugin(
+    kept: Rc<RefCell<Vec<(&'static str, u16)>>>,
+) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         for (name, slot) in [("home", slots::HOME), ("reader", slots::READER)] {
-            let made = self.0.clone();
+            let made = kept.clone();
             let id = Id::parse(&alloc::format!("sized.{name}")).unwrap();
             r.add_screen(ScreenSpec::new(
                 id.clone(),
@@ -2852,12 +2952,18 @@ impl Plugin for SizedPlugin {
     }
 }
 
+/// What [`sized_plugin`] registers under.
+pub(crate) fn sized_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("sized"), "Sized", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn a_row_of_hints_names_the_buttons_below_the_screen() {
     use paperpaw_sdk::Hint;
     let made = Rc::new(RefCell::new(Vec::new()));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(SizedPlugin(made.clone()))
+        .items(sized_plugin_manifest(), sized_plugin(made.clone()))
         .button_row(&["back", "confirm", "left", "right"])
         .build()
         .unwrap();
@@ -2919,9 +3025,6 @@ fn a_row_of_hints_names_the_buttons_below_the_screen() {
     assert_eq!(kernel.hint_row(), None);
 }
 
-/// A home screen that shows a picture over all of it while asked to.
-struct PicturePlugin(Rc<RefCell<bool>>);
-
 struct PictureScreen(Rc<RefCell<bool>>);
 
 impl Screen for PictureScreen {
@@ -2941,14 +3044,12 @@ impl Screen for PictureScreen {
     }
 }
 
-impl Plugin for PicturePlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("picture"), "Picture", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let shown = self.0.clone();
+/// A home screen that shows a picture over all of it while asked to.
+pub(crate) fn picture_plugin(
+    kept: Rc<RefCell<bool>>,
+) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let shown = kept.clone();
         r.add_screen(ScreenSpec::new(
             Id::new_static("picture.home"),
             "picture",
@@ -2962,11 +3063,17 @@ impl Plugin for PicturePlugin {
     }
 }
 
+/// What [`picture_plugin`] registers under.
+pub(crate) fn picture_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("picture"), "Picture", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn leaving_a_large_picture_refreshes_in_full() {
     let shown = Rc::new(RefCell::new(false));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(PicturePlugin(shown.clone()))
+        .items(picture_plugin_manifest(), picture_plugin(shown.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -2989,15 +3096,8 @@ fn leaving_a_large_picture_refreshes_in_full() {
 
 /// Writes down the network's events, and asks for Wi-Fi on when the
 /// network is wanted (as the `wifi` plugin does).
-struct NetPlugin(Log);
-
-impl Plugin for NetPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("net"), "Net", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NETWORK)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+pub(crate) fn net_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         use paperpaw_sdk::builtin::events;
         for event in [
             Id::from(events::NETWORK_WANTED),
@@ -3007,7 +3107,7 @@ impl Plugin for NetPlugin {
             events::WIFI_FAILED.into(),
             Id::new_static("net.reply"),
         ] {
-            let log = self.0.clone();
+            let log = kept.clone();
             let name = event.as_str().to_string();
             r.subscribe(
                 event.clone(),
@@ -3027,9 +3127,15 @@ impl Plugin for NetPlugin {
     }
 }
 
+/// What [`net_plugin`] registers under.
+pub(crate) fn net_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("net"), "Net", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NETWORK)
+}
+
 fn wifi_kernel(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(NetPlugin(log.clone()))
+        .items(net_plugin_manifest(), net_plugin(log.clone()))
         .wifi(true)
         .build()
         .unwrap();
@@ -3044,137 +3150,6 @@ fn get(kernel: &mut Kernel) {
         Id::new_static("net.reply"),
     ));
     kernel.finish();
-}
-
-#[test]
-fn network_work_waits_for_wifi_and_goes_on_once_online() {
-    use crate::{WifiCommand, WifiEvent, WifiState};
-    let log = log();
-    let mut kernel = wifi_kernel(&log);
-    assert!(kernel.shared.env(Instant(0)).caps().network);
-    assert_eq!(
-        kernel.shared.env(Instant(0)).wifi().unwrap().state,
-        WifiState::Off
-    );
-    get(&mut kernel);
-    // Held while offline; plugins hear it once, and ask for the radio.
-    assert!(kernel.take_requests().is_empty());
-    assert_eq!(log.borrow().as_slice(), ["core.network-wanted "]);
-    assert_eq!(kernel.take_wifi_calls(), [WifiCommand::On]);
-    assert!(kernel.shared.wifi.as_ref().unwrap().wanted);
-    get(&mut kernel);
-    assert_eq!(log.borrow().len(), 1);
-    // Online: both go to the shell.
-    let online = WifiState::Online {
-        ssid: String::from("Home"),
-        address: String::from("10.0.0.2"),
-        name: None,
-    };
-    kernel.wifi_event(Instant(10), WifiEvent::State(online));
-    let calls = kernel.take_requests();
-    assert_eq!(calls.len(), 2);
-    assert!(!kernel.shared.wifi.as_ref().unwrap().wanted);
-    // Answered: nothing uses the network any more.
-    for call in calls {
-        kernel.http_response(
-            Instant(20),
-            crate::HttpResponse {
-                id: call.id,
-                status: 200,
-                ..Default::default()
-            },
-        );
-    }
-    assert_eq!(
-        log.borrow().as_slice(),
-        [
-            "core.network-wanted ",
-            "core.wifi-changed ",
-            "net.reply 200",
-            "net.reply 200",
-            "core.network-idle "
-        ]
-    );
-}
-
-#[test]
-fn network_work_fails_when_no_network_comes() {
-    let log = log();
-    let mut kernel = wifi_kernel(&log);
-    get(&mut kernel);
-    let deadline = Instant(paperpaw_sdk::wifi::NETWORK_WAIT_MS);
-    assert_eq!(kernel.finish().wake_at(), Some(deadline));
-    kernel.tick(Instant(1000));
-    assert_eq!(log.borrow().len(), 1);
-    kernel.tick(deadline);
-    // Failed as without a network; then nothing uses it (the radio asked
-    // for may go off again).
-    assert_eq!(
-        log.borrow().as_slice(),
-        ["core.network-wanted ", "net.reply 0", "core.network-idle "]
-    );
-    assert!(
-        !kernel.shared.wifi.as_ref().unwrap().wanted,
-        "the radio may go off"
-    );
-    assert!(kernel.take_requests().is_empty());
-    assert_eq!(kernel.finish().wake_at(), None);
-}
-
-#[test]
-fn scans_and_failures_reach_plugins() {
-    use crate::{JoinFailure, WifiEvent, WifiNetwork};
-    let log = log();
-    let mut kernel = wifi_kernel(&log);
-    let net = |ssid: &str, signal| WifiNetwork::new(String::from(ssid), signal, true);
-    kernel.wifi_event(
-        Instant(1),
-        WifiEvent::Scanned(alloc::vec![
-            net("Weak", -80),
-            net("", -40),
-            net("Home", -50),
-            net("Weak", -60)
-        ]),
-    );
-    // Strongest first, each name once, hidden ones left out.
-    let wifi = kernel.shared.wifi.as_ref().unwrap();
-    let names: Vec<_> = wifi
-        .networks
-        .iter()
-        .map(|n| (n.ssid.as_str(), n.signal))
-        .collect();
-    assert_eq!(names, [("Home", -50), ("Weak", -60)]);
-    kernel.wifi_event(
-        Instant(2),
-        WifiEvent::Failed {
-            ssid: String::from("Home"),
-            reason: JoinFailure::Password,
-        },
-    );
-    assert_eq!(
-        log.borrow().as_slice(),
-        ["core.wifi-scanned ", "core.wifi-failed password"]
-    );
-}
-
-#[test]
-fn wifi_commands_are_ignored_where_the_system_manages_it() {
-    let mut kernel = Kernel::builder(DEVICE).network(true).build().unwrap();
-    kernel.start(Instant(0));
-    assert!(kernel.shared.env(Instant(0)).wifi().is_none());
-    kernel
-        .output
-        .commands
-        .push(Command::Wifi(paperpaw_sdk::wifi::WifiCommand::On));
-    kernel.finish();
-    assert!(kernel.take_wifi_calls().is_empty());
-    // Requests go to the shell at once.
-    kernel.request(paperpaw_sdk::HttpRequest::new(
-        "GET",
-        "http://example.org/",
-        Id::new_static("net.reply"),
-    ));
-    assert_eq!(kernel.take_requests().len(), 1);
 }
 
 /// `paperpaw.ini` as version 1 wrote it stays readable (see
@@ -3283,8 +3258,10 @@ mod kernel_calls;
 mod key_guard;
 mod library_catalog;
 mod library_catalog_native;
+mod low_memory_notice;
 mod net_demand;
 mod net_policy_wiring;
+mod network_work;
 mod open_with;
 mod panes;
 mod pictures_in_grays;
@@ -3304,3 +3281,22 @@ mod work_sockets;
 /// A greeting, provided as a service in a test.
 struct Greeting(&'static str);
 paperpaw_sdk::service_type!(Greeting, "provider.greeting/1");
+
+/// Adds the fixtures that keep their fields (`TestPlugin`, `ServicePlugin`) to a builder.
+pub(crate) trait AddFixture {
+    fn test_plugin(self, plugin: TestPlugin) -> Self;
+    fn test_plugin_off(self, plugin: TestPlugin) -> Self;
+    fn service_plugin(self, plugin: ServicePlugin) -> Self;
+}
+
+impl AddFixture for crate::KernelBuilder {
+    fn test_plugin(self, plugin: TestPlugin) -> Self {
+        self.items(plugin.manifest(), test_plugin(plugin))
+    }
+    fn test_plugin_off(self, plugin: TestPlugin) -> Self {
+        self.items_off(plugin.manifest(), test_plugin(plugin))
+    }
+    fn service_plugin(self, plugin: ServicePlugin) -> Self {
+        self.items(plugin.manifest(), service_plugin(plugin))
+    }
+}

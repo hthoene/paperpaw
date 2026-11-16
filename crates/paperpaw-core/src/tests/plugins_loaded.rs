@@ -12,7 +12,7 @@ fn plugins_may_not_take_the_names_of_config_sections() {
     let log = log();
     let storage = MemoryStorage::new().with("plugins/fonts/plugin.ini", "[plugin]\nname = Fonts\n");
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("menus", &log))
+        .test_plugin(TestPlugin::new("menus", &log))
         .storage(storage)
         .build()
         .unwrap();
@@ -88,7 +88,7 @@ fn installed_kernel(storage: MemoryStorage, log: &Log) -> Kernel {
             "[meta]\nlanguage = en\nname = English\n\n[messages]\nbig.plugin.name = Big\n",
         );
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", log))
+        .test_plugin(TestPlugin::new("a", log))
         .storage(storage)
         .build()
         .unwrap();
@@ -314,7 +314,7 @@ fn data_plugins_bring_actions_menus_icons_points_and_steps() {
             "[size]\nsetting = a.level\norder = 35\ntitle = How large\n",
         );
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .storage(storage)
         .build()
         .unwrap();
@@ -362,14 +362,10 @@ pub(super) struct Store {
     pub(super) installs: bool,
 }
 
-impl Plugin for Store {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("shop"), "Shop", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+pub(super) fn store(kept: Store) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
         use paperpaw_sdk::builtin::events;
-        let log = self.log.clone();
+        let log = kept.log.clone();
         r.on(events::PLUGINS_ANSWERED, move |_, answer, _| {
             let ids = |list: Vec<Id>| list.iter().map(Id::as_str).collect::<Vec<_>>().join(",");
             log.borrow_mut().push(alloc::format!(
@@ -381,16 +377,21 @@ impl Plugin for Store {
                 answer.error
             ));
         })?;
-        if !self.installs {
+        if !kept.installs {
             return Ok(());
         }
-        let log = self.log.clone();
+        let log = kept.log.clone();
         r.on(events::PLUGINS_REQUESTED, move |_, asked, _| {
             let ids: Vec<String> = asked.ids().map(|id| id.to_string()).collect();
             log.borrow_mut()
                 .push(alloc::format!("{} asks {}", asked.by, ids.join(",")));
         })
     }
+}
+
+/// What [`store`] registers under.
+pub(super) fn store_manifest() -> Manifest {
+    Manifest::new(Id::new_static("shop"), "Shop", Version::new(1, 0, 0))
 }
 
 /// Where all asked for are on the device, or no plugin installs
@@ -401,10 +402,13 @@ fn the_kernel_answers_requests_no_store_can() {
     let log = log();
     let storage = MemoryStorage::new().with("plugins/dictionary/plugin.ini", "[plugin]\n");
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Store {
-            log: log.clone(),
-            installs: false,
-        })
+        .items(
+            store_manifest(),
+            store(Store {
+                log: log.clone(),
+                installs: false,
+            }),
+        )
         .storage(storage)
         .build()
         .unwrap();
@@ -441,10 +445,13 @@ fn plugins_asked_for_by_id_go_to_the_store_if_not_on_the_device() {
         .with("plugins/dictionary/plugin.ini", "[plugin]\n")
         .with("plugins/aids/plugin.ini", "[plugin]\n");
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Store {
-            log: log.clone(),
-            installs: true,
-        })
+        .items(
+            store_manifest(),
+            store(Store {
+                log: log.clone(),
+                installs: true,
+            }),
+        )
         .storage(storage)
         .user_config("[plugins]\naids = off\n")
         .build()

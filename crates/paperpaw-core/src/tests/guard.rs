@@ -2,15 +2,13 @@
 //! what it opens itself.
 
 use super::*;
+use crate::Items;
 use core::cell::Cell;
 use paperpaw_sdk::Params;
 
 const LOCK: Id = Id::new_static("g.lock");
 const CHILD: Id = Id::new_static("g.child");
 const OTHER: Id = Id::new_static("g.other");
-
-/// A lock, locked until *Select*; *Menu* opens its own keyboard.
-struct GuardPlugin(Rc<Cell<bool>>);
 
 struct Lock(Rc<Cell<bool>>);
 
@@ -44,14 +42,10 @@ impl Screen for Plain {
     }
 }
 
-impl Plugin for GuardPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("g"), "Guard", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let locked = self.0.clone();
+/// A lock, locked until *Select*; *Menu* opens its own keyboard.
+fn guard_plugin(kept: Rc<Cell<bool>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    move |r| {
+        let locked = kept.clone();
         r.add_screen(ScreenSpec::new(
             LOCK,
             "lock",
@@ -68,6 +62,12 @@ impl Plugin for GuardPlugin {
     }
 }
 
+/// What [`guard_plugin`] registers under.
+fn guard_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("g"), "Guard", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// Locked, a screen another opens (a rule, a timer, the shell) waits
 /// below the lock, others' *Back* closes nothing and notices wait; what
 /// the lock opens itself shows above it. Unlocked, the screen that waited
@@ -76,8 +76,11 @@ impl Plugin for GuardPlugin {
 fn nothing_shows_above_a_guarding_screen_but_its_own() {
     let locked = Rc::new(Cell::new(true));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(GuardPlugin(locked.clone()))
-        .plugin(NoticePlugin { log: log() })
+        .items(guard_plugin_manifest(), guard_plugin(locked.clone()))
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(NoticePlugin { log: log() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -111,11 +114,14 @@ fn no_plugins_are_asked_for_while_locked() {
     let locked = Rc::new(Cell::new(true));
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(GuardPlugin(locked.clone()))
-        .plugin(super::plugins_loaded::Store {
-            log: log.clone(),
-            installs: true,
-        })
+        .items(guard_plugin_manifest(), guard_plugin(locked.clone()))
+        .items(
+            super::plugins_loaded::store_manifest(),
+            super::plugins_loaded::store(super::plugins_loaded::Store {
+                log: log.clone(),
+                installs: true,
+            }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -150,7 +156,7 @@ fn a_guard_starting_drops_the_private_cached_status_values() {
     let owner = pool.try_owner().unwrap();
     let locked = Rc::new(Cell::new(true));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(GuardPlugin(locked.clone()))
+        .items(guard_plugin_manifest(), guard_plugin(locked.clone()))
         .build()
         .unwrap();
     kernel
@@ -187,8 +193,11 @@ fn notices_held_by_a_guard_wait_in_a_queue_and_show_in_turn() {
     ] {
         let locked = Rc::new(Cell::new(true));
         let mut kernel = Kernel::builder(DEVICE.with_memory(memory))
-            .plugin(GuardPlugin(locked))
-            .plugin(NoticePlugin { log: log() })
+            .items(guard_plugin_manifest(), guard_plugin(locked))
+            .items(
+                crate::tests::notice_plugin_manifest(),
+                crate::tests::notice_plugin(NoticePlugin { log: log() }),
+            )
             .build()
             .unwrap();
         kernel.start(Instant(0));

@@ -2,14 +2,14 @@
 //! checks them before it maps one (`paperpaw_native::preflight`): a
 //! well-formed ELF64 shared object for this machine that is freestanding,
 //! i.e. names no other library, imports no symbol and exports nothing but
-//! the plugin's two entry symbols ([`PLUGIN_EXPORTS`]). The same rule, the
-//! same list, as the loader's: a library that passes here is not refused
-//! for its imports or exports there.
+//! the plugin's two entry symbols and its heap word ([`HOSTED_EXPORTS`]).
+//! The same rule, the same list, as the loader's: a library that passes
+//! here is not refused for its imports or exports there.
 
 use std::path::Path;
 
 use paperpaw_native::preflight::{
-    FreestandingRefusal, PLUGIN_EXPORTS, Refusal, check_freestanding,
+    FreestandingRefusal, HOSTED_EXPORTS, Refusal, check_freestanding,
 };
 
 use crate::cli::Context;
@@ -92,13 +92,13 @@ pub(crate) fn check_library(bytes: &[u8], place: &str, out: &mut Vec<Finding>) {
         ));
         return;
     }
-    match check_freestanding(bytes, machine, PLUGIN_EXPORTS) {
+    match check_freestanding(bytes, machine, HOSTED_EXPORTS) {
         Ok(()) => out.push(Finding::info(
             "package.library",
             place,
             format!(
                 "freestanding: no other library, no import, exports only {}",
-                PLUGIN_EXPORTS.join(" and ")
+                HOSTED_EXPORTS.join(", ")
             ),
         )),
         Err(refusal) => out.push(Finding::error(
@@ -111,7 +111,7 @@ pub(crate) fn check_library(bytes: &[u8], place: &str, out: &mut Vec<Finding>) {
 
 /// Why a library is refused, and how to see and change it.
 fn describe(refusal: &FreestandingRefusal) -> String {
-    let [entry, metadata] = [PLUGIN_EXPORTS[0], PLUGIN_EXPORTS[1]];
+    let [metadata, entry, heap] = [HOSTED_EXPORTS[0], HOSTED_EXPORTS[1], HOSTED_EXPORTS[2]];
     match refusal {
         FreestandingRefusal::Preflight(why) => format!(
             "{}; build a 64-bit little-endian shared object (`cdylib`) for x86-64 or AArch64",
@@ -139,8 +139,9 @@ fn describe(refusal: &FreestandingRefusal) -> String {
              A plugin reaches the host only through the table it is given",
         ),
         FreestandingRefusal::UnexpectedExport => format!(
-            "it exports a symbol besides the two entry symbols: `nm -D --defined-only` must list \
-             exactly {entry} and {metadata}. Hide the rest (version script, `--exclude-libs`, \
+            "it exports a symbol besides the entry symbols and the heap word: `nm -D \
+             --defined-only` may list {entry}, {metadata} and {heap} only. Hide the rest \
+             (version script, `--exclude-libs`, \
              hidden visibility; see the link recipe in the docs of `check_freestanding`)"
         ),
         _ => String::from("refused by the freestanding check"),
