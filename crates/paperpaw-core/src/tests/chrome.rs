@@ -3,8 +3,8 @@
 
 use super::*;
 use crate::Items;
+use crate::{ChromeSpec, Edge};
 use core::mem;
-use paperpaw_sdk::chrome::{ChromeSpec, Edge};
 use paperpaw_sdk::{Direction, Gesture, Params, StackEntry};
 
 const PAGE: Id = Id::new_static("bar.page");
@@ -77,17 +77,16 @@ impl crate::Layer for Bar {
     }
 }
 
-/// A bar is an old SDK screen ([`ChromeSpec`]): the layer through the test adapter.
-fn bar(log: &Log) -> paperpaw_sdk::ScreenFactory {
+fn bar(log: &Log) -> crate::LayerFactory {
     let log = log.clone();
     Box::new(move |env, _| {
         let display = env.device().display;
         let line = alloc::format!("bar made {}x{}", display.width, display.height);
         log.borrow_mut().push(line);
-        Box::new(crate::layer::AsOld(Bar {
+        Box::new(Bar {
             log: log.clone(),
             timer_asked: false,
-        }))
+        })
     })
 }
 

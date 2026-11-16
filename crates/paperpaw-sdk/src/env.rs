@@ -268,8 +268,8 @@ pub struct Env<'a> {
     /// The inputs plugins added ([`keys::InputSpec`](crate::keys::InputSpec)),
     /// to bind like any other.
     pub(crate) inputs: &'a [crate::keys::InputSpec],
-    /// Makes the screens plugins added, for [`Env::make_screen`]: the
-    /// kernel's ([`Env::with_screen_maker`]). Never behind a feature: a
+    /// Answers for the screens and slots: the kernel's
+    /// ([`Env::with_screen_maker`]). Never behind a feature: a
     /// plugin built without `kernel` reads the `Env` the kernel made.
     screen_maker: Option<&'a dyn crate::screen::ScreenMaker>,
     /// The part of the screen what is handled now is made for and drawn
@@ -1007,8 +1007,8 @@ impl<'a> Env<'a> {
         self.screen_maker?.screen_title(screen)
     }
 
-    /// This environment with `maker` making the screens
-    /// [`Env::make_screen`] asks for: the kernel's.
+    /// This environment with `maker` answering for the screens and slots:
+    /// the kernel's.
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn with_screen_maker(mut self, maker: &'a dyn crate::screen::ScreenMaker) -> Self {
@@ -1018,19 +1018,6 @@ impl<'a> Env<'a> {
 }
 
 impl Env<'_> {
-    /// Screen `id`, made with `params` for this environment, to host it in
-    /// a screen of one's own (tabs, a split view; see
-    /// [`host::ScreenHost`](crate::host::ScreenHost)): made for
-    /// [`Env::content`] as it is here, so make it with the environment
-    /// [`Env::within`] the part it gets. `None` where no plugin added it.
-    pub fn make_screen(
-        &self,
-        id: &crate::Id,
-        params: &crate::Params,
-    ) -> Option<alloc::boxed::Box<dyn crate::Screen>> {
-        self.screen_maker?.make(id, self, params)
-    }
-
     /// The screen shown on top, if any.
     pub fn top(&self) -> Option<&crate::StackEntry> {
         self.stack.last()

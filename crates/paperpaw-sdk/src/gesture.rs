@@ -34,7 +34,7 @@ pub enum GestureKind {
     },
     /// Two taps close together in time and place (the second one; the
     /// first was a [`Tap`](Self::Tap)), to screens that take them
-    /// ([`Screen::takes_double_taps`](crate::Screen::takes_double_taps)).
+    /// (`takes_double_taps`).
     DoubleTap,
     /// Two fingers tapped together.
     TwoFingerTap,

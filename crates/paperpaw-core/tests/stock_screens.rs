@@ -1,4 +1,5 @@
-//! The SDK's own small screens, by touch and by buttons alike: the
+//! The kernel's stock screens (moved from the SDK, #244 D6b), by touch
+//! and by buttons alike: the
 //! choice overlay ([`Choice`]) picks the option tapped or confirmed and
 //! says so with its reply, and the screen choosing a status line's items
 //! ([`ItemsScreen`]) shows, hides and reorders them, writing the setting
@@ -10,20 +11,23 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+#[path = "../../paperpaw-sdk/tests/support/mod.rs"]
 mod support;
 
 use std::borrow::Cow;
 
+use paperpaw_core::Layer;
+use paperpaw_core::stock::choice::Choice;
+use paperpaw_core::stock::items::ItemsScreen;
 use paperpaw_sdk::builtin::{actions, params};
 use paperpaw_sdk::event::{Event, EventData};
 use paperpaw_sdk::setting::Setting;
 use paperpaw_sdk::ui::UiStyle;
-use paperpaw_sdk::ui::choice::{Choice, Picked};
-use paperpaw_sdk::ui::items::ItemsScreen;
+use paperpaw_sdk::ui::choice::Picked;
 use paperpaw_sdk::ui::reorder::Reorder;
 use paperpaw_sdk::{
-    Command, Cx, Handled, Id, Output, Params, PointerPhase, Rect, Screen, SettingSpec,
-    SettingValue, StatusItemSpec, StatusValue,
+    Command, Cx, Handled, Id, Output, Params, PointerPhase, Rect, SettingSpec, SettingValue,
+    StatusItemSpec, StatusValue,
 };
 
 use support::{Device, Harness, describe, drawn_outside, middle, pointer, tap};
@@ -502,7 +506,7 @@ fn a_line_kept_by_its_old_id_is_chosen_once_and_kept_by_its_own() {
     }
     let params = Params::new()
         .with(params::ID, "t.status")
-        .with(params::MODE, paperpaw_sdk::ui::items::LINES);
+        .with(params::MODE, paperpaw_core::stock::items::LINES);
     let mut screen = ItemsScreen::open(&h.env(), &params);
     // The first row is the line chosen, once: confirm switches it off.
     let (_, commands) = run(&h, |cx| screen.on_action(&actions::CONFIRM, cx));
@@ -516,4 +520,61 @@ fn a_line_kept_by_its_old_id_is_chosen_once_and_kept_by_its_own() {
     run(&h, |cx| screen.on_action(&actions::DOWN, cx));
     let (_, commands) = run(&h, |cx| screen.on_action(&actions::CONFIRM, cx));
     assert_eq!(written(&commands).as_deref(), Some("t.line, t.other-line"));
+}
+
+/// A small tablet on its side and the X4 on its side: width, height, dots
+/// per inch (as in the SDK's `ui_responsive` tests).
+const X4_SIDE: (u16, u16, u16) = (800, 480, 220);
+const TABLET_SIDE: (u16, u16, u16) = (1920, 1200, 220);
+
+/// A device `width` by `height` pixels at `dpi`.
+fn harness((width, height, dpi): (u16, u16, u16)) -> Harness {
+    use paperpaw_platform::Rotation;
+    use paperpaw_sdk::{DisplayInfo, InputCaps, MemoryClass, PixelFormat};
+    let mut h = Harness::new(Device::TOUCH);
+    h.device = paperpaw_sdk::DeviceInfo::new(
+        "test",
+        "Test device",
+        DisplayInfo::new(width, height, dpi, PixelFormat::Gray8, Rotation::Deg0, None),
+        InputCaps::new(true, true, false, &[]),
+        MemoryClass::Large,
+    );
+    h
+}
+
+fn whole((width, height, _): (u16, u16, u16)) -> Rect {
+    Rect::new(0, 0, width, height)
+}
+
+#[test]
+fn a_choice_on_a_wide_screen_is_a_sheet_in_the_column_and_a_tap_beside_it_closes_it() {
+    use paperpaw_sdk::Outside;
+    use paperpaw_sdk::event::Event;
+    let h = harness(TABLET_SIDE);
+    let env = h.env();
+    let style = UiStyle::new(&env);
+    let Command::OpenSlot(_, params) =
+        paperpaw_sdk::ask::choice("Sort by", &Event::<Picked>::new("t.chosen"))
+            .options("t.option.", &["a", "b", "c"])
+            .command()
+    else {
+        panic!("not a slot");
+    };
+    let choice = Choice::new(&env, &params);
+    let region = choice.region(&env).expect("a sheet");
+    let column = paperpaw_sdk::ui::readable(&env, &style, whole(TABLET_SIDE));
+    // The sheet stands in the column, along the bottom.
+    assert_eq!((region.x, region.width), (column.x, column.width));
+    assert_eq!(region.bottom(), u32::from(whole(TABLET_SIDE).height));
+    // Beside it is outside the sheet, as above it: the overlay's default,
+    // a tap there closes it (the screen below is dimmed, not usable).
+    for x in [5, i32::from(region.x) - 1, region.right() as i32 + 1, 1915] {
+        assert!(!region.contains(paperpaw_sdk::Point::new(x, 1100)), "{x}");
+    }
+    assert_eq!(choice.outside(), Outside::Close);
+    // On the X4 the sheet is as wide as the screen: nothing beside it.
+    let x4 = harness(X4_SIDE);
+    let env = x4.env();
+    let region = Choice::new(&env, &params).region(&env).expect("a sheet");
+    assert_eq!((region.x, region.width), (0, 800));
 }

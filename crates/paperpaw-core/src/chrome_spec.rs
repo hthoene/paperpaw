@@ -1,10 +1,10 @@
 //! Bars that stay across the screens shown: tabs, a dock, a bar of
 //! one's own along an edge (see [`ChromeSpec`]).
 //!
-//! A bar is an ordinary [`Screen`](crate::Screen), made by its factory
+//! A bar is an ordinary screen, made by its factory
 //! for a strip along an edge of the screen; the screens below it get the
 //! rest. It draws into its strip (its `(0, 0)` is the strip's corner, and
-//! [`Env::content`](crate::Env::content) is the strip), takes the taps,
+//! [`Env::content`](paperpaw_sdk::Env::content) is the strip), takes the taps,
 //! long presses and swipes that begin in it, hears every event, and stays
 //! as screens open and close. Whether it shows over a screen is its own
 //! choice ([`ChromeSpec::shown`]), e.g. not over the reader; where a
@@ -14,29 +14,16 @@
 
 use core::fmt;
 
-use crate::env::Env;
-use crate::id::Id;
-use crate::menus::MenuNeed;
-use crate::plugin::Priority;
-use crate::screen::{ScreenFactory, StackEntry};
+pub use paperpaw_sdk::ui::look::Edge;
+use paperpaw_sdk::{Env, Id, MenuNeed, Priority, StackEntry};
 
-/// The edge of the screen a bar lies along.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Edge {
-    Top,
-    Bottom,
-    Left,
-    Right,
-}
-
-/// A bar along an edge of the screen (see the [module](self)).
+/// A bar along an edge of the screen, made by its factory as a layer.
 #[non_exhaustive]
 pub struct ChromeSpec {
     pub id: Id,
     pub edge: Edge,
     /// Makes the bar when it is first shown, and again after it was not.
-    pub factory: ScreenFactory,
+    pub factory: crate::LayerFactory,
     /// How wide it is across its edge, in pixels: never more than half of
     /// the screen.
     pub size: fn(&Env<'_>) -> u16,
@@ -52,7 +39,7 @@ pub struct ChromeSpec {
 impl ChromeSpec {
     /// A bar along `edge`, made by `factory`, a centimetre wide
     /// until [`size`](Self::size) says otherwise, shown over every screen.
-    pub fn new(id: Id, edge: Edge, factory: ScreenFactory) -> Self {
+    pub fn new(id: Id, edge: Edge, factory: crate::LayerFactory) -> Self {
         Self {
             id,
             edge,
