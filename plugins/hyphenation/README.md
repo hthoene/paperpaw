@@ -1,8 +1,10 @@
 # Hyphenation
 
-This plugin is built into every PaperPaw and brings German (reformed
-spelling) and American English. Its patterns are in
-[`patterns/`](patterns/README.md).
+This folder holds the patterns of American English (`patterns/`). English
+is a data plugin the firmware and the web flasher put on the card
+(`crates/paperpaw-default-packs`, about 45 KB), so a fresh install hyphenates
+English books. German is a store pack of its own (`hyphenation-de`, about
+354 KB) and is not installed by default.
 
 Every other language is a plugin of its own in `plugins/hyphenation-<code>`
 (French, Spanish, Italian, Dutch, Portuguese, Swedish, Danish, Norwegian,
@@ -13,7 +15,12 @@ few lines of code. A language is added by copying one of them, changing
 its `patterns/`, `build.rs` and texts, and listing it in
 `tools/plugin-files/plugins.txt`, the workspace and `paperpaw-app`.
 
-## Why code plugins, not data plugins
+## Why code plugins, not data plugins (Beta 3; today they are data plugins)
+
+The two sections below describe the Beta 3 design, where the tables were code
+plugins. Since then the packs are data plugins, built by
+[`tools/hyphenation-packs`](../../tools/hyphenation-packs), which the kernel
+reads through `text.hyphenate`; the sizes are those of the Beta 3 plugin files.
 
 A pattern table is read in place: hyphenating a word looks up about 10 to
 15 keys per letter, each by binary search. That is cheap in memory only

@@ -597,6 +597,10 @@ pub struct PageLine {
     /// The direction of its paragraph and whether its runs need putting
     /// in order.
     pub bidi: LineBidi,
+    /// The line ends with a hyphen the layout put there where it broke a word:
+    /// the last character of `text` is no character of the book, and the
+    /// word goes on with the first word of the next line.
+    pub hyphen: bool,
 }
 
 /// An annotation set above a line ([`Block::annotations`]), where the
@@ -1274,6 +1278,7 @@ pub fn layout_page(
                 inserted: false,
                 annotations: Vec::new(),
                 bidi,
+                hyphen: line.hyphen,
             });
             y += line_height;
         }
@@ -1402,6 +1407,7 @@ fn inserted_lines(
                 inserted: true,
                 annotations: Vec::new(),
                 bidi,
+                hyphen: false,
             });
             y += line_height;
         }
