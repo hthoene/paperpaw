@@ -1771,7 +1771,6 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-publish",
- "paperpaw-sample-hello",
  "paperpaw-sdk",
  "png",
 ]
@@ -1815,7 +1814,6 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sample-frame-test",
- "paperpaw-sample-hello",
  "paperpaw-sample-interlinear",
  "paperpaw-sdk",
  "paperpaw-serve",
@@ -2975,7 +2973,6 @@ dependencies = [
  "paperpaw-dev",
  "paperpaw-emulator",
  "paperpaw-platform",
- "paperpaw-sample-hello",
  "paperpaw-x4",
 ]
 

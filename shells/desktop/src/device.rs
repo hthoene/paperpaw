@@ -1250,10 +1250,6 @@ fn build_kernel(
         // as if the reader had installed them (the emulator loads no
         // plugin files): `--set plugins.<id>=off` shows a device without.
         let mut builder = paperpaw_app::install(builder, fonts);
-        #[cfg(feature = "hello")]
-        {
-            builder = builder.plugin(paperpaw_sample_hello::Hello);
-        }
         #[cfg(feature = "frame-test")]
         {
             builder = builder.plugin(paperpaw_sample_frame_test::FrameTest);
