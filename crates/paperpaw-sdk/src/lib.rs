@@ -53,7 +53,20 @@
 extern crate alloc;
 
 mod action;
+// facade: annotations (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod annotations;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "annotations/mod.rs"]
+mod annotations_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod annotations {
+    pub use crate::annotations_old::Kind;
+    pub(crate) use crate::annotations_old::*;
+}
+// end of facade: annotations
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod ask;
@@ -150,9 +163,34 @@ pub mod keys;
 pub mod layers;
 #[cfg(not(any(test, feature = "kernel")))]
 mod layers;
+// facade: library (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod library;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "library/mod.rs"]
+mod library_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod library {
+    pub(crate) use crate::library_old::*;
+    pub use crate::library_old::{Fingerprint, kept_path};
+}
+// end of facade: library
 pub mod logo;
+// facade: lookup (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod lookup;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "lookup.rs"]
+mod lookup_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod lookup {
+    pub(crate) use crate::lookup_old::*;
+}
+// end of facade: lookup
 pub mod memory;
 mod memory_storage;
 mod menus;
@@ -174,8 +212,33 @@ pub mod presets;
 #[cfg(not(any(test, feature = "kernel")))]
 mod presets;
 pub mod random;
+// facade: readers (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod readers;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "readers.rs"]
+mod readers_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod readers {
+    pub(crate) use crate::readers_old::*;
+}
+// end of facade: readers
+// facade: reading (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod reading;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "reading/mod.rs"]
+mod reading_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod reading {
+    pub(crate) use crate::reading_old::*;
+    pub use crate::reading_old::{PageIndex, WordBox};
+}
+// end of facade: reading
 pub mod realtime;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
@@ -215,7 +278,20 @@ mod sockets;
 pub mod sound;
 #[cfg(not(any(test, feature = "kernel")))]
 mod sound;
+// facade: status (#244, D0)
+#[cfg(any(test, feature = "kernel"))]
 pub mod status;
+#[cfg(not(any(test, feature = "kernel")))]
+#[path = "status.rs"]
+mod status_old;
+/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
+/// `kernel`).
+#[cfg(not(any(test, feature = "kernel")))]
+pub mod status {
+    pub use crate::status_old::item_ids;
+    pub(crate) use crate::status_old::*;
+}
+// end of facade: status
 pub mod time;
 // facade: ui (#244, D0)
 #[cfg(any(test, feature = "kernel"))]
