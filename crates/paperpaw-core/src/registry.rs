@@ -422,6 +422,15 @@ impl Registry {
         self.candidates.len()
     }
 
+    /// Every offer of a screen for a slot, in the order made: the slot, the
+    /// screen, the priority (`registry_lines`).
+    #[cfg(any(test, feature = "testing"))]
+    pub(crate) fn offers_made(&self) -> impl Iterator<Item = (&Id, &Id, Priority)> + '_ {
+        self.candidates
+            .iter()
+            .map(|c| (&c.slot, &c.screen, c.priority))
+    }
+
     /// The priority of each offer, in the order made (for tests).
     #[cfg(test)]
     pub(crate) fn offer_priorities(&self) -> impl Iterator<Item = Priority> + '_ {
@@ -1198,6 +1207,12 @@ fn validate_keymap(source: &str) -> Result<(), RegisterError> {
         None => Ok(()),
     }
 }
+
+// The registry as text lines, for the tests that pin it (#244). Declared
+// here: `lib.rs` is at its length limit.
+#[cfg(any(test, feature = "testing"))]
+#[path = "registry_lines.rs"]
+mod registry_lines;
 
 #[cfg(test)]
 mod tests {
