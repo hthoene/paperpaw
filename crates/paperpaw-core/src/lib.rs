@@ -147,9 +147,8 @@ const MAX_COMMAND_ROUNDS: usize = 16;
 /// with a full refresh: e-paper keeps ghosts of large pictures where text
 /// leaves none. Covers in a list stay below it.
 const PICTURES_PERCENT: u32 = 15;
-/// Of the screen, in percent, pictures of any size cover at least for grays to
-/// follow a whole screen ([`settings::PICTURES_IN_GRAYS`](paperpaw_sdk::builtin::settings::PICTURES_IN_GRAYS)):
-/// a cover or two, not an icon.
+/// Of the screen, in percent, pictures cover at least for grays to follow a whole
+/// screen ([`settings::PICTURES_IN_GRAYS`](paperpaw_sdk::builtin::settings::PICTURES_IN_GRAYS)): a cover or two.
 const PICTURES_GRAY_PERCENT: u32 = 2;
 /// How long the row of hints shows on a screen that has it on a press.
 const HINTS_MS: u64 = 4000;
