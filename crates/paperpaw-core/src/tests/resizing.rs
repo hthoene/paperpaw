@@ -120,17 +120,19 @@ struct FitPlugin {
 fn fit_plugin(kept: FitPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let (log, build) = (kept.log.clone(), kept.build);
-        r.add_layer(crate::LayerSpec::new(
+        // An old SDK screen, as the host that holds it can hold only such
+        // (the host goes with it, #244 D6b).
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
             FIT,
             "fit",
             Box::new(move |env, _| {
                 let display = env.device().display;
                 log.borrow_mut()
                     .push(alloc::format!("made {}x{}", display.width, display.height));
-                Box::new(Fitting {
+                Box::new(crate::layer::AsOld(Fitting {
                     log: log.clone(),
                     build,
-                })
+                }))
             }),
         ))?;
         r.add_layer(crate::LayerSpec::new(

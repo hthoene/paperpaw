@@ -70,10 +70,12 @@ impl crate::Layer for Tabs {
 fn host_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
-        r.add_layer(crate::LayerSpec::new(
+        // An old SDK screen, as the host it is shown in can hold only such
+        // (the host goes with it, #244 D6b).
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
             PAGE,
             "page",
-            Box::new(move |_, _| Box::new(Page(log.clone()))),
+            Box::new(move |_, _| Box::new(crate::layer::AsOld(Page(log.clone())))),
         ))?;
         r.add_layer(crate::LayerSpec::new(
             HOST,
