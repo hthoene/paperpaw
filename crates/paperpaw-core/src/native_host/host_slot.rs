@@ -166,6 +166,29 @@ pub mod slot_counts {
         static COUNTS: [Cell<u32>; NAMES.len()] = const { [const { Cell::new(0) }; NAMES.len()] };
     }
 
+    std::thread_local! {
+        static SERVICES: core::cell::RefCell<Vec<(alloc::string::String, &'static str, &'static str)>> =
+            const { core::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// A service call by `plugin`: the service key and the operation's name.
+    pub(in super::super) fn note_service(plugin: &str, service: &'static str, op: &'static str) {
+        let _ = SERVICES.try_with(|calls| {
+            calls
+                .borrow_mut()
+                .push((alloc::string::String::from(plugin), service, op));
+        });
+    }
+
+    /// The service calls of this thread since `reset`, in order: calling
+    /// plugin, service key, operation name.
+    #[must_use]
+    pub fn service_calls() -> Vec<(alloc::string::String, &'static str, &'static str)> {
+        SERVICES
+            .try_with(|calls| calls.borrow().clone())
+            .unwrap_or_default()
+    }
+
     pub(super) fn note(id: Id) {
         // A thread being torn down has no counts to keep.
         let _ = COUNTS.try_with(|counts| {
@@ -177,6 +200,7 @@ pub mod slot_counts {
     /// Forgets the counts of this thread.
     pub fn reset() {
         let _ = COUNTS.try_with(|counts| counts.iter().for_each(|count| count.set(0)));
+        let _ = SERVICES.try_with(|calls| calls.borrow_mut().clear());
     }
 
     /// The counts of this thread since `reset`, by slot name, the slots

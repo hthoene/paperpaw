@@ -113,6 +113,9 @@ fn counted(device: &mut Device, steps: &[&str]) -> (u32, u32) {
             .map_or(0, |(_, n)| *n)
     };
     eprintln!("home return: {counts:?}");
+    for (plugin, service, op) in slot_counts::service_calls() {
+        eprintln!("  service {plugin} {service}.{op}");
+    }
     (counts.iter().map(|(_, n)| *n).sum(), at("settings_read"))
 }
 
@@ -238,6 +241,37 @@ fn what_a_book_changed_under_the_cover_shows_when_it_returns() {
         shot(&mut device, "card-after"),
         before,
         "the card shows the old progress"
+    );
+}
+
+/// The library is asked for the recent books by the card and by the shelf, once
+/// each for a frame, not once for each band of it (#267): on the X4 a query is
+/// a score of card reads, and the service calls of the first frame took 1.3 s.
+/// Measured: 5 queries before, 3 after (the card's, the shelf's and its measure).
+#[test]
+fn the_return_from_a_book_does_not_ask_the_library_for_each_band() {
+    let mut device = device(true);
+    run_script(&mut device, "back").unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    run_script(
+        &mut device,
+        "open:reader.screen:path=books/alice-in-wonderland.epub",
+    )
+    .unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    slot_counts::reset();
+    run_script(&mut device, "back").unwrap();
+    let calls = slot_counts::service_calls();
+    let of = |name: &str| {
+        calls
+            .iter()
+            .filter(|(_, service, _)| *service == name)
+            .count()
+    };
+    let queries = of("core.library.query");
+    assert!(
+        (1..=3).contains(&queries) && of("core.library.book") <= 2 && of("core.library.cover") <= 1,
+        "the return asked the library {queries} times for its books: {calls:?}"
     );
 }
 
