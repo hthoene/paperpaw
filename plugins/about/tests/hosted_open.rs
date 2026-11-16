@@ -17,10 +17,10 @@ use paperpaw_sdk::{Id, Instant, Params};
 /// native plugin's `i18n/*.ini` yet, so a test-only plugin registers them (as in the battery's
 /// hosted test).
 fn catalogs(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
-    let manifest = paperpaw_sdk::Manifest::new(
+    let manifest = paperpaw_core::sdk::Manifest::new(
         Id::new_static("about"),
         "About catalogs",
-        paperpaw_sdk::Version::new(1, 0, 3),
+        paperpaw_core::sdk::Version::new(1, 0, 3),
     );
     builder.items(manifest, |items| {
         for text in [
