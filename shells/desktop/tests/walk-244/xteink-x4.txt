@@ -189,7 +189,7 @@ Row "Sleep screen" at 0,423 480x61
 Row "Controls" at 0,484 480x61
 Row "Keyboard" at 0,545 480x61
 Row "Wi-Fi" at 0,606 480x61
-Row "Bluetooth" at 0,667 480x61
+Row "Power" at 0,667 480x61
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 xteink-x4: screen home.dashboard
@@ -206,7 +206,7 @@ Row "Sleep screen" at 0,423 480x61
 Row "Controls" at 0,484 480x61
 Row "Keyboard" at 0,545 480x61
 Row "Wi-Fi" at 0,606 480x61
-Row "Bluetooth" at 0,667 480x61
+Row "Power" at 0,667 480x61
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Heading "Display" at 0,0 480x58
@@ -279,7 +279,7 @@ Row "Sleep screen" at 0,423 480x61
 Row "Controls" at 0,484 480x61
 Row "Keyboard" at 0,545 480x61
 Row "Wi-Fi" at 0,606 480x61
-Row "Bluetooth" at 0,667 480x61
+Row "Power" at 0,667 480x61
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Button "Start reading, Choose a book from your library." at 35,182 409x243

@@ -18,6 +18,9 @@ use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 pub const EVENTS_TOKEN: u32 = 1;
 /// The action that opens the flash cards.
 pub const CARDS_TOKEN: u32 = 2;
+/// The action that reads every file of the card anew (a key map or a rule may
+/// name it).
+pub const SCAN_TOKEN: u32 = 18;
 /// The minute tick.
 pub const TICK_TOKEN: u32 = 3;
 /// The action that opens the list of words.
@@ -354,6 +357,12 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
     entry.order = 36;
     declarations.menu_entry(entry)?;
     declarations.icon("vocabulary.flash-cards", "stack-2")?;
+    // Only for key maps and rules, as in Beta 3: no menu entry.
+    declarations.action(ActionDecl::new(
+        "scan-card",
+        "vocabulary.sd.scan",
+        SCAN_TOKEN,
+    ))?;
     declarations.submit()
 }
 

@@ -1,0 +1,22 @@
+[package]
+name = "paperpaw-stack-budget"
+description = "Stack depth of the X4's deep routes, measured in the host tests against the device's main stack (#256)"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+paperpaw-fat.workspace = true
+
+[dev-dependencies]
+paperpaw-plugin-format-images.workspace = true
+paperpaw-sdk.workspace = true
+paperpaw-x4.workspace = true
+
+[lints]
+workspace = true

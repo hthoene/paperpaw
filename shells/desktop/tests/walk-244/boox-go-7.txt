@@ -99,18 +99,19 @@ Row "Reading" at 0,263 1264x83
 Row "Library" at 0,346 1264x83
 Heading "Device" at 0,429 1264x68
 Row "Display" at 0,497 1264x83
-Row "Sleep screen" at 0,580 1264x83
-Row "Controls" at 0,663 1264x83
-Row "Keyboard" at 0,746 1264x83
-Row "Wi-Fi" at 0,829 1264x83
-Row "Bluetooth" at 0,912 1264x83
-Row "Power" at 0,995 1264x83
-Row "Date and time" at 0,1078 1264x83
-Row "System" at 0,1161 1264x83
-Row "Screen lock" at 0,1244 1264x83
-Row "Updates" at 0,1327 1264x83
-Row "Set up PaperPaw" at 0,1410 1264x83
-Row "About PaperPaw" at 0,1493 1264x83
+Row "Controls" at 0,580 1264x83
+Row "Keyboard" at 0,663 1264x83
+Row "Wi-Fi" at 0,746 1264x83
+Row "Power" at 0,829 1264x83
+Row "Date and time" at 0,912 1264x83
+Row "System" at 0,995 1264x83
+Row "Screen lock" at 0,1078 1264x83
+Row "Updates" at 0,1161 1264x83
+Row "Set up PaperPaw" at 0,1244 1264x83
+Row "About PaperPaw" at 0,1327 1264x83
+Heading "Customise" at 0,1410 1264x68
+Row "Appearance" at 0,1478 1264x83
+Row "Manage plugins" at 0,1561 1264x83
 boox-go-7: screen home.dashboard
 == settings
 Text "1 / 2" at 1133,26 44x36
@@ -121,18 +122,19 @@ Row "Reading" at 0,263 1264x83
 Row "Library" at 0,346 1264x83
 Heading "Device" at 0,429 1264x68
 Row "Display" at 0,497 1264x83
-Row "Sleep screen" at 0,580 1264x83
-Row "Controls" at 0,663 1264x83
-Row "Keyboard" at 0,746 1264x83
-Row "Wi-Fi" at 0,829 1264x83
-Row "Bluetooth" at 0,912 1264x83
-Row "Power" at 0,995 1264x83
-Row "Date and time" at 0,1078 1264x83
-Row "System" at 0,1161 1264x83
-Row "Screen lock" at 0,1244 1264x83
-Row "Updates" at 0,1327 1264x83
-Row "Set up PaperPaw" at 0,1410 1264x83
-Row "About PaperPaw" at 0,1493 1264x83
+Row "Controls" at 0,580 1264x83
+Row "Keyboard" at 0,663 1264x83
+Row "Wi-Fi" at 0,746 1264x83
+Row "Power" at 0,829 1264x83
+Row "Date and time" at 0,912 1264x83
+Row "System" at 0,995 1264x83
+Row "Screen lock" at 0,1078 1264x83
+Row "Updates" at 0,1161 1264x83
+Row "Set up PaperPaw" at 0,1244 1264x83
+Row "About PaperPaw" at 0,1327 1264x83
+Heading "Customise" at 0,1410 1264x68
+Row "Appearance" at 0,1478 1264x83
+Row "Manage plugins" at 0,1561 1264x83
 Heading "Display" at 0,0 1264x88
 Row "Turn the screen, Upright, Upright or on its side. With “Only this book” on, it applies to that book alone." (focused) at 0,112 1264x130
 Row "Front light, 0, How bright the front light shines; 0 is off. The emulated screen stays dark." at 0,242 1264x130

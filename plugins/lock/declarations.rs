@@ -4,6 +4,7 @@
 //! first-run step is pending on host setup support; the menu entries, the input filter and
 //! the status item of the touch lock follow with their host pieces
 //! (`PORTING-7.md`).
+use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Kind,
     ScreenDecl, SpecDecl,
@@ -64,6 +65,8 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     let mut touch = SpecDecl::new("touch", Kind::Bool(false), GROUP_FULL, "lock.touch");
     touch.help = "lock.touch.help";
     d.spec(touch)?;
+    // Devices without a touch screen do not show a switch for the touch lock.
+    d.menu_need("lock.touch", MenuNeed::Touch)?;
     d.submit()?;
     Ok(())
 }
