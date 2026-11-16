@@ -30,8 +30,6 @@ Freeze checklist, beside the above (Manager decisions on PR #191, 2026-11-06 11:
 
 - The packer writes no draft: the X4 `.ppn` header has no draft field (format 5 is final from the start), so
   nothing about drafts is left in plugin files. `native::DRAFT` only shapes the Rust-side fingerprint.
-- The first PR after the freeze sets `crates/paperpaw-table/table-baseline.txt` to the frozen commit (step 7
-  below).
 
 **The C boundary during drafts (Manager decision, 2026-11-06 11:21).** With no draft in the X4 header, the lock's
 append-only rule is all that keeps a plugin built at an earlier draft safe on later firmware:

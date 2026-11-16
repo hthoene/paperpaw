@@ -43,7 +43,7 @@ struct paperpaw_layout::LineBidi { paragraph: u8, flags: u8 }
 struct paperpaw_layout::LineRun { start: usize, end: usize, face: paperpaw_layout::Face, level: u8, lang: paperpaw_lang::Lang }
 struct paperpaw_layout::Page { start: paperpaw_document::Locator, end: paperpaw_document::Locator, lines: alloc::vec::Vec<paperpaw_layout::PageLine>, images: alloc::vec::Vec<paperpaw_layout::PageImage>, notes: alloc::vec::Vec<paperpaw_layout::PageNote>, rules: alloc::vec::Vec<paperpaw_layout::PageRule> }
 struct paperpaw_layout::PageImage { x: f32, y: f32, width: f32, height: f32, image: paperpaw_document::ImageRef }
-struct paperpaw_layout::PageLine { x: f32, baseline: f32, text: alloc::string::String, word_spacing: f32, runs: alloc::vec::Vec<paperpaw_layout::LineRun>, section: u32, words: alloc::vec::Vec<(u32, u32)>, leading: f32, inserted: bool, annotations: alloc::vec::Vec<paperpaw_layout::LineAnnotation>, bidi: paperpaw_layout::LineBidi }
+struct paperpaw_layout::PageLine { x: f32, baseline: f32, text: alloc::string::String, word_spacing: f32, runs: alloc::vec::Vec<paperpaw_layout::LineRun>, section: u32, words: alloc::vec::Vec<(u32, u32)>, leading: f32, inserted: bool, annotations: alloc::vec::Vec<paperpaw_layout::LineAnnotation>, bidi: paperpaw_layout::LineBidi, hyphen: bool }
 struct paperpaw_layout::PageNote { area: paperpaw_platform::geometry::Rect, start: paperpaw_document::Locator, end: paperpaw_document::Locator, kind: u8 }
 struct paperpaw_layout::PageRule { x: f32, y: f32, width: f32, height: f32 }
 struct paperpaw_layout::ScriptOptions(0: u32)

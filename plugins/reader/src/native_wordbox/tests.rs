@@ -1,6 +1,6 @@
 use super::*;
 use crate::native_typeset::Role;
-use alloc::vec;
+use alloc::{format, vec};
 use core::cell::Cell;
 use paperpaw_sdk::{
     NoStorage, Storage,
@@ -141,4 +141,79 @@ fn a_refused_allocation_is_no_memory_not_a_panic() {
         word_boxes(&faces, &page, BOX).map(|w| w.len())
     });
     assert!(total > 0);
+}
+
+#[test]
+fn a_word_broken_with_a_hyphen_of_the_layout_is_one_word_in_both_its_parts() {
+    let (mut page, faces) = plain("one two three four five six seven eight nine ten eleven twelve");
+    assert!(page.lines.len() >= 2);
+    let before = word_boxes(&faces, &page, BOX).unwrap();
+    let last = page.lines[0].words.len() - 1;
+    let (head, tail) = (last, last + 1);
+    // The layout broke that word: its line ends with a hyphen of the layout's.
+    page.lines[0].text.push('-');
+    page.lines[0].hyphen = true;
+    if let Some(run) = page.lines[0].runs.last_mut() {
+        run.end += 1;
+    }
+    let words = word_boxes(&faces, &page, BOX).unwrap();
+    let whole = format!("{}{}", before[head].text, before[tail].text);
+    assert_eq!(words[head].text, whole);
+    assert_eq!(words[tail].text, whole);
+    // Each part has its own box, and both the whole word's place in the book.
+    assert_eq!(words[head].area.x, before[head].area.x);
+    assert_eq!(words[tail].area, before[tail].area);
+    assert_eq!(words[head].start, before[head].start);
+    assert_eq!(words[tail].end, before[tail].end);
+    assert_eq!(
+        (words[head].start, words[head].end),
+        (words[tail].start, words[tail].end)
+    );
+    // The rest are as they were.
+    assert_eq!(words.len(), before.len());
+    assert_eq!(words[0].text, before[0].text);
+}
+
+#[test]
+fn a_word_broken_at_the_end_of_a_page_is_whole_with_the_first_word_of_the_next() {
+    let (laid, faces) = plain("one two three four five six seven eight nine ten eleven twelve");
+    assert!(laid.lines.len() >= 2);
+    let next_start = Locator::new(0, laid.lines[1].words[0].0);
+    let next = Page::new(next_start, laid.end, laid.lines[1..].to_vec(), Vec::new());
+    let mut first = Page::new(
+        laid.start,
+        next_start,
+        vec![laid.lines[0].clone()],
+        Vec::new(),
+    );
+    assert!(!ends_open(
+        &word_boxes(&faces, &first, BOX).unwrap(),
+        &first
+    ));
+    // The layout broke the last word of the page.
+    first.lines[0].text.push('-');
+    first.lines[0].hyphen = true;
+    if let Some(run) = first.lines[0].runs.last_mut() {
+        run.end += 1;
+    }
+    let mut words = word_boxes(&faces, &first, BOX).unwrap();
+    assert!(ends_open(&words, &first));
+    let part = String::from(words[words.len() - 1].text.trim_end_matches('-'));
+    let after = word_boxes(&faces, &next, BOX).unwrap();
+    let (rest, end) = first_word(&next).unwrap().unwrap();
+    assert_eq!((rest.as_str(), end), (after[0].text.as_str(), after[0].end));
+    join_open_end(&mut words, &rest, end).unwrap();
+    let last = &words[words.len() - 1];
+    assert_eq!(last.text, format!("{part}{rest}"));
+    assert_eq!(last.end, end);
+    assert!(!ends_open(&words, &first));
+}
+
+#[test]
+fn the_first_word_of_a_page_ends_at_a_no_break_space_too() {
+    let (page, _) = plain("larly\u{a0}said the rest of the line");
+    let (word, _) = first_word(&page).unwrap().unwrap();
+    assert_eq!(word, "larly");
+    let (page, _) = plain("larly said the rest of the line");
+    assert_eq!(first_word(&page).unwrap().unwrap().0, "larly");
 }

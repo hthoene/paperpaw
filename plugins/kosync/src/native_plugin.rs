@@ -1,8 +1,7 @@
 //! The interface-7 progress sync: the settings, the account screen, the sync
 //! engine (`native_sync`) carried out through the network, secrets, work and
 //! user-interface services, and the offer to go where another device is.
-//! What the SDK has no facade for yet (the book's fingerprint, the XPointer of
-//! a place) is in `native_backing`; `PORTING-7.md` lists it.
+//! The book identity and document position adapters are in `native_backing`.
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -29,15 +28,17 @@ use paperpaw_ui_kit::{
 };
 
 use crate::declarations::{
-    ACCOUNT, BOOK_CLOSED, BOOK_OPENED, HTTP_DONE, PAGE_TURNED, PUSH_WORK, RESUME, SCREEN_SHOWN,
-    SETTING_CHANGED, STARTED, SUSPEND, SYNC_NOW, WORK_ALLOWED, WORK_DUE,
+    ACCOUNT, BOOK_CLOSED, BOOK_OPENED, HTTP_DONE, PAGE_TURNED, PUSH_WORK, RESUME, SETTING_CHANGED,
+    STARTED, SUSPEND, SYNC_NOW, WORK_ALLOWED, WORK_DUE, WORK_REFUSED,
 };
 use crate::native_account::{Account, Field, Message, Row, Todo};
-use crate::native_backing as backing;
+use crate::native_backing::Backing;
 use crate::native_flow::{Call, Pending, Purpose, Table, create_body};
 use crate::native_model::{self, MAX_ANSWER, Remote, Secret, failure, percent_text, progress_body};
 use crate::native_store as store;
-use crate::native_sync::{Action, Answer, Answered as Chose, Ctx, Engine, Notice, Offer, Position};
+use crate::native_sync::{
+    Action, Answer, Answered as Chose, Ctx, Engine, Notice, Offer, PUSH_EVERY_MS, Position,
+};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/kosync_declarations.rs"));
@@ -52,6 +53,15 @@ const MOST_OFFERS: usize = 4;
 const PUSH_WITHIN_MS: u32 = 30 * 60 * 1000;
 /// Digits of a `u32`.
 const DIGITS: usize = 10;
+
+#[derive(Debug, Default)]
+enum PushWork {
+    #[default]
+    Idle,
+    Declared,
+    Denied,
+    Full(u64),
+}
 
 /// The screen: the account and the rows it shows.
 struct View {
@@ -83,6 +93,8 @@ pub struct NativeKosync {
     secrets: Option<Secrets>,
     work: Option<Work>,
     device: Option<Device>,
+    /// The book's fingerprint and places, where the device offers the services.
+    backing: Backing,
     /// The services were tried; `net` is `None` where the device has no network.
     opened: bool,
     screens: Screens<View>,
@@ -96,6 +108,7 @@ pub struct NativeKosync {
     offers: Vec<Asked>,
     /// The server the account belongs to; another one signs out.
     server: Option<String>,
+    push_work: PushWork,
 }
 
 impl Plugin for NativeKosync {
@@ -140,11 +153,17 @@ impl Plugin for NativeKosync {
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.resumed(ctx, out))
             }
             Event::WorkDue(due) if token == WORK_DUE && due.key() == PUSH_WORK => {
+                self.push_work = PushWork::Idle;
                 self.with_engine(host, due.now_ms(), |engine, ctx, out| {
                     engine.send_now(ctx, out)
                 })
             }
+            Event::WorkRefused(refused) if token == WORK_REFUSED && refused.key() == PUSH_WORK => {
+                self.push_work = PushWork::Idle;
+                Ok(())
+            }
             Event::WorkAllowed { now_ms, .. } if token == WORK_ALLOWED => {
+                self.push_work = PushWork::Idle;
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.allowed(ctx, out))
             }
             Event::ActionRun { now_ms, .. } if token == SYNC_NOW => self.sync_now(host, now_ms),
@@ -157,7 +176,6 @@ impl Plugin for NativeKosync {
                 instance: Some(instance),
                 ..
             } if token == ACCOUNT => self.screens.shown(token, instance),
-            Event::ScreenShown { .. } if token == SCREEN_SHOWN => Ok(()),
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 Ok(())
@@ -217,17 +235,29 @@ impl NativeKosync {
     /// Opens the services once. A device without a network has no `net`; one
     /// without secrets has no `secrets` (the account's key is then not kept).
     fn ensure(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.server.is_none() {
+            self.server = Some(Self::server(host)?);
+        }
         if self.ui.is_none() {
             self.ui = Some(Ui::open(host)?);
         }
         if self.opened {
             return Ok(());
         }
+        if self.net.is_none() {
+            self.net = optional(Net::open(host))?;
+        }
+        if self.secrets.is_none() {
+            self.secrets = optional(Secrets::open(host))?;
+        }
+        if self.work.is_none() {
+            self.work = optional(Work::open(host))?;
+        }
+        if self.device.is_none() {
+            self.device = optional(Device::open(host))?;
+        }
+        self.backing = Backing::open(host)?;
         self.opened = true;
-        self.net = optional(Net::open(host))?;
-        self.secrets = optional(Secrets::open(host))?;
-        self.work = optional(Work::open(host))?;
-        self.device = optional(Device::open(host))?;
         Ok(())
     }
 
@@ -280,7 +310,12 @@ impl NativeKosync {
         ctx.network = self.net.is_some();
         ctx.auto = Self::auto(host)?;
         ctx.signed_in = signed_in;
-        ctx.radio_on_anyway = self.radio_on_anyway(host);
+        ctx.radio_on_anyway = ctx.active()
+            && self
+                .engine
+                .as_ref()
+                .is_none_or(|engine| engine.push_due(now_ms))
+            && self.radio_on_anyway(host);
         Ok(ctx)
     }
 
@@ -377,12 +412,13 @@ impl NativeKosync {
         if key != SERVER && !key.is_empty() {
             return Ok(());
         }
+        let unknown_change = self.server.is_none() && key == SERVER;
         self.ensure(host)?;
         self.read_key(host)?;
         let now = Self::server(host)?;
         let before = self.server.replace(copy(&now)?);
         let signed_in = self.key.is_some() && !Self::text_setting(host, USER)?.is_empty();
-        if before.as_deref() != Some(now.as_str()) && signed_in {
+        if (unknown_change || before.as_deref() != Some(now.as_str())) && signed_in {
             self.sign_out(host)?;
         }
         Ok(())
@@ -431,7 +467,7 @@ impl NativeKosync {
                 Action::Send(position) => self.send(host, ctx, &position)?,
                 Action::Offer(offer) => self.offer(host, offer)?,
                 Action::Notice(notice) => self.notice(host, notice)?,
-                Action::PushLater => self.push_later(host)?,
+                Action::PushLater => self.push_later(host, ctx.now_ms)?,
             }
         }
         Ok(())
@@ -480,7 +516,7 @@ impl NativeKosync {
         local: f64,
         manual: bool,
     ) -> Result<bool, Error> {
-        let Some(digest) = backing::digest(host, path)? else {
+        let Some(digest) = self.backing.digest(host, path)? else {
             return Ok(false);
         };
         let Some((user, key)) = self.credentials(host)? else {
@@ -507,6 +543,7 @@ impl NativeKosync {
     }
 
     fn send(&mut self, host: &Host<'_>, _ctx: Ctx, position: &Position) -> Result<(), Error> {
+        self.push_work = PushWork::Idle;
         match self.start_send(host, position) {
             Ok(true) => Ok(()),
             Ok(false) | Err(Error::Busy | Error::NoMemory) => {
@@ -520,17 +557,18 @@ impl NativeKosync {
     }
 
     fn start_send(&mut self, host: &Host<'_>, position: &Position) -> Result<bool, Error> {
-        let Some(digest) = backing::digest(host, &position.path)? else {
+        let Some(digest) = self.backing.digest(host, &position.path)? else {
             return Ok(false);
         };
         let Some((user, key)) = self.credentials(host)? else {
             return Ok(false);
         };
-        let (xpointer, progress) = match backing::xpointer(host, &position.path, position.at)? {
-            Some(found) => found,
-            // The book gives none (a format without XPointers): the reader's progress.
-            None => (String::new(), position.progress),
-        };
+        // The book gives none (a format without XPointers): the progress alone.
+        let xpointer = self
+            .backing
+            .xpointer(host, &position.path, position.at)?
+            .unwrap_or_default();
+        let progress = position.progress;
         let model = self.model(host)?;
         let id = match &self.engine {
             Some(engine) => copy(engine.device_id())?,
@@ -598,28 +636,38 @@ impl NativeKosync {
         self.table.add(pending)
     }
 
-    fn push_later(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        if !backing::can_send() {
+    fn push_later(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
+        if !self.backing.can_send()
+            || match self.push_work {
+                PushWork::Idle => false,
+                PushWork::Full(at) => now_ms.saturating_sub(at) < PUSH_EVERY_MS,
+                PushWork::Declared | PushWork::Denied => true,
+            }
+        {
             return Ok(());
         }
         let Some(work) = &self.work else {
             return Ok(());
         };
         let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
-        // Declared already: left as it is (declaring again would move its time).
-        let waiting = work
-            .state(host, &mut input, &mut out)
-            .is_ok_and(|rows| rows.get(PUSH_WORK).is_some());
-        if waiting {
-            return Ok(());
-        }
         let spec = WorkSpec::new(PUSH_WORK, WORK_DUE)?
             .network()
             .within_ms(PUSH_WITHIN_MS)
             .at_moment(Moment::Online);
         match work.declare(host, &spec, &mut input, &mut out) {
             // No room for it: the progress goes with the next page or when the book closes.
-            Ok(()) | Err(Error::Full | Error::Denied | Error::Unsupported) => Ok(()),
+            Ok(()) => {
+                self.push_work = PushWork::Declared;
+                Ok(())
+            }
+            Err(Error::Full) => {
+                self.push_work = PushWork::Full(now_ms);
+                Ok(())
+            }
+            Err(Error::Denied | Error::Unsupported) => {
+                self.push_work = PushWork::Denied;
+                Ok(())
+            }
             Err(error) => Err(error),
         }
     }
@@ -701,6 +749,10 @@ impl NativeKosync {
                 to.copy_from_slice(from);
             }
             at = end;
+        }
+        if at != len {
+            wipe(&mut bytes);
+            return Ok(None);
         }
         let remote = match core::str::from_utf8(bytes.get(..at).unwrap_or_default()) {
             Ok(text) => native_model::read_answer(text),
@@ -809,7 +861,18 @@ impl NativeKosync {
         let answered = answer.outcome() == AnswerOutcome::Answered;
         let go = answered && answer.choice() == 1;
         let stay = answered && answer.choice() == 0;
-        let went = go && self.go_there(host, &offer)?;
+        let went = if go {
+            match self.go_there(host, &offer) {
+                Ok(went) => went,
+                Err(Error::Busy | Error::Full) => {
+                    self.engine(host, now_ms)?.retry_offer(&offer.path)?;
+                    return self.notice_key(host, "kosync.book-busy", 0);
+                }
+                Err(error) => return Err(error),
+            }
+        } else {
+            false
+        };
         let ctx = self.ctx(host, now_ms)?;
         let mut out = Vec::new();
         let chose = Chose {
@@ -827,7 +890,8 @@ impl NativeKosync {
     fn go_there(&mut self, host: &Host<'_>, offer: &Offer) -> Result<bool, Error> {
         let progress = offer.percentage.parse::<f64>().unwrap_or(0.0);
         let Some((section, offset)) =
-            backing::locate(host, &offer.path, &offer.xpointer, progress)?
+            self.backing
+                .locate(host, &offer.path, &offer.xpointer, progress)?
         else {
             return Ok(false);
         };
@@ -1196,6 +1260,7 @@ impl NativeKosync {
         self.key = Some(Secret::copy(key)?);
         let mut scratch = [0; 1200];
         CommandSender::new(host, &mut scratch).set_setting(USER, SettingValue::Text(user))?;
+        self.push_work = PushWork::Idle;
         if let Some(engine) = &mut self.engine {
             engine.account_changed();
         }
@@ -1214,6 +1279,7 @@ impl NativeKosync {
         self.key = None;
         let mut scratch = [0; 64];
         CommandSender::new(host, &mut scratch).set_setting(USER, SettingValue::Text(""))?;
+        self.push_work = PushWork::Idle;
         if let Some(engine) = &mut self.engine {
             engine.account_changed();
         }
