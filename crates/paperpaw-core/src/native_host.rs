@@ -70,8 +70,14 @@ mod firmware_events;
     reason = "the command arms and the pump (slice B) drive the machine; tests do today"
 )]
 pub(crate) mod firmware_install;
+#[path = "native_host/literata_notice.rs"]
+pub(crate) mod literata_notice;
+#[path = "native_host/low_memory.rs"]
+pub(crate) mod low_memory;
 #[path = "native_host/notice.rs"]
 pub(crate) mod notice;
+#[path = "native_host/start_notice.rs"]
+pub(crate) mod start_notice;
 
 #[path = "native_host/install_grants.rs"]
 pub(crate) mod install_grants;
