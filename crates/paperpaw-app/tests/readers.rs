@@ -170,7 +170,9 @@ fn a_picture_opens_as_a_book_of_the_pictures_after_it() {
     app.run(paperpaw_sdk::builtin::actions::NEXT_PAGE);
     app.wait(5_000);
     app.run(paperpaw_sdk::builtin::actions::HOME);
-    app.wait(2_000);
+    // A screen with pictures is shown at once in black and white and its grays
+    // follow after 3 s of calm (#267, Decision 196): the card is read after that.
+    app.wait(5_000);
     app.kernel.render(&mut |_, _| {});
     let labels: Vec<String> = app.kernel.describe().into_iter().map(|p| p.label).collect();
     assert!(labels.iter().any(|l| l.contains("33 %")), "{labels:?}");
