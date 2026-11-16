@@ -54,6 +54,8 @@ mod card;
 #[path = "card_pro.rs"]
 mod card;
 mod clock;
+#[cfg(feature = "test-image")]
+mod hoststat;
 mod crash;
 mod device;
 #[cfg(feature = "ppn5")]

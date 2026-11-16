@@ -1379,6 +1379,8 @@ impl Firmware {
             shown.since(drawn),
             now().since(shown)
         );
+        #[cfg(feature = "test-image")]
+        crate::hoststat::report("draw");
         // Where the heap stands, for finding what takes it (test builds).
         #[cfg(feature = "remote")]
         info!(

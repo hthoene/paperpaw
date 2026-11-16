@@ -202,6 +202,8 @@ impl Firmware {
                 let at = self.kernel_now();
                 let state = ButtonState::Pressed;
                 let started = now();
+                #[cfg(feature = "test-image")]
+                crate::hoststat::report("pump");
                 let effects = self.kernel.handle(
                     at,
                     InputEvent::Button {
@@ -210,6 +212,8 @@ impl Firmware {
                     },
                 );
                 info!("{button} pressed: {} ms", now().since(started));
+                #[cfg(feature = "test-image")]
+                crate::hoststat::report("key");
                 self.apply(effects);
                 self.state.held = Some((button, Instant(now().0.saturating_add(ms))));
             }
