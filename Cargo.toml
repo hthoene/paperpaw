@@ -110,6 +110,7 @@ members = [
     "tools/dev",
     "tools/checks",
     "tools/library-bench",
+    "tools/stack-budget",
 ]
 
 [workspace.package]
@@ -143,6 +144,7 @@ paperpaw-update = { path = "crates/paperpaw-update", version = "0.6.0-beta.3" }
 paperpaw-digest = { path = "crates/paperpaw-digest", version = "0.6.0-beta.3" }
 paperpaw-native = { path = "crates/paperpaw-native", version = "0.6.0-beta.3" }
 paperpaw-publish = { path = "tools/publish" }
+paperpaw-stack-budget = { path = "tools/stack-budget" }
 paperpaw-json = { path = "crates/paperpaw-json", version = "0.6.0-beta.3" }
 paperpaw-qr = { path = "crates/paperpaw-qr", version = "0.6.0-beta.3" }
 paperpaw-ui-kit = { path = "crates/paperpaw-ui-kit", version = "0.6.0-beta.3" }
