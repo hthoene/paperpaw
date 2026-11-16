@@ -292,6 +292,21 @@ fn a_highlight_of_another_conversion_is_drawn_where_the_page_has_its_text() {
 }
 
 #[test]
+fn a_word_the_layout_broke_is_read_once_for_a_highlight_of_another_conversion() {
+    let mut words = page_of("down the particular case of it all", 100);
+    // `particular` broken at a line end: both parts are the word, at its place.
+    let second = words[2].clone();
+    words.insert(3, second);
+    let mut marks = Marks::new(Vec::new()).with_foreign(Vec::from([foreign(
+        106,
+        130,
+        "the particular case of it",
+    )]));
+    marks.accept_foreign(&words);
+    assert_eq!(marks.highlights(), [span(106, 130)]);
+}
+
+#[test]
 fn a_highlight_whose_text_is_not_there_stays_hidden() {
     let words = page_of("down the rabbit hole she fell", 100);
     // The same place, other words: made for another text.

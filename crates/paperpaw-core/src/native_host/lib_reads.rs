@@ -115,6 +115,8 @@ pub(crate) struct CatalogReads {
     env: Rc<dyn CatalogEnv>,
     /// The last book whose Beta 3 reader's files were looked at.
     old: old_reader::Memo,
+    /// Where the last page of names (op 5) ended, for the page after it.
+    names: core::cell::Cell<Option<facets::Kept>>,
 }
 
 impl CatalogReads {
@@ -141,6 +143,20 @@ impl CatalogReads {
         facets::facets(self, query, archive, hide, visit)
     }
 
+    /// The place the last page of names ended at is dropped.
+    pub(crate) fn names_ended(&self) {
+        self.names.set(None);
+    }
+
+    /// Whether a place is kept.
+    #[cfg(test)]
+    pub(crate) fn names_kept(&self) -> bool {
+        let kept = self.names.take();
+        let is = kept.is_some();
+        self.names.set(kept);
+        is
+    }
+
     /// The library folder setting ([`CatalogEnv::library_folder`]).
     pub(crate) fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
         self.env.library_folder(visit);
@@ -151,6 +167,7 @@ impl CatalogReads {
             storage,
             env,
             old: old_reader::Memo::default(),
+            names: core::cell::Cell::new(None),
         }
     }
 

@@ -177,6 +177,14 @@ unsafe impl GlobalAlloc for BudgetAllocator {
 
 /// Runs `f` with allocation tracking enabled.
 pub fn track<R>(f: impl FnOnce() -> R) -> R {
+    // The counters are the whole process's: a test that runs a kernel takes
+    // `one_device_at_a_time` (the lock the budget's own tests take), or its
+    // allocations change what another test measures.
+    #[cfg(test)]
+    assert!(
+        accounting_tests::held(),
+        "a tracked call in a test without `crate::one_device_at_a_time()`"
+    );
     struct Restore(bool);
     impl Drop for Restore {
         fn drop(&mut self) {
