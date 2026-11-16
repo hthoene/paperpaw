@@ -126,8 +126,12 @@ fn verify(
     super::read_exact(storage, path, 0, &mut head[..have]).map_err(|()| PluginProblem::Damaged)?;
     let header =
         Header5::read(&head[..have], size, &HOST).map_err(|why| refused(path, &head, why))?;
-    // The file installed, not one put in its folder since.
-    if header.sha256 != code.sha256 {
+    // The file installed, not one put in its folder since (a file never
+    // installed holds to its own header, checked with the image).
+    if code
+        .sha256
+        .is_some_and(|installed| header.sha256 != installed)
+    {
         warn!("native: {path} is not the file installed");
         return Err(PluginProblem::Changed);
     }
@@ -835,6 +839,10 @@ mod x4 {
     }
 
     impl NativeAdmission for Measured {
+        fn declares(&self, key: &str) -> bool {
+            self.inner.declares_feature(key)
+        }
+
         fn admit(
             self: Box<Self>,
             kernel: &mut paperpaw_core::Kernel,

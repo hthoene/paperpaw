@@ -56,12 +56,56 @@ impl Selection {
         (self.anchor.min(self.cursor), self.anchor.max(self.cursor))
     }
 
+    /// The first and last selected word with every part of a word the layout
+    /// broke (`WordBox`es that share a place in the book): both parts are
+    /// chosen, framed and looked up together.
+    pub fn whole(&self, words: &[WordBox]) -> (usize, usize) {
+        let (mut lo, mut hi) = self.range();
+        while lo > 0 && continues(words, lo) {
+            lo -= 1;
+        }
+        while continues(words, hi + 1) {
+            hi += 1;
+        }
+        (lo, hi)
+    }
+
+    /// Moves the cursor for a navigation action, over the second part of a word
+    /// the layout broke as over the word it is a part of; `None` if `action`
+    /// is another one.
+    pub fn moved(&self, action: &str, words: &[WordBox]) -> Option<usize> {
+        let last = words.len().checked_sub(1)?;
+        let mut to = self.moved_by_box(action, words)?;
+        if to == self.cursor {
+            return Some(to);
+        }
+        // Not on the second part of a word (the first stands for the word), and
+        // not on the word the cursor is on: on, in the direction it moved.
+        let on = |i: usize| {
+            words
+                .get(i)
+                .zip(words.get(self.cursor))
+                .is_some_and(|(a, b)| a.start != a.end && a.start == b.start)
+        };
+        for _ in 0..words.len() {
+            if !(continues(words, to) || on(to)) {
+                break;
+            }
+            to = if to > self.cursor {
+                if to >= last { 0 } else { to + 1 }
+            } else {
+                to.checked_sub(1).unwrap_or(last)
+            };
+        }
+        Some(to)
+    }
+
     /// Moves the cursor for a navigation action; `None` if `action` is
     /// another one. Left and right go a word, up and down a line (the
     /// page buttons too, a device with two page buttons has no others).
     /// Words wrap round the page: left from the first word reaches the
     /// last, right from the last the first; lines stop at the ends.
-    pub fn moved(&self, action: &str, words: &[WordBox]) -> Option<usize> {
+    fn moved_by_box(&self, action: &str, words: &[WordBox]) -> Option<usize> {
         let last = words.len().checked_sub(1)?;
         let a = action;
         if a == "core.left" || a == "core.right" {
@@ -104,6 +148,19 @@ impl Selection {
             return None;
         })
     }
+}
+
+/// Whether word `index` is the second part (or a later one) of a word the
+/// layout broke at a line end: it has the place in the book of the word before.
+pub fn continues(words: &[WordBox], index: usize) -> bool {
+    index > 0
+        && words
+            .get(index - 1)
+            .zip(words.get(index))
+            .is_some_and(|(before, this)| {
+                // A word of text has a length; boxes without a place are no parts.
+                before.start != before.end && before.start == this.start && before.end == this.end
+            })
 }
 
 /// Boxes around runs of words on one line, e.g. to draw a selection or
