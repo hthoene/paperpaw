@@ -374,6 +374,35 @@ fn installed_code_runs_as_installed_and_copied_code_unsigned() {
     assert!(!unsigned("zeta") && !unsigned("pinned") && !unsigned("installer"));
 }
 
+/// A list of installed code that cannot be read loads no code: an installed
+/// plugin is not taken for one never installed, nor is a copied one run.
+#[test]
+fn an_unreadable_list_of_installed_code_loads_no_code() {
+    let loader = loader();
+    let storage = storage()
+        .with("plugins/copied/plugin.ini", "[plugin]\nname = Copied\n")
+        .with("plugins/copied/code.ppn", "PPNP")
+        .with(".paperpaw/plugin-code.txt", &b"\xff\xfe"[..]);
+    let kernel = Kernel::builder(DEVICE)
+        .storage(storage)
+        .code_plugins(Native::new("code.ppn"), Box::new(loader.clone()))
+        .build()
+        .unwrap();
+    assert!(
+        loader.asked.borrow().is_empty(),
+        "{:?}",
+        loader.asked.borrow()
+    );
+    for id in ["hello", "zeta", "copied"] {
+        let plugin = info(&kernel, id);
+        assert_eq!(
+            (plugin.state, plugin.problem),
+            (PluginState::Failed, Some(PluginProblem::NotInstalled)),
+            "{id}"
+        );
+    }
+}
+
 /// The code of a plugin whose author's key was revoked for it does not
 /// run, and is not even read; another plugin's does, even one signed
 /// by the same key (revoked per plugin, review M1 of #277).

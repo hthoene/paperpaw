@@ -346,16 +346,21 @@ impl Kernel {
             loader.finish(storage.as_ref());
             return;
         }
-        // Discovery settled pending install marks before this snapshot.
-        // A failed read grants no code permission, as an individual lookup did.
-        let installed = paperpaw_sdk::native::InstalledCodes::load(
+        // Discovery settled pending install marks before this snapshot. No
+        // list is nothing installed; one that cannot be read loads no code
+        // at all: an installed plugin would otherwise run whatever file lies
+        // in its folder, unchecked, as one never installed (Decision 205).
+        let installed = match paperpaw_sdk::native::InstalledCodes::load(
             storage.as_ref(),
             found
                 .iter()
                 .map(|plugin| plugin.manifest().id)
                 .filter(|id| !disabled.iter().any(|off| off == id.as_str())),
-        )
-        .unwrap_or_default();
+        ) {
+            Ok(installed) => Some(installed),
+            Err(paperpaw_platform::StorageError::NotFound) => Some(Default::default()),
+            Err(_) => None,
+        };
         // Plugins whose author's key was revoked (stolen): their code does
         // not run.
         let revoked = paperpaw_sdk::native::keys::revoked(storage.as_ref());
@@ -372,12 +377,22 @@ impl Kernel {
                 continue;
             }
             let path = native.path(plugin.folder());
+            let Some(installed) = &installed else {
+                let message =
+                    format!("{path}: the list of installed code cannot be read; not loaded");
+                self.warn(WarningSource::Plugin(id.clone()), None, message);
+                let problem = PluginProblem::NotInstalled;
+                self.list_code_plugin(&plugin, disabled, PluginState::Failed, problem);
+                continue;
+            };
             // An installed plugin runs only the file installed. Code copied
             // to the card and never installed runs as it lies, without a
             // question (Decision 205), unless an author's key is pinned for
             // its id: a copied file never takes over a signed plugin's id.
             let sha256 = installed.get(id.as_str());
-            if sha256.is_none() && crate::native_host::plugin_trust::pinned(storage.as_ref(), id.as_str()) {
+            if sha256.is_none()
+                && crate::native_host::plugin_trust::pinned(storage.as_ref(), id.as_str())
+            {
                 let message =
                     format!("{path}: never installed, and its id has an author's key; not loaded");
                 self.warn(WarningSource::Plugin(id.clone()), None, message);
