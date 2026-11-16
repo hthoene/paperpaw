@@ -1157,11 +1157,9 @@ fn build_kernel(
         let mut builder = paperpaw_app::install(builder, fonts);
         #[cfg(feature = "frame-test")]
         {
-            builder = builder.plugin(paperpaw_sample_frame_test::FrameTest);
-        }
-        #[cfg(feature = "interlinear")]
-        {
-            builder = builder.plugin(paperpaw_sample_interlinear::Interlinear);
+            builder = builder.items(paperpaw_sample_frame_test::FrameTest.manifest(), |r| {
+                paperpaw_sample_frame_test::FrameTest.register(r)
+            });
         }
         if let Some(light) = profile.light {
             builder = builder.items(crate::light::manifest(), crate::light::emulated(light));
