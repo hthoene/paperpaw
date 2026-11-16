@@ -90,7 +90,6 @@ pub const CROSSING_CRATES: &[&str] = &[
     "paperpaw_qr",
     "paperpaw_native",
     "paperpaw_lang",
-    "paperpaw_table",
     "paperpaw_sort",
 ];
 
@@ -886,11 +885,11 @@ pub struct Native {
     /// The bytes of the shell's [`Api`](paperpaw_native::Api): a plugin
     /// that needs more ([`Header::needs_api`]) needs a newer PaperPaw.
     pub api_size: u32,
-    /// The revision of each family of shared functions the shell has
-    /// (0: none); on RISC-V chips only (`paperpaw_table`).
-    pub family_revs: paperpaw_table::Revisions,
-    /// The oldest revision of each family whose plugins the shell runs.
-    pub family_min: paperpaw_table::Revisions,
+    /// Not used: the revisions of the shared function tables, which are
+    /// gone. All 0; kept so that the fingerprint stays as it is.
+    pub family_revs: [u16; 8],
+    /// Not used, as [`family_revs`](Self::family_revs).
+    pub family_min: [u16; 8],
     /// The interface-7 minor this PaperPaw loads: a format-5 plugin file
     /// runs here when its `needs_minor` is at most this (a store compares
     /// the catalogue's `abi` "7.<needs_minor>" with it).
@@ -908,8 +907,8 @@ impl Native {
             safe_mode: None,
             not_installed: Vec::new(),
             api_size: paperpaw_native::Api::SIZE,
-            family_revs: paperpaw_table::REVISIONS,
-            family_min: paperpaw_table::OLDEST,
+            family_revs: [0; 8],
+            family_min: [0; 8],
             minor: paperpaw_native::host_glue::MINOR,
         }
     }

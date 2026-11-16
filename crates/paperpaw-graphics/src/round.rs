@@ -20,7 +20,6 @@ const SINES: [i16; 91] = [
     9877, 9903, 9925, 9945, 9962, 9976, 9986, 9994, 9998, 10_000,
 ];
 
-paperpaw_table::shared! {
 /// How far row `row` of a shape `height` rows high with corners of
 /// `radius` starts in from its sides (at most half its height and width,
 /// as the caller makes sure): the pixels the circle leaves at least half
@@ -39,10 +38,8 @@ pub fn corner_inset(radius: u32, row: u32, height: u32) -> u32 {
     // The inset (r - root) / 2 pixels, rounded to the nearest (half a
     // pixel in): where the root is no whole number it lies above `dx`.
     ((r + 1 - dx - u64::from(dx * dx != square)) / 2) as u32
-} @ graphics::ROUND_CORNER_INSET
 }
 
-paperpaw_table::shared! {
 /// The sine and cosine of `degrees` (any, taken round the circle), times
 /// [`UNIT`].
 pub fn sin_cos(degrees: i32) -> (i32, i32) {
@@ -56,10 +53,8 @@ pub fn sin_cos(degrees: i32) -> (i32, i32) {
         }
     };
     (sin(d), sin((d + 90).rem_euclid(360)))
-} @ graphics::ROUND_SIN_COS
 }
 
-paperpaw_table::shared! {
 /// The point `radius` pixels from `center` in the direction of `degrees`
 /// (clockwise from twelve o'clock), rounded to the nearest pixel (and to
 /// the edges of the plane of points, where it would lie past them).
@@ -73,7 +68,6 @@ pub fn point_at(center: Point, radius: i32, degrees: i32) -> Point {
         clamp(i64::from(center.x) + scale(sin)),
         clamp(i64::from(center.y) - scale(cos)),
     )
-} @ graphics::ROUND_POINT_AT
 }
 
 /// Whether direction `b` lies less than half a turn clockwise after

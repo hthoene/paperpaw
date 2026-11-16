@@ -337,3 +337,44 @@ fn a_line_that_runs_left_to_right_keeps_its_way_with_a_hebrew_word_at_its_edge()
     // Left of the first word of the line (and of the page): the last.
     assert_eq!(on(0, actions::LEFT), Some(4));
 }
+
+/// Two lines of three words; word 2 ends the first line broken with a hyphen
+/// of the layout's, and word 3 is its second part, at the start of the next.
+fn page_with_a_broken_word() -> Vec<WordBox> {
+    let mut words = page(&[(3, 30), (3, 30)]);
+    let (start, end) = (words[2].start, words[2].end);
+    words[3].start = start;
+    words[3].end = end;
+    words
+}
+
+#[test]
+fn the_buttons_step_over_the_second_part_of_a_broken_word() {
+    let words = page_with_a_broken_word();
+    let on = |word: usize, action: &str| Selection::choosing(word).moved(action, &words);
+    // Forward: the word's first part, then the word after it.
+    assert_eq!(on(1, actions::NEXT), Some(2));
+    assert_eq!(on(2, actions::NEXT), Some(4));
+    assert_eq!(on(2, actions::RIGHT), Some(4));
+    // Back: from the word after it the first part, from the second part the
+    // word before.
+    assert_eq!(on(4, actions::PREVIOUS), Some(2));
+    assert_eq!(on(3, actions::PREVIOUS), Some(1));
+    assert_eq!(on(3, actions::LEFT), Some(1));
+}
+
+#[test]
+fn both_parts_of_a_broken_word_are_chosen_together() {
+    let words = page_with_a_broken_word();
+    assert_eq!(Selection::choosing(2).whole(&words), (2, 3));
+    assert_eq!(Selection::choosing(3).whole(&words), (2, 3));
+    assert_eq!(Selection::choosing(1).whole(&words), (1, 1));
+    // A range that starts on one part and ends on a word after it.
+    let range = Selection {
+        anchor: 3,
+        cursor: 4,
+        mode: Mode::Extending,
+        focus: None,
+    };
+    assert_eq!(range.whole(&words), (2, 4));
+}

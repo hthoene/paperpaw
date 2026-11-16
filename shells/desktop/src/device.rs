@@ -1248,10 +1248,6 @@ mod tests {
     use paperpaw_core::WifiCommand;
     use paperpaw_platform::StorageError;
 
-    /// The heap budget counts every thread's kernel: one device at a time,
-    /// and none while the budget's own tests read its counters.
-    use crate::budget::accounting_tests::LOCK as ONE_AT_A_TIME;
-
     fn device(name: &str) -> (Device, std::path::PathBuf) {
         let root =
             std::env::temp_dir().join(format!("paperpaw-device-{name}-{}", std::process::id()));
@@ -1301,9 +1297,7 @@ mod tests {
     #[test]
     fn a_wanted_network_brings_managed_wifi_up_once_per_demand() {
         use paperpaw_core::native_host::shell_wiring::ShellNetwork as _;
-        let _one = ONE_AT_A_TIME
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = crate::one_device_at_a_time();
         let (mut device, root) = device("wifi-demand");
         let demand = |device: &Device, wanted| {
             let net = device.linked.net.borrow();
@@ -1344,9 +1338,7 @@ mod tests {
 
     #[test]
     fn asleep_nothing_is_due() {
-        let _one = ONE_AT_A_TIME
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = crate::one_device_at_a_time();
         let (mut device, root) = device("asleep");
         device.wake_at = Some(Instant(0));
         device.asleep = true;
@@ -1361,9 +1353,7 @@ mod tests {
 
     #[test]
     fn a_restart_forgets_what_the_old_kernel_asked_for() {
-        let _one = ONE_AT_A_TIME
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = crate::one_device_at_a_time();
         let (mut device, root) = device("restart");
         let now = device.now();
         device.speech.push_back((1, now.add_millis(10_000)));

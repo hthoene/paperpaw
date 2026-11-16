@@ -292,6 +292,13 @@ macro_rules! data_path {
     };
 }
 
+/// The directory where plugin `plugin` keeps its data, e.g.
+/// `.paperpaw/plugins/reader` (in PaperPaw's own folder, [`DIR`]).
+#[must_use]
+pub fn plugin_dir(plugin: &str) -> String {
+    format!("{DIR}/plugins/{plugin}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

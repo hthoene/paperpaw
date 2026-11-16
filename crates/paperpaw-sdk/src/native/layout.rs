@@ -208,7 +208,7 @@ const CROSSING: &[(u64, u64)] = &layouts![
     crate::StorageError,
     crate::DirEntry<'static>,
     // What the shared text functions take and give by value, between the
-    // firmware's code and the plugin's (`paperpaw_table`): the plugin
+    // firmware's code and the plugin's: the plugin
     // lives on across firmware releases, so a moved field of one of these
     // is an interface change. (The font crates they hold are pinned with
     // `=` in paperpaw-text; `tools/interface.py` digests those pins.)

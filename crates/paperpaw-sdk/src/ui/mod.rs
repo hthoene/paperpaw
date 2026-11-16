@@ -96,14 +96,12 @@ use crate::screen::Hint;
 use crate::settings::{SettingKind, SettingSpec, SettingValue};
 use paperpaw_text::{TextInk, ToneCurve};
 
-paperpaw_table::shared! {
 /// Whether a part drawn in `rect` can show on `canvas`: it meets the
 /// canvas's clip (one band of the frame), or the canvas only tells what
 /// is drawn, as for a screen reader, which hears every part. Parts that
 /// cannot show are left out before their text is looked up and measured.
 pub(crate) fn shows(canvas: &Canvas<'_>, rect: Rect) -> bool {
     canvas.is_describing() || canvas.is_blind() || canvas.clip().intersection(&rect).is_some()
-} @ ui::UI_SHOWS
 }
 
 #[cfg(test)]

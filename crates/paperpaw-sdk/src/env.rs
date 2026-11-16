@@ -1054,7 +1054,7 @@ impl Env<'_> {
     /// `.paperpaw/plugins/reader` (in PaperPaw's own folder,
     /// [`data::DIR`](crate::data::DIR)).
     pub fn plugin_dir(plugin: &str) -> alloc::string::String {
-        alloc::format!("{}/plugins/{plugin}", crate::data::DIR)
+        crate::data::plugin_dir(plugin)
     }
 }
 

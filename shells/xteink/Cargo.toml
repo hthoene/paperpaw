@@ -155,8 +155,6 @@ paperpaw-http = { path = "../../crates/paperpaw-http" }
 paperpaw-digest = { path = "../../crates/paperpaw-digest" }
 # Native code plugins' files (`src/native`).
 paperpaw-native = { path = "../../crates/paperpaw-native" }
-# The families of shared functions plugins call in the firmware.
-paperpaw-table = { path = "../../crates/paperpaw-table" }
 # Its settings' ids, for the X4's defaults.
 paperpaw-plugin-wifi = { path = "../../plugins/wifi" }
 esp-hal = { version = "1.2", features = ["unstable"] }
@@ -321,7 +319,6 @@ paperpaw-plugin-wifi = { opt-level = "z" }
 paperpaw-qr = { opt-level = "z" }
 paperpaw-sqlite = { opt-level = "z" }
 paperpaw-stardict = { opt-level = "z" }
-paperpaw-table = { opt-level = "z" }
 paperpaw-ui-kit = { opt-level = "z" }
 paperpaw-update = { opt-level = "z" }
 
