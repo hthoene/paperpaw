@@ -14,18 +14,22 @@ static SECRET: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new().se
 /// kept on reset, a text, a secret, a widget's setting) and `other` (in the
 /// same group a guarded switch and a number).
 fn kernel() -> crate::Kernel {
-    use paperpaw_sdk::{Manifest, Plugin, Registrar, Version};
-    struct Settings(&'static str, fn() -> Vec<SettingSpec>);
-    impl Plugin for Settings {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static(self.0), "Probe", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-            if self.0 == "probe" {
+    use crate::Items;
+    use paperpaw_sdk::{Manifest, Version};
+    fn settings_manifest(id: &'static str) -> Manifest {
+        Manifest::new(Id::new_static(id), "Probe", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn settings(
+        id: &'static str,
+        settings: fn() -> Vec<SettingSpec>,
+    ) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
+        move |r| {
+            if id == "probe" {
                 r.add_setting_group(&LOOK)?;
             }
-            for setting in (self.1)() {
+            for setting in settings() {
                 r.add_setting(setting)?;
             }
             Ok(())
@@ -49,8 +53,8 @@ fn kernel() -> crate::Kernel {
         ]
     };
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Settings("probe", probe))
-        .plugin(Settings("other", other))
+        .items(settings_manifest("probe"), settings("probe", probe))
+        .items(settings_manifest("other"), settings("other", other))
         .storage(paperpaw_sdk::MemoryStorage::new())
         .build()
         .unwrap();
