@@ -45,9 +45,13 @@
 //! them), and all before the device sleeps; the radio is off whenever
 //! nothing needs it.
 //!
-//! ```
+//! Registered with the kernel's `Items` (`paperpaw_core`, not a dependency
+//! of this crate's examples), so the example is not built here:
+//!
+//! ```ignore
+//! use paperpaw_core::Items;
 //! use paperpaw_sdk::bluetooth::{self, BtEvent, Uuid};
-//! use paperpaw_sdk::{Event, Items, RegisterError};
+//! use paperpaw_sdk::{Event, RegisterError};
 //!
 //! const FOUND: Event<BtEvent> = Event::new("pulse.found");
 //! const LINK: Event<BtEvent> = Event::new("pulse.link");
