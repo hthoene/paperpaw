@@ -1,0 +1,1 @@
+Drawing a full frame takes fewer passes on the X4: where the heap has room for it, the frame is drawn in two bands instead of five, which cuts the host calls of Home's return from a book by about a third (#267).
