@@ -71,8 +71,9 @@ Tests of other crates that read a picture as a book through the app are ignored 
 
 ## Still blocked on the host
 
-- Listing the book's folder (root 3): no SDK function (`native::storage` cannot list root 3), so the pages after
-  the opened picture are not found; `tests/provider_pending.rs`.
+- Listing the book's folder (root 3) is done (#277): `HostIo::list` pages through `core.files` root 3
+  (`Files::list` with `Root::Book`); at most 512 names wait while it runs and 300 are kept. A folder that
+  is not there to list leaves the picture alone; a refused allocation or any other failure is an error.
 - The host admitting format declarations (Core #944) and wiring the `fmt.call` adapter (Host #417): the
   declaration is refused as `Unsupported` today (`tests/hosted_construction.rs`).
 - Sides (Kernel's ruling): the host sends non-zero `cover_side`/`image_side` in ops 2, 17 and 18 (the cover's 3/8 of the screen resolved by the host); the provider uses the side of the call as the longest side, and falls back to 300 / 1,600 (`COVER_FIT`/`IMAGE_FIT`) on 0 without failing.

@@ -37,7 +37,7 @@ pub const MAX_DOCUMENTS: usize = 8;
 /// The format's id: the declaration's plugin id and format name.
 const FORMAT_ID: &str = "format-images.pictures";
 /// The code a refused allocation travels as through `StorageError`.
-const NO_MEMORY: u16 = 0x6e6d;
+pub(crate) const NO_MEMORY: u16 = 0x6e6d;
 const TEXT: usize = 1024;
 /// Rows of a reply, one of them the closing `fmt.end`.
 const ROWS: usize = 64;
