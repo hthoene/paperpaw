@@ -6,7 +6,7 @@
 use alloc::string::String;
 
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::{Canvas, Command, Cx, Env, Gesture, Handled, Hint, Id, Rect, Screen};
+use paperpaw_sdk::{Canvas, Command, Cx, Env, Gesture, Handled, Hint, Id, Rect};
 
 /// `ask` flag bit 8 (`only_yes`): one button, by default *OK*.
 const ONLY_YES: u32 = 1 << 8;
@@ -79,7 +79,7 @@ impl Confirm {
     }
 }
 
-impl Screen for Confirm {
+impl crate::Layer for Confirm {
     fn region(&self, env: &Env<'_>) -> Option<Rect> {
         Some(self.board.region(env))
     }
