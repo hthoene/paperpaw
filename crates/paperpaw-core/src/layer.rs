@@ -362,14 +362,17 @@ impl Layer for Old {
     }
 
     fn on_resize(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
+        // Reached through `call_since` on this layer: its revision is the held screen's.
         self.0.on_resize(cx)
     }
 
     fn pane(&self) -> Pane {
+        // Reached through `call_since` on this layer: its revision is the held screen's.
         self.0.pane()
     }
 
     fn times_under_overlays(&self) -> bool {
+        // Reached through `call_since` on this layer: its revision is the held screen's.
         self.0.times_under_overlays()
     }
 }
