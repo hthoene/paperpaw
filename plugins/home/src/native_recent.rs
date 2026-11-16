@@ -194,6 +194,11 @@ fn recent(
 /// of question marks. A host that cannot say what the font covers changes
 /// nothing.
 pub fn drawable(font: &Font<'_>, title: &mut String) -> Result<(), Error> {
+    // Plain ASCII is in every font: no question to the host (a host call a
+    // frame of Home's cover is counted, `home_return`).
+    if title.is_ascii() {
+        return Ok(());
+    }
     let covers = |text: &str| font.covers(text).ok();
     let dots = if covers("…") == Some("…".len()) {
         "…"
