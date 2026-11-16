@@ -837,7 +837,7 @@ impl NativeKosync {
                 Ok(went) => went,
                 Err(Error::Busy | Error::Full) => {
                     self.engine(host, now_ms)?.retry_offer(&offer.path)?;
-                    return self.notice_key(host, "kosync.unreadable", 0);
+                    return self.notice_key(host, "kosync.book-busy", 0);
                 }
                 Err(error) => return Err(error),
             }

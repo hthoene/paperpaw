@@ -6,7 +6,7 @@ const DE: &str = include_str!("../i18n/de.ini");
 fn the_group_and_the_settings_have_words() {
     let source = include_str!("../declarations.rs");
     let mut asked = 0;
-    for part in source.split('"').skip(1).step_by(2) {
+    for part in source.split('"').skip(1).step_by(2).chain(["kosync.book-busy"]) {
         if part.starts_with("kosync.") && !part.ends_with('.') {
             asked += 1;
             for (name, catalog) in [("en", EN), ("de", DE)] {
