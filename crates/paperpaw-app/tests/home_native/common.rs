@@ -247,6 +247,38 @@ impl Screen for Keyboard {
     }
 }
 
+const CLOSER_SCREEN: Id = Id::new_static("test-closer.screen");
+
+thread_local! {
+    static CLOSER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A screen that does something and closes in one callback (#267).
+pub struct TestCloser;
+
+impl Plugin for TestCloser {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(
+            Id::new_static("test-closer"),
+            "Test closer",
+            Version::new(0, 1, 0),
+        )
+        .description("Changes something and closes.")
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        r.add_action(
+            ActionSpec::new(Id::new_static("test-closer.go"), "test-closer").handler(|_, _, _| {}),
+        )?;
+        r.add_screen(ScreenSpec::new(
+            CLOSER_SCREEN,
+            "test-closer",
+            Box::new(|_, _| Box::new(crate::return_set::Closer)),
+        ))
+    }
+}
+
 /// The standard app with the test keyboard, over a storage the test keeps.
 pub struct App {
     pub kernel: Kernel,
@@ -259,6 +291,12 @@ pub struct App {
 impl App {
     /// The app on `device` over `storage`, started.
     pub fn new(device: DeviceInfo, storage: Shared) -> Self {
+        Self::at(device, storage, 0, false)
+    }
+
+    /// The same with the [`TestCloser`] screen.
+    pub fn with_closer(device: DeviceInfo, storage: Shared) -> Self {
+        CLOSER.with(|closer| closer.set(true));
         Self::at(device, storage, 0, false)
     }
 
@@ -278,6 +316,9 @@ impl App {
         if more_tools {
             builder = test_tools(builder);
         }
+        if CLOSER.with(std::cell::Cell::take) {
+            builder = builder.plugin(TestCloser);
+        }
         let mut kernel = crate::native_activation::build_on(builder, card);
         let effects = kernel.start(Instant(now));
         let display = device.display;
@@ -289,6 +330,21 @@ impl App {
         };
         app.settle(effects);
         app
+    }
+
+    /// The device tells the time (a shell does), so that the clock draws: what
+    /// the default home page holds depends on it.
+    pub fn tell_time(&mut self) {
+        let status = paperpaw_platform::SystemStatus::new(
+            Some(paperpaw_platform::WallClock::new(
+                Instant(self.now),
+                1_791_967_260_000,
+                Some(120),
+            )),
+            None,
+        );
+        let effects = self.kernel.set_status(Instant(self.now), status);
+        self.settle(effects);
     }
 
     /// A new kernel over the same storage, as after a restart.
