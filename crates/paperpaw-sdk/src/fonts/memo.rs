@@ -29,10 +29,22 @@ pub(super) enum Memo {
     Found(Parts),
 }
 
-pub(super) type Table = [Cell<Memo>; 2 * ROLES];
+/// What the kernel found of the fonts of the built-in roles ([`Fonts::role_in`],
+/// [`Fonts::bound_in`]): kept by the kernel beside the fonts, not in them, so
+/// that the fonts are the same for every plugin. It forgets with
+/// [`RoleMemo::forget`], which the kernel calls on every change of the fonts.
+pub struct RoleMemo([Cell<Memo>; 2 * ROLES]);
 
-pub(super) fn table() -> Table {
-    core::array::from_fn(|_| Cell::new(Memo::Unknown))
+impl core::fmt::Debug for RoleMemo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("RoleMemo")
+    }
+}
+
+impl Default for RoleMemo {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 fn slot(role: &str) -> Option<usize> {
@@ -49,19 +61,30 @@ fn slot(role: &str) -> Option<usize> {
     .position(|known| known.as_str() == role)
 }
 
-impl Fonts {
+impl RoleMemo {
+    /// A memo that knows nothing.
+    pub const fn new() -> Self {
+        #[allow(
+            clippy::declare_interior_mutable_const,
+            reason = "only the value of an array repeat"
+        )]
+        const UNKNOWN: Cell<Memo> = Cell::new(Memo::Unknown);
+        Self([UNKNOWN; 2 * ROLES])
+    }
+
     /// Forgets what was found: after every change of the fonts, the roles,
     /// the family or the files open.
-    pub(super) fn forget(&mut self) {
-        for memo in &self.memo {
+    pub fn forget(&self) {
+        for memo in &self.0 {
             memo.set(Memo::Unknown);
         }
     }
 
     /// `make()`, done once per role until the next change; `bound` tells
     /// the two questions apart ([`Fonts::bound`], [`Fonts::role`]).
-    pub(super) fn memoized<'a>(
-        &'a self,
+    pub(super) fn found<'a>(
+        &self,
+        fonts: &'a Fonts,
         bound: bool,
         role: &str,
         make: impl FnOnce() -> Option<FontHandle<'a>>,
@@ -69,11 +92,11 @@ impl Fonts {
         let Some(slot) = slot(role) else {
             return make();
         };
-        let cell = &self.memo[usize::from(bound) * ROLES + slot];
+        let cell = &self.0[usize::from(bound) * ROLES + slot];
         match cell.get() {
             Memo::Missing => return None,
             Memo::Found(parts) => {
-                if let Some(handle) = self.rebuilt(parts) {
+                if let Some(handle) = fonts.rebuilt(parts) {
                     return Some(handle);
                 }
             }
@@ -93,7 +116,9 @@ impl Fonts {
         }));
         found
     }
+}
 
+impl Fonts {
     fn rebuilt(&self, parts: Parts) -> Option<FontHandle<'_>> {
         let entry = self.entries.get(usize::from(parts.index))?;
         let font = |n: u16| self.entries.get(usize::from(n))?.font.as_ref();
@@ -141,18 +166,20 @@ mod tests {
         Font::from_data(builder.build(), &[]).unwrap()
     }
 
-    fn memoized(fonts: &Fonts, role: &str) -> bool {
-        matches!(
-            fonts.memo[slot(role).unwrap()].get(),
-            Memo::Found(_) | Memo::Missing
-        )
+    fn memoized(memo: &RoleMemo, role: &str) -> bool {
+        let at = slot(role).unwrap();
+        [at, ROLES + at]
+            .iter()
+            .any(|at| matches!(memo.0[*at].get(), Memo::Found(_) | Memo::Missing))
     }
 
     /// A role is looked up once, answered from then on exactly as it was
-    /// found, and looked up again after every change that can move it.
+    /// found, and looked up again after the memo is forgotten (as the
+    /// kernel does with every change of the fonts).
     #[test]
     fn a_role_is_found_once_and_forgotten_on_change() {
         let mut fonts = Fonts::new(4096);
+        let memo = RoleMemo::new();
         fonts
             .add(FontSpec::new(Id::new_static("a.one"), font(5.0)))
             .unwrap();
@@ -162,24 +189,37 @@ mod tests {
         fonts.propose(roles::UI, Id::new_static("a.one"), Priority::DEFAULT);
         let binding = roles::UI;
         let ui = binding.as_str();
-        assert!(!memoized(&fonts, ui));
-        let first = fonts.role(ui).unwrap();
-        assert!(memoized(&fonts, ui));
-        let again = fonts.role(ui).unwrap();
+        assert!(!memoized(&memo, ui));
+        let first = fonts.role_in(&memo, ui).unwrap();
+        assert!(memoized(&memo, ui));
+        let again = fonts.role_in(&memo, ui).unwrap();
         assert_eq!(first.id(), again.id());
         assert_eq!(first.measure(10.0, "a"), again.measure(10.0, "a"));
-        assert!(fonts.bound(roles::ICONS.as_str()).is_none());
+        assert_eq!(fonts.role(ui).unwrap().id(), again.id());
+        assert!(fonts.bound_in(&memo, roles::ICONS.as_str()).is_none());
+        assert!(memoized(&memo, roles::ICONS.as_str()), "a miss is kept");
         // A change: the user binds the other font.
         fonts.bind_user(roles::UI, Id::new_static("a.two"));
-        assert!(!memoized(&fonts, ui));
-        assert_eq!(fonts.role(ui).unwrap().id().as_str(), "a.two");
+        memo.forget();
+        assert!(!memoized(&memo, ui));
+        assert_eq!(fonts.role_in(&memo, ui).unwrap().id().as_str(), "a.two");
         // A font proposed later is found where nothing was before.
-        assert!(fonts.bound(roles::READING_BOLD.as_str()).is_none());
+        assert!(
+            fonts
+                .bound_in(&memo, roles::READING_BOLD.as_str())
+                .is_none()
+        );
         fonts.propose(
             roles::READING_BOLD,
             Id::new_static("a.one"),
             Priority::DEFAULT,
         );
-        assert!(!fonts.memo.iter().any(|m| matches!(m.get(), Memo::Found(_))));
+        memo.forget();
+        assert!(!memo.0.iter().any(|m| matches!(m.get(), Memo::Found(_))));
+        assert!(
+            fonts
+                .bound_in(&memo, roles::READING_BOLD.as_str())
+                .is_some()
+        );
     }
 }

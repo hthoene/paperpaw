@@ -32,6 +32,7 @@ pub(crate) mod dual_boot_ini;
 pub(crate) mod dual_boot_job;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
+pub(crate) mod host_memos;
 pub(crate) mod registry_generation;
 
 #[path = "native_host/work_sched.rs"]

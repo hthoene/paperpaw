@@ -74,7 +74,9 @@ fn read_for(
         let granted = matches!(frame.settings().get(full), Some(SettingValue::Bool(true)));
         return encode(SettingValueRef::Bool(granted), out);
     }
-    let secret = identity.secret(frame.settings()).unwrap_or(false);
+    let secret = identity
+        .secret(frame.settings(), frame.setting_memo())
+        .unwrap_or(false);
     let visible = if identity.head.len() == key.len() {
         visibility(caller, key, secret, frame.settings_editor())
     } else {

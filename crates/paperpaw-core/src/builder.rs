@@ -806,6 +806,8 @@ impl BuilderParts {
                 translator.built_messages(table);
             }
         }
+        let font_removals =
+            alloc::rc::Rc::new(crate::native_host::font_removals::FontRemovals::new());
         Kernel {
             shared: Shared {
                 now: Instant::default(),
@@ -818,15 +820,21 @@ impl BuilderParts {
                 registry: Registry::default(),
                 meter,
                 device: self.device,
-                settings: Settings::new(),
+                settings: crate::native_host::host_memos::Watched::new(
+                    Settings::new(),
+                    alloc::rc::Rc::clone(&font_removals),
+                    crate::native_host::host_memos::forget_places,
+                ),
                 translator,
-                fonts: Fonts::new(self.glyph_cache)
-                    .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
+                fonts: crate::native_host::host_memos::Watched::new(
+                    Fonts::new(self.glyph_cache)
+                        .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
+                    alloc::rc::Rc::clone(&font_removals),
+                    crate::native_host::host_memos::forget_roles,
+                ),
                 stack_rows: alloc::rc::Rc::new(Default::default()),
                 key_guard_warned: Default::default(),
-                font_removals: alloc::rc::Rc::new(
-                    crate::native_host::font_removals::FontRemovals::new(),
-                ),
+                font_removals,
                 registry_generation: alloc::rc::Rc::new(
                     crate::native_host::registry_generation::RegistryGeneration::new(),
                 ),

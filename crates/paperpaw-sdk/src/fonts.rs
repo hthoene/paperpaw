@@ -13,6 +13,8 @@ use paperpaw_text::{Font, GlyphCache, LineMetrics, PackLimits};
 #[cfg(any(test, feature = "kernel"))]
 pub use built_in::{BuiltInFont, BuiltInFonts};
 #[cfg(any(test, feature = "kernel"))]
+pub use memo::RoleMemo;
+#[cfg(any(test, feature = "kernel"))]
 pub use storage::{OpenError, open_file};
 use storage::{Stored, read_font};
 
@@ -194,8 +196,6 @@ pub struct Fonts {
     pack_limits: PackLimits,
     /// How the UI font's letters are inked ([`Fonts::set_ui_ink`]).
     ui_ink: paperpaw_text::TextInk,
-    /// The fonts of the built-in roles, once found ([`memo`]).
-    memo: memo::Table,
 }
 
 impl Fonts {
@@ -235,7 +235,6 @@ impl Fonts {
             drawing: Drawing::default(),
             ui_ink: paperpaw_text::TextInk::DEFAULT,
             pack_limits: PackLimits::SMALL,
-            memo: memo::table(),
         }
     }
 
@@ -271,7 +270,6 @@ impl Fonts {
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn add(&mut self, spec: FontSpec) -> Result<(), RegisterError> {
         self.check_new(&spec.id)?;
-        self.forget();
         self.entries.push(Entry {
             id: spec.id,
             font: Some(spec.font),
@@ -299,7 +297,6 @@ impl Fonts {
         extends: Id,
     ) -> Result<(), RegisterError> {
         self.check_new(&id)?;
-        self.forget();
         self.entries.push(Entry {
             id,
             font: None,
@@ -321,7 +318,6 @@ impl Fonts {
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn add_file(&mut self, id: Id, path: String, info: FontInfo) -> Result<(), RegisterError> {
         self.check_new(&id)?;
-        self.forget();
         self.entries.push(Entry {
             id,
             font: None,
@@ -342,7 +338,6 @@ impl Fonts {
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn add_face(&mut self, face: FontFace) -> Result<(), RegisterError> {
         self.check_new(&face.id)?;
-        self.forget();
         self.entries.push(Entry {
             id: face.id,
             font: None,
@@ -401,7 +396,6 @@ impl Fonts {
         italic: bool,
     ) -> Result<(), RegisterError> {
         self.check_new(&id)?;
-        self.forget();
         self.entries.push(Entry {
             id,
             font: None,
@@ -422,7 +416,6 @@ impl Fonts {
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn remove_plugin(&mut self, plugin: &str) -> usize {
-        self.forget();
         let before = self.entries.len();
         self.entries.retain(|e| e.id.namespace() != plugin);
         self.candidates
@@ -439,7 +432,6 @@ impl Fonts {
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn propose(&mut self, role: Id, font: Id, priority: Priority) {
-        self.forget();
         self.candidates.push((role, font, priority));
     }
 
@@ -456,7 +448,6 @@ impl Fonts {
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn bind_user(&mut self, role: Id, font: Id) {
-        self.forget();
         self.user.insert(role, font);
     }
 
@@ -490,7 +481,6 @@ impl Fonts {
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn set_family(&mut self, family: Option<&str>) {
-        self.forget();
         self.family = family.map(String::from);
     }
 
@@ -501,7 +491,6 @@ impl Fonts {
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn set_status(&mut self, choice: &str) {
-        self.forget();
         self.status = Some(String::from(choice));
     }
 
@@ -591,9 +580,30 @@ impl Fonts {
     /// The font bound to `role`: the user's choice, else the chosen
     /// family's face, else the best proposal, else the first font.
     pub fn role(&self, role: &str) -> Option<FontHandle<'_>> {
-        let font = self.memoized(false, role, || self.role_plain(role))?;
+        let font = self.role_plain(role)?;
+        Some(self.ui_inked(role, font))
+    }
+
+    /// [`Fonts::role`], found once per change of the fonts: `memo` is the
+    /// kernel's, which it forgets with every change.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn role_in(&self, memo: &RoleMemo, role: &str) -> Option<FontHandle<'_>> {
+        let font = memo.found(self, false, role, || self.role_plain(role))?;
+        Some(self.ui_inked(role, font))
+    }
+
+    /// [`Fonts::bound`], found once per change of the fonts (as
+    /// [`Fonts::role_in`]).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn bound_in(&self, memo: &RoleMemo, role: &str) -> Option<FontHandle<'_>> {
+        memo.found(self, true, role, || self.bound(role))
+    }
+
+    fn ui_inked<'a>(&self, role: &str, font: FontHandle<'a>) -> FontHandle<'a> {
         let ui = role == crate::builtin::fonts::UI.as_str();
-        Some(if ui { font.inked(self.ui_ink) } else { font })
+        if ui { font.inked(self.ui_ink) } else { font }
     }
 
     fn role_plain(&self, role: &str) -> Option<FontHandle<'_>> {
@@ -619,10 +629,6 @@ impl Fonts {
     /// plugin's bold or italic for book text counts only where book text
     /// is in that family: else the regular face stands in for it too.
     pub fn bound(&self, role: &str) -> Option<FontHandle<'_>> {
-        self.memoized(true, role, || self.bound_found(role))
-    }
-
-    fn bound_found(&self, role: &str) -> Option<FontHandle<'_>> {
         let user = self.user.get(role).and_then(|id| self.get(id.as_str()));
         user.or_else(|| {
             let face = match self.family_face(role) {
@@ -1444,6 +1450,7 @@ mod built_in;
 mod ink;
 #[cfg(any(test, feature = "kernel"))]
 mod loading;
+#[cfg(any(test, feature = "kernel"))]
 mod memo;
 mod missing;
 use missing::Drawing;

@@ -1348,9 +1348,9 @@ struct Shared {
     /// make another to host it: [`Env::make_screen`]).
     registry: Registry,
     device: DeviceInfo,
-    settings: Settings,
+    settings: native_host::host_memos::Watched<Settings>,
     translator: Translator,
-    fonts: Fonts,
+    fonts: native_host::host_memos::Watched<Fonts>,
     stack_rows: alloc::rc::Rc<native_host::stack_rows::StackRows>,
     /// The refused bindings told of while a screen guarded ([`key_guard`]).
     key_guard_warned: key_guard::Warned,
