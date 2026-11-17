@@ -152,3 +152,25 @@ fn a_long_press_is_taken_and_runs_nothing() {
 fn the_middle_of_a_target_is_where_a_button_press_taps() {
     assert_eq!(middle(Rect::new(10, 20, 30, 40)), Point::new(25, 40));
 }
+
+#[test]
+fn a_press_that_only_moves_the_focus_keeps_what_the_widgets_read() {
+    let mut dashboard = Dashboard::default();
+    let action = |action| Input::Action { now_ms: 0, action };
+    for moving in [
+        "core.up",
+        "core.down",
+        "core.left",
+        "core.right",
+        "core.next",
+        "core.previous",
+    ] {
+        assert!(dashboard.is_focus_step(&action(moving)), "{moving}");
+    }
+    // Confirm runs a target, a page turn lays the page out again.
+    assert!(!dashboard.is_focus_step(&action("core.confirm")));
+    assert!(!dashboard.is_focus_step(&action("core.next-page")));
+    // Arranging moves cells: the widgets are told.
+    dashboard.editing = true;
+    assert!(!dashboard.is_focus_step(&action("core.right")));
+}
