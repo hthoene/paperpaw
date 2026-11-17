@@ -28,7 +28,7 @@ use paperpaw_i18n::Arg;
 use paperpaw_platform::{Instant, firmware::Signer};
 use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::{
-    Canvas, Command, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Params, Rect, Screen,
+    Canvas, Command, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Params, Rect,
 };
 
 /// The screen's id: a host screen (`core.*`), opened only by the kernel.
@@ -219,7 +219,7 @@ impl HostConfirm {
     }
 }
 
-impl Screen for HostConfirm {
+impl crate::Layer for HostConfirm {
     fn region(&self, env: &Env<'_>) -> Option<Rect> {
         Some(self.board.region(env))
     }

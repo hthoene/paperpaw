@@ -28,70 +28,52 @@ const TIDY: Id = Id::new_static("shelf.tidy");
 const SORT: Id = Id::new_static("shelf.sort");
 const MENU: Id = Id::new_static("shelf.menu");
 
-struct Shelf;
-impl crate::Plugin for Shelf {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("shelf"), "Shelf", Version::new(1, 0, 0))
+fn shelf(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
+    for id in [LOW, HIGH] {
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+            id,
+            "shelf.screen",
+            alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Blank)),
+        ))?;
     }
-    fn register(&self, r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
-        for id in [LOW, HIGH] {
-            r.add_screen(paperpaw_sdk::ScreenSpec::new(
-                id,
-                "shelf.screen",
-                alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Blank)),
-            ))?;
-        }
-        // The lower one is offered first: the order tried is by priority.
-        r.bind_slot(slots::HOME, LOW, Priority::DEFAULT)?;
-        r.bind_slot(slots::HOME, HIGH, Priority::PREFERRED)?;
-        r.subscribe(events::BOOK_CLOSED, alloc::boxed::Box::new(|_, _, _| {}))?;
-        r.add_action(paperpaw_sdk::ActionSpec::new(TIDY, "shelf.tidy"))?;
-        r.add_action(paperpaw_sdk::ActionSpec::new(SORT, "shelf.sort"))?;
-        // Entered against their order: a menu's rows stand by order.
-        r.add_menu_entry(paperpaw_sdk::MenuEntry::new(MENU, TIDY).order(30))?;
-        r.add_menu_entry(paperpaw_sdk::MenuEntry::new(MENU, SORT).order(10))?;
-        // Two layers of its own, the later name first.
-        r.add_keymap(
-            "[keymap.shelf.zeta]\ntap.center = shelf.tidy\n[keymap.shelf.alpha]\nswipe.up = shelf.sort\n",
-        )?;
-        r.override_action(TIDY, |_, _, _| {}, Priority::DEFAULT)?;
-        r.observe_actions(paperpaw_sdk::ObserverSpec::new(
-            Id::new_static("shelf.seen"),
-            |_, _, _, _| {},
-        ))
-    }
+    // The lower one is offered first: the order tried is by priority.
+    r.bind_slot(slots::HOME, LOW, Priority::DEFAULT)?;
+    r.bind_slot(slots::HOME, HIGH, Priority::PREFERRED)?;
+    r.subscribe(events::BOOK_CLOSED, alloc::boxed::Box::new(|_, _, _| {}))?;
+    r.add_action(paperpaw_sdk::ActionSpec::new(TIDY, "shelf.tidy"))?;
+    r.add_action(paperpaw_sdk::ActionSpec::new(SORT, "shelf.sort"))?;
+    // Entered against their order: a menu's rows stand by order.
+    r.add_menu_entry(paperpaw_sdk::MenuEntry::new(MENU, TIDY).order(30))?;
+    r.add_menu_entry(paperpaw_sdk::MenuEntry::new(MENU, SORT).order(10))?;
+    // Two layers of its own, the later name first.
+    r.add_keymap(
+        "[keymap.shelf.zeta]\ntap.center = shelf.tidy\n[keymap.shelf.alpha]\nswipe.up = shelf.sort\n",
+    )?;
+    r.override_action(TIDY, |_, _, _| {}, Priority::DEFAULT)?;
+    r.observe_actions(paperpaw_sdk::ObserverSpec::new(
+        Id::new_static("shelf.seen"),
+        |_, _, _, _| {},
+    ))
 }
 
 /// A second plugin, registered after `shelf` though its name sorts before:
 /// a handler of the same priority in the place of `shelf`'s action, and an
 /// observer of actions.
-struct Desk;
-impl crate::Plugin for Desk {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("desk"), "Desk", Version::new(1, 0, 0))
-    }
-    fn register(&self, r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
-        r.override_action(TIDY, |_, _, _| {}, Priority::DEFAULT)?;
-        r.observe_actions(paperpaw_sdk::ObserverSpec::new(
-            Id::new_static("desk.seen"),
-            |_, _, _, _| {},
-        ))
-    }
+fn desk(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
+    r.override_action(TIDY, |_, _, _| {}, Priority::DEFAULT)?;
+    r.observe_actions(paperpaw_sdk::ObserverSpec::new(
+        Id::new_static("desk.seen"),
+        |_, _, _, _| {},
+    ))
 }
 
 /// The old-API side of `clock`: the action its natively declared menu row
 /// names.
-struct Clock;
-impl crate::Plugin for Clock {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("clock"), "Clock", Version::new(1, 0, 0))
-    }
-    fn register(&self, r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
-        r.add_action(paperpaw_sdk::ActionSpec::new(
-            Id::new_static("clock.go"),
-            "clock.go",
-        ))
-    }
+fn clock(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
+    r.add_action(paperpaw_sdk::ActionSpec::new(
+        Id::new_static("clock.go"),
+        "clock.go",
+    ))
 }
 
 struct Declarer;
@@ -113,9 +95,18 @@ impl ImageOwner for Declarer {
 
 fn kernel() -> crate::Kernel {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Shelf)
-        .plugin(Desk)
-        .plugin(Clock)
+        .items(
+            Manifest::new(Id::new_static("shelf"), "Shelf", Version::new(1, 0, 0)),
+            shelf,
+        )
+        .items(
+            Manifest::new(Id::new_static("desk"), "Desk", Version::new(1, 0, 0)),
+            desk,
+        )
+        .items(
+            Manifest::new(Id::new_static("clock"), "Clock", Version::new(1, 0, 0)),
+            clock,
+        )
         .build()
         .unwrap();
     let directory = Shared::try_new(NativeDeclarations::default()).unwrap();

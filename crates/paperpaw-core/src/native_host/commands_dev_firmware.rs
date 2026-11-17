@@ -43,7 +43,8 @@ use paperpaw_sdk::native::keys::Revocation;
 pub(super) const MAX_PER_BATCH: usize = 1;
 /// At most this many `trust_revoked` in a batch (`device.md` 3).
 pub(super) const MAX_REVOKED_PER_BATCH: usize = 8;
-const FEATURE_FIRMWARE: &str = "uses.firmware";
+/// The feature key of firmware installs.
+pub const FEATURE_FIRMWARE: &str = "uses.firmware";
 /// The feature key of plugin installs, and of answering plugin requests.
 pub const FEATURE_INSTALL: &str = "uses.install";
 /// `install_firmware.flags` bits 0 (older) and 1 (foreign).
