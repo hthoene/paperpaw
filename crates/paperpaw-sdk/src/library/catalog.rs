@@ -786,7 +786,7 @@ pub(crate) use fallible::each_head;
 pub use fallible::{try_changes, try_count, try_path_at};
 mod casing;
 mod scan;
-pub use scan::{TryBooks, try_each_at, try_query, try_query_in};
+pub use scan::{TryBooks, try_each_at, try_each_at_with, try_query, try_query_in};
 mod view;
 pub use view::{
     BookTexts, Filled, LINE_MAX, Text, TextColumn, VIEW_NUMBER, VIEW_PATH, View, try_book_at_with,

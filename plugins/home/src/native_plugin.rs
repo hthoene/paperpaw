@@ -252,8 +252,21 @@ impl Plugin for NativeHome {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
-        self.widgets.fresh();
-        self.new_epoch();
+        // A press that only moves the focus changes nothing the widgets show:
+        // what they kept of the books and composed stays for the next draw.
+        let step = match self.screens.top(token) {
+            Some(Slot::Dashboard(dashboard)) if dashboard.is_focus_step(&input) => {
+                dashboard.focus_step();
+                true
+            }
+            _ => false,
+        };
+        if step {
+            self.widgets.focus_step();
+        } else {
+            self.widgets.fresh();
+            self.new_epoch();
+        }
         self.ensure_ui(host)?;
         let ui = self.ui.as_ref().ok_or(Error::State)?;
         // A tap on a book of the card or the shelf.

@@ -800,11 +800,12 @@ fn receive(
     let mut problem = None;
     let mut early = Vec::new();
     let stop = core::cell::Cell::new(parser.done());
+    let mut expected = parser.head().and_then(|head| head.length);
     let received = link.receive(net, &mut || !stop.get(), &mut |data| {
         let had_head = parser.head().is_some();
         let fed = parser.feed(data, &mut |piece| {
             if had_head {
-                if let Err(e) = keep(sink, got, max, piece, storage) {
+                if let Err(e) = keep(sink, got, max, piece, expected, storage) {
                     problem.get_or_insert(e);
                 }
             } else {
@@ -824,8 +825,11 @@ fn receive(
             *sink = Sink::Memory(Vec::new(), ERROR_BODY, false);
         }
         let redirect = parser.head().is_some_and(|head| head.is_redirect());
+        if !had_head {
+            expected = parser.head().and_then(|head| head.length);
+        }
         if !early.is_empty() && !redirect {
-            if let Err(e) = keep(sink, got, max, &early, storage) {
+            if let Err(e) = keep(sink, got, max, &early, expected, storage) {
                 problem.get_or_insert(e);
             }
             early.clear();
@@ -849,6 +853,7 @@ fn keep(
     got: &mut u64,
     max: u64,
     piece: &[u8],
+    expected: Option<u64>,
     storage: &dyn Storage,
 ) -> Result<(), &'static str> {
     *got += piece.len() as u64;
@@ -865,6 +870,7 @@ fn keep(
                     body.len(),
                     piece.len(),
                     *limit,
+                    expected.map(|length| usize::try_from(length).unwrap_or(usize::MAX)),
                 )
             } else {
                 paperpaw_x4::body_room::capacity_grown(

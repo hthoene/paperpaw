@@ -168,8 +168,14 @@ esp_bootloader_esp_idf::esp_app_desc!(
 /// Bluetooth takes of the same memory for good, and less the X4's arena
 /// for plugins' hot code, which the heap gets once plugins are loaded as
 /// far as they did not take it (`native::HOT_ARENA_LEN`).
-const HEAP_SIZE: usize =
-    (192 - BLUETOOTH_KB - S3_BAND_KB - X4_BAND_KB) * 1024 - native::HOT_ARENA_LEN;
+const HEAP_SIZE: usize = (192 + WIFI_IN_FLASH_KB - BLUETOOTH_KB - S3_BAND_KB - X4_BAND_KB) * 1024
+    - native::HOT_ARENA_LEN;
+/// RAM the ESP32-C3 devices gain as the Wi-Fi send and receive code runs from
+/// flash (`build.rs`, `wifi-flash-x4.x`, #304): the 28 KB it took in IRAM,
+/// less what the stack keeps as its margin. The heap takes it, the stack stays
+/// as it was (`build.rs` checks the stack's size). Measured on the image: the
+/// stack grew by as much as the code left RAM.
+const WIFI_IN_FLASH_KB: usize = if cfg!(target_arch = "riscv32") { 16 } else { 0 };
 /// The X4's band at the stack's end and its reserve (4 KB and the band's 2 KB,
 /// `paperpaw_x4::stack_band`) take the top 7.7 KB of a stack that had only
 /// 37.4 KB left once the interface-7 plugins were built in: the start's path
@@ -536,7 +542,15 @@ fn prepare() -> Ready {
         esp_hal::psram
     );
     // The heap before the board: the board keeps its bus there.
+    // esp-alloc tries its regions in the order they were added. On the
+    // X4 the small reclaimed one comes first: the start-up's long-lived
+    // data fills it, and the large region stays whole for the big
+    // one-piece temporaries (a book's opening, an install, a download),
+    // instead of both sharing the large one and fragmenting it (#304).
+    #[cfg(not(feature = "esp32s3"))]
+    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: RECLAIMED_SIZE);
     esp_alloc::heap_allocator!(size: HEAP_SIZE);
+    #[cfg(feature = "esp32s3")]
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: RECLAIMED_SIZE);
     // Plugins choose internal RAM or PSRAM for their data (ADR 0030).
     paperpaw_sdk::memory::set_placer(native::api::alloc_in);
@@ -1077,6 +1091,7 @@ fn kernel(
         paperpaw_app::Fonts::Packs,
         paperpaw_app::StorePlugins::Left,
     )
+    .built_messages(device::MESSAGES)
     .items(device::manifest(), device::register);
     // Its warnings are logged as the main loop starts: taken here, the
     // kernel would be one more copy on the stack.

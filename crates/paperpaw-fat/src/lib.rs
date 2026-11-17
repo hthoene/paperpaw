@@ -86,6 +86,7 @@ mod damaged;
 mod disk;
 mod found;
 mod free;
+mod in_place;
 mod listed;
 mod settle;
 mod swap;
@@ -184,6 +185,9 @@ pub struct FatStorage<IO: ReadWriteSeek + 'static> {
     /// free space a part at a time ([`free`]).
     read: Option<alloc::boxed::Box<free::Read>>,
     free: RefCell<free::Free>,
+    /// The card holds the free space as this storage keeps it there
+    /// (`keep_free`), as far as the FAT was not written since.
+    kept: Cell<bool>,
     /// A move recorded in [`JOURNAL`] was looked for since the start
     /// (`settle_moves`).
     moves_settled: Cell<bool>,
@@ -694,6 +698,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             flush_disk: None,
             read: None,
             free: RefCell::new(free::Free::new(fs.cluster_changes())),
+            kept: Cell::new(false),
             moves_settled: Cell::new(false),
             settled_folders: RefCell::new(Vec::new()),
             settling: Cell::new(false),
@@ -726,6 +731,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             disk.seek(SeekFrom::Start(was)).is_ok() && read
         }));
         self.flush_disk = Some(alloc::boxed::Box::new(move || disk.flush_all().is_ok()));
+        self.trust_kept();
         self
     }
 
@@ -904,6 +910,23 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
     fn written(&self, result: Result<(), StorageError>) -> Result<(), StorageError> {
         let back = self.write_back();
         result.and(back)
+    }
+
+    /// Writes back what was appended to the open files, and the disk's
+    /// changed blocks.
+    fn sync_files(&self) -> Result<(), StorageError> {
+        let mut result = Ok(());
+        for o in self.open.borrow_mut().iter_mut() {
+            if let Err(e) = o.flush() {
+                result = Err(e);
+            }
+        }
+        // Any block still changed: a file's flush writes back all of the
+        // disk's, but there may be no file appended to.
+        if let Err(e) = self.write_back() {
+            result = Err(e);
+        }
+        result
     }
 
     /// [`Storage::write`], its blocks not yet written back.
@@ -1228,19 +1251,14 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
         })
     }
 
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        self.write_in_place(path, offset, data)
+    }
+
+    /// The free space, once counted, is kept on the card too (see `free`).
     fn sync(&self) -> Result<(), StorageError> {
-        let mut result = Ok(());
-        for o in self.open.borrow_mut().iter_mut() {
-            if let Err(e) = o.flush() {
-                result = Err(e);
-            }
-        }
-        // Any block still changed: a file's flush writes back all of the
-        // disk's, but there may be no file appended to.
-        if let Err(e) = self.write_back() {
-            result = Err(e);
-        }
-        result
+        self.sync_files()?;
+        self.keep_free()
     }
 
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
@@ -1248,7 +1266,7 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
             check(dir)?;
         }
         // The sizes in the folders, as appended.
-        self.sync()?;
+        self.sync_files()?;
         let folder = self.dir(dir)?;
         let mut read = Scan::of(&folder);
         for entry in entries(&folder) {

@@ -227,7 +227,7 @@ pub(super) fn root_present(view: &View<'_>, target: &Target) -> Result<(), i32> 
             _ => Err(ERR_INVALID),
         };
     }
-    match view.storage.list_from(target.base(), 0, &mut |_| false) {
+    match view.storage.list_bounded(target.base(), 0, &mut |_| false) {
         Ok(_) | Err(StorageError::NotFound | StorageError::InvalidPath) => {
             card_present(view.storage)
         }

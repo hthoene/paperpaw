@@ -72,3 +72,34 @@ fn the_plugin_screens_draw_where_the_host_does_not_answer_text_ink() {
         drawn(&mut app, screen);
     }
 }
+
+/// The first and last dark row of the screen's header band, where its title
+/// is drawn.
+fn header_rows(app: &mut App) -> (i32, i32) {
+    app.render();
+    let rows: Vec<i32> = (0..60)
+        .filter(|&y| (0..300).any(|x| app.dark(x, y)))
+        .collect();
+    (*rows.first().unwrap(), *rows.last().unwrap())
+}
+
+/// Placed by its metrics, text stands where the host's ink puts it: the
+/// header's title was 10 px too low on the X4, the metrics' descent taken
+/// for the ink's bottom (#303).
+#[test]
+fn text_placed_by_metrics_stands_where_the_ink_puts_it() {
+    let config = "[home]\npage-1 = home.continue\n";
+    let mut shown = Vec::new();
+    for unwired in [false, true] {
+        let _x4 = unwired.then(AsTheX4::new);
+        let mut app = App::new(X4, Shared::memory(config, &[]));
+        app.home();
+        app.run(actions::SETTINGS);
+        shown.push(header_rows(&mut app));
+    }
+    let (wired, unwired) = (shown[0], shown[1]);
+    assert!(
+        wired.0.abs_diff(unwired.0) <= 2 && wired.1.abs_diff(unwired.1) <= 2,
+        "title rows with ink {wired:?}, without {unwired:?}"
+    );
+}

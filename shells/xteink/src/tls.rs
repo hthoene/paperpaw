@@ -328,8 +328,9 @@ impl Session {
     pub fn new(name: &str, trust: &Trust, slot: Slot) -> Result<Self, Error> {
         init();
         // The session takes what the heap has to its last bytes, and the
-        // screens cannot draw then: it is not made where it would.
-        if !paperpaw_x4::tls_gate::session_fits(esp_alloc::HEAP.free()) {
+        // screens cannot draw then: it is not made where it would, nor
+        // where no block holds its input buffer.
+        if !paperpaw_x4::tls_gate::session_fits(esp_alloc::HEAP.free(), crate::largest_block()) {
             return Err(Error::Memory);
         }
         let host = CString::new(name).map_err(|_| Error::Tls(0))?;

@@ -10,6 +10,8 @@ use core::cell::{Cell, OnceCell};
 use core::fmt;
 use core::ops::ControlFlow;
 
+#[cfg(any(test, feature = "kernel"))]
+use super::specs::SettingMemo;
 use super::{Level, SettingError, SettingSpec, SettingValue, Settings};
 use crate::Id;
 
@@ -145,6 +147,19 @@ impl Block {
 
     pub(super) fn guarded_flag(&self, at: usize) -> bool {
         self.flags[at] & GUARDED != 0
+    }
+
+    /// Whether setting `at` is `plugin`'s `name`.
+    #[cfg(any(test, feature = "kernel"))]
+    pub(super) fn is_named(&self, at: usize, plugin: &str, name: &str) -> bool {
+        let mut same = false;
+        self.plugin.as_str() == plugin
+            && self.hashes.get(at) == Some(&hash(name))
+            && self
+                .source
+                .name(at, &mut |other| same = other == name)
+                .is_ok()
+            && same
     }
 
     /// Which of its settings is called `name`. The hash is compared first;
@@ -587,6 +602,24 @@ impl Settings {
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn defines(&self, id: &str) -> bool {
         self.specs.has(id)
+    }
+
+    /// Whether setting `id`, one without a placement, is a secret: `None`
+    /// where nothing defines it. [`Settings::defines`] and
+    /// [`Settings::defines_secret`] in one lookup.
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn secret_of(&self, id: &str) -> Option<bool> {
+        self.specs.where_is(id).map(super::specs::At::secret_flag)
+    }
+
+    /// [`Settings::secret_of`] where `memo` (the kernel's, forgotten by every
+    /// change of the settings) remembers the place of `id`.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn secret_of_in(&self, memo: &SettingMemo, id: &str) -> Option<bool> {
+        self.specs
+            .where_is_in(memo, id)
+            .map(super::specs::At::secret_flag)
     }
 
     /// Whether setting `id` (for a placement's id the setting's own, as

@@ -25,6 +25,11 @@ const MISSING: ImageError = ImageError::Invalid("missing Huffman table");
 /// (small devices then keep fewer frequencies).
 const HEADROOM: usize = 48 << 10;
 
+/// The headroom is probed in pieces of this size, not as one block: the
+/// device's largest free block may be smaller than the headroom while the
+/// memory is free (37 to 54 KB, X4 with three store plugins).
+const PROBE_PIECE: usize = 8 << 10;
+
 /// Most memory the kept coefficients may take, whatever the device.
 const MAX_COEFFICIENT_BYTES: usize = 8 << 20;
 
@@ -70,7 +75,7 @@ impl Coefficients {
             }
         }
         // Only if the headroom is left as well.
-        let headroom: Vec<u8> = zeroed(HEADROOM)?;
+        let headroom = probe_headroom()?;
         let coefficients = Self {
             n,
             kept,
@@ -114,6 +119,25 @@ impl Coefficients {
             }
         }
     }
+}
+
+/// Takes [`HEADROOM`] in pieces of [`PROBE_PIECE`] (not touched: only asked
+/// for), to be dropped at once: whether that much memory is free, in no one
+/// piece larger than the device can give.
+fn probe_headroom() -> Result<Vec<Vec<u8>>, ImageError> {
+    let pieces = HEADROOM / PROBE_PIECE;
+    let mut probe: Vec<Vec<u8>> = Vec::new();
+    probe
+        .try_reserve_exact(pieces)
+        .map_err(|_| ImageError::OutOfMemory)?;
+    for _ in 0..pieces {
+        let mut piece: Vec<u8> = Vec::new();
+        piece
+            .try_reserve_exact(PROBE_PIECE)
+            .map_err(|_| ImageError::OutOfMemory)?;
+        probe.push(piece);
+    }
+    Ok(probe)
 }
 
 /// The geometry of the blocks.

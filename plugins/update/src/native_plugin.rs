@@ -13,7 +13,7 @@ use crate::{
         SETTING_CHANGED, STARTED, WORK_DUE,
     },
     native_card::{
-        self, CHECK_REQUEST, Ended, MAX_PAIR, Offered, REQUEST, UPDATE_DIR, ended, percent,
+        self, CHECK_REQUEST, Ended, MAX_PAIR, Offered, REQUEST, UPDATE_DIR, coarse, ended, percent,
         read_pair, reason,
     },
     native_check::{self, Evidence, Found, Image, Other, Signer},
@@ -43,7 +43,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages, Screens,
+    Footer, Item, ItemList, ItemStep, Messages, Progress, Screens,
     files::{read_all, replace},
     mem::{SERVICE_BUFFER, buffer, push},
     read_event,
@@ -140,6 +140,8 @@ struct Page {
     buttons: Vec<Button>,
     list: ItemList,
     title: String,
+    /// The share done in words (`25 %`), where the page shows a bar.
+    label: String,
     help: String,
 }
 
@@ -307,16 +309,24 @@ impl Plugin for NativeUpdate {
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         let page = self.screens.top(token).ok_or(Error::State)?;
-        page.list.draw_with(
-            host,
-            &mut frame,
-            "update.title",
-            true,
-            Footer::Empty {
+        let bar;
+        let footer = match &page.view {
+            View::Installing(share) | View::Downloading(_, share) => {
+                bar = Progress {
+                    title: &page.title,
+                    label: &page.label,
+                    permille: share.map_or(0, |share| (share.clamp(0, 100) * 10) as u16),
+                    text: &page.help,
+                };
+                Footer::Progress(&bar)
+            }
+            _ => Footer::Empty {
                 title: &page.title,
                 text: &page.help,
             },
-        )
+        };
+        page.list
+            .draw_with(host, &mut frame, "update.title", true, footer)
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
@@ -816,9 +826,29 @@ impl NativeUpdate {
             online::tolerate(self.waiting_seen(host, &page.view))?;
         }
         if let Some(open) = self.screens.top(PAGE) {
-            *open = page;
-            let mut scratch = [0; 64];
-            CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+            // A bar that moved: its own room alone, a partial refresh that
+            // neither flashes nor counts as a page turn. Else the screen.
+            let moved = matches!(
+                (&open.view, &page.view),
+                (View::Installing(_), View::Installing(_))
+                    | (View::Downloading(..), View::Downloading(..))
+            );
+            if moved {
+                let Page {
+                    view,
+                    title,
+                    label,
+                    help,
+                    ..
+                } = page;
+                (open.view, open.title, open.label, open.help) = (view, title, label, help);
+            } else {
+                *open = page;
+            }
+            if !(moved && open.list.redraw_progress(host)?) {
+                let mut scratch = [0; 64];
+                CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+            }
         }
         Ok(())
     }
@@ -836,7 +866,7 @@ impl NativeUpdate {
         if running.state != FirmwareState::Installing {
             return Ok(());
         }
-        let now = percent(running.done, running.total);
+        let now = coarse(percent(running.done, running.total));
         if now != before {
             self.show(host, View::Installing(now))?;
         }
@@ -1225,17 +1255,7 @@ fn texts(
                 messages.format(host, "update.foreign.help", &file)?,
             ));
         }
-        View::Installing(Some(value)) => {
-            let arguments = [Arg::Int {
-                name: "percent",
-                value: *value,
-            }];
-            return Ok((
-                messages.format(host, "update.installing.percent", &arguments)?,
-                messages.copy(host, "update.installing.help")?,
-            ));
-        }
-        View::Installing(None) => ("update.installing.title", "update.installing.help", false),
+        View::Installing(_) => ("update.installing.title", "update.installing.help", false),
         View::Searching => {
             let server = server_name(host)?;
             let arguments = [Arg::Text {
@@ -1252,9 +1272,7 @@ fn texts(
         View::Offer(offer, leaves) => return offer_texts(host, messages, offer, leaves, current),
         View::Waiting(waited) => return waiting::texts(host, messages, waited, false),
         View::Anyway(waited) => return waiting::texts(host, messages, waited, true),
-        View::Downloading(version, percent) => {
-            return downloading_texts(host, messages, version, *percent);
-        }
+        View::Downloading(version, _) => return downloading_texts(host, messages, version),
         View::Installed(false) => ("update.installed.title", "update.installed.help", false),
         View::Installed(true) => (
             "update.installed.title",
@@ -1378,28 +1396,31 @@ fn downloading_texts(
     host: &Host<'_>,
     messages: &mut Messages,
     version: &str,
-    percent: Option<i64>,
 ) -> Result<(String, String), Error> {
     let shown = shown_version(host, messages, version)?;
     let version = Arg::Text {
         name: "version",
         value: &shown,
     };
-    let help = messages.copy(host, "update.downloading.help")?;
-    let Some(percent) = percent else {
-        return Ok((
-            messages.format(host, "update.downloading.title", &[version])?,
-            help,
-        ));
-    };
-    let percent = Arg::Int {
-        name: "percent",
-        value: percent,
-    };
     Ok((
-        messages.format(host, "update.downloading.percent", &[version, percent])?,
-        help,
+        messages.format(host, "update.downloading.title", &[version])?,
+        messages.copy(host, "update.downloading.help")?,
     ))
+}
+
+/// The share done in words, under the bar of an install or a download.
+fn share_text(host: &Host<'_>, messages: &mut Messages, view: &View) -> Result<String, Error> {
+    let (View::Installing(Some(value)) | View::Downloading(_, Some(value))) = view else {
+        return Ok(String::new());
+    };
+    messages.format(
+        host,
+        "update.share",
+        &[Arg::Int {
+            name: "percent",
+            value: *value,
+        }],
+    )
 }
 
 /// The server's name as the reader knows it, e.g. `paperpaw.org`.
@@ -1417,11 +1438,13 @@ fn build(host: &Host<'_>, view: View, current: &str, caps: Caps) -> Result<Page,
     let mut messages = Messages::new()?;
     let (items, buttons) = rows_of(host, &mut messages, &view, caps)?;
     let (title, help) = texts(host, &mut messages, &view, current)?;
+    let label = share_text(host, &mut messages, &view)?;
     Ok(Page {
         view,
         buttons,
         list: ItemList::new(items),
         title,
+        label,
         help,
     })
 }

@@ -41,6 +41,18 @@ decision, in one pull request that:
 
 `tools/abi-reference-check.py` refuses a frozen interface 7 whose lock is not released.
 
+## The update server and the packed update file
+
+Each release offers two update files: `-update.bin` (the firmware as it is) and
+`-update-packed.bin` (the same firmware deflated, a third smaller; #304). Only
+firmware of Beta 4 and later reads the packed file; Beta 3 and older refuse it
+at the first write. So the update server must offer the packed update's URL
+**only to a device that reports Beta 4 or later** and the plain `-update.bin` to
+every other: a Beta 3 device offered the packed file cannot update, and the
+update page shows it as a failed download. Check this on the server before
+the Beta 4 tag is published, with one request that names Beta 3 and one that
+names Beta 4.
+
 ## The firmware's size budget
 
 CI holds each device's install image to `shells/xteink/size-budget.txt` (`tools/size-report.py`, #258).

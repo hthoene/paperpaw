@@ -2577,7 +2577,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.9"
+version = "1.0.13"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2793,6 +2793,7 @@ name = "paperpaw-x4"
 version = "0.6.0-beta.3"
 dependencies = [
  "embedded-hal 1.0.0",
+ "miniz_oxide",
  "paperpaw-config",
  "paperpaw-core",
  "paperpaw-native",
@@ -2835,6 +2836,7 @@ dependencies = [
  "paperpaw-fat",
  "paperpaw-graphics",
  "paperpaw-http",
+ "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-wifi",

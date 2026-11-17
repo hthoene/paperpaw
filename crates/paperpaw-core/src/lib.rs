@@ -41,6 +41,10 @@ extern crate alloc;
 mod abi7;
 mod areas;
 mod awake;
+#[cfg(feature = "bluetooth")]
+mod bluetooth;
+#[cfg(not(feature = "bluetooth"))]
+#[path = "bluetooth_off.rs"]
 mod bluetooth;
 mod builder;
 mod card;
@@ -298,6 +302,10 @@ pub struct Kernel {
     /// [`KernelBuilder::after_sleep`]): [`events::RESUME`] follows
     /// [`events::STARTED`].
     after_sleep: bool,
+    /// The wake told last was one the storage came through as it was left
+    /// ([`Kernel::resume_storage_kept`]): the library is not walked again
+    /// for it.
+    storage_kept: bool,
     /// The file of passwords and keys is there but could not be read at
     /// start: it is not written over.
     secrets_unreadable: bool,
@@ -308,6 +316,7 @@ pub struct Kernel {
     /// kernel seals through it with or without a native plugin admitted.
     secrets_wired: Option<alloc::rc::Rc<dyn crate::native_host::secrets_service::SecretsHost>>,
     /// The number a pairing question's answer must bring back.
+    #[cfg(feature = "bluetooth")]
     pairing_nonce: Option<u64>,
     /// A screen was opened or closed since the last call ended; then the
     /// frame drawn for it is not shown yet (see [`Kernel::shown`]).
@@ -337,6 +346,11 @@ pub struct Kernel {
     native_registering: bool,
     /// The linked plugins' built-in catalogs are added ([`Kernel::claim_native_catalogs`]).
     native_catalogs_added: bool,
+    /// Open while the shell hosts its native plugins as one batch (`native_batch.rs`).
+    native_batch: Option<crate::native_host::NativeBatch>,
+    /// The clock hosting is timed with, and the times taken (`native_batch.rs`).
+    native_clock: Option<fn() -> u32>,
+    native_times: crate::native_host::NativeTimes,
     input: gestures::InputState,
     io: network::IoState,
     frame: drawing::FrameState,
@@ -438,6 +452,7 @@ impl Kernel {
         if mem::take(&mut self.after_sleep) {
             self.output.commands.push(events::RESUME.emit(()));
         }
+        #[cfg(feature = "bluetooth")]
         if let Some(radio) = &mut self.io.bluetooth {
             radio.start();
         }
@@ -1244,8 +1259,23 @@ impl Kernel {
         self.finish()
     }
 
+    /// [`Kernel::resume`], for a shell that knows that nothing changed the
+    /// storage while the device slept: a memory card that kept its power
+    /// through a light sleep (a card taken out loses it, and is told with
+    /// [`Kernel::usb_drive_ended`] once it is mounted anew). Nothing can
+    /// have been copied onto it, so the library is not walked again for
+    /// this wake, and a walk under way goes on where it was (#305).
+    pub fn resume_storage_kept(&mut self, now: Instant) -> Effects {
+        let _running = self.shared.meter.enter(meter::CORE);
+        self.shared.native_input.clear();
+        self.woke(now);
+        self.storage_kept = true;
+        self.finish()
+    }
+
     /// What waking does before the frame: the time asleep, plugins told.
     fn woke(&mut self, now: Instant) {
+        self.storage_kept = false;
         if let Some(at) = self.suspended_at.take() {
             let slept = now.0.saturating_sub(at.0);
             self.shared.slept_for = Some(core::time::Duration::from_millis(slept));
@@ -1323,9 +1353,9 @@ struct Shared {
     /// make another to host it: [`Env::make_screen`]).
     registry: Registry,
     device: DeviceInfo,
-    settings: Settings,
+    settings: native_host::host_memos::Watched<Settings>,
     translator: Translator,
-    fonts: Fonts,
+    fonts: native_host::host_memos::Watched<Fonts>,
     stack_rows: alloc::rc::Rc<native_host::stack_rows::StackRows>,
     /// The refused bindings told of while a screen guarded ([`key_guard`]).
     key_guard_warned: key_guard::Warned,

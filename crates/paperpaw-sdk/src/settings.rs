@@ -15,9 +15,9 @@ pub use fixed_table::{
 };
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use specs::Pick;
-#[cfg(any(test, feature = "kernel"))]
-pub use specs::Pick;
 use specs::Specs;
+#[cfg(any(test, feature = "kernel"))]
+pub use specs::{Pick, SettingMemo};
 
 /// A setting's value.
 #[derive(Debug, Clone, PartialEq, Eq)]

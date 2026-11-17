@@ -212,6 +212,20 @@ impl Line {
 /// complete list then). A catalog that is not there has no books.
 pub fn try_each_at(storage: &dyn Storage, f: &mut dyn FnMut(u64, Record)) -> Result<(), Error> {
     let changes = try_changes(storage)?;
+    try_each_at_with(storage, &changes, f)
+}
+
+/// [`try_each_at`] under the log of changes the caller read
+/// ([`try_changes`]): a call that scans the catalog more than once reads
+/// the log once.
+///
+/// # Errors
+/// As [`try_each_at`].
+pub fn try_each_at_with(
+    storage: &dyn Storage,
+    changes: &super::Changes,
+    f: &mut dyn FnMut(u64, Record),
+) -> Result<(), Error> {
     let file = catalog_path_try()?;
     let mut chunk = [0_u8; 512];
     let mut line = Line {
@@ -236,7 +250,7 @@ pub fn try_each_at(storage: &dyn Storage, f: &mut dyn FnMut(u64, Record)) -> Res
             if let Some(end) = rest.iter().position(|&b| b == b'\n') {
                 line.push(&rest[..end])?;
                 at += end as u64 + 1;
-                line.end(at, &changes, f)?;
+                line.end(at, changes, f)?;
                 rest = &rest[end + 1..];
             } else {
                 line.push(rest)?;
@@ -245,7 +259,7 @@ pub fn try_each_at(storage: &dyn Storage, f: &mut dyn FnMut(u64, Record)) -> Res
         }
     }
     // A last line without its newline.
-    line.end(offset, &changes, f)
+    line.end(offset, changes, f)
 }
 
 /// `super::query_in` with the memory error and the books' errors: `n`

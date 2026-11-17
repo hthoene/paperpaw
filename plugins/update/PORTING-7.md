@@ -83,7 +83,7 @@ not before the dual-boot notice is native), and the app links it and no interfac
 - Page layout: the rows (buttons) are on top and the large line and the words under them are the list's
   *empty footer* (title on one line, text up to six lines of small type), not buttons at the bottom as in
   interface 6; the beta version reads *0.5.0 Beta 1* as before. New texts (en and de):
-  `update.card.*`, `update.installing.percent`, `update.installed.restart-help`, `update.restart`,
+  `update.card.*`, `update.share`, `update.installed.restart-help`, `update.restart`,
   `update.reason.unsupported`; the interface-6 texts of the states above are used as they are.
 - The `uses.storage` feature is declared in `native/metadata*.json` as required: without a card there is no
   install from `updates`. `uses.firmware`, `uses.network` and `uses.install` are declared optional: Beta 3 loaded
@@ -152,7 +152,7 @@ the dates, the server's address), `src/native_plugin/online.rs` (the page's sear
   with `run_action`; back on the page after it the card is looked at again); the states *Searching*, *Up to
   date*, *No answer* (the reason, or the server's HTTP status, with *Try again*), the offer, *Downloading* (the
   percent) and the same layout as the card flow (the rows on top, the large line and the words under them).
-- New texts (en and de): `update.downloading.percent`, `update.size.kb`, `update.size.mb`, `update.net.*`; the
+- New texts (en and de): `update.share`, `update.size.kb`, `update.size.mb`, `update.net.*`; the
   interface-6 texts of the states are used as they are.
 
 ## Update that waits for plugins (slice 5)

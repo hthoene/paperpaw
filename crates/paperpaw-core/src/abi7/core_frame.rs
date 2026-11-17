@@ -208,6 +208,12 @@ impl Frame for CoreFrame<'_> {
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         Some(self.env.fonts())
     }
+    fn fonts_memo(&self) -> Option<(&paperpaw_sdk::Fonts, Option<&paperpaw_sdk::RoleMemo>)> {
+        Some((self.env.fonts(), Some(&self.font_removals.memos.roles)))
+    }
+    fn setting_memo(&self) -> Option<&paperpaw_sdk::SettingMemo> {
+        Some(&self.font_removals.memos.places)
+    }
     fn ink_threshold(&self) -> Result<u8, i32> {
         Ok(match self.env.device().display.format {
             paperpaw_platform::PixelFormat::Mono1 => {

@@ -20,6 +20,12 @@ pub(crate) struct FrameState {
     pub(crate) unrendered: Option<Rect>,
     /// What [`Kernel::render`] passed last, for [`Kernel::rerender`].
     pub(crate) rendered: Option<Rect>,
+    /// Asked between bands of a frame drawn by [`Kernel::render_gray_until`]:
+    /// whether to stop (a key came).
+    pub(crate) stop: Option<fn() -> bool>,
+    /// The last [`Kernel::render_gray_until`] was stopped before its last
+    /// band.
+    pub(crate) stopped: bool,
     /// See [`KernelBuilder::row_align`].
     pub(crate) row_align: u16,
     /// The pixels of a band, where frames are drawn in bands
@@ -105,6 +111,41 @@ impl Kernel {
     /// bytes as its own, which goes meanwhile. `false` where there is no
     /// memory for it (nothing passed then).
     pub fn render_gray(&mut self, out: &mut dyn FnMut(u16, FrameView<'_>)) -> bool {
+        self.render_gray_until(out, None)
+    }
+
+    /// [`Kernel::render_gray`] that asks `stop` before each band after the
+    /// first and ends the frame there where it says so (a key came: the rest
+    /// of a pass that long is not worth waiting for); [`Kernel::gray_stopped`]
+    /// says whether it did. The frame is then partial: the shell shows none,
+    /// and draws the screen again whole afterwards.
+    pub fn render_gray_until(
+        &mut self,
+        out: &mut dyn FnMut(u16, FrameView<'_>),
+        stop: Option<fn() -> bool>,
+    ) -> bool {
+        self.frame.stop = stop;
+        self.frame.stopped = false;
+        let drawn = self.render_gray_frame(out);
+        self.frame.stop = None;
+        drawn
+    }
+
+    /// Whether the frame being drawn is to stop here (`later`: not before its
+    /// first band): asked of [`Kernel::render_gray_until`]'s `stop`.
+    fn stop_asked(&mut self, later: bool) -> bool {
+        let stop = later && self.frame.stop.is_some_and(|stop| stop());
+        self.frame.stopped |= stop;
+        stop
+    }
+
+    /// Whether the last [`Kernel::render_gray_until`] was stopped.
+    #[must_use]
+    pub fn gray_stopped(&self) -> bool {
+        self.frame.stopped
+    }
+
+    fn render_gray_frame(&mut self, out: &mut dyn FnMut(u16, FrameView<'_>)) -> bool {
         use paperpaw_platform::PixelFormat;
         let format = self.framebuffer.format();
         let bounds = self.framebuffer.bounds();
@@ -115,27 +156,34 @@ impl Kernel {
         let gray_rows = (((u32::from(rows) * bits / 2) as u16) / align * align)
             .max(align)
             .min(bounds.height);
-        // The band goes first, the gray one taking its place.
+        // The band's memory is the gray one's (as many bytes) and then the
+        // band's again: one block kept, nothing allocated between them
+        // (#306).
         let Ok(none) = Framebuffer::new(1, 1, format) else {
             return false;
         };
-        self.framebuffer = none;
+        let room = core::mem::replace(&mut self.framebuffer, none).into_data();
+        let mut room = Some(room);
         let gray = with_fewer_rows(gray_rows, align, |rows| {
-            Framebuffer::banded(bounds.width, bounds.height, rows, PixelFormat::Gray2)
+            Framebuffer::banded_in(
+                bounds.width,
+                bounds.height,
+                rows,
+                PixelFormat::Gray2,
+                room.take().unwrap_or_default(),
+            )
         });
-        let drawn = match gray {
+        let (drawn, room) = match gray {
             Some(gray) => {
-                self.framebuffer = look.on(gray);
+                let none = core::mem::replace(&mut self.framebuffer, look.on(gray));
                 self.frame.unrendered = Some(bounds);
                 self.render(out);
-                true
+                let gray = core::mem::replace(&mut self.framebuffer, none);
+                (true, gray.into_data())
             }
-            None => false,
+            None => (false, Vec::new()),
         };
-        if let Ok(none) = Framebuffer::new(1, 1, format) {
-            self.framebuffer = none;
-        }
-        self.restore_frame(look, bounds.width, bounds.height, rows, format);
+        self.restore_frame(look, bounds.width, bounds.height, rows, format, room);
         drawn
     }
 
@@ -150,10 +198,12 @@ impl Kernel {
         height: u16,
         rows: u16,
         format: paperpaw_platform::PixelFormat,
+        room: Vec<u8>,
     ) -> bool {
         let align = self.frame.row_align;
+        let mut room = Some(room);
         match with_fewer_rows(rows, align, |rows| {
-            Framebuffer::banded(width, height, rows, format)
+            Framebuffer::banded_in(width, height, rows, format, room.take().unwrap_or_default())
         }) {
             Some(framebuffer) => {
                 if framebuffer.rows() < rows {
@@ -233,7 +283,7 @@ impl Kernel {
         });
         let mut gray = Vec::new();
         let mut top = region.y - region.y % rows;
-        while u32::from(top) < region.bottom() {
+        while u32::from(top) < region.bottom() && !self.stop_asked(top > region.y) {
             self.framebuffer.set_top(top);
             if let Some(part) = region.intersection(&self.framebuffer.band()) {
                 self.redraw(part);
@@ -646,7 +696,7 @@ impl Kernel {
             if let Ok(none) = Framebuffer::new(1, 1, format) {
                 self.framebuffer = none;
             }
-            let turned = self.restore_frame(look, width, height, rows, format);
+            let turned = self.restore_frame(look, width, height, rows, format, Vec::new());
             if turned {
                 self.shared.device.display.width = width;
                 self.shared.device.display.height = height;
@@ -655,7 +705,7 @@ impl Kernel {
                 self.renew_memory_notice();
                 self.display_changed();
             } else {
-                self.restore_frame(look, panel.width, panel.height, before, format);
+                self.restore_frame(look, panel.width, panel.height, before, format, Vec::new());
             }
         }
         self.finish()

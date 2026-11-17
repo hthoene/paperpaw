@@ -24,6 +24,7 @@ pub(crate) struct IoState {
     /// What the shell is to do with the radio ([`Io::Wifi`]).
     pub(crate) wifi_calls: Vec<WifiCommand>,
     /// Bluetooth, where the kernel uses a radio ([`Io::Bluetooth`]).
+    #[cfg(feature = "bluetooth")]
     pub(crate) bluetooth: Option<io::bluetooth::Radio>,
     /// What the shell is to do with the firmware ([`Io::Firmware`]).
     pub(crate) firmware_calls: Vec<FirmwareCommand>,
@@ -435,6 +436,7 @@ impl Kernel {
     pub fn take_io(&mut self) -> Vec<Io> {
         let mut io: Vec<Io> = self.io.wifi_calls.drain(..).map(Io::Wifi).collect();
         io.extend(self.io.firmware_calls.drain(..).map(Io::Firmware));
+        #[cfg(feature = "bluetooth")]
         if let Some(radio) = &mut self.io.bluetooth {
             io.extend(radio.take().into_iter().map(Io::Bluetooth));
         }

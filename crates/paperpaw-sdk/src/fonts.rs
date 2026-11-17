@@ -13,6 +13,8 @@ use paperpaw_text::{Font, GlyphCache, LineMetrics, PackLimits};
 #[cfg(any(test, feature = "kernel"))]
 pub use built_in::{BuiltInFont, BuiltInFonts};
 #[cfg(any(test, feature = "kernel"))]
+pub use memo::RoleMemo;
+#[cfg(any(test, feature = "kernel"))]
 pub use storage::{OpenError, open_file};
 use storage::{Stored, read_font};
 
@@ -579,8 +581,29 @@ impl Fonts {
     /// family's face, else the best proposal, else the first font.
     pub fn role(&self, role: &str) -> Option<FontHandle<'_>> {
         let font = self.role_plain(role)?;
+        Some(self.ui_inked(role, font))
+    }
+
+    /// [`Fonts::role`], found once per change of the fonts: `memo` is the
+    /// kernel's, which it forgets with every change.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn role_in(&self, memo: &RoleMemo, role: &str) -> Option<FontHandle<'_>> {
+        let font = memo.found(self, false, role, || self.role_plain(role))?;
+        Some(self.ui_inked(role, font))
+    }
+
+    /// [`Fonts::bound`], found once per change of the fonts (as
+    /// [`Fonts::role_in`]).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn bound_in(&self, memo: &RoleMemo, role: &str) -> Option<FontHandle<'_>> {
+        memo.found(self, true, role, || self.bound(role))
+    }
+
+    fn ui_inked<'a>(&self, role: &str, font: FontHandle<'a>) -> FontHandle<'a> {
         let ui = role == crate::builtin::fonts::UI.as_str();
-        Some(if ui { font.inked(self.ui_ink) } else { font })
+        if ui { font.inked(self.ui_ink) } else { font }
     }
 
     fn role_plain(&self, role: &str) -> Option<FontHandle<'_>> {
@@ -1427,6 +1450,8 @@ mod built_in;
 mod ink;
 #[cfg(any(test, feature = "kernel"))]
 mod loading;
+#[cfg(any(test, feature = "kernel"))]
+mod memo;
 mod missing;
 use missing::Drawing;
 mod runs;

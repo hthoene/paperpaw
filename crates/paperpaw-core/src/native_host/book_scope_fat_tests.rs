@@ -148,3 +148,41 @@ fn a_move_on_a_fat_card_reaches_the_new_key() {
         b"[core]\n"
     );
 }
+
+/// Whether a folder is there is asked without reading the folder (#305):
+/// a folder of 600 files (118 blocks of entries) is told one, and a name
+/// at its start found in it, with a few blocks read.
+#[test]
+fn a_big_folder_is_told_a_folder_without_reading_it() {
+    let (ram, storage) = card();
+    for n in 0..600 {
+        storage
+            .write(&format!("big/a rather long name of book {n:03}.epub"), b"x")
+            .unwrap();
+    }
+    storage.sync().unwrap();
+    // More than the block disk keeps: a whole read reaches the card.
+    let (whole, _) = counted(&ram, || storage.list("big", &mut |_| {}).unwrap());
+    assert!(whole > 80, "{whole} blocks for the whole folder");
+    // Other blocks used between, so the folder's are not at hand.
+    let elsewhere = || {
+        for n in 0..40 {
+            storage.write(&format!("other/{n}.bin"), &[n; 600]).unwrap();
+        }
+        storage.sync().unwrap();
+    };
+    elsewhere();
+    let (reads, _) = counted(&ram, || {
+        assert!(paperpaw_sdk::files::is_dir(&storage, "big"));
+    });
+    assert!(reads <= 20, "{reads} blocks to tell a folder");
+    elsewhere();
+    let first = "big/a rather long name of book 000.epub";
+    let (reads, _) = counted(&ram, || {
+        assert_eq!(
+            crate::native_host::plugin_swap::present(&storage, first),
+            Ok(true)
+        );
+    });
+    assert!(reads <= 20, "{reads} blocks to find a name at the start");
+}

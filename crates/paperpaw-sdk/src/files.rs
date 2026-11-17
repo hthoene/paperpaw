@@ -152,9 +152,11 @@ pub fn list(storage: &dyn Storage, dir: &str, hidden: bool) -> Result<Vec<Entry>
     Ok(entries)
 }
 
-/// Whether `path` is a folder.
+/// Whether `path` is a folder: listed as far as its first entry, not
+/// whole (a folder of thousands of books is not read to learn that it is
+/// there).
 pub fn is_dir(storage: &dyn Storage, path: &str) -> bool {
-    !storage.exists(path) && storage.list(path, &mut |_| {}).is_ok()
+    !storage.exists(path) && storage.list_bounded(path, 0, &mut |_| false).is_ok()
 }
 
 /// Names tried by [`free_path`]: more than a folder on a memory card

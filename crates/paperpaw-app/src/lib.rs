@@ -515,6 +515,11 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
         return outcome;
     }
     add_native_catalogs(kernel);
+    // One batch (#306): what looks at all the plugins (key map, fonts, slots,
+    // secrets) is made once, after the last, and the plugin list is sized
+    // once.
+    kernel.reserve_native_plugins(NATIVE_PLUGINS.len());
+    kernel.begin_native_batch();
     // What every sleeping plugin keeps of the shell, once: without room for
     // it they all stay awake.
     // SAFETY: `image` as this function's contract says.
@@ -592,6 +597,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
         list(kernel, id, (state, true, None));
         outcome.push((*id, status));
     }
+    kernel.end_native_batch();
     outcome
 }
 
@@ -664,6 +670,12 @@ pub fn native_catalogs(id: &str) -> &'static [&'static str] {
 #[cfg(feature = "native-linked")]
 pub static NATIVE_MESSAGES: &[paperpaw_i18n::BuiltMessages] =
     include!(concat!(env!("OUT_DIR"), "/native_messages.rs"));
+
+/// The kernel's own texts, English and German, without their keys (see
+/// `build.rs`): the kernel carries no copy of its catalogs' sources
+/// (`KernelBuilder::built_messages`, #306).
+pub static CORE_MESSAGES: &[paperpaw_i18n::BuiltMessages] =
+    include!(concat!(env!("OUT_DIR"), "/core_messages.rs"));
 
 /// Adds the catalogs of every linked plugin of [`NATIVE_PLUGINS`] to the
 /// kernel's translator, before the kernel starts (one call for a shell that
@@ -738,7 +750,8 @@ pub fn install_with(
     let builder = builder
         .network_settings(NETWORK_SETTINGS)
         .catalog_indexes(CATALOG_INDEXES)
-        .built_catalogs(BUILT_CATALOGS);
+        .built_catalogs(BUILT_CATALOGS)
+        .built_messages(CORE_MESSAGES);
     let builder = match fonts {
         #[cfg(feature = "outline")]
         Fonts::Outline => builder.built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONTS),

@@ -36,7 +36,10 @@ fn main() {
     println!("cargo::rustc-env=PAPERPAW_VERSION={version}");
     println!("cargo::rerun-if-changed=../../Cargo.toml");
     println!("cargo::rerun-if-changed=memory-x4.x");
+    println!("cargo::rerun-if-changed=rwtext-x4.x");
+    println!("cargo::rerun-if-changed=wifi-flash-x4.x");
     plugins();
+    device_messages();
     compiler();
     frame_flags();
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
@@ -48,8 +51,17 @@ fn main() {
         return;
     }
     std::fs::copy("memory-x4.x", out.join("memory.x")).expect("memory-x4.x");
+    // esp-hal's `rwtext.x` less the Wi-Fi send and receive code, which
+    // `wifi-flash-x4.x` puts in flash (found first as it is in `out`).
+    std::fs::copy("rwtext-x4.x", out.join("rwtext.x")).expect("rwtext-x4.x");
+    std::fs::copy("wifi-flash-x4.x", out.join("wifi-flash-x4.x")).expect("wifi-flash-x4.x");
     println!("cargo::rustc-link-search={}", out.display());
     println!("cargo::rustc-link-arg=-Tlinkall.x");
+    // The linker folds functions with identical code (#304): 12 KB at
+    // least. A crash trace may name the other of two such functions; the
+    // address and the caller's frames still lead to the place. LLD's.
+    println!("cargo::rustc-link-arg=--icf=all");
+    println!("cargo::rustc-link-arg=-Twifi-flash-x4.x");
     no_rodata_gap(&out);
     if std::env::var_os("CARGO_FEATURE_PPN5").is_some() {
         stack_floor_x4(&out);
@@ -163,6 +175,27 @@ fn compiler() {
     let first = words.lines().next().unwrap_or_default();
     let release = paperpaw_native::compiler::release(first).expect("rustc -vV names its release");
     println!("cargo::rustc-env=PAPERPAW_RUSTC={release}");
+}
+
+/// Writes `device_messages.rs`: the device's texts (`i18n/*.ini`), English and
+/// German, without their keys (`paperpaw_i18n::BuiltMessages`, as the
+/// plugins' and the kernel's are): the firmware carries a hash of each key
+/// and the messages, not the sources (#306). `device.rs` hands them to the
+/// builder.
+fn device_messages() {
+    let mut table = paperpaw_i18n::BuiltMessagesTable::new(&["en", "de"]);
+    for file in ["i18n/en.ini", "i18n/de.ini"] {
+        println!("cargo::rerun-if-changed={file}");
+        let source = std::fs::read_to_string(file).expect("a catalog");
+        assert!(
+            table.add(&source).unwrap_or(false),
+            "{file}: a device text catalog the keyless table cannot hold: {:?}",
+            table.clashes()
+        );
+    }
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
+    std::fs::write(out.join("device_messages.rs"), table.to_rust())
+        .expect("device_messages.rs written");
 }
 
 /// Writes `plugins.rs`: the list of the plugin crates built in, the

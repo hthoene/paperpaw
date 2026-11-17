@@ -7,14 +7,14 @@ use super::{
 };
 use crate::abi7::{context::Frame, graphics};
 use crate::font_refresh::widget_fonts;
-#[cfg(any(test, feature = "testing"))]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, OK, PpBuffer, PpBytes,
     buffers,
 };
 use paperpaw_platform::Color;
-use paperpaw_sdk::{FontHandle, Fonts, builtin::fonts as roles};
+use paperpaw_sdk::{FontHandle, Fonts, RoleMemo, builtin::fonts as roles};
 
 fn role(key: &str) -> Option<FontRole> {
     Some(match key {
@@ -29,21 +29,30 @@ fn role(key: &str) -> Option<FontRole> {
     })
 }
 
-fn resolve_role(fonts: &Fonts, role: FontRole) -> Option<FontHandle<'_>> {
+/// The fonts and, where the host keeps one, what it found of their roles.
+type Roles<'a> = (&'a Fonts, Option<&'a RoleMemo>);
+
+fn resolve_role(roles: Roles<'_>, role: FontRole) -> Option<FontHandle<'_>> {
+    let (fonts, memo) = roles;
+    let role_of = |name: &str| match memo {
+        Some(memo) => fonts.role_in(memo, name),
+        None => fonts.role(name),
+    };
+    let bound_of = |name: &str| match memo {
+        Some(memo) => fonts.bound_in(memo, name),
+        None => fonts.bound(name),
+    };
     match role {
-        FontRole::Ui => fonts.role(roles::UI.as_str()),
-        FontRole::Reading => fonts.role(roles::READING.as_str()),
-        FontRole::ReadingBold => fonts
-            .bound(roles::READING_BOLD.as_str())
-            .or_else(|| resolve_role(fonts, FontRole::Reading)),
-        FontRole::ReadingItalic => fonts
-            .bound(roles::READING_ITALIC.as_str())
-            .or_else(|| resolve_role(fonts, FontRole::Reading)),
-        FontRole::ReadingBoldItalic => fonts
-            .bound(roles::READING_BOLD_ITALIC.as_str())
-            .or_else(|| resolve_role(fonts, FontRole::ReadingBold)),
-        FontRole::Status => fonts.role(roles::STATUS.as_str()),
-        FontRole::Icons => fonts.bound(roles::ICONS.as_str()),
+        FontRole::Ui => role_of(roles::UI.as_str()),
+        FontRole::Reading => role_of(roles::READING.as_str()),
+        FontRole::ReadingBold => bound_of(roles::READING_BOLD.as_str())
+            .or_else(|| resolve_role(roles, FontRole::Reading)),
+        FontRole::ReadingItalic => bound_of(roles::READING_ITALIC.as_str())
+            .or_else(|| resolve_role(roles, FontRole::Reading)),
+        FontRole::ReadingBoldItalic => bound_of(roles::READING_BOLD_ITALIC.as_str())
+            .or_else(|| resolve_role(roles, FontRole::ReadingBold)),
+        FontRole::Status => role_of(roles::STATUS.as_str()),
+        FontRole::Icons => bound_of(roles::ICONS.as_str()),
     }
 }
 
@@ -57,9 +66,9 @@ fn resolve<'a>(
     if let FontKey::Data(font) = key {
         return font.handle();
     }
-    let fonts = frame.fonts().ok_or(ERR_STATE)?;
+    let (fonts, memo) = frame.fonts_memo().ok_or(ERR_STATE)?;
     match key {
-        FontKey::Role(role) => resolve_role(fonts, *role).ok_or(ERR_NOT_FOUND),
+        FontKey::Role(role) => resolve_role((fonts, memo), *role).ok_or(ERR_NOT_FOUND),
         FontKey::Named { id, acquired } => {
             if !frame.font_valid(id.namespace(), *acquired) {
                 return Err(ERR_STATE);
@@ -71,7 +80,7 @@ fn resolve<'a>(
             .then(|| fonts.get(id.as_str()))
             .flatten()
             .filter(|font| size.is_none_or(|size| widget_fonts::has_size(font, size)))
-            .or_else(|| resolve_role(fonts, FontRole::Ui))
+            .or_else(|| resolve_role((fonts, memo), FontRole::Ui))
             .ok_or(ERR_NOT_FOUND),
         FontKey::Data(_) => Err(ERR_STATE),
     }
@@ -194,7 +203,7 @@ fn widget_key(frame: &dyn Frame, widget: &str) -> Result<FontKey, i32> {
             }
         }
     };
-    if resolve_role(fonts, role).is_none() {
+    if resolve_role((fonts, None), role).is_none() {
         return Err(ERR_NOT_FOUND);
     }
     Ok(FontKey::Role(role))
@@ -205,7 +214,7 @@ fn named_or_role(frame: &dyn Frame, key: &str) -> Result<FontKey, i32> {
     let fonts = frame.fonts().ok_or(ERR_STATE)?;
     if key.starts_with("role:") {
         let role = role(key).ok_or(ERR_NOT_FOUND)?;
-        if !matches!(role, FontRole::Icons) && resolve_role(fonts, role).is_none() {
+        if !matches!(role, FontRole::Icons) && resolve_role((fonts, None), role).is_none() {
             return Err(ERR_NOT_FOUND);
         }
         return Ok(FontKey::Role(role));
@@ -299,7 +308,7 @@ fn icon_utf8(frame: &dyn Frame, name: &str, bytes: &mut [u8; 4]) -> Result<usize
         return Err(ERR_INVALID);
     }
     let fonts = frame.fonts().ok_or(ERR_STATE)?;
-    let font = resolve_role(fonts, FontRole::Icons).ok_or(ERR_NOT_FOUND)?;
+    let font = resolve_role((fonts, None), FontRole::Icons).ok_or(ERR_NOT_FOUND)?;
     let ch = paperpaw_sdk::icons::char(name).ok_or(ERR_NOT_FOUND)?;
     if !font.has_char(ch) {
         return Err(ERR_NOT_FOUND);
@@ -374,15 +383,15 @@ pub(crate) unsafe fn metrics(
     })())
 }
 
-/// For tests: slot 30 answers as on the X4, whose host table leaves it
-/// unwired (`shell::table`), on this thread from now on. Not part of any
-/// interface: the `testing` feature only.
-#[cfg(any(test, feature = "testing"))]
+/// For tests and emulators: slot 30 answers as on the X4, whose host table
+/// leaves it unwired (`shell::table`), on this thread from now on. Not part
+/// of any interface, and not on the firmware.
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
 pub fn answer_text_ink_as_the_x4(unwired: bool) {
     ink_unwired::set(unwired);
 }
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
 mod ink_unwired {
     extern crate std;
     use core::cell::Cell;
@@ -431,7 +440,7 @@ pub(crate) unsafe fn ink(
     right: *mut i32,
 ) -> i32 {
     status((|| {
-        #[cfg(any(test, feature = "testing"))]
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
         if ink_unwired::get() {
             return Err(ERR_UNSUPPORTED);
         }

@@ -318,6 +318,10 @@ pub struct Profile {
     /// The device speaks text aloud (emulated: the text is logged and
     /// takes as long as it would to speak).
     pub speech: bool,
+    /// The host leaves `text.ink` (slot 30) unanswered, as the Xteink
+    /// firmware does until the probe is timed there (`x4-ink`): plugins
+    /// place text by its metrics, and the emulator must draw the same.
+    pub ink_unwired: bool,
     /// PaperPaw manages Wi-Fi itself, as on the X4 (emulated: made-up
     /// networks, see `wifi`); elsewhere the system does.
     pub wifi: bool,
@@ -382,6 +386,7 @@ pub const PROFILES: &[Profile] = &[
         row_align: 8,
         settings: &X4_SETTINGS,
         speech: false,
+        ink_unwired: true,
         wifi: true,
         bluetooth: 0,
         catalog_device: Some("x4"),
@@ -417,6 +422,7 @@ pub const PROFILES: &[Profile] = &[
         row_align: 8,
         settings: &X4_PRO_SETTINGS,
         speech: false,
+        ink_unwired: true,
         wifi: true,
         bluetooth: 2,
         catalog_device: Some("x4-pro"),
@@ -453,6 +459,7 @@ pub const PROFILES: &[Profile] = &[
         row_align: 8,
         settings: &X4_SETTINGS,
         speech: false,
+        ink_unwired: true,
         wifi: true,
         bluetooth: 0,
         catalog_device: Some("x4-classic"),
@@ -485,6 +492,7 @@ pub const PROFILES: &[Profile] = &[
         row_align: 8,
         settings: &X4_SETTINGS,
         speech: false,
+        ink_unwired: true,
         wifi: true,
         bluetooth: 0,
         catalog_device: Some("x4"),
@@ -522,6 +530,7 @@ pub const PROFILES: &[Profile] = &[
         row_align: 1,
         settings: &[],
         speech: true,
+        ink_unwired: false,
         wifi: false,
         bluetooth: 0,
         catalog_device: Some("android"),
@@ -564,6 +573,7 @@ pub const PROFILES: &[Profile] = &[
         row_align: 1,
         settings: &[],
         speech: false,
+        ink_unwired: false,
         wifi: false,
         bluetooth: 0,
         catalog_device: None,
@@ -592,6 +602,7 @@ pub const PROFILES: &[Profile] = &[
         row_align: 1,
         settings: &[],
         speech: false,
+        ink_unwired: false,
         wifi: false,
         bluetooth: 0,
         catalog_device: None,
@@ -620,6 +631,7 @@ pub const PROFILES: &[Profile] = &[
         row_align: 1,
         settings: &[],
         speech: false,
+        ink_unwired: false,
         wifi: false,
         bluetooth: 0,
         catalog_device: None,
@@ -649,6 +661,7 @@ pub const PROFILES: &[Profile] = &[
         // Only two buttons: everything works with forward and back.
         settings: &[("core.keymap-preset", "core.two-buttons")],
         speech: false,
+        ink_unwired: false,
         wifi: false,
         bluetooth: 0,
         catalog_device: None,

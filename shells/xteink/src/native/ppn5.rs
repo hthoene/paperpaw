@@ -558,6 +558,8 @@ mod x4 {
         // row the next goes without them (`paperpaw_x4::start_count`).
         crate::safe_mode::loading("native-linked");
         let began = crate::micros();
+        kernel
+            .set_native_clock(|| u32::try_from(crate::micros() & u64::from(u32::MAX)).unwrap_or(0));
         CREATING.store(true, core::sync::atomic::Ordering::Relaxed);
         // SAFETY: the entries are `native_plugin!(..., linked = NAME)` of crates
         // linked into this firmware (their code stays for the whole run); the
@@ -594,9 +596,14 @@ mod x4 {
             // A lost band after a sleep now ends in a start without them.
             crate::stack::native_loaded();
         }
+        let times = kernel.native_times();
         info!(
-            "native: {hosted} linked plugins hosted in {} ms",
-            (crate::micros() - began) / 1000
+            "native: {hosted} linked plugins hosted in {} ms (admit {} ms, key map {} ms, fonts {} ms, widget fonts {} ms)",
+            (crate::micros() - began) / 1000,
+            times.admit / 1000,
+            times.keymap / 1000,
+            times.fonts / 1000,
+            times.widget_fonts / 1000,
         );
     }
 

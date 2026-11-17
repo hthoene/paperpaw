@@ -94,11 +94,15 @@ impl<'a> SettingIdentity<'a> {
     /// allocated or made, also where its plugin describes the setting (#248).
     /// Found by the settings' index, not by a walk of them: every read of a
     /// setting asks this (#250).
-    pub(crate) fn secret(&self, settings: &paperpaw_sdk::Settings) -> Option<bool> {
-        let of = |plain: &str| {
-            settings
-                .defines(plain)
-                .then(|| settings.defines_secret(plain))
+    /// The place of the setting is remembered by `memo` where there is one.
+    pub(crate) fn secret(
+        &self,
+        settings: &paperpaw_sdk::Settings,
+        memo: Option<&paperpaw_sdk::SettingMemo>,
+    ) -> Option<bool> {
+        let of = |plain: &str| match memo {
+            Some(memo) => settings.secret_of_in(memo, plain),
+            None => settings.secret_of(plain),
         };
         if self.tail.is_empty() {
             return of(self.head);

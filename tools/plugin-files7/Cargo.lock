@@ -130,7 +130,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-battery"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.9"
+version = "1.0.13"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
