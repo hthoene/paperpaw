@@ -104,7 +104,7 @@ fn test_plugin(kept: TestPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterEr
     move |r| {
         let log = kept.log.clone();
         let name = kept.id;
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             kept.screen_id(),
             "test.screen",
             Box::new(move |_, _| {
@@ -141,7 +141,7 @@ struct TestScreen {
     log: Log,
 }
 
-impl crate::Layer for TestScreen {
+impl crate::testing::Fake for TestScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
@@ -271,7 +271,7 @@ fn highest_priority_wins_and_user_config_overrides() {
 
 struct OpenerScreen;
 
-impl crate::Layer for OpenerScreen {
+impl crate::testing::Fake for OpenerScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
@@ -291,7 +291,7 @@ impl crate::Layer for OpenerScreen {
 /// Opens the placeholder screen on *confirm*: a screen change to time.
 pub(crate) fn opener() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("opener.screen"),
             "test.screen",
             Box::new(|_, _| Box::new(OpenerScreen)),
@@ -610,7 +610,7 @@ struct EdgeHolder {
     holds: bool,
 }
 
-impl crate::Layer for EdgeHolder {
+impl crate::testing::Fake for EdgeHolder {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -620,8 +620,8 @@ impl crate::Layer for EdgeHolder {
         Handled::Yes
     }
 
-    fn holds_edges(&self) -> bool {
-        self.holds
+    fn flags(&self) -> u32 {
+        u32::from(self.holds) * crate::testing::HOLDS_EDGES
     }
 
     fn on_pointer(&mut self, event: &PointerEvent, _: &mut Cx<'_, '_>) -> Handled {
@@ -640,7 +640,7 @@ pub(crate) fn edge_holder_plugin(
 ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let (log, holds) = (kept0.clone(), kept1);
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("holder.screen"),
             "holder",
             Box::new(move |_, _| {
@@ -831,45 +831,24 @@ core.font-reading = nope.font
     assert!(warnings[0].message.contains("unknown font `nope.font`"));
 }
 
-/// Subscribes to `core.started`, opens its screen with parameters and runs
-/// a timer started in `on_show`.
+/// Subscribes to `core.started` and opens its screen with parameters.
 pub(crate) struct LifecyclePlugin {
     log: Log,
 }
 
 struct LifecycleScreen {
     log: Log,
-    ticks: u32,
 }
 
-impl crate::Layer for LifecycleScreen {
+impl crate::testing::Fake for LifecycleScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, _: &mut Cx<'_, '_>) {
         self.log.borrow_mut().push(String::from("show"));
-        let at = cx.env().now().add_millis(10);
-        cx.wake_at(at);
-    }
-
-    fn on_hide(&mut self) {
-        self.log.borrow_mut().push(String::from("hide"));
-    }
-
-    fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
-        self.ticks += 1;
-        self.log.borrow_mut().push(alloc::format!(
-            "timer {} at {}",
-            self.ticks,
-            cx.env().now().millis()
-        ));
-        if self.ticks < 2 {
-            let at = cx.env().now().add_millis(10);
-            cx.wake_at(at);
-        }
     }
 }
 
@@ -878,16 +857,13 @@ pub(crate) fn lifecycle_plugin(
 ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("life.screen"),
             "life",
             Box::new(move |_, params| {
                 log.borrow_mut()
                     .push(alloc::format!("open {}", params.get("path").unwrap_or("-")));
-                Box::new(LifecycleScreen {
-                    log: log.clone(),
-                    ticks: 0,
-                })
+                Box::new(LifecycleScreen { log: log.clone() })
             }),
         ))?;
         r.subscribe(paperpaw_sdk::builtin::events::STARTED, |k, _| {
@@ -921,11 +897,11 @@ pub(crate) fn lifecycle_plugin_manifest() -> Manifest {
 
 const SWAP: Id = Id::new_static("life.swap");
 
-/// A full screen opened over another hides it ([`Screen::on_hide`]),
-/// shown again ([`Screen::on_show`]) when that one closes; a screen on
-/// top only for a moment, while the commands of a call run, is not shown.
+/// A screen below a full screen is shown again ([`Screen::on_show`]) when
+/// that one closes; a screen on top only for a moment, while the commands
+/// of a call run, is not shown.
 #[test]
-fn screens_below_a_full_screen_are_hidden_and_shown_once_on_top() {
+fn screens_below_a_full_screen_are_shown_once_on_top() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
         .items(
@@ -939,24 +915,18 @@ fn screens_below_a_full_screen_are_hidden_and_shown_once_on_top() {
     kernel.open_screen(Instant(1), Id::new_static("life.screen"), path);
     assert_eq!(
         *log.borrow(),
-        [
-            "open books/a.txt",
-            "show",
-            "open books/b.txt",
-            "hide",
-            "show"
-        ]
+        ["open books/a.txt", "show", "open books/b.txt", "show"]
     );
     log.borrow_mut().clear();
     kernel.run_action(Instant(2), SWAP);
-    assert_eq!(*log.borrow(), ["open books/c.txt", "hide", "show"]);
+    assert_eq!(*log.borrow(), ["open books/c.txt", "show"]);
     log.borrow_mut().clear();
     kernel.run_action(Instant(3), actions::BACK);
     assert_eq!(*log.borrow(), ["show"]);
 }
 
 #[test]
-fn events_open_screens_with_params_and_timers_run() {
+fn events_open_screens_with_params() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
         .items(
@@ -965,25 +935,9 @@ fn events_open_screens_with_params_and_timers_run() {
         )
         .build()
         .unwrap();
-    let effects = kernel.start(Instant(100));
+    kernel.start(Instant(100));
     assert_eq!(kernel.active_screen().map(Id::as_str), Some("life.screen"));
-    assert_eq!(effects.wake_at(), Some(Instant(110)));
-
-    // Too early: nothing happens.
-    kernel.tick(Instant(105));
-    let effects = kernel.tick(Instant(110));
-    assert_eq!(effects.wake_at(), Some(Instant(120)));
-    let effects = kernel.tick(Instant(120));
-    assert_eq!(effects.wake_at(), None);
-    assert_eq!(
-        *log.borrow(),
-        [
-            "open books/a.txt",
-            "show",
-            "timer 1 at 110",
-            "timer 2 at 120"
-        ]
-    );
+    assert_eq!(*log.borrow(), ["open books/a.txt", "show"]);
 }
 
 /// A full screen that logs events, plus an overlay covering the lower half.
@@ -995,7 +949,7 @@ struct BaseScreen {
     log: Log,
 }
 
-impl crate::Layer for BaseScreen {
+impl crate::testing::Fake for BaseScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         let clip = canvas.clip();
         canvas.describe(paperpaw_sdk::semantics::Role::Text, "base", clip);
@@ -1021,7 +975,7 @@ impl crate::Layer for BaseScreen {
 
 struct HalfOverlay;
 
-impl crate::Layer for HalfOverlay {
+impl crate::testing::Fake for HalfOverlay {
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
         Some(Rect::new(0, 45, 90, 45))
     }
@@ -1042,13 +996,13 @@ pub(crate) fn overlay_plugin(
 ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("ov.base"),
             "base",
             Box::new(move |_, _| Box::new(BaseScreen { log: log.clone() })),
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("ov.base"), Priority::DEFAULT)?;
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("ov.half"),
             "half",
             Box::new(|_, _| Box::new(HalfOverlay)),
@@ -1144,13 +1098,13 @@ pub(crate) fn notice_plugin(
 ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("nt.base"),
             "base",
             Box::new(move |_, _| Box::new(BaseScreen { log: log.clone() })),
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("nt.base"), Priority::DEFAULT)?;
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("nt.notice"),
             "notice",
             Box::new(|_, _| Box::new(HalfOverlay)),
@@ -1170,13 +1124,18 @@ pub(crate) fn notice_plugin_manifest() -> Manifest {
         .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
+/// The host's notice (no plugin's screen fills the notice slot here).
 #[test]
 fn notices_show_over_everything_and_go_by_themselves() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
         .items(
-            notice_plugin_manifest(),
-            notice_plugin(NoticePlugin { log: log.clone() }),
+            crate::tests::font_plugin_manifest(),
+            crate::tests::font_plugin(),
+        )
+        .items(
+            overlay_plugin_manifest(),
+            overlay_plugin(OverlayPlugin { log: log.clone() }),
         )
         .build()
         .unwrap();
@@ -1185,31 +1144,34 @@ fn notices_show_over_everything_and_go_by_themselves() {
 
     kernel.apply(Command::Notify(String::from("Done")));
     let effects = kernel.finish();
-    assert_eq!(
-        effects.refresh().map(|(r, _)| r),
-        Some(Rect::new(0, 45, 90, 45))
-    );
+    let region = {
+        let (notice, _) = kernel.notice.as_ref().unwrap();
+        crate::screens::notice_area(notice, &kernel.shared.env(Instant(0)))
+    };
+    assert_eq!(effects.refresh().map(|(r, _)| r), Some(region));
     assert_eq!(
         effects.wake_at(),
         Some(Instant(4000)),
         "four seconds by default"
     );
     render(&mut kernel);
-    assert_eq!(kernel.frame().pixel(0, 60), Color::BLACK);
+    // Inside the box, left of its words.
+    let (x, y) = (
+        i32::from(region.x) + 1,
+        i32::from(region.y + region.height / 2),
+    );
+    assert_eq!(kernel.frame().pixel(x as u16, y as u16), Color::BLACK);
     // Input still goes to the screen below.
-    assert_eq!(kernel.active_screen().map(Id::as_str), Some("nt.base"));
+    assert_eq!(kernel.active_screen().map(Id::as_str), Some("ov.base"));
     // It is part of what the screen shows, read aloud too.
-    let shown = |kernel: &mut Kernel| kernel.describe().iter().any(|p| p.label == "overlay");
+    let shown = |kernel: &mut Kernel| kernel.describe().iter().any(|p| p.label == "Done");
     assert!(shown(&mut kernel));
 
     // Time is up: gone.
     let effects = kernel.tick(Instant(4000));
-    assert_eq!(
-        effects.refresh().map(|(r, _)| r),
-        Some(Rect::new(0, 45, 90, 45))
-    );
+    assert_eq!(effects.refresh().map(|(r, _)| r), Some(region));
     render(&mut kernel);
-    assert_eq!(kernel.frame().pixel(0, 60), Color::WHITE);
+    assert_eq!(kernel.frame().pixel(x as u16, y as u16), Color::WHITE);
     assert_eq!(effects.wake_at(), None);
     assert!(!shown(&mut kernel));
 }
@@ -1428,11 +1390,11 @@ fn menus_follow_order_and_user_definitions() {
 
 struct GrayScreen;
 
-impl crate::Layer for GrayScreen {
+impl crate::testing::Fake for GrayScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
-    fn grays(&self) -> bool {
-        true
+    fn flags(&self) -> u32 {
+        crate::testing::GRAYS
     }
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -1444,13 +1406,13 @@ impl crate::Layer for GrayScreen {
 /// menu.
 pub(crate) fn gray_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("gray.page"),
             "page",
             Box::new(|_, _| Box::new(GrayScreen)),
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("gray.page"), Priority::DEFAULT)?;
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("gray.menu"),
             "menu",
             Box::new(|_, _| Box::new(HalfOverlay)),
@@ -2053,6 +2015,43 @@ fn changed_settings_are_saved_and_announced() {
         core::str::from_utf8(&buf[..n]).unwrap(),
         "# my settings\n[core]\nui-size = 12\nnight-mode = on\n"
     );
+}
+
+#[test]
+fn the_sole_plugin_asking_questions_cannot_be_switched_off() {
+    // Nothing else asks yes or no or offers a choice: switched off, every
+    // question would end unasked.
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(
+            Manifest::new(Id::new_static("ask"), "Ask", Version::new(1, 0, 0)),
+            |r: &mut Items| {
+                r.add_fake(crate::testing::FakeSpec::new(
+                    Id::new_static("ask.sheet"),
+                    "sheet",
+                    Box::new(|_, _| Box::new(HalfOverlay)),
+                ))?;
+                r.bind_slot(
+                    slots::CHOICE,
+                    Id::new_static("ask.sheet"),
+                    Priority::DEFAULT,
+                )?;
+                r.bind_slot(
+                    slots::CONFIRM,
+                    Id::new_static("ask.sheet"),
+                    Priority::DEFAULT,
+                )
+            },
+        )
+        .build()
+        .unwrap();
+    let ask = kernel.plugins().get("ask").unwrap();
+    assert_eq!(
+        ask.required_for.iter().collect::<Vec<_>>(),
+        [&slots::CHOICE, &slots::CONFIRM]
+    );
+    assert!(!ask.can_switch_off());
+    kernel.set_plugin_enabled(&Id::new_static("ask"), false);
+    assert!(kernel.plugins().get("ask").unwrap().enabled);
 }
 
 #[test]
@@ -2865,7 +2864,7 @@ struct SizedScreen {
     reader: bool,
 }
 
-impl crate::Layer for SizedScreen {
+impl crate::testing::Fake for SizedScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn hints(&self) -> Option<paperpaw_sdk::HintVisibility> {
@@ -2876,12 +2875,8 @@ impl crate::Layer for SizedScreen {
         Handled::No
     }
 
-    fn hint(&self, action: &Id, _: &Env<'_>) -> paperpaw_sdk::Hint {
-        if *action == actions::CONFIRM {
-            paperpaw_sdk::Hint::Text("Go".into())
-        } else {
-            paperpaw_sdk::Hint::Default
-        }
+    fn hint(&self, action: &Id) -> Option<paperpaw_sdk::Hint> {
+        (*action == actions::CONFIRM).then(|| paperpaw_sdk::Hint::Text("Go".into()))
     }
 }
 
@@ -2894,7 +2889,7 @@ pub(crate) fn sized_plugin(
         for (name, slot) in [("home", slots::HOME), ("reader", slots::READER)] {
             let made = kept.clone();
             let id = Id::parse(&alloc::format!("sized.{name}")).unwrap();
-            r.add_layer(crate::LayerSpec::new(
+            r.add_fake(crate::testing::FakeSpec::new(
                 id.clone(),
                 "sized",
                 Box::new(move |env, _| {
@@ -2942,13 +2937,15 @@ fn a_row_of_hints_names_the_buttons_below_the_screen() {
         ]
     );
 
-    // The reader keeps all of the screen: made again for it, as it says.
+    // The reader keeps all of the screen, as it says: made once, a plugin's
+    // screen is laid out for the part it then has, not made again.
     kernel.apply(Command::OpenSlot(
         slots::READER,
         paperpaw_sdk::Params::new(),
     ));
     kernel.finish();
-    assert_eq!(made.borrow()[1..], [("reader", above), ("reader", 90)]);
+    assert_eq!(made.borrow()[1..], [("reader", above)]);
+    assert_eq!(kernel.stack.last().unwrap().area.height, 90);
     assert_eq!(kernel.hint_row(), None);
     // A button of the row shows the row over the page for a while; a side
     // button does not.
@@ -2972,19 +2969,19 @@ fn a_row_of_hints_names_the_buttons_below_the_screen() {
     assert_eq!(kernel.content().height, above);
     assert_eq!(kernel.hint.shown[0], Hint::Hidden);
 
-    // Switched off: the screens are made anew for all of it.
+    // Switched off: the screens are laid out anew for all of it.
     kernel.apply(Command::set(
         &paperpaw_sdk::builtin::settings::BUTTON_HINTS,
         false,
     ));
     kernel.finish();
-    assert_eq!(made.borrow().last(), Some(&("home", 90)));
+    assert_eq!(kernel.content().height, 90);
     assert_eq!(kernel.hint_row(), None);
 }
 
 struct PictureScreen(Rc<RefCell<bool>>);
 
-impl crate::Layer for PictureScreen {
+impl crate::testing::Fake for PictureScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         if *self.0.borrow() {
             let row = alloc::vec![128u8; usize::from(env.device().display.width)];
@@ -3007,7 +3004,7 @@ pub(crate) fn picture_plugin(
 ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let shown = kept.clone();
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("picture.home"),
             "picture",
             Box::new(move |_, _| Box::new(PictureScreen(shown.clone()))),
@@ -3234,7 +3231,6 @@ mod action_runs;
 mod bluetooth_pairing;
 mod busy_mark;
 mod card_hints;
-mod chrome;
 mod clean_up;
 mod declared_work;
 mod developer;
@@ -3258,13 +3254,11 @@ mod net_demand;
 mod net_policy_wiring;
 mod network_work;
 mod open_with;
-mod panes;
 mod pictures_in_grays;
 mod plugins_loaded;
 pub(crate) mod questions;
 mod realtime;
 mod refreshes;
-mod resizing;
 mod screen_life;
 mod services_declared;
 mod settings_files;

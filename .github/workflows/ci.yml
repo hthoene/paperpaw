@@ -161,8 +161,7 @@ jobs:
           shared-key: check
           save-if: false
       # Builds without runtime font rendering use bitmap font packs; the plugins of the
-      # store that carry a copy of their card files for the apps read the card without it;
-      # the kernel without panes is that of the Xteink devices.
+      # store that carry a copy of their card files for the apps read the card without it.
       - run: cargo test --no-fail-fast -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-stats -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features --features paperpaw-plugin-reading-goal/linked,paperpaw-plugin-stats/linked
 
   # The rest of the feature builds of the kernel and the plugins, a job of its own

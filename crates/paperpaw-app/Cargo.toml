@@ -13,11 +13,7 @@ categories = ["no-std"]
 links = "paperpaw-app"
 
 [features]
-default = ["store-plugins", "diagnostics", "panes"]
-# A list and its detail beside each other on wide screens (the kernel's
-# `panes`): every shell with the app's defaults has it; the Xteink
-# firmware, never wide, leaves it out.
-panes = ["paperpaw-core/panes"]
+default = ["store-plugins", "diagnostics"]
 # Closes the X4's nested-call gate in the kernel again (the X3's firmware builds so):
 # the tests that expect the refusals run with it (CI).
 x4-gate-closed = ["paperpaw-core/x4-gate-closed"]

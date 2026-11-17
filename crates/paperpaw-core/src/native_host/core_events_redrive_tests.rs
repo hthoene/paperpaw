@@ -256,10 +256,10 @@ fn a_failing_tick_plugin_does_not_stop_the_healthy_one_on_the_production_route()
 /// A screen of plugin `a` that guards the device and raises `STARTED` on
 /// confirm.
 struct Guard;
-impl crate::Layer for Guard {
+impl crate::testing::Fake for Guard {
     fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-    fn guards(&self) -> bool {
-        true
+    fn flags(&self) -> u32 {
+        crate::testing::GUARDS
     }
     fn on_action(
         &mut self,
@@ -286,7 +286,7 @@ fn an_event_a_guard_raises_reaches_its_own_plugin_alone() {
         paperpaw_sdk::Version::new(1, 0, 0),
     );
     let builder = crate::Kernel::builder(crate::tests::DEVICE).items(manifest, |items| {
-        items.add_layer(crate::LayerSpec::new(
+        items.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("a.guard"),
             "guard",
             alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Guard)),

@@ -228,11 +228,11 @@ impl Dispatch for NativeLease {
         instance: Option<paperpaw_sdk::ScreenKey>,
         token: u32,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        cx: &mut paperpaw_sdk::Cx<'_, '_>,
         input: bool,
     ) -> Result<i32, i32> {
         self.live()?
-            .screen_callback(instance, token, bytes, env, input)
+            .screen_callback(instance, token, bytes, cx, input)
     }
     fn screen_draw(
         &self,
@@ -259,6 +259,12 @@ impl Dispatch for NativeLease {
         if let Some(instance) = self.0.peek() {
             instance.dropped(token, status);
         }
+    }
+    #[cfg(any(test, feature = "testing"))]
+    fn test_screen(&self, visit: &mut dyn FnMut(&dyn crate::testing::TestScreen)) -> bool {
+        self.0
+            .peek()
+            .is_some_and(|instance| instance.test_screen(visit))
     }
 }
 

@@ -45,7 +45,8 @@ impl Shared {
             active.screen.draw(canvas, env);
             return;
         }
-        let native = (self.registry.screens.get(&active.id)).is_some_and(|spec| spec.is_native());
+        let native = (self.registry.screens.get(&active.id))
+            .is_some_and(|spec| spec.is_native() && !spec.is_fake());
         self.native_instances.take_drew();
         active.screen.draw(canvas, env);
         active.drawn |= !native || self.native_instances.take_drew();

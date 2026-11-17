@@ -477,13 +477,11 @@ mod kernel {
     /// A screen that guards the device, one that takes a PIN, and the filter
     /// plugin's own PIN screen.
     struct Seen(bool, bool);
-    impl crate::Layer for Seen {
+    impl crate::testing::Fake for Seen {
         fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-        fn guards(&self) -> bool {
-            self.0
-        }
-        fn secret(&self) -> bool {
-            self.1
+        fn flags(&self) -> u32 {
+            (u32::from(self.0) * crate::testing::GUARDS)
+                | (u32::from(self.1) * crate::testing::SECRET)
         }
         fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
             Handled::No
@@ -497,18 +495,18 @@ mod kernel {
     fn screens(kept: &'static str) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         move |r| {
             if kept == "g" {
-                r.add_layer(crate::LayerSpec::new(
+                r.add_fake(crate::testing::FakeSpec::new(
                     LOCK,
                     "lock",
                     Box::new(|_, _| Box::new(Seen(true, false))),
                 ))?;
-                r.add_layer(crate::LayerSpec::new(
+                r.add_fake(crate::testing::FakeSpec::new(
                     PIN,
                     "pin",
                     Box::new(|_, _| Box::new(Seen(false, true))),
                 ))
             } else {
-                r.add_layer(crate::LayerSpec::new(
+                r.add_fake(crate::testing::FakeSpec::new(
                     OWN_PIN,
                     "pin",
                     Box::new(|_, _| Box::new(Seen(false, true))),

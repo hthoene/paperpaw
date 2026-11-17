@@ -6,7 +6,6 @@
     reason = "a part of the kernel, which sees all of it; not every part uses every name"
 )]
 use super::*;
-use paperpaw_sdk::Pane;
 
 /// A screen on the navigation stack.
 pub(crate) struct ActiveScreen {
@@ -44,9 +43,6 @@ pub(crate) struct ActiveScreen {
     /// secret, bit 5 holds edges. It replaces the screen's own answers for
     /// those three and stays when the screen is made anew.
     pub(crate) policy: Option<u32>,
-    /// How it shows where the screen is wide ([`Screen::pane`]), as it
-    /// said when it was made.
-    pub(crate) pane: paperpaw_sdk::Pane,
     /// `event.screen_ready` (87) was raised for this instance, or it will not
     /// be (`screen_ready`): at most once an instance.
     pub(crate) ready: bool,
@@ -94,11 +90,6 @@ impl ActiveScreen {
         )
     }
 }
-
-/// The revision of `Screen` that brought `Screen::times_under_overlays`
-/// (see `paperpaw_sdk::SCREEN_REVISION`): asked only of screens built
-/// with it or later.
-const TIMES_UNDER_OVERLAYS_SINCE: u16 = 3;
 
 /// How many tasks not shown are kept ([`Command::SwitchTask`]).
 const TASKS_KEPT: usize = 8;
@@ -202,12 +193,10 @@ impl Kernel {
             return self.warn_runtime(SCREEN_KEYS_EXHAUSTED);
         };
         self.next_serial = next_serial;
-        let key = paperpaw_sdk::ScreenKey::new(serial);
-        let entry = paperpaw_sdk::StackEntry::new(id.clone(), slot.clone(), false, key);
         // Made once, at the size it asked for: above the row of hints, or
-        // all of the screen, less the bars shown over it.
+        // all of the screen.
         let mut hinted = true;
-        let mut area = self.layout(hinted, Some(&entry), None);
+        let mut area = self.layout(hinted);
         set_area(&mut self.shared.device, &mut self.shared.content, area);
         let running = self.shared.meter.enter(id.namespace());
         let mut screen = match native_screen {
@@ -231,38 +220,11 @@ impl Kernel {
             && (own == HintVisibility::Shown) != hinted
         {
             hinted = !hinted;
-            area = self.layout(hinted, Some(&entry), None);
+            area = self.layout(hinted);
             set_area(&mut self.shared.device, &mut self.shared.content, area);
             spec.remake(&mut screen, &self.shared.env(self.now), params);
         }
-        // An overlay shares its full screen's part, a guard has no bars:
-        // made again for that part.
-        let place = self.area_on_top(&screen, hinted, &entry, area);
-        if place != area {
-            area = place;
-            set_area(&mut self.shared.device, &mut self.shared.content, area);
-            spec.remake(&mut screen, &self.shared.env(self.now), params);
-        }
-        let pane = crate::screen::call_since(&mut screen, 2, Pane::FULL, |s| s.pane()).known();
         drop(running);
-        // A detail beside the list on top, where the screen is wide: in
-        // place of the detail shown there where the list opened it, made
-        // again for its part.
-        let full = screen.region(&self.shared.env(self.now)).is_none();
-        self.close_detail_for(pane, full);
-        let beside = self.beside_top(&screen, pane, area);
-        if let Some(part) = beside
-            && let Some(spec) = self.shared.registry.screens.get(&id)
-        {
-            area = part;
-            set_area(&mut self.shared.device, &mut self.shared.content, area);
-            let _running = self.shared.meter.enter(id.namespace());
-            // The one made for all of it goes first (see `Screen::GONE`).
-            if !spec.is_native() {
-                drop(mem::replace(&mut screen, crate::screen::Screen::GONE));
-                spec.remake(&mut screen, &self.shared.env(self.now), params);
-            }
-        }
         let active = ActiveScreen {
             guard_dialog: false,
             id,
@@ -276,20 +238,18 @@ impl Kernel {
             key_layer: None,
             by_guard: self.guard().is_some() && self.from_guard_own,
             policy: None,
-            pane,
             ready: false,
             drawn: false,
         };
-        self.push_opened(active, params, beside.is_some(), on_open);
+        self.push_opened(active, params, on_open);
     }
 
     /// Puts the screen just made on the stack (below a guard, or on top) and
-    /// tells it and the display; `beside` when it is shown beside the list.
+    /// tells it and the display.
     fn push_opened(
         &mut self,
         active: ActiveScreen,
         params: &Params,
-        beside: bool,
         on_open: Option<paperpaw_sdk::RefreshMode>,
     ) {
         // Opened by another while a screen guards the device: it waits
@@ -299,10 +259,6 @@ impl Kernel {
             self.sync_stack();
             self.hidden_screen_opened(guard, params);
             return;
-        }
-        // The list a detail shows beside stays shown.
-        if active.screen.region(&self.shared.env(self.now)).is_none() && !beside {
-            self.hide_from(self.shown_base());
         }
         self.screens_changed = true;
         self.stack.push(active);
@@ -318,10 +274,6 @@ impl Kernel {
     }
 
     fn hidden_screen_opened(&mut self, index: usize, params: &Params) {
-        {
-            let _running = self.shared.meter.enter(self.stack[index].id.namespace());
-            self.stack[index].screen.on_hide();
-        }
         self.native_screen_opened(index, params);
     }
 
@@ -532,22 +484,6 @@ impl Kernel {
         }
     }
 
-    /// The topmost full screen, or the list beside it where it is its
-    /// detail ([`Kernel::panes`]): it and the screens above it show.
-    pub(crate) fn shown_base(&self) -> usize {
-        self.panes()
-            .map_or_else(|| self.full_base(), |(list, _)| list)
-    }
-
-    /// Tells the screens from `index` on that a full screen covers them
-    /// now ([`Screen::on_hide`]).
-    fn hide_from(&mut self, index: usize) {
-        for active in self.stack.iter_mut().skip(index) {
-            let _running = self.shared.meter.enter(active.id.namespace());
-            active.screen.on_hide();
-        }
-    }
-
     /// Shows `text` with the screen bound to the notice slot until the
     /// notice time is over, in place of the one that shows. It waits (at most
     /// 4 waiting, 2 on the X4, the oldest dropped) while a screen guards the
@@ -702,8 +638,7 @@ impl Kernel {
         }
         self.shared.stack.clear();
         self.shared.stack.extend(entries);
-        self.sync_chromes();
-        self.sync_pane_keys();
+        self.lay_out_shown();
     }
 
     /// Closes the open screen `key` (see [`Command::Close`]), leaving the
@@ -724,7 +659,7 @@ impl Kernel {
         if index + 1 == self.stack.len() {
             return self.close_above(index - 1);
         }
-        let base = self.shown_base();
+        let base = self.full_base();
         let region = self.changed_region(index);
         self.with_screen(index, |screen, cx| {
             screen.on_close(cx);
@@ -1043,7 +978,7 @@ impl Kernel {
         let device = base.device_within(active.area);
         let env = base.within(&device, active.area);
         let region = active.screen.region(&env)?;
-        Some(chrome::on_screen(region, active.area))
+        Some(areas::on_screen(region, active.area))
     }
 
     /// What opening or closing screen `index` changes: its region, or
@@ -1091,27 +1026,13 @@ impl Kernel {
     }
 
     /// Makes every open screen anew for the size it has now, e.g. after
-    /// the screen was resized or the row of hints changed; `shown` is
-    /// [`Kernel::shown_base`] before the change.
-    pub(crate) fn remake_screens(&mut self, shown: usize) {
-        // The bars are made anew for the new size too.
-        self.close_chromes();
-        let mut kept = Vec::with_capacity(self.stack.len());
+    /// the screen was resized or the row of hints changed.
+    pub(crate) fn remake_screens(&mut self) {
         for i in 0..self.stack.len() {
             let area = self.area_of(i);
-            kept.push(self.remake_screen(i, area));
+            self.remake_screen(i, area);
         }
         self.sync_stack();
-        // Made anew, those below the screen shown are hidden again; those
-        // kept were hidden already, unless they showed (a list beside its
-        // detail, which now covers it).
-        let base = self.shown_base();
-        for (i, (active, kept)) in self.stack.iter_mut().zip(kept).enumerate().take(base) {
-            if !kept || i >= shown {
-                let _running = self.shared.meter.enter(active.id.namespace());
-                active.screen.on_hide();
-            }
-        }
         self.hint.shown.clear();
         self.end_notice();
         self.sync_content();
@@ -1140,9 +1061,7 @@ impl Kernel {
         }
         let asked = self.output.commands.len();
         let before = mem::replace(&mut self.stack[index].area, area);
-        let resized = self.with_screen(index, |screen, cx| {
-            crate::screen::call_since(screen, 2, Handled::No, |screen| screen.on_resize(cx))
-        });
+        let resized = self.with_screen(index, |screen, cx| screen.on_resize(cx));
         if resized == Handled::Yes {
             self.apply_area(area);
             return true;
@@ -1167,8 +1086,6 @@ impl Kernel {
             active.screen = crate::screen::Screen::GONE;
             spec.remake(&mut active.screen, &env, &active.params);
         }
-        let made = &mut active.screen;
-        active.pane = crate::screen::call_since(made, 2, Pane::FULL, |s| s.pane()).known();
         false
     }
 
@@ -1211,7 +1128,7 @@ impl Kernel {
         }
         // A part it asked to draw again is in its own coordinates.
         let own = mem::replace(&mut self.output.redraw_area, asked_area);
-        if let Some(own) = own.map(|own| chrome::on_screen(own, area)) {
+        if let Some(own) = own.map(|own| areas::on_screen(own, area)) {
             let all = self.output.redraw_area.map_or(own, |a| a.union(&own));
             self.output.redraw_area = Some(all);
         }
@@ -1275,11 +1192,9 @@ impl Kernel {
         let requested = mem::replace(&mut self.output.redraw, earlier);
         if requested {
             let top = self.stack.len() - 1;
-            // The detail beside a list covers none of it.
-            let detail = self.panes().map(|(_, detail)| detail);
             if index == top {
                 self.output.redraw = true;
-            } else if (index + 1..=top).all(|i| detail == Some(i) || self.overlay(i).is_some()) {
+            } else if (index + 1..=top).all(|i| self.overlay(i).is_some()) {
                 // Less what the overlays above it cover: they paint all
                 // of their region (as `redraw` draws them), so only the
                 // rest of it changes on the screen. Not where one shows
@@ -1306,36 +1221,13 @@ impl Kernel {
         handled
     }
 
-    /// The full screen whose time comes below overlays alone: the topmost
-    /// full screen, where every screen above it is an overlay and it asks
-    /// for it ([`Screen::times_under_overlays`], revision 3). `None` where
-    /// a full screen is on top.
-    fn timed_under_overlays(&mut self) -> Option<usize> {
-        let top = self.stack.len().checked_sub(1)?;
-        let full = (0..top).rev().find(|&i| self.overlay(i).is_none())?;
-        if (full + 1..=top).any(|i| self.overlay(i).is_none()) {
-            return None;
-        }
-        let screen = &mut self.stack[full].screen;
-        crate::screen::call_since(screen, TIMES_UNDER_OVERLAYS_SINCE, false, |s| {
-            s.times_under_overlays()
-        })
-        .then_some(full)
-    }
-
-    /// The earliest time a screen asked for that comes: the top one's,
-    /// and that of the one below overlays alone that runs.
+    /// The time the screen on top asked for.
     pub(crate) fn screen_timer(&mut self) -> Option<Instant> {
-        let top = self.stack.last().and_then(|top| top.timer);
-        let below = self
-            .timed_under_overlays()
-            .and_then(|index| self.stack[index].timer);
-        top.into_iter().chain(below).min()
+        self.stack.last().and_then(|top| top.timer)
     }
 
-    /// Calls [`Screen::on_timer`] of the screens whose time has come: the
-    /// one on top, then the one below overlays alone that asks for it
-    /// (found anew, as the top one may have closed).
+    /// Calls [`Screen::on_timer`] of the screen on top when its time has
+    /// come.
     pub(crate) fn screen_timers_due(&mut self) {
         let now = self.now;
         if let Some(top) = self.stack.last_mut()
@@ -1343,15 +1235,6 @@ impl Kernel {
         {
             top.timer = None;
             self.with_top(|screen, cx| {
-                screen.on_timer(cx);
-                Handled::Yes
-            });
-        }
-        if let Some(index) = self.timed_under_overlays()
-            && self.stack[index].timer.is_some_and(|at| at <= now)
-        {
-            self.stack[index].timer = None;
-            self.with_screen(index, |screen, cx| {
                 screen.on_timer(cx);
                 Handled::Yes
             });
@@ -1402,7 +1285,7 @@ impl Kernel {
 pub(crate) fn notice_area(screen: &crate::screen::Screen, env: &Env<'_>) -> Rect {
     let content = env.content();
     let all = Rect::new(0, 0, content.width, content.height);
-    chrome::on_screen(screen.region(env).unwrap_or(all), content)
+    areas::on_screen(screen.region(env).unwrap_or(all), content)
 }
 
 /// Screens are made for, and handled in, `area` now (see

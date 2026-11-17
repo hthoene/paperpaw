@@ -39,13 +39,12 @@ extern crate alloc;
 
 #[allow(dead_code, reason = "M1 adapters compile before host table activation")]
 mod abi7;
+mod areas;
 mod awake;
 mod bluetooth;
 mod builder;
 mod card;
 mod catalog_file;
-mod chrome;
-mod chrome_spec;
 mod code_plugin;
 mod commands;
 mod config;
@@ -67,13 +66,11 @@ mod input_filters;
 mod io;
 mod key_guard;
 mod keymap;
-mod layer;
 mod memory_notice;
 mod meter;
 pub mod native_host;
 mod network;
 mod notices;
-mod panes;
 mod plugins;
 mod realtime;
 mod recall;
@@ -84,11 +81,23 @@ mod screen;
 mod screens;
 mod secrets_i6;
 mod shared_env;
-pub use chrome_spec::{ChromeSpec, Edge};
 mod tall_band;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+#[cfg(any(test, feature = "testing"))]
+pub(crate) use testing::FakeSpec;
+/// No test's screen outside the feature `testing`.
+#[cfg(not(any(test, feature = "testing")))]
+#[derive(Debug)]
+pub(crate) enum FakeSpec {}
+#[cfg(not(any(test, feature = "testing")))]
+impl FakeSpec {
+    pub(crate) fn id(&self) -> &Id {
+        match *self {}
+    }
+}
 mod warning;
 pub use hear::{Hear, Stepper};
-pub use layer::{Layer, LayerFactory, LayerSpec};
 pub use warning::{Warning, WarningSource};
 #[cfg(test)]
 mod tests;
@@ -333,11 +342,6 @@ pub struct Kernel {
     io: network::IoState,
     frame: drawing::FrameState,
     keys: plugins::KeySources,
-    /// The bars along the edges of the screen plugins added
-    /// ([`paperpaw_sdk::chrome`]), the outermost first.
-    chromes: Vec<chrome::Chrome>,
-    /// Those shown now, by their place in `chromes`, with their strips.
-    chrome_strips: Vec<(usize, Rect)>,
     /// The plugin of each of `Shared::stylesheets`, to drop them with it.
     stylesheet_owners: Vec<Id>,
     timing: timing::Timing,
@@ -527,7 +531,7 @@ impl Kernel {
                 }
                 // Without a long press to tell apart, at once.
                 let long = InputKey::LongButton(Cow::Borrowed(name));
-                let at_once = self.resolve(&long).is_none() && !self.takes_buttons();
+                let at_once = self.resolve(&long).is_none();
                 if let Some(recognized) = self.input.recognizer.button(name, state, now, at_once) {
                     self.recognized_filtered(recognized);
                 }
@@ -858,8 +862,6 @@ impl Kernel {
             self.shared.reader = true;
             self.route_key_pending();
         }
-        self.tick_chromes();
-        self.tick_pane_list();
         self.screen_timers_due();
         if self.notice.as_ref().is_some_and(|(_, until)| *until <= now) {
             self.end_notice();

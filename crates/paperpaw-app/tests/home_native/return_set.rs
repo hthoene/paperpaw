@@ -19,7 +19,7 @@ const PAGE: &str = "[home]\ncolumns = 4\npage-1 = tool:core.library 0/0 1x1, \
 /// run on it changes a setting and closes it, all in the one callback.
 pub struct Closer;
 
-impl paperpaw_core::Layer for Closer {
+impl paperpaw_core::testing::Fake for Closer {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {

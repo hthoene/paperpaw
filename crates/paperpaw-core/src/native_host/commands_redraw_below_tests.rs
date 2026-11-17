@@ -19,7 +19,7 @@ struct Probe {
     white: Rc<Cell<bool>>,
 }
 
-impl crate::Layer for Probe {
+impl crate::testing::Fake for Probe {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         let color = match self.kind {
             "page" if self.white.get() => Color::WHITE,
@@ -36,16 +36,18 @@ impl crate::Layer for Probe {
         matches!(self.kind, "bar" | "dimbar" | "pin").then(|| Rect::new(0, 45, 90, 45))
     }
 
+    fn flags(&self) -> u32 {
+        use crate::testing::{DIMS_BELOW, GUARDS, OVERLAY};
+        match self.kind {
+            "bar" => OVERLAY,
+            "dimbar" => OVERLAY | DIMS_BELOW,
+            "pin" => OVERLAY | GUARDS,
+            _ => 0,
+        }
+    }
+
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
-    }
-
-    fn guards(&self) -> bool {
-        self.kind == "pin"
-    }
-
-    fn dims_below(&self) -> bool {
-        self.kind == "dimbar"
     }
 }
 
@@ -59,7 +61,7 @@ fn probes(kept: Rc<Cell<bool>>) -> impl Fn(&mut Items) -> Result<(), RegisterErr
             ("probe.pin", "pin"),
         ] {
             let white = Rc::clone(&kept);
-            r.add_layer(crate::LayerSpec::new(
+            r.add_fake(crate::testing::FakeSpec::new(
                 Id::new_static(id),
                 "probe.title",
                 Box::new(move |_, _| {

@@ -3,7 +3,7 @@
 use paperpaw_platform::{Instant, Rect, RefreshMode};
 
 #[cfg(doc)]
-use crate::Layer as Screen;
+use crate::screen::Screen;
 #[cfg(doc)]
 use crate::{Kernel, KernelBuilder};
 

@@ -1,32 +1,30 @@
 //! Screens with pictures shown in grays on panels of black and white:
-//! when, and when not (a screen that says no, a refresh set exactly).
+//! when, and when not (a screen without pictures, a refresh set exactly).
 
 use super::*;
 use crate::Items;
 use core::cell::Cell;
 
-/// A home screen with a picture over most of it, which may be shown in
-/// grays or says no.
+/// A home screen with a picture over most of it, or none (`in_grays`).
 struct CoverPlugin {
     in_grays: bool,
 }
 
 struct CoverScreen {
+    /// It draws its picture.
     in_grays: bool,
 }
 
-impl crate::Layer for CoverScreen {
+impl crate::testing::Fake for CoverScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         let image = paperpaw_sdk::document::ImageRef {
             path: "p.gray".into(),
             width: 8,
             height: 8,
         };
-        paperpaw_sdk::ui::draw_image(canvas, env.storage(), &image, Rect::new(10, 10, 60, 60));
-    }
-
-    fn pictures_in_grays(&self) -> bool {
-        self.in_grays
+        if self.in_grays {
+            paperpaw_sdk::ui::draw_image(canvas, env.storage(), &image, Rect::new(10, 10, 60, 60));
+        }
     }
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -37,7 +35,7 @@ impl crate::Layer for CoverScreen {
 /// A half screen over the page, as a dialog is.
 struct OverScreen;
 
-impl crate::Layer for OverScreen {
+impl crate::testing::Fake for OverScreen {
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
         Some(Rect::new(0, 45, 90, 45))
     }
@@ -54,24 +52,24 @@ impl crate::Layer for OverScreen {
 fn cover_plugin(kept: CoverPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let in_grays = kept.in_grays;
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("cover.page"),
             "page",
             Box::new(move |_, _| Box::new(CoverScreen { in_grays })),
         ))?;
         // Another full screen with no pictures to show in grays, and a half
         // screen over it (a dialog).
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("cover.plain"),
             "plain",
             Box::new(|_, _| Box::new(CoverScreen { in_grays: false })),
         ))?;
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("cover.over"),
             "over",
             Box::new(|_, _| Box::new(OverScreen)),
         ))?;
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("cover.book"),
             "book",
             Box::new(move |_, _| Box::new(CoverScreen { in_grays })),
@@ -345,7 +343,7 @@ fn a_pass_due_in_a_call_that_makes_a_frame_comes_within_the_retry_with_no_event(
 /// A home screen with no picture in its first frame; one cell comes later (a cover).
 struct LateScreen(Rc<Cell<bool>>);
 
-impl crate::Layer for LateScreen {
+impl crate::testing::Fake for LateScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         if self.0.get() {
             let image = paperpaw_sdk::document::ImageRef {
@@ -364,10 +362,6 @@ impl crate::Layer for LateScreen {
         }
     }
 
-    fn pictures_in_grays(&self) -> bool {
-        true
-    }
-
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
     }
@@ -377,7 +371,7 @@ impl crate::Layer for LateScreen {
 fn late_plugin(late: Rc<Cell<bool>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let late = late.clone();
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("late.home"),
             "home",
             Box::new(move |_, _| Box::new(LateScreen(late.clone()))),

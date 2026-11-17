@@ -49,7 +49,7 @@ struct Dialog {
     request: Option<u32>,
 }
 
-impl crate::Layer for Dialog {
+impl crate::testing::Fake for Dialog {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
         let store = ANSWERS.with(|store| store.borrow().as_ref().and_then(|s| s.try_clone()));
@@ -72,7 +72,7 @@ impl crate::Layer for Dialog {
 /// A plugin that serves the keyboard and the confirm slot.
 fn serves() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             KEYBOARD_SCREEN,
             "keyboard",
             Box::new(|_, params| {
@@ -113,10 +113,10 @@ fn serves_manifest() -> Manifest {
 
 struct Lock;
 
-impl crate::Layer for Lock {
+impl crate::testing::Fake for Lock {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn guards(&self) -> bool {
-        true
+    fn flags(&self) -> u32 {
+        crate::testing::GUARDS
     }
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
@@ -126,7 +126,7 @@ impl crate::Layer for Lock {
 /// A plugin `id` with a screen `<id>.lock` that guards the device.
 fn locks_items(kept: &'static str) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::try_parse(&std::format!("{}.lock", kept)).unwrap(),
             "lock",
             Box::new(|_, _| Box::new(Lock)),
@@ -310,9 +310,9 @@ fn the_dialog_opens_in_its_slot_after_the_asking_callback_returned() {
     });
     let top = w.kernel.stack.last().unwrap().serial;
     assert_eq!(w.store.dialog_of(top).map(|d| d.0), Some(id));
-    // A dialog that is not native (this one) keeps the params: the host's
-    // hand-over no screen took is freed.
-    assert_eq!(w.store.len(), 0);
+    // A native dialog (this one, a test's): the host's hand-over waits for the
+    // screen to take it.
+    assert_eq!(w.store.len(), 1);
 }
 
 #[test]

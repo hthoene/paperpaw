@@ -34,7 +34,7 @@ const JOB: Id = Id::new_static("wk.job");
 
 struct Blank;
 
-impl crate::Layer for Blank {
+impl crate::testing::Fake for Blank {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -44,7 +44,7 @@ impl crate::Layer for Blank {
 
 fn work_plugin(kept: WorkPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("wk.home"),
             "home",
             Box::new(|_, _| Box::new(Blank)),
@@ -304,7 +304,7 @@ fn offline_holds_network_work_back() {
 fn sayer_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         // Notices need a screen to show them.
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("sy.notice"),
             "notice",
             Box::new(|_, _| Box::new(Blank)),

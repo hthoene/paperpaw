@@ -49,7 +49,7 @@ fn probe(builder: KernelBuilder) -> KernelBuilder {
     )
     .uses(paperpaw_core::sdk::Uses::NOTHING);
     builder.items(manifest, |items| {
-        items.add_layer(paperpaw_core::LayerSpec::new(
+        items.add_fake(paperpaw_core::testing::FakeSpec::new(
             SCREEN,
             "Notice probe",
             Box::new(|_, _| Box::new(Look)),
@@ -59,7 +59,7 @@ fn probe(builder: KernelBuilder) -> KernelBuilder {
 
 struct Look;
 
-impl paperpaw_core::Layer for Look {
+impl paperpaw_core::testing::Fake for Look {
     fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
         paperpaw_emulator::budget::untracked(|| look(env));
     }

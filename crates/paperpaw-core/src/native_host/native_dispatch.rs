@@ -297,9 +297,10 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         instance: Option<paperpaw_sdk::ScreenKey>,
         token: u32,
         bytes: &[u8],
-        env: &Env<'_>,
+        cx: &mut paperpaw_sdk::Cx<'_, '_>,
         input: bool,
     ) -> Result<i32, i32> {
+        let env = cx.env();
         let invocation = if input {
             shell::TokenInvocation::Input(bytes)
         } else {

@@ -15,7 +15,7 @@ const LIST: Id = Id::new_static("host.list");
 /// be drawn again on one, and says a word.
 struct Page(Log);
 
-impl crate::Layer for Page {
+impl crate::testing::Fake for Page {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
         let display = env.device().display;
@@ -45,19 +45,19 @@ impl crate::Layer for Page {
 fn host_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             PAGE,
             "page",
             Box::new(move |_, _| Box::new(Page(log.clone()))),
         ))?;
         let log = kept.clone();
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             HOST,
             "tabs",
             Box::new(move |_, _| Box::new(Page(log.clone()))),
         ))?;
         let log = kept.clone();
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             LIST,
             "list",
             Box::new(move |_, _| Box::new(Page(log.clone()))),

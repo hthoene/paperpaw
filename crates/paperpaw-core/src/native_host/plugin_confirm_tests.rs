@@ -145,7 +145,7 @@ mod kernel_side {
 
     /// A home screen to lie under the confirmation.
     struct Page;
-    impl crate::Layer for Page {
+    impl crate::testing::Fake for Page {
         fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
         fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
             Handled::No
@@ -154,7 +154,7 @@ mod kernel_side {
     fn home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         |r| {
             const HOME: Id = Id::new_static("h.home");
-            r.add_layer(crate::LayerSpec::new(
+            r.add_fake(crate::testing::FakeSpec::new(
                 HOME,
                 "home",
                 alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Page)),

@@ -564,7 +564,7 @@ fn no_screen_reads_while_it_draws() {
 /// A screen that reads a file while it draws, as screens once did.
 struct Reads;
 
-impl paperpaw_core::Layer for Reads {
+impl paperpaw_core::testing::Fake for Reads {
     fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
         let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
     }
@@ -579,7 +579,7 @@ fn probe(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder 
         .description("A screen that reads while it draws.")
         .uses(paperpaw_sdk::Uses::NOTHING);
     builder.items(manifest, |items| {
-        items.add_layer(paperpaw_core::LayerSpec::new(
+        items.add_fake(paperpaw_core::testing::FakeSpec::new(
             Id::new_static("probe.reads"),
             "probe.reads",
             Box::new(|_, _| Box::new(Reads)),

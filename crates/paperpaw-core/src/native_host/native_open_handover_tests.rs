@@ -3,7 +3,6 @@
 //! of the reader's translate arrives as the hand-over's host text, never as a
 //! param (`docs/abi/ui.md` 1.1).
 use super::*;
-use crate::Items;
 use crate::native_host::{
     commands::{CommandScope, CommandStage, WireCommand, commands_encode},
     shared::Shared,
@@ -326,84 +325,6 @@ fn a_stage_dropped_before_its_drain_frees_what_its_submits_claimed() {
         assert_eq!(store.len(), 1);
     }
     // The callback returned an error: its stage is dropped, the claim rolled back.
-    assert_eq!(store.len(), 0);
-}
-
-/// A plugin of the program offering `core.translate` first, with a screen of
-/// its own that is not native.
-fn legacy_manifest() -> paperpaw_sdk::Manifest {
-    paperpaw_sdk::Manifest::new(
-        Id::new_static("legacy"),
-        "Legacy",
-        paperpaw_sdk::Version::new(1, 0, 0),
-    )
-    .uses(paperpaw_sdk::Uses::NOTHING)
-}
-
-fn legacy() -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
-    move |r| {
-        struct Empty;
-        impl crate::Layer for Empty {
-            fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-            fn on_action(
-                &mut self,
-                _: &Id,
-                _: &mut paperpaw_sdk::Cx<'_, '_>,
-            ) -> paperpaw_sdk::Handled {
-                paperpaw_sdk::Handled::No
-            }
-        }
-        r.add_layer(crate::LayerSpec::new(
-            Id::new_static("legacy.screen"),
-            "legacy.title",
-            Box::new(|_, _| Box::new(Empty)),
-        ))?;
-        r.bind_slot(
-            Id::new_static("core.translate"),
-            Id::new_static("legacy.screen"),
-            paperpaw_sdk::Priority(100),
-        )
-    }
-}
-
-#[test]
-fn a_screen_that_is_not_native_keeps_its_params_when_a_native_open_shows_its_slot() {
-    let (_, store) = wired();
-    reset(NORMAL);
-    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .items(legacy_manifest(), legacy())
-        .build()
-        .unwrap();
-    install_resources(&mut kernel, 8, None).unwrap();
-    // The slot is the legacy screen's (priority 100): below it a base.
-    kernel.apply(Command::OpenScreen(
-        Id::new_static("factory.screen"),
-        Params::new(),
-    ));
-    kernel.apply(Command::OpenSlot(
-        Id::new_static("core.translate"),
-        Params::new().with("page", "1"),
-    ));
-    assert_eq!(kernel.stack.last().unwrap().id.as_str(), "legacy.screen");
-    let id = made(&store, &[], b"");
-    assert_eq!(
-        submit(&mut kernel, &store, &[open("core.translate", 1, "", id)]),
-        0
-    );
-    // Its params stay; no hand-over was given to it and none is left claimed.
-    assert_eq!(kernel.stack.last().unwrap().params.get("page"), Some("1"));
-    assert_eq!(store.len(), 0);
-    // A hand-over with params of its own: the screen is no native one and
-    // owns none, so it stays as it is, not closed and opened again without
-    // the params it has.
-    let legacy = kernel.stack.last().unwrap().serial;
-    let id = made(&store, &[("x", "1")], b"text");
-    assert_eq!(
-        submit(&mut kernel, &store, &[open("core.translate", 1, "", id)]),
-        0
-    );
-    let top = kernel.stack.last().unwrap();
-    assert_eq!((top.serial, top.params.get("page")), (legacy, Some("1")));
     assert_eq!(store.len(), 0);
 }
 

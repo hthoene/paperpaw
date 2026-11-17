@@ -282,8 +282,6 @@ title or a button's word: a title is measured first and keeps its whole
 width, a box or control beside it takes what is left, and where that is
 too little the row takes a second line (ask the block for its row's
 height); only a value, the reader's own text in a field, may be
-shortened. `paperpaw-dev ui-kit` draws every block below on every
-device, in every look, light and dark, and checks that no label is
 shortened.
 
 | For | Use |
@@ -609,7 +607,6 @@ end. PaperPaw's CI checks its screens so.
 | `flows` | Scripted flows with assertions (`--flow a.flow`): each step's heap and frame time against the X4's budgets, and each flow played again at the edges; see below. |
 | `package` | A data plugin as the device's installer and the plugin library take it (id, paths, file count and sizes, file kinds, `formats`, settings and presets that exist), installed on each device as the store does; a `.ppn` file checked as the device checks it (header, digest, the author's signature), with its fingerprint and sizes; flows and test pictures left in a data plugin's folder, which would ship with it (`package.tests`). `--release <version>` (for a `.ppn`, the release's fingerprint) tells whether that release takes it. |
 | `snapshots` | Screens and widgets compared with reference pictures (`--snapshots <dir>`, `tests/snapshots` by default); `--bless` writes them anew. |
-| `ui-kit` | Every building block of the SDK's `ui` module (see [Which building block for what](#which-building-block-for-what)), drawn as the gallery draws screens: on every device, in every look, light and dark, with and without the focus. Not part of `check`. |
 
 The pseudo-language makes every English text about a third longer and
 accents its letters (`[Šéţţîñĝš ~~]`); with `--language pseudo` the
@@ -3225,3 +3222,4 @@ present. Consume each borrowed part before reusing the output buffer. Text calls
 have no annotation-generation input, so a multi-call export must handle concurrent
 edits; it does not acquire a snapshot. A caller can recheck annotation generation
 and restart if it changed.
+

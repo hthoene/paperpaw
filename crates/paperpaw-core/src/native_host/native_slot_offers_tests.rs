@@ -101,7 +101,7 @@ fn other_manifest() -> paperpaw_sdk::Manifest {
 fn other(priority: i16) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
     move |r| {
         struct Empty;
-        impl crate::Layer for Empty {
+        impl crate::testing::Fake for Empty {
             fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
             fn on_action(
                 &mut self,
@@ -111,7 +111,7 @@ fn other(priority: i16) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::Regis
                 paperpaw_sdk::Handled::No
             }
         }
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("other.screen"),
             "other.title",
             Box::new(|_, _| Box::new(Empty)),

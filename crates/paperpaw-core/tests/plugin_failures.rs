@@ -63,10 +63,12 @@ std::thread_local! {
 fn faulty_items(kept: Faulty) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let id = |name: &str| Id::parse(&format!("bad.{name}")).unwrap();
-        r.add_layer(paperpaw_core::LayerSpec::new(
+        r.add_fake(paperpaw_core::testing::FakeSpec::new(
             id("screen"),
             "x",
-            Box::new(|_, _| -> Box<dyn paperpaw_core::Layer> { unreachable!("never opened") }),
+            Box::new(|_, _| -> Box<dyn paperpaw_core::testing::Fake> {
+                unreachable!("never opened")
+            }),
         ))?;
         r.bind_slot(slots::HOME, id("screen"), Priority(i16::MAX))?;
         r.add_action(ActionSpec::new(id("act"), "x"))?;

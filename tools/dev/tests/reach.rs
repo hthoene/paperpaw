@@ -33,12 +33,12 @@ fn trapped(builder: KernelBuilder) -> KernelBuilder {
         .description("Fails the reach check on purpose.")
         .uses(paperpaw_sdk::Uses::NOTHING);
     builder.items(manifest, |items| {
-        items.add_layer(paperpaw_core::LayerSpec::new(
+        items.add_fake(paperpaw_core::testing::FakeSpec::new(
             STUCK,
             "trapped.stuck",
             Box::new(|_, _| Box::new(Stuck)),
         ))?;
-        items.add_layer(paperpaw_core::LayerSpec::new(
+        items.add_fake(paperpaw_core::testing::FakeSpec::new(
             HIDDEN,
             "trapped.hidden",
             Box::new(|_, _| Box::new(Hidden)),
@@ -64,7 +64,7 @@ fn rows(canvas: &mut Canvas<'_>, labels: &[&str], focused: Option<usize>) {
 /// Three rows, the focus on the first for good, every button taken.
 struct Stuck;
 
-impl paperpaw_core::Layer for Stuck {
+impl paperpaw_core::testing::Fake for Stuck {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         rows(canvas, &["One", "Two", "Three"], Some(0));
     }
@@ -77,7 +77,7 @@ impl paperpaw_core::Layer for Stuck {
 /// A row; back closes it, but nothing opens it.
 struct Hidden;
 
-impl paperpaw_core::Layer for Hidden {
+impl paperpaw_core::testing::Fake for Hidden {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         rows(canvas, &["Alone"], Some(0));
     }

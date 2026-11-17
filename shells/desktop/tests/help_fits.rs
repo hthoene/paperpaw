@@ -25,7 +25,7 @@ const SCREEN: Id = Id::new_static("help-probe.screen");
 
 struct Look;
 
-impl paperpaw_core::Layer for Look {
+impl paperpaw_core::testing::Fake for Look {
     fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
         // Not the device's heap: the probe is no part of what it runs.
         paperpaw_emulator::budget::untracked(|| look(env));
@@ -74,7 +74,7 @@ fn add(builder: KernelBuilder) -> KernelBuilder {
     )
     .uses(paperpaw_core::sdk::Uses::NOTHING);
     builder.items(manifest, |items| {
-        items.add_layer(paperpaw_core::LayerSpec::new(
+        items.add_fake(paperpaw_core::testing::FakeSpec::new(
             SCREEN,
             "Help probe",
             Box::new(|_, _| Box::new(Look)),

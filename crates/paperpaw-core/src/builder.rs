@@ -894,9 +894,7 @@ impl BuilderParts {
                 dropped_pointers: Vec::new(),
                 swapped: Vec::new(),
                 pending: None,
-                last_tap: None,
                 pressed_on: None,
-                pane_keys: None,
                 thresholds: core::cell::Cell::new(None),
             },
             io: network::IoState {
@@ -914,8 +912,6 @@ impl BuilderParts {
                 focus_told: None,
             },
             keys: plugins::KeySources::default(),
-            chromes: Vec::new(),
-            chrome_strips: Vec::new(),
             stylesheet_owners: Vec::new(),
             timing: crate::timing::Timing::new(self.busy_mark_ms),
             framebuffer,

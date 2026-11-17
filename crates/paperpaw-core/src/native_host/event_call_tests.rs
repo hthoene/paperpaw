@@ -130,7 +130,7 @@ impl Dispatch for Probe {
 
 struct Overlay;
 
-impl crate::Layer for Overlay {
+impl crate::testing::Fake for Overlay {
     fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
@@ -142,7 +142,7 @@ impl crate::Layer for Overlay {
 /// can show.
 fn notice_slot() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("nt.notice"),
             "notice",
             alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Overlay)),

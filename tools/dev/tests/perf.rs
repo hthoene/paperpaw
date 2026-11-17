@@ -23,7 +23,7 @@ use paperpaw_sdk::{Canvas, Cx, Env, Handled, Id, Manifest, RegisterError, SDK_VE
 /// Reads a file whenever it is drawn.
 struct Reads;
 
-impl paperpaw_core::Layer for Reads {
+impl paperpaw_core::testing::Fake for Reads {
     fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
         let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
     }
@@ -42,7 +42,7 @@ struct Big(
     Vec<u8>,
 );
 
-impl paperpaw_core::Layer for Big {
+impl paperpaw_core::testing::Fake for Big {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -55,7 +55,7 @@ static LEAKED: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
 
 struct Leaks;
 
-impl paperpaw_core::Layer for Leaks {
+impl paperpaw_core::testing::Fake for Leaks {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -90,17 +90,17 @@ impl Probe {
     }
 
     fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
-        r.add_layer(paperpaw_core::LayerSpec::new(
+        r.add_fake(paperpaw_core::testing::FakeSpec::new(
             Id::new_static("perf-probe.reads"),
             "perf-probe.reads",
             Box::new(|_, _| Box::new(Reads)),
         ))?;
-        r.add_layer(paperpaw_core::LayerSpec::new(
+        r.add_fake(paperpaw_core::testing::FakeSpec::new(
             Id::new_static("perf-probe.big"),
             "perf-probe.big",
             Box::new(|_, _| Box::new(Big(vec![1; 200 * 1024]))),
         ))?;
-        r.add_layer(paperpaw_core::LayerSpec::new(
+        r.add_fake(paperpaw_core::testing::FakeSpec::new(
             Id::new_static("perf-probe.leaks"),
             "perf-probe.leaks",
             Box::new(|_, _| {

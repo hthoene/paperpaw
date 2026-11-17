@@ -151,7 +151,7 @@ mod kernel_side {
         const HOME: Id = Id::new_static("h.home");
 
         struct Page;
-        impl crate::Layer for Page {
+        impl crate::testing::Fake for Page {
             fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
             fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
                 Handled::No
@@ -160,7 +160,7 @@ mod kernel_side {
 
         pub(super) fn home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             |r| {
-                r.add_layer(crate::LayerSpec::new(
+                r.add_fake(crate::testing::FakeSpec::new(
                     HOME,
                     "home",
                     alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Page)),
@@ -373,7 +373,7 @@ mod kernel_side {
         const HOME: Id = Id::new_static("g.home");
 
         struct Plain;
-        impl crate::Layer for Plain {
+        impl crate::testing::Fake for Plain {
             fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
             fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
                 Handled::No
@@ -381,10 +381,10 @@ mod kernel_side {
         }
 
         struct Lock(alloc::rc::Rc<Cell<bool>>);
-        impl crate::Layer for Lock {
+        impl crate::testing::Fake for Lock {
             fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-            fn guards(&self) -> bool {
-                self.0.get()
+            fn flags(&self) -> u32 {
+                u32::from(self.0.get()) * crate::testing::GUARDS
             }
             fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
                 if *action == paperpaw_sdk::builtin::actions::CONFIRM {
@@ -402,14 +402,14 @@ mod kernel_side {
         ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             move |r| {
                 let locked = kept.clone();
-                r.add_layer(crate::LayerSpec::new(
+                r.add_fake(crate::testing::FakeSpec::new(
                     LOCK,
                     "lock",
                     alloc::boxed::Box::new(move |_, _| {
                         alloc::boxed::Box::new(Lock(locked.clone()))
                     }),
                 ))?;
-                r.add_layer(crate::LayerSpec::new(
+                r.add_fake(crate::testing::FakeSpec::new(
                     HOME,
                     "home",
                     alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Plain)),

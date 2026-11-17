@@ -60,9 +60,10 @@ pub(crate) fn decide(file: Option<&str>, overrides: &str, id: &str, default_on: 
 }
 
 /// The built-in plugins the device cannot be without (they fill the roles
-/// that switch the others on and off and show the menus): one that crashed is
-/// held back for one start only, never saved off ([`NativeDecision::CrashedOnce`]).
-pub const ESSENTIAL: [&str; 3] = ["plugin-manager", "settings", "menu"];
+/// that switch the others on and off, show the menus and ask every yes or no
+/// question and choice): one that crashed is held back for one start only,
+/// never saved off ([`NativeDecision::CrashedOnce`]).
+pub const ESSENTIAL: [&str; 4] = ["plugin-manager", "settings", "menu", "keyboard"];
 
 /// The configuration the on/off decisions are made from, read once at the
 /// start ([`Kernel::native_config`]): the file on the device and the shell's
@@ -92,7 +93,7 @@ pub enum NativeDecision {
     /// ([`PluginProblem::Crashed`]).
     Crashed,
     /// An **essential** built-in plugin ([`ESSENTIAL`]: the plugin manager,
-    /// settings, menu) the last crash was in: not hosted this start
+    /// settings, menu, keyboard) the last crash was in: not hosted this start
     /// ([`PluginProblem::Crashed`]) but **left switched on** in the file.
     /// Switched off for good, the device could be left without the only way
     /// to switch it on again but editing the file on a PC. The next start

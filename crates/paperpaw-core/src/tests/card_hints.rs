@@ -18,7 +18,7 @@ const FILLERS: usize = 600;
 /// every plugin's name and description does.
 struct Wordy;
 
-impl crate::Layer for Wordy {
+impl crate::testing::Fake for Wordy {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
@@ -30,7 +30,7 @@ impl crate::Layer for Wordy {
 
 fn wordy_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             WORDY,
             "wordy",
             Box::new(|env, _| {

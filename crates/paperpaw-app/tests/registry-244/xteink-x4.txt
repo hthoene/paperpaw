@@ -964,7 +964,6 @@ action core.menu | title=core.action.menu sealed=false runs-itself=true native=N
 action core.next | title=core.action.next sealed=false runs-itself=true native=None
 action core.next-page | title=core.action.next-page sealed=false runs-itself=false native=None
 action core.nothing | title=core.action.nothing sealed=false runs-itself=true native=None
-action core.pane.other | title=core.action.pane-other sealed=false runs-itself=true native=None
 action core.prev-page | title=core.action.prev-page sealed=false runs-itself=false native=None
 action core.previous | title=core.action.previous sealed=false runs-itself=true native=None
 action core.quick-panel | title=core.action.quick-panel sealed=false runs-itself=true native=None

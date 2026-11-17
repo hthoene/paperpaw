@@ -1049,10 +1049,10 @@ fn the_first_dev_command_makes_the_box_and_a_batch_answered_ok_needs_no_more_mem
 
 struct Lock;
 
-impl crate::Layer for Lock {
+impl crate::testing::Fake for Lock {
     fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-    fn guards(&self) -> bool {
-        true
+    fn flags(&self) -> u32 {
+        crate::testing::GUARDS
     }
     fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
@@ -1062,7 +1062,7 @@ impl crate::Layer for Lock {
 /// A plugin whose screen `lock.screen` guards the device.
 fn lock_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("lock.screen"),
             "lock",
             alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Lock)),

@@ -74,13 +74,6 @@ impl Kernel {
             .map_or_else(ScreenMode::new, |top| top.screen.mode())
     }
 
-    /// Whether open screen `index` has all of the panel: no bars over it.
-    pub(crate) fn full_screen(&self, index: usize) -> bool {
-        self.stack
-            .get(index)
-            .is_some_and(|s| s.screen.mode().is_full_screen())
-    }
-
     /// Keeps which buttons are held down, as they physically are.
     pub(crate) fn note_held(&mut self, name: &'static str, state: ButtonState) {
         let held = &mut self.shared.keys_held;

@@ -12,7 +12,7 @@ struct Panel {
     region: Rect,
 }
 
-impl crate::Layer for Panel {
+impl crate::testing::Fake for Panel {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         let r = self.region;
         canvas.fill_rect(
@@ -33,10 +33,16 @@ impl crate::Layer for Panel {
     }
 }
 
-struct Base;
+struct Base(Log);
 
-impl crate::Layer for Base {
+impl crate::testing::Fake for Base {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+
+    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+        let content = cx.env().content();
+        let line = alloc::format!("base shown {}x{}", content.width, content.height);
+        self.0.borrow_mut().push(line);
+    }
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
@@ -48,16 +54,16 @@ impl crate::Layer for Base {
 fn frames_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             BASE,
             "base",
             Box::new(move |_, _| {
                 log.borrow_mut().push(String::from("base made"));
-                Box::new(Base)
+                Box::new(Base(log.clone()))
             }),
         ))?;
         r.bind_slot(slots::HOME, BASE, Priority::DEFAULT)?;
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             PANEL,
             "panel",
             Box::new(|_, params| {
@@ -124,10 +130,10 @@ fn an_overlay_reaching_past_the_screen_refreshes_only_the_screen() {
     assert!(region.bottom() <= 90, "{region:?}");
 }
 
-/// Where the shell turns the screen, choosing another rotation makes the
-/// screens anew once, when the shell resizes the kernel for it, not also
-/// before; turned half way round (the same size) the row of hints goes
-/// and comes back.
+/// Where the shell turns the screen, choosing another rotation lays the
+/// screens out anew once, when the shell resizes the kernel for it, not
+/// also before; turned half way round (the same size) the row of hints
+/// goes and comes back.
 #[test]
 fn turning_the_screen_makes_the_screens_once() {
     let log = log();
@@ -143,14 +149,17 @@ fn turning_the_screen_makes_the_screens_once() {
         .unwrap();
     assert!(log.borrow().is_empty(), "made before the shell turned it");
     kernel.resize(Instant(20), 90, 90);
-    assert_eq!(*log.borrow(), ["base made"]);
+    // Shown at its new size (laid out anew, and on top), as a plugin's
+    // screen is.
+    assert_eq!(*log.borrow(), ["base shown 90x90", "base shown 90x90"]);
     assert_eq!(kernel.hint.height, 0);
     log.borrow_mut().clear();
     kernel
         .set_setting(Instant(30), "core.rotation", settings::ROTATIONS[0])
         .unwrap();
     kernel.resize(Instant(40), 90, 90);
-    assert_eq!(*log.borrow(), ["base made"]);
+    let shown = alloc::format!("base shown 90x{}", 90 - row);
+    assert_eq!(*log.borrow(), [shown.clone(), shown]);
     assert_eq!(kernel.hint.height, row);
 }
 
