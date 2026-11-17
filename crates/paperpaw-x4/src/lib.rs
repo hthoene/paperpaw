@@ -56,6 +56,7 @@ pub mod flash_room;
 pub mod generation;
 pub mod gt911;
 pub mod high_water;
+pub mod kept_time;
 pub mod host_jobs;
 pub mod install_note;
 pub mod key_sealer;
