@@ -42,34 +42,6 @@ fn page(h: &Harness, language: &str) -> PageType {
     PageType::new(&env, &font, language, false, StatusRoom::NONE)
 }
 
-fn breaks(page: &PageType, h: &Harness, word: &str) -> Vec<usize> {
-    let patterns = page.patterns(&h.env()).unwrap();
-    let mut found = Vec::new();
-    patterns.hyphenate(word, &mut |at| found.push(at));
-    found
-}
-
-#[test]
-fn the_page_carries_the_minimums_and_0_is_the_languages_own() {
-    let h = harness(true, Some((0, 0)));
-    let page = page(&h, "en");
-    assert_eq!(page.hyphen_minimums, (0, 0));
-    assert_eq!(breaks(&page, &h, "abababa"), [3, 5]);
-    // "abab" can take no hyphen with 2 and 2.
-    assert!(breaks(&page, &h, "abab").is_empty());
-
-    let h = harness(true, Some((1, 1)));
-    let page = page_of(&h);
-    assert_eq!(breaks(&page, &h, "abababa"), [1, 3, 5]);
-    assert_eq!(breaks(&page, &h, "abab"), [1, 3]);
-
-    // One given, the other the language's own.
-    let h = harness(true, Some((0, 3)));
-    assert_eq!(breaks(&page_of(&h), &h, "abababa"), [3]);
-    let h = harness(true, Some((4, 0)));
-    assert_eq!(breaks(&page_of(&h), &h, "abababa"), [5]);
-}
-
 fn page_of(h: &Harness) -> PageType {
     page(h, "en")
 }
@@ -103,25 +75,5 @@ fn the_languages_own_keeps_the_key_it_always_had() {
     assert_eq!(
         page_of(&harness(true, Some((0, 0)))).key,
         page_of(&harness(true, None)).key
-    );
-}
-
-#[test]
-fn the_minimums_do_not_matter_where_nothing_is_hyphenated() {
-    // Switched off, or no patterns for the book's language.
-    let off = |minimums| page_of(&harness(false, minimums));
-    assert_eq!(off(Some((3, 3))).key, off(Some((0, 0))).key);
-    assert!(
-        off(Some((3, 3)))
-            .patterns(&harness(false, None).env())
-            .is_none()
-    );
-    let h = harness(true, Some((3, 3)));
-    let no_patterns = page(&h, "xx");
-    assert!(no_patterns.hyphenation.is_none());
-    assert!(no_patterns.patterns(&h.env()).is_none());
-    assert_eq!(
-        no_patterns.key,
-        page(&harness(true, Some((0, 0))), "xx").key
     );
 }

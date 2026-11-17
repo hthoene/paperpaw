@@ -242,7 +242,7 @@ fn without_a_server_a_body_is_refused_and_a_held_request_times_out() {
     assert!(w.sent().is_empty());
     w.line(1_000, "PPT/1 3 GET /api/hello 0");
     assert!(w.sent().is_empty());
-    w.kernel.now = Instant(1_000 + HOLD_MS);
+    w.kernel.shared.now = Instant(1_000 + HOLD_MS);
     w.kernel.native_cable_pump();
     assert_eq!(w.sent()[0], "PPT/1 3 503 text/plain;charset=utf-8");
     assert_eq!(w.kernel.native_cable_due(), None);

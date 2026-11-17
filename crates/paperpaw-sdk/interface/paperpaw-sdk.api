@@ -366,7 +366,6 @@ pub fn paperpaw_sdk::decorations::Decoration::ink_color(&self) -> core::option::
 pub fn paperpaw_sdk::decorations::Decoration::is_none(&self) -> bool
 pub const fn paperpaw_sdk::decorations::Decoration::line(self, paperpaw_sdk::decorations::LineKind) -> Self
 pub const fn paperpaw_sdk::decorations::Decoration::line_tone(self, paperpaw_sdk::decorations::Tone) -> Self
-pub fn paperpaw_sdk::decorations::Decoration::of_role(&paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::Id) -> paperpaw_sdk::decorations::Decoration
 pub const fn paperpaw_sdk::decorations::Decoration::struck(self) -> Self
 pub const fn paperpaw_sdk::decorations::Decoration::thickness(self, u8) -> Self
 pub const paperpaw_sdk::decorations::AS_IS: &str
@@ -451,7 +450,6 @@ pub fn paperpaw_sdk::files::put_in_free_place(&dyn paperpaw_platform::storage::S
 pub fn paperpaw_sdk::files::put_in_place(&dyn paperpaw_platform::storage::Storage, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_sdk::files::read_text(&dyn paperpaw_platform::storage::Storage, &str, usize) -> core::result::Result<alloc::string::String, paperpaw_platform::storage::StorageError>
 pub fn paperpaw_sdk::files::same_path(&dyn paperpaw_platform::storage::Storage, &str, &str) -> bool
-pub fn paperpaw_sdk::files::shown_size(&paperpaw_sdk::env::Env<'_>, u64) -> alloc::string::String
 pub fn paperpaw_sdk::files::size(u64, &str) -> alloc::string::String
 pub fn paperpaw_sdk::files::try_load_text_for_update(&dyn paperpaw_platform::storage::Storage, &str, usize) -> core::result::Result<core::option::Option<alloc::string::String>, paperpaw_sdk::data::Error>
 pub fn paperpaw_sdk::files::without_bom(&[u8]) -> &[u8]
@@ -5278,7 +5276,6 @@ pub fn paperpaw_sdk::native::known_author(&dyn paperpaw_platform::storage::Stora
 pub fn paperpaw_sdk::native::read_header(&dyn paperpaw_platform::storage::Storage, &str) -> core::option::Option<paperpaw_native::header::Header>
 pub mod paperpaw_sdk::numbers
 pub const paperpaw_sdk::numbers::DECIMAL_MARK: &str
-pub fn paperpaw_sdk::numbers::decimal_mark<'e>(&paperpaw_sdk::env::Env<'e>) -> &'e str
 pub fn paperpaw_sdk::numbers::fixed(i64, u32, &str) -> alloc::string::String
 pub fn paperpaw_sdk::numbers::parse_f32(&str) -> core::option::Option<f32>
 pub mod paperpaw_sdk::pattern
@@ -5618,7 +5615,6 @@ pub const fn paperpaw_sdk::time::UnixTime::from_secs(i64) -> Self
 pub fn paperpaw_sdk::time::UnixTime::iso8601(self) -> alloc::string::String
 pub fn paperpaw_sdk::time::UnixTime::local(self, i32) -> paperpaw_sdk::time::LocalTime
 pub const fn paperpaw_sdk::time::UnixTime::millis(self) -> i64
-pub fn paperpaw_sdk::time::UnixTime::now(&paperpaw_sdk::env::Env<'_>) -> core::option::Option<Self>
 pub fn paperpaw_sdk::time::UnixTime::parse_http_date(&str) -> core::option::Option<Self>
 pub fn paperpaw_sdk::time::UnixTime::parse_iso8601(&str) -> core::option::Option<Self>
 pub const fn paperpaw_sdk::time::UnixTime::secs(self) -> i64
@@ -5714,7 +5710,6 @@ pub fn paperpaw_sdk::web::try_clean_name(&str, usize) -> core::result::Result<co
 pub fn paperpaw_sdk::web::try_file_name(&str) -> core::result::Result<alloc::string::String, alloc::collections::TryReserveError>
 pub fn paperpaw_sdk::web::try_percent_decode(&str) -> core::result::Result<alloc::string::String, alloc::collections::TryReserveError>
 pub fn paperpaw_sdk::web::user_agent() -> (alloc::string::String, alloc::string::String)
-pub fn paperpaw_sdk::web::user_agent_of(&paperpaw_sdk::env::Env<'_>) -> (alloc::string::String, alloc::string::String)
 pub mod paperpaw_sdk::widgets
 pub mod paperpaw_sdk::widgets::categories
 pub const paperpaw_sdk::widgets::categories::ALL: &[&str]
@@ -5732,8 +5727,6 @@ pub mod paperpaw_sdk::widgets::grid
 #[non_exhaustive] pub enum paperpaw_sdk::widgets::grid::What
 pub paperpaw_sdk::widgets::grid::What::Tool(paperpaw_sdk::Id)
 pub paperpaw_sdk::widgets::grid::What::Widget(alloc::string::String)
-impl paperpaw_sdk::widgets::grid::What
-pub fn paperpaw_sdk::widgets::grid::What::title(&self, &paperpaw_sdk::env::Env<'_>) -> alloc::string::String
 #[non_exhaustive] pub struct paperpaw_sdk::widgets::grid::Cells
 pub paperpaw_sdk::widgets::grid::Cells::col: u8
 pub paperpaw_sdk::widgets::grid::Cells::h: u8
@@ -5755,7 +5748,6 @@ pub fn paperpaw_sdk::widgets::grid::Geometry::cell_at(&self, paperpaw_platform::
 pub fn paperpaw_sdk::widgets::grid::Geometry::new(&paperpaw_sdk::env::Env<'_>, paperpaw_platform::geometry::Rect, u8, u8) -> Self
 pub fn paperpaw_sdk::widgets::grid::Geometry::of(paperpaw_platform::geometry::Rect, u8, u8, u16) -> Self
 pub fn paperpaw_sdk::widgets::grid::Geometry::rect(&self, paperpaw_sdk::widgets::grid::Cells) -> paperpaw_platform::geometry::Rect
-pub fn paperpaw_sdk::widgets::grid::Geometry::size_of(&self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::widgets::grid::What) -> (u8, u8)
 impl core::default::Default for paperpaw_sdk::widgets::grid::Geometry
 pub fn paperpaw_sdk::widgets::grid::Geometry::default() -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::widgets::grid::Item
@@ -5861,7 +5853,6 @@ pub use paperpaw_sdk::xml::local_name
 pub use paperpaw_sdk::xml::try_decode
 pub macro paperpaw_sdk::data_path!
 pub macro paperpaw_sdk::event_data!
-pub macro paperpaw_sdk::hears!
 pub macro paperpaw_sdk::hot!
 pub macro paperpaw_sdk::native_plugin!
 pub macro paperpaw_sdk::package_version!

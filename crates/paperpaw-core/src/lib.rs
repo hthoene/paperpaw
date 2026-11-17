@@ -41,6 +41,10 @@ extern crate alloc;
 mod abi7;
 mod areas;
 mod awake;
+#[cfg(feature = "bluetooth")]
+mod bluetooth;
+#[cfg(not(feature = "bluetooth"))]
+#[path = "bluetooth_off.rs"]
 mod bluetooth;
 mod builder;
 mod card;
@@ -298,6 +302,10 @@ pub struct Kernel {
     /// [`KernelBuilder::after_sleep`]): [`events::RESUME`] follows
     /// [`events::STARTED`].
     after_sleep: bool,
+    /// The wake told last was one the storage came through as it was left
+    /// ([`Kernel::resume_storage_kept`]): the library is not walked again
+    /// for it.
+    storage_kept: bool,
     /// The file of passwords and keys is there but could not be read at
     /// start: it is not written over.
     secrets_unreadable: bool,
@@ -308,6 +316,7 @@ pub struct Kernel {
     /// kernel seals through it with or without a native plugin admitted.
     secrets_wired: Option<alloc::rc::Rc<dyn crate::native_host::secrets_service::SecretsHost>>,
     /// The number a pairing question's answer must bring back.
+    #[cfg(feature = "bluetooth")]
     pairing_nonce: Option<u64>,
     /// A screen was opened or closed since the last call ended; then the
     /// frame drawn for it is not shown yet (see [`Kernel::shown`]).
@@ -342,7 +351,6 @@ pub struct Kernel {
     /// The clock hosting is timed with, and the times taken (`native_batch.rs`).
     native_clock: Option<fn() -> u32>,
     native_times: crate::native_host::NativeTimes,
-    now: Instant,
     input: gestures::InputState,
     io: network::IoState,
     frame: drawing::FrameState,
@@ -424,7 +432,7 @@ impl Kernel {
     pub fn start(&mut self, now: Instant) -> Effects {
         // The kernel's work, but for the plugins' it calls.
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         // The shell hosted its native plugins before this call: what their
         // admission kept in reserve is given back.
@@ -444,6 +452,7 @@ impl Kernel {
         if mem::take(&mut self.after_sleep) {
             self.output.commands.push(events::RESUME.emit(()));
         }
+        #[cfg(feature = "bluetooth")]
         if let Some(radio) = &mut self.io.bluetooth {
             radio.start();
         }
@@ -471,7 +480,7 @@ impl Kernel {
             return self.finish();
         }
         self.hint.pressed = None;
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.last_user_input = Some(now);
         self.gray_postpone();
@@ -596,7 +605,7 @@ impl Kernel {
     /// the busy mark ([`Effects::proceed`]).
     pub fn proceed(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         if let Some((area, _)) = self.frame.mark.take() {
             self.invalidate(area);
         }
@@ -762,7 +771,7 @@ impl Kernel {
     /// ([`events::STATUS_CHANGED`]).
     pub fn set_status(&mut self, now: Instant, status: SystemStatus) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         let old = self.shared.status;
         self.shared.status = status;
         let offset = |s: &SystemStatus| s.clock.map(|c| c.utc_offset_minutes);
@@ -824,7 +833,7 @@ impl Kernel {
     /// the plugins (a nested callback's route on the X4, #250).
     #[inline(never)]
     fn tick_due(&mut self, now: Instant) {
-        self.now = now;
+        self.shared.now = now;
         self.hide_hints();
         self.escape(now);
         self.count_awake();
@@ -1078,7 +1087,7 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         // Asked from outside (a remote control, a test): as the reader.
         self.shared.reader = true;
-        self.now = now;
+        self.shared.now = now;
         self.output.commands.push(Command::Emit(event, params));
         self.run_commands();
         self.finish()
@@ -1131,7 +1140,7 @@ impl Kernel {
     pub fn open_slot(&mut self, now: Instant, slot: Id, params: Params) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.reader = true;
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.output.commands.push(Command::OpenSlot(slot, params));
         self.run_commands();
@@ -1143,7 +1152,7 @@ impl Kernel {
     pub fn open_book(&mut self, now: Instant, path: &str) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.reader = true;
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.output.commands.push(paperpaw_sdk::readers::open(path));
         self.run_commands();
@@ -1155,7 +1164,7 @@ impl Kernel {
     pub fn open_screen(&mut self, now: Instant, screen: Id, params: Params) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.reader = true;
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.output
             .commands
@@ -1169,7 +1178,7 @@ impl Kernel {
     pub fn run_action(&mut self, now: Instant, action: Id) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.reader = true;
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.dispatch(action);
         self.run_commands(); // As a key press: a dialog's queued close first (#266).
@@ -1192,7 +1201,7 @@ impl Kernel {
         let value = spec.parse(text).ok_or("not a value of this setting")?;
         let id = Id::parse(id).map_err(|_| "no such setting")?;
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.output.commands.push(Command::SetSetting(id, value));
         // The shell's, on the reader's behalf: also while a screen guards
@@ -1208,7 +1217,7 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         // Fingers and keys held under a native filter's capture are let go.
         self.shared.native_input.clear();
-        self.now = now;
+        self.shared.now = now;
         self.suspended_at = Some(now);
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
         self.output.commands.push(events::SUSPEND.emit(()));
@@ -1230,7 +1239,7 @@ impl Kernel {
     /// no sleep: none is counted, and no work waits for it.
     pub fn stop(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.output.commands.push(events::STOPPING.emit(()));
         let effects = self.finish();
         self.keep_timing();
@@ -1250,13 +1259,28 @@ impl Kernel {
         self.finish()
     }
 
+    /// [`Kernel::resume`], for a shell that knows that nothing changed the
+    /// storage while the device slept: a memory card that kept its power
+    /// through a light sleep (a card taken out loses it, and is told with
+    /// [`Kernel::usb_drive_ended`] once it is mounted anew). Nothing can
+    /// have been copied onto it, so the library is not walked again for
+    /// this wake, and a walk under way goes on where it was (#305).
+    pub fn resume_storage_kept(&mut self, now: Instant) -> Effects {
+        let _running = self.shared.meter.enter(meter::CORE);
+        self.shared.native_input.clear();
+        self.woke(now);
+        self.storage_kept = true;
+        self.finish()
+    }
+
     /// What waking does before the frame: the time asleep, plugins told.
     fn woke(&mut self, now: Instant) {
+        self.storage_kept = false;
         if let Some(at) = self.suspended_at.take() {
             let slept = now.0.saturating_sub(at.0);
             self.shared.slept_for = Some(core::time::Duration::from_millis(slept));
         }
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.shown_since = now; // the time asleep is no screen's
         self.close_shut_out();
@@ -1309,8 +1333,10 @@ impl Kernel {
     }
 }
 
-/// Everything plugins can read through [`Env`].
+/// The kernel's state its screens, handlers and host calls read.
 struct Shared {
+    /// The time of what the kernel is handling.
+    now: Instant,
     /// The native runtime's producer endpoint; absent before runtime installation.
     native_events: Option<Box<dyn native_host::event_producers::EventSink>>,
     native_instances: native_host::native_instances::NativeInstances,

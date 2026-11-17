@@ -1,8 +1,8 @@
 //! The bookmarks and highlights of books, shared by plugins: the reader
 //! makes and shows them, others export or sync them (e.g. with KOReader).
 //! Whoever changes those of a book emits
-//! [`ANNOTATIONS_CHANGED`](events::ANNOTATIONS_CHANGED)
-//! (see [`changed`]), so readers show them anew and syncs pass them on.
+//! `ANNOTATIONS_CHANGED`
+//! (see `changed`), so readers show them anew and syncs pass them on.
 //!
 //! A book's annotations are kept in `.paperpaw/annotations/<hash>.txt`
 //! (the hash of the book's path), one per line, sorted by position: kind
@@ -31,11 +31,10 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::ops::ControlFlow;
 
-use crate::builtin::events;
 use crate::data::Error;
 use crate::document::{Document, Locator};
 use crate::library::Fingerprint;
-use crate::{Command, Storage, StorageError, files};
+use crate::{Storage, StorageError, files};
 
 /// Longest snippet kept with an annotation, in bytes, with the `…` that
 /// ends a cut one.
@@ -801,13 +800,6 @@ pub fn stamp(
     } else {
         Err(StorageError::Io)
     }
-}
-
-/// The event telling that the annotations of the book at `book` changed.
-pub fn changed(book: &str) -> Command {
-    events::ANNOTATIONS_CHANGED.emit(events::AnnotationsChanged {
-        path: book.to_string(),
-    })
 }
 
 mod read;

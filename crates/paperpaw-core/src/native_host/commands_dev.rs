@@ -706,7 +706,7 @@ impl crate::Kernel {
     /// The clock of the window rules: the kernel's time and its last user input.
     pub(crate) fn dev_clock(&self) -> KernelClock {
         KernelClock {
-            now_ms: self.now.millis(),
+            now_ms: self.shared.now.millis(),
             last_input_ms: self.last_user_input.map(paperpaw_platform::Instant::millis),
         }
     }

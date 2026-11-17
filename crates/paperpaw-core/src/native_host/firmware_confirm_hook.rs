@@ -34,7 +34,7 @@ impl Kernel {
             other_key: false,
             restart: false,
         };
-        self.now = now;
+        self.shared.now = now;
         let said = texts(&self.shared.translator, asker, &ask);
         let before = self.stack.len();
         self.open(SCREEN, None, &open_params(&said, 0));

@@ -348,15 +348,19 @@ impl Lists<'_> {
     /// One scan of the catalog: every book found goes to `f`.
     fn books(&self, f: &mut dyn FnMut(&catalog::Record) -> Result<(), i32>) -> Result<(), i32> {
         let (mut words, mut failure) = (String::new(), None);
-        catalog::try_each_at(&*self.engine.reads.storage, &mut |_, record| {
-            if failure.is_none() {
-                failure = self
-                    .engine
-                    .keeps(&record, &mut words)
-                    .and_then(|kept| if kept { f(&record) } else { Ok(()) })
-                    .err();
-            }
-        })
+        catalog::try_each_at_with(
+            &*self.engine.reads.storage,
+            &self.engine.changes,
+            &mut |_, record| {
+                if failure.is_none() {
+                    failure = self
+                        .engine
+                        .keeps(&record, &mut words)
+                        .and_then(|kept| if kept { f(&record) } else { Ok(()) })
+                        .err();
+                }
+            },
+        )
         .map_err(fail)?;
         failure.map_or(Ok(()), Err)
     }

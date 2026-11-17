@@ -235,6 +235,18 @@ impl Listing {
         self.keep_next.set(true);
     }
 
+    /// Whether the last draw had no books to show (none listed, or none read:
+    /// the read was refused for lack of memory): what it drew is no state to
+    /// keep, the next press asks again.
+    pub fn shows_no_book(&self) -> bool {
+        self.page.borrow().as_ref().is_none_or(Vec::is_empty)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn hold_for_test(&self, books: Vec<Book>) {
+        *self.page.borrow_mut() = Some(books);
+    }
+
     /// A draw begins (`true`) or is over.
     pub fn drawing(&self, on: bool) {
         self.drawing.set(on);

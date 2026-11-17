@@ -253,7 +253,14 @@ pub(super) fn register_sorted(r: &mut crate::Items) -> Result<(), paperpaw_sdk::
     // does not ask again; under a book the walk waits until it closes).
     // A walk under way at the sleep starts again (it may have passed the
     // folder a book came into); nothing else under way is started again.
+    // Not where the shell said the storage came through the sleep as it
+    // was left (`Kernel::resume_storage_kept`: a card that kept its power,
+    // #305): nothing was copied, nothing is walked again, and a walk under
+    // way goes on where it was.
     r.on(events::RESUME, |k, p| {
+        if k.storage_kept {
+            return;
+        }
         k.with_core_event(&events::RESUME, p, |env, core, _, out| {
             core.catalog.walked.set(false);
             let walking = core

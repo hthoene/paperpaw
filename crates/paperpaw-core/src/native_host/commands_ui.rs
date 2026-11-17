@@ -1174,7 +1174,7 @@ mod tests {
         // The page first; the picture waits, and the shell is to come back.
         assert!(kernel.output.redraw);
         assert!(kernel.frame.followup.is_some());
-        assert_eq!(kernel.followup_due(true), Some(kernel.now));
+        assert_eq!(kernel.followup_due(true), Some(kernel.shared.now));
         kernel.run_followup();
         assert!(
             kernel.frame.followup.is_some(),

@@ -469,7 +469,7 @@ impl crate::Kernel {
         instances.setting_events.publish(
             instances,
             &self.shared.settings,
-            self.now.millis(),
+            self.shared.now.millis(),
             key,
             old,
         );
@@ -537,7 +537,7 @@ impl crate::Kernel {
         let Some(ready) = instances.setting_events.take(owner) else {
             return false;
         };
-        let now = self.now.millis();
+        let now = self.shared.now.millis();
         let Ok(InstanceState::Running(lease)) = instances.state(owner) else {
             return true;
         };

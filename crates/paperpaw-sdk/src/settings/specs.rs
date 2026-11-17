@@ -1,6 +1,7 @@
 //! Where the settings' specs are kept ([`Specs`]).
 
 use alloc::vec::Vec;
+use core::cell::Cell;
 use core::ops::ControlFlow;
 
 use super::described::{Blocks, DescribeError, DescribedSettings, Found};
@@ -27,6 +28,39 @@ pub(super) struct Specs {
     /// The places of the made and the fixed specs, sorted by the specs' ids.
     by_id: Vec<u16>,
     described: Blocks,
+    /// The places of the settings looked up last, found again by a hash of
+    /// the id instead of a search: every read of a setting looks it up
+    /// (a search over the lists costs most of a read). Forgotten by every
+    /// change of the places.
+    recent: [Cell<Recent>; RECENT],
+}
+
+/// How many lookups are remembered.
+const RECENT: usize = 32;
+
+/// A place that is none.
+const NO_PLACE: u16 = u16::MAX;
+
+/// A place found by the hash of the id it was found for.
+#[derive(Debug, Clone, Copy)]
+struct Recent {
+    hash: u32,
+    place: u16,
+}
+
+impl Default for Recent {
+    fn default() -> Self {
+        Self {
+            hash: 0,
+            place: NO_PLACE,
+        }
+    }
+}
+
+/// The hash a lookup is remembered by.
+fn recent_hash(id: &str) -> u32 {
+    let hash = paperpaw_digest::fnv1a64(id.as_bytes());
+    (hash ^ (hash >> 32)) as u32
 }
 
 /// Marks a place among the fixed specs.
@@ -170,9 +204,45 @@ impl Specs {
 
     /// Where setting `id` is kept. Nothing is made.
     pub(super) fn where_is(&self, id: &str) -> Option<At<'_>> {
+        let hash = recent_hash(id);
+        let cell = &self.recent[hash as usize % RECENT];
+        let seen = cell.get();
+        if seen.hash == hash && seen.place != NO_PLACE {
+            let at = self.place(seen.place);
+            let same = match at {
+                At::Spec(spec) => spec.id.as_str() == id,
+                At::Described((block, setting)) => id
+                    .split_once('.')
+                    .is_some_and(|(plugin, name)| block.is_named(setting, plugin, name)),
+            };
+            if same {
+                return Some(at);
+            }
+        }
+        let (at, place) = self.locate(id)?;
+        cell.set(Recent { hash, place });
+        Some(at)
+    }
+
+    /// [`Specs::where_is`] by a search, with the place it is at.
+    fn locate(&self, id: &str) -> Option<(At<'_>, u16)> {
         match self.find(id) {
-            Ok(at) => Some(At::Spec(self.at(self.by_id[at]))),
-            Err(_) => self.described.find(id).map(At::Described),
+            Ok(at) => {
+                let place = self.by_id[at];
+                Some((At::Spec(self.at(place)), place))
+            }
+            Err(_) => {
+                let found = self.described.find(id)?;
+                let place = DESCRIBED | (found.0.first() + found.1 as u16);
+                Some((At::Described(found), place))
+            }
+        }
+    }
+
+    /// Forgets the places found: every change of the places does.
+    fn moved(&mut self) {
+        for cell in &self.recent {
+            cell.set(Recent::default());
         }
     }
 
@@ -279,6 +349,7 @@ impl Specs {
     /// Makes the described setting `id` one kept as it is, to be changed:
     /// its spec is made a last time. Nothing changes where no room is left.
     fn keep_described(&mut self, id: &str) -> Result<(), SettingError> {
+        self.moved();
         let Err(at) = self.find(id) else {
             return Ok(());
         };
@@ -303,6 +374,7 @@ impl Specs {
     /// The spec `id` to change: a fixed one is copied first, which needs
     /// a place of its own, and a described one is kept as it is from then on.
     pub(super) fn get_mut(&mut self, id: &str) -> Result<&mut SettingSpec, SettingError> {
+        self.moved();
         self.keep_described(id)?;
         let at = self.find(id).map_err(|_| SettingError::Unknown)?;
         let place = self.by_id[at];
@@ -332,6 +404,7 @@ impl Specs {
 
     /// Adds `place`, whose spec's id is not there yet.
     fn index(&mut self, id: &str, place: u16) {
+        self.moved();
         let Err(at) = self.find(id) else {
             return;
         };
@@ -344,6 +417,7 @@ impl Specs {
     pub(super) fn insert(&mut self, spec: SettingSpec) -> bool {
         // The place in the index is found before the spec moves in, so that
         // its id need not be copied.
+        self.moved();
         let Err(at) = self.find(spec.id.as_str()) else {
             return true;
         };
@@ -378,6 +452,7 @@ impl Specs {
     /// Adds `described`, none of whose ids is there yet; `false`, and
     /// nothing added, where no places or no room are left.
     pub(super) fn insert_described(&mut self, described: DescribedSettings) -> bool {
+        self.moved();
         let len = described.len();
         let Some(first) = self.described.next(len) else {
             return false;
@@ -462,12 +537,14 @@ impl Specs {
     /// Forgets every spec whose id belongs to `plugin`; the places of the
     /// others move down over the gaps. Allocates nothing.
     pub(super) fn remove_plugin(&mut self, plugin: &str) {
+        self.moved();
         let Self {
             owned,
             lists,
             order,
             by_id,
             described,
+            recent: _,
         } = self;
         let belongs = |owned: &[SettingSpec], place: u16| {
             if place & (FIXED | DESCRIBED) == DESCRIBED {
@@ -568,5 +645,39 @@ mod tests {
             specs.get("t.kept").unwrap().unwrap().scoped,
             "the copy is the one changed"
         );
+    }
+
+    fn remembered(specs: &Specs, id: &str) -> bool {
+        let cell = &specs.recent[recent_hash(id) as usize % RECENT];
+        cell.get().place != NO_PLACE
+    }
+
+    /// A setting is searched for once; its place is then known by the
+    /// hash of its id, until a change of the places (a copy made to be
+    /// changed, a plugin removed) forgets it.
+    #[test]
+    fn a_lookup_is_remembered_until_the_places_change() {
+        let mut specs = Specs::default();
+        specs.try_reserve(2, 1).unwrap();
+        for id in ["t.a", "t.b"] {
+            assert!(specs.insert(SettingSpec::switch(id, id, false, READING)));
+        }
+        assert!(specs.insert_fixed(&KEPT, 0));
+        assert!(!remembered(&specs, "t.kept"));
+        assert!(specs.where_is("t.kept").is_some());
+        assert!(remembered(&specs, "t.kept"));
+        assert!(specs.where_is("t.nothing").is_none());
+        assert!(!remembered(&specs, "t.nothing"), "no miss is kept");
+        // The copy made to be changed is found, not the fixed one.
+        assert!(!specs.get("t.kept").unwrap().unwrap().scoped);
+        specs.get_mut("t.kept").unwrap().scoped = true;
+        assert!(!remembered(&specs, "t.kept"));
+        assert!(specs.get("t.kept").unwrap().unwrap().scoped);
+        assert!(specs.where_is("t.b").is_some());
+        assert!(remembered(&specs, "t.b"));
+        specs.remove_plugin("t");
+        assert!(!remembered(&specs, "t.b"));
+        assert!(specs.where_is("t.b").is_none());
+        assert!(specs.where_is("t.kept").is_none());
     }
 }

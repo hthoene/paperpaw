@@ -118,6 +118,7 @@ textprobe = ["remote", "dep:paperpaw-text"]
 # idle power is being measured. The controller's code takes internal
 # RAM from the heap (`HEAP_SIZE`).
 bluetooth = [
+    "paperpaw-core/bluetooth",
     "esp-radio/ble",
     "esp-radio/coex",
     "dep:trouble-host",
@@ -133,6 +134,8 @@ paperpaw-text = { path = "../../crates/paperpaw-text", optional = true }
 paperpaw-app = { path = "../../crates/paperpaw-app", default-features = false, features = ["packs"] }
 paperpaw-core = { path = "../../crates/paperpaw-core", default-features = false }
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk", features = ["kernel"] }
+# `BuiltMessages`, the device's texts without their keys (`device::MESSAGES`).
+paperpaw-i18n = { path = "../../crates/paperpaw-i18n" }
 paperpaw-platform = { path = "../../crates/paperpaw-platform" }
 paperpaw-graphics = { path = "../../crates/paperpaw-graphics" }
 paperpaw-x4 = { path = "../../crates/paperpaw-x4" }
@@ -205,6 +208,8 @@ mbedtls-rs = { version = "0.3", default-features = false, features = ["use-gcc"]
 paperpaw-update = { path = "../../crates/paperpaw-update" }
 # This firmware's compiler, as plugin files name theirs.
 paperpaw-native = { path = "../../crates/paperpaw-native" }
+# The device's texts without their keys (`device_messages`, #306).
+paperpaw-i18n = { path = "../../crates/paperpaw-i18n" }
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

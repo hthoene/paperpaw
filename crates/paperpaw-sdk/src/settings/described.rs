@@ -147,6 +147,18 @@ impl Block {
         self.flags[at] & GUARDED != 0
     }
 
+    /// Whether setting `at` is `plugin`'s `name`.
+    pub(super) fn is_named(&self, at: usize, plugin: &str, name: &str) -> bool {
+        let mut same = false;
+        self.plugin.as_str() == plugin
+            && self.hashes.get(at) == Some(&hash(name))
+            && self
+                .source
+                .name(at, &mut |other| same = other == name)
+                .is_ok()
+            && same
+    }
+
     /// Which of its settings is called `name`. The hash is compared first;
     /// the name is then read where the plugin keeps it.
     fn find(&self, name: &str) -> Option<usize> {
@@ -589,6 +601,14 @@ impl Settings {
         self.specs.has(id)
     }
 
+    /// Whether setting `id`, one without a placement, is a secret: `None`
+    /// where nothing defines it. [`Settings::defines`] and
+    /// [`Settings::defines_secret`] in one lookup.
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn secret_of(&self, id: &str) -> Option<bool> {
+        self.specs.where_is(id).map(super::specs::At::secret_flag)
+    }
+
     /// Whether setting `id` (for a placement's id the setting's own, as
     /// [`Settings::spec`]) is defined and may differ per scope
     /// ([`SettingSpec::scoped`]). Nothing is made for it.
@@ -694,15 +714,6 @@ impl Settings {
     /// a placement's): nothing is made for it.
     pub(crate) fn default_of(&self, id: &str) -> Option<&SettingValue> {
         self.specs.where_is(id).map(super::specs::At::default_now)
-    }
-
-    /// The kernel's `walk`, for what the SDK itself reads of the settings.
-    pub(crate) fn walk_specs(
-        &self,
-        pick: super::Pick<'_>,
-        visit: &mut dyn FnMut(&SettingSpec) -> ControlFlow<()>,
-    ) -> Result<(), SettingError> {
-        self.specs.walk(pick, visit)
     }
 
     /// [`Settings::walk_specs`] over all `pick` takes.

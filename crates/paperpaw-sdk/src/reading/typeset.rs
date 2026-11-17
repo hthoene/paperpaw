@@ -10,11 +10,9 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::hyphenation::Hyphenator;
-
 use super::WordBox;
 use crate::builtin::{fonts, settings};
-use crate::document::{Document, DocumentError, Locator};
+use crate::document::{DocumentError, Locator};
 use crate::layout::{
     BookStyles, Face, LineBidi, LineRun, Page, PageImage, PageLine, ScriptOptions, Style,
     Typesetter,
@@ -24,12 +22,6 @@ use crate::{Canvas, Color, Env, FontHandle, FontSet, Id, Point, Rect};
 
 /// Relative sizes of headings 1 to 6.
 const HEADING_SCALE: [f32; 6] = [1.6, 1.4, 1.2, 1.1, 1.0, 1.0];
-
-/// Glyphs of a book's embedded fonts kept at most.
-const EMBEDDED_CACHE: usize = 256 * 1024;
-
-/// Largest total size of a book's embedded fonts loaded.
-const EMBEDDED_LIMIT: usize = 8 * 1024 * 1024;
 
 /// Small capitals are this much of the text size.
 const SMALL_CAPS: f32 = 0.78;
@@ -70,37 +62,6 @@ impl core::fmt::Debug for EmbeddedFonts {
 }
 
 impl EmbeddedFonts {
-    /// The book's fonts, if they are used ([`uses_book_fonts`]) and it
-    /// has any that load.
-    pub fn load(env: &Env<'_>, document: &dyn Document) -> Option<EmbeddedFonts> {
-        if !uses_book_fonts(env) {
-            return None;
-        }
-        let fonts = document.fonts(env.storage());
-        if fonts.is_empty() {
-            return None;
-        }
-        let mut set = FontSet::new(EMBEDDED_CACHE);
-        let mut faces = Vec::new();
-        let mut total = 0;
-        for (index, font) in fonts.iter().enumerate() {
-            let Ok(data) = document.font_data(env.storage(), index) else {
-                continue;
-            };
-            total += data.len();
-            if total > EMBEDDED_LIMIT {
-                break;
-            }
-            let Ok(loaded) = crate::Font::from_data(data, &[]) else {
-                continue;
-            };
-            let id = Id::parse(&format!("core.book-font-{index}")).ok()?;
-            let at = set.add(id, loaded);
-            faces.push((font.family, font.bold, font.italic, at));
-        }
-        (!faces.is_empty()).then_some(EmbeddedFonts { set, faces })
-    }
-
     /// The face of `family` closest to `bold` and `italic`.
     pub fn face(&self, family: u8, bold: bool, italic: bool) -> Option<FontHandle<'_>> {
         let of_family = || self.faces.iter().filter(|f| f.0 == family);
@@ -184,7 +145,7 @@ pub struct PageType {
     /// The language whose hyphenation patterns are used, if hyphenating.
     pub hyphenation: Option<String>,
     /// The fewest letters before and after a hyphen the reader asks for
-    /// (0: the language's own), see [`PageType::patterns`].
+    /// (0: the language's own).
     pub hyphen_minimums: (u8, u8),
     /// The script the book's language is written in
     /// ([`Lang::likely_script`](crate::Lang::likely_script)), which the tone curves
@@ -387,40 +348,6 @@ impl PageType {
             script: paperpaw_lang::Lang::parse(language).likely_script(),
             filters: 0,
             key,
-        }
-    }
-
-    /// The patterns words are hyphenated with: those of the page's
-    /// language, with the minimums the reader set where they are not 0;
-    /// `None` where the page is not hyphenated.
-    pub fn patterns<'a>(&self, env: &Env<'a>) -> Option<Hyphenator<'a>> {
-        let language = self.hyphenation.as_deref()?;
-        let (left, right) = self.hyphen_minimums;
-        env.hyphenation()
-            .get(language)
-            .map(|patterns| patterns.with_minimums(left.into(), right.into()))
-    }
-
-    /// The type of a sample of text `height` pixels high in `language`
-    /// (a preview of the settings): as wide as book pages and with their
-    /// margins at the sides, `pad` above and below, without status lines.
-    pub fn sample(
-        env: &Env<'_>,
-        font: &FontHandle<'_>,
-        language: &str,
-        height: f32,
-        pad: f32,
-    ) -> Self {
-        let page = Self::new(env, font, language, false, StatusRoom::NONE);
-        let height = (height - 2.0 * pad).max(1.0);
-        let text = Rect::new(page.x as u16, pad as u16, page.width as u16, height as u16);
-        let columns = alloc::vec![text];
-        Self {
-            y: pad,
-            height,
-            rooms: Vec::new(),
-            columns,
-            ..page
         }
     }
 

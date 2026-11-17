@@ -8,7 +8,7 @@
 //! its size and digest. Once all are there the job is complete: the owner
 //! looks at what came if it wants (a code plugin's author, see
 //! [`native::author`](crate::native::author)) and has the kernel install it
-//! ([`Installer::install`], [`Command::InstallPlugin`]): in place of every
+//! (`Installer::install`, [`Command::InstallPlugin`]): in place of every
 //! version of it before, which stays until the new one is all there, and
 //! with what was chosen from it still chosen. Nothing is unpacked and
 //! nothing is held whole in memory: each file goes from the network
@@ -17,7 +17,7 @@
 //! What is left to do is kept in the plugin's own folder, so a download
 //! goes on while none of its screens is open: the plugin hears the
 //! answers with `Items::on` and hands them to
-//! [`Installer::received`].
+//! `Installer::received`.
 //!
 //! ```
 //! use paperpaw_sdk::event::Event;
@@ -74,25 +74,12 @@ const FILE: &str = "install-file";
 
 /// Whether a data plugin made for the SDK `sdk` (e.g. `0.5`) and the data
 /// formats `formats` is read by a PaperPaw of the SDK this is built with
-/// ([`SDK_VERSION`]); [`fits_in`] asks the PaperPaw that runs.
+/// ([`SDK_VERSION`]); `fits_in` asks the PaperPaw that runs.
 pub fn fits(sdk: &str, formats: u32) -> bool {
     fits_sdk(SDK_VERSION, sdk, formats)
 }
 
-/// Whether a data plugin made for the SDK `sdk` (e.g. `0.5`) and the data
-/// formats `formats` is read by the PaperPaw that runs: its SDK not later
-/// than the kernel's ([`Plugins::kernel`](crate::Plugins::kernel)), not
-/// the one the asking plugin was built with; its formats not later than
-/// [`DATA_FORMATS`]. A missing SDK (an empty text) passes.
-pub fn fits_in(env: &Env<'_>, sdk: &str, formats: u32) -> bool {
-    let kernel = env
-        .plugins
-        .kernel()
-        .map_or(SDK_VERSION, |k| k.manifest.version);
-    fits_sdk(kernel, sdk, formats)
-}
-
-/// [`fits_in`] for a kernel of the SDK `kernel`, where the `Env` is not at
+/// `fits_in` for a kernel of the SDK `kernel`, where the `Env` is not at
 /// hand.
 pub fn fits_sdk(kernel: Version, sdk: &str, formats: u32) -> bool {
     let sdk_fits = sdk.trim().is_empty()
@@ -185,32 +172,6 @@ impl Digest {
             ("sha256", hex) => Some(Digest::Sha256(hex.to_string())),
             _ => None,
         }
-    }
-
-    /// Whether the file at `path` has it, read in pieces.
-    fn holds(&self, storage: &dyn Storage, path: &str) -> bool {
-        let mut sha1 = paperpaw_digest::sha1::Sha1::new();
-        let mut sha256 = paperpaw_digest::sha256::Sha256::new();
-        let mut buf = [0u8; 512];
-        let mut at = 0u64;
-        loop {
-            let Ok(n) = storage.read_at(path, at, &mut buf) else {
-                return false;
-            };
-            if n == 0 {
-                break;
-            }
-            match self {
-                Digest::Sha1(_) => sha1.update(&buf[..n]),
-                Digest::Sha256(_) => sha256.update(&buf[..n]),
-            }
-            at += n as u64;
-        }
-        let (got, want) = match self {
-            Digest::Sha1(hex) => (sha1.hex(), hex),
-            Digest::Sha256(hex) => (sha256.hex(), hex),
-        };
-        got.eq_ignore_ascii_case(want)
     }
 }
 
@@ -307,7 +268,7 @@ pub struct Progress {
     pub total: usize,
 }
 
-/// What became of an answer handed to [`Installer::received`].
+/// What became of an answer handed to `Installer::received`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Received {
@@ -317,7 +278,7 @@ pub enum Received {
     /// A file is here; the next one is asked for.
     Next(Progress),
     /// All files are here and checked; the job waits on the storage until
-    /// the owner installs ([`Installer::install`]) or drops it
+    /// the owner installs (`Installer::install`) or drops it
     /// ([`Installer::cancel`]).
     Complete(Progress),
     /// A file did not come or came damaged: what was downloaded is gone,
@@ -363,7 +324,7 @@ impl Installer {
     }
 
     /// The event the answers come as: the owner subscribes to it and
-    /// hands them to [`received`](Self::received).
+    /// hands them to `received`.
     pub fn reply(&self) -> Event<HttpReply> {
         self.reply.clone()
     }
@@ -443,30 +404,6 @@ impl Installer {
         self.job(storage).map(|job| job.staging())
     }
 
-    /// Has the kernel install the complete job's plugin
-    /// ([`Command::InstallPlugin`]) and forgets the job; `None` if there is
-    /// no complete job.
-    pub fn install(&self, env: &Env<'_>, out: &mut crate::Commands) -> Option<Progress> {
-        let storage = env.storage();
-        let job = self.job(storage)?;
-        let progress = self.progress(storage)?;
-        if progress.done < progress.total {
-            return None;
-        }
-        let _ = storage.remove(&self.job_path());
-        let _ = storage.remove(&self.done_path());
-        match Id::parse(&job.plugin) {
-            Ok(id) => {
-                out.push(Command::InstallPlugin(id, job.staging()));
-                Some(progress)
-            }
-            Err(_) => {
-                let _ = storage.remove_dir_all(&job.staging());
-                None
-            }
-        }
-    }
-
     /// Starts installing `package`, a new plugin or a newer version of
     /// one installed (which stays until the new one is all here); an
     /// installation going on is stopped, and answers to its downloads are
@@ -544,65 +481,6 @@ impl Installer {
         }
         let _ = storage.remove(&self.job_path());
         let _ = storage.remove(&self.done_path());
-    }
-
-    /// Removes the data plugin `plugin` ([`Command::RemovePlugin`]),
-    /// stopping its installation if one is going on.
-    pub fn remove(&self, env: &Env<'_>, plugin: &Id, out: &mut crate::Commands) {
-        if self
-            .job(env.storage())
-            .is_some_and(|job| job.plugin == plugin.as_str())
-        {
-            self.cancel(env.storage());
-        }
-        out.push(Command::RemovePlugin(plugin.clone()));
-    }
-
-    /// An answer to one of the downloads: the file checked, then the next
-    /// one asked for, or the job complete once all are there.
-    pub fn received(
-        &self,
-        env: &Env<'_>,
-        reply: &HttpReply,
-        out: &mut crate::Commands,
-    ) -> Received {
-        let storage = env.storage();
-        let Some(job) = self.job(storage) else {
-            return Received::Other;
-        };
-        let done = self.done(storage);
-        let Some(file) = self.file(storage, done) else {
-            return Received::Other;
-        };
-        // An answer to a download of a job stopped before, or to one asked
-        // for twice.
-        let job_id = job.id.to_string();
-        if reply.context.get(JOB) != Some(job_id.as_str())
-            || reply.context.get(FILE) != Some(file.path.as_str())
-        {
-            return Received::Other;
-        }
-        let mut progress = Progress {
-            plugin: job.plugin.clone(),
-            name: job.name.clone(),
-            done,
-            total: job.total,
-        };
-        let saved = format!("{}/{}", job.staging(), file.path);
-        let whole = (200..300).contains(&reply.status)
-            && storage.size(&saved).ok() == Some(file.size)
-            && file.digest.holds(storage, &saved);
-        if !whole {
-            self.cancel(storage);
-            return Received::Failed(progress);
-        }
-        progress.done = done + 1;
-        let _ = storage.write(&self.done_path(), progress.done.to_string().as_bytes());
-        if progress.done < job.total {
-            self.ask(storage, &job, progress.done, out);
-            return Received::Next(progress);
-        }
-        Received::Complete(progress)
     }
 }
 
@@ -734,23 +612,6 @@ mod tests {
         let installer = Installer::new(Id::new_static("store"), Event::new("store.downloaded"));
         assert_eq!(installer.next_job(&storage), Some(3));
         assert!(storage.exists(".paperpaw/plugins/store/install.count"));
-    }
-
-    #[test]
-    fn digests_check_files() {
-        let storage = MemoryStorage::new().with("f", "abc");
-        let sha1 = Digest::Sha1("A9993E364706816ABA3E25717850C26C9CD0D89D".into());
-        let sha256 = Digest::Sha256(
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad".into(),
-        );
-        for digest in [&sha1, &sha256] {
-            assert!(digest.is_valid());
-            assert!(digest.holds(&storage, "f"));
-            assert_eq!(Digest::parse(&digest.text()).unwrap().text(), digest.text());
-        }
-        assert!(!Digest::Sha256("ab".into()).is_valid());
-        assert!(!Digest::Sha1("0".repeat(40)).holds(&storage, "f"));
-        assert!(Digest::parse("md5:00").is_none());
     }
 
     /// A file a library gives both digests of is checked by its SHA-256,

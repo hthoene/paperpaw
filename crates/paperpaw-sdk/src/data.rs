@@ -49,6 +49,19 @@ pub fn take_over_old_name(storage: &dyn Storage) {
         (format!(".{OLD_NAME}"), DIR),
         (format!("{OLD_NAME}.ini"), crate::builtin::CONFIG_FILE),
     ];
+    // Nothing under the old name, as at every start but one: told by one
+    // listing of the card's top folder, not by looking each name up as a
+    // file and as a folder (four lookups, and the shell and the kernel both
+    // ask, #305). In any case of its letters, as a card finds names.
+    let mut old = false;
+    let listed = storage.list("", &mut |entry| {
+        old |= names
+            .iter()
+            .any(|(name, _)| entry.name.eq_ignore_ascii_case(name));
+    });
+    if listed.is_ok() && !old {
+        return;
+    }
     for (old, new) in names {
         take_over(storage, &old, new, TAKE_OVER_DEPTH);
     }
@@ -378,6 +391,78 @@ mod tests {
             crate::read_file(&storage, "b.txt", 1024).unwrap(),
             b"a\nb\n"
         );
+    }
+
+    /// A storage that notes what it is asked, as `op path`.
+    struct Calls(MemoryStorage, core::cell::RefCell<alloc::vec::Vec<String>>);
+
+    impl Calls {
+        fn note(&self, op: &str, path: &str) {
+            self.1.borrow_mut().push(format!("{op} {path}"));
+        }
+    }
+
+    impl Storage for Calls {
+        fn read_at(&self, path: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            self.note("read", path);
+            self.0.read_at(path, at, buf)
+        }
+        fn size(&self, path: &str) -> Result<u64, StorageError> {
+            self.note("size", path);
+            self.0.size(path)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.note("write", path);
+            self.0.write(path, data)
+        }
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.note("append", path);
+            self.0.append(path, data)
+        }
+        fn list(
+            &self,
+            dir: &str,
+            visit: &mut dyn FnMut(crate::DirEntry<'_>),
+        ) -> Result<(), StorageError> {
+            self.note("list", dir);
+            self.0.list(dir, visit)
+        }
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.note("remove", path);
+            self.0.remove(path)
+        }
+        fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+            self.note("rename", from);
+            self.0.rename(from, to)
+        }
+        fn create_dir(&self, path: &str) -> Result<(), StorageError> {
+            self.note("create_dir", path);
+            self.0.create_dir(path)
+        }
+    }
+
+    /// Nothing under the old name, as at every start but one: one listing
+    /// of the top folder tells, and nothing else is asked of the card (#305;
+    /// it was four lookups, each name as a file and as a folder).
+    #[test]
+    fn nothing_under_the_old_name_costs_one_listing() {
+        let storage = Calls(
+            MemoryStorage::new()
+                .with(&format!("{DIR}/secrets.txt"), "s")
+                .with("books/a.epub", "a"),
+            Default::default(),
+        );
+        take_over_old_name(&storage);
+        assert_eq!(*storage.1.borrow(), ["list "]);
+        // In another case of its letters it is still taken over.
+        let storage = MemoryStorage::new().with(&format!("{}.INI", OLD_NAME.to_uppercase()), "x");
+        let mut seen = false;
+        storage
+            .list("", &mut |entry| {
+                seen |= entry.name.eq_ignore_ascii_case(&format!("{OLD_NAME}.ini"))
+            })
+            .unwrap();
+        assert!(seen);
     }
 
     #[test]

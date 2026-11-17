@@ -11,7 +11,7 @@
 //! about a kilobyte of memory a language, the messages of the screen shown.
 
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use paperpaw_platform::Storage;
@@ -25,6 +25,24 @@ const DIR: &str = ".paperpaw/cache/catalogs";
 const MIN_TEXT: usize = 2048;
 /// What a compiled catalog's file begins with.
 const MAGIC: &[u8; 4] = b"PPCT";
+
+/// The catalogs in the folder `catalogs` of a plugin: the names of those
+/// given as text, the paths of the compiled ones.
+pub(super) fn names(storage: &dyn Storage, catalogs: &str) -> (Vec<String>, Vec<String>) {
+    let mut files: Vec<String> = Vec::new();
+    let mut compiled: Vec<String> = Vec::new();
+    let _ = storage.list(catalogs, &mut |entry| {
+        // `DE.INI` too: a file copied from a memory card may have it so.
+        if !entry.is_dir && paperpaw_sdk::files::has_extension(entry.name, "ini") {
+            files.push(entry.name.to_string());
+        }
+        // Read as needed, so not counted (ADR 0033).
+        if !entry.is_dir && paperpaw_sdk::files::has_extension(entry.name, "ppcat") {
+            compiled.push(format!("{catalogs}/{}", entry.name));
+        }
+    });
+    (files, compiled)
+}
 
 /// Reads the text catalogs `files` of the folder `folder` (`catalogs`: its
 /// `i18n` folder): the text of each, or, for a code plugin's larger ones,
@@ -82,8 +100,11 @@ fn compile(
     let plugin = folder.rsplit('/').next().unwrap_or(folder);
     let stem = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
     let prefix = format!("{plugin}-{}-", stem.to_ascii_lowercase());
+    // `k`: compiled with its first and last key said (#305), so that one
+    // compiled before, which says none and is read for every text of
+    // another plugin, is made anew once (and removed, below).
     let kept = format!(
-        "{DIR}/{prefix}{size:x}-{:08x}.ppcat",
+        "{DIR}/{prefix}{size:x}-{:08x}k.ppcat",
         digest(storage, path)?
     );
     if storage.size(&kept).is_ok_and(|n| n > MAGIC.len() as u64) && has_magic(storage, &kept) {
@@ -117,13 +138,27 @@ fn compile(
     Some(kept)
 }
 
-/// FNV-1a of the file's bytes, read in small pieces.
+/// Bytes of a text read at once for its digest: a card answers each read
+/// after a wait, so 4 KiB in one read take a fraction of the time of eight
+/// reads of a block (a text of 12 KB was 24 reads at every start, #305).
+const DIGEST_PIECE: usize = 4096;
+
+/// FNV-1a of the file's bytes, read in pieces of [`DIGEST_PIECE`] (of a
+/// block where there is no memory for one).
 fn digest(storage: &dyn Storage, path: &str) -> Option<u32> {
     let mut hash = 0x811c_9dc5_u32;
-    let mut piece = [0u8; 512];
+    let mut small = [0u8; 512];
+    let mut large: Vec<u8> = Vec::new();
+    let piece: &mut [u8] = match large.try_reserve_exact(DIGEST_PIECE) {
+        Ok(()) => {
+            large.resize(DIGEST_PIECE, 0);
+            &mut large
+        }
+        Err(_) => &mut small,
+    };
     let mut at = 0u64;
     loop {
-        let n = storage.read_at(path, at, &mut piece).ok()?;
+        let n = storage.read_at(path, at, piece).ok()?;
         if n == 0 {
             return Some(hash);
         }
@@ -137,4 +172,62 @@ fn digest(storage: &dyn Storage, path: &str) -> Option<u32> {
 fn has_magic(storage: &dyn Storage, path: &str) -> bool {
     let mut head = [0u8; 4];
     storage.read_at(path, 0, &mut head).ok() == Some(head.len()) && &head == MAGIC
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use paperpaw_sdk::MemoryStorage;
+
+    /// A storage that counts its reads.
+    struct Reads(MemoryStorage, core::cell::Cell<u32>);
+
+    impl Storage for Reads {
+        fn read_at(
+            &self,
+            path: &str,
+            at: u64,
+            buf: &mut [u8],
+        ) -> Result<usize, paperpaw_platform::StorageError> {
+            self.1.set(self.1.get() + 1);
+            self.0.read_at(path, at, buf)
+        }
+        fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
+            self.0.size(path)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+            self.0.write(path, data)
+        }
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+            self.0.append(path, data)
+        }
+        fn list(
+            &self,
+            dir: &str,
+            visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+        ) -> Result<(), paperpaw_platform::StorageError> {
+            self.0.list(dir, visit)
+        }
+        fn remove(&self, path: &str) -> Result<(), paperpaw_platform::StorageError> {
+            self.0.remove(path)
+        }
+    }
+
+    /// A text's digest is read in pieces of 4 KiB, not of a block (#305):
+    /// 12 KB were 24 reads at every start, and are 4. The digest is the
+    /// same, so the compiled catalogs kept stay.
+    #[test]
+    fn a_text_is_digested_in_few_reads() {
+        let text: Vec<u8> = (0..12_000u32).map(|i| (i * 7 % 251) as u8).collect();
+        let hash = text.iter().fold(0x811c_9dc5_u32, |hash, byte| {
+            (hash ^ u32::from(*byte)).wrapping_mul(0x0100_0193)
+        });
+        let storage = Reads(
+            MemoryStorage::new().with("plugins/stats/i18n/en.ini", text),
+            core::cell::Cell::new(0),
+        );
+        assert_eq!(digest(&storage, "plugins/stats/i18n/en.ini"), Some(hash));
+        assert!(storage.1.get() <= 4, "{} reads", storage.1.get());
+        assert_eq!(digest(&storage, "plugins/stats/none.ini"), None);
+    }
 }
