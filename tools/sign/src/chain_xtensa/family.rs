@@ -149,7 +149,7 @@ pub fn expand_includes(text: &str, base: &std::path::Path) -> Result<String, Str
     Ok(out)
 }
 
-/// An `allow rom` or `allow indirect-in` line, with its reason.
+/// An `allow rom`, `allow indirect-in` or `allow jx` line, with its reason.
 pub(super) fn parse_line(words: &[&str]) -> Option<(Allow, String)> {
     match words {
         ["allow", "rom", callee, why @ ..] if !why.is_empty() => Some((
@@ -162,6 +162,12 @@ pub(super) fn parse_line(words: &[&str]) -> Option<(Allow, String)> {
             Allow::IndirectIn {
                 family: (*family).to_string(),
                 max: max.parse().ok()?,
+            },
+            why.join(" "),
+        )),
+        ["allow", "jx", caller, why @ ..] if !why.is_empty() => Some((
+            Allow::Jx {
+                caller: (*caller).to_string(),
             },
             why.join(" "),
         )),
