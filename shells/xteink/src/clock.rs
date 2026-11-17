@@ -71,6 +71,7 @@ pub fn exact() -> bool {
 
 /// Whether the time is one the RTC kept through a restart and nothing has
 /// set since.
+#[cfg(feature = "remote")]
 pub fn approximate() -> bool {
     clock().approximate()
 }
