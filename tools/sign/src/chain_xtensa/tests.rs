@@ -1361,11 +1361,11 @@ fn an_allow_rom_line_covers_any_caller_of_that_routine_outside_the_image_only() 
 #[test]
 fn an_indirect_in_line_is_a_ceiling_for_the_crates_functions_and_must_match_one() {
     let a = BASE;
-    let two = f(&[&entry(32), &callx(8), &callx(12), &RETW_N]);
+    let sites = |n: usize| f(&[&entry(32), &callx(8).repeat(n), &RETW_N]);
     let root = f(&[
         &entry(32),
         &call(8, a + 3, a + 16),
-        &call(8, a + 6, a + 32),
+        &call(8, a + 6, a + 96),
         &RETW_N,
     ]);
     let (x, y) = (
@@ -1374,27 +1374,27 @@ fn an_indirect_in_line_is_a_ceiling_for_the_crates_functions_and_must_match_one(
     );
     let funcs = [
         ("root", root),
-        (x.as_str(), two.clone()),
-        (y.as_str(), f(&[&entry(32), &callx(8), &RETW_N])),
+        (x.as_str(), sites(20)),
+        (y.as_str(), sites(10)),
     ];
     let why = " device test S4\n";
-    // 3 sites in two crates: a prefix covers both, up to its ceiling.
+    // 30 sites in two crates: a prefix covers both, up to its count plus the headroom (16).
     let both = run(
         &funcs,
         &["root"],
-        &format!("allow indirect-in paperpaw_plugin_* 3{why}"),
+        &format!("allow indirect-in paperpaw_plugin_* 14{why}"),
     );
     assert!(both.problems.is_empty(), "{:?}", both.problems);
     let over = run(
         &funcs,
         &["root"],
-        &format!("allow indirect-in paperpaw_plugin_* 2{why}"),
+        &format!("allow indirect-in paperpaw_plugin_* 13{why}"),
     );
     // The failure names each function and its count: to set against the base's.
     assert!(
-        over.problems.iter().any(|p| p.contains("have 3 call(s)")
-            && p.contains("`paperpaw_plugin_one::run` 2")
-            && p.contains("`paperpaw_plugin_two::go` 1")),
+        over.problems.iter().any(|p| p.contains("have 30 call(s)")
+            && p.contains("`paperpaw_plugin_one::run` 20")
+            && p.contains("`paperpaw_plugin_two::go` 10")),
         "{:?}",
         over.problems
     );
@@ -1402,10 +1402,10 @@ fn an_indirect_in_line_is_a_ceiling_for_the_crates_functions_and_must_match_one(
     let one = run(
         &funcs,
         &["root"],
-        &format!("allow indirect-in paperpaw_plugin_one 2{why}"),
+        &format!("allow indirect-in paperpaw_plugin_one 4{why}"),
     );
     assert_eq!(one.problems.len(), 1, "{:?}", one.problems);
-    assert!(one.problems[0].contains("1 call(s) through a register"));
+    assert!(one.problems[0].contains("10 call(s) through a register"));
     // A line no function matches is stale; a function's own line comes first.
     let stale = run(
         &funcs,
@@ -1417,7 +1417,7 @@ fn an_indirect_in_line_is_a_ceiling_for_the_crates_functions_and_must_match_one(
         &funcs,
         &["root"],
         &format!(
-            "allow indirect-in paperpaw_plugin_* 1{why}allow indirect paperpaw_plugin_one::run 2{why}"
+            "allow indirect-in paperpaw_plugin_* 1{why}allow indirect paperpaw_plugin_one::run 20{why}"
         ),
     );
     assert!(own.problems.is_empty(), "{:?}", own.problems);
