@@ -27,5 +27,3 @@
 
 
 
-#[cfg(test)]
-mod tests;

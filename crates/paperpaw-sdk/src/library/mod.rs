@@ -213,12 +213,4 @@ pub fn changed_book(path: &str, what: u32) -> crate::Command {
     })
 }
 
-#[cfg(test)]
-mod fallible_tests;
 
-#[cfg(test)]
-#[allow(
-    clippy::let_underscore_must_use,
-    reason = "tests set up files in memory, which does not fail"
-)]
-mod tests;

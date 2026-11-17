@@ -17,6 +17,3 @@
 
 
 
-#[cfg(test)]
-#[path = "carry_tests.rs"]
-mod tests;

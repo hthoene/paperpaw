@@ -433,12 +433,9 @@ pub(crate) use commands::Commands;
 pub use contribution::item::Contribution;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use env::EnvParts;
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use env::{Capabilities, Capability, Env, Metrics};
+pub use env::{Capabilities, Capability, Metrics};
 #[cfg(not(any(test, feature = "kernel")))]
-pub(crate) use env::{Capabilities, Capability, Env, Metrics};
+pub(crate) use env::{Capabilities, Capability, Metrics};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use event::{Event, EventData};

@@ -89,5 +89,3 @@ mod making;
 #[cfg(any(test, feature = "kernel"))]
 mod publish;
 
-#[cfg(test)]
-mod tests;

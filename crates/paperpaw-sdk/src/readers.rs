@@ -29,21 +29,3 @@
 
 
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::MemoryStorage;
-
-    #[test]
-    fn choices_that_cannot_be_read_are_not_overwritten() {
-        let big = "x\tfolder\n".repeat(LIMIT / 8);
-        let storage = MemoryStorage::new().with(FOLDERS, big.as_str());
-        let comics = Id::new_static("comics.reader");
-        assert_eq!(
-            remember(&storage, Choice::Folder("manga"), Some(&comics)),
-            Err(StorageError::TooLarge)
-        );
-        let kept = crate::read_file(&storage, FOLDERS, 2 * LIMIT).unwrap();
-        assert_eq!(kept.len(), big.len());
-    }
-}

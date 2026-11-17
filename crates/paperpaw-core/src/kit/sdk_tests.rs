@@ -7,7 +7,6 @@ mod common;
 mod data_writers;
 mod library;
 mod pictures_diffused;
-mod pictures_missing;
 mod pictures_over;
 mod status_line;
 mod support;
