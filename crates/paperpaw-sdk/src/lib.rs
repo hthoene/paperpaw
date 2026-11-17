@@ -183,10 +183,12 @@ mod install_old;
 /// `kernel`).
 #[cfg(not(test))]
 pub mod install {
-    
     pub use crate::install_old::{
         Digest, MAX_FILES, Package, PackageFile, is_plugin_name, is_safe_path,
     };
+    /// The kernel's and the store's: whether a data plugin fits a kernel.
+    #[cfg(feature = "kernel")]
+    pub use crate::install_old::fits_sdk;
 }
 // end of facade: install
 pub mod keys;
@@ -518,7 +520,7 @@ pub use screen::{
     ScreenKey, ScreenList, ShowsThrough, StackEntry};
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use screen::{
-    CloseCause, Cx, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION,
+    CloseCause, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION,
     ScreenKey, ScreenList, ShowsThrough, StackEntry,
 };
 pub use setting::{Setting, Text};

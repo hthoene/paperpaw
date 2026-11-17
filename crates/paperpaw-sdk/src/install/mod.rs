@@ -38,6 +38,15 @@ pub const MAX_FILES: usize = 64;
 /// The longest path of a file in a plugin's folder.
 const MAX_PATH: usize = 100;
 
+/// Whether a data plugin made for the SDK `sdk` (e.g. `0.5`) with data
+/// formats `formats` is read by a kernel of the SDK `kernel`.
+pub fn fits_sdk(kernel: crate::Version, sdk: &str, formats: u32) -> bool {
+    let sdk_fits = sdk.trim().is_empty()
+        || crate::Version::parse(sdk)
+            .is_some_and(|v| (v.major, v.minor) <= (kernel.major, kernel.minor));
+    sdk_fits && formats <= crate::DATA_FORMATS
+}
+
 
 
 /// Whether `id` can be a data plugin's id and its folder's name: lower-case
