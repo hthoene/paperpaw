@@ -372,7 +372,9 @@ These change the user's configuration of the whole device, so they need the D1 f
 - [D] `set_plugin_enabled`: switches a plugin on or off; it takes effect at the next start
   (`reg_plugin` flag `restart needed`). Switching off a plugin another enabled plugin requires,
   or the submitter itself, is `ERR_DENIED`. A built-in the host needs (the settings editor while
-  it is the only one) is `ERR_DENIED`.
+  it is the only one) is `ERR_DENIED`. A plugin the device does not list is `ERR_NOT_FOUND`. The
+  host checks the feature first (#279): a plugin file on the card is never given `uses.registry`,
+  so it switches no plugin.
 - [D] **The id `core` is the host's own** (reserved: no card, bundle, linked or native plugin may
   take it, #857). `set_plugin_enabled`, `request_plugins` and `answer_plugin` naming it are
   `ERR_DENIED` for the whole batch.
