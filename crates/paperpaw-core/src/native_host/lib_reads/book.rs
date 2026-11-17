@@ -205,14 +205,14 @@ pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> R
 ///    too, by looking up its entry and without walking the folder (a folder
 ///    book of thousands of pictures costs one lookup); `exists` is
 ///    `size().is_ok()` by default and cannot see a directory;
-/// 3. only where a storage does not tell (`None`), a `list_from` that stops
-///    at the first entry. FAT reads a folder whole in `list_from` (only the
-///    visitor stops), so this is the fallback, not the check.
+/// 3. only where a storage does not tell (`None`), a `list_bounded` that
+///    stops at the first entry (FAT reads no entry past it; a `list_from`
+///    would read the folder whole there).
 ///
 /// A path the storage cannot name (`InvalidPath`) is a book that is not
 /// there. A storage that fails (a card not mounted, a failing card) is
 /// `ERR_IO`, never "gone". Before a book is called gone the storage must
-/// show a root (`list_from("")`): where it does not (the books' storage is
+/// show a root (`list_bounded("")`): where it does not (the books' storage is
 /// `NoStorage`, the catalog being on another storage that still answers) the
 /// answer is `ERR_IO` (`ERR_NO_MEMORY` if the probe itself is refused
 /// memory), or every book would read as removed. Limit: a router
@@ -238,14 +238,14 @@ pub(super) fn file_present(reads: &CatalogReads, path: &str) -> Result<bool, i32
     if reads.storage.modified(path).is_some() {
         return Ok(true);
     }
-    match reads.storage.list_from(path, 0, &mut |_| false) {
+    match reads.storage.list_bounded(path, 0, &mut |_| false) {
         Ok(_) => return Ok(true),
         Err(error) if nothing(error) => {}
         Err(error) => return Err(fail(error.into())),
     }
     // Not found by any: gone, but only on a storage that is there at all.
     // No root is `ERR_IO`; a probe that ran out of memory is not that.
-    match reads.storage.list_from("", 0, &mut |_| false) {
+    match reads.storage.list_bounded("", 0, &mut |_| false) {
         Ok(_) => Ok(false),
         Err(StorageError::OutOfMemory) => Err(ERR_NO_MEMORY),
         Err(_) => Err(ERR_IO),

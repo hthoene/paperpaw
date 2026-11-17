@@ -551,7 +551,7 @@ impl<'a> StorageAdapter<'a> {
             return Err(ERR_BUSY);
         }
         let there = |path: &str| {
-            self.storage.exists(path) || self.storage.list_from(path, 0, &mut |_| false).is_ok()
+            self.storage.exists(path) || self.storage.list_bounded(path, 0, &mut |_| false).is_ok()
         };
         if !there(f) {
             return Err(ERR_NOT_FOUND);
