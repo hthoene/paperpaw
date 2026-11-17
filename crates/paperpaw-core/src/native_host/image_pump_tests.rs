@@ -296,7 +296,7 @@ fn root_one_reaches_a_running_data_plugins_files_only() {
 #[test]
 fn a_full_table_keeps_the_command_and_applies_it_at_its_own_time() {
     let mut w = world(true);
-    w.kernel.now = Instant(1_000);
+    w.kernel.shared.now = Instant(1_000);
     // Four wait at most; the fifth is kept, in order.
     w.apply((1..=5).map(|cookie| prepare(0, "p.png", cookie)).collect());
     assert_eq!(w.pending(), 1);
@@ -311,7 +311,7 @@ fn a_full_table_keeps_the_command_and_applies_it_at_its_own_time() {
     assert_eq!(cookies, [1, 2, 3, 4]);
     assert_eq!(w.pending(), 1, "not applied before its time");
     assert_eq!(w.kernel.service_due(), Some(Instant(3_000)));
-    w.kernel.now = Instant(3_000);
+    w.kernel.shared.now = Instant(3_000);
     while w.kernel.native_image_pump() {}
     assert_eq!(w.pending(), 0);
     assert_eq!(w.told().iter().map(|t| t.0).collect::<Vec<_>>(), [5]);
@@ -321,13 +321,13 @@ fn a_full_table_keeps_the_command_and_applies_it_at_its_own_time() {
 #[test]
 fn a_command_that_finds_no_room_after_its_tries_fails_to_its_plugin() {
     let mut w = world(true);
-    w.kernel.now = Instant(1_000);
+    w.kernel.shared.now = Instant(1_000);
     w.apply((1..=5).map(|cookie| prepare(0, "p.png", cookie)).collect());
     // Nothing decodes meanwhile, so the table stays full: three tries, 2 s
     // apart, then the plugin is told (status 5, no memory now).
     for at in [3_000, 5_000, 7_000] {
         assert_eq!(w.pending(), 1);
-        w.kernel.now = Instant(at);
+        w.kernel.shared.now = Instant(at);
         w.kernel.image_retry();
     }
     assert_eq!(w.pending(), 0);

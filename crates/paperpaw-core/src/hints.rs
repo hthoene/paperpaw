@@ -58,14 +58,14 @@ impl Kernel {
         let panel = self.framebuffer.bounds();
         let height = self.hint.height.min(panel.height / 2);
         let below = self.stack.last().is_some_and(|top| top.hinted);
-        let pressed = self.hint.until.is_some_and(|until| self.now < until);
+        let pressed = self.hint.until.is_some_and(|until| self.shared.now < until);
         (height > 0 && (below || pressed))
             .then(|| Rect::new(0, panel.height - height, panel.width, height))
     }
 
     /// When the full screen shown has the row of hints.
     pub(crate) fn base_hints(&self) -> HintVisibility {
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         self.stack
             .iter()
             .rev()
@@ -86,7 +86,7 @@ impl Kernel {
         if self.hint.height == 0 || self.base_hints() != HintVisibility::OnPress {
             return;
         }
-        self.hint.until = Some(self.now.add_millis(HINTS_MS));
+        self.hint.until = Some(self.shared.now.add_millis(HINTS_MS));
         self.hint.shown.clear();
         // The row lies over the page's text, which a quicker waveform
         // would leave ghosts of at each press.
@@ -96,7 +96,11 @@ impl Kernel {
     /// Takes the row away again once its time is over: the screen below
     /// is drawn there again.
     pub(crate) fn hide_hints(&mut self) {
-        if !self.hint.until.is_some_and(|until| until <= self.now) {
+        if !self
+            .hint
+            .until
+            .is_some_and(|until| until <= self.shared.now)
+        {
             return;
         }
         self.hint.until = None;
@@ -118,7 +122,7 @@ impl Kernel {
                 .bool(core_settings::BUTTON_HINTS.as_str())
             && self.rotation() == paperpaw_platform::Rotation::Deg0;
         if shown {
-            paperpaw_sdk::ui::button_hints_height(&self.shared.env(self.now))
+            paperpaw_sdk::ui::button_hints_height(&self.shared.env(self.shared.now))
         } else {
             0
         }

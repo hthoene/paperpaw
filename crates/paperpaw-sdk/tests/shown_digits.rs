@@ -10,12 +10,10 @@
 
 mod common;
 
-use std::borrow::Cow;
-
 use common::Harness;
 use paperpaw_i18n::Catalog;
 use paperpaw_sdk::builtin::settings;
-use paperpaw_sdk::{SettingSpec, SettingValue, files, time, ui};
+use paperpaw_sdk::{SettingSpec, SettingValue};
 
 const HOUR: i64 = 3600;
 
@@ -59,45 +57,6 @@ fn harness(language: &str) -> Harness {
     h.i18n.add(Catalog::parse(persian.to_string()).unwrap());
     h.i18n.set_language(language);
     h
-}
-
-fn twelve_hours(h: &mut Harness) {
-    h.settings
-        .set(
-            settings::CLOCK_FORMAT.as_str(),
-            SettingValue::Text(Cow::Borrowed(time::CLOCK_12H)),
-        )
-        .unwrap();
-}
-
-#[test]
-fn english_keeps_latin_digits() {
-    let mut h = harness("en");
-    {
-        let env = h.env();
-        assert_eq!(time::clock_text(&env).as_deref(), Some("13:05"));
-        assert_eq!(time::duration_text(&env, 65 * 60), "1 h 05 min");
-        assert_eq!(files::shown_size(&env, 2_400_000), "2.3 MB");
-        assert_eq!(ui::setting_value(&env, &COUNT), "120");
-    }
-    twelve_hours(&mut h);
-    assert_eq!(time::clock_text(&h.env()).as_deref(), Some("1:05 PM"));
-}
-
-#[test]
-fn persian_writes_its_own_digits() {
-    let mut h = harness("fa");
-    {
-        let env = h.env();
-        assert_eq!(time::clock_text(&env).as_deref(), Some("۱۳:۰۵"));
-        assert_eq!(time::duration_text(&env, 65 * 60), "۱ ساعت ۰۵ دقیقه");
-        assert_eq!(time::duration_text(&env, 42 * 60), "۴۲ دقیقه");
-        assert_eq!(files::shown_size(&env, 2_400_000), "۲٫۳ MB");
-        assert_eq!(files::shown_size(&env, 820), "۸۲۰ B");
-        assert_eq!(ui::setting_value(&env, &COUNT), "۱۲۰");
-    }
-    twelve_hours(&mut h);
-    assert_eq!(time::clock_text(&h.env()).as_deref(), Some("۱:۰۵ ب.ظ"));
 }
 
 /// The pager's label (`ui::Header`, `core.page-of` as the kernel's

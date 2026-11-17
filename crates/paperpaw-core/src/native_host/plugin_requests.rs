@@ -407,7 +407,7 @@ impl Kernel {
             }
             list.push_str(id.as_str());
         }
-        let now_ms = self.now.millis();
+        let now_ms = self.shared.now.millis();
         self.native_queue_event_if(
             wire::EVENT_PLUGINS_REQUESTED_TAG,
             &|instances, owner, _| instances.is_installer(owner),
@@ -431,7 +431,7 @@ impl Kernel {
         plugin: &str,
         outcome: u32,
     ) {
-        let now_ms = self.now.millis();
+        let now_ms = self.shared.now.millis();
         self.native_queue_event(
             wire::EVENT_PLUGIN_ANSWERED_TAG,
             &|who| who == requester,

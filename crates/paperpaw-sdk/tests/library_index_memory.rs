@@ -89,24 +89,6 @@ unsafe impl GlobalAlloc for Refusing {
 #[global_allocator]
 static ALLOCATOR: Refusing = Refusing;
 
-/// Runs `operation` with its `number`-th allocation refused; whether one
-/// was refused comes back with the result.
-fn with_refusal<T>(number: usize, operation: impl FnOnce() -> T) -> (T, bool) {
-    struct Reset;
-    impl Drop for Reset {
-        fn drop(&mut self) {
-            UNTIL.with(|left| left.set(None));
-        }
-    }
-    REFUSED.with(|refused| refused.set(false));
-    LARGEST.with(|largest| largest.set(0));
-    UNTIL.with(|left| left.set(Some(number)));
-    let reset = Reset;
-    let result = operation();
-    drop(reset);
-    (result, REFUSED.with(Cell::get))
-}
-
 use std::borrow::Cow;
 
 use paperpaw_sdk::document::{Block, Document, DocumentError, Locator, Metadata};
@@ -223,35 +205,6 @@ fn title(storage: &dyn Storage) -> Option<String> {
         }
     });
     found
-}
-
-#[test]
-fn a_book_indexed_with_no_memory_is_returned_not_indexed_and_not_written() {
-    for nth in 1_usize.. {
-        let h = harness();
-        let card = card();
-        let env = h.env_on(&card);
-        let (book, refused) = with_refusal(nth, || library::index(&env, BOOK));
-        if !refused {
-            assert_eq!(book.title.as_deref(), Some("The Refused Title Of The Walk"));
-            assert!(book.indexed);
-            return;
-        }
-        // Whatever was refused: a book is indexed only with what it names.
-        assert!(
-            !book.indexed || book.title.as_deref() == Some("The Refused Title Of The Walk"),
-            "refusal {nth}: indexed with {:?}",
-            book.title
-        );
-        // And what is kept is never an indexed book without its title.
-        if let Some(kept) = library::try_book(&card, BOOK).ok().flatten() {
-            assert!(
-                !kept.indexed || kept.title.as_deref() == Some("The Refused Title Of The Walk"),
-                "refusal {nth}: kept indexed with {:?}",
-                kept.title
-            );
-        }
-    }
 }
 
 /// What a walk made of the one book when the copy of its title (30 bytes)

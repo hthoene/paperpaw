@@ -181,7 +181,7 @@ impl crate::Kernel {
     /// what wakes the shell anyway.
     pub(crate) fn followup_due(&self, refreshing: bool) -> Option<paperpaw_platform::Instant> {
         let drawn = self.frame.pending.is_none() && self.frame.unrendered.is_none();
-        (self.frame.followup.is_some() && (refreshing || drawn)).then_some(self.now)
+        (self.frame.followup.is_some() && (refreshing || drawn)).then_some(self.shared.now)
     }
 }
 

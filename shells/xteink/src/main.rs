@@ -1091,6 +1091,7 @@ fn kernel(
         paperpaw_app::Fonts::Packs,
         paperpaw_app::StorePlugins::Left,
     )
+    .built_messages(device::MESSAGES)
     .items(device::manifest(), device::register);
     // Its warnings are logged as the main loop starts: taken here, the
     // kernel would be one more copy on the stack.

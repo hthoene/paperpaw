@@ -4,7 +4,7 @@
 //! layout, never as a pop-up over the page: "Offline mode. Go online for
 //! this?" with *Go online* and *Not now*.
 //!
-//! *Go online* sends [`Command::GoOnline`]: the
+//! *Go online* sends `Command::GoOnline`: the
 //! network for that screen until it closes; the screen then does again
 //! what needed the network. *Not now* leaves the screen as it is without
 //! the network (it says so as it would without one). Either way it is
@@ -12,7 +12,7 @@
 //!
 //! Outside a screen of the network (a widget's *Update now*, a plugin's
 //! own offer for what its background work would bring) the reader's
-//! choice is [`Command::GoOnlineFor`]: the network for a while, whatever
+//! choice is `Command::GoOnlineFor`: the network for a while, whatever
 //! shows.
 //!
 //! ```ignore
@@ -25,14 +25,10 @@
 //! }
 //! ```
 
-use crate::builtin::actions;
-use crate::gesture::{Gesture, GestureKind};
 use crate::power::PowerLevel;
-use crate::{Command, Cx, Env, Id, Rect};
+use crate::{Env, Rect};
 
-use super::{
-    Response, UiStyle, button_height, button_height_for, draw_button, draw_empty, empty_height,
-};
+use super::{UiStyle, button_height, button_height_for, draw_button, draw_empty};
 
 /// The keys of its buttons' words, *Go online* first.
 const BUTTONS: [&str; 2] = ["core.offline.go-online", "core.offline.not-now"];
@@ -88,7 +84,7 @@ impl Buttons {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Offer {
-    /// *Go online*: [`Command::GoOnline`] was sent; do again what needed
+    /// *Go online*: `Command::GoOnline` was sent; do again what needed
     /// the network.
     Online,
     /// *Not now*: go on without the network.
@@ -113,15 +109,6 @@ impl OfflineOffer {
     /// chosen on this screen yet.
     pub fn shows(&self, env: &Env<'_>) -> bool {
         env.power().level == PowerLevel::Offline && !self.chosen
-    }
-
-    /// The height it needs in an area `width` wide for all its words:
-    /// what it is about and its buttons (an area higher shows an icon as
-    /// well).
-    pub fn height(env: &Env<'_>, style: &UiStyle, width: u16) -> u16 {
-        let title = env.i18n().tr("core.offline.title");
-        let text = env.i18n().tr("core.offline.text");
-        empty_height(env, style, width, title, text) + Buttons::new(env, style, width).room
     }
 
     /// Draws it in `area`: what it is about, as an empty screen says it,
@@ -168,55 +155,6 @@ impl OfflineOffer {
                 index == 0,
                 focused,
             );
-        }
-    }
-
-    /// The buttons with the buttons: up and down (or left and right)
-    /// move between them ([`Response::Changed`]), *Select* chooses
-    /// ([`Response::Done`] with the choice). Ignored for other actions
-    /// and once chosen. It asks for its own drawing.
-    pub fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Response<Offer> {
-        if !self.shows(cx.env()) {
-            return Response::Ignored;
-        }
-        let a = action;
-        if [actions::UP, actions::DOWN, actions::LEFT, actions::RIGHT].contains(a)
-            || *a == actions::NEXT
-            || *a == actions::PREVIOUS
-        {
-            self.focus = 1 - self.focus;
-            cx.request_redraw();
-            cx.request_refresh(crate::RefreshMode::Fast);
-            return Response::Changed;
-        }
-        if *a == actions::CONFIRM {
-            Response::Done(self.choose(self.focus, cx))
-        } else {
-            Response::Ignored
-        }
-    }
-
-    /// A tap on a button: [`Response::Done`] with what it chooses.
-    /// Other gestures, and taps beside the buttons, are the caller's.
-    pub fn on_gesture(&mut self, gesture: &Gesture, cx: &mut Cx<'_, '_>) -> Response<Offer> {
-        if gesture.kind != GestureKind::Tap || !self.shows(cx.env()) {
-            return Response::Ignored;
-        }
-        match self.buttons.iter().position(|b| b.contains(gesture.start)) {
-            Some(index) => Response::Done(self.choose(index, cx)),
-            None => Response::Ignored,
-        }
-    }
-
-    fn choose(&mut self, index: usize, cx: &mut Cx<'_, '_>) -> Offer {
-        self.chosen = true;
-        cx.request_redraw();
-        cx.request_refresh(crate::RefreshMode::Partial);
-        if index == 0 {
-            cx.command(Command::GoOnline);
-            Offer::Online
-        } else {
-            Offer::NotNow
         }
     }
 }

@@ -153,7 +153,7 @@ impl Kernel {
             return false;
         };
         self.firmware_wire(&cell);
-        let now = self.now.millis();
+        let now = self.shared.now.millis();
         if self.shared.native_instances.depth() > 0 {
             return cell.resume_wanted()
                 || cell.driver().is_some_and(|driver| {
@@ -481,7 +481,7 @@ impl Kernel {
             };
             let state = driver.try_borrow().map_or(0, |driver| driver.state());
             let record = Record::EventFirmwareChanged(wire::EventFirmwareChanged {
-                now_ms: self.now.millis(),
+                now_ms: self.shared.now.millis(),
                 request,
                 state,
             });
@@ -517,7 +517,7 @@ impl Kernel {
                 .id(outcome.owner)
                 .map_or("", |id| id.as_str());
             let record = Record::EventInstallDone(wire::EventInstallDone {
-                now_ms: self.now.millis(),
+                now_ms: self.shared.now.millis(),
                 request: outcome.request,
                 kind: outcome.kind,
                 status: status_of(outcome),
@@ -553,7 +553,7 @@ impl Kernel {
     /// device may idle meanwhile (`Kernel::firmware_due` is the deadline).
     fn firmware_hold_back(&self, driver: &super::firmware_cell::DriverRef) {
         if let Ok(mut driver) = driver.try_borrow_mut() {
-            driver.hold_back(self.now.millis().saturating_add(RETRY_MS));
+            driver.hold_back(self.shared.now.millis().saturating_add(RETRY_MS));
         }
     }
 

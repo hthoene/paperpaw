@@ -518,8 +518,8 @@ pub mod settings {
     /// first or last entry of a page goes round to the other end of that
     /// page, and only the page keys turn pages. Off (as it was before), it
     /// goes round to the other end of the whole list. Lists follow it
-    /// through [`ListView::navigate_in`](crate::ui::ListView::navigate_in)
-    /// and [`step_focus_in`](crate::ui::step_focus_in).
+    /// through `ListView::navigate_in`
+    /// and `step_focus_in`.
     pub const ARROWS_STAY_ON_PAGE: Setting<bool> = Setting::new("core.arrows-stay-on-page");
     /// The values of [`ROTATION`]: upright, on its side (landscape),
     /// upside down, on its other side.
@@ -884,7 +884,7 @@ pub mod settings {
     pub const CLOCK_FORMAT: Setting<Text> = Setting::new("core.clock-format");
     /// The first day of the week, one of
     /// [`time::WEEK_STARTS`](crate::time::WEEK_STARTS); read it with
-    /// [`time::week_start`](crate::time::week_start).
+    /// `time::week_start`.
     pub const WEEK_START: Setting<Text> = Setting::new("core.week-start");
     /// The time zone: `core.tz.auto` (the system's) or one of
     /// [`time::TIME_ZONES`](crate::time::TIME_ZONES).

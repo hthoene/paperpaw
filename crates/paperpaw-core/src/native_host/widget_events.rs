@@ -89,7 +89,7 @@ impl crate::Kernel {
             return;
         };
         let record = Record::EventWidgetChanged(wire::EventWidgetChanged {
-            now_ms: self.now.millis(),
+            now_ms: self.shared.now.millis(),
             instance,
         });
         let mut bytes = [0u8; RECORD_BYTES];

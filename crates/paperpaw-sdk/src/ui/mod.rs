@@ -47,7 +47,6 @@ pub(crate) mod style;
 pub(crate) mod text;
 mod thumbnail;
 
-pub use address::*;
 pub use button::*;
 pub use chips::Chips;
 pub use context::Ui;
@@ -69,7 +68,6 @@ pub use row::{Row, RowKind, RowPart};
 pub use rows::Rows;
 pub use search::SearchField;
 pub use setting_rows::*;
-pub use setting_values::*;
 pub use style::*;
 pub use text::*;
 pub use thumbnail::Thumbnail;
@@ -89,7 +87,7 @@ use crate::builtin::{actions, fonts, settings};
 use crate::env::Env;
 use crate::fonts::FontHandle;
 use crate::screen::Hint;
-use crate::settings::{SettingKind, SettingSpec, SettingValue};
+use crate::settings::{SettingKind, SettingSpec};
 use paperpaw_text::{TextInk, ToneCurve};
 
 /// Whether a part drawn in `rect` can show on `canvas`: it meets the

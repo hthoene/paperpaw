@@ -575,9 +575,10 @@ impl Kernel {
     /// goes online for the screen in front ([`Command::GoOnline`]).
     pub(crate) fn apply_work(&mut self, command: Command) {
         match command {
-            Command::Work(work) => self
-                .works
-                .declare(*work, self.now, &mut self.output.commands),
+            Command::Work(work) => {
+                self.works
+                    .declare(*work, self.shared.now, &mut self.output.commands)
+            }
             Command::CancelWork(id, key) => {
                 self.works.cancel(&id, key.as_deref());
                 self.close_ended_runs();
@@ -598,7 +599,7 @@ impl Kernel {
             Command::GoOnlineFor(how_long) if self.shared.reader => {
                 let how_long = how_long.min(paperpaw_sdk::power::MAX_ONLINE_FOR);
                 let millis = u64::try_from(how_long.as_millis()).unwrap_or(u64::MAX);
-                self.works.online_until = Some(self.now.add_millis(millis));
+                self.works.online_until = Some(self.shared.now.add_millis(millis));
                 self.sync_net_policy();
                 self.output.commands.push(events::WORK_ALLOWED.emit(()));
             }
@@ -759,12 +760,14 @@ impl Kernel {
             || self
                 .works
                 .online_until
-                .is_some_and(|until| self.now < until)
+                .is_some_and(|until| self.shared.now < until)
     }
 
     /// When the while the reader went online for ends, to look again.
     pub(crate) fn online_ends(&self) -> Option<Instant> {
-        self.works.online_until.filter(|until| self.now < *until)
+        self.works
+            .online_until
+            .filter(|until| self.shared.now < *until)
     }
 
     /// The power work goes by: the mode's, but while the reader went
@@ -888,7 +891,7 @@ impl Kernel {
         let mut notes: Vec<(Id, paperpaw_sdk::work::Note)> = Vec::new();
         let mut stepped = false;
         {
-            let env = self.shared.env(self.now);
+            let env = self.shared.env(self.shared.now);
             let moments = self.works.take_moments(&env, self.last_activity);
             if moments.contains(Moments::SLEEP) {
                 self.works.keep = true;
@@ -924,7 +927,7 @@ impl Kernel {
                     entry.work.key.clone(),
                     entry.owner.clone(),
                 ));
-                if again(entry, self.now) {
+                if again(entry, self.shared.now) {
                     index += 1;
                 } else {
                     self.works.entries.remove(index);
@@ -1065,7 +1068,7 @@ impl Kernel {
 impl Kernel {
     /// One step of the first job ready.
     fn step_job(&mut self, notes: &mut Vec<(Id, paperpaw_sdk::work::Note)>) -> bool {
-        let now = self.now;
+        let now = self.shared.now;
         let Some((index, step, params)) = self.works.ready_job(now) else {
             return false;
         };

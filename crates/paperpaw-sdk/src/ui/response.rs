@@ -5,7 +5,6 @@
 
 use crate::env::Env;
 use crate::keys::InputMode;
-use crate::{Cx, RefreshMode};
 
 /// What a part did with an action or a gesture: not its own, taken with
 /// nothing to draw, taken and changed (draw it again), or taken and done
@@ -47,15 +46,6 @@ impl<T> Response<T> {
     /// Whether the part changed and is to be drawn again.
     pub fn changed(&self) -> bool {
         matches!(self, Self::Changed)
-    }
-
-    /// Asks for what a change needs: the screen drawn again and
-    /// refreshed fast; nothing otherwise.
-    pub fn request(&self, cx: &mut Cx<'_, '_>) {
-        if self.changed() {
-            cx.request_redraw();
-            cx.request_refresh(RefreshMode::Fast);
-        }
     }
 }
 

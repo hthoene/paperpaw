@@ -131,7 +131,7 @@ fn kernel(log: &Log, network: bool) -> Kernel {
 }
 
 fn declare(kernel: &mut Kernel, at: u64, work: Work) -> Effects {
-    kernel.now = Instant(at);
+    kernel.shared.now = Instant(at);
     kernel.apply(Command::work(work));
     kernel.finish()
 }
@@ -802,20 +802,20 @@ fn offline_lets_out_everything_for_the_while_the_reader_went_online_for() {
     kernel.shared.reader = false;
     assert_eq!(
         kernel.works.online_until,
-        Some(kernel.now.add_millis(10 * 60 * 1000))
+        Some(kernel.shared.now.add_millis(10 * 60 * 1000))
     );
     let effects = kernel.finish();
     assert!(
         effects
             .wake_at()
-            .is_some_and(|at| at <= kernel.now.add_millis(600_000))
+            .is_some_and(|at| at <= kernel.shared.now.add_millis(600_000))
     );
     kernel.apply(request());
     kernel.finish();
     assert!(kernel.io.http.busy(), "{:?}", log.borrow());
     // After it: refused again.
     let _ = kernel.io.http.take();
-    kernel.now = kernel.now.add_millis(600_001);
+    kernel.shared.now = kernel.shared.now.add_millis(600_001);
     kernel.apply(request());
     kernel.finish();
     assert_eq!(

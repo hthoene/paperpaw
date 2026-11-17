@@ -230,7 +230,7 @@ fn a_ready_command_reaches_the_asker_as_event_110_and_the_next_ask_has_the_entry
     assert_eq!(w.service().pending_len(), 0);
     assert_eq!(w.service().events_len(), 1);
     // The pump hands it to the asker, once.
-    w.kernel.now = Instant(5_000);
+    w.kernel.shared.now = Instant(5_000);
     w.kernel.native_service_pump();
     w.kernel.native_service_pump();
     let events = w.events.borrow().clone();

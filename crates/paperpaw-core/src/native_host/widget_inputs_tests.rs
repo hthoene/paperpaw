@@ -203,7 +203,7 @@ impl World {
     }
 
     fn pump(&mut self) -> bool {
-        self.kernel.now = Instant(1_000);
+        self.kernel.shared.now = Instant(1_000);
         self.kernel.native_widget_pump()
     }
 

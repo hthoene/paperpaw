@@ -79,7 +79,7 @@ fn a_live_service_without_a_network_is_wanted_once_and_idle_after_its_last_use()
 #[test]
 fn a_wish_of_work_is_wanted_once_stands_for_a_while_and_lapses() {
     let (mut kernel, log) = started();
-    kernel.now = Instant(10_000);
+    kernel.shared.now = Instant(10_000);
     kernel.native_work_wish();
     kernel.native_work_wish();
     kernel.finish();
@@ -98,7 +98,7 @@ fn a_wish_of_work_is_wanted_once_stands_for_a_while_and_lapses() {
     assert_eq!(count(&log, "wk idle"), 0, "nothing was in use");
     assert_eq!(kernel.service_due(), None);
     // A wish again is a new one.
-    kernel.now = Instant(100_000);
+    kernel.shared.now = Instant(100_000);
     kernel.native_work_wish();
     kernel.finish();
     assert_eq!(count(&log, "wk wanted"), 2);
@@ -107,7 +107,7 @@ fn a_wish_of_work_is_wanted_once_stands_for_a_while_and_lapses() {
 #[test]
 fn a_network_that_comes_ends_the_wish_of_work() {
     let (mut kernel, log) = started();
-    kernel.now = Instant(1_000);
+    kernel.shared.now = Instant(1_000);
     kernel.native_work_wish();
     kernel.finish();
     assert_eq!(flags(&kernel), (true, false));
@@ -115,7 +115,7 @@ fn a_network_that_comes_ends_the_wish_of_work() {
     assert_eq!(flags(&kernel), (false, false));
     assert_eq!(count(&log, "wk wanted"), 1);
     // And on a network that is up, a wish asks for nothing.
-    kernel.now = Instant(3_000);
+    kernel.shared.now = Instant(3_000);
     kernel.native_work_wish();
     kernel.finish();
     assert_eq!(count(&log, "wk wanted"), 1);
@@ -134,7 +134,7 @@ fn wished(kernel: &Kernel) -> bool {
 fn a_wish_is_not_taken_while_the_policy_is_closed_or_the_mode_is_offline() {
     // Not yet filled: closed, as for every plugin.
     let (mut kernel, _, log) = booting_with(MemoryStorage::new(), true);
-    kernel.now = Instant(1_000);
+    kernel.shared.now = Instant(1_000);
     kernel.native_work_wish();
     kernel.finish();
     assert!(!wished(&kernel), "closed policy");
@@ -148,7 +148,7 @@ fn a_wish_is_not_taken_while_the_policy_is_closed_or_the_mode_is_offline() {
         4,
     );
     kernel.sync_net_policy();
-    kernel.now = Instant(3_000);
+    kernel.shared.now = Instant(3_000);
     kernel.native_work_wish();
     kernel.finish();
     assert!(!wished(&kernel), "offline mode");
@@ -169,7 +169,7 @@ fn a_wish_is_nothing_when_a_network_is_up_or_the_system_manages_it() {
     let (mut kernel, log) = started();
     online(&mut kernel, 1_000);
     log.borrow_mut().clear();
-    kernel.now = Instant(2_000);
+    kernel.shared.now = Instant(2_000);
     kernel.native_work_wish();
     kernel.finish();
     assert!(!wished(&kernel));
@@ -178,7 +178,7 @@ fn a_wish_is_nothing_when_a_network_is_up_or_the_system_manages_it() {
     let (mut kernel, _, log) = booting_with(MemoryStorage::new(), false);
     kernel.start(Instant(0));
     log.borrow_mut().clear();
-    kernel.now = Instant(1_000);
+    kernel.shared.now = Instant(1_000);
     kernel.native_work_wish();
     kernel.finish();
     assert!(!wished(&kernel));
@@ -208,7 +208,7 @@ fn a_request_that_still_waits_is_announced_again_once_per_wait() {
 #[test]
 fn a_service_that_stays_live_keeps_the_demand_after_the_wish_lapses() {
     let (mut kernel, log) = started();
-    kernel.now = Instant(0);
+    kernel.shared.now = Instant(0);
     kernel.native_work_wish();
     demand(&kernel, DEMAND_NET, true);
     kernel.finish();

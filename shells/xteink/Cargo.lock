@@ -2836,6 +2836,7 @@ dependencies = [
  "paperpaw-fat",
  "paperpaw-graphics",
  "paperpaw-http",
+ "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-wifi",
