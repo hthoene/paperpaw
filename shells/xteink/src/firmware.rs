@@ -999,11 +999,13 @@ impl Firmware {
             ota.resume_trial(now().0);
         }
         // A card swapped while asleep is mounted anew first: waking is
-        // then told as after a USB drive (which resumes too).
-        let effects = if self.card_swapped_asleep() {
-            self.kernel.usb_drive_ended(now())
-        } else {
-            self.kernel.resume(now())
+        // then told as after a USB drive (which resumes too). One that kept
+        // its power is as the sleep left it: the kernel walks no library
+        // again for this wake (#305).
+        let effects = match self.card_asleep() {
+            card_swap::Asleep::Swapped => self.kernel.usb_drive_ended(now()),
+            card_swap::Asleep::Kept => self.kernel.resume_storage_kept(now()),
+            card_swap::Asleep::Gone => self.kernel.resume(now()),
         };
         self.apply(effects);
     }

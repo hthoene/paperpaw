@@ -10,6 +10,17 @@ use paperpaw_fat::Swapped;
 use super::Firmware;
 use crate::now;
 
+/// How the card came through a light sleep (see [`Firmware::card_asleep`]).
+#[cfg(feature = "asleep-light")]
+pub(super) enum Asleep {
+    /// It answers: it kept its power, nothing changed it.
+    Kept,
+    /// Taken out and back (or another): mounted anew.
+    Swapped,
+    /// Taken out and not back yet.
+    Gone,
+}
+
 impl Firmware {
     /// Writes back what the storage kept back; a failure is said, not retried.
     pub(super) fn write_back(&mut self) {
@@ -30,13 +41,20 @@ impl Firmware {
         }
     }
 
-    /// On waking from a light sleep, before the kernel hears it: whether a
-    /// card swapped meanwhile was mounted anew (the kernel to be told).
+    /// On waking from a light sleep, before the kernel hears it: how the
+    /// card came through it. A card taken out loses its power and answers
+    /// no read until it is started again, so one that answers is the card
+    /// as the sleep left it; one that does not is mounted anew where it is
+    /// back (the kernel to be told a card swapped).
     #[cfg(feature = "asleep-light")]
     #[inline(never)]
-    pub(super) fn card_swapped_asleep(&mut self) -> bool {
+    pub(super) fn card_asleep(&mut self) -> Asleep {
         let lost = self.card_swap.as_mut().is_some_and(|swap| swap.probe());
-        lost && self.remount_card()
+        match lost {
+            false => Asleep::Kept,
+            true if self.remount_card() => Asleep::Swapped,
+            true => Asleep::Gone,
+        }
     }
 
     /// Where the card is lost, tries to mount it anew: `true` if it was.
