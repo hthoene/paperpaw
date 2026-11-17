@@ -73,16 +73,12 @@ impl Kernel {
             .map_or(HintVisibility::Shown, |s| self.hints_of(s))
     }
 
-    /// When open screen `active` shows the row: as it says, else as its
-    /// plugin said for it.
+    /// When open screen `active` shows the row: as it says, else always.
     pub(crate) fn hints_of(&self, active: &ActiveScreen) -> HintVisibility {
         if active.screen.mode().is_full_screen() {
             return HintVisibility::Hidden;
         }
-        active
-            .screen
-            .hints()
-            .unwrap_or_else(|| self.shared.registry.hints_of(&active.id))
+        active.screen.hints().unwrap_or(HintVisibility::Shown)
     }
 
     /// Shows the row for a while over a screen that has it on a press.

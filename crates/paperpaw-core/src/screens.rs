@@ -206,7 +206,7 @@ impl Kernel {
         let entry = paperpaw_sdk::StackEntry::new(id.clone(), slot.clone(), false, key);
         // Made once, at the size it asked for: above the row of hints, or
         // all of the screen, less the bars shown over it.
-        let mut hinted = self.shared.registry.hints_of(&id) == HintVisibility::Shown;
+        let mut hinted = true;
         let mut area = self.layout(hinted, Some(&entry), None);
         set_area(&mut self.shared.device, &mut self.shared.content, area);
         let running = self.shared.meter.enter(id.namespace());
@@ -597,7 +597,6 @@ impl Kernel {
         self.notice = Some((screen, self.now.add_millis(u64::from(seconds) * 1000)));
         self.invalidate(region);
         self.output.request_refresh(RefreshMode::Fast);
-        self.notice_cause();
     }
 
     /// Binds an input for the user (see [`Command::Bind`]).
@@ -631,13 +630,6 @@ impl Kernel {
         self.waiting_notices.ended(screen);
         self.invalidate(region);
         self.output.request_refresh(RefreshMode::Fast);
-        self.notice_cause();
-    }
-
-    /// The refresh is for the notice, where nothing else said why.
-    fn notice_cause(&mut self) {
-        let cause = &mut self.output.refresh_cause;
-        cause.get_or_insert(paperpaw_sdk::filters::RefreshCause::Notice);
     }
 
     /// Closes the screens from `index` on, the top one first, telling
@@ -712,7 +704,6 @@ impl Kernel {
         self.shared.stack.extend(entries);
         self.sync_chromes();
         self.sync_pane_keys();
-        self.guard_takes_fingers();
     }
 
     /// Closes the open screen `key` (see [`Command::Close`]), leaving the
@@ -1393,15 +1384,6 @@ impl Kernel {
         self.io.sockets.close_for_closed_screens(screens, out);
         self.bluetooth_screens_closed();
         self.io.speech.stop_for_closed_screens(screens);
-        if self
-            .io
-            .speech
-            .voice
-            .as_ref()
-            .is_some_and(|(_, s)| *s > screens)
-        {
-            self.stop_speaking();
-        }
     }
 }
 

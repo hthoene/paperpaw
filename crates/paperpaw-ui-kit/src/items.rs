@@ -249,6 +249,17 @@ pub struct ItemList {
     head_at: Option<Rect>,
     /// A picture over the words of an empty list ([`Footer::Empty`]).
     empty_icon: Option<paperpaw_sdk::native::fonts::IconGlyph>,
+    /// The heights of the items as the last frame measured them: measuring
+    /// wraps every row's text, which is most of a long list's frame, so a
+    /// frame under the same look and width keeps them (empty while taken, or
+    /// after an item changed). Taken and kept in functions of their own
+    /// ([`Self::take_heights`], [`Self::keep_heights`]), and no larger than
+    /// this: more in the list or more code inlined into [`Self::draw_with`]
+    /// and the functions that change an item grew the frame of every plugin
+    /// that has a list past the band of the X4 (#288).
+    kept: Vec<u16>,
+    /// What `kept` was measured under ([`measured_under`]).
+    kept_under: u32,
 }
 
 impl ItemList {
@@ -266,6 +277,7 @@ impl ItemList {
     /// Replaces the items, keeping the focus where it was (on the nearest row).
     pub fn replace(&mut self, items: Vec<Item>) {
         self.items = items;
+        self.drop_heights();
         self.focus = self.nearest(self.focus);
     }
 
@@ -279,6 +291,7 @@ impl ItemList {
     pub fn push(&mut self, item: Item) -> Result<(), Error> {
         self.items.try_reserve(1).map_err(|_| Error::NoMemory)?;
         self.items.push(item);
+        self.drop_heights();
         if !self.items.get(self.focus).is_some_and(Item::selectable) {
             self.focus = self.nearest(self.focus);
         }
@@ -289,6 +302,7 @@ impl ItemList {
     /// place: for a number that moves (a download's progress) where the rest
     /// of the list stays as it is. `false` where `index` is no row.
     pub fn set_value(&mut self, index: usize, value: String) -> bool {
+        self.drop_heights();
         match self.items.get_mut(index) {
             Some(Item::Row(row)) => {
                 row.value = value;
@@ -301,6 +315,7 @@ impl ItemList {
     /// Zeroes the text of every item and empties the list: for a list that
     /// showed a secret (a password drawn for the user to read) and is closed.
     pub fn wipe(&mut self) {
+        self.drop_heights();
         for item in core::mem::take(&mut self.items) {
             match item {
                 Item::Heading(title) => crate::mem::wipe_text(title),
@@ -601,6 +616,40 @@ impl ItemList {
         }
     }
 
+    /// The heights of the items: the kept ones where they were measured under
+    /// this look and width, else measured now. The caller gives them back
+    /// ([`Self::keep_heights`]) once the frame is drawn.
+    #[inline(never)]
+    fn take_heights(
+        &mut self,
+        font: &Font<'_>,
+        style: &Style,
+        width: u16,
+    ) -> Result<Vec<u16>, Error> {
+        let under = measured_under(style, width, self.items.len());
+        let same = self.kept_under == under && self.kept.len() == self.items.len();
+        self.kept_under = under;
+        if same {
+            Ok(core::mem::take(&mut self.kept))
+        } else {
+            self.kept = Vec::new();
+            heights_of(font, style, width, &self.items)
+        }
+    }
+
+    /// Drops the kept heights: an item changed. Out of line, as the drop of
+    /// a vector in each function that changes an item grew their frames.
+    #[inline(never)]
+    fn drop_heights(&mut self) {
+        self.kept = Vec::new();
+    }
+
+    /// Keeps the heights of a frame for the next one.
+    #[inline(never)]
+    fn keep_heights(&mut self, heights: Vec<u16>) {
+        self.kept = heights;
+    }
+
     /// As [`Self::draw`], with a [`Footer`].
     ///
     /// # Errors
@@ -630,7 +679,7 @@ impl ItemList {
             area.height = area.height.saturating_sub(rect.height);
             note = Some((rect, lines));
         }
-        let heights = heights_of(&font, &style, width, &self.items)?;
+        let heights = self.take_heights(&font, &style, width)?;
         let head_high = self.head_high(&style, area.height, heights.first().copied());
         let starts = paginate_with(&self.items, &heights, area.height, head_high)?;
         let page = starts
@@ -670,7 +719,14 @@ impl ItemList {
             &heights,
             starts[page]..end,
             Rect::new(0, y, width, area.height),
-            (shown, cards),
+            (
+                shown,
+                cards,
+                (
+                    frame.clip_top.saturating_sub(frame.rect.y),
+                    frame.clip_bottom.saturating_sub(frame.rect.y),
+                ),
+            ),
         )?;
         if let Some((from, to)) = self.drag {
             draw_drag(&mut body, &style, &drawn.hits, from, to)?;
@@ -694,6 +750,7 @@ impl ItemList {
         font.release()?;
         header.paint = Vec::new();
         self.header = header;
+        self.keep_heights(heights);
         self.starts = starts;
         self.hits = drawn.hits;
         self.steps = drawn.steps;
@@ -906,10 +963,9 @@ pub(crate) fn item_height(
             if row.note.is_empty() {
                 return Ok(band);
             }
-            let lines = note_lines(font, style, width, row)?;
+            let count = note_line_count(font, style, width, row)?;
             let line = crate::geometry::line_height(font, style.small)?;
-            let notes =
-                crate::geometry::px((line * lines.len() as f32).min(crate::geometry::MAX_PX))?;
+            let notes = crate::geometry::px((line * count as f32).min(crate::geometry::MAX_PX))?;
             Ok(band.saturating_add(notes).saturating_add(style.gap / 2))
         }
     }
@@ -1059,6 +1115,35 @@ fn zone_room(style: &Style) -> u16 {
     style.row.max(4) / 2 + style.margin
 }
 
+/// How many lines the note of a row takes (what [`note_lines`] gives, without
+/// wrapping where one measure of the whole note says it): a note that fits a
+/// line is one, and where at most two lines are shown, one that does not is
+/// two. Wrapping measures a word at a time, about fifteen measures a row, and
+/// the X4 spends about 3 ms on each (#291).
+#[inline(never)]
+fn note_line_count(
+    font: &Font<'_>,
+    style: &Style,
+    width: u16,
+    row: &RowItem,
+) -> Result<usize, Error> {
+    let most = if row.whole {
+        WHOLE_NOTE_LINES
+    } else {
+        NOTE_LINES
+    };
+    let plain = !row.note.starts_with(' ')
+        && !row.note.ends_with(' ')
+        && !row.note.contains("  ")
+        && !row.note.chars().any(|c| c.is_whitespace() && c != ' ');
+    if plain && most == 2 && !row.note.is_empty() {
+        let room = note_room(style, width, row.zone.is_some());
+        let whole = font.measure_text(style.small, &row.note)?;
+        return Ok(if whole <= room { 1 } else { 2 });
+    }
+    Ok(note_lines(font, style, width, row)?.len())
+}
+
 fn note_lines(
     font: &Font<'_>,
     style: &Style,
@@ -1075,6 +1160,25 @@ fn note_lines(
             NOTE_LINES
         },
     )
+}
+
+/// What the heights of `len` items are measured under: the look, the width.
+fn measured_under(style: &Style, width: u16, len: usize) -> u32 {
+    [
+        u32::from(width),
+        style.text.to_bits(),
+        style.small.to_bits(),
+        style.title.to_bits(),
+        style.head.to_bits(),
+        u32::from(style.row) | u32::from(style.heading) << 16,
+        u32::from(style.margin) | u32::from(style.gap) << 16,
+        u32::from(style.line),
+        len as u32,
+    ]
+    .iter()
+    .fold(0x811c_9dc5, |hash, part| {
+        (hash ^ part).wrapping_mul(0x0100_0193)
+    })
 }
 
 /// The height of each of `items`.

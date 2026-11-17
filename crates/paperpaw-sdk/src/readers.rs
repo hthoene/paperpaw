@@ -1,131 +1,21 @@
-//! Reading apps: any plugin's screen may read books of some formats (a
-//! comics reader for CBZ, a reader of one's own for EPUB), and books open
-//! through one call that finds the reader chosen for them.
+//! Opening books, and the reading-app choices kept for books and folders.
 //!
-//! - A plugin registers its screen as a reader
-//!   ([`ReaderSpec`], `Items::add_reader`): the formats it reads
-//!   (all, where it names none), its name the translation of its id. It
-//!   is opened as the screen bound to
-//!   [`slots::READER`] is, with the
-//!   parameter [`PATH`](crate::builtin::params::PATH), in that slot (its
-//!   key map layer applies), and keeps that slot's promises.
 //! - Whatever opens a book (the library, the file manager, the browser, a
-//!   catalog) opens it with [`open`] ([`Command::OpenBook`]), which the
-//!   kernel turns into opening the reader chosen when it runs it
-//!   ([`resolve`]): the reader chosen for the book, else
-//!   for its folder, else for its format
-//!   ([`settings::READING_APP`] per format,
-//!   see [`format_setting`]), else the default one (`settings::READING_APP`),
-//!   else the screen bound to `slots::READER`. [`open_with`] opens it with
-//!   a reader named.
-//! - A reader that cannot open a book after all (a file it does not know)
-//!   says so with [`cannot_open`]: the kernel opens it with the next
-//!   reader in that order, at last the slot's own screen, which shows why
-//!   it cannot. Opening a book closes another reading app open in the
-//!   slot, so that one book is held at a time.
+//!   catalog) opens it with [`open`] ([`Command::OpenBook`]): the kernel
+//!   opens the screen bound to [`slots::READER`](crate::builtin::slots::READER) with what [`opened`]
+//!   passes on. A reading app that cannot open a book after all says so
+//!   with [`cannot_open`].
 //! - The choices for a book and for a folder are kept ([`remember`]): the
 //!   book's moved and removed with it, the folders' in one small file
-//!   (moved with [`folder_moved`] by whatever moves a folder).
-//!   A choice of a reader no longer installed is passed over silently.
-//!   They are read when a book opens, never kept in memory. [`ask`] lets
-//!   the reader choose (*Open with*, a folder's reading app): the kernel
-//!   lists the readers that fit, keeps the one chosen and, for a book,
-//!   opens it with it.
+//!   (moved with [`folder_moved`] by whatever moves a folder). [`ask`] lets
+//!   the reader choose (*Open with*, a folder's reading app).
 
-use alloc::borrow::Cow;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::builtin::{params, settings, slots};
-use crate::{Command, Env, Id, Params, Storage, StorageError};
-
-/// A reader contribution (see the [module documentation](self)): its
-/// name is the translation of its id.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct ReaderSpec {
-    pub id: Id,
-    /// The screen that shows a book (opened with `params::PATH`).
-    pub screen: Id,
-    /// The formats it reads, by id (`format-epub.epub`); all where empty.
-    pub formats: Vec<Id>,
-}
-
-impl ReaderSpec {
-    /// Reader `id` showing books in `screen`, of every format.
-    pub fn new(id: Id, screen: Id) -> Self {
-        Self {
-            id,
-            screen,
-            formats: Vec::new(),
-        }
-    }
-
-    /// Reads books of these formats only.
-    pub fn formats(mut self, formats: &[Id]) -> Self {
-        self.formats = formats.to_vec();
-        self
-    }
-
-    /// Whether it reads books of format `format` (none known: only a
-    /// reader of every format).
-    pub fn reads(&self, format: Option<&Id>) -> bool {
-        self.formats.is_empty() || format.is_some_and(|f| self.formats.contains(f))
-    }
-}
-
-/// The registered readers, in the order of the plugins.
-#[derive(Debug, Default)]
-pub struct Readers {
-    list: Vec<ReaderSpec>,
-}
-
-impl Readers {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn add(&mut self, reader: ReaderSpec) {
-        self.list.push(reader);
-    }
-
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn shrink_to_fit(&mut self) {
-        self.list.shrink_to_fit();
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &ReaderSpec> {
-        self.list.iter()
-    }
-
-    pub fn len(&self) -> usize {
-        self.list.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.list.is_empty()
-    }
-
-    /// The reader `id`.
-    pub fn get(&self, id: &str) -> Option<&ReaderSpec> {
-        self.list.iter().find(|r| r.id.as_str() == id)
-    }
-
-    /// The readers of books of format `format`.
-    pub fn reading<'s>(&'s self, format: Option<&'s Id>) -> impl Iterator<Item = &'s ReaderSpec> {
-        self.list.iter().filter(move |r| r.reads(format))
-    }
-
-    /// The readers of the book at `path`, by its format.
-    pub fn for_book<'s>(&'s self, env: &'s Env<'_>, path: &str) -> Vec<&'s ReaderSpec> {
-        let format = env.formats().for_file(env.storage(), path).map(|f| &f.id);
-        self.reading(format).collect()
-    }
-}
+use crate::builtin::{params, settings};
+use crate::{Command, Id, Params, Storage, StorageError};
 
 /// [`settings::READING_APP`]'s value, and a format's: the reader the
 /// defaults give (the screen bound to `slots::READER`, or for a format
@@ -288,53 +178,8 @@ pub fn remembered(storage: &dyn Storage, choice: Choice<'_>) -> Option<String> {
     }
 }
 
-/// The reader chosen for the book at `path`: for the book, else for the
-/// nearest folder it is in, else for its format, else the default; one
-/// there that reads its format. `None`: the screen bound to
-/// `slots::READER`. A choice of a reader not installed (any more) is
-/// passed over.
-pub fn chosen<'e>(env: &'e Env<'_>, path: &str) -> Option<&'e ReaderSpec> {
-    chosen_past(env, path, &[])
-}
-
-/// As [`chosen`], passing over the readers in `past` (those that could
-/// not open the book).
-fn chosen_past<'e>(env: &'e Env<'_>, path: &str, past: &[&str]) -> Option<&'e ReaderSpec> {
-    let path = plain(path);
-    let format = env
-        .formats
-        .for_file(env.storage(), path)
-        .map(|f| f.id.clone());
-    let fits = |id: &str| {
-        env.readers()
-            .get(id)
-            .filter(|r| r.reads(format.as_ref()) && !past.contains(&r.id.as_str()))
-    };
-    if let Some(reader) = remembered(env.storage(), Choice::Book(path)).and_then(|id| fits(&id)) {
-        return Some(reader);
-    }
-    // The nearest folder with a choice.
-    let mut kept = folders(env.storage()).unwrap_or_default();
-    paperpaw_sort::sort_by_cached_key(&mut kept, |(_, folder)| core::cmp::Reverse(folder.len()));
-    let in_folder = kept.iter().find(|(_, folder)| {
-        path.strip_prefix(folder.as_str())
-            .is_some_and(|rest| rest.starts_with('/'))
-    });
-    if let Some(reader) = in_folder.and_then(|(id, _)| fits(id)) {
-        return Some(reader);
-    }
-    let by_format = format
-        .as_ref()
-        .and_then(|f| env.settings().get(&format_setting(f)))
-        .map(crate::SettingValue::to_config_text);
-    if let Some(reader) = by_format.as_deref().and_then(fits) {
-        return Some(reader);
-    }
-    fits(env.settings().read(&settings::READING_APP))
-}
-
-/// Opens the book at `path` with the reader chosen for it (see
-/// [`chosen`]), in the reader's slot: nothing is read before it runs.
+/// Opens the book at `path` in the reader's slot: nothing is read before
+/// it runs.
 pub fn open(path: impl Into<String>) -> Command {
     Command::OpenBook(Params::new().with(params::PATH, path.into()))
 }
@@ -393,24 +238,19 @@ pub fn past(params: &Params) -> impl Iterator<Item = &str> {
         .filter(|p| !p.is_empty())
 }
 
-/// What opening a book (`params` of [`Command::OpenBook`]) is now: the
-/// reader chosen for it in the reader's slot, or the slot's own screen
-/// (the kernel runs [`Command::OpenBook`] so), passing over the readers
-/// that could not open it.
-pub fn resolve(env: &Env<'_>, params: &Params) -> Command {
+/// What opening a book (`params` of [`Command::OpenBook`]) passes on to
+/// the reader's screen: the book's path, the readers passed over and the
+/// page.
+pub fn opened(params: &Params) -> Params {
     let path = params.get(params::PATH).unwrap_or_default();
-    let past: Vec<&str> = past(params).collect();
     let mut opened = Params::new().with(params::PATH, path.to_string());
-    if !past.is_empty() {
+    if past(params).next().is_some() {
         opened = opened.with(PAST, params.get(PAST).unwrap_or_default().to_string());
     }
     if let Some(page) = params.get(PAGE) {
         opened = opened.with(PAGE, page.to_string());
     }
-    match chosen_past(env, path, &past) {
-        Some(reader) => Command::OpenInSlot(slots::READER, reader.screen.clone(), opened),
-        None => Command::OpenSlot(slots::READER, opened),
-    }
+    opened
 }
 
 /// Asks which reading app opens the book at `path` this time (*Open
@@ -434,19 +274,6 @@ pub fn ask(choice: Choice<'_>) -> Command {
         path.to_string(),
         folder,
     ))
-}
-
-/// Opens the book at `path` with `reader`'s screen, in the reader's
-/// slot.
-pub fn open_with(path: &str, reader: &ReaderSpec) -> Command {
-    let params = Params::new().with(params::PATH, path.to_string());
-    Command::OpenInSlot(slots::READER, reader.screen.clone(), params)
-}
-
-/// The names to show for readers: their ids, which are their names'
-/// translation keys.
-pub fn name<'e>(env: &'e Env<'_>, reader: &'e ReaderSpec) -> Cow<'e, str> {
-    Cow::Borrowed(env.i18n().tr(reader.id.as_str()))
 }
 
 #[cfg(test)]
@@ -537,15 +364,5 @@ mod tests {
             past(&again).collect::<Vec<_>>(),
             ["comics.reader", "other.reader"]
         );
-    }
-
-    #[test]
-    fn a_reader_reads_its_formats_or_all() {
-        let epub = Id::new_static("format-epub.epub");
-        let all = ReaderSpec::new(Id::new_static("a.reader"), Id::new_static("a.screen"));
-        let comics = ReaderSpec::new(Id::new_static("c.reader"), Id::new_static("c.screen"))
-            .formats(&[Id::new_static("format-cbz.cbz")]);
-        assert!(all.reads(Some(&epub)) && all.reads(None));
-        assert!(!comics.reads(Some(&epub)) && !comics.reads(None));
     }
 }

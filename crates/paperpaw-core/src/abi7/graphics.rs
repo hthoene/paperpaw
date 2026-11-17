@@ -36,6 +36,38 @@ pub fn fill_rect(
     Ok(())
 }
 
+/// Fills the pixels of a checker over a signed rectangle, clipped by the
+/// borrowed canvas: pattern 0 inks the pixels an even number of steps (columns
+/// plus rows) from the rectangle's top-left corner, pattern 1 those an odd
+/// number. The corner is the rectangle's own, whatever the clip cuts off.
+/// Any other pattern is refused before drawing.
+pub fn fill_pattern(
+    canvas: &mut Canvas<'_>,
+    (x, y): (i64, i64),
+    (width, height): (u64, u64),
+    color: Color,
+    pattern: u32,
+) -> Result<(), InvalidInput> {
+    if pattern > 1 {
+        return Err(InvalidInput);
+    }
+    let (x, y) = (i64::from(coordinate(x)?), i64::from(coordinate(y)?));
+    let (width, height) = (i64::from(extent(width)?), i64::from(extent(height)?));
+    let clip = canvas.clip();
+    let left = x.max(i64::from(clip.x));
+    let right = x.saturating_add(width).min(i64::from(clip.right()));
+    let top = y.max(i64::from(clip.y));
+    let bottom = y.saturating_add(height).min(i64::from(clip.bottom()));
+    for row in top..bottom {
+        let first = left + ((left - x + row - y + i64::from(pattern)) & 1);
+        for column in (first..right).step_by(2) {
+            // In the canvas's range: it lies inside the clip.
+            canvas.fill_rect(column as i32, row as i32, 1, 1, color);
+        }
+    }
+    Ok(())
+}
+
 /// Draws a line; width zero retains Canvas's one-pixel pen semantics.
 #[allow(
     clippy::too_many_arguments,

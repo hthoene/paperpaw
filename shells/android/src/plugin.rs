@@ -9,7 +9,7 @@ use paperpaw_sdk::builtin::{events, groups, menus, params};
 use paperpaw_sdk::document::Document;
 use paperpaw_sdk::{
     ActionSpec, Canvas, Command, Cx, Env, FormatSpec, Handled, Id, Manifest, MenuEntry, MenuNeed,
-    Params, Rect, RegisterError, SettingSpec, Version,
+    Rect, RegisterError, SettingSpec, Version,
 };
 
 use crate::lights::Lights;
@@ -42,6 +42,30 @@ pub struct Frontlight {
     pub warmth: i32,
 }
 
+/// What the plugin's handlers reach of the platform: they are plain
+/// functions and hold nothing (#293). The kernel runs on one thread.
+#[derive(Default)]
+struct Platform {
+    app: Option<AndroidApp>,
+    lights: Option<Lights>,
+    /// The light follows a level shown, not kept.
+    following: bool,
+}
+
+std::thread_local! {
+    static PLATFORM: std::cell::RefCell<Platform> = std::cell::RefCell::new(Platform::default());
+}
+
+/// The app, once registered.
+fn platform_app() -> Option<AndroidApp> {
+    PLATFORM.with(|platform| platform.borrow().app.clone())
+}
+
+/// The frontlight, where there is one.
+fn platform_lights() -> Option<Lights> {
+    PLATFORM.with(|platform| platform.borrow().lights)
+}
+
 /// The Android plugin.
 pub struct AndroidPlugin {
     pub app: AndroidApp,
@@ -63,13 +87,15 @@ impl AndroidPlugin {
     /// Its actions, settings, format and texts (`KernelBuilder::items` with
     /// [`AndroidPlugin::manifest`]).
     pub fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
-        let app = self.app.clone();
+        PLATFORM.with(|platform| {
+            platform.borrow_mut().app = Some(self.app.clone());
+        });
         r.add_action(
-            ActionSpec::new(ALLOW_STORAGE, "android.allow-storage").handler(
-                move |_: &Env<'_>, _, _: &mut paperpaw_sdk::Commands| {
+            ActionSpec::new(ALLOW_STORAGE, "android.allow-storage").handler(|_, _, _| {
+                if let Some(app) = platform_app() {
                     crate::access::request(&app);
-                },
-            ),
+                }
+            }),
         )?;
         if !self.shared_storage {
             // First on the home screen until access is granted.
@@ -193,72 +219,67 @@ impl AndroidPlugin {
         }
         r.add_icon(FRONTLIGHT, Cow::Borrowed("bulb"))?;
         r.add_icon(WARMTH, Cow::Borrowed("temperature"))?;
-        let app = self.app.clone();
-        r.subscribe(
-            events::SETTING_CHANGED,
-            Box::new(
-                move |env: &Env<'_>, params: &Params, _: &mut paperpaw_sdk::Commands| {
-                    let id = params.get(params::ID).unwrap_or_default();
-                    let level = env.settings().int(id) as i32;
-                    // Only real changes reach the device: taking over its
-                    // own levels on start never writes back.
-                    if id == FRONTLIGHT.as_str() && lights.brightness(&app) != level {
-                        lights.set_brightness(&app, level);
-                    } else if id == WARMTH.as_str() && lights.warmth(&app) != level {
-                        lights.set_warmth(&app, level);
-                    }
-                },
-            ),
-        )?;
+        PLATFORM.with(|platform| platform.borrow_mut().lights = Some(lights));
+        r.subscribe(events::SETTING_CHANGED, |k, params| {
+            let (Some(app), Some(lights)) = (platform_app(), platform_lights()) else {
+                return;
+            };
+            let id = params.get(params::ID).unwrap_or_default();
+            let level = k.settings().int(id) as i32;
+            // Only real changes reach the device: taking over its
+            // own levels on start never writes back.
+            if id == FRONTLIGHT.as_str() && lights.brightness(&app) != level {
+                lights.set_brightness(&app, level);
+            } else if id == WARMTH.as_str() && lights.warmth(&app) != level {
+                lights.set_warmth(&app, level);
+            }
+        })?;
         // A level shown before it is kept, as a slider moves: the light
         // follows it at once, and goes back to the level kept if it is not
         // kept. Other values shown (the text size) leave it alone, so as
         // not to undo what the system's own controls set meanwhile.
-        let app = self.app.clone();
-        let following = std::cell::Cell::new(false);
-        r.subscribe(
-            events::PREVIEW_CHANGED,
-            Box::new(
-                move |env: &Env<'_>, _: &Params, _: &mut paperpaw_sdk::Commands| {
-                    let shown = |id: &Setting<i64>| {
-                        env.settings().get(id.as_str()) != env.settings().global(id.as_str())
-                    };
-                    let light = shown(&FRONTLIGHT) || shown(&WARMTH);
-                    if !following.replace(light) && !light {
-                        return;
-                    }
-                    let level = env.settings().read(&FRONTLIGHT) as i32;
-                    if lights.brightness(&app) != level {
-                        lights.set_brightness(&app, level);
-                    }
-                    let warmth = env.settings().read(&WARMTH) as i32;
-                    if lights.has_warmth() && lights.warmth(&app) != warmth {
-                        lights.set_warmth(&app, warmth);
-                    }
-                },
-            ),
-        )?;
+        r.subscribe(events::PREVIEW_CHANGED, |k, _| {
+            let (Some(app), Some(lights)) = (platform_app(), platform_lights()) else {
+                return;
+            };
+            let settings = k.settings();
+            let shown =
+                |id: &Setting<i64>| settings.get(id.as_str()) != settings.global(id.as_str());
+            let light = shown(&FRONTLIGHT) || shown(&WARMTH);
+            let following = PLATFORM
+                .with(|platform| core::mem::replace(&mut platform.borrow_mut().following, light));
+            if !following && !light {
+                return;
+            }
+            let level = settings.read(&FRONTLIGHT) as i32;
+            if lights.brightness(&app) != level {
+                lights.set_brightness(&app, level);
+            }
+            let warmth = settings.read(&WARMTH) as i32;
+            if lights.has_warmth() && lights.warmth(&app) != warmth {
+                lights.set_warmth(&app, warmth);
+            }
+        })?;
         // The device's levels are the truth (they also change through
         // the system's own controls): take them over on start.
-        let app = self.app.clone();
-        r.subscribe(
-            events::STARTED,
-            Box::new(
-                move |env: &Env<'_>, _: &Params, out: &mut paperpaw_sdk::Commands| {
-                    let levels = [
-                        (FRONTLIGHT, lights.brightness(&app)),
-                        (WARMTH, lights.warmth(&app)),
-                    ];
-                    for (id, level) in levels {
-                        let level = i64::from(level);
-                        let known = env.settings().get(id.as_str()).is_some();
-                        if known && env.settings().read(&id) != level {
-                            out.push(Command::set(&id, level));
-                        }
+        r.subscribe(events::STARTED, |k, _| {
+            let (Some(app), Some(lights)) = (platform_app(), platform_lights()) else {
+                return;
+            };
+            let levels = [
+                (FRONTLIGHT, lights.brightness(&app)),
+                (WARMTH, lights.warmth(&app)),
+            ];
+            k.with_env(|env, out| {
+                for (id, level) in levels {
+                    let level = i64::from(level);
+                    let known = env.settings().get(id.as_str()).is_some();
+                    if known && env.settings().read(&id) != level {
+                        out.push(Command::set(&id, level));
                     }
-                },
-            ),
-        )?;
+                }
+            });
+        })?;
         Ok(())
     }
 }

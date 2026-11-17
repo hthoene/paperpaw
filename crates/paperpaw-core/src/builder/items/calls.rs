@@ -14,14 +14,13 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::filters::{InputFilterSpec, RefreshFilterSpec, TextFilterSpec};
 use paperpaw_sdk::presets::Preset;
 use paperpaw_sdk::setup::SetupStepSpec;
 use paperpaw_sdk::status::{StatusItemSpec, StatusLineSpec};
 use paperpaw_sdk::widgets::WidgetSpec;
 use paperpaw_sdk::{
-    ActionSpec, EventHandler, FontFace, FontSpec, FormatSpec, HintVisibility, Id, MenuEntry,
-    MenuNeed, MenuSection, Priority, RegisterError, SettingSpec, SlotSpec,
+    ActionSpec, FontFace, FontSpec, FormatSpec, Id, MenuEntry, MenuNeed, MenuSection, Priority,
+    RegisterError, SettingSpec, SlotSpec,
 };
 
 use paperpaw_sdk::Contribution;
@@ -41,6 +40,12 @@ pub struct Items {
     layers: Vec<crate::LayerSpec>,
     /// Bars along an edge.
     chromes: Vec<crate::ChromeSpec>,
+    /// Handlers of events.
+    hears: Vec<crate::registry::Subscribed>,
+    /// Jobs: the steps of declared work.
+    works: Vec<crate::work::WorkSpec>,
+    /// The steps of a data plugin's actions, by action.
+    data_actions: Vec<crate::registry::DataAction>,
 }
 
 /// What a plugin added, taken apart for the kernel to apply.
@@ -49,6 +54,9 @@ pub(crate) struct Parts {
     pub(crate) kernel_screens: Vec<&'static [crate::KernelScreen]>,
     pub(crate) layers: Vec<crate::LayerSpec>,
     pub(crate) chromes: Vec<crate::ChromeSpec>,
+    pub(crate) hears: Vec<crate::registry::Subscribed>,
+    pub(crate) works: Vec<crate::work::WorkSpec>,
+    pub(crate) data_actions: Vec<crate::registry::DataAction>,
 }
 
 impl Items {
@@ -61,6 +69,9 @@ impl Items {
             kernel_screens: Vec::new(),
             layers: Vec::new(),
             chromes: Vec::new(),
+            hears: Vec::new(),
+            works: Vec::new(),
+            data_actions: Vec::new(),
         }
     }
 
@@ -88,6 +99,9 @@ impl Items {
             kernel_screens: self.kernel_screens,
             layers: self.layers,
             chromes: self.chromes,
+            hears: self.hears,
+            works: self.works,
+            data_actions: self.data_actions,
         }
     }
 
@@ -99,37 +113,10 @@ impl Items {
     /// As [`add`](Self::add), for the shorthands below.
     pub(crate) fn add_checked(&mut self, contribution: Contribution) -> Result<(), RegisterError> {
         // What an entry shows is said by the plugin it belongs to.
-        if let Contribution::ItemState { item, .. } | Contribution::ItemDescription { item, .. } =
-            &contribution
+        if let Contribution::ItemState { item, .. } = &contribution
             && !item.is_owned_by(&self.plugin)
         {
             return Err(RegisterError::Namespace { id: item.clone() });
-        }
-        // No handler in place of a sealed action of one's own, in either
-        // order.
-        if let Contribution::Action(action) = &contribution
-            && action.is_sealed()
-            && self.contributions.iter().any(
-                |c| matches!(c, Contribution::ActionOverride(over) if over.action == action.id),
-            )
-        {
-            return Err(RegisterError::Invalid {
-                message: Cow::Owned(alloc::format!("`{}` is sealed", action.id)),
-            });
-        }
-        if let Contribution::ActionOverride(over) = &contribution {
-            let sealed = self.contributions.iter().any(|c| match c {
-                Contribution::Action(a) => a.id == over.action && a.is_sealed(),
-                Contribution::FixedActions(list) => {
-                    list.iter().any(|a| *a.id() == over.action && a.is_sealed())
-                }
-                _ => false,
-            });
-            if sealed {
-                return Err(RegisterError::Invalid {
-                    message: Cow::Owned(alloc::format!("`{}` is sealed", over.action)),
-                });
-            }
         }
         // The clean-up removes what is named like a book's key there: a
         // folder outside PaperPaw's own would take the reader's files.
@@ -218,18 +205,6 @@ impl Items {
 
     pub fn add_slot(&mut self, slot: SlotSpec) -> Result<(), RegisterError> {
         self.add_checked(Contribution::Slot(slot))
-    }
-
-    /// Gives the parts of every screen (switches, the focus, buttons,
-    /// headers, …) the look `painters` paint (see
-    /// [`ui::look`](paperpaw_sdk::ui::look)). Of several looks the one with the
-    /// highest priority is used, of equal ones the later.
-    pub fn set_ui_look(
-        &mut self,
-        painters: &'static paperpaw_sdk::ui::look::Painters,
-        priority: Priority,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::UiLook { painters, priority })
     }
 
     /// Proposes `screen` for `slot`. The binding with the highest priority
@@ -350,16 +325,6 @@ impl Items {
         ))
     }
 
-    /// Adds a field plugins keep with books ([`library::set_field`](paperpaw_sdk::library::set_field)):
-    /// shown on a book's information page, kept in the catalog where
-    /// [`in_catalog`](paperpaw_sdk::library::BookField::in_catalog).
-    pub fn add_book_field(
-        &mut self,
-        field: paperpaw_sdk::library::BookField,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::BookField(Box::new(field)))
-    }
-
     /// Adds a key map preset (same format as [`Items::add_keymap`]) that
     /// users can select with the `core.keymap-preset` setting. Its title
     /// is the translation of its id.
@@ -458,16 +423,6 @@ impl Items {
             if added(id) || actions[..n].iter().any(|a| a.id() == id) {
                 return Err(RegisterError::Duplicate { id: id.clone() });
             }
-            // No handler in place of a sealed action of one's own.
-            let overridden = self
-                .contributions
-                .iter()
-                .any(|c| matches!(c, Contribution::ActionOverride(over) if over.action == *id));
-            if action.is_sealed() && overridden {
-                return Err(RegisterError::Invalid {
-                    message: Cow::Owned(alloc::format!("`{id}` is sealed")),
-                });
-            }
         }
         self.contributions.push(Contribution::FixedActions(actions));
         Ok(())
@@ -528,19 +483,6 @@ impl Items {
         })
     }
 
-    /// A line under `item` in menus, by its translation key; only for the
-    /// plugin's own actions and settings.
-    pub fn describe_item(
-        &mut self,
-        item: impl Into<Id>,
-        key: impl Into<Cow<'static, str>>,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::ItemDescription {
-            item: item.into(),
-            key: key.into(),
-        })
-    }
-
     /// Adds a heading to a menu; entries ordered after it, up to the next
     /// heading, belong to it.
     pub fn add_menu_section(&mut self, section: MenuSection) -> Result<(), RegisterError> {
@@ -583,18 +525,6 @@ impl Items {
         })
     }
 
-    /// When `screen` shows the row of hints for the buttons below it
-    /// ([`HintVisibility::Shown`](paperpaw_sdk::HintVisibility) unless set), and so the size it is
-    /// made for.
-    pub fn set_screen_hints(
-        &mut self,
-        screen: impl Into<Id>,
-        hints: HintVisibility,
-    ) -> Result<(), RegisterError> {
-        let screen = screen.into();
-        self.add_checked(Contribution::ScreenHints { screen, hints })
-    }
-
     /// Adds a group for the settings screen: best a `static` one, kept
     /// by reference (`r.add_setting_group(&GROUP)`), which takes next to
     /// no memory; one made at run time is kept on the heap.
@@ -610,65 +540,48 @@ impl Items {
         self.add_checked(Contribution::Format(Box::new(format)))
     }
 
-    /// Subscribes to an event by its id, with what it carries as named
-    /// strings, e.g. for events known only at run time; [`Items::on`]
-    /// hears an [`Event`](paperpaw_sdk::event::Event) with its data.
+    /// Subscribes to an event by its id, e.g. one known only at run time;
+    /// [`Items::on`] names an [`Event`](paperpaw_sdk::event::Event).
     pub fn subscribe(
         &mut self,
         event: impl Into<Id>,
-        handler: EventHandler,
+        run: crate::Hear,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Subscription {
+        self.hears.push(crate::registry::Subscribed {
             event: event.into(),
-            handler,
-        })
-    }
-
-    /// Hears events with handlers kept in the program (a `static` list of
-    /// [`FixedSubscription`](paperpaw_sdk::FixedSubscription)s): they take next to
-    /// no memory, where each added with [`on`](Self::on) takes some thirty
-    /// bytes.
-    pub fn add_subscriptions(
-        &mut self,
-        subscriptions: &'static [paperpaw_sdk::event::FixedSubscription],
-    ) -> Result<(), RegisterError> {
-        self.contributions
-            .push(Contribution::FixedSubscriptions(subscriptions));
+            run,
+        });
         Ok(())
     }
 
-    /// Hears `event` with what it carries (see [`event`](paperpaw_sdk::event)):
-    /// `handler` is not called for an emit of it that lacks what it needs.
+    /// Adds an action of a data plugin (`actions.ini`): the kernel runs its
+    /// `steps`.
+    pub(crate) fn add_data_action(
+        &mut self,
+        spec: ActionSpec,
+        steps: Box<[crate::data_plugin::formats::Step]>,
+    ) -> Result<(), RegisterError> {
+        let id = spec.id.clone();
+        self.add_action(spec)?;
+        self.data_actions
+            .push(crate::registry::DataAction { id, steps });
+        Ok(())
+    }
+
+    /// Hears `event`: `run` reads what it carries with
+    /// [`hear::data`](crate::hear::data).
     pub fn on<P: paperpaw_sdk::event::EventData>(
         &mut self,
         event: paperpaw_sdk::event::Event<P>,
-        handler: impl Fn(&paperpaw_sdk::Env<'_>, &P, &mut paperpaw_sdk::Commands) + 'static,
+        run: crate::Hear,
     ) -> Result<(), RegisterError> {
-        self.subscribe(
-            event.id().clone(),
-            // What the event carries as it is, without a copy; else as
-            // written.
-            Box::new(move |env, params, out| match params.carried::<P>() {
-                Some(data) => handler(env, data, out),
-                None => {
-                    if let Some(data) = P::from_params(params) {
-                        handler(env, &data, out);
-                    }
-                }
-            }),
-        )
+        self.subscribe(event.id().clone(), run)
     }
 
     /// Adds an item that status lines can show, e.g. a clock or the
     /// reading time left.
     pub fn add_status_item(&mut self, item: StatusItemSpec) -> Result<(), RegisterError> {
         self.add_checked(Contribution::StatusItem(Box::new(item)))
-    }
-
-    /// Adds a filter of book text before it is laid out (see
-    /// [`filters`](paperpaw_sdk::filters)).
-    pub fn add_text_filter(&mut self, filter: TextFilterSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::TextFilter(filter))
     }
 
     /// Adds a decorator: marks on the words of book pages, drawn by every
@@ -678,114 +591,6 @@ impl Items {
         decorator: paperpaw_sdk::decorations::DecoratorSpec,
     ) -> Result<(), RegisterError> {
         self.add_checked(Contribution::Decorator(Box::new(decorator)))
-    }
-
-    /// Adds a layer: drawn on book pages by every reader, with room of its
-    /// own beside the text if it reserves some (see
-    /// [`layers`](paperpaw_sdk::layers)).
-    pub fn add_page_layer(
-        &mut self,
-        layer: paperpaw_sdk::layers::PageLayerSpec,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::PageLayer(Box::new(layer)))
-    }
-
-    /// Adds a frame: book pages set in columns, offered by the setting
-    /// [`PAGE_FRAME`](paperpaw_sdk::builtin::settings::PAGE_FRAME) (see
-    /// [`layers`](paperpaw_sdk::layers)).
-    pub fn add_page_frame(
-        &mut self,
-        frame: paperpaw_sdk::layers::PageFrameSpec,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::PageFrame(Box::new(frame)))
-    }
-
-    /// Adds a voice: speaks text aloud in place of the system's while the
-    /// setting [`VOICE`](paperpaw_sdk::builtin::settings::VOICE) chooses it (see
-    /// [`voices`](paperpaw_sdk::voices)).
-    pub fn add_voice(
-        &mut self,
-        voice: paperpaw_sdk::voices::VoiceSpec,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Voice(Box::new(voice)))
-    }
-
-    /// Adds a filter of every input, before screens and key maps see it
-    /// (see [`filters`](paperpaw_sdk::filters)).
-    pub fn add_input_filter(&mut self, filter: InputFilterSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::InputFilter(filter))
-    }
-
-    /// Adds a filter of how the panel is refreshed (see
-    /// [`filters`](paperpaw_sdk::filters)).
-    pub fn add_refresh_filter(&mut self, filter: RefreshFilterSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::RefreshFilter(filter))
-    }
-
-    /// Adds a hook that changes finished bands of the screen (see
-    /// [`render`](paperpaw_sdk::render)). **Check
-    /// [`Capability::RENDER_HOOK`](paperpaw_sdk::Capability::RENDER_HOOK):** where
-    /// the device lacks it the hook is accepted and never run.
-    pub fn add_render_hook(
-        &mut self,
-        hook: paperpaw_sdk::render::RenderHookSpec,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::RenderHook(Box::new(hook)))
-    }
-
-    /// Puts `handler` in place of action `action`'s own, also of another
-    /// plugin's (one with none too, e.g. a screen action where no screen
-    /// takes it): of several, the one of the highest priority runs, as
-    /// for slots. It gets the params the action was run with.
-    pub fn override_action(
-        &mut self,
-        action: impl Into<Id>,
-        handler: impl Fn(&paperpaw_sdk::Env<'_>, &paperpaw_sdk::Params, &mut paperpaw_sdk::Commands)
-        + 'static,
-        priority: Priority,
-    ) -> Result<(), RegisterError> {
-        let action = action.into();
-        self.add_checked(Contribution::ActionOverride(Box::new(
-            paperpaw_sdk::ActionOverride {
-                action,
-                handler: Box::new(handler),
-                priority,
-            },
-        )))
-    }
-
-    /// Sees every action run, with its params, before it runs (see
-    /// [`ObserverSpec`](paperpaw_sdk::ObserverSpec)).
-    pub fn observe_actions(
-        &mut self,
-        observer: paperpaw_sdk::ObserverSpec,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::ActionObserver(Box::new(observer)))
-    }
-
-    /// Sees every event emitted, with its params, after its subscribers
-    /// (see [`ObserverSpec`](paperpaw_sdk::ObserverSpec)).
-    pub fn observe_events(
-        &mut self,
-        observer: paperpaw_sdk::ObserverSpec,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::EventObserver(Box::new(observer)))
-    }
-
-    /// Adds an input of one's own, `input.<id>`, bound in key maps as any
-    /// other and raised with [`Command::Input`](paperpaw_sdk::Command::Input)
-    /// (see [`keys::InputSpec`](paperpaw_sdk::keys::InputSpec)).
-    pub fn add_input(&mut self, input: paperpaw_sdk::keys::InputSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Input(input))
-    }
-
-    /// Adds a recognizer of gestures of one's own, `gesture.<id>` in key
-    /// maps (see [`keys::GestureSpec`](paperpaw_sdk::keys::GestureSpec)).
-    pub fn add_gesture(
-        &mut self,
-        gesture: paperpaw_sdk::keys::GestureSpec,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Gesture(Box::new(gesture)))
     }
 
     /// Adds a bar that stays along an edge of the screen across the
@@ -804,49 +609,21 @@ impl Items {
 
     /// Adds a job: the steps of the work declared with its id (see
     /// [`work`](paperpaw_sdk::work)).
-    pub fn add_work(&mut self, work: paperpaw_sdk::work::WorkSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Work(Box::new(work)))
+    pub fn add_work(&mut self, work: crate::work::WorkSpec) -> Result<(), RegisterError> {
+        if !work.id.is_owned_by(&self.plugin) {
+            return Err(RegisterError::Namespace { id: work.id });
+        }
+        if self.works.iter().any(|w| w.id == work.id) {
+            return Err(RegisterError::Duplicate { id: work.id });
+        }
+        self.works.push(work);
+        Ok(())
     }
 
     /// Adds a widget, e.g. for the home screen (see
     /// [`widgets`](paperpaw_sdk::widgets)).
     pub fn add_widget(&mut self, widget: WidgetSpec) -> Result<(), RegisterError> {
-        let fixed = self.contributions.iter().any(|c| {
-            matches!(c, Contribution::FixedWidgets(list) if list.iter().any(|w| *w.id() == widget.id))
-        });
-        if fixed {
-            return Err(RegisterError::Duplicate { id: widget.id });
-        }
         self.add_checked(Contribution::Widget(Box::new(widget)))
-    }
-
-    /// Adds widgets kept in the program (a `static` list of
-    /// [`FixedWidget`](paperpaw_sdk::widgets::FixedWidget)s): they take next to no
-    /// memory, where each added with [`add_widget`](Self::add_widget)
-    /// takes some hundred bytes.
-    pub fn add_widgets(
-        &mut self,
-        widgets: &'static [paperpaw_sdk::widgets::FixedWidget],
-    ) -> Result<(), RegisterError> {
-        // Each in the plugin's namespace, and once.
-        let added = |id: &Id| {
-            self.contributions.iter().any(|c| match c {
-                Contribution::Widget(w) => w.id == *id,
-                Contribution::FixedWidgets(list) => list.iter().any(|w| w.id() == id),
-                _ => false,
-            })
-        };
-        for (n, widget) in widgets.iter().enumerate() {
-            let id = widget.id();
-            if !id.is_owned_by(&self.plugin) {
-                return Err(RegisterError::Namespace { id: id.clone() });
-            }
-            if added(id) || widgets[..n].iter().any(|w| w.id() == id) {
-                return Err(RegisterError::Duplicate { id: id.clone() });
-            }
-        }
-        self.contributions.push(Contribution::FixedWidgets(widgets));
-        Ok(())
     }
 
     /// Adds a step to the first-run setup (see [`setup`](paperpaw_sdk::setup)).
@@ -896,16 +673,6 @@ impl Items {
         self.add_checked(Contribution::StatusLine(Box::new(line)))
     }
 
-    /// Adds a place where widgets show: the settings that list them, in a
-    /// grid or above each other (see
-    /// [`widgets::WidgetPlace`](paperpaw_sdk::widgets::WidgetPlace)).
-    pub fn add_widget_place(
-        &mut self,
-        place: paperpaw_sdk::widgets::WidgetPlace,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::WidgetPlace(Box::new(place)))
-    }
-
     /// Provides `service` for other plugins as `id` in `version`: a type
     /// with a contract ([`services::ServiceType`](paperpaw_sdk::services::ServiceType),
     /// usually a struct holding a trait object), found by its key also by
@@ -922,15 +689,6 @@ impl Items {
             id,
             service: paperpaw_sdk::services::Service::new(service, version),
         })
-    }
-
-    /// Declares a point of one's own that others contribute to (see
-    /// [`services`](paperpaw_sdk::services)), with what a contribution there is.
-    pub fn add_point(
-        &mut self,
-        point: paperpaw_sdk::services::PointSpec,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Point(Box::new(point)))
     }
 
     /// Declares an event of one's own, with the params it carries: rules
@@ -1030,62 +788,6 @@ mod tests {
 
     fn action(id: &'static str) -> ActionSpec {
         ActionSpec::new(Id::new_static(id), "x")
-    }
-
-    /// Widgets kept in the program: in the namespace, and once among
-    /// them and those made, in either order.
-    #[test]
-    fn widgets_kept_in_the_program_once() {
-        use paperpaw_sdk::widgets::{Drawn, FixedWidget, WidgetSpec};
-        fn nothing(_: &paperpaw_sdk::Env<'_>, _: u16) -> u16 {
-            0
-        }
-        fn draw(
-            _: &mut paperpaw_sdk::Canvas<'_>,
-            _: &paperpaw_sdk::Env<'_>,
-            _: paperpaw_sdk::Rect,
-        ) {
-        }
-        static CLOCK: [FixedWidget; 1] = [FixedWidget::drawn(
-            Id::new_static("demo.clock"),
-            "demo.clock",
-            Drawn::new(nothing, draw),
-        )];
-        static OTHER: [FixedWidget; 1] = [FixedWidget::drawn(
-            Id::new_static("other.clock"),
-            "other.clock",
-            Drawn::new(nothing, draw),
-        )];
-        static TWICE: [FixedWidget; 2] = [
-            FixedWidget::drawn(Id::new_static("demo.a"), "a", Drawn::new(nothing, draw)),
-            FixedWidget::drawn(Id::new_static("demo.a"), "a", Drawn::new(nothing, draw)),
-        ];
-        let made =
-            || WidgetSpec::drawn(Id::new_static("demo.clock"), "x", Drawn::new(nothing, draw));
-        let mut r = Items::new(Id::new_static("demo"));
-        r.add_widgets(&CLOCK).unwrap();
-        assert!(matches!(
-            r.add_widgets(&OTHER),
-            Err(RegisterError::Namespace { .. })
-        ));
-        assert!(matches!(
-            r.add_widgets(&TWICE),
-            Err(RegisterError::Duplicate { .. })
-        ));
-        assert!(matches!(
-            r.add_widget(made()),
-            Err(RegisterError::Duplicate { .. })
-        ));
-        assert!(matches!(
-            r.add_widgets(&CLOCK),
-            Err(RegisterError::Duplicate { .. })
-        ));
-        let mut r = Items::new(Id::new_static("demo"));
-        r.add_widget(made()).unwrap();
-        assert!(matches!(
-            r.add_widgets(&CLOCK),
-            Err(RegisterError::Duplicate { .. })
-        ));
     }
 
     #[test]

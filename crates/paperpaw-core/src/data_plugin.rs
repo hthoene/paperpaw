@@ -63,7 +63,7 @@ use paperpaw_sdk::FontFace;
 use paperpaw_sdk::presets::Preset;
 use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 
-mod formats;
+pub(crate) mod formats;
 pub(crate) mod hyphenation;
 use formats::{actions, menus, setup_steps};
 
@@ -304,7 +304,7 @@ impl DataPlugin {
         let id = &self.manifest.id;
         if let Some(source) = self.read_later("actions.ini") {
             for action in actions(id, &source)? {
-                r.add_action(action.spec)?;
+                r.add_data_action(action.spec, action.steps)?;
                 if let Some(icon) = action.icon {
                     r.add_icon(action.id, Cow::Owned(icon))?;
                 }

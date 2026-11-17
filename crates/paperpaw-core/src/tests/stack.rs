@@ -148,11 +148,12 @@ fn stack_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         for action in [CLOSE, WHO] {
             r.add_action(ActionSpec::new(action, "s.action"))?;
         }
-        let log = kept.clone();
-        r.on(events::SCREEN_SHOWN, move |_, shown, _| {
-            let slot = shown.slot.as_ref().map_or("-", Id::as_str);
-            log.borrow_mut()
-                .push(alloc::format!("shown {} for {slot}", shown.screen));
+        crate::tests::hear_into(&kept);
+        r.on(events::SCREEN_SHOWN, |_, p| {
+            if let Some(shown) = crate::hear::data::<events::ScreenShown>(p) {
+                let slot = shown.slot.as_ref().map_or("-", Id::as_str);
+                crate::tests::heard(alloc::format!("shown {} for {slot}", shown.screen));
+            }
         })
     }
 }
@@ -439,7 +440,7 @@ fn a_screen_opened_again_waits_for_the_ones_above() {
     assert_eq!(names(&kernel), ["s.home", "s.one", "s.screen"]);
 }
 
-/// Uses the same slot and registered hint policy as a sleep plugin.
+/// Uses the same slot and hint policy as a sleep plugin.
 fn hidden_sleep_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         const SLEEP: Id = Id::new_static("quiet.sleep");
@@ -449,11 +450,10 @@ fn hidden_sleep_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             Box::new(|_, _| {
                 Box::new(Configured {
                     log: log(),
-                    params: named("sleep"),
+                    params: named("sleep").with("hints", "hidden"),
                 })
             }),
         ))?;
-        r.set_screen_hints(SLEEP, HintVisibility::Hidden)?;
         r.bind_slot(slots::SLEEP, SLEEP, Priority::DEFAULT)
     }
 }

@@ -6,67 +6,6 @@ use core::fmt;
 use crate::env::Env;
 use crate::id::Id;
 use crate::params::Params;
-use crate::plugin::Priority;
-
-/// Global handler of an action, called when the active screen does not
-/// handle it, with the params it was run with
-/// ([`Command::RunAction`](crate::Command::RunAction); none from inputs),
-/// e.g. the profile to apply. It reacts by queuing commands.
-pub type ActionHandler = Box<dyn Fn(&Env<'_>, &Params, &mut crate::Commands)>;
-
-/// A handler put in place of an action's own
-/// (the kernel's `Items::override_action`).
-pub struct ActionOverride {
-    pub action: Id,
-    pub handler: ActionHandler,
-    pub priority: Priority,
-}
-
-impl fmt::Debug for ActionOverride {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ActionOverride")
-            .field("action", &self.action)
-            .field("priority", &self.priority)
-            .finish_non_exhaustive()
-    }
-}
-
-/// Sees every action run, or every event emitted, with its params
-/// (see [`ObserverSpec`]).
-pub type Observer = Box<dyn Fn(&Env<'_>, &Id, &Params, &mut crate::Commands)>;
-
-/// Something that sees every action run
-/// (`Items::observe_actions`) or
-/// every event emitted
-/// (`Items::observe_events`): a
-/// macro recorder, a rule on any event. It runs for each, so it does
-/// little; an observer of events must not emit an event for every event
-/// it sees.
-#[non_exhaustive]
-pub struct ObserverSpec {
-    pub id: Id,
-    pub observer: Observer,
-}
-
-impl ObserverSpec {
-    pub fn new(
-        id: impl Into<Id>,
-        observer: impl Fn(&Env<'_>, &Id, &Params, &mut crate::Commands) + 'static,
-    ) -> Self {
-        Self {
-            id: id.into(),
-            observer: Box::new(observer),
-        }
-    }
-}
-
-impl fmt::Debug for ObserverSpec {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ObserverSpec")
-            .field("id", &self.id)
-            .finish_non_exhaustive()
-    }
-}
 
 /// A command users can bind to buttons, taps and gestures.
 ///
@@ -86,7 +25,11 @@ pub struct ActionSpec {
     pub id: Id,
     /// Translation key of the action's display name (for key map editors).
     pub title: Cow<'static, str>,
-    pub handler: Option<ActionHandler>,
+    /// What it does where the screen shown does not take it: a plain
+    /// function, called with the params it was run with
+    /// ([`Command::RunAction`](crate::Command::RunAction); none from
+    /// inputs), e.g. the profile to apply. It reacts by queuing commands.
+    pub handler: Option<FixedHandler>,
     /// How the row of hints shows it where a screen leaves that to the
     /// action ([`Hint::Default`](crate::Hint::Default)).
     pub hint: ActionHint,
@@ -100,6 +43,8 @@ struct ActionExtra {
     description: Option<Cow<'static, str>>,
     keywords: Option<Cow<'static, str>>,
     sealed: bool,
+    /// The kernel runs it from what it keeps of it (a data plugin's steps).
+    by_kernel: bool,
 }
 
 impl ActionSpec {
@@ -121,11 +66,17 @@ impl ActionSpec {
     /// What it does where the screen shown does not take it, with the
     /// params it was run with ([`Command::RunAction`](crate::Command::RunAction);
     /// none from inputs).
-    pub fn handler(
-        mut self,
-        handler: impl Fn(&Env<'_>, &Params, &mut crate::Commands) + 'static,
-    ) -> Self {
-        self.handler = Some(Box::new(handler));
+    pub fn handler(mut self, handler: FixedHandler) -> Self {
+        self.handler = Some(handler);
+        self
+    }
+
+    /// Run by the kernel from what it keeps of it, e.g. a data plugin's
+    /// steps: it runs itself without a handler.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn run_by_kernel(mut self) -> Self {
+        self.extra().by_kernel = true;
         self
     }
 
@@ -174,7 +125,7 @@ impl ActionSpec {
 
     /// Whether it does something itself, without a screen that takes it.
     pub fn runs_itself(&self) -> bool {
-        self.handler.is_some()
+        self.handler.is_some() || self.extra.as_ref().is_some_and(|extra| extra.by_kernel)
     }
 }
 
@@ -452,19 +403,14 @@ pub struct Actions {
     /// Those of interface-7 plugins, sorted by id; none of an id `specs` or
     /// `fixed` has.
     native: Vec<NativeAction>,
-    /// Handlers plugins put in place of actions' own, the highest
-    /// priority first: the action, the plugin, the handler.
-    overrides: Vec<(Id, Priority, Id, ActionHandler)>,
 }
 
 impl fmt::Debug for Actions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let overrides: Vec<&Id> = self.overrides.iter().map(|(action, ..)| action).collect();
         f.debug_struct("Actions")
             .field("specs", &self.specs)
             .field("fixed", &self.fixed)
             .field("native", &self.native)
-            .field("overrides", &overrides)
             .finish()
     }
 }
@@ -562,9 +508,6 @@ impl Actions {
         self.fixed.retain(|fixed| fixed.id.namespace() != plugin);
         self.native
             .retain(|native| native.titled.id().namespace() != plugin);
-        self.overrides.retain(|(action, _, owner, _)| {
-            action.namespace() != plugin && owner.as_str() != plugin
-        });
     }
 
     fn find(&self, id: &str) -> Result<usize, usize> {
@@ -607,91 +550,10 @@ impl Actions {
     }
 
     /// Whether action `id` runs without a screen that takes it: it has a
-    /// handler, or a plugin put one in place of its own. Else it is a
+    /// handler. Else it is a
     /// screen action (or none), e.g. for a palette of actions to run.
     pub fn runnable(&self, id: &str) -> bool {
-        self.override_of(id).is_some() || self.get(id).is_some_and(Action::runs_itself)
-    }
-
-    /// Puts `handler` of `plugin` in place of action `action`'s own,
-    /// at `priority` (see
-    /// `Items::override_action`).
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn add_override(
-        &mut self,
-        action: Id,
-        priority: Priority,
-        plugin: Id,
-        handler: ActionHandler,
-    ) {
-        let at = self
-            .overrides
-            .iter()
-            .position(|(_, p, ..)| *p < priority)
-            .unwrap_or(self.overrides.len());
-        self.overrides
-            .insert(at, (action, priority, plugin, handler));
-    }
-
-    /// Lets go of the handlers put in place of sealed actions (made before
-    /// the sealed action was known); the actions they were for.
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn drop_sealed_overrides(&mut self) -> Vec<Id> {
-        let mut dropped = Vec::new();
-        let sealed: Vec<bool> = self
-            .overrides
-            .iter()
-            .map(|(action, ..)| self.get(action.as_str()).is_some_and(Action::is_sealed))
-            .collect();
-        let mut sealed = sealed.into_iter();
-        self.overrides.retain(|(action, ..)| {
-            let sealed = sealed.next().unwrap_or(false);
-            if sealed {
-                dropped.push(action.clone());
-            }
-            !sealed
-        });
-        dropped
-    }
-
-    /// The handler put in place of action `id`'s own with the highest
-    /// priority, and the plugin whose it is.
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn override_of(&self, id: &str) -> Option<(&Id, &ActionHandler)> {
-        self.first_override(id)
-    }
-
-    #[cfg(not(any(test, feature = "kernel")))]
-    fn override_of(&self, id: &str) -> Option<(&Id, &ActionHandler)> {
-        self.first_override(id)
-    }
-
-    fn first_override(&self, id: &str) -> Option<(&Id, &ActionHandler)> {
-        if self.get(id).is_some_and(Action::is_sealed) {
-            return None;
-        }
-        self.overrides
-            .iter()
-            .find(|(action, ..)| action.as_str() == id)
-            .map(|(_, _, plugin, handler)| (plugin, handler))
-    }
-
-    /// The handlers put in place of action `id`'s own, the highest
-    /// priority first, with their plugins; none for a sealed action.
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn overrides_of<'a>(
-        &'a self,
-        id: &'a str,
-    ) -> impl Iterator<Item = (&'a Id, &'a ActionHandler)> + 'a {
-        let sealed = self.get(id).is_some_and(Action::is_sealed);
-        self.overrides
-            .iter()
-            .filter(move |(action, ..)| !sealed && action.as_str() == id)
-            .map(|(_, _, plugin, handler)| (plugin, handler))
+        self.get(id).is_some_and(Action::runs_itself)
     }
 
     /// Releases unused capacity once registration is complete.
@@ -701,7 +563,6 @@ impl Actions {
         self.specs.shrink_to_fit();
         self.fixed.shrink_to_fit();
         self.native.shrink_to_fit();
-        self.overrides.shrink_to_fit();
     }
 }
 

@@ -58,6 +58,7 @@ mod font_refresh;
 mod free_count;
 mod gestures;
 mod gray_later;
+pub mod hear;
 mod hints;
 mod hyphen_feed;
 mod input;
@@ -85,6 +86,7 @@ pub mod stock;
 pub use chrome_spec::{ChromeSpec, Edge};
 mod tall_band;
 mod warning;
+pub use hear::{Hear, Stepper};
 pub use layer::{KernelFactory, KernelScreen, Layer, LayerFactory, LayerSpec};
 pub use warning::{Warning, WarningSource};
 #[cfg(test)]
@@ -138,10 +140,9 @@ use crate::keymap::{InputKey, Keymap, Origin, Zone};
 use crate::refresh::RefreshPolicy;
 use crate::registry::{Registry, Staging};
 use crate::screens::{ActiveScreen, uncovered};
-pub use crate::work::NetworkSettings;
 #[doc(hidden)]
 pub use crate::work::network_specs_of;
-use paperpaw_sdk::filters::InputVerdict;
+pub use crate::work::{NetworkSettings, WorkSpec};
 pub use paperpaw_sdk::firmware::{Firmware, FirmwareCommand, FirmwareState, InstallFailure};
 pub use paperpaw_sdk::wifi::{JoinFailure, WifiCommand, WifiNetwork, WifiState};
 
@@ -181,14 +182,16 @@ pub struct Kernel {
     shared: Shared,
     framebuffer: Framebuffer,
     subscriptions: crate::registry::Subscriptions,
+    /// What the core plugin's handlers keep (the catalog's job, the reading
+    /// recorded).
+    core: crate::core_plugin::State,
+    /// The steps of the data plugins' actions (`actions.ini`).
+    data_actions: Vec<crate::registry::DataAction>,
     /// The lowest screen the last offer of input reached ([`Kernel::offer`]).
     offered_down_to: usize,
     /// The params of the action offered to the screens now, for their
     /// context ([`Cx::params`](paperpaw_sdk::Cx::params)); none else.
     action_params: Params,
-    /// What sees every action run and every event emitted.
-    action_observers: Vec<paperpaw_sdk::ObserverSpec>,
-    event_observers: Vec<paperpaw_sdk::ObserverSpec>,
     /// The screen on top changed: it is told ([`Screen::on_show`]) once
     /// the commands of the call are done, so that one shown for a moment
     /// (e.g. below a menu that closes to open another screen) is not.
@@ -850,7 +853,6 @@ impl Kernel {
             self.shared.reader = true;
             self.route_key_pending();
         }
-        self.tick_recognizers();
         self.tick_chromes();
         self.tick_pane_list();
         self.screen_timers_due();
@@ -1336,28 +1338,12 @@ struct Shared {
     widgets: paperpaw_sdk::widgets::Widgets,
     setup: paperpaw_sdk::setup::SetupSteps,
     services: paperpaw_sdk::services::Services,
-    text_filters: paperpaw_sdk::filters::TextFilters,
     /// Marks on the words of book pages, from every plugin.
     decorators: paperpaw_sdk::decorations::Decorators,
-    /// Layers on book pages and frames of their text, from every plugin.
-    page_layers: paperpaw_sdk::layers::PageLayers,
-    /// Where words are looked up, from every plugin.
-    lookup: paperpaw_sdk::lookup::LookupProviders,
-    /// Plugins' voices (the kernel's alone: plugins speak with
-    /// `Command::Speak`).
-    voices: paperpaw_sdk::voices::Voices,
-    /// The reading apps, from every plugin.
-    readers: paperpaw_sdk::readers::Readers,
-    /// Filters of every input and of every refresh, from every plugin.
-    input_filters: paperpaw_sdk::filters::InputFilters,
-    refresh_filters: paperpaw_sdk::filters::RefreshFilters,
     /// Plugins' stylesheets for books.
     stylesheets: Vec<Cow<'static, str>>,
     /// Folders of what plugins keep for each book.
     book_data: Vec<paperpaw_sdk::library::BookData>,
-    /// Fields kept with books, badges on their rows, from every plugin.
-    book_fields: Vec<paperpaw_sdk::library::BookField>,
-    book_badges: Vec<paperpaw_sdk::library::BookBadge>,
     /// What the device and its shell can do.
     caps: Capabilities,
     /// Wi-Fi, where PaperPaw manages it (see [`KernelBuilder::wifi`]).
@@ -1394,9 +1380,6 @@ struct Shared {
     system_clipboard: bool,
     /// What the reader used last ([`Env::last_input`]).
     last_input: paperpaw_sdk::keys::InputMode,
-    /// The inputs plugins added, those the device can make
-    /// ([`Env::inputs`]).
-    inputs: Vec<paperpaw_sdk::keys::InputSpec>,
     /// The open screens as plugins see them ([`Env::stack`]), kept in
     /// step with the kernel's stack.
     stack: Vec<paperpaw_sdk::StackEntry>,

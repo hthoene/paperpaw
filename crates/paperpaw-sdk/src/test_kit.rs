@@ -7,7 +7,6 @@ use core::cell::RefCell;
 use paperpaw_platform::Rotation;
 
 use crate::decorations::Decorators;
-use crate::filters::TextFilters;
 use crate::id::Id;
 use crate::secrets::Secrets;
 use crate::services::Services;
@@ -44,11 +43,7 @@ pub(crate) struct Kit {
     pub(crate) usage: Usage,
     pub(crate) plugin_usage: RefCell<Vec<PluginUsage>>,
     pub(crate) status_items: StatusItems,
-    pub(crate) text_filters: TextFilters,
     pub(crate) decorators: Decorators,
-    pub(crate) page_layers: crate::layers::PageLayers,
-    pub(crate) lookup: crate::lookup::LookupProviders,
-    pub(crate) readers: crate::readers::Readers,
     pub(crate) widgets: Widgets,
     pub(crate) setup: SetupSteps,
     pub(crate) services: Services,
@@ -79,11 +74,7 @@ impl Kit {
             usage: Usage::default(),
             plugin_usage: RefCell::new(Vec::new()),
             status_items: StatusItems::new(),
-            text_filters: TextFilters::new(),
             decorators: Decorators::new(),
-            page_layers: Default::default(),
-            lookup: Default::default(),
-            readers: Default::default(),
             widgets: Widgets::new(),
             setup: SetupSteps::new(),
             services: Services::new(),
@@ -109,15 +100,9 @@ impl Kit {
             usage: &self.usage,
             plugin_usage: &self.plugin_usage,
             status_items: &self.status_items,
-            text_filters: &self.text_filters,
             decorators: &self.decorators,
-            page_layers: &self.page_layers,
-            lookup: &self.lookup,
-            readers: &self.readers,
             stylesheets: &[],
             book_data: &[],
-            book_fields: &[],
-            book_badges: &[],
             widgets: &self.widgets,
             setup: &self.setup,
             services: &self.services,
@@ -133,7 +118,6 @@ impl Kit {
             reader: true,
             clipboard: false,
             last_input: crate::keys::InputMode::at_start(&self.device.input),
-            inputs: &[],
             content: paperpaw_platform::Rect::default(),
             stack: &[],
             slots: &[],

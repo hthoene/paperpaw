@@ -29,7 +29,7 @@ use paperpaw_platform::{
     StorageError,
 };
 use paperpaw_sdk::builtin::{events, settings};
-use paperpaw_sdk::{Env, Id, Manifest, RegisterError, Version};
+use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 
 /// The heap now and at its peak, as the program allocates.
 static LIVE: AtomicUsize = AtomicUsize::new(0);
@@ -359,6 +359,13 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
     MemoryClass::Small,
 );
 
+std::thread_local! {
+    /// What the bench runs ([`Bench`]): its handler is a plain function and
+    /// holds nothing.
+    static BENCH: std::cell::RefCell<Option<(Option<String>, bool)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// Hears the start and runs the operations ([`run::all`]).
 struct Bench {
     more: Option<String>,
@@ -367,9 +374,12 @@ struct Bench {
 
 fn bench(kept: Bench) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        let (more, walks) = (kept.more.clone(), kept.walks);
-        r.on(events::STARTED, move |env: &Env<'_>, _: &(), _| {
-            run::all(env, more.as_deref(), walks);
+        BENCH.with(|bench| *bench.borrow_mut() = Some((kept.more.clone(), kept.walks)));
+        r.on(events::STARTED, |k, _| {
+            let Some((more, walks)) = BENCH.with(|bench| bench.borrow().clone()) else {
+                return;
+            };
+            k.with_env(|env, _| run::all(env, more.as_deref(), walks));
         })
     }
 }

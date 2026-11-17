@@ -172,8 +172,10 @@ fn wall_clock_readings_that_make_no_sense_do_not_panic() {
 /// Switches the device off as soon as PaperPaw started.
 fn off_at_start() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.on(paperpaw_sdk::builtin::events::STARTED, |_, _, out| {
-            out.push(Command::PowerOff);
+        r.on(paperpaw_sdk::builtin::events::STARTED, |k, p| {
+            k.with_event(&paperpaw_sdk::builtin::events::STARTED, p, |_, _, out| {
+                out.push(Command::PowerOff);
+            });
         })
     }
 }
@@ -182,42 +184,6 @@ fn off_at_start() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
 fn off_at_start_manifest() -> Manifest {
     Manifest::new(Id::new_static("off"), "Off", Version::new(1, 0, 0))
         .uses(paperpaw_sdk::Uses::NOTHING)
-}
-
-/// The same, its subscription kept in the program.
-fn off_at_start_fixed() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
-    |r| {
-        static HEARS: [paperpaw_sdk::FixedSubscription; 2] = [
-            paperpaw_sdk::hears!(paperpaw_sdk::builtin::events::STARTED, |_, _, out| {
-                out.push(Command::PowerOff);
-            }),
-            // Another event: not called at the start.
-            paperpaw_sdk::hears!(
-                paperpaw_sdk::builtin::events::CATALOG_CHANGED,
-                |_, _, out| {
-                    out.push(Command::Sleep);
-                }
-            ),
-        ];
-        r.add_subscriptions(&HEARS)
-    }
-}
-
-/// What [`off_at_start_fixed`] registers under.
-fn off_at_start_fixed_manifest() -> Manifest {
-    Manifest::new(Id::new_static("off"), "Off", Version::new(1, 0, 0))
-        .uses(paperpaw_sdk::Uses::NOTHING)
-}
-
-#[test]
-fn subscriptions_kept_in_the_program_are_heard() {
-    let mut kernel = Kernel::builder(DEVICE)
-        .items(off_at_start_fixed_manifest(), off_at_start_fixed())
-        .power_off(true)
-        .build()
-        .unwrap();
-    let effects = kernel.start(Instant(0));
-    assert!(effects.power_off() && !effects.sleep());
 }
 
 /// Asks for the card as a USB drive at the start, and notes what it
@@ -229,19 +195,19 @@ struct Drive {
 fn drive(kept: Drive) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         use paperpaw_sdk::builtin::events;
-        r.on(events::STARTED, |_, _, out| out.push(Command::UsbDrive))?;
-        for (event, name) in [
-            (events::RESUME.id(), "resume"),
-            (events::USB_DRIVE_ENDED.id(), "ended"),
-            (events::LIBRARY_CHANGED.id(), "library"),
-        ] {
-            let log = kept.log.clone();
-            r.subscribe(
-                event.clone(),
-                Box::new(move |_, _, _| log.borrow_mut().push(String::from(name))),
-            )?;
-        }
-        Ok(())
+        r.on(events::STARTED, |k, p| {
+            k.with_event(&events::STARTED, p, |_, _, out| out.push(Command::UsbDrive));
+        })?;
+        crate::tests::hear_into(&kept.log);
+        r.subscribe(events::RESUME.id().clone(), |_, _| {
+            crate::tests::heard("resume")
+        })?;
+        r.subscribe(events::USB_DRIVE_ENDED.id().clone(), |_, _| {
+            crate::tests::heard("ended")
+        })?;
+        r.subscribe(events::LIBRARY_CHANGED.id().clone(), |_, _| {
+            crate::tests::heard("library")
+        })
     }
 }
 
@@ -338,11 +304,12 @@ const PLAYED: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Played> =
 /// Hears whether its sound played.
 fn listener(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        let log = kept.clone();
-        r.on(PLAYED, move |_, played, _| {
-            let word = played.context.get("word").unwrap_or_default();
-            log.borrow_mut()
-                .push(alloc::format!("{word} played {}", played.played));
+        crate::tests::hear_into(&kept);
+        r.on(PLAYED, |_, p| {
+            if let Some(played) = crate::hear::data::<paperpaw_sdk::replies::Played>(p) {
+                let word = played.context.get("word").unwrap_or_default();
+                crate::tests::heard(alloc::format!("{word} played {}", played.played));
+            }
         })
     }
 }
