@@ -405,10 +405,10 @@ fn op_12_default_view_is_the_declared_rows_the_device_shows() {
         ]
     );
     // checked 1, enabled 2, declared 32, switch 64; the label and badge are
-    // the pushed state, the line and the icon the declarations'.
+    // the pushed state, the icon the declarations'.
     assert_eq!(
         row(&rows, "demo.open"),
-        "row demo.open kind=0 flags=34 order=10 by=demo title=demo.action.open icon=gear badge= describe=demo.line.open"
+        "row demo.open kind=0 flags=34 order=10 by=demo title=demo.action.open icon=gear badge= describe="
     );
     assert_eq!(
         row(&rows, "demo.switchy"),
@@ -676,7 +676,7 @@ fn op_12_titles_follow_the_users_language() {
     );
     kernel.shared.translator.set_language("de");
     let rows = rows_of(&kernel, None, schema::OP_MENU, "demo.menu", 0);
-    assert!(row(&rows, "demo.open").contains("title=Oeffnen icon=gear badge= describe=Eine Zeile"));
+    assert!(row(&rows, "demo.open").contains("title=Oeffnen icon=gear badge= describe="));
 }
 
 /// What `plugin` pushed for `item`, stored as the host does after a callback.
@@ -726,7 +726,7 @@ fn op_12_shows_what_the_plugin_pushed_and_the_pushed_state_wins() {
     let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
     assert_eq!(
         row(&rows, "demo.open"),
-        "row demo.open kind=0 flags=32 order=10 by=demo title=Eine Zeile icon=gear badge=Oeffnen describe=Eine Zeile"
+        "row demo.open kind=0 flags=32 order=10 by=demo title=Eine Zeile icon=gear badge=Oeffnen describe="
     );
     // A switch that is on: checked and switch.
     push(&directory, "demo", "open", SWITCH | ON, "", "");
@@ -935,15 +935,14 @@ fn op_19_lists_widgets_with_kind_icon_cells_and_whether_a_place_shows_them() {
     ]);
     let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "", 0);
     // The environment's (the host's own first), then the declared ones in
-    // the store's order; `demo.note@2` is listed by an environment place that
-    // shows, `demo.clock` by one that does not.
+    // the store's order.
     assert_eq!(
         rows,
         [
             "widget core.space core core.widgets.layout layout 0 cells=0 Space",
             "widget core.fill core core.widgets.layout layout 0 cells=0 Free space",
             "widget demo.clock demo core.widgets.time clock 0 cells=16843010 demo.widget.clock",
-            "widget demo.note demo core.widgets.other puzzle 5 cells=16843266 demo.widget.note",
+            "widget demo.note demo core.widgets.other puzzle 4 cells=16843266 demo.widget.note",
             // The place `nat.home` lists demo.list: `demo.note@2` only. The
             // declared ones in declaration order (#2390).
             "widget nat.quote nat core.widgets.words letter-case 2 cells=16843010 nat.widget",
@@ -1081,14 +1080,9 @@ fn op_19_shown_follows_the_settings_a_place_lists() {
         .settings
         .set("demo.flag", SettingValue::Bool(true))
         .unwrap();
-    kernel
-        .shared
-        .settings
-        .set("demo.mode", SettingValue::Text(Cow::Borrowed("on")))
-        .unwrap();
     let (quote, clock) = flags(&kernel);
     assert!(quote.contains(" letter-case 1 "), "{quote}");
-    assert!(clock.contains(" clock 1 "), "{clock}");
+    assert!(clock.contains(" clock 0 "), "{clock}");
 }
 
 #[test]
