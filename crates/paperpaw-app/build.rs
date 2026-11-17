@@ -94,7 +94,8 @@ fn main() {
     linked.append(&mut linked_if_built);
     linked.sort_unstable();
     linked.dedup();
-    let held = native_messages(&linked);
+    let mut held = native_messages(&linked);
+    held.extend(core_messages());
     catalog_indexes(&crates, &held);
     native_catalogs(&linked, &held);
 }
@@ -290,6 +291,36 @@ fn native_messages(crates: &[String]) -> Vec<PathBuf> {
     let dir = std::env::var("OUT_DIR").expect("OUT_DIR");
     std::fs::write(Path::new(&dir).join("native_messages.rs"), table.to_rust())
         .expect("native_messages.rs written");
+    held
+}
+
+/// Writes `core_messages.rs`: the kernel's own catalogs
+/// (`crates/paperpaw-core/i18n`), English and German, without their keys, as
+/// the plugins' (`native_messages`): the kernel carries no copy of the
+/// sources (`core_texts.rs`, #306). Gives the files the tables hold.
+fn core_messages() -> Vec<PathBuf> {
+    let mut table = paperpaw_i18n::BuiltMessagesTable::new(&["en", "de"]);
+    let mut files = Vec::new();
+    ini_files(
+        &Path::new("../..").join("crates/paperpaw-core/i18n"),
+        &mut files,
+    );
+    files.sort();
+    let mut held = Vec::new();
+    for file in files {
+        println!("cargo::rerun-if-changed={}", file.display());
+        let source = std::fs::read_to_string(&file).expect("a catalog");
+        assert!(
+            table.add(&source).unwrap_or(false),
+            "{}: a kernel text catalog the keyless table cannot hold (a key twice, a hash clash, another plural rule): {:?}",
+            file.display(),
+            table.clashes()
+        );
+        held.push(std::fs::canonicalize(&file).expect("a catalog"));
+    }
+    let dir = std::env::var("OUT_DIR").expect("OUT_DIR");
+    std::fs::write(Path::new(&dir).join("core_messages.rs"), table.to_rust())
+        .expect("core_messages.rs written");
     held
 }
 

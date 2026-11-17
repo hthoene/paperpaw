@@ -71,6 +71,7 @@ struct BuilderParts {
     network_settings: &'static [crate::NetworkSettings],
     catalog_indexes: paperpaw_i18n::FixedIndexes,
     built_catalogs: &'static [paperpaw_i18n::BuiltLanguage],
+    built_messages: Vec<&'static [paperpaw_i18n::BuiltMessages]>,
     /// The most Bluetooth links the shell keeps; none without a radio.
     bluetooth_links: u8,
 }
@@ -172,6 +173,16 @@ impl KernelBuilder {
     /// [`BuiltLanguage`](paperpaw_i18n::BuiltLanguage)).
     pub fn built_catalogs(mut self, tables: &'static [paperpaw_i18n::BuiltLanguage]) -> Self {
         self.0.built_catalogs = tables;
+        self
+    }
+
+    /// Texts built into the program without their keys, made by its build
+    /// script ([`BuiltMessages`](paperpaw_i18n::BuiltMessages)): the kernel's
+    /// own texts (`paperpaw_app::CORE_MESSAGES`: the kernel does not carry the
+    /// sources of its catalogs) and the shell's. May be called more than
+    /// once; every other catalog takes precedence over them.
+    pub fn built_messages(mut self, tables: &'static [paperpaw_i18n::BuiltMessages]) -> Self {
+        self.0.built_messages.push(tables);
         self
     }
 
@@ -789,6 +800,11 @@ impl BuilderParts {
         translator.fixed_indexes(self.catalog_indexes);
         for table in self.built_catalogs {
             translator.built_language(table);
+        }
+        for tables in &self.built_messages {
+            for table in *tables {
+                translator.built_messages(table);
+            }
         }
         Kernel {
             shared: Shared {
@@ -1417,6 +1433,7 @@ impl Kernel {
             network_settings: &[],
             catalog_indexes: &[],
             built_catalogs: &[],
+            built_messages: Vec::new(),
             bluetooth_links: 0,
         }))
     }
