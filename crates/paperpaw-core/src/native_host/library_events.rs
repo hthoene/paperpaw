@@ -23,7 +23,7 @@ impl Kernel {
     // Its own frame: the pump keeps the services' passes apart.
     #[inline(never)]
     pub(crate) fn native_library_pump(&mut self) -> bool {
-        let now_ms = self.now.millis();
+        let now_ms = self.shared.now.millis();
         let Some(host) = self
             .shared
             .native_instances

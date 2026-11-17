@@ -159,7 +159,7 @@ impl crate::Kernel {
         delivery: &super::ui_requests::Delivery,
     ) -> Option<Result<i32, i32>> {
         let record = wire::EventAnswered {
-            now_ms: self.now.millis(),
+            now_ms: self.shared.now.millis(),
             request: delivery.request,
             kind: delivery.kind,
             outcome: delivery.outcome,
@@ -226,7 +226,7 @@ impl crate::Kernel {
             .ask(who, None, &question, secret, None, false)
             .map_err(|_| "the question was not taken")?;
         self.shared.reader = true;
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         // The pump of the finish opens the dialog.
         Ok(self.finish())

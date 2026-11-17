@@ -135,7 +135,7 @@ impl crate::Kernel {
             return;
         };
         let record = Record::EventStackChanged(wire::EventStackChanged {
-            now_ms: self.now.millis(),
+            now_ms: self.shared.now.millis(),
         });
         let mut bytes = [0u8; RECORD_BYTES];
         let Ok(len) = codec::encode_batch(&[record], &mut bytes) else {

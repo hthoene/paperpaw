@@ -176,7 +176,7 @@ fn title_fits(font: &FontHandle<'_>, style: &UiStyle, high: u16, room: f32, titl
 /// right, so every screen can be left and paged without buttons or hidden
 /// gestures. Without touch the arrows are left out (the buttons do that).
 ///
-/// Screens draw it with [`Header::draw`] and pass taps to [`Header::tap`],
+/// Screens draw it with [`Header::draw`] and pass taps to `Header::tap`,
 /// which tells the action to run (`core.back`, `core.prev-page`,
 /// `core.next-page`); the screen handles paging like the page buttons.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -505,63 +505,6 @@ impl Header {
             ink,
         );
     }
-
-    /// The action a tap at `point` stands for: back, or the previous or
-    /// next page. `None` outside the header or on its title.
-    pub fn tap(
-        &self,
-        env: &Env<'_>,
-        style: &UiStyle,
-        point: Point,
-        page: Option<Paging>,
-    ) -> Option<crate::Id> {
-        if !self.area.contains(point) {
-            return None;
-        }
-        let parts = self.layout(env, style, page);
-        if parts.back.is_some_and(|r| r.contains(point)) {
-            return Some(actions::BACK);
-        }
-        let (prev, label, next) = parts.pager.filter(|_| self.arrows)?;
-        // The label's first half takes back a page: its left half, its right
-        // one where the UI runs right to left.
-        let before = (point.x < label_mid(label)) != style.is_rtl();
-        if prev.contains(point) || (label.contains(point) && before) {
-            Some(actions::PREV_PAGE)
-        } else if next.contains(point) || label.contains(point) {
-            Some(actions::NEXT_PAGE)
-        } else {
-            None
-        }
-    }
-
-    /// Whether `point` is on the page number between the arrows, e.g. to
-    /// go to a page of a long list (the screen asks before
-    /// [`Header::tap`], which turns a page there).
-    pub fn on_page_number(
-        &self,
-        env: &Env<'_>,
-        style: &UiStyle,
-        point: Point,
-        page: Option<Paging>,
-    ) -> bool {
-        self.area.contains(point)
-            && self
-                .layout(env, style, page)
-                .pager
-                .is_some_and(|(_, label, _)| label.contains(point))
-    }
-
-    /// Whether `point` is on the header's title (e.g. to open a menu).
-    pub fn on_title(
-        &self,
-        env: &Env<'_>,
-        style: &UiStyle,
-        point: Point,
-        page: Option<Paging>,
-    ) -> bool {
-        self.layout(env, style, page).title.contains(point)
-    }
 }
 
 /// A bar under a list without a header (a menu, a popup) that shows the
@@ -691,7 +634,7 @@ pub(super) fn center(area: Rect) -> (i32, i32) {
 /// [`PREV`](crate::icons::PREV), [`NEXT`](crate::icons::NEXT)) centred
 /// at `at`: the icon a theme gave it, as tall as titles, else a chevron
 /// pointing left or right ([`draw_chevron`]).
-pub fn draw_arrow(
+pub(crate) fn draw_arrow(
     canvas: &mut Canvas<'_>,
     env: &Env<'_>,
     style: &UiStyle,

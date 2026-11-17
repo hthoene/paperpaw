@@ -12,12 +12,9 @@ mod support;
 
 use paperpaw_sdk::builtin::settings::{WIDGET_INK, WIDGET_PAPER};
 use paperpaw_sdk::decorations::Tone;
-use paperpaw_sdk::event::Event;
-use paperpaw_sdk::ui::choice::Picked;
-use paperpaw_sdk::widgets::grid::{Cells, Geometry, GridView, Item, What};
 use paperpaw_sdk::widgets::{
     self, ColourSpec, Drawn, Frame, INK_AUTO, PAPER_DARK_GRAY, PAPER_INVERTED, PAPER_LIGHT_GRAY,
-    PAPER_NONE, PAPER_NORMAL, Plate, WidgetSpec,
+    PAPER_NONE, PAPER_NORMAL, WidgetSpec,
 };
 use paperpaw_sdk::{Canvas, Color, Env, Id, Rect, SettingValue};
 
@@ -210,89 +207,4 @@ fn draw_frame_paints_the_paper_chosen() {
     let mut drawn = draw(&h);
     assert_ne!(drawn.canvas().pixel(centre), Some(Color::BLACK));
     assert_eq!(drawn_outside(&mut drawn, area), None);
-}
-
-fn grid(env: &Env<'_>) -> (GridView, Rect) {
-    let geometry = Geometry::of(Rect::new(0, 100, 480, 600), 4, 6, 8);
-    let item = Item::placed(What::Widget("t.clock".into()), Cells::new(0, 0, 2, 1));
-    let mut view = GridView::asking(env, Event::<Picked>::new("t.chosen"));
-    view.layout(env, geometry, &[item], &[]);
-    (view, geometry.rect(Cells::new(0, 0, 2, 1)))
-}
-
-fn empty(_: &Env<'_>, _: u16) -> u16 {
-    0
-}
-
-/// A widget with nothing to show (height 0, a shelf without books) has no
-/// plate: what lies under the grid shows there; while editing it has one,
-/// to be found and moved. The others keep theirs.
-#[test]
-fn a_widget_showing_nothing_has_no_plate() {
-    let mut h = harness();
-    h.widgets.add(WidgetSpec::drawn(
-        Id::new_static("t.empty"),
-        "t.empty",
-        Drawn::new(empty, nothing),
-    ));
-    let env = h.env();
-    let geometry = Geometry::of(Rect::new(0, 100, 480, 600), 4, 6, 8);
-    let (left, right) = (Cells::new(0, 0, 2, 1), Cells::new(2, 0, 2, 1));
-    let items = [
-        Item::placed(What::Widget("t.clock".into()), left),
-        Item::placed(What::Widget("t.empty".into()), right),
-    ];
-    let mut view = GridView::asking(&env, Event::<Picked>::new("t.chosen"));
-    view.layout(&env, geometry, &items, &[]);
-    let inside = |cells: Cells| {
-        let area = geometry.rect(cells);
-        paperpaw_sdk::Point::new(i32::from(area.x) + 4, i32::from(area.y) + 4)
-    };
-    let (shown, nothing_shown) = (inside(left), inside(right));
-    for plate in [Plate::Paper, Plate::Colour(Color::BLACK)] {
-        let mut drawn = frame(480, 800);
-        view.draw_on(&mut drawn.canvas(), &env, plate);
-        let canvas = drawn.canvas();
-        assert_ne!(canvas.pixel(shown), Some(PAPER), "{plate:?}: its plate");
-        assert_eq!(canvas.pixel(nothing_shown), Some(PAPER), "{plate:?}: none");
-    }
-    view.set_editing(true);
-    let mut drawn = frame(480, 800);
-    view.draw_on(&mut drawn.canvas(), &env, Plate::Colour(Color::BLACK));
-    assert_eq!(drawn.canvas().pixel(nothing_shown), Some(Color::BLACK));
-}
-
-/// What a grid lays under its items: white as before, nothing, or a
-/// colour, whatever the widget's own paper.
-#[test]
-fn a_grid_lays_its_plate_under_the_items() {
-    let mut h = harness();
-    let pixel = |h: &Harness, plate: Plate| {
-        let env = h.env();
-        let (view, area) = grid(&env);
-        let mut drawn = frame(480, 800);
-        view.draw_on(&mut drawn.canvas(), &env, plate);
-        drawn.canvas().pixel(paperpaw_sdk::Point::new(
-            i32::from(area.x) + 2,
-            i32::from(area.y) + 2,
-        ))
-    };
-    let env = h.env();
-    let (view, area) = grid(&env);
-    let mut drawn = frame(480, 800);
-    view.draw(&mut drawn.canvas(), &env);
-    let corner = paperpaw_sdk::Point::new(i32::from(area.x) + 2, i32::from(area.y) + 2);
-    assert_eq!(
-        drawn.canvas().pixel(corner),
-        Some(Color::WHITE),
-        "draw: white"
-    );
-    assert_eq!(pixel(&h, Plate::Paper), Some(Color::WHITE));
-    assert_eq!(pixel(&h, Plate::None), Some(PAPER), "nothing: the page");
-    assert_eq!(pixel(&h, Plate::Colour(Color::BLACK)), Some(Color::BLACK));
-    // A widget's own paper is its own to paint (draw_frame): the plate
-    // stays what the screen chose.
-    set(&mut h, "t.clock.paper", PAPER_INVERTED);
-    assert_eq!(pixel(&h, Plate::Paper), Some(Color::WHITE));
-    assert_eq!(pixel(&h, Plate::None), Some(PAPER));
 }

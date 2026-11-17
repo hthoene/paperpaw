@@ -20,6 +20,12 @@ pub(crate) struct FrameState {
     pub(crate) unrendered: Option<Rect>,
     /// What [`Kernel::render`] passed last, for [`Kernel::rerender`].
     pub(crate) rendered: Option<Rect>,
+    /// Asked between bands of a frame drawn by [`Kernel::render_gray_until`]:
+    /// whether to stop (a key came).
+    pub(crate) stop: Option<fn() -> bool>,
+    /// The last [`Kernel::render_gray_until`] was stopped before its last
+    /// band.
+    pub(crate) stopped: bool,
     /// See [`KernelBuilder::row_align`].
     pub(crate) row_align: u16,
     /// The pixels of a band, where frames are drawn in bands
@@ -105,6 +111,41 @@ impl Kernel {
     /// bytes as its own, which goes meanwhile. `false` where there is no
     /// memory for it (nothing passed then).
     pub fn render_gray(&mut self, out: &mut dyn FnMut(u16, FrameView<'_>)) -> bool {
+        self.render_gray_until(out, None)
+    }
+
+    /// [`Kernel::render_gray`] that asks `stop` before each band after the
+    /// first and ends the frame there where it says so (a key came: the rest
+    /// of a pass that long is not worth waiting for); [`Kernel::gray_stopped`]
+    /// says whether it did. The frame is then partial: the shell shows none,
+    /// and draws the screen again whole afterwards.
+    pub fn render_gray_until(
+        &mut self,
+        out: &mut dyn FnMut(u16, FrameView<'_>),
+        stop: Option<fn() -> bool>,
+    ) -> bool {
+        self.frame.stop = stop;
+        self.frame.stopped = false;
+        let drawn = self.render_gray_frame(out);
+        self.frame.stop = None;
+        drawn
+    }
+
+    /// Whether the frame being drawn is to stop here (`later`: not before its
+    /// first band): asked of [`Kernel::render_gray_until`]'s `stop`.
+    fn stop_asked(&mut self, later: bool) -> bool {
+        let stop = later && self.frame.stop.is_some_and(|stop| stop());
+        self.frame.stopped |= stop;
+        stop
+    }
+
+    /// Whether the last [`Kernel::render_gray_until`] was stopped.
+    #[must_use]
+    pub fn gray_stopped(&self) -> bool {
+        self.frame.stopped
+    }
+
+    fn render_gray_frame(&mut self, out: &mut dyn FnMut(u16, FrameView<'_>)) -> bool {
         use paperpaw_platform::PixelFormat;
         let format = self.framebuffer.format();
         let bounds = self.framebuffer.bounds();
@@ -233,7 +274,7 @@ impl Kernel {
         });
         let mut gray = Vec::new();
         let mut top = region.y - region.y % rows;
-        while u32::from(top) < region.bottom() {
+        while u32::from(top) < region.bottom() && !self.stop_asked(top > region.y) {
             self.framebuffer.set_top(top);
             if let Some(part) = region.intersection(&self.framebuffer.band()) {
                 self.redraw(part);
@@ -354,7 +395,7 @@ impl Kernel {
             .iter()
             .map(|s| s.screen.shows_through())
             .collect();
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         // Overlays that wash out what lies below them.
         let dims: Vec<bool> = self
             .stack
@@ -483,7 +524,7 @@ impl Kernel {
     fn draw_aside(&mut self, canvas: &mut paperpaw_sdk::Canvas<'_>) {
         let regions: Vec<Option<Rect>> = (0..self.stack.len()).map(|i| self.overlay(i)).collect();
         let row = self.hint_row();
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let base = self.full_base();
         {
             for (active, own) in self.stack[base..].iter_mut().zip(&regions[base..]) {
@@ -527,7 +568,7 @@ impl Kernel {
             return Vec::new();
         };
         let area = self.region_of(top);
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let active = &mut self.stack[top];
         let device = env.device_within(active.area);
         let own_env = env.within(&device, active.area);
@@ -593,7 +634,7 @@ impl Kernel {
     /// showed something of its own on the panel (e.g. a test picture).
     pub fn draw_again(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.apply(Command::Redraw(RefreshMode::Full));
         self.frame.again = true;
         self.finish()
@@ -603,7 +644,7 @@ impl Kernel {
     /// ([`events::DISPLAY_CHANGED`]).
     fn display_changed(&mut self) {
         let panel = self.framebuffer.bounds();
-        let class = paperpaw_sdk::ui::ScreenClass::of(&self.shared.env(self.now), panel);
+        let class = paperpaw_sdk::ui::ScreenClass::of(&self.shared.env(self.shared.now), panel);
         let landscape = panel.width > panel.height;
         let changed = events::DisplayChanged::new(panel.width, panel.height, class, landscape);
         self.output
@@ -618,7 +659,7 @@ impl Kernel {
     /// and the whole screen is drawn again.
     pub fn resize(&mut self, now: Instant, width: u16, height: u16) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         let panel = self.framebuffer.bounds();
         let format = self.shared.device.display.format;
         if (panel.width, panel.height) == (width, height) {

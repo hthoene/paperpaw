@@ -11,12 +11,11 @@
 
 mod support;
 
-use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::setting::{Setting, Text};
 use paperpaw_sdk::widgets::{
-    self, FILL, PlaceKind, Refresh, Widget, WidgetPlace, WidgetSpec, WidgetStack, WidgetTarget,
+    self, FILL, PlaceKind, Widget, WidgetPlace, WidgetSpec, WidgetStack, WidgetTarget,
 };
-use paperpaw_sdk::{Canvas, Command, Env, Id, Params, Rect, SettingSpec, SettingValue};
+use paperpaw_sdk::{Canvas, Command, Env, Id, Rect, SettingSpec, SettingValue};
 
 use support::{Device, Harness};
 
@@ -97,96 +96,6 @@ fn a_stack_is_in_the_middle_unless_free_space_pushes_it() {
     // What does not fit below the others is left out; unknown ones too.
     let full = areas(&h, "t.three, t.three, t.three, t.unknown, t.one");
     assert_eq!(full.len(), 2, "{full:?}");
-}
-
-#[test]
-fn an_event_says_what_widgets_shown_need() {
-    let shown = vec!["t.one".to_string(), "t.three@2".to_string()];
-    let changed = |id: &'static str| {
-        let event = events::SETTING_CHANGED.emit(events::SettingChanged::new(Id::new_static(id)));
-        match event {
-            Command::Emit(event, params) => widgets::refresh(&event, &params, "own", &shown),
-            _ => unreachable!(),
-        }
-    };
-    assert_eq!(changed("own.columns"), Refresh::Remake);
-    assert_eq!(changed("core.ui-size"), Refresh::Remake);
-    assert_eq!(changed("t.one.align"), Refresh::Remake);
-    assert_eq!(
-        changed("t.three.size"),
-        Refresh::Remake,
-        "of a placement's widget"
-    );
-    assert_eq!(changed("other.thing"), Refresh::Read);
-    let status = widgets::refresh(events::STATUS_CHANGED.id(), &Params::new(), "own", &shown);
-    assert_eq!(status, Refresh::Live);
-    let mine = widgets::changed(&Id::new_static("t.one"));
-    let Command::Emit(event, params) = mine else {
-        unreachable!()
-    };
-    assert_eq!(
-        widgets::refresh(&event, &params, "own", &shown),
-        Refresh::ReadOne(Id::new_static("t.one"))
-    );
-    let other = Id::new_static("t.other-event");
-    assert_eq!(
-        widgets::refresh(&other, &Params::new(), "own", &shown),
-        Refresh::Nothing
-    );
-}
-
-#[test]
-fn a_place_tells_whether_it_shows_a_widget() {
-    let mut h = harness();
-    assert!(!h.widgets.shown(&h.env(), "t.one"));
-    h.settings
-        .set(
-            "t.list",
-            SettingValue::Text("t.three@2 0/0 1x1, t.one".into()),
-        )
-        .unwrap();
-    let env = h.env();
-    assert!(env.widgets().shown(&env, "t.one"));
-    assert!(env.widgets().shown(&env, "t.three"), "a placement of it");
-    let place = env.widgets().place("t.place").unwrap();
-    assert_eq!(place.widgets(&env), ["t.three@2", "t.one"]);
-}
-
-/// A widget that says how many cells it takes gets them when added
-/// (without being made), within the grid; resized, it keeps its least
-/// and, square, as wide as high.
-#[test]
-fn a_widget_takes_the_cells_it_says() {
-    use paperpaw_sdk::widgets::CellSpan;
-    use paperpaw_sdk::widgets::grid::{Cells, Geometry, What};
-    let mut h = harness();
-    h.widgets.add(
-        WidgetSpec::new(Id::new_static("t.round"), "t.round", |_| Box::new(Block(1)))
-            .cells(CellSpan::new(2, 2).min(2, 2).square()),
-    );
-    h.widgets.add(
-        WidgetSpec::new(Id::new_static("t.wide"), "t.wide", |_| Box::new(Block(1)))
-            .cells(CellSpan::new(9, 1)),
-    );
-    let env = h.env();
-    let geometry = Geometry::of(Rect::new(0, 100, 480, 600), 4, 6, 8);
-    let size = |id: &str| geometry.size_of(&env, &What::Widget(id.to_string()));
-    assert_eq!(size("t.round"), (2, 2));
-    assert_eq!(size("t.wide"), (4, 1), "no more than the grid has");
-    assert_eq!(size("t.one").0, 4, "without a hint the grid's width");
-    let hint = env.widgets().cells("t.round@2").unwrap();
-    assert_eq!(
-        hint.keep(Cells::new(0, 0, 1, 2), true),
-        Cells::new(0, 0, 2, 2)
-    );
-    assert_eq!(
-        hint.keep(Cells::new(0, 0, 3, 2), true),
-        Cells::new(0, 0, 3, 3)
-    );
-    assert_eq!(
-        hint.keep(Cells::new(0, 0, 3, 4), false),
-        Cells::new(0, 0, 4, 4)
-    );
 }
 
 /// Areas are small, medium or large by their shorter side.

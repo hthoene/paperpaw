@@ -86,6 +86,7 @@ mod damaged;
 mod disk;
 mod found;
 mod free;
+mod in_place;
 mod listed;
 mod settle;
 mod swap;
@@ -1248,6 +1249,10 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
             o.len = o.file.seek(SeekFrom::Current(0)).map_err(error)?;
             written
         })
+    }
+
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        self.write_in_place(path, offset, data)
     }
 
     /// The free space, once counted, is kept on the card too (see `free`).

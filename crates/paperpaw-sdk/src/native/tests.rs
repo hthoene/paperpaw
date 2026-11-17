@@ -480,3 +480,67 @@ mod either_format {
         assert_eq!(code_sha256(&card(b"PPNP"), "code.ppn"), None);
     }
 }
+
+/// The room is written when it changed, not at every start (#305): a write
+/// is a file made anew on the card.
+#[test]
+fn the_code_room_is_written_only_when_it_changed() {
+    use crate::{DirEntry, MemoryStorage, Storage, StorageError};
+    /// A storage that counts the files written.
+    struct Writes(MemoryStorage, core::cell::Cell<u32>);
+    impl Storage for Writes {
+        fn read_at(&self, path: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            self.0.read_at(path, at, buf)
+        }
+        fn size(&self, path: &str) -> Result<u64, StorageError> {
+            self.0.size(path)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.1.set(self.1.get() + 1);
+            self.0.write(path, data)
+        }
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.append(path, data)
+        }
+        fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.0.list(dir, visit)
+        }
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.0.remove(path)
+        }
+        fn create_dir(&self, _: &str) -> Result<(), StorageError> {
+            panic!("the write makes the folder");
+        }
+    }
+    let room = CodeRoom {
+        total: 65_536,
+        used: 24_576,
+        granule: 4096,
+        max_plugins: Some(2),
+        placed: 1,
+        shared: false,
+        larger: None,
+    };
+    let storage = Writes(MemoryStorage::new(), core::cell::Cell::new(0));
+    assert!(keep_code_room(&storage, Some(&room)));
+    assert_eq!(storage.1.get(), 1);
+    for _ in 0..3 {
+        assert!(keep_code_room(&storage, Some(&room)));
+    }
+    assert_eq!(storage.1.get(), 1, "the same room is not written again");
+    assert_eq!(code_room(&storage), Some(room));
+    let other = CodeRoom {
+        used: 28_672,
+        ..room
+    };
+    assert!(keep_code_room(&storage, Some(&other)));
+    assert_eq!(storage.1.get(), 2);
+    assert_eq!(code_room(&storage), Some(other));
+    // A longer file that begins the same is not the same.
+    storage
+        .0
+        .write(ROOM, b"65536 28672 4096 2 1 0 0\n77\n")
+        .unwrap();
+    assert!(keep_code_room(&storage, Some(&other)));
+    assert_eq!(storage.1.get(), 3);
+}

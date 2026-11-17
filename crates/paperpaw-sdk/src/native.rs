@@ -799,8 +799,14 @@ pub fn keep_code_room(storage: &dyn Storage, room: Option<&CodeRoom>) -> bool {
         u8::from(room.shared),
         room.larger.unwrap_or(0)
     );
-    let _ = storage.create_dir(crate::data::DIR);
-    storage.write(ROOM, text.as_bytes()).is_ok()
+    // Not written again as it is (#305): the room is the same at most
+    // starts, and a write is a file made anew on the card. The write makes
+    // the folder where it is not there.
+    let mut kept = [0u8; 96];
+    let same = text.len() < kept.len()
+        && storage.read_at(ROOM, 0, &mut kept).ok() == Some(text.len())
+        && kept[..text.len()] == *text.as_bytes();
+    same || storage.write(ROOM, text.as_bytes()).is_ok()
 }
 
 /// The header of the plugin file at `path`, if it has one this SDK reads

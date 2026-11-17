@@ -910,28 +910,6 @@ impl UiStyle {
         self.title_band() + notes + self.gap * 3 / 2
     }
 
-    /// Height of the rows of a list `width` wide whose notes are `notes`:
-    /// a noted row ([`UiStyle::noted_row`]), higher by the lines more the
-    /// longest note takes (the largest text on a small screen), up to
-    /// [`NOTE_LINES_MOST`] lines; a longer note is shortened with "…".
-    pub fn noted_row_for<'n>(
-        &self,
-        env: &Env<'_>,
-        width: u16,
-        notes: impl IntoIterator<Item = &'n str>,
-    ) -> u32 {
-        let Some(font) = self.font(env) else {
-            return self.noted_row();
-        };
-        let room = (f32::from(width) - 2.0 * self.margin as f32).max(1.0);
-        let lines = notes
-            .into_iter()
-            .map(|note| font.wrap(self.small, note, room).len())
-            .max()
-            .unwrap_or(0);
-        self.noted_row_of(lines.clamp(NOTE_LINES, NOTE_LINES_MOST))
-    }
-
     /// Height of the title line of a noted row.
     pub(super) fn title_band(&self) -> u32 {
         self.row * 3 / 4

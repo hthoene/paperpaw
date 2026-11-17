@@ -86,7 +86,7 @@ impl Kernel {
         &mut self,
         f: &mut dyn FnMut(&Env<'_>, &crate::core_plugin::State, &mut Commands),
     ) {
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let core = &self.core;
         crate::commands::handing(&mut self.output.commands, |out| f(&env, core, out));
     }

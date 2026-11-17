@@ -62,7 +62,7 @@ pub fn columns(area: Rect, count: usize, gap: u16) -> Vec<Rect> {
 /// [`button_height_for`](super::button_height_for) says); `gap` apart.
 /// Their cells, in the order of `labels`; [`button_cells_height`] says
 /// how high they are.
-pub fn button_cells(
+pub(crate) fn button_cells(
     env: &Env<'_>,
     style: &UiStyle,
     area: Rect,
@@ -86,21 +86,6 @@ pub fn button_cells(
         y += height + gap;
     }
     cells
-}
-
-/// How high [`button_cells`] lays out buttons with `labels` in an area
-/// `width` wide.
-pub fn button_cells_height(
-    env: &Env<'_>,
-    style: &UiStyle,
-    width: u16,
-    labels: &[&str],
-    gap: u16,
-) -> u16 {
-    let area = Rect::new(0, 0, width, 0);
-    button_cells(env, style, area, labels, gap)
-        .last()
-        .map_or(0, |cell| cell.y + cell.height)
 }
 
 /// How many of the buttons with `labels` go side by side in a row `width`
@@ -400,7 +385,7 @@ impl Segments {
 
     /// Segments with `labels` in `area`, from its top, every word whole:
     /// side by side where each fits its share, else in more rows
-    /// ([`button_cells`]); as high as [`Segments::height_for`] says.
+    /// (`button_cells`); as high as `Segments::height_for` says.
     pub fn fitted<L: Into<Cow<'static, str>>>(
         env: &Env<'_>,
         style: &UiStyle,
@@ -413,13 +398,6 @@ impl Segments {
             cells: button_cells(env, style, area, &shown, style.gap as u16),
             labels,
         }
-    }
-
-    /// The height [`Segments::fitted`] takes for `labels` in an area
-    /// `width` wide: [`Segments::height`] where they fit side by side.
-    pub fn height_for(env: &Env<'_>, style: &UiStyle, width: u16, labels: &[&str]) -> u16 {
-        let shown: Vec<&str> = labels.iter().map(|l| env.i18n().tr(l)).collect();
-        button_cells_height(env, style, width, &shown, style.gap as u16)
     }
 
     /// The height a row of segments takes: a button's in a row that can

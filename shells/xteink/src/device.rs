@@ -397,10 +397,14 @@ pub fn register(r: &mut Items) -> Result<(), RegisterError> {
     }
     #[cfg(feature = "x4-pro")]
     register_light(r)?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
     Ok(())
 }
+
+/// The device's texts, English and German, without their keys (made by
+/// `build.rs` from `i18n/*.ini`, #306): handed to the builder
+/// (`KernelBuilder::built_messages`), not added as sources.
+pub static MESSAGES: &[paperpaw_i18n::BuiltMessages] =
+    include!(concat!(env!("OUT_DIR"), "/device_messages.rs"));
 
 /// The front light's settings, also first in the reader's panel and in
 /// the quick panel.

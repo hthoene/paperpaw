@@ -188,17 +188,17 @@ fn a_plugin_not_started_yet_is_started_and_told_later_without_holding_up_another
     let mut w = world(true, true);
     ended(&w, "c", 1, "home", reason::TIMEOUT);
     ended(&w, "a", 2, "away", reason::TIMEOUT);
-    w.kernel.now = crate::Instant(10);
+    w.kernel.shared.now = crate::Instant(10);
     assert!(!w.kernel.native_wifi_pump(), "held: nothing is due now");
     assert_eq!(w.a.1.borrow().len(), 1, "a is told although c waits");
     assert_eq!(held(&w), 1, "c keeps its entry");
     assert!(w.kernel.shared.native_instances.take_start().is_some());
     assert_eq!(w.kernel.native_wifi_due(), Some(1_010));
     // Before the deadline nothing is tried; at it, c is tried again.
-    w.kernel.now = crate::Instant(500);
+    w.kernel.shared.now = crate::Instant(500);
     assert!(!w.kernel.native_wifi_pump());
     assert!(w.kernel.shared.native_instances.take_start().is_none());
-    w.kernel.now = crate::Instant(1_010);
+    w.kernel.shared.now = crate::Instant(1_010);
     w.kernel.native_wifi_pump();
     assert!(w.kernel.shared.native_instances.take_start().is_some());
 }

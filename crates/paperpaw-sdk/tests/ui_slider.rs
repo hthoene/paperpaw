@@ -13,19 +13,16 @@
 mod support;
 
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::semantics::Role;
 use paperpaw_sdk::ui::UiStyle;
 use paperpaw_sdk::ui::slider::Slider;
 use paperpaw_sdk::ui::slider::SliderDrag;
-use paperpaw_sdk::ui::slider::SliderFocus;
 use paperpaw_sdk::ui::slider::SliderParts;
 use paperpaw_sdk::ui::slider::SliderStep;
-use paperpaw_sdk::ui::slider::SliderView;
 use paperpaw_sdk::ui::slider::{self, key_step, parts};
 use paperpaw_sdk::{Color, PointerPhase, Rect, SettingSpec};
 use proptest::prelude::*;
 
-use support::{Device, Harness, describe, drawn_outside, frame, pointer};
+use support::{Device, Harness, drawn_outside, frame, pointer};
 
 /// Sizes for tests: no fonts needed.
 fn style() -> UiStyle {
@@ -403,53 +400,4 @@ fn sliders_show_on_touch_screens_and_numbers_elsewhere() {
         paperpaw_sdk::builtin::groups::OTHER,
     );
     assert!(!slider::shows(&touch.env(), &plain), "not marked");
-}
-
-/// A row with a slider, drawn in each of its states, keeps to the row:
-/// its title, value, buttons, track and note.
-#[test]
-fn a_slider_row_draws_inside_the_row_and_tells_its_value() {
-    let h = Harness::new(Device::TOUCH);
-    let env = h.env();
-    let style = UiStyle::new(&env);
-    let slider = Slider::new(0, 100).step(5);
-    for noted in [false, true] {
-        for focus in [
-            SliderFocus::None,
-            SliderFocus::Focused,
-            SliderFocus::Editing,
-        ] {
-            // As high as its title needs (never cut).
-            let title = "Brightness of the light in the evening";
-            let high =
-                paperpaw_sdk::ui::slider::row_height_for(&env, &style, 480, title, "35 %", noted);
-            let row = Rect::new(0, 100, 480, high);
-            let note = if noted {
-                "A long description of what this does, long enough to need two lines or more of small text below"
-            } else {
-                ""
-            };
-            let view = SliderView::new(row, 35, "35 %")
-                .title(title)
-                .note(note)
-                .focus(focus);
-            let (described, mut frame) = describe(480, 800, |canvas| {
-                slider.draw_row(canvas, &env, &style, &view);
-            });
-            assert_eq!(
-                drawn_outside(&mut frame, row),
-                None,
-                "noted {noted}, {focus:?}"
-            );
-            let track = described
-                .iter()
-                .find(|d| d.role == Role::Slider)
-                .expect("the slider is described");
-            assert_eq!(track.label, "35 %");
-            assert_eq!(track.focused, focus != SliderFocus::None);
-            let extra = paperpaw_sdk::ui::slider::title_extra(&env, &style, 480, title, "35 %");
-            let b = paperpaw_sdk::ui::slider::band_below(&style, row, extra);
-            assert!(track.area.y >= b.y && track.area.bottom() <= b.bottom());
-        }
-    }
 }

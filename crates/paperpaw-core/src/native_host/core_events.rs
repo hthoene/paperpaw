@@ -232,7 +232,7 @@ impl Kernel {
         let Some(tag) = tag_of(event) else {
             return;
         };
-        let now = self.now.millis();
+        let now = self.shared.now.millis();
         // A book that is open closes (reason 1) before the sleep or the stop
         // is raised: `book_closed` comes first (`core-events.md` 3.2).
         if matches!(tag, wire::EVENT_SUSPEND_TAG | wire::EVENT_STOPPING_TAG) {
@@ -308,7 +308,7 @@ impl Kernel {
     /// every running subscriber (the help plugin; each ignores its own
     /// screens itself). An edge: kept, never merged with another.
     pub(crate) fn native_screen_ready(&mut self, screen: &Id, instance: u32) {
-        let now_ms = self.now.millis();
+        let now_ms = self.shared.now.millis();
         self.native_queue_event(wire::EVENT_SCREEN_READY_TAG, &|_| true, &|queue| {
             let record = wire::Record::EventScreenReady(wire::EventScreenReady {
                 now_ms,

@@ -35,7 +35,7 @@ impl Kernel {
     #[inline(never)]
     pub(crate) fn native_wifi_pump(&mut self) -> bool {
         let table = alloc::rc::Rc::clone(&self.radio_requests);
-        let now = self.now.millis();
+        let now = self.shared.now.millis();
         match table.try_borrow() {
             Ok(table) if !table.has_outcomes() => return false,
             Ok(table) if table.held(now) => return false,

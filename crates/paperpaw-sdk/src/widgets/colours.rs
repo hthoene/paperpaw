@@ -38,12 +38,12 @@ use crate::settings::{SettingExtra, SettingSpec};
 use crate::ui::{self, UiStyle};
 
 /// What lies under the widgets of a grid
-/// ([`GridView::draw_on`](super::grid::GridView::draw_on)); a widget's
+/// (`GridView::draw_on`); a widget's
 /// own paper is painted by [`draw_frame`](super::draw_frame).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Plate {
-    /// White, as on PaperPaw's own home ([`GridView::draw`](super::grid::GridView::draw)).
+    /// White, as on PaperPaw's own home (`GridView::draw`).
     Paper,
     /// Nothing: the page shows (a picture). The screen draws what lies
     /// under an item again before the item is drawn anew.

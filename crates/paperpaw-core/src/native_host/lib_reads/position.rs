@@ -8,7 +8,10 @@
 //! SDK's `Position` has no field for and that older readers skip: `insert`
 //! (kept only when not 0) and `sync = 1` (a position written by a sync without
 //! the user's confirmation; any other write removes it).
-use super::{CatalogReads, fail, kept_file};
+//!
+//! The host writes the file as two slots, one of them in place at each save
+//! (`place_file`, #305); a file without slots is read as it is.
+use super::{CatalogReads, fail, kept_file, place_file};
 use crate::native_host::lib_service::{BookRef, One, StoredPosition};
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::string::String;
@@ -108,8 +111,8 @@ fn marks(storage: &dyn Storage, path: &str) -> Result<Marks, i32> {
     let Some(data) = text(storage, path)? else {
         return Ok(Marks::default());
     };
-    let source =
-        core::str::from_utf8(paperpaw_sdk::files::without_bom(&data)).map_err(|_| ERR_IO)?;
+    let source = core::str::from_utf8(paperpaw_sdk::files::without_bom(place_file::record(&data)))
+        .map_err(|_| ERR_IO)?;
     let mut marks = Marks::default();
     for entry in config::parse(source).filter_map(Result::ok) {
         if entry.section != "position" {
@@ -152,6 +155,7 @@ pub(super) fn stored(
 /// The fingerprint a reader keeps in the file (`book = <size> <md5>`), as
 /// written; `None` where the file has none or is no text (it is replaced).
 fn kept_fingerprint(data: &[u8]) -> Option<&str> {
+    let data = place_file::record(data);
     let source = core::str::from_utf8(paperpaw_sdk::files::without_bom(data)).ok()?;
     config::parse(source)
         .filter_map(Result::ok)
@@ -160,10 +164,11 @@ fn kept_fingerprint(data: &[u8]) -> Option<&str> {
         .filter(|raw| library::Fingerprint::parse(raw).is_some())
 }
 
-/// Op 14's `write_position`: the whole file written atomically (the card's
-/// `write`); the book's fingerprint, which a reader keeps in it, stays. `busy`
-/// says a book is in use (a library move carries it): `ERR_BUSY`, nothing
-/// written.
+/// Op 14's `write_position`: one slot of the file written in place, or the
+/// whole file written atomically (the card's `write`) where it has no slots
+/// yet or the place is too long for one (`place_file::save`); the book's
+/// fingerprint, which a reader keeps in it, stays. `busy` says a book is in
+/// use (a library move carries it): `ERR_BUSY`, nothing written.
 ///
 /// A file this cannot read as text (a hand-edited or damaged one) is
 /// replaced by the new place: the reader is at a new place anyway. A read
@@ -182,17 +187,8 @@ pub(super) fn write(
         }
         let old = text(&*reads.storage, path)?;
         let text = render(at, from_sync, old.as_deref().and_then(kept_fingerprint))?;
-        let _ = reads.storage.create_dir(positions::DIR);
-        reads
-            .storage
-            .write(&file(path)?, text.as_bytes())
-            .map_err(|e| match e {
-                StorageError::OutOfMemory => ERR_NO_MEMORY,
-                StorageError::Full | StorageError::TooLarge => {
-                    paperpaw_native::host_glue::ERR_NO_SPACE
-                }
-                _ => ERR_IO,
-            })
+        // The folder is made by the write that makes the file.
+        place_file::save(&*reads.storage, &file(path)?, old.as_deref(), &text)
     })
 }
 
@@ -294,3 +290,7 @@ fn render(
 #[cfg(test)]
 #[path = "position_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "position_fat_tests.rs"]
+mod fat_tests;

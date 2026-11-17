@@ -398,16 +398,6 @@ fn files_are_per_book() {
     assert!(annotations::marks(&storage, "b.epub").is_empty());
 }
 
-#[test]
-fn the_change_event_names_the_book() {
-    use paperpaw_sdk::builtin::events;
-    let paperpaw_sdk::Command::Emit(id, params) = annotations::changed("books/x.epub") else {
-        panic!("an event");
-    };
-    let read = events::ANNOTATIONS_CHANGED.read(&id, &params).unwrap();
-    assert_eq!(read.path, "books/x.epub");
-}
-
 /// Annotations kept beyond what is changed whole (1 MiB, e.g. a
 /// reference book with thousands of noted highlights) are not written
 /// over by the next one added: the addition is refused and the file left

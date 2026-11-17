@@ -3,7 +3,7 @@
 //! the requests and answers need.
 //!
 //! The address shown on the device (as a QR code, see
-//! [`ui::draw_address`](crate::ui::draw_address)) carries a key drawn
+//! `ui::draw_address`) carries a key drawn
 //! anew each time from the platform's random source ([`key`]); every
 //! request must carry it (`?k=…`). A [`Guard`] checks it and counts wrong
 //! keys: after a few of them no request is answered for a while, so the

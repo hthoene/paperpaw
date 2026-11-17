@@ -679,7 +679,7 @@ pub enum Command {
     /// [`slots::READER`](crate::builtin::slots::READER): its path in
     /// `params::PATH`, and the readers that could not open it. See
     /// [`readers::open`](crate::readers::open) and
-    /// [`readers::cannot_open`](crate::readers::cannot_open), which make
+    /// `readers::cannot_open`, which make
     /// it, and `readers::resolve`, which says
     /// what it does.
     OpenBook(Params),
@@ -1126,15 +1126,6 @@ impl Command {
         value: T::Input,
     ) -> Command {
         Command::SetSetting(setting.id().clone(), T::write(value))
-    }
-
-    /// [`Command::Extended`]: a command of a later release by its `key`,
-    /// with `params`; a kernel that does not know the key leaves it.
-    pub fn extended(key: impl Into<Id>, params: Params) -> Command {
-        Command::Extended {
-            key: key.into(),
-            params,
-        }
     }
 
     /// [`Command::RunAction`]: runs `action` without params.

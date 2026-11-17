@@ -38,7 +38,7 @@ impl crate::Kernel {
         if !home
             || self.show_pending
             || !self.output.commands.is_empty()
-            || self.service_due().is_some_and(|at| at <= self.now)
+            || self.service_due().is_some_and(|at| at <= self.shared.now)
         {
             return false;
         }

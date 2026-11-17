@@ -989,6 +989,9 @@ impl Dashboard {
     /// composition: only the two targets are drawn again).
     #[must_use]
     pub fn is_focus_step(&self, input: &Input<'_>) -> bool {
+        if self.listing.shows_no_book() {
+            return false;
+        }
         match *input {
             Input::Key { .. } => true,
             Input::Action { action, .. } => {

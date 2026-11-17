@@ -71,6 +71,7 @@ struct BuilderParts {
     network_settings: &'static [crate::NetworkSettings],
     catalog_indexes: paperpaw_i18n::FixedIndexes,
     built_catalogs: &'static [paperpaw_i18n::BuiltLanguage],
+    built_messages: Vec<&'static [paperpaw_i18n::BuiltMessages]>,
     /// The most Bluetooth links the shell keeps; none without a radio.
     bluetooth_links: u8,
 }
@@ -172,6 +173,16 @@ impl KernelBuilder {
     /// [`BuiltLanguage`](paperpaw_i18n::BuiltLanguage)).
     pub fn built_catalogs(mut self, tables: &'static [paperpaw_i18n::BuiltLanguage]) -> Self {
         self.0.built_catalogs = tables;
+        self
+    }
+
+    /// Texts built into the program without their keys, made by its build
+    /// script ([`BuiltMessages`](paperpaw_i18n::BuiltMessages)): the kernel's
+    /// own texts (`paperpaw_app::CORE_MESSAGES`: the kernel does not carry the
+    /// sources of its catalogs) and the shell's. May be called more than
+    /// once; every other catalog takes precedence over them.
+    pub fn built_messages(mut self, tables: &'static [paperpaw_i18n::BuiltMessages]) -> Self {
+        self.0.built_messages.push(tables);
         self
     }
 
@@ -348,7 +359,8 @@ impl KernelBuilder {
     /// reported with [`Kernel::bluetooth_event`]); 0, the default, for
     /// none. See [`paperpaw_sdk::bluetooth`].
     pub fn bluetooth(mut self, max_links: u8) -> Self {
-        self.0.caps.bluetooth = max_links > 0;
+        // Without the `bluetooth` feature the kernel has no radio model.
+        self.0.caps.bluetooth = cfg!(feature = "bluetooth") && max_links > 0;
         self.0.bluetooth_links = max_links;
         self
     }
@@ -789,8 +801,14 @@ impl BuilderParts {
         for table in self.built_catalogs {
             translator.built_language(table);
         }
+        for tables in &self.built_messages {
+            for table in *tables {
+                translator.built_messages(table);
+            }
+        }
         Kernel {
             shared: Shared {
+                now: Instant::default(),
                 native_events: None,
                 native_instances: crate::native_host::native_instances::NativeInstances::default(),
                 native_input: crate::native_host::ui_input::InputFilters::new(),
@@ -868,6 +886,8 @@ impl BuilderParts {
                 pending_weight: 0,
                 unrendered: None,
                 rendered: None,
+                stop: None,
+                stopped: false,
                 row_align: self.row_align,
                 band: self
                     .frame_rows
@@ -904,6 +924,7 @@ impl BuilderParts {
                 speech: io::speech::Speech::new(caps.speech),
                 clipboard: io::clipboard::Clipboard::new(caps.system_clipboard),
                 wifi_calls: Vec::new(),
+                #[cfg(feature = "bluetooth")]
                 bluetooth: caps.bluetooth.then(|| io::bluetooth::Radio::new(links)),
                 firmware_calls: Vec::new(),
                 network_waiting: None,
@@ -971,9 +992,11 @@ impl BuilderParts {
             config_unreadable: false,
             card_trouble: None,
             after_sleep: false,
+            storage_kept: false,
             secrets_unreadable: false,
             secrets_opened: false,
             secrets_wired: None,
+            #[cfg(feature = "bluetooth")]
             pairing_nonce: None,
             plugin_defaults: Vec::new(),
             late_device_defaults: Vec::new(),
@@ -984,7 +1007,6 @@ impl BuilderParts {
             native_clock: None,
             native_times: crate::native_host::NativeTimes::default(),
             plugin_choices: Vec::new(),
-            now: Instant::default(),
         }
     }
 }
@@ -1003,6 +1025,7 @@ impl Kernel {
                 let text = String::from_utf8_lossy(data.as_deref().unwrap_or_default());
                 self.shared.secrets = Self::decode_secrets(&text, host.as_ref());
                 self.secrets_unreadable = false;
+                #[cfg(feature = "bluetooth")]
                 if let Some(radio) = &mut self.io.bluetooth {
                     let kept = self.shared.secrets.iter();
                     radio.load(kept.map(|s| (s.id.as_str(), s.value.as_str())));
@@ -1413,6 +1436,7 @@ impl Kernel {
             network_settings: &[],
             catalog_indexes: &[],
             built_catalogs: &[],
+            built_messages: Vec::new(),
             bluetooth_links: 0,
         }))
     }
