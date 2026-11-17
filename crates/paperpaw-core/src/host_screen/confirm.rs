@@ -6,6 +6,7 @@
 //! *dismissed* on Back or after [`TIMEOUT_MS`], and tells the kernel its
 //! answer with an event that carries the nonce only the host and this screen
 //! know. It is drawn on the host's [`Board`].
+use crate::{Place, Turn};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -14,7 +15,7 @@ use crate::native_host::firmware_confirm::{self as words, ANSWERED};
 use crate::native_host::firmware_install::Answer;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::{Canvas, Command, Cx, Env, Gesture, Handled, Hint, Id, Params, Rect};
+use paperpaw_sdk::{Canvas, Command, Gesture, Handled, Hint, Id, Params, Rect};
 
 /// Input within this long of being shown is dropped (`device.md` 5.0).
 const GUARD_MS: u64 = 500;
@@ -34,7 +35,7 @@ pub(crate) struct Confirm {
 
 impl Confirm {
     /// The screen the kernel opened with `params` (`firmware_confirm::open_params`).
-    pub(crate) fn new(env: &Env<'_>, params: &Params) -> Self {
+    pub(crate) fn new(env: &Place<'_>, params: &Params) -> Self {
         let get = |key| params.get(key).unwrap_or("");
         let mut labels = Vec::from([String::from(get(words::YES_WORD))]);
         if let Some(data) = params.get(words::DATA_WORD) {
@@ -59,7 +60,7 @@ impl Confirm {
         self.board.hint(action)
     }
 
-    pub(super) fn draw(&self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    pub(super) fn draw(&self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         self.board.draw(canvas, env);
     }
 
@@ -82,7 +83,7 @@ impl Confirm {
     }
 
     /// Tells the kernel the answer, once, and closes.
-    fn finish(&mut self, answer: Answer, cx: &mut Cx<'_, '_>) {
+    fn finish(&mut self, answer: Answer, cx: &mut Turn<'_, '_>) {
         if core::mem::replace(&mut self.done, true) {
             return;
         }
@@ -101,7 +102,7 @@ impl Confirm {
         cx.close();
     }
 
-    pub(super) fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(super) fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         if self.shown.is_none() {
             let now = cx.env().now();
             self.shown = Some(now);
@@ -109,7 +110,7 @@ impl Confirm {
         }
     }
 
-    pub(super) fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(super) fn on_timer(&mut self, cx: &mut Turn<'_, '_>) {
         let now = cx.env().now();
         if self
             .shown
@@ -120,14 +121,14 @@ impl Confirm {
     }
 
     /// Back (and a tap outside) dismiss; nothing else closes it.
-    pub(super) fn on_close_request(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(super) fn on_close_request(&mut self, cx: &mut Turn<'_, '_>) -> Handled {
         if self.counts(cx.env().now()) {
             self.finish(Answer::Dismissed, cx);
         }
         Handled::Yes
     }
 
-    pub(super) fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(super) fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if !self.counts(cx.env().now()) {
             return Handled::Yes;
         }
@@ -146,7 +147,7 @@ impl Confirm {
     }
 
     /// A swipe over the box scrolls; a tap counts only on its own buttons.
-    pub(super) fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(super) fn on_gesture(&mut self, gesture: Gesture, cx: &mut Turn<'_, '_>) -> Handled {
         if !self.counts(cx.env().now()) {
             return Handled::Yes;
         }

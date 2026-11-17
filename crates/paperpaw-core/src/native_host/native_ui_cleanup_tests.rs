@@ -130,10 +130,10 @@ fn cleanup_sweep_recovers_more_than_sixteen_closures_and_preserves_live_instance
     use paperpaw_sdk::{Manifest, Params, RegisterError, Version};
     struct Live;
     impl crate::testing::Fake for Live {
-        fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
         }
-        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
     }
     fn live() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         |registrar| {

@@ -144,7 +144,7 @@ fn tables_are_used_and_built() {
 
 #[test]
 fn the_names_beside_a_book() {
-    let dir = paperpaw_sdk::Env::plugin_dir("koreader");
+    let dir = paperpaw_sdk::data::plugin_dir("koreader");
     let name = |book: &str| {
         (
             native::sidecar(book).unwrap(),

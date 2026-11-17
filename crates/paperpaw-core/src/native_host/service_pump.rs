@@ -15,9 +15,9 @@ use super::{
     native_instances::NativeInstances,
     service_events::{EVENT_BUFFER, ServiceEvents},
 };
+use crate::Place;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_SPACE};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::Env;
 
 /// The wait before the pump tries again for its buffer after it was refused
 /// (the buffer is made once, on the first pass with a service wired, and kept).
@@ -37,7 +37,7 @@ const PER_OWNER: usize = 4;
 pub(super) fn pump(
     instances: &NativeInstances,
     services: &[Option<&dyn ServiceEvents>; 4],
-    env: &Env<'_>,
+    env: &Place<'_>,
     call: &dyn Fn(u64, &super::native_instances::NativeLease, &[u8]),
 ) -> bool {
     for service in services.iter().flatten() {
@@ -204,7 +204,7 @@ impl crate::Kernel {
     /// gone before the other pumps call plugins (#250).
     #[inline(never)]
     fn native_event_services(&mut self) -> bool {
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         let instances = &self.shared.native_instances;
         pump(
             instances,

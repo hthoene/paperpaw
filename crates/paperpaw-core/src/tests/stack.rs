@@ -1,5 +1,5 @@
 //! The screen stack as plugins read and steer it:
-//! `Env::stack`, closing a screen of one's own, replacing, going back to
+//! `Place::stack`, closing a screen of one's own, replacing, going back to
 //! a screen, slots chosen for the user, asking before closing, a screen's
 //! own row of hints, a screen opened again.
 
@@ -39,13 +39,13 @@ impl Configured {
 }
 
 impl crate::testing::Fake for Configured {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
+    fn region(&self, _: &Place<'_>) -> Option<Rect> {
         self.says("overlay").map(|_| Rect::new(0, 45, 90, 45))
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if *action == CLOSE {
             cx.close();
         } else if *action == WHO {
@@ -60,7 +60,7 @@ impl crate::testing::Fake for Configured {
         Handled::Yes
     }
 
-    fn on_gesture(&mut self, gesture: Gesture, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_gesture(&mut self, gesture: Gesture, _: &mut Turn<'_, '_>) -> Handled {
         self.note(&alloc::format!("gesture {:?}", gesture.kind));
         Handled::Yes
     }
@@ -73,7 +73,7 @@ impl crate::testing::Fake for Configured {
         }
     }
 
-    fn on_close_request(&mut self, why: CloseCause, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_close_request(&mut self, why: CloseCause, _: &mut Turn<'_, '_>) -> Handled {
         if self.says("refuse").is_some() {
             self.note(&alloc::format!("keeps open on {why:?}"));
             return Handled::Yes;
@@ -81,17 +81,17 @@ impl crate::testing::Fake for Configured {
         Handled::No
     }
 
-    fn on_show(&mut self, _: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, _: &mut Turn<'_, '_>) {
         self.note("show");
     }
 
-    fn on_reopen(&mut self, params: &Params, _: &mut Cx<'_, '_>) {
+    fn on_reopen(&mut self, params: &Params, _: &mut Turn<'_, '_>) {
         let new = params.get("name").unwrap_or("?");
         self.note(&alloc::format!("reopen {new}"));
         self.params = params.clone();
     }
 
-    fn on_close(&mut self, _: &mut Cx<'_, '_>) {
+    fn on_close(&mut self, _: &mut Turn<'_, '_>) {
         self.note("close");
     }
 }
@@ -125,7 +125,7 @@ fn stack_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             )?;
         }
         r.add_action(ActionSpec::new(OPEN_T, "s.action").handler(
-            |_: &Env<'_>, _, out: &mut Commands| {
+            |_: &paperpaw_sdk::Env<'_>, _, out: &mut Commands| {
                 out.push(Command::OpenScreen(SCREEN, named("t")));
             },
         ))?;
@@ -166,7 +166,7 @@ fn stack_kernel(log: &Log) -> Kernel {
 }
 
 fn names(kernel: &Kernel) -> Vec<String> {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     env.stack()
         .iter()
         .map(|entry| {
@@ -184,7 +184,7 @@ fn the_stack_is_read_and_a_screen_knows_itself() {
     let mut kernel = stack_kernel(&log);
     kernel.open_slot(Instant(1), slots::MENU, named("menu").with("overlay", "y"));
     assert_eq!(names(&kernel), ["s.home", "s.screen (overlay)"]);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     assert_eq!(
         env.top().and_then(|top| top.slot.clone()),
         Some(slots::MENU)
@@ -258,7 +258,7 @@ fn slots_take_a_screen_chosen() {
     let mut kernel = stack_kernel(&log);
     kernel.apply(Command::OpenInSlot(slots::LIBRARY, SCREEN, named("shelf")));
     kernel.finish();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     assert_eq!(
         env.top().and_then(|top| top.slot.clone()),
         Some(slots::LIBRARY)

@@ -2,11 +2,12 @@
 use super::super::dev::Loaded;
 use super::{environment::DEVICE, foreign::fixture_custom};
 use paperpaw_core::KernelBuilder;
+use paperpaw_core::Place;
 use paperpaw_core::native_host::{
     DispatchDepth,
     registrations::{self, Registration},
 };
-use paperpaw_core::sdk::{Env, Font, FontSpec, Id, Manifest, Priority, Version, builtin};
+use paperpaw_core::sdk::{Font, FontSpec, Id, Manifest, Priority, Version, builtin};
 use paperpaw_graphics::Framebuffer;
 use paperpaw_platform::{Color, Instant, PixelFormat, Rect};
 use std::{borrow::Cow, cell::Cell, rc::Rc};
@@ -39,13 +40,13 @@ const DRAW: &str = r#"
     if result != OK { return result; }
 "#;
 
-type Run = Rc<dyn Fn(&Env<'_>)>;
+type Run = Rc<dyn Fn(&Place<'_>)>;
 std::thread_local! {
-    /// What runs with the live `Env` once the kernel has started, in the
+    /// What runs with the live `Place` once the kernel has started, in the
     /// test running (the handler is a plain function and holds nothing).
     static CAPTURE: std::cell::RefCell<Option<Run>> = const { std::cell::RefCell::new(None) };
 }
-/// Binds a font of its own as the UI's and runs `run` with the live `Env` when the kernel has
+/// Binds a font of its own as the UI's and runs `run` with the live `Place` when the kernel has
 /// started.
 fn renderer(builder: KernelBuilder, run: Run) -> KernelBuilder {
     let manifest = Manifest::new(
@@ -84,7 +85,7 @@ fn loaded_plugin_draws_text_with_metrics_and_clip_through_shared_table() {
     let fixture = Rc::new(fixture_custom(wire, &[], false, DRAW, ""));
     let calls = Rc::new(Cell::new(0));
     let observed = Rc::clone(&calls);
-    let run = Rc::new(move |env: &Env<'_>| {
+    let run = Rc::new(move |env: &Place<'_>| {
         let library = std::fs::read(&fixture.path).unwrap();
         let loaded = Loaded::from_bytes("render-fixture", &library).unwrap();
         let mut actual = Framebuffer::new(WIDTH, HEIGHT, PixelFormat::Gray8).unwrap();

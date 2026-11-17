@@ -129,7 +129,7 @@ pub(crate) fn queue_run(
     owner: u64,
     token: u32,
     id: &str,
-    env: &paperpaw_sdk::Env<'_>,
+    env: &crate::Place<'_>,
 ) -> bool {
     let Some(lease) = instances.lease(owner) else {
         return false;
@@ -139,7 +139,7 @@ pub(crate) fn queue_run(
         now_ms: env.now().millis(),
         action: id,
         // Bit 0 `background`: not the reader's own doing (a rule's or
-        // another plugin's run), as interface 6 `Env::reader` said.
+        // another plugin's run), as interface 6 `Place::reader` said.
         flags: u32::from(!env.reader()),
     });
     let Ok(len) = super::events::encode(&record, &mut bytes) else {

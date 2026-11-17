@@ -260,7 +260,7 @@ impl Items {
 
     /// A stylesheet for books, applied after a book's own (where the
     /// format reads CSS, e.g. EPUB), e.g. for a theme that sets books
-    /// apart; see [`Env::stylesheets`](paperpaw_sdk::Env).
+    /// apart; see [`Place::stylesheets`](crate::Place).
     pub fn add_stylesheet(
         &mut self,
         css: impl Into<Cow<'static, str>>,
@@ -279,7 +279,7 @@ impl Items {
     /// ([`library::BookData`](paperpaw_sdk::library::BookData)). For what is
     /// made again from the book, [`add_book_cache`](Self::add_book_cache).
     /// The folder must be inside `.paperpaw/` (usually
-    /// [`Env::plugin_dir`](paperpaw_sdk::Env::plugin_dir)): one elsewhere is
+    /// [`data::plugin_dir`](paperpaw_sdk::data::plugin_dir)): one elsewhere is
     /// refused with [`RegisterError::Invalid`], so that no file of the
     /// reader's is taken for a book's data.
     pub fn add_book_data(

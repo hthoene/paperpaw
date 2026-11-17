@@ -26,7 +26,7 @@ pub(crate) struct CommandTarget {
 impl crate::Shared {
     /// The frame a command-staging callback runs with: no callback, instance,
     /// directory, depth or screen of its own.
-    fn command_frame<'a>(&'a self, env: &'a crate::Env<'a>) -> CoreFrame<'a> {
+    fn command_frame<'a>(&'a self, env: &'a crate::Place<'a>) -> CoreFrame<'a> {
         CoreFrame {
             callback: None,
             instance: None,
@@ -60,7 +60,7 @@ impl Kernel {
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
         let (status, owner, staged) = {
-            let env = self.shared.env(now);
+            let env = self.shared.place(now);
             let frame = self.shared.command_frame(&env);
             batch.dispatch_owner(depth, |context| {
                 let owner = context.plugin().map_err(|status| match status {

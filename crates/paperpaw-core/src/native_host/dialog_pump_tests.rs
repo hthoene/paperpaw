@@ -15,11 +15,12 @@ use crate::native_host::{
     ui_service::UiServices,
     ui_store::{Limits, Stamp, UiStore},
 };
+use crate::{Place, Turn};
 use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Canvas, Cx, Env, Handled, Manifest, Priority, RegisterError, Version};
+use paperpaw_sdk::{Canvas, Handled, Manifest, Priority, RegisterError, Version};
 
 const KEYBOARD_SCREEN: Id = Id::new_static("d.keyboard");
 
@@ -50,8 +51,8 @@ struct Dialog {
 }
 
 impl crate::testing::Fake for Dialog {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         let store = ANSWERS.with(|store| store.borrow().as_ref().and_then(|s| s.try_clone()));
         if *action != paperpaw_sdk::builtin::actions::CONFIRM {
             return Handled::No;
@@ -62,7 +63,7 @@ impl crate::testing::Fake for Dialog {
         cx.command(paperpaw_sdk::Command::Back);
         Handled::Yes
     }
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         if SPAWN.with(core::cell::Cell::take) {
             cx.command(paperpaw_sdk::Command::Back);
         }
@@ -114,11 +115,11 @@ fn serves_manifest() -> Manifest {
 struct Lock;
 
 impl crate::testing::Fake for Lock {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
     fn flags(&self) -> u32 {
         crate::testing::GUARDS
     }
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -170,14 +171,14 @@ impl NativeInstance for Asker {
     fn subscribed(&self, tag: u32) -> bool {
         self.heard.is_some() && tag == wire::EVENT_STACK_CHANGED_TAG
     }
-    fn service_event(&self, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         self.hear(bytes);
         self.status
     }
     fn service_event_staged(
         &self,
         bytes: &[u8],
-        _: &Env<'_>,
+        _: &Place<'_>,
         stage: &mut crate::native_host::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         use crate::native_host::commands::{WireCommand, commands_decode, commands_encode};
@@ -201,17 +202,17 @@ impl NativeInstance for Asker {
 }
 
 impl Dispatch for Asker {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)

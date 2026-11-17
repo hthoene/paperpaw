@@ -2,13 +2,14 @@
 //! low-memory notice, #798): a title, a text and one or two buttons on the
 //! host's [`Board`], closing on any answer. What an answer does is the
 //! notice's own ([`Answer`]).
+use crate::{Place, Turn};
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use super::board::Board;
 use crate::native_host::low_memory::{LATER_WORD, PLUGINS_WORD, TEXT, TITLE};
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::{Canvas, Command, Cx, Env, Gesture, Handled, Hint, Id, Params, Rect};
+use paperpaw_sdk::{Canvas, Command, Gesture, Handled, Hint, Id, Params, Rect};
 
 /// What an answer does, after the screen closed.
 enum Answer {
@@ -32,7 +33,7 @@ pub(crate) struct StartNotice {
 impl StartNotice {
     /// The Literata hint: *Store* and *Not now* with a store to go to
     /// (`store` = "yes"), else only *OK*.
-    pub(super) fn literata(env: &Env<'_>, params: &Params) -> Self {
+    pub(super) fn literata(env: &Place<'_>, params: &Params) -> Self {
         let store = params.get("store") == Some("yes");
         let tr = env.i18n();
         let first = tr.tr(if store {
@@ -55,7 +56,7 @@ impl StartNotice {
     }
 
     /// The low-memory notice: its words come in `params` (see `low_memory`).
-    pub(super) fn low_memory(env: &Env<'_>, params: &Params) -> Self {
+    pub(super) fn low_memory(env: &Place<'_>, params: &Params) -> Self {
         let get = |key| params.get(key).unwrap_or("");
         let labels = Vec::from([
             String::from(get(PLUGINS_WORD)),
@@ -75,12 +76,12 @@ impl StartNotice {
         self.board.hint(action)
     }
 
-    pub(super) fn draw(&self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    pub(super) fn draw(&self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         self.board.draw(canvas, env);
     }
 
     /// Closes, then does what the answer of `button` means.
-    fn answer(&self, button: usize, cx: &mut Cx<'_, '_>) {
+    fn answer(&self, button: usize, cx: &mut Turn<'_, '_>) {
         cx.close();
         match self.answer {
             Answer::Literata { store } => cx.command(Command::Emit(
@@ -94,7 +95,7 @@ impl StartNotice {
         }
     }
 
-    pub(super) fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(super) fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if *action == actions::CONFIRM {
             self.answer(self.board.focus(), cx);
         } else if *action == actions::BACK {
@@ -105,7 +106,7 @@ impl StartNotice {
         Handled::Yes
     }
 
-    pub(super) fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(super) fn on_gesture(&mut self, gesture: Gesture, cx: &mut Turn<'_, '_>) -> Handled {
         if let Some(at) = self.board.on_gesture(gesture, cx) {
             self.answer(at, cx);
         }

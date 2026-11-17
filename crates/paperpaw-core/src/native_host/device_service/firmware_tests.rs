@@ -72,7 +72,7 @@ fn checked<R>(
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_device(Rc::new(host(ids))).unwrap();
     hosts
@@ -266,7 +266,7 @@ fn op_3_tells_the_caller_only_its_own_request_and_op_16_pages_past_a_zero_reques
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_device(Rc::new(host(&ids))).unwrap();
     hosts
@@ -312,7 +312,7 @@ fn op_13_tells_a_request_waiting_running_and_ended_and_only_the_askers() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let view = |owner| {
         let hosts = crate::native_host::host_services::HostServices::new();
         hosts.wire_device(Rc::new(host(&ids))).unwrap();

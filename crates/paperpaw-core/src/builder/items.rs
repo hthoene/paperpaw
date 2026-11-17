@@ -4,7 +4,7 @@
 //!
 //! [`Items`] is the kernel's own type (until slice D4b it was the SDK's
 //! `Registrar`), with the calls such a function makes: handlers that get the
-//! live `Env`, catalogs (`add_translations`), screens that are still an old
+//! live `Place`, catalogs (`add_translations`), screens that are still an old
 //! `Screen`.
 //!
 //! The builder's list of what registers is a list of [`Source`]s: the kernel

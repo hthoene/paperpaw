@@ -473,7 +473,7 @@ fn only_no_room_or_a_busy_owner_waits_every_other_hosting_error_refuses() {
 /// Queues `event.action_run` for the parked fixture, as a menu row or a
 /// button would (`native_action::queue_run`).
 fn run_action(kernel: &crate::Kernel, key: u64) {
-    let env = kernel.shared.env(kernel.shared.now);
+    let env = kernel.shared.place(kernel.shared.now);
     assert!(super::super::native_action::queue_run(
         &kernel.shared.native_instances,
         key,

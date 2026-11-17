@@ -3,6 +3,7 @@
     clippy::unwrap_used,
     reason = "test fixture errors must fail assertions"
 )]
+use paperpaw_core::Place;
 #[path = "../src/abi7/context.rs"]
 mod context;
 #[path = "../src/abi7/snapshot.rs"]
@@ -266,7 +267,10 @@ fn probe(kept: Rc<RefCell<Vec<Snapshot>>>) -> impl Fn(&mut Items) -> Result<(), 
                         // SAFETY: bytes is exclusive live output disjoint from the context.
                         assert_eq!(unsafe { slot.copy(bytes.as_mut_ptr(), bytes.len()) }, OK);
                         let decoded = snapshot_decode(&bytes).unwrap();
-                        assert_eq!(decoded.unix_seconds, paperpaw_sdk::time::unix_seconds(env));
+                        assert_eq!(
+                            decoded.unix_seconds,
+                            paperpaw_sdk::time::unix_seconds(&env.env())
+                        );
                         seen.borrow_mut().push(decoded);
                     })
                     .unwrap();

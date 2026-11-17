@@ -232,7 +232,7 @@ fn hosted(short: bool) -> Hosted<Heap, ()> {
 }
 
 fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&CoreFrame<'_>)) {
-    let env = kernel.shared.env(Instant(12));
+    let env = kernel.shared.place(Instant(12));
     call(&CoreFrame {
         callback: None,
         instance: None,
@@ -514,7 +514,7 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
     let key = registry
         .test_insert(paperpaw_sdk::Id::new_static("tokens"), Some(lease), true)
         .unwrap();
-    let env = kernel.shared.env(Instant(12));
+    let env = kernel.shared.place(Instant(12));
     for expected in 1..=2 {
         let InstanceState::Running(lease) = registry.state(key).unwrap() else {
             panic!("idle retained owner must remain running");
@@ -571,7 +571,7 @@ fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
     ))
     .unwrap();
     let retained = dispatch.try_clone().unwrap();
-    let env = kernel.shared.env(Instant(12));
+    let env = kernel.shared.place(Instant(12));
     assert_eq!(dispatch.event(TOKEN, &[], &env), Ok(0));
     assert_eq!(dispatch.input(TOKEN, &[], &env), Ok(0));
     RESULT.with(|result| result.set(1));
@@ -711,9 +711,9 @@ fn a_screen_callback_is_a_showing_screen_only_while_it_runs_on_the_stack() {
         identity,
     );
     PROBE.with(|probe| *probe.borrow_mut() = Some((alloc::rc::Rc::clone(&rows), owner)));
-    let env = kernel.shared.env(Instant(12));
+    let env = kernel.shared.place(Instant(12));
     let mut output = paperpaw_sdk::Output::default();
-    let mut cx = paperpaw_sdk::Cx::new(&env, &mut output);
+    let mut cx = crate::Turn::new(&env, &mut output);
     let key = paperpaw_sdk::ScreenKey::new(5);
     SEEN.with(|seen| seen.set(Some(0)));
     assert_eq!(

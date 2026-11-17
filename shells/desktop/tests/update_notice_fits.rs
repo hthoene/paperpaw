@@ -12,12 +12,13 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+use paperpaw_core::Place;
 use std::rc::Rc;
 use std::sync::Mutex;
 
 use paperpaw_core::KernelBuilder;
 use paperpaw_core::sdk::ui::UiStyle;
-use paperpaw_core::sdk::{Canvas, Env, Id, Manifest, MemoryStorage, Version};
+use paperpaw_core::sdk::{Canvas, Id, Manifest, MemoryStorage, Version};
 use paperpaw_emulator::{device::Device, headless, profiles};
 
 /// The most lines the page gives its text (`draw_empty`).
@@ -60,23 +61,23 @@ fn probe(builder: KernelBuilder) -> KernelBuilder {
 struct Look;
 
 impl paperpaw_core::testing::Fake for Look {
-    fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
+    fn draw(&mut self, _: &mut Canvas<'_>, env: &Place<'_>) {
         paperpaw_emulator::budget::untracked(|| look(env));
     }
 
     fn on_action(
         &mut self,
         _: &Id,
-        _: &mut paperpaw_core::sdk::Cx<'_, '_>,
+        _: &mut paperpaw_core::Turn<'_, '_>,
     ) -> paperpaw_core::sdk::Handled {
         paperpaw_core::sdk::Handled::No
     }
 }
 
 /// How many lines each refusal reason of the update plugin takes on the page.
-fn look(env: &Env<'_>) {
-    let style = UiStyle::new(env);
-    let Some(font) = style.font(env) else {
+fn look(env: &Place<'_>) {
+    let style = UiStyle::new(&env.env());
+    let Some(font) = style.font(&env.env()) else {
         return;
     };
     let width = f32::from(env.device().display.width) - 4.0 * f32::from(style.margin());

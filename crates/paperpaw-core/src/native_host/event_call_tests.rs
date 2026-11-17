@@ -43,14 +43,14 @@ impl NativeInstance for Probe {
     fn subscribed(&self, tag: u32) -> bool {
         tag == 103 || tag == wire::EVENT_IMAGE_READY_TAG
     }
-    fn service_event(&self, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         self.calls.set(self.calls.get() + 1);
         self.answer.get()
     }
     fn service_event_staged(
         &self,
         _: &[u8],
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         stage: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.calls.set(self.calls.get() + 1);
@@ -110,17 +110,17 @@ impl NativeInstance for Probe {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -131,9 +131,9 @@ impl Dispatch for Probe {
 struct Overlay;
 
 impl crate::testing::Fake for Overlay {
-    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+    fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
     }
 }
@@ -276,8 +276,8 @@ fn a_callback_that_stages_nothing_leaves_the_outbox_empty() {
     assert!(!w.kernel.shared.native_instances.outbox.full());
 }
 
-struct Env;
-impl WorkEnv for Env {
+struct Subscribed;
+impl WorkEnv for Subscribed {
     fn subscribed(&self, _: u64, _: u32) -> bool {
         true
     }
@@ -317,7 +317,7 @@ fn two_callbacks_in_one_pump_step_each_run_their_batch_before_the_next() {
         .hosts()
         .wire_work(WorkServices {
             sched: sched.try_clone().unwrap(),
-            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Env)
+            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Subscribed)
                 as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>)
             .unwrap(),
         })
@@ -362,7 +362,7 @@ fn run_work(w: &mut World) {
         .hosts()
         .wire_work(WorkServices {
             sched: sched.try_clone().unwrap(),
-            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Env)
+            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Subscribed)
                 as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>)
             .unwrap(),
         })
@@ -476,7 +476,7 @@ impl ServiceEvents for Svc {
 /// batch (as `native_service_pump` does).
 fn pass(kernel: &mut crate::Kernel, svc: &Svc) -> bool {
     let more = {
-        let env = kernel.shared.env(kernel.shared.now);
+        let env = kernel.shared.place(kernel.shared.now);
         let k = &*kernel;
         pump(
             &k.shared.native_instances,
@@ -564,7 +564,7 @@ fn a_runs_network_events_are_quiet_too() {
         .hosts()
         .wire_work(WorkServices {
             sched: sched.try_clone().unwrap(),
-            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Env)
+            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Subscribed)
                 as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>)
             .unwrap(),
         })

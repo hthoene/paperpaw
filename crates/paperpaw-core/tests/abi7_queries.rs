@@ -2,6 +2,7 @@
 
 #![allow(clippy::unwrap_used, reason = "tests fail loudly on unexpected errors")]
 
+use paperpaw_core::Place;
 #[path = "../src/abi7/context.rs"]
 mod context;
 #[path = "../src/abi7/queries.rs"]

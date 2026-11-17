@@ -22,7 +22,7 @@
 //! plugin ([`DevPlugins::declared`]) and its tick registrations are dispatched
 //! ([`DevPlugins::tick`]) without an environment (a tick needs none; slots 4/5 answer
 //! `ERR_STATE`). TODO(S2): the kernel's apply step takes the declarations
-//! into the registries and hands the kernel's `Env` and canvas to draw
+//! into the registries and hands the kernel's `Place` and canvas to draw
 //! dispatch; until then no draw is dispatched from here and nothing a plugin
 //! declares is visible to the app.
 use super::*;
@@ -422,7 +422,7 @@ impl Loaded {
         &self,
         index: usize,
         depth: &DispatchDepth,
-        env: &paperpaw_core::sdk::Env<'_>,
+        env: &paperpaw_core::Place<'_>,
         canvas: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, shared_shell::Error> {
         let batch = self.batch.as_ref().ok_or(shared_shell::Error::Attempt)?;

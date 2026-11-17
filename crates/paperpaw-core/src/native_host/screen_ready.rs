@@ -38,7 +38,7 @@ impl Shared {
         &self,
         active: &mut ActiveScreen,
         canvas: &mut paperpaw_graphics::Canvas<'_>,
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
     ) {
         if active.drawn || active.ready {
             // Counted already: nothing to note, no lookup.

@@ -297,7 +297,7 @@ fn a_hosted_plugins_blob_expires_after_its_callback() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     scope.scope(&env, || ()).unwrap();
     assert_eq!(context.resources.holds_blobs(), Ok(false));
 }

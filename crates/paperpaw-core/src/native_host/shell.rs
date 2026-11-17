@@ -11,7 +11,7 @@
 //! Rules (ADR 0034, `abi/`): the owner is pinned on the heap and outlives every batch and lease;
 //! `make` runs inside the registration scope and its records stay non-dispatchable until the output
 //! validates and commits; the plugin's destructor runs exactly once, while the context, services
-//! and module are alive; Env and Canvas are lent for one synchronous callback.
+//! and module are alive; Place and Canvas are lent for one synchronous callback.
 use alloc::alloc::alloc;
 use alloc::boxed::Box;
 use core::{alloc::Layout, cell::Cell, ffi::c_void, pin::Pin, ptr};
@@ -32,7 +32,7 @@ use super::environment::EnvironmentScope;
 use super::registration_scope::RegistrationScope;
 use super::registrations::{self, EVENT_TICK_TAG, Registration};
 use super::{Construction, DispatchDepth, HostOwner, PublishedRecords, RegistrationBatch};
-use crate::sdk::Env;
+use crate::Place;
 
 /// Why a step of the plugin's life was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1003,7 +1003,7 @@ pub fn dispatch_with_env<S: 'static, M>(
     index: usize,
     depth: &DispatchDepth,
     invocation: Invocation<'_>,
-    env: &Env<'_>,
+    env: &Place<'_>,
 ) -> Result<i32, Error> {
     batch.dispatch(index, depth, |context, record| {
         // SAFETY: the owner structurally pins this field; no API moves it.
@@ -1031,7 +1031,7 @@ fn screen_frame(clip: Rect, out: &mut [u8; 64]) -> Result<Option<usize>, Error> 
         .map_err(Error::Status)
 }
 
-/// Draw dispatch with a frame: the Env (slots 4/5) and the Canvas (slot 9)
+/// Draw dispatch with a frame: the Place (slots 4/5) and the Canvas (slot 9)
 /// are both lent for this one synchronous callback and cleared on every exit,
 /// including unwind. Nested installation is refused by the scopes.
 ///
@@ -1041,7 +1041,7 @@ pub fn dispatch_draw<S: 'static, M>(
     batch: &Published<'_, S, M, Registration>,
     index: usize,
     depth: &DispatchDepth,
-    env: &Env<'_>,
+    env: &Place<'_>,
     canvas: &mut Canvas<'_>,
 ) -> Result<i32, Error> {
     let mut bytes = [0; 64];

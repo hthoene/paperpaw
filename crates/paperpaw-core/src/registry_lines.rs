@@ -360,7 +360,7 @@ impl Kernel {
         // Op 12's flag for every row: those the user removed and the
         // hidden ones too.
         const ALL: u32 = 1;
-        let env = self.shared.env(crate::Instant(0));
+        let env = self.shared.place(crate::Instant(0));
         let sources = crate::native_host::registry_service::Sources {
             env: &env,
             directory: self.shared.registry.native_declarations.as_deref(),

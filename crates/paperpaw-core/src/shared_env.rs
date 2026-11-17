@@ -1,6 +1,8 @@
-//! How the kernel's shared state builds the [`Env`] plugins are called with.
+//! How the kernel's shared state builds the SDK's old `Env` for the kit that still takes one.
 
-use super::{Env, EnvParts, Instant, Metrics, Shared};
+use paperpaw_sdk::{Env, EnvParts};
+
+use super::{Instant, Metrics, Shared};
 
 impl Shared {
     pub(crate) fn env(&self, now: Instant) -> Env<'_> {

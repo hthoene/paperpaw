@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::native_host::{
     native_instances::NativeInstance, native_screen::Dispatch, registrations as wire,
 };
@@ -11,7 +12,7 @@ use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Command, Env, Id, Params};
+use paperpaw_sdk::{Command, Id, Params};
 
 struct Again {
     queue: crate::native_host::shared::Shared<ActionQueue>,
@@ -41,7 +42,7 @@ impl NativeInstance for Noting {
         &self,
         token: u32,
         bytes: &[u8],
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut crate::native_host::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         if let Ok(wire::Record::EventActionRun(run)) = wire::records_decode_single(bytes) {
@@ -62,17 +63,17 @@ impl NativeInstance for Noting {
 }
 
 impl Dispatch for Noting {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)

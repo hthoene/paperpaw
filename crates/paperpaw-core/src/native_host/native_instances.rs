@@ -40,7 +40,7 @@ pub(crate) trait NativeInstance: Dispatch {
     /// # Errors
     /// `ERR_UNSUPPORTED` when the instance registered none for the tag, the
     /// callback's own status when it failed.
-    fn service_event(&self, _bytes: &[u8], _env: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, _bytes: &[u8], _env: &crate::Place<'_>) -> Result<i32, i32> {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
     /// As [`Self::service_event`], the callback lent the command `stage` (every
@@ -49,7 +49,7 @@ pub(crate) trait NativeInstance: Dispatch {
     fn service_event_staged(
         &self,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         _stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.service_event(bytes, env)
@@ -61,7 +61,7 @@ pub(crate) trait NativeInstance: Dispatch {
         &self,
         token: u32,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         _stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.event(token, bytes, env)
@@ -73,7 +73,7 @@ pub(crate) trait NativeInstance: Dispatch {
         &self,
         token: u32,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         _stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.input(token, bytes, env)
@@ -166,11 +166,7 @@ impl NativeLease {
         self.0.stop();
     }
     /// A service's event for the callback registered for its tag.
-    pub(crate) fn service_event(
-        &self,
-        bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
-    ) -> Result<i32, i32> {
+    pub(crate) fn service_event(&self, bytes: &[u8], env: &crate::Place<'_>) -> Result<i32, i32> {
         self.live()?.service_event(bytes, env)
     }
     /// A widget's `input` callback, with its command stage.
@@ -178,7 +174,7 @@ impl NativeLease {
         &self,
         token: u32,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.live()?.input_staged(token, bytes, env, stage)
@@ -188,7 +184,7 @@ impl NativeLease {
         &self,
         token: u32,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.live()?.event_staged(token, bytes, env, stage)
@@ -197,7 +193,7 @@ impl NativeLease {
     pub(crate) fn service_event_staged(
         &self,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.live()?.service_event_staged(bytes, env, stage)
@@ -208,17 +204,17 @@ impl Dispatch for NativeLease {
     fn take_open_info(&self) -> Option<super::ui_store::Info> {
         self.live().ok()?.take_open_info()
     }
-    fn event(&self, token: u32, bytes: &[u8], env: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, token: u32, bytes: &[u8], env: &crate::Place<'_>) -> Result<i32, i32> {
         self.live()?.event(token, bytes, env)
     }
-    fn input(&self, token: u32, bytes: &[u8], env: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, token: u32, bytes: &[u8], env: &crate::Place<'_>) -> Result<i32, i32> {
         self.live()?.input(token, bytes, env)
     }
     fn draw(
         &self,
         token: u32,
         frame: &super::registrations::DrawFrame<'_>,
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         canvas: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         self.live()?.draw(token, frame, env, canvas)
@@ -228,7 +224,7 @@ impl Dispatch for NativeLease {
         instance: Option<paperpaw_sdk::ScreenKey>,
         token: u32,
         bytes: &[u8],
-        cx: &mut paperpaw_sdk::Cx<'_, '_>,
+        cx: &mut crate::Turn<'_, '_>,
         input: bool,
     ) -> Result<i32, i32> {
         self.live()?
@@ -239,7 +235,7 @@ impl Dispatch for NativeLease {
         instance: Option<paperpaw_sdk::ScreenKey>,
         token: u32,
         frame: &super::registrations::DrawFrame<'_>,
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         canvas: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         self.live()?
@@ -250,7 +246,7 @@ impl Dispatch for NativeLease {
         token: u32,
         bytes: &[u8],
         out: &mut [u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
     ) -> Result<i32, i32> {
         self.live()?.stage(token, bytes, out, env)
     }

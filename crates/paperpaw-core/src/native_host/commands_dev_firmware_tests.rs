@@ -114,7 +114,7 @@ fn stage(
     commands: &[WireCommand<'_>],
 ) -> (i32, DevBatchOutput) {
     let id = Id::new_static("update");
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut ctx = DevContext::new(AdmittedFeatures::test(bits, HOST), &kernel.radio_requests);
     if let Some(driver) = firmware {
         let cell =

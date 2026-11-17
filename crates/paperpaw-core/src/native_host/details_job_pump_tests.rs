@@ -123,17 +123,17 @@ fn encoded(record: local::Record<'_>, out: &mut [u8]) -> usize {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -144,7 +144,7 @@ impl Dispatch for Probe {
         token: u32,
         bytes: &[u8],
         out: &mut [u8],
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
     ) -> Result<i32, i32> {
         assert_eq!(token, 5, "the token of the format's declaration");
         let Record::StageCall(call) = wire::records_decode_single(bytes).unwrap() else {
@@ -194,8 +194,8 @@ const PAGE: Id = Id::new_static("shelf.page");
 
 struct Blank;
 impl crate::testing::Fake for Blank {
-    fn draw(&mut self, _: &mut paperpaw_sdk::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+    fn draw(&mut self, _: &mut paperpaw_sdk::Canvas<'_>, _: &crate::Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
     }
 }
@@ -332,7 +332,7 @@ fn catalog(w: &World, books: &[(&str, bool)]) {
         .collect();
     // Through the kernel's storage, as a walk writes it: what the kernel
     // read before is not looked at again.
-    let env = w.kernel.shared.env(w.kernel.shared.now);
+    let env = w.kernel.shared.place(w.kernel.shared.now);
     catalog::write(env.storage(), &records).unwrap();
 }
 

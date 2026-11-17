@@ -16,7 +16,7 @@ const LIST: Id = Id::new_static("host.list");
 struct Page(Log);
 
 impl crate::testing::Fake for Page {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
         let display = env.device().display;
         self.0.borrow_mut().push(alloc::format!(
@@ -26,11 +26,11 @@ impl crate::testing::Fake for Page {
         ));
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Turn<'_, '_>) -> Handled {
         let (x, y) = (gesture.start.x, gesture.start.y);
         self.0
             .borrow_mut()

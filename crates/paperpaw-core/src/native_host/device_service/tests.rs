@@ -297,7 +297,7 @@ impl DeviceHost for Fake {
 
 /// A frame, and the host views the backend reaches through its caller.
 struct View<'a> {
-    env: &'a paperpaw_sdk::Env<'a>,
+    env: &'a crate::Place<'a>,
     hosts: crate::native_host::host_services::HostServices,
     owner: u64,
 }
@@ -328,7 +328,7 @@ fn with_view<R>(host: Fake, caller: Option<u64>, run: impl FnOnce(&View<'_>) -> 
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_device(Rc::new(host)).unwrap();
     run(&View {
@@ -521,7 +521,7 @@ fn a_frame_without_the_view_is_unsupported_and_a_wrong_view_is_not_taken() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let bare = View {
         env: &env,
         hosts: crate::native_host::host_services::HostServices::new(),
@@ -568,7 +568,7 @@ fn a_host_that_says_ok_without_a_visit_is_not_here_either() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_device(Rc::new(Silent)).unwrap();
     let view = View {
@@ -1138,7 +1138,7 @@ fn the_dispatcher_opens_the_service_and_an_unwired_host_refuses_its_calls() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let key = PpBytes {
         ptr: KEY.as_ptr(),
         len: KEY.len(),

@@ -8,9 +8,9 @@ fn network_work_waits_for_wifi_and_goes_on_once_online() {
     use crate::{WifiCommand, WifiEvent, WifiState};
     let log = log();
     let mut kernel = wifi_kernel(&log);
-    assert!(kernel.shared.env(Instant(0)).caps().network);
+    assert!(kernel.shared.place(Instant(0)).caps().network);
     assert_eq!(
-        kernel.shared.env(Instant(0)).wifi().unwrap().state,
+        kernel.shared.place(Instant(0)).wifi().unwrap().state,
         WifiState::Off
     );
     get(&mut kernel);
@@ -118,7 +118,7 @@ fn scans_and_failures_reach_plugins() {
 fn wifi_commands_are_ignored_where_the_system_manages_it() {
     let mut kernel = Kernel::builder(DEVICE).network(true).build().unwrap();
     kernel.start(Instant(0));
-    assert!(kernel.shared.env(Instant(0)).wifi().is_none());
+    assert!(kernel.shared.place(Instant(0)).wifi().is_none());
     kernel
         .output
         .commands

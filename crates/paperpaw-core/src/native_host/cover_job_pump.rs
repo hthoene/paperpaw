@@ -46,7 +46,7 @@ impl crate::Kernel {
             return;
         }
         let step = {
-            let env = self.shared.env(self.shared.now);
+            let env = self.shared.place(self.shared.now);
             let route = HostRoute {
                 registry: instances,
                 env: &env,
@@ -54,7 +54,7 @@ impl crate::Kernel {
             };
             // What a details job read is kept as the book's details.
             let mut keep = |path: &str, metadata: &paperpaw_sdk::document::Metadata| {
-                paperpaw_sdk::library::keep_native_details(&env, path, metadata).is_ok()
+                paperpaw_sdk::library::keep_native_details(&env.env(), path, metadata).is_ok()
             };
             documents.0.cover_job_step(hosts, &route, &mut keep)
         };
@@ -199,7 +199,7 @@ impl crate::Kernel {
             documents.0.cover_job_suspend_later();
             return;
         }
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         let route = HostRoute {
             registry: instances,
             env: &env,

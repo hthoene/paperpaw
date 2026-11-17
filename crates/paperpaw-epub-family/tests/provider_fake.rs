@@ -17,7 +17,7 @@ use paperpaw_sdk::document::{
 use paperpaw_sdk::image::{GrayWriter, ImageSink};
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
-use paperpaw_sdk::{Env, MemoryStorage, OpenOptions, Storage};
+use paperpaw_sdk::{MemoryStorage, OpenOptions, Storage};
 
 struct Fake {
     meta: Metadata,
@@ -27,7 +27,7 @@ struct Fake {
 }
 
 fn cache() -> String {
-    Env::plugin_dir("format-epub")
+    paperpaw_sdk::data::plugin_dir("format-epub")
 }
 
 impl Document for Fake {

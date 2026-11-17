@@ -39,7 +39,7 @@ impl NativeInstance for Maker {
     fn subscribed(&self, tag: u32) -> bool {
         self.subscribed && tag == wire::EVENT_WIDGET_CHANGED_TAG
     }
-    fn service_event(&self, bytes: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         let wire::Record::EventWidgetChanged(event) =
             crate::native_host::codec::decode_any_single(bytes)?
         else {
@@ -51,7 +51,7 @@ impl NativeInstance for Maker {
     fn service_event_staged(
         &self,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         stage: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
         if let Some(instance) = self.says.take() {
@@ -66,17 +66,17 @@ impl NativeInstance for Maker {
 }
 
 impl Dispatch for Maker {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -280,7 +280,7 @@ fn the_stage_checks_the_command_and_lists_it_for_the_table() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let submit = |stage: &mut CommandStage<'_>, instance: u32| {
         let mut bytes = [0; 64];

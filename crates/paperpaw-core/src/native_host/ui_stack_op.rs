@@ -4,7 +4,7 @@
 //!
 //! The rows come from the kernel's own stack: the instances, owners and flags
 //! of the host-only mirror ([`ui_guard`]), the screen and slot ids of the call's
-//! kernel `Env`. Which rows a plugin sees is [`ui_guard::visible_rows`]: all of
+//! kernel `Place`. Which rows a plugin sees is [`ui_guard::visible_rows`]: all of
 //! them, or while an instance guards the topmost guard alone for every plugin
 //! but the guard's, which sees from the guard up (`service.end.flags` bit 2 says
 //! rows were left out). The generation is a hash of the instances listed, so a

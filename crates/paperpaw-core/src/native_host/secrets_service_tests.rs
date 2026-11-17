@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::services_wire;
 use crate::native_host::admitted_features::AdmittedFeatures;
 use crate::native_host::call_services::validate_reply;
@@ -13,7 +14,7 @@ use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::{DirEntry, Instant, StorageError};
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 use std::collections::BTreeMap;
 
 static WIRED: &[Feature<'static>] = &[Feature {
@@ -250,7 +251,7 @@ impl SecretsHost for Host {
 type Page = (Vec<(String, String, String, u32)>, u32, bool);
 
 struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     hosts: crate::native_host::host_services::HostServices,
     host: Rc<Host>,
     /// The nth allocation inside the backend fails (0: none).
@@ -428,7 +429,7 @@ fn with_host<R>(host: Rc<Host>, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     if wire_it {
         hosts

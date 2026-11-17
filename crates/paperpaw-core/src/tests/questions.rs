@@ -2,13 +2,12 @@
 //! a shell wires it, and a stand-in dialog on `core.choice` and `core.confirm`
 //! (the dialog plugin's slots) that draws nothing; a test reads the question
 //! the kernel asked and answers it as the dialog would, through the store.
+use crate::{Place, Turn};
 use alloc::boxed::Box;
 use alloc::string::String;
 
 use paperpaw_sdk::builtin::slots;
-use paperpaw_sdk::{
-    Canvas, Command, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Version,
-};
+use paperpaw_sdk::{Canvas, Command, Handled, Id, Manifest, Priority, RegisterError, Version};
 
 use crate::native_host::shared::Shared;
 use crate::native_host::ui_service::UiServices;
@@ -21,8 +20,8 @@ pub(crate) const DIALOG: Id = Id::new_static("q.dialog");
 struct Dialog;
 
 impl crate::testing::Fake for Dialog {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }

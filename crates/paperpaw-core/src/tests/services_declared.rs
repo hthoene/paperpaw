@@ -98,7 +98,7 @@ fn slots_and_bindings_are_readable() {
         Some(actions::BACK),
     ));
     kernel.finish();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     assert_eq!(
         env.slot_screen(slots::HOME.as_str()).map(Id::as_str),
         Some("b.screen")

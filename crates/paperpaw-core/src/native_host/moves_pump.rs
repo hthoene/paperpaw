@@ -5,7 +5,7 @@
 //! * Never inside a callback (the pass asks again): a step carries books,
 //!   settings and data under the moved path, and no plugin code runs while it
 //!   does.
-//! * The step gets the kernel's `Env`, whose storage is the card the job was
+//! * The step gets the kernel's `Place`, whose storage is the card the job was
 //!   wired over (`wire_library_moves`), and what it sends (the library's
 //!   book-moved events, setting changes) goes to the kernel's command queue,
 //!   which runs right after the pump (`Kernel::finish`).
@@ -58,7 +58,7 @@ impl crate::Kernel {
             return false;
         }
         instances.set_moves_retry(None);
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         let out = &mut self.output.commands;
         let pump = hosts.pump_library_moves(&env, &mut |command| out.push(command));
         let set_aside = hosts

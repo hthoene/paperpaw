@@ -1,6 +1,7 @@
 //! Owner calls use the shared guard and release declaration borrows first.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::*;
+use crate::Place;
 use crate::native_host::{
     declaration_store::Allocations,
     flat::FlatDepth,
@@ -10,7 +11,7 @@ use crate::native_host::{
 };
 use alloc::rc::{Rc, Weak};
 use core::cell::{Cell, RefCell};
-use paperpaw_sdk::{Env, Id};
+use paperpaw_sdk::Id;
 
 struct Target {
     directory: Weak<NativeDeclarations>,
@@ -25,22 +26,22 @@ impl Dispatch for Target {
         assert_eq!(status, self.failure.get());
     }
 
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         unreachable!()
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         unreachable!()
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         unreachable!()
     }
-    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], _: &Place<'_>) -> Result<i32, i32> {
         let _guard = self
             .guard
             .enter(&self.depth.as_depth().0)
@@ -167,7 +168,7 @@ fn owner_tokens_are_separate_calls_and_failures_leave_output_untouched() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let frame = CoreFrame {
         callback: Some(crate::abi7::core_frame::CallbackStamp::new(owner - 1, 1).unwrap()),
         instance: None,

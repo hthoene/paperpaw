@@ -653,23 +653,23 @@ impl NativeInstance for Fake {
     }
 }
 impl Dispatch for Fake {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
     }
     fn dropped(&self, _: u32, _: i32) {}
-    fn stage(&self, _: u32, bytes: &[u8], out: &mut [u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn stage(&self, _: u32, bytes: &[u8], out: &mut [u8], _: &Place<'_>) -> Result<i32, i32> {
         let Record::StageCall(call) = wire::records_decode_single(bytes).unwrap() else {
             panic!("stage.call");
         };
@@ -706,7 +706,7 @@ fn the_broker_runs_each_filter_alone_and_a_refused_callback_is_a_pass() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let mut runner = BrokerRunner {
         schema: &schema,
         depth: &depth,

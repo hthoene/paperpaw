@@ -5,6 +5,7 @@
 //! pointers and keys while it is on top, that it is shown and closed. What
 //! it does goes to the kernel through the call's context, as a plugin's
 //! commands come through its stage. Only for tests (feature `testing`).
+use crate::{Place, Turn};
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use core::cell::RefCell;
@@ -16,8 +17,8 @@ use paperpaw_platform::Rect;
 use paperpaw_platform::{Instant, Point, PointerEvent, PointerPhase, PointerTool};
 use paperpaw_sdk::realtime::ScreenMode;
 use paperpaw_sdk::{
-    CloseCause, Cx, Direction, Env, Gesture, GestureKind, Handled, Hint, HintVisibility, Id,
-    Instances, Params, RefreshMode, ScreenKey,
+    CloseCause, Direction, Gesture, GestureKind, Handled, Hint, HintVisibility, Id, Instances,
+    Params, RefreshMode, ScreenKey,
 };
 
 /// It guards the device (`screen.spec.flags` bit 1).
@@ -42,40 +43,40 @@ pub trait Fake {
     fn flags(&self) -> u32 {
         0
     }
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         let _ = (canvas, env);
     }
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         let _ = (action, cx);
         Handled::No
     }
     /// A gesture that ended at `gesture.end` (where it started is not told).
-    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Turn<'_, '_>) -> Handled {
         let _ = (gesture, cx);
         Handled::No
     }
-    fn on_pointer(&mut self, event: &PointerEvent, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_pointer(&mut self, event: &PointerEvent, cx: &mut Turn<'_, '_>) -> Handled {
         let _ = (event, cx);
         Handled::No
     }
     /// A key going down (`pressed`) or up at `at`, before it is an action.
-    fn on_key(&mut self, name: &str, pressed: bool, at: Instant, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_key(&mut self, name: &str, pressed: bool, at: Instant, cx: &mut Turn<'_, '_>) -> Handled {
         let _ = (name, pressed, at, cx);
         Handled::No
     }
     /// It is shown on top (again, or at another size).
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         let _ = cx;
     }
     /// It was opened again with `params`.
-    fn on_reopen(&mut self, params: &Params, cx: &mut Cx<'_, '_>) {
+    fn on_reopen(&mut self, params: &Params, cx: &mut Turn<'_, '_>) {
         let _ = (params, cx);
     }
-    fn on_close(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_close(&mut self, cx: &mut Turn<'_, '_>) {
         let _ = cx;
     }
     /// Text typed into it, the last part `done`.
-    fn on_text(&mut self, text: &str, done: bool, cx: &mut Cx<'_, '_>) {
+    fn on_text(&mut self, text: &str, done: bool, cx: &mut Turn<'_, '_>) {
         let _ = (text, done, cx);
     }
     // What only the host's own screens have, for the kernel's paths they
@@ -83,12 +84,12 @@ pub trait Fake {
     // it keeps from.
     /// The part of its area it covers, an overlay (its declaration's
     /// [`OVERLAY`] covers all of it).
-    fn region(&self, env: &Env<'_>) -> Option<Rect> {
+    fn region(&self, env: &Place<'_>) -> Option<Rect> {
         let _ = env;
         None
     }
-    /// Its time came ([`Cx::wake_at`]).
-    fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+    /// Its time came ([`Turn::wake_at`]).
+    fn on_timer(&mut self, cx: &mut Turn<'_, '_>) {
         let _ = cx;
     }
     /// Whether the row of hints shows under it.
@@ -101,7 +102,7 @@ pub trait Fake {
         None
     }
     /// It is asked to close: [`Handled::Yes`] keeps it open.
-    fn on_close_request(&mut self, why: CloseCause, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_close_request(&mut self, why: CloseCause, cx: &mut Turn<'_, '_>) -> Handled {
         let _ = (why, cx);
         Handled::No
     }
@@ -110,7 +111,7 @@ pub trait Fake {
         None
     }
     /// An event emitted to the screens.
-    fn on_event(&mut self, event: &Id, params: &Params, cx: &mut Cx<'_, '_>) {
+    fn on_event(&mut self, event: &Id, params: &Params, cx: &mut Turn<'_, '_>) {
         let _ = (event, params, cx);
     }
 }
@@ -118,21 +119,21 @@ pub trait Fake {
 /// What the kernel asks of a test's screen beside its records, through its
 /// native screen (`Dispatch::test_screen`).
 pub trait TestScreen {
-    fn region(&self, env: &Env<'_>) -> Option<Rect>;
-    fn on_timer(&self, cx: &mut Cx<'_, '_>);
+    fn region(&self, env: &Place<'_>) -> Option<Rect>;
+    fn on_timer(&self, cx: &mut Turn<'_, '_>);
     fn hints(&self) -> Option<HintVisibility>;
     fn hint(&self, action: &Id) -> Option<Hint>;
-    fn on_close_request(&self, why: CloseCause, cx: &mut Cx<'_, '_>) -> Handled;
+    fn on_close_request(&self, why: CloseCause, cx: &mut Turn<'_, '_>) -> Handled;
     fn mode(&self) -> Option<ScreenMode>;
-    fn on_event(&self, event: &Id, params: &Params, cx: &mut Cx<'_, '_>);
-    fn on_reopen(&self, params: &Params, cx: &mut Cx<'_, '_>);
+    fn on_event(&self, event: &Id, params: &Params, cx: &mut Turn<'_, '_>);
+    fn on_reopen(&self, params: &Params, cx: &mut Turn<'_, '_>);
 }
 
 impl TestScreen for FakeInstance {
-    fn region(&self, env: &Env<'_>) -> Option<Rect> {
+    fn region(&self, env: &Place<'_>) -> Option<Rect> {
         self.0.try_borrow().ok()?.region(env)
     }
-    fn on_timer(&self, cx: &mut Cx<'_, '_>) {
+    fn on_timer(&self, cx: &mut Turn<'_, '_>) {
         if let Ok(mut fake) = self.0.try_borrow_mut() {
             fake.on_timer(cx);
         }
@@ -143,7 +144,7 @@ impl TestScreen for FakeInstance {
     fn hint(&self, action: &Id) -> Option<Hint> {
         self.0.try_borrow().ok()?.hint(action)
     }
-    fn on_close_request(&self, why: CloseCause, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_close_request(&self, why: CloseCause, cx: &mut Turn<'_, '_>) -> Handled {
         self.0
             .try_borrow_mut()
             .map_or(Handled::No, |mut fake| fake.on_close_request(why, cx))
@@ -151,12 +152,12 @@ impl TestScreen for FakeInstance {
     fn mode(&self) -> Option<ScreenMode> {
         self.0.try_borrow().ok()?.mode()
     }
-    fn on_event(&self, event: &Id, params: &Params, cx: &mut Cx<'_, '_>) {
+    fn on_event(&self, event: &Id, params: &Params, cx: &mut Turn<'_, '_>) {
         if let Ok(mut fake) = self.0.try_borrow_mut() {
             fake.on_event(event, params, cx);
         }
     }
-    fn on_reopen(&self, params: &Params, cx: &mut Cx<'_, '_>) {
+    fn on_reopen(&self, params: &Params, cx: &mut Turn<'_, '_>) {
         if let Ok(mut fake) = self.0.try_borrow_mut() {
             fake.on_reopen(params, cx);
         }
@@ -164,7 +165,7 @@ impl TestScreen for FakeInstance {
 }
 
 /// What makes a test's screen with the params it is opened with.
-pub type FakeFactory = Box<dyn Fn(&Env<'_>, &Params) -> Box<dyn Fake>>;
+pub type FakeFactory = Box<dyn Fn(&Place<'_>, &Params) -> Box<dyn Fake>>;
 
 /// A test's screen to add ([`Items::add_fake`](crate::Items::add_fake)).
 pub struct FakeSpec {
@@ -231,7 +232,7 @@ impl FakeInstance {
         Self(RefCell::new(fake))
     }
 
-    fn call(&self, bytes: &[u8], cx: &mut Cx<'_, '_>) -> Result<i32, i32> {
+    fn call(&self, bytes: &[u8], cx: &mut Turn<'_, '_>) -> Result<i32, i32> {
         let record = wire::records_decode_single(bytes).map_err(|_| ERR_INVALID)?;
         // A screen of the test calls nothing of the kernel back: a call that
         // comes while it runs is not taken.
@@ -297,17 +298,17 @@ impl FakeInstance {
 }
 
 impl crate::native_host::native_screen::Dispatch for FakeInstance {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -317,7 +318,7 @@ impl crate::native_host::native_screen::Dispatch for FakeInstance {
         _: Option<ScreenKey>,
         _: u32,
         bytes: &[u8],
-        cx: &mut Cx<'_, '_>,
+        cx: &mut Turn<'_, '_>,
         _: bool,
     ) -> Result<i32, i32> {
         self.call(bytes, cx)
@@ -327,7 +328,7 @@ impl crate::native_host::native_screen::Dispatch for FakeInstance {
         _: Option<ScreenKey>,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        env: &Env<'_>,
+        env: &Place<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         let mut fake = self.0.try_borrow_mut().map_err(|_| ERR_INVALID)?;

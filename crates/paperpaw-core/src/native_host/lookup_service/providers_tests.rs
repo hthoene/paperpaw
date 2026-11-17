@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::native_host::declaration_store::{
     Allocations, DeclarationStore, ImageOwner, PendingDeclarations,
 };
@@ -15,7 +16,7 @@ use core::cell::{Cell, RefCell};
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Id, Settings};
+use paperpaw_sdk::{Id, Settings};
 
 struct Plugin {
     id: &'static str,
@@ -66,7 +67,7 @@ type Call = (u64, u32, String, String, u32);
 /// A frame over a declaration store whose providers answer
 /// `title of <owner>` (or fail with `failing`'s status).
 struct Rig<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     store: DeclarationStore,
     /// (owner, token, text, language, cursor) of every call.
     calls: RefCell<Vec<Call>>,
@@ -83,7 +84,7 @@ impl Frame for Rig<'_> {
     fn translator(&self) -> &Translator {
         self.env.i18n()
     }
-    fn kernel_env(&self) -> Option<&Env<'_>> {
+    fn kernel_env(&self) -> Option<&Place<'_>> {
         Some(self.env)
     }
     fn with_declarations(&self, visit: &mut dyn FnMut(&dyn core::any::Any)) -> Result<(), i32> {
@@ -155,7 +156,7 @@ fn page(rig: &Rig<'_>, language: &str, cursor: u32) -> Result<(String, String, u
     Ok((entry.provider.into(), entry.title.into(), entry.flags))
 }
 
-fn rig<'a>(env: &'a Env<'a>) -> Rig<'a> {
+fn rig<'a>(env: &'a Place<'a>) -> Rig<'a> {
     Rig {
         env,
         store: DeclarationStore::default(),
@@ -177,7 +178,7 @@ fn plugin(id: &'static str, host: u64) -> Rc<Plugin> {
 #[test]
 fn providers_answer_one_per_page_in_load_order_and_the_last_has_no_more() {
     let kernel = kernel(false);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut rig = rig(&env);
     install(&mut rig.store, &plugin("dict", 1), &[("main", "", 0, 11)]);
     install(
@@ -207,7 +208,7 @@ fn providers_answer_one_per_page_in_load_order_and_the_last_has_no_more() {
 #[test]
 fn the_screen_an_entry_opens_reaches_the_asker() {
     let kernel = kernel(false);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut rig = rig(&env);
     install(&mut rig.store, &plugin("wiki", 2), &[("wiki", "", 0, 2)]);
     let ask = wire::ServiceLookupAsk {
@@ -228,7 +229,7 @@ fn the_screen_an_entry_opens_reaches_the_asker() {
 #[test]
 fn a_provider_always_gets_cursor_0_whatever_its_index() {
     let kernel = kernel(false);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut rig = rig(&env);
     install(&mut rig.store, &plugin("dict", 1), &[("main", "", 0, 1)]);
     install(&mut rig.store, &plugin("wiki", 2), &[("wiki", "", 0, 2)]);
@@ -242,7 +243,7 @@ fn a_provider_always_gets_cursor_0_whatever_its_index() {
 #[test]
 fn the_providers_own_more_is_not_passed_on() {
     let kernel = kernel(false);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut rig = rig(&env);
     install(&mut rig.store, &plugin("dict", 1), &[("main", "", 0, 1)]);
     rig.flags.set(1);
@@ -256,10 +257,10 @@ fn the_providers_own_more_is_not_passed_on() {
 #[test]
 fn a_network_provider_is_left_out_while_no_network_is_connected() {
     let off = kernel(false);
-    let env = off.shared.env(Instant(0));
+    let env = off.shared.place(Instant(0));
     let mut rig_off = rig(&env);
     let on = kernel(true);
-    let env_on = on.shared.env(Instant(0));
+    let env_on = on.shared.place(Instant(0));
     let mut rig_on = rig(&env_on);
     for rig in [&mut rig_off, &mut rig_on] {
         install(&mut rig.store, &plugin("dict", 1), &[("main", "", 0, 1)]);
@@ -283,7 +284,7 @@ fn a_network_provider_is_left_out_while_no_network_is_connected() {
 #[test]
 fn a_provider_takes_the_language_or_its_base_and_an_empty_ask_takes_all() {
     let kernel = kernel(false);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut rig = rig(&env);
     install(
         &mut rig.store,
@@ -310,7 +311,7 @@ fn a_provider_takes_the_language_or_its_base_and_an_empty_ask_takes_all() {
 #[test]
 fn the_askers_own_providers_and_stopped_plugins_are_left_out() {
     let kernel = kernel(false);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut rig = rig(&env);
     let gone = plugin("gone", 3);
     install(&mut rig.store, &plugin("me", ME), &[("mine", "", 0, 1)]);
@@ -328,7 +329,7 @@ fn the_askers_own_providers_and_stopped_plugins_are_left_out() {
 #[test]
 fn a_provider_that_fails_or_answers_badly_is_an_empty_page() {
     let kernel = kernel(false);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut rig = rig(&env);
     install(&mut rig.store, &plugin("dict", 1), &[("main", "", 0, 1)]);
     install(&mut rig.store, &plugin("wiki", 2), &[("wiki", "", 0, 2)]);
@@ -359,7 +360,7 @@ fn a_provider_that_fails_or_answers_badly_is_an_empty_page() {
 
 #[test]
 fn a_frame_without_declarations_cannot_say_who_provides() {
-    struct Bare<'a>(&'a Env<'a>);
+    struct Bare<'a>(&'a Place<'a>);
     impl Frame for Bare<'_> {
         fn settings(&self) -> &Settings {
             self.0.settings()
@@ -369,7 +370,7 @@ fn a_frame_without_declarations_cannot_say_who_provides() {
         }
     }
     let kernel = kernel(false);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let ask = wire::ServiceLookupAsk {
         text: "word",
         language: "",
@@ -386,7 +387,7 @@ fn a_frame_without_declarations_cannot_say_who_provides() {
 #[test]
 fn the_ready_event_names_a_providers_first_lookup_and_the_name_finds_its_owner() {
     let kernel = kernel(false);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut rig = rig(&env);
     install(&mut rig.store, &plugin("dict", 1), &[("main", "", 0, 11)]);
     install(

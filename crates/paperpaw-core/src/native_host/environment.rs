@@ -1,7 +1,8 @@
-//! A stable host context owns this scope; each event supplies its borrowed Env.
+//! A stable host context owns this scope; each event supplies its borrowed Place.
 //! No environment or device pointer crosses the plugin boundary.
 
 use super::Error;
+use crate::Place;
 pub use crate::abi7::settings_wire::{SettingValueRef, settings_decode, settings_encode};
 pub use crate::abi7::snapshot_wire::{
     Battery, PixelFormat, SNAPSHOT_BYTES, SNAPSHOT_MAX_BYTES, SNAPSHOT_VERSION, Snapshot,
@@ -13,7 +14,6 @@ use crate::abi7::{
     queries, snapshot,
 };
 use core::{cell::Cell, fmt, pin::Pin};
-use paperpaw_sdk::Env;
 
 /// Scoped environment access inside a pinned per-plugin host context.
 #[non_exhaustive]
@@ -104,7 +104,11 @@ impl EnvironmentScope {
     ///
     /// # Errors
     /// Returns Busy if an environment is already installed.
-    pub fn scope<R>(self: Pin<&Self>, env: &Env<'_>, call: impl FnOnce() -> R) -> Result<R, Error> {
+    pub fn scope<R>(
+        self: Pin<&Self>,
+        env: &Place<'_>,
+        call: impl FnOnce() -> R,
+    ) -> Result<R, Error> {
         // SAFETY: the slot is structurally pinned; no method moves it, and
         // EnvironmentScope has no destructor that moves the field.
         let slot = unsafe { self.map_unchecked(|this| &this.slot) };

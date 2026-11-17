@@ -46,7 +46,7 @@ fn submit(kernel: &mut crate::Kernel, store: &UiStore, commands: &[WireCommand<'
         .last()
         .map(|active| paperpaw_sdk::ScreenKey::new(active.serial));
     let (status, staged, redraw, opens) = {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
             .with_ui(&env, caller, 0, 8)
             .with_handovers(store, stamp());
@@ -307,7 +307,7 @@ fn a_stage_dropped_before_its_drain_frees_what_its_submits_claimed() {
     let owner = Id::new_static("factory");
     let id = made(&store, &[], b"text");
     {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
             .with_ui(&env, None, 0, 8)
             .with_handovers(&store, stamp());
@@ -448,7 +448,7 @@ fn every_allocation_of_a_submit_with_a_hand_over_leaves_nothing_claimed() {
         let (kernel, store) = wired();
         let id = made(&store, &[("page", "1")], b"text");
         let owner = Id::new_static("factory");
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
             .with_ui(&env, None, 0, 8)
             .with_handovers(&store, stamp());
@@ -488,7 +488,7 @@ fn staged_by(
     commands: &[WireCommand<'_>],
 ) -> (i32, usize, crate::native_host::commands::Opens) {
     let owner = Id::new_static("factory");
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
         .with_ui(&env, None, 0, 8)
         .with_handover_store(Some(store));

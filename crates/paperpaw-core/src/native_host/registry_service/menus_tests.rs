@@ -15,12 +15,13 @@ use crate::native_host::{
     native_declarations::NativeDeclarations,
     registrations::{self as wire, Record},
 };
+use crate::{Place, Turn};
 use alloc::{borrow::Cow, boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Cx, Env, Handled, Id, ItemState, Manifest, MenuEntry, MenuNeed,
-    MenuSection, RegisterError, SettingKind, SettingSpec, SettingValue, Version,
+    ActionSpec, Canvas, Handled, Id, ItemState, Manifest, MenuEntry, MenuNeed, MenuSection,
+    RegisterError, SettingKind, SettingSpec, SettingValue, Version,
     setup::{SetupPage, SetupStepSpec},
     widgets::{CellSpan, Drawn, WidgetSpec, categories},
 };
@@ -31,8 +32,8 @@ fn id(text: &str) -> Id {
 
 struct Quiet;
 impl crate::testing::Fake for Quiet {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }

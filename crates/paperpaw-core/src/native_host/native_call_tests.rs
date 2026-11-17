@@ -1,6 +1,7 @@
 //! `Frame::call_native`: depth, owner, re-entry and the answer's checks.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::*;
+use crate::Place;
 use crate::abi7::core_frame::CallbackStamp;
 use crate::native_host::{
     declaration_store::Allocations,
@@ -13,7 +14,7 @@ use alloc::rc::{Rc, Weak};
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::ERR_IO;
-use paperpaw_sdk::{Env, Id};
+use paperpaw_sdk::Id;
 
 /// The called owner (and the key of the callee's own frame).
 const CALLEE: u64 = 900;
@@ -41,22 +42,22 @@ impl Dispatch for Callee {
     fn dropped(&self, token: u32, status: i32) {
         self.dropped.borrow_mut().push((token, status));
     }
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         unreachable!()
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         unreachable!()
     }
     fn draw(
         &self,
         _: u32,
         _: &crate::native_host::registrations::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         unreachable!()
     }
-    fn stage(&self, token: u32, _: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn stage(&self, token: u32, _: &[u8], out: &mut [u8], env: &Place<'_>) -> Result<i32, i32> {
         let _guard = self
             .guard
             .enter(&self.depth.as_depth().0)
@@ -180,7 +181,7 @@ impl Fixture {
         let kernel = crate::Kernel::builder(crate::tests::DEVICE)
             .build()
             .unwrap();
-        let env = kernel.shared.env(paperpaw_platform::Instant(0));
+        let env = kernel.shared.place(paperpaw_platform::Instant(0));
         let frame = CoreFrame {
             callback: Some(CallbackStamp::new(CALLER, 1).unwrap()),
             instance: None,

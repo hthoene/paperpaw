@@ -2,15 +2,15 @@
 //! every shell: Wi-Fi (op 8), Bluetooth (op 10), the bonded devices (op 11)
 //! and the power level and mode (op 12).
 //!
-//! The kernel is the one that knows them (`Env::wifi`, `Env::bluetooth`,
-//! `Env::power`, built afresh for each call), so a plugin that reads after
+//! The kernel is the one that knows them (`Place::wifi`, `Place::bluetooth`,
+//! `Place::power`, built afresh for each call), so a plugin that reads after
 //! another one changed them in the same delivery pass sees the new state, and
 //! a shell does not keep a second copy in step. [`KernelHost`] wraps the
-//! shell's [`DeviceHost`] and answers those ops from the frame's `Env`; every
+//! shell's [`DeviceHost`] and answers those ops from the frame's `Place`; every
 //! other op, and the network list (op 9: the password flag is the shell's
 //! secrets), stays the shell's.
 //!
-//! Where the frame has no kernel `Env` (a fixture) the shell's host answers
+//! Where the frame has no kernel `Place` (a fixture) the shell's host answers
 //! as it is. Where it has one and the kernel has no model (Wi-Fi the system
 //! manages, no Bluetooth radio) the op is `ERR_NOT_FOUND`: "this device has no
 //! such part", also for ops 9 and 11, which go with their radio.
@@ -23,16 +23,16 @@ use super::{
     NotInstalledRow, WifiFacts,
 };
 use super::{BuiltinRow, MemoryFacts, Reading};
+use crate::Place;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
-use paperpaw_sdk::Env;
 use paperpaw_sdk::bluetooth::{DeviceKind, RadioState};
 use paperpaw_sdk::wifi::WifiState;
 
 /// The shell's host with the kernel's own answers over it.
 pub(super) struct KernelHost<'a> {
     pub(super) inner: &'a dyn DeviceHost,
-    pub(super) env: &'a Env<'a>,
+    pub(super) env: &'a Place<'a>,
     /// The plugin that called the service (its namespace), from the service
     /// dispatch: the kernel's tracker of the running plugin is updated by the
     /// top-level callback only, so in a nested call it names the caller's
@@ -70,7 +70,7 @@ impl crate::Kernel {
     /// # Errors
     /// The first disagreement, in words.
     pub fn check_device_host(&self, host: &dyn DeviceHost) -> Result<(), &'static str> {
-        let env = self.shared.env(paperpaw_platform::Instant(0));
+        let env = self.shared.place(paperpaw_platform::Instant(0));
         super::check_caps_agree(&KernelHost {
             inner: host,
             env: &env,

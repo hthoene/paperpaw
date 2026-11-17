@@ -71,7 +71,7 @@ struct Rig {
 }
 impl Frame for Rig {
     fn settings(&self) -> &Settings {
-        self.kernel.shared.env(Instant(0)).settings()
+        self.kernel.shared.place(Instant(0)).settings()
     }
     fn translator(&self) -> &Translator {
         unreachable!("the lookup backend never translates")

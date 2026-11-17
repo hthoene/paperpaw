@@ -4,7 +4,7 @@
 extern crate std;
 use crate::abi7::context::RowsEnd;
 use crate::native_host::lib_reads::CatalogReads;
-use crate::native_host::lib_reads::tests::Env;
+use crate::native_host::lib_reads::tests::Facts;
 use crate::native_host::lib_service::LibQuery;
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::rc::Rc;
@@ -36,7 +36,7 @@ fn reads(lines: &[String]) -> (CatalogReads, Rc<MemoryStorage>) {
         text.push_str(line);
     }
     let storage = Rc::new(MemoryStorage::new().with(CATALOG, text.into_bytes()));
-    let env = Rc::new(Env {
+    let env = Rc::new(Facts {
         walking: Cell::new(None),
         today: Cell::new(Some(20_000)),
     });
@@ -530,7 +530,7 @@ impl Storage for Counted {
 
 /// 1,000 books of 700 authors, 61 series and 29 tags on a card that counts
 /// what is read of the catalog, and the catalog's size.
-fn counted_shelf() -> (CatalogReads, Rc<Counted>, Rc<Env>, u64) {
+fn counted_shelf() -> (CatalogReads, Rc<Counted>, Rc<Facts>, u64) {
     let mut text = String::from(HEADER);
     for n in 0..1_000_u32 {
         text.push_str(&book(
@@ -547,7 +547,7 @@ fn counted_shelf() -> (CatalogReads, Rc<Counted>, Rc<Env>, u64) {
         inner: MemoryStorage::new().with(CATALOG, text.into_bytes()),
         read: Cell::new(0),
     });
-    let env = Rc::new(Env {
+    let env = Rc::new(Facts {
         walking: Cell::new(None),
         today: Cell::new(Some(20_000)),
     });

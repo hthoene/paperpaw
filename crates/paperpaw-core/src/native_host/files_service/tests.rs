@@ -5,6 +5,7 @@
 //! tests are in `tests/`.
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::services_wire::{self, ServiceOp};
 use crate::native_host::{
     admitted_features::AdmittedFeatures,
@@ -15,7 +16,7 @@ use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_i18n::Translator;
 use paperpaw_platform::{DirEntry, Instant, StorageError};
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 
 #[path = "tests/book.rs"]
 mod book;
@@ -627,12 +628,12 @@ impl MoveHost for Library<'_> {
 
 /// A frame whose storage view is the fake card.
 pub(super) struct TestFrame<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     card: Option<&'a Card>,
     plugin: &'static str,
     hosts: crate::native_host::host_services::HostServices,
     pub(super) granted: bool,
-    /// Whether the frame gives the kernel's `Env` (its formats).
+    /// Whether the frame gives the kernel's `Place` (its formats).
     kernel: bool,
 }
 
@@ -646,7 +647,7 @@ impl Frame for TestFrame<'_> {
     fn storage(&self) -> Option<&dyn Storage> {
         self.card.map(|card| card as &dyn Storage)
     }
-    fn kernel_env(&self) -> Option<&Env<'_>> {
+    fn kernel_env(&self) -> Option<&Place<'_>> {
         self.kernel.then_some(self.env)
     }
 }
@@ -709,7 +710,7 @@ pub(super) fn with<R>(
             ))
             .unwrap();
     }
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     if setup.wired {
         hosts.wire_files(host.clone()).unwrap();

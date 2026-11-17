@@ -196,7 +196,7 @@ impl Kernel {
 
     /// The frame last rendered was shown: `area` in `mode`, drawn and
     /// sent in `drawn`, on the panel for `shown`, done at `at`. Plugins
-    /// read it ([`Env::panel`](paperpaw_sdk::Env::panel)), and the mode's
+    /// read it ([`Place::panel`](crate::Place::panel)), and the mode's
     /// time counts as measured.
     pub fn frame_shown(
         &mut self,

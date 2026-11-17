@@ -52,7 +52,7 @@ use paperpaw_platform::{
     Battery, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
     SystemStatus, WallClock,
 };
-use paperpaw_sdk::{ActionSpec, Id, Manifest, SettingSpec};
+use paperpaw_sdk::{Id, Manifest, SettingSpec};
 
 pub const LOG: &str = "log.csv";
 pub const OLD: &str = "log.old.csv";
@@ -89,19 +89,19 @@ pub fn environment(
     kernel.start(Instant(0));
     let clock = unix.map(|seconds| WallClock::new(Instant(at), seconds * 1000, Some(0)));
     kernel.set_status(Instant(at), SystemStatus::new(clock, battery));
-    kernel.run_action(Instant(at), CAPTURE);
-    result.borrow_mut().take().expect("capture action ran")
+    let _ = kernel.send_event(Instant(at), CAPTURE, paperpaw_sdk::Params::default());
+    result.borrow_mut().take().expect("capture event heard")
 }
 
 std::thread_local! {
-    /// Where the capture action of the test running copies to (the action's
+    /// Where the capture of the test running copies to (the hearing
     /// handler is a plain function and holds nothing).
     static RESULT: RefCell<Option<Rc<RefCell<Option<EnvironmentBytes>>>>> =
         const { RefCell::new(None) };
 }
 
-/// Registers a setting and an action that copies the live `Env` through a pinned scope into
-/// `result`.
+/// Registers a setting and hears an event of its own that copies the live `Place` through a
+/// pinned scope into `result`.
 fn capture(builder: KernelBuilder, result: Rc<RefCell<Option<EnvironmentBytes>>>) -> KernelBuilder {
     let manifest = Manifest::new(
         Id::new_static("battery"),
@@ -116,8 +116,8 @@ fn capture(builder: KernelBuilder, result: Rc<RefCell<Option<EnvironmentBytes>>>
             true,
             Id::new_static("power.group"),
         ))?;
-        items.add_action(ActionSpec::new(CAPTURE, "battery.fixture-capture").handler(
-            |env, _, _| {
+        items.subscribe(CAPTURE, |k, _| {
+            k.with_env(|env, _| {
                 let Some(result) = RESULT.with(|result| result.borrow().clone()) else {
                     return;
                 };
@@ -127,7 +127,7 @@ fn capture(builder: KernelBuilder, result: Rc<RefCell<Option<EnvironmentBytes>>>
                     .scope(env, || {
                         let mut snapshot = vec![0; SNAPSHOT_BYTES];
                         let mut enabled = vec![0; 32];
-                        // SAFETY: the pinned scope borrows this live Env. Outputs are
+                        // SAFETY: the pinned scope borrows this live Place. Outputs are
                         // exclusive local vectors, disjoint from the static key.
                         unsafe {
                             assert_eq!(scope.copy(snapshot.as_mut_ptr(), snapshot.len()), OK);
@@ -145,8 +145,8 @@ fn capture(builder: KernelBuilder, result: Rc<RefCell<Option<EnvironmentBytes>>>
                         *result.borrow_mut() = Some(EnvironmentBytes { snapshot, enabled });
                     })
                     .unwrap();
-            },
-        ))
+            });
+        })
     })
 }
 

@@ -3,7 +3,7 @@
 //! by cursor under a generation, and what a changing catalog does.
 extern crate std;
 use super::*;
-use crate::native_host::lib_reads::tests::Env;
+use crate::native_host::lib_reads::tests::Facts;
 use crate::native_host::lib_service::{BookRef, LibQuery};
 use alloc::rc::Rc;
 use alloc::string::ToString;
@@ -47,7 +47,7 @@ fn line(
 
 struct Shelf {
     storage: Rc<MemoryStorage>,
-    env: Rc<Env>,
+    env: Rc<Facts>,
     /// Where each line starts, in the order they were given.
     at: Vec<u64>,
 }
@@ -63,7 +63,7 @@ fn shelf(lines: &[String]) -> Shelf {
         storage: Rc::new(
             MemoryStorage::new().with(".paperpaw/library/catalog.txt", text.into_bytes()),
         ),
-        env: Rc::new(Env {
+        env: Rc::new(Facts {
             walking: Cell::new(None),
             today: Cell::new(Some(20_000)),
         }),
@@ -478,7 +478,7 @@ fn a_book_by_the_handle_a_query_gave_is_that_book() {
 fn an_empty_or_missing_catalog_has_no_books() {
     let s = Shelf {
         storage: Rc::new(MemoryStorage::new()),
-        env: Rc::new(Env {
+        env: Rc::new(Facts {
             walking: Cell::new(None),
             today: Cell::new(None),
         }),

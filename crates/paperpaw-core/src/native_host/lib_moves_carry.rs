@@ -1,10 +1,10 @@
 //! What follows a library move in the catalog ([`MoveCarry`] over the
-//! kernel's [`Env`]): the books' details and place in the lists, the data
+//! kernel's [`Place`]): the books' details and place in the lists, the data
 //! plugins keep by a book's path, the reader chosen for a folder, folder
 //! settings, and the library's book-moved events (`files.md` 2.6,
 //! `library.md` 6).
 //!
-//! It is bound to one step of the main loop: the kernel's `Env` (the
+//! It is bound to one step of the main loop: the kernel's `Place` (the
 //! storage, the formats, the plugins' book-data folders, the settings) and
 //! the queue the events go to. Every step is idempotent:
 //!
@@ -31,12 +31,13 @@ use super::lib_moves_host::MoveCarry;
 use super::lib_moves_walk::Resume;
 use super::lib_service::moves::{Phase, STEP_BOOKS, own};
 use super::storage::status;
+use crate::Place;
 use alloc::{format, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{
-    Command, Editor, Env, Formats, SettingValue, Settings,
+    Command, Editor, Formats, SettingValue, Settings,
     builtin::{events, slots},
     files, library,
     library::BookData,
@@ -63,7 +64,7 @@ pub(crate) struct EnvCarry<'a> {
 impl<'a> EnvCarry<'a> {
     /// The catalog of `env`, sending commands to `out`.
     pub(crate) fn new(
-        env: &'a Env<'a>,
+        env: &'a Place<'a>,
         resume: &'a Resume,
         out: &'a mut dyn FnMut(Command),
     ) -> Self {

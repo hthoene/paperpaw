@@ -75,6 +75,7 @@ mod meter;
 pub mod native_host;
 mod network;
 mod notices;
+mod place;
 mod plugins;
 mod realtime;
 mod recall;
@@ -85,6 +86,9 @@ mod screen;
 mod screens;
 mod secrets_i6;
 mod shared_env;
+mod turn;
+pub use crate::place::Place;
+pub use crate::turn::Turn;
 mod tall_band;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
@@ -130,10 +134,9 @@ use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::native::{Native, SafeMode};
 use paperpaw_sdk::setting::{Setting, SettingType};
 use paperpaw_sdk::{
-    Actions, Capabilities, Command, Contribution, Cx, Direction, Env, EnvParts, Fonts, Formats,
-    Gesture, GestureKind, Handled, HintVisibility, Hyphenation, Id, Manifest, Menus, Metrics,
-    Output, Params, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Settings,
-    ShowsThrough, StatusItems,
+    Actions, Capabilities, Command, Contribution, Direction, Fonts, Formats, Gesture, GestureKind,
+    Handled, HintVisibility, Hyphenation, Id, Manifest, Menus, Metrics, Output, Params, PluginInfo,
+    PluginState, Plugins, RegisterError, RequiredFor, Settings, ShowsThrough, StatusItems,
 };
 
 pub use crate::builder::{Items, KernelBuilder, KernelError};
@@ -211,7 +214,7 @@ pub struct Kernel {
     /// The lowest screen the last offer of input reached ([`Kernel::offer`]).
     offered_down_to: usize,
     /// The params of the action offered to the screens now, for their
-    /// context ([`Cx::params`](paperpaw_sdk::Cx::params)); none else.
+    /// context ([`Turn::params`](crate::Turn::params)); none else.
     action_params: Params,
     /// The screen on top changed: it is told ([`Screen::on_show`]) once
     /// the commands of the call are done, so that one shown for a moment
@@ -918,7 +921,7 @@ impl Kernel {
         &self.shared.settings
     }
 
-    /// The device's name as others see it (`Env::device_name`), e.g. for
+    /// The device's name as others see it (`Place::device_name`), e.g. for
     /// a shell that gives it to the router as its host name.
     pub fn device_name(&self) -> String {
         let value = self
@@ -1249,7 +1252,7 @@ impl Kernel {
     }
 
     /// Back from [`Kernel::suspend`]. How long the device slept, for
-    /// plugins ([`Env::slept_for`](paperpaw_sdk::Env::slept_for)), is the
+    /// plugins ([`Place::slept_for`](crate::Place::slept_for)), is the
     /// time between the two by the shell's clock: `now` counts the time
     /// asleep.
     pub fn resume(&mut self, now: Instant) -> Effects {
@@ -1350,7 +1353,7 @@ struct Shared {
     /// plugin: the host's own stage runs enter it at depth 0.
     native_depth: Option<native_host::flat::FlatDepth>,
     /// The screens and slots plugins added (in here so that a screen can
-    /// make another to host it: [`Env::make_screen`]).
+    /// make another to host it: [`Place::make_screen`]).
     registry: Registry,
     device: DeviceInfo,
     settings: native_host::host_memos::Watched<Settings>,
@@ -1408,7 +1411,7 @@ struct Shared {
     work_states: paperpaw_sdk::work::WorkStates,
     /// The call comes from the reader (input, what the shell opens or
     /// runs for them, the answer to a request made so): what plugins say
-    /// shows, and they may act at once (`Env::reader`). Otherwise it is
+    /// shows, and they may act at once (`Place::reader`). Otherwise it is
     /// background work, whose notices become notes (see [`work`]).
     reader: bool,
     /// Text copied here.
@@ -1416,12 +1419,12 @@ struct Shared {
     /// The system's clipboard has text (see
     /// [`Kernel::set_clipboard_available`]).
     system_clipboard: bool,
-    /// What the reader used last ([`Env::last_input`]).
+    /// What the reader used last ([`Place::last_input`]).
     last_input: paperpaw_sdk::keys::InputMode,
-    /// The open screens as plugins see them ([`Env::stack`]), kept in
+    /// The open screens as plugins see them ([`Place::stack`]), kept in
     /// step with the kernel's stack.
     stack: Vec<paperpaw_sdk::StackEntry>,
-    /// The part of the screen the screen on top has ([`Env::content`]).
+    /// The part of the screen the screen on top has ([`Place::content`]).
     content: Rect,
     /// Slots some screen is bound to.
     slots: Vec<Id>,

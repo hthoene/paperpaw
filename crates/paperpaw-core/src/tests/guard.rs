@@ -13,13 +13,13 @@ const OTHER: Id = Id::new_static("g.other");
 struct Lock(Rc<Cell<bool>>);
 
 impl crate::testing::Fake for Lock {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
     fn flags(&self) -> u32 {
         u32::from(self.0.get()) * crate::testing::GUARDS
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if *action == actions::CONFIRM {
             self.0.set(false);
             cx.command(Command::Back);
@@ -35,9 +35,9 @@ impl crate::testing::Fake for Lock {
 struct Plain;
 
 impl crate::testing::Fake for Plain {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }

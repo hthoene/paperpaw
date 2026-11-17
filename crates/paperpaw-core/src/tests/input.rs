@@ -214,14 +214,14 @@ fn two_fingers_resting_wake_the_shell_no_more() {
 struct GestureScreen(Log);
 
 impl crate::testing::Fake for GestureScreen {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
         self.0.borrow_mut().push(alloc::format!("{action}"));
         Handled::Yes
     }
 
-    fn on_gesture(&mut self, gesture: paperpaw_sdk::Gesture, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_gesture(&mut self, gesture: paperpaw_sdk::Gesture, _: &mut Turn<'_, '_>) -> Handled {
         let start = gesture.start;
         let noted = alloc::format!("{:?} {},{}", gesture.kind, start.x, start.y);
         self.0.borrow_mut().push(noted);

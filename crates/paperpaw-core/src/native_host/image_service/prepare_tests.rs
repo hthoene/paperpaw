@@ -9,7 +9,7 @@ use paperpaw_sdk::image::PngWriter;
 
 const A: u64 = 1;
 /// A device with no X4 limits and a 480-pixel screen.
-const ENV: Env = Env {
+const ENV: Within = Within {
     screen: 480,
     colour: false,
     max_side: 4096,
@@ -80,7 +80,8 @@ fn side_zero_is_the_screens_and_a_stopped_plugin_loses_everything() {
     png(&storage, "a.png", 64, 64);
     t.prepare(A, "a.png", 0, 1, false, &Recipe::default())
         .unwrap();
-    t.prepare_step(&storage, Env { screen: 32, ..ENV }).unwrap();
+    t.prepare_step(&storage, Within { screen: 32, ..ENV })
+        .unwrap();
     let ready = told(&t).unwrap();
     assert_eq!((ready.status, ready.width), (READY, 32));
     t.prepare(A, "a.png", 0, 2, false, &Recipe::default())
@@ -426,7 +427,7 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
     png(&storage, "big.png", 64, 64);
     t.prepare(A, "big.png", 0, 1, false, &Recipe::default())
         .unwrap();
-    let x4 = Env {
+    let x4 = Within {
         screen: 480,
         colour: false,
         max_side: 16,
@@ -447,7 +448,7 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
     let ready = told(&t).unwrap();
     assert!(ready.width <= 16, "a larger side is clamped too");
     // A source row of 64 pixels of 8-bit gray is 64 bytes: over a cap of 63.
-    let narrow = Env {
+    let narrow = Within {
         png_row_max: 63,
         ..ENV
     };
@@ -456,7 +457,7 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
     t.prepare_step(&storage, narrow).unwrap();
     let ready = told(&t).unwrap();
     assert_eq!((ready.status, ready.image), (TOO_LARGE, 0));
-    let ok = Env {
+    let ok = Within {
         png_row_max: 64,
         ..ENV
     };
@@ -607,7 +608,7 @@ fn a_sweep_with_no_budget_is_refused_and_changes_nothing() {
 
 #[test]
 fn the_x4_environment_sets_its_limits() {
-    let env = Env::x4(480, true);
+    let env = Within::x4(480, true);
     assert_eq!((env.max_side, env.png_row_max), (1_600, 8 * 1024));
     assert_eq!((env.screen, env.colour), (480, true));
 }
@@ -852,7 +853,7 @@ fn the_longest_side_is_1600_everywhere() {
     let storage = MemoryStorage::new();
     png(&storage, "p.png", 40, 20);
     // A device-wide env that would allow 4,096 still stops at the contract.
-    let roomy = Env {
+    let roomy = Within {
         max_side: 4096,
         ..ENV
     };
@@ -1097,7 +1098,7 @@ fn a_jpeg_cache_is_byte_identical_with_and_without_the_bit() {
     storage
         .write("w.jpg", include_bytes!("fixtures/wide.jpg"))
         .unwrap();
-    let env = Env {
+    let env = Within {
         colour: true,
         ..ENV
     };
@@ -1212,7 +1213,7 @@ fn a_full_screen_see_through_picture_on_the_x4_stays_within_the_opaque_bounds() 
         .collect();
     card.write("sleep.png", &gray_alpha_png(w, h, &pixels))
         .unwrap();
-    let env = Env::x4(800, false);
+    let env = Within::x4(800, false);
     let mut fb = Framebuffer::new(480, 800, paperpaw_platform::PixelFormat::Mono1).unwrap();
     let mut measure = |recipe: &Recipe| {
         let t = ImageTable::new();

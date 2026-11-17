@@ -178,14 +178,14 @@ impl crate::Kernel {
         &self,
         owner: u64,
         navigates: bool,
-        call: impl FnOnce(&paperpaw_sdk::Env<'_>, &mut CommandStage<'_>) -> Result<i32, i32>,
+        call: impl FnOnce(&crate::Place<'_>, &mut CommandStage<'_>) -> Result<i32, i32>,
     ) -> Result<i32, i32> {
         let instances = &self.shared.native_instances;
         if instances.outbox.full() {
             return Err(ERR_BUSY);
         }
         let id = instances.id(owner).ok_or(ERR_STATE)?;
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         let mut stage = self.callback_stage(owner, id, &env);
         if navigates {
             stage = stage.with_stack(&self.shared.stack_rows, owner);
@@ -202,7 +202,7 @@ impl crate::Kernel {
         &'a self,
         owner: u64,
         id: &'a paperpaw_sdk::Id,
-        env: &'a paperpaw_sdk::Env<'a>,
+        env: &'a crate::Place<'a>,
     ) -> CommandStage<'a> {
         let instances = &self.shared.native_instances;
         let mut stage = CommandStage::new(

@@ -6,7 +6,7 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED, PpBuffer};
 /// The one nested dispatch path: a plugin's callback reached from inside another
 /// plugin's (a stage subscriber, a compose child). The callee is entered on the
 /// frame's usage meter for the call, so time, storage and network are charged to
-/// the plugin that runs and the secrets and Bluetooth views of the `Env` name it.
+/// the plugin that runs and the secrets and Bluetooth views of the `Place` name it.
 /// Access decisions never read that tracker: they use the caller's identity.
 ///
 /// Dispatch only a token resolved from a committed stage registration. The

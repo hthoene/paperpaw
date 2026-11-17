@@ -49,7 +49,7 @@ fn call(
     let kernel = kernel();
     let pool = HostResources::try_new().unwrap();
     let owner = pool.try_owner().unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let frame = crate::abi7::core_frame::CoreFrame {
         callback: None,
         instance: None,

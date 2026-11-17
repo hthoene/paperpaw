@@ -3,6 +3,7 @@
 //! the lease, the state rules, the paging rules and the checks of an answer.
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::{
     context::{Frame, RowsEnd},
     services_wire::{self, ServiceOp},
@@ -15,7 +16,7 @@ use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_STATE,
 };
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 use wire::{
     ServiceDocAt as At, ServiceDocImage as Image, ServiceDocOpen as Open, ServiceDocOption as Opt,
     ServiceDocPage as Page, ServiceDocRef as Ref, ServiceDocState as State,
@@ -384,7 +385,7 @@ impl Fake {
 }
 
 pub(crate) struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     hosts: crate::native_host::host_services::HostServices,
     fake: Rc<Fake>,
 }
@@ -414,7 +415,7 @@ pub(crate) fn with<R>(fake: &Rc<Fake>, body: impl FnOnce(&View<'_>) -> R) -> R {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let host: Rc<dyn DocHost> = fake.clone();
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_documents(host).unwrap();
@@ -868,7 +869,7 @@ fn a_frame_without_the_host_or_a_caller_refuses_the_family() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let fake = Fake::new(Limits::X4);
     let view = View {
         env: &env,

@@ -1,5 +1,5 @@
 //! `core.device` ops 8, 10, 11 and 12 answered from the kernel's own models
-//! (`kernel_models.rs`), through a frame that has the kernel's `Env`.
+//! (`kernel_models.rs`), through a frame that has the kernel's `Place`.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 use super::tests::{Fake, input_of, records, schema_op};
 use super::*;
@@ -12,9 +12,9 @@ use paperpaw_sdk::Id;
 use paperpaw_sdk::bluetooth::{Bluetooth, Bonded, DeviceId, DeviceKind, RadioState};
 use paperpaw_sdk::wifi::WifiState;
 
-/// A frame with the kernel's `Env`, as the dispatcher's has.
+/// A frame with the kernel's `Place`, as the dispatcher's has.
 struct KernelView<'a> {
-    env: &'a paperpaw_sdk::Env<'a>,
+    env: &'a crate::Place<'a>,
     hosts: HostServices,
     /// The plugin the service dispatch says called.
     caller: &'a str,
@@ -27,7 +27,7 @@ impl Frame for KernelView<'_> {
     fn translator(&self) -> &paperpaw_i18n::Translator {
         self.env.i18n()
     }
-    fn kernel_env(&self) -> Option<&paperpaw_sdk::Env<'_>> {
+    fn kernel_env(&self) -> Option<&crate::Place<'_>> {
         Some(self.env)
     }
 }
@@ -55,7 +55,7 @@ fn kernel(wifi: bool, bluetooth: u8) -> crate::Kernel {
         .unwrap()
 }
 
-/// Reads op `id` as plugin `plugin`, the kernel's `Env` built afresh.
+/// Reads op `id` as plugin `plugin`, the kernel's `Place` built afresh.
 fn read(kernel: &crate::Kernel, host: Fake, plugin: &str, id: u32) -> Result<Vec<u8>, i32> {
     read_nested(kernel, host, plugin, plugin, id)
 }
@@ -70,7 +70,7 @@ fn read_nested(
     id: u32,
 ) -> Result<Vec<u8>, i32> {
     let _running = kernel.shared.meter.enter(running);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = HostServices::new();
     hosts.wire_device(Rc::new(host)).unwrap();
     KernelView {

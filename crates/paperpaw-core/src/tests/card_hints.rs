@@ -19,11 +19,11 @@ const FILLERS: usize = 600;
 struct Wordy;
 
 impl crate::testing::Fake for Wordy {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }

@@ -132,7 +132,7 @@ fn usage_slots_preserve_failures_read_positionally_and_expire_at_core_callback_e
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let frame = CoreFrame {
         callback: None,
         instance: None,

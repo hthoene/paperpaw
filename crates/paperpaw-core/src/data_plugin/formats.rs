@@ -70,7 +70,7 @@ impl Step {
 
     /// The command of this step; a value not of the setting's kind (or a
     /// setting not there) makes none.
-    pub(crate) fn command(&self, env: &paperpaw_sdk::Env<'_>) -> Option<paperpaw_sdk::Command> {
+    pub(crate) fn command(&self, env: &crate::Place<'_>) -> Option<paperpaw_sdk::Command> {
         use paperpaw_sdk::{Command, Params};
         Some(match self {
             Step::Set(id, text) => {
@@ -404,7 +404,7 @@ mod tests {
             .build()
             .unwrap();
         kernel.start(Instant(0));
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let said = |key: &str| match Step::Notify(key.into()).command(&env) {
             Some(Command::Notify(text)) => text,
             other => panic!("{other:?}"),

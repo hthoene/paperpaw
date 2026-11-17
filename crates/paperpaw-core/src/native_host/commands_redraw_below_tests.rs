@@ -4,12 +4,13 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 use super::*;
 use crate::Items;
+use crate::{Place, Turn};
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_native::host_glue::ERR_STATE;
 use paperpaw_platform::{Color, Instant, Rect, RefreshMode};
-use paperpaw_sdk::{Canvas, Cx, Env, Handled, Manifest, Params, RegisterError, ScreenKey, Version};
+use paperpaw_sdk::{Canvas, Handled, Manifest, Params, RegisterError, ScreenKey, Version};
 
 /// A screen of one of the kinds the tests stack: a full page that is black or
 /// white, a full black screen, a black bar (an overlay in the lower half), a
@@ -20,7 +21,7 @@ struct Probe {
 }
 
 impl crate::testing::Fake for Probe {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         let color = match self.kind {
             "page" if self.white.get() => Color::WHITE,
             _ => Color::BLACK,
@@ -32,7 +33,7 @@ impl crate::testing::Fake for Probe {
         }
     }
 
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
+    fn region(&self, _: &Place<'_>) -> Option<Rect> {
         matches!(self.kind, "bar" | "dimbar" | "pin").then(|| Rect::new(0, 45, 90, 45))
     }
 
@@ -46,7 +47,7 @@ impl crate::testing::Fake for Probe {
         }
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -109,7 +110,7 @@ fn page_key(kernel: &crate::Kernel) -> ScreenKey {
 }
 
 fn redraw(kernel: &crate::Kernel, command: &WireCommand<'_>) -> i32 {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096).with_ui(
         &env,

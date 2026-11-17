@@ -257,15 +257,11 @@ fn a_failing_tick_plugin_does_not_stop_the_healthy_one_on_the_production_route()
 /// confirm.
 struct Guard;
 impl crate::testing::Fake for Guard {
-    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
     fn flags(&self) -> u32 {
         crate::testing::GUARDS
     }
-    fn on_action(
-        &mut self,
-        action: &Id,
-        cx: &mut paperpaw_sdk::Cx<'_, '_>,
-    ) -> paperpaw_sdk::Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
         if *action != paperpaw_sdk::builtin::actions::CONFIRM {
             return paperpaw_sdk::Handled::No;
         }

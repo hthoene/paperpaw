@@ -157,7 +157,7 @@ fn offers(
         return Ok(());
     }
     let translator = sources.env.i18n();
-    // The walk allocates nothing (`Env::each_slot_screen`); a break ends it.
+    // The walk allocates nothing (`Place::each_slot_screen`); a break ends it.
     sources.env.each_slot_screen(scope, &mut |screen| {
         let title = sources
             .env

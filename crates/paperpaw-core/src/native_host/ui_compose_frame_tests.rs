@@ -68,7 +68,7 @@ impl NativeInstance for Child {
     }
 }
 impl Dispatch for Child {
-    fn event(&self, token: u32, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, token: u32, bytes: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         let Record::EventWidgetMade(made) = wire::records_decode_single(bytes)? else {
             panic!("only event 84 is expected");
         };
@@ -81,14 +81,14 @@ impl Dispatch for Child {
         ));
         Ok(0)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         unreachable!()
     }
     fn draw(
         &self,
         token: u32,
         frame: &DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         assert_eq!(token, TOKEN);
@@ -250,7 +250,7 @@ impl World {
         request: &ComposeRequest,
         canvas: &mut Canvas<'_>,
     ) -> Result<(), i32> {
-        let env = self.kernel.shared.env(paperpaw_platform::Instant(0));
+        let env = self.kernel.shared.place(paperpaw_platform::Instant(0));
         let frame = CoreFrame {
             callback,
             instance: Some(SCREEN),

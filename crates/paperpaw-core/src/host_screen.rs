@@ -14,12 +14,13 @@ mod paint;
 mod placeholder;
 mod start_notice;
 
+use crate::{Place, Turn};
 use alloc::boxed::Box;
 
 use paperpaw_sdk::builtin::screens;
 use paperpaw_sdk::{
-    Canvas, CloseCause, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Params, PointerEvent,
-    Rect, TitleEntry,
+    Canvas, CloseCause, Gesture, Handled, Hint, HintVisibility, Id, Params, PointerEvent, Rect,
+    TitleEntry,
 };
 
 pub(crate) use notice::Notice;
@@ -65,7 +66,7 @@ impl HostEntry {
     }
 
     /// The screen, opened with `params`.
-    pub(crate) fn make(&self, env: &Env<'_>, params: &Params) -> HostScreen {
+    pub(crate) fn make(&self, env: &Place<'_>, params: &Params) -> HostScreen {
         match self.kind {
             Kind::Placeholder => HostScreen::Placeholder,
             Kind::Finishing => HostScreen::Finishing(Box::new(finishing::Finishing::new(params))),
@@ -119,7 +120,7 @@ pub(crate) enum HostScreen {
 }
 
 impl HostScreen {
-    pub(crate) fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    pub(crate) fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         match self {
             Self::Placeholder => placeholder::draw(canvas, env),
             Self::Finishing(screen) => screen.draw(canvas, env),
@@ -175,7 +176,7 @@ impl HostScreen {
         }
     }
 
-    pub(crate) fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(crate) fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         match self {
             Self::Confirm(screen) => screen.on_show(cx),
             Self::Finishing(screen) => screen.on_show(cx),
@@ -183,7 +184,7 @@ impl HostScreen {
         }
     }
 
-    pub(crate) fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(crate) fn on_timer(&mut self, cx: &mut Turn<'_, '_>) {
         match self {
             Self::Confirm(screen) => screen.on_timer(cx),
             Self::Finishing(screen) => screen.on_timer(cx),
@@ -191,7 +192,7 @@ impl HostScreen {
         }
     }
 
-    pub(crate) fn on_close_request(&mut self, _: CloseCause, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(crate) fn on_close_request(&mut self, _: CloseCause, cx: &mut Turn<'_, '_>) -> Handled {
         match self {
             Self::Confirm(screen) => screen.on_close_request(cx),
             Self::Finishing(screen) => screen.taken(),
@@ -199,7 +200,7 @@ impl HostScreen {
         }
     }
 
-    pub(crate) fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(crate) fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         match self {
             Self::Confirm(screen) => screen.on_action(action, cx),
             Self::Start(screen) => screen.on_action(action, cx),
@@ -208,7 +209,7 @@ impl HostScreen {
         }
     }
 
-    pub(crate) fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(crate) fn on_gesture(&mut self, gesture: Gesture, cx: &mut Turn<'_, '_>) -> Handled {
         match self {
             Self::Confirm(screen) => screen.on_gesture(gesture, cx),
             Self::Start(screen) => screen.on_gesture(gesture, cx),

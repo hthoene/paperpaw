@@ -129,7 +129,7 @@ fn service_budget_refusal_never_allocates_another_x4_page() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let frame = CoreFrame {
         callback: None,
         instance: None,
@@ -224,7 +224,7 @@ fn nested_plugin_query_shares_the_x4_blob_budget_until_outer_release() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let frame = CoreFrame {
         callback: None,
         instance: None,

@@ -20,6 +20,7 @@ use super::{
     ordered::Sort,
     sources::Sources,
 };
+use crate::Place;
 use crate::native_host::item_state::ItemStates;
 use crate::native_host::{
     native_menus::MENU_USER_DEFINED,
@@ -27,7 +28,7 @@ use crate::native_host::{
 };
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_BUSY;
-use paperpaw_sdk::{Env, Id, ItemState, SettingKind};
+use paperpaw_sdk::{Id, ItemState, SettingKind};
 
 /// `reg_query.flags` of op 12.
 const ALL: u32 = 1;
@@ -105,7 +106,7 @@ pub(super) fn menus(
 
 /// What op 12 reads for one call.
 struct Call<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     native: Option<Native<'a>>,
     menu: &'a str,
     /// The entries plugins contributed, as `Menus` has them (hides applied).
@@ -428,7 +429,7 @@ fn row(
     let Some(key) = key else {
         return ControlFlow::Continue(());
     };
-    let mut state: ItemState = menus.state(env, item.id);
+    let mut state: ItemState = menus.state(&env.env(), item.id);
     // What the plugin pushed for its own item wins over the SDK's state.
     let push = call.pushed.as_deref().and_then(|states| {
         let (plugin, relative) = item.id.split_once('.')?;
@@ -530,7 +531,7 @@ fn shown<'b>(
 }
 
 /// A screen's title key, for an item that is a screen.
-fn screen_title<'a>(env: &Env<'a>, item: &str) -> Option<&'a str> {
+fn screen_title<'a>(env: &Place<'a>, item: &str) -> Option<&'a str> {
     env.screens()
         .iter()
         .find(|(id, _)| id.as_str() == item)

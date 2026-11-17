@@ -58,7 +58,7 @@ fn with_catalog(language: &str, extra: Option<String>, run: impl FnOnce(&Environ
         kernel.shared.translator.add(Catalog::parse(extra).unwrap());
     }
     kernel.shared.translator.set_language(language);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let scope = pin!(EnvironmentScope::new());
     scope.as_ref().scope(&env, || run(&scope)).unwrap();
 }

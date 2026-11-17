@@ -66,7 +66,7 @@ fn scope_end_expires_blobs_but_keeps_fonts_and_nested_busy_keeps_epoch() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let font = owner.insert_font(FontKey::Role(FontRole::Ui)).unwrap();
     let handle = scope
         .as_ref()
@@ -105,7 +105,7 @@ fn unwind_reclaims_callback_blobs_without_allocation() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         scope
             .as_ref()
@@ -154,7 +154,7 @@ fn cleanup_failure_reports_once_and_preserves_the_delivered_callback_result() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let handle = owner.insert_blob(blob(12, 1)).unwrap();
     let held = owner.table.handles.borrow();
     assert_eq!(

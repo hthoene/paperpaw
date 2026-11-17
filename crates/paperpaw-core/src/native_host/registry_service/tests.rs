@@ -7,19 +7,20 @@ use super::*;
 use crate::Items;
 use crate::abi7::services_wire::service_schema;
 use crate::native_host::host_services::{Caller, HostServices};
+use crate::{Place, Turn};
 use alloc::{borrow::Cow, boxed::Box, format, string::String, vec::Vec};
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, SettingGroupSpec,
-    Settings, SlotSpec, Version,
+    ActionSpec, Canvas, Handled, Id, Manifest, Priority, RegisterError, SettingGroupSpec, Settings,
+    SlotSpec, Version,
 };
 
 struct Quiet;
 impl crate::testing::Fake for Quiet {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -85,7 +86,7 @@ fn kernel(actions: usize) -> crate::Kernel {
 }
 
 struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     sources: Sources<'a>,
     hosts: HostServices,
     registry: bool,
@@ -144,7 +145,7 @@ pub(super) fn call_failing(
     nth: u32,
 ) -> (Result<Vec<u8>, i32>, bool) {
     use crate::native_host::shell::tests::FAIL_NTH;
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let view = View {
         env: &env,
         sources: Sources {
@@ -291,7 +292,7 @@ pub(super) fn pages(kernel: &crate::Kernel, id: u32, scope: &str) -> Vec<String>
 #[test]
 fn a_frame_without_a_registry_refuses_every_op() {
     let kernel = kernel(0);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let view = View {
         env: &env,
         sources: Sources {
@@ -519,7 +520,7 @@ fn pages_continue_by_cursor_under_one_generation() {
 #[test]
 fn a_stale_generation_or_a_bare_cursor_is_a_state_error_and_touches_nothing() {
     let kernel = kernel(2);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let current = Sources {
         env: &env,
         directory: None,
@@ -530,7 +531,7 @@ fn a_stale_generation_or_a_bare_cursor_is_a_state_error_and_touches_nothing() {
         query("demo", 1, 0),
         query("demo", 0, current.wrapping_add(1)),
     ] {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let view = View {
             env: &env,
             sources: Sources {

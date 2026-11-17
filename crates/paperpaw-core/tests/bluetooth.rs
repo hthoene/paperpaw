@@ -10,6 +10,7 @@
     clippy::expect_used,
     reason = "tests panic on purpose when something is wrong"
 )]
+use paperpaw_core::{Place, Turn};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -20,7 +21,7 @@ use paperpaw_core::sdk::bluetooth::{
 };
 use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Event, Handled, Id, Manifest, MemoryStorage, Priority,
+    ActionSpec, Canvas, Command, Event, Handled, Id, Manifest, MemoryStorage, Priority,
     RegisterError, Uses, Version,
 };
 use paperpaw_core::{BtCall, BtReport, Found, Io, Kernel};
@@ -54,9 +55,9 @@ struct Logged {
 }
 
 impl paperpaw_core::testing::Fake for Logged {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
         self.log
             .borrow_mut()
             .push(format!("{} action {action}", self.name));

@@ -102,7 +102,7 @@ impl crate::Kernel {
             return true;
         }
         let step = {
-            let env = self.shared.env(self.shared.now);
+            let env = self.shared.place(self.shared.now);
             let route = HostRoute {
                 registry: instances,
                 env: &env,

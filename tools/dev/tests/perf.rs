@@ -9,6 +9,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+use paperpaw_core::{Place, Turn};
 use std::sync::Mutex;
 
 use paperpaw_core::{Items, KernelBuilder};
@@ -18,17 +19,17 @@ use paperpaw_dev::report::{Level, Report};
 use paperpaw_dev::target::Target;
 use paperpaw_platform::Rect;
 use paperpaw_sdk::widgets::{Widget, WidgetSpec};
-use paperpaw_sdk::{Canvas, Cx, Env, Handled, Id, Manifest, RegisterError, SDK_VERSION};
+use paperpaw_sdk::{Canvas, Handled, Id, Manifest, RegisterError, SDK_VERSION};
 
 /// Reads a file whenever it is drawn.
 struct Reads;
 
 impl paperpaw_core::testing::Fake for Reads {
-    fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
+    fn draw(&mut self, _: &mut Canvas<'_>, env: &Place<'_>) {
         let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -43,9 +44,9 @@ struct Big(
 );
 
 impl paperpaw_core::testing::Fake for Big {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -56,9 +57,9 @@ static LEAKED: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
 struct Leaks;
 
 impl paperpaw_core::testing::Fake for Leaks {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -71,11 +72,11 @@ impl Widget for ReadsWidget {
         false
     }
 
-    fn height(&self, _: &Env<'_>, _: u16) -> u16 {
+    fn height(&self, _: &paperpaw_sdk::Env<'_>, _: u16) -> u16 {
         1
     }
 
-    fn draw(&self, _: &mut Canvas<'_>, env: &Env<'_>, _: Rect) {
+    fn draw(&self, _: &mut Canvas<'_>, env: &paperpaw_sdk::Env<'_>, _: Rect) {
         let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
     }
 }

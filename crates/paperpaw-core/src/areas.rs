@@ -103,7 +103,7 @@ impl Kernel {
     /// Runs `f` with the screen input goes to ([`Kernel::input_index`]).
     pub(crate) fn with_input(
         &mut self,
-        f: impl FnOnce(&mut crate::screen::Screen, &mut Cx<'_, '_>) -> Handled,
+        f: impl FnOnce(&mut crate::screen::Screen, &mut Turn<'_, '_>) -> Handled,
     ) -> Handled {
         match self.input_index() {
             Some(index) => self.with_screen(index, f),

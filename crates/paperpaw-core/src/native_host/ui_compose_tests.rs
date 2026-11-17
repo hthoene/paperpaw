@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::context::Frame;
 use crate::native_host::HostResources;
 use crate::native_host::shell::DeclaredServices;
@@ -18,7 +19,7 @@ use paperpaw_native::host_glue::{
     PpPlugin, Services,
 };
 use paperpaw_platform::{Color, Instant, PixelFormat};
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 
 struct Heap;
 impl Services for Heap {
@@ -93,7 +94,7 @@ enum Act {
 
 struct Hook<'a> {
     child: Option<Pin<&'a Context<Heap>>>,
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     act: Cell<Act>,
     seen: RefCell<Vec<(ComposeRequest, Rect, alloc::string::String)>>,
 }
@@ -172,7 +173,7 @@ fn in_draw_at<R>(
     call: impl FnOnce(Pin<&Context<Heap>>, *mut c_void) -> R,
 ) -> (R, Seen, Vec<u8>) {
     let (kernel, now) = kernel_env();
-    let env = kernel.shared.env(now);
+    let env = kernel.shared.place(now);
     let child_host = hosted();
     let hook = Hook {
         child: Some(child_host.owner().context()),
@@ -232,7 +233,7 @@ fn a_null_context_and_an_unknown_kind_are_invalid_before_any_lookup() {
 #[test]
 fn outside_the_callers_draw_it_is_a_state_error_without_a_lookup() {
     let (kernel, now) = kernel_env();
-    let env = kernel.shared.env(now);
+    let env = kernel.shared.place(now);
     let hook = Hook {
         child: None,
         env: &env,
@@ -276,7 +277,7 @@ fn a_canvas_without_a_frame_is_a_state_error() {
 #[test]
 fn the_default_hook_is_unsupported_which_is_the_x4_answer() {
     let (kernel, now) = kernel_env();
-    let env = kernel.shared.env(now);
+    let env = kernel.shared.place(now);
     let hosted = hosted();
     let context = hosted.owner().context();
     let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast::<c_void>();
@@ -523,12 +524,12 @@ fn a_second_compose_from_inside_the_child_cannot_reach_the_callers_canvas() {
     // While the hook runs, the caller's canvas is lent to it: slot 35 or a
     // drawing slot of the caller reached from there finds the canvas busy.
     let (kernel, now) = kernel_env();
-    let env = kernel.shared.env(now);
+    let env = kernel.shared.place(now);
     let hosted = hosted();
     let context = hosted.owner().context();
     let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast::<c_void>();
     struct Reentrant<'a> {
-        env: &'a Env<'a>,
+        env: &'a Place<'a>,
         ctx: *mut c_void,
         context: Pin<&'a Context<Heap>>,
         inner: Cell<Option<(i32, i32)>>,

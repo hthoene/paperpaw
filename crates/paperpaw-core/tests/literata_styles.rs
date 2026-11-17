@@ -26,6 +26,7 @@
 )]
 
 mod common;
+use paperpaw_core::Place;
 
 use common::AddDriver;
 
@@ -609,15 +610,15 @@ fn a_beta3_literata_card_gets_one_hint_only_without_the_pack() {
 
 #[test]
 fn configured_wifi_offers_two_buttons_and_opens_the_literata_store_page() {
-    use paperpaw_core::sdk::{Canvas, Env, Params, semantics::Role};
+    use paperpaw_core::sdk::{Canvas, Params, semantics::Role};
     use std::cell::RefCell;
     struct Blank;
     impl paperpaw_core::testing::Fake for Blank {
-        fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+        fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
         fn on_action(
             &mut self,
             _: &Id,
-            _: &mut paperpaw_core::sdk::Cx<'_, '_>,
+            _: &mut paperpaw_core::Turn<'_, '_>,
         ) -> paperpaw_core::sdk::Handled {
             paperpaw_core::sdk::Handled::No
         }

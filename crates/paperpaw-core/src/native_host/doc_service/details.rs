@@ -9,8 +9,8 @@
 //! makes of a plugin's call), and the run's few numbers ([`DetailsRun`]),
 //! which the kernel's pump keeps and reads. No list, nothing that grows.
 use super::{
-    Cx, DETAILS, DocHost, HOST_JOB, JobKind, Record, check, close, codec, open, table::BACKGROUND,
-    wire,
+    DETAILS, DocHost, HOST_JOB, JobKind, OwnedHost, Record, check, close, codec, open,
+    table::BACKGROUND, wire,
 };
 use crate::abi7::context::Frame;
 use crate::native_host::{fmt_call::Route, host_services::Caller};
@@ -109,7 +109,7 @@ fn buffer(size: usize) -> Result<Vec<u8>, i32> {
 /// # Errors
 /// What `open` says; `ERR_NO_MEMORY` for its buffers.
 pub(crate) fn open_book(host: &dyn DocHost, path: &str) -> Result<u32, i32> {
-    let cx = Cx {
+    let cx = OwnedHost {
         host,
         owner: HOST_JOB,
         library: true,
@@ -140,7 +140,7 @@ pub(crate) fn open_book(host: &dyn DocHost, path: &str) -> Result<u32, i32> {
 /// Closes the host's own document `document` as `close` does (the job could
 /// not begin after all).
 pub(crate) fn close_book(host: &dyn DocHost, document: u32) {
-    let cx = Cx {
+    let cx = OwnedHost {
         host,
         owner: HOST_JOB,
         library: true,

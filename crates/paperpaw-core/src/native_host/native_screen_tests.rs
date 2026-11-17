@@ -26,18 +26,18 @@ struct Recorder {
     secret_now: Cell<Option<bool>>,
 }
 impl Dispatch for Recorder {
-    fn event(&self, token: u32, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, token: u32, bytes: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         self.calls.borrow_mut().push((token, bytes.to_vec()));
         Ok(self.result.get())
     }
-    fn input(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, token: u32, bytes: &[u8], env: &Place<'_>) -> Result<i32, i32> {
         self.event(token, bytes, env)
     }
     fn draw(
         &self,
         token: u32,
         frame: &wire::DrawFrame<'_>,
-        env: &Env<'_>,
+        env: &Place<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         assert_eq!((frame.x, frame.y, frame.purpose), (0, 0, 0));
@@ -87,13 +87,13 @@ fn shown_and_resize_use_declared_screen_token_and_full_pane_size() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(123));
+    let env = kernel.shared.place(Instant(123));
     let pane = Rect::new(5, 7, 30, 80);
     let device = env.device_within(pane);
     let env = env.within(&device, pane);
     let (mut screen, dispatch) = screen();
     let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output);
+    let mut cx = Turn::new(&env, &mut output);
     screen.on_show(&mut cx);
     assert_eq!(screen.on_resize(&mut cx), Handled::Yes);
     for (token, bytes) in dispatch.calls.borrow().iter() {
@@ -112,7 +112,7 @@ fn draw_keeps_full_pane_dimensions_separate_from_band_clip() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(123));
+    let env = kernel.shared.place(Instant(123));
     let pane = Rect::new(5, 7, 30, 80);
     let device = env.device_within(pane);
     let env = env.within(&device, pane);
@@ -166,7 +166,7 @@ fn drawn(
     screen: &mut NativeScreen<Rc<Recorder>>,
     dispatch: &Recorder,
 ) -> usize {
-    let env = kernel.shared.env(Instant(1));
+    let env = kernel.shared.place(Instant(1));
     let mut frame = paperpaw_graphics::Framebuffer::new(40, 100, PixelFormat::Gray8).unwrap();
     let mut canvas = frame.canvas();
     let before = dispatch.draws.borrow().len();
@@ -316,9 +316,9 @@ fn input_preserves_handled_and_reports_faults_without_claiming_success() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(123));
+    let env = kernel.shared.place(Instant(123));
     let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output);
+    let mut cx = Turn::new(&env, &mut output);
     let (mut screen, dispatch) = screen();
     let input = Record::InputAction(wire::InputAction {
         now_ms: 123,
@@ -343,7 +343,7 @@ fn input_preserves_handled_and_reports_faults_without_claiming_success() {
     assert_eq!(action.action, "core.next-page");
     drop(calls);
     let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output);
+    let mut cx = Turn::new(&env, &mut output);
     assert!(screen.mode().takes_raw_keys());
     assert_eq!(
         screen.on_key(
@@ -411,10 +411,10 @@ fn decoded_pointers(dispatch: &Recorder) -> Vec<(i32, i32, u32, Option<u32>)> {
 fn interleaved_contacts_keep_their_ids_from_down_to_up() {
     let key = paperpaw_sdk::ScreenKey::new(3);
     let kernel = kernel_with_screen(key);
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = screen();
     let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output).for_screen(key);
+    let mut cx = Turn::new(&env, &mut output).for_screen(key);
     screen.on_show(&mut cx);
     dispatch.calls.borrow_mut().clear();
     dispatch.result.set(1);
@@ -449,10 +449,10 @@ fn interleaved_contacts_keep_their_ids_from_down_to_up() {
 fn cancel_keeps_the_contact_id_and_the_extremes_pass_through() {
     let key = paperpaw_sdk::ScreenKey::new(3);
     let kernel = kernel_with_screen(key);
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = screen();
     let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output).for_screen(key);
+    let mut cx = Turn::new(&env, &mut output).for_screen(key);
     screen.on_show(&mut cx);
     dispatch.calls.borrow_mut().clear();
     // Contact 0 (a single-contact device) is sent as 0, not left out; 255 is
@@ -484,15 +484,15 @@ fn cancel_keeps_the_contact_id_and_the_extremes_pass_through() {
 fn a_screen_below_the_top_gets_no_pointer_at_all() {
     let key = paperpaw_sdk::ScreenKey::new(3);
     let mut kernel = kernel_with_screen(key);
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = screen();
     let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output).for_screen(key);
+    let mut cx = Turn::new(&env, &mut output).for_screen(key);
     screen.on_show(&mut cx);
     dispatch.calls.borrow_mut().clear();
     // Outside the stack (no key), and with another screen over it.
     let mut aside = paperpaw_sdk::Output::default();
-    let mut outside = Cx::new(&env, &mut aside);
+    let mut outside = Turn::new(&env, &mut aside);
     assert_eq!(
         screen.on_pointer(&pointer(1, PointerPhase::Down, 1, 1), &mut outside),
         Handled::No
@@ -503,9 +503,9 @@ fn a_screen_below_the_top_gets_no_pointer_at_all() {
         false,
         paperpaw_sdk::ScreenKey::new(4),
     ));
-    let env = kernel.shared.env(Instant(6));
+    let env = kernel.shared.place(Instant(6));
     let mut covered = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut covered).for_screen(key);
+    let mut cx = Turn::new(&env, &mut covered).for_screen(key);
     assert_eq!(
         screen.on_pointer(&pointer(1, PointerPhase::Down, 1, 1), &mut cx),
         Handled::No
@@ -584,9 +584,9 @@ fn typed_text_comes_in_chunks_of_1024_bytes_cut_between_characters_done_on_the_l
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output);
+    let mut cx = Turn::new(&env, &mut output);
     // Short: one event, as is.
     let (screen, dispatch) = fresh();
     screen.typed("hello", false, &mut cx);
@@ -634,9 +634,9 @@ fn empty_typed_text_confirms_only_with_done_and_a_refused_event_stops_the_rest()
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output);
+    let mut cx = Turn::new(&env, &mut output);
     let (screen, dispatch) = fresh();
     screen.typed("", false, &mut cx);
     assert!(dispatch.calls.borrow().is_empty());
@@ -656,10 +656,10 @@ fn only_type_text_reaches_a_screen_on_top_and_never_before_it_is_shown() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = fresh();
     let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output);
+    let mut cx = Turn::new(&env, &mut output);
     let typed = events::TypeText::new("x".into()).done(true).to_params();
     // Not shown yet (no instance key): nothing, whatever the event.
     screen.on_event(events::TYPE_TEXT.id(), &typed, &mut cx);
@@ -678,9 +678,9 @@ fn typed_text_over_the_total_cap_is_dropped_whole_and_the_cap_itself_is_sent() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output);
+    let mut cx = Turn::new(&env, &mut output);
     let (screen, dispatch) = fresh();
     screen.typed(&"a".repeat(TYPED_TOTAL_MAX + 1), true, &mut cx);
     assert!(dispatch.calls.borrow().is_empty());
@@ -695,10 +695,10 @@ fn typed_text_over_the_total_cap_is_dropped_whole_and_the_cap_itself_is_sent() {
 fn a_shown_top_screen_not_offered_on_the_keyboard_slot_gets_no_typed_text() {
     let key = paperpaw_sdk::ScreenKey::new(3);
     let kernel = kernel_with_screen(key);
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = fresh();
     let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output).for_screen(key);
+    let mut cx = Turn::new(&env, &mut output).for_screen(key);
     screen.on_show(&mut cx);
     dispatch.calls.borrow_mut().clear();
     // It is shown and on top (a pointer reaches it), but no screen is
@@ -717,7 +717,7 @@ fn only_the_draw_that_counts_pictures_is_marked_as_one() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let pane = Rect::new(5, 7, 30, 80);
     let device = env.device_within(pane);
     let env = env.within(&device, pane);
@@ -739,7 +739,7 @@ fn only_the_draw_that_counts_pictures_is_marked_as_one() {
 struct Page(Rc<Recorder>);
 
 impl crate::testing::Fake for Page {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         let counted = canvas.is_blind() && !canvas.is_describing();
         let frame = wire::DrawFrame {
             id: if counted { PICTURES_ONLY_ID } else { 0 },

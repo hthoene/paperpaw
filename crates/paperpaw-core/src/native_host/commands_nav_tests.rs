@@ -45,7 +45,7 @@ fn submit(
     hop: u8,
     commands: &[WireCommand<'_>],
 ) -> (i32, Vec<Command>) {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
         .with_ui(&env, Some(ScreenKey::new(top)), hop, 100)
@@ -236,7 +236,7 @@ fn a_raised_input_is_the_submitters_to_raise_and_never_the_power_keys() {
 #[test]
 fn a_stage_without_the_stack_refuses_them() {
     let kernel = kernel(&[BASE, MINE]);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096).with_ui(
         &env,
@@ -289,15 +289,15 @@ fn guarded_kernel() -> crate::Kernel {
     use paperpaw_sdk::{Manifest, Version};
     struct Plain;
     impl crate::testing::Fake for Plain {
-        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-        fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
+        fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
         }
     }
     struct Guard;
     impl crate::testing::Fake for Guard {
-        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-        fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
+        fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
         }
         fn flags(&self) -> u32 {
@@ -441,7 +441,7 @@ fn submit_policy(
     top: u32,
     commands: &[WireCommand<'_>],
 ) -> (i32, Vec<Command>, Vec<PolicyChange>) {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
         .with_ui(&env, Some(ScreenKey::new(top)), 0, 100)

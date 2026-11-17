@@ -17,13 +17,13 @@ struct Lock {
 }
 
 impl crate::testing::Fake for Lock {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
     fn flags(&self) -> u32 {
         u32::from(self.locked.get()) * crate::testing::GUARDS
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         match action.as_str() {
             "kg.layer-on" => cx.set_key_layer(Some(LAYER)),
             "kg.layer-off" => cx.set_key_layer(None),

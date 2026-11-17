@@ -3,6 +3,7 @@
 
 extern crate std;
 
+use crate::{Place, Turn};
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::rc::Rc;
@@ -17,8 +18,8 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::builtin::{actions, screens, settings, slots};
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Handled, Id, Manifest, Priority, RegisterError,
-    SettingKind, SettingSpec, SettingValue, Version,
+    ActionSpec, Canvas, Command, Handled, Id, Manifest, Priority, RegisterError, SettingKind,
+    SettingSpec, SettingValue, Version,
 };
 
 use crate::{HttpCall, Io, Kernel, ServerCall, SpeechCall, WarningSource};
@@ -142,11 +143,11 @@ struct TestScreen {
 }
 
 impl crate::testing::Fake for TestScreen {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         self.log
             .borrow_mut()
             .push(alloc::format!("{}:{}", self.name, action));
@@ -272,11 +273,11 @@ fn highest_priority_wins_and_user_config_overrides() {
 struct OpenerScreen;
 
 impl crate::testing::Fake for OpenerScreen {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if *action == actions::CONFIRM {
             cx.command(Command::OpenScreen(
                 screens::PLACEHOLDER,
@@ -611,9 +612,9 @@ struct EdgeHolder {
 }
 
 impl crate::testing::Fake for EdgeHolder {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
         self.log
             .borrow_mut()
             .push(alloc::format!("holder:{action}"));
@@ -624,7 +625,7 @@ impl crate::testing::Fake for EdgeHolder {
         u32::from(self.holds) * crate::testing::HOLDS_EDGES
     }
 
-    fn on_pointer(&mut self, event: &PointerEvent, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_pointer(&mut self, event: &PointerEvent, _: &mut Turn<'_, '_>) -> Handled {
         match event.phase {
             PointerPhase::Down => self.log.borrow_mut().push(String::from("holder:down")),
             PointerPhase::Hover => self.log.borrow_mut().push(String::from("holder:hover")),
@@ -841,13 +842,13 @@ struct LifecycleScreen {
 }
 
 impl crate::testing::Fake for LifecycleScreen {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn on_show(&mut self, _: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, _: &mut Turn<'_, '_>) {
         self.log.borrow_mut().push(String::from("show"));
     }
 }
@@ -877,7 +878,7 @@ pub(crate) fn lifecycle_plugin(
         // Back to the screen below, and at once another over it, as a
         // menu that closes to open a screen does.
         r.add_action(paperpaw_sdk::ActionSpec::new(SWAP, "swap").handler(
-            |_: &Env<'_>, _, out: &mut paperpaw_sdk::Commands| {
+            |_: &paperpaw_sdk::Env<'_>, _, out: &mut paperpaw_sdk::Commands| {
                 out.push(paperpaw_sdk::Command::Back);
                 out.push(paperpaw_sdk::Command::OpenScreen(
                     Id::new_static("life.screen"),
@@ -950,7 +951,7 @@ struct BaseScreen {
 }
 
 impl crate::testing::Fake for BaseScreen {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         let clip = canvas.clip();
         canvas.describe(paperpaw_sdk::semantics::Role::Text, "base", clip);
         self.log
@@ -958,11 +959,11 @@ impl crate::testing::Fake for BaseScreen {
             .push(alloc::format!("draw base {}x{}", clip.width, clip.height));
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn on_event(&mut self, event: &Id, params: &paperpaw_sdk::Params, cx: &mut Cx<'_, '_>) {
+    fn on_event(&mut self, event: &Id, params: &paperpaw_sdk::Params, cx: &mut Turn<'_, '_>) {
         self.log.borrow_mut().push(alloc::format!(
             "event {event} {}",
             params.get("id").unwrap_or_default()
@@ -976,17 +977,17 @@ impl crate::testing::Fake for BaseScreen {
 struct HalfOverlay;
 
 impl crate::testing::Fake for HalfOverlay {
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
+    fn region(&self, _: &Place<'_>) -> Option<Rect> {
         Some(Rect::new(0, 45, 90, 45))
     }
 
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         canvas.fill_rect(0, 45, 90, 45, Color::BLACK);
         let area = Rect::new(0, 45, 90, 45);
         canvas.describe(paperpaw_sdk::semantics::Role::Text, "overlay", area);
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -1146,7 +1147,7 @@ fn notices_show_over_everything_and_go_by_themselves() {
     let effects = kernel.finish();
     let region = {
         let (notice, _) = kernel.notice.as_ref().unwrap();
-        crate::screens::notice_area(notice, &kernel.shared.env(Instant(0)))
+        crate::screens::notice_area(notice, &kernel.shared.place(Instant(0)))
     };
     assert_eq!(effects.refresh().map(|(r, _)| r), Some(region));
     assert_eq!(
@@ -1391,13 +1392,13 @@ fn menus_follow_order_and_user_definitions() {
 struct GrayScreen;
 
 impl crate::testing::Fake for GrayScreen {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
     fn flags(&self) -> u32 {
         crate::testing::GRAYS
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -1873,7 +1874,7 @@ fn copied_text_reaches_plugins_and_the_shell() {
         .build()
         .unwrap();
     kernel.start(Instant(0));
-    assert!(!kernel.shared.env(Instant(0)).clipboard());
+    assert!(!kernel.shared.place(Instant(0)).clipboard());
     let read = |id: &str| {
         Command::ReadClipboard(
             Id::new_static("ov.reply"),
@@ -1885,7 +1886,7 @@ fn copied_text_reaches_plugins_and_the_shell() {
         .commands
         .extend([Command::SetClipboard(String::from("Alice")), read("a")]);
     kernel.run_commands();
-    assert!(kernel.shared.env(Instant(0)).clipboard());
+    assert!(kernel.shared.place(Instant(0)).clipboard());
     assert_eq!(kernel.take_io(), [Io::Copy(String::from("Alice"))]);
     assert_eq!(kernel.take_io(), []);
     // Without the system's clipboard, the answer comes at once.
@@ -1909,7 +1910,7 @@ fn copied_text_reaches_plugins_and_the_shell() {
         .unwrap();
     kernel.start(Instant(0));
     kernel.set_clipboard_available(true);
-    assert!(kernel.shared.env(Instant(0)).clipboard());
+    assert!(kernel.shared.place(Instant(0)).clipboard());
     kernel.output.commands.push(read("b"));
     kernel.run_commands();
     // Asked once, however many wait.
@@ -1940,16 +1941,19 @@ fn secrets_are_kept_apart_and_read_at_start() {
         )));
     kernel.run_commands();
     // Its plugin sees it; another, or the kernel's own code, not.
-    assert_eq!(kernel.shared.env(Instant(0)).secrets().get("a.key"), None);
+    assert_eq!(kernel.shared.place(Instant(0)).secrets().get("a.key"), None);
     {
         let _other = kernel.shared.meter.enter("b");
-        assert_eq!(kernel.shared.env(Instant(0)).secrets().get("a.key"), None);
-        assert_eq!(kernel.shared.env(Instant(0)).secrets().listed().count(), 1);
+        assert_eq!(kernel.shared.place(Instant(0)).secrets().get("a.key"), None);
+        assert_eq!(
+            kernel.shared.place(Instant(0)).secrets().listed().count(),
+            1
+        );
     }
     {
         let _own = kernel.shared.meter.enter("a");
         assert_eq!(
-            kernel.shared.env(Instant(0)).secrets().get("a.key"),
+            kernel.shared.place(Instant(0)).secrets().get("a.key"),
             Some("hunter2")
         );
     }
@@ -2567,7 +2571,10 @@ fn turned_screens_are_made_anew_for_the_new_size() {
         Some(RefreshMode::Full)
     );
     assert_eq!(kernel.device().display.width, 120);
-    assert_eq!(kernel.shared.env(Instant(200)).device().display.height, 60);
+    assert_eq!(
+        kernel.shared.place(Instant(200)).device().display.height,
+        60
+    );
     let mut size = (0, 0);
     kernel.render(&mut |_, rows| size = (rows.width, size.1 + rows.height));
     assert_eq!(size, (120, 60));
@@ -2666,12 +2673,12 @@ fn the_power_button_puts_the_device_to_sleep_where_the_shell_can() {
     // Where the system sleeps on its own (Android), nothing happens.
     let mut kernel = Kernel::builder(DEVICE).build().unwrap();
     kernel.start(Instant(0));
-    assert!(!kernel.shared.env(Instant(0)).caps().sleep);
+    assert!(!kernel.shared.place(Instant(0)).caps().sleep);
     assert!(!press(&mut kernel, 100, "power").sleep());
     // Where the shell sleeps, it is told to.
     let mut kernel = Kernel::builder(DEVICE).sleep(true).build().unwrap();
     kernel.start(Instant(0));
-    assert!(kernel.shared.env(Instant(0)).caps().sleep);
+    assert!(kernel.shared.place(Instant(0)).caps().sleep);
     assert!(press(&mut kernel, 100, "power").sleep());
     assert!(!press(&mut kernel, 200, "confirm").sleep());
 }
@@ -2717,7 +2724,7 @@ fn speech_goes_to_the_shell_and_stops_with_its_screen() {
         .build()
         .unwrap();
     kernel.start(Instant(0));
-    assert!(!kernel.shared.env(Instant(0)).caps().speech);
+    assert!(!kernel.shared.place(Instant(0)).caps().speech);
     kernel.output.commands.push(speech("a", false));
     kernel.run_commands();
     assert!(kernel.take_speech().is_empty());
@@ -2865,13 +2872,13 @@ struct SizedScreen {
 }
 
 impl crate::testing::Fake for SizedScreen {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
     fn hints(&self) -> Option<paperpaw_sdk::HintVisibility> {
         self.reader.then_some(paperpaw_sdk::HintVisibility::OnPress)
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 
@@ -2982,7 +2989,7 @@ fn a_row_of_hints_names_the_buttons_below_the_screen() {
 struct PictureScreen(Rc<RefCell<bool>>);
 
 impl crate::testing::Fake for PictureScreen {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         if *self.0.borrow() {
             let row = alloc::vec![128u8; usize::from(env.device().display.width)];
             for y in 0..i32::from(env.device().display.height) {
@@ -2993,7 +3000,7 @@ impl crate::testing::Fake for PictureScreen {
         }
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }

@@ -1,6 +1,6 @@
 //! Scoped core views inside a stable host-owned context.
 //!
-//! The owner context may outlive an event's Env or Canvas. It must not retain
+//! The owner context may outlive an event's Place or Canvas. It must not retain
 //! their Rust references. This slot admits a frame only for one synchronous
 //! dispatch, clears it on every exit, and refuses nested installation.
 
@@ -119,10 +119,10 @@ pub(crate) trait Frame {
         Err(ERR_STATE)
     }
 
-    /// The kernel's `Env` for this call, where the frame has one: `core.device`
+    /// The kernel's `Place` for this call, where the frame has one: `core.device`
     /// answers Wi-Fi, Bluetooth and power from its models (ops 8, 10, 11, 12).
     /// A fixture frame has none and the shell's host answers.
-    fn kernel_env(&self) -> Option<&paperpaw_sdk::Env<'_>> {
+    fn kernel_env(&self) -> Option<&crate::Place<'_>> {
         None
     }
 

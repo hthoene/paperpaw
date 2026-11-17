@@ -11,7 +11,7 @@ struct Rows {
 }
 
 impl crate::testing::Fake for Rows {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         for row in 0..3u16 {
             let label = alloc::format!("Row {row}");
             let area = Rect::new(0, row * 20, 90, 20);
@@ -21,7 +21,7 @@ impl crate::testing::Fake for Rows {
         }
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if *action == actions::DOWN {
             self.focus = (self.focus + 1) % 3;
             cx.request_redraw();
@@ -233,7 +233,7 @@ fn the_card_goes_to_a_computer_as_a_drive_where_the_device_can() {
     assert!(
         kernel
             .shared
-            .env(Instant(0))
+            .place(Instant(0))
             .caps()
             .has(paperpaw_sdk::Capability::USB_DRIVE)
     );
@@ -261,7 +261,7 @@ fn plugins_switch_the_device_off_where_the_shell_can() {
         .power_off(true)
         .build()
         .unwrap();
-    assert!(kernel.shared.env(Instant(0)).caps().power_off);
+    assert!(kernel.shared.place(Instant(0)).caps().power_off);
     let effects = kernel.start(Instant(0));
     assert!(effects.power_off() && !effects.sleep());
     assert!(effects.iter().any(|e| e == crate::Effect::PowerOff));
@@ -270,11 +270,11 @@ fn plugins_switch_the_device_off_where_the_shell_can() {
 #[test]
 fn plugins_see_what_the_shell_changes_by_the_power_level() {
     let kernel = Kernel::builder(DEVICE).build().unwrap();
-    assert!(!kernel.shared.env(Instant(0)).caps().power.any());
+    assert!(!kernel.shared.place(Instant(0)).caps().power.any());
     let mut controls = paperpaw_sdk::power::PowerControls::default();
     controls.buttons = true;
     let kernel = Kernel::builder(DEVICE).power(controls).build().unwrap();
-    let power = kernel.shared.env(Instant(0)).caps().power;
+    let power = kernel.shared.place(Instant(0)).caps().power;
     assert!(power.any() && power.buttons && !power.cpu_clock && !power.system_saver);
 }
 
@@ -282,10 +282,10 @@ fn plugins_see_what_the_shell_changes_by_the_power_level() {
 fn plugins_hear_how_long_the_device_slept() {
     let mut kernel = Kernel::builder(DEVICE).build().unwrap();
     kernel.start(Instant(0));
-    assert_eq!(kernel.shared.env(Instant(0)).slept_for(), None);
+    assert_eq!(kernel.shared.place(Instant(0)).slept_for(), None);
     kernel.suspend(Instant(1_000));
     kernel.resume(Instant(61_000));
-    let slept = kernel.shared.env(Instant(61_000)).slept_for();
+    let slept = kernel.shared.place(Instant(61_000)).slept_for();
     assert_eq!(slept, Some(core::time::Duration::from_secs(60)));
     // A start after a sleep with the device switched off, where the shell
     // knows how long.
@@ -294,7 +294,7 @@ fn plugins_hear_how_long_the_device_slept() {
         .slept_for(core::time::Duration::from_secs(3_600))
         .build()
         .unwrap();
-    let slept = kernel.shared.env(Instant(0)).slept_for();
+    let slept = kernel.shared.place(Instant(0)).slept_for();
     assert_eq!(slept, Some(core::time::Duration::from_secs(3_600)));
 }
 

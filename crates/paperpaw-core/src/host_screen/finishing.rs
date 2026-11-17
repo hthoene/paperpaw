@@ -9,8 +9,9 @@
 //! from it.
 
 use super::paint::{self, Look};
+use crate::{Place, Turn};
 use paperpaw_sdk::{
-    Canvas, Color, Cx, Env, Handled, Hint, HintVisibility, Id, Instant, Params, Rect, RefreshMode,
+    Canvas, Color, Handled, Hint, HintVisibility, Id, Instant, Params, Rect, RefreshMode,
 };
 
 /// When the trial began, in milliseconds.
@@ -57,7 +58,7 @@ impl Finishing {
         (step < STEPS).then(|| Instant(self.from + (self.until - self.from) * (step + 1) / STEPS))
     }
 
-    fn wake(&mut self, cx: &mut Cx<'_, '_>) {
+    fn wake(&mut self, cx: &mut Turn<'_, '_>) {
         let now = cx.env().now();
         if now.0 >= self.until.saturating_add(GRACE_MS) {
             self.holding = false;
@@ -71,7 +72,7 @@ impl Finishing {
 }
 
 impl Finishing {
-    pub(super) fn draw(&self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    pub(super) fn draw(&self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         // All of its part of the screen: drawn in strips, each clipped.
         let content = env.content();
         let area = Rect::new(0, 0, content.width, content.height);
@@ -123,11 +124,11 @@ impl Finishing {
         }
     }
 
-    pub(super) fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(super) fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         self.wake(cx);
     }
 
-    pub(super) fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(super) fn on_timer(&mut self, cx: &mut Turn<'_, '_>) {
         cx.request_redraw();
         cx.request_refresh(RefreshMode::Fast);
         self.wake(cx);

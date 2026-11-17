@@ -81,7 +81,7 @@ pub(crate) const HOLD_WAIT_MAX_MS: u64 = 32_000;
 /// declarations and registry, no callback (the format is called through the
 /// pump's route, never through a frame).
 struct PumpFrame<'a> {
-    env: &'a paperpaw_sdk::Env<'a>,
+    env: &'a crate::Place<'a>,
     sources: Sources<'a>,
     directory: Option<&'a NativeDeclarations>,
     log: super::device_log::DeviceLog,
@@ -94,7 +94,7 @@ impl Frame for PumpFrame<'_> {
     fn translator(&self) -> &paperpaw_i18n::Translator {
         self.env.i18n()
     }
-    fn kernel_env(&self) -> Option<&paperpaw_sdk::Env<'_>> {
+    fn kernel_env(&self) -> Option<&crate::Place<'_>> {
         Some(self.env)
     }
     fn storage(&self) -> Option<&dyn Storage> {
@@ -330,7 +330,7 @@ impl crate::Kernel {
         if !self.details_browsing() {
             return Pass::Nothing;
         }
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         if self.details_busy() || catalog::is_growing(env.storage()) {
             let wait = run.hold_waits(QUIET_MS, HOLD_WAIT_MAX_MS);
             return Pass::Wait(now.saturating_add(wait));

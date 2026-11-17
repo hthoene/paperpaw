@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 //! The library's move job in the service pump: it is stepped only outside
-//! callbacks, with the kernel's own `Env` on the card the job was wired over,
+//! callbacks, with the kernel's own `Place` on the card the job was wired over,
 //! a refused step waits [`WAIT_MS`], and what a step sends runs after the pump.
 extern crate std;
 use super::*;
@@ -130,17 +130,17 @@ impl crate::native_host::native_instances::NativeInstance for Idle {
     fn stop(&self) {}
 }
 impl crate::native_host::native_screen::Dispatch for Idle {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(paperpaw_native::host_glue::ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(paperpaw_native::host_glue::ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &crate::native_host::registrations::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(paperpaw_native::host_glue::ERR_INVALID)

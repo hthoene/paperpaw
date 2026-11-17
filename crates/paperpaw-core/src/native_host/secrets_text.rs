@@ -2,7 +2,7 @@
 //! seals (decision 138; `docs/abi/secrets.md` section 3).
 //!
 //! The file holds sealed (`s1:`) and veiled lines. The kernel's interface-6
-//! code (`Command::SetSecret`, `Env::secrets`, Wi-Fi and mail passwords) keeps
+//! code (`Command::SetSecret`, `Place::secrets`, Wi-Fi and mail passwords) keeps
 //! the passwords in memory and reads and writes the veiled hex form. These
 //! two functions stand between that code and the file: [`open_text`] turns
 //! each sealed line the sealer opens into a veiled one, to be decoded as ever;

@@ -15,11 +15,11 @@ use std::vec;
 const HEADER: &str = "\tcatalog\t2\t1\n";
 
 /// The device facts, set by the test.
-pub(crate) struct Env {
+pub(crate) struct Facts {
     pub(crate) walking: Cell<Option<u32>>,
     pub(crate) today: Cell<Option<u32>>,
 }
-impl CatalogEnv for Env {
+impl CatalogEnv for Facts {
     fn walking(&self) -> Option<u32> {
         self.walking.get()
     }
@@ -50,7 +50,7 @@ impl CatalogEnv for Env {
 /// opened). Today is day 20,003.
 pub(crate) struct Card {
     pub(crate) storage: Rc<MemoryStorage>,
-    pub(crate) env: Rc<Env>,
+    pub(crate) env: Rc<Facts>,
     pub(crate) a: u64,
     pub(crate) b: u64,
     pub(crate) c: u64,
@@ -92,7 +92,7 @@ pub(crate) fn card() -> Card {
     catalog::forget(&*storage, "books/d.txt").unwrap();
     Card {
         storage,
-        env: Rc::new(Env {
+        env: Rc::new(Facts {
             walking: Cell::new(None),
             today: Cell::new(Some(20_003)),
         }),

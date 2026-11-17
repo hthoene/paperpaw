@@ -3,7 +3,7 @@
 extern crate std;
 use super::*;
 use crate::native_host::lib_reads::CatalogEnv;
-use crate::native_host::lib_reads::tests::Env;
+use crate::native_host::lib_reads::tests::Facts;
 use crate::native_host::lib_service::LibQuery;
 use alloc::rc::Rc;
 use alloc::string::ToString;
@@ -39,7 +39,7 @@ fn card() -> (Rc<MemoryStorage>, CatalogReads) {
             )
             .with("books/a.epub", std::vec![1_u8; 10]),
     );
-    let env = Rc::new(Env {
+    let env = Rc::new(Facts {
         walking: Cell::new(None),
         today: Cell::new(None),
     });
