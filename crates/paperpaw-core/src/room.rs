@@ -16,7 +16,7 @@ use paperpaw_sdk::realtime::{Room, RoomSteps};
 use paperpaw_sdk::wifi::{WifiCommand, WifiState};
 use paperpaw_sdk::{Id, Params, ScreenKey};
 
-use crate::Kernel;
+use crate::{Kernel, meter};
 
 /// Room made for a screen, and what to give back.
 #[derive(Debug)]
@@ -43,6 +43,18 @@ enum WifiWas {
 }
 
 impl Kernel {
+    /// Gives back what idle state holds before a secure connection takes the
+    /// heap (#287): the hyphenation tables open and the plugins that may sleep
+    /// and run idle (made again at their next use, as at standby). The
+    /// shell's, at a safe point outside every callback; how many plugins were
+    /// parked. Requests started by native plugins do not pass the commands that
+    /// close the tables, so the shell asks for this.
+    pub fn make_room(&mut self) -> usize {
+        let _running = self.shared.meter.enter(meter::CORE);
+        self.shared.hyphenation.close_tables();
+        self.native_repark_idle(usize::MAX)
+    }
+
     pub(crate) fn room_screen_keys_reserved(&self) -> usize {
         self.lease.as_ref().map_or(0, |lease| lease.closed.len())
     }

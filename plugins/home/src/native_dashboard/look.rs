@@ -7,7 +7,7 @@ use core::cell::RefCell;
 
 use super::{Cell, Dashboard, Error, Font, Host, Laid, Made, Rect, Snapshot, Style, Ui, icons};
 use paperpaw_sdk::native::snapshot;
-use paperpaw_ui_kit::mem::push;
+use paperpaw_ui_kit::{SharedInputs, mem::push};
 
 /// The status line of a page, made and placed.
 pub(super) type StatusLine = Option<(Made, Rect)>;
@@ -36,8 +36,9 @@ impl Look {
         host: &Host<'_>,
         (font, display): (&Font<'_>, &Snapshot),
         (cells, tool_labels): (&[Cell], bool),
+        shared: &SharedInputs,
     ) -> Result<Vec<Self>, Error> {
-        let style = Style::read(host, display, font)?;
+        let style = shared.style(host, display, font)?;
         let (wrapped, refused) = tool_lines(host, font, &style, cells, tool_labels)?;
         let mut held = Vec::new();
         held.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
@@ -95,9 +96,10 @@ impl Dashboard {
         ui: &Ui,
         (font, display): (&Font<'_>, &Snapshot),
         (cells, tool_labels, strip): (&[Cell], bool, Option<Rect>),
+        shared: &SharedInputs,
     ) -> Result<(StatusLine, Vec<Look>), Error> {
         let status = Self::status_bar(host, ui, strip)?;
-        match Look::read(host, (font, display), (cells, tool_labels)) {
+        match Look::read(host, (font, display), (cells, tool_labels), shared) {
             Ok(look) => Ok((status, look)),
             Err(error) => {
                 if let Some((made, _)) = status {
@@ -122,7 +124,12 @@ impl Dashboard {
             None => false,
         };
         let display = snapshot::capture_snapshot(host)?;
-        let fresh = Look::read(host, (font, &display), (&laid.cells, tool_labels))?;
+        let fresh = Look::read(
+            host,
+            (font, &display),
+            (&laid.cells, tool_labels),
+            self.listing.inputs(),
+        )?;
         *laid.look.borrow_mut() = fresh;
         Ok(())
     }

@@ -136,7 +136,7 @@ impl Marks {
             if on_page
                 && self.highlights.len() < MAX_HIGHLIGHTS
                 && self.highlights.try_reserve(1).is_ok()
-                && has_text(words, held.span.start, &held.lead)
+                && is_there(words, &held)
             {
                 self.highlights.push(held.span);
                 self.foreign.swap_remove(i);
@@ -255,7 +255,7 @@ pub fn load(
                     found.push(span);
                 }
             } else if foreign.len() < MAX_FOREIGN
-                && let Some(lead) = Lead::of(row.text())
+                && let Some(lead) = Lead::of_any(row.text())
             {
                 foreign.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
                 foreign.push(Foreign { span, lead });
@@ -271,6 +271,45 @@ pub fn load(
             }
         }
     }
+}
+
+/// Whether the page of `words` has the text of the highlight `held` where it
+/// is. A text of a word or two ("Om", "the") is on too many pages to be told by
+/// being near its place: it is there only where the words the highlight covers
+/// are that text and no other (Beta 3's short highlights were never drawn
+/// before, #265).
+fn is_there(words: &[WordBox], held: &Foreign) -> bool {
+    if held.lead.is_short() {
+        covered_says(words, &held.span, &held.lead)
+    } else {
+        has_text(words, held.span.start, &held.lead)
+    }
+}
+
+/// Whether the words `span` covers say `lead` and nothing else (or its start,
+/// where the page ends inside the highlight).
+fn covered_says(words: &[WordBox], span: &Span, lead: &Lead) -> bool {
+    let mut text = String::new();
+    let mut last = None;
+    for (at, word) in words.iter().enumerate() {
+        if !span.covers(word) {
+            continue;
+        }
+        last = Some(at);
+        // The second part of a word the layout broke says the word again.
+        if crate::native_selection::continues(words, at) {
+            continue;
+        }
+        if text.len() > LEAD_MAX || text.try_reserve(word.text.len() + 1).is_err() {
+            return false;
+        }
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        text.push_str(&word.text);
+    }
+    let open = last.is_some_and(|at| at + 1 == words.len());
+    !text.is_empty() && lead.says(&text, open)
 }
 
 /// Whether the words of a page from a little before `at` say `lead`: the first
@@ -473,6 +512,22 @@ pub trait Pen {
         thickness: u32,
         color: Color,
     ) -> Result<(), Error>;
+
+    /// Fills every other pixel of a rectangle, as a checker: its top-left
+    /// pixel and those an even number of steps from it, or the others where
+    /// `odd`. One call whatever the size (`Canvas::fill_checker`).
+    ///
+    /// # Errors
+    /// `Unsupported` where the pen has no such fill (a host without the
+    /// slot): a tone is rows then. The host's refusal.
+    fn checker(
+        &mut self,
+        _rect: (i32, i32, u32, u32),
+        _color: Color,
+        _odd: bool,
+    ) -> Result<(), Error> {
+        Err(Error::Unsupported)
+    }
 }
 
 /// The page's canvas as a [`Pen`].
@@ -500,6 +555,19 @@ impl Pen for CanvasPen<'_, '_> {
         self.0
             .stroke_rounded_rectangle(FrameRect::new(x, y, width, height), 0, thickness, color)
     }
+
+    fn checker(
+        &mut self,
+        (x, y, width, height): (i32, i32, u32, u32),
+        color: Color,
+        odd: bool,
+    ) -> Result<(), Error> {
+        if width == 0 || height == 0 {
+            return Ok(());
+        }
+        self.0
+            .fill_checker(FrameRect::new(x, y, width, height), color, odd)
+    }
 }
 
 /// The boxes, one a line, round the words of `words` that `spans` cover.
@@ -519,7 +587,7 @@ pub fn boxes(words: &[WordBox], spans: &[Span]) -> Vec<Rect> {
 pub struct Gauge {
     pub dpi: u16,
     /// Black and white alone, or four grays (not colour): a tone behind text is
-    /// a pattern of black rows by its lightness, as Beta 3's `fill_shaded`.
+    /// a pattern of black dots by its lightness, as Beta 3's `fill_shaded`.
     pub few_grays: bool,
 }
 
@@ -544,18 +612,55 @@ impl Gauge {
 /// Rows of the pattern that stands for a gray on a panel of few grays.
 const PATTERN_ROWS: i32 = 4;
 
-/// A tone as rows: of every [`PATTERN_ROWS`] rows (counted from the top of the
-/// screen, so the boxes of two lines meet without a seam) as many are black as the
-/// tone is dark, so a light gray stays a light pattern the text reads well on.
-fn shade(
-    pen: &mut impl Pen,
-    (x, y, width, height): (i32, i32, u32, u32),
-    tone: Tone,
-) -> Result<(), Error> {
+/// A tone as a pattern of black pixels, as dark as the tone is (a quarter, a
+/// half, three quarters of them, or all): dots as Beta 3's `fill_shaded`
+/// dithered a tone, so a light gray stays a light pattern the text reads well
+/// on and no line runs through the letters (#265). The pattern is counted from
+/// the top-left of the screen, so the boxes of two lines meet without a seam.
+/// A pen that fills no checker (a host without the slot) draws the tone as
+/// rows instead.
+fn shade(pen: &mut impl Pen, area: (i32, i32, u32, u32), tone: Tone) -> Result<(), Error> {
     let dark = i32::from(255 - tone.color().luma());
     let black = ((dark * PATTERN_ROWS + 127) / 255).clamp(0, PATTERN_ROWS);
+    if black == 0 || area.2 == 0 || area.3 == 0 {
+        return Ok(());
+    }
+    if black < PATTERN_ROWS {
+        match dots(pen, area, black) {
+            Err(Error::Unsupported) => {}
+            done => return done,
+        }
+    }
+    let (x, y, width, height) = area;
     for row in y..y + height as i32 {
         if row.rem_euclid(PATTERN_ROWS) < black {
+            pen.fill(x, row, width, 1, Color::BLACK)?;
+        }
+    }
+    Ok(())
+}
+
+/// `quarters` (1 to 3) of the pixels of `area` black, as dots: the pixels of
+/// every other row and column for one, a checker for two, the checker and
+/// every other row for three. The first thing asked of the pen is a checker:
+/// where it has none nothing is drawn yet.
+fn dots(
+    pen: &mut impl Pen,
+    (x, y, width, height): (i32, i32, u32, u32),
+    quarters: i32,
+) -> Result<(), Error> {
+    // A checker starts at its own corner: `odd` moves it to the screen's.
+    if quarters >= 2 {
+        let odd = (x + y).rem_euclid(2) == 1;
+        pen.checker((x, y, width, height), Color::BLACK, odd)?;
+    }
+    for row in y..y + height as i32 {
+        if row.rem_euclid(2) != 0 {
+            continue;
+        }
+        if quarters == 1 {
+            pen.checker((x, row, width, 1), Color::BLACK, x.rem_euclid(2) == 1)?;
+        } else if quarters >= 3 {
             pen.fill(x, row, width, 1, Color::BLACK)?;
         }
     }

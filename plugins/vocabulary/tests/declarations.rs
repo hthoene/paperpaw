@@ -96,6 +96,9 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
     ] {
         assert!(all.contains(needle), "{needle} is declared: {all}");
     }
+    // The switch of the marks is in the reader's *More*, as in Beta 3.
+    assert!(all.contains("core.reader-more"), "{all}");
+    assert!(all.contains("\"vocabulary.mark\""), "{all}");
     // The scan action of Beta 3 is there for key maps and rules, with no menu
     // entry of its own.
     assert!(all.contains("\"scan-card\""), "{all}");

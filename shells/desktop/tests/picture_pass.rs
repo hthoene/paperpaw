@@ -172,7 +172,9 @@ fn reading(picture: (&[u8], &str)) -> (Device, Vec<Frame>) {
         )
         .with(
             "paperpaw.ini",
-            format!("[help]\nshow = false\n[core]\nfull-refresh-interval = {INTERVAL}\n"),
+            format!(
+                "[help]\nshow = false\n[core]\nhyphenate = off\nfull-refresh-interval = {INTERVAL}\n"
+            ),
         );
     // Refreshes are checked here, not memory (tests/memory.rs does).
     paperpaw_emulator::budget::override_limit(None);

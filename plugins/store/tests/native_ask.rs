@@ -248,7 +248,7 @@ fn the_dialog_names_the_plugins_with_their_sizes_in_both_languages() {
     assert!(dialog.declined.is_empty());
     assert_eq!(
         dialog.title,
-        "This book needs more letters to show its text. Download them?"
+        "This book needs more to be shown as it should (letters or hyphenation patterns). Download them?"
     );
     assert_eq!(dialog.text, "Greek letters (2.8 MB)\nAiry (300 B)");
     assert_eq!(dialog.labels, "Download\nNot now");

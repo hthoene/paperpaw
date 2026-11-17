@@ -23,28 +23,49 @@ const BOOK: &str = "books/alice-in-wonderland.epub";
 
 /// The host slots a return may enter, all together and the settings reads
 /// (emulator, X4, Home with its default page). Measured with the page and its
-/// look kept: 517-528 slots and 23-36 reads; with the page kept and its look
+/// look kept: 195 slots and 12 reads from the drawer, 222 and 17 from a book
+/// (205 and 12, 232 and 16 before the status line kept what it asked of the
+/// host, #294; 338 and 22 before the bands of a frame
+/// shared what the first one composed; 517-528 and 23-36 in October); with the page kept and its look
 /// read at every draw: 857-868 and 333-346 (967-978 and 423-436 before the
 /// names and widgets kept theirs); laid out again on every return, as before:
 /// 1,349 and 712.
-const KEPT_ALL_SLOTS: u32 = 560;
-const KEPT_SETTINGS: u32 = 60;
+const KEPT_ALL_SLOTS: u32 = 225;
+const KEPT_SETTINGS: u32 = 20;
+/// The service calls of a return from the drawer (one of Home's own screens):
+/// the wifi plugin's, the library's listing and the status line's values; the
+/// stack, the registry and the settings the page asked before are kept (#294).
+const KEPT_CALLS: usize = 3;
+/// The first frame of a return with a full shelf (six books), host slots
+/// (emulator): 289 measured, 299 before the status line kept what it asked of
+/// the host, 615 before the bands of a frame shared what the first one
+/// composed. The emulator draws the five books' placeholders (a title wrapped
+/// by measuring its words) where the X4 draws the covers it has made.
+const FULL_SHELF_SLOTS: u32 = 295;
 /// The step after the return from a book: the book's card has its cover in
 /// the first frame (the library lists the book at once, #267), so the page,
 /// black and white first, is drawn again in grays once it is calm (Decision
 /// 196): the whole page with its look kept (494 slots, 34 settings reads
-/// measured). Where the cover came after the first frame, Home drew that cell
-/// alone (356 slots). The return itself is `KEPT_ALL_SLOTS`; a laid-out page
-/// costs over 1,300.
-const GRAY_PASS_SLOTS: u32 = 520;
+/// measured: 284 slots, 15 settings reads). Where the cover came after the first
+/// frame, Home drew that cell alone (356 slots). The return itself is
+/// `KEPT_ALL_SLOTS`; a laid-out page costs over 1,300.
+const GRAY_PASS_SLOTS: u32 = 300;
 /// A full redraw (five bands) of a page whose look is kept: slots, settings reads
-/// (622 and 270 before the look was kept; 330 and about 12 measured).
-const STEADY_SLOTS: u32 = 370;
-const STEADY_READS: u32 = 40;
+/// (622 and 270 before the look was kept; 188 and 11 measured).
+const STEADY_SLOTS: u32 = 200;
+const STEADY_READS: u32 = 14;
+/// The first lay-out of the page (the first Back out of the start book): host
+/// slots and settings reads (emulator, X4). Measured 587 and 182; 711 and 303
+/// before the looks of the page, its widgets and its status line shared the
+/// interface's settings, and a laid-out page's return makes 520 to 530. 485 and
+/// 185 measured now: the cold page asks each of its things once.
+const COLD_SLOTS: u32 = 500;
+const COLD_SETTINGS: u32 = 190;
 /// The first redraw after a setting changed reads the look of the page and of
 /// each of its widgets again: 160 reads measured, 142 where the page forgets
-/// nothing, 36 where its widgets forget nothing (18 in a steady redraw).
-const CHANGED_READS: u32 = 150;
+/// nothing, 36 where its widgets forget nothing (18 in a steady redraw); 147
+/// since the bands of a frame share what its first band composed.
+const CHANGED_READS: u32 = 100;
 /// A return that lays the page out again reads at least this many settings
 /// (614 measured, with a grid of three columns).
 const LAID_SETTINGS: u32 = 120;
@@ -83,7 +104,19 @@ fn unstarted(last: bool, ini: &str) -> Device {
             include_bytes!("../../../samples/library/books/alice-in-wonderland.epub").as_slice(),
         )
         .with(".paperpaw/plugins/setup/done", "")
-        .with("paperpaw.ini", format!("{ini}[help]\nshow = false\n"));
+        .with(
+            "paperpaw.ini",
+            // With a book open the reader would ask the store for the English
+            // pack the firmware seeds, and the dialog would cover the page.
+            format!(
+                "{}{ini}[help]\nshow = false\n",
+                if last {
+                    "[core]\nhyphenate = off\n"
+                } else {
+                    ""
+                }
+            ),
+        );
     if last {
         files = files.with(
             ".paperpaw/plugins/reader/state.ini",
@@ -149,6 +182,12 @@ fn the_home_screen_keeps_its_page_while_another_screen_covers_it() {
     assert!(
         all <= KEPT_ALL_SLOTS && settings <= KEPT_SETTINGS,
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
+    );
+    let calls = slot_counts::service_calls();
+    assert!(
+        calls.len() <= KEPT_CALLS,
+        "the return made {} service calls: {calls:?}",
+        calls.len()
     );
 }
 
@@ -286,9 +325,147 @@ fn the_return_from_a_book_does_not_ask_the_library_for_each_band() {
             .count()
     };
     let queries = of("query");
+    // The reader's close, the wifi plugin's call, the library's listing and the
+    // status line's values: Home asks the stack and the registry of nothing (#294).
     assert!(
-        (1..=3).contains(&queries) && of("book") <= 2 && of("cover") <= 1,
+        calls.len() <= 4,
+        "the return made {} service calls: {calls:?}",
+        calls.len()
+    );
+    eprintln!("FIRST FRAME service calls: {}", calls.len());
+    for (plugin, service, op) in &calls {
+        eprintln!("  service {plugin} {service}.{op}");
+    }
+    assert!(
+        queries == 1 && of("book") == 0 && of("cover") <= 1,
         "the return asked the library {queries} times for its books: {calls:?}"
+    );
+}
+
+/// An X4 whose card holds `count` copies of one book (`books/b0.epub` ...), the
+/// first the one last read, the help hint off.
+fn with_books(count: usize) -> Device {
+    let epub = include_bytes!("../../../samples/library/books/alice-in-wonderland.epub").as_slice();
+    let mut files = MemoryStorage::new()
+        .with(".paperpaw/plugins/setup/done", "")
+        .with(
+            "paperpaw.ini",
+            "[core]\nhyphenate = off\n[help]\nshow = false\n",
+        )
+        .with(
+            ".paperpaw/plugins/reader/state.ini",
+            "[reader]\nlast = books/b0.epub\n",
+        );
+    for n in 0..count {
+        files = files.with(&format!("books/b{n}.epub"), epub);
+    }
+    paperpaw_emulator::budget::override_limit(None);
+    let profile = profiles::find("xteink-x4").unwrap();
+    let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
+    device.start();
+    run_script(&mut device, "wait:3000").unwrap();
+    device
+}
+
+/// The service calls the first frame of a return from a book makes when the
+/// card shows a card and a full shelf (#267): the X4 made 19 to 20 of them, about
+/// 37 ms each (9 here before the stack, the registry's status and the status
+/// line's settings were kept, #294: 5 now, the reader's close and the wifi
+/// plugin's call among them; 18 here before the card, the shelf and the return check shared one
+/// listing and kept what the host said of files and covers; the two cover calls
+/// left are for covers the emulator host still reports as being made). Counted by what they
+/// ask for: the library once for the listing, and a book's file or cover only
+/// where Home has not been told it before.
+#[test]
+fn the_first_frame_of_a_return_makes_few_service_calls_with_a_full_shelf() {
+    let mut device = with_books(6);
+    run_script(&mut device, "back").unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    // Every book opened once: all of them are recent.
+    for n in (0..6).rev() {
+        run_script(
+            &mut device,
+            &format!("open:reader.screen:path=books/b{n}.epub"),
+        )
+        .unwrap();
+        run_script(&mut device, "wait:3000").unwrap();
+        run_script(&mut device, "back").unwrap();
+        run_script(&mut device, "wait:3000").unwrap();
+    }
+    assert_eq!(screen(&mut device), "home.dashboard");
+    // The return that matters: out of a book that is on the shelf already.
+    run_script(&mut device, "open:reader.screen:path=books/b3.epub").unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    slot_counts::reset();
+    run_script(&mut device, "back").unwrap();
+    let calls = slot_counts::service_calls();
+    let slots = slot_counts::snapshot();
+    let all: u32 = slots.iter().map(|(_, n)| *n).sum();
+    eprintln!("FIRST FRAME slots {all}: {slots:?}");
+    eprintln!("FIRST FRAME service calls: {}", calls.len());
+    for (plugin, service, op) in &calls {
+        eprintln!("  service {plugin} {service}.{op}");
+    }
+    let of = |what: &str| {
+        calls
+            .iter()
+            .filter(|(plugin, service, op)| format!("{plugin} {service}.{op}") == what)
+            .count()
+    };
+    assert_eq!(screen(&mut device), "home.dashboard");
+    assert!(
+        of("home core.library.query") <= 1
+            && of("home core.library.book") == 0
+            && of("home core.library.cover") <= 1
+            && of("home core.ui.stack") == 0
+            && of("home core.registry.setting") == 0
+            && of("home core.registry.status") == 0
+            && calls.len() <= 6,
+        "the return made {} service calls: {calls:?}",
+        calls.len()
+    );
+    // The widgets measure, wrap and paint once for the bands of the frame, not
+    // once for each band (the emulator draws the shelf's placeholders as the
+    // device draws its titles): 615 slots before (#294), the X4's 470 are kept
+    // pages with covers.
+    assert!(
+        all <= FULL_SHELF_SLOTS,
+        "the first frame made {all} host slots"
+    );
+}
+
+/// The first Back out of the book Home was opened under lays the page out for
+/// the first time (#294): the X4 made 861 host slots and 31 service calls there
+/// against 470 and 19 for the return of a laid-out page. The page, each widget
+/// and the status line read the interface's settings once between them (nine
+/// times 17 reads before), the library is listed once for the measure and the
+/// frame, and the name of Settings comes from the catalog, not the core's
+/// actions (their pages are service calls).
+#[test]
+fn the_first_back_to_home_reads_its_settings_and_registry_once() {
+    let mut device = device(true);
+    let (all, settings) = counted(&mut device, &["back"]);
+    assert_eq!(screen(&mut device), "home.dashboard");
+    eprintln!("COLD first back: {all} slots, {settings} settings reads");
+    assert!(
+        settings <= COLD_SETTINGS && all <= COLD_SLOTS,
+        "the first Back made {all} host slots ({settings} settings reads)"
+    );
+    let calls = slot_counts::service_calls();
+    let of = |what: &str| {
+        calls
+            .iter()
+            .filter(|(plugin, service, op)| format!("{plugin} {service}.{op}") == what)
+            .count()
+    };
+    // The registry is asked once for the lay-out (the widgets' list is two
+    // pages), the library once.
+    assert!(
+        of("home core.registry.widgets") <= 2
+            && of("home core.registry.menu") <= 4
+            && of("home core.registry.actions") == 0
+            && of("home core.library.query") <= 1,
+        "the page asked again: {calls:?}"
     );
 }
 

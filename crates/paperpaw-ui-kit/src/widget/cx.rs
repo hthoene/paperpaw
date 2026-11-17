@@ -2,7 +2,7 @@
 //! font chosen for it, the look its settings make, the clock and the catalog.
 //! Nothing here outlives the callback.
 use crate::{
-    Messages, Style,
+    Messages, SharedInputs, Style,
     widget::{Settings, Shape, settings::text_of},
 };
 use alloc::string::String;
@@ -72,13 +72,27 @@ impl<'a> Cx<'a> {
         widget: &'a str,
         kept: Option<Kept>,
     ) -> Result<Self, Error> {
+        Self::open_kept_with(host, widget, kept, &SharedInputs::default())
+    }
+
+    /// As [`Cx::open_kept`], with the interface's settings taken from `shared`
+    /// where a lay-out shares them ([`SharedInputs::share`]).
+    ///
+    /// # Errors
+    /// The host's refusals and [`Error::NoMemory`].
+    pub fn open_kept_with(
+        host: &'a Host<'a>,
+        widget: &'a str,
+        kept: Option<Kept>,
+        shared: &SharedInputs,
+    ) -> Result<Self, Error> {
         let settings = Settings::new(host, widget);
         let font = widget_font(host, widget)?;
         let snapshot = snapshot::capture_snapshot(host)?;
         let display = (snapshot.display_width(), snapshot.display_height());
         let shape = match for_display(kept.map(|kept| (kept.display, kept.shape)), display) {
             Some(shape) => shape,
-            None => Shape::read(&settings, Style::read(host, &snapshot, &font)?)?,
+            None => Shape::read(&settings, shared.style(host, &snapshot, &font)?)?,
         };
         Ok(Self {
             host,

@@ -137,7 +137,7 @@ pub(super) fn paint_rows(
     heights: &[u16],
     range: core::ops::Range<usize>,
     area: Rect,
-    (shown, cards): (bool, Option<crate::cards::Cards>),
+    (shown, cards, clip): (bool, Option<crate::cards::Cards>, (i32, i32)),
 ) -> Result<Drawn, Error> {
     let mut drawn = Drawn {
         y: area.y,
@@ -157,6 +157,16 @@ pub(super) fn paint_rows(
         let focused = shown && index == list.focus;
         match &list.items[index] {
             Item::Heading(text) => heading(body, font, style, rect, text)?,
+            // A row outside the band being drawn is not laid out (the words of
+            // a note are measured one by one): only where it is, for the touch (#291).
+            Item::Row(row)
+                if !(row.stepper || index < list.grips)
+                    && (i32::from(rect.y.saturating_add(high)) <= clip.0
+                        || i32::from(rect.y) >= clip.1) =>
+            {
+                drawn.hits.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                drawn.hits.push((rect, index));
+            }
             Item::Row(row) => {
                 let grip = (index < list.grips).then_some((&mut drawn.grips, index));
                 if let Some((minus, plus)) = draw_row_with_grip(

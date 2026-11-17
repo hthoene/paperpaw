@@ -17,11 +17,10 @@ use crate::panel::Panel;
 use crate::profiles::Profile;
 use paperpaw_core::sdk::MemoryStorage;
 use paperpaw_fs::DirStorage;
-#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
 use paperpaw_platform::Storage;
 
 mod card;
-pub use card::Card;
+pub use card::{Card, Shared};
 
 /// What the emulated device's storage says it has free (`--free-space`),
 /// where set: screenshots that look the same on every computer.
@@ -77,6 +76,8 @@ pub enum Library {
     Dir(std::path::PathBuf),
     /// Files in memory, kept across restarts.
     Memory(Rc<MemoryStorage>),
+    /// Any other storage of the caller's, kept across restarts.
+    Shared(card::Shared),
 }
 
 impl Library {
@@ -85,6 +86,7 @@ impl Library {
         Ok(match self {
             Library::Dir(root) => Card::Dir(library(root)?),
             Library::Memory(files) => Card::Memory(files.clone()),
+            Library::Shared(files) => Card::Shared(files.clone()),
         })
     }
 }
@@ -255,6 +257,25 @@ impl Device {
         let card = Card::Memory(files.clone());
         let library = Library::Memory(files);
         Self::build(profile, user_config, library, card, simulated_time, add)
+    }
+
+    /// A device whose card is `files`: a storage of the caller's (a FAT
+    /// volume on a RAM disk that counts the commands it is sent, say).
+    pub fn on_storage(
+        profile: &'static Profile,
+        files: Rc<dyn Storage>,
+        simulated_time: bool,
+    ) -> Result<Self, KernelError> {
+        let shared = card::Shared(files);
+        let card = Card::Shared(shared.clone());
+        Self::build(
+            profile,
+            None,
+            Library::Shared(shared),
+            card,
+            simulated_time,
+            None,
+        )
     }
 
     fn build(
