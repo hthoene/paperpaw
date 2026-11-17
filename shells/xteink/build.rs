@@ -50,6 +50,10 @@ fn main() {
     std::fs::copy("memory-x4.x", out.join("memory.x")).expect("memory-x4.x");
     println!("cargo::rustc-link-search={}", out.display());
     println!("cargo::rustc-link-arg=-Tlinkall.x");
+    // The linker folds functions with identical code (#304): 12 KB at
+    // least. A crash trace may name the other of two such functions; the
+    // address and the caller's frames still lead to the place. LLD's.
+    println!("cargo::rustc-link-arg=--icf=all");
     no_rodata_gap(&out);
     if std::env::var_os("CARGO_FEATURE_PPN5").is_some() {
         stack_floor_x4(&out);
