@@ -13,7 +13,7 @@ use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{
     ActionSpec, Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, SettingGroupSpec,
-    Settings, SlotSpec, Version, keys::InputSpec,
+    Settings, SlotSpec, Version,
 };
 
 struct Quiet;
@@ -54,7 +54,6 @@ fn demo(kept: Demo) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         r.add_setting_group(SettingGroupSpec::new(id("demo.top"), "demo.group.top").order(1))?;
         r.add_setting_group(child)?;
         r.add_icon(id("demo.top"), "book")?;
-        r.add_input(InputSpec::new(id("demo.chord"), "demo.input.chord"))?;
         Ok(())
     }
 }
@@ -476,7 +475,7 @@ fn a_slot_shows_its_bound_screen_and_its_offers() {
 }
 
 #[test]
-fn inputs_list_the_device_then_the_plugins_own() {
+fn inputs_list_the_devices_own() {
     let kernel = kernel(0);
     let rows = pages(&kernel, schema::OP_INPUTS, "");
     // The test device has a touch screen and no named buttons.
@@ -485,10 +484,6 @@ fn inputs_list_the_device_then_the_plugins_own() {
         "{rows:?}"
     );
     assert!(rows.contains(&"item swipe.left  4 swipe.left".into()));
-    assert_eq!(
-        rows.last().unwrap(),
-        "item input.demo.chord demo 16 demo.input.chord"
-    );
 }
 
 #[test]
@@ -763,11 +758,11 @@ fn a_plugin_listed_by_the_host_and_a_declaration_batch_bump_the_generation() {
     );
     let listed = generation(&kernel);
     assert_ne!(listed, before);
-    // A batch of declarations, inputs among them.
+    // A batch of declarations, an icon among them.
     let mut staging = crate::registry::Staging::default();
     staging
-        .inputs
-        .push(InputSpec::new(id("later.chord"), "later.input.chord"));
+        .icons
+        .push((id("later.thing"), Cow::Borrowed("gear")));
     kernel.merge(&id("later"), staging).unwrap();
     assert_ne!(generation(&kernel), listed);
 }

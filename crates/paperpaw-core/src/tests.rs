@@ -2842,75 +2842,17 @@ fn plugins_offer_each_other_services() {
     );
 }
 
-/// Turns the `menu` button into the next page, swallows `confirm`, and
-/// refreshes everything in full.
-pub(crate) fn filter_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
-    |r| {
-        use paperpaw_sdk::filters::{
-            InputFilterSpec, InputVerdict, RefreshFilterSpec, RefreshVerdict,
-        };
-        r.add_input_filter(InputFilterSpec::new(
-            Id::new_static("filter.input"),
-            "",
-            Box::new(|_, event| match event {
-                InputEvent::Button {
-                    name: "menu",
-                    state: ButtonState::Pressed,
-                } => InputVerdict::Run(actions::NEXT_PAGE),
-                InputEvent::Button {
-                    name: "menu" | "confirm",
-                    ..
-                } => InputVerdict::Take,
-                _ => InputVerdict::Pass,
-            }),
-        ))?;
-        r.add_refresh_filter(RefreshFilterSpec::new(
-            Id::new_static("filter.refresh"),
-            "",
-            Box::new(|_, refresh| {
-                if refresh.screen.as_ref().map(Id::as_str) == Some("a.screen") {
-                    RefreshVerdict::Mode(RefreshMode::Full)
-                } else {
-                    RefreshVerdict::Keep
-                }
-            }),
-        ))
-    }
+/// A screen of `sized`: the reader's shows the row of hints on a press.
+struct SizedScreen {
+    reader: bool,
 }
-
-/// What [`filter_plugin`] registers under.
-pub(crate) fn filter_plugin_manifest() -> Manifest {
-    Manifest::new(Id::new_static("filter"), "Filters", Version::new(1, 0, 0))
-        .uses(paperpaw_sdk::Uses::NOTHING)
-}
-
-#[test]
-fn filters_see_inputs_and_refreshes_first() {
-    let log = log();
-    let mut kernel = Kernel::builder(DEVICE)
-        .test_plugin(TestPlugin::new("a", &log))
-        .items(filter_plugin_manifest(), filter_plugin())
-        .build()
-        .unwrap();
-    kernel.start(Instant(0));
-    render(&mut kernel);
-    let button = |name, state| InputEvent::Button { name, state };
-    let effects = kernel.handle(Instant(100), button("menu", ButtonState::Pressed));
-    kernel.handle(Instant(150), button("menu", ButtonState::Released));
-    assert_eq!(*log.borrow(), ["a:core.next-page"]);
-    // The screen asked for a partial refresh of a corner: in full, whole.
-    assert_eq!(
-        effects.refresh,
-        Some((Rect::new(0, 0, 90, 90), RefreshMode::Full))
-    );
-    press(&mut kernel, 300, "confirm");
-    assert_eq!(log.borrow().len(), 1, "confirm was taken");
-}
-
-struct SizedScreen;
 
 impl crate::Layer for SizedScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+
+    fn hints(&self) -> Option<paperpaw_sdk::HintVisibility> {
+        self.reader.then_some(paperpaw_sdk::HintVisibility::OnPress)
+    }
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
@@ -2939,15 +2881,13 @@ pub(crate) fn sized_plugin(
                 "sized",
                 Box::new(move |env, _| {
                     made.borrow_mut().push((name, env.device().display.height));
-                    Box::new(SizedScreen)
+                    Box::new(SizedScreen {
+                        reader: name == "reader",
+                    })
                 }),
             ))?;
             r.bind_slot(slot, id, Priority::DEFAULT)?;
         }
-        r.set_screen_hints(
-            Id::new_static("sized.reader"),
-            paperpaw_sdk::HintVisibility::OnPress,
-        )?;
         Ok(())
     }
 }
@@ -2984,14 +2924,13 @@ fn a_row_of_hints_names_the_buttons_below_the_screen() {
         ]
     );
 
-    // The reader keeps all of the screen, made once for it.
+    // The reader keeps all of the screen: made again for it, as it says.
     kernel.apply(Command::OpenSlot(
         slots::READER,
         paperpaw_sdk::Params::new(),
     ));
     kernel.finish();
-    assert_eq!(made.borrow().last(), Some(&("reader", 90)));
-    assert_eq!(made.borrow().len(), 2);
+    assert_eq!(made.borrow()[1..], [("reader", above), ("reader", 90)]);
     assert_eq!(kernel.hint_row(), None);
     // A button of the row shows the row over the page for a while; a side
     // button does not.

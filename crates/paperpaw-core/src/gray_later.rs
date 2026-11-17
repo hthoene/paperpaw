@@ -188,8 +188,7 @@ impl Kernel {
             Phase::At(at)
                 if at <= self.now
                     && self.frame.pending.is_none()
-                    && self.frame.unrendered.is_none()
-                    && self.frame.deferred.is_none() =>
+                    && self.frame.unrendered.is_none() =>
             {
                 self.frame.gray_later.phase = Phase::Pass;
                 self.invalidate(self.framebuffer.bounds());
@@ -277,9 +276,7 @@ impl Kernel {
             // woken at once, again and again), and not nothing (no call
             // might come to bring the grays after a plain frame).
             Phase::At(at) if self.gray_screen() == Some(gray.screen) => {
-                let blocked = self.frame.pending.is_some()
-                    || self.frame.unrendered.is_some()
-                    || self.frame.deferred.is_some();
+                let blocked = self.frame.pending.is_some() || self.frame.unrendered.is_some();
                 Some(if at <= self.now && blocked {
                     self.now.add_millis(RETRY_MS)
                 } else {

@@ -645,16 +645,6 @@ fn sweep_post_factory_allocations(arms: u8) {
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
             .build()
             .unwrap();
-        kernel.shared.actions.insert(
-            paperpaw_sdk::ActionSpec::new(Id::new_static("legacy.action"), "legacy.action")
-                .sealed(),
-        );
-        kernel.shared.actions.add_override(
-            Id::new_static("legacy.action"),
-            paperpaw_sdk::Priority(0),
-            Id::new_static("legacy"),
-            Box::new(|_, _, _| {}),
-        );
         let before = kernel.shared.registry.screens.list().iter().count();
         INSTALL_FAIL_NTH.with(|value| value.set(allocation));
         ARMS.with(|value| value.set(arms));
@@ -662,13 +652,6 @@ fn sweep_post_factory_allocations(arms: u8) {
         ARMS.with(|value| value.set(0));
         arm_failure(0);
         INSTALL_FAIL_NTH.with(|value| value.set(0));
-        // Public lookup hides overrides of sealed actions. Unseal the fixture
-        // after the fault window to observe whether publication removed it.
-        kernel.shared.actions.insert(paperpaw_sdk::ActionSpec::new(
-            Id::new_static("legacy.action"),
-            "legacy.action",
-        ));
-        assert!(kernel.shared.actions.override_of("legacy.action").is_some());
         if result.is_ok() {
             reached_success = true;
             assert_eq!(

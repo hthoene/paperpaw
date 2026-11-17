@@ -48,23 +48,7 @@ fn shelf(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
     // Two layers of its own, the later name first.
     r.add_keymap(
         "[keymap.shelf.zeta]\ntap.center = shelf.tidy\n[keymap.shelf.alpha]\nswipe.up = shelf.sort\n",
-    )?;
-    r.override_action(TIDY, |_, _, _| {}, Priority::DEFAULT)?;
-    r.observe_actions(paperpaw_sdk::ObserverSpec::new(
-        Id::new_static("shelf.seen"),
-        |_, _, _, _| {},
-    ))
-}
-
-/// A second plugin, registered after `shelf` though its name sorts before:
-/// a handler of the same priority in the place of `shelf`'s action, and an
-/// observer of actions.
-fn desk(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
-    r.override_action(TIDY, |_, _, _| {}, Priority::DEFAULT)?;
-    r.observe_actions(paperpaw_sdk::ObserverSpec::new(
-        Id::new_static("desk.seen"),
-        |_, _, _, _| {},
-    ))
+    )
 }
 
 /// The old-API side of `clock`: the action its natively declared menu row
@@ -98,10 +82,6 @@ fn kernel() -> crate::Kernel {
         .items(
             Manifest::new(Id::new_static("shelf"), "Shelf", Version::new(1, 0, 0)),
             shelf,
-        )
-        .items(
-            Manifest::new(Id::new_static("desk"), "Desk", Version::new(1, 0, 0)),
-            desk,
         )
         .items(
             Manifest::new(Id::new_static("clock"), "Clock", Version::new(1, 0, 0)),
@@ -194,23 +174,6 @@ fn a_slots_screens_stand_in_the_order_they_are_tried_not_in_the_lines_order() {
             .iter()
             .any(|line| line.starts_with("plugin | shelf 1.0.0 "))
     );
-}
-
-/// Two handlers of one priority in one action's place, and two observers of
-/// actions, stand in the kernel's order (the plugins' order of registering),
-/// not in their names': a sort of the lines would lose which runs first.
-#[test]
-fn equal_handlers_and_observers_stand_in_the_order_of_registering() {
-    let lines = kernel().registry_lines();
-    assert_eq!(
-        part(&lines, "action-override shelf.tidy"),
-        ["| shelf", "| desk"]
-    );
-    let observers: Vec<&str> = part(&lines, "action-observer")
-        .into_iter()
-        .filter(|line| line.ends_with(".seen"))
-        .collect();
-    assert_eq!(observers, ["| shelf.seen", "| desk.seen"]);
 }
 
 #[test]

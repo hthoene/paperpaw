@@ -1,9 +1,8 @@
 //! The rules of what registers ([`Items`]): ids only in the plugin's
 //! namespace and once per kind (also for settings and presets kept in the
-//! program), every kind of contribution says what it is, typed event
-//! handlers, and a render hook once per id. Until #244's slice D4b these
-//! were tests of the SDK's `Registrar` (`paperpaw-sdk/tests/registry.rs`,
-//! `render_hook.rs`); the bodies are unchanged.
+//! program), every kind of contribution says what it is, and typed event
+//! handlers. Until #244's slice D4b these were tests of the SDK's
+//! `Registrar` (`paperpaw-sdk/tests/registry.rs`); the bodies are unchanged.
 
 #![allow(
     clippy::unwrap_used,
@@ -22,7 +21,6 @@ use std::rc::Rc;
 use paperpaw_core::Items;
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::presets::Preset;
-use paperpaw_sdk::render::{BandView, HookCx, HookStage, RenderHookSpec};
 use paperpaw_sdk::{
     ActionSpec, Command, Contribution, Event, Id, Params, Priority, RegisterError, SettingKind,
     SettingSpec, SettingValue, SlotSpec,
@@ -258,33 +256,4 @@ fn actions_of_another_namespace_or_twice_are_refused() {
         r.add_action(ActionSpec::new(Id::new_static("demo"), "x")),
         Err(RegisterError::Duplicate { .. })
     ));
-}
-
-fn spec(
-    id: &'static str,
-    hook: impl Fn(&mut BandView<'_>, &HookCx<'_>) + 'static,
-) -> RenderHookSpec {
-    RenderHookSpec::new(
-        Id::new_static(id),
-        "demo.hook.title",
-        HookStage::AFTER_BAND,
-        Id::new_static("demo.hook-on"),
-        Box::new(hook),
-    )
-}
-
-#[test]
-fn a_hook_is_accepted_in_the_plugin_s_namespace_and_once_per_id() {
-    let mut r = Items::new(Id::new_static("demo"));
-    r.add_render_hook(spec("demo.night", |_, _| {})).unwrap();
-    assert!(matches!(
-        r.add_render_hook(spec("demo.night", |_, _| {})),
-        Err(RegisterError::Duplicate { .. })
-    ));
-    assert!(matches!(
-        r.add_render_hook(spec("other.night", |_, _| {})),
-        Err(RegisterError::Namespace { .. })
-    ));
-    let kinds: Vec<&str> = r.contributions().iter().map(Contribution::kind).collect();
-    assert_eq!(kinds, ["render-hook"]);
 }

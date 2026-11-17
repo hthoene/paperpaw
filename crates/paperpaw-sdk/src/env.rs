@@ -33,7 +33,7 @@ pub struct Capabilities {
     /// ([`Env::firmware`]).
     pub firmware: bool,
     /// Text is spoken aloud ([`Command::Speak`](crate::Command::Speak)):
-    /// by the system, or a plugin's voice (see [`voices`](crate::voices)).
+    /// by the system, or a plugin's voice (see `voices`).
     pub speech: bool,
     /// PaperPaw shows a screen while the device sleeps
     /// ([`actions::SLEEP`](crate::builtin::actions::SLEEP)); where the
@@ -108,11 +108,11 @@ impl Capability {
     /// A USB link to a computer that developer tools may use
     /// ([`developer`](crate::developer)), once the reader allows them.
     pub const USB_LINK: Self = Self(1 << 7);
-    /// The kernel calls render hooks ([`render`](crate::render)). Where it
+    /// The kernel calls render hooks (`render`). Where it
     /// is missing a hook is accepted and never run; the devices say so
     /// from the release that runs them.
     pub const RENDER_HOOK: Self = Self(1 << 8);
-    /// The kernel fills [`BandView::regions`](crate::render::BandView::regions)
+    /// The kernel fills `BandView::regions`
     /// where it knows what a band holds; where it is missing they are
     /// empty, which means unknown.
     pub const RENDER_REGIONS: Self = Self(1 << 9);
@@ -192,32 +192,15 @@ pub struct Env<'a> {
     plugin_usage: &'a core::cell::RefCell<alloc::vec::Vec<crate::usage::PluginUsage>>,
     /// Items for status lines, from every plugin.
     pub(crate) status_items: &'a StatusItems,
-    /// Filters of book text before it is laid out, from every plugin.
-    pub(crate) text_filters: &'a crate::filters::TextFilters,
     /// Marks on the words of book pages, from every plugin (see
     /// [`decorations`](crate::decorations)).
     pub(crate) decorators: &'a crate::decorations::Decorators,
-    /// Layers on book pages and frames of their text, from every plugin
-    /// (see [`layers`](crate::layers)).
-    pub(crate) page_layers: &'a crate::layers::PageLayers,
-    /// Where words are looked up, from every plugin (see
-    /// [`lookup`](crate::lookup)).
-    pub(crate) lookup: &'a crate::lookup::LookupProviders,
-    /// The reading apps, from every plugin (see
-    /// [`readers`](crate::readers)).
-    pub(crate) readers: &'a crate::readers::Readers,
     /// Plugins' stylesheets for books, in the order of the plugins (see
     /// `Items::add_stylesheet`).
     pub(crate) stylesheets: &'a [alloc::borrow::Cow<'static, str>],
     /// Folders of what plugins keep for each book
     /// (`Items::add_book_data`).
     pub(crate) book_data: &'a [crate::library::BookData],
-    /// Fields plugins keep with books
-    /// (`Items::add_book_field`).
-    pub(crate) book_fields: &'a [crate::library::BookField],
-    /// Badges plugins put on books' rows
-    /// (`Items::add_book_badge`).
-    pub(crate) book_badges: &'a [crate::library::BookBadge],
     /// Widgets for screens that show them, from every plugin.
     pub(crate) widgets: &'a crate::widgets::Widgets,
     /// The steps of the first-run setup, from every plugin (see
@@ -265,9 +248,6 @@ pub struct Env<'a> {
     /// What the reader used last: buttons, a finger or a pen, e.g. to
     /// show a focus only after buttons were used, also on touch devices.
     pub(crate) last_input: crate::keys::InputMode,
-    /// The inputs plugins added ([`keys::InputSpec`](crate::keys::InputSpec)),
-    /// to bind like any other.
-    pub(crate) inputs: &'a [crate::keys::InputSpec],
     /// Answers for the screens and slots: the kernel's
     /// ([`Env::with_screen_maker`]). Never behind a feature: a
     /// plugin built without `kernel` reads the `Env` the kernel made.
@@ -412,33 +392,10 @@ impl<'a> Env<'a> {
         self.status_items
     }
 
-    /// Filters of book text before it is laid out, from every plugin.
-    pub fn text_filters(&self) -> &'a crate::filters::TextFilters {
-        self.text_filters
-    }
-
     /// Marks on the words of book pages, from every plugin (see
     /// [`decorations`](crate::decorations)).
     pub fn decorators(&self) -> &'a crate::decorations::Decorators {
         self.decorators
-    }
-
-    /// Layers on book pages and frames of their text, from every plugin
-    /// (see [`layers`](crate::layers)).
-    pub fn page_layers(&self) -> &'a crate::layers::PageLayers {
-        self.page_layers
-    }
-
-    /// Where words are looked up, from every plugin (see
-    /// [`lookup`](crate::lookup)).
-    pub fn lookup(&self) -> &'a crate::lookup::LookupProviders {
-        self.lookup
-    }
-
-    /// The reading apps, from every plugin (see
-    /// [`readers`](crate::readers)).
-    pub fn readers(&self) -> &'a crate::readers::Readers {
-        self.readers
     }
 
     /// Plugins' stylesheets for books, in the order of the plugins (see
@@ -451,18 +408,6 @@ impl<'a> Env<'a> {
     /// (`Items::add_book_data`).
     pub fn book_data(&self) -> &'a [crate::library::BookData] {
         self.book_data
-    }
-
-    /// Fields plugins keep with books
-    /// (`Items::add_book_field`).
-    pub fn book_fields(&self) -> &'a [crate::library::BookField] {
-        self.book_fields
-    }
-
-    /// Badges plugins put on books' rows
-    /// (`Items::add_book_badge`).
-    pub fn book_badges(&self) -> &'a [crate::library::BookBadge] {
-        self.book_badges
     }
 
     /// Widgets for screens that show them, from every plugin.
@@ -555,12 +500,6 @@ impl<'a> Env<'a> {
     /// show a focus only after buttons were used, also on touch devices.
     pub fn last_input(&self) -> crate::keys::InputMode {
         self.last_input
-    }
-
-    /// The inputs plugins added ([`keys::InputSpec`](crate::keys::InputSpec)),
-    /// to bind like any other.
-    pub fn inputs(&self) -> &'a [crate::keys::InputSpec] {
-        self.inputs
     }
 
     /// The part of the screen what is handled now is made for and drawn
@@ -722,32 +661,15 @@ pub struct EnvParts<'a> {
     pub plugin_usage: &'a core::cell::RefCell<alloc::vec::Vec<crate::usage::PluginUsage>>,
     /// Items for status lines, from every plugin.
     pub status_items: &'a StatusItems,
-    /// Filters of book text before it is laid out, from every plugin.
-    pub text_filters: &'a crate::filters::TextFilters,
     /// Marks on the words of book pages, from every plugin (see
     /// [`decorations`](crate::decorations)).
     pub decorators: &'a crate::decorations::Decorators,
-    /// Layers on book pages and frames of their text, from every plugin
-    /// (see [`layers`](crate::layers)).
-    pub page_layers: &'a crate::layers::PageLayers,
-    /// Where words are looked up, from every plugin (see
-    /// [`lookup`](crate::lookup)).
-    pub lookup: &'a crate::lookup::LookupProviders,
-    /// The reading apps, from every plugin (see
-    /// [`readers`](crate::readers)).
-    pub readers: &'a crate::readers::Readers,
     /// Plugins' stylesheets for books, in the order of the plugins (see
     /// `Items::add_stylesheet`).
     pub stylesheets: &'a [alloc::borrow::Cow<'static, str>],
     /// Folders of what plugins keep for each book
     /// (`Items::add_book_data`).
     pub book_data: &'a [crate::library::BookData],
-    /// Fields plugins keep with books
-    /// (`Items::add_book_field`).
-    pub book_fields: &'a [crate::library::BookField],
-    /// Badges plugins put on books' rows
-    /// (`Items::add_book_badge`).
-    pub book_badges: &'a [crate::library::BookBadge],
     /// Widgets for screens that show them, from every plugin.
     pub widgets: &'a crate::widgets::Widgets,
     /// The steps of the first-run setup, from every plugin (see
@@ -795,9 +717,6 @@ pub struct EnvParts<'a> {
     /// What the reader used last: buttons, a finger or a pen, e.g. to
     /// show a focus only after buttons were used, also on touch devices.
     pub last_input: crate::keys::InputMode,
-    /// The inputs plugins added ([`keys::InputSpec`](crate::keys::InputSpec)),
-    /// to bind like any other.
-    pub inputs: &'a [crate::keys::InputSpec],
     /// The part of the screen what is handled now is made for and drawn
     /// into, with its place on the screen: all of it but bars and the row
     /// of hints for a screen, a bar's strip for a bar. A screen draws and
@@ -872,15 +791,9 @@ impl<'a> From<EnvParts<'a>> for Env<'a> {
             usage: p.usage,
             plugin_usage: p.plugin_usage,
             status_items: p.status_items,
-            text_filters: p.text_filters,
             decorators: p.decorators,
-            page_layers: p.page_layers,
-            lookup: p.lookup,
-            readers: p.readers,
             stylesheets: p.stylesheets,
             book_data: p.book_data,
-            book_fields: p.book_fields,
-            book_badges: p.book_badges,
             widgets: p.widgets,
             setup: p.setup,
             services: p.services,
@@ -898,7 +811,6 @@ impl<'a> From<EnvParts<'a>> for Env<'a> {
             reader: p.reader,
             clipboard: p.clipboard,
             last_input: p.last_input,
-            inputs: p.inputs,
             screen_maker: None,
             content: p.content,
             stack: p.stack,

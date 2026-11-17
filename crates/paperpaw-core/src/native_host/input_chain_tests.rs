@@ -420,8 +420,7 @@ mod kernel {
     use paperpaw_native::host_glue::ERR_BUSY;
     use paperpaw_sdk::{
         ActionSpec, Cx, Env, Handled, Id, Manifest, Params, RegisterError, Uses, Version,
-        filters::{InputFilterSpec, InputVerdict},
-        keys::InputSpec as PluginInput,
+        keys::InputMode,
     };
 
     extern crate std;
@@ -435,7 +434,7 @@ mod kernel {
         /// How often the action `f.chord` ran, and a screen got a gesture.
         static RAN: Cell<u32> = const { Cell::new(0) };
         static GESTURES: Cell<u32> = const { Cell::new(0) };
-        /// Who saw an input, in order: `native` or `legacy`.
+        /// Who saw an input, in order: `native`.
         static ORDER: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
     }
     const PASS: u8 = 0;
@@ -514,23 +513,14 @@ mod kernel {
                     "pin",
                     Box::new(|_, _| Box::new(Seen(false, true))),
                 ))?;
-                // An input of its own the native filter can raise, the action
-                // it runs, and an interface-6 filter that watches.
-                r.add_input(PluginInput::new(Id::new_static("f.chord"), "f.chord"))?;
+                // The action an input of its own the native filter can raise
+                // runs.
                 r.add_action(
                     ActionSpec::new(Id::new_static("f.chord"), "f.chord")
                         .handler(|_, _, _| RAN.with(|count| count.set(count.get() + 1))),
                 )?;
                 r.add_keymap(alloc::borrow::Cow::Borrowed(
                     "[keymap.global]\ninput.f.chord = f.chord\n",
-                ))?;
-                r.add_input_filter(InputFilterSpec::new(
-                    Id::new_static("f.legacy"),
-                    "",
-                    Box::new(|_, _| {
-                        ORDER.with(|order| order.borrow_mut().push("legacy"));
-                        InputVerdict::Pass
-                    }),
                 ))
             }
         }
@@ -678,7 +668,15 @@ mod kernel {
             .unwrap()
             .commit();
         kernel.shared.registry.native_declarations = Some(directory);
+        kernel.shared.last_input = InputMode::Touch;
         (kernel, calls)
+    }
+
+    /// Whether a key went on past the filters since the last ask: only one
+    /// that did marks buttons as what the reader used last ([`world`] starts
+    /// with a touch, and this sets one again).
+    fn went_on(kernel: &mut crate::Kernel) -> bool {
+        core::mem::replace(&mut kernel.shared.last_input, InputMode::Touch) == InputMode::Buttons
     }
 
     fn key(kernel: &mut crate::Kernel, at: u64) {
@@ -777,16 +775,18 @@ mod kernel {
         MODE.set(RAISE);
         kernel.handle(paperpaw_platform::Instant(10), press("up"));
         assert_eq!((calls.get(), RAN.get()), (1, 1));
-        // The interface-6 filters did not see the raised key: the chain ended.
+        // The raised key went no further: the chain ended.
         assert_eq!(ORDER.with(|order| order.borrow().clone()), ["native"]);
+        assert!(!went_on(&mut kernel));
         // An input the plugin did not declare: the key goes on, nothing runs.
         MODE.set(RAISE_UNDECLARED);
         kernel.handle(paperpaw_platform::Instant(20), press("up"));
         assert_eq!(RAN.get(), 1);
         assert_eq!(
             ORDER.with(|order| order.borrow().clone()),
-            ["native", "native", "legacy"]
+            ["native", "native"]
         );
+        assert!(went_on(&mut kernel));
     }
 
     #[test]
@@ -814,17 +814,16 @@ mod kernel {
     }
 
     #[test]
-    fn the_native_chain_comes_first_and_a_take_ends_it() {
+    fn a_key_the_native_chain_passes_goes_on_and_a_take_ends_it() {
         let (mut kernel, calls) = world();
         kernel.handle(paperpaw_platform::Instant(10), press("up"));
-        assert_eq!(
-            ORDER.with(|order| order.borrow().clone()),
-            ["native", "legacy"]
-        );
+        assert_eq!(ORDER.with(|order| order.borrow().clone()), ["native"]);
+        assert!(went_on(&mut kernel));
         ORDER.with(|order| order.borrow_mut().clear());
         MODE.set(TAKE);
         kernel.handle(paperpaw_platform::Instant(20), press("down"));
         assert_eq!(ORDER.with(|order| order.borrow().clone()), ["native"]);
+        assert!(!went_on(&mut kernel));
         assert_eq!(calls.get(), 2);
     }
 
@@ -834,8 +833,8 @@ mod kernel {
         kernel.handle(paperpaw_platform::Instant(10), press(buttons::POWER));
         assert_eq!(calls.get(), 0);
         ORDER.with(|order| order.borrow_mut().clear());
-        // A failing callback: the key passes (the interface-6 filter sees it),
-        // and the warning comes once while it keeps failing.
+        // A failing callback: the key passes, and the warning comes once
+        // while it keeps failing.
         let told = |kernel: &mut crate::Kernel| {
             kernel
                 .take_warnings()
@@ -844,11 +843,10 @@ mod kernel {
                 .count()
         };
         MODE.set(FAIL);
+        went_on(&mut kernel);
         kernel.handle(paperpaw_platform::Instant(20), press("up"));
-        assert_eq!(
-            ORDER.with(|order| order.borrow().clone()),
-            ["native", "legacy"]
-        );
+        assert_eq!(ORDER.with(|order| order.borrow().clone()), ["native"]);
+        assert!(went_on(&mut kernel));
         assert_eq!(told(&mut kernel), 1);
         MODE.set(FAIL);
         kernel.handle(paperpaw_platform::Instant(30), press("up"));
@@ -860,9 +858,11 @@ mod kernel {
         kernel.shared.native_instances.stop(owner).unwrap();
         ORDER.with(|order| order.borrow_mut().clear());
         let before = calls.get();
+        went_on(&mut kernel);
         kernel.handle(paperpaw_platform::Instant(50), press("up"));
         assert_eq!(calls.get(), before);
-        assert_eq!(ORDER.with(|order| order.borrow().clone()), ["legacy"]);
+        assert!(ORDER.with(|order| order.borrow().is_empty()));
+        assert!(went_on(&mut kernel));
         assert_eq!(told(&mut kernel), 1);
     }
 

@@ -372,11 +372,6 @@ impl<'a> MenuView<'a> {
         self.menus.icon(item)
     }
 
-    /// As [`Menus::description`], for as long as the menus are lent.
-    pub fn description(&self, item: &str) -> Option<&'a str> {
-        self.menus.description(item)
-    }
-
     /// As [`Menus::ids`], for as long as the menus are lent.
     pub fn ids(&self, menu: &str) -> Vec<&'a Id> {
         self.menus.ids(menu)
@@ -436,8 +431,6 @@ pub struct Menus {
     /// What entries show now, where it changes.
     states: VecMap<Id, StateFn>,
     /// A line under an entry (translation keys). Names of a hundred
-    /// entries each, so in two words a name rather than three.
-    descriptions: VecMap<Id, Text>,
     titles: VecMap<Id, Text>,
     icons: VecMap<Id, Text>,
     /// Icons kept in the program (`static` lists of plugins'); those of
@@ -473,7 +466,6 @@ impl Menus {
         }
         self.hidden.shrink_to_fit();
         self.states.shrink_to_fit();
-        self.descriptions.shrink_to_fit();
         self.titles.shrink_to_fit();
         self.icons.shrink_to_fit();
         self.sections.shrink_to_fit();
@@ -603,23 +595,11 @@ impl Menus {
         self.states.insert(item, StateFn(state));
     }
 
-    /// A line under `item` (a translation key).
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn set_description(&mut self, item: Id, key: Cow<'static, str>) {
-        self.descriptions.insert(item, Text::new(key));
-    }
-
     /// What `item` shows now: as it is unless its plugin says otherwise.
     pub fn state(&self, env: &crate::Env<'_>, item: &str) -> ItemState {
         self.states
             .get(item)
             .map_or_else(ItemState::new, |state| (state.0)(env))
-    }
-
-    /// The line under `item` (a translation key), if it has one.
-    pub fn description(&self, item: &str) -> Option<&str> {
-        self.descriptions.get(item).map(AsRef::as_ref)
     }
 
     /// Whether the user redefined `menu`.
