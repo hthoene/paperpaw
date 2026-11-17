@@ -1337,6 +1337,20 @@ fn no_split_parts(funcs: &[Function]) -> Result<(), String> {
     })
 }
 
+/// The `allow` lines nothing used: a warning for the two kinds that only grant what a site
+/// needs (#309), a problem for the rest.
+fn report_unused(budget: &Budget, used: &[bool], report: &mut Report) {
+    for (n, (allow, _)) in budget.allow.iter().enumerate() {
+        if !used[n] {
+            let line = format!("an `allow` line matches nothing any more: {allow:?}: remove it");
+            if matches!(allow, Allow::Call { .. } | Allow::Indirect { .. }) {
+                report.warnings.push(line);
+            } else {
+                report.problems.push(line);
+            }
+        }
+    }
+}
 /// Reads `elf` and checks the set the budget's roots and tables reach.
 pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     if elf.machine != EM_XTENSA {
@@ -1433,16 +1447,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     report
         .problems
         .extend(family::frames_in_problems(&image, &around, budget));
-    for (n, (allow, _)) in budget.allow.iter().enumerate() {
-        if !used[n] {
-            let line = format!("an `allow` line matches nothing any more: {allow:?}: remove it");
-            if matches!(allow, Allow::Call { .. } | Allow::Indirect { .. }) {
-                report.warnings.push(line);
-            } else {
-                report.problems.push(line);
-            }
-        }
-    }
+    report_unused(budget, &used, &mut report);
     // One line per site is noise: a function calling `memcpy` fifty times is
     // one line (`allow call` is per caller and callee already).
     let mut seen_lines = BTreeSet::new();
