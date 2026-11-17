@@ -3,6 +3,7 @@
 //! registry changed ([`Dashboard::forget_looks`]), not at every draw (the X4
 //! draws a frame in five bands, each a call of `draw`).
 use alloc::vec::Vec;
+use core::cell::RefCell;
 
 use super::{Cell, Dashboard, Error, Font, Host, Laid, Made, Rect, Snapshot, Style, Ui, icons};
 use paperpaw_sdk::native::snapshot;
@@ -17,6 +18,10 @@ pub(super) type StatusLine = Option<(Made, Rect)>;
 pub(super) struct Look {
     pub(super) style: Style,
     pub(super) wrapped: Vec<(u16, icons::Name)>,
+    /// What drawing each tool measured (one per tool, in the order of
+    /// `wrapped`), kept for the later bands and draws of the page: they ask the
+    /// host the same questions again otherwise.
+    pub(super) shapes: RefCell<Vec<Option<icons::Geometry>>>,
     /// Whether the tools show their names.
     tool_labels: bool,
     /// Whether the rest is what the settings say now.
@@ -39,11 +44,46 @@ impl Look {
         held.push(Self {
             style,
             wrapped,
+            shapes: RefCell::new(Vec::new()),
             tool_labels,
             // Hyphenation refused: the names are wrapped again at the next draw.
             ok: !refused,
         });
         Ok(held)
+    }
+}
+
+impl Look {
+    /// What drawing tool number `tool` measures: kept from the first draw of it
+    /// in this look (see [`Look::shapes`]), measured now where it is not or no
+    /// longer says what the draw needs.
+    ///
+    /// # Errors
+    /// Font refusals and [`Error::NoMemory`].
+    pub(super) fn shape_of(
+        &self,
+        tool: usize,
+        fonts: &icons::Fonts<'_, '_>,
+        cell: Rect,
+        shown: &icons::Tool<'_>,
+    ) -> Result<icons::Geometry, Error> {
+        let kept = self.shapes.borrow().get(tool).copied().flatten();
+        if let Some(shape) = kept.filter(|shape| shape.fits(fonts, shown)) {
+            return Ok(shape);
+        }
+        let shape = icons::measure_tool(fonts, &self.style, cell, shown)?;
+        let mut shapes = self.shapes.borrow_mut();
+        if shapes.len() <= tool {
+            let more = tool + 1 - shapes.len();
+            shapes
+                .try_reserve_exact(more)
+                .map_err(|_| Error::NoMemory)?;
+            shapes.resize(tool + 1, None);
+        }
+        if let Some(at) = shapes.get_mut(tool) {
+            *at = Some(shape);
+        }
+        Ok(shape)
     }
 }
 
@@ -99,7 +139,7 @@ fn tool_lines(
     tool_labels: bool,
 ) -> Result<(Vec<(u16, icons::Name)>, bool), Error> {
     let mut lines = Vec::new();
-    let hyphens = icons::Hyphens::of(host);
+    let hyphens = icons::Hyphens::OFF;
     let refused = core::cell::Cell::new(false);
     let mut breaks = |word: &str, out: &mut _| hyphens.breaks_noting(host, word, out, &refused);
     for cell in cells {

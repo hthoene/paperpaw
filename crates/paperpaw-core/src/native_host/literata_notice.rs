@@ -6,8 +6,8 @@ use paperpaw_sdk::Id;
 pub(crate) const SCREEN: Id = Id::new_static("core.literata-notice");
 pub(crate) const ANSWERED: Id = Id::new_static("core.literata-pack-answered");
 
-pub(crate) static SCREENS: [paperpaw_sdk::FixedScreen; 1] = [paperpaw_sdk::FixedScreen::new(
+pub(crate) static SCREENS: [crate::KernelScreen; 1] = [crate::KernelScreen::new(
     SCREEN,
     "core.literata-pack.title",
-    |env, params| Box::new(StartNotice::literata(env, params)),
+    |env, params| crate::layer::old(Box::new(StartNotice::literata(env, params))),
 )];

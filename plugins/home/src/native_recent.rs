@@ -2,7 +2,7 @@
 //! last, from the library service (the catalog follows the reading events, so any
 //! reader plugin works), and a book's cover as a picture the host draws.
 use alloc::{string::String, vec::Vec};
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use paperpaw_sdk::{
     Rect,
     native::{
@@ -58,7 +58,23 @@ pub struct Known {
     held: RefCell<(u32, Vec<(u32, bool)>)>,
     /// Where each book's cover stood when it was last asked (generation, key):
     /// a draw asks the host once, not once for each band of a frame.
-    covers: RefCell<Vec<(u32, u32, Covered)>>,
+    /// A cover that is ready is kept across generations (the key and the title
+    /// tell the book): the catalog changes with every book read, and the
+    /// host's look at the book's files costs more than a half second on the X4.
+    covers: RefCell<Vec<(u32, u32, u64, Covered)>>,
+    /// The books the library listed (the opened ones, at most one page) at the
+    /// last read: a frame is drawn in bands, and each asked the host again (a
+    /// query is a score of card reads on the X4, #267). Kept for the bands of
+    /// one frame ([`Known::begin_draw`]) and let go by every call into the
+    /// plugin that is no draw ([`Known::fresh`]): a draw after the library
+    /// changed asks again, as it always did.
+    listed: RefCell<Option<Vec<Book>>>,
+    /// The `clip_top` of the last draw of this widget: bands of a frame come
+    /// top down, so a draw not below the last one begins a frame.
+    last_top: Cell<i32>,
+    /// Whether `listed` was read by a draw (not by a measure, which the first
+    /// draw after it may use).
+    by_draw: Cell<bool>,
 }
 
 impl Known {
@@ -88,7 +104,32 @@ impl Known {
     /// What the host said is not kept any more.
     pub fn forget(&self) {
         *self.held.borrow_mut() = (0, Vec::new());
-        self.forget_covers();
+        // A cover that is ready is the book's still (a draw that finds the host
+        // ended its picture, or a tick that finds one being made, forgets them all).
+        self.covers
+            .borrow_mut()
+            .retain(|(.., covered)| matches!(covered, Covered::Ready(_)));
+        self.fresh();
+    }
+
+    /// The list of books is asked of the host again at the next read: what
+    /// happened since the last draw (an event, a tick, a tap) may have changed it.
+    pub fn fresh(&self) {
+        *self.listed.borrow_mut() = None;
+        self.last_top.set(i32::MAX);
+        self.by_draw.set(false);
+    }
+
+    /// A draw of this widget begins, its clip starting at row `top`: one that
+    /// does not start below the last begins a frame, which asks the library
+    /// again; the bands after it use what it read. What a measure just read
+    /// (no draw between it and this one) is used by the frame.
+    pub fn begin_draw(&self, top: i32) {
+        if top <= self.last_top.get() && self.by_draw.get() {
+            *self.listed.borrow_mut() = None;
+        }
+        self.last_top.set(top);
+        self.by_draw.set(true);
     }
 
     /// The covers are asked about anew at the next draw: one that was being
@@ -97,26 +138,44 @@ impl Known {
         self.covers.borrow_mut().clear();
     }
 
-    fn cover_of(&self, generation: u32, key: u32) -> Option<Covered> {
+    fn cover_of(&self, book: &Book) -> Option<Covered> {
+        let title = title_hash(&book.title);
         self.covers
             .borrow()
             .iter()
-            .find(|(g, k, _)| *g == generation && *k == key)
+            .find(|(g, k, t, covered)| {
+                *k == book.key
+                    && (*g == book.generation
+                        || (*t == title && matches!(covered, Covered::Ready(_))))
+            })
             .map(|(.., covered)| *covered)
     }
 
-    fn keep_cover(&self, generation: u32, key: u32, covered: Covered) {
+    fn keep_cover(&self, book: &Book, covered: Covered) {
+        let title = title_hash(&book.title);
         let mut covers = self.covers.borrow_mut();
+        // Only what is ready outlives its generation, and a book has one place.
+        covers.retain(|(g, k, t, old)| {
+            (*g == book.generation || matches!(old, Covered::Ready(_)))
+                && !(*k == book.key && *t == title)
+        });
         // At most the rows one page holds; a refused allocation keeps nothing,
         // and the next draw asks again.
-        covers.retain(|(g, ..)| *g == generation);
         if covers.capacity() == 0 && covers.try_reserve_exact(PAGE).is_err() {
             return;
         }
-        if covers.len() < PAGE {
-            covers.push((generation, key, covered));
+        if covers.len() >= PAGE {
+            covers.remove(0);
         }
+        covers.push((book.generation, book.key, title, covered));
     }
+}
+
+/// FNV-1a of a title, to tell a book of one generation from another's.
+fn title_hash(title: &str) -> u64 {
+    title.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 /// The `take` books opened after the first `skip` whose files are on the card,
@@ -151,6 +210,45 @@ fn recent(
     if want <= skip {
         return Ok(Vec::new());
     }
+    let Some(known) = known else {
+        // The tick's read: one query, never from what a draw kept.
+        let mut books = listed(host, want)?;
+        books.drain(..skip.min(books.len()));
+        return Ok(books);
+    };
+    if known.listed.borrow().is_none() {
+        let page = listed(host, PAGE)?;
+        *known.listed.borrow_mut() = Some(page);
+    }
+    let memo = known.listed.borrow();
+    let all = memo.as_deref().unwrap_or_default();
+    let mut books = Vec::new();
+    let mut seen = 0;
+    for book in all {
+        if seen == want {
+            break;
+        }
+        if gone_known(host, known, book)? {
+            continue;
+        }
+        seen += 1;
+        if seen <= skip {
+            continue;
+        }
+        books.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        books.push(Book {
+            key: book.key,
+            generation: book.generation,
+            title: copy(&book.title)?,
+            progress: book.progress,
+        });
+    }
+    Ok(books)
+}
+
+/// The first `rows` books the catalog lists as opened, the one opened last
+/// first. A book never opened is not recent: the list ends there.
+fn listed(host: &Host<'_>, rows: usize) -> Result<Vec<Book>, Error> {
     with_library(host, |library| {
         let (mut input, mut out) = (
             mem::buffer(mem::SERVICE_BUFFER)?,
@@ -159,27 +257,11 @@ fn recent(
         let query = Query::new().sort(Sort::RecentlyOpened);
         let page = library.query(host, &query, &mut input, &mut out)?;
         let generation = page.end().generation();
-        // The book calls need buffers of their own; the tick's read has none.
-        let mut asking = match known {
-            Some(_) => Some((mem::buffer(1024)?, mem::buffer(mem::SERVICE_BUFFER)?)),
-            None => None,
-        };
         let mut books = Vec::new();
-        let mut seen = 0;
         for row in page.rows().take(PAGE) {
             let row = row?;
-            if !row.opened() || seen == want {
+            if !row.opened() || books.len() == rows {
                 break;
-            }
-            if let (Some(known), Some((ask, answer))) = (known, asking.as_mut()) {
-                let (key, buffers) = (row.key(), (&mut ask[..], &mut answer[..]));
-                if gone(host, library, (known, generation, key), buffers)? {
-                    continue;
-                }
-            }
-            seen += 1;
-            if seen <= skip {
-                continue;
             }
             books.try_reserve(1).map_err(|_| Error::NoMemory)?;
             books.push(Book {
@@ -243,6 +325,22 @@ fn without_missing(
         }
     }
     Ok(Some(out))
+}
+
+/// [`gone`] with the library opened only where the host has to be asked.
+fn gone_known(host: &Host<'_>, known: &Known, book: &Book) -> Result<bool, Error> {
+    if let Some(gone) = known.gone(book.generation, book.key) {
+        return Ok(gone);
+    }
+    with_library(host, |library| {
+        let (mut ask, mut answer) = (mem::buffer(1024)?, mem::buffer(mem::SERVICE_BUFFER)?);
+        gone(
+            host,
+            library,
+            (known, book.generation, book.key),
+            (&mut ask[..], &mut answer[..]),
+        )
+    })
 }
 
 /// Whether the file of the book `key` is not on the card now. A book the
@@ -345,11 +443,11 @@ pub fn cover_known(
     library: &Library,
     book: &Book,
 ) -> Result<Covered, Error> {
-    if let Some(covered) = known.cover_of(book.generation, book.key) {
+    if let Some(covered) = known.cover_of(book) {
         return Ok(covered);
     }
     let covered = cover(host, library, book)?;
-    known.keep_cover(book.generation, book.key, covered);
+    known.keep_cover(book, covered);
     Ok(covered)
 }
 
@@ -396,22 +494,52 @@ pub fn fitted(size: (u32, u32), place: Rect, x: f32, y: f32) -> Rect {
 mod tests {
     use super::*;
 
+    fn book(generation: u32, key: u32, title: &str) -> Book {
+        Book {
+            key,
+            generation,
+            title: String::from(title),
+            progress: 0,
+        }
+    }
+
+    fn ready() -> Covered {
+        Covered::Ready(Cover {
+            image: ImageId::new(5).unwrap(),
+            width: 3,
+            height: 4,
+        })
+    }
+
     #[test]
     fn a_cover_is_remembered_by_book_and_generation_until_forgotten() {
         let known = Known::default();
-        assert_eq!(known.cover_of(1, 7), None);
-        known.keep_cover(1, 7, Covered::Busy);
-        known.keep_cover(1, 8, Covered::None);
-        assert_eq!(known.cover_of(1, 7), Some(Covered::Busy));
-        assert_eq!(known.cover_of(1, 8), Some(Covered::None));
+        let (a, b) = (book(1, 7, "A"), book(1, 8, "B"));
+        assert_eq!(known.cover_of(&a), None);
+        known.keep_cover(&a, Covered::Busy);
+        known.keep_cover(&b, Covered::None);
+        assert_eq!(known.cover_of(&a), Some(Covered::Busy));
+        assert_eq!(known.cover_of(&b), Some(Covered::None));
         // Another generation of the catalog is another question.
-        assert_eq!(known.cover_of(2, 7), None);
+        assert_eq!(known.cover_of(&book(2, 7, "A")), None);
         known.forget_covers();
-        assert_eq!(known.cover_of(1, 7), None);
-        // What the tick found changed forgets the covers with the files.
-        known.keep_cover(1, 7, Covered::None);
+        assert_eq!(known.cover_of(&a), None);
+        // What the tick found changed forgets what was not ready with the files.
+        known.keep_cover(&a, Covered::None);
         known.forget();
-        assert_eq!(known.cover_of(1, 7), None);
+        assert_eq!(known.cover_of(&a), None);
+    }
+
+    #[test]
+    fn a_ready_cover_outlives_the_generation_and_the_tick_for_the_same_book() {
+        let known = Known::default();
+        known.keep_cover(&book(1, 7, "A"), ready());
+        known.forget();
+        assert_eq!(known.cover_of(&book(2, 7, "A")), Some(ready()));
+        // Another title at the key is another book.
+        assert_eq!(known.cover_of(&book(2, 7, "B")), None);
+        known.forget_covers();
+        assert_eq!(known.cover_of(&book(2, 7, "A")), None);
     }
 
     #[test]
