@@ -5,8 +5,8 @@
 //!
 //! Each screen is a page of the kit: text and messages, rows, buttons and
 //! segments, layout and cards, an address and an offer, a dialog,
-//! fields, ticks, chips and long text, date and time, a choice, a yes/no
-//! question. The
+//! fields, ticks, chips and long text, date and time. (The choice and the
+//! yes/no question are the dialog plugin's since #293.) The
 //! texts are the kit's own (English alone): what each part is called.
 
 use std::borrow::Cow;
@@ -29,7 +29,7 @@ pub fn add(app: KernelBuilder) -> KernelBuilder {
 }
 
 /// The pages, by screen id and title key.
-const PAGES: [(&str, &str); 20] = [
+const PAGES: [(&str, &str); 18] = [
     ("ui-kit.text", "ui-kit.text"),
     ("ui-kit.messages", "ui-kit.messages"),
     ("ui-kit.empties", "ui-kit.empties"),
@@ -48,8 +48,6 @@ const PAGES: [(&str, &str); 20] = [
     ("ui-kit.ticks", "ui-kit.ticks"),
     ("ui-kit.chips", "ui-kit.chips"),
     ("ui-kit.pickers", "ui-kit.pickers"),
-    ("ui-kit.choice", "ui-kit.choice"),
-    ("ui-kit.confirm", "ui-kit.confirm"),
 ];
 
 const TEXTS: &str = "[meta]
@@ -78,11 +76,6 @@ ui-kit.inputs = Text fields
 ui-kit.ticks = Ticked rows
 ui-kit.chips = Chips and long text
 ui-kit.pickers = Date and time
-ui-kit.choice = Choice
-ui-kit.confirm = Delete the book?
-ui-kit.option.light = A light
-ui-kit.option.calm = Calm
-ui-kit.option.dark = Dark
 ui-kit.confirm.text = It goes from the library and the card.
 ui-kit.confirm.yes = Delete
 ui-kit.confirm.no = Keep
@@ -161,11 +154,6 @@ ui-kit.inputs = Textfelder
 ui-kit.ticks = Häkchen-Zeilen
 ui-kit.chips = Chips und langer Text
 ui-kit.pickers = Datum und Uhrzeit
-ui-kit.choice = Auswahl
-ui-kit.confirm = Das Buch endgültig von der Speicherkarte löschen?
-ui-kit.option.light = Hell
-ui-kit.option.calm = Ruhig
-ui-kit.option.dark = Dunkel
 ui-kit.confirm.text = Es verschwindet aus der Bibliothek und von der Speicherkarte.
 ui-kit.confirm.yes = Endgültig löschen
 ui-kit.confirm.no = Behalten
@@ -223,11 +211,8 @@ fn ui_kit() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         r.add_translations(Cow::Borrowed(TEXTS))?;
         r.add_translations(Cow::Borrowed(TEXTS_DE))?;
         for (index, (id, title)) in PAGES.into_iter().enumerate() {
-            let factory: paperpaw_core::LayerFactory = match id {
-                "ui-kit.choice" => Box::new(|env, _| Box::new(choice(env))),
-                "ui-kit.confirm" => Box::new(|env, _| Box::new(confirm(env))),
-                _ => Box::new(move |env, _| Box::new(Page::new(env, index))),
-            };
+            let factory: paperpaw_core::LayerFactory =
+                Box::new(move |env, _| Box::new(Page::new(env, index)));
             r.add_layer(paperpaw_core::LayerSpec::new(
                 Id::new_static(id),
                 title,
@@ -243,25 +228,6 @@ fn ui_kit_manifest() -> Manifest {
     Manifest::new(Id::new_static(PLUGIN), "UI kit", Version::new(0, 1, 0))
         .description("Every building block of the SDK's user interface.")
         .uses(paperpaw_sdk::Uses::NOTHING)
-}
-
-/// The choice page: the kernel's choice overlay, three options.
-fn choice(env: &Env<'_>) -> paperpaw_core::stock::choice::Choice {
-    let params = Params::new()
-        .with(params::TITLE, env.i18n().tr("ui-kit.choice"))
-        .with("labels", "ui-kit.option.")
-        .with("options", "light,calm,dark");
-    paperpaw_core::stock::choice::Choice::new(env, &params)
-}
-
-/// The confirm page: the kernel's yes/no question, the focus on No.
-fn confirm(env: &Env<'_>) -> paperpaw_core::stock::confirm::Confirm {
-    let params = Params::new()
-        .with(params::TITLE, env.i18n().tr("ui-kit.confirm"))
-        .with(params::TEXT, env.i18n().tr("ui-kit.confirm.text"))
-        .with(ui::confirm::YES_LABEL, env.i18n().tr("ui-kit.confirm.yes"))
-        .with(ui::confirm::NO_LABEL, env.i18n().tr("ui-kit.confirm.no"));
-    paperpaw_core::stock::confirm::Confirm::new(env, &params)
 }
 
 /// A page of the kit.

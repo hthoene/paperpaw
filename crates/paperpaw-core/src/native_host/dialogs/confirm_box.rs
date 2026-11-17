@@ -1,10 +1,8 @@
-//! The box of a yes/no question: the one dialog path of the host's two
-//! confirmations, the question of a request ([`Confirm`](super::Confirm), kind
-//! 2) and the firmware confirmation (`firmware_confirm`). It holds the
-//! `ui::Dialog`, the focus and the drawing, scrolls a text that does not fit,
-//! moves the focus between the buttons and tells which button a tap hit. What
-//! the buttons *mean* (an answer to the store, an answer event with a nonce,
-//! the input guard, the timeout) stays with each screen.
+//! The box of the firmware confirmation's yes/no question
+//! (`firmware_confirm`). It holds the `ui::Dialog`, the focus and the drawing,
+//! scrolls a text that does not fit, moves the focus between the buttons and
+//! tells which button a tap hit. What the buttons *mean* (an answer event with
+//! a nonce, the input guard, the timeout) stays with the screen.
 use alloc::vec::Vec;
 use paperpaw_sdk::ui::{Dialog, ListChange, Ui, UiStyle};
 use paperpaw_sdk::{Canvas, Cx, Env, Gesture, GestureKind, Id, Rect, RefreshMode};

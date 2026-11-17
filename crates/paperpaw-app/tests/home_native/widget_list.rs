@@ -63,7 +63,7 @@ fn widgets_move_up_and_down_and_are_removed() {
             ["Clock", "Date", "Continue reading", "Add a widget"]
         );
         choose(&mut app, "Date");
-        assert_eq!(app.screen(), "core.choice-dialog");
+        assert_eq!(app.screen(), "keyboard.choice");
         choose(&mut app, "Move up");
         assert_eq!(list(&app), "home.date, home.clock, home.continue");
         assert_eq!(

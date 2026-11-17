@@ -78,7 +78,7 @@ proptest! {
         app.run(Id::new_static("home.edit-pages"));
         app.run(actions::RIGHT);
         app.run(actions::CONFIRM);
-        if app.screen() == "core.choice-dialog" && app.shows("Remove") {
+        if app.screen() == "keyboard.choice" && app.shows("Remove") {
             if touch {
                 app.tap_on("Remove");
             } else {

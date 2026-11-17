@@ -1,5 +1,7 @@
 //! The kernel's own screens, as they look today (#244, safety net P1): what
-//! the kernel draws where no plugin's screen is, compared byte for byte with a
+//! the kernel draws where no plugin's screen is (and the choice and the
+//! confirmation the kernel asks, which the dialog plugin draws since #293),
+//! compared byte for byte with a
 //! golden before the interface-6 code is taken out of the kernel. A golden
 //! holds the screen's id, each part it describes (role, label, state and the
 //! place on the screen) and a digest of the whole frame as the kernel draws it
@@ -36,7 +38,7 @@ use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
-use paperpaw_sdk::builtin::{params, screens};
+use paperpaw_sdk::builtin::{params, screens, slots};
 use paperpaw_sdk::{Id, MemoryStorage, Params};
 
 /// The emulator's `xteink-x4`.
@@ -110,6 +112,14 @@ impl App {
     fn open(&mut self, screen: Id, params: Params) {
         self.now += 100;
         let effects = self.kernel.open_screen(Instant(self.now), screen, params);
+        self.settle(effects);
+    }
+
+    /// Asks what the kernel's code asks on `slot` (`ask::choice`,
+    /// `ask::confirm`): the dialog plugin's screen opens for it.
+    fn ask(&mut self, slot: Id, params: Params) {
+        self.now += 100;
+        let effects = self.kernel.open_slot(Instant(self.now), slot, params);
         self.settle(effects);
     }
 
@@ -198,7 +208,7 @@ fn confirmation(device: DeviceInfo) {
     let asked = Params::new()
         .with(params::TITLE, "Delete this book?")
         .with(params::TEXT, "It is taken off the card.");
-    app.open(screens::CONFIRM, asked);
+    app.ask(slots::CONFIRM, asked);
     app.check("confirmation");
 }
 
@@ -207,7 +217,7 @@ fn choice(device: DeviceInfo) {
     let asked = Params::new()
         .with(params::TITLE, "Sort by")
         .with("options", "Title,Author,Recently read,Size");
-    app.open(screens::CHOICE, asked);
+    app.ask(slots::CHOICE, asked);
     app.check("choice");
 }
 

@@ -920,6 +920,7 @@ impl BuilderParts {
             framebuffer,
             subscriptions: crate::registry::Subscriptions::default(),
             core: crate::core_plugin::State::default(),
+            asks: Default::default(),
             data_actions: Vec::new(),
             offered_down_to: 0,
             action_params: Params::new(),

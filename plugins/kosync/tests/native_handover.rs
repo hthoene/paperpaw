@@ -34,7 +34,7 @@ fn accepting_a_remote_position_hands_it_to_the_reader_and_persists_it() {
     );
     assert_eq!(
         world.kernel().active_screen().unwrap().as_str(),
-        "core.confirm-dialog"
+        "keyboard.confirm"
     );
     world.action("core.left");
     world.action("core.confirm");
