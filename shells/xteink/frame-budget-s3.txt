@@ -24,7 +24,11 @@
 # build to the next, an unrelated change included, so a line that kept them would fail every other
 # pull request). That name is the same for each instance of one generic function: a line naming it
 # covers the instances whose site it describes (`allow indirect` by its count, `allow call` by its
-# callee); an instance with another count needs its own line. A line whose path matches more than
+# callee); an instance with more calls than the line's ceiling needs its own line.
+# `allow indirect <fn> N`: the function may have up to N + 2 calls through a register (#309: the same source
+# builds to a count one or two apart across layouts); fewer is fine, and a line for a function that has none
+# any more (or an `allow call` line whose call is gone) is a warning, not an error: remove it when you pass by.
+# Frame sizes keep no margin: a frame of 2,048 bytes or more fails. A line whose path matches more than
 # one function reached is an error. A line changes only when the code behind it does.
 # Roots: besides the host table, the impls behind the trait objects the host's paths call through
 # (`root trait`: every impl method and default method of a trait; `root impl`: one type's). Not

@@ -28,7 +28,7 @@ fn jump(at: u32, target: u32) -> [u8; 3] {
 }
 
 /// `callx<n> a2`.
-fn callx(n: u32) -> [u8; 3] {
+pub(super) fn callx(n: u32) -> [u8; 3] {
     let t = 0xC + n / 4;
     let w = t << 4 | 2 << 8;
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
@@ -356,7 +356,7 @@ fn a_call_out_of_the_image_is_refused_unless_it_is_named() {
             .iter()
             .any(|p| p.contains("outside the image"))
     );
-    assert!(other.problems.iter().any(|p| p.contains("matches nothing")));
+    assert!(other.warnings.iter().any(|p| p.contains("matches nothing")));
 }
 
 #[test]
@@ -398,7 +398,7 @@ fn a_function_of_no_size_and_a_change_of_the_stack_pointer_are_refused() {
 }
 
 #[test]
-fn indirect_calls_must_be_listed_exactly_and_an_unused_line_fails() {
+fn indirect_calls_must_be_listed_and_an_unused_line_warns() {
     let two = f(&[&entry(32), &callx(8), &callx(12), &RETW_N]);
     let bare = run(&[("root", two.clone())], &["root"], "");
     assert_eq!(bare.indirect, 2);
@@ -409,25 +409,14 @@ fn indirect_calls_must_be_listed_exactly_and_an_unused_line_fails() {
         "allow indirect root 2 vtable of Storage, device test S4\n",
     );
     assert!(listed.problems.is_empty(), "{:?}", listed.problems);
-    // The function gained one: the line no longer fits, and the new count fails.
-    let three = f(&[&entry(32), &callx(8), &callx(12), &callx(8), &RETW_N]);
-    let grown = run(
-        &[("root", three)],
-        &["root"],
-        "allow indirect root 2 vtable of Storage, device test S4\n",
-    );
-    assert_eq!(grown.problems.len(), 2, "{:?}", grown.problems);
-    // A line for a caller that has none is stale.
+    // A line for a caller that has none is stale: a warning.
     let stale = run(
         &[("root", f(&[&entry(32), &RETW_N]))],
         &["root"],
         "allow indirect root 1 gone\n",
     );
-    assert!(
-        stale.problems[0].contains("matches nothing"),
-        "{:?}",
-        stale.problems
-    );
+    assert!(stale.problems.is_empty(), "{:?}", stale.problems);
+    assert!(stale.warnings[0].contains("matches nothing"));
 }
 
 #[test]
@@ -1268,8 +1257,15 @@ fn a_path_shared_by_functions_is_named_by_symbol_and_a_line_must_name_one() {
         &format!("allow indirect {stable_name} 1 every instance\n"),
     );
     assert!(by_stable.problems.is_empty(), "{:?}", by_stable.problems);
-    // An instance with another count is not covered.
-    let two = f(&[&entry(32), &callx_reg(8, 2), &callx_reg(8, 3), &RETW_N]);
+    // An instance with more calls than the line's ceiling is not covered.
+    let two = f(&[
+        &entry(32),
+        &callx_reg(8, 2),
+        &callx_reg(8, 3),
+        &callx_reg(8, 4),
+        &callx_reg(8, 5),
+        &RETW_N,
+    ]);
     let uneven = [
         ("root", funcs[0].1.clone()),
         (s1, funcs[1].1.clone()),
