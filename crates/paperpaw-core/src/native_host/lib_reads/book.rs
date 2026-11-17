@@ -265,6 +265,21 @@ pub(super) fn indexed(reads: &CatalogReads, path: &str, size: Option<u64>) -> Re
     library::try_indexed(&*reads.storage, path, size).map_err(fail)
 }
 
+/// [`indexed`], looked at once for each book in a generation: what a query
+/// found before in the generation it holds ([`CatalogReads::indexed`]) stands.
+pub(super) fn indexed_kept(
+    reads: &CatalogReads,
+    path: &str,
+    size: Option<u64>,
+) -> Result<bool, i32> {
+    if let Some(known) = reads.indexed.get(path, size) {
+        return Ok(known);
+    }
+    let found = indexed(reads, path, size)?;
+    reads.indexed.keep(path, size, found);
+    Ok(found)
+}
+
 /// Added within the last [`NEW_DAYS`] days and not opened.
 pub(super) fn is_new(reads: &CatalogReads, added: Option<u32>, opened: bool) -> bool {
     match (added, reads.env.today()) {

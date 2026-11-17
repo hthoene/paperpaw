@@ -446,6 +446,11 @@ pub(super) fn query(
             }
             continue;
         }
+        // Held while the rows are made, and not while the catalog is: its
+        // books are indexed under it with no generation to tell.
+        reads
+            .indexed
+            .begin(reads.env.walking().is_none().then_some(generation));
         let rows = emit(reads, &engine.changes, &slots, visit)?;
         return Ok(RowsEnd {
             total,
@@ -590,7 +595,7 @@ pub(super) fn row(
     );
     let status = line.status;
     let opened = status.opened || status.progress.is_some();
-    let indexed = book::indexed(reads, path, line.size)?;
+    let indexed = book::indexed_kept(reads, path, line.size)?;
     let mut flags = 0;
     for (set, bit) in [
         (status.favourite, flag::FAVOURITE),

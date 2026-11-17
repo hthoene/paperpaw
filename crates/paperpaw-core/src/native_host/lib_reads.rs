@@ -55,6 +55,7 @@ mod facets;
 mod field;
 mod fields;
 mod importer;
+mod indexed_memo;
 mod jobs;
 mod old_reader;
 mod place_file;
@@ -122,6 +123,8 @@ pub(crate) struct CatalogReads {
     /// reads the whole catalog, and `state` is asked on every screen of the
     /// library. The generation changes with the catalog and its log.
     counted: core::cell::Cell<Option<(u32, u32)>>,
+    /// Which books are indexed, as of the generation a query read them in.
+    indexed: indexed_memo::IndexedMemo,
 }
 
 impl CatalogReads {
@@ -174,6 +177,7 @@ impl CatalogReads {
             old: old_reader::Memo::default(),
             names: core::cell::Cell::new(None),
             counted: core::cell::Cell::new(None),
+            indexed: indexed_memo::IndexedMemo::default(),
         }
     }
 

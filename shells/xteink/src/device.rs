@@ -4,8 +4,6 @@
 //! in their group of settings); the X4 Pro's front light has its
 //! brightness and warmth, in the quick panel and the reader's panel too.
 
-use alloc::borrow::Cow;
-
 use paperpaw_core::Items;
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::setting::Setting;
@@ -410,6 +408,7 @@ pub static MESSAGES: &[paperpaw_i18n::BuiltMessages] =
 /// the quick panel.
 #[cfg(feature = "x4-pro")]
 fn register_light(r: &mut Items) -> Result<(), RegisterError> {
+    use alloc::borrow::Cow;
     use paperpaw_sdk::MenuEntry;
     use paperpaw_sdk::builtin::menus;
     r.add_settings(&LIGHT_SETTINGS)?;
