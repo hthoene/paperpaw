@@ -67,7 +67,7 @@ fn translations_keep_no_index_on_the_heap() {
     // language as well.
     assert_eq!(tables.len(), 2);
     let (least, keyless) = if cfg!(feature = "native-linked") {
-        (3, 1)
+        (2, 1)
     } else {
         (20, 0)
     };
@@ -81,7 +81,28 @@ fn translations_keep_no_index_on_the_heap() {
         .map(|table| table.catalogs.prints.len() * 2 * core::mem::size_of::<usize>())
         .sum();
     let app = App::new();
-    assert_eq!(app.kernel.translator().indexes_on_heap(), slots);
+    // The kernel's own sources come with the `testing` feature this test
+    // builds with (a program carries them as `CORE_MESSAGES`, keyless): the
+    // ones of the language in use are on the heap.
+    let core_sources = |language: &str| -> usize {
+        [
+            include_str!("../../paperpaw-core/i18n/en.ini"),
+            include_str!("../../paperpaw-core/i18n/de.ini"),
+            include_str!("../../paperpaw-core/i18n/host/en.ini"),
+            include_str!("../../paperpaw-core/i18n/host/de.ini"),
+            include_str!("../../paperpaw-core/i18n/settings/en.ini"),
+            include_str!("../../paperpaw-core/i18n/settings/de.ini"),
+        ]
+        .into_iter()
+        .map(|source| paperpaw_i18n::Catalog::parse(source).unwrap())
+        .filter(|catalog| catalog.language() == language)
+        .map(|catalog| catalog.index_on_heap())
+        .sum()
+    };
+    assert_eq!(
+        app.kernel.translator().indexes_on_heap(),
+        slots + core_sources("en")
+    );
     // One English catalog for the plugins built in.
     let english = app
         .kernel
@@ -90,7 +111,8 @@ fn translations_keep_no_index_on_the_heap() {
         .iter()
         .filter(|c| c.language() == "en")
         .count();
-    assert!(english < 5, "{english} English catalogs");
+    // (and the kernel's three sources, which only the tests carry)
+    assert!(english < 5 + 3, "{english} English catalogs");
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(DEVICE).storage(storage).user_config(
         "[core]
@@ -100,7 +122,10 @@ language = de
     let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     kernel.start(Instant(0));
     assert_eq!(kernel.translator().language(), "de");
-    assert_eq!(kernel.translator().indexes_on_heap(), slots);
+    assert_eq!(
+        kernel.translator().indexes_on_heap(),
+        slots + core_sources("de")
+    );
     // One German catalog for the plugins built in, as one English.
     let german = kernel
         .translator()
@@ -108,9 +133,10 @@ language = de
         .iter()
         .filter(|c| c.language() == "de")
         .count();
-    // Exactly the built tables': a source left out of them would be a
+    // Exactly the built tables' (and the kernel's keyless one and, in the
+    // tests, its three sources): a source left out of them would be a
     // catalog of its own and fail here.
-    assert_eq!(german, 1 + keyless, "{german} German catalogs");
+    assert_eq!(german, 1 + keyless + 1 + 3, "{german} German catalogs");
 }
 
 /// The `.ini` files in `folder` and below, as the build script finds them.
@@ -187,7 +213,15 @@ fn every_built_in_text_reads_the_same_through_its_table() {
         }
         all_held.extend(held);
     }
-    assert!(checked > 1_000, "{checked} texts checked");
+    // The kernel's and the linked plugins' texts are keyless tables of their
+    // own (`CORE_MESSAGES`, `NATIVE_MESSAGES`): where plugins are linked the
+    // keyed tables hold the few of those built in.
+    let least = if cfg!(feature = "native-linked") {
+        4
+    } else {
+        1_000
+    };
+    assert!(checked > least, "{checked} texts checked");
     // German as a German start has it, both tables under it, against every
     // source parsed on its own: a key German lacks reads English's text.
     let mut built = paperpaw_i18n::Translator::new();
