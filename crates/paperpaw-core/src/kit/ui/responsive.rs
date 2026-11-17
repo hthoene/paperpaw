@@ -52,8 +52,8 @@ mod tests {
     use paperpaw_platform::{
         DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
     };
+    use paperpaw_sdk::SettingValue;
     use paperpaw_sdk::event::ParamValue;
-    use paperpaw_sdk::{SettingSpec, SettingValue};
 
     /// A kernel whose interface text is `size` points, its default
     /// `default` (none declared where `None`), on a 400 by 400 screen at
@@ -66,24 +66,19 @@ mod tests {
             InputCaps::new(true, true, false, &[]),
             MemoryClass::Small,
         );
-        let mut kernel = Kernel::builder(device).build().unwrap();
-        if let Some(default) = default {
-            let id = settings::UI_SIZE.static_str();
-            let spec = SettingSpec::number(
-                id,
-                "size",
-                6,
-                40,
-                default,
-                paperpaw_sdk::builtin::groups::LOOK,
-            );
-            kernel.shared.settings.define(spec).unwrap();
-            kernel
-                .shared
-                .settings
-                .set(id, SettingValue::Int(size))
-                .unwrap();
-        }
+        let builder = Kernel::builder(device);
+        let Some(default) = default else {
+            return builder.build().unwrap();
+        };
+        let mut kernel = builder
+            .setting_default(&settings::UI_SIZE, default)
+            .build()
+            .unwrap();
+        kernel
+            .shared
+            .settings
+            .set(settings::UI_SIZE.static_str(), SettingValue::Int(size))
+            .unwrap();
         kernel
     }
 

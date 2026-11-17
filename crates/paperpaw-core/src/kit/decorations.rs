@@ -279,8 +279,8 @@ pub const fn fixed_role(
 ///
 /// ```
 /// use paperpaw_sdk::SettingSpec;
-/// use crate::kit::decorations::{Decoration, LineKind};
-/// static LEARNING: [SettingSpec; 7] = paperpaw_sdk::role_settings!(
+/// use paperpaw_core::kit::decorations::{Decoration, LineKind};
+/// static LEARNING: [SettingSpec; 7] = paperpaw_core::role_settings!(
 ///     "my.learning",
 ///     "my.role.learning",
 ///     Decoration::NONE.line(LineKind::Dotted)
@@ -290,9 +290,9 @@ pub const fn fixed_role(
 #[macro_export]
 macro_rules! role_settings {
     ($role:literal, $title:literal, $default:expr $(,)?) => {{
-        static SECTION: $paperpaw_sdk::SettingExtra =
-            $paperpaw_sdk::SettingExtra::new().section($title);
-        static THICKNESS: $paperpaw_sdk::SettingExtra = $paperpaw_sdk::SettingExtra::new()
+        static SECTION: ::paperpaw_sdk::SettingExtra =
+            ::paperpaw_sdk::SettingExtra::new().section($title);
+        static THICKNESS: ::paperpaw_sdk::SettingExtra = ::paperpaw_sdk::SettingExtra::new()
             .section($title)
             .unit("core.unit.tenth-mm");
         $crate::kit::decorations::fixed_role(
