@@ -39,9 +39,14 @@ USAGE:
         Signs an app image (`espflash save-image`, not merged) as an update
         file. Without --key, the key comes from PAPERPAW_SIGNING_KEY (64
         hexadecimal digits).
+    paperpaw-sign pack-update <image.bin> <update.bin> [--key <secret-key-file>]
+        Signs an app image as a packed update file: the image deflated (a
+        third smaller), inflated by the device while it writes it. For
+        PaperPaw 0.5.0-beta.4 and later; older firmware refuses it, and
+        takes the file `sign` makes.
     paperpaw-sign show <update.bin>
-        Shows what the update holds, its signer, and whether its signature
-        holds.
+        Shows what the update holds (packed or not), its signer, and whether
+        its signature holds.
     paperpaw-sign sign-apart <flash.bin> <flash.bin.sig> [--key <secret-key-file>]
         Signs a whole flash image (as the web flasher writes it) with a
         signature file of its own; the key as for sign.
@@ -169,6 +174,8 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["key", file] => firmware::key(file),
         ["sign", image, update] => firmware::sign(image, update, None),
         ["sign", image, update, "--key", file] => firmware::sign(image, update, Some(file)),
+        ["pack-update", image, update] => firmware::pack(image, update, None),
+        ["pack-update", image, update, "--key", file] => firmware::pack(image, update, Some(file)),
         ["show", update] => firmware::show(update),
         ["sign-apart", image, signature] => firmware::sign_apart(image, signature, None),
         ["sign-apart", image, signature, "--key", file] => {

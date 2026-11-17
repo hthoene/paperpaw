@@ -2793,6 +2793,7 @@ name = "paperpaw-x4"
 version = "0.6.0-beta.3"
 dependencies = [
  "embedded-hal 1.0.0",
+ "miniz_oxide",
  "paperpaw-config",
  "paperpaw-core",
  "paperpaw-native",
