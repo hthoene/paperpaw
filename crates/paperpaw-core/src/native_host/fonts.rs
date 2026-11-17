@@ -7,7 +7,7 @@ use super::{
 };
 use crate::abi7::{context::Frame, graphics};
 use crate::font_refresh::widget_fonts;
-#[cfg(any(test, feature = "testing"))]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, OK, PpBuffer, PpBytes,
@@ -394,15 +394,15 @@ pub(crate) unsafe fn metrics(
     })())
 }
 
-/// For tests: slot 30 answers as on the X4, whose host table leaves it
-/// unwired (`shell::table`), on this thread from now on. Not part of any
-/// interface: the `testing` feature only.
-#[cfg(any(test, feature = "testing"))]
+/// For tests and emulators: slot 30 answers as on the X4, whose host table
+/// leaves it unwired (`shell::table`), on this thread from now on. Not part
+/// of any interface, and not on the firmware.
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
 pub fn answer_text_ink_as_the_x4(unwired: bool) {
     ink_unwired::set(unwired);
 }
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
 mod ink_unwired {
     extern crate std;
     use core::cell::Cell;
@@ -451,7 +451,7 @@ pub(crate) unsafe fn ink(
     right: *mut i32,
 ) -> i32 {
     status((|| {
-        #[cfg(any(test, feature = "testing"))]
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
         if ink_unwired::get() {
             return Err(ERR_UNSUPPORTED);
         }
