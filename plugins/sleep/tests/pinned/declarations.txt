@@ -19,8 +19,10 @@ overlay-size|core.unit.percent|||=|0:|5|1
 overlay-see-through|core.unit.percent|||=|0:|5|1
 [screens]
 pick-overlay|sleep.setting.overlay-picture
+edit-widgets|core.widgets.edit.screen
 screen|sleep.title
 [slots]
+core.edit-widgets|sleep.edit-widgets|0
 core.sleep|sleep.screen|0
 [widget_places]
 overlay|sleep.title|sleep.overlay-widget|Stack|sleep.show=sleep.show.overlay

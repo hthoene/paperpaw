@@ -41,7 +41,7 @@ fn the_declarations_are_the_pinned_ones() {
     let native = declared::native("sleep", &all);
     declared::assert_pinned("declarations", &native);
     assert_eq!(native.specs.len(), 9);
-    assert_eq!(native.screens.len(), 2);
+    assert_eq!(native.screens.len(), 3);
     assert_eq!(native.widget_places.len(), 2);
     assert_eq!(native.needs.len(), 10);
     assert!(native.events.is_empty());
@@ -51,9 +51,10 @@ fn the_declarations_are_the_pinned_ones() {
 }
 
 /// The sleep screen shows no row of button hints, as Beta 3's had none
-/// (`ScreenDecl::hints_hidden`, flag bit 8); the picker keeps its hints.
+/// (`ScreenDecl::hints_hidden`, flag bit 8); the picker and the editor keep
+/// their hints.
 #[test]
-fn the_sleep_screen_hides_the_button_hints_and_the_picker_keeps_them() {
+fn the_sleep_screen_hides_the_button_hints_and_the_picker_and_the_editor_keep_them() {
     use paperpaw_core::native_host::registrations::{Record, records_decode};
     const HINTS_HIDDEN: u32 = 1 << 8;
     let mut flags = Vec::new();
@@ -68,6 +69,7 @@ fn the_sleep_screen_hides_the_button_hints_and_the_picker_keeps_them() {
         flags,
         [
             ("pick-overlay".to_string(), false),
+            ("edit-widgets".to_string(), false),
             ("screen".to_string(), true)
         ]
     );
