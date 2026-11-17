@@ -28,9 +28,6 @@ fn library_plugin(kept: LibraryPlugin) -> impl Fn(&mut Items) -> Result<(), Regi
             alloc::vec![Cow::Borrowed("txt")],
             Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
         ))?;
-        r.add_book_field(
-            library::BookField::new(Id::new_static("lib.rating"), "lib.rating").in_catalog(),
-        )?;
         // A reader, as the reader's slot shows it.
         r.add_layer(crate::LayerSpec::new(
             Id::new_static("lib.reader"),
@@ -334,7 +331,7 @@ fn a_book_added_without_a_word_waits_one_added_by_a_plugin_comes() {
 }
 
 #[test]
-fn books_moved_removed_or_changed_are_caught_up() {
+fn books_moved_or_removed_are_caught_up() {
     let (mut kernel, log, now) = library(two_books());
     let now = want(&mut kernel, now, false);
     log.borrow_mut().clear();
@@ -352,21 +349,7 @@ fn books_moved_removed_or_changed_are_caught_up() {
     let removed = events::BookRemoved::new("books/b.txt".into()).to_params();
     let effects = kernel.send_event(Instant(now), events::BOOK_REMOVED.id().clone(), removed);
     assert_eq!(paths(&kernel), ["books/Kept/a.txt"]);
-    let now = run(&mut kernel, now, effects);
-    // A field kept in the catalog changed: caught up with it.
-    library::set_field(kernel.storage(), "books/Kept/a.txt", "lib.rating", "5");
-    let changed = events::BookChanged::new("books/Kept/a.txt".into(), library::what::FIELDS);
-    send(
-        &mut kernel,
-        now,
-        events::BOOK_CHANGED.id(),
-        changed.to_params(),
-    );
-    let mut rating = None;
-    catalog::each(kernel.storage(), &mut |r| {
-        rating = r.field("lib.rating").map(String::from)
-    });
-    assert_eq!(rating.as_deref(), Some("5"));
+    run(&mut kernel, now, effects);
 }
 
 /// On the X4 an empty catalog is walked beside the library: books

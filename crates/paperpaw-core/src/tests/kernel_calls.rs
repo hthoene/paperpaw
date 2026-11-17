@@ -184,42 +184,6 @@ fn off_at_start_manifest() -> Manifest {
         .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
-/// The same, its subscription kept in the program.
-fn off_at_start_fixed() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
-    |r| {
-        static HEARS: [paperpaw_sdk::FixedSubscription; 2] = [
-            paperpaw_sdk::hears!(paperpaw_sdk::builtin::events::STARTED, |_, _, out| {
-                out.push(Command::PowerOff);
-            }),
-            // Another event: not called at the start.
-            paperpaw_sdk::hears!(
-                paperpaw_sdk::builtin::events::CATALOG_CHANGED,
-                |_, _, out| {
-                    out.push(Command::Sleep);
-                }
-            ),
-        ];
-        r.add_subscriptions(&HEARS)
-    }
-}
-
-/// What [`off_at_start_fixed`] registers under.
-fn off_at_start_fixed_manifest() -> Manifest {
-    Manifest::new(Id::new_static("off"), "Off", Version::new(1, 0, 0))
-        .uses(paperpaw_sdk::Uses::NOTHING)
-}
-
-#[test]
-fn subscriptions_kept_in_the_program_are_heard() {
-    let mut kernel = Kernel::builder(DEVICE)
-        .items(off_at_start_fixed_manifest(), off_at_start_fixed())
-        .power_off(true)
-        .build()
-        .unwrap();
-    let effects = kernel.start(Instant(0));
-    assert!(effects.power_off() && !effects.sleep());
-}
-
 /// Asks for the card as a USB drive at the start, and notes what it
 /// hears after.
 struct Drive {

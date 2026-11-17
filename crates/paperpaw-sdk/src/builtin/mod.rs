@@ -471,7 +471,7 @@ pub mod settings {
     /// [`READING_APP`] and a format's: as the defaults give.
     pub const READING_APP_DEFAULT: &str = "core.reading-app.default";
     /// The voice that speaks text aloud: [`VOICE_SYSTEM`] or a plugin's
-    /// (see [`voices`](crate::voices)).
+    /// (see `voices`).
     pub const VOICE: Setting<Text> = Setting::new("core.voice");
     /// [`VOICE`]: the system's.
     pub const VOICE_SYSTEM: &str = "core.voice.system";
@@ -867,7 +867,7 @@ pub mod settings {
     pub const FOOTNOTES_POPUP: &str = "core.footnotes.popup";
     pub const FOOTNOTES_JUMP: &str = "core.footnotes.jump";
     /// The frame that sets book pages in columns (see
-    /// [`layers`](crate::layers)): [`PAGE_FRAME_SINGLE`] or the id of a
+    /// `layers`): [`PAGE_FRAME_SINGLE`] or the id of a
     /// plugin's frame; each book may have its own ([`SCOPE_ONLY`]).
     pub const PAGE_FRAME: Setting<Text> = Setting::new("core.page-frame");
     /// [`PAGE_FRAME`]: the text in one column.

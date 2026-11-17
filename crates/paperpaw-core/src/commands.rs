@@ -163,7 +163,6 @@ impl Kernel {
         let set = self.output.refresh_set.take();
         let requested = set.or(self.output.refresh.take());
         self.output.refresh.take();
-        let told = self.output.refresh_cause.take();
         // The screen on top, nothing over it (or all of the screen its
         // own, what is below showing through), best in grays.
         let bounds = self.framebuffer.bounds();
@@ -193,13 +192,8 @@ impl Kernel {
         };
         if let Some(dirty) = self.frame.pending.take() {
             let area = |r: Rect| u32::from(r.width) * u32::from(r.height);
-            let mut weight = mem::take(&mut self.frame.pending_weight);
+            let weight = mem::take(&mut self.frame.pending_weight);
             self.frame.unrendered = Some(self.frame.unrendered.map_or(dirty, |u| u.union(&dirty)));
-            // What a filter deferred goes with this refresh.
-            let dirty = self.frame.deferred.take().map_or(dirty, |d| {
-                weight = weight.saturating_add(area(d));
-                d.union(&dirty)
-            });
             // Items far apart make a large region without being much.
             let weight = weight.min(area(dirty));
             let every = self.refresh_intervals(&mode);
@@ -234,65 +228,22 @@ impl Kernel {
             // A page's pictures drawn after its text are no page turned,
             // however large: not counted, nor made the full refresh of the
             // whole screen that is due (leaving them refreshes in full).
-            // What a filter deferred rides along uncounted too (above); no
-            // filter of this tree defers (todo: count it apart).
             let counted = if followup || gray_pass { 0 } else { weight };
             self.frame.refresh.weigh(Some(counted));
             let (mode, region) = self.frame.refresh.decide(requested, dirty, screen, every);
-            let top = self.stack.last();
-            let mut refresh =
-                paperpaw_sdk::filters::Refresh::new(mode, region, top.map(|t| t.id.clone()));
-            refresh.slot = top.and_then(|t| t.slot.clone());
-            refresh.cause = told.unwrap_or(if self.screens_changed {
-                paperpaw_sdk::filters::RefreshCause::Screens
-            } else {
-                paperpaw_sdk::filters::RefreshCause::Other
-            });
-            refresh.since_full = self.frame.refresh.since_full();
-            refresh.periodic = mode != requested;
-            refresh.grays = grays;
-            refresh.pictures = self.frame.pictures_shown;
-            // Never a screen opened or closed, nor what shows while a screen
-            // guards the device, kept off the panel; nor too often.
-            let may_defer = !self.screens_changed
-                && self.guard().is_none()
-                && self.frame.defers < drawing::MAX_DEFERS;
-            // While a screen guards the device, only its plugin's filters
-            // see refreshes: others could count what is typed into it.
-            let guard = self.guard().map(|guard| self.stack[guard].id.namespace());
-            let env = self.shared.env(self.now);
-            match self
-                .shared
-                .refresh_filters
-                .apply_limited(&env, refresh, screen, may_defer, guard)
-            {
-                Some(refresh) => {
-                    self.frame.defers = 0;
-                    // Counted as done, after the filters.
-                    self.frame
-                        .refresh
-                        .done(refresh.mode, refresh.region, screen, every);
-                    self.frame.refresh.weigh(None);
-                    effects.refresh = Some((refresh.region, refresh.mode));
-                    effects.grays = refresh.grays;
-                    self.gray_frame(gray_frame);
-                    self.frame_asked();
-                    self.shared.usage.refreshed(refresh.mode, refresh.region);
-                    let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
-                    self.shared
-                        .meter
-                        .refreshed(top, refresh.mode, refresh.region);
-                }
-                None => {
-                    self.frame.deferred = Some(dirty);
-                    self.frame.defers += 1;
-                }
-            }
+            self.frame.refresh.done(mode, region, screen, every);
+            self.frame.refresh.weigh(None);
+            effects.refresh = Some((region, mode));
+            effects.grays = grays;
+            self.gray_frame(gray_frame);
+            self.frame_asked();
+            self.shared.usage.refreshed(mode, region);
+            let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
+            self.shared.meter.refreshed(top, mode, region);
         }
         let input = [
             self.input.recognizer.next_deadline(&self.thresholds()),
             self.input.pending.as_ref().map(|(_, until, _)| *until),
-            self.recognizers_due(),
         ]
         .into_iter()
         .flatten()
@@ -458,32 +409,17 @@ impl Kernel {
         self.from_guard_own = false;
     }
 
-    /// Opens a book in the reading app that takes it (`Command::OpenBook`).
+    /// Opens a book in the reading slot's screen (`Command::OpenBook`), with
+    /// what the book's params say of it: its path, the page, the readers
+    /// passed over.
     fn open_book_command(&mut self, params: Params) {
-        let env = self.shared.env(self.now);
-        match paperpaw_sdk::readers::resolve(&env, &params) {
-            // The slot's own screen, by name: in place of another
-            // reading app the slot may show now. Not where it could
-            // not open the book either (it is a reader too): it
-            // says why itself.
-            Command::OpenSlot(slot, params) => {
-                let screen = self.shared.registry.resolve_slot(slot.as_str()).cloned();
-                let failed = screen.as_ref().is_some_and(|screen| {
-                    paperpaw_sdk::readers::past(&params).any(|past| {
-                        self.shared
-                            .readers
-                            .get(past)
-                            .is_some_and(|r| r.screen == *screen)
-                    })
-                });
-                if failed {
-                    self.warn_runtime("no reading app could open the book");
-                } else {
-                    self.open_slot_command(slot, screen, params);
-                }
-            }
-            command => self.apply(command),
-        }
+        let opened = paperpaw_sdk::readers::opened(&params);
+        let screen = self
+            .shared
+            .registry
+            .resolve_slot(slots::READER.as_str())
+            .cloned();
+        self.open_slot_command(slots::READER, screen, opened);
     }
 
     /// Carries out a command, by its kind.
@@ -532,8 +468,7 @@ impl Kernel {
             Command::Notify(text) | Command::Announce(text) => self.notify(text),
             Command::Emit(event, params) => self.emit(&event, &params),
             Command::RunAction(action, params) => self.dispatch_with(action, params),
-            // Run in its place where a handler in place of the action's own
-            // asked for it (see `run_handler`): here it came from elsewhere.
+            // No handler is in an action's place to run it from.
             Command::RunOriginal(action, _) => {
                 self.warn_runtime(format!(
                     "`{action}`'s own handler runs only from a handler in its place"
@@ -782,7 +717,6 @@ impl Kernel {
             self.input.thresholds.set(None);
             self.sync_chromes();
         }
-        self.observe(event, params, false);
         self.chromes_hear(event, params);
         // Screens learn that they show from `on_show`.
         if *event == events::SCREEN_SHOWN {
@@ -1010,59 +944,18 @@ impl Kernel {
 
     /// What the shell does for the kernel: firmware, Wi-Fi, the clipboard,
     /// speech, servers, sockets and HTTP.
-    /// Speaks `speech` with the voice the settings choose where it speaks
-    /// the language (see `paperpaw_sdk::voices`), else with the system's.
+    /// Speaks `speech` with the system's voice.
     pub(crate) fn speak(&mut self, speech: paperpaw_sdk::Speech) {
         let screens = self.stack.len();
-        let env = self.shared.env(self.now);
         let system = self.io.speech.system;
-        if let Some(voice) = self.shared.voices.chosen(&env, speech.language(), system) {
-            // In place of what the system or another voice says now,
-            // unless after it.
-            if !speech.is_queued() {
-                self.io.speech.stop();
-                let other = self
-                    .io
-                    .speech
-                    .voice
-                    .as_ref()
-                    .is_some_and(|(id, _)| *id != voice.id);
-                if other
-                    && let Some((id, _)) = self.io.speech.voice.take()
-                    && let Some(old) = self.shared.voices.get(id.as_str())
-                {
-                    handing(&mut self.output.commands, |out| (old.stop)(&env, out));
-                }
-            }
-            handing(&mut self.output.commands, |out| {
-                (voice.speak)(&env, &speech, out)
-            });
-            self.io.speech.voice = Some((voice.id.clone(), screens));
-            return;
-        }
-        // In place of what a plugin's voice says, unless after it.
-        if !speech.is_queued() {
-            self.stop_voice();
-        }
         self.io
             .speech
             .speak(speech, system, screens, &mut self.output.commands);
     }
 
-    /// Stops a plugin's voice, if one speaks.
-    fn stop_voice(&mut self) {
-        if let Some((id, _)) = self.io.speech.voice.take() {
-            let env = self.shared.env(self.now);
-            if let Some(voice) = self.shared.voices.get(id.as_str()) {
-                handing(&mut self.output.commands, |out| (voice.stop)(&env, out));
-            }
-        }
-    }
-
-    /// Stops speaking: the system's voice and a plugin's.
+    /// Stops speaking.
     pub(crate) fn stop_speaking(&mut self) {
         self.io.speech.stop();
-        self.stop_voice();
     }
 
     /// A text to speak, or a native plugin's stop (`native_host::speech`): its

@@ -7,8 +7,8 @@ use alloc::vec::Vec;
 use paperpaw_i18n::Catalog;
 use paperpaw_sdk::collections::VecMap;
 use paperpaw_sdk::{
-    ActionSpec, Actions, Contribution, FontSpec, FormatSpec, HyphenationSpec, Id, MenuEntry,
-    Priority, RegisterError, SettingSpec, SlotSpec, StatusItemSpec, StatusLineSpec,
+    ActionSpec, Actions, Contribution, FontSpec, FormatSpec, Id, MenuEntry, Priority,
+    RegisterError, SettingSpec, SlotSpec, StatusItemSpec, StatusLineSpec,
 };
 
 pub(crate) const NATIVE_CAPACITY_OVERFLOW: &str = "native screen capacity overflow";
@@ -311,36 +311,30 @@ impl Screens {
     }
 }
 
-/// Widgets a plugin added, in order: one made at the start, or a list
-/// kept in the program.
+/// A widget a plugin added.
 pub(crate) enum StagedWidgets {
     One(alloc::boxed::Box<paperpaw_sdk::widgets::WidgetSpec>),
-    List(&'static [paperpaw_sdk::widgets::FixedWidget]),
 }
 
 /// The events plugins subscribed to, plugin by plugin in the order they
 /// registered: each plugin's id once, with how many of the entries after
 /// those of the plugin before are its (a plugin subscribes to a few
-/// events; there are some hundred and fifty subscriptions). An entry is
-/// one handler made at the start, or a list kept in the program.
+/// events; there are some hundred and fifty subscriptions).
 #[derive(Default)]
 pub(crate) struct Subscriptions {
     plugins: Vec<(Id, u16)>,
     entries: Vec<Subscribed>,
 }
 
-/// A plugin's subscriptions as they came: one made at the start (its
-/// event and handler), or a list kept in the program.
+/// A plugin's subscription as it came: its event and handler.
 pub(crate) enum Subscribed {
     One(Id, paperpaw_sdk::EventHandler),
-    List(&'static [paperpaw_sdk::FixedSubscription]),
 }
 
 /// A subscription's handler, to call.
 #[derive(Clone, Copy)]
 pub(crate) enum Handler<'a> {
     Made(&'a paperpaw_sdk::EventHandler),
-    Fixed(&'a paperpaw_sdk::FixedSubscription),
 }
 
 impl Handler<'_> {
@@ -352,7 +346,6 @@ impl Handler<'_> {
     ) {
         match self {
             Handler::Made(handler) => handler(env, params, out),
-            Handler::Fixed(fixed) => fixed.call(env, params, out),
         }
     }
 }
@@ -379,16 +372,9 @@ impl Subscriptions {
                 Some((plugin, from..*at))
             })
             .flat_map(move |(plugin, entries)| {
-                self.entries[entries].iter().flat_map(move |entry| {
-                    let (one, list) = match entry {
-                        Subscribed::One(event, handler) => {
-                            (Some((event, Handler::Made(handler))), &[][..])
-                        }
-                        Subscribed::List(list) => (None, *list),
-                    };
-                    one.into_iter()
-                        .chain(list.iter().map(|s| (s.event(), Handler::Fixed(s))))
-                        .map(move |(event, handler)| (event, plugin, handler))
+                self.entries[entries].iter().map(move |entry| {
+                    let Subscribed::One(event, handler) = entry;
+                    (event, plugin, Handler::Made(handler))
                 })
             })
     }
@@ -413,8 +399,6 @@ pub(crate) struct Registry {
     pub(crate) native_book_formats: crate::native_host::native_book_formats::NativeBookFormats,
     pub(crate) screens: Screens,
     pub(crate) slots: VecMap<Id, SlotSpec>,
-    /// When screens show the row of hints, where they said.
-    pub(crate) hints: VecMap<Id, paperpaw_sdk::HintVisibility>,
     candidates: Vec<SlotCandidate>,
     /// Slot bindings from the user's configuration.
     user_bindings: VecMap<Id, Id>,
@@ -425,14 +409,8 @@ impl Registry {
     pub(crate) fn shrink_to_fit(&mut self) {
         self.screens.shrink_to_fit();
         self.slots.shrink_to_fit();
-        self.hints.shrink_to_fit();
         self.candidates.shrink_to_fit();
         self.user_bindings.shrink_to_fit();
-    }
-
-    /// When `screen` shows the row of hints.
-    pub(crate) fn hints_of(&self, screen: &Id) -> paperpaw_sdk::HintVisibility {
-        self.hints.get(screen).copied().unwrap_or_default()
     }
 
     /// How many screens are offered for slots.
@@ -696,8 +674,6 @@ pub(crate) struct Staging {
     /// after the others (`native_host::described_settings`).
     pub(crate) described: Option<paperpaw_sdk::DescribedSettings>,
     pub(crate) keymaps: Vec<Cow<'static, str>>,
-    /// Key maps that apply while a switch (the id) is on.
-    pub(crate) keymaps_when: Vec<(Id, Cow<'static, str>)>,
     pub(crate) catalogs: Vec<Catalog>,
     /// Compiled catalogs on the storage, opened as they are applied.
     pub(crate) catalog_files: Vec<alloc::string::String>,
@@ -706,21 +682,15 @@ pub(crate) struct Staging {
     pub(crate) font_extensions: Vec<(Id, alloc::string::String, Id)>,
     pub(crate) font_faces: Vec<paperpaw_sdk::FontFace>,
     pub(crate) font_roles: Vec<(Id, Id, Priority)>,
-    pub(crate) ui_looks: Vec<(&'static paperpaw_sdk::ui::look::Painters, Priority)>,
     pub(crate) formats: Vec<FormatSpec>,
-    pub(crate) hyphenation: Vec<HyphenationSpec>,
     pub(crate) setting_groups: Vec<paperpaw_sdk::SettingGroup>,
     /// Events, the plugins that hear them, and their handlers.
     pub(crate) subscriptions: Vec<(Id, Subscribed)>,
-    pub(crate) overrides: Vec<(Id, Priority, paperpaw_sdk::ActionHandler)>,
-    pub(crate) action_observers: Vec<paperpaw_sdk::ObserverSpec>,
-    pub(crate) event_observers: Vec<paperpaw_sdk::ObserverSpec>,
     pub(crate) fixed_actions: Vec<&'static [paperpaw_sdk::FixedAction]>,
     pub(crate) fixed_screens: Vec<Fixed>,
     pub(crate) menu_entries: Vec<MenuEntry>,
     pub(crate) fixed_menu_entries: Vec<&'static [MenuEntry]>,
     pub(crate) menu_sections: Vec<paperpaw_sdk::MenuSection>,
-    pub(crate) points: Vec<paperpaw_sdk::services::PointSpec>,
     pub(crate) events: Vec<paperpaw_sdk::services::EventSpec>,
     pub(crate) icons: Vec<(Id, Cow<'static, str>)>,
     pub(crate) fixed_icons: Vec<&'static [(Id, &'static str)]>,
@@ -728,39 +698,21 @@ pub(crate) struct Staging {
     /// (menu, item, the plugin hiding it).
     pub(crate) hidden_entries: Vec<(Id, Id, Id)>,
     pub(crate) item_states: Vec<(Id, paperpaw_sdk::ItemStateFn)>,
-    pub(crate) item_descriptions: Vec<(Id, Cow<'static, str>)>,
-    pub(crate) screen_hints: Vec<(Id, paperpaw_sdk::HintVisibility)>,
     pub(crate) keymap_presets: Vec<(Id, Cow<'static, str>)>,
     pub(crate) setting_defaults: Vec<(Id, Cow<'static, str>)>,
     pub(crate) choices: Vec<(Id, Cow<'static, str>)>,
     pub(crate) status_items: Vec<StatusItemSpec>,
     pub(crate) status_lines: Vec<StatusLineSpec>,
-    pub(crate) status_places: Vec<paperpaw_sdk::status::Place>,
-    pub(crate) widget_places: Vec<paperpaw_sdk::widgets::WidgetPlace>,
-    pub(crate) widget_categories: Vec<paperpaw_sdk::widgets::WidgetCategory>,
     pub(crate) widgets: Vec<StagedWidgets>,
     pub(crate) setup_steps: Vec<paperpaw_sdk::setup::SetupStepSpec>,
     pub(crate) presets: Vec<paperpaw_sdk::presets::Preset>,
     pub(crate) fixed_presets: Vec<&'static [paperpaw_sdk::presets::Preset]>,
-    pub(crate) text_filters: Vec<paperpaw_sdk::filters::TextFilterSpec>,
     pub(crate) decorators: Vec<paperpaw_sdk::decorations::DecoratorSpec>,
-    pub(crate) page_layers: Vec<paperpaw_sdk::layers::PageLayerSpec>,
-    pub(crate) page_frames: Vec<paperpaw_sdk::layers::PageFrameSpec>,
-    pub(crate) lookup_providers: Vec<paperpaw_sdk::lookup::LookupProviderSpec>,
-    pub(crate) voices: Vec<paperpaw_sdk::voices::VoiceSpec>,
-    pub(crate) readers: Vec<paperpaw_sdk::readers::ReaderSpec>,
-    pub(crate) input_filters: Vec<paperpaw_sdk::filters::InputFilterSpec>,
-    pub(crate) gatt_services: Vec<paperpaw_sdk::bluetooth::ServiceSpec>,
-    pub(crate) refresh_filters: Vec<paperpaw_sdk::filters::RefreshFilterSpec>,
     pub(crate) chromes: Vec<crate::ChromeSpec>,
-    pub(crate) inputs: Vec<paperpaw_sdk::keys::InputSpec>,
-    pub(crate) gestures: Vec<paperpaw_sdk::keys::GestureSpec>,
     /// Jobs: the steps of declared work (see [`paperpaw_sdk::work`]).
     pub(crate) works: Vec<paperpaw_sdk::work::WorkSpec>,
     pub(crate) stylesheets: Vec<Cow<'static, str>>,
     pub(crate) book_data: Vec<paperpaw_sdk::library::BookData>,
-    pub(crate) book_fields: Vec<paperpaw_sdk::library::BookField>,
-    pub(crate) book_badges: Vec<paperpaw_sdk::library::BookBadge>,
     pub(crate) services: Vec<(Id, paperpaw_sdk::services::Service)>,
     pub(crate) contributions: Vec<(Id, Cow<'static, str>)>,
 }
@@ -1072,16 +1024,8 @@ pub(crate) fn stage(
                 validate_keymap(&source)?;
                 staging.keymap_presets.push((id, source));
             }
-            Contribution::KeymapWhen {
-                setting, source, ..
-            } => {
-                validate_keymap(&source)?;
-                staging.keymaps_when.push((setting, source));
-            }
             Contribution::Stylesheet(css) => staging.stylesheets.push(css),
             Contribution::BookData(data) => staging.book_data.push(data),
-            Contribution::BookField(field) => staging.book_fields.push(*field),
-            Contribution::BookBadge(badge) => staging.book_badges.push(*badge),
             Contribution::Font(font) => staging.fonts.push(*font),
             Contribution::FontFile { id, path, .. } => staging.font_files.push((id, path)),
             Contribution::FontExtension {
@@ -1097,14 +1041,6 @@ pub(crate) fn stage(
                 ..
             } => staging.font_roles.push((role, font, priority)),
             Contribution::Format(format) => staging.formats.push(*format),
-            Contribution::Hyphenation(spec) => {
-                paperpaw_sdk::hyphen::Patterns::new(spec.patterns).map_err(|e| {
-                    RegisterError::Invalid {
-                        message: Cow::Owned(alloc::format!("{}: {e}", spec.id)),
-                    }
-                })?;
-                staging.hyphenation.push(spec);
-            }
             Contribution::MenuEntry(entry) => staging.menu_entries.push(entry),
             Contribution::FixedMenuEntries(list) => staging.fixed_menu_entries.push(list),
             Contribution::FixedIcons(list) => staging.fixed_icons.push(list),
@@ -1115,67 +1051,24 @@ pub(crate) fn stage(
                 staging.hidden_entries.push((menu, item, plugin.clone()));
             }
             Contribution::ItemState { item, state, .. } => staging.item_states.push((item, state)),
-            Contribution::ItemDescription { item, key, .. } => {
-                staging.item_descriptions.push((item, key));
-            }
-            Contribution::ScreenHints { screen, hints, .. } => {
-                staging.screen_hints.push((screen, hints));
-            }
             Contribution::Subscription { event, handler, .. } => {
                 staging
                     .subscriptions
                     .push((plugin.clone(), Subscribed::One(event, handler)));
             }
-            Contribution::FixedSubscriptions(list) => {
-                staging
-                    .subscriptions
-                    .push((plugin.clone(), Subscribed::List(list)));
-            }
             Contribution::StatusItem(item) => staging.status_items.push(*item),
             Contribution::StatusLine(line) => staging.status_lines.push(*line),
-            Contribution::StatusPlace(place) => staging.status_places.push(*place),
-            Contribution::WidgetPlace(place) => staging.widget_places.push(*place),
-            Contribution::WidgetCategory(category) => staging.widget_categories.push(*category),
-            Contribution::TextFilter(filter) => staging.text_filters.push(filter),
             Contribution::Decorator(decorator) => staging.decorators.push(*decorator),
-            Contribution::PageLayer(layer) => staging.page_layers.push(*layer),
-            Contribution::PageFrame(frame) => staging.page_frames.push(*frame),
-            Contribution::LookupProvider(p) => staging.lookup_providers.push(*p),
-            Contribution::Voice(voice) => staging.voices.push(*voice),
-            Contribution::Reader(reader) => staging.readers.push(reader),
-            Contribution::InputFilter(filter) => staging.input_filters.push(filter),
-            Contribution::GattService(service) => staging.gatt_services.push(*service),
-            Contribution::RefreshFilter(filter) => staging.refresh_filters.push(filter),
-            Contribution::Input(input) => staging.inputs.push(input),
-            Contribution::ActionOverride(over) => {
-                let over = *over;
-                staging
-                    .overrides
-                    .push((over.action, over.priority, over.handler));
-            }
-            Contribution::ActionObserver(observer) => staging.action_observers.push(*observer),
-            Contribution::EventObserver(observer) => staging.event_observers.push(*observer),
-            Contribution::Gesture(gesture) => staging.gestures.push(*gesture),
             Contribution::Work(spec) => staging.works.push(*spec),
             Contribution::Widget(widget) => staging.widgets.push(StagedWidgets::One(widget)),
-            Contribution::FixedWidgets(list) => staging.widgets.push(StagedWidgets::List(list)),
             Contribution::SetupStep(step) => staging.setup_steps.push(*step),
             Contribution::Preset(preset) => staging.presets.push(*preset),
             Contribution::FixedPresets(list) => staging.fixed_presets.push(list),
             Contribution::Published { id, service, .. } => staging.services.push((id, service)),
             Contribution::ToPoint { point, text, .. } => staging.contributions.push((point, text)),
-            Contribution::Point(point) => staging.points.push(*point),
             Contribution::EventDeclared(event) => staging.events.push(*event),
             Contribution::Translations(source) => staging.catalogs.push(catalog(source)?),
             Contribution::TranslationFile(path) => staging.catalog_files.push(path),
-            Contribution::UiLook {
-                painters, priority, ..
-            } => staging.ui_looks.push((painters, priority)),
-            // Keys of later releases: none known yet, left as they are.
-            Contribution::Extended { .. } => {}
-            // Accepted, not run: the kernel does not call render hooks
-            // yet (`Capability::RENDER_HOOK` is off).
-            Contribution::RenderHook(_) => {}
             // A kind of a newer SDK than this kernel knows: said, not lost.
             other => {
                 return Err(RegisterError::Invalid {
@@ -1317,10 +1210,6 @@ mod tests {
 
     #[test]
     fn subscriptions_come_back_in_order_with_their_plugins() {
-        static FIXED: [paperpaw_sdk::FixedSubscription; 2] = [
-            paperpaw_sdk::FixedSubscription::new(Id::new_static("e.four"), |_, _, _| {}),
-            paperpaw_sdk::FixedSubscription::new(Id::new_static("e.five"), |_, _, _| {}),
-        ];
         let made = |event: &str| {
             let handler: paperpaw_sdk::EventHandler = Box::new(|_, _, _| {});
             Subscribed::One(Id::parse(event).unwrap(), handler)
@@ -1334,30 +1223,22 @@ mod tests {
         ];
         subscriptions.append(&mut first);
         assert!(first.is_empty());
-        subscriptions.append(&mut alloc::vec![
-            (id("b"), made("e.three")),
-            (id("b"), Subscribed::List(&FIXED)),
-        ]);
+        subscriptions.append(&mut alloc::vec![(id("b"), made("e.three"))]);
         subscriptions.append(&mut alloc::vec![(id("a"), made("e.one"))]);
-        let seen: Vec<(String, String, bool)> = subscriptions
+        let seen: Vec<(String, String)> = subscriptions
             .iter()
-            .map(|(event, plugin, handler)| {
-                let fixed = matches!(handler, Handler::Fixed(_));
-                (event.as_str().into(), plugin.as_str().into(), fixed)
-            })
+            .map(|(event, plugin, _)| (event.as_str().into(), plugin.as_str().into()))
             .collect();
         let expected = [
-            ("e.one", "a", false),
-            ("e.two", "a", false),
-            ("e.one", "b", false),
-            ("e.three", "b", false),
-            ("e.four", "b", true),
-            ("e.five", "b", true),
-            ("e.one", "a", false),
+            ("e.one", "a"),
+            ("e.two", "a"),
+            ("e.one", "b"),
+            ("e.three", "b"),
+            ("e.one", "a"),
         ];
         assert_eq!(
             seen,
-            expected.map(|(e, p, f)| (String::from(e), String::from(p), f))
+            expected.map(|(e, p)| (String::from(e), String::from(p)))
         );
         assert_eq!(subscriptions.plugins.len(), 3);
     }

@@ -3,7 +3,7 @@ use alloc::vec;
 use core::time::Duration;
 
 use paperpaw_sdk::Event;
-use paperpaw_sdk::bluetooth::{self as bt, BtCommand, CharacteristicSpec, Handle};
+use paperpaw_sdk::bluetooth::{self as bt, BtCommand, Handle};
 
 const FOUND: Event<BtEvent> = Event::new("a.found");
 const PULSE: Event<BtEvent> = Event::new("pulse.found");
@@ -683,42 +683,6 @@ fn a_failed_read_is_told_to_who_asked_with_what_failed() {
                 .handle(Handle::new(9))
         )]
     );
-}
-
-#[test]
-fn the_gatt_server_numbers_its_characteristics_and_tells_the_shell() {
-    let mut radio = Radio::new(2);
-    let a = Uuid::sig(0x180F);
-    let b = Uuid::sig(0x181C);
-    radio.add_service(
-        &ServiceSpec::new(a, &FOUND)
-            .characteristic(CharacteristicSpec::new(Uuid::sig(0x2A19)).read().notify()),
-    );
-    radio.add_service(
-        &ServiceSpec::new(b, &PULSE)
-            .characteristic(CharacteristicSpec::new(Uuid::sig(0x2A8A)).write())
-            .characteristic(CharacteristicSpec::new(Uuid::sig(0x2A90)).read()),
-    );
-    radio.start();
-    let calls = radio.take();
-    let Some(BtCall::Server(services)) = calls.get(1) else {
-        panic!("no server: {calls:?}");
-    };
-    let handles: Vec<u16> = services
-        .iter()
-        .flat_map(|s| s.characteristics.iter().map(|c| c.handle))
-        .collect();
-    assert_eq!(handles, [1, 2, 3]);
-    assert_eq!(services[0].characteristics[0].access, Access::Encrypted);
-    // Only the service's plugin notifies on it.
-    let mut out = Vec::new();
-    let notify = bt::notify_centrals(a, Uuid::sig(0x2A19), [80]);
-    assert!(run(&mut radio, "pulse", notify.clone(), asked(0), &mut out).is_err());
-    run(&mut radio, "a", notify, asked(0), &mut out).unwrap();
-    assert!(radio.take().contains(&BtCall::Notify {
-        handle: 1,
-        bytes: vec![80],
-    }));
 }
 
 #[test]

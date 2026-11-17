@@ -104,6 +104,8 @@ fn the_list_is_asked_for_the_device_and_kept_when_it_comes() {
 fn a_failed_list_is_offline_without_an_answer_and_failed_with_one() {
     for (reason, status, trouble) in [
         (Reason::NoNetwork, 0, Trouble::Offline),
+        // The host tells a connection it had no memory for as too large.
+        (Reason::TooLarge, 0, Trouble::Memory),
         (Reason::Ok, 500, Trouble::Failed),
     ] {
         let mut wire = Script::new();

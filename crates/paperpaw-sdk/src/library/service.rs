@@ -332,12 +332,3 @@ impl fmt::Debug for BookBadge {
             .finish_non_exhaustive()
     }
 }
-
-/// The badges of `record`, at most `n`, from every plugin.
-pub fn badges(env: &Env<'_>, record: &Record, n: usize) -> Vec<Badge> {
-    env.book_badges()
-        .iter()
-        .filter_map(|b| (b.badge)(env, record))
-        .take(n)
-        .collect()
-}
