@@ -86,6 +86,26 @@ fn with_font<R>(
     with_bold(scope, owner, handle, None, |font, _| call(font))
 }
 
+/// Refuses a stale handle (`ERR_STATE`) or a role without a font
+/// (`ERR_NOT_FOUND`) as resolving would, but makes no handle: a call that
+/// resolves for its drawing anyway does not resolve twice.
+fn check(scope: &EnvironmentScope, owner: &OwnerResources, handle: u32) -> Result<(), i32> {
+    scope.with_frame(|frame| {
+        owner.with_font(handle, |key| match key {
+            FontKey::Data(font) => font.check(owner, frame.callback_epoch().ok()),
+            FontKey::Named { id, acquired } => frame
+                .font_valid(id.namespace(), *acquired)
+                .then_some(())
+                .ok_or(ERR_STATE),
+            FontKey::Role(role) => resolve_role(frame.fonts().ok_or(ERR_STATE)?, *role)
+                .map(|_| ())
+                .ok_or(ERR_NOT_FOUND),
+            // Not told apart: a widget's font that is gone is the menus'.
+            FontKey::Widget { .. } => Ok(()),
+        })
+    })?
+}
+
 /// The widest faux bold (as slot 41's `extra`).
 const FAUX_MAX: u32 = 16;
 
@@ -567,7 +587,7 @@ pub(crate) unsafe fn draw_inked(
 ) -> i32 {
     status((|| {
         canvas.present()?;
-        with_font(scope, owner, handle, |_| Ok(()))?;
+        check(scope, owner, handle)?;
         outputs([out])?;
         size_check(size)?;
         if color >> 24 != 0 || flags & !INKED_SHARP != 0 {
