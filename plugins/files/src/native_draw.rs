@@ -463,6 +463,16 @@ impl BookList {
             Vec::new(),
         );
         let mut lowest = area.y;
+        // The rows of the band being drawn only are laid out: a frame is
+        // drawn in bands, and what lies outside one is not painted by it.
+        let band = (
+            frame.clip_top.saturating_sub(frame.rect.y),
+            frame.clip_bottom.saturating_sub(frame.rect.y),
+        );
+        let outside = |r: Rect| {
+            band.1 > band.0
+                && (i32::from(r.y.saturating_add(r.height)) <= band.0 || i32::from(r.y) >= band.1)
+        };
         for placed in laid.get(page).map_or(&[][..], Vec::as_slice) {
             let Some(cell) = self.cells().get(placed.cell) else {
                 continue;
@@ -472,6 +482,9 @@ impl BookList {
             hits.try_reserve(1).map_err(|_| Error::NoMemory)?;
             hits.push((r, placed.cell));
             let Row::Book(at) = cell.row else {
+                if outside(r) {
+                    continue;
+                }
                 if cell.row == Row::Note {
                     let line = Rect::new(r.x, r.y, r.width.saturating_sub(style.margin), r.height);
                     text::label(
@@ -501,6 +514,9 @@ impl BookList {
             if covers.slot(at) == Slot::Idle && covers.has_room() {
                 let slot = covering.ask(at);
                 covers.set(at, slot);
+            }
+            if outside(r) {
+                continue;
             }
             let cover = if self.grid() && !cell.card {
                 look.tile(&mut body, cell, r, metrics.tile_cover(), focused)?

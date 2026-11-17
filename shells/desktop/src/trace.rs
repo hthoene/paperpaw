@@ -77,7 +77,7 @@ impl Counts {
         self.reads + self.sizes + self.lists + self.writes + self.other
     }
 
-    fn since(&self, before: &Counts) -> Counts {
+    pub fn since(&self, before: &Counts) -> Counts {
         Counts {
             reads: self.reads - before.reads,
             bytes: self.bytes - before.bytes,
@@ -125,6 +125,12 @@ pub fn stop_recording() {
 /// The frames recorded since the last call.
 pub fn take_frames() -> Vec<FrameRecord> {
     FRAMES.with(|frames| std::mem::take(&mut *frames.borrow_mut()))
+}
+
+/// The storage calls counted since tracing began (a test takes two and
+/// subtracts, see `Counts::since`).
+pub fn counts() -> Counts {
+    now()
 }
 
 fn on() -> bool {
