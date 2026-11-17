@@ -108,10 +108,7 @@ struct Room<'a, 'c> {
 fn ink_of(cx: &Cx<'_>, size: f32, text: &str) -> Result<(i32, i32), Error> {
     match cx.font.ink(size, text)? {
         Some(ink) => paperpaw_ui_kit::geometry::check_ink(ink.top, ink.bottom),
-        None => {
-            let (ascent, descent, _) = paperpaw_ui_kit::geometry::line_metrics(&cx.font, size)?;
-            Ok((-(ascent as i32), descent as i32))
-        }
+        None => paperpaw_ui_kit::geometry::estimated_ink(size, text),
     }
 }
 

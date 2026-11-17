@@ -313,8 +313,8 @@ fn part_ink(font: &Font<'_>, part: &Part<'_>) -> Result<(f32, f32), Error> {
                 (top as f32, bottom as f32)
             }
             None => {
-                let (ascent, descent, _) = crate::geometry::line_metrics(font, part.size)?;
-                (-ascent, descent)
+                let (top, bottom) = crate::geometry::estimated_ink(part.size, text)?;
+                (top as f32, bottom as f32)
             }
         })
     };
