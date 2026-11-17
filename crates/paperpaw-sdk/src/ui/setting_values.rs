@@ -182,7 +182,7 @@ impl<'e> FontSizes<'e> {
 /// The value number setting `spec` steps to from `from` towards `to`
 /// (a step of its own, a button's, a key's): `to`, but for the size of
 /// book text the next size that looks different from `from`, as
-/// [`shown_number`] shows it, and `from` where none that way does.
+/// `shown_number` shows it, and `from` where none that way does.
 pub fn shown_step(env: &Env<'_>, spec: &SettingSpec, from: i64, to: i64) -> i64 {
     let Some(sizes) = FontSizes::of(env, spec).filter(|_| to != from) else {
         return to;

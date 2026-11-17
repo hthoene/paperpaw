@@ -19,7 +19,7 @@ pub fn title_area(style: &UiStyle, rect: Rect) -> Rect {
 /// The part of a noted row of a number that holds its title and its
 /// `−` and `+`: as [`title_area`], on touch screens as much higher as the
 /// buttons grow to a fingertip ([`UiStyle::touch_row`]); the note goes
-/// below it ([`draw_number_note`]).
+/// below it (`draw_number_note`).
 pub fn number_title_area(style: &UiStyle, rect: Rect) -> Rect {
     let band = (style.touch_row(style.title_band()) as u16).min(rect.height);
     Rect::new(rect.x, rect.y + style.gap as u16 / 2, rect.width, band)
