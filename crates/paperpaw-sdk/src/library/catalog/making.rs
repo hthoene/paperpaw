@@ -705,6 +705,9 @@ impl Walk {
             )]
             let _ = env.storage().remove(&catalog_path());
         }
+        // One that stood for the catalog until a walk: walked as where there
+        // is none.
+        super::drop_stand_in(env.storage())?;
         let old = OldCatalog::open(env.storage())?;
         let mut making = Making::start(env, true)?;
         // No catalog yet: the books found are shown as it goes on, and

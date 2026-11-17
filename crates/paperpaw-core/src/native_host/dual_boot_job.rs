@@ -153,6 +153,7 @@ impl DualBoot {
                 count: 0,
                 more: false,
             },
+            old_secrets: false,
         }
     }
 }
