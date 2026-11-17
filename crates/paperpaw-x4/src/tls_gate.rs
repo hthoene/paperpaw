@@ -19,11 +19,20 @@ use alloc::collections::VecDeque;
 /// opens where the heap is below this (`Kernel::make_room`, #287).
 pub const SESSION_ROOM: usize = 76 * 1024;
 
-/// Whether a session may be opened with `free` bytes of heap free: where not,
-/// the request ends with "not enough memory", and nothing else is starved.
+/// The largest single block a session asks for: mbedTLS's input buffer (a
+/// 16 KiB record and its header and tag) is taken in one piece, and a heap
+/// whose free memory is in pieces below it (16 to 31 KB after a store
+/// install) cannot hold the session however much is free in all. Estimated
+/// from the configuration (`ssl-in-content-len-16384`), 20 KiB with the
+/// handshake's largest messages.
+pub const SESSION_BLOCK: usize = 20 * 1024;
+
+/// Whether a session may be opened with `free` bytes of heap free in all and
+/// `largest` the largest block among them: where not, the request ends with
+/// "not enough memory", and nothing else is starved.
 #[must_use]
-pub const fn session_fits(free: usize) -> bool {
-    free >= SESSION_ROOM
+pub const fn session_fits(free: usize, largest: usize) -> bool {
+    free >= SESSION_ROOM && largest >= SESSION_BLOCK
 }
 
 /// Whether an mbedTLS error code says an allocation failed: a module's
@@ -124,11 +133,18 @@ mod tests {
     fn a_session_is_not_opened_where_it_would_leave_the_screens_no_heap() {
         // The X4 with a book and the home screen used, 16 November: 64 KiB
         // free, and the session took all but 4 KiB.
-        assert!(!session_fits(64 * 1024));
+        assert!(!session_fits(64 * 1024, 64 * 1024));
         // A start with nothing else used: 86 KiB free, 26 KiB left.
-        assert!(session_fits(86 * 1024));
-        assert!(!session_fits(SESSION_ROOM - 1));
-        assert!(session_fits(SESSION_ROOM));
+        assert!(session_fits(86 * 1024, 64 * 1024));
+        assert!(!session_fits(SESSION_ROOM - 1, 64 * 1024));
+        assert!(session_fits(SESSION_ROOM, SESSION_BLOCK));
+    }
+
+    #[test]
+    fn a_session_is_not_opened_where_no_block_holds_its_input_buffer() {
+        // Free in all, but in pieces: 90 KiB free, the largest 18 KiB.
+        assert!(!session_fits(90 * 1024, 18 * 1024));
+        assert!(!session_fits(90 * 1024, SESSION_BLOCK - 1));
     }
 
     #[test]
