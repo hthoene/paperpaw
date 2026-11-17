@@ -5,7 +5,7 @@
 //! The decisions without the host are in `native_online`.
 use super::{COMMANDS, NativeUpdate, PAGE, Running, View, fetch::Fetch};
 use crate::{
-    native_card::{MAX_NAME, UPDATE_DIR, percent},
+    native_card::{MAX_NAME, UPDATE_DIR, coarse, percent},
     native_online::{
         self, Build, FIRST, Firmware, LAST, MAX_OFFER, OFFER, Offer, QUESTION, Reader, Trouble,
         counting, date_text, parse_date,
@@ -479,7 +479,7 @@ impl NativeUpdate {
             return Ok(());
         }
         let total = progress.total().unwrap_or(loading.size);
-        let now = percent(progress.received(), total);
+        let now = coarse(percent(progress.received(), total));
         if now != loading.percent {
             loading.percent = now;
             self.show_downloading(host)?;
