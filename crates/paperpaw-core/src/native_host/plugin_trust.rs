@@ -123,6 +123,17 @@ fn pin(
     }
 }
 
+/// Room for a pin line: an id, a tab, 64 hex digits and the line end.
+const PIN_LINE: usize = 192;
+
+/// Whether an author's key is pinned for `plugin`: such an id never runs
+/// code that was not installed (Decision 205). A pin file that cannot be
+/// read counts as a pin.
+pub(crate) fn pinned(storage: &dyn Storage, plugin: &str) -> bool {
+    let mut buf = [0_u8; PIN_LINE];
+    !matches!(pin(storage, AUTHORS, plugin, &mut buf), Ok(None))
+}
+
 /// How far the scan of the revocation file has come.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scanned {

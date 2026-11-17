@@ -5,8 +5,9 @@
 //! The removal is finished without them (the journal must not hold every later
 //! install), but their secrets stay on the card, and a plugin of the same id
 //! installed later could read them. So the list is **kept until the host
-//! forgets them** (a try at every start, [`retry`]) and an install or a check
-//! of a listed id is refused (`ID_TAKEN`) until then.
+//! forgets them** (a try at every start, [`retry`]). An install of a listed id
+//! asks the user to erase them first (`plugin_install`): on yes the host
+//! forgets them and the id leaves the list, else nothing is installed.
 //!
 //! [`retry`] runs at the first pass of a start, unless the journal's resume
 //! ended `Failed` (the journal is tried again first) or `Unforgotten` (the id
@@ -15,7 +16,8 @@
 //!
 //! The file is only ever rewritten whole (it is a few lines) and read
 //! defensively: a line that is no id is ignored. A file that cannot be read
-//! (any error but "not there") **fails closed**: [`has`] answers "listed" and
+//! (any error but "not there") **fails closed**: [`has`] answers "listed" (an
+//! install asks to erase, and then cannot take the id off: reason 16) and
 //! [`add`], [`remove`] and [`retry`] write nothing, so a transient card error
 //! neither lets a listed id install nor wipes the other ids.
 use alloc::{string::String, vec::Vec};
@@ -109,8 +111,8 @@ pub(crate) fn add(storage: &dyn Storage, id: &str) -> bool {
     write(storage, &ids)
 }
 
-/// Takes `id` off the list.
-fn remove(storage: &dyn Storage, id: &str) -> bool {
+/// Takes `id` off the list; `false`: the card refused.
+pub(crate) fn remove(storage: &dyn Storage, id: &str) -> bool {
     let Ok(mut ids) = read(storage) else {
         return false;
     };

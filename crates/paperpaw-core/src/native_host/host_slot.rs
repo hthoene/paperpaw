@@ -91,6 +91,7 @@ slot_ids! {
         CanvasClip => "canvas_clip",
         CanvasDescribe => "canvas_describe",
         CanvasDrawLine => "canvas_draw_line",
+        CanvasFillPattern => "canvas_fill_pattern",
         CanvasFillRect => "canvas_fill_rect",
         CanvasFillRound => "canvas_fill_round",
         CanvasStrokeRound => "canvas_stroke_round",
@@ -169,10 +170,16 @@ pub mod slot_counts {
     std::thread_local! {
         static SERVICES: core::cell::RefCell<Vec<(alloc::string::String, &'static str, &'static str)>> =
             const { core::cell::RefCell::new(Vec::new()) };
+        /// Whether service calls are kept: from the first `reset` on, so a
+        /// run that never counts (the memory tests) keeps none on the heap.
+        static RECORDING: Cell<bool> = const { Cell::new(false) };
     }
 
     /// A service call by `plugin`: the service key and the operation's name.
     pub(in super::super) fn note_service(plugin: &str, service: &'static str, op: &'static str) {
+        if !RECORDING.try_with(Cell::get).unwrap_or(false) {
+            return;
+        }
         let _ = SERVICES.try_with(|calls| {
             calls
                 .borrow_mut()
@@ -197,10 +204,12 @@ pub mod slot_counts {
         });
     }
 
-    /// Forgets the counts of this thread.
+    /// Forgets the counts of this thread; its service calls are kept from
+    /// here on ([`service_calls`]).
     pub fn reset() {
         let _ = COUNTS.try_with(|counts| counts.iter().for_each(|count| count.set(0)));
         let _ = SERVICES.try_with(|calls| calls.borrow_mut().clear());
+        let _ = RECORDING.try_with(|on| on.set(true));
     }
 
     /// The counts of this thread since `reset`, by slot name, the slots

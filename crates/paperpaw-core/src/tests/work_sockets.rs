@@ -20,7 +20,7 @@ const LATE: Id = Id::new_static("ws.late");
 
 struct Blank;
 
-impl Screen for Blank {
+impl crate::Layer for Blank {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -43,7 +43,7 @@ fn connect(socket: &'static str) -> Command {
 fn socket_work(kept: SocketWork) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         for id in ["ws.home", "ws.page"] {
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(crate::LayerSpec::new(
                 Id::new_static(id),
                 id,
                 Box::new(|_, _| Box::new(Blank)),

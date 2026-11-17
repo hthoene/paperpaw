@@ -235,6 +235,9 @@ pub(crate) struct PluginQuestion {
     pub(crate) relation: Relation,
     /// What the plugin declares (`uses.*`), as the store page shows it.
     pub(crate) uses: Uses,
+    /// An install of an id whose secrets stayed on the card after its
+    /// removal: a yes erases them first (`plugin_unforgotten`).
+    pub(crate) old_secrets: bool,
 }
 
 /// How the new version stands to the installed one.

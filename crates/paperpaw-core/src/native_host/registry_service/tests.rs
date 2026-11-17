@@ -12,12 +12,12 @@ use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Screen,
-    ScreenSpec, SettingGroupSpec, Settings, SlotSpec, Version, keys::InputSpec,
+    ActionSpec, Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, SettingGroupSpec,
+    Settings, SlotSpec, Version, keys::InputSpec,
 };
 
 struct Quiet;
-impl Screen for Quiet {
+impl crate::Layer for Quiet {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
@@ -35,7 +35,7 @@ fn id(text: &str) -> Id {
 
 fn demo(kept: Demo) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             id("demo.main"),
             "demo.screen.main",
             Box::new(|_, _| Box::new(Quiet)),
@@ -848,6 +848,34 @@ fn a_removed_plugin_leaves_no_refusal_behind() {
     assert!(kept(&kernel));
     kernel.unload_plugin(&Id::new_static("demo"));
     assert!(!kept(&kernel));
+}
+
+/// Code never installed runs unsigned, and its row says so (bit 6).
+#[test]
+fn a_plugin_running_unsigned_code_says_so() {
+    let kernel = kernel(0);
+    let declared = crate::native_host::native_declarations::NativeDeclarations::default();
+    let rows = |declared| {
+        read(
+            &call_in(
+                &kernel,
+                Some(declared),
+                schema::OP_PLUGINS,
+                &query("", 0, 0),
+                4096,
+            )
+            .unwrap(),
+        )
+        .0
+    };
+    let demo = |rows: Vec<String>| {
+        rows.into_iter()
+            .find(|row| row.starts_with("plugin demo "))
+            .unwrap()
+    };
+    assert!(demo(rows(&declared)).contains(" flags=9 "));
+    assert!(declared.mark_unsigned("demo"));
+    assert!(demo(rows(&declared)).contains(" flags=73 "));
 }
 
 #[test]

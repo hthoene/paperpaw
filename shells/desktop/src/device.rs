@@ -1155,14 +1155,6 @@ fn build_kernel(
         // as if the reader had installed them (the emulator loads no
         // plugin files): `--set plugins.<id>=off` shows a device without.
         let mut builder = paperpaw_app::install(builder, fonts);
-        #[cfg(feature = "frame-test")]
-        {
-            builder = builder.plugin(paperpaw_sample_frame_test::FrameTest);
-        }
-        #[cfg(feature = "interlinear")]
-        {
-            builder = builder.plugin(paperpaw_sample_interlinear::Interlinear);
-        }
         if let Some(light) = profile.light {
             builder = builder.items(crate::light::manifest(), crate::light::emulated(light));
         }

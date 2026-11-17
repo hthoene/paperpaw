@@ -6,7 +6,7 @@ use paperpaw_sdk::builtin::fonts;
 use paperpaw_sdk::native::{SafeMode, SafeModeReason};
 use paperpaw_sdk::ui::{self, Label, TextRole, UiStyle};
 use paperpaw_sdk::widgets::Align;
-use paperpaw_sdk::{Canvas, Color, Cx, Env, Handled, Id, Rect, Screen};
+use paperpaw_sdk::{Canvas, Color, Cx, Env, Handled, Id, Rect};
 
 /// Its text: "Nothing here yet".
 pub(super) const TEXT: &str = "core.screen.placeholder";
@@ -29,7 +29,7 @@ pub(super) fn safe_mode_text(safe_mode: Option<&SafeMode>) -> Option<&'static st
 #[derive(Debug)]
 pub(super) struct PlaceholderScreen;
 
-impl Screen for PlaceholderScreen {
+impl crate::Layer for PlaceholderScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         // The room of the screen, not the canvas's clip: a kernel that
         // draws in bands (the X4) lends each band as the clip.

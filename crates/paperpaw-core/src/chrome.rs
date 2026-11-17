@@ -1,5 +1,5 @@
 //! Bars that stay along an edge of the screen across the screens shown
-//! (see [`paperpaw_sdk::chrome`]): the part of the screen they leave to a
+//! (see [`ChromeSpec`]): the part of the screen they leave to a
 //! screen, making and letting go of them, their input.
 
 #[allow(
@@ -7,14 +7,14 @@
     reason = "a part of the kernel, which sees all of it; not every part uses every name"
 )]
 use super::*;
-use paperpaw_sdk::chrome::{ChromeSpec, Edge};
+use crate::chrome_spec::{ChromeSpec, Edge};
 use paperpaw_sdk::{Gesture, StackEntry};
 
 /// A bar a plugin added, made while it shows.
 pub(crate) struct Chrome {
     pub(crate) spec: ChromeSpec,
-    pub(crate) screen: Option<Box<dyn Screen>>,
-    /// When it asked for [`Screen::on_timer`].
+    pub(crate) screen: Option<Box<dyn Layer>>,
+    /// When it asked for `on_timer`.
     pub(crate) timer: Option<Instant>,
 }
 
@@ -175,7 +175,7 @@ impl Kernel {
     /// device (or one above such a screen) no bars; else `area`.
     pub(crate) fn area_on_top(
         &self,
-        screen: &dyn Screen,
+        screen: &dyn Layer,
         hinted: bool,
         entry: &StackEntry,
         area: Rect,
@@ -372,7 +372,7 @@ impl Kernel {
     pub(crate) fn with_chrome(
         &mut self,
         index: usize,
-        f: impl FnOnce(&mut dyn Screen, &mut Cx<'_, '_>) -> Handled,
+        f: impl FnOnce(&mut dyn Layer, &mut Cx<'_, '_>) -> Handled,
     ) -> Handled {
         let Some(&(_, strip)) = self.chrome_strips.iter().find(|(i, _)| *i == index) else {
             return Handled::No;

@@ -1,5 +1,6 @@
 //! Host screen routing for one native declaration token.
 use super::registrations::{self as wire, Record};
+use crate::Layer;
 use crate::native_host::codec;
 use crate::native_host::ui_store::Info;
 #[cfg(test)]
@@ -9,7 +10,7 @@ use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_platform::{PointerEvent, PointerPhase, Rect, buttons};
 use paperpaw_sdk::{
-    Cx, Env, Gesture, GestureKind, Handled, Id, Screen, ScreenKey,
+    Cx, Env, Gesture, GestureKind, Handled, Id, ScreenKey,
     builtin::{events, slots},
     event::EventData as _,
     realtime,
@@ -450,7 +451,7 @@ impl<D: Dispatch> NativeScreen<D> {
     }
 }
 
-impl<D: Dispatch> Screen for NativeScreen<D> {
+impl<D: Dispatch> crate::Layer for NativeScreen<D> {
     fn guards(&self) -> bool {
         self.flags & (1 << 1) != 0
     }

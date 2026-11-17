@@ -534,7 +534,7 @@ fn a_screen_declared_hints_hidden_says_so_and_another_leaves_it_to_its_plugin() 
 
 #[test]
 fn a_screen_declared_to_dim_what_is_below_says_so_and_another_does_not() {
-    use paperpaw_sdk::Screen as _;
+    use crate::Layer as _;
     let (screen, _) = screen();
     assert!(!screen.dims_below());
     let screen = screen.with_flags((1 << 10) | (1 << 2));
@@ -547,7 +547,7 @@ fn a_screen_declared_to_dim_what_is_below_says_so_and_another_does_not() {
 
 #[test]
 fn a_screen_declared_grays_says_so_and_another_does_not() {
-    use paperpaw_sdk::Screen as _;
+    use crate::Layer as _;
     let (screen, _) = screen();
     assert!(!screen.grays());
     let screen = screen.with_flags(1 << 9);
@@ -733,7 +733,7 @@ fn page_plugin(kept: Rc<Recorder>) -> impl Fn(&mut Items) -> Result<(), Register
     move |r| {
         let dispatch = Rc::clone(&kept);
         const ID: Id = Id::new_static("page.screen");
-        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             ID,
             "page",
             alloc::boxed::Box::new(move |_, _| {
