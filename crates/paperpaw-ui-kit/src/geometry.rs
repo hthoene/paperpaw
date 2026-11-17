@@ -63,9 +63,35 @@ pub fn cap_bounds(font: &Font<'_>, size: f32) -> Result<(i32, i32), Error> {
     if let Some(ink) = font.ink(size, "H")? {
         check_ink(ink.top, ink.bottom)
     } else {
-        let (ascent, descent, _) = line_metrics(font, size)?;
-        Ok((-(ascent as i32), -(descent as i32)))
+        estimated_ink(size, "H")
     }
+}
+
+/// How high capitals reach above the baseline, in parts of the size, where a
+/// host does not tell the ink.
+pub const CAP_HEIGHT: f32 = 0.7;
+/// How far descenders reach below it.
+pub const DESCENT: f32 = 0.2;
+
+/// The ink of `text` at `size` as `(top, bottom)` from its baseline (above
+/// negative), estimated where the host does not tell it (the X4's,
+/// [`Font::ink`]): capitals and ascenders reach [`CAP_HEIGHT`] above the
+/// baseline, and [`DESCENT`] below it where a letter has a tail. Not the
+/// font's ascent and descent: taken for the ink's top and bottom they put
+/// text 7 to 10 px too low (#303).
+///
+/// # Errors
+/// [`Error::Invalid`] for a size that is not finite or beyond [`MAX_PX`].
+pub fn estimated_ink(size: f32, text: &str) -> Result<(i32, i32), Error> {
+    bounded(size)?;
+    let tails = text.chars().any(|c| {
+        matches!(
+            c,
+            'g' | 'j' | 'p' | 'q' | 'y' | 'Q' | ',' | ';' | '(' | ')' | '[' | ']'
+        )
+    });
+    let below = if tails { (size * DESCENT) as i32 } else { 0 };
+    Ok((-((size * CAP_HEIGHT) as i32), below))
 }
 
 /// The ink bounds of a font reply, each within [`MAX_PX`] in either direction.

@@ -1997,7 +1997,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-battery"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-graphics",
@@ -2268,7 +2268,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.9"
+version = "1.0.11"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",

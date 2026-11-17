@@ -1336,6 +1336,7 @@ mod damaged;
 mod entry_identity;
 mod failing_writes;
 mod free_follow;
+mod free_kept;
 mod free_space;
 mod listed;
 mod noted;
