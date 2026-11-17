@@ -21,14 +21,17 @@ pub mod requires;
 /// asks for; those past it are left out.
 pub const MAX_REQUESTED_PLUGINS: usize = 32;
 
-/// What [`RequiredFor`] can name: the standard slots and the UI font.
-static ESSENTIALS: [Id; 6] = [
+/// What [`RequiredFor`] can name: the standard slots, the two questions
+/// (without them nothing can ask yes or no or offer a choice) and the UI font.
+static ESSENTIALS: [Id; 8] = [
     slots::HOME,
     slots::READER,
     slots::LIBRARY,
     slots::MENU,
     slots::SETTINGS,
     fonts::UI,
+    slots::CHOICE,
+    slots::CONFIRM,
 ];
 
 /// The standard slots (and `core.font-ui` for "all fonts") that only one

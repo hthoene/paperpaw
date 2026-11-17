@@ -2018,6 +2018,43 @@ fn changed_settings_are_saved_and_announced() {
 }
 
 #[test]
+fn the_sole_plugin_asking_questions_cannot_be_switched_off() {
+    // Nothing else asks yes or no or offers a choice: switched off, every
+    // question would end unasked.
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(
+            Manifest::new(Id::new_static("ask"), "Ask", Version::new(1, 0, 0)),
+            |r: &mut Items| {
+                r.add_fake(crate::testing::FakeSpec::new(
+                    Id::new_static("ask.sheet"),
+                    "sheet",
+                    Box::new(|_, _| Box::new(HalfOverlay)),
+                ))?;
+                r.bind_slot(
+                    slots::CHOICE,
+                    Id::new_static("ask.sheet"),
+                    Priority::DEFAULT,
+                )?;
+                r.bind_slot(
+                    slots::CONFIRM,
+                    Id::new_static("ask.sheet"),
+                    Priority::DEFAULT,
+                )
+            },
+        )
+        .build()
+        .unwrap();
+    let ask = kernel.plugins().get("ask").unwrap();
+    assert_eq!(
+        ask.required_for.iter().collect::<Vec<_>>(),
+        [&slots::CHOICE, &slots::CONFIRM]
+    );
+    assert!(!ask.can_switch_off());
+    kernel.set_plugin_enabled(&Id::new_static("ask"), false);
+    assert!(kernel.plugins().get("ask").unwrap().enabled);
+}
+
+#[test]
 fn plugins_switch_on_and_off_for_the_next_start() {
     use paperpaw_sdk::PluginState::{Off, Running};
 

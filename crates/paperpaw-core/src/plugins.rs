@@ -219,7 +219,7 @@ impl Kernel {
 
     /// Marks plugins that alone fill a standard slot or provide all fonts:
     /// switching one of them off would leave the user without e.g.
-    /// settings, a menu or text, and no way back.
+    /// settings, a menu, text or any yes or no question, and no way back.
     pub(crate) fn find_required_plugins(&mut self) {
         for slot in [
             slots::HOME,
@@ -227,6 +227,8 @@ impl Kernel {
             slots::LIBRARY,
             slots::MENU,
             slots::SETTINGS,
+            slots::CHOICE,
+            slots::CONFIRM,
         ] {
             let sole = {
                 let mut providers = self

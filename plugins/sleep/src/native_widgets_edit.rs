@@ -267,6 +267,19 @@ impl Editor {
         self.rows(host, &mut Messages::new()?)
     }
 
+    /// The list as it is, to change and [`store`](Self::store): the list
+    /// itself stays until the new one is written.
+    fn copied(&self) -> Result<Vec<String>, Error> {
+        let mut widgets = Vec::new();
+        widgets
+            .try_reserve_exact(self.widgets.len() + 1)
+            .map_err(|_| Error::NoMemory)?;
+        for id in &self.widgets {
+            widgets.push(copy(id)?);
+        }
+        Ok(widgets)
+    }
+
     /// Writes `widgets` as the setting's list (nothing where it is none).
     fn store(&mut self, host: &Host<'_>, widgets: Vec<String>, close: bool) -> Result<(), Error> {
         let mut scratch = buffer(COMMANDS)?;
@@ -319,7 +332,7 @@ impl Editor {
                 let Some(id) = offered.get(index) else {
                     return Ok(Handled::Yes);
                 };
-                let mut widgets = core::mem::take(&mut self.widgets);
+                let mut widgets = self.copied()?;
                 push(&mut widgets, copy(id)?)?;
                 self.store(host, widgets, true)?;
             }
@@ -378,7 +391,7 @@ impl Editor {
                     .unwrap_or(held.to)
                     .min(self.widgets.len().saturating_sub(1));
                 if to != held.from {
-                    let mut widgets = core::mem::take(&mut self.widgets);
+                    let mut widgets = self.copied()?;
                     let moved = widgets.remove(held.from);
                     widgets.insert(to, moved);
                     self.store(host, widgets, false)?;
@@ -470,32 +483,32 @@ impl Editor {
         let Some(option) = options.get(answer.choice() as usize).copied() else {
             return Ok(true);
         };
-        let mut widgets = core::mem::take(&mut self.widgets);
         let mut focus = at;
+        if !matches!(option, "up" | "down" | "remove") {
+            // Its own settings, on their page.
+            let params = [Param::new(ID, &self.widgets[at])?];
+            let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+            let handover = ui.handover(host, &params, &mut input, &mut out)?;
+            let mut scratch = [0; 256];
+            CommandSender::new(host, &mut scratch)
+                .open(Open::slot("core.settings")?.handover(handover))?;
+            return Ok(true);
+        }
+        let mut widgets = self.copied()?;
         match option {
-            "up" => {
+            "up" if at > 0 => {
                 widgets.swap(at, at - 1);
                 focus = at - 1;
             }
-            "down" => {
+            "down" if at + 1 < widgets.len() => {
                 widgets.swap(at, at + 1);
                 focus = at + 1;
             }
             "remove" => {
                 widgets.remove(at);
             }
-            _ => {
-                // Its own settings, on their page.
-                let id = copy(&widgets[at])?;
-                self.widgets = widgets;
-                let params = [Param::new(ID, &id)?];
-                let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                let handover = ui.handover(host, &params, &mut input, &mut out)?;
-                let mut scratch = [0; 256];
-                CommandSender::new(host, &mut scratch)
-                    .open(Open::slot("core.settings")?.handover(handover))?;
-                return Ok(true);
-            }
+            // The list read again meanwhile has no row to move it to.
+            _ => return Ok(true),
         }
         self.store(host, widgets, false)?;
         self.list.set_focus(focus);
