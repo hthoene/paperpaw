@@ -16,7 +16,7 @@ struct CoverScreen {
 }
 
 impl crate::testing::Fake for CoverScreen {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         let image = paperpaw_sdk::document::ImageRef {
             path: "p.gray".into(),
             width: 8,
@@ -27,7 +27,7 @@ impl crate::testing::Fake for CoverScreen {
         }
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -36,15 +36,15 @@ impl crate::testing::Fake for CoverScreen {
 struct OverScreen;
 
 impl crate::testing::Fake for OverScreen {
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
+    fn region(&self, _: &Place<'_>) -> Option<Rect> {
         Some(Rect::new(0, 45, 90, 45))
     }
 
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         canvas.fill_rect(0, 45, 90, 45, Color::BLACK);
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -344,7 +344,7 @@ fn a_pass_due_in_a_call_that_makes_a_frame_comes_within_the_retry_with_no_event(
 struct LateScreen(Rc<Cell<bool>>);
 
 impl crate::testing::Fake for LateScreen {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         if self.0.get() {
             let image = paperpaw_sdk::document::ImageRef {
                 path: "p.gray".into(),
@@ -362,7 +362,7 @@ impl crate::testing::Fake for LateScreen {
         }
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }

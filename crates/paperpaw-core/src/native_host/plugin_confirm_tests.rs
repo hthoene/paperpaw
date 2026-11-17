@@ -8,6 +8,7 @@ use crate::native_host::firmware_install::Answer;
 use crate::native_host::plugin_job::{
     KIND_INSTALL, USE_KEY_MAX, USES_SHOWN, Uses, reason as job_reason,
 };
+use crate::{Place, Turn};
 use alloc::string::ToString;
 use paperpaw_platform::firmware::{Text, WRITE_BLOCK};
 use paperpaw_platform::firmware_fake::{FakeFirmware, paperpaw_facts};
@@ -133,7 +134,7 @@ mod kernel_side {
     use crate::Items;
     use crate::Kernel;
     use paperpaw_sdk::{
-        Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Version, builtin::slots,
+        Canvas, Handled, Id, Manifest, Priority, RegisterError, Version, builtin::slots,
     };
 
     fn fill(buf: &mut [u8]) -> bool {
@@ -146,8 +147,8 @@ mod kernel_side {
     /// A home screen to lie under the confirmation.
     struct Page;
     impl crate::testing::Fake for Page {
-        fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-        fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+        fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+        fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
             Handled::No
         }
     }

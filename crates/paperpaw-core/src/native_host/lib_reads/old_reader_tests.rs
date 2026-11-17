@@ -59,7 +59,7 @@ fn the_old_folder_is_the_one_beta_3s_reader_kept() {
         old_file("books/a.epub", "progress.ini").unwrap(),
         format!(
             "{}/books/{}/progress.ini",
-            paperpaw_sdk::Env::plugin_dir("reader"),
+            paperpaw_sdk::data::plugin_dir("reader"),
             paperpaw_sdk::library::key("books/a.epub")
         )
     );

@@ -180,7 +180,7 @@ pub(crate) fn kept_path(folder: &str, prefix: &str, book: &str) -> Result<String
 }
 
 /// The directory where plugin `plugin` keeps its data, as
-/// [`paperpaw_sdk::Env::plugin_dir`] says it.
+/// [`paperpaw_sdk::data::plugin_dir`] says it.
 pub(crate) fn plugin_dir(plugin: &str) -> Result<String, DocumentError> {
     try_format!("{}/plugins/{plugin}", paperpaw_sdk::data::DIR)
 }

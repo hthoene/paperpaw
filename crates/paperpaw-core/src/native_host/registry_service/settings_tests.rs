@@ -7,21 +7,22 @@ use super::*;
 use crate::Items;
 use crate::abi7::{services_wire::service_schema, settings_wire::settings_decode};
 use crate::native_host::host_services::{Caller, HostServices};
+use crate::{Place, Turn};
 use alloc::{borrow::Cow, boxed::Box, format, string::String, vec::Vec};
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, SettingExtra,
-    SettingGroupSpec, SettingSpec, SettingValue, Settings, Version,
+    Canvas, Handled, Id, Manifest, Priority, RegisterError, SettingExtra, SettingGroupSpec,
+    SettingSpec, SettingValue, Settings, Version,
     builtin::{groups::OTHER, slots::SETTINGS as SETTINGS_SLOT},
     presets::Preset,
 };
 
 struct Quiet;
 impl crate::testing::Fake for Quiet {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -160,7 +161,7 @@ fn kernel() -> crate::Kernel {
 }
 
 struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     sources: Sources<'a>,
     hosts: HostServices,
 }
@@ -190,7 +191,7 @@ fn call_as(
     input: &[u8],
     room: usize,
 ) -> Result<Vec<u8>, i32> {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let view = View {
         env: &env,
         sources: Sources {
@@ -554,7 +555,7 @@ fn every_rows_governs_flag_is_what_settings_governs_says() {
     let kernel = kernel();
     let settings = &kernel.shared.settings;
     // Found once for a list: sorted, each id once, the same answer per id.
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let sources = super::sources::Sources {
         env: &env,
         directory: None,

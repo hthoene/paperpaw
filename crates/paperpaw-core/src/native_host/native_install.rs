@@ -250,7 +250,7 @@ impl crate::Kernel {
             self.rebuild_keymap();
         }
         if self.shared.registry.offers() != offers_before {
-            // The slots now bound are known to plugins (`Env::has_slot`).
+            // The slots now bound are known to plugins (`Place::has_slot`).
             self.refresh_slots();
         }
         if self.shared.fonts.ids().count() != fonts_before {
@@ -449,7 +449,7 @@ impl crate::Kernel {
     }
 
     /// The slots some screen is bound to, as plugins read them
-    /// ([`paperpaw_sdk::Env::has_slot`]), made anew where offers came or went:
+    /// ([`crate::Place::has_slot`]), made anew where offers came or went:
     /// where the heap has no room for the list the one known stays, and a
     /// warning says so.
     pub(super) fn refresh_slots(&mut self) {

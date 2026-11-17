@@ -17,7 +17,7 @@ const OWNER: u64 = 7;
 
 /// The card's facts and a clock the test sets.
 struct Clocked {
-    inner: Rc<crate::native_host::lib_reads::tests::Env>,
+    inner: Rc<crate::native_host::lib_reads::tests::Facts>,
     now: Cell<u64>,
 }
 

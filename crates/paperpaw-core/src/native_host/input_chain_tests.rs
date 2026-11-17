@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 use super::*;
 use crate::native_host::codec;
+use crate::{Place, Turn};
 use alloc::vec;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::{Direction, Gesture, GestureKind};
@@ -419,8 +420,7 @@ mod kernel {
     use paperpaw_graphics::Canvas;
     use paperpaw_native::host_glue::ERR_BUSY;
     use paperpaw_sdk::{
-        ActionSpec, Cx, Env, Handled, Id, Manifest, Params, RegisterError, Uses, Version,
-        keys::InputMode,
+        ActionSpec, Handled, Id, Manifest, Params, RegisterError, Uses, Version, keys::InputMode,
     };
 
     extern crate std;
@@ -478,15 +478,15 @@ mod kernel {
     /// plugin's own PIN screen.
     struct Seen(bool, bool);
     impl crate::testing::Fake for Seen {
-        fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+        fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
         fn flags(&self) -> u32 {
             (u32::from(self.0) * crate::testing::GUARDS)
                 | (u32::from(self.1) * crate::testing::SECRET)
         }
-        fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+        fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
             Handled::No
         }
-        fn on_gesture(&mut self, _: Gesture, _: &mut Cx<'_, '_>) -> Handled {
+        fn on_gesture(&mut self, _: Gesture, _: &mut Turn<'_, '_>) -> Handled {
             GESTURES.with(|count| count.set(count.get() + 1));
             Handled::Yes
         }
@@ -537,23 +537,23 @@ mod kernel {
         live: Cell<bool>,
     }
     impl Dispatch for Counting {
-        fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+        fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
             unreachable!()
         }
-        fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+        fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
             unreachable!()
         }
         fn draw(
             &self,
             _: u32,
             _: &wire::DrawFrame<'_>,
-            _: &Env<'_>,
+            _: &Place<'_>,
             _: &mut paperpaw_graphics::Canvas<'_>,
         ) -> Result<i32, i32> {
             unreachable!()
         }
         fn dropped(&self, _: u32, _: i32) {}
-        fn stage(&self, _: u32, bytes: &[u8], out: &mut [u8], _: &Env<'_>) -> Result<i32, i32> {
+        fn stage(&self, _: u32, bytes: &[u8], out: &mut [u8], _: &Place<'_>) -> Result<i32, i32> {
             let _guard = self
                 .guard
                 .enter(&self.depth.as_depth().0)

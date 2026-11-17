@@ -63,7 +63,7 @@ fn input_over_limit_never_calls_backend_or_changes_output() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let input = batch("one");
     let mut two = input.clone();
     two[0] = 2;
@@ -357,7 +357,7 @@ fn usage_producer_and_echo_backend_share_the_dispatch_reply_validator() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let frame = CoreFrame {
         callback: None,
         instance: None,

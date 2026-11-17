@@ -1,10 +1,11 @@
 //! The catalog's job, one step at a time: what it does to the library's
 //! files.
 
+use crate::Place;
 use alloc::string::String;
 
 use paperpaw_sdk::builtin::{settings, slots};
-use paperpaw_sdk::{Env, library};
+use paperpaw_sdk::library;
 
 /// What the kernel does to the catalog: walk the library, or catch up;
 /// before either, once, move the books' details and covers that earlier
@@ -26,14 +27,14 @@ pub(super) enum CatalogJob {
 }
 
 impl CatalogJob {
-    pub(super) fn step(&mut self, env: &Env<'_>) -> Result<bool, paperpaw_sdk::StorageError> {
+    pub(super) fn step(&mut self, env: &Place<'_>) -> Result<bool, paperpaw_sdk::StorageError> {
         match self {
-            CatalogJob::Walk(walk) => walk.step(env),
-            CatalogJob::Rewrite(rewrite) => rewrite.step(env),
+            CatalogJob::Walk(walk) => walk.step(&env.env()),
+            CatalogJob::Rewrite(rewrite) => rewrite.step(&env.env()),
             CatalogJob::Split(split) => split.step(env.storage(), env.book_data()),
-            CatalogJob::Sort(sort) => sort.step(env),
+            CatalogJob::Sort(sort) => sort.step(&env.env()),
             CatalogJob::Shown(_, sort) => {
-                match sort.as_mut().map(|s| s.step(env)) {
+                match sort.as_mut().map(|s| s.step(&env.env())) {
                     Some(Ok(false)) => {}
                     // Not sorted: the views still hear of the books, and
                     // ask for them sorted anew.
@@ -141,7 +142,7 @@ impl super::Catalog {
     #[inline(never)]
     pub(super) fn start(
         &self,
-        env: &Env<'_>,
+        env: &Place<'_>,
         job: &mut Option<CatalogJob>,
         out: &mut paperpaw_sdk::Commands,
     ) -> Option<paperpaw_sdk::work::Step> {
@@ -149,11 +150,11 @@ impl super::Catalog {
         let fresh = core::mem::take(&mut *self.fresh.borrow_mut());
         let walk = self.walk.replace(false);
         let started = if walk {
-            library::catalog::Walk::start(env, fresh.clone()).map(CatalogJob::Walk)
+            library::catalog::Walk::start(&env.env(), fresh.clone()).map(CatalogJob::Walk)
         } else if !fresh.is_empty() || library::catalog::log_is_long(env.storage()) {
-            library::catalog::Rewrite::start(env, fresh.clone()).map(CatalogJob::Rewrite)
+            library::catalog::Rewrite::start(&env.env(), fresh.clone()).map(CatalogJob::Rewrite)
         } else if let Some(archive) = self.sort_wanted(env) {
-            library::sorted::Build::start(env, &archive).map(CatalogJob::Sort)
+            library::sorted::Build::start(&env.env(), &archive).map(CatalogJob::Sort)
         } else {
             self.urgent.set(false);
             return Some(Step::Done);
@@ -179,7 +180,7 @@ impl super::Catalog {
 /// (`CATALOG_CHANGED`, as of a catalog made anew); the walk goes on.
 pub(super) fn after_step(
     catalog: &super::Catalog,
-    env: &Env<'_>,
+    env: &Place<'_>,
     job: &mut Option<CatalogJob>,
     out: &mut paperpaw_sdk::Commands,
 ) -> paperpaw_sdk::work::Step {
@@ -192,7 +193,7 @@ pub(super) fn after_step(
         Some(CatalogJob::Walk(mut walk)) if published => {
             let sort = catalog
                 .sort_wanted(env)
-                .and_then(|archive| library::sorted::Build::start(env, &archive).ok());
+                .and_then(|archive| library::sorted::Build::start(&env.env(), &archive).ok());
             *job = Some(match sort {
                 Some(sort) => {
                     walk.pause();
@@ -219,7 +220,7 @@ pub(super) fn after_step(
 /// goes on, also on a device of little memory (the X4): the library holds
 /// a few kilobytes of the sorted books ([`library::sorted`]), and says
 /// they are being prepared until the job made them.
-pub(super) fn waits(env: &Env<'_>) -> bool {
+pub(super) fn waits(env: &Place<'_>) -> bool {
     let shown = env.stack().iter().rev().find(|entry| !entry.overlay);
     shown.is_some_and(|entry| entry.slot.as_ref() == Some(&slots::READER))
 }
@@ -227,7 +228,7 @@ pub(super) fn waits(env: &Env<'_>) -> bool {
 /// The library's folder is there from the first start on: made where it
 /// is not (never removed), so that books copied onto the card or sent
 /// over Wi-Fi have their place from the start.
-pub(super) fn make_library_folder(env: &Env<'_>) {
+pub(super) fn make_library_folder(env: &Place<'_>) {
     let folder = env.settings().read(&settings::LIBRARY_FOLDER);
     let folder = folder.trim_matches('/');
     if folder.is_empty() || paperpaw_sdk::files::is_dir(env.storage(), folder) {

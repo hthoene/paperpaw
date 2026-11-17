@@ -14,10 +14,11 @@
 //! a screen call has no stage to build and runs as it did.
 use super::commands::{CommandAuthority, CommandStage};
 use super::event_call::{ScreenEffects, Staged};
+use crate::Place;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
-use paperpaw_sdk::{Env, Id, ScreenKey};
+use paperpaw_sdk::{Id, ScreenKey};
 
 /// The batches of screen callbacks that wait for the kernel at most.
 pub(crate) const SCREEN_BATCHES: usize = 4;
@@ -178,7 +179,7 @@ impl ScreenStage {
 pub(crate) struct StageParts<'a> {
     pub(crate) owner: &'a Id,
     pub(crate) owner_key: u64,
-    pub(crate) env: &'a Env<'a>,
+    pub(crate) env: &'a Place<'a>,
     /// The screen instance the callback speaks for, and how many commands
     /// deep the chain it runs in is.
     pub(crate) screen: Option<ScreenKey>,

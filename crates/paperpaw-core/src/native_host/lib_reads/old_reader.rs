@@ -24,7 +24,7 @@ use core::cell::Cell;
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::{digest::fnv1a64, library, positions};
 
-/// The reader's folder of books (`Env::plugin_dir("reader")` + `/books`).
+/// The reader's folder of books (`paperpaw_sdk::data::plugin_dir("reader")` + `/books`).
 const BOOKS: &str = ".paperpaw/plugins/reader/books";
 /// The folder of the shared annotation files (`paperpaw_sdk::annotations`).
 const ANNOTATIONS: &str = ".paperpaw/annotations";

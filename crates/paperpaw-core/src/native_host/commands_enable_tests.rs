@@ -19,7 +19,7 @@ fn a_switch_is_staged_and_core_and_ones_own_switch_off_are_denied() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let owner = Id::new_static("store");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096).with_ui(
         &env,

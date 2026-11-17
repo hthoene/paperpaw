@@ -14,13 +14,14 @@ use super::{
     ordered, rules,
     sources::Sources,
 };
+use crate::Place;
 use crate::native_host::{
     declaration_store::{DeclKey, DeclarationStore, Kind},
     registrations::{self as wire, Record},
 };
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
-use paperpaw_sdk::{Env, widgets::base};
+use paperpaw_sdk::widgets::base;
 
 /// `reg_widget.flags`.
 const SHOWN: u32 = 1;
@@ -82,7 +83,7 @@ pub(super) fn rows(
     for (id, title, previews) in listed.chain(previewing) {
         let kind = widgets.category(id.as_str()).unwrap_or("");
         let span = widgets.cells(id.as_str());
-        let flags = if widgets.shown(env, id.as_str()) {
+        let flags = if widgets.shown(&env.env(), id.as_str()) {
             SHOWN
         } else {
             0
@@ -148,7 +149,7 @@ pub(crate) fn declared_names(
 
 /// The row of the declared widget `key`.
 fn declared(
-    env: &Env<'_>,
+    env: &Place<'_>,
     store: &DeclarationStore,
     key: DeclKey,
     wanted: Wanted<'_>,
@@ -190,8 +191,8 @@ fn declared(
 
 /// Whether a place that shows now lists widget `id`: one of the environment's
 /// places (`Widgets::shown`) or a native `widget.place`.
-fn listed(env: &Env<'_>, store: &DeclarationStore, id: &str) -> bool {
-    if env.widgets().shown(env, id) {
+fn listed(env: &Place<'_>, store: &DeclarationStore, id: &str) -> bool {
+    if env.widgets().shown(&env.env(), id) {
         return true;
     }
     let mut found = false;
@@ -206,7 +207,7 @@ fn listed(env: &Env<'_>, store: &DeclarationStore, id: &str) -> bool {
     found
 }
 
-fn place_lists(env: &Env<'_>, place: &wire::WidgetPlace<'_>, id: &str) -> bool {
+fn place_lists(env: &Place<'_>, place: &wire::WidgetPlace<'_>, id: &str) -> bool {
     rules::value_holds(env.settings(), place.shown_if_key, place.shown_if_value)
         && place
             .list_keys

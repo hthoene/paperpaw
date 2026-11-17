@@ -78,13 +78,13 @@ struct Taps {
 }
 
 impl crate::testing::Fake for Taps {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn on_gesture(&mut self, gesture: Gesture, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_gesture(&mut self, gesture: Gesture, _: &mut Turn<'_, '_>) -> Handled {
         let taken = gesture.kind == GestureKind::Tap;
         if taken {
             let kind = alloc::format!("{:?}", gesture.kind);
@@ -157,9 +157,9 @@ fn two_fingers_and_own_zones() {
 struct Layered(Log);
 
 impl crate::testing::Fake for Layered {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         self.0.borrow_mut().push(alloc::format!("lay:{action}"));
         let book = Id::new_static("book.mine");
         match action.as_str() {
@@ -259,13 +259,13 @@ fn inputs_raised_and_layers_put_in_front() {
 struct Lock(Log);
 
 impl crate::testing::Fake for Lock {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
     fn flags(&self) -> u32 {
         crate::testing::GUARDS
     }
 
-    fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
         self.0.borrow_mut().push(alloc::format!("lock:{action}"));
         Handled::Yes
     }
@@ -394,9 +394,9 @@ fn no_key_layer_is_laid_below_a_guard() {
 struct WayScreen(Log);
 
 impl crate::testing::Fake for WayScreen {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
         self.0.borrow_mut().push(alloc::format!("{action}"));
         Handled::Yes
     }

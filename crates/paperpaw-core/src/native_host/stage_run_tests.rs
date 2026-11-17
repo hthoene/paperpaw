@@ -2,6 +2,7 @@
 //! one, in order, by cursor, and a failing subscriber only costs its reply.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::{NORMAL, arm_failure, reset};
+use crate::Place;
 use crate::abi7::core_frame::{CallbackStamp, CoreFrame};
 use crate::native_host::{
     codec,
@@ -24,7 +25,7 @@ use paperpaw_native::host_glue::{
     ERR_STATE, ERR_UNSUPPORTED,
 };
 use paperpaw_platform::MemoryClass;
-use paperpaw_sdk::{Env, Id};
+use paperpaw_sdk::Id;
 
 const READER: u64 = 100;
 const STAGE: &str = "reader.filter";
@@ -51,17 +52,17 @@ struct Target {
     guard: crate::abi7::calls::Instance,
 }
 impl Dispatch for Target {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         unreachable!()
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         unreachable!()
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         unreachable!()
@@ -69,7 +70,7 @@ impl Dispatch for Target {
     fn dropped(&self, _: u32, status: i32) {
         self.dropped.borrow_mut().push(status);
     }
-    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], _: &Place<'_>) -> Result<i32, i32> {
         let _guard = self
             .guard
             .enter(&self.depth.as_depth().0)
@@ -268,7 +269,7 @@ fn with_kernel_frame<R>(
     (levels, epoch): (usize, u64),
     body: impl FnOnce(&CoreFrame<'_>) -> R,
 ) -> R {
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let frame = CoreFrame {
         callback: caller.map(|owner| CallbackStamp::new(owner, epoch).unwrap()),
         instance: None,

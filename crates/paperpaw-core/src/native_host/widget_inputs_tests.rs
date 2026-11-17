@@ -45,7 +45,7 @@ impl NativeInstance for Owner {
         &self,
         token: u32,
         bytes: &[u8],
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         stage: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
         let wire::Record::InputWidget(tap) = crate::native_host::codec::decode_any_single(bytes)?
@@ -84,17 +84,17 @@ impl NativeInstance for Owner {
 }
 
 impl Dispatch for Owner {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)

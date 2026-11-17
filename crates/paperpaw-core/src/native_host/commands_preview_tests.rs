@@ -4,9 +4,10 @@
 //! its plugin ends it, and it ends with its screen and with the sleep.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 use super::*;
+use crate::Place;
 use crate::abi7::settings_wire::settings_encode;
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Params, builtin::groups};
+use paperpaw_sdk::{Params, builtin::groups};
 
 /// A kernel with two plugins: `probe` (a number, a text, a secret, two
 /// screens) and `other` (a guarded switch, a number, a screen).
@@ -15,8 +16,8 @@ fn kernel() -> crate::Kernel {
     use paperpaw_sdk::{Manifest, Version};
     struct Empty;
     impl crate::testing::Fake for Empty {
-        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}
-        fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Place<'_>) {}
+        fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
         }
     }
@@ -105,7 +106,7 @@ pub(super) fn submit(
     let owner = Id::parse(owner).unwrap();
     let held = kernel.preview_held(owner.as_str());
     let (status, commands, redraw) = {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let top = env.stack().last().map(|top| top.key);
         let mut stage =
             CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(&env, top, 0, 0);

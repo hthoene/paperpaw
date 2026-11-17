@@ -23,12 +23,12 @@ pub(crate) struct ActiveScreen {
     pub(crate) hinted: bool,
     /// The part of the screen it is made for and drawn into: all of it
     /// but the bars shown over it and the row of hints (see
-    /// [`Env::content`]).
+    /// [`Place::content`]).
     pub(crate) area: Rect,
     /// What it was opened with, e.g. the book.
     pub(crate) params: Params,
     pub(crate) screen: crate::screen::Screen,
-    /// When it wants [`Screen::on_timer`] ([`Cx::wake_at`]); below another
+    /// When it wants [`Screen::on_timer`] ([`Turn::wake_at`]); below another
     /// screen, once it is on top again.
     pub(crate) timer: Option<Instant>,
     /// The key map layer put in front of its slot's while it is on top
@@ -203,7 +203,7 @@ impl Kernel {
             Some(screen) => screen,
             None => {
                 // Legacy factories are infallible; this also keeps their sizing order.
-                let Ok(screen) = spec.make(&self.shared.env(self.shared.now), params) else {
+                let Ok(screen) = spec.make(&self.shared.place(self.shared.now), params) else {
                     return;
                 };
                 screen
@@ -222,7 +222,7 @@ impl Kernel {
             hinted = !hinted;
             area = self.layout(hinted);
             set_area(&mut self.shared.device, &mut self.shared.content, area);
-            spec.remake(&mut screen, &self.shared.env(self.shared.now), params);
+            spec.remake(&mut screen, &self.shared.place(self.shared.now), params);
         }
         drop(running);
         let active = ActiveScreen {
@@ -510,7 +510,7 @@ impl Kernel {
         let Some(spec) = self.shared.registry.screens.get(&id) else {
             return;
         };
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         let params = Params::new().with(builtin_params::TEXT, text);
         let running = self.shared.meter.enter(id.namespace());
         let Ok(screen) = spec.make(&env, &params) else {
@@ -529,7 +529,7 @@ impl Kernel {
             .settings
             .int(core_settings::NOTICE_SECONDS.as_str())
             .clamp(1, 60) as u32;
-        let region = notice_area(&screen, &self.shared.env(self.shared.now));
+        let region = notice_area(&screen, &self.shared.place(self.shared.now));
         self.notice = Some((
             screen,
             self.shared.now.add_millis(u64::from(seconds) * 1000),
@@ -564,7 +564,7 @@ impl Kernel {
         let Some((screen, _)) = self.notice.take() else {
             return;
         };
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         let region = notice_area(&screen, &env);
         self.waiting_notices.ended(screen);
         self.invalidate(region);
@@ -587,10 +587,10 @@ impl Kernel {
         self.sync_content();
     }
 
-    /// The open screens as plugins see them ([`Env::stack`]), after the
+    /// The open screens as plugins see them ([`Place::stack`]), after the
     /// stack changed.
     pub(crate) fn sync_stack(&mut self) {
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         let entries: Vec<paperpaw_sdk::StackEntry> = self
             .stack
             .iter()
@@ -977,7 +977,7 @@ impl Kernel {
     /// The region of an overlay on the screen, `None` for full screens.
     pub(crate) fn overlay(&self, index: usize) -> Option<Rect> {
         let active = self.stack.get(index)?;
-        let base = self.shared.env(self.shared.now);
+        let base = self.shared.place(self.shared.now);
         let device = base.device_within(active.area);
         let env = base.within(&device, active.area);
         let region = active.screen.region(&env)?;
@@ -1077,7 +1077,7 @@ impl Kernel {
         });
         self.output.commands.truncate(asked);
         self.apply_area(area);
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         let active = &mut self.stack[index];
         active.area = area;
         let Some(spec) = self.shared.registry.screens.get(&active.id) else {
@@ -1096,7 +1096,7 @@ impl Kernel {
     pub(crate) fn with_screen(
         &mut self,
         index: usize,
-        f: impl FnOnce(&mut crate::screen::Screen, &mut Cx<'_, '_>) -> Handled,
+        f: impl FnOnce(&mut crate::screen::Screen, &mut Turn<'_, '_>) -> Handled,
     ) -> Handled {
         let earlier = mem::take(&mut self.output.redraw);
         let given = self.output.commands.len();
@@ -1116,12 +1116,12 @@ impl Kernel {
         };
         let area = active.area;
         let asked_area = self.output.redraw_area.take();
-        let base = self.shared.env(self.shared.now);
+        let base = self.shared.place(self.shared.now);
         let device = base.device_within(area);
         let env = base.within(&device, area);
         let running = self.shared.meter.enter(active.id.namespace());
         let key = paperpaw_sdk::ScreenKey::new(active.serial);
-        let mut cx = Cx::new(&env, &mut self.output)
+        let mut cx = Turn::new(&env, &mut self.output)
             .for_screen(key)
             .with_params(&self.action_params);
         let handled = f(&mut active.screen, &mut cx);
@@ -1247,7 +1247,7 @@ impl Kernel {
     /// Runs `f` with the active screen and a context for it.
     pub(crate) fn with_top(
         &mut self,
-        f: impl FnOnce(&mut crate::screen::Screen, &mut Cx<'_, '_>) -> Handled,
+        f: impl FnOnce(&mut crate::screen::Screen, &mut Turn<'_, '_>) -> Handled,
     ) -> Handled {
         match self.stack.len().checked_sub(1) {
             Some(top) => self.with_screen(top, f),
@@ -1285,7 +1285,7 @@ impl Kernel {
 
 /// Where the notice `screen` shows on the screen: in the part of the
 /// screen on top (`env`'s), from its corner.
-pub(crate) fn notice_area(screen: &crate::screen::Screen, env: &Env<'_>) -> Rect {
+pub(crate) fn notice_area(screen: &crate::screen::Screen, env: &Place<'_>) -> Rect {
     let content = env.content();
     let all = Rect::new(0, 0, content.width, content.height);
     areas::on_screen(screen.region(env).unwrap_or(all), content)

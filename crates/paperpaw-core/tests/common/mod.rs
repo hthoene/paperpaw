@@ -6,6 +6,7 @@
     dead_code,
     reason = "shared by the tests; not every test file uses every helper"
 )]
+use paperpaw_core::{Place, Turn};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -14,8 +15,8 @@ use paperpaw_core::Items;
 use paperpaw_core::Kernel;
 use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Gesture, Handled, Id, Manifest, Params, Priority,
-    RegisterError, Version,
+    ActionSpec, Canvas, Command, Gesture, Handled, Id, Manifest, Params, Priority, RegisterError,
+    Version,
 };
 use paperpaw_platform::{
     ButtonState, Color, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, PixelFormat,
@@ -285,7 +286,7 @@ fn parse_rect(text: &str) -> Option<Rect> {
 }
 
 impl paperpaw_core::testing::Fake for LogScreen {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         let area = self.region.unwrap_or(SCREEN);
         // Overlays paint all of their region (see `Screen::draw`).
         if self.region.is_some() {
@@ -307,7 +308,7 @@ impl paperpaw_core::testing::Fake for LogScreen {
         );
     }
 
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
+    fn region(&self, _: &Place<'_>) -> Option<Rect> {
         self.region
     }
 
@@ -315,7 +316,7 @@ impl paperpaw_core::testing::Fake for LogScreen {
         u32::from(self.dims) * paperpaw_core::testing::DIMS_BELOW
     }
 
-    fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
         if action.namespace() == "drv" {
             return Handled::No;
         }
@@ -336,23 +337,23 @@ impl paperpaw_core::testing::Fake for LogScreen {
         }
     }
 
-    fn on_gesture(&mut self, gesture: Gesture, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_gesture(&mut self, gesture: Gesture, _: &mut Turn<'_, '_>) -> Handled {
         self.note(format!("gesture {:?}", gesture.kind));
         Handled::No
     }
 
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         self.note(String::from("show"));
         if let Some(at) = self.wake {
             cx.wake_at(Instant(at));
         }
     }
 
-    fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_timer(&mut self, cx: &mut Turn<'_, '_>) {
         self.note(format!("timer at {}", cx.env().now().millis()));
     }
 
-    fn on_close(&mut self, _: &mut Cx<'_, '_>) {
+    fn on_close(&mut self, _: &mut Turn<'_, '_>) {
         self.note(String::from("close"));
     }
 }

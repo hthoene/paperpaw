@@ -2,7 +2,7 @@
 //! manager hears it (`device.md` 3): `event.network_wanted` when something
 //! waits for a network that is not up, `event.network_idle` when the last
 //! request, server or socket is gone, and the flags the shell reads
-//! (`Env::wifi`: `wanted`, `busy`).
+//! (`Place::wifi`: `wanted`, `busy`).
 //!
 //! The events and flags are the kernel's own (`Kernel::check_network`, after
 //! every call, where PaperPaw manages Wi-Fi); this adds what `core.net` and

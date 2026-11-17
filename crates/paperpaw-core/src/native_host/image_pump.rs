@@ -29,7 +29,7 @@ use super::{
     host_services::HostServices,
     image_service::{
         commands::{ImageCommand, ImageRoots},
-        prepare::{Env as DecodeEnv, NO_MEMORY, Ready, SweepCursor, UNSUPPORTED},
+        prepare::{NO_MEMORY, Ready, SweepCursor, UNSUPPORTED, Within as DecodeEnv},
     },
     native_instances::InstanceState,
     registrations::{self as wire},
@@ -344,7 +344,7 @@ impl crate::Kernel {
             }
         }
         self.image_retry();
-        let env = decode_env(self.shared.env(self.shared.now).device());
+        let env = decode_env(self.shared.place(self.shared.now).device());
         let mut more = self.shared.native_instances.hosts().is_some_and(|hosts| {
             // One request a turn, decoded to the end.
             hosts.images().prepare_step(storage.as_ref(), env).is_err()

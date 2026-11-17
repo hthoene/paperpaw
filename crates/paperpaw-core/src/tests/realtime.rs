@@ -59,7 +59,7 @@ struct Play {
 }
 
 impl crate::testing::Fake for Play {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
 
@@ -67,18 +67,18 @@ impl crate::testing::Fake for Play {
         Some(self.mode)
     }
 
-    fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
         self.log
             .borrow_mut()
             .push(alloc::format!("action {action}"));
         Handled::Yes
     }
 
-    fn on_key(&mut self, name: &str, pressed: bool, at: Instant, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_key(&mut self, name: &str, pressed: bool, at: Instant, cx: &mut Turn<'_, '_>) -> Handled {
         if name == "menu" {
             return Handled::No;
         }
-        let held: Vec<&str> = cx.env().keys_held().iter().collect();
+        let held: Vec<&str> = cx.env().keys_held().iter().copied().collect();
         let what = if pressed { "down" } else { "up" };
         self.log
             .borrow_mut()
@@ -247,7 +247,7 @@ fn frames_shown_are_told_to_plugins() {
         Duration::from_millis(400),
         Instant(520),
     );
-    let panel = kernel.shared.env(Instant(600)).panel();
+    let panel = kernel.shared.place(Instant(600)).panel();
     let frame = panel.last_frame().unwrap();
     assert_eq!(frame.area(), area);
     assert_eq!(frame.mode(), Some(RefreshMode::Fast));
@@ -499,17 +499,17 @@ fn holder_manifest() -> Manifest {
 struct HolderScreen;
 
 impl crate::testing::Fake for HolderScreen {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
     fn mode(&self) -> Option<ScreenMode> {
         Some(ScreenMode::new().raw_keys())
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn on_key(&mut self, name: &str, pressed: bool, _: Instant, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_key(&mut self, name: &str, pressed: bool, _: Instant, cx: &mut Turn<'_, '_>) -> Handled {
         match (name, pressed) {
             ("up", true) => cx.keep_awake(
                 paperpaw_sdk::power::WakeHold::new(Id::new_static("holder.clock"), "clock")

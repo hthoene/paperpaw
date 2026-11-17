@@ -15,9 +15,9 @@ use paperpaw_sdk::{Manifest, RegisterError};
 struct NoticeScreen;
 
 impl crate::testing::Fake for NoticeScreen {
-    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }

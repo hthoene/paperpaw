@@ -1,9 +1,9 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 use super::*;
+use crate::Place;
 use crate::native_host::{native_callbacks::CallbackClock, native_screen::Dispatch};
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_CANCELLED};
-use paperpaw_sdk::Env;
 
 /// A made instance that counts its calls.
 struct Made {
@@ -32,18 +32,18 @@ impl NativeInstance for Made {
     }
 }
 impl Dispatch for Made {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         self.calls.set(self.calls.get() + 1);
         Ok(0)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Ok(0)
     }
     fn draw(
         &self,
         _: u32,
         _: &super::super::registrations::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Ok(0)

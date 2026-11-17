@@ -23,7 +23,7 @@ struct SlotCandidate {
 }
 
 /// The screens plugins added: each id with the translation key of its name,
-/// as [`Env::screens`](paperpaw_sdk::Env) hands them out (not copied for it),
+/// as [`Place::screens`](crate::Place) hands them out (not copied for it),
 /// and apart from them what makes the screen. Three lists, each sorted by id,
 /// no id in two of them: interface-6 plugins' screens, interface-7 plugins'
 /// (their id and title a linked plugin's entry kept in the program, #248 B)
@@ -60,7 +60,7 @@ impl AddedMade {
     fn make(
         &self,
         id: &Id,
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         params: &paperpaw_sdk::Params,
     ) -> Result<crate::screen::Screen, i32> {
         let fake = (self.factory)(env, params);
@@ -95,7 +95,7 @@ pub(crate) enum Maker<'a> {
 impl Maker<'_> {
     pub(crate) fn make(
         self,
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         params: &paperpaw_sdk::Params,
     ) -> Result<crate::screen::Screen, i32> {
         match self {
@@ -121,7 +121,7 @@ impl Maker<'_> {
     pub(crate) fn remake(
         self,
         screen: &mut crate::screen::Screen,
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         params: &paperpaw_sdk::Params,
     ) {
         if let Maker::Fixed(fixed) = self {

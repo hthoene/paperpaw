@@ -22,7 +22,7 @@ impl Kernel {
         invocation: Invocation<'_>,
         now: Instant,
     ) -> Result<i32, Error> {
-        let env = self.shared.env(now);
+        let env = self.shared.place(now);
         let frame = CoreFrame {
             callback: None,
             instance: None,
@@ -66,7 +66,7 @@ impl Kernel {
         let Some(len) = screen_frame(canvas.clip(), &mut bytes)? else {
             return Ok(OK);
         };
-        let env = self.shared.env(now);
+        let env = self.shared.place(now);
         let frame = CoreFrame {
             callback: None,
             instance: None,

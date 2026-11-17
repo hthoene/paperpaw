@@ -81,7 +81,7 @@ fn host(request: u32, password: &str) -> WireCommand<'_> {
 fn stage_of<'a>(
     owner: &'a Id,
     kernel: &'a Kernel,
-    env: &'a paperpaw_sdk::Env<'a>,
+    env: &'a crate::Place<'a>,
     bits: u32,
 ) -> CommandStage<'a> {
     CommandStage::new(owner, env.settings(), None, 16, 4096)
@@ -117,7 +117,7 @@ impl StoredNetworks for Stored {
 /// Stage `commands` for `owner`, then drain them with `clock`.
 fn run(kernel: &mut Kernel, owner: &Id, commands: &[WireCommand<'_>], clock: &Clock) -> i32 {
     let (status, output) = {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = stage_of(owner, kernel, &env, WIFI | POWER);
         let status = submit(&mut stage, commands);
         (status, stage.into_dev_output())
@@ -137,7 +137,7 @@ fn stage_only(
     owner: &Id,
     commands: &[WireCommand<'_>],
 ) -> (i32, super::DevBatchOutput) {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut stage = stage_of(owner, kernel, &env, WIFI | POWER);
     let status = submit(&mut stage, commands);
     (status, stage.into_dev_output())
@@ -165,7 +165,7 @@ fn outcome(kernel: &Kernel, owner: &str) -> Option<(u32, Outcome)> {
 #[test]
 fn a_missing_feature_denies_the_whole_batch_valid_commands_included() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = stage_of(&owner, &kernel, &env, WIFI);
     let batch = [WireCommand::WifiOn {}, WireCommand::Sleep {}];
@@ -186,7 +186,7 @@ fn a_missing_feature_denies_the_whole_batch_valid_commands_included() {
 #[test]
 fn a_feature_the_host_does_not_advertise_is_unsupported() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let admitted = AdmittedFeatures::test(1, WIFI_ONLY_HOST);
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
@@ -204,7 +204,7 @@ fn a_feature_the_host_does_not_advertise_is_unsupported() {
 #[test]
 fn install_and_bluetooth_commands_stay_unsupported() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
     let removal = WireCommand::RemovePlugin {
@@ -224,7 +224,7 @@ fn install_and_bluetooth_commands_stay_unsupported() {
 #[test]
 fn batch_limits_sit_exactly_at_two_wifi_and_one_power_command() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
     let (on, off, scan) = (
@@ -254,7 +254,7 @@ fn batch_limits_sit_exactly_at_two_wifi_and_one_power_command() {
 #[test]
 fn field_rules_hold_at_their_boundaries() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
     let mut ok = |commands: &[WireCommand<'_>]| submit(&mut stage, commands);
@@ -308,7 +308,7 @@ fn field_rules_hold_at_their_boundaries() {
 #[test]
 fn the_guard_alone_may_restart_or_power_off_and_sleep_stays_open() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let stack = [paperpaw_sdk::StackEntry::new(
         Id::new_static("lock.screen"),
         None,
@@ -593,7 +593,7 @@ fn the_wifi_plugin_is_the_network_manager_until_the_user_chooses_another() {
 #[test]
 fn only_the_settings_editor_may_name_the_network_manager() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let admitted = |owner: &'static str, exempt: bool| {
         let owner = Id::new_static(owner);
         let authority = super::super::CommandAuthority::new(exempt);
@@ -624,7 +624,7 @@ fn power_commands_apply_after_the_commands_before_them_and_in_order() {
         value: crate::abi7::settings_wire::SettingValueRef::Bool(on),
     };
     let (status, output) = {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
         let first = submit(
             &mut stage,
@@ -690,7 +690,7 @@ fn a_dropped_stage_gives_its_reservations_back_and_a_stop_releases_the_rest() {
     let mut kernel = kernel();
     let owner = Id::new_static("wifi");
     {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = stage_of(&owner, &kernel, &env, WIFI);
         assert_eq!(submit(&mut stage, &[join(1, "net")]), OK);
         assert_eq!(kernel.radio_requests.borrow().len(), 1);
@@ -734,7 +734,7 @@ fn debug_output_never_shows_a_password() {
     let mut kernel = kernel();
     let owner = Id::new_static("wifi");
     let (stage_text, batch_text, table_text) = {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = stage_of(&owner, &kernel, &env, WIFI);
         assert_eq!(submit(&mut stage, &[join(1, "net"), host(2, PASSWORD)]), OK);
         let stage_text = alloc::format!("{stage:?}");
@@ -768,7 +768,7 @@ fn a_secret_is_wiped_before_it_is_freed() {
 #[test]
 fn a_dev_output_dropped_without_a_drain_gives_its_reservations_back() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     // Four dropped outputs would fill the table if their reservations stayed.
     for round in 1..=4_u32 {
         let owner = Id::new_static(if round % 2 == 0 { "a" } else { "b" });
@@ -792,7 +792,7 @@ fn a_dev_output_dropped_without_a_drain_gives_its_reservations_back() {
 #[test]
 fn outputs_of_one_owner_give_back_only_their_own_reservations_in_any_order() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("wifi");
     let held = |request| kernel.radio_requests.borrow().holds("wifi", request);
     for drop_a_first in [true, false] {
@@ -827,7 +827,7 @@ fn outputs_of_one_owner_give_back_only_their_own_reservations_in_any_order() {
 #[test]
 fn a_dropped_output_does_not_take_a_later_request_with_the_same_number() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("wifi");
     let mut old = stage_of(&owner, &kernel, &env, WIFI);
     assert_eq!(submit(&mut old, &[join(1, "net")]), OK);
@@ -917,7 +917,7 @@ fn a_drained_output_keeps_its_applied_entries_and_only_unapplied_ones_go() {
 fn an_allocation_failing_anywhere_in_dev_staging_leaves_no_reservation_behind() {
     use crate::native_host::shell::tests::arm_failure;
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("wifi");
     let mut refused = 0;
     for nth in 1..=64 {
@@ -956,7 +956,7 @@ fn an_allocation_failing_anywhere_in_dev_staging_leaves_no_reservation_behind() 
 #[test]
 fn an_undefined_flag_bit_refuses_its_batch_and_leaves_earlier_commands_and_reservations() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("wifi");
     let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
     // A valid batch first: one reservation and one command kept.
@@ -1018,7 +1018,7 @@ fn the_first_dev_command_makes_the_box_and_a_batch_answered_ok_needs_no_more_mem
     use crate::native_host::shell::tests::FAIL_NTH;
     let kernel = kernel();
     let owner = Id::new_static("probe");
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
     // Each allocation of the submit in turn fails: the command answers
     // `ERR_NO_MEMORY` and nothing is kept, until one goes through.
@@ -1050,11 +1050,11 @@ fn the_first_dev_command_makes_the_box_and_a_batch_answered_ok_needs_no_more_mem
 struct Lock;
 
 impl crate::testing::Fake for Lock {
-    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
     fn flags(&self) -> u32 {
         crate::testing::GUARDS
     }
-    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+    fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
     }
 }

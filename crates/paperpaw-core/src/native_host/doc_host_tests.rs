@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::{
     context::registry_views::{Asker, RegistryView, Row as RegRow},
     services_wire,
@@ -23,7 +24,7 @@ use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_IO, ERR_NO_SPACE};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Id, Settings};
+use paperpaw_sdk::{Id, Settings};
 
 const OPENER: u64 = 7;
 const EPUB: u64 = 11;
@@ -66,7 +67,7 @@ fn format<'a>(name: &'a str, extensions: &'a str, flags: u32, priority: i32) -> 
 
 /// The frame of a call: the declarations, a generation, a format that answers.
 struct World<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     settings: Cell<&'static Settings>,
     store: RefCell<DeclarationStore>,
     plugins: RefCell<Vec<Rc<Plugin>>>,
@@ -522,7 +523,7 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = HostServices::new();
     let renames = Rc::new(Cell::new(0));
     let card = Rc::new(

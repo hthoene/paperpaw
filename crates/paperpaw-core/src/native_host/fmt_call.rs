@@ -33,13 +33,13 @@ use super::{
     registrations::{self as wire, Record},
     stages_wire::core_format_v1 as local,
 };
+use crate::Place;
 use crate::native_host::codec;
 use alloc::vec::Vec;
 use core::cell::Cell;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
 };
-use paperpaw_sdk::Env;
 
 /// Most `fmt.option` rows a call forwards (`document.md` 3).
 const OPTIONS_MAX: usize = 12;
@@ -102,7 +102,7 @@ pub(crate) trait Route {
 /// Through the retained instance registry (the shell's own loop).
 pub(crate) struct Registry<'a> {
     pub(crate) registry: &'a NativeInstances,
-    pub(crate) env: &'a Env<'a>,
+    pub(crate) env: &'a Place<'a>,
 }
 impl Route for Registry<'_> {
     fn call(&self, target: Target, payload: &[u8], out: &mut [u8]) -> Result<usize, i32> {

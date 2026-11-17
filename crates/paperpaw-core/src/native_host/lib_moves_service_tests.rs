@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 //! The library's move job as the device holds it: started by a move, carried
-//! by the pump with the kernel's `Env`, a busy source, once at wiring.
+//! by the pump with the kernel's `Place`, a busy source, once at wiring.
 extern crate std;
 use super::*;
 use crate::{
@@ -74,7 +74,7 @@ fn device() -> (Kernel, Rc<MemoryStorage>) {
 
 fn pump_all(moves: &LibraryMoves, kernel: &Kernel) -> (Vec<Command>, usize) {
     let mut sent = Vec::new();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut pumps = 0;
     loop {
         pumps += 1;
@@ -94,7 +94,7 @@ fn a_move_is_carried_by_the_pump_with_the_kernels_catalog() {
     library::set_favourite(&*card, "Books/old/a.epub", true);
     let moves = LibraryMoves::new(Rc::new(Card(card.clone())));
     // Nothing runs before a move.
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     assert_eq!(moves.pump(&env, &mut |_| ()), Pump::Idle);
     moves.begin("Books/old", "Books/new", false).unwrap();
     assert!(moves.moves().active(), "the entry is open until carried");

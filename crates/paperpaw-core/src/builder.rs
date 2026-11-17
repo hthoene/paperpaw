@@ -328,7 +328,7 @@ impl KernelBuilder {
 
     /// How long the device was switched off or slept before this start,
     /// where the shell can tell (see
-    /// [`Env::slept_for`](paperpaw_sdk::Env::slept_for)). Without, it is
+    /// [`Place::slept_for`](crate::Place::slept_for)). Without, it is
     /// not known; after a sleep the kernel sleeps through,
     /// [`Kernel::resume`] tells it.
     pub fn slept_for(mut self, slept: core::time::Duration) -> Self {
@@ -377,7 +377,7 @@ impl KernelBuilder {
     /// PaperPaw loads native code plugins (see
     /// [`paperpaw_sdk::native`]): `loader` loads the code of each switched
     /// on at the start, files fit for `native` (which plugins see as
-    /// [`Env::native`](paperpaw_sdk::Env)).
+    /// [`Place::native`](crate::Place)).
     pub fn code_plugins(mut self, native: Native, loader: Box<dyn CodeLoader>) -> Self {
         self.0.code = Some(crate::code_plugin::CodePlugins {
             native,
@@ -417,7 +417,7 @@ impl KernelBuilder {
     /// This start loads no code plugins, because an update is on trial (it
     /// must show it starts by itself, and the plugins before must stay as
     /// the firmware before finds them): what the firmware takes is told to
-    /// plugins (which plugins see as [`Env::native`](paperpaw_sdk::Env), so
+    /// plugins (which plugins see as [`Place::native`](crate::Place), so
     /// that the store asks for the builds that fit) only once
     /// [`Kernel::trial_kept`] says the update is kept (#164). Until then
     /// code plugins are not offered nor installed, as without

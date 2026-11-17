@@ -527,14 +527,14 @@ impl DocServices {
 }
 
 /// The host of this call with its caller: forwards everything but `owner`.
-struct Cx<'a> {
+struct OwnedHost<'a> {
     host: &'a dyn DocHost,
     owner: u64,
     /// The call is the library's `cover` (`cover`): the book is the library's
     /// own, so root 1 needs no `uses.storage` of the caller.
     library: bool,
 }
-impl DocHost for Cx<'_> {
+impl DocHost for OwnedHost<'_> {
     fn as_dyn(&self) -> &dyn DocHost {
         self
     }
@@ -733,7 +733,7 @@ pub(crate) fn backend(
     let services = who.hosts.documents().ok_or(ERR_UNSUPPORTED)?;
     let mut result = Err(ERR_STATE);
     services.0.serve(frame, who, &mut |bound| {
-        let host = &Cx {
+        let host = &OwnedHost {
             host: bound,
             owner: who.owner,
             library: false,

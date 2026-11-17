@@ -31,7 +31,7 @@ use paperpaw_native::host_glue::{ERR_BUSY, ERR_UNSUPPORTED};
 use paperpaw_platform::{Storage, StorageError};
 
 /// What follows a move in the catalog: needs the kernel's view of the
-/// catalog (the `Env`), so it is bound to one step of the main loop, never
+/// catalog (the `Place`), so it is bound to one step of the main loop, never
 /// kept. Every step is idempotent.
 pub(crate) trait MoveCarry {
     /// The data kept for the file at `to` (catalog row, position,

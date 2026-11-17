@@ -3,9 +3,9 @@
 //! start with them again: on an image without built-in screens (an X4 with
 //! native plugins only) it is all a safe-mode start shows.
 use super::paint::{self, Look};
+use crate::Place;
 use paperpaw_graphics::Canvas;
 use paperpaw_platform::{Color, Rect};
-use paperpaw_sdk::Env;
 use paperpaw_sdk::native::{SafeMode, SafeModeReason};
 
 /// Its text: "Nothing here yet".
@@ -27,7 +27,7 @@ pub(super) fn safe_mode_text(safe_mode: Option<&SafeMode>) -> Option<&'static st
 
 /// Draws the placeholder: a frame and its text, or in safe mode the title
 /// and why.
-pub(super) fn draw(canvas: &mut Canvas<'_>, env: &Env<'_>) {
+pub(super) fn draw(canvas: &mut Canvas<'_>, env: &Place<'_>) {
     // The room of the screen, not the canvas's clip: a kernel that draws in
     // bands (the X4) lends each band as the clip.
     let content = env.content();

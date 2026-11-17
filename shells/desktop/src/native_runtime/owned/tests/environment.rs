@@ -1,9 +1,10 @@
-//! Actual foreign callbacks read the current Env through the pinned owner.
+//! Actual foreign callbacks read the current Place through the pinned owner.
 use super::super::environment as bridge;
 use super::*;
 use paperpaw_core::KernelBuilder;
+use paperpaw_core::Place;
 use paperpaw_core::native_host::environment::SNAPSHOT_BYTES;
-use paperpaw_core::sdk::{Env, Manifest, SettingSpec, builtin};
+use paperpaw_core::sdk::{Manifest, SettingSpec, builtin};
 use paperpaw_native::host_glue::PpBuffer;
 use paperpaw_platform::{
     Battery, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -67,13 +68,13 @@ static TEXT: [SettingSpec; 1] = [SettingSpec::text(
     builtin::groups::OTHER,
 )];
 
-type Run = Rc<dyn Fn(&Env<'_>)>;
+type Run = Rc<dyn Fn(&Place<'_>)>;
 std::thread_local! {
-    /// What runs with the live `Env` once the kernel has started, in the
+    /// What runs with the live `Place` once the kernel has started, in the
     /// test running (the handler is a plain function and holds nothing).
     static CAPTURE: std::cell::RefCell<Option<Run>> = const { std::cell::RefCell::new(None) };
 }
-/// Settings `specs`, and `run` with the live `Env` when the kernel has started.
+/// Settings `specs`, and `run` with the live `Place` when the kernel has started.
 fn probe(builder: KernelBuilder, run: Run, specs: &'static [SettingSpec]) -> KernelBuilder {
     let manifest = Manifest::new(
         paperpaw_core::sdk::Id::new_static("abi7-tick-draw"),
@@ -95,11 +96,11 @@ pub(super) fn run(
     specs: &'static [SettingSpec],
     value: &str,
     status: SystemStatus,
-    callback: impl Fn(&Env<'_>) + 'static,
+    callback: impl Fn(&Place<'_>) + 'static,
 ) {
     let calls = Rc::new(Cell::new(0));
     let observed = calls.clone();
-    let run = Rc::new(move |env: &Env<'_>| {
+    let run = Rc::new(move |env: &Place<'_>| {
         callback(env);
         observed.set(observed.get() + 1);
     });
@@ -248,7 +249,7 @@ fn foreign_callbacks_copy_snapshot_and_typed_settings_only_during_admission() {
     }
 }
 
-fn check_foreign(fixture: &Fixture, env: &Env<'_>) {
+fn check_foreign(fixture: &Fixture, env: &Place<'_>) {
     let (plugin, evidence) = fixture.open();
     let batch = plugin
         .make_registered(plugin.begin::<Registration>().unwrap())

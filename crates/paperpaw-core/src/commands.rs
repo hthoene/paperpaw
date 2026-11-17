@@ -171,7 +171,7 @@ impl Kernel {
         let bounds = self.framebuffer.bounds();
         // Whether it is shown whole, best in grays, its pictures may be.
         let (whole, grays, pictures) = self.stack.last().map_or((false, false, false), |top| {
-            let whole = match top.screen.region(&self.shared.env(self.shared.now)) {
+            let whole = match top.screen.region(&self.shared.place(self.shared.now)) {
                 None => true,
                 Some(region) => {
                     top.screen.shows_through() != ShowsThrough::Nothing

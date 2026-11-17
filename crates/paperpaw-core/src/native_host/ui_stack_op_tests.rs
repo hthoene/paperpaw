@@ -16,7 +16,7 @@ const READER: u64 = 13;
 /// A frame over a kernel with the given stack (screen id, slot, instance,
 /// owner, flags), bottom to top.
 struct View<'a> {
-    env: &'a paperpaw_sdk::Env<'a>,
+    env: &'a crate::Place<'a>,
     rows: &'a crate::native_host::stack_rows::StackRows,
 }
 
@@ -30,7 +30,7 @@ impl Frame for View<'_> {
     fn callback_epoch(&self) -> Result<u64, i32> {
         Ok(1)
     }
-    fn kernel_env(&self) -> Option<&paperpaw_sdk::Env<'_>> {
+    fn kernel_env(&self) -> Option<&crate::Place<'_>> {
         Some(self.env)
     }
     fn with_stack(&self, visit: &mut dyn FnMut(&dyn UiStackView)) -> Result<(), i32> {
@@ -78,7 +78,7 @@ fn ask(
     cursor: u32,
     generation: u32,
 ) -> Result<(Vec<Listed>, wire::ServiceEnd), i32> {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = HostServices::new();
     let caller = Caller {
         owner: viewer,

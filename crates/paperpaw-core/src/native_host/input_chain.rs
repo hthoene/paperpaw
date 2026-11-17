@@ -518,7 +518,7 @@ impl crate::Kernel {
         if filters.is_empty() {
             return none(Native::Pass, 0);
         }
-        let env = shared.env(now);
+        let env = shared.place(now);
         let stage_schema = schema();
         let mut runner = Watching {
             inner: BrokerRunner {

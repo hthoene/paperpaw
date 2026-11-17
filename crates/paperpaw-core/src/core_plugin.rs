@@ -10,6 +10,7 @@ mod reading;
 mod widget_settings;
 
 use crate::Items;
+use crate::Place;
 use crate::native_host::book_data_steps::{follow_move, follow_removal};
 use alloc::borrow::Cow;
 use alloc::string::String;
@@ -24,7 +25,7 @@ use paperpaw_sdk::library;
 use paperpaw_sdk::time::{self, AUTO, CLOCK_12H, CLOCK_24H, TIME_ZONES};
 use paperpaw_sdk::widgets::{self, Drawn, WidgetSpec};
 use paperpaw_sdk::{
-    ActionHint, Command, Commands, Env, FixedAction, Id, Manifest, MenuEntry, Params, Priority,
+    ActionHint, Command, Commands, FixedAction, Id, Manifest, MenuEntry, Params, Priority,
     RegisterError, SettingExtra, SettingGroupSpec, SettingKind, SettingSpec, SettingValue,
     SlotSpec, StatusItemSpec, StatusValue,
 };
@@ -428,9 +429,11 @@ impl Catalog {
 
     /// The archive of a view the sorted books are to be made for, where
     /// they are not of the library there is now.
-    fn sort_wanted(&self, env: &Env<'_>) -> Option<String> {
+    fn sort_wanted(&self, env: &Place<'_>) -> Option<String> {
         let archives = self.archives.borrow();
-        let mut wanted = archives.iter().filter(|a| library::sorted::wanted(env, a));
+        let mut wanted = archives
+            .iter()
+            .filter(|a| library::sorted::wanted(&env.env(), a));
         wanted.next().cloned()
     }
 
@@ -450,7 +453,11 @@ impl Catalog {
     /// a walk or catching up, if wanted. Failed, it is tried at the next
     /// start, not before each walk (an old folder that cannot be read would
     /// keep the catalog from being made); the books are read where they were.
-    fn split_step(&self, env: &Env<'_>, job: &mut Option<CatalogJob>) -> paperpaw_sdk::work::Step {
+    fn split_step(
+        &self,
+        env: &Place<'_>,
+        job: &mut Option<CatalogJob>,
+    ) -> paperpaw_sdk::work::Step {
         use paperpaw_sdk::work::Step;
         match job.as_mut().map_or(Ok(true), |job| job.step(env)) {
             Ok(false) => Step::Continue,
@@ -471,7 +478,7 @@ impl Catalog {
     }
 
     /// One step of the job.
-    fn step(&self, env: &Env<'_>, out: &mut Commands) -> paperpaw_sdk::work::Step {
+    fn step(&self, env: &Place<'_>, out: &mut Commands) -> paperpaw_sdk::work::Step {
         use paperpaw_sdk::work::Step;
         let storage = env.storage();
         let mut job = self.job.borrow_mut();
@@ -673,7 +680,7 @@ fn register_reading(r: &mut Items) -> Result<(), RegisterError> {
     r.on(events::BOOK_OPENED, |k, p| {
         k.with_core_event(&events::BOOK_OPENED, p, |env, core, reading, out| {
             core.recorded.take();
-            library::record(env, reading, true);
+            library::record(&env.env(), reading, true);
             out.push(library::changed_book(
                 &reading.path,
                 library::what::PROGRESS,
@@ -691,7 +698,7 @@ fn register_reading(r: &mut Items) -> Result<(), RegisterError> {
             {
                 return;
             }
-            library::record(env, reading, false);
+            library::record(&env.env(), reading, false);
             *recorded = Some((reading.path.clone(), percent));
         });
     })?;
@@ -700,7 +707,7 @@ fn register_reading(r: &mut Items) -> Result<(), RegisterError> {
         r.on(event, |k, p| {
             k.with_core_event(&events::BOOK_CLOSED, p, |env, core, reading, out| {
                 core.recorded.take();
-                library::record(env, reading, false);
+                library::record(&env.env(), reading, false);
                 library::note_status(env.storage(), &reading.path);
                 out.push(library::changed_book(
                     &reading.path,
@@ -731,9 +738,9 @@ const CLEAN_UP_ANSWERED: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Confi
 /// Declares cleaning up by itself: while charging, a week after it was
 /// last done (a day after the first start). Not without a clock, which
 /// tells the time across starts (on the X4 every wake is one).
-fn declare_clean_up(env: &Env<'_>, out: &mut Commands) {
+fn declare_clean_up(env: &paperpaw_sdk::Env<'_>, out: &mut Commands) {
     use paperpaw_sdk::work::{Moments, Work};
-    let Some(now) = paperpaw_sdk::time::unix_seconds(env) else {
+    let Some(now) = paperpaw_sdk::time::unix_seconds(&env) else {
         return;
     };
     let last = paperpaw_sdk::read_file(env.storage(), CLEANED_UP, 32)
@@ -1520,11 +1527,11 @@ static BATTERY_LOW: [SettingSpec; 1] = [SettingSpec::number(
 
 /// The line of the items of the place it is drawn in.
 fn items_line<'e>(
-    env: &Env<'e>,
+    env: &paperpaw_sdk::Env<'e>,
     frame: &paperpaw_sdk::StatusFrame<'_>,
 ) -> Option<paperpaw_sdk::status::StatusLine<'e>> {
     let place = env.status_items().place(frame.place?)?;
-    let line = place.line(env, frame.area, frame.size, frame.color);
+    let line = place.line(&env, frame.area, frame.size, frame.color);
     Some(line.percent(frame.percent))
 }
 
@@ -1659,8 +1666,8 @@ fn register_keymaps_and_setup(r: &mut Items) -> Result<(), RegisterError> {
 
 /// Where a screenshot goes: `Screenshots` beside the library folder,
 /// named by the time ("PaperPaw 2026-10-15 17-30-05.png").
-fn screenshot_path(env: &Env<'_>) -> alloc::string::String {
-    let library = paperpaw_sdk::library::folder(env);
+fn screenshot_path(env: &paperpaw_sdk::Env<'_>) -> alloc::string::String {
+    let library = paperpaw_sdk::library::folder(&env);
     let parent = paperpaw_sdk::files::parent(library);
     let dir = if parent.is_empty() {
         alloc::string::String::from("Screenshots")
@@ -1668,7 +1675,7 @@ fn screenshot_path(env: &Env<'_>) -> alloc::string::String {
         alloc::format!("{parent}/Screenshots")
     };
     let _ = env.storage().create_dir(&dir);
-    let name = match paperpaw_sdk::time::local_time(env) {
+    let name = match paperpaw_sdk::time::local_time(&env) {
         Some(t) => alloc::format!(
             "PaperPaw {}-{:02}-{:02} {:02}-{:02}-{:02}",
             t.year,
@@ -1708,7 +1715,7 @@ fn register_spaces(r: &mut Items) -> Result<(), RegisterError> {
     let space = Id::new_static(widgets::SPACE);
     r.add_setting_group(&SPACE_GROUP)?;
     r.add_settings(&SPACE)?;
-    let space_height = |env: &Env<'_>, _| {
+    let space_height = |env: &paperpaw_sdk::Env<'_>, _| {
         let size = env.settings().read(&widgets::SPACE_SIZE);
         let mm = match widgets::SPACE_SIZES.iter().position(|s| *s == size) {
             Some(0) => 4,

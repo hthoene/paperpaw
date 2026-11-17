@@ -2,6 +2,7 @@
 //! and readback of the applied value in the next real callback.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
 use paperpaw_core::Items;
+use paperpaw_core::Place;
 use paperpaw_core::native_host::commands::{
     COMMAND_MAX_BYTES, CommandAuthority, CommandScope, CommandStage, SecretText, WireCommand,
     commands_decode, commands_encode,
@@ -12,8 +13,8 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
 use paperpaw_sdk::{
-    Canvas, Command, Commands, Env, Id, Manifest, Priority, RegisterError, SettingExtra,
-    SettingSpec, SettingValue, builtin,
+    Canvas, Command, Commands, Id, Manifest, Priority, RegisterError, SettingExtra, SettingSpec,
+    SettingValue, builtin,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -208,7 +209,7 @@ fn submit(scope: &CommandScope, bytes: &[u8]) -> i32 {
     unsafe { scope.submit(bytes.as_ptr(), bytes.len()) }
 }
 
-fn read(env: &Env<'_>, key: &str) -> Vec<u8> {
+fn read(env: &Place<'_>, key: &str) -> Vec<u8> {
     let scope = pin!(EnvironmentScope::new());
     let mut out = [0; 64];
     let len = scope
@@ -304,7 +305,7 @@ fn refusals(scope: &CommandScope) {
 const BYTES: usize = 40;
 
 /// A panic in the callback clears the slot; afterwards a new scope works.
-fn unwinding(owner: &Id, env: &Env<'_>) {
+fn unwinding(owner: &Id, env: &Place<'_>) {
     let scope = pin!(CommandScope::new());
     let mut stage = CommandStage::new(owner, env.settings(), None, 1, BYTES);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -324,7 +325,7 @@ fn unwinding(owner: &Id, env: &Env<'_>) {
     assert_eq!(stage.staged().len(), 1);
 }
 
-fn started(env: &Env<'_>, out: &mut Commands) {
+fn started(env: &Place<'_>, out: &mut Commands) {
     let owner = Id::new_static("probe");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 3, BYTES);
     let scope = pin!(CommandScope::new());
@@ -364,7 +365,7 @@ fn started(env: &Env<'_>, out: &mut Commands) {
     cross_plugin_settings(&owner, env, out);
 }
 
-fn cross_plugin_settings(owner: &Id, env: &Env<'_>, out: &mut Commands) {
+fn cross_plugin_settings(owner: &Id, env: &Place<'_>, out: &mut Commands) {
     let mut stage = CommandStage::new(owner, env.settings(), None, 2, BYTES);
     let scope = pin!(CommandScope::new());
     let guarded = batch(&[
@@ -487,8 +488,8 @@ fn staged_set_setting_is_read_back_in_the_next_callback() {
 
 struct EmptyEditor;
 impl paperpaw_core::testing::Fake for EmptyEditor {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut paperpaw_core::Turn<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
     }
 }

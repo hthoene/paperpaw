@@ -18,13 +18,13 @@ const READING: Id = Id::new_static("r.reading");
 struct Lock;
 
 impl crate::testing::Fake for Lock {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
     fn flags(&self) -> u32 {
         crate::testing::GUARDS
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         Page.on_action(action, cx)
     }
 }
@@ -34,9 +34,9 @@ impl crate::testing::Fake for Lock {
 struct Page;
 
 impl crate::testing::Fake for Page {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if *action == STATUS {
             cx.request_redraw_area(Rect::new(0, 0, 10, 5));
         } else if *action == EXACT {
@@ -216,15 +216,15 @@ fn nothing_counts_what_is_typed_into_a_guard() {
 struct OverlayHomeScreen;
 
 impl crate::testing::Fake for OverlayHomeScreen {
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
+    fn region(&self, _: &Place<'_>) -> Option<Rect> {
         Some(Rect::new(0, 45, 90, 45))
     }
 
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         canvas.fill_rect(0, 45, 90, 45, Color::BLACK);
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }

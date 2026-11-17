@@ -1078,7 +1078,7 @@ fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
     let depth = DispatchDepth::new();
     let now = paperpaw_platform::Instant(12);
     EXPECT_CORE.with(|expected| expected.set(true));
-    let env = kernel.shared.env(now);
+    let env = kernel.shared.place(now);
     assert_eq!(
         dispatch_with_env(&batch, 0, &depth, Invocation::Event(&[1, 2, 3]), &env),
         Ok(host_glue::ERR_STATE)
@@ -1113,7 +1113,7 @@ fn stage_slot_missing_frame_and_zero_capacity_do_not_allocate() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let hosted = fake();
     let context = hosted.owner().context();
     let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast();

@@ -17,17 +17,17 @@ struct ReaderScreen {
 }
 
 impl crate::testing::Fake for ReaderScreen {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         cx.command(Command::SetScope(Some(String::from(BOOK_SETTINGS))));
     }
 
-    fn on_event(&mut self, event: &Id, _: &Params, cx: &mut Cx<'_, '_>) {
+    fn on_event(&mut self, event: &Id, _: &Params, cx: &mut Turn<'_, '_>) {
         if *event == CLOSED {
             self.log.borrow_mut().push(String::from("closed said"));
         }
@@ -37,12 +37,12 @@ impl crate::testing::Fake for ReaderScreen {
         }
     }
 
-    fn on_close(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_close(&mut self, cx: &mut Turn<'_, '_>) {
         self.log.borrow_mut().push(String::from("reader close"));
         cx.command(Command::Emit(CLOSED, Params::new()));
     }
 
-    fn on_timer(&mut self, _: &mut Cx<'_, '_>) {
+    fn on_timer(&mut self, _: &mut Turn<'_, '_>) {
         self.log.borrow_mut().push(String::from("reader timer"));
     }
 }
@@ -56,17 +56,17 @@ struct Other {
 }
 
 impl crate::testing::Fake for Other {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
+    fn region(&self, _: &Place<'_>) -> Option<Rect> {
         self.region
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn on_timer(&mut self, _: &mut Cx<'_, '_>) {
+    fn on_timer(&mut self, _: &mut Turn<'_, '_>) {
         self.log
             .borrow_mut()
             .push(alloc::format!("{} timer", self.name));

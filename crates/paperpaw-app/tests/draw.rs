@@ -22,6 +22,7 @@
 
 mod native_activation;
 use native_activation::BuildNative as _;
+use paperpaw_core::{Place, Turn};
 
 use std::cell::RefCell;
 use std::fmt::Write as _;
@@ -36,9 +37,7 @@ use paperpaw_sdk::annotations::{self, Annotation, Kind, Mark};
 use paperpaw_sdk::builtin::{actions, params, slots};
 use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::widgets::categories;
-use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, MemoryStorage, Params, SDK_VERSION, library,
-};
+use paperpaw_sdk::{Canvas, Handled, Id, Manifest, MemoryStorage, Params, SDK_VERSION, library};
 
 /// An X4 as the emulator's profile and the firmware have it: buttons, no
 /// touch, frames drawn in bands of 192 rows (five a frame).
@@ -420,7 +419,7 @@ fn card() -> Vec<(String, Vec<u8>)> {
             )
         })
         .concat();
-    let plugin = |id: &str, name: &str| format!("{}/{name}", Env::plugin_dir(id));
+    let plugin = |id: &str, name: &str| format!("{}/{name}", paperpaw_sdk::data::plugin_dir(id));
     storage
         .write(&plugin("vocabulary", "words.txt"), words.as_bytes())
         .unwrap();
@@ -565,11 +564,11 @@ fn no_screen_reads_while_it_draws() {
 struct Reads;
 
 impl paperpaw_core::testing::Fake for Reads {
-    fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
+    fn draw(&mut self, _: &mut Canvas<'_>, env: &Place<'_>) {
         let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }

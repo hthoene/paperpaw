@@ -19,11 +19,12 @@
 //! Memory: a value is the provider's own `String`, copied into op 14's row
 //! and freed; the drawing allocates what the interface-6 line does (its
 //! layout of one item), freed at the return.
+use crate::Place;
 use crate::abi7::context::{ComposeRequest, HostStatus};
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::{
-    Color, Env, Params,
+    Color, Params,
     builtin::fonts,
     status::{StatusLine, StatusValue},
 };
@@ -61,9 +62,11 @@ pub(crate) fn token_of(item: &str) -> Option<u32> {
 /// The value of the kernel's item `item` now: its text into `out` (cut to
 /// `out`'s length on a character), or drawn. `None`: not the kernel's, or no
 /// value (the item hides).
-pub(crate) fn value(env: &Env<'_>, item: &str, out: &mut [u8]) -> Option<HostStatus> {
+pub(crate) fn value(env: &Place<'_>, item: &str, out: &mut [u8]) -> Option<HostStatus> {
     let token = token_of(item)?;
-    let value = env.status_items().value(item, env, &Params::default())?;
+    let value = env
+        .status_items()
+        .value(item, &env.env(), &Params::default())?;
     match value {
         StatusValue::Text(text) => {
             let mut len = text.len().min(out.len());
@@ -80,7 +83,7 @@ pub(crate) fn value(env: &Env<'_>, item: &str, out: &mut [u8]) -> Option<HostSta
 
 /// The rows REG op 21 lists for the kernel's items: (id, priority, least
 /// width), in token order. Only those the kernel registered.
-pub(crate) fn rows<'e>(env: &Env<'e>) -> impl Iterator<Item = (&'static str, u8, u32)> + 'e {
+pub(crate) fn rows<'e>(env: &Place<'e>) -> impl Iterator<Item = (&'static str, u8, u32)> + 'e {
     let items = env.status_items();
     ITEMS.iter().filter_map(move |(id, drawn)| {
         items.title(id)?;
@@ -97,7 +100,7 @@ pub(crate) fn rows<'e>(env: &Env<'e>) -> impl Iterator<Item = (&'static str, u8,
 /// interface's font, `ERR_INVALID` for a place with no size.
 #[inline(never)]
 pub(crate) fn draw(
-    env: &Env<'_>,
+    env: &Place<'_>,
     token: u32,
     request: &ComposeRequest,
     canvas: &mut Canvas<'_>,
@@ -127,7 +130,7 @@ pub(crate) fn draw(
     let mut canvas = canvas.clipped(visible);
     StatusLine::new(area, ["", "", item], size, Color::BLACK)
         .percent(true)
-        .draw(&mut canvas, env, &font, &Params::default());
+        .draw(&mut canvas, &env.env(), &font, &Params::default());
     Ok(())
 }
 

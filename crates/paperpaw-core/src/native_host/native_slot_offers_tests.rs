@@ -1,5 +1,5 @@
 //! A native plugin's `slot.offer` reaches the registry the kernel opens slots
-//! by, so a plugin that asks `Env::has_slot` sees it; it goes with the plugin.
+//! by, so a plugin that asks `Place::has_slot` sees it; it goes with the plugin.
 use super::*;
 use crate::Items;
 
@@ -14,7 +14,7 @@ fn fresh() -> crate::Kernel {
 }
 
 fn has_slot(kernel: &crate::Kernel, slot: &'static str) -> bool {
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     env.has_slot(&Id::new_static(slot))
 }
 
@@ -26,7 +26,7 @@ fn an_offered_slot_is_bound_and_goes_with_the_plugin() {
     install_resources(&mut kernel, 8, FOLDER).unwrap();
     for slot in ["core.translate", "core.lookup", "factory.own"] {
         assert!(has_slot(&kernel, slot), "{slot}");
-        let env = kernel.shared.env(paperpaw_platform::Instant(0));
+        let env = kernel.shared.place(paperpaw_platform::Instant(0));
         assert_eq!(
             env.slot_screen(slot).map(Id::as_str),
             Some("factory.screen"),
@@ -102,12 +102,8 @@ fn other(priority: i16) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::Regis
     move |r| {
         struct Empty;
         impl crate::testing::Fake for Empty {
-            fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-            fn on_action(
-                &mut self,
-                _: &Id,
-                _: &mut paperpaw_sdk::Cx<'_, '_>,
-            ) -> paperpaw_sdk::Handled {
+            fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
+            fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
                 paperpaw_sdk::Handled::No
             }
         }
@@ -135,13 +131,13 @@ fn two_plugins_offering_one_slot_leave_the_other_when_one_unloads() {
             .build()
             .unwrap();
         install_resources(&mut kernel, 8, FOLDER).unwrap();
-        let env = kernel.shared.env(paperpaw_platform::Instant(0));
+        let env = kernel.shared.place(paperpaw_platform::Instant(0));
         assert_eq!(
             env.slot_screen("core.translate").map(Id::as_str),
             Some(first)
         );
         assert!(kernel.unload_plugin(&Id::new_static("factory")));
-        let env = kernel.shared.env(paperpaw_platform::Instant(0));
+        let env = kernel.shared.place(paperpaw_platform::Instant(0));
         assert_eq!(
             env.slot_screen("core.translate").map(Id::as_str),
             Some("other.screen")

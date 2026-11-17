@@ -42,7 +42,7 @@ struct Probe {
 type Hook = Rc<RefCell<Option<Rc<dyn Fn(&Cell<bool>)>>>>;
 
 impl Dispatch for Probe {
-    fn event(&self, token: u32, bytes: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, token: u32, bytes: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         match wire::records_decode_single(bytes)? {
             wire::Record::EventWidgetDropped(event) => {
                 self.order.borrow_mut().push(wire::EVENT_WIDGET_DROPPED_TAG);
@@ -65,14 +65,14 @@ impl Dispatch for Probe {
         }
         self.answer.get()
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)

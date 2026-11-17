@@ -13,6 +13,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+use paperpaw_core::{Place, Turn};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Write as _;
@@ -30,8 +31,7 @@ pub use paperpaw_sdk::{DirEntry, Id, MemoryStorage, Params, Storage, StorageErro
 use paperpaw_core::Items;
 use paperpaw_sdk::replies::Typed;
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Handled, Manifest, MenuEntry, Priority, RegisterError,
-    Version,
+    ActionSpec, Canvas, Command, Handled, Manifest, MenuEntry, Priority, RegisterError, Version,
 };
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
@@ -223,13 +223,13 @@ struct Keyboard {
 }
 
 impl paperpaw_core::testing::Fake for Keyboard {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         let Some(text) = TYPED.with(|typed| typed.borrow_mut().pop_front()) else {
             return;
         };

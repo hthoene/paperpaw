@@ -1,4 +1,4 @@
-//! An Env-only host scope refuses Battery's Core-only data services.
+//! An Place-only host scope refuses Battery's Core-only data services.
 //! Positive pixel acceptance uses real CoreFrame views in paperpaw-core's
 //! native_battery_pixel_tests, covering all 16 unchanged Battery goldens.
 #![allow(
@@ -6,7 +6,8 @@
     clippy::expect_used,
     reason = "fixture failures fail acceptance"
 )]
-use paperpaw_core::sdk::{Env, Id, Manifest, Version, builtin};
+use paperpaw_core::Place;
+use paperpaw_core::sdk::{Id, Manifest, Version, builtin};
 use paperpaw_core::{
     Kernel, KernelBuilder,
     native_host::{DispatchDepth, HostResources, shell},
@@ -119,13 +120,13 @@ fn report(
 ) {
     eprintln!("native teardown {s:?}: {e:?}");
 }
-type Run = Rc<dyn Fn(&Env<'_>)>;
+type Run = Rc<dyn Fn(&Place<'_>)>;
 std::thread_local! {
-    /// What runs with the live `Env` once the kernel has started, in the
+    /// What runs with the live `Place` once the kernel has started, in the
     /// test running (the handler is a plain function and holds nothing).
     static CAPTURE: std::cell::RefCell<Option<Run>> = const { std::cell::RefCell::new(None) };
 }
-/// Runs `run` with the live `Env` when the kernel has started.
+/// Runs `run` with the live `Place` when the kernel has started.
 fn capture(builder: KernelBuilder, run: Run) -> KernelBuilder {
     let manifest = Manifest::new(
         Id::new_static("native-screen-capture"),
@@ -170,7 +171,7 @@ fn declared_services() -> shell::DeclaredServices {
     shell::DeclaredServices::try_from_iter(checked.services()).unwrap()
 }
 
-fn dispatch_without_core_views(env: &Env<'_>) -> i32 {
+fn dispatch_without_core_views(env: &Place<'_>) -> i32 {
     // SAFETY: statically linked code and metadata live for the whole test; no image range.
     let hosted = unsafe {
         shell::Hosted::new(
@@ -209,7 +210,7 @@ fn env_only_dispatch_refuses_core_only_services() {
     for language in ["en", "de"] {
         let result = Rc::new(RefCell::new(None));
         let captured = Rc::clone(&result);
-        let run = Rc::new(move |env: &Env<'_>| {
+        let run = Rc::new(move |env: &Place<'_>| {
             *captured.borrow_mut() = Some(dispatch_without_core_views(env));
         });
         let builder = Kernel::builder(DEVICE)

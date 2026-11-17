@@ -10,12 +10,13 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+use paperpaw_core::Place;
 use std::rc::Rc;
 use std::sync::Mutex;
 
 use paperpaw_core::KernelBuilder;
 use paperpaw_core::sdk::ui::{self, UiStyle};
-use paperpaw_core::sdk::{Canvas, Env, Id, Manifest, MemoryStorage, Version};
+use paperpaw_core::sdk::{Canvas, Id, Manifest, MemoryStorage, Version};
 use paperpaw_emulator::{device::Device, headless, profiles};
 
 /// The descriptions found too long: device, language, setting, text.
@@ -26,7 +27,7 @@ const SCREEN: Id = Id::new_static("help-probe.screen");
 struct Look;
 
 impl paperpaw_core::testing::Fake for Look {
-    fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
+    fn draw(&mut self, _: &mut Canvas<'_>, env: &Place<'_>) {
         // Not the device's heap: the probe is no part of what it runs.
         paperpaw_emulator::budget::untracked(|| look(env));
     }
@@ -34,16 +35,16 @@ impl paperpaw_core::testing::Fake for Look {
     fn on_action(
         &mut self,
         _: &Id,
-        _: &mut paperpaw_core::sdk::Cx<'_, '_>,
+        _: &mut paperpaw_core::Turn<'_, '_>,
     ) -> paperpaw_core::sdk::Handled {
         paperpaw_core::sdk::Handled::No
     }
 }
 
 /// Every setting's description that does not fit, kept in [`CUT`].
-fn look(env: &Env<'_>) {
+fn look(env: &Place<'_>) {
     {
-        let style = UiStyle::new(env);
+        let style = UiStyle::new(&env.env());
         let width = env.device().display.width;
         let language = env.i18n().language().to_string();
         for spec in env.settings().specs() {
@@ -54,7 +55,7 @@ fn look(env: &Env<'_>) {
                 continue;
             }
             let text = env.i18n().tr(key);
-            if !ui::note_fits(env, &style, width, text) {
+            if !ui::note_fits(&env.env(), &style, width, text) {
                 CUT.lock().unwrap().push(format!(
                     "{} {language} {} [{key}]: {text}",
                     env.device().id,

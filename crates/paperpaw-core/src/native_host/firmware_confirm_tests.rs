@@ -142,18 +142,17 @@ mod kernel_side {
     /// A home screen to lie under the confirmation (a screen cannot be
     /// closed where it is the only one).
     mod home {
-        use crate::Items;
+        use crate::{Items, Place, Turn};
         use paperpaw_sdk::{
-            Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Version,
-            builtin::slots,
+            Canvas, Handled, Id, Manifest, Priority, RegisterError, Version, builtin::slots,
         };
 
         const HOME: Id = Id::new_static("h.home");
 
         struct Page;
         impl crate::testing::Fake for Page {
-            fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-            fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+            fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+            fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
                 Handled::No
             }
         }
@@ -363,10 +362,10 @@ mod kernel_side {
 
     mod lock {
         use super::*;
-        use crate::Items;
+        use crate::{Items, Place, Turn};
         use core::cell::Cell;
         use paperpaw_sdk::{
-            Canvas, Cx, Env, Handled, Manifest, Priority, RegisterError, Version, builtin::slots,
+            Canvas, Handled, Manifest, Priority, RegisterError, Version, builtin::slots,
         };
 
         const LOCK: Id = Id::new_static("g.lock");
@@ -374,19 +373,19 @@ mod kernel_side {
 
         struct Plain;
         impl crate::testing::Fake for Plain {
-            fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-            fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+            fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+            fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
                 Handled::No
             }
         }
 
         struct Lock(alloc::rc::Rc<Cell<bool>>);
         impl crate::testing::Fake for Lock {
-            fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+            fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
             fn flags(&self) -> u32 {
                 u32::from(self.0.get()) * crate::testing::GUARDS
             }
-            fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+            fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
                 if *action == paperpaw_sdk::builtin::actions::CONFIRM {
                     self.0.set(false);
                     cx.command(Command::Back);

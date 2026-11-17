@@ -141,7 +141,7 @@ macro_rules! in_frame {
         let kernel = crate::Kernel::builder(crate::tests::DEVICE)
             .build()
             .unwrap();
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         $scope.as_ref().scope(&env, || $body).unwrap()
     }};
 }

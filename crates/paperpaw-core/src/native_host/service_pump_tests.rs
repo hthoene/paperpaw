@@ -41,23 +41,23 @@ impl NativeInstance for Plugin {
         tag == EVENT_DOCUMENT_CHANGED_TAG
             || (tag == EVENT_DOCUMENT_CLOSED_TAG && self.closed_too.get())
     }
-    fn service_event(&self, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         self.seen.borrow_mut().push(bytes.to_vec());
         self.answer.get()
     }
 }
 impl Dispatch for Plugin {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
     }
     fn draw(
         &self,
         _: u32,
         _: &crate::native_host::registrations::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
@@ -166,7 +166,7 @@ pub(crate) fn fixture(count: usize) -> Fixture {
 
 /// The delivery of a pump without a kernel: no stage, the plain callback.
 fn plain<'a>(
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
 ) -> impl Fn(u64, &super::super::native_instances::NativeLease, &[u8]) + 'a {
     move |_, lease, bytes| {
         let _ = lease.service_event(bytes, env);
@@ -182,7 +182,7 @@ pub(crate) fn run_services(f: &Fixture, services: [Option<&dyn ServiceEvents>; 4
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     pump(&f.instances, &services, &env, &plain(&env))
 }
 
@@ -190,7 +190,7 @@ fn run_at(f: &Fixture, service: &Service, ms: u64) -> bool {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(ms));
+    let env = kernel.shared.place(paperpaw_platform::Instant(ms));
     pump(
         &f.instances,
         &[Some(service), None, None, None],
@@ -283,7 +283,7 @@ fn nothing_is_delivered_inside_a_callback_and_the_pass_stays_wanted() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     f.instances.test_enter_callback();
     assert!(pump(
         &f.instances,
@@ -311,7 +311,7 @@ fn no_wired_service_means_no_pass_and_no_buffer() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     assert!(!pump(
         &f.instances,
         &[None, None, None, None],

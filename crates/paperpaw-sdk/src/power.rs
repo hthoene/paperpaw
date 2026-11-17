@@ -131,7 +131,7 @@ impl WakeHold {
     }
 
     /// For the screen of `key` (see `Cx::keep_awake`).
-    pub(crate) fn of_screen(mut self, key: Option<crate::ScreenKey>) -> Self {
+    pub fn of_screen(mut self, key: Option<crate::ScreenKey>) -> Self {
         self.screen = key;
         self
     }

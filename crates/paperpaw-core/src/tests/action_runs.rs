@@ -110,13 +110,13 @@ struct Lock;
 const PASSING: [&str; 2] = ["obs.wrapped", "obs.open"];
 
 impl crate::testing::Fake for Lock {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
     fn flags(&self) -> u32 {
         crate::testing::GUARDS
     }
 
-    fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
         if PASSING.contains(&action.as_str()) {
             Handled::No
         } else {
@@ -266,13 +266,13 @@ mod above_the_guard {
     struct Gate;
 
     impl crate::testing::Fake for Gate {
-        fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+        fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
         fn flags(&self) -> u32 {
             crate::testing::GUARDS
         }
 
-        fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+        fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
             if action.as_str() == "up.raise" {
                 Handled::No
             } else {
@@ -284,9 +284,9 @@ mod above_the_guard {
     struct Top;
 
     impl crate::testing::Fake for Top {
-        fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+        fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-        fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+        fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
             Handled::No
         }
     }

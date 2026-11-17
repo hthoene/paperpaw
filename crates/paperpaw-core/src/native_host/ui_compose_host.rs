@@ -38,6 +38,7 @@ use super::{
     ui_handles::{self, Caller, ChildDraw, GuardState, Target, UiHandles},
     ui_widget_ops::host_status,
 };
+use crate::Place;
 use crate::abi7::{
     context::{ComposeKind, ComposeRequest, Frame},
     core_frame::{CallbackStamp, CoreFrame},
@@ -45,7 +46,6 @@ use crate::abi7::{
 use core::cell::RefCell;
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_CANCELLED, ERR_STATE, ERR_UNSUPPORTED};
-use paperpaw_sdk::Env;
 
 /// Where a target's retained instance comes from: the registry (tests, the
 /// kernel's own view) or the declaration directory (what a plugin's frame has).
@@ -81,7 +81,7 @@ impl Leases for NativeDeclarations {
 /// Runs a target's `draw` on its owner's retained instance.
 pub(crate) struct RegistryDraw<'a, 'e> {
     pub(crate) leases: &'a dyn Leases,
-    pub(crate) env: &'a Env<'e>,
+    pub(crate) env: &'a Place<'e>,
     /// The caller's screen callback, kept on the stack tracker while the
     /// child draws (`network.md` 5: a server is tied to that screen).
     pub(crate) screen: Option<(&'a StackRows, u32)>,
@@ -184,7 +184,7 @@ pub(crate) struct ComposeHost<'a, 'e> {
     pub(crate) handles: &'a RefCell<UiHandles>,
     pub(crate) guard: &'a dyn GuardState,
     pub(crate) leases: &'a dyn Leases,
-    pub(crate) env: &'a Env<'e>,
+    pub(crate) env: &'a Place<'e>,
     pub(crate) depth: &'a DispatchDepth,
     /// The caller's screen instance and the stack tracker, if it has a screen.
     pub(crate) screen: Option<(&'a StackRows, u32)>,

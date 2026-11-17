@@ -9,6 +9,7 @@
 //! not manage Wi-Fi. A work with a step function ([`WorkSpec`]) is a job,
 //! stepped in [`Kernel::tick`], one step a call.
 
+use crate::Place;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::mem;
@@ -25,9 +26,7 @@ use paperpaw_sdk::work::Needs;
 use paperpaw_sdk::work::{
     Importance, Moments, Progress, Reason, Refusal, Retry, Step, Why, Work, WorkRefused, WorkState,
 };
-use paperpaw_sdk::{
-    Command, Env, HttpReply, Id, Params, ServerNotice, SocketError, SocketNotice, Uses,
-};
+use paperpaw_sdk::{Command, HttpReply, Id, Params, ServerNotice, SocketError, SocketNotice, Uses};
 
 use crate::Kernel;
 
@@ -269,7 +268,7 @@ pub(crate) struct Queue {
     /// Until when the reader chose *Go online* outside such a screen
     /// ([`Command::GoOnlineFor`]).
     pub(crate) online_until: Option<Instant>,
-    /// Works or their states changed since `Env::work` was made.
+    /// Works or their states changed since `Place::work` was made.
     changed: bool,
     /// Plugins refused for a full queue, told `WORK_ALLOWED` once there is
     /// room again.
@@ -503,7 +502,7 @@ impl Queue {
 
     /// The moments since the last run, with the radio, charging and idle
     /// looked at now.
-    fn take_moments(&mut self, env: &Env<'_>, last_activity: Instant) -> Moments {
+    fn take_moments(&mut self, env: &Place<'_>, last_activity: Instant) -> Moments {
         let mut moments = mem::take(&mut self.moments);
         let online = env
             .wifi()
@@ -525,7 +524,7 @@ impl Queue {
     }
 
     /// Why `entry` runs now, if it does.
-    fn why(&self, entry: &Entry, moments: Moments, env: &Env<'_>, base: &Power) -> Option<Why> {
+    fn why(&self, entry: &Entry, moments: Moments, env: &Place<'_>, base: &Power) -> Option<Why> {
         let power = &self.power_of(base, &entry.owner);
         if entry.job.is_some() || entry.held(power) {
             return None;
@@ -891,7 +890,7 @@ impl Kernel {
         let mut notes: Vec<(Id, paperpaw_sdk::work::Note)> = Vec::new();
         let mut stepped = false;
         {
-            let env = self.shared.env(self.shared.now);
+            let env = self.shared.place(self.shared.now);
             let moments = self.works.take_moments(&env, self.last_activity);
             if moments.contains(Moments::SLEEP) {
                 self.works.keep = true;

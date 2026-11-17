@@ -26,7 +26,7 @@ pub(super) fn register_clean_up(r: &mut Items) -> Result<(), RegisterError> {
     r.on(CLEAN_UP_ANSWERED, |k, p| {
         k.with_event(&CLEAN_UP_ANSWERED, p, |env, answer, out| {
             if answer.yes {
-                let text = clean_up(env, out, BookDataKind::UserData);
+                let text = clean_up(&env.env(), out, BookDataKind::UserData);
                 out.push(Command::Notify(text));
             }
         });
@@ -38,7 +38,7 @@ pub(super) fn register_clean_up(r: &mut Items) -> Result<(), RegisterError> {
         |k, _| {
             k.with_env(|env, out| {
                 // What it found is its note, no notice.
-                let text = clean_up(env, out, BookDataKind::Cache);
+                let text = clean_up(&env.env(), out, BookDataKind::Cache);
                 out.push(Command::Notify(text));
             });
             paperpaw_sdk::work::Step::Done
@@ -46,7 +46,7 @@ pub(super) fn register_clean_up(r: &mut Items) -> Result<(), RegisterError> {
     ))?;
     r.on(events::STARTED, |k, p| {
         k.with_event(&events::STARTED, p, |env, (), out| {
-            declare_clean_up(env, out)
+            declare_clean_up(&env.env(), out)
         });
     })?;
     Ok(())
@@ -55,10 +55,10 @@ pub(super) fn register_clean_up(r: &mut Items) -> Result<(), RegisterError> {
 /// Cleans up the caches of books not found, then asks whether the
 /// reader's data of those books goes too, saying of how many: a book
 /// renamed on a computer, or on a card not inserted, is not found either.
-pub(super) fn ask_clean_up(env: &Env<'_>, out: &mut paperpaw_sdk::Commands) {
+pub(super) fn ask_clean_up(env: &paperpaw_sdk::Env<'_>, out: &mut paperpaw_sdk::Commands) {
     let text = clean_up(env, out, BookDataKind::Cache);
     let user = BookDataKind::UserData;
-    match library::unused_books(env.storage(), env.book_data(), library::folder(env), user) {
+    match library::unused_books(env.storage(), env.book_data(), library::folder(&env), user) {
         Ok(count) if count > 0 => {
             let question = env
                 .i18n()
@@ -79,8 +79,12 @@ pub(super) fn ask_clean_up(env: &Env<'_>, out: &mut paperpaw_sdk::Commands) {
 /// any format, by any spelling; nothing where a folder could not be read.
 /// Notes the time and declares the next time it is done by itself; what
 /// it did, to say.
-fn clean_up(env: &Env<'_>, out: &mut paperpaw_sdk::Commands, kind: BookDataKind) -> String {
-    let library = library::folder(env);
+fn clean_up(
+    env: &paperpaw_sdk::Env<'_>,
+    out: &mut paperpaw_sdk::Commands,
+    kind: BookDataKind,
+) -> String {
+    let library = library::folder(&env);
     let text = match library::clean_up_unused(env.storage(), env.book_data(), library, kind) {
         Ok(removed) => env.i18n().format(
             "core.cleaned-up",
@@ -88,7 +92,7 @@ fn clean_up(env: &Env<'_>, out: &mut paperpaw_sdk::Commands, kind: BookDataKind)
         ),
         Err(_) => String::from(env.i18n().tr("core.clean-up-failed")),
     };
-    if let Some(now) = paperpaw_sdk::time::unix_seconds(env) {
+    if let Some(now) = paperpaw_sdk::time::unix_seconds(&env) {
         let _ = env
             .storage()
             .write(CLEANED_UP, alloc::format!("{now}\n").as_bytes());

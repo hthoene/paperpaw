@@ -13,7 +13,7 @@ struct Panel {
 }
 
 impl crate::testing::Fake for Panel {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         let r = self.region;
         canvas.fill_rect(
             i32::from(r.x),
@@ -24,11 +24,11 @@ impl crate::testing::Fake for Panel {
         );
     }
 
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
+    fn region(&self, _: &Place<'_>) -> Option<Rect> {
         Some(self.region)
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -36,15 +36,15 @@ impl crate::testing::Fake for Panel {
 struct Base(Log);
 
 impl crate::testing::Fake for Base {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         let content = cx.env().content();
         let line = alloc::format!("base shown {}x{}", content.width, content.height);
         self.0.borrow_mut().push(line);
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }

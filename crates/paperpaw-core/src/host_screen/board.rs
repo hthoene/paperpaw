@@ -2,14 +2,13 @@
 //! start notices): in the middle of the screen, a title, a text and buttons,
 //! side by side or, where a word does not fit its share, one below the other.
 //! A text taller than the screen scrolls above the buttons.
+use crate::{Place, Turn};
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use super::paint::{self, Look};
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::{
-    Canvas, Color, Cx, Env, Gesture, GestureKind, Hint, Id, Point, Rect, RefreshMode,
-};
+use paperpaw_sdk::{Canvas, Color, Gesture, GestureKind, Hint, Id, Point, Rect, RefreshMode};
 
 /// The box; see the [module documentation](self).
 pub(super) struct Board {
@@ -33,7 +32,7 @@ impl Board {
     /// The box of `title` and `text` (paragraphs on lines of their own) with
     /// the buttons `labels`, the focus on the button `focus`.
     pub(super) fn new(
-        env: &Env<'_>,
+        env: &Place<'_>,
         (title, text): (&str, &str),
         labels: Vec<String>,
         focus: usize,
@@ -166,7 +165,7 @@ impl Board {
     }
 
     /// Scrolls a page; whether title and text scroll at all.
-    fn scroll(&mut self, forward: bool, cx: &mut Cx<'_, '_>) -> bool {
+    fn scroll(&mut self, forward: bool, cx: &mut Turn<'_, '_>) -> bool {
         let last = self.last_top();
         if last == 0 {
             return false;
@@ -183,7 +182,7 @@ impl Board {
         true
     }
 
-    pub(super) fn draw(&self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    pub(super) fn draw(&self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         let look = &self.look;
         canvas.fill(self.panel, Color::WHITE);
         canvas.stroke_round(self.panel, look.border(), look.corner, Color::BLACK);
@@ -215,7 +214,7 @@ impl Board {
     /// Scrolls or moves the focus; whether `action` is one that does (up
     /// and down scroll where the text does, else they move the focus as left
     /// and right do).
-    pub(super) fn step(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> bool {
+    pub(super) fn step(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> bool {
         let forward = [actions::DOWN, actions::NEXT_PAGE].contains(action);
         let back = [actions::UP, actions::PREV_PAGE].contains(action);
         if (forward || back) && self.scroll(forward, cx) {
@@ -237,7 +236,7 @@ impl Board {
     }
 
     /// A swipe over the box scrolls; a tap on a button is that button's.
-    pub(super) fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Option<usize> {
+    pub(super) fn on_gesture(&mut self, gesture: Gesture, cx: &mut Turn<'_, '_>) -> Option<usize> {
         use paperpaw_sdk::Direction;
         match gesture.kind {
             GestureKind::Swipe(Direction::Up) if self.panel.contains(gesture.start) => {
@@ -256,7 +255,7 @@ impl Board {
         self.buttons.iter().position(|b| b.contains(point))
     }
 
-    fn redraw(&self, cx: &mut Cx<'_, '_>) {
+    fn redraw(&self, cx: &mut Turn<'_, '_>) {
         cx.request_redraw_area(self.panel);
         cx.request_refresh(RefreshMode::Fast);
     }

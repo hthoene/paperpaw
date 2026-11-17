@@ -11,7 +11,7 @@ use paperpaw_native::host_glue::{ERR_DENIED, ERR_STATE, ERR_UNSUPPORTED, PpBuffe
 use paperpaw_sdk::{Id, SettingExtra, SettingSpec, SettingValue, builtin};
 
 struct View<'a> {
-    env: &'a paperpaw_sdk::Env<'a>,
+    env: &'a crate::Place<'a>,
     editor: Option<&'a str>,
 }
 impl Frame for View<'_> {
@@ -123,7 +123,7 @@ fn slot_five_uses_identity_for_short_grants_and_keeps_own_secret_behavior() {
         .settings
         .set("core.grant.style.own", SettingValue::Bool(true))
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let frame = View {
         env: &env,
         editor: Some("editor"),
@@ -217,7 +217,7 @@ fn placed_setting_identity_cannot_alias_grants_or_foreign_secrets() {
         .settings
         .set("own.public@2", SettingValue::Bool(true))
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let frame = View {
         env: &env,
         editor: None,

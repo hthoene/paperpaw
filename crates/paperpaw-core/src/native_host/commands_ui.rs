@@ -1,12 +1,13 @@
 //! Host-only UI authority and deferred redraw effects for one callback.
 use super::*;
+use crate::Place;
 use crate::native_host::stack_rows::StackRows;
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_NOT_FOUND};
 use paperpaw_platform::RefreshMode;
-use paperpaw_sdk::{Env, IdError, Params, ScreenKey};
+use paperpaw_sdk::{IdError, Params, ScreenKey};
 
 pub(super) struct UiContext<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     screen: Option<ScreenKey>,
     hop: u8,
     open_budget: u32,
@@ -25,7 +26,7 @@ pub(super) struct UiContext<'a> {
 }
 
 impl<'a> UiContext<'a> {
-    pub(super) fn env(&self) -> &'a Env<'a> {
+    pub(super) fn env(&self) -> &'a Place<'a> {
         self.env
     }
 
@@ -51,7 +52,7 @@ pub(crate) struct Redraw {
 impl<'a> CommandStage<'a> {
     pub(crate) fn with_ui(
         mut self,
-        env: &'a Env<'a>,
+        env: &'a Place<'a>,
         screen: Option<ScreenKey>,
         hop: u8,
         open_budget: u32,
@@ -785,12 +786,8 @@ mod tests {
         use paperpaw_sdk::{Manifest, RegisterError, Version};
         struct Empty;
         impl crate::testing::Fake for Empty {
-            fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}
-            fn on_action(
-                &mut self,
-                _: &Id,
-                _: &mut paperpaw_sdk::Cx<'_, '_>,
-            ) -> paperpaw_sdk::Handled {
+            fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Place<'_>) {}
+            fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
                 paperpaw_sdk::Handled::No
             }
         }
@@ -853,7 +850,7 @@ mod tests {
     #[test]
     fn exhausted_screen_key_budget_returns_slot_status_without_mutating_stage() {
         let kernel = screens_kernel();
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let owner = Id::new_static("probe");
         for remaining in [0, 1] {
             let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
@@ -899,7 +896,7 @@ mod tests {
         kernel.next_serial = u32::MAX - 1;
         let owner = Id::new_static("probe");
         let (mut commands, redraw, _) = {
-            let env = kernel.shared.env(Instant(0));
+            let env = kernel.shared.place(Instant(0));
             let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(
                 &env,
                 None,
@@ -954,7 +951,7 @@ mod tests {
             let owner = Id::new_static("probe");
             let (commands, redraw, _) =
                 {
-                    let env = kernel.shared.env(Instant(0));
+                    let env = kernel.shared.place(Instant(0));
                     let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
                         .with_ui(&env, Some(original), 0, u32::MAX - kernel.next_serial);
                     let mut bytes = [0; 192];
@@ -1008,7 +1005,7 @@ mod tests {
             false,
             key,
         ));
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let owner = Id::new_static("probe");
         let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(
             &env,

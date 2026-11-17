@@ -40,7 +40,7 @@ fn submit(stage: &mut CommandStage<'_>, commands: &[WireCommand<'_>]) -> i32 {
 #[test]
 fn a_batch_of_hints_is_checked_whole_and_listed_for_the_top_instance() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let labels = RefCell::new(HintLabels::default());
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
@@ -90,7 +90,7 @@ fn a_batch_of_hints_is_checked_whole_and_listed_for_the_top_instance() {
 #[test]
 fn a_ninth_action_in_a_callback_is_no_space_and_leaves_the_earlier_ones() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let labels = RefCell::new(HintLabels::default());
     let mut stage = CommandStage::new(&owner, env.settings(), None, 64, 4096)
@@ -118,7 +118,7 @@ fn a_ninth_action_in_a_callback_is_no_space_and_leaves_the_earlier_ones() {
 #[test]
 fn only_the_own_top_screen_may_label_and_a_device_without_a_row_does_nothing() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let labels = RefCell::new(HintLabels::default());
     // Another plugin's screen on top, or no instance of the callback: state.
     let foreign = Id::new_static("other");
@@ -155,7 +155,7 @@ fn only_the_own_top_screen_may_label_and_a_device_without_a_row_does_nothing() {
 #[test]
 fn a_labels_table_that_cannot_grow_refuses_the_batch_with_no_memory() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let labels = RefCell::new(HintLabels::default());
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
@@ -172,7 +172,7 @@ fn a_labels_table_that_cannot_grow_refuses_the_batch_with_no_memory() {
 fn labels_over_the_plugins_budget_are_no_memory_and_the_earlier_ones_stay() {
     use crate::native_host::hint_labels::{label_budget, make};
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let labels = RefCell::new(HintLabels::default());
     // The plugin's other instances hold the whole budget of the test device's

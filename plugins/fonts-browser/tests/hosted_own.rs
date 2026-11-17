@@ -10,7 +10,7 @@
 #[path = "../../test-support/hosted.rs"]
 mod hosted;
 
-use paperpaw_sdk::{Env, Id, Instant, MemoryStorage};
+use paperpaw_sdk::{Id, Instant, MemoryStorage};
 
 /// The plugin's catalogs as the kernel reads them: the production host does not load a
 /// native plugin's `i18n/*.ini` yet, so a test-only plugin registers them (as in About's
@@ -47,7 +47,10 @@ fn own_page(config: &str) -> String {
     let kernel = installed.kernel();
     kernel.start(Instant(100));
     kernel.run_action(Instant(200), Id::try_parse("fonts-browser.own").unwrap());
-    let path = format!("{}/own.txt", Env::plugin_dir("fonts-browser"));
+    let path = format!(
+        "{}/own.txt",
+        paperpaw_sdk::data::plugin_dir("fonts-browser")
+    );
     let mut buf = vec![0u8; 8192];
     let n = installed
         .kernel()

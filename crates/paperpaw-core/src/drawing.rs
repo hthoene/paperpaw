@@ -404,7 +404,7 @@ impl Kernel {
             .iter()
             .map(|s| s.screen.shows_through())
             .collect();
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         // Overlays that wash out what lies below them.
         let dims: Vec<bool> = self
             .stack
@@ -465,7 +465,7 @@ impl Kernel {
             let pressed = self.frame.mark.and_then(|(_, cell)| cell);
             paperpaw_sdk::ui::draw_button_hints(
                 &mut canvas.clipped(area),
-                &env,
+                &env.env(),
                 row,
                 &self.hint.shown,
                 pressed,
@@ -475,14 +475,15 @@ impl Kernel {
         if let Some((mark, None)) = self.frame.mark
             && mark.intersection(&region).is_some()
         {
-            let style = paperpaw_sdk::ui::UiStyle::new(&env);
+            let style = paperpaw_sdk::ui::UiStyle::new(&env.env());
             let mut canvas = canvas.clipped(mark);
             paperpaw_sdk::ui::fill_round(&mut canvas, &style, mark, Color::BLACK);
             let size = f32::from(mark.height) * 0.6;
             let sign = paperpaw_sdk::icons::PAW;
             let x = f32::from(mark.x)
-                + (f32::from(mark.width) - paperpaw_sdk::ui::icon_width(&env, sign, size)) / 2.0;
-            paperpaw_sdk::ui::draw_icon(&mut canvas, &env, sign, size, x, mark, Color::WHITE);
+                + (f32::from(mark.width) - paperpaw_sdk::ui::icon_width(&env.env(), sign, size))
+                    / 2.0;
+            paperpaw_sdk::ui::draw_icon(&mut canvas, &env.env(), sign, size, x, mark, Color::WHITE);
         }
         // A message over everything.
         if let Some((notice, _)) = &mut self.notice
@@ -533,7 +534,7 @@ impl Kernel {
     fn draw_aside(&mut self, canvas: &mut paperpaw_sdk::Canvas<'_>) {
         let regions: Vec<Option<Rect>> = (0..self.stack.len()).map(|i| self.overlay(i)).collect();
         let row = self.hint_row();
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         let base = self.full_base();
         {
             for (active, own) in self.stack[base..].iter_mut().zip(&regions[base..]) {
@@ -550,7 +551,7 @@ impl Kernel {
             if let Some(row) = row {
                 paperpaw_sdk::ui::draw_button_hints(
                     &mut canvas.clipped(row),
-                    &env,
+                    &env.env(),
                     row,
                     &self.hint.shown,
                     None,
@@ -577,7 +578,7 @@ impl Kernel {
             return Vec::new();
         };
         let area = self.region_of(top);
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         let active = &mut self.stack[top];
         let device = env.device_within(active.area);
         let own_env = env.within(&device, active.area);
@@ -653,7 +654,8 @@ impl Kernel {
     /// ([`events::DISPLAY_CHANGED`]).
     fn display_changed(&mut self) {
         let panel = self.framebuffer.bounds();
-        let class = paperpaw_sdk::ui::ScreenClass::of(&self.shared.env(self.shared.now), panel);
+        let class =
+            paperpaw_sdk::ui::ScreenClass::of(&self.shared.place(self.shared.now).env(), panel);
         let landscape = panel.width > panel.height;
         let changed = events::DisplayChanged::new(panel.width, panel.height, class, landscape);
         self.output

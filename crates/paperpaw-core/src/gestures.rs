@@ -547,7 +547,7 @@ impl Kernel {
 
     pub(crate) fn offer(
         &mut self,
-        f: impl Fn(&mut crate::screen::Screen, &mut Cx<'_, '_>) -> Handled,
+        f: impl Fn(&mut crate::screen::Screen, &mut Turn<'_, '_>) -> Handled,
     ) -> Handled {
         let Some(index) = self.input_top() else {
             self.offered_down_to = 0;
@@ -587,7 +587,7 @@ impl Kernel {
     /// to show above a screen guarding the device only where the guard was
     /// offered the action and let it pass (`passed`).
     pub(crate) fn run_handler(&mut self, action: &Id, params: &Params, passed: bool) {
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         let from = self.output.commands.len();
         let (reader, now) = (self.shared.reader, self.shared.now);
         let top = self.stack.last().map(|s| s.id.namespace());
@@ -612,7 +612,7 @@ impl Kernel {
                         out.extend(steps);
                     }
                     None => commands::handing(out, |out| {
-                        spec.run(&env, params, out);
+                        spec.run(&env.env(), params, out);
                     }),
                 }
                 let owner = action.namespace();

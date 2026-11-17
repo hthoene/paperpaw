@@ -1269,7 +1269,7 @@ fn expired_directory_refuses_a_native_callback_before_entering_plugin_code() {
         crate::native_host::native_instances::test_identity("factory"),
     );
     drop(directory);
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     assert_eq!(dispatch.event(91, &[0], &env), Err(host_glue::ERR_STATE));
     assert_eq!(DESTROYED.with(Cell::get), 0);
     drop(dispatch);

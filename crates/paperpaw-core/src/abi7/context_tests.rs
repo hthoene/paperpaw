@@ -11,7 +11,7 @@ use core::{ops::ControlFlow, pin::pin};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 
-fn frame<'a>(kernel: &'a crate::Kernel, env: &'a Env<'a>) -> CoreFrame<'a> {
+fn frame<'a>(kernel: &'a crate::Kernel, env: &'a Place<'a>) -> CoreFrame<'a> {
     CoreFrame {
         callback: None,
         instance: None,
@@ -36,7 +36,7 @@ fn core_frames_expose_usage_and_rows_only_during_the_callback() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let frame = frame(&kernel, &env);
     let slot = pin!(FrameSlot::new());
     assert_eq!(slot.with(|_| ()).err(), Some(Error::NoFrame));
@@ -92,7 +92,7 @@ fn env_only_frames_refuse_core_services() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     assert_eq!(Frame::device_usage(&env), Err(ERR_STATE));
     assert_eq!(
         Frame::plugin_rows(&env, 0, &mut |_| ControlFlow::Continue(())),
@@ -132,7 +132,7 @@ fn names_follow_ui_language_and_notes_distinguish_empty_from_absent() {
     )).unwrap());
     kernel.shared.translator.set_language("de");
     {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let frame = frame(&kernel, &env);
         frame
             .plugin_name("named", &mut |name| assert_eq!(name, "Name auf Deutsch"))
@@ -147,7 +147,7 @@ fn names_follow_ui_language_and_notes_distinguish_empty_from_absent() {
         Id::new_static("named"),
         paperpaw_sdk::work::Note::new(Instant(17), ""),
     );
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let frame = frame(&kernel, &env);
     frame
         .plugin_name("named", &mut |name| assert_eq!(name, "named"))
@@ -170,7 +170,7 @@ fn pages_keep_source_offsets_and_release_rows_before_plugin_code() {
     drop(kernel.shared.meter.enter("first"));
     drop(kernel.shared.meter.enter("second"));
     kernel.shared.storage.sync().unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let frame = frame(&kernel, &env);
     let mut count = 0;
     let end = frame
@@ -216,7 +216,7 @@ fn localized_name_caps_preserve_utf8_and_exact_boundary_text() {
             .shared
             .translator
             .add(paperpaw_i18n::Catalog::parse(catalog).unwrap());
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let frame = frame(&kernel, &env);
         frame
             .plugin_name("named", &mut |name| assert_eq!(name, &text[..expected]))
@@ -229,7 +229,7 @@ fn caller_and_epoch_require_an_actual_nonzero_callback_stamp() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let mut frame = frame(&kernel, &env);
     assert_eq!(frame.caller(), Err(paperpaw_native::host_glue::ERR_STATE));
     assert_eq!(
@@ -272,7 +272,7 @@ fn calling_instance_requires_a_live_host_stamped_screen_and_callback() {
             flags: 0,
         }
     }));
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut frame = frame(&kernel, &env);
     assert_eq!(frame.calling_instance(), Err(ERR_STATE));
     for (owner, epoch, instance, expected) in [
@@ -325,7 +325,7 @@ fn core_ui_reads_the_stack_through_a_live_frame_only() {
             }));
     };
     rows(&[7, 8]);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut frame = frame(&kernel, &env);
     let view = |frame: &CoreFrame<'_>| {
         let mut seen = alloc::vec::Vec::new();

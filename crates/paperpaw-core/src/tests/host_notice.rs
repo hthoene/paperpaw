@@ -101,7 +101,7 @@ fn a_long_text_is_cut_to_three_lines() {
         )
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let long = "aaaa ".repeat(400);
     let notice = crate::host_screen::Notice::new(
         &env,

@@ -337,11 +337,11 @@ fn data_plugins_bring_actions_menus_icons_points_and_steps() {
         .map(|(_, line)| line)
         .collect();
     assert_eq!(about, ["Made with care", "Second line"]);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let steps: Vec<&str> = kernel
         .shared
         .setup
-        .applying(&env)
+        .applying(&env.env())
         .iter()
         .map(|step| step.id.as_str())
         .collect();

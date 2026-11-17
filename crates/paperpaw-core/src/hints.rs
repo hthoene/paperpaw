@@ -65,7 +65,7 @@ impl Kernel {
 
     /// When the full screen shown has the row of hints.
     pub(crate) fn base_hints(&self) -> HintVisibility {
-        let env = self.shared.env(self.shared.now);
+        let env = self.shared.place(self.shared.now);
         self.stack
             .iter()
             .rev()
@@ -122,7 +122,7 @@ impl Kernel {
                 .bool(core_settings::BUTTON_HINTS.as_str())
             && self.rotation() == paperpaw_platform::Rotation::Deg0;
         if shown {
-            paperpaw_sdk::ui::button_hints_height(&self.shared.env(self.shared.now))
+            paperpaw_sdk::ui::button_hints_height(&self.shared.place(self.shared.now).env())
         } else {
             0
         }

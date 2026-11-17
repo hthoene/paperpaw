@@ -25,7 +25,7 @@ fn beta3_dir(plugin: &str, path: &str) -> String {
     }
     alloc::format!(
         "{}/books/{hash:016x}",
-        paperpaw_sdk::Env::plugin_dir(plugin)
+        paperpaw_sdk::data::plugin_dir(plugin)
     )
 }
 
@@ -82,8 +82,8 @@ fn kernel() -> crate::Kernel {
     use paperpaw_sdk::{Manifest, Version};
     struct Empty;
     impl crate::testing::Fake for Empty {
-        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-        fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
+        fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
         }
     }
@@ -132,7 +132,7 @@ fn submit(
     top: bool,
     commands: &[Wire<'_>],
 ) -> (i32, Vec<Command>) {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::try_parse(owner).unwrap();
     let screen = top.then(|| kernel.shared.stack.last().unwrap().key);
     let mut stage =

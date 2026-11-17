@@ -1,7 +1,7 @@
 //! What `core.net`, `core.sockets` and the work scheduler want of the
 //! network, as the network manager and the shell hear it (`device.md` 3):
 //! `event.network_wanted` once where no network is up, `event.network_idle`
-//! after the last use, the flags of `Env::wifi`, and a one-shot wish that
+//! after the last use, the flags of `Place::wifi`, and a one-shot wish that
 //! lapses.
 use super::net_policy_wiring::booting_with;
 use super::*;

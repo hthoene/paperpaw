@@ -11,13 +11,14 @@
 //! on one thread, and sessions on other threads (tests run side by side)
 //! must not change which plugins a device gets or the area it notes.
 
+use paperpaw_core::{Place, Turn};
 use std::cell::{Cell, RefCell};
 
 use paperpaw_core::{Items, KernelBuilder};
 use paperpaw_platform::Rect;
 use paperpaw_sdk::ui::{self, UiStyle};
 use paperpaw_sdk::widgets::{Widget, WidgetSpec};
-use paperpaw_sdk::{Canvas, Cx, Env, Handled, Id, Manifest, RegisterError, Version};
+use paperpaw_sdk::{Canvas, Handled, Id, Manifest, RegisterError, Version};
 
 use crate::AddPlugins;
 
@@ -97,22 +98,22 @@ fn probe_manifest() -> Manifest {
 struct Measuring;
 
 impl paperpaw_core::testing::Fake for Measuring {
-    fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
-        let style = UiStyle::new(env);
+    fn draw(&mut self, _: &mut Canvas<'_>, env: &Place<'_>) {
+        let style = UiStyle::new(&env.env());
         let width = env.device().display.width;
         let cut: Vec<(String, String)> = env
             .settings()
             .specs()
             .filter_map(|spec| {
                 let text = env.i18n().tr(spec.description.as_deref()?);
-                (!ui::note_fits(env, &style, width, text))
+                (!ui::note_fits(&env.env(), &style, width, text))
                     .then(|| (spec.id.to_string(), text.to_string()))
             })
             .collect();
         CUT_HELP.set(cut);
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -124,11 +125,11 @@ impl Widget for Noting {
         false
     }
 
-    fn height(&self, _: &Env<'_>, _: u16) -> u16 {
+    fn height(&self, _: &paperpaw_sdk::Env<'_>, _: u16) -> u16 {
         1
     }
 
-    fn draw(&self, _: &mut Canvas<'_>, _: &Env<'_>, area: Rect) {
+    fn draw(&self, _: &mut Canvas<'_>, _: &paperpaw_sdk::Env<'_>, area: Rect) {
         AREA.set(Some(area));
     }
 }

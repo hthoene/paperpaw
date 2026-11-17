@@ -10,7 +10,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-// The SDK's test harness: an `Env` of empty registries.
+// The SDK's test harness: an `Place` of empty registries.
 #[path = "../../paperpaw-sdk/tests/common/mod.rs"]
 mod common;
 

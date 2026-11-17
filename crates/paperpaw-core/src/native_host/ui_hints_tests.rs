@@ -3,6 +3,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::{
     context::{
         registry_views::{Asker, RegistryView, Row},
@@ -23,7 +24,7 @@ use core::cell::Cell;
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 
 /// One declared hint: (scope, owner, input, zone, text).
 type Declared4 = (&'static str, &'static str, u32, [u32; 4], String);
@@ -93,7 +94,7 @@ impl RegistryView for Generation {
 }
 
 struct World<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     hosts: HostServices,
     dir: Dir,
     generation: Generation,
@@ -168,7 +169,7 @@ fn world<R>(hints: Vec<Declared4>, f: impl FnOnce(&World<'_>) -> R) -> R {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = HostServices::new();
     hosts
         .wire_ui(UiServices::new(

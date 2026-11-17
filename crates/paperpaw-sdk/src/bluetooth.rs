@@ -1314,7 +1314,7 @@ impl<'a> BluetoothView<'a> {
         }
     }
 
-    pub(crate) fn new(all: &'a Bluetooth, running: &'a dyn crate::secrets::Running) -> Self {
+    pub fn new(all: &'a Bluetooth, running: &'a dyn crate::secrets::Running) -> Self {
         Self { all, running }
     }
 

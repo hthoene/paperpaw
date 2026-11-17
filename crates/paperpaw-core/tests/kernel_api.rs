@@ -505,11 +505,7 @@ struct Focused {
 struct TwoButtons(usize, bool);
 
 impl paperpaw_core::testing::Fake for TwoButtons {
-    fn draw(
-        &mut self,
-        canvas: &mut paperpaw_core::sdk::Canvas<'_>,
-        _: &paperpaw_core::sdk::Env<'_>,
-    ) {
+    fn draw(&mut self, canvas: &mut paperpaw_core::sdk::Canvas<'_>, _: &paperpaw_core::Place<'_>) {
         use paperpaw_core::sdk::semantics::Role;
         for (i, label) in ["First", "Second"].iter().enumerate() {
             let area = paperpaw_core::sdk::Rect::new(0, 40 * i as u16, 100, 40);
@@ -526,7 +522,7 @@ impl paperpaw_core::testing::Fake for TwoButtons {
     fn on_action(
         &mut self,
         action: &paperpaw_core::sdk::Id,
-        cx: &mut paperpaw_core::sdk::Cx<'_, '_>,
+        cx: &mut paperpaw_core::Turn<'_, '_>,
     ) -> paperpaw_core::sdk::Handled {
         if *action == paperpaw_core::sdk::builtin::actions::DOWN {
             self.0 = (self.0 + 1) % 2;
@@ -836,17 +832,17 @@ fn keys_manifest() -> Manifest {
 struct Answering(Option<Params>);
 
 impl paperpaw_core::testing::Fake for Answering {
-    fn draw(&mut self, _: &mut paperpaw_core::sdk::Canvas<'_>, _: &paperpaw_core::sdk::Env<'_>) {}
+    fn draw(&mut self, _: &mut paperpaw_core::sdk::Canvas<'_>, _: &paperpaw_core::Place<'_>) {}
 
     fn on_action(
         &mut self,
         _: &paperpaw_core::sdk::Id,
-        _: &mut paperpaw_core::sdk::Cx<'_, '_>,
+        _: &mut paperpaw_core::Turn<'_, '_>,
     ) -> paperpaw_core::sdk::Handled {
         paperpaw_core::sdk::Handled::No
     }
 
-    fn on_show(&mut self, cx: &mut paperpaw_core::sdk::Cx<'_, '_>) {
+    fn on_show(&mut self, cx: &mut paperpaw_core::Turn<'_, '_>) {
         use paperpaw_core::sdk::builtin::params;
         use paperpaw_core::sdk::event::EventData;
         let Some(asked) = self.0.take() else {

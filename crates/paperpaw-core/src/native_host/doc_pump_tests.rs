@@ -34,7 +34,7 @@ impl NativeInstance for Probe {
     fn subscribed(&self, tag: u32) -> bool {
         tag == wire::EVENT_DOCUMENT_CHANGED_TAG
     }
-    fn service_event(&self, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         match wire::records_decode_single(bytes)? {
             Record::EventDocumentChanged(e) => {
                 let heard = (e.document, e.state, e.progress_ppm);
@@ -47,23 +47,23 @@ impl NativeInstance for Probe {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn dropped(&self, _: u32, _: i32) {}
-    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], _: &Place<'_>) -> Result<i32, i32> {
         assert_eq!(token, 5, "the token of the format's declaration");
         let Record::StageCall(call) = wire::records_decode_single(bytes).unwrap() else {
             panic!("not a stage.call")

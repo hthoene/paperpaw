@@ -9,6 +9,7 @@
 )]
 
 use paperpaw_core::KernelBuilder;
+use paperpaw_core::{Place, Turn};
 use paperpaw_dev::cli::Context;
 use paperpaw_dev::reach::{self, Limits};
 use paperpaw_dev::report::{Finding, Level, Report};
@@ -18,8 +19,7 @@ use paperpaw_platform::Rect;
 use paperpaw_sdk::builtin::menus;
 use paperpaw_sdk::semantics::Role;
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Commands, Cx, Env, Handled, Id, Manifest, MenuEntry, Params,
-    Version,
+    ActionSpec, Canvas, Command, Commands, Handled, Id, Manifest, MenuEntry, Params, Version,
 };
 
 const OPEN: Id = Id::new_static("trapped.open");
@@ -44,7 +44,7 @@ fn trapped(builder: KernelBuilder) -> KernelBuilder {
             Box::new(|_, _| Box::new(Hidden)),
         ))?;
         items.add_action(ActionSpec::new(OPEN, "trapped.open").handler(
-            |_: &Env<'_>, _, out: &mut Commands| {
+            |_: &Place<'_>, _, out: &mut Commands| {
                 out.push(Command::OpenScreen(STUCK, Params::new()));
             },
         ))?;
@@ -65,11 +65,11 @@ fn rows(canvas: &mut Canvas<'_>, labels: &[&str], focused: Option<usize>) {
 struct Stuck;
 
 impl paperpaw_core::testing::Fake for Stuck {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         rows(canvas, &["One", "Two", "Three"], Some(0));
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::Yes
     }
 }
@@ -78,11 +78,11 @@ impl paperpaw_core::testing::Fake for Stuck {
 struct Hidden;
 
 impl paperpaw_core::testing::Fake for Hidden {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         rows(canvas, &["Alone"], Some(0));
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }

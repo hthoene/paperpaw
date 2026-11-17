@@ -14,7 +14,7 @@ use paperpaw_epub_family::{Fb2Document, fb2_provider};
 use paperpaw_sdk::document::{BlockKind, Document, Locator};
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
-use paperpaw_sdk::{DirEntry, Env, MemoryStorage, Storage, StorageError};
+use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
 
 /// Root 3 (the folder of the book) and root 6 (below the plugin's folder).
 struct Roots {
@@ -26,7 +26,7 @@ impl Roots {
     fn new(name: &str, book: &[u8]) -> Self {
         Self {
             mem: MemoryStorage::new().with(&format!("book/{name}"), book.to_vec()),
-            prefix: Env::plugin_dir("format-epub"),
+            prefix: paperpaw_sdk::data::plugin_dir("format-epub"),
         }
     }
     fn map(&self, path: &str) -> String {

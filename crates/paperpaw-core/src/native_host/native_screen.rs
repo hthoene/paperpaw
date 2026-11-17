@@ -2,6 +2,7 @@
 use super::registrations::{self as wire, Record};
 use crate::native_host::codec;
 use crate::native_host::ui_store::Info;
+use crate::{Place, Turn};
 #[cfg(test)]
 use alloc::rc::Rc;
 use alloc::vec::Vec;
@@ -9,7 +10,7 @@ use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_platform::{PointerEvent, PointerPhase, Rect, buttons};
 use paperpaw_sdk::{
-    Cx, Env, Gesture, GestureKind, Handled, Id, ScreenKey,
+    Gesture, GestureKind, Handled, Id, ScreenKey,
     builtin::{events, slots},
     event::EventData as _,
     realtime,
@@ -31,13 +32,13 @@ pub(crate) trait Dispatch {
     fn take_open_info(&self) -> Option<Info> {
         None
     }
-    fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32>;
-    fn input(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32>;
+    fn event(&self, token: u32, bytes: &[u8], env: &Place<'_>) -> Result<i32, i32>;
+    fn input(&self, token: u32, bytes: &[u8], env: &Place<'_>) -> Result<i32, i32>;
     fn draw(
         &self,
         token: u32,
         frame: &wire::DrawFrame<'_>,
-        env: &Env<'_>,
+        env: &Place<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32>;
     /// Screen wrappers supply their own key, never a plugin-provided value.
@@ -48,7 +49,7 @@ pub(crate) trait Dispatch {
         instance: Option<ScreenKey>,
         token: u32,
         bytes: &[u8],
-        cx: &mut Cx<'_, '_>,
+        cx: &mut Turn<'_, '_>,
         input: bool,
     ) -> Result<i32, i32> {
         let _ = instance;
@@ -63,7 +64,7 @@ pub(crate) trait Dispatch {
         instance: Option<ScreenKey>,
         token: u32,
         frame: &wire::DrawFrame<'_>,
-        env: &Env<'_>,
+        env: &Place<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         let _ = instance;
@@ -74,7 +75,7 @@ pub(crate) trait Dispatch {
         _token: u32,
         _bytes: &[u8],
         _out: &mut [u8],
-        _env: &Env<'_>,
+        _env: &Place<'_>,
     ) -> Result<i32, i32> {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
@@ -102,17 +103,17 @@ impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
     fn take_open_info(&self) -> Option<Info> {
         (**self).take_open_info()
     }
-    fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, token: u32, bytes: &[u8], env: &Place<'_>) -> Result<i32, i32> {
         (**self).event(token, bytes, env)
     }
-    fn input(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, token: u32, bytes: &[u8], env: &Place<'_>) -> Result<i32, i32> {
         (**self).input(token, bytes, env)
     }
     fn draw(
         &self,
         token: u32,
         frame: &wire::DrawFrame<'_>,
-        env: &Env<'_>,
+        env: &Place<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         (**self).draw(token, frame, env, canvas)
@@ -122,7 +123,7 @@ impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
         instance: Option<ScreenKey>,
         token: u32,
         bytes: &[u8],
-        cx: &mut Cx<'_, '_>,
+        cx: &mut Turn<'_, '_>,
         input: bool,
     ) -> Result<i32, i32> {
         (**self).screen_callback(instance, token, bytes, cx, input)
@@ -132,12 +133,12 @@ impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
         instance: Option<ScreenKey>,
         token: u32,
         frame: &wire::DrawFrame<'_>,
-        env: &Env<'_>,
+        env: &Place<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         (**self).screen_draw(instance, token, frame, env, canvas)
     }
-    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Place<'_>) -> Result<i32, i32> {
         (**self).stage(token, bytes, out, env)
     }
     fn secret_now(&self, key: Option<ScreenKey>) -> Option<bool> {
@@ -156,17 +157,17 @@ impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
     fn take_open_info(&self) -> Option<Info> {
         (**self).take_open_info()
     }
-    fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, token: u32, bytes: &[u8], env: &Place<'_>) -> Result<i32, i32> {
         (**self).event(token, bytes, env)
     }
-    fn input(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, token: u32, bytes: &[u8], env: &Place<'_>) -> Result<i32, i32> {
         (**self).input(token, bytes, env)
     }
     fn draw(
         &self,
         token: u32,
         frame: &wire::DrawFrame<'_>,
-        env: &Env<'_>,
+        env: &Place<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         (**self).draw(token, frame, env, canvas)
@@ -176,7 +177,7 @@ impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
         instance: Option<ScreenKey>,
         token: u32,
         bytes: &[u8],
-        cx: &mut Cx<'_, '_>,
+        cx: &mut Turn<'_, '_>,
         input: bool,
     ) -> Result<i32, i32> {
         (**self).screen_callback(instance, token, bytes, cx, input)
@@ -186,12 +187,12 @@ impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
         instance: Option<ScreenKey>,
         token: u32,
         frame: &wire::DrawFrame<'_>,
-        env: &Env<'_>,
+        env: &Place<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         (**self).screen_draw(instance, token, frame, env, canvas)
     }
-    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Place<'_>) -> Result<i32, i32> {
         (**self).stage(token, bytes, out, env)
     }
     fn secret_now(&self, key: Option<ScreenKey>) -> Option<bool> {
@@ -267,7 +268,7 @@ impl<D: Dispatch> NativeScreen<D> {
         self
     }
 
-    fn shown(&self, cx: &mut Cx<'_, '_>) -> bool {
+    fn shown(&self, cx: &mut Turn<'_, '_>) -> bool {
         let env = cx.env();
         let pane = env.content();
         let record = Record::EventScreenShown(wire::EventScreenShown {
@@ -291,7 +292,7 @@ impl<D: Dispatch> NativeScreen<D> {
         self.status(result)
     }
 
-    fn opened(&self, again: bool, info: Info, cx: &mut Cx<'_, '_>) {
+    fn opened(&self, again: bool, info: Info, cx: &mut Turn<'_, '_>) {
         let env = cx.env();
         let Some(key) = self.key else {
             return;
@@ -317,7 +318,7 @@ impl<D: Dispatch> NativeScreen<D> {
         );
     }
 
-    fn event(&self, record: Record<'_>, cx: &mut Cx<'_, '_>) {
+    fn event(&self, record: Record<'_>, cx: &mut Turn<'_, '_>) {
         let mut bytes = [0; 384];
         let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
             self.dispatch
@@ -334,7 +335,7 @@ impl<D: Dispatch> NativeScreen<D> {
     /// frames are short), as large as one chunk needs, fallibly reserved
     /// (a refusal drops the screen's token) and wiped before it is freed (the
     /// text may be a password).
-    fn typed(&self, text: &str, done: bool, cx: &mut Cx<'_, '_>) {
+    fn typed(&self, text: &str, done: bool, cx: &mut Turn<'_, '_>) {
         const MAX: usize = wire::EVENT_TEXT_TYPED_TEXT_MAX_BYTES;
         // Tag, length and fixed fields around the text.
         const FRAME: usize = 64;
@@ -352,7 +353,7 @@ impl<D: Dispatch> NativeScreen<D> {
         crate::native_host::secret_bytes::wipe(&mut bytes);
     }
 
-    fn typed_chunks(&self, text: &str, done: bool, cx: &mut Cx<'_, '_>, bytes: &mut [u8]) {
+    fn typed_chunks(&self, text: &str, done: bool, cx: &mut Turn<'_, '_>, bytes: &mut [u8]) {
         const MAX: usize = wire::EVENT_TEXT_TYPED_TEXT_MAX_BYTES;
         let mut rest = text;
         loop {
@@ -391,11 +392,11 @@ impl<D: Dispatch> NativeScreen<D> {
         }
     }
 
-    fn is_top(&self, cx: &Cx<'_, '_>) -> bool {
+    fn is_top(&self, cx: &Turn<'_, '_>) -> bool {
         self.key.is_some() && self.key == cx.key() && cx.is_on_top()
     }
 
-    fn input(&self, record: Record<'_>, cx: &mut Cx<'_, '_>) -> Handled {
+    fn input(&self, record: Record<'_>, cx: &mut Turn<'_, '_>) -> Handled {
         let mut bytes = [0; 192];
         let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
             self.dispatch
@@ -419,7 +420,7 @@ impl<D: Dispatch> NativeScreen<D> {
     /// with a guard (it guards, lies above one, or is under one), is not drawn:
     /// its area stays blank, so the sleep screen over a locked device never
     /// shows the page or the PIN screen.
-    fn shown_below(&self, env: &Env<'_>) -> bool {
+    fn shown_below(&self, env: &Place<'_>) -> bool {
         let Some(key) = self.key else {
             return false;
         };
@@ -439,7 +440,7 @@ impl<D: Dispatch> NativeScreen<D> {
         !(guarded && foreign)
     }
 
-    fn draw_visible(&self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    fn draw_visible(&self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         let pane = env.content();
         let pane = Rect::new(0, 0, pane.width, pane.height);
         let Some(clip) = pane.intersection(&canvas.clip()) else {
@@ -474,7 +475,7 @@ impl<D: Dispatch> NativeScreen<D> {
 impl<D: Dispatch> NativeScreen<D> {
     /// A test's screen's time came (`testing`); a plugin's screen keeps its
     /// own times.
-    pub(crate) fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(crate) fn on_timer(&mut self, cx: &mut Turn<'_, '_>) {
         #[cfg(any(test, feature = "testing"))]
         self.dispatch.test_screen(&mut |t| t.on_timer(cx));
         let _ = cx;
@@ -498,7 +499,7 @@ impl<D: Dispatch> NativeScreen<D> {
     pub(crate) fn on_close_request(
         &mut self,
         why: paperpaw_sdk::CloseCause,
-        cx: &mut Cx<'_, '_>,
+        cx: &mut Turn<'_, '_>,
     ) -> Handled {
         let mut handled = Handled::No;
         #[cfg(any(test, feature = "testing"))]
@@ -540,7 +541,7 @@ impl<D: Dispatch> NativeScreen<D> {
         // Declared (`screen.spec.flags` bit 10); only an overlay has a below.
         self.flags & super::declarations::SCREEN_DIMS_BELOW != 0
     }
-    pub(crate) fn region(&self, env: &Env<'_>) -> Option<Rect> {
+    pub(crate) fn region(&self, env: &Place<'_>) -> Option<Rect> {
         #[cfg(any(test, feature = "testing"))]
         {
             let mut region = None;
@@ -560,7 +561,7 @@ impl<D: Dispatch> NativeScreen<D> {
         }
     }
 
-    pub(crate) fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    pub(crate) fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         // Only the top screen has input, but one below overlays only is drawn as if
         // it were on top, the overlays after it (`ui.md` 1.2, bit 2 `overlay`): the
         // page under a menu or a dialog shows. Instance keys are compared, since
@@ -570,7 +571,7 @@ impl<D: Dispatch> NativeScreen<D> {
         }
     }
 
-    pub(crate) fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(crate) fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         self.key = cx.key();
         if !self.opened && self.key.is_some() {
             self.opened = true;
@@ -583,13 +584,13 @@ impl<D: Dispatch> NativeScreen<D> {
         self.shown(cx);
     }
 
-    pub(crate) fn on_resize(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(crate) fn on_resize(&mut self, cx: &mut Turn<'_, '_>) -> Handled {
         self.shown(cx);
         // The host owns the viewport; native instances are never remade for size.
         Handled::Yes
     }
 
-    pub(crate) fn on_reopen(&mut self, params: &paperpaw_sdk::Params, cx: &mut Cx<'_, '_>) {
+    pub(crate) fn on_reopen(&mut self, params: &paperpaw_sdk::Params, cx: &mut Turn<'_, '_>) {
         let Ok(count) = u32::try_from(params.iter().count()) else {
             self.dispatch.dropped(self.token, ERR_INVALID);
             return;
@@ -614,7 +615,7 @@ impl<D: Dispatch> NativeScreen<D> {
         }
     }
 
-    pub(crate) fn on_close(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(crate) fn on_close(&mut self, cx: &mut Turn<'_, '_>) {
         if self.opened {
             self.opened = false;
             if let Some(key) = self.key {
@@ -638,7 +639,7 @@ impl<D: Dispatch> NativeScreen<D> {
         &mut self,
         event: &Id,
         params: &paperpaw_sdk::Params,
-        cx: &mut Cx<'_, '_>,
+        cx: &mut Turn<'_, '_>,
     ) {
         #[cfg(any(test, feature = "testing"))]
         if self
@@ -659,7 +660,7 @@ impl<D: Dispatch> NativeScreen<D> {
         self.typed(&typed.text, typed.done.unwrap_or(false), cx);
     }
 
-    pub(crate) fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(crate) fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if !self.is_top(cx) {
             return Handled::No;
         }
@@ -684,7 +685,7 @@ impl<D: Dispatch> NativeScreen<D> {
         realtime::ScreenMode::new().raw_keys()
     }
 
-    pub(crate) fn on_key(&mut self, key: &realtime::KeyEvent, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(crate) fn on_key(&mut self, key: &realtime::KeyEvent, cx: &mut Turn<'_, '_>) -> Handled {
         if !self.is_top(cx) || key.name() == buttons::POWER {
             return Handled::No;
         }
@@ -698,7 +699,7 @@ impl<D: Dispatch> NativeScreen<D> {
         )
     }
 
-    pub(crate) fn on_pointer(&mut self, event: &PointerEvent, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(crate) fn on_pointer(&mut self, event: &PointerEvent, cx: &mut Turn<'_, '_>) -> Handled {
         if !self.is_top(cx) {
             return Handled::No;
         }
@@ -722,7 +723,7 @@ impl<D: Dispatch> NativeScreen<D> {
         )
     }
 
-    pub(crate) fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(crate) fn on_gesture(&mut self, gesture: Gesture, cx: &mut Turn<'_, '_>) -> Handled {
         if !self.is_top(cx) {
             return Handled::No;
         }

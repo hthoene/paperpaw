@@ -39,7 +39,7 @@ fn kernel() -> crate::Kernel {
 }
 
 pub(super) fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&EnvironmentScope)) {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let frame = crate::abi7::core_frame::CoreFrame {
         callback: None,
         instance: None,
@@ -222,7 +222,7 @@ fn env_only_named_access_fails_closed_while_roles_work_and_release_needs_no_fram
     let kernel = kernel();
     let resources = HostResources::try_new().unwrap();
     let owner = resources.try_owner().unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let scope = pin!(EnvironmentScope::new());
     let mut role_handle = 0;
     scope

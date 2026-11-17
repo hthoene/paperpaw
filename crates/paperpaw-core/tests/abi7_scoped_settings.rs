@@ -1,4 +1,4 @@
-//! The public settings bridge uses a real dispatch Env and the existing codec.
+//! The public settings bridge uses a real dispatch Place and the existing codec.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
 use paperpaw_core::Items;
 use paperpaw_core::native_host::environment::{EnvironmentScope, SettingValueRef, settings_decode};

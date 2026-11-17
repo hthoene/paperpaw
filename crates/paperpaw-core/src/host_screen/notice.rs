@@ -7,12 +7,13 @@
 //! lines. The kernel shows it over whatever is open and takes it away after
 //! `core.notice-seconds`.
 
+use crate::Place;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use super::paint::{self, Look};
 use paperpaw_sdk::builtin::params;
-use paperpaw_sdk::{Canvas, Color, Env, Id, Params, Rect};
+use paperpaw_sdk::{Canvas, Color, Id, Params, Rect};
 
 /// The screen's id: a host screen, bound to the notice slot as a fallback.
 pub(crate) const SCREEN: Id = Id::new_static("core.notice-box");
@@ -33,7 +34,7 @@ impl Notice {
     /// infallible, as Beta 3's were: accepted (Code Reviewer, #1270), since
     /// the text is bounded by the wire record (at most 256 bytes) and a notice
     /// exists only while it shows.
-    pub(crate) fn new(env: &Env<'_>, params: &Params) -> Self {
+    pub(crate) fn new(env: &Place<'_>, params: &Params) -> Self {
         let look = Look::of(env.device(), env.settings(), env.fonts());
         let display = env.device().display;
         let pad = look.gap * 3 / 2;
@@ -73,7 +74,7 @@ impl Notice {
     }
 
     /// A dark box with round corners, the lines centred in white.
-    pub(super) fn draw(&self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    pub(super) fn draw(&self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         let look = &self.look;
         let r = self.region;
         // Round, with what is below in the corners; never quite square.
