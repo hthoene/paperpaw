@@ -11,9 +11,20 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod support;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
-use paperpaw_sdk::ui::{self, UiStyle};
+use super::support;
+
+use crate::kit::ui::{self, UiStyle};
 use paperpaw_sdk::{Color, Hint, Rect};
 use proptest::prelude::*;
 

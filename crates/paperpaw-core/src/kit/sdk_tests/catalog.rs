@@ -10,16 +10,29 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod common;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+
+use super::common;
 
 use std::borrow::Cow;
 use std::cell::Cell;
+use std::rc::Rc;
 
+use crate::Place;
+use crate::kit::library::catalog::{self, Rewrite, Status, Walk};
+use crate::kit::library::{self};
 use paperpaw_sdk::builtin::events::Reading;
 use paperpaw_sdk::document::DocumentError;
-use paperpaw_sdk::library::catalog::{self, Rewrite, Status, Walk};
-use paperpaw_sdk::library::{self};
-use paperpaw_sdk::{DirEntry, Env, FormatSpec, Formats, Id, MemoryStorage, Storage, StorageError};
+use paperpaw_sdk::{DirEntry, FormatSpec, Formats, Id, MemoryStorage, Storage, StorageError};
 
 fn harness(storage: MemoryStorage) -> common::Harness {
     let mut h = common::Harness::new();
@@ -33,16 +46,16 @@ fn harness(storage: MemoryStorage) -> common::Harness {
         ))
         .unwrap();
     h.formats = formats;
-    h.storage = storage;
+    h.set_storage(storage);
     h
 }
 
-fn walk(env: &Env<'_>) {
+fn walk(env: &Place<'_>) {
     let mut walk = Walk::start(env, Vec::new()).unwrap();
     while !walk.step(env).unwrap() {}
 }
 
-fn catch_up(env: &Env<'_>, fresh: &[&str]) {
+fn catch_up(env: &Place<'_>, fresh: &[&str]) {
     let fresh = fresh.iter().map(|p| p.to_string()).collect();
     let mut rewrite = Rewrite::start(env, fresh).unwrap();
     while !rewrite.step(env).unwrap() {}
@@ -136,13 +149,13 @@ fn a_book_removed_and_sent_again_starts_afresh() {
 
 /// A storage whose appends fail after `left` of them, as a full card's
 /// do, and whose reads of `unreadable` fail.
-struct Failing<'a> {
-    inner: &'a MemoryStorage,
+struct Failing {
+    inner: common::Card,
     left: Cell<usize>,
     unreadable: &'static str,
 }
 
-impl Storage for Failing<'_> {
+impl Storage for Failing {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
         if path == self.unreadable {
             return Err(StorageError::Io);
@@ -179,17 +192,17 @@ fn an_error_leaves_the_old_catalog_as_it_was() {
     for n in 0..200 {
         storage = storage.with(&format!("books/{n:03}.txt"), "a book");
     }
-    let h = harness(storage);
+    let mut h = harness(storage);
     walk(&h.env());
     let before = h.storage.get(".paperpaw/library/catalog.txt").unwrap();
     // The card fills while the next is made: the old one stays, whole.
     h.storage.write("books/zzz.txt", b"one more book").unwrap();
-    let failing = Failing {
-        inner: &h.storage,
+    let failing = Rc::new(Failing {
+        inner: h.storage.clone(),
         left: Cell::new(1),
         unreadable: "",
-    };
-    let env = h.env_on(&failing);
+    });
+    let env = h.env_on(failing.clone());
     let mut walk = Walk::start(&env, Vec::new()).unwrap();
     let result = loop {
         match walk.step(&env) {
@@ -205,15 +218,15 @@ fn an_error_leaves_the_old_catalog_as_it_was() {
     );
     assert!(!h.storage.exists(".paperpaw/library/catalog.tmp"));
     // The catalog unreadable: no walk begins, nothing is changed.
-    let failing = Failing {
-        inner: &h.storage,
+    let failing = Rc::new(Failing {
+        inner: h.storage.clone(),
         left: Cell::new(usize::MAX),
         unreadable: ".paperpaw/library/catalog.txt",
-    };
-    let env = h.env_on(&failing);
+    });
+    let env = h.env_on(failing.clone());
     assert!(Walk::start(&env, Vec::new()).is_err());
     assert!(Rewrite::start(&env, Vec::new()).is_ok_and(|r| {
-        r.abort(&failing);
+        r.abort(&*failing);
         true
     }));
     assert_eq!(
@@ -227,7 +240,7 @@ fn a_status_that_cannot_be_read_is_not_noted() {
     let h = harness(MemoryStorage::new().with("books/a.txt", "one"));
     walk(&h.env());
     let failing = Failing {
-        inner: &h.storage,
+        inner: h.storage.clone(),
         left: Cell::new(usize::MAX),
         unreadable: ".paperpaw/library/favourites.txt",
     };
@@ -245,13 +258,13 @@ fn a_status_that_cannot_be_read_is_not_noted() {
 
 /// A storage that tells which paths were written (written, appended to,
 /// removed, renamed, made).
-struct Watched<'a> {
-    inner: &'a MemoryStorage,
+struct Watched {
+    inner: common::Card,
     written: std::cell::RefCell<Vec<String>>,
 }
 
-impl<'a> Watched<'a> {
-    fn new(inner: &'a MemoryStorage) -> Self {
+impl Watched {
+    fn new(inner: common::Card) -> Self {
         Watched {
             inner,
             written: Default::default(),
@@ -271,7 +284,7 @@ impl<'a> Watched<'a> {
     }
 }
 
-impl Storage for Watched<'_> {
+impl Storage for Watched {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
         self.inner.read_at(path, offset, buf)
     }
@@ -345,11 +358,11 @@ fn a_folder_too_large_to_list_in_one_piece_is_listed_into_a_file() {
             "text",
         );
     }
-    let h = harness(storage);
+    let mut h = harness(storage);
     walk(&h.env());
     let before = h.storage.get(CATALOG).unwrap();
-    let watched = Watched::new(&h.storage);
-    walk(&h.env_on(&watched));
+    let watched = Rc::new(Watched::new(h.storage.clone()));
+    walk(&h.env_on(watched.clone()));
     // Its listing only, gone once it is walked.
     assert_eq!(watched.taken(), [".paperpaw/library/walk.list"]);
     assert!(!h.storage.exists(".paperpaw/library/walk.list"));
@@ -385,15 +398,15 @@ fn a_walk_that_finds_books_gone_or_come_at_the_end_writes_the_catalog() {
 
 #[test]
 fn a_walk_keeps_the_log_where_the_catalog_has_what_it_noted() {
-    let h = library_of(30);
+    let mut h = library_of(30);
     let book = "books/Beta/book number 0010.txt";
     let before = h.storage.get(CATALOG).unwrap();
     let generation = catalog::generation(&h.storage).unwrap();
     // What the catalog has noted again: the log stays as it is.
     catalog::note(&h.storage, book, Status::new(None, false, false)).unwrap();
     let log = h.storage.get(LOG).unwrap();
-    let watched = Watched::new(&h.storage);
-    walk(&h.env_on(&watched));
+    let watched = Rc::new(Watched::new(h.storage.clone()));
+    walk(&h.env_on(watched.clone()));
     assert_eq!(watched.taken(), Vec::<String>::new());
     assert_eq!(h.storage.get(LOG).unwrap(), log);
     // A book noted removed that is there: its lines as they were, but a
@@ -401,7 +414,7 @@ fn a_walk_keeps_the_log_where_the_catalog_has_what_it_noted() {
     // hide the book).
     catalog::forget(&h.storage, book).unwrap();
     assert!(!books(&h.storage).iter().any(|(p, _)| p == book));
-    walk(&h.env_on(&watched));
+    walk(&h.env_on(watched.clone()));
     assert_eq!(
         watched.taken(),
         [".paperpaw/library/catalog.tmp", CATALOG, LOG]

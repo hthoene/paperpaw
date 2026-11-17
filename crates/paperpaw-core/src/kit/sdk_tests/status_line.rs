@@ -9,14 +9,27 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod support;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+
+use super::support;
 
 use std::borrow::Cow;
 
-use paperpaw_sdk::status::{StatusLine, item_ids};
-use paperpaw_sdk::{
-    Color, Id, Params, Rect, StatusFrame, StatusItemSpec, StatusLineSpec, StatusValue,
-};
+use crate::kit::status::StatusFrame;
+use crate::kit::status::StatusItemSpec;
+use crate::kit::status::StatusLineSpec;
+use crate::kit::status::StatusValue;
+use crate::kit::status::{StatusLine, item_ids};
+use paperpaw_sdk::{Color, Id, Params, Rect};
 use proptest::prelude::*;
 
 use support::{Device, Harness, PAPER, drawn_outside, frame};
@@ -114,7 +127,7 @@ proptest! {
     ) {
         let h = harness();
         let env = h.env();
-        let font = paperpaw_sdk::ui::UiStyle::new(&env).font(&env).unwrap();
+        let font = crate::kit::ui::UiStyle::new(&env).font(&env).unwrap();
         let height = (size * 1.6) as u16;
         let area = Rect::new(475 - width, if top { 0 } else { 800 - height }, width, height);
         let line = StatusLine::new(area, [&lists.0, &lists.1, &lists.2], size, Color::BLACK)
@@ -141,7 +154,7 @@ proptest! {
 fn the_page_stays_whole_beside_a_long_chapter_title() {
     let h = harness();
     let env = h.env();
-    let font = paperpaw_sdk::ui::UiStyle::new(&env).font(&env).unwrap();
+    let font = crate::kit::ui::UiStyle::new(&env).font(&env).unwrap();
     let area = Rect::new(0, 760, 480, 40);
     let context = Params::new()
         .with(
@@ -175,7 +188,7 @@ fn the_page_stays_whole_beside_a_long_chapter_title() {
 fn an_empty_line_and_items_that_show_nothing_draw_nothing() {
     let h = harness();
     let env = h.env();
-    let font = paperpaw_sdk::ui::UiStyle::new(&env).font(&env).unwrap();
+    let font = crate::kit::ui::UiStyle::new(&env).font(&env).unwrap();
     let area = Rect::new(0, 0, 480, 40);
     let empty = StatusLine::new(area, [" , ", "", ","], 20.0, Color::BLACK).percent(false);
     assert!(empty.is_empty());
@@ -216,7 +229,7 @@ fn every_item_stands_on_the_line_s_middle() {
         |_, _| Some(StatusValue::Bar { permille: 400 }),
     ));
     let env = h.env();
-    let font = paperpaw_sdk::ui::UiStyle::new(&env).font(&env).unwrap();
+    let font = crate::kit::ui::UiStyle::new(&env).font(&env).unwrap();
     // Figures alone (a slash or a percent sign reaches past them).
     let context = Params::new()
         .with("page", "0123456789")
@@ -294,7 +307,7 @@ fn every_item_stands_on_the_line_s_middle() {
 fn a_narrow_line_leaves_out_what_does_not_fit() {
     let h = harness();
     let env = h.env();
-    let font = paperpaw_sdk::ui::UiStyle::new(&env).font(&env).unwrap();
+    let font = crate::kit::ui::UiStyle::new(&env).font(&env).unwrap();
     let context = Params::new().with("level", "80").with("page", "12 / 340");
     for width in [20u16, 30, 45, 60, 90] {
         let area = Rect::new(200, 100, width, 32);
@@ -313,7 +326,7 @@ fn a_narrow_line_leaves_out_what_does_not_fit() {
 fn a_crowded_line_keeps_its_right_part_whole_at_the_edge() {
     let h = harness();
     let env = h.env();
-    let font = paperpaw_sdk::ui::UiStyle::new(&env).font(&env).unwrap();
+    let font = crate::kit::ui::UiStyle::new(&env).font(&env).unwrap();
     let context = Params::new()
         .with(
             "chapter",

@@ -9,14 +9,25 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod common;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+
+use super::common;
 
 use std::borrow::Cow;
 
+use crate::kit::time::{self, LocalTime, TimeZone};
 use common::Harness;
 use paperpaw_i18n::Catalog;
 use paperpaw_sdk::builtin::settings;
-use paperpaw_sdk::time::{self, LocalTime, TimeZone};
 use paperpaw_sdk::{SettingSpec, SettingValue};
 use proptest::prelude::*;
 
@@ -122,9 +133,9 @@ fn clock(unix_millis: i64, offset: Option<i32>) -> Harness {
             .unwrap();
     }
     for catalog in catalogs() {
-        h.i18n.add(catalog);
+        h.translator.add(catalog);
     }
-    h.i18n.set_language("en");
+    h.translator.set_language("en");
     h
 }
 
@@ -165,7 +176,7 @@ fn dates_in_english_and_german() {
         time::short_date_text(&h.env()).as_deref(),
         Some("Thu 1 Jan")
     );
-    h.i18n.set_language("de");
+    h.translator.set_language("de");
     assert_eq!(
         time::date_text(&h.env()).as_deref(),
         Some("Donnerstag, 1. Januar")

@@ -3,6 +3,7 @@
 //! by the pump with the kernel's `Place`, a busy source, once at wiring.
 extern crate std;
 use super::*;
+use crate::kit::library;
 use crate::{
     Instant, Kernel,
     native_host::{
@@ -14,7 +15,7 @@ use crate::{
 };
 use alloc::{borrow::Cow, vec::Vec};
 use paperpaw_platform::{DirEntry, StorageError};
-use paperpaw_sdk::{FormatSpec, Id, MemoryStorage, document::DocumentError, library};
+use paperpaw_sdk::{FormatSpec, Id, MemoryStorage, document::DocumentError};
 
 /// One card in memory, shared by the kernel and the job (as on a device).
 struct Card(Rc<MemoryStorage>);

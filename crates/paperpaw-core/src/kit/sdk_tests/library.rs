@@ -10,12 +10,23 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod common;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+
+use super::common;
 
 use std::borrow::Cow;
 
+use crate::kit::library::{self, BookData, BookDataKind};
 use paperpaw_sdk::builtin::events::Reading;
-use paperpaw_sdk::library::{self, BookData, BookDataKind};
 use paperpaw_sdk::{MemoryStorage, Storage};
 use proptest::prelude::*;
 
@@ -136,7 +147,7 @@ fn opened_books_are_recorded_most_recent_first_and_capped() {
 #[test]
 fn reading_progress_is_rounded_and_clamped() {
     let mut h = common::Harness::new();
-    h.storage = MemoryStorage::new().with("b/a.txt", "hello");
+    h.set_storage(MemoryStorage::new().with("b/a.txt", "hello"));
     let env = h.env();
     for (progress, kept) in [
         (12.4, 12),

@@ -8,23 +8,35 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod support;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
-use paperpaw_sdk::builtin::settings::{WIDGET_INK, WIDGET_PAPER};
-use paperpaw_sdk::decorations::Tone;
-use paperpaw_sdk::widgets::{
+use super::support;
+
+use crate::Place;
+use crate::kit::decorations::Tone;
+use crate::kit::widgets::{
     self, ColourSpec, Drawn, Frame, INK_AUTO, PAPER_DARK_GRAY, PAPER_INVERTED, PAPER_LIGHT_GRAY,
     PAPER_NONE, PAPER_NORMAL, WidgetSpec,
 };
-use paperpaw_sdk::{Canvas, Color, Env, Id, Rect, SettingValue};
+use paperpaw_sdk::builtin::settings::{WIDGET_INK, WIDGET_PAPER};
+use paperpaw_sdk::{Canvas, Color, Id, Rect, SettingValue};
 
 use support::{Device, Harness, PAPER, drawn_in, drawn_outside, frame};
 
 const CLOCK: Id = Id::new_static("t.clock");
 
-fn nothing(_: &mut Canvas<'_>, _: &Env<'_>, _: Rect) {}
+fn nothing(_: &mut Canvas<'_>, _: &Place<'_>, _: Rect) {}
 
-fn short(_: &Env<'_>, _: u16) -> u16 {
+fn short(_: &Place<'_>, _: u16) -> u16 {
     60
 }
 

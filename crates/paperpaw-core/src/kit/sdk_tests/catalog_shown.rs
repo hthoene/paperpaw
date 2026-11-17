@@ -11,13 +11,25 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod common;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+
+use super::common;
 
 use std::borrow::Cow;
 
+use crate::Place;
+use crate::kit::library::catalog::{self, Walk};
 use paperpaw_sdk::document::DocumentError;
-use paperpaw_sdk::library::catalog::{self, Walk};
-use paperpaw_sdk::{Env, FormatSpec, Formats, Id, Instant, MemoryStorage, Storage};
+use paperpaw_sdk::{FormatSpec, Formats, Id, Instant, MemoryStorage, Storage};
 
 const CATALOG: &str = ".paperpaw/library/catalog.txt";
 const BUILDING: &str = ".paperpaw/library/catalog.tmp";
@@ -34,7 +46,7 @@ fn harness(storage: MemoryStorage) -> common::Harness {
         ))
         .unwrap();
     h.formats = formats;
-    h.storage = storage;
+    h.set_storage(storage);
     h
 }
 
@@ -78,7 +90,7 @@ fn snapshot(storage: &MemoryStorage) -> MemoryStorage {
     copy(storage, MemoryStorage::new(), "")
 }
 
-fn walk(env: &Env<'_>) {
+fn walk(env: &Place<'_>) {
     let mut walk = Walk::start(env, Vec::new()).unwrap();
     while !walk.step(env).unwrap() {}
 }

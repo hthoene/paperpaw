@@ -4,7 +4,7 @@
 //! the next start.
 #![allow(clippy::unwrap_used, reason = "test setup and checks fail loudly")]
 
-use paperpaw_sdk::install::marks::{self, From, Marks};
+use paperpaw_core::kit::install::marks::{self, From, Marks};
 use paperpaw_sdk::native::{self, Chip, Header, Problem, signature};
 use paperpaw_sdk::{MemoryStorage, Storage};
 use std::alloc::{GlobalAlloc, Layout, System};

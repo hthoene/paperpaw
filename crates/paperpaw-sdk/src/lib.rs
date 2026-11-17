@@ -200,6 +200,9 @@ mod library_old;
 /// `kernel`).
 #[cfg(not(test))]
 pub mod library {
+    /// The kernel's: the event that says a book changed.
+    #[cfg(feature = "kernel")]
+    pub use crate::library_old::changed_book;
     pub(crate) use crate::library_old::*;
     pub use crate::library_old::{Fingerprint, kept_path};
 }
@@ -341,6 +344,9 @@ mod ui_old;
 /// `kernel`).
 #[cfg(not(test))]
 pub mod ui {
+    /// The kernel's: the class of the display that events carry.
+    #[cfg(feature = "kernel")]
+    pub use crate::ui_old::ScreenClass;
     pub(crate) use crate::ui_old::*;
     pub use crate::ui_old::{Ink, step_focus};
     /// What interface-7 code uses of it.

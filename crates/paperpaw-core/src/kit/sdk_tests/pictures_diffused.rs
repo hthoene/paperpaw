@@ -9,12 +9,24 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+
 use std::cell::Cell;
 
+use crate::kit::ui;
 use paperpaw_graphics::Framebuffer;
 use paperpaw_image::{ColorWriter, GrayWriter, ImageSink};
 use paperpaw_sdk::document::ImageRef;
-use paperpaw_sdk::{Color, DirEntry, MemoryStorage, PixelFormat, Rect, Storage, StorageError, ui};
+use paperpaw_sdk::{Color, DirEntry, MemoryStorage, PixelFormat, Rect, Storage, StorageError};
 
 const W: u16 = 120;
 const H: u16 = 90;

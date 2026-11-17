@@ -19,10 +19,11 @@
 //! looked at and which of its files are settled, so a read of it again looks
 //! at nothing and holds nothing.
 use super::kept_file;
+use crate::kit::library;
 use alloc::string::String;
 use core::cell::Cell;
 use paperpaw_platform::{Storage, StorageError};
-use paperpaw_sdk::{digest::fnv1a64, library, positions};
+use paperpaw_sdk::{digest::fnv1a64, positions};
 
 /// The reader's folder of books (`paperpaw_sdk::data::plugin_dir("reader")` + `/books`).
 const BOOKS: &str = ".paperpaw/plugins/reader/books";

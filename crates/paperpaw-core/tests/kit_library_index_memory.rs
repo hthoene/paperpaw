@@ -10,6 +10,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+#[path = "kit_common/mod.rs"]
 mod common;
 
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -91,12 +92,13 @@ static ALLOCATOR: Refusing = Refusing;
 
 use std::borrow::Cow;
 
-use paperpaw_sdk::document::{Block, Document, DocumentError, Locator, Metadata};
-use paperpaw_sdk::library::{
+use paperpaw_core::Place;
+use paperpaw_core::kit::library::{
     self,
     catalog::{self, Walk},
 };
-use paperpaw_sdk::{DirEntry, Env, FormatSpec, Formats, Id, MemoryStorage, Storage, StorageError};
+use paperpaw_sdk::document::{Block, Document, DocumentError, Locator, Metadata};
+use paperpaw_sdk::{DirEntry, FormatSpec, Formats, Id, MemoryStorage, Storage, StorageError};
 
 /// A book that names itself.
 struct Named {
@@ -147,7 +149,8 @@ fn harness() -> common::Harness {
 
 /// The card in memory: what it allocates to keep a file is the fixture's,
 /// not the library's, so it is never refused.
-struct Card(MemoryStorage);
+#[derive(Clone)]
+struct Card(std::rc::Rc<MemoryStorage>);
 
 fn shielded<T>(work: impl FnOnce() -> T) -> T {
     SHIELD.with(|shield| shield.set(true));
@@ -181,10 +184,10 @@ impl Storage for Card {
 }
 
 fn card() -> Card {
-    Card(MemoryStorage::new().with(BOOK, "one"))
+    Card(std::rc::Rc::new(MemoryStorage::new().with(BOOK, "one")))
 }
 
-fn walk(env: &Env<'_>) -> bool {
+fn walk(env: &Place<'_>) -> bool {
     let Ok(mut walk) = Walk::start(env, Vec::new()) else {
         return false;
     };
@@ -212,22 +215,22 @@ fn title(storage: &dyn Storage) -> Option<String> {
 /// with memory, reads the book again and makes it whole.
 #[test]
 fn the_next_walk_makes_the_line_of_a_book_left_stale_for_want_of_memory() {
-    let h = harness();
     let card = card();
-    let env = h.env_on(&card);
-    SIZE.with(|size| size.set("The Refused Title Of The Walk".len()));
-    REFUSED.with(|refused| refused.set(false));
-    assert!(walk(&env));
-    SIZE.with(|size| size.set(0));
-    assert!(REFUSED.with(Cell::get), "the title's copy was refused");
-    // The line names the file for want of the book's title: stale.
-    assert_eq!(title(&card).as_deref(), Some("a"), "the line is stale");
-    // Not written down as indexed either.
-    let kept = library::try_book(&card, BOOK).ok().flatten();
-    assert!(kept.is_none_or(|kept| !kept.indexed && kept.title.is_none()));
-    assert!(walk(&env));
-    assert_eq!(
-        title(&card).as_deref(),
-        Some("The Refused Title Of The Walk")
-    );
+    harness().with_env_on(card.clone(), |env| {
+        SIZE.with(|size| size.set("The Refused Title Of The Walk".len()));
+        REFUSED.with(|refused| refused.set(false));
+        assert!(walk(env));
+        SIZE.with(|size| size.set(0));
+        assert!(REFUSED.with(Cell::get), "the title's copy was refused");
+        // The line names the file for want of the book's title: stale.
+        assert_eq!(title(&card).as_deref(), Some("a"), "the line is stale");
+        // Not written down as indexed either.
+        let kept = library::try_book(&card, BOOK).ok().flatten();
+        assert!(kept.is_none_or(|kept| !kept.indexed && kept.title.is_none()));
+        assert!(walk(env));
+        assert_eq!(
+            title(&card).as_deref(),
+            Some("The Refused Title Of The Walk")
+        );
+    });
 }

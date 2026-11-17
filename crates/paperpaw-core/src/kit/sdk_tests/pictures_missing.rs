@@ -10,13 +10,25 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod support;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
+use super::support;
+
+use crate::kit::ui;
 use paperpaw_image::{GrayWriter, ImageSink};
+use paperpaw_sdk::Rect;
 use paperpaw_sdk::document::ImageRef;
 use paperpaw_sdk::layout::PageImage;
 use paperpaw_sdk::reading::{PageType, StatusRoom, draw_image};
-use paperpaw_sdk::{Rect, ui};
 
 use support::{Device, Harness, drawn_in, frame};
 

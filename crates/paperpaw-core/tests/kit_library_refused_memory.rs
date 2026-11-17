@@ -12,8 +12,8 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
+use paperpaw_core::kit::library::{self, KEY_LEN, catalog};
 use paperpaw_sdk::data::Error;
-use paperpaw_sdk::library::{self, KEY_LEN, catalog};
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
 
 thread_local! {

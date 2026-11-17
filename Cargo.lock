@@ -1734,6 +1734,7 @@ dependencies = [
  "paperpaw-hid",
  "paperpaw-hyphen",
  "paperpaw-i18n",
+ "paperpaw-image",
  "paperpaw-lang",
  "paperpaw-native",
  "paperpaw-platform",

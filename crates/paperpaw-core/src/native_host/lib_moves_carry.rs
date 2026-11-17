@@ -33,6 +33,7 @@ use super::lib_service::moves::{Phase, STEP_BOOKS, own};
 use super::storage::status;
 use crate::Place;
 use crate::kit::library::BookData;
+use crate::kit::{library, readers};
 use alloc::{format, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
@@ -40,7 +41,7 @@ use paperpaw_platform::Storage;
 use paperpaw_sdk::{
     Command, Editor, Formats, SettingValue, Settings,
     builtin::{events, slots},
-    files, library, readers,
+    files,
 };
 
 /// Pieces of removals (a replaced book's data, the document caches of old

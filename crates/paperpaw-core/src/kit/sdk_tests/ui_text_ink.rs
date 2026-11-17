@@ -8,11 +8,22 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod support;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
+use super::support;
+
+use crate::kit::ui::UiStyle;
 use paperpaw_sdk::Color;
 use paperpaw_sdk::text::{TextInk, ToneCurve};
-use paperpaw_sdk::ui::UiStyle;
 
 use support::{Device, Harness, frame};
 

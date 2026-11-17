@@ -10,17 +10,30 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod support;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+
+use super::support;
 
 use std::borrow::Cow;
 
+use crate::kit::menus::MenuEntry;
+use crate::kit::menus::MenuNeed;
+use crate::kit::menus::MenuSection;
+use crate::kit::menus::Menus;
+use crate::kit::ui::UiStyle;
+use crate::kit::widgets::{self};
 use paperpaw_sdk::builtin::params;
 use paperpaw_sdk::semantics::{self};
-use paperpaw_sdk::ui::UiStyle;
-use paperpaw_sdk::widgets::{self};
-use paperpaw_sdk::{
-    Capabilities, Id, MenuEntry, MenuNeed, MenuSection, Menus, Params, Rect, icons,
-};
+use paperpaw_sdk::{Capabilities, Id, Params, Rect, icons};
 use proptest::prelude::*;
 
 use support::{Device, Harness, drawn_in, drawn_outside, frame};
@@ -235,8 +248,11 @@ fn entries_come_in_their_order_headings_among_them() {
         MenuSection::new(Id::new_static("t.heading"), "t.heading.title", menu.clone()).order(20),
     );
     menus.set_icon(Id::new_static("t.a"), Cow::Borrowed("books"));
-    let (actions, settings) = (paperpaw_sdk::Actions::new(), paperpaw_sdk::Settings::new());
-    let items = paperpaw_sdk::MenuView::new(&menus, &actions, &settings).items("t.menu");
+    let (actions, settings) = (
+        crate::kit::action::Actions::new(),
+        paperpaw_sdk::Settings::new(),
+    );
+    let items = crate::kit::menus::MenuView::new(&menus, &actions, &settings).items("t.menu");
     let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
     // Equal orders keep the order they were added in.
     assert_eq!(ids, ["t.d", "t.a", "t.b", "t.heading", "t.c"]);
@@ -249,7 +265,7 @@ fn entries_come_in_their_order_headings_among_them() {
         menu.clone(),
         vec![Id::new_static("t.gone"), Id::new_static("t.c")],
     );
-    let ids: Vec<&str> = paperpaw_sdk::MenuView::new(&menus, &actions, &settings)
+    let ids: Vec<&str> = crate::kit::menus::MenuView::new(&menus, &actions, &settings)
         .items("t.menu")
         .iter()
         .map(|i| i.id.as_str())

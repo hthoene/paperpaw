@@ -11,14 +11,15 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+#[path = "kit_support/mod.rs"]
 mod support;
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
+use paperpaw_core::kit::ui::{self, fit_image};
 use paperpaw_image::{ColorWriter, GrayWriter, ImageSink};
 use paperpaw_sdk::document::ImageRef;
-use paperpaw_sdk::ui::{self, fit_image};
 use paperpaw_sdk::{MemoryStorage, Rect};
 use proptest::prelude::*;
 

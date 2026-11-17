@@ -9,17 +9,29 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod common;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
+use super::common;
+
+use crate::kit::library;
 use paperpaw_sdk::builtin::events::Reading;
 use paperpaw_sdk::secrets::{FILE, Secrets};
-use paperpaw_sdk::{MemoryStorage, annotations, library};
+use paperpaw_sdk::{MemoryStorage, annotations};
 
 #[test]
 fn favourites_of_version_1_are_read() {
     let storage = MemoryStorage::new().with(
         ".paperpaw/library/favourites.txt",
-        include_str!("../testdata/favourites.txt.v1"),
+        include_str!("../../../../paperpaw-sdk/testdata/favourites.txt.v1"),
     );
     assert_eq!(
         library::favourites(&storage),
@@ -41,10 +53,10 @@ fn favourites_of_version_1_are_read() {
 #[test]
 fn opened_books_of_version_1_are_written_as_read() {
     let mut h = common::Harness::new();
-    h.storage = MemoryStorage::new().with(
+    h.set_storage(MemoryStorage::new().with(
         ".paperpaw/library/opened.txt",
-        include_str!("../testdata/opened.txt.v1"),
-    );
+        include_str!("../../../../paperpaw-sdk/testdata/opened.txt.v1"),
+    ));
     let env = h.env();
     let reading = Reading::new(
         "books/c.epub".into(),
@@ -64,7 +76,10 @@ fn opened_books_of_version_1_are_written_as_read() {
 #[test]
 fn annotations_of_version_1_are_written_and_read_again() {
     let path = annotations::file("books/a.epub");
-    let storage = MemoryStorage::new().with(&path, include_str!("../testdata/annotations.txt.v1"));
+    let storage = MemoryStorage::new().with(
+        &path,
+        include_str!("../../../../paperpaw-sdk/testdata/annotations.txt.v1"),
+    );
     let first = annotations::load(&storage, "books/a.epub");
     assert_eq!(first.len(), 2);
     annotations::save(&storage, "books/a.epub", &first).unwrap();
@@ -79,7 +94,7 @@ fn annotations_of_version_1_are_written_and_read_again() {
 
 #[test]
 fn secrets_of_version_1_are_written_as_they_were() {
-    let v1 = include_str!("../testdata/secrets.txt.v1");
+    let v1 = include_str!("../../../../paperpaw-sdk/testdata/secrets.txt.v1");
     assert_eq!(Secrets::decode(v1).encode(), v1);
     assert_eq!(FILE, ".paperpaw/secrets.txt");
 }

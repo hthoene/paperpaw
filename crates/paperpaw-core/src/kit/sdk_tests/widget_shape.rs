@@ -8,26 +8,38 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod support;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
+use super::support;
+
+use crate::Place;
+use crate::kit::decorations::Tone;
+use crate::kit::ui::UiStyle;
+use crate::kit::widgets::{
+    self, Drawn, FRAMES, Frame, GAP_LARGE, GAP_SMALL, LINE_THICK, LINE_THIN, PAPER_DARK_GRAY,
+    PAPER_INVERTED, SHADOW_HARD, Shadow, WidgetSpec,
+};
 use paperpaw_graphics::Framebuffer;
 use paperpaw_sdk::builtin::settings::{
     CORNERS, WIDGET_CORNERS, WIDGET_FRAME_LINE, WIDGET_GAP, WIDGET_PADDING, WIDGET_SHADOW,
 };
-use paperpaw_sdk::decorations::Tone;
-use paperpaw_sdk::ui::UiStyle;
-use paperpaw_sdk::widgets::{
-    self, Drawn, FRAMES, Frame, GAP_LARGE, GAP_SMALL, LINE_THICK, LINE_THIN, PAPER_DARK_GRAY,
-    PAPER_INVERTED, SHADOW_HARD, Shadow, WidgetSpec,
-};
-use paperpaw_sdk::{Canvas, Color, Env, Id, PixelFormat, Point, Rect, SettingValue};
+use paperpaw_sdk::{Canvas, Color, Id, PixelFormat, Point, Rect, SettingValue};
 
 use support::{Device, Harness, PAPER, drawn_outside, frame};
 
 const CLOCK: Id = Id::new_static("t.clock");
 const AREA: Rect = Rect::new(40, 40, 200, 120);
 
-fn short(_: &Env<'_>, _: u16) -> u16 {
+fn short(_: &Place<'_>, _: u16) -> u16 {
     60
 }
 
@@ -323,6 +335,6 @@ fn frameless_paper_follows_chosen_corners_but_automatic_stays_square() {
     }
 }
 
-fn clock_frame(canvas: &mut Canvas<'_>, env: &Env<'_>, area: Rect) {
+fn clock_frame(canvas: &mut Canvas<'_>, env: &Place<'_>, area: Rect) {
     widgets::draw_frame(canvas, env, "t.clock", area);
 }
