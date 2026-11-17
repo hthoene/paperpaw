@@ -287,6 +287,7 @@ impl Device {
         add: Option<AddPlugins>,
     ) -> Result<Self, KernelError> {
         budget::set_limit(profile.heap_budget);
+        paperpaw_core::native_host::answer_text_ink_as_the_x4(profile.ink_unwired);
         card::insert();
         let config = user_config.as_deref();
         #[cfg_attr(
