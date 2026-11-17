@@ -1,11 +1,5 @@
 //! A field that searches: [`SearchField`].
 
-use paperpaw_platform::Rect;
-
-use crate::widgets::Align;
-
-use super::{Ink, Label, Ui, UiStyle, focus_rect, icon_room};
-
 /// A field that searches, as every screen shows one: a rounded outline
 /// round the search icon at its start and a hint in gray (or what was
 /// searched for); focused, the focus with both in its ink. The library's
@@ -59,56 +53,6 @@ impl<'s> SearchField<'s> {
     pub const fn focused(mut self, focused: bool) -> Self {
         self.focused = focused;
         self
-    }
-
-    /// How high a field is with `style`: a row, as high as a fingertip
-    /// where the screen is touched ([`UiStyle::touch_row`]).
-    pub fn height(style: &UiStyle) -> u16 {
-        let height = style.touch_row(u32::from(style.row()));
-        u16::try_from(height).unwrap_or(u16::MAX)
-    }
-
-    /// Draws it in `rect`, a row of the screen's width (its outline
-    /// within the margins, where the focus of a row goes).
-    pub fn draw(&self, ui: &mut Ui<'_>, rect: Rect) {
-        let (env, style) = (ui.env(), ui.style());
-        let focused = self.focused;
-        let typed = !self.text.is_empty();
-        let shown = if typed { self.text } else { self.hint };
-        if focused {
-            ui.focus(rect);
-        } else {
-            let field = focus_rect(style, rect);
-            let radius = style.radius(u32::from(field.height));
-            let line = u32::from(style.line()).max(1);
-            let ink = style.ink(Ink::TEXT);
-            ui.canvas().stroke_round(field, line, radius, ink);
-        }
-        let ink = style.focus_ink(focused);
-        let room = icon_room(env, style, true);
-        let rest = ui.row_icon(rect, room, Some("search"), ink);
-        let margin = style.margin();
-        let words = Rect::new(
-            rest.x + margin,
-            rest.y,
-            rest.width.saturating_sub(2 * margin),
-            rest.height,
-        );
-        let color = if typed {
-            ink
-        } else {
-            style.focus_faint(focused, Ink::DETAIL)
-        };
-        let align = if style.is_rtl() {
-            Align::Right
-        } else {
-            Align::Left
-        };
-        Label::new(shown)
-            .px(style.text())
-            .color(color)
-            .align(align)
-            .draw(ui, words);
     }
 }
 

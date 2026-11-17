@@ -2577,7 +2577,6 @@ enum paperpaw_sdk::ui_old::sections::Item { Heading(0: usize), Entry(0: usize) }
 enum paperpaw_sdk::ui_old::slider::SliderFocus { None, Focused, Editing }
 enum paperpaw_sdk::ui_old::slider::SliderStep { Moved(0: i64), Same, Chosen(0: i64), Cancelled }
 enum paperpaw_sdk::ui_old::style::Focus { Fill, Ring, Soft }
-enum paperpaw_sdk::ui_old::style::HeaderKind { Light, Dark, Plain }
 enum paperpaw_sdk::ui_old::style::Separators { Line, Inset, None }
 enum paperpaw_sdk::ui_old::thumbnail::Depth { MonoGrays, Gray, Rgb }
 enum paperpaw_sdk::version::VersionError { Numbers, PreRelease }
@@ -3592,7 +3591,6 @@ struct paperpaw_sdk::ui_old::look_extra::ExtraPaint { kind: paperpaw_sdk::ui_old
 struct paperpaw_sdk::ui_old::look_extra::ExtraPart<'t> { kind: paperpaw_sdk::ui_old::look_extra::PartKind, rect: paperpaw_platform::geometry::Rect, state: u32, values: [i32; 4], label: &'t str, spare: [u32; 2] }
 struct paperpaw_sdk::ui_old::look_extra::PartKind(0: u16)
 struct paperpaw_sdk::ui_old::look_extra::TextPart<'t> { text: &'t str, x: f32, baseline: i32, size: f32, color: paperpaw_platform::pixel::Color, area: paperpaw_platform::geometry::Rect, font: &'t paperpaw_sdk::fonts::FontHandle<'t>, role: paperpaw_sdk::ui_old::style::TextRole, inverted: bool, spare: [u32; 2] }
-struct paperpaw_sdk::ui_old::number_edit::NumberEdit { before: core::option::Option<paperpaw_sdk::settings::SettingValue> }
 struct paperpaw_sdk::ui_old::offline::OfflineOffer { buttons: [paperpaw_platform::geometry::Rect; 2], focus: usize, chosen: bool }
 struct paperpaw_sdk::ui_old::paging::Paging { page: usize, pages: usize }
 struct paperpaw_sdk::ui_old::picker::DatePicker { wheels: paperpaw_sdk::ui_old::picker::Wheels, given: (i32, u8, u8), year: i32, month: u8, day: u8, years: (i32, i32), order: paperpaw_sdk::ui_old::picker::DateOrder }

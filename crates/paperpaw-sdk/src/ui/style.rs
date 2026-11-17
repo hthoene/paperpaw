@@ -72,18 +72,6 @@ pub struct UiStyle {
     pub(crate) direction: u8,
 }
 
-/// How a header is drawn ([`UiStyle::header_kind`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum HeaderKind {
-    /// On a light bar with a line below.
-    Light,
-    /// On a dark bar.
-    Dark,
-    /// Without a bar or a line: the title on the page itself.
-    Plain,
-}
-
 /// What the style is: its sizes in pixels and its looks. A style is made
 /// with [`UiStyle::new`]; the `with_` methods change one part of it, e.g.
 /// for a screen of its own.
@@ -103,23 +91,9 @@ impl UiStyle {
         self.title
     }
 
-    /// The titles of headers, larger than [`title`](Self::title) in some
-    /// themes.
-    pub fn head(&self) -> f32 {
-        self.head
-    }
-
     /// Height of a list row.
     pub fn row(&self) -> u16 {
         px(self.row)
-    }
-
-    /// The row height controls are sized from (buttons, switches, ticks,
-    /// pickers): [`row`](Self::row), except where rows grow to hold a
-    /// label on two lines at the largest sizes while controls keep their
-    /// size.
-    pub fn control_row(&self) -> u16 {
-        px(self.control_row)
     }
 
     /// Height of a header bar.
@@ -154,42 +128,9 @@ impl UiStyle {
         px(self.finger)
     }
 
-    /// Gray text is drawn black (see [`faint`](Self::faint)).
-    pub fn strong(&self) -> bool {
-        self.strong
-    }
-
-    /// Buttons, switches, the focus and other small shapes as pills, their
-    /// ends round (see [`radius`](Self::radius)); else with
-    /// [`corner`](Self::corner).
-    pub fn pill(&self) -> bool {
-        self.pill
-    }
-
     /// How the focus of rows and items is drawn.
     pub fn focus(&self) -> Focus {
         self.focus
-    }
-
-    /// The lines between rows, below light headers and above notes.
-    pub fn separators(&self) -> Separators {
-        self.separators
-    }
-
-    /// The entries of a list's sections on rounded cards.
-    pub fn cards(&self) -> bool {
-        self.cards
-    }
-
-    /// How headers are drawn.
-    pub fn header_kind(&self) -> HeaderKind {
-        if self.plain_header {
-            HeaderKind::Plain
-        } else if self.dark_header {
-            HeaderKind::Dark
-        } else {
-            HeaderKind::Light
-        }
     }
 
     /// The interface runs right to left (its language's catalog says so,
@@ -252,24 +193,9 @@ impl UiStyle {
         )
     }
 
-    /// The panel shows black and white alone (no grays between).
-    pub fn black_and_white(&self) -> bool {
-        self.grays <= 2
-    }
-
-    /// The panel shows grays smoothly (16 or more), not a few steps.
-    pub fn smooth_grays(&self) -> bool {
-        self.grays >= 16
-    }
-
     /// The look a plugin gave the parts (see [`look`](super::look)).
     pub fn look(&self) -> super::look::Look {
         self.look
-    }
-
-    /// The grays of the interface (see [`ink`](Self::ink)).
-    pub fn palette(&self) -> Palette {
-        self.palette
     }
 
     /// With body text `text` large.
@@ -281,18 +207,6 @@ impl UiStyle {
     /// With the parts in `look`.
     pub fn with_look(mut self, look: super::look::Look) -> Self {
         self.look = look;
-        self
-    }
-
-    /// With rows `row` high.
-    pub fn with_row(mut self, row: u16) -> Self {
-        self.row = u32::from(row);
-        self
-    }
-
-    /// With a margin of `margin`.
-    pub fn with_margin(mut self, margin: u16) -> Self {
-        self.margin = u32::from(margin);
         self
     }
 

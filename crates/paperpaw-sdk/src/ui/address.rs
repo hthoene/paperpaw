@@ -7,24 +7,6 @@
 )]
 use super::*;
 
-/// The height of what [`draw_address`] writes below the code in an area
-/// `width` wide: the address, `hint` and `last`, all their words. An area
-/// as high holds them without the code; the code takes what is more.
-pub fn address_height(
-    env: &Env<'_>,
-    style: &UiStyle,
-    width: u16,
-    url: &str,
-    hint: &str,
-    last: Option<&str>,
-) -> u16 {
-    let Some(font) = style.font(env) else {
-        return 0;
-    };
-    let lines = AddressLines::new(&font, style, width, (url, hint, last), style.small);
-    lines.height(&font, style)
-}
-
 /// The lines [`draw_address`] writes: the address (on two lines, the
 /// host and the rest, where it is too long for one), the hint's and the
 /// last thing's, wrapped in `size`.

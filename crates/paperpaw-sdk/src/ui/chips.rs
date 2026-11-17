@@ -140,11 +140,6 @@ impl Chips {
         }
     }
 
-    /// The label of chip `index`, as given (a translation key).
-    pub fn label(&self, index: usize) -> Option<&str> {
-        self.labels.get(index).map(|label| &**label)
-    }
-
     /// Draws the chips shown, `chosen` on and `focus` (where the focus is
     /// on them) focused.
     pub fn draw(&self, ui: &mut super::Ui<'_>, chosen: usize, focus: Option<usize>) {

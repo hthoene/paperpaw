@@ -25,20 +25,6 @@ pub fn number_title_area(style: &UiStyle, rect: Rect) -> Rect {
     Rect::new(rect.x, rect.y + style.gap as u16 / 2, rect.width, band)
 }
 
-/// Draws the note of a noted row of a number, below its
-/// [`number_title_area`].
-pub fn draw_number_note(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    style: &UiStyle,
-    rect: Rect,
-    focused: bool,
-    note: &str,
-) {
-    let below = number_title_area(style, rect).bottom() as u16;
-    draw_note_below(canvas, env, style, rect, below, focused, note);
-}
-
 /// Draws a row with `title` and `value` on its first line and `note` in
 /// small text below, wrapped to [`NOTE_LINES`] lines and shortened with
 /// "…" if longer. Rows are always fully readable before they are tapped,
@@ -277,19 +263,6 @@ pub(crate) fn switch_row_height(
     }
     let band = title_area(style, Rect::new(0, 0, width, base)).height;
     base + titles.saturating_sub(band)
-}
-
-/// Draws the note of a noted row below its [`title_area`].
-pub fn draw_note(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    style: &UiStyle,
-    rect: Rect,
-    focused: bool,
-    note: &str,
-) {
-    let below = title_area(style, rect).bottom() as u16;
-    draw_note_below(canvas, env, style, rect, below, focused, note);
 }
 
 /// Whether `note`, a setting's description, shows whole in a row `width`
@@ -873,42 +846,6 @@ pub fn setting_height(
     noted: bool,
 ) -> u32 {
     u32::from(row_lines(env, style, spec, width, room, row, noted).height)
-}
-
-/// A setting's row with a value: `title` and `value` on [`RowLines`]
-/// (side by side, or the value below at the right), `note` below them.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "its inputs are separate things; a struct of them would serve this call alone"
-)]
-pub fn draw_setting_row(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    style: &UiStyle,
-    rect: Rect,
-    lines: RowLines,
-    focused: bool,
-    title: &str,
-    value: &str,
-    note: &str,
-) {
-    if !lines.stacked() {
-        return draw_noted_row(canvas, env, style, rect, focused, title, value, note);
-    }
-    if let Some(font) = style.font(env) {
-        draw_own_title(
-            canvas,
-            style,
-            &font,
-            lines.title,
-            title,
-            style.focus_ink(focused),
-        );
-    }
-    draw_value_row(canvas, env, style, lines.control, focused, "", value);
-    if !note.is_empty() {
-        draw_note_below(canvas, env, style, rect, lines.bottom(), focused, note);
-    }
 }
 
 /// A setting's row with a switch: as [`Row::switch`](super::Row::switch), on
