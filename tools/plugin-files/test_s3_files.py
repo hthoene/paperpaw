@@ -114,11 +114,13 @@ class Workflows(unittest.TestCase):
 
     def test_ci_builds_packs_and_signs_the_files_of_every_device_but_the_x3(self):
         text = self.read("ci.yml")
-        # The X4's step (the X3 takes its builds, the same chip) ...
-        step = text.split("- name: The store's first-party plugins fit the firmware", 1)[1].split("- name:", 1)[0]
-        self.assertIn("if: matrix.device == 'x4'", step)
-        self.assertIn('plugin-files7/build.sh "$DEVICE"', step)
-        self.assertIn("paperpaw-sign fits", step)
+        # The X4's jobs (the X3 takes its builds, the same chip): built and signed, then checked against the firmware ...
+        xjob = text.split("\n  firmware-x4-plugins:", 1)[1].split("\n  firmware-x4-fit:", 1)[0]
+        self.assertIn("DEVICE: x4", xjob)
+        self.assertIn('plugin-files7/build.sh "$DEVICE"', xjob)
+        self.assertIn("--key", xjob)
+        xfit = text.split("\n  firmware-x4-fit:", 1)[1].split("\n  # ", 1)[0]
+        self.assertIn("paperpaw-sign\" fits", xfit)
         # ... and the S3 devices' own jobs: built and signed, then checked against the firmware.
         job = text.split("\n  firmware-s3-plugins:", 1)[1].split("\n  firmware-s3-fit:", 1)[0]
         self.assertIn("device: [x4-pro, x4-classic]", job)
