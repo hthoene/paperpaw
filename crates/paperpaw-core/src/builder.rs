@@ -868,6 +868,8 @@ impl BuilderParts {
                 pending_weight: 0,
                 unrendered: None,
                 rendered: None,
+                stop: None,
+                stopped: false,
                 row_align: self.row_align,
                 band: self
                     .frame_rows
