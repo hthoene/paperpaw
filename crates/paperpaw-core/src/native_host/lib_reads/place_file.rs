@@ -100,7 +100,7 @@ fn filled(text: &str, generation: u32) -> Result<Option<Vec<u8>>, i32> {
     bytes.extend_from_slice(line.as_bytes());
     let hash = fold(&bytes);
     line.clear();
-    let _ = write!(line, " {hash:08x}\n");
+    let _ = writeln!(line, " {hash:08x}");
     bytes.extend_from_slice(line.as_bytes());
     bytes.resize(SLOT - 1, b' ');
     bytes.push(b'\n');

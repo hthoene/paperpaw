@@ -16,11 +16,14 @@ use std::{boxed::Box, vec, vec::Vec};
 
 const A: BookRef<'static> = BookRef::Path("books/a.epub");
 
+/// A block written to a card: its index, its bytes.
+type Written = (u32, [u8; BLOCK]);
+
 /// A card in memory that notes every block written to it.
 #[derive(Clone)]
 struct Ram {
     bytes: Rc<RefCell<Vec<u8>>>,
-    written: Rc<RefCell<Vec<(u32, [u8; BLOCK])>>>,
+    written: Rc<RefCell<Vec<Written>>>,
 }
 
 impl Blocks for Ram {
