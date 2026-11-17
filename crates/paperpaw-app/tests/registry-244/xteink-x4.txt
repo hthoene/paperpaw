@@ -1238,6 +1238,7 @@ menu-merged core.reader-more | reader.auto-turn by=reader order=17 kind=0 flags=
 menu-merged core.reader-more | reader.select-text by=reader order=20 kind=0 flags=0x22
 menu-merged core.reader-more | reader.links by=reader order=25 kind=0 flags=0x22
 menu-merged core.reader-more | reader.next-status-line by=reader order=30 kind=0 flags=0x22
+menu-merged core.reader-more | vocabulary.mark by=vocabulary order=40 kind=1 flags=0x62
 menu-merged core.reader-more | core.settings by=reader order=50 kind=0 flags=0x22
 menu-merged core.reader-panel | core.scope-only by=reader order=1 kind=1 flags=0x62
 menu-merged core.reader-panel | core.reading-font by=reader order=5 kind=1 flags=0x22
@@ -2526,6 +2527,7 @@ native MenuEntry transfer | MenuEntry(MenuEntry { menu: "core.tools", item: "tra
 native MenuEntry update | MenuEntry(MenuEntry { menu: "update.group", item: "update.open", order: 0, place: 0, anchor: "" })
 native MenuEntry vocabulary | MenuEntry(MenuEntry { menu: "core.tools", item: "vocabulary.open", order: 36, place: 0, anchor: "" })
 native MenuEntry vocabulary | MenuEntry(MenuEntry { menu: "core.tools", item: "vocabulary.flash-cards", order: 36, place: 0, anchor: "" })
+native MenuEntry vocabulary | MenuEntry(MenuEntry { menu: "core.reader-more", item: "vocabulary.mark", order: 40, place: 0, anchor: "" })
 native Icon about | IconSpec(IconSpec { item: "about.open", icon: "info-circle" })
 native Icon bluetooth | IconSpec(IconSpec { item: "bluetooth.group", icon: "bluetooth" })
 native Icon bluetooth | IconSpec(IconSpec { item: "bluetooth.open", icon: "bluetooth" })
@@ -2582,6 +2584,7 @@ native Icon update | IconSpec(IconSpec { item: "update.check", icon: "cloud-down
 native Icon update | IconSpec(IconSpec { item: "update.open", icon: "circle-arrow-up" })
 native Icon vocabulary | IconSpec(IconSpec { item: "vocabulary.open", icon: "vocabulary" })
 native Icon vocabulary | IconSpec(IconSpec { item: "vocabulary.flash-cards", icon: "stack-2" })
+native Icon vocabulary | IconSpec(IconSpec { item: "vocabulary.mark", icon: "vocabulary" })
 native Icon widgets | IconSpec(IconSpec { item: "widgets.todo.open", icon: "list-check" })
 native Icon wifi | IconSpec(IconSpec { item: "wifi.group", icon: "wifi" })
 native Icon wifi | IconSpec(IconSpec { item: "wifi.open", icon: "wifi" })
