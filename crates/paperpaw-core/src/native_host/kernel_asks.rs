@@ -105,6 +105,19 @@ impl crate::Kernel {
         // was asked with in its params.
         let start = store.host_started(request)?;
         self.dialog_open_with(&store, &start, params.clone());
+        // A dialog that did not open (nothing on the slot, the stack full) is
+        // no row to free the request at: freed now, cancelled.
+        let id = alloc::format!("{request}");
+        if !self
+            .stack
+            .iter()
+            .any(|s| s.params.get(REQUEST) == Some(id.as_str()))
+        {
+            if store.take_delivery_of(HOST_OWNER, request).is_some() {
+                let _ = store.delivered(request);
+            }
+            return None;
+        }
         Some(())
     }
 
@@ -123,30 +136,29 @@ impl crate::Kernel {
 
     /// The screen instance `instance` closes (`store` told already): where it
     /// was the dialog of one of the kernel's questions (its params name the
-    /// request and a reply), its answer goes out as that reply, and the
-    /// request is freed.
+    /// request), the request is freed, and its answer goes out as the reply
+    /// it named.
     // Its own frame: not on the stack of every screen's close.
     #[inline(never)]
     pub(crate) fn kernel_question_closed(&mut self, store: &UiStore, instance: u32) {
         let Some(screen) = self.stack.iter().find(|s| s.serial == instance) else {
             return;
         };
-        let (Some(reply), Some(request)) = (
-            screen
-                .params
-                .get(params::REPLY)
-                .and_then(|r| Id::parse(r).ok()),
-            screen.params.get(REQUEST).and_then(|r| r.parse().ok()),
-        ) else {
+        let Some(request) = screen.params.get(REQUEST).and_then(|r| r.parse().ok()) else {
             return;
         };
+        // Only the host's own question has an answer for the host here.
         let Some(delivery) = store.take_delivery_of(HOST_OWNER, request) else {
             return;
         };
         let _ = store.delivered(request);
-        if delivery.outcome != 0 {
+        let reply = screen
+            .params
+            .get(params::REPLY)
+            .and_then(|r| Id::parse(r).ok());
+        let (Some(reply), 0) = (reply, delivery.outcome) else {
             return;
-        }
+        };
         // The context as asked: without the dialog's own two params.
         let mut context = Params::new();
         for (key, value) in screen.params.iter() {
@@ -166,13 +178,5 @@ impl crate::Kernel {
                 .with(OPTION, *option)
         };
         self.output.commands.push(Command::Emit(reply, answer));
-    }
-
-    /// Frees the answers to the kernel's questions that are left once their
-    /// dialogs closed (a question that named no reply).
-    pub(crate) fn drop_kernel_answers(&self, store: &UiStore) {
-        while let Some(delivery) = store.take_delivery(HOST_OWNER) {
-            let _ = store.delivered(delivery.request);
-        }
     }
 }

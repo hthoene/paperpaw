@@ -143,8 +143,8 @@ impl crate::Kernel {
             }
             more |= store.has_delivery(owner);
         }
-        // The kernel's own questions answered with their dialog's close.
-        self.drop_kernel_answers(&store);
+        // The kernel's own questions are answered at their dialog's close
+        // (`kernel_asks`).
         more
     }
 
