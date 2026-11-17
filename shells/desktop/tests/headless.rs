@@ -300,7 +300,7 @@ fn wrong_arguments_are_errors_that_say_why() {
         (&["--heap-report"], "--heap-report requires --headless"),
         (
             &["--script", "confirm"],
-            "--script and --screenshot require --headless",
+            "--script, --screenshot and --repl require --headless",
         ),
         (
             &["--headless", "--config", "no/such/paperpaw.ini"],
