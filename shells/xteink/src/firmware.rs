@@ -1246,18 +1246,40 @@ impl Firmware {
     }
 
     fn show_gray(&mut self, area: Rect, clean: bool) {
+        /// Whether a press waits for the main loop (or is being counted).
+        fn key_waits() -> bool {
+            input::waiting() || input::settling()
+        }
+
         power::mark(power::at::SHOWING);
         let started = now();
         let panel = &mut self.panel;
         let mut failed = None;
-        let drawn = self.kernel.render_gray(&mut |top, rows| {
-            if let Err(e) = panel.write_gray_rows(top, rows) {
-                failed = Some(e);
-            }
-        });
+        // A key that comes while the grays are drawn ends the pass: its
+        // 1.3 s of drawing and 1.1 s of refresh are not waited for.
+        let drawn = self.kernel.render_gray_until(
+            &mut |top, rows| {
+                if let Err(e) = panel.write_gray_rows(top, rows) {
+                    failed = Some(e);
+                }
+            },
+            Some(key_waits),
+        );
         if !drawn {
             warn!("no memory for grays");
             return self.show(area, RefreshMode::Full);
+        }
+        if self.kernel.gray_stopped() {
+            // The panel still shows the screen before; its memories hold a
+            // part of the grays: the next frame is the whole screen drawn
+            // again, with every pixel driven (as after grays).
+            info!(
+                "gray pass stopped by a key after {} ms",
+                now().since(started)
+            );
+            self.state.gray_shown = true;
+            self.state.frame_stale = true;
+            return;
         }
         let written = now();
         self.kernel.showing(written);
