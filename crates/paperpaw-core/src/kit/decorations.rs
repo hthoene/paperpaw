@@ -279,8 +279,8 @@ pub const fn fixed_role(
 ///
 /// ```
 /// use paperpaw_sdk::SettingSpec;
-/// use crate::kit::decorations::{Decoration, LineKind};
-/// static LEARNING: [SettingSpec; 7] = paperpaw_sdk::role_settings!(
+/// use paperpaw_core::kit::decorations::{Decoration, LineKind};
+/// static LEARNING: [SettingSpec; 7] = paperpaw_core::role_settings!(
 ///     "my.learning",
 ///     "my.role.learning",
 ///     Decoration::NONE.line(LineKind::Dotted)
