@@ -665,6 +665,12 @@ pub fn native_catalogs(id: &str) -> &'static [&'static str] {
 pub static NATIVE_MESSAGES: &[paperpaw_i18n::BuiltMessages] =
     include!(concat!(env!("OUT_DIR"), "/native_messages.rs"));
 
+/// The kernel's own texts, English and German, without their keys (see
+/// `build.rs`): the kernel carries no copy of its catalogs' sources
+/// (`KernelBuilder::built_messages`, #306).
+pub static CORE_MESSAGES: &[paperpaw_i18n::BuiltMessages] =
+    include!(concat!(env!("OUT_DIR"), "/core_messages.rs"));
+
 /// Adds the catalogs of every linked plugin of [`NATIVE_PLUGINS`] to the
 /// kernel's translator, before the kernel starts (one call for a shell that
 /// registers the plugins itself, `register_native_plugins` makes it for its
@@ -738,7 +744,8 @@ pub fn install_with(
     let builder = builder
         .network_settings(NETWORK_SETTINGS)
         .catalog_indexes(CATALOG_INDEXES)
-        .built_catalogs(BUILT_CATALOGS);
+        .built_catalogs(BUILT_CATALOGS)
+        .built_messages(CORE_MESSAGES);
     let builder = match fonts {
         #[cfg(feature = "outline")]
         Fonts::Outline => builder.built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONTS),

@@ -1,0 +1,3 @@
+Hyphenation breaks long words at the end of a line where they may be broken. The text looks more even, with fewer wide gaps. This plugin brings the patterns for English (American); words are broken in the book's language.
+
+Hyphenation is on at first. Switch it off or on in the settings, under Reading, with Hyphenate words; the advanced settings Letters before hyphen and Letters after hyphen set how short a piece of a word may be (0: the language's own). The patterns take almost no memory. Other languages, German among them, come from the store, as plugins of their own.
