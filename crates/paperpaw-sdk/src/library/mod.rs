@@ -34,7 +34,7 @@ mod fingerprint;
 pub mod index;
 mod indexed;
 pub(crate) mod listing;
-mod metadata;
+pub(crate) mod metadata;
 pub mod sorted;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
