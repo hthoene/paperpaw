@@ -164,6 +164,23 @@ jobs:
       # store that carry a copy of their card files for the apps read the card without it;
       # the kernel without panes is that of the Xteink devices.
       - run: cargo test --no-fail-fast -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-stats -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features --features paperpaw-plugin-reading-goal/linked,paperpaw-plugin-stats/linked
+
+  # The rest of the feature builds of the kernel and the plugins, a job of its own
+  # (test-features alone was the longest of the test jobs, 12 minutes).
+  test-features-rest:
+    name: Tests (feature builds, the rest)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: check
+          save-if: false
       # The X4's real font set (the lean build, packs only): the tests look at what it has.
       - run: PAPERPAW_FONT_LEAN=1 cargo test --no-fail-fast -p paperpaw-plugin-fonts-default --no-default-features --features packs
       - run: cargo test --no-fail-fast -p paperpaw-plugin-reading-goal --features linked --test acceptance_pending
@@ -225,20 +242,22 @@ jobs:
     # Runs whatever the parts did (a failed or cancelled part must not leave
     # this check missing or skipped), but not for a draft pull request.
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    needs: [lint, test, test-app, test-features, test-features-app]
+    needs: [lint, test, test-app, test-features, test-features-rest, test-features-app]
     runs-on: ubuntu-latest
     env:
       LINT: ${{ needs.lint.result }}
       TEST: ${{ needs.test.result }}
       TEST_APP: ${{ needs.test-app.result }}
       TEST_FEATURES: ${{ needs.test-features.result }}
+      TEST_FEATURES_REST: ${{ needs.test-features-rest.result }}
       TEST_FEATURES_APP: ${{ needs.test-features-app.result }}
     steps:
       - name: All parts passed
         run: |
-          echo "lint: $LINT, test: $TEST, test-app: $TEST_APP, test-features: $TEST_FEATURES, test-features-app: $TEST_FEATURES_APP"
+          echo "lint: $LINT, test: $TEST, test-app: $TEST_APP, test-features: $TEST_FEATURES, test-features-rest: $TEST_FEATURES_REST, test-features-app: $TEST_FEATURES_APP"
           [ "$LINT" = success ] && [ "$TEST" = success ] && [ "$TEST_APP" = success ] \
-            && [ "$TEST_FEATURES" = success ] && [ "$TEST_FEATURES_APP" = success ]
+            && [ "$TEST_FEATURES" = success ] && [ "$TEST_FEATURES_REST" = success ] \
+            && [ "$TEST_FEATURES_APP" = success ]
 
   screens:
     name: Screens checked (paperpaw-dev)
@@ -549,32 +568,16 @@ jobs:
           cargo run -q --release -p paperpaw-sign -- frames \
             shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
             --budget shells/xteink/frame-budget.txt
-      # PaperPaw's own plugins that the store offers, as the release builds them:
-      # interface 7 (format 5, no fingerprint), each packed for this chip (the X4's
-      # target 5; the X4 Pro's and X4 Classic's target 9, built with espup's
-      # compiler and the release's core libraries), signed with a key made for
-      # this run, and their catalogue entries made, as the release does.
-      # The X3 takes the X4's builds (the same chip). The S3 devices': jobs
-      # firmware-s3-plugins and firmware-s3-fit.
-      - name: The store's first-party plugins fit the firmware
+      # For firmware-x4-fit (job below): the store's plugins must fit this build.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: matrix.device == 'x4'
-        run: |
-          out="$RUNNER_TEMP/plugins"
-          cargo build -q --release -p paperpaw-sign
-          target/release/paperpaw-sign key "$RUNNER_TEMP/ci.key" > /dev/null
-          tools/plugin-files7/build.sh "$DEVICE" "$out" --key "$RUNNER_TEMP/ci.key"
-          # Each of them runs on this firmware, as the release checks it: its
-          # chip, its interface, and no newer minor than the firmware has.
-          target/release/paperpaw-sign fits \
-            "shells/xteink/target/$FIRMWARE_TARGET/release/paperpaw-xteink" "$out"/*.ppn
-          version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
-          python3 tools/plugin-files/catalogue.py "$out" "$version" https://example.invalid/ci
-      # What `paperpaw-dev new --code` writes for an author still builds against
-      # this checkout's SDK, packs and passes the packer's check (#244), for
-      # each chip once (the X3 and the X4 Classic take the other's build).
-      - name: The author's template builds and packs
-        if: matrix.device == 'x4' || matrix.device == 'x4-pro'
-        run: tools/ci/author-template.sh "$RUNNER_TEMP/author" "$DEVICE"
+        with:
+          name: firmware-elf-x4
+          path: shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink
+          retention-days: 1
+      # The X4's store plugins (firmware-x4-plugins, firmware-x4-fit) and the
+      # author's template (firmware-template) are jobs beside this one: they
+      # were the last 7 of its 14 minutes, and only the fit needs this build.
       # espup's toolchain is cached between runs (xteink-tools): the core
       # libraries installed into it go again, so that no run finds those
       # of another commit.
@@ -806,6 +809,121 @@ jobs:
           "$RUNNER_TEMP/sign/paperpaw-sign" fits "$RUNNER_TEMP/firmware/paperpaw-xteink" "$RUNNER_TEMP/plugins"/*.ppn
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
           python3 tools/plugin-files/catalogue.py "$RUNNER_TEMP/plugins" "$version" https://example.invalid/ci
+
+  # The X4's store plugins, as firmware-s3-plugins does for the S3 devices: built,
+  # packed and signed beside the firmware's build; that they fit it is checked
+  # in firmware-x4-fit. The X3 takes the X4's builds (the same chip).
+  firmware-x4-plugins:
+    name: Firmware store plugins (x4)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEVICE: x4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/xteink-tools
+        with:
+          device: x4
+          clang-fallback: "true"
+      # Reads the cache of `firmware` (paperpaw-sign is built there too); never saves.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: false
+          workspaces: |
+            shells/xteink
+            .
+          shared-key: firmware-riscv
+      # Interface 7 (format 5, no fingerprint), each packed for this chip (the X4's
+      # target 5), signed with a key made for this run.
+      - name: The store's first-party plugins build
+        run: |
+          out="$RUNNER_TEMP/plugins"
+          cargo build -q --release -p paperpaw-sign
+          target/release/paperpaw-sign key "$RUNNER_TEMP/ci.key" > /dev/null
+          tools/plugin-files7/build.sh "$DEVICE" "$out" --key "$RUNNER_TEMP/ci.key"
+          mkdir -p "$RUNNER_TEMP/sign"
+          cp target/release/paperpaw-sign "$RUNNER_TEMP/sign/"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plugins-x4
+          path: ${{ runner.temp }}/plugins
+          retention-days: 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: paperpaw-sign-x4
+          path: ${{ runner.temp }}/sign/paperpaw-sign
+          retention-days: 1
+
+  # Each of them runs on the X4's firmware, as the release checks it: its chip,
+  # its interface, and no newer minor than the firmware has; the catalogue
+  # entries are made. Needs no toolchain: the signer and the files come from
+  # firmware-x4-plugins, the firmware from `firmware` (x4).
+  firmware-x4-fit:
+    name: Firmware store plugins fit (x4)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    needs: [firmware, firmware-x4-plugins]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: firmware-elf-x4
+          path: ${{ runner.temp }}/firmware
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: plugins-x4
+          path: ${{ runner.temp }}/plugins
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: paperpaw-sign-x4
+          path: ${{ runner.temp }}/sign
+      - name: The store's first-party plugins fit the firmware
+        run: |
+          chmod +x "$RUNNER_TEMP/sign/paperpaw-sign"
+          "$RUNNER_TEMP/sign/paperpaw-sign" fits "$RUNNER_TEMP/firmware/paperpaw-xteink" "$RUNNER_TEMP/plugins"/*.ppn
+          version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
+          python3 tools/plugin-files/catalogue.py "$RUNNER_TEMP/plugins" "$version" https://example.invalid/ci
+
+  # What `paperpaw-dev new --code` writes for an author still builds against
+  # this checkout's SDK, packs and passes the packer's check (#244), for
+  # each chip once (the X3 and the X4 Classic take the other's build). A job
+  # of its own: it was the last step of `firmware` (4 minutes) and needs no
+  # firmware build.
+  firmware-template:
+    name: Firmware author template (${{ matrix.device }})
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [x4, x4-pro]
+    env:
+      DEVICE: ${{ matrix.device }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/xteink-tools
+        with:
+          device: ${{ matrix.device }}
+          clang-fallback: "true"
+      # Reads the cache of `firmware`; never saves.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: false
+          workspaces: |
+            shells/xteink
+            .
+          shared-key: ${{ matrix.device == 'x4-pro' && 'firmware-s3' || 'firmware-riscv' }}
+      - uses: ./.github/actions/xtensa-std
+        if: matrix.device != 'x4'
+      - uses: ./.github/actions/espflash
+      - name: The author's template builds and packs
+        run: tools/ci/author-template.sh "$RUNNER_TEMP/author" "$DEVICE"
+      - name: The core libraries out of the cached toolchain
+        if: always() && matrix.device != 'x4'
+        run: rm -rf "$(rustc +esp --print sysroot)/lib/rustlib/xtensa-esp32s3-none-elf"
 
   # The whole update path on a computer, with the real files
   # (crates/paperpaw-x4/tests/update_path.rs): for each device, the

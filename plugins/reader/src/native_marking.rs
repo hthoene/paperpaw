@@ -308,6 +308,11 @@ impl Marking {
         if action == "core.back" || action == "core.menu" {
             return Ok(self.set(ctx, None));
         }
+        // The selection's own actions: declared, so they are run (#265: a
+        // highlight asked for this way was answered and never made).
+        if let Some(item) = Item::of_action(action) {
+            return self.activate(host, ctx, selection, item);
+        }
         match selection.mode {
             Mode::Choosing | Mode::Extending => {
                 if action == "core.confirm" {

@@ -15,16 +15,32 @@ pub fn fit(font: &Font<'_>, size: f32, text: &str, width: f32) -> Result<String,
     result
         .try_reserve_exact(text.len().checked_add(3).ok_or(Error::NoMemory)?)
         .map_err(|_| Error::NoMemory)?;
-    for c in text.chars() {
-        result.push(c);
+    // The longest start of the text that fits with the ellipsis, found by
+    // halving (each probe is a measure the host answers: a text of 60
+    // letters takes 6 and not 60). The whole text does not fit, so it is
+    // the upper bound; a start of no letter is the answer when none does.
+    let (mut fits, mut over) = (0, text.chars().count());
+    while over - fits > 1 {
+        let probe = fits + (over - fits) / 2;
+        let end = text
+            .char_indices()
+            .nth(probe)
+            .map_or(text.len(), |(at, _)| at);
+        result.clear();
+        result.push_str(&text[..end]);
         result.push('…');
         if font.measure_text(size, &result)? > width {
-            result.pop();
-            result.pop();
-            break;
+            over = probe;
+        } else {
+            fits = probe;
         }
-        result.pop();
     }
+    let end = text
+        .char_indices()
+        .nth(fits)
+        .map_or(text.len(), |(at, _)| at);
+    result.clear();
+    result.push_str(&text[..end]);
     result.push('…');
     Ok(result)
 }

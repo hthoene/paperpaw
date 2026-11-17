@@ -1805,6 +1805,7 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-default-packs",
  "paperpaw-digest",
+ "paperpaw-fat",
  "paperpaw-fs",
  "paperpaw-graphics",
  "paperpaw-http",
