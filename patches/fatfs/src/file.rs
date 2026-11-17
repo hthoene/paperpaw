@@ -475,8 +475,8 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
         if write_size == 0 {
             return Ok(0);
         }
-        // Mark the volume 'dirty'
-        self.fs.set_dirty_flag(true)?;
+        // Modified for PaperPaw: the volume is not marked dirty for a file's data (see
+        // `FsIoAdapter::write`).
         // Get cluster for write possibly allocating new one
         let current_cluster = if self.offset % cluster_size == 0 {
             // next cluster
