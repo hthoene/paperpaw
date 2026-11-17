@@ -315,6 +315,8 @@ pub(super) unsafe fn call(
             // SAFETY: the slot caller supplies readable input after pair checks.
             let input = unsafe { buffers::bytes_in(input, buffers::TEXT_MAX) }?;
             let op = validate_op(key, op, input, out.cap)?;
+            #[cfg(feature = "slot-counts")]
+            super::host_slot::slot_counts::note_service(plugin, key.schema.key, op.name);
             let running = owner.enter_service(key)?;
             // SAFETY: the slot caller lends `out` for the call and nothing else
             // touches it while the call runs; it shares no byte with `input`

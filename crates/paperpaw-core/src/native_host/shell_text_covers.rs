@@ -16,7 +16,8 @@ pub(super) unsafe extern "C" fn covers<S: 'static>(
         return ERR_INVALID;
     };
     // The plugin waits for the host from here to the return.
-    let _slot = crate::native_host::host_slot::enter();
+    let _slot =
+        crate::native_host::host_slot::enter_as(crate::native_host::host_slot::Id::TextCovers);
     // SAFETY: the slot contract supplies live, readable input.
     unsafe {
         crate::native_host::fonts::covers(&context.environment, &context.resources, handle, text)

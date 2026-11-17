@@ -284,7 +284,14 @@ impl Kernel {
         let Some(id) = driver.try_borrow().ok().and_then(|d| d.peek_forget()) else {
             return;
         };
-        let ok = self.forget_removed(id.as_str());
+        // An id on the list of `plugin_unforgotten` (an install that erases
+        // what a removal left) needs the secrets host itself.
+        let storage = self.shared.storage.clone();
+        let ok = if super::plugin_unforgotten::has(storage.as_ref(), id.as_str()) {
+            self.forget_listed(id.as_str())
+        } else {
+            self.forget_removed(id.as_str())
+        };
         if let Ok(mut driver) = driver.try_borrow_mut() {
             driver.plugin_forgotten(ok);
         }

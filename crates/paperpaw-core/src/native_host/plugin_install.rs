@@ -19,6 +19,13 @@
 //!    trusted-installer grant skips only the prompt, never for a sideload or a
 //!    version that declares a `uses.*` feature the installed one did not.
 //!    Declined is reason 2, dismissed 3; the stage is removed.
+//!    An id whose secrets stayed on the card when it was removed
+//!    (`plugin_unforgotten`) is always asked about, and the question says the
+//!    old data is erased first: on yes the host forgets them
+//!    ([`JobStep::Forget`]) and the id leaves the list before anything is
+//!    swapped in; a host that cannot is reason 16. Declined, dismissed or
+//!    failed, nothing is installed, so no plugin of the id ever starts with the
+//!    old secrets.
 //! 7. **Swap:** the origin is marked into the stage, the journal written and
 //!    the stage swapped in ([`plugin_swap`]); the pins are taken there, never
 //!    before.
@@ -75,6 +82,10 @@ enum Phase {
     Rules,
     Ask,
     Waiting,
+    /// The user said yes to erasing the old secrets: the host forgets them.
+    Forgetting,
+    /// The host forgot them: the id leaves `plugins/.unforgotten`.
+    Unlist,
     Marks,
     Journal,
     Swapping,
@@ -126,6 +137,10 @@ pub(crate) struct PluginInstall {
     /// case it was stored in).
     code_name: Text<16>,
     answer: Option<Answer>,
+    /// The id's secrets stayed after a removal: they are erased first.
+    old_secrets: bool,
+    /// The host's answer to [`JobStep::Forget`].
+    forgot: Option<bool>,
     swap: Option<Box<Swap>>,
     stopped: Option<u8>,
 }
@@ -171,6 +186,8 @@ impl PluginInstall {
             standing: None,
             code_name: Text::new(CODE),
             answer: None,
+            old_secrets: false,
+            forgot: None,
             swap: None,
             stopped: None,
         })
@@ -190,6 +207,8 @@ impl PluginInstall {
                 | Phase::Rules
                 | Phase::Ask
                 | Phase::Waiting
+                | Phase::Forgetting
+                | Phase::Unlist
                 | Phase::Marks
                 | Phase::Journal
         ) && !self.stage.is_empty()
@@ -221,14 +240,12 @@ impl PluginInstall {
             Err(why) => return self.end(storage, why),
         };
         let id = manifest.id.as_str();
-        // A removed plugin whose secrets the host could not forget: its id is
-        // not free until it has (`plugin_unforgotten`).
-        if id == "core"
-            || env.built_ins.index_of(id).is_some()
-            || super::plugin_unforgotten::has(storage, id)
-        {
+        if id == "core" || env.built_ins.index_of(id).is_some() {
             return self.end(storage, reason::ID_TAKEN);
         }
+        // A removed plugin whose secrets the host could not forget: the user
+        // is asked to erase them first (`plugin_unforgotten`).
+        self.old_secrets = super::plugin_unforgotten::has(storage, id);
         let (Some(stage), Some(target)) =
             (plugin_swap::stage_path(id), plugin_swap::target_path(id))
         else {
@@ -470,7 +487,8 @@ impl PluginInstall {
         // while the question waits, nor through the marks and the swap.
         self.buf = Vec::new();
         // The grant skips only the prompt.
-        let skip = env.granted && !sideload && !new_uses && self.installed.is_some();
+        let skip =
+            env.granted && !sideload && !new_uses && !self.old_secrets && self.installed.is_some();
         if skip {
             self.phase = Phase::Marks;
             JobStep::More
@@ -521,6 +539,7 @@ impl PluginInstall {
             sideload,
             relation,
             uses: *uses,
+            old_secrets: self.old_secrets,
         })
     }
 
@@ -792,6 +811,10 @@ impl PluginJob for PluginInstall {
             },
             Phase::Waiting => match self.answer {
                 None => JobStep::Wait,
+                Some(Answer::Yes) if self.old_secrets => {
+                    self.phase = Phase::Forgetting;
+                    JobStep::Forget(self.id)
+                }
                 Some(Answer::Yes) => {
                     self.phase = Phase::Marks;
                     JobStep::More
@@ -803,6 +826,24 @@ impl PluginJob for PluginInstall {
                     self.end(storage, reason::DISMISSED)
                 }
             },
+            Phase::Forgetting => match self.forgot {
+                None => JobStep::Wait,
+                Some(true) => {
+                    self.phase = Phase::Unlist;
+                    JobStep::More
+                }
+                // The old secrets are still there: nothing installs.
+                Some(false) => self.end(storage, reason::CARD),
+            },
+            Phase::Unlist => {
+                if super::plugin_unforgotten::remove(storage, self.id.as_str()) {
+                    self.old_secrets = false;
+                    self.phase = Phase::Marks;
+                    JobStep::More
+                } else {
+                    self.end(storage, reason::CARD)
+                }
+            }
             Phase::Marks => self.marks(storage),
             Phase::Journal => self.journal(storage, env.built_ins),
             Phase::Swapping => self.swapping(storage),
@@ -816,6 +857,12 @@ impl PluginJob for PluginInstall {
         }
     }
 
+    fn forgotten(&mut self, ok: bool) {
+        if self.phase == Phase::Forgetting {
+            self.forgot = Some(ok);
+        }
+    }
+
     fn must_finish(&self) -> bool {
         // From the journal on the card holds half of a change: the swap is
         // stepped on to its end, whatever stops, and tells its real outcome.
@@ -825,8 +872,10 @@ impl PluginJob for PluginInstall {
     fn keep_without_sender(&self) -> bool {
         // The user said yes (or the grant did): the plugin that asked going
         // away does not stop what was confirmed.
-        matches!(self.phase, Phase::Marks | Phase::Journal | Phase::Swapping)
-            || (self.phase == Phase::Waiting && self.answer == Some(Answer::Yes))
+        matches!(
+            self.phase,
+            Phase::Forgetting | Phase::Unlist | Phase::Marks | Phase::Journal | Phase::Swapping
+        ) || (self.phase == Phase::Waiting && self.answer == Some(Answer::Yes))
     }
 
     fn abort(&mut self, why: u8) {
