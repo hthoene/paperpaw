@@ -610,7 +610,11 @@ impl State {
         };
         let data = DataStorage::new(host);
         let screen = ReviewScreen::new(host, &DataFolder(&data), deck, first)?;
-        self.reviews.open(instance, screen)
+        self.reviews.open(instance, screen)?;
+        if let Some(screen) = self.reviews.top(REVIEW_TOKEN) {
+            screen.sync_hint(host);
+        }
+        Ok(())
     }
 
     /// A screen came on top: the decks are counted again (a review changed
