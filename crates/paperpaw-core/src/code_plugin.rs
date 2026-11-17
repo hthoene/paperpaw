@@ -300,6 +300,17 @@ pub(crate) fn file_problem(storage: &dyn Storage, path: &str) -> PluginProblem {
     }
 }
 
+/// Why code that is not run for not being installed is listed: a file of an
+/// older interface (Beta 3's plugins) says so, whatever the list of what is
+/// installed holds; any other is not installed.
+#[inline(never)]
+pub(crate) fn not_installed_problem(storage: &dyn Storage, path: &str) -> PluginProblem {
+    match file_problem(storage, path) {
+        problem @ PluginProblem::OlderInterface { .. } => problem,
+        _ => PluginProblem::NotInstalled,
+    }
+}
+
 /// What a code plugin that was never installed may not use: the user was
 /// never asked about it (Decision 205), so it may not put other code or a
 /// firmware on the device, nor change what the device trusts.
@@ -381,7 +392,7 @@ impl Kernel {
                 let message =
                     format!("{path}: the list of installed code cannot be read; not loaded");
                 self.warn(WarningSource::Plugin(id.clone()), None, message);
-                let problem = PluginProblem::NotInstalled;
+                let problem = not_installed_problem(storage.as_ref(), &path);
                 self.list_code_plugin(&plugin, disabled, PluginState::Failed, problem);
                 continue;
             };
@@ -396,7 +407,7 @@ impl Kernel {
                 let message =
                     format!("{path}: never installed, and its id has an author's key; not loaded");
                 self.warn(WarningSource::Plugin(id.clone()), None, message);
-                let problem = PluginProblem::NotInstalled;
+                let problem = not_installed_problem(storage.as_ref(), &path);
                 self.list_code_plugin(&plugin, disabled, PluginState::Failed, problem);
                 continue;
             }

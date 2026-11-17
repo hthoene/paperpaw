@@ -315,7 +315,7 @@ fn code_that_does_not_fit_is_listed_with_why() {
 fn installed_code_runs_as_installed_and_copied_code_unsigned() {
     let mut loader = loader();
     let mut storage = storage();
-    for name in ["copied", "pinned", "installer"] {
+    for name in ["copied", "pinned", "installer", "beta3"] {
         let ini = format!("[plugin]\nname = {name}\n");
         storage = storage
             .with(&format!("plugins/{name}/plugin.ini"), ini)
@@ -327,6 +327,15 @@ fn installed_code_runs_as_installed_and_copied_code_unsigned() {
         ("plugins/installer/code.ppn", Ok("installer")),
     ]);
     loader.declared = alloc::vec![("plugins/installer/code.ppn", "uses.install")];
+    // A Beta 3 plugin whose author's key is pinned is not installed in this
+    // version's list: it is told as built for an older PaperPaw.
+    storage = storage.with(
+        "plugins/beta3/code.ppn",
+        include_bytes!("../tests/data/beta3-hyphenation-it-1.0.3-x4.ppn").as_slice(),
+    );
+    assert!(paperpaw_sdk::native::remember_author(
+        &storage, "beta3", &[4; 32]
+    ));
     // Hello's file is not the one installed.
     assert!(paperpaw_sdk::native::remember_code(
         &storage, "hello", &[9; 32]
@@ -353,6 +362,14 @@ fn installed_code_runs_as_installed_and_copied_code_unsigned() {
         (PluginState::Failed, Some(PluginProblem::NotInstalled))
     );
     assert!(pinned.enabled, "it runs once installed");
+    let beta3 = info(&kernel, "beta3");
+    assert_eq!(
+        (beta3.state, beta3.problem),
+        (
+            PluginState::Failed,
+            Some(PluginProblem::OlderInterface { built_for: 6 })
+        )
+    );
     let installer = info(&kernel, "installer");
     assert_eq!(
         (installer.state, installer.problem),
