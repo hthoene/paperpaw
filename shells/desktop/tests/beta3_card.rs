@@ -60,6 +60,16 @@ fn card(name: &str) -> PathBuf {
     let setup = dir.join(".paperpaw/plugins/setup");
     fs::create_dir_all(&setup).unwrap();
     fs::write(setup.join("done"), "").unwrap();
+    // English is hyphenated as on a device (the firmware seeds the pack): the
+    // reader would ask the store for it otherwise.
+    for (path, bytes) in paperpaw_default_packs::english() {
+        let target = dir
+            .join("plugins")
+            .join(paperpaw_default_packs::HYPHENATION)
+            .join(path);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(target, bytes).unwrap();
+    }
     dir
 }
 

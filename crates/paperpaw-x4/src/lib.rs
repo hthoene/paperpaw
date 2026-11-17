@@ -40,6 +40,7 @@ pub mod bq27220;
 pub mod buttons;
 pub mod card;
 pub mod changes;
+pub mod clean;
 pub mod controls;
 pub mod cw2017;
 pub mod device_depth;
