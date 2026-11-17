@@ -112,6 +112,9 @@ remote = [
 ]
 # Scoped slot14 qualification only; not included in any release/default build.
 textprobe = ["remote", "dep:paperpaw-text"]
+# LAB ONLY (#168): four power-down variants of the SSD1677, chosen by
+# `fade-lab.txt` on the card (0..4, read before each power-down).
+fade-lab = ["paperpaw-x4/fade-lab"]
 # Bluetooth Low Energy, included by x4-pro (`src/bluetooth.rs`, ADR 0027):
 # trouble-host on esp-radio's controller, beside Wi-Fi. The radio stays
 # off until requested; remotes remain manual by default while connected

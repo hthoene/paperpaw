@@ -687,6 +687,10 @@ fn prepare() -> Ready {
     if let Some(unix_ms) = board.clock_ms {
         clock::set(now(), unix_ms);
     }
+    // The X4 has no clock chip: the RTC kept the time through a restart
+    // or a deep sleep, if it was set before (#280).
+    #[cfg(feature = "x4")]
+    clock::restore(now());
     // Plugins the web flasher wrote behind the image, onto the card first.
     let staged = {
         let mut startup = startup::Startup::new(&mut panel);

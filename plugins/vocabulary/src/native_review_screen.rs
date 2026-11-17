@@ -14,6 +14,7 @@ use paperpaw_sdk::native::commands::{CommandSender, RedrawMode};
 use paperpaw_sdk::native::fonts::{Font, FontRole};
 use paperpaw_sdk::native::formatting::Arg;
 use paperpaw_sdk::native::snapshot;
+use paperpaw_sdk::native::ui::ButtonHint;
 use paperpaw_sdk::native::ui::{Instance, Notify, Ui, UiCursor};
 use paperpaw_sdk::native::{Error, Host};
 use paperpaw_sdk::{Color, Handled, Point, Rect, Storage};
@@ -90,6 +91,8 @@ pub(crate) struct ReviewScreen {
     /// Where the last frame drew its back arrow and buttons.
     header: Page,
     buttons: Vec<Rect>,
+    /// What the row of button hints was told last (`hint_state`).
+    hinted: Option<u8>,
 }
 
 impl ReviewScreen {
@@ -114,6 +117,54 @@ impl ReviewScreen {
             review,
             header: Page::default(),
             buttons: Vec::new(),
+            hinted: None,
+        }
+    }
+
+    /// What the buttons do now: 0 nothing (no card), 1 *Show answer*, else
+    /// 2 and the answer the focus is on.
+    pub(crate) fn hint_state(&self) -> u8 {
+        match (self.review.current.is_some(), self.review.revealed) {
+            (false, _) => 0,
+            (true, false) => 1,
+            (true, true) => 2 + self.review.focus as u8,
+        }
+    }
+
+    /// Tells the row of button hints what *Select* and the arrows do: the
+    /// word on the card's button (*Show answer*, then the answer in focus),
+    /// the arrows only while the answers are shown, nothing without a card
+    /// (#235). Told again only when that changed; the screen must be on top.
+    pub(crate) fn sync_hint(&mut self, host: &Host<'_>) {
+        let state = self.hint_state();
+        if self.hinted == Some(state) {
+            return;
+        }
+        self.hinted = Some(state);
+        let (confirm, arrows) = match state {
+            0 => (None, false),
+            1 => (Some("vocabulary.review.show"), false),
+            n => (ANSWER_KEYS.get(usize::from(n - 2)).copied(), true),
+        };
+        let send = |hint: Result<ButtonHint<'_>, Error>| {
+            if let Ok(hint) = hint {
+                let _ = CommandSender::new(host, &mut [0; 256]).set_hint(hint);
+            }
+        };
+        match confirm {
+            Some(key) => {
+                if let Ok(words) = Messages::new().and_then(|mut m| m.copy(host, key)) {
+                    send(ButtonHint::words("core.confirm", &words));
+                }
+            }
+            None => send(ButtonHint::hidden("core.confirm")),
+        }
+        for action in ["core.left", "core.right"] {
+            send(if arrows {
+                ButtonHint::usual(action)
+            } else {
+                ButtonHint::hidden(action)
+            });
         }
     }
 
@@ -140,6 +191,7 @@ impl ReviewScreen {
         let mut words = HostWords::new(host)?;
         let changed = self.review.tick(storage, &time, &mut words)?;
         if changed && on_top(host, ui, instance)? {
+            self.sync_hint(host);
             redraw(host)?;
         }
         Ok(changed)
@@ -156,7 +208,7 @@ impl ReviewScreen {
         storage: &dyn Storage,
         input: &Input<'_>,
     ) -> Result<Handled, Error> {
-        match *input {
+        let handled = match *input {
             Input::Action { action, .. } => self.action(host, storage, action),
             Input::Gesture {
                 position,
@@ -164,7 +216,9 @@ impl ReviewScreen {
                 ..
             } => self.tap(host, storage, position),
             _ => Ok(Handled::No),
-        }
+        };
+        self.sync_hint(host);
+        handled
     }
 
     fn action(
