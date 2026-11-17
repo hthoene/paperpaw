@@ -31,6 +31,9 @@ pub const SLOTS: usize = 24;
 /// command after a wait, so one command for eight blocks takes about a
 /// third of the time of eight.
 pub const AHEAD: usize = 8;
+/// Changed blocks that lie one after the other written in one command at
+/// most (their copy is one 4 KiB piece, taken for the write and given back).
+const MAX_RUN: usize = 8;
 
 /// The disk failed to read or write a block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -368,12 +371,62 @@ impl<B: Blocks> BlockDisk<B> {
 
     /// Writes back the blocks changed up to change `last`, in the order
     /// they were changed: cut off at any point, the disk holds the
-    /// changes up to one of them, none after.
+    /// changes up to one of them, none after. Blocks that were changed one
+    /// after the other and lie one after the other on the disk (a file's
+    /// directory entry and its FAT sectors, often) go in one command: a
+    /// card writes a command's blocks in order, so a cut leaves a first part
+    /// of them, as it would the single writes in this order.
     fn write_back(&mut self, last: u64) -> Result<(), DiskError> {
-        while let Some(i) = (0..SLOTS)
-            .filter(|&i| self.slots[i].changed.is_some_and(|c| c <= last))
+        while let Some(i) = self.next_changed(last, None) {
+            let mut run = [i; MAX_RUN];
+            let mut len = 1;
+            while len < MAX_RUN
+                && let (Some(prev), Some(j)) = (
+                    self.slots[run[len - 1]].index,
+                    self.next_changed(last, self.slots[run[len - 1]].changed),
+                )
+                && prev.checked_add(1) == self.slots[j].index
+            {
+                run[len] = j;
+                len += 1;
+            }
+            self.write_run(&run[..len])?;
+        }
+        Ok(())
+    }
+
+    /// The slot changed next (up to change `last`), after the change
+    /// `after` if one is given.
+    fn next_changed(&self, last: u64, after: Option<u64>) -> Option<usize> {
+        (0..SLOTS)
+            .filter(|&i| {
+                self.slots[i]
+                    .changed
+                    .is_some_and(|c| c <= last && after.is_none_or(|a| c > a))
+            })
             .min_by_key(|&i| self.slots[i].changed)
+    }
+
+    /// Writes the blocks of `run` (slots changed one after the other,
+    /// holding blocks one after the other) in one command, or each by
+    /// itself where there is no room to put them together.
+    fn write_run(&mut self, run: &[usize]) -> Result<(), DiskError> {
+        let first = self.slots[run[0]].index;
+        let mut joined: Vec<u8> = Vec::new();
+        if run.len() > 1
+            && let Some(index) = first
+            && joined.try_reserve_exact(run.len() * BLOCK).is_ok()
         {
+            for &i in run {
+                joined.extend_from_slice(&self.slots[i].data);
+            }
+            self.disk.write_blocks(index, &joined)?;
+            for &i in run {
+                self.slots[i].changed = None;
+            }
+            return Ok(());
+        }
+        for &i in run {
             let slot = &mut self.slots[i];
             if let Some(index) = slot.index {
                 self.disk.write_block(index, &slot.data)?;
