@@ -192,6 +192,58 @@ tag). It builds everything and signs with throw-away keys (the real ones are for
 a tag), then prints the commands that would upload and create, and fails if the
 lists do not fit; no tag, no release, no upload.
 
+## Store code plugins for the X4 family on interface 7 (Beta 4)
+
+**Why the store lists none today.** A device of interface 7 has no fingerprint
+(`Device.fingerprint` is `None`, `plugins/store/src/native_device.rs`). It keeps a
+build of the list only if the build's `device` is its own name (`x4`, `x4-pro`,
+`x4-classic`) and its `abi` is the dotted `7.<minor>` of a format-5 file
+(`Abi::is_for`, `native_model.rs`): a build with a 16-digit fingerprint (format 3
+or 4, interface 6 and older) is never for it. Every code build in the live
+index (`https://paperpaw.org/api/v1/plugins.json`) is of that kind, so the
+device shows data plugins only. The draft number (36) plays no part: a format-5
+file is checked by target, major and `needs_minor`, never by draft. Also,
+paperpaw.org on `main` and `deploy` reads files of format 4 at most (`src/native.rs`
+`FORMAT = 4`, no `7.<minor>`), so it would refuse to import a release's format-5
+files; that support is in the site's PR #49 (branch `web/flasher-interface7-272`,
+draft).
+
+**What a release publishes.** `plugins.txt` is the list: each plugin has one
+format-5 file per device (`<id>-<version>-x4.ppn`, `-x4-pro.ppn`, `-x4-classic.ppn`;
+the Classic's is the Pro's bytes under its own name), built by
+`tools/plugin-files7/build.sh <device>` (target 5 on the X4, target 9 on the X4 Pro
+and the X4 Classic), checked against the release's firmware (`paperpaw-sign fits`), signed with
+the first-party key and added to `plugins-<year>` with the plugin's folder ZIP
+and its entry in the release's catalogue ZIP. The versions in `Cargo.toml` are
+already above every version published (all published builds are interface 6),
+so no bump is needed until a plugin's code changes again (`versions.py`).
+
+**The one step at the release.** After the owner's OK, in this order:
+
+1. Merge the website's PR #49 and deploy the site (the `deploy` branch, owner's
+   OK): it must import format-5 files before the release's catalogue exists.
+2. Push the release tag `v<version>` of the prepared commit (the Release
+   workflow, as above). That single run builds the plugins of `plugins.txt`
+   for the three devices, signs them with `PAPERPAW_PLUGIN_KEY`, uploads the new
+   files to `plugins-<year>` before it creates the firmware release, and
+   publishes the catalogue ZIP; paperpaw.org imports it within the hour.
+   Nothing else is published by hand.
+
+Before the tag, run *Release* by hand from the release branch with `dry_run`
+on: it must list, for each plugin of `plugins.txt`, three `.ppn` files and one
+folder ZIP as new, and fail on nothing. After the import:
+
+```sh
+curl -s 'https://paperpaw.org/api/v1/plugins.json?device=x4&lang=en' | python3 -m json.tool | grep -c '"abi": "7\.'
+```
+
+must print one line for each code plugin (the same for `x4-pro` and `x4-classic`),
+and a device on Beta 4 lists them under *Plugin store*. To try the files before any of that, without publishing: `tools/plugin-files/local-store.py`
+makes a local release of them (the files signed with a throw-away key, the
+catalogue ZIP, a mirror for the site to import from, and a card tree with each
+plugin's `code.ppn`); its docstring has the site's settings. A single plugin
+(or a fix) between releases takes *Store plugin update* below, with its id.
+
 ## A store plugin between releases
 
 One or several of PaperPaw's own store plugins, updates or new ones, can be
