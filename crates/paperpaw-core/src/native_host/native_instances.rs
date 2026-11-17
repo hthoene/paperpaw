@@ -987,6 +987,12 @@ impl NativeInstances {
         self.pool.as_ref()?.hosts().work_made()
     }
 
+    /// Room for `plugins` more rows, asked for once before they are hosted
+    /// (#306): where there is none the table grows as it did.
+    pub(crate) fn reserve_plugins(&mut self, plugins: usize) {
+        let _ = self.entries.try_reserve_exact(plugins);
+    }
+
     /// Gives back what the tables kept in reserve while the plugins were
     /// hosted one by one (every list grows by doubling): called once, when
     /// the shell has hosted them all ([`Kernel::start`](crate::Kernel::start)).

@@ -515,6 +515,11 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
         return outcome;
     }
     add_native_catalogs(kernel);
+    // One batch (#306): what looks at all the plugins (key map, fonts, slots,
+    // secrets) is made once, after the last, and the plugin list is sized
+    // once.
+    kernel.reserve_native_plugins(NATIVE_PLUGINS.len());
+    kernel.begin_native_batch();
     // What every sleeping plugin keeps of the shell, once: without room for
     // it they all stay awake.
     // SAFETY: `image` as this function's contract says.
@@ -592,6 +597,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
         list(kernel, id, (state, true, None));
         outcome.push((*id, status));
     }
+    kernel.end_native_batch();
     outcome
 }
 

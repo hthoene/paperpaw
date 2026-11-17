@@ -233,6 +233,14 @@ impl crate::Kernel {
         fixed: super::FixedTables,
         park: Option<super::park_linked::ParkArgs<S>>,
     ) -> Result<(), shell::Error> {
+        if self.native_batch.is_some() {
+            // One of a batch (`native_batch.rs`): what looks at all the
+            // plugins is done once, when the batch ends.
+            let from = self.native_now();
+            let admitted = self.admit_native_with(host, depth, folder, report, fixed, park);
+            self.native_took(from, |times| &mut times.admit);
+            return admitted;
+        }
         let fonts_before = self.shared.fonts.ids().count();
         let offers_before = self.shared.registry.offers();
         let keys_before = self.native_key_count();
@@ -447,7 +455,7 @@ impl crate::Kernel {
     /// ([`paperpaw_sdk::Env::has_slot`]), made anew where offers came or went:
     /// where the heap has no room for the list the one known stays, and a
     /// warning says so.
-    fn refresh_slots(&mut self) {
+    pub(super) fn refresh_slots(&mut self) {
         match self.shared.registry.try_bound_slots() {
             Some(slots) => self.shared.slots = slots,
             None => {

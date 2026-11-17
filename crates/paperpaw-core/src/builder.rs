@@ -980,6 +980,9 @@ impl BuilderParts {
             late_config: Vec::new(),
             native_registering: true,
             native_catalogs_added: false,
+            native_batch: None,
+            native_clock: None,
+            native_times: crate::native_host::NativeTimes::default(),
             plugin_choices: Vec::new(),
             now: Instant::default(),
         }

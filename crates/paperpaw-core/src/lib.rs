@@ -337,6 +337,11 @@ pub struct Kernel {
     native_registering: bool,
     /// The linked plugins' built-in catalogs are added ([`Kernel::claim_native_catalogs`]).
     native_catalogs_added: bool,
+    /// Open while the shell hosts its native plugins as one batch (`native_batch.rs`).
+    native_batch: Option<crate::native_host::NativeBatch>,
+    /// The clock hosting is timed with, and the times taken (`native_batch.rs`).
+    native_clock: Option<fn() -> u32>,
+    native_times: crate::native_host::NativeTimes,
     now: Instant,
     input: gestures::InputState,
     io: network::IoState,
