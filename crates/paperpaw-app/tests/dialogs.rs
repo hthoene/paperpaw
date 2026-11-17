@@ -93,15 +93,54 @@ fn run(kernel: &mut Kernel, at: u64, action: Id) {
     common::render(kernel);
 }
 
-/// The parts of `role` on the screen: label, place, focused.
+/// The parts of `role` the dialog on top shows (what lies below it is
+/// described too): label, place, focused.
 fn parts(kernel: &mut Kernel, role: Role) -> Vec<(String, Rect, bool)> {
     common::render(kernel);
-    kernel
-        .describe()
-        .into_iter()
+    let parts = kernel.describe();
+    let from = parts
+        .iter()
+        .rposition(|p| p.role == Role::Dialog)
+        .unwrap_or(0);
+    parts[from..]
+        .iter()
         .filter(|p| p.role == role)
-        .map(|p| (p.label, p.area, p.focused))
+        .map(|p| (p.label.clone(), p.area, p.focused))
         .collect()
+}
+
+/// Lets timers run until nothing is due within a second of `now`.
+fn settle(kernel: &mut Kernel, mut effects: paperpaw_core::Effects, mut now: u64) {
+    for _ in 0..1000 {
+        let Some(at) = effects.wake_at() else {
+            return;
+        };
+        if at.0 > now + 1000 {
+            return;
+        }
+        now = now.max(at.0);
+        effects = kernel.tick(Instant(now));
+    }
+}
+
+/// A tap with a finger at `(x, y)` at `at`, and what it leads to.
+fn tap(kernel: &mut Kernel, at: u64, x: i32, y: i32) {
+    use paperpaw_platform::{InputEvent, Point, PointerEvent, PointerPhase, PointerTool};
+    for (phase, when) in [(PointerPhase::Down, at), (PointerPhase::Up, at + 60)] {
+        let event = InputEvent::Pointer(PointerEvent::new(
+            0,
+            phase,
+            Point::new(x, y),
+            PointerTool::Finger,
+            1000,
+        ));
+        let effects = kernel.handle(Instant(when), event);
+        // Timers wait while the finger is down: a long press is not meant.
+        if phase == PointerPhase::Up {
+            settle(kernel, effects, when);
+        }
+    }
+    common::render(kernel);
 }
 
 fn middle(rect: Rect) -> (i32, i32) {
@@ -152,7 +191,7 @@ fn a_yes_or_no_question_is_answered_by_buttons_and_by_touch() {
     // No by a tap on it.
     ask(&mut kernel, 400, question());
     let (x, y) = middle(parts(&mut kernel, Role::Button)[1].1);
-    common::tap(&mut kernel, 500, x, y);
+    tap(&mut kernel, 500, x, y);
     assert_ne!(screen(&kernel), "keyboard.confirm");
     assert_eq!(answers(&harness), [false]);
     // Back: closed, no answer.
@@ -162,7 +201,7 @@ fn a_yes_or_no_question_is_answered_by_buttons_and_by_touch() {
     assert_eq!(answers(&harness), Vec::<bool>::new());
     // A tap outside the box, at the top of the screen: closed, no answer.
     ask(&mut kernel, 900, question());
-    common::tap(&mut kernel, 1000, 600, 2);
+    tap(&mut kernel, 1000, 600, 2);
     assert_ne!(screen(&kernel), "keyboard.confirm");
     assert_eq!(answers(&harness), Vec::<bool>::new());
 }
@@ -201,7 +240,7 @@ fn each_option_is_picked_alike_by_tap_and_by_confirm() {
         let rows = parts(&mut kernel, Role::Row);
         assert_eq!(rows.len(), options.len(), "{rows:?}");
         let (x, y) = middle(rows[index].1);
-        common::tap(&mut kernel, 200, x, y);
+        tap(&mut kernel, 200, x, y);
         assert_eq!(picked(&harness), [*option], "tapped");
         // By the buttons: down to it (the first press shows the focus, on
         // the first option), then confirm.
@@ -236,7 +275,7 @@ fn back_and_a_tap_outside_pick_nothing() {
     run(&mut kernel, 200, actions::BACK);
     assert_ne!(screen(&kernel), "keyboard.choice");
     ask(&mut kernel, 300, choice(&["yes", "no"]));
-    common::tap(&mut kernel, 400, 600, 2);
+    tap(&mut kernel, 400, 600, 2);
     assert_ne!(screen(&kernel), "keyboard.choice");
     assert_eq!(picked(&harness), Vec::<String>::new());
 }
@@ -293,6 +332,6 @@ fn every_option_on_pages_is_reached_by_touch_and_by_buttons() {
     let rows = parts(&mut kernel, Role::Row);
     let (x, y) = middle(rows[0].1);
     let first = rows[0].0.clone();
-    common::tap(&mut kernel, 200, x, y);
+    tap(&mut kernel, 200, x, y);
     assert_eq!(picked(&harness), [first]);
 }

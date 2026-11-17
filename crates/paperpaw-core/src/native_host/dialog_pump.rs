@@ -251,7 +251,11 @@ impl crate::Kernel {
     // Its own frame: its locals are not on the stack while the pump calls
     // the plugins (#250).
     #[inline(never)]
-    fn dialog_open(&mut self, store: &super::ui_store::UiStore, start: &super::ui_requests::Start) {
+    pub(super) fn dialog_open(
+        &mut self,
+        store: &super::ui_store::UiStore,
+        start: &super::ui_requests::Start,
+    ) {
         let (Some(slot), Some(request), Some(kind)) = (
             slot_of(start.kind, start.remote),
             decimal(start.request),

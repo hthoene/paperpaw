@@ -435,6 +435,26 @@ impl UiStore {
         Ok(())
     }
 
+    /// A question the host asked itself (no callback asked it, so none has to
+    /// return first): starting at once, for the host to open its dialog.
+    /// `None` where `request` is not one just asked.
+    pub(crate) fn host_started(&self, request: u32) -> Option<Start> {
+        let mut inner = self.inner().ok()?;
+        let at = Self::request_at(&inner, request)?;
+        let r = &mut inner.requests[at];
+        if !matches!(r.phase, Phase::Asked { .. }) {
+            return None;
+        }
+        r.phase = Phase::Starting;
+        Some(Start {
+            request: r.id,
+            asker: r.asker,
+            kind: r.kind,
+            remote: r.remote,
+            secret: r.secret,
+        })
+    }
+
     /// The oldest request whose dialog the stack has yet to open.
     pub(crate) fn next_starting(&self) -> Option<Start> {
         let inner = self.inner.try_borrow().ok()?;

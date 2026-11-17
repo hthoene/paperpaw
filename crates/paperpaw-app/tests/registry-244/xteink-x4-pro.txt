@@ -1044,8 +1044,6 @@ screen about.screen | title=about.title
 screen bluetooth.page | title=bluetooth.title
 screen bluetooth.search | title=bluetooth.add
 screen core.add-widget | title=core.widgets.edit.add-to-list
-screen core.choice-dialog | title=core.choice
-screen core.confirm-dialog | title=core.confirm.screen
 screen core.finishing-update | title=core.finishing-update.title
 screen core.firmware-confirm | title=core.firmware.title
 screen core.folder-editor | title=core.setting.library-folder
@@ -1069,7 +1067,9 @@ screen home.add-widget | title=home.edit.add
 screen home.dashboard | title=home.title
 screen home.drawer | title=home.drawer
 screen home.status-items | title=home.setting.footer-items
+screen keyboard.choice | title=core.choice
 screen keyboard.choose | title=keyboard.setting.layouts
+screen keyboard.confirm | title=core.confirm.screen
 screen keyboard.screen | title=keyboard.title
 screen lock.screen | title=lock.setting.kind
 screen menu.list | title=menu.title
@@ -1135,10 +1135,10 @@ slot-offer core.annotations | reader.annotations Priority(0)
 slot-offer core.bluetooth | bluetooth.page Priority(0)
 slot-offer core.book-info | files.info Priority(0)
 slot-offer core.cable | transfer.cable Priority(0)
-slot-offer core.choice | core.choice-dialog Priority(-100)
+slot-offer core.choice | keyboard.choice Priority(0)
 slot-offer core.choose-folder | files.choose-folder Priority(0)
 slot-offer core.choose-value | settings.choose Priority(0)
-slot-offer core.confirm | core.confirm-dialog Priority(-100)
+slot-offer core.confirm | keyboard.confirm Priority(0)
 slot-offer core.edit-widgets | core.widget-list Priority(0)
 slot-offer core.footnote | reader.footnote Priority(0)
 slot-offer core.home | core.placeholder Priority(-32768)
@@ -2275,6 +2275,8 @@ native Screen home | ScreenSpec(ScreenSpec { name: "drawer", title: "home.drawer
 native Screen home | ScreenSpec(ScreenSpec { name: "status-items", title: "home.setting.footer-items", token: 13, flags: 0 })
 native Screen keyboard | ScreenSpec(ScreenSpec { name: "screen", title: "keyboard.title", token: 10, flags: 132 })
 native Screen keyboard | ScreenSpec(ScreenSpec { name: "choose", title: "keyboard.setting.layouts", token: 11, flags: 0 })
+native Screen keyboard | ScreenSpec(ScreenSpec { name: "choice", title: "core.choice", token: 12, flags: 1028 })
+native Screen keyboard | ScreenSpec(ScreenSpec { name: "confirm", title: "core.confirm.screen", token: 13, flags: 1028 })
 native Screen lock | ScreenSpec(ScreenSpec { name: "screen", title: "lock.setting.kind", token: 20, flags: 48 })
 native Screen menu | ScreenSpec(ScreenSpec { name: "list", title: "menu.title", token: 10, flags: 4 })
 native Screen menu | ScreenSpec(ScreenSpec { name: "panel", title: "menu.title", token: 11, flags: 4 })
@@ -2620,6 +2622,8 @@ native SlotOffer files | SlotOffer(SlotOffer { slot: "core.choose-folder", scree
 native SlotOffer files | SlotOffer(SlotOffer { slot: "core.home", screen: "files.browser", priority: -100 })
 native SlotOffer home | SlotOffer(SlotOffer { slot: "core.home", screen: "home.dashboard", priority: 0 })
 native SlotOffer keyboard | SlotOffer(SlotOffer { slot: "core.keyboard", screen: "keyboard.screen", priority: 0 })
+native SlotOffer keyboard | SlotOffer(SlotOffer { slot: "core.choice", screen: "keyboard.choice", priority: 0 })
+native SlotOffer keyboard | SlotOffer(SlotOffer { slot: "core.confirm", screen: "keyboard.confirm", priority: 0 })
 native SlotOffer menu | SlotOffer(SlotOffer { slot: "core.menu", screen: "menu.list", priority: 0 })
 native SlotOffer menu | SlotOffer(SlotOffer { slot: "core.panel", screen: "menu.panel", priority: 0 })
 native SlotOffer picture-home | SlotOffer(SlotOffer { slot: "core.home", screen: "picture-home.dashboard", priority: 100 })

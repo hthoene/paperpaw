@@ -393,7 +393,8 @@ impl ConfirmView {
                     _ => Ok(Handled::Yes),
                 }
             }
-            _ => Ok(Handled::Yes),
+            // A finger's contacts make the gestures above: left to the host.
+            _ => Ok(Handled::No),
         }
     }
 }

@@ -21,14 +21,18 @@ fn cleaning_up_keeps_what_belongs_to_files_still_there() {
             crate::tests::notice_plugin_manifest(),
             crate::tests::notice_plugin(NoticePlugin { log: log() }),
         )
+        .items(
+            crate::tests::questions::serves_manifest(),
+            crate::tests::questions::serves(),
+        )
         .storage(storage)
         .build()
         .unwrap();
     kernel.start(Instant(0));
+    let store = crate::tests::questions::wire(&mut kernel);
     kernel.run_action(Instant(10), actions::CLEAN_UP);
     // The notes of a book not found go once the reader agrees.
-    press(&mut kernel, 20, "left");
-    press(&mut kernel, 30, "confirm");
+    crate::tests::questions::answer(&mut kernel, &store, 1);
     let storage = kernel.storage();
     assert!(storage.exists(&annotations("Books/a.txt")), "kept");
     assert!(!storage.exists(&annotations("Books/gone.txt")), "left over");

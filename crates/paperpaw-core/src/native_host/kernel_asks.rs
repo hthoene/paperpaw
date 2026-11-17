@@ -111,16 +111,26 @@ impl crate::Kernel {
             text,
             choices: &choices,
         };
+        if reply.is_some() {
+            self.asks.0.try_reserve(1).ok()?;
+        }
         let who = Stamp::new(HOST_OWNER, 1).ok()?;
         let (request, _) = store.ask(who, None, &question, false, None, false).ok()?;
         if let Some(reply) = reply {
-            self.asks.0.try_reserve(1).ok()?;
             self.asks.0.push(Asked {
                 request,
                 reply,
                 context: params.clone(),
                 options,
             });
+        }
+        // No callback asked it: its dialog opens now, in this call, as the
+        // kernel's own screens did (inside a plugin's callback the pump opens
+        // it once the callback is over).
+        if self.shared.native_instances.depth() == 0
+            && let Some(start) = store.host_started(request)
+        {
+            self.dialog_open(&store, &start);
         }
         Some(())
     }

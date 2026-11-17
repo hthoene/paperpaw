@@ -173,7 +173,8 @@ Row "Full refresh in menus, 0, A flash after this many menu changes removes ghos
 Button "−" at 1075,242 83x83
 Button "+" at 1158,242 83x83
 Row "Reset to defaults" (focused) at 0,372 1264x83
-Text "Settings" at 47,1407 1217x83
+Dialog "" at 0,1390 1264x290
+Heading "Settings" at 0,1422 1264x68
 Row "Yes, reset" at 0,1490 1264x83
 Row "Cancel" at 0,1573 1264x83
 Heading "Display · More" at 0,0 1264x88

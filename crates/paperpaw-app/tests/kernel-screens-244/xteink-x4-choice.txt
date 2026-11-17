@@ -1,9 +1,10 @@
-screen core.choice-dialog
+screen keyboard.choice
 Button "Start reading, Choose a book from your library." at 35,167 409x213
 Button "Edit" at 384,739 61x61
-Text "Sort by" at 35,478 445x61
+Dialog "" at 0,464 480x336
+Heading "Sort by" at 0,487 480x52
 Row "Title" (focused) at 0,539 480x61
 Row "Author" at 0,600 480x61
 Row "Recently read" at 0,661 480x61
 Row "Size" at 0,722 480x61
-frame 800 rows, fnv1a64 dfd9354234bf50ca
+frame 800 rows, fnv1a64 6d70ecbd4c2c933f

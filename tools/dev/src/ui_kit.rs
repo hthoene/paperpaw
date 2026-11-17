@@ -13,12 +13,11 @@ use std::borrow::Cow;
 
 use paperpaw_core::{Items, KernelBuilder};
 use paperpaw_platform::{Color, Rect};
-use paperpaw_sdk::builtin::params;
 use paperpaw_sdk::ui::slider::SliderFocus;
 use paperpaw_sdk::ui::slider::SliderView;
 use paperpaw_sdk::ui::{self, TextRole, UiStyle};
 use paperpaw_sdk::widgets::Frame;
-use paperpaw_sdk::{Canvas, Cx, Env, Handled, Id, Manifest, Params, RegisterError, Version};
+use paperpaw_sdk::{Canvas, Cx, Env, Handled, Id, Manifest, RegisterError, Version};
 
 /// The plugin's id.
 pub const PLUGIN: &str = "ui-kit";
