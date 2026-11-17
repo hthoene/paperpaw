@@ -10,11 +10,13 @@ const EVENTS: Id = Id::new_static("tools.link-events");
 
 fn tools(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        let log = kept.clone();
+        crate::tests::hear_into(&kept);
         r.on(
             paperpaw_sdk::event::Event::<DevEvent>::new("tools.link-events"),
-            move |_, event, _| {
-                log.borrow_mut().push(alloc::format!("{event:?}"));
+            |_, p| {
+                if let Some(event) = crate::hear::data::<DevEvent>(p) {
+                    crate::tests::heard(alloc::format!("{event:?}"));
+                }
             },
         )
     }

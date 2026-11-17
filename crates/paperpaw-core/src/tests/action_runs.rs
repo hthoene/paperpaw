@@ -19,25 +19,21 @@ fn observing(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
 
 /// What [`observing`] adds (a function of its own for its length).
 fn observing_items(kept: &Log, r: &mut Items) -> Result<(), RegisterError> {
-    let log = kept.clone();
-    r.add_action(
-        ActionSpec::new(APPLY, "obs.apply").handler(move |_, params, _| {
-            let profile = params.get("profile").unwrap_or("none");
-            log.borrow_mut().push(alloc::format!("apply {profile}"));
-        }),
-    )?;
-    let log = kept.clone();
+    crate::tests::hear_into(kept);
+    r.add_action(ActionSpec::new(APPLY, "obs.apply").handler(|_, params, _| {
+        let profile = params.get("profile").unwrap_or("none");
+        crate::tests::heard(alloc::format!("apply {profile}"));
+    }))?;
     r.add_action(
         ActionSpec::new(PLAIN, "obs.plain")
             .describe("obs.plain.help")
             .keywords("obs.plain.words")
-            .handler(move |_, _, _| log.borrow_mut().push(String::from("plain"))),
+            .handler(|_, _, _| crate::tests::heard(String::from("plain"))),
     )?;
     r.add_action(ActionSpec::new(SCREEN_ONLY, "obs.screen-only"))?;
-    let log = kept.clone();
     r.add_action(
         ActionSpec::new(WRAPPED, "obs.wrapped")
-            .handler(move |_, _, _| log.borrow_mut().push(String::from("inner"))),
+            .handler(|_, _, _| crate::tests::heard(String::from("inner"))),
     )?;
     // Opens a screen of its own; a step through profiles, run again
     // with the next.
@@ -54,11 +50,10 @@ fn observing_items(kept: &Log, r: &mut Items) -> Result<(), RegisterError> {
             ));
         }),
     )?;
-    let log = kept.clone();
     r.add_action(
-        ActionSpec::new(Id::new_static("obs.step"), "obs.step").handler(move |_, params, out| {
+        ActionSpec::new(Id::new_static("obs.step"), "obs.step").handler(|_, params, out| {
             let n: u8 = params.get("n").and_then(|n| n.parse().ok()).unwrap_or(0);
-            log.borrow_mut().push(alloc::format!("step {n}"));
+            crate::tests::heard(alloc::format!("step {n}"));
             if n < 2 {
                 let next = Params::new().with("n", alloc::format!("{}", n + 1));
                 out.push(Command::RunAction(Id::new_static("obs.step"), next));
@@ -70,20 +65,15 @@ fn observing_items(kept: &Log, r: &mut Items) -> Result<(), RegisterError> {
             ));
         }),
     )?;
-    let log = kept.clone();
     r.add_action(
         ActionSpec::new(Id::new_static("obs.sealed"), "obs.sealed")
-            .handler(move |_, _, _| log.borrow_mut().push(String::from("sealed")))
+            .handler(|_, _, _| crate::tests::heard(String::from("sealed")))
             .sealed(),
     )?;
-    let log = kept.clone();
-    r.subscribe(
-        events::SETTING_CHANGED.id().clone(),
-        Box::new(move |_, params, _| {
-            let old = params.get("old").unwrap_or("?");
-            log.borrow_mut().push(alloc::format!("changed from {old}"));
-        }),
-    )
+    r.subscribe(events::SETTING_CHANGED.id().clone(), |_, params| {
+        let old = params.get("old").unwrap_or("?");
+        crate::tests::heard(alloc::format!("changed from {old}"));
+    })
 }
 
 /// What [`observing`] registers under.
@@ -437,12 +427,11 @@ mod secrets_of_others {
                     )));
                 }),
             )?;
-            r.subscribe(
-                Id::new_static("snoop.when"),
-                Box::new(|_, _, out| {
+            r.subscribe(Id::new_static("snoop.when"), |k, _| {
+                k.with_env(|_, out| {
                     out.push(Command::set_secret(SecretChange::remove("keeper.pw")));
-                }),
-            )
+                });
+            })
         }
     }
 

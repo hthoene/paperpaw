@@ -58,6 +58,7 @@ mod font_refresh;
 mod free_count;
 mod gestures;
 mod gray_later;
+pub mod hear;
 mod hints;
 mod hyphen_feed;
 mod input;
@@ -85,6 +86,7 @@ pub mod stock;
 pub use chrome_spec::{ChromeSpec, Edge};
 mod tall_band;
 mod warning;
+pub use hear::{Hear, Stepper};
 pub use layer::{KernelFactory, KernelScreen, Layer, LayerFactory, LayerSpec};
 pub use warning::{Warning, WarningSource};
 #[cfg(test)]
@@ -138,9 +140,9 @@ use crate::keymap::{InputKey, Keymap, Origin, Zone};
 use crate::refresh::RefreshPolicy;
 use crate::registry::{Registry, Staging};
 use crate::screens::{ActiveScreen, uncovered};
-pub use crate::work::NetworkSettings;
 #[doc(hidden)]
 pub use crate::work::network_specs_of;
+pub use crate::work::{NetworkSettings, WorkSpec};
 pub use paperpaw_sdk::firmware::{Firmware, FirmwareCommand, FirmwareState, InstallFailure};
 pub use paperpaw_sdk::wifi::{JoinFailure, WifiCommand, WifiNetwork, WifiState};
 
@@ -180,6 +182,11 @@ pub struct Kernel {
     shared: Shared,
     framebuffer: Framebuffer,
     subscriptions: crate::registry::Subscriptions,
+    /// What the core plugin's handlers keep (the catalog's job, the reading
+    /// recorded).
+    core: crate::core_plugin::State,
+    /// The steps of the data plugins' actions (`actions.ini`).
+    data_actions: Vec<crate::registry::DataAction>,
     /// The lowest screen the last offer of input reached ([`Kernel::offer`]).
     offered_down_to: usize,
     /// The params of the action offered to the screens now, for their

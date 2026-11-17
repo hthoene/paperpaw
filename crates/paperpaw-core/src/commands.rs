@@ -751,18 +751,16 @@ impl Kernel {
         params: &Params,
         hears: &dyn Fn(&str) -> bool,
     ) -> bool {
-        let env = self.shared.env(self.now);
         let mut refused_secret = false;
-        for (_, plugin, handler) in self
-            .subscriptions
-            .iter()
-            .filter(|(id, plugin, _)| *id == event && hears(plugin.as_str()))
-        {
-            let _running = self.shared.meter.enter(plugin.as_str());
+        let mut at = 0;
+        while let Some((plugin, run)) = self.subscriptions.next_of(&mut at, event) {
+            if !hears(plugin.as_str()) {
+                continue;
+            }
+            let meter = alloc::rc::Rc::clone(&self.shared.meter);
+            let _running = meter.enter(plugin.as_str());
             let from = self.output.commands.len();
-            handing(&mut self.output.commands, |out| {
-                handler.call(&env, params, out)
-            });
+            run(self, params);
             let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
             let out = &mut self.output.commands;
             refused_secret |= vet_reserved(out, from, plugin.as_str(), &reserved);
@@ -826,21 +824,19 @@ impl Kernel {
     }
 
     /// The handlers of `owners` in [`Self::emit_to_guard`]. Its own frame:
-    /// the environment is gone before the native plugins hear the event
-    /// (#250).
+    /// a handler's environment is gone before the native plugins hear the
+    /// event (#250).
     #[inline(never)]
     fn guard_handlers(&mut self, event: &Id, params: &Params, owners: &[String]) {
-        let env = self.shared.env(self.now);
-        for (_, plugin, handler) in self
-            .subscriptions
-            .iter()
-            .filter(|(id, plugin, _)| *id == event && owners.iter().any(|o| o == plugin.as_str()))
-        {
-            let _running = self.shared.meter.enter(plugin.as_str());
+        let mut at = 0;
+        while let Some((plugin, run)) = self.subscriptions.next_of(&mut at, event) {
+            if !owners.iter().any(|o| *o == plugin.as_str()) {
+                continue;
+            }
+            let meter = alloc::rc::Rc::clone(&self.shared.meter);
+            let _running = meter.enter(plugin.as_str());
             let from = self.output.commands.len();
-            handing(&mut self.output.commands, |out| {
-                handler.call(&env, params, out)
-            });
+            run(self, params);
             let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
             vet_reserved(&mut self.output.commands, from, plugin.as_str(), &reserved);
         }

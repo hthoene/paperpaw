@@ -1,14 +1,18 @@
 //! Declared work (ADR 0025): moments, deadlines, work that waits for a
 //! cheap moment, jobs in steps, periods, cancelling.
 
+extern crate std;
+
 use super::*;
 use crate::Items;
-use core::cell::Cell;
+
+use crate::WorkSpec;
+use crate::tests::{hear_into, heard};
 use core::time::Duration;
 use paperpaw_sdk::Params;
 use paperpaw_sdk::builtin::{events, params};
 use paperpaw_sdk::wifi::WifiState;
-use paperpaw_sdk::work::{Moments, Progress, Step, Work, WorkSpec, WorkState};
+use paperpaw_sdk::work::{Moments, Progress, Step, Work, WorkState};
 
 use crate::work::IDLE_MS;
 use crate::{Effects, WifiEvent};
@@ -21,6 +25,11 @@ struct WorkPlugin {
 }
 
 const RAN: [&str; 4] = ["wk.closed", "wk.push", "wk.weather", "wk.repeat"];
+
+std::thread_local! {
+    /// The steps the job made, in the test running.
+    static STEPS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+}
 const JOB: Id = Id::new_static("wk.job");
 
 struct Blank;
@@ -41,78 +50,62 @@ fn work_plugin(kept: WorkPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterEr
             Box::new(|_, _| Box::new(Blank)),
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("wk.home"), Priority(i16::MAX))?;
-        for event in RAN {
-            let log = kept.log.clone();
-            r.subscribe(
-                Id::new_static(event),
-                Box::new(move |_, params, _| {
-                    let why = params.get(paperpaw_sdk::work::params::WHY).unwrap_or("-");
-                    log.borrow_mut().push(alloc::format!("{event} {why}"));
-                }),
-            )?;
+        hear_into(&kept.log);
+        /// Writes down `event` and why it came.
+        fn ran(event: &str, params: &Params) {
+            let why = params.get(paperpaw_sdk::work::params::WHY).unwrap_or("-");
+            heard(alloc::format!("{event} {why}"));
         }
-        let steps = Rc::new(Cell::new(0u32));
-        let log = kept.log.clone();
-        r.add_work(WorkSpec::new(JOB, "job", move |_, _, _| {
-            steps.set(steps.get() + 1);
-            log.borrow_mut()
-                .push(alloc::format!("step {}", steps.get()));
-            if steps.get() < 3 {
-                Step::Progress(Progress::new(steps.get(), 3))
+        let ran: [crate::Hear; 4] = [
+            |_, p| ran(RAN[0], p),
+            |_, p| ran(RAN[1], p),
+            |_, p| ran(RAN[2], p),
+            |_, p| ran(RAN[3], p),
+        ];
+        for (event, run) in RAN.into_iter().zip(ran) {
+            r.subscribe(Id::new_static(event), run)?;
+        }
+        STEPS.with(|steps| steps.set(0));
+        r.add_work(WorkSpec::new(JOB, "job", |_, _| {
+            let done = STEPS.with(|steps| {
+                steps.set(steps.get() + 1);
+                steps.get()
+            });
+            heard(alloc::format!("step {done}"));
+            if done < 3 {
+                Step::Progress(Progress::new(done, 3))
             } else {
                 Step::Done
             }
         }))?;
-        let log = kept.log.clone();
-        r.subscribe(
-            events::WORK_CHANGED.id().clone(),
-            Box::new(move |_, params, _| {
-                let id = params.get(params::ID).unwrap_or("");
-                log.borrow_mut().push(alloc::format!("changed {id}"));
-            }),
-        )?;
+        r.subscribe(events::WORK_CHANGED.id().clone(), |_, params| {
+            let id = params.get(params::ID).unwrap_or("");
+            heard(alloc::format!("changed {id}"));
+        })?;
         // Says whose doing it is handling, run as an action.
-        let log = kept.log.clone();
-        r.add_action(ActionSpec::new(Id::new_static("wk.who"), "who").handler(
-            move |env, _, _| {
-                log.borrow_mut()
-                    .push(alloc::format!("reader {}", env.reader()));
-            },
-        ))?;
-        r.subscribe(
-            Id::new_static("wk.fire"),
-            Box::new(|_, _, out| out.push(Command::run(Id::new_static("wk.who")))),
+        r.add_action(
+            ActionSpec::new(Id::new_static("wk.who"), "who")
+                .handler(|env, _, _| heard(alloc::format!("reader {}", env.reader()))),
         )?;
+        r.subscribe(Id::new_static("wk.fire"), |k, _| {
+            k.with_env(|_, out| out.push(Command::run(Id::new_static("wk.who"))));
+        })?;
         // Work that fetches: its request goes out as it runs.
-        r.subscribe(
-            Id::new_static("wk.fetch"),
-            Box::new(|_, _, out| {
+        r.subscribe(Id::new_static("wk.fetch"), |k, _| {
+            k.with_env(|_, out| {
                 out.push(Command::http(paperpaw_sdk::HttpRequest::get(
                     "https://example.org/",
                     Id::new_static("wk.answered"),
                 )));
-            }),
-        )?;
-        let log = kept.log.clone();
-        r.subscribe(
-            Id::new_static("wk.answered"),
-            Box::new(move |_, params, _| {
-                let refused = params.get(paperpaw_sdk::work::params::REFUSED);
-                log.borrow_mut()
-                    .push(alloc::format!("answered {}", refused.unwrap_or("-")));
-            }),
-        )?;
-        for (event, name) in [
-            (events::NETWORK_WANTED.id(), "wanted"),
-            (events::WORK_ALLOWED.id(), "allowed"),
-            (events::WORK_REFUSED.id(), "refused"),
-        ] {
-            let log = kept.log.clone();
-            r.subscribe(
-                event.clone(),
-                Box::new(move |_, _, _| log.borrow_mut().push(String::from(name))),
-            )?;
-        }
+            });
+        })?;
+        r.subscribe(Id::new_static("wk.answered"), |_, params| {
+            let refused = params.get(paperpaw_sdk::work::params::REFUSED);
+            heard(alloc::format!("answered {}", refused.unwrap_or("-")));
+        })?;
+        r.subscribe(events::NETWORK_WANTED.id().clone(), |_, _| heard("wanted"))?;
+        r.subscribe(events::WORK_ALLOWED.id().clone(), |_, _| heard("allowed"))?;
+        r.subscribe(events::WORK_REFUSED.id().clone(), |_, _| heard("refused"))?;
         Ok(())
     }
 }
@@ -321,21 +314,18 @@ fn sayer_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             Id::new_static("sy.notice"),
             Priority(i16::MAX),
         )?;
-        r.subscribe(
-            Id::new_static("sy.say"),
-            Box::new(|_, _, out| out.push(Command::Notify(String::from("synced")))),
-        )?;
-        r.subscribe(
-            Id::new_static("sy.foreign"),
-            Box::new(|_, _, out| {
+        r.subscribe(Id::new_static("sy.say"), |k, _| {
+            k.with_env(|_, out| out.push(Command::Notify(String::from("synced"))));
+        })?;
+        r.subscribe(Id::new_static("sy.foreign"), |k, _| {
+            k.with_env(|_, out| {
                 let work = Work::new(Id::new_static("wk.push")).at_moments(Moments::NONE);
                 out.push(Command::work(work));
-            }),
-        )?;
-        r.subscribe(
-            Id::new_static("sy.remind"),
-            Box::new(|_, _, out| out.push(Command::Announce(String::from("unplug")))),
-        )?;
+            });
+        })?;
+        r.subscribe(Id::new_static("sy.remind"), |k, _| {
+            k.with_env(|_, out| out.push(Command::Announce(String::from("unplug"))));
+        })?;
         r.add_action(
             ActionSpec::new(Id::new_static("sy.act"), "act")
                 .handler(|_, _, out| out.push(Command::Notify(String::from("done")))),

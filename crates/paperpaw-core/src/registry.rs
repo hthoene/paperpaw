@@ -326,27 +326,22 @@ pub(crate) struct Subscriptions {
     entries: Vec<Subscribed>,
 }
 
-/// A plugin's subscription as it came: its event and handler.
-pub(crate) enum Subscribed {
-    One(Id, paperpaw_sdk::EventHandler),
+/// An action of a data plugin: the steps the kernel runs for it.
+#[derive(Debug)]
+pub(crate) struct DataAction {
+    pub(crate) id: Id,
+    pub(crate) steps: alloc::boxed::Box<[crate::data_plugin::formats::Step]>,
 }
 
-/// A subscription's handler, to call.
-#[derive(Clone, Copy)]
-pub(crate) enum Handler<'a> {
-    Made(&'a paperpaw_sdk::EventHandler),
+/// A built-in's subscription: its event and handler.
+pub(crate) struct Subscribed {
+    pub(crate) event: Id,
+    pub(crate) run: crate::Hear,
 }
 
-impl Handler<'_> {
-    pub(crate) fn call(
-        self,
-        env: &paperpaw_sdk::Env<'_>,
-        params: &paperpaw_sdk::Params,
-        out: &mut paperpaw_sdk::Commands,
-    ) {
-        match self {
-            Handler::Made(handler) => handler(env, params, out),
-        }
+impl core::fmt::Debug for Subscribed {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("Subscribed").field(&self.event).finish()
     }
 }
 
@@ -363,7 +358,7 @@ impl Subscriptions {
     }
 
     /// Every subscription: the event, the plugin, its handler.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (&Id, &Id, Handler<'_>)> + '_ {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&Id, &Id, crate::Hear)> + '_ {
         self.plugins
             .iter()
             .scan(0, |at, (plugin, count)| {
@@ -372,11 +367,32 @@ impl Subscriptions {
                 Some((plugin, from..*at))
             })
             .flat_map(move |(plugin, entries)| {
-                self.entries[entries].iter().map(move |entry| {
-                    let Subscribed::One(event, handler) = entry;
-                    (event, plugin, Handler::Made(handler))
-                })
+                self.entries[entries]
+                    .iter()
+                    .map(move |entry| (&entry.event, plugin, entry.run))
             })
+    }
+
+    /// The next subscription to `event` from `*at` on, its plugin and
+    /// handler, moving `*at` past it: the handler may then be called with
+    /// the kernel, which a borrowing iterator would hold.
+    pub(crate) fn next_of(&self, at: &mut usize, event: &Id) -> Option<(Id, crate::Hear)> {
+        while let Some(entry) = self.entries.get(*at) {
+            let index = *at;
+            *at += 1;
+            if entry.event != *event {
+                continue;
+            }
+            let mut end = 0;
+            for (plugin, count) in &self.plugins {
+                end += usize::from(*count);
+                if index < end {
+                    return Some((plugin.clone(), entry.run));
+                }
+            }
+            return None;
+        }
+        None
     }
 
     pub(crate) fn shrink_to_fit(&mut self) {
@@ -710,7 +726,8 @@ pub(crate) struct Staging {
     pub(crate) decorators: Vec<paperpaw_sdk::decorations::DecoratorSpec>,
     pub(crate) chromes: Vec<crate::ChromeSpec>,
     /// Jobs: the steps of declared work (see [`paperpaw_sdk::work`]).
-    pub(crate) works: Vec<paperpaw_sdk::work::WorkSpec>,
+    pub(crate) works: Vec<crate::work::WorkSpec>,
+    pub(crate) data_actions: Vec<DataAction>,
     pub(crate) stylesheets: Vec<Cow<'static, str>>,
     pub(crate) book_data: Vec<paperpaw_sdk::library::BookData>,
     pub(crate) services: Vec<(Id, paperpaw_sdk::services::Service)>,
@@ -845,14 +862,10 @@ impl Staging {
         )
     }
 
-    /// Stages the setting group `group` of the plugin `owner`, without
+    /// Stages the setting group `group` of a native plugin, without
     /// infallible growth.
-    pub(crate) fn native_group(
-        &mut self,
-        owner: &Id,
-        group: paperpaw_sdk::SettingGroup,
-    ) -> Result<(), i32> {
-        self.native(owner, Contribution::SettingGroup(group))
+    pub(crate) fn native_group(&mut self, group: paperpaw_sdk::SettingGroup) -> Result<(), i32> {
+        self.native(Contribution::SettingGroup(group))
     }
 
     /// Stage already decoded native contributions without infallible growth.
@@ -861,21 +874,14 @@ impl Staging {
         dead_code,
         reason = "native built-in registry adapter follows this staging primitive"
     )]
-    pub(crate) fn native(&mut self, owner: &Id, contribution: Contribution) -> Result<(), i32> {
-        use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_UNSUPPORTED};
+    pub(crate) fn native(&mut self, contribution: Contribution) -> Result<(), i32> {
+        use paperpaw_native::host_glue::ERR_UNSUPPORTED;
         match contribution {
             Contribution::Action(action) => push_native(&mut self.actions, *action),
             Contribution::Setting(setting) => {
                 push_native(&mut self.settings, Staged::Owned(setting))
             }
             Contribution::SettingGroup(group) => push_native(&mut self.setting_groups, group),
-            Contribution::Subscription { event, handler, .. } => {
-                let owner = owner.try_clone().ok_or(ERR_NO_MEMORY)?;
-                push_native(
-                    &mut self.subscriptions,
-                    (owner, Subscribed::One(event, handler)),
-                )
-            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }
@@ -984,9 +990,17 @@ pub(crate) fn stage(
         kernel_screens,
         layers,
         chromes,
+        hears,
+        works,
+        data_actions,
     } = items.into_parts();
+    staging.data_actions.extend(data_actions);
     staging.layer_screens.extend(layers);
     staging.chromes.extend(chromes);
+    staging
+        .subscriptions
+        .extend(hears.into_iter().map(|hear| (plugin.clone(), hear)));
+    staging.works.extend(works);
     for list in kernel_screens {
         staging.fixed_screens.extend(list.iter());
     }
@@ -1051,15 +1065,9 @@ pub(crate) fn stage(
                 staging.hidden_entries.push((menu, item, plugin.clone()));
             }
             Contribution::ItemState { item, state, .. } => staging.item_states.push((item, state)),
-            Contribution::Subscription { event, handler, .. } => {
-                staging
-                    .subscriptions
-                    .push((plugin.clone(), Subscribed::One(event, handler)));
-            }
             Contribution::StatusItem(item) => staging.status_items.push(*item),
             Contribution::StatusLine(line) => staging.status_lines.push(*line),
             Contribution::Decorator(decorator) => staging.decorators.push(*decorator),
-            Contribution::Work(spec) => staging.works.push(*spec),
             Contribution::Widget(widget) => staging.widgets.push(StagedWidgets::One(widget)),
             Contribution::SetupStep(step) => staging.setup_steps.push(*step),
             Contribution::Preset(preset) => staging.presets.push(*preset),
@@ -1210,9 +1218,9 @@ mod tests {
 
     #[test]
     fn subscriptions_come_back_in_order_with_their_plugins() {
-        let made = |event: &str| {
-            let handler: paperpaw_sdk::EventHandler = Box::new(|_, _, _| {});
-            Subscribed::One(Id::parse(event).unwrap(), handler)
+        let made = |event: &str| Subscribed {
+            event: Id::parse(event).unwrap(),
+            run: |_, _| {},
         };
         let id = |text: &str| Id::parse(text).unwrap();
         let mut subscriptions = Subscriptions::default();

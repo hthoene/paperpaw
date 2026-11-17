@@ -15,15 +15,13 @@
 mod common;
 
 use std::borrow::Cow;
-use std::cell::Cell;
-use std::rc::Rc;
 
 use paperpaw_core::Items;
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::presets::Preset;
 use paperpaw_sdk::{
-    ActionSpec, Command, Contribution, Event, Id, Params, Priority, RegisterError, SettingKind,
-    SettingSpec, SettingValue, SlotSpec,
+    ActionSpec, Contribution, Id, Params, Priority, RegisterError, SettingKind, SettingSpec,
+    SettingValue, SlotSpec,
 };
 
 fn setting(id: &'static str) -> SettingSpec {
@@ -168,8 +166,6 @@ fn every_kind_of_contribution_says_what_it_is() {
     r.add_translations(Cow::Borrowed("")).unwrap();
     r.provide(Id::new_static("demo.count"), Count(1), ONE)
         .unwrap();
-    r.subscribe(Id::new_static("core.book-opened"), Box::new(|_, _, _| {}))
-        .unwrap();
     let kinds: Vec<&str> = r.contributions().iter().map(Contribution::kind).collect();
     assert_eq!(
         kinds,
@@ -184,8 +180,7 @@ fn every_kind_of_contribution_says_what_it_is() {
             "setting-default",
             "to-point",
             "translations",
-            "service",
-            "subscription"
+            "service"
         ]
     );
     let ids: Vec<Option<&str>> = r
@@ -205,7 +200,7 @@ fn every_kind_of_contribution_says_what_it_is() {
         Err(RegisterError::Namespace { .. })
     ));
     assert_eq!(r.plugin(), &Id::new_static("demo"));
-    assert_eq!(r.into_contributions().len(), 12);
+    assert_eq!(r.into_contributions().len(), 11);
 }
 
 #[test]
@@ -215,28 +210,12 @@ fn typed_handlers_hear_only_what_they_can_read() {
             pub n: u32,
         }
     }
-    const COUNTED: Event<Count> = Event::new("demo.counted");
-    let heard = Rc::new(Cell::new(0));
-    let mut r = registrar();
-    let seen = heard.clone();
-    r.on(COUNTED, move |_, count, out| {
-        seen.set(seen.get() + count.n);
-        out.push(Command::Restart);
-    })
-    .unwrap();
-    let Some(Contribution::Subscription { event, handler, .. }) = r.into_contributions().pop()
-    else {
-        panic!("a subscription");
-    };
-    assert_eq!(event.as_str(), "demo.counted");
-    let h = common::Harness::new();
-    let env = h.env();
-    let mut out = paperpaw_sdk::Commands::new();
-    handler(&env, &Params::new().with("n", "5"), &mut out);
-    handler(&env, &Params::new().with("n", "five"), &mut out);
-    handler(&env, &Params::new(), &mut out);
-    assert_eq!(heard.get(), 5);
-    assert_eq!(out.as_slice(), [Command::Restart]);
+    // What a handler reads of an event (`hear::data`): what it carries as
+    // its type, nothing where that is missing or unreadable.
+    let read = |params: Params| paperpaw_core::hear::data::<Count>(&params).map(|c| c.n);
+    assert_eq!(read(Params::new().with("n", "5")), Some(5));
+    assert_eq!(read(Params::new().with("n", "five")), None);
+    assert_eq!(read(Params::new()), None);
 }
 
 #[test]
