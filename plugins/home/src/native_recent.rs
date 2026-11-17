@@ -11,7 +11,7 @@ use paperpaw_sdk::{
         library::{BookRef, Library, Query, Sort},
     },
 };
-use paperpaw_ui_kit::{mem, text::copy};
+use paperpaw_ui_kit::{SharedInputs, mem, text::copy};
 
 /// Covers a shelf holds at most (and the setting's largest count).
 pub const MOST: usize = 8;
@@ -78,6 +78,9 @@ pub struct Listing {
     /// tell the book): the catalog changes with every book read, and the
     /// host's look at the book's files costs more than a half second on the X4.
     covers: RefCell<Vec<(u32, u32, u64, Covered)>>,
+    /// The interface's settings, shared by the looks of one lay-out
+    /// ([`SharedInputs::share`]).
+    inputs: SharedInputs,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -89,6 +92,12 @@ struct Verdict {
 }
 
 impl Listing {
+    /// Where the looks made in one lay-out share the interface's settings.
+    #[must_use]
+    pub const fn inputs(&self) -> &SharedInputs {
+        &self.inputs
+    }
+
     fn gone(&self, book: &Book) -> Option<bool> {
         let title = title_hash(&book.title);
         self.held
