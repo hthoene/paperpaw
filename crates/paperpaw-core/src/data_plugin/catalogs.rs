@@ -11,7 +11,7 @@
 //! about a kilobyte of memory a language, the messages of the screen shown.
 
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use paperpaw_platform::Storage;
@@ -25,6 +25,24 @@ const DIR: &str = ".paperpaw/cache/catalogs";
 const MIN_TEXT: usize = 2048;
 /// What a compiled catalog's file begins with.
 const MAGIC: &[u8; 4] = b"PPCT";
+
+/// The catalogs in the folder `catalogs` of a plugin: the names of those
+/// given as text, the paths of the compiled ones.
+pub(super) fn names(storage: &dyn Storage, catalogs: &str) -> (Vec<String>, Vec<String>) {
+    let mut files: Vec<String> = Vec::new();
+    let mut compiled: Vec<String> = Vec::new();
+    let _ = storage.list(catalogs, &mut |entry| {
+        // `DE.INI` too: a file copied from a memory card may have it so.
+        if !entry.is_dir && paperpaw_sdk::files::has_extension(entry.name, "ini") {
+            files.push(entry.name.to_string());
+        }
+        // Read as needed, so not counted (ADR 0033).
+        if !entry.is_dir && paperpaw_sdk::files::has_extension(entry.name, "ppcat") {
+            compiled.push(format!("{catalogs}/{}", entry.name));
+        }
+    });
+    (files, compiled)
+}
 
 /// Reads the text catalogs `files` of the folder `folder` (`catalogs`: its
 /// `i18n` folder): the text of each, or, for a code plugin's larger ones,
