@@ -86,7 +86,6 @@ pub use chrome_spec::{ChromeSpec, Edge};
 mod tall_band;
 mod warning;
 pub use layer::{KernelFactory, KernelScreen, Layer, LayerFactory, LayerSpec};
-use screens::ActiveScreen;
 pub use warning::{Warning, WarningSource};
 #[cfg(test)]
 mod tests;
