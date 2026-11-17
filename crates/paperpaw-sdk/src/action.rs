@@ -7,12 +7,6 @@ use crate::env::Env;
 use crate::id::Id;
 use crate::params::Params;
 
-/// Global handler of an action, called when the active screen does not
-/// handle it, with the params it was run with
-/// ([`Command::RunAction`](crate::Command::RunAction); none from inputs),
-/// e.g. the profile to apply. It reacts by queuing commands.
-pub type ActionHandler = Box<dyn Fn(&Env<'_>, &Params, &mut crate::Commands)>;
-
 /// A command users can bind to buttons, taps and gestures.
 ///
 /// Actions without a handler are *screen actions*: their meaning depends on
@@ -31,7 +25,11 @@ pub struct ActionSpec {
     pub id: Id,
     /// Translation key of the action's display name (for key map editors).
     pub title: Cow<'static, str>,
-    pub handler: Option<ActionHandler>,
+    /// What it does where the screen shown does not take it: a plain
+    /// function, called with the params it was run with
+    /// ([`Command::RunAction`](crate::Command::RunAction); none from
+    /// inputs), e.g. the profile to apply. It reacts by queuing commands.
+    pub handler: Option<FixedHandler>,
     /// How the row of hints shows it where a screen leaves that to the
     /// action ([`Hint::Default`](crate::Hint::Default)).
     pub hint: ActionHint,
@@ -45,6 +43,8 @@ struct ActionExtra {
     description: Option<Cow<'static, str>>,
     keywords: Option<Cow<'static, str>>,
     sealed: bool,
+    /// The kernel runs it from what it keeps of it (a data plugin's steps).
+    by_kernel: bool,
 }
 
 impl ActionSpec {
@@ -66,11 +66,17 @@ impl ActionSpec {
     /// What it does where the screen shown does not take it, with the
     /// params it was run with ([`Command::RunAction`](crate::Command::RunAction);
     /// none from inputs).
-    pub fn handler(
-        mut self,
-        handler: impl Fn(&Env<'_>, &Params, &mut crate::Commands) + 'static,
-    ) -> Self {
-        self.handler = Some(Box::new(handler));
+    pub fn handler(mut self, handler: FixedHandler) -> Self {
+        self.handler = Some(handler);
+        self
+    }
+
+    /// Run by the kernel from what it keeps of it, e.g. a data plugin's
+    /// steps: it runs itself without a handler.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn run_by_kernel(mut self) -> Self {
+        self.extra().by_kernel = true;
         self
     }
 
@@ -119,7 +125,7 @@ impl ActionSpec {
 
     /// Whether it does something itself, without a screen that takes it.
     pub fn runs_itself(&self) -> bool {
-        self.handler.is_some()
+        self.handler.is_some() || self.extra.as_ref().is_some_and(|extra| extra.by_kernel)
     }
 }
 

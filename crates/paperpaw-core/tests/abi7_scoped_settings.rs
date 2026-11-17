@@ -24,13 +24,17 @@ fn read(scope: &EnvironmentScope, key: &[u8], out: &mut [u8]) -> i32 {
     // SAFETY: borrowed slices are live, exclusive/disjoint and not host state.
     unsafe { scope.settings_read(key.as_ptr(), key.len(), out.as_mut_ptr(), out.len()) }
 }
+std::thread_local! {
+    /// How often the probe ran, in the test running (a handler holds none).
+    static COUNT: std::cell::RefCell<Option<Rc<Cell<u32>>>> = const { std::cell::RefCell::new(None) };
+}
+
 fn probe(kept: Rc<Cell<u32>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         r.add_settings(&SETTINGS)?;
-        let count = kept.clone();
-        r.subscribe(
-            builtin::events::STARTED,
-            Box::new(move |env, _, _| {
+        COUNT.with(|count| *count.borrow_mut() = Some(kept.clone()));
+        r.subscribe(builtin::events::STARTED, |k, _| {
+            k.with_env(|env, _| {
                 let scope = pin!(EnvironmentScope::new());
                 let mut bytes = [0xa5; 64];
                 assert_eq!(read(&scope, b"probe.flag", &mut bytes), ERR_STATE);
@@ -78,9 +82,13 @@ fn probe(kept: Rc<Cell<u32>>) -> impl Fn(&mut Items) -> Result<(), RegisterError
                     .as_ref()
                     .scope(env, || assert!(read(&scope, b"probe.flag", &mut bytes) > 0))
                     .unwrap();
-                count.set(count.get() + 1);
-            }),
-        )
+                COUNT.with(|count| {
+                    if let Some(count) = count.borrow().as_ref() {
+                        count.set(count.get() + 1);
+                    }
+                });
+            })
+        })
     }
 }
 

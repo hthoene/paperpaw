@@ -24,7 +24,7 @@ fn test_epub(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuil
     )
     .uses(paperpaw_sdk::Uses::NOTHING);
     builder.items(manifest, |items| {
-        items.add_book_cache(Env::plugin_dir("format-epub"), "")?;
+        items.add_book_cache(paperpaw_sdk::Env::plugin_dir("format-epub"), "")?;
         items.add_format(paperpaw_sdk::FormatSpec::new(
             Id::new_static("format-epub.epub"),
             "format-epub.title",
@@ -68,13 +68,16 @@ static TAKEN: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 fn walker(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
     let manifest = Manifest::new(Id::new_static("walker"), "Walker", Version::new(1, 0, 0));
     builder.items(manifest, |items| {
-        items.on(events::STARTED, |env: &Env<'_>, _: &(), _| {
-            let _ = tallied();
-            let (read, written) = (READ.load(Relaxed), WRITTEN.load(Relaxed));
-            let mut walk = paperpaw_sdk::library::catalog::Walk::start(env, Vec::new()).unwrap();
-            while !walk.step(env).unwrap() {}
-            let (read, written) = (READ.load(Relaxed) - read, WRITTEN.load(Relaxed) - written);
-            *TAKEN.lock().unwrap() = format!("{read} r {written} w; {}", tallied());
+        items.on(events::STARTED, |k, p| {
+            k.with_event(&events::STARTED, p, |env, _, _| {
+                let _ = tallied();
+                let (read, written) = (READ.load(Relaxed), WRITTEN.load(Relaxed));
+                let mut walk =
+                    paperpaw_sdk::library::catalog::Walk::start(env, Vec::new()).unwrap();
+                while !walk.step(env).unwrap() {}
+                let (read, written) = (READ.load(Relaxed) - read, WRITTEN.load(Relaxed) - written);
+                *TAKEN.lock().unwrap() = format!("{read} r {written} w; {}", tallied());
+            });
         })
     })
 }

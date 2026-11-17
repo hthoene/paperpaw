@@ -6,7 +6,6 @@ use alloc::string::String;
 use core::fmt;
 
 use crate::action::ActionSpec;
-use crate::event::EventHandler;
 use crate::fonts::{FontFace, FontSpec};
 use crate::formats::FormatSpec;
 use crate::id::Id;
@@ -96,15 +95,9 @@ pub enum Contribution {
         item: Id,
         state: crate::ItemStateFn,
     },
-    Subscription {
-        event: Id,
-        handler: EventHandler,
-    },
     StatusItem(Box<StatusItemSpec>),
     StatusLine(Box<StatusLineSpec>),
     Decorator(Box<crate::decorations::DecoratorSpec>),
-    /// A job: work done in steps (see [`work`](crate::work)).
-    Work(Box<crate::work::WorkSpec>),
     Widget(Box<WidgetSpec>),
     SetupStep(Box<SetupStepSpec>),
     /// A preset made at start (see [`presets`](crate::presets)).
@@ -158,11 +151,9 @@ impl Contribution {
             Contribution::MenuNeed { .. } => "menu-need",
             Contribution::HideMenuEntry { .. } => "hidden-menu-entry",
             Contribution::ItemState { .. } => "item-state",
-            Contribution::Subscription { .. } => "subscription",
             Contribution::StatusItem(_) => "status-item",
             Contribution::StatusLine(_) => "status-line",
             Contribution::Decorator(_) => "decorator",
-            Contribution::Work(_) => "work",
             Contribution::Widget(_) => "widget",
             Contribution::SetupStep(_) => "setup-step",
             Contribution::Preset(_) | Contribution::FixedPresets(_) => "preset",
@@ -193,7 +184,6 @@ impl Contribution {
             Contribution::StatusItem(i) => &i.id,
             Contribution::StatusLine(l) => &l.id,
             Contribution::Decorator(d) => &d.id,
-            Contribution::Work(w) => &w.id,
             Contribution::Widget(w) => &w.id,
             Contribution::SetupStep(s) => &s.id,
             Contribution::Preset(p) => &p.id,

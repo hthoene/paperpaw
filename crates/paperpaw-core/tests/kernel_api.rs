@@ -22,7 +22,7 @@ use paperpaw_core::Items;
 use paperpaw_core::sdk::builtin::{events, slots};
 use paperpaw_core::sdk::secrets::{FILE as SECRETS, SecretChange};
 use paperpaw_core::sdk::{
-    Battery, DirEntry, Manifest, MemoryStorage, Params, RegisterError, Storage, StorageError,
+    Battery, DirEntry, Id, Manifest, MemoryStorage, Params, RegisterError, Storage, StorageError,
     SystemStatus, WallClock,
 };
 use paperpaw_core::{Kernel, KernelBuilder};
@@ -37,22 +37,60 @@ struct Listener {
 
 fn listener(kept: Listener) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        for event in [
-            events::STARTED.id().clone(),
-            events::STATUS_CHANGED.id().clone(),
-            events::BATTERY_MEASURED.id().clone(),
-            events::SUSPEND.id().clone(),
-            events::RESUME.id().clone(),
-            events::STOPPING.id().clone(),
-        ] {
-            let log = kept.harness.log.clone();
-            r.subscribe(
-                event.clone(),
-                Box::new(move |_, _, _| log.borrow_mut().push(format!("heard {event}"))),
-            )?;
+        logs_into("listener", &kept.harness.log);
+        let hears: [(Id, paperpaw_core::Hear); 6] = [
+            (events::STARTED.id().clone(), |_, _| {
+                note("listener", format!("heard {}", events::STARTED.id()))
+            }),
+            (events::STATUS_CHANGED.id().clone(), |_, _| {
+                note("listener", format!("heard {}", events::STATUS_CHANGED.id()))
+            }),
+            (events::BATTERY_MEASURED.id().clone(), |_, _| {
+                note(
+                    "listener",
+                    format!("heard {}", events::BATTERY_MEASURED.id()),
+                )
+            }),
+            (events::SUSPEND.id().clone(), |_, _| {
+                note("listener", format!("heard {}", events::SUSPEND.id()))
+            }),
+            (events::RESUME.id().clone(), |_, _| {
+                note("listener", format!("heard {}", events::RESUME.id()))
+            }),
+            (events::STOPPING.id().clone(), |_, _| {
+                note("listener", format!("heard {}", events::STOPPING.id()))
+            }),
+        ];
+        for (event, run) in hears {
+            r.subscribe(event, run)?;
         }
         Ok(())
     }
+}
+
+std::thread_local! {
+    /// The logs of the test running by plugin: its handlers are plain
+    /// functions and hold none.
+    static LOGS: std::cell::RefCell<Vec<(&'static str, common::Log)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Makes `log` the one plugin `plugin`'s handlers write to.
+fn logs_into(plugin: &'static str, log: &common::Log) {
+    LOGS.with(|logs| {
+        let mut logs = logs.borrow_mut();
+        logs.retain(|(of, _)| *of != plugin);
+        logs.push((plugin, log.clone()));
+    });
+}
+
+/// Writes `line` to plugin `plugin`'s log.
+fn note(plugin: &str, line: String) {
+    LOGS.with(|logs| {
+        if let Some((_, log)) = logs.borrow().iter().find(|(of, _)| *of == plugin) {
+            log.borrow_mut().push(line);
+        }
+    });
 }
 
 /// What [`listener`] registers under.
@@ -665,11 +703,14 @@ fn focused(kept: Focused) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             },
         ))?;
         r.bind_slot(slots::HOME, screen, paperpaw_core::sdk::Priority(1000))?;
-        let heard = kept.heard.clone();
-        r.on(events::FOCUS_CHANGED, move |_, focus, _| {
-            heard
-                .borrow_mut()
-                .push(format!("{} {} {}", focus.role, focus.label, focus.y));
+        logs_into("focused", &kept.heard);
+        r.on(events::FOCUS_CHANGED, |_, p| {
+            if let Some(focus) = paperpaw_core::hear::data::<events::FocusChanged>(p) {
+                note(
+                    "focused",
+                    format!("{} {} {}", focus.role, focus.label, focus.y),
+                );
+            }
         })
     }
 }
@@ -735,11 +776,13 @@ struct Spy {
 
 fn spy(kept: Spy) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        let heard = kept.heard.clone();
+        logs_into("spy", &kept.heard);
         r.on(
             paperpaw_core::sdk::builtin::events::SETTING_TYPED,
-            move |_, typed, _| {
-                heard.borrow_mut().push(typed.text.clone());
+            |_, p| {
+                if let Some(typed) = paperpaw_core::hear::data::<paperpaw_core::sdk::Typed>(p) {
+                    note("spy", typed.text.clone());
+                }
             },
         )
     }
@@ -842,64 +885,67 @@ fn vault_items(kept: Vault) -> impl Fn(&mut Items) -> Result<(), RegisterError> 
             r.add_settings(&VAULT_SETTINGS)?;
             r.subscribe(
                 paperpaw_core::sdk::Id::new_static("vault.forget"),
-                Box::new(|_, _, out| {
-                    out.push(paperpaw_core::sdk::Command::ResetSetting(
-                        paperpaw_core::sdk::Id::new_static("vault.key"),
-                    ));
-                }),
+                |k, _| {
+                    k.with_env(|_, out| {
+                        out.push(paperpaw_core::sdk::Command::ResetSetting(
+                            paperpaw_core::sdk::Id::new_static("vault.key"),
+                        ));
+                    });
+                },
             )?;
-            r.subscribe(
-                paperpaw_core::sdk::Id::new_static("vault.ask"),
-                Box::new(|_, _, out| out.push(ask_keyboard("vault.key"))),
-            )?;
+            r.subscribe(paperpaw_core::sdk::Id::new_static("vault.ask"), |k, _| {
+                k.with_env(|_, out| out.push(ask_keyboard("vault.key")));
+            })?;
         }
         if kept.name == "spy" {
             // Tries to overwrite the vault's secret: set, typed for, reset.
-            r.subscribe(
-                paperpaw_core::sdk::Id::new_static("spy.try"),
-                Box::new(|_, _, out| {
-                    use paperpaw_core::sdk::builtin::params;
-                    use paperpaw_core::sdk::event::EventData;
-                    let key = paperpaw_core::sdk::Id::new_static("vault.key");
-                    out.push(paperpaw_core::sdk::Command::SetSetting(
-                        key.clone(),
-                        paperpaw_core::sdk::SettingValue::Text("spy-set".into()),
-                    ));
-                    let typed = paperpaw_core::sdk::Typed::new(
-                        "spy-typed",
-                        Params::new().with(params::ID, "vault.key"),
-                    );
-                    out.push(paperpaw_core::sdk::Command::Emit(
-                        events::SETTING_TYPED.id().clone(),
-                        typed.to_params(),
-                    ));
-                    out.push(paperpaw_core::sdk::Command::ResetSetting(key));
-                    // Asked of the keyboard, read from the clipboard, for
-                    // the secret and for the guarded setting.
-                    for id in ["vault.key", "vault.pin"] {
-                        out.push(ask_keyboard(id));
-                        out.push(paperpaw_core::sdk::Command::SetClipboard("spy-clip".into()));
-                        out.push(paperpaw_core::sdk::Command::ReadClipboard(
+            r.subscribe(paperpaw_core::sdk::Id::new_static("spy.try"), |k, _| {
+                k.with_env(|_, out| {
+                    {
+                        use paperpaw_core::sdk::builtin::params;
+                        use paperpaw_core::sdk::event::EventData;
+                        let key = paperpaw_core::sdk::Id::new_static("vault.key");
+                        out.push(paperpaw_core::sdk::Command::SetSetting(
+                            key.clone(),
+                            paperpaw_core::sdk::SettingValue::Text("spy-set".into()),
+                        ));
+                        let typed = paperpaw_core::sdk::Typed::new(
+                            "spy-typed",
+                            Params::new().with(params::ID, "vault.key"),
+                        );
+                        out.push(paperpaw_core::sdk::Command::Emit(
                             events::SETTING_TYPED.id().clone(),
-                            Params::new().with(params::ID, id),
+                            typed.to_params(),
+                        ));
+                        out.push(paperpaw_core::sdk::Command::ResetSetting(key));
+                        // Asked of the keyboard, read from the clipboard, for
+                        // the secret and for the guarded setting.
+                        for id in ["vault.key", "vault.pin"] {
+                            out.push(ask_keyboard(id));
+                            out.push(paperpaw_core::sdk::Command::SetClipboard("spy-clip".into()));
+                            out.push(paperpaw_core::sdk::Command::ReadClipboard(
+                                events::SETTING_TYPED.id().clone(),
+                                Params::new().with(params::ID, id),
+                            ));
+                        }
+                        let typed = paperpaw_core::sdk::Typed::new(
+                            "spy-typed",
+                            Params::new().with(params::ID, "vault.pin"),
+                        );
+                        out.push(paperpaw_core::sdk::Command::Emit(
+                            events::SETTING_TYPED.id().clone(),
+                            typed.to_params(),
                         ));
                     }
-                    let typed = paperpaw_core::sdk::Typed::new(
-                        "spy-typed",
-                        Params::new().with(params::ID, "vault.pin"),
-                    );
-                    out.push(paperpaw_core::sdk::Command::Emit(
-                        events::SETTING_TYPED.id().clone(),
-                        typed.to_params(),
-                    ));
-                }),
-            )?;
+                });
+            })?;
         }
-        let (name, heard) = (kept.name, kept.heard.clone());
-        r.subscribe(
-            events::SETTING_CHANGED.id().clone(),
-            Box::new(move |_, params, _| heard.borrow_mut().push(format!("{name} {params:?}"))),
-        )
+        logs_into(kept.name, &kept.heard);
+        let run: paperpaw_core::Hear = match kept.name {
+            "vault" => |_, params| note("vault", format!("vault {params:?}")),
+            _ => |_, params| note("spy", format!("spy {params:?}")),
+        };
+        r.subscribe(events::SETTING_CHANGED.id().clone(), run)
     }
 }
 

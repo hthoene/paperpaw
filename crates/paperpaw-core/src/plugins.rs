@@ -424,6 +424,10 @@ impl Kernel {
         for spec in staging.works.drain(..) {
             self.works.add_spec(spec);
         }
+        for action in staging.data_actions.drain(..) {
+            self.data_actions.retain(|kept| kept.id != action.id);
+            self.data_actions.push(action);
+        }
         Ok(())
     }
 

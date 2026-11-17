@@ -1,6 +1,8 @@
 //! The network policy of the native services in a kernel with `core.net`
 //! wired: closed until the kernel has filled it, and as current as the user's
 //! last decision for the very next callback of a plugin.
+extern crate std;
+
 use super::*;
 use crate::native_host::{
     net_policy::NetPolicy,
@@ -38,14 +40,11 @@ impl ShellNetwork for Nothing {
     fn network_demand(&self, _: bool) {}
 }
 
-type Seen = Rc<RefCell<Option<Rc<NetPolicy>>>>;
-
 /// A plugin that uses the network and, whenever a setting changes, notes what
 /// the services would answer it at that moment (what its own next request in
 /// that callback would meet).
 struct Asker {
     id: &'static str,
-    policy: Seen,
     log: Log,
 }
 
@@ -57,59 +56,65 @@ fn asker_manifest(id: &'static str) -> Manifest {
 
 fn asker(kept: Asker) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        let (policy, log) = (kept.policy.clone(), kept.log.clone());
-        // The very first thing a plugin hears: what it would meet then.
-        let id = kept.id;
-        // What the network manager hears of the demand.
-        for (event, what) in [
-            (
-                paperpaw_sdk::builtin::events::NETWORK_WANTED.id().clone(),
-                "wanted",
-            ),
-            (
-                paperpaw_sdk::builtin::events::NETWORK_IDLE.id().clone(),
-                "idle",
-            ),
-        ] {
-            let log = log.clone();
-            r.subscribe(
-                event,
-                Box::new(move |_, _, _| log.borrow_mut().push(alloc::format!("{id} {what}"))),
-            )?;
+        crate::tests::hear_into(&kept.log);
+        use paperpaw_sdk::builtin::events;
+        // What the network manager hears of the demand; the very first
+        // thing a plugin hears: what it would meet then.
+        let hears: [(Id, crate::Hear); 3] = match kept.id {
+            "wk" => [
+                (events::NETWORK_WANTED.id().clone(), |_, _| {
+                    crate::tests::heard("wk wanted")
+                }),
+                (events::NETWORK_IDLE.id().clone(), |_, _| {
+                    crate::tests::heard("wk idle")
+                }),
+                (events::STARTED.id().clone(), |_, _| started("wk")),
+            ],
+            _ => [
+                (events::NETWORK_WANTED.id().clone(), |_, _| {
+                    crate::tests::heard("ok wanted")
+                }),
+                (events::NETWORK_IDLE.id().clone(), |_, _| {
+                    crate::tests::heard("ok idle")
+                }),
+                (events::STARTED.id().clone(), |_, _| started("ok")),
+            ],
+        };
+        for (event, run) in hears {
+            r.subscribe(event, run)?;
         }
-        let (first_policy, first_log) = (policy.clone(), log.clone());
-        r.subscribe(
-            paperpaw_sdk::builtin::events::STARTED.id().clone(),
-            Box::new(move |_, _, _| {
-                let end = first_policy
-                    .borrow()
-                    .as_ref()
-                    .and_then(|p| p.end_for(id, false))
-                    .map(|e| e.reason);
-                first_log
-                    .borrow_mut()
-                    .push(alloc::format!("{id} started {end:?}"));
-            }),
-        )?;
-        if id != "wk" {
+        if kept.id != "wk" {
             return Ok(());
         }
-        r.subscribe(
-            paperpaw_sdk::builtin::events::SETTING_CHANGED.id().clone(),
-            Box::new(move |_, params, _| {
-                if params.get(paperpaw_sdk::builtin::params::ID) != Some("core.network.wk") {
-                    return;
-                }
-                let end = policy
-                    .borrow()
-                    .as_ref()
-                    .and_then(|p| p.end_for("wk", false))
-                    .map(|e| e.reason);
-                log.borrow_mut().push(alloc::format!("{end:?}"));
-            }),
-        )?;
+        r.subscribe(events::SETTING_CHANGED.id().clone(), |_, params| {
+            if params.get(paperpaw_sdk::builtin::params::ID) != Some("core.network.wk") {
+                return;
+            }
+            crate::tests::heard(alloc::format!("{:?}", end_for("wk")));
+        })?;
         Ok(())
     }
+}
+
+std::thread_local! {
+    /// The services' policy the plugins of the test running would meet.
+    static POLICY: RefCell<Option<Rc<NetPolicy>>> = const { RefCell::new(None) };
+}
+
+/// Why the services would end a request of `id` now.
+fn end_for(id: &str) -> Option<u32> {
+    POLICY.with(|policy| {
+        policy
+            .borrow()
+            .as_ref()
+            .and_then(|p| p.end_for(id, false))
+            .map(|e| e.reason)
+    })
+}
+
+/// Notes what `id` would meet as it hears that the kernel started.
+fn started(id: &str) {
+    crate::tests::heard(alloc::format!("{id} started {:?}", end_for(id)));
 }
 
 /// A kernel with the plugins `wk` and `ok` over `storage`, `core.net` wired
@@ -123,13 +128,12 @@ pub(super) fn booting_with(
     storage: impl paperpaw_platform::Storage + 'static,
     wifi: bool,
 ) -> (Kernel, Rc<NetPolicy>, Log) {
-    let (log, seen) = (log(), Seen::default());
+    let log = log();
     let mut kernel = Kernel::builder(DEVICE)
         .items(
             asker_manifest("wk"),
             asker(Asker {
                 id: "wk",
-                policy: seen.clone(),
                 log: log.clone(),
             }),
         )
@@ -137,7 +141,6 @@ pub(super) fn booting_with(
             asker_manifest("ok"),
             asker(Asker {
                 id: "ok",
-                policy: seen.clone(),
                 log: log.clone(),
             }),
         )
@@ -163,7 +166,7 @@ pub(super) fn booting_with(
     let resources = kernel.shared.native_instances.test_resources().unwrap();
     resources.wire(HostWiring::new().net(net)).unwrap();
     let policy = resources.hosts().policy().clone();
-    *seen.borrow_mut() = Some(policy.clone());
+    POLICY.with(|seen| *seen.borrow_mut() = Some(policy.clone()));
     (kernel, policy, log)
 }
 

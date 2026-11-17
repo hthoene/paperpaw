@@ -365,10 +365,13 @@ pub(super) struct Store {
 pub(super) fn store(kept: Store) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         use paperpaw_sdk::builtin::events;
-        let log = kept.log.clone();
-        r.on(events::PLUGINS_ANSWERED, move |_, answer, _| {
+        crate::tests::hear_into(&kept.log);
+        r.on(events::PLUGINS_ANSWERED, |_, p| {
+            let Some(answer) = crate::hear::data::<events::PluginsAnswered>(p) else {
+                return;
+            };
             let ids = |list: Vec<Id>| list.iter().map(Id::as_str).collect::<Vec<_>>().join(",");
-            log.borrow_mut().push(alloc::format!(
+            crate::tests::heard(alloc::format!(
                 "{} got [{}] not [{}] declined {} error {:?}",
                 answer.by,
                 ids(answer.installed_ids().collect()),
@@ -380,11 +383,11 @@ pub(super) fn store(kept: Store) -> impl Fn(&mut Items) -> Result<(), RegisterEr
         if !kept.installs {
             return Ok(());
         }
-        let log = kept.log.clone();
-        r.on(events::PLUGINS_REQUESTED, move |_, asked, _| {
-            let ids: Vec<String> = asked.ids().map(|id| id.to_string()).collect();
-            log.borrow_mut()
-                .push(alloc::format!("{} asks {}", asked.by, ids.join(",")));
+        r.on(events::PLUGINS_REQUESTED, |_, p| {
+            if let Some(asked) = crate::hear::data::<events::PluginsRequested>(p) {
+                let ids: Vec<String> = asked.ids().map(|id| id.to_string()).collect();
+                crate::tests::heard(alloc::format!("{} asks {}", asked.by, ids.join(",")));
+            }
         })
     }
 }
