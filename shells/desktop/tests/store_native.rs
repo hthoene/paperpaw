@@ -810,7 +810,7 @@ fn german_card() -> MemoryStorage {
 fn german_page(shop: &mut Shop) -> (bool, String, Vec<u8>) {
     shop.keys("open:reader.screen:path=books/die-verwandlung.epub");
     shop.settle(4000);
-    let asked = shop.screen() == "core.confirm-dialog";
+    let asked = shop.screen() == "keyboard.ask";
     if asked {
         let dialog = shop.shown();
         assert!(dialog.contains("hyphenation-de"), "{dialog}");

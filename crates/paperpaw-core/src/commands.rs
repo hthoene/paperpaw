@@ -441,7 +441,11 @@ impl Kernel {
                     command_name(&command)
                 ));
             }
-            Command::OpenSlot(slot, params) => self.open_slot_command(slot, None, params),
+            Command::OpenSlot(slot, params) => {
+                if !self.ask_kernel(&slot, &params) {
+                    self.open_slot_command(slot, None, params);
+                }
+            }
             Command::OpenInSlot(slot, screen, params) => {
                 self.open_slot_command(slot, Some(screen), params);
             }

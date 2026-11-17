@@ -234,7 +234,7 @@ impl Wiped {
 }
 
 /// The owner of what the host made itself (no plugin has this key).
-const HOST_OWNER: u64 = u64::MAX;
+pub(crate) const HOST_OWNER: u64 = u64::MAX;
 /// Whether `owner` is the host's own key (no plugin's).
 pub(crate) const fn is_host_owner(owner: u64) -> bool {
     owner == HOST_OWNER
@@ -314,8 +314,6 @@ pub(super) struct Inner {
     pub(super) secret_memory: usize,
     /// The questions kept.
     pub(super) question_memory: usize,
-    /// Answers of a host dialog the store did not take, not yet logged.
-    pub(super) refused: u32,
     /// The clipboard (`core.ui` ops 18 and 19).
     pub(super) clipboard: super::ui_clipboard::ClipboardState,
 }
@@ -473,7 +471,6 @@ impl UiStore {
                 text_memory: 0,
                 secret_memory: 0,
                 question_memory: 0,
-                refused: 0,
                 clipboard: super::ui_clipboard::ClipboardState::default(),
             }),
         }

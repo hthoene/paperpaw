@@ -2670,6 +2670,7 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-plugin-keyboard",
  "paperpaw-qr",
  "paperpaw-sdk",
  "paperpaw-ui-kit",

@@ -256,7 +256,8 @@ Heading "Display · More" at 0,0 480x58
 Row "Flash on screen change, Redraw fully when a screen opens: no traces of, the last one, but slower." (on) at 0,75 480x125
 Row "Full refresh in menus, 0, A flash after this many menu changes removes, ghosting; 0 never flashes." at 0,200 480x125
 Row "Reset to defaults" (focused) at 0,325 480x61
-Text "Settings" at 35,555 445x61
+Dialog "" at 0,541 480x214
+Heading "Settings" at 0,564 480x52
 Row "Yes, reset" (focused) at 0,616 480x61
 Row "Cancel" at 0,677 480x61
 Text "Back" at 39,758 97x42
@@ -386,7 +387,8 @@ Button "Edit" at 384,694 61x61
 Text "<time>"
 Text "<date>"
 Text "<time>"
-Text "Power" at 35,494 445x61
+Dialog "" at 0,480 480x275
+Heading "Power" at 0,503 480x52
 Row "Sleep" (focused) at 0,555 480x61
 Row "Switch off" at 0,616 480x61
 Row "Restart" at 0,677 480x61

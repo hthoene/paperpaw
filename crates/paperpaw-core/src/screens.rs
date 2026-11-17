@@ -747,7 +747,17 @@ impl Kernel {
     }
 
     fn cleanup_ui_instance(&mut self, instance: u32) {
-        if let Err(status) = self.native_instance_closed(instance) {
+        let closed = self.native_instance_closed(instance);
+        // The kernel's own question answered on it: its reply goes now.
+        if let Some(store) = self
+            .shared
+            .native_instances
+            .ui_services()
+            .and_then(|ui| ui.store.try_clone())
+        {
+            self.kernel_question_closed(&store, instance);
+        }
+        if let Err(status) = closed {
             if status == paperpaw_native::host_glue::ERR_BUSY {
                 if let Err(error) = self.shared.stack_rows.retry_cleanup(instance) {
                     self.shared.stack_rows.note_close_error(error);

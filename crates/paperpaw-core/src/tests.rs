@@ -3201,6 +3201,7 @@ fn overlays_leave_the_rows_they_do_not_cover() {
 }
 
 mod action_runs;
+mod bluetooth_pairing;
 mod busy_mark;
 mod card_hints;
 mod chrome;
@@ -3230,6 +3231,7 @@ mod open_with;
 mod panes;
 mod pictures_in_grays;
 mod plugins_loaded;
+pub(crate) mod questions;
 mod realtime;
 mod refreshes;
 mod resizing;

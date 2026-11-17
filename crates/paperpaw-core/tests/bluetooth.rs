@@ -1,9 +1,9 @@
 //! Bluetooth with the real kernel (ADR 0027): a plugin that declares it
-//! scans, connects and subscribes; one that does not is refused; pairing
-//! asks the reader in the kernel's own question, whose answer only counts
-//! with the question's number, and the bond is kept with the secrets; a
+//! scans, connects and subscribes; one that does not is refused; a
 //! bonded remote's keys run what the key maps bind; a closed screen and
-//! sleep end what was asked.
+//! sleep end what was asked. (Pairing, which asks the reader in the
+//! kernel's own question, is tested with the kernel's unit tests:
+//! `src/tests/bluetooth_pairing.rs`.)
 
 #![allow(
     clippy::unwrap_used,
@@ -19,12 +19,11 @@ use paperpaw_core::sdk::bluetooth::{
     self, BtEvent, DeviceId, Handle, ScanPower, Security, Uuid, ValueKind,
 };
 use paperpaw_core::sdk::builtin::{actions, slots};
-use paperpaw_core::sdk::replies::Confirmed;
 use paperpaw_core::sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Event, EventData, Handled, Id, Manifest, MemoryStorage,
-    Params, Priority, RegisterError, Uses, Version,
+    ActionSpec, Canvas, Command, Cx, Env, Event, Handled, Id, Manifest, MemoryStorage, Priority,
+    RegisterError, Uses, Version,
 };
-use paperpaw_core::{BtCall, BtReport, Found, Io, Kernel, PairQuestion};
+use paperpaw_core::{BtCall, BtReport, Found, Io, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
@@ -43,8 +42,6 @@ const GO: Id = Id::new_static("pulse.go");
 const OTHER_GO: Id = Id::new_static("other.go");
 const OTHER_FOUND: Event<BtEvent> = Event::new("other.found");
 const HOME: Id = Id::new_static("pulse.home");
-const ASK: Id = Id::new_static("pulse.ask");
-const ANSWERED: &str = "core.bluetooth-pair-answered";
 
 type Queue = Rc<RefCell<Vec<Command>>>;
 type Log = Rc<RefCell<Vec<String>>>;
@@ -152,21 +149,6 @@ fn pulse(kept: Pulse) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
                 }),
             ))?;
             r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)?;
-            let log = kept.log.clone();
-            r.add_layer(paperpaw_core::LayerSpec::new(
-                ASK,
-                "ask",
-                Box::new(move |_, params| {
-                    let told: Vec<String> =
-                        params.iter().map(|(k, v)| format!("{k}={v}")).collect();
-                    log.borrow_mut().push(format!("asked {}", told.join(" ")));
-                    Box::new(Logged {
-                        name: "ask",
-                        log: log.clone(),
-                    })
-                }),
-            ))?;
-            r.bind_slot(slots::CONFIRM, ASK, Priority::DEFAULT)?;
         }
         Ok(())
     }
@@ -347,89 +329,6 @@ fn another_plugin_cannot_use_a_device_it_did_not_find() {
             .calls()
             .iter()
             .any(|c| matches!(c, BtCall::Connect { .. }))
-    );
-}
-
-#[test]
-fn the_pairing_question_closes_when_the_link_drops() {
-    let mut test = Test::new();
-    let belt = test.belt();
-    let link = test.link(belt);
-    test.run(GO, [bluetooth::pair(belt)]);
-    test.report(BtReport::Ask {
-        link,
-        question: PairQuestion::Show(123_456),
-    });
-    assert_eq!(test.kernel.active_screen(), Some(&ASK));
-    test.report(BtReport::Disconnected { link, reason: None });
-    assert_ne!(
-        test.kernel.active_screen(),
-        Some(&ASK),
-        "the question closed"
-    );
-}
-
-#[test]
-fn pairing_asks_the_reader_and_keeps_the_bond() {
-    let mut test = Test::new();
-    let belt = test.belt();
-    let link = test.link(belt);
-    test.run(GO, [bluetooth::pair(belt)]);
-    assert!(test.calls().contains(&BtCall::Pair { link }));
-    test.report(BtReport::Ask {
-        link,
-        question: PairQuestion::Compare(123_456),
-    });
-    // The kernel asks, in its own words.
-    let heard = test.heard();
-    let asked = heard
-        .iter()
-        .find(|h| h.starts_with("asked"))
-        .expect("asked");
-    assert!(
-        asked.contains("Pair with Belt?") && asked.contains("123456"),
-        "{asked}"
-    );
-    let context = |nonce: &str| {
-        let nonce = nonce.to_string();
-        let mut context = Params::new().with("device", "1");
-        context.set("nonce", nonce);
-        Confirmed::new(true, context).to_params()
-    };
-    // An answer without the question's number does nothing.
-    let at = test.at();
-    test.kernel
-        .send_event(at, Id::new_static(ANSWERED), context("1"));
-    assert!(
-        !test
-            .calls()
-            .iter()
-            .any(|c| matches!(c, BtCall::Answer { .. }))
-    );
-    let nonce = asked
-        .split(' ')
-        .find_map(|p| p.strip_prefix("nonce="))
-        .expect("its number");
-    let at = test.at();
-    test.kernel
-        .send_event(at, Id::new_static(ANSWERED), context(nonce));
-    assert!(
-        test.calls()
-            .contains(&BtCall::Answer { link, accept: true })
-    );
-    test.report(BtReport::Paired {
-        link,
-        keys: "ab12".into(),
-    });
-    assert!(test.heard().iter().any(|h| h.contains("Paired")));
-    let kept = test
-        .kernel
-        .secrets()
-        .get("core.bluetooth.1")
-        .unwrap_or_default();
-    assert!(
-        kept.starts_with("11:22\tBelt\t") && kept.ends_with("\tpulse\tab12"),
-        "{kept}"
     );
 }
 

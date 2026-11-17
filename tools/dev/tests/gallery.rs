@@ -130,8 +130,6 @@ fn the_ui_kit_shows_every_page() {
         "ticks",
         "chips",
         "pickers",
-        "choice",
-        "confirm",
     ] {
         let page = screens.join(format!("ui-kit.{page}.html"));
         assert!(page.is_file(), "{}", page.display());

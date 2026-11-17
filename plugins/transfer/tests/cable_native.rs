@@ -337,6 +337,15 @@ impl Computer {
             SERVICES,
         )
         .expect("the host admits the plugin");
+        // The dialog plugin, whose question the reader answers (#293).
+        hosted::also(
+            &mut device,
+            paperpaw_plugin_keyboard::NATIVE_ENTRY.entry(),
+            "keyboard",
+            &["core.device", "core.registry", "core.ui"],
+            paperpaw_core::native_host::FixedTables::NONE,
+        )
+        .expect("the host admits the keyboard");
         let effects = device.kernel().start(Instant(0));
         let mut computer = Self {
             device,

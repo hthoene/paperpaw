@@ -783,11 +783,10 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
     }
     // Choosing the items or lines of a status line, for any setting;
     // lists of widgets above each other (the sleep screen's) edited,
-    // unless a plugin fills the slot; the choice and the yes or no
-    // question every plugin asks (`ask::choice`, `ask::confirm`), unless
-    // another screen fills the slot; a folder for a setting: the folder
-    // chooser's, whichever plugin fills its slot.
-    static SCREENS: [crate::KernelScreen; 12] = [
+    // unless a plugin fills the slot; a folder for a setting: the folder
+    // chooser's, whichever plugin fills its slot. The choice and the yes or
+    // no question are the dialog plugin's (`core.choice`, `core.confirm`).
+    static SCREENS: [crate::KernelScreen; 10] = [
         crate::KernelScreen::new(
             screens::STATUS_ITEMS,
             "core.status.choose",
@@ -813,12 +812,6 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
             "core.widgets.edit.add-to-list",
             |env, params| Box::new(crate::stock::widget_list::AddScreen::open(env, params)),
         ),
-        crate::KernelScreen::new(screens::CHOICE, "core.choice", |env, params| {
-            Box::new(crate::stock::choice::Choice::new(env, params))
-        }),
-        crate::KernelScreen::new(screens::CONFIRM, "core.confirm.screen", |env, params| {
-            Box::new(crate::stock::confirm::Confirm::new(env, params))
-        }),
         crate::KernelScreen::new(notice::SCREEN, notice::TITLE, |env, params| {
             Box::new(notice::Notice::new(env, params))
         }),
@@ -860,8 +853,6 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
     ];
     r.add_kernel_screens(&SCREENS)?;
     r.bind_slot(slots::EDIT_WIDGETS, screens::WIDGET_LIST, Priority::DEFAULT)?;
-    r.bind_slot(slots::CHOICE, screens::CHOICE, Priority::FALLBACK)?;
-    r.bind_slot(slots::CONFIRM, screens::CONFIRM, Priority::FALLBACK)?;
     // Notices are the host's (`docs/abi/ui.md`, *Messages*) where no plugin
     // shows them its own way (#257).
     r.bind_slot(slots::NOTICE, notice::SCREEN, Priority::FALLBACK)?;

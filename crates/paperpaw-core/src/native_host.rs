@@ -294,6 +294,8 @@ pub(crate) mod image_pump;
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
+#[path = "native_host/kernel_asks.rs"]
+pub(crate) mod kernel_asks;
 pub(crate) mod lib_changed;
 pub(crate) mod lib_cover;
 #[allow(

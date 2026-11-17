@@ -87,10 +87,6 @@ impl crate::Kernel {
         else {
             return false;
         };
-        // Answers a host dialog could not give are told of in the log.
-        for _ in 0..store.take_refused() {
-            self.warn_runtime("a host dialog's answer was not taken; the question was cancelled");
-        }
         // The kernel's clipboard is the store's (once); a text op 18 committed
         // goes out to the system (`Io::Copy`); a text left begun by a callback
         // that returned is dropped.
@@ -147,6 +143,8 @@ impl crate::Kernel {
             }
             more |= store.has_delivery(owner);
         }
+        // The kernel's own questions are answered at their dialog's close
+        // (`kernel_asks`).
         more
     }
 
@@ -250,10 +248,21 @@ impl crate::Kernel {
     /// went: up (`open`) or `not_started`. The guard's own question opens above
     /// the guard and is marked as its dialog; any other plugin's under a guard
     /// opens below it and waits there (`ui.md` 4.3), as every screen it opens.
+    fn dialog_open(&mut self, store: &super::ui_store::UiStore, start: &super::ui_requests::Start) {
+        self.dialog_open_with(store, start, Params::new());
+    }
+
+    /// [`Self::dialog_open`] with `params` the dialog keeps besides its
+    /// request and kind (the kernel's own question's, see `kernel_asks`).
     // Its own frame: its locals are not on the stack while the pump calls
     // the plugins (#250).
     #[inline(never)]
-    fn dialog_open(&mut self, store: &super::ui_store::UiStore, start: &super::ui_requests::Start) {
+    pub(super) fn dialog_open_with(
+        &mut self,
+        store: &super::ui_store::UiStore,
+        start: &super::ui_requests::Start,
+        params: Params,
+    ) {
         let (Some(slot), Some(request), Some(kind)) = (
             slot_of(start.kind, start.remote),
             decimal(start.request),
@@ -262,50 +271,9 @@ impl crate::Kernel {
             let _ = store.dialog_failed(start.request);
             return;
         };
-        // The host's own choice and confirm dialogs answer the store directly
-        // (`dialogs`): the slot resolves to their screen, and the dialog is made
-        // from the question as the store holds it. Any other screen reads the
-        // question from the store with op 2. Kinds 0 and 3 have no host
-        // dialog: with no dialog plugin they end as cancelled.
-        let host = matches!(start.kind, 1 | 2)
-            && self
-                .shared
-                .registry
-                .resolve_slot(slot.as_str())
-                .is_some_and(|id| {
-                    *id == paperpaw_sdk::builtin::screens::CHOICE
-                        || *id == paperpaw_sdk::builtin::screens::CONFIRM
-                });
-        // Made before the open, every copy fallible: with no memory for the
-        // dialog nothing opens, and the request ends as not started (an SDK
-        // screen left on the slot would answer nothing).
-        let (asked, shared) = if host {
-            let asked = store
-                .starting_question(start.request, |shown| {
-                    super::dialogs::Asked::copy(
-                        shown.kind,
-                        shown.flags,
-                        shown.title,
-                        shown.text,
-                        shown.choices,
-                    )
-                })
-                .ok()
-                .flatten();
-            let shared = self
-                .shared
-                .native_instances
-                .ui_services()
-                .and_then(|ui| ui.store.try_clone());
-            let (Some(asked), Some(shared)) = (asked, shared) else {
-                let _ = store.dialog_failed(start.request);
-                return;
-            };
-            (Some(asked), Some(shared))
-        } else {
-            (None, None)
-        };
-        let params = Params::new()
+        // The dialog reads the question from the store with op 2; with no
+        // dialog plugin on the slot the question ends as cancelled.
+        let params = params
             .with("core.request", request.as_str())
             .with("core.kind", kind.as_str());
         let own = self.guard().is_some_and(|guard| {
@@ -346,13 +314,6 @@ impl crate::Kernel {
             .find(|top| top.serial >= first && top.slot.as_ref() == Some(&slot))
             .map(|dialog| {
                 dialog.guard_dialog = own;
-                if let (Some(asked), Some(shared)) = (asked, shared) {
-                    // At once too: the dialog is the host's from its first draw.
-                    let answer =
-                        super::dialogs::Answerer::new(shared, dialog.serial, start.request);
-                    let env = self.shared.env(self.now);
-                    dialog.screen = asked.into_screen(&env, answer);
-                }
                 dialog.serial
             });
         match opened {
