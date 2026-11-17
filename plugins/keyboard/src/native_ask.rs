@@ -50,6 +50,7 @@ pub(crate) enum AskView {
 
 impl AskView {
     /// The dialog of the request the host opened the screen for.
+    #[inline(never)]
     pub(crate) fn open(
         ui: &Ui,
         host: &Host<'_>,
