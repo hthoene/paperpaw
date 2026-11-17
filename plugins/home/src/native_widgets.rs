@@ -7,7 +7,7 @@
 use alloc::{string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_sdk::{
-    Rect,
+    Color, Rect,
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose},
@@ -58,11 +58,36 @@ pub struct Mine {
     /// measures, wraps and paints the whole widget, the later ones draw the
     /// same ([`Mine::draw`]).
     banded: RefCell<Vec<Banded>>,
+    /// The covers' places were drawn without them, the covers to follow.
+    held: Cell<bool>,
+    /// What the card or the shelf composed at the last frame it drew whole,
+    /// kept across returns for as long as what it composes from is the same
+    /// (`content_key`): the measuring and wrapping of its lines is most of what
+    /// a return spends on text (#294). Let go with the look, and where memory
+    /// is short.
+    memo: RefCell<Vec<Memo>>,
+}
+
+/// The most a kept composition may take, in bytes (the paints and the covers'
+/// places; the lines' own strings are short): the card's and the shelf's
+/// together stay within 3 KB.
+const MEMO_BYTES: usize = 1536;
+
+/// A composition kept for the next frame and the content it was made from.
+#[derive(Debug)]
+struct Memo {
+    key: u64,
+    kept: Banded,
 }
 
 /// What a widget composed for a frame's first band, for the next ones.
 #[derive(Debug)]
 struct Banded {
+    /// What the composition was made from (`Mine::content_key`), where it may
+    /// be kept for a later frame.
+    key: Option<u64>,
+    /// A cover it drew was still being made.
+    busy: bool,
     area: Rect,
     epoch: u32,
     /// The rows of the last band drawn with it.
@@ -225,6 +250,8 @@ impl Mine {
             placed: Cell::new(None),
             look: Looks::default(),
             banded: RefCell::new(Vec::new()),
+            memo: RefCell::new(Vec::new()),
+            held: Cell::new(false),
         }))
     }
 
@@ -239,6 +266,12 @@ impl Mine {
     pub fn forget_look(&self) {
         self.look.forget();
         self.banded.borrow_mut().clear();
+        self.memo.borrow_mut().clear();
+    }
+
+    /// Whether it shows covers: the card and the shelf.
+    pub fn has_covers(&self) -> bool {
+        matches!(self.token, CARD | SHELF)
     }
 
     /// Whether it waits for a library cover.
@@ -346,6 +379,11 @@ impl Mine {
         listing.drawing(true);
         let drawn = self.draw_own(host, listing, frame, area);
         listing.drawing(false);
+        if matches!(drawn, Err(Error::NoMemory)) {
+            // The room is wanted: what was kept for later goes.
+            self.memo.borrow_mut().clear();
+            self.banded.borrow_mut().clear();
+        }
         drawn
     }
 
@@ -371,12 +409,56 @@ impl Mine {
 
     fn keep_banded(&self, frame: &DrawFrame<'_>, area: Rect, mut kept: Banded) {
         if frame.clip_bottom >= Self::end_of(frame, area) {
+            // The last band of the widget: the composition stays for a frame
+            // to come where it is small and made from something that can be
+            // told again.
+            self.keep_memo(kept);
             return;
         }
         kept.bottom = frame.clip_bottom;
         let mut held = self.banded.borrow_mut();
         if held.try_reserve_exact(1).is_ok() {
             held.push(kept);
+        }
+    }
+
+    /// What the card or the shelf composes from, as one number (`None`: the
+    /// widget is not kept, or the content cannot be told).
+    fn content_key(&self, cx: &Cx<'_>, listing: &Listing, area: Rect) -> Option<u64> {
+        let ask = self.ask(listing);
+        match self.token {
+            CARD => native_card::key(cx, ask, area),
+            SHELF => native_shelf::key(cx, ask, area),
+            _ => return None,
+        }
+        .ok()
+        .flatten()
+    }
+
+    fn take_memo(&self, key: u64, area: Rect) -> Option<Banded> {
+        let memo = self.memo.borrow_mut().pop()?;
+        (memo.key == key && memo.kept.area == area).then_some(memo.kept)
+    }
+
+    fn keep_memo(&self, kept: Banded) {
+        let Some(key) = kept.key else {
+            return;
+        };
+        let bytes = kept
+            .out
+            .len()
+            .saturating_mul(core::mem::size_of::<Paint>())
+            .saturating_add(
+                kept.placed
+                    .len()
+                    .saturating_mul(core::mem::size_of::<(ImageId, Rect)>()),
+            );
+        let mut held = self.memo.borrow_mut();
+        held.clear();
+        // Kept only where there is room: a refusal costs the next return its
+        // composition, nothing else.
+        if bytes <= MEMO_BYTES && held.try_reserve_exact(1).is_ok() {
+            held.push(Memo { key, kept });
         }
     }
 
@@ -399,6 +481,19 @@ impl Mine {
             return drawn;
         }
         let mut cx = Cx::open_kept_with(host, &self.widget, self.look.take(), listing.inputs())?;
+        // The first band of a frame whose content is what was composed last
+        // time: its lines are drawn again, not measured and wrapped again.
+        if let Some(key) = self.content_key(&cx, listing, area)
+            && let Some(mut kept) = self.take_memo(key, area)
+        {
+            kept.epoch = listing.epoch();
+            kept.bottom = frame.clip_top;
+            self.waiting.set(kept.busy);
+            let drawn = self.replay(listing, frame, (&cx.font, icons.as_ref()), &kept);
+            self.keep_banded(frame, area, kept);
+            self.look.keep(cx.keep());
+            return drawn;
+        }
         let mut out = Vec::new();
         let mut pictures = Pictures::default();
         match self.token {
@@ -417,6 +512,9 @@ impl Mine {
         }
         self.waiting.set(pictures.busy);
         let kept = Banded {
+            // Told after the composition: what it asked of the library is known.
+            key: self.content_key(&cx, listing, area),
+            busy: pictures.busy,
             area,
             epoch: listing.epoch(),
             bottom: frame.clip_top,
@@ -441,7 +539,26 @@ impl Mine {
         kept: &Banded,
     ) -> Result<(), Error> {
         paint::replay_icons(frame, font, icons, &kept.out)?;
+        // The covers come in the frame after this one (`COVERS_IN_FOLLOWUP`):
+        // here each has its place drawn as a frame, so that nothing jumps.
+        let follow = frame.id & 1 == 1;
+        let later = listing.later() && !follow;
+        if follow {
+            // The frame after the page's: the covers come now.
+            listing.covers_later(false);
+            if self.held.replace(false) {
+                self.waiting.set(kept.busy);
+            }
+        }
         for (image, at) in &kept.placed {
+            if later {
+                let place = Paint::Focus(*at, 0, Some(2), Color::BLACK);
+                paint::replay(frame, font, [place].iter())?;
+                // Asked again at the next minute if the frame after never came.
+                self.held.set(true);
+                self.waiting.set(true);
+                continue;
+            }
             let drawn = frame.draw_canvas()?.draw_image(
                 *image,
                 paint::frame_rect(*at),
@@ -604,6 +721,7 @@ impl Widgets {
     pub fn fresh(&self) {
         self.listing.fresh();
         self.listing.new_epoch();
+
         for item in &self.items {
             item.mine.known.fresh();
         }

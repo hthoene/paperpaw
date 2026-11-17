@@ -1,3 +1,5 @@
 ### Changed
 
 - Back from a screen with a large picture (a cover page) to the home screen is no longer a full refresh (1.7 s on the X4, a flash): it is refreshed fast as any frame, and the grays pass after it cleans what ghosting is left (Decision 212). Turning pages on the same screen still refreshes in full after a large picture.
+- The home screen's card and shelf keep the lines they composed (measured and wrapped) across returns, for as long as the books, their progress, their covers and the look are the same: the return from a drawer makes about a third fewer host calls (195 to 134 in the emulator), and the first return after a book with an unchanged card draws its lines again without measuring them. The wifi plugin follows the radio's change events and no longer reads the radio at each change of the screen stack while it is off.
+- `COVERS_IN_FOLLOWUP` (Home, off): the home screen shown again with covers ready would draw their places first and the covers in the frame right after; the switch is that one line.
