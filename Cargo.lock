@@ -2469,7 +2469,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-plugin-manager"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2538,7 +2538,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reading-goal"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2632,7 +2632,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.13"
+version = "1.0.14"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",

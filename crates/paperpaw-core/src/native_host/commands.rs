@@ -183,6 +183,9 @@ pub struct CommandStage<'a> {
     staged_policies: Vec<nav::PolicyChange>,
     /// Whose the device's one preview is (`commands_preview.rs`).
     preview_held: PreviewHeld,
+    /// The submitter declared `uses.registry` and the host admitted it: it may
+    /// switch plugins on and off (`registry.md` 4.2).
+    registry: bool,
 }
 
 impl<'a> CommandStage<'a> {
@@ -233,6 +236,7 @@ impl<'a> CommandStage<'a> {
             staged_widgets: Vec::new(),
             staged_policies: Vec::new(),
             preview_held: PreviewHeld::Nobody,
+            registry: false,
         }
     }
 
@@ -270,6 +274,12 @@ impl<'a> CommandStage<'a> {
     /// The texts of the plugin that the kernel's speech holds.
     pub(crate) fn set_speech_held(&mut self, held: usize) {
         self.speech_held = held;
+    }
+
+    /// Whether the submitting instance was admitted with `uses.registry`
+    /// (known only inside its callback scope, as its other features).
+    pub(crate) fn admit_registry(&mut self, declared: bool) {
+        self.registry = declared;
     }
 
     /// As [`Self::with_images`], on a stage already lent (the instance's
