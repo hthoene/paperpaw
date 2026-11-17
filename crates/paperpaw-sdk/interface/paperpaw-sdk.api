@@ -845,6 +845,7 @@ impl<'cb> paperpaw_sdk::native::canvas::Canvas<'cb>
 pub fn paperpaw_sdk::native::canvas::Canvas<'cb>::clip_region(&mut self, paperpaw_sdk::native::callbacks::FrameRect) -> core::result::Result<paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>, paperpaw_sdk::native::Error>
 impl<'cb> paperpaw_sdk::native::canvas::Canvas<'cb>
 pub fn paperpaw_sdk::native::canvas::Canvas<'cb>::draw_segment(&self, paperpaw_platform::geometry::Point, paperpaw_platform::geometry::Point, u32, paperpaw_platform::pixel::Color) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::canvas::Canvas<'cb>::fill_checker(&self, paperpaw_sdk::native::callbacks::FrameRect, paperpaw_platform::pixel::Color, bool) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::canvas::Canvas<'cb>::fill_rectangle(&self, paperpaw_sdk::native::callbacks::FrameRect, paperpaw_platform::pixel::Color) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::canvas::Canvas<'cb>::fill_rounded_rectangle(&self, paperpaw_sdk::native::callbacks::FrameRect, u32, paperpaw_platform::pixel::Color) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub const fn paperpaw_sdk::native::canvas::Canvas<'cb>::frame_rect(&self) -> paperpaw_sdk::native::callbacks::FrameRect

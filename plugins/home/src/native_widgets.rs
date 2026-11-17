@@ -26,7 +26,7 @@ use paperpaw_ui_kit::{
 };
 
 use crate::declarations::{CARD, CLOCK, DATE, SHELF, STATUS_WIDGET};
-use crate::native_recent::{self, Known, Pictures};
+use crate::native_recent::{self, Ask, Known, Listing, Pictures};
 use crate::{native_card, native_clock, native_date, native_shelf, native_status};
 
 /// The most bytes of a stage reply (sizes and no targets).
@@ -96,6 +96,8 @@ struct Item {
 #[derive(Debug, Default)]
 pub struct Widgets {
     items: Vec<Item>,
+    /// What the instances' card and shelf share of the library.
+    listing: Listing,
 }
 
 /// The token of the widget the host calls `widget` (`home.date`, or placed
@@ -131,6 +133,13 @@ impl Mine {
         }))
     }
 
+    fn ask<'a>(&'a self, listing: &'a Listing) -> Ask<'a> {
+        Ask {
+            known: &self.known,
+            listing,
+        }
+    }
+
     /// Lets go of the look it kept: the next draw reads it again.
     pub fn forget_look(&self) {
         self.look.forget();
@@ -142,11 +151,7 @@ impl Mine {
     }
 
     pub fn covers_ready(&self) -> bool {
-        let waiting = self.waiting.replace(false);
-        if waiting {
-            self.known.forget_covers();
-        }
-        waiting
+        self.waiting.replace(false)
     }
 
     /// Where the screen placed it, for a tap on one of its items.
@@ -158,13 +163,18 @@ impl Mine {
     ///
     /// # Errors
     /// Font and host refusals, [`Error::NoMemory`].
-    pub fn measure(&self, host: &Host<'_>, width: u32) -> Result<(u16, u16), Error> {
+    pub fn measure(
+        &self,
+        host: &Host<'_>,
+        listing: &Listing,
+        width: u32,
+    ) -> Result<(u16, u16), Error> {
         let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
         let width = u16::try_from(width).unwrap_or(u16::MAX);
         let size = match self.token {
             DATE => same(native_date::height(&mut cx, width)?),
             CARD => (native_card::height(&cx), native_card::height(&cx) / 2),
-            SHELF => native_shelf::height(&cx, &self.known, width)?,
+            SHELF => native_shelf::height(&cx, self.ask(listing), width)?,
             STATUS_WIDGET => same(native_status::height(&cx)?),
             _ => same(native_clock::height(&mut cx, width)?),
         };
@@ -181,6 +191,7 @@ impl Mine {
         &self,
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         rect: Rect,
     ) -> Result<Vec<WidgetTarget>, Error> {
         let mut found: Vec<WidgetTarget> = Vec::new();
@@ -200,7 +211,7 @@ impl Mine {
             )?,
             SHELF => {
                 let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
-                for (id, at) in native_shelf::targets(&mut cx, &self.known, rect)? {
+                for (id, at) in native_shelf::targets(&mut cx, self.ask(listing), rect)? {
                     let target = WidgetTarget::new(id, paint::frame_rect(at));
                     paperpaw_ui_kit::mem::push(&mut found, target)?;
                 }
@@ -220,13 +231,27 @@ impl Mine {
         &self,
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         frame: &mut DrawFrame<'_>,
         area: Rect,
     ) -> Result<(), Error> {
         if self.token == STATUS_WIDGET {
             return native_status::draw_widget(host, ui, frame, (&self.widget, &self.look), area);
         }
-        self.known.begin_draw(frame.clip_top);
+        self.known.begin_draw(frame.clip_top, listing);
+        listing.drawing(true);
+        let drawn = self.draw_own(host, listing, frame, area);
+        listing.drawing(false);
+        drawn
+    }
+
+    fn draw_own(
+        &self,
+        host: &Host<'_>,
+        listing: &Listing,
+        frame: &mut DrawFrame<'_>,
+        area: Rect,
+    ) -> Result<(), Error> {
         let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
         let mut out = Vec::new();
         let mut pictures = Pictures::default();
@@ -241,10 +266,12 @@ impl Mine {
                 &mut cx,
                 &mut out,
                 icons.as_ref(),
-                (&mut pictures, &self.known),
+                (&mut pictures, self.ask(listing)),
                 area,
             )?,
-            SHELF => native_shelf::draw(&mut cx, &mut out, (&mut pictures, &self.known), area)?,
+            SHELF => {
+                native_shelf::draw(&mut cx, &mut out, (&mut pictures, self.ask(listing)), area)?
+            }
             _ => native_clock::draw(&mut cx, &mut out, area)?,
         }
         self.waiting.set(pictures.busy);
@@ -260,7 +287,7 @@ impl Mine {
             );
             if drawn.is_err() {
                 // The host ended the id: the next tick draws it, asked for anew.
-                self.known.forget_covers();
+                listing.forget_all_covers();
                 self.waiting.set(true);
             }
         }
@@ -277,6 +304,7 @@ impl Mine {
         &self,
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         target: u32,
         kind: WidgetInputKind,
     ) -> Result<bool, Error> {
@@ -287,13 +315,13 @@ impl Mine {
             return status_tap(host, ui, self, target);
         }
         let book = match self.token {
-            CARD => native_recent::read(host, &self.known, 0, 1)?
-                .into_iter()
-                .next(),
+            CARD => native_recent::read(host, listing, 0, 1)?.into_iter().next(),
             SHELF => {
                 let cx = Cx::open(host, &self.widget)?;
                 let at = usize::try_from(target - 1).map_err(|_| Error::Invalid)?;
-                native_shelf::books(&cx, &self.known)?.into_iter().nth(at)
+                native_shelf::books(&cx, self.ask(listing))?
+                    .into_iter()
+                    .nth(at)
             }
             _ => return Ok(false),
         };
@@ -358,7 +386,7 @@ impl Widgets {
         let written = match call {
             WidgetCall::Measure { instance, width } => {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
-                let (height, least) = item.mine.measure(host, width)?;
+                let (height, least) = item.mine.measure(host, &self.listing, width)?;
                 call.reply_size(u32::from(height), u32::from(least), &mut out)?
             }
             WidgetCall::Place { instance, rect } => {
@@ -369,7 +397,7 @@ impl Widgets {
             WidgetCall::Targets { instance, rect } => {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
                 item.mine.place(to_rect(rect));
-                let found = item.mine.targets(host, ui, to_rect(rect))?;
+                let found = item.mine.targets(host, ui, &self.listing, to_rect(rect))?;
                 call.reply_targets(&found, &mut out)?
             }
             _ => return Err(Error::Unsupported),
@@ -388,7 +416,7 @@ impl Widgets {
         }
         let item = self.find(frame.id).ok_or(Error::NotFound)?;
         let area = to_rect(frame.rect);
-        item.mine.draw(host, ui, &mut frame, area)
+        item.mine.draw(host, ui, &self.listing, &mut frame, area)
     }
 
     /// A tap on a target of the card or the shelf opens the book it shows (the
@@ -405,7 +433,7 @@ impl Widgets {
         kind: WidgetInputKind,
     ) -> Result<bool, Error> {
         match self.find(instance.get()) {
-            Some(item) => item.mine.tap(host, ui, target, kind),
+            Some(item) => item.mine.tap(host, ui, &self.listing, target, kind),
             None => Ok(false),
         }
     }
@@ -413,6 +441,7 @@ impl Widgets {
     /// A call into the plugin that is no draw: the books the card and the shelf
     /// kept are asked of the library again at their next draw.
     pub fn fresh(&self) {
+        self.listing.fresh();
         for item in &self.items {
             item.mine.known.fresh();
         }
@@ -430,7 +459,11 @@ impl Widgets {
         let mut scratch = [0; 64];
         let mut commands = CommandSender::new(host, &mut scratch);
         for item in &mut self.items {
-            if item.mine.covers_ready() && commands.widget_changed(item.instance).is_err() {
+            let ready = item.mine.covers_ready();
+            if ready {
+                self.listing.forget_covers();
+            }
+            if ready && commands.widget_changed(item.instance).is_err() {
                 item.mine.waiting.set(true);
             }
         }
@@ -460,12 +493,12 @@ impl Widgets {
             // the books show.
             if item.shown.is_some_and(|before| before != now) {
                 // The books changed: the card is asked about their files anew.
-                item.mine.known.forget();
+                item.mine.known.forget(&self.listing);
             }
             let waited = item.mine.waiting.replace(false);
             if waited {
                 // A cover that was being made is asked about anew.
-                item.mine.known.forget_covers();
+                self.listing.forget_covers();
             }
             if (waited || item.shown.is_some_and(|before| before != now))
                 && commands.widget_changed(instance).is_err()
