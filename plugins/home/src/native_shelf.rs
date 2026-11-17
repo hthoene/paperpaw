@@ -18,7 +18,7 @@ use paperpaw_ui_kit::{
     },
 };
 
-use crate::native_recent::{self, Book, Covered, Known, MOST, Pictures};
+use crate::native_recent::{self, Ask, Book, Covered, MOST, Pictures};
 use crate::native_source::mm;
 
 /// How wide a cover's place is at least, in millimetres.
@@ -50,9 +50,9 @@ fn columns(settings: &Settings<'_, '_>, dpi: u16, width: u16) -> Result<(usize, 
 ///
 /// # Errors
 /// The host's refusals and [`Error::NoMemory`].
-pub fn books(cx: &Cx<'_>, known: &Known) -> Result<Vec<Book>, Error> {
+pub fn books(cx: &Cx<'_>, ask: Ask<'_>) -> Result<Vec<Book>, Error> {
     let (fit, _) = cx_columns(cx, cx.snapshot.display_width())?;
-    native_recent::read(cx.host, known, 1, fit)
+    native_recent::read(cx.host, ask.listing, 1, fit)
 }
 
 fn cx_columns(cx: &Cx<'_>, width: u16) -> Result<(usize, u16), Error> {
@@ -80,8 +80,8 @@ fn labels(cx: &Cx<'_>) -> Result<(u16, u16), Error> {
 ///
 /// # Errors
 /// The host's refusals, font refusals and [`Error::NoMemory`].
-pub fn height(cx: &Cx<'_>, known: &Known, width: u16) -> Result<(u16, u16), Error> {
-    if books(cx, known)?.is_empty() {
+pub fn height(cx: &Cx<'_>, ask: Ask<'_>, width: u16) -> Result<(u16, u16), Error> {
+    if books(cx, ask)?.is_empty() {
         return Ok((0, 0));
     }
     let (_, cell) = cx_columns(cx, width)?;
@@ -174,8 +174,8 @@ fn parts(cx: &mut Cx<'_>, area: Rect, count: usize) -> Result<Parts, Error> {
 ///
 /// # Errors
 /// The host's refusals, font refusals and [`Error::NoMemory`].
-pub fn targets(cx: &mut Cx<'_>, known: &Known, area: Rect) -> Result<Vec<(u32, Rect)>, Error> {
-    let count = books(cx, known)?.len();
+pub fn targets(cx: &mut Cx<'_>, ask: Ask<'_>, area: Rect) -> Result<Vec<(u32, Rect)>, Error> {
+    let count = books(cx, ask)?.len();
     let inner = cx.shape.look(area).area;
     let parts = parts(cx, inner, count)?;
     let mut found = Vec::new();
@@ -193,10 +193,10 @@ pub fn targets(cx: &mut Cx<'_>, known: &Known, area: Rect) -> Result<Vec<(u32, R
 pub fn draw(
     cx: &mut Cx<'_>,
     out: &mut Vec<Paint>,
-    (pictures, known): (&mut Pictures, &Known),
+    (pictures, ask): (&mut Pictures, Ask<'_>),
     area: Rect,
 ) -> Result<(), Error> {
-    let books = books(cx, known)?;
+    let books = books(cx, ask)?;
     // Nothing read before the current book: nothing to show.
     if books.is_empty() {
         return Ok(());
@@ -217,7 +217,7 @@ pub fn draw(
             look.faint,
         )?;
     }
-    let covers = covers(cx, known, &books, &parts, pictures)?;
+    let covers = covers(cx, ask, &books, &parts, pictures)?;
     for ((place, row), (book, covered)) in parts.places.iter().zip(books.iter().zip(&covers)) {
         match covered {
             // Covers too small to tell: the titles alone.
@@ -247,7 +247,7 @@ pub fn draw(
 /// The covers of the books whose places have room for one.
 fn covers(
     cx: &Cx<'_>,
-    known: &Known,
+    ask: Ask<'_>,
     books: &[Book],
     parts: &Parts,
     pictures: &mut Pictures,
@@ -257,7 +257,7 @@ fn covers(
     native_recent::with_library(host, |library| {
         for (book, (place, _)) in books.iter().zip(&parts.places) {
             let covered = if place.height > 0 {
-                native_recent::cover_known(host, known, library, book)?
+                native_recent::cover_known(host, ask.listing, library, book)?
             } else {
                 Covered::None
             };

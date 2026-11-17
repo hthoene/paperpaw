@@ -8,6 +8,7 @@ use paperpaw_ui_kit::{
 };
 
 use super::*;
+use crate::native_recent::Listing;
 
 /// The host as the gallery's stage: its instances are the screen's own, and the
 /// screen's frame is what they are drawn into.
@@ -34,7 +35,7 @@ impl Stage for Live<'_, '_> {
     }
 
     fn compose(&mut self, widget: &Made, area: Rect) -> Result<(), Error> {
-        widget.draw(self.host, self.ui, self.frame, area)
+        widget.draw(self.host, self.ui, &Listing::default(), self.frame, area)
     }
 }
 
