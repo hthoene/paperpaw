@@ -110,7 +110,7 @@ fn ink_of(cx: &Cx<'_>, size: f32, text: &str) -> Result<(i32, i32), Error> {
         Some(ink) => paperpaw_ui_kit::geometry::check_ink(ink.top, ink.bottom),
         None => {
             let (ascent, descent, _) = paperpaw_ui_kit::geometry::line_metrics(&cx.font, size)?;
-            Ok((-(ascent as i32), -(descent as i32)))
+            Ok((-(ascent as i32), descent as i32))
         }
     }
 }
