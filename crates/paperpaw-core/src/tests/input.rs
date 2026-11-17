@@ -213,7 +213,7 @@ fn two_fingers_resting_wake_the_shell_no_more() {
 
 struct GestureScreen(Log);
 
-impl Screen for GestureScreen {
+impl crate::Layer for GestureScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -233,7 +233,7 @@ impl Screen for GestureScreen {
 fn gesture_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("g.screen"),
             "g",
             Box::new(move |_, _| Box::new(GestureScreen(log.clone()))),

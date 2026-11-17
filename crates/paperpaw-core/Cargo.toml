@@ -70,7 +70,8 @@ paperpaw-plugin-widgets = { workspace = true, features = ["linked"] }
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 png = "0.18"
 paperpaw-platform = { workspace = true, features = ["fake"] }
-paperpaw-text.workspace = true
+# Scalable fonts for the stock screens' tests that draw text (tests/stock_screens.rs).
+paperpaw-text = { workspace = true, features = ["outline"] }
 proptest.workspace = true
 
 [lints]

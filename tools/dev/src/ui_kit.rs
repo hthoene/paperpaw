@@ -18,9 +18,7 @@ use paperpaw_sdk::ui::slider::SliderFocus;
 use paperpaw_sdk::ui::slider::SliderView;
 use paperpaw_sdk::ui::{self, TextRole, UiStyle};
 use paperpaw_sdk::widgets::Frame;
-use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, Params, RegisterError, Screen, ScreenSpec, Version,
-};
+use paperpaw_sdk::{Canvas, Cx, Env, Handled, Id, Manifest, Params, RegisterError, Version};
 
 /// The plugin's id.
 pub const PLUGIN: &str = "ui-kit";
@@ -225,12 +223,16 @@ fn ui_kit() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         r.add_translations(Cow::Borrowed(TEXTS))?;
         r.add_translations(Cow::Borrowed(TEXTS_DE))?;
         for (index, (id, title)) in PAGES.into_iter().enumerate() {
-            let factory: paperpaw_sdk::ScreenFactory = match id {
+            let factory: paperpaw_core::LayerFactory = match id {
                 "ui-kit.choice" => Box::new(|env, _| Box::new(choice(env))),
                 "ui-kit.confirm" => Box::new(|env, _| Box::new(confirm(env))),
                 _ => Box::new(move |env, _| Box::new(Page::new(env, index))),
             };
-            r.add_screen(ScreenSpec::new(Id::new_static(id), title, factory))?;
+            r.add_layer(paperpaw_core::LayerSpec::new(
+                Id::new_static(id),
+                title,
+                factory,
+            ))?;
         }
         Ok(())
     }
@@ -243,23 +245,23 @@ fn ui_kit_manifest() -> Manifest {
         .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
-/// The choice page: the SDK's choice overlay, three options.
-fn choice(env: &Env<'_>) -> ui::choice::Choice {
+/// The choice page: the kernel's choice overlay, three options.
+fn choice(env: &Env<'_>) -> paperpaw_core::stock::choice::Choice {
     let params = Params::new()
         .with(params::TITLE, env.i18n().tr("ui-kit.choice"))
         .with("labels", "ui-kit.option.")
         .with("options", "light,calm,dark");
-    ui::choice::Choice::new(env, &params)
+    paperpaw_core::stock::choice::Choice::new(env, &params)
 }
 
-/// The confirm page: the SDK's yes/no question, the focus on No.
-fn confirm(env: &Env<'_>) -> ui::confirm::Confirm {
+/// The confirm page: the kernel's yes/no question, the focus on No.
+fn confirm(env: &Env<'_>) -> paperpaw_core::stock::confirm::Confirm {
     let params = Params::new()
         .with(params::TITLE, env.i18n().tr("ui-kit.confirm"))
         .with(params::TEXT, env.i18n().tr("ui-kit.confirm.text"))
         .with(ui::confirm::YES_LABEL, env.i18n().tr("ui-kit.confirm.yes"))
         .with(ui::confirm::NO_LABEL, env.i18n().tr("ui-kit.confirm.no"));
-    ui::confirm::Confirm::new(env, &params)
+    paperpaw_core::stock::confirm::Confirm::new(env, &params)
 }
 
 /// A page of the kit.
@@ -277,7 +279,7 @@ impl Page {
     }
 }
 
-impl Screen for Page {
+impl paperpaw_core::Layer for Page {
     fn hint(&self, action: &Id, _: &Env<'_>) -> paperpaw_sdk::Hint {
         paperpaw_sdk::Hint::only_back(action)
     }

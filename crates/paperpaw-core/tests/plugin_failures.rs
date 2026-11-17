@@ -22,7 +22,7 @@ use paperpaw_core::Items;
 use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::{
     ActionSpec, Command, Id, Manifest, MemoryStorage, MenuEntry, Params, PluginState, Priority,
-    RegisterError, Screen, ScreenSpec, Setting, SettingSpec,
+    RegisterError, Setting, SettingSpec,
 };
 use paperpaw_core::{Kernel, Warning, WarningSource};
 use paperpaw_platform::Instant;
@@ -57,10 +57,10 @@ struct Faulty {
 fn faulty_items(kept: Faulty) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let id = |name: &str| Id::parse(&format!("bad.{name}")).unwrap();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(paperpaw_core::LayerSpec::new(
             id("screen"),
             "x",
-            Box::new(|_, _| -> Box<dyn Screen> { unreachable!("never opened") }),
+            Box::new(|_, _| -> Box<dyn paperpaw_core::Layer> { unreachable!("never opened") }),
         ))?;
         r.bind_slot(slots::HOME, id("screen"), Priority(i16::MAX))?;
         r.add_action(ActionSpec::new(id("act"), "x"))?;

@@ -3,9 +3,9 @@
 use paperpaw_platform::{Instant, Rect, RefreshMode};
 
 #[cfg(doc)]
-use crate::{Kernel, KernelBuilder};
+use crate::Layer as Screen;
 #[cfg(doc)]
-use paperpaw_sdk::Screen;
+use crate::{Kernel, KernelBuilder};
 
 /// Something the shell has to do after an event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

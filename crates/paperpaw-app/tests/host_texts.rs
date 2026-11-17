@@ -72,6 +72,8 @@ const KEYS: &[&str] = &[
     "core.plugin.yes.remove",
     "core.plugin.remove-data",
     "core.plugin.yes.remove-data",
+    "core.plugin.old-secrets",
+    "core.plugin.yes.erase",
     "core.plugin.unforgotten",
 ];
 

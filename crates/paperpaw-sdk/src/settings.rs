@@ -1152,7 +1152,7 @@ impl Settings {
 
     /// Gives `f` the spec of setting `id` as [`Settings::spec`] finds it;
     /// one made for it is let go again.
-    pub(crate) fn with_spec<R>(
+    pub fn with_spec<R>(
         &self,
         id: &str,
         f: impl FnOnce(&SettingSpec) -> R,

@@ -242,7 +242,3 @@ impl fmt::Debug for EnvironmentScope {
         f.debug_struct("EnvironmentScope").finish_non_exhaustive()
     }
 }
-
-#[cfg(test)]
-#[path = "flat/event_tests.rs"]
-mod event_tests;

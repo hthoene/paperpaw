@@ -281,25 +281,86 @@ fn declined_and_dismissed_leave_the_card_as_it_was() {
     }
 }
 
-/// A removed plugin whose secrets stayed (`plugin_unforgotten`): a plugin of
-/// its id is not installed until the host has forgotten them.
+/// An install of `dials` answered `answer`, the host's forget answered
+/// `forgets`: the end, the questions and whether the host was asked to forget.
+fn install_forgetting(
+    card: &MemoryStorage,
+    granted: bool,
+    answer: Answer,
+    forgets: bool,
+) -> (Ran, bool) {
+    let host = host();
+    let env = JobEnv {
+        storage: card,
+        host: &host,
+        built_ins: &Names,
+        granted,
+    };
+    let mut job = job(0, Evidence::NONE);
+    let mut asked = Vec::new();
+    let mut forgot = false;
+    for _ in 0..10_000 {
+        match job.step(&env) {
+            JobStep::More | JobStep::Wait => {}
+            JobStep::Unload(_) => panic!("an install closes no plugin"),
+            JobStep::Forget(id) => {
+                assert_eq!(id.as_str(), "dials");
+                forgot = true;
+                job.forgotten(forgets);
+            }
+            JobStep::Ask(question) => {
+                asked.push(question);
+                job.answer(answer);
+            }
+            JobStep::Done(done) => return (Ran { done, asked }, forgot),
+        }
+    }
+    panic!("an install that never ends");
+}
+
+/// A removed plugin whose secrets stayed (`plugin_unforgotten`, decision of
+/// 2026-11-16, #290): reinstalling the id asks to erase them first, even with
+/// the grant; a yes has the host forget them before the swap, anything else
+/// installs nothing and leaves them listed.
 #[test]
-fn an_id_whose_secrets_stayed_after_a_removal_is_not_installed() {
+fn an_id_whose_secrets_stayed_after_a_removal_asks_to_erase_them_first() {
+    use crate::native_host::plugin_unforgotten;
+    for (answer, forgets, why) in [
+        (Answer::No, true, reason::DECLINED),
+        (Answer::Dismissed, true, reason::DISMISSED),
+        (Answer::Yes, false, reason::CARD),
+    ] {
+        let card = MemoryStorage::new();
+        data_source(&card, "1.0.0");
+        assert!(plugin_unforgotten::add(&card, "dials"));
+        let before = snapshot(&card);
+        let (ran, forgot) = install_forgetting(&card, true, answer, forgets);
+        assert_eq!(ran.done.reason, why, "{answer:?}");
+        let [question] = ran.asked[..] else {
+            panic!("{:?}", ran.asked)
+        };
+        assert!(question.old_secrets);
+        assert_eq!(forgot, answer == Answer::Yes);
+        assert_eq!(snapshot(&card), before, "{answer:?}");
+        assert!(plugin_unforgotten::has(&card, "dials"));
+    }
     let card = MemoryStorage::new();
     data_source(&card, "1.0.0");
-    assert!(crate::native_host::plugin_unforgotten::add(&card, "dials"));
-    let before = snapshot(&card);
+    assert!(plugin_unforgotten::add(&card, "dials"));
+    let (ran, forgot) = install_forgetting(&card, true, Answer::Yes, true);
+    assert_eq!(ran.done.reason, reason::OK);
+    assert!(forgot && ran.asked.len() == 1 && ran.asked[0].old_secrets);
+    assert!(!plugin_unforgotten::has(&card, "dials"));
     assert_eq!(
-        install(&card, 0, Evidence::NONE, Answer::Yes).done.reason,
-        reason::ID_TAKEN
+        text(&card, "plugins/dials/strings.ini").as_deref(),
+        Some("hello\n")
     );
-    assert_eq!(snapshot(&card), before);
-    // The host forgot: the id is free again.
-    crate::native_host::plugin_unforgotten::retry(&card, &mut |_| true);
-    assert_eq!(
-        install(&card, 0, Evidence::NONE, Answer::Yes).done.reason,
-        reason::OK
-    );
+    // An id with nothing left asks as always, and forgets nothing.
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    let (ran, forgot) = install_forgetting(&card, false, Answer::Yes, false);
+    assert_eq!(ran.done.reason, reason::OK);
+    assert!(!forgot && !ran.asked[0].old_secrets);
 }
 
 #[test]
