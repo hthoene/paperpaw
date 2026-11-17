@@ -425,11 +425,24 @@ def build_store(root, out, device, target=None):
     env = {k: v for k, v in os.environ.items() if k not in ("RUSTFLAGS", "PAPERPAW_ALLOW_UNREMAPPED")}
     if target:
         env["CARGO_TARGET_DIR"] = str(target)
-    done = subprocess.run(["bash", "tools/plugin-files7/build.sh", device, str(out)], cwd=root,
+    done = subprocess.run(["bash", BUILD, device, str(out)], cwd=root,
                           env=env, capture_output=True, text=True, encoding="utf-8")
     if done.returncode != 0:
         tail = "\n".join((done.stdout + done.stderr).strip().splitlines()[-25:])
         raise RuntimeError(f"build.sh {device} in {root} failed:\n{tail}")
+
+
+BUILD = "tools/plugin-files7/build.sh"
+
+
+def baseline_builds(since):
+    """Whether the tree at `since` has the build `build_store` runs: a release
+    before interface 7 has not, and its files are another firmware's."""
+    try:
+        git("cat-file", "-e", f"{since}:{BUILD}")
+    except subprocess.CalledProcessError:
+        return False
+    return True
 
 
 def baseline_cache():
@@ -530,6 +543,11 @@ def published_check(releases_json, data_dir=None):
 def bytes_check(since, device, built=None, baseline=None, sign=None):
     """Compares HEAD's built store files with the release's (see the head
     of this file); prints what is wrong, and says whether nothing is."""
+    if baseline is None and not baseline_builds(since):
+        print(f"no byte comparison with {since}: that release has no interface-7 store "
+              f"build ({BUILD}), its files were built for another firmware, so their "
+              f"bytes cannot be compared; the version rules (--release) hold")
+        return True
     with tempfile.TemporaryDirectory(prefix="store-built-") as scratch:
         if built is None:
             built = pathlib.Path(scratch) / "now"
