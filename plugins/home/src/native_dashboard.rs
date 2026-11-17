@@ -170,6 +170,10 @@ pub struct Dashboard {
     reshow: bool,
     /// Another screen is over this one: the page it holds is kept as it is.
     covered: bool,
+    /// Shown, and not drawn or asked since: the stack change that came with
+    /// the show has nothing to tell (the screen is on top), and its query is
+    /// left out ([`Dashboard::needs_stack`]).
+    just_shown: bool,
     /// Shown again with its page kept: what the book widgets' heights depend on
     /// and the display are looked at once before it draws.
     returned: bool,
@@ -244,6 +248,7 @@ impl Dashboard {
             self.stale = true;
         }
         self.covered = false;
+        self.just_shown = true;
         self.returned = true;
         self.fresh = true;
         self.reshow = true;
@@ -673,10 +678,14 @@ impl Dashboard {
         Ok((word, wide))
     }
 
-    /// Whether a page is held.
-    #[must_use]
-    pub const fn holds_page(&self) -> bool {
-        self.laid.is_some()
+    /// Whether a stack change can tell this dashboard something: it holds a
+    /// page that no screen is known to cover, and it was not just shown. The
+    /// change that came with the show is answered without the stack query (the
+    /// first frame of a return made it, #294); a cover it missed shows as a
+    /// page laid out again at the next show, as one the stack query failed for.
+    pub fn needs_stack(&mut self) -> bool {
+        let shown = core::mem::take(&mut self.just_shown);
+        !shown && self.laid.is_some() && !self.covered
     }
 
     /// Another screen is over this one: its page, and the widgets made for it,
@@ -712,6 +721,7 @@ impl Dashboard {
         ui: &Ui,
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
+        self.just_shown = false;
         self.ensure(host, ui)?;
         self.ensure_dialog(host)?;
         self.describe_dialog(paint::asking(frame));
@@ -941,6 +951,7 @@ impl Dashboard {
     /// # Errors
     /// Allocation and host errors.
     pub fn input(&mut self, host: &Host<'_>, ui: &Ui, input: &Input<'_>) -> Result<Handled, Error> {
+        self.just_shown = false;
         self.ensure(host, ui)?;
         if let Some(handled) = self.arrange_input(host, ui, input)? {
             return Ok(handled);

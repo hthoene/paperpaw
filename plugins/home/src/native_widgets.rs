@@ -21,7 +21,7 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::{
     Paint, icons,
     mem::buffer,
-    paint,
+    paint, status_line,
     text::copy,
     widget::{Cx, Kept, cx::widget_font},
 };
@@ -73,19 +73,36 @@ struct Banded {
 
 /// The look a widget kept: none or one, in a vector so that keeping it is
 /// fallible (a look not kept is read again at the next draw) and an instance
-/// that never drew holds nothing.
+/// that never drew holds nothing. With it, for the status line only, what it
+/// asked the host about its settings and registry, which only a setting or
+/// registry change alters: the first frame of a return made three service
+/// calls for it (#294).
 #[derive(Debug, Default)]
-pub struct Looks(RefCell<Vec<Kept>>);
+pub struct Looks {
+    kept: RefCell<Vec<Kept>>,
+    status: RefCell<Vec<StatusKept>>,
+}
+
+/// What the status line kept of its host answers.
+#[derive(Debug, Default)]
+pub struct StatusKept {
+    /// Whether the reader chose the widget's own paper or ink.
+    own: Option<bool>,
+    /// The whole line the `line` setting's ids (the key) show now.
+    line: Option<(String, String)>,
+    /// What the registry says of the items the lists name.
+    pub items: status_line::Memo,
+}
 
 impl Looks {
     /// The look kept, if any, handed over: the draw that takes it keeps it again.
     pub fn take(&self) -> Option<Kept> {
-        self.0.borrow_mut().pop()
+        self.kept.borrow_mut().pop()
     }
 
     /// Keeps `kept` in place of any other, if there is room.
     pub fn keep(&self, kept: Kept) {
-        let mut held = self.0.borrow_mut();
+        let mut held = self.kept.borrow_mut();
         held.clear();
         if held.try_reserve_exact(1).is_ok() {
             held.push(kept);
@@ -94,7 +111,68 @@ impl Looks {
 
     /// Lets go of what is kept.
     pub fn forget(&self) {
-        self.0.borrow_mut().clear();
+        self.kept.borrow_mut().clear();
+        self.status.borrow_mut().clear();
+    }
+
+    /// Runs `f` on what the status line kept (made empty at first).
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn with_status<R>(&self, f: impl FnOnce(&mut StatusKept) -> R) -> Result<R, Error> {
+        let mut held = self.status.borrow_mut();
+        if held.is_empty() {
+            held.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+            held.push(StatusKept::default());
+        }
+        let kept = held.first_mut().ok_or(Error::NoMemory)?;
+        Ok(f(kept))
+    }
+
+    /// Whether the widget has a look of its own, asked of `ask` once for as
+    /// long as nothing is forgotten.
+    ///
+    /// # Errors
+    /// What `ask` returns.
+    pub fn own(&self, ask: impl FnOnce() -> Result<bool, Error>) -> Result<bool, Error> {
+        if let Some(own) = self.with_status(|kept| kept.own)? {
+            return Ok(own);
+        }
+        let own = ask()?;
+        self.with_status(|kept| kept.own = Some(own))?;
+        Ok(own)
+    }
+
+    /// The line shown for the ids `listed`: the one kept for the same ids, else
+    /// what `ask` finds, kept (`fresh`: asked in any case, to learn of a line
+    /// that came or went without an event).
+    ///
+    /// # Errors
+    /// What `ask` returns.
+    pub fn line(
+        &self,
+        listed: &str,
+        fresh: bool,
+        ask: impl FnOnce() -> Result<String, Error>,
+    ) -> Result<String, Error> {
+        if !fresh {
+            let found = self.with_status(|kept| match &kept.line {
+                Some((ids, line)) if ids == listed => Some(copy(line)),
+                _ => None,
+            })?;
+            if let Some(line) = found {
+                return line;
+            }
+        }
+        let line = ask()?;
+        let kept = (copy(listed), copy(&line));
+        self.with_status(|status| {
+            status.line = match kept {
+                (Ok(ids), Ok(line)) => Some((ids, line)),
+                _ => None,
+            };
+        })?;
+        Ok(line)
     }
 }
 
@@ -218,7 +296,7 @@ impl Mine {
                 let cx =
                     Cx::open_kept_with(host, &self.widget, self.look.take(), listing.inputs())?;
                 let inner = cx.shape.look(rect).area;
-                for (id, at) in native_status::targets(&cx, ui, inner)? {
+                for (id, at) in native_status::targets(&cx, ui, &self.look, inner)? {
                     let target = WidgetTarget::new(id, paint::frame_rect(at));
                     paperpaw_ui_kit::mem::push(&mut found, target)?;
                 }
@@ -564,9 +642,8 @@ impl Widgets {
                 DATE => native_date::shows(host),
                 CARD => native_card::shows(host),
                 SHELF => native_shelf::shows(host, &item.mine.widget),
-                STATUS_WIDGET => {
-                    Cx::open(host, &item.mine.widget).and_then(|cx| native_status::shows(&cx, ui))
-                }
+                STATUS_WIDGET => Cx::open(host, &item.mine.widget)
+                    .and_then(|cx| native_status::shows(&cx, ui, &item.mine.look)),
                 _ => native_clock::shows(host),
             };
             let Ok(now) = now else {
@@ -640,7 +717,7 @@ fn status_tap(host: &Host<'_>, ui: &Ui, item: &Mine, target: u32) -> Result<bool
     };
     let cx = Cx::open(host, &item.widget)?;
     let inner = cx.shape.look(place).area;
-    let Some(action) = native_status::action(&cx, ui, inner, target)? else {
+    let Some(action) = native_status::action(&cx, ui, &item.look, inner, target)? else {
         return Ok(false);
     };
     let mut scratch = [0; 256];
