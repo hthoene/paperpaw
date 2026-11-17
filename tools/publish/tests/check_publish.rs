@@ -369,3 +369,79 @@ fn the_sites_rules_are_taken_where_given() {
     says(&problems, "the group `look` is none of the store's");
     assert!(problems.iter().any(|p| p.code == "rules.newer"));
 }
+
+/// Makes `dir` a plugin whose code depends on a stand-in SDK (`kernel` is
+/// a feature of it) and on `helper` (which names it as `helper_sdk`), with
+/// the lock Cargo wants for that.
+fn with_kernel_graph(dir: &Path, plugin_sdk: &str, helper_sdk: Option<&str>) {
+    write(
+        dir,
+        "sdk/Cargo.toml",
+        "[package]\nname = \"paperpaw-sdk\"\nversion = \"0.5.0-beta.8\"\nedition = \"2021\"\n\n\
+         [features]\nkernel = []\n",
+    );
+    write(dir, "sdk/src/lib.rs", "");
+    let mut lock =
+        String::from("version = 4\n\n[[package]]\nname = \"clock\"\nversion = \"0.1.0\"\n");
+    let mut toml = format!(
+        "[package]\nname = \"clock\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\npaperpaw-sdk = {plugin_sdk}\n"
+    );
+    let mut deps = String::from("dependencies = [\n \"paperpaw-sdk\",\n");
+    if let Some(sdk) = helper_sdk {
+        write(
+            dir,
+            "helper/Cargo.toml",
+            format!(
+                "[package]\nname = \"fonts-default\"\nversion = \"1.0.0\"\nedition = \"2021\"\n\n[dependencies]\npaperpaw-sdk = {sdk}\n"
+            ),
+        );
+        write(dir, "helper/src/lib.rs", "");
+        toml.push_str("fonts-default = { path = \"helper\" }\n");
+        deps.push_str(" \"fonts-default\",\n");
+    }
+    deps.push_str("]\n");
+    lock.push_str(&deps);
+    if helper_sdk.is_some() {
+        lock.push_str("\n[[package]]\nname = \"fonts-default\"\nversion = \"1.0.0\"\ndependencies = [\n \"paperpaw-sdk\",\n]\n");
+    }
+    lock.push_str("\n[[package]]\nname = \"paperpaw-sdk\"\nversion = \"0.5.0-beta.8\"\n");
+    write(dir, "Cargo.toml", toml);
+    write(dir, "src/lib.rs", "");
+    write(dir, "Cargo.lock", lock);
+}
+
+const SDK_PLAIN: &str = "{ path = \"sdk\" }";
+const HELPER_PLAIN: &str = "{ path = \"../sdk\" }";
+const HELPER_KERNEL: &str = "{ path = \"../sdk\", features = [\"kernel\"] }";
+const SDK_KERNEL: &str = "{ path = \"sdk\", features = [\"kernel\"] }";
+
+#[test]
+fn a_plugin_that_turns_on_the_sdks_kernel_feature_is_refused() {
+    let dir = code_repo("kernel-direct");
+    with_kernel_graph(&dir, SDK_KERNEL, None);
+    says(
+        &check(&dir, &[]),
+        "plugin clock turns on paperpaw-sdk/kernel itself",
+    );
+}
+
+#[test]
+fn a_plugin_whose_dependency_turns_on_the_kernel_feature_is_refused() {
+    let dir = code_repo("kernel-via");
+    with_kernel_graph(&dir, SDK_PLAIN, Some(HELPER_KERNEL));
+    says(
+        &check(&dir, &[]),
+        "plugin clock turns on paperpaw-sdk/kernel via fonts-default",
+    );
+}
+
+#[test]
+fn a_plugin_without_the_kernel_feature_passes_the_check() {
+    let dir = code_repo("kernel-none");
+    with_kernel_graph(&dir, SDK_PLAIN, Some(HELPER_PLAIN));
+    let problems = check(&dir, &[]);
+    assert!(
+        problems.iter().all(|p| p.code != "source.kernel"),
+        "{problems:#?}"
+    );
+}
