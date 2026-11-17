@@ -82,8 +82,11 @@ fn compile(
     let plugin = folder.rsplit('/').next().unwrap_or(folder);
     let stem = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
     let prefix = format!("{plugin}-{}-", stem.to_ascii_lowercase());
+    // `k`: compiled with its first and last key said (#305), so that one
+    // compiled before, which says none and is read for every text of
+    // another plugin, is made anew once (and removed, below).
     let kept = format!(
-        "{DIR}/{prefix}{size:x}-{:08x}.ppcat",
+        "{DIR}/{prefix}{size:x}-{:08x}k.ppcat",
         digest(storage, path)?
     );
     if storage.size(&kept).is_ok_and(|n| n > MAGIC.len() as u64) && has_magic(storage, &kept) {
