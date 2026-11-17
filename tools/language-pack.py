@@ -80,7 +80,8 @@ def parse(path, section=None):
 def english():
     """Every English message of the plugins and the kernel, with its German
     where there is one, in a fixed order: `{key: (english, german)}`."""
-    files = sorted(ROOT.glob("crates/*/i18n/en.ini")) + sorted(ROOT.glob("plugins/*/i18n/en.ini"))
+    # The kernel's texts are in folders of their own (`host`, `settings`), the app's too.
+    files = sorted(ROOT.glob("crates/*/i18n/**/en.ini")) + sorted(ROOT.glob("plugins/*/i18n/en.ini"))
     found = {}
     for file in files:
         german = file.with_name("de.ini")
