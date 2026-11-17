@@ -351,6 +351,19 @@ impl<S: Storage> Storage for Traced<S> {
         result
     }
 
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        count(|c| c.writes += 1);
+        note("write_at", path, 0);
+        let before = cost_now();
+        let result = self.0.write_at(path, offset, data);
+        spent(before);
+        result
+    }
+
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        self.0.truncate(path, len)
+    }
+
     fn sync(&self) -> Result<(), StorageError> {
         self.0.sync()
     }
@@ -483,6 +496,18 @@ mod tests {
         fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
             Some(a.eq_ignore_ascii_case(b))
         }
+    }
+
+    /// A save in place reaches the card through the wrapper (a wrapper that
+    /// says `Unsupported` sends every page turn to the whole-file write, #308).
+    #[test]
+    fn a_traced_storage_forwards_writes_in_place() {
+        let traced = Traced(MemoryStorage::new());
+        traced.write("a", &[0; 8]).unwrap();
+        assert_eq!(traced.write_at("a", 4, &[1; 2]), Ok(()));
+        let mut back = [0; 8];
+        traced.read_at("a", 0, &mut back).unwrap();
+        assert_eq!(back, [0, 0, 0, 0, 1, 1, 0, 0]);
     }
 
     /// The tracing wrapper says what the storage under it says (the default,
