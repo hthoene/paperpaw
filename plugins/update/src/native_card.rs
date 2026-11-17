@@ -164,6 +164,13 @@ pub fn percent(done: u64, total: u64) -> Option<i64> {
     i64::try_from(u128::from(done) * 100 / u128::from(total)).ok()
 }
 
+/// `percent` in steps of five: a bar that moves in coarse steps is redrawn
+/// at most twenty times (the e-paper's refresh is the slow part of an update).
+#[must_use]
+pub fn coarse(percent: Option<i64>) -> Option<i64> {
+    percent.map(|value| value - value % 5)
+}
+
 /// The path of the update file `name` of the folder.
 ///
 /// # Errors

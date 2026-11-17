@@ -22,7 +22,7 @@ mod grip;
 mod row;
 pub(crate) use row::draw_row;
 mod stepper;
-use empty::draw_empty;
+use empty::{draw_empty, draw_progress};
 use grip::{draw_drag, draw_row_with_grip};
 use stepper::draw_stepper;
 
@@ -212,6 +212,19 @@ pub enum Footer<'a> {
         /// Said in small letters, wrapped.
         text: &'a str,
     },
+    /// A job that takes a while, centred below the rows (on a list of one
+    /// page): a bar `permille` thousandths full with `label` under it; only
+    /// they move ([`ItemList::redraw_progress`] redraws them alone).
+    Progress {
+        /// Said larger.
+        title: &'a str,
+        /// The share done in words, e.g. `25 %`; empty for none.
+        label: &'a str,
+        /// How much is done, in thousandths.
+        permille: u16,
+        /// Said in small letters, wrapped.
+        text: &'a str,
+    },
     /// A QR code centred in the room below the rows (on a list of one page),
     /// with `caption` (an address to type, wrapped) under it. Drawn straight
     /// to the canvas, in runs: no operation is kept per module.
@@ -249,6 +262,8 @@ pub struct ItemList {
     head_at: Option<Rect>,
     /// A picture over the words of an empty list ([`Footer::Empty`]).
     empty_icon: Option<paperpaw_sdk::native::fonts::IconGlyph>,
+    /// Where the last frame's [`Footer::Progress`] bar and label were.
+    band: Option<Rect>,
     /// The heights of the items as the last frame measured them: measuring
     /// wraps every row's text, which is most of a long list's frame, so a
     /// frame under the same look and width keeps them (empty while taken, or
@@ -735,6 +750,7 @@ impl ItemList {
             draw_note(&mut body, &font, &style, *rect, lines)?;
         }
         let below = Rect::new(0, drawn.y, width, height.saturating_sub(drawn.y));
+        let mut band = None;
         let code = footer_below(
             &mut body,
             &font,
@@ -742,7 +758,9 @@ impl ItemList {
             footer,
             (below, starts.len()),
             self.empty_icon,
+            &mut band,
         )?;
+        self.band = band;
         paint::replay_with_icons(host, frame, &font, header.paint.iter().chain(body.iter()))?;
         if let Some((qr, room)) = code {
             paint::draw_code(frame, qr, room)?;
@@ -838,11 +856,16 @@ fn footer_below<'a>(
     footer: Footer<'a>,
     (area, pages): (Rect, usize),
     icon: Option<paperpaw_sdk::native::fonts::IconGlyph>,
+    band: &mut Option<Rect>,
 ) -> Result<Option<(&'a paperpaw_sdk::qr::QrCode, Rect)>, Error> {
-    if let Footer::Empty { title, text } = footer
-        && pages == 1
-    {
-        draw_empty(paint, font, style, area, (title, text), icon)?;
+    match footer {
+        Footer::Empty { title, text } if pages == 1 => {
+            draw_empty(paint, font, style, area, (title, text), icon)?;
+        }
+        Footer::Progress { .. } if pages == 1 => {
+            *band = Some(draw_progress(paint, font, style, area, footer)?);
+        }
+        _ => {}
     }
     code_footer(paint, font, style, footer, area, pages)
 }
