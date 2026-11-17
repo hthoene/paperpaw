@@ -17,7 +17,7 @@ use crate::native_host::{
 };
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_UNSUPPORTED};
-use paperpaw_sdk::{Id, keys::InputKind};
+use paperpaw_sdk::Id;
 
 /// `reg_item.flags` of actions, screens and inputs.
 const SEALED: u32 = 1 << 1;
@@ -317,20 +317,6 @@ fn inputs_flow(
         for pinch in PINCHES {
             put(&["pinch.", pinch], true)?;
         }
-    }
-    // A plugin's own: `input.<id>` or `gesture.<id>`, by the owner.
-    for spec in env.inputs() {
-        if spec.need.is_some_and(|need| !need.met(env.caps())) {
-            continue;
-        }
-        let gesture = spec.kind == InputKind::Gesture;
-        let prefix = if gesture { "gesture." } else { "input." };
-        let Some(id) = Fixed::<ID>::of(&[prefix, spec.id.as_str()]) else {
-            continue;
-        };
-        let flags = DECLARED | if gesture { GESTURE } else { 0 };
-        let title = translated(translator, &spec.title, TITLE);
-        visit(&item(id.as_str(), namespace_of(&spec.id), flags, title))?;
     }
     native_inputs(sources, visit)
 }

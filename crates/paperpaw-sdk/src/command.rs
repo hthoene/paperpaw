@@ -634,7 +634,7 @@ impl Speech {
     }
 
     /// Its reply: it was `spoken`, or could not be (a plugin's voice
-    /// answers so, see [`voices`](crate::voices)).
+    /// answers so, see `voices`).
     pub fn answer(&self, spoken: bool) -> Command {
         use crate::event::EventData;
         let reply = crate::replies::Spoken::new(spoken, self.params.clone());
@@ -680,7 +680,7 @@ pub enum Command {
     /// `params::PATH`, and the readers that could not open it. See
     /// [`readers::open`](crate::readers::open) and
     /// [`readers::cannot_open`](crate::readers::cannot_open), which make
-    /// it, and [`readers::resolve`](crate::readers::resolve), which says
+    /// it, and `readers::resolve`, which says
     /// what it does.
     OpenBook(Params),
     /// Opens screen `.1` for slot `.0` with `.2` as [`Command::OpenSlot`]

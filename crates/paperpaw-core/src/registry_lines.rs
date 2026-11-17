@@ -203,30 +203,12 @@ impl Kernel {
             );
         }
         lines.end("action");
-        // The handlers put in an action's place, the one that runs first.
-        for action in actions.iter() {
-            for (plugin, _) in actions.overrides_of(action.id().as_str()) {
-                lines.add(action.id(), plugin);
-            }
-        }
-        lines.end("action-override");
-        for spec in &self.action_observers {
-            lines.add("", &spec.id);
-        }
-        lines.end("action-observer");
-        for spec in &self.event_observers {
-            lines.add("", &spec.id);
-        }
-        lines.end("event-observer");
     }
 
     fn lines_of_screens(&self, lines: &mut Lines) {
         let registry = &self.shared.registry;
         for (id, title) in registry.screens.list().iter() {
-            lines.add(
-                id,
-                format_args!("title={title} hints={:?}", registry.hints_of(id)),
-            );
+            lines.add(id, format_args!("title={title}"));
         }
         lines.end("screen");
         for (id, spec) in registry.slots.iter() {
@@ -349,10 +331,6 @@ impl Kernel {
             );
         }
         lines.end("format");
-        for reader in shared.readers.iter() {
-            lines.add("", debug(reader));
-        }
-        lines.end("reader");
         for id in shared.fonts.ids() {
             lines.add("", id);
         }
@@ -361,22 +339,8 @@ impl Kernel {
             lines.add("", family);
         }
         lines.end("font-family");
-        for id in shared.voices.ids() {
-            lines.add("", id);
-        }
-        lines.end("voice");
-        lines.add("", debug(&shared.text_filters));
-        lines.end("text-filters");
-        lines.add("", debug(&shared.input_filters));
-        lines.end("input-filters");
-        lines.add("", debug(&shared.refresh_filters));
-        lines.end("refresh-filters");
         lines.add("", debug(&shared.decorators));
         lines.end("decorators");
-        lines.add("", debug(&shared.page_layers));
-        lines.end("page-layers");
-        lines.add("", debug(&shared.lookup));
-        lines.end("lookup");
         for sheet in &shared.stylesheets {
             let hash = paperpaw_sdk::digest::fnv1a64(sheet.as_bytes());
             lines.add("", format_args!("{} bytes {hash:016x}", sheet.len()));
@@ -386,14 +350,6 @@ impl Kernel {
             lines.add("", debug(data));
         }
         lines.end("book-data");
-        for field in &shared.book_fields {
-            lines.add("", debug(field));
-        }
-        lines.end("book-field");
-        for badge in &shared.book_badges {
-            lines.add("", format_args!("{} title={}", badge.id, badge.title));
-        }
-        lines.end("book-badge");
     }
 
     /// Every menu as `core.registry` lists it with all its rows (ops 11 and

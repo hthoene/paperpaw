@@ -100,6 +100,7 @@ impl RefreshPolicy {
 
     /// How many refreshes that leave ghosting were made since the last
     /// that cleaned the panel.
+    #[cfg(test)]
     pub(crate) fn since_full(&self) -> u32 {
         self.partials
     }

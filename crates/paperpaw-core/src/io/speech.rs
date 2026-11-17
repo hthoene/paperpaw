@@ -44,8 +44,6 @@ struct Speaking {
 pub(crate) struct Speech {
     /// The shell speaks.
     pub system: bool,
-    /// A plugin's voice speaking, and the screens open when it started.
-    pub voice: Option<(Id, usize)>,
     calls: Vec<SpeechCall>,
     speaking: Vec<Speaking>,
     next: u32,
