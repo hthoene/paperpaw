@@ -269,7 +269,7 @@ fn probe(kept: Rc<RefCell<Vec<Snapshot>>>) -> impl Fn(&mut Items) -> Result<(), 
                         let decoded = snapshot_decode(&bytes).unwrap();
                         assert_eq!(
                             decoded.unix_seconds,
-                            paperpaw_sdk::time::unix_seconds(&env.env())
+                            paperpaw_core::kit::time::unix_seconds(&env.env())
                         );
                         seen.borrow_mut().push(decoded);
                     })

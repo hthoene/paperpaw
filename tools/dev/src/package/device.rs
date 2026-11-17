@@ -105,7 +105,7 @@ pub fn check(
         return Ok(());
     };
     let id = folder.id(plugin).to_string();
-    if Id::parse(&id).is_err() || !paperpaw_sdk::install::is_plugin_name(&id) {
+    if Id::parse(&id).is_err() || !paperpaw_core::kit::install::is_plugin_name(&id) {
         report.add(
             Finding::info(
                 "package.device",

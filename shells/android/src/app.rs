@@ -19,7 +19,7 @@ use paperpaw_platform::{
     StorageError,
 };
 use paperpaw_sdk::builtin::settings;
-use paperpaw_sdk::library;
+use paperpaw_core::kit::library;
 
 use crate::epd::Epd;
 use crate::lights::Lights;

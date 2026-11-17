@@ -36,7 +36,7 @@ use paperpaw_platform::{
 use paperpaw_sdk::annotations::{self, Annotation, Kind, Mark};
 use paperpaw_sdk::builtin::{actions, params, slots};
 use paperpaw_sdk::document::Locator;
-use paperpaw_sdk::widgets::categories;
+use paperpaw_core::kit::widgets::categories;
 use paperpaw_sdk::{Canvas, Handled, Id, Manifest, MemoryStorage, Params, SDK_VERSION, library};
 
 /// An X4 as the emulator's profile and the firmware have it: buttons, no

@@ -7,8 +7,8 @@
 //! - **As files** ([`folder`]): `plugin.ini` (id, name, version,
 //!   `formats`, `[extends]`, `[family]`), every file's path, kind and size
 //!   against the SDK's `install` rules (the installer downloads a
-//!   [`Package`](paperpaw_sdk::install::Package) of at most
-//!   [`MAX_FILES`](paperpaw_sdk::install::MAX_FILES) files with safe
+//!   [`Package`](paperpaw_core::kit::install::Package) of at most
+//!   [`MAX_FILES`](paperpaw_core::kit::install::MAX_FILES) files with safe
 //!   paths) and the website's (the kinds of files a package may hold, its
 //!   size, an id and a version named in `plugin.ini`), and which files
 //!   PaperPaw reads at all.

@@ -19,10 +19,9 @@ use std::borrow::Cow;
 use paperpaw_core::Items;
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::presets::Preset;
-use paperpaw_sdk::{
-    ActionSpec, Contribution, Id, Params, Priority, RegisterError, SettingKind, SettingSpec,
-    SettingValue, SlotSpec,
-};
+use paperpaw_sdk::{Id, Params, Priority, RegisterError, SettingKind, SettingSpec, SettingValue, SlotSpec};
+use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::kit::contribution::item::Contribution;
 
 fn setting(id: &'static str) -> SettingSpec {
     SettingSpec::new(

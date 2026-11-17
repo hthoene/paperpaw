@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
-use paperpaw_core::sdk::install::{is_plugin_name, is_safe_path};
+use paperpaw_core::kit::install::{is_plugin_name, is_safe_path};
 use paperpaw_core::sdk::{MemoryStorage, Storage};
 use paperpaw_dev::report::json_string;
 use paperpaw_dev::target::{DataPlugin, Target};

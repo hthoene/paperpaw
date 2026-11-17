@@ -31,7 +31,7 @@ use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::event::Event;
 use paperpaw_sdk::replies::Confirmed;
 use paperpaw_sdk::semantics::Role;
-use paperpaw_sdk::ui::choice::Picked;
+use paperpaw_core::kit::ui::choice::Picked;
 use paperpaw_sdk::{Command, Id, MemoryStorage};
 
 /// The emulator's `xteink-x4`: buttons only.
@@ -162,7 +162,7 @@ fn a_yes_or_no_question_is_answered_by_buttons_and_by_touch() {
     let harness = Harness::new();
     let mut kernel = app(&harness, BOOX);
     let question = || {
-        paperpaw_sdk::ask::confirm("Delete?", &ANSWERED)
+        paperpaw_core::kit::ask::confirm("Delete?", &ANSWERED)
             .with("book", "a.epub")
             .command()
     };
@@ -222,7 +222,7 @@ fn picked(harness: &Harness) -> Vec<String> {
 }
 
 fn choice(options: &[&str]) -> Command {
-    paperpaw_sdk::ask::choice("Delete “a.epub”?", &CHOSEN)
+    paperpaw_core::kit::ask::choice("Delete “a.epub”?", &CHOSEN)
         .about("books/a.epub")
         .options("core.confirm.", options)
         .command()
@@ -306,7 +306,7 @@ fn every_option_on_pages_is_reached_by_touch_and_by_buttons() {
     let options: Vec<&str> = names.iter().map(String::as_str).collect();
     // Labelled with the options' own words (none of them is translated).
     let paged = || {
-        paperpaw_sdk::ask::choice("Pick one", &CHOSEN)
+        paperpaw_core::kit::ask::choice("Pick one", &CHOSEN)
             .about("books/a.epub")
             .options("", &options)
             .command()

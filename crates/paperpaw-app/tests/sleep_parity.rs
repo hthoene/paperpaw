@@ -39,7 +39,8 @@ use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation, Storage,
 };
 use paperpaw_sdk::builtin::{actions, slots};
-use paperpaw_sdk::{Action, Id, Params};
+use paperpaw_sdk::{Id, Params};
+use paperpaw_core::kit::action::Action;
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
 const BUTTONS: DeviceInfo = DeviceInfo::new(

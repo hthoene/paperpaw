@@ -17,7 +17,7 @@ use std::rc::Rc;
 use std::sync::Mutex;
 
 use paperpaw_core::KernelBuilder;
-use paperpaw_core::sdk::ui::UiStyle;
+use paperpaw_core::kit::ui::UiStyle;
 use paperpaw_core::sdk::{Canvas, Id, Manifest, MemoryStorage, Version};
 use paperpaw_emulator::{device::Device, headless, profiles};
 

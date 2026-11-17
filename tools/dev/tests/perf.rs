@@ -18,7 +18,7 @@ use paperpaw_dev::perf;
 use paperpaw_dev::report::{Level, Report};
 use paperpaw_dev::target::Target;
 use paperpaw_platform::Rect;
-use paperpaw_sdk::widgets::{Widget, WidgetSpec};
+use paperpaw_core::kit::widgets::{Widget, WidgetSpec};
 use paperpaw_sdk::{Canvas, Handled, Id, Manifest, RegisterError, SDK_VERSION};
 
 /// Reads a file whenever it is drawn.
@@ -72,11 +72,11 @@ impl Widget for ReadsWidget {
         false
     }
 
-    fn height(&self, _: &paperpaw_sdk::Env<'_>, _: u16) -> u16 {
+    fn height(&self, _: &paperpaw_core::Place<'_>, _: u16) -> u16 {
         1
     }
 
-    fn draw(&self, _: &mut Canvas<'_>, env: &paperpaw_sdk::Env<'_>, _: Rect) {
+    fn draw(&self, _: &mut Canvas<'_>, env: &paperpaw_core::Place<'_>, _: Rect) {
         let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
     }
 }

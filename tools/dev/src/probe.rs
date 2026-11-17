@@ -16,8 +16,8 @@ use std::cell::{Cell, RefCell};
 
 use paperpaw_core::{Items, KernelBuilder};
 use paperpaw_platform::Rect;
-use paperpaw_sdk::ui::{self, UiStyle};
-use paperpaw_sdk::widgets::{Widget, WidgetSpec};
+use paperpaw_core::kit::ui::{self, UiStyle};
+use paperpaw_core::kit::widgets::{Widget, WidgetSpec};
 use paperpaw_sdk::{Canvas, Handled, Id, Manifest, RegisterError, Version};
 
 use crate::AddPlugins;
@@ -125,11 +125,11 @@ impl Widget for Noting {
         false
     }
 
-    fn height(&self, _: &paperpaw_sdk::Env<'_>, _: u16) -> u16 {
+    fn height(&self, _: &paperpaw_core::Place<'_>, _: u16) -> u16 {
         1
     }
 
-    fn draw(&self, _: &mut Canvas<'_>, _: &paperpaw_sdk::Env<'_>, area: Rect) {
+    fn draw(&self, _: &mut Canvas<'_>, _: &paperpaw_core::Place<'_>, area: Rect) {
         AREA.set(Some(area));
     }
 }

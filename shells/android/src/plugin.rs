@@ -7,10 +7,9 @@ use android_activity::AndroidApp;
 use paperpaw_core::Items;
 use paperpaw_sdk::builtin::{events, groups, menus, params};
 use paperpaw_sdk::document::Document;
-use paperpaw_sdk::{
-    ActionSpec, Command, FormatSpec, Id, Manifest, MenuEntry, MenuNeed, RegisterError, SettingSpec,
-    Version,
-};
+use paperpaw_sdk::{Command, FormatSpec, Id, Manifest, MenuNeed, RegisterError, SettingSpec, Version};
+use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::kit::menus::MenuEntry;
 
 use crate::lights::Lights;
 use paperpaw_sdk::setting::Setting;

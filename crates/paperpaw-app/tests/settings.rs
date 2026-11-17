@@ -70,7 +70,7 @@ fn sliders_show_their_unit() {
     let bare: Vec<String> = kernel
         .settings()
         .specs()
-        .filter(|spec| paperpaw_sdk::ui::slider::marked(spec) && spec.extra().unit.is_none())
+        .filter(|spec| paperpaw_core::kit::ui::slider::marked(spec) && spec.extra().unit.is_none())
         .map(|spec| spec.id.to_string())
         .collect();
     assert!(bare.is_empty(), "sliders without a unit: {bare:#?}");

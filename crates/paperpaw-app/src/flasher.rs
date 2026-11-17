@@ -3,7 +3,7 @@
 //! install. Marks take effect only after the folder is in place.
 
 use paperpaw_core::sdk as paperpaw_sdk;
-use paperpaw_sdk::install::marks::{self, From, Marks};
+use paperpaw_core::kit::install::marks::{self, From, Marks};
 use paperpaw_sdk::native::{self, Author};
 use paperpaw_sdk::{Storage, Version};
 
@@ -30,7 +30,7 @@ pub fn prepare(
     version: &str,
 ) -> Result<(), Problem> {
     let version = Version::parse(version).ok_or(Problem::Damaged)?;
-    if paperpaw_sdk::install::folder_version(storage, folder) != Some(version) {
+    if paperpaw_core::kit::install::folder_version(storage, folder) != Some(version) {
         return Err(Problem::Damaged);
     }
     let mut marks = Marks::new(From::Store(version));
@@ -57,7 +57,7 @@ pub fn prepare(
 mod tests {
     use super::*;
     use paperpaw_core::Kernel;
-    use paperpaw_sdk::install::{Origin, origin};
+    use paperpaw_core::kit::install::{Origin, origin};
     use paperpaw_sdk::{Id, MemoryStorage};
 
     const DEVICE: paperpaw_platform::DeviceInfo = paperpaw_platform::DeviceInfo::new(
@@ -92,7 +92,7 @@ mod tests {
         assert_eq!(origin(kernel.storage(), "dusk", version), Origin::Store);
         assert!(!kernel.storage().exists("plugins/dusk/.install-marks"));
         assert_eq!(
-            paperpaw_sdk::install::Origins::read(kernel.storage()).release("dusk", version),
+            paperpaw_core::kit::install::Origins::read(kernel.storage()).release("dusk", version),
             Some("1.2.0-beta.2")
         );
     }
@@ -172,7 +172,7 @@ mod tests {
             "[plugin]\nid = dusk\nversion = 1.0.0\n",
         );
         let version = Version::new(1, 0, 0);
-        paperpaw_sdk::install::remember_store_install(&storage, "dusk", version);
+        paperpaw_core::kit::install::remember_store_install(&storage, "dusk", version);
         marks::write(&storage, "plugins/dusk", &Marks::new(From::Local)).unwrap();
         marks::settle(&storage, "dusk", "plugins/dusk");
         assert_eq!(origin(&storage, "dusk", version), Origin::Local);

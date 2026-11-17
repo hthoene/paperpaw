@@ -42,7 +42,8 @@ use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation, Storage,
 };
 use paperpaw_sdk::builtin::{actions, slots};
-use paperpaw_sdk::{Action, Id, Params};
+use paperpaw_sdk::{Id, Params};
+use paperpaw_core::kit::action::Action;
 
 /// Whether this allocation is left out: the card's own files (a test's
 /// storage, not the kernel's heap).
