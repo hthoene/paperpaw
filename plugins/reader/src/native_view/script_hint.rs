@@ -18,6 +18,7 @@ impl Open {
             whole_pages: self.whole_pages,
             path: &self.path,
             script,
+            language: &self.language,
         };
         self.packs_asked = hint::ask(host, docs, &book);
     }
@@ -35,6 +36,7 @@ impl View {
                 whole_pages: open.whole_pages,
                 path: &open.path,
                 script: hint::declared(&open.language),
+                language: &open.language,
             }),
             Body::Message(_) | Body::Preparing(_) => None,
         }
