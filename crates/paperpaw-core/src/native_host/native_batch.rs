@@ -10,7 +10,9 @@
 //! [`Kernel::end_native_batch`]; `paperpaw_app::register_native_plugins`
 //! makes both), so what the caller sees after it is what one-by-one hosting
 //! gave.
+use super::{flat::FlatDepth, shell};
 use crate::Kernel;
+use paperpaw_native::host_glue::Services;
 
 /// What a batch counted at its start, to see at its end what the plugins
 /// admitted since brought (as each admission did for itself).
@@ -70,6 +72,23 @@ impl Kernel {
     pub fn reserve_native_plugins(&mut self, plugins: usize) {
         let _ = self.shared.plugins.try_reserve(plugins);
         self.shared.native_instances.reserve_plugins(plugins);
+    }
+
+    /// The admission of one plugin of a batch: timed, and none of the
+    /// refreshes [`Self::end_native_batch`] makes.
+    pub(super) fn admit_in_batch<S: Services + 'static, M: 'static>(
+        &mut self,
+        host: shell::Hosted<S, M>,
+        depth: &FlatDepth,
+        folder: Option<&str>,
+        report: fn(&S, &str, u32, i32),
+        fixed: super::FixedTables,
+        park: Option<super::park_linked::ParkArgs<S>>,
+    ) -> Result<(), shell::Error> {
+        let from = self.native_now();
+        let admitted = self.admit_native_with(host, depth, folder, report, fixed, park);
+        self.native_took(from, |times| &mut times.admit);
+        admitted
     }
 
     /// Starts a batch: the plugins admitted from here to
