@@ -30,7 +30,7 @@ const BOOK: &str = "books/alice-in-wonderland.epub";
 /// read at every draw: 857-868 and 333-346 (967-978 and 423-436 before the
 /// names and widgets kept theirs); laid out again on every return, as before:
 /// 1,349 and 712.
-const KEPT_ALL_SLOTS: u32 = 200;
+const KEPT_ALL_SLOTS: u32 = 225;
 const KEPT_SETTINGS: u32 = 20;
 /// The service calls of a return from the drawer (one of Home's own screens):
 /// the wifi plugin's, the library's listing and the status line's values; the
@@ -327,7 +327,11 @@ fn the_return_from_a_book_does_not_ask_the_library_for_each_band() {
     let queries = of("query");
     // The reader's close, the wifi plugin's call, the library's listing and the
     // status line's values: Home asks the stack and the registry of nothing (#294).
-    assert!(calls.len() <= 4, "the return made {} service calls: {calls:?}", calls.len());
+    assert!(
+        calls.len() <= 4,
+        "the return made {} service calls: {calls:?}",
+        calls.len()
+    );
     eprintln!("FIRST FRAME service calls: {}", calls.len());
     for (plugin, service, op) in &calls {
         eprintln!("  service {plugin} {service}.{op}");
