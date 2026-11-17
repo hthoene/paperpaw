@@ -10,10 +10,8 @@ use paperpaw_sdk::native::declare::{
 pub const SCREEN: u32 = 10;
 /// The screen that chooses the layouts.
 pub const CHOOSE: u32 = 11;
-/// The choice (slot `core.choice`).
-pub const CHOICE: u32 = 12;
-/// The yes or no question (slot `core.confirm`).
-pub const CONFIRM: u32 = 13;
+/// The choice and the yes or no question (slots `core.choice`, `core.confirm`).
+pub const ASK: u32 = 12;
 /// The action that finishes typing.
 pub const DONE: u32 = 1;
 
@@ -123,13 +121,9 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         "keyboard.setting.layouts",
         CHOOSE,
     ))?;
+    // One screen for both: it is the choice or the question its request asks.
     d.screen(
-        ScreenDecl::new("choice", "core.choice", CHOICE)
-            .overlay()
-            .dims_below(),
-    )?;
-    d.screen(
-        ScreenDecl::new("confirm", "core.confirm.screen", CONFIRM)
+        ScreenDecl::new("ask", "core.confirm.screen", ASK)
             .overlay()
             .dims_below(),
     )?;
@@ -141,8 +135,8 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.slot_offer(SlotOfferDecl::new("core.keyboard", "keyboard.screen"))?;
-    d.slot_offer(SlotOfferDecl::new("core.choice", "keyboard.choice"))?;
-    d.slot_offer(SlotOfferDecl::new("core.confirm", "keyboard.confirm"))?;
+    d.slot_offer(SlotOfferDecl::new("core.choice", "keyboard.ask"))?;
+    d.slot_offer(SlotOfferDecl::new("core.confirm", "keyboard.ask"))?;
     d.icon("keyboard.group", "keyboard")?;
     // Held Back finishes: elsewhere it goes home, which here would only
     // close the keyboard and lose the text.

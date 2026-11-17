@@ -4,7 +4,7 @@
 //! layouts. Drawing goes through owned [`Paint`](paperpaw_ui_kit::paint::Paint) operations.
 use crate::keys::Key;
 use crate::layouts::{AUTO, Added, LAYOUTS, all_drawn, chosen_drawn};
-use crate::native_ask::{ChoiceView, ConfirmView};
+use crate::native_ask::AskView;
 use crate::native_layouts;
 use crate::native_model::{
     Asked, Board, FIELD_ROW, FieldButton, Look, Move, Own, Pressed, known_shape, known_size,
@@ -48,10 +48,8 @@ mod image {
 pub const SCREEN: u32 = 10;
 /// The screen that chooses the layouts.
 pub const CHOOSE: u32 = 11;
-/// The choice (slot `core.choice`).
-pub const CHOICE: u32 = 12;
-/// The yes or no question (slot `core.confirm`).
-pub const CONFIRM: u32 = 13;
+/// The choice and the yes or no question (slots `core.choice`, `core.confirm`).
+pub const ASK: u32 = 12;
 /// The action that finishes typing.
 pub const DONE: u32 = 1;
 
@@ -62,8 +60,7 @@ const SIZE_KEY: &str = "keyboard.size";
 const CAPITALS_KEY: &str = "keyboard.auto-capitals";
 const LANGUAGE_KEY: &str = "core.language";
 const SCREEN_ID: &str = "keyboard.screen";
-const CHOICE_ID: &str = "keyboard.choice";
-const CONFIRM_ID: &str = "keyboard.confirm";
+const ASK_ID: &str = "keyboard.ask";
 const REMOTE: &str = "core.remote-keyboard";
 /// A host text, in bytes, at most.
 const TEXT_LIMIT: usize = 24_576;
@@ -117,8 +114,7 @@ struct ChooseView {
 enum View {
     Dialog(Dialog),
     Choose(ChooseView),
-    Choice(ChoiceView),
-    Confirm(ConfirmView),
+    Ask(AskView),
 }
 
 /// The interface-7 keyboard plugin.
@@ -203,8 +199,7 @@ impl Plugin for NativeKeyboard {
                 v.list
                     .draw_with(host, &mut frame, &title, true, Footer::None)
             }
-            View::Choice(v) => v.draw(host, &mut frame),
-            View::Confirm(v) => v.draw(host, &mut frame),
+            View::Ask(v) => v.draw(host, &mut frame),
         }
     }
 
@@ -213,11 +208,10 @@ impl Plugin for NativeKeyboard {
         match token {
             SCREEN => self.dialog_input(host, &input),
             CHOOSE => self.choose_input(host, &input),
-            CHOICE | CONFIRM => {
+            ASK => {
                 let ui = self.ui.as_ref().ok_or(Error::State)?;
                 match self.screens.top(token) {
-                    Some(View::Choice(v)) => v.input(ui, host, &input),
-                    Some(View::Confirm(v)) => v.input(ui, host, &input),
+                    Some(View::Ask(v)) => v.input(ui, host, &input),
                     _ => Ok(Handled::No),
                 }
             }
@@ -252,8 +246,7 @@ impl NativeKeyboard {
     ) -> Result<(), Error> {
         let view = match screen {
             SCREEN_ID => View::Dialog(self.open_dialog(host, handover)?),
-            CHOICE_ID => View::Choice(ChoiceView::open(self.ui()?, host, handover)?),
-            CONFIRM_ID => View::Confirm(ConfirmView::open(self.ui()?, host, handover)?),
+            ASK_ID => View::Ask(AskView::open(self.ui()?, host, handover)?),
             _ => View::Choose(build_choose(host)?),
         };
         // A secret question: edges wait and nothing is told about the focus.
@@ -458,7 +451,7 @@ impl NativeKeyboard {
     fn dialog_mut(&mut self) -> Option<&mut Dialog> {
         match self.screens.top(SCREEN)? {
             View::Dialog(d) => Some(d),
-            View::Choose(_) | View::Choice(_) | View::Confirm(_) => None,
+            View::Choose(_) | View::Ask(_) => None,
         }
     }
 

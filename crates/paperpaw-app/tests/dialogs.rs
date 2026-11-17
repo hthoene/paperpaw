@@ -1,6 +1,6 @@
 //! The choice and the yes or no question the kernel asks (`ask::choice`,
 //! `ask::confirm`), answered on the dialog plugin's screens (the keyboard's
-//! `keyboard.choice` and `keyboard.confirm`, #293), by buttons and by touch
+//! `keyboard.ask`, #293), by buttons and by touch
 //! alike: the answer comes back as the reply event the question named, with
 //! its context; *Back* or a tap outside answers nothing. (Moved here from the
 //! kernel's stock screens, `paperpaw-core`'s `tests/stock_screens.rs` and
@@ -177,7 +177,7 @@ fn a_yes_or_no_question_is_answered_by_buttons_and_by_touch() {
     };
     // Asked: yes and no, the focus on no.
     ask(&mut kernel, 100, question());
-    assert_eq!(screen(&kernel), "keyboard.confirm");
+    assert_eq!(screen(&kernel), "keyboard.ask");
     let shown = parts(&mut kernel, Role::Button);
     let labels: Vec<&str> = shown.iter().map(|(l, _, _)| l.as_str()).collect();
     assert_eq!(labels, ["Yes", "No"]);
@@ -186,23 +186,23 @@ fn a_yes_or_no_question_is_answered_by_buttons_and_by_touch() {
     run(&mut kernel, 200, actions::LEFT);
     assert!(parts(&mut kernel, Role::Button)[0].2);
     run(&mut kernel, 300, actions::CONFIRM);
-    assert_ne!(screen(&kernel), "keyboard.confirm");
+    assert_ne!(screen(&kernel), "keyboard.ask");
     assert_eq!(answers(&harness), [true]);
     // No by a tap on it.
     ask(&mut kernel, 400, question());
     let (x, y) = middle(parts(&mut kernel, Role::Button)[1].1);
     tap(&mut kernel, 500, x, y);
-    assert_ne!(screen(&kernel), "keyboard.confirm");
+    assert_ne!(screen(&kernel), "keyboard.ask");
     assert_eq!(answers(&harness), [false]);
     // Back: closed, no answer.
     ask(&mut kernel, 700, question());
     run(&mut kernel, 800, actions::BACK);
-    assert_ne!(screen(&kernel), "keyboard.confirm");
+    assert_ne!(screen(&kernel), "keyboard.ask");
     assert_eq!(answers(&harness), Vec::<bool>::new());
     // A tap outside the box, at the top of the screen: closed, no answer.
     ask(&mut kernel, 900, question());
     tap(&mut kernel, 1000, 600, 2);
-    assert_ne!(screen(&kernel), "keyboard.confirm");
+    assert_ne!(screen(&kernel), "keyboard.ask");
     assert_eq!(answers(&harness), Vec::<bool>::new());
 }
 
@@ -236,7 +236,7 @@ fn each_option_is_picked_alike_by_tap_and_by_confirm() {
     for (index, option) in options.iter().enumerate() {
         // By a tap on its row.
         ask(&mut kernel, 100, choice(&options));
-        assert_eq!(screen(&kernel), "keyboard.choice");
+        assert_eq!(screen(&kernel), "keyboard.ask");
         let rows = parts(&mut kernel, Role::Row);
         assert_eq!(rows.len(), options.len(), "{rows:?}");
         let (x, y) = middle(rows[index].1);
@@ -261,7 +261,7 @@ fn a_first_confirm_on_a_touch_screen_shows_the_focus() {
     let mut kernel = app(&harness, BOOX);
     ask(&mut kernel, 100, choice(&["yes", "no"]));
     run(&mut kernel, 200, actions::CONFIRM);
-    assert_eq!(screen(&kernel), "keyboard.choice");
+    assert_eq!(screen(&kernel), "keyboard.ask");
     assert_eq!(picked(&harness), Vec::<String>::new());
     run(&mut kernel, 300, actions::CONFIRM);
     assert_eq!(picked(&harness), ["yes"]);
@@ -273,10 +273,10 @@ fn back_and_a_tap_outside_pick_nothing() {
     let mut kernel = app(&harness, BOOX);
     ask(&mut kernel, 100, choice(&["yes", "no"]));
     run(&mut kernel, 200, actions::BACK);
-    assert_ne!(screen(&kernel), "keyboard.choice");
+    assert_ne!(screen(&kernel), "keyboard.ask");
     ask(&mut kernel, 300, choice(&["yes", "no"]));
     tap(&mut kernel, 400, 600, 2);
-    assert_ne!(screen(&kernel), "keyboard.choice");
+    assert_ne!(screen(&kernel), "keyboard.ask");
     assert_eq!(picked(&harness), Vec::<String>::new());
 }
 

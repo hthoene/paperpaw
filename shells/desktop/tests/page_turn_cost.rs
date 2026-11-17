@@ -128,7 +128,7 @@ fn reading(name: &str, book: &[u8], ini: &str) -> Device {
     };
     // A book in a script the firmware has no letters of asks first whether to
     // fetch them: Back says no, and the book is there.
-    if active(&mut device).as_deref() == Some("keyboard.confirm") {
+    if active(&mut device).as_deref() == Some("keyboard.ask") {
         press_button(&mut device, buttons::BACK, ButtonState::Pressed);
         press_button(&mut device, buttons::BACK, ButtonState::Released);
     }

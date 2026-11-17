@@ -1,4 +1,4 @@
-screen keyboard.confirm
+screen keyboard.ask
 Button "Start reading, Choose a book from your library., Delete this book?" at 35,167 409x213
 Button "Edit" at 384,739 61x61
 Dialog "" at 35,263 410x274

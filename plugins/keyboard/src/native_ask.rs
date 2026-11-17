@@ -15,7 +15,7 @@ use paperpaw_sdk::{
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         snapshot,
-        ui::{Answer, ButtonHint, HandoverId, QuestionKind, RequestId, Ui},
+        ui::{Answer, ButtonHint, HandoverId, QuestionInfo, QuestionKind, RequestId, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -39,6 +39,52 @@ const HIDDEN: [&str; 5] = [
     "core.next-page",
     "core.menu",
 ];
+
+/// The dialog the host opened the screen for: the choice or the yes or no
+/// question its request asks (one screen for both slots).
+#[derive(Debug)]
+pub(crate) enum AskView {
+    Choice(ChoiceView),
+    Confirm(ConfirmView),
+}
+
+impl AskView {
+    /// The dialog of the request the host opened the screen for.
+    pub(crate) fn open(
+        ui: &Ui,
+        host: &Host<'_>,
+        handover: Option<HandoverId>,
+    ) -> Result<Self, Error> {
+        let request = request_of(ui, host, handover)?;
+        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
+        let question = ui.question(host, request, &mut input, &mut output)?;
+        match question.kind() {
+            QuestionKind::Choice => Ok(Self::Choice(ChoiceView::of(host, request, question)?)),
+            QuestionKind::Confirm => Ok(Self::Confirm(ConfirmView::of(host, request, question)?)),
+            _ => Err(Error::Invalid),
+        }
+    }
+
+    pub(crate) fn draw(&mut self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
+        match self {
+            Self::Choice(view) => view.draw(host, frame),
+            Self::Confirm(view) => view.draw(host, frame),
+        }
+    }
+
+    pub(crate) fn input(
+        &mut self,
+        ui: &Ui,
+        host: &Host<'_>,
+        input: &Input<'_>,
+    ) -> Result<Handled, Error> {
+        match self {
+            Self::Choice(view) => view.input(ui, host, input),
+            Self::Confirm(view) => view.input(ui, host, input),
+        }
+    }
+}
 
 /// A choice being answered.
 #[derive(Debug)]
@@ -113,19 +159,8 @@ fn redraw(host: &Host<'_>) -> Result<Handled, Error> {
 }
 
 impl ChoiceView {
-    /// The choice of the request the host opened this sheet for.
-    pub(crate) fn open(
-        ui: &Ui,
-        host: &Host<'_>,
-        handover: Option<HandoverId>,
-    ) -> Result<Self, Error> {
-        let request = request_of(ui, host, handover)?;
-        let mut input = buffer(SERVICE_BUFFER)?;
-        let mut output = buffer(SERVICE_BUFFER)?;
-        let question = ui.question(host, request, &mut input, &mut output)?;
-        if question.kind() != QuestionKind::Choice {
-            return Err(Error::Invalid);
-        }
+    /// The sheet of a choice.
+    fn of(host: &Host<'_>, request: RequestId, question: QuestionInfo<'_>) -> Result<Self, Error> {
         let mut items = Vec::new();
         push(&mut items, Item::heading(question.title())?)?;
         for line in question.choices() {
@@ -140,7 +175,7 @@ impl ChoiceView {
         })
     }
 
-    pub(crate) fn draw(&mut self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
+    fn draw(&mut self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
         self.region = self.list.draw_sheet(host, frame, self.keys)?;
         Ok(())
     }
@@ -209,19 +244,8 @@ fn moves(action: &str) -> bool {
 }
 
 impl ConfirmView {
-    /// The question of the request the host opened this dialog for.
-    pub(crate) fn open(
-        ui: &Ui,
-        host: &Host<'_>,
-        handover: Option<HandoverId>,
-    ) -> Result<Self, Error> {
-        let request = request_of(ui, host, handover)?;
-        let mut input = buffer(SERVICE_BUFFER)?;
-        let mut output = buffer(SERVICE_BUFFER)?;
-        let question = ui.question(host, request, &mut input, &mut output)?;
-        if question.kind() != QuestionKind::Confirm {
-            return Err(Error::Invalid);
-        }
+    /// The box of a yes or no question.
+    fn of(host: &Host<'_>, request: RequestId, question: QuestionInfo<'_>) -> Result<Self, Error> {
         let mut messages = Messages::new()?;
         let only_yes = question.only_yes();
         let mut word = |own: Option<&str>, key: &str| match own {

@@ -1,4 +1,4 @@
-screen keyboard.choice
+screen keyboard.ask
 Button "Start reading, Choose a book from your library." at 47,377 1170x283
 Button "Edit" at 1134,1597 83x83
 Dialog "" at 0,1226 1264x454
