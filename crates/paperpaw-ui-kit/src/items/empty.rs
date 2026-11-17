@@ -1,5 +1,5 @@
 //! What an empty list says: a picture, a title and a few lines, centred.
-use super::{Footer, ItemList};
+use super::{ItemList, Progress, Spot};
 use crate::{Paint, Style, paint, text};
 use alloc::vec::Vec;
 use paperpaw_sdk::{
@@ -84,22 +84,20 @@ pub(super) fn draw_empty(
 /// A title, a bar `permille` thousandths full with `label` under it, and the
 /// text, centred in `area`. The room of the bar and its label is returned: it
 /// is all that changes while the job runs.
+#[inline(never)]
 pub(super) fn draw_progress(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
     style: &Style,
     area: Rect,
-    footer: Footer<'_>,
+    progress: &Progress<'_>,
 ) -> Result<Rect, Error> {
-    let Footer::Progress {
+    let Progress {
         title,
         label,
         permille,
         text,
-    } = footer
-    else {
-        return Ok(area);
-    };
+    } = *progress;
     let room = f32::from(area.width.saturating_sub(4 * style.margin)).max(1.0);
     let lines = text::wrap_with(|line| font.measure_text(style.small, line), text, room, 6)?;
     let head = crate::geometry::line_px(font, style.title)?;
@@ -198,7 +196,7 @@ impl ItemList {
     /// # Errors
     /// Propagates command queueing errors.
     pub fn redraw_progress(&self, host: &Host<'_>) -> Result<bool, Error> {
-        let Some(band) = self.band else {
+        let Spot::Band(band) = self.spot else {
             return Ok(false);
         };
         let mut scratch = [0; 64];

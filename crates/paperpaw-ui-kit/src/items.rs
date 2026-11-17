@@ -213,18 +213,10 @@ pub enum Footer<'a> {
         text: &'a str,
     },
     /// A job that takes a while, centred below the rows (on a list of one
-    /// page): a bar `permille` thousandths full with `label` under it; only
-    /// they move ([`ItemList::redraw_progress`] redraws them alone).
-    Progress {
-        /// Said larger.
-        title: &'a str,
-        /// The share done in words, e.g. `25 %`; empty for none.
-        label: &'a str,
-        /// How much is done, in thousandths.
-        permille: u16,
-        /// Said in small letters, wrapped.
-        text: &'a str,
-    },
+    /// page): a bar with a label under it; only they move
+    /// ([`ItemList::redraw_progress`] redraws them alone). Behind a reference
+    /// so that the footer, which the plugins' frames carry, stays small.
+    Progress(&'a Progress<'a>),
     /// A QR code centred in the room below the rows (on a list of one page),
     /// with `caption` (an address to type, wrapped) under it. Drawn straight
     /// to the canvas, in runs: no operation is kept per module.
@@ -234,6 +226,30 @@ pub enum Footer<'a> {
         /// What is said under it.
         caption: &'a str,
     },
+}
+
+/// What [`Footer::Progress`] shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Progress<'a> {
+    /// Said larger.
+    pub title: &'a str,
+    /// The share done in words, e.g. `25 %`; empty for none.
+    pub label: &'a str,
+    /// How much is done, in thousandths.
+    pub permille: u16,
+    /// Said in small letters, wrapped.
+    pub text: &'a str,
+}
+
+/// A room of the last frame that the list remembers.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) enum Spot {
+    #[default]
+    None,
+    /// The room above the rows.
+    Head(Rect),
+    /// The bar and label of a [`Footer::Progress`] (kept where there is no head).
+    Band(Rect),
 }
 
 /// A paged list of [`Item`]s. Only scalar geometry survives a draw.
@@ -258,12 +274,12 @@ pub struct ItemList {
     origin: (i32, i32),
     /// The room above the first page's rows, if the owner has one.
     head: Option<Head>,
-    /// Where the head's room was in the last frame.
-    head_at: Option<Rect>,
+    /// Where the head's room, or else the bar of a [`Footer::Progress`], was in
+    /// the last frame. One field for both: the list is carried in the frames
+    /// of every plugin, and a field of its own grew them past the X4's band.
+    spot: Spot,
     /// A picture over the words of an empty list ([`Footer::Empty`]).
     empty_icon: Option<paperpaw_sdk::native::fonts::IconGlyph>,
-    /// Where the last frame's [`Footer::Progress`] bar and label were.
-    band: Option<Rect>,
     /// The heights of the items as the last frame measured them: measuring
     /// wraps every row's text, which is most of a long list's frame, so a
     /// frame under the same look and width keeps them (empty while taken, or
@@ -395,7 +411,10 @@ impl ItemList {
     /// `None` where there is none or the page shown is not the first.
     #[must_use]
     pub const fn head_rect(&self) -> Option<Rect> {
-        self.head_at
+        match self.spot {
+            Spot::Head(rect) => Some(rect),
+            _ => None,
+        }
     }
 
     /// The focused item.
@@ -760,7 +779,6 @@ impl ItemList {
             self.empty_icon,
             &mut band,
         )?;
-        self.band = band;
         paint::replay_with_icons(host, frame, &font, header.paint.iter().chain(body.iter()))?;
         if let Some((qr, room)) = code {
             paint::draw_code(frame, qr, room)?;
@@ -773,7 +791,11 @@ impl ItemList {
         self.hits = drawn.hits;
         self.steps = drawn.steps;
         self.grip_rects = drawn.grips;
-        self.head_at = head_at;
+        self.spot = match (head_at, band) {
+            (Some(rect), _) => Spot::Head(rect),
+            (None, Some(rect)) => Spot::Band(rect),
+            (None, None) => Spot::None,
+        };
         self.origin = (frame.rect.x, frame.rect.y);
         Ok(())
     }
@@ -862,8 +884,8 @@ fn footer_below<'a>(
         Footer::Empty { title, text } if pages == 1 => {
             draw_empty(paint, font, style, area, (title, text), icon)?;
         }
-        Footer::Progress { .. } if pages == 1 => {
-            *band = Some(draw_progress(paint, font, style, area, footer)?);
+        Footer::Progress(progress) if pages == 1 => {
+            *band = Some(draw_progress(paint, font, style, area, progress)?);
         }
         _ => {}
     }
