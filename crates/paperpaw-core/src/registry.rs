@@ -360,8 +360,8 @@ impl Screens {
     }
 
     /// Every screen with the translation key of its name.
-    pub(crate) fn list(&self) -> paperpaw_sdk::ScreenList<'_> {
-        paperpaw_sdk::ScreenList::new(&self.titles, &self.native, &self.fixed_titles)
+    pub(crate) fn list(&self) -> crate::screen_names::ScreenNames<'_> {
+        crate::screen_names::ScreenNames::new(&self.titles, &self.native, &self.fixed_titles)
     }
 
     fn shrink_to_fit(&mut self) {
@@ -602,22 +602,24 @@ impl Registry {
     }
 }
 
-impl paperpaw_sdk::ScreenMaker for Registry {
-    fn slot_screen(&self, slot: &str) -> Option<&Id> {
+/// What screens and slots are shown as: the screen each slot shows, the
+/// screens offered for it, the user's choice and their names' keys.
+impl Registry {
+    pub(crate) fn slot_screen(&self, slot: &str) -> Option<&Id> {
         self.resolve_slot(slot)
     }
 
-    fn slot_choice(&self, slot: &str) -> Option<&Id> {
+    pub(crate) fn slot_choice(&self, slot: &str) -> Option<&Id> {
         self.user_bindings
             .get(slot)
             .filter(|screen| self.screens.contains_key(screen.as_str()))
     }
 
-    fn slot_title(&self, slot: &str) -> Option<&str> {
+    pub(crate) fn slot_title(&self, slot: &str) -> Option<&str> {
         self.slots.get(slot).map(|spec| spec.title.as_ref())
     }
 
-    fn screen_title(&self, screen: &Id) -> Option<&str> {
+    pub(crate) fn screen_title(&self, screen: &Id) -> Option<&str> {
         self.screens.title(screen.as_str())
     }
 
@@ -625,7 +627,7 @@ impl paperpaw_sdk::ScreenMaker for Registry {
     /// offered: the plugins' choice ([`Registry::resolve_slot`]) is the
     /// last of the first priority, so those before it bind the slot as
     /// high and those after it lower.
-    fn slot_screens(&self, slot: &str) -> Vec<&Id> {
+    pub(crate) fn ordered_screens(&self, slot: &str) -> Vec<&Id> {
         let mut candidates: Vec<_> = self
             .candidates
             .iter()
@@ -641,11 +643,15 @@ impl paperpaw_sdk::ScreenMaker for Registry {
         screens
     }
 
-    /// [`slot_screens`](Self::slot_screens)' order without a list: each
+    /// [`ordered_screens`](Self::ordered_screens)' order without a list: each
     /// priority from the highest down, those of one priority in the order
     /// offered, a screen visited once (at its first place). Nothing is
     /// allocated; a slot has few offers, so the repeated walks stay short.
-    fn each_slot_screen<'s>(&'s self, slot: &str, visit: &mut dyn FnMut(&'s Id) -> bool) {
+    pub(crate) fn each_slot_screen<'s>(
+        &'s self,
+        slot: &str,
+        visit: &mut dyn FnMut(&'s Id) -> bool,
+    ) {
         let offered = |c: &SlotCandidate| {
             c.slot.as_str() == slot && self.screens.contains_key(c.screen.as_str())
         };
@@ -1202,13 +1208,12 @@ mod tests {
     /// Subscriptions come back as they were added: in order, each with its
     /// event and plugin, a plugin's id kept once for its run of them, the
     /// lists kept in the program among those made.
-    /// The walk without a list visits what `slot_screens` lists, in its
+    /// The walk without a list visits what `ordered_screens` lists, in its
     /// order (priorities down, offer order within one, each screen once,
     /// only screens that exist, only this slot), and stops when told.
     #[test]
     fn each_slot_screen_walks_as_slot_screens_lists() {
         use crate::host_screen::{HostEntry, Kind};
-        use paperpaw_sdk::ScreenMaker;
         static SCREENS: [HostEntry; 4] = [
             HostEntry::new(Id::new_static("a.one"), "a", Kind::Placeholder),
             HostEntry::new(Id::new_static("b.two"), "b", Kind::Placeholder),
@@ -1237,25 +1242,26 @@ mod tests {
                 priority,
             });
         }
-        let listed: Vec<&str> = ScreenMaker::slot_screens(&registry, "core.home")
+        let listed: Vec<&str> = registry
+            .ordered_screens("core.home")
             .into_iter()
             .map(Id::as_str)
             .collect();
         assert_eq!(listed, ["a.one", "c.three", "b.two", "d.four"]);
         let mut seen = Vec::new();
-        ScreenMaker::each_slot_screen(&registry, "core.home", &mut |screen| {
+        registry.each_slot_screen("core.home", &mut |screen| {
             seen.push(screen.as_str());
             true
         });
         assert_eq!(seen, listed);
         seen.clear();
-        ScreenMaker::each_slot_screen(&registry, "core.home", &mut |screen| {
+        registry.each_slot_screen("core.home", &mut |screen| {
             seen.push(screen.as_str());
             seen.len() < 2
         });
         assert_eq!(seen, ["a.one", "c.three"]);
         seen.clear();
-        ScreenMaker::each_slot_screen(&registry, "no.slot", &mut |screen| {
+        registry.each_slot_screen("no.slot", &mut |screen| {
             seen.push(screen.as_str());
             true
         });

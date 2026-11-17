@@ -1,4 +1,3 @@
-use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -6,120 +5,6 @@ use paperpaw_platform::{Instant, Rect, RefreshMode};
 
 use crate::command::Command;
 use crate::id::Id;
-use crate::params::Params;
-
-/// Answers what the screens ask of the kernel's screens and slots.
-/// Present without the `kernel` feature too: [`Env`] holds one, and a plugin built without the feature
-/// must see `Env` as the kernel built it.
-pub trait ScreenMaker {
-    /// The screen slot `slot` shows, as the user or the plugins bound it.
-    fn slot_screen(&self, slot: &str) -> Option<&Id> {
-        let _ = slot;
-        None
-    }
-
-    /// Every screen offered for slot `slot`: the highest priority first,
-    /// those of one priority in the order offered.
-    fn slot_screens(&self, slot: &str) -> Vec<&Id> {
-        let _ = slot;
-        Vec::new()
-    }
-
-    /// [`slot_screens`](Self::slot_screens) without a list: `visit` is
-    /// called with each screen in that order until it returns `false`. The
-    /// kernel's maker allocates nothing here; this default walks
-    /// `slot_screens`.
-    fn each_slot_screen<'s>(&'s self, slot: &str, visit: &mut dyn FnMut(&'s Id) -> bool) {
-        for id in self.slot_screens(slot) {
-            if !visit(id) {
-                break;
-            }
-        }
-    }
-
-    /// The screen the user chose for slot `slot` (`[slots]`), where it is
-    /// there; `None` for automatic (the plugins' choice).
-    fn slot_choice(&self, slot: &str) -> Option<&Id> {
-        let _ = slot;
-        None
-    }
-
-    /// The translation key of slot `slot`'s name.
-    fn slot_title(&self, slot: &str) -> Option<&str> {
-        let _ = slot;
-        None
-    }
-
-    /// The translation key of screen `screen`'s name.
-    fn screen_title(&self, screen: &Id) -> Option<&str> {
-        let _ = screen;
-        None
-    }
-
-    /// A question asked after this release, by its key and parameters:
-    /// what plugins ask of the screens later reaches a kernel built now,
-    /// which answers `None` to keys it does not know. None is asked yet.
-    fn extended(&self, key: &Id, params: &Params) -> Option<Params> {
-        let _ = (key, params);
-        None
-    }
-}
-
-/// Every screen plugins added, with the translation key of its name
-/// ([`Env::screens`](crate::Env::screens)): interface-6 plugins', interface-7
-/// plugins' ([`Titled`](crate::Titled)) and those kept in the program.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ScreenList<'a> {
-    added: &'a [(Id, Cow<'static, str>)],
-    native: &'a [crate::Titled],
-    fixed: &'a [&'static crate::TitleEntry],
-}
-
-impl<'a> ScreenList<'a> {
-    /// The screens of `added`, `native` and `fixed`, each sorted by id.
-    #[cfg(feature = "kernel")]
-    pub fn new(
-        added: &'a [(Id, Cow<'static, str>)],
-        native: &'a [crate::Titled],
-        fixed: &'a [&'static crate::TitleEntry],
-    ) -> Self {
-        Self {
-            added,
-            native,
-            fixed,
-        }
-    }
-
-    /// Each screen's id and the translation key of its name: those plugins
-    /// added in the order of their ids, then those kept in the program.
-    pub fn iter(self) -> impl Iterator<Item = (&'a Id, &'a str)> + 'a {
-        let mut added = self
-            .added
-            .iter()
-            .map(|(id, title)| (id, title.as_ref()))
-            .peekable();
-        let mut native = self
-            .native
-            .iter()
-            .map(|titled| (titled.id(), titled.title()))
-            .peekable();
-        let merged = core::iter::from_fn(move || match (added.peek(), native.peek()) {
-            (Some(a), Some(n)) if n.0 < a.0 => native.next(),
-            (Some(_), _) => added.next(),
-            (None, _) => native.next(),
-        });
-        let fixed = self.fixed.iter().map(|f| (&f.id, f.title));
-        merged.chain(fixed)
-    }
-
-    pub fn len(&self) -> usize {
-        self.added.len() + self.native.len() + self.fixed.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
 
 /// How many of a screen may be open at once (`instances`).
 /// Opening one that is open already goes back to it: the screens above it
@@ -380,81 +265,11 @@ impl Output {
 mod tests {
     use super::*;
 
-    /// A maker that offers three screens for `core.home` and makes none.
-    struct Offers([Id; 3]);
-
-    impl ScreenMaker for Offers {
-        fn slot_screens(&self, slot: &str) -> Vec<&Id> {
-            if slot == "core.home" {
-                self.0.iter().collect()
-            } else {
-                Vec::new()
-            }
-        }
-    }
-
-    #[test]
-    fn each_slot_screen_visits_in_order_and_stops_when_told() {
-        let ids = ["a.one", "b.two", "c.three"].map(|id| Id::parse(id).unwrap());
-        let maker = Offers(ids.clone());
-        let mut seen = Vec::new();
-        maker.each_slot_screen("core.home", &mut |id| {
-            seen.push(id.as_str());
-            true
-        });
-        assert_eq!(seen, ["a.one", "b.two", "c.three"]);
-        seen.clear();
-        maker.each_slot_screen("core.home", &mut |id| {
-            seen.push(id.as_str());
-            seen.len() < 2
-        });
-        assert_eq!(seen, ["a.one", "b.two"]);
-        maker.each_slot_screen("core.other", &mut |_| panic!("no screen offered"));
-    }
-
     #[test]
     fn a_pane_this_sdk_does_not_know_is_placed_as_full() {
         assert_eq!(Pane(7).known(), Pane::FULL);
         assert_eq!(Pane::DETAIL.known(), Pane::DETAIL);
         assert_eq!(Pane::FULL.known(), Pane::FULL);
         assert_eq!(Pane::default(), Pane::FULL);
-    }
-
-    /// Interface-6 and interface-7 plugins' screens come in the order of their
-    /// ids, as when they were one list (#248, B), each with its title.
-    #[cfg(feature = "kernel")]
-    #[test]
-    fn a_screen_list_reads_both_kinds_in_the_order_of_their_ids() {
-        static KEPT: [crate::TitleEntry; 2] = [
-            crate::TitleEntry::new(Id::new_static("b.screen"), "b.title"),
-            crate::TitleEntry::new(Id::new_static("d.screen"), "d.title"),
-        ];
-        let added = [
-            (Id::new_static("a.screen"), Cow::Borrowed("a.title")),
-            (Id::new_static("c.screen"), Cow::Borrowed("c.title")),
-        ];
-        let owned = alloc::boxed::Box::new((Id::new_static("e.screen"), Cow::Borrowed("e.title")));
-        let native = [
-            crate::Titled::kept(&KEPT[0]),
-            crate::Titled::kept(&KEPT[1]),
-            crate::Titled::owned(owned),
-        ];
-        let list = ScreenList::new(&added, &native, &[]);
-        let read: alloc::vec::Vec<(&str, &str)> = list
-            .iter()
-            .map(|(id, title)| (id.as_str(), title))
-            .collect();
-        assert_eq!(
-            read,
-            [
-                ("a.screen", "a.title"),
-                ("b.screen", "b.title"),
-                ("c.screen", "c.title"),
-                ("d.screen", "d.title"),
-                ("e.screen", "e.title"),
-            ]
-        );
-        assert_eq!(list.len(), 5);
-        assert!(core::ptr::eq(list.iter().nth(1).unwrap().0, &KEPT[0].id));
     }
 }

@@ -11,7 +11,10 @@
 )]
 
 extern crate std;
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the names of std the tests had as SDK integration tests, not all used"
+)]
 use std::{
     borrow::ToOwned,
     boxed::Box,

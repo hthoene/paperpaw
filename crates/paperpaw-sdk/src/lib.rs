@@ -163,9 +163,6 @@ mod help_old;
 #[cfg(not(test))]
 pub mod help {}
 // end of facade: help
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use screen::ScreenMaker;
 mod hyphenation;
 pub mod icons;
 mod id;
@@ -496,12 +493,12 @@ pub use screen::Handled;
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use screen::{
     CloseCause, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION, ScreenKey,
-    ScreenList, ShowsThrough, StackEntry,
+    ShowsThrough, StackEntry,
 };
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use screen::{
     CloseCause, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION, ScreenKey,
-    ScreenList, ShowsThrough, StackEntry,
+    ShowsThrough, StackEntry,
 };
 pub use setting::{Setting, Text};
 #[cfg(any(test, feature = "kernel"))]

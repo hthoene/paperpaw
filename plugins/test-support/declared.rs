@@ -12,7 +12,6 @@
 )]
 use paperpaw_core::native_host::declarations::validate_record;
 use paperpaw_core::native_host::registrations::{Record, Registration, records_decode};
-use paperpaw_sdk::{Editor, SettingKind, SettingValue};
 
 /// `ERR_UNSUPPORTED` of `paperpaw_native::host_glue` (a plugin has no such dependency).
 const UNSUPPORTED: i32 = -1;

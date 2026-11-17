@@ -9,7 +9,10 @@
 )]
 
 extern crate std;
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the names of std the tests had as SDK integration tests, not all used"
+)]
 use std::{
     borrow::ToOwned,
     boxed::Box,
@@ -19,20 +22,14 @@ use std::{
     vec::Vec,
 };
 
-use std::cell::RefCell;
-
 use crate::Place;
-use crate::kit::action::Actions;
-use crate::kit::menus::Menus;
-use crate::kit::status::StatusItems;
 use paperpaw_graphics::{Described, Framebuffer};
 use paperpaw_i18n::Catalog;
 use paperpaw_sdk::builtin::{fonts, settings as core_settings};
 use paperpaw_sdk::{
-    Capabilities, Color, DeviceInfo, DisplayInfo, Font, FontSpec, Fonts, Formats, Hyphenation, Id,
-    InputCaps, Instant, MemoryClass, MemoryStorage, Metrics, Output, PixelFormat, Plugins, Point,
-    PointerEvent, PointerPhase, PointerTool, Priority, Rect, SettingKind, SettingSpec,
-    SettingValue, Settings, SystemStatus, Translator,
+    Color, DeviceInfo, DisplayInfo, Font, FontSpec, Id, InputCaps, Instant, MemoryClass, Output,
+    PixelFormat, Point, PointerEvent, PointerPhase, PointerTool, Priority, Rect, SettingKind,
+    SettingSpec, SettingValue,
 };
 
 /// Source Sans 3, the UI font PaperPaw ships.

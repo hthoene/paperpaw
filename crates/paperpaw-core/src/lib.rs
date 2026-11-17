@@ -82,6 +82,8 @@ mod realtime;
 mod recall;
 mod refresh;
 mod registry;
+mod screen_names;
+pub use screen_names::ScreenNames;
 mod room;
 mod screen;
 mod screens;

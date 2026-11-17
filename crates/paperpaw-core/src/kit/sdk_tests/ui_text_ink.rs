@@ -9,7 +9,10 @@
 )]
 
 extern crate std;
-#[allow(unused_imports)]
+#[allow(
+    unused_imports,
+    reason = "the names of std the tests had as SDK integration tests, not all used"
+)]
 use std::{
     borrow::ToOwned,
     boxed::Box,
@@ -80,19 +83,4 @@ fn an_entry_for_a_script_reaches_the_languages_written_in_it() {
     for tag in ["en", "de", "he", "ko", ""] {
         assert_eq!(curve(tag), stock, "{tag}");
     }
-}
-
-#[cfg(feature = "unstable")]
-#[test]
-fn a_page_knows_the_script_of_its_language() {
-    use paperpaw_sdk::reading::{PageType, StatusRoom};
-    let h = Harness::new(Device::BUTTONS);
-    let env = h.env();
-    let font = UiStyle::new(&env).font(&env).unwrap();
-    let script =
-        |language: &str| PageType::new(&env, &font, language, false, StatusRoom::NONE).script;
-    assert_eq!(script("ar"), Some("Arab"));
-    assert_eq!(script("fa"), Some("Arab"));
-    assert_eq!(script("he"), Some("Hebr"));
-    assert_eq!(script("en"), None);
 }

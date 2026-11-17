@@ -15,7 +15,7 @@ use paperpaw_core::{Place, Turn};
 use std::cell::{Cell, RefCell};
 
 use paperpaw_core::kit::ui::{self, UiStyle};
-use paperpaw_core::kit::widgets::{Widget, WidgetSpec};
+use paperpaw_core::kit::widgets::{Drawn, WidgetSpec};
 use paperpaw_core::{Items, KernelBuilder};
 use paperpaw_platform::Rect;
 use paperpaw_sdk::{Canvas, Handled, Id, Manifest, RegisterError, Version};
@@ -72,9 +72,11 @@ pub fn area() -> Option<Rect> {
 
 fn probe() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_widget(WidgetSpec::new(WIDGET, "paperpaw-dev.probe", |_| {
-            Box::new(Noting)
-        }))?;
+        r.add_widget(WidgetSpec::drawn(
+            WIDGET,
+            "paperpaw-dev.probe",
+            Drawn::new(|_, _| 1, |_, _, area| AREA.set(Some(area))),
+        ))?;
         r.add_fake(paperpaw_core::testing::FakeSpec::new(
             HELP,
             "paperpaw-dev.help",
@@ -115,21 +117,5 @@ impl paperpaw_core::testing::Fake for Measuring {
 
     fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
-    }
-}
-
-struct Noting;
-
-impl Widget for Noting {
-    fn live(&self) -> bool {
-        false
-    }
-
-    fn height(&self, _: &paperpaw_core::Place<'_>, _: u16) -> u16 {
-        1
-    }
-
-    fn draw(&self, _: &mut Canvas<'_>, _: &paperpaw_core::Place<'_>, area: Rect) {
-        AREA.set(Some(area));
     }
 }

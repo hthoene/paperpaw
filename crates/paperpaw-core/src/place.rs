@@ -6,9 +6,7 @@ use crate::kit::action::Actions;
 use crate::kit::status::StatusItems;
 use paperpaw_i18n::Translator;
 use paperpaw_platform::{DeviceInfo, Instant, Rect, Storage, SystemStatus};
-use paperpaw_sdk::{
-    Capabilities, Fonts, Formats, Hyphenation, Metrics, Plugins, ScreenMaker, Settings,
-};
+use paperpaw_sdk::{Capabilities, Fonts, Formats, Hyphenation, Metrics, Plugins, Settings};
 
 use crate::Shared;
 
@@ -284,7 +282,7 @@ impl<'a> Place<'a> {
 
     /// Every screen: its id and the translation key of its name, e.g. for
     /// settings that differ per screen (what gestures do there).
-    pub fn screens(&self) -> paperpaw_sdk::ScreenList<'a> {
+    pub fn screens(&self) -> crate::screen_names::ScreenNames<'a> {
         self.shared.registry.screens.list()
     }
 
@@ -405,12 +403,12 @@ impl<'a> Place<'a> {
 
     /// The screen chosen for `slot`, if any is offered.
     pub fn slot_screen(&self, slot: &str) -> Option<&'a paperpaw_sdk::Id> {
-        ScreenMaker::slot_screen(&self.shared.registry, slot)
+        self.shared.registry.slot_screen(slot)
     }
 
     /// Every screen offered for `slot`.
     pub fn slot_screens(&self, slot: &str) -> alloc::vec::Vec<&'a paperpaw_sdk::Id> {
-        ScreenMaker::slot_screens(&self.shared.registry, slot)
+        self.shared.registry.ordered_screens(slot)
     }
 
     /// Visits the screens offered for `slot` while `visit` says go on.
@@ -419,22 +417,22 @@ impl<'a> Place<'a> {
         slot: &str,
         visit: &mut dyn FnMut(&'a paperpaw_sdk::Id) -> bool,
     ) {
-        ScreenMaker::each_slot_screen(&self.shared.registry, slot, visit);
+        self.shared.registry.each_slot_screen(slot, visit);
     }
 
     /// The screen the reader chose for `slot`, if any.
     pub fn slot_choice(&self, slot: &str) -> Option<&'a paperpaw_sdk::Id> {
-        ScreenMaker::slot_choice(&self.shared.registry, slot)
+        self.shared.registry.slot_choice(slot)
     }
 
     /// The title of `slot`'s choice.
     pub fn slot_title(&self, slot: &str) -> Option<&'a str> {
-        ScreenMaker::slot_title(&self.shared.registry, slot)
+        self.shared.registry.slot_title(slot)
     }
 
     /// The title of `screen`.
     pub fn screen_title(&self, screen: &paperpaw_sdk::Id) -> Option<&'a str> {
-        ScreenMaker::screen_title(&self.shared.registry, screen)
+        self.shared.registry.screen_title(screen)
     }
 
     /// The screen on top.
