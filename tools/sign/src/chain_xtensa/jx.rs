@@ -26,7 +26,7 @@ pub(super) fn untied(insns: &[Insn], tied: &[u32]) -> Option<u32> {
 /// of an instruction of the function. A switch's table base is loaded by an
 /// `l32r` of the function (there is no `LITBASE`), whether the `jx` follows at
 /// once or after a spill, so this finds a table of any length, which the
-/// image-wide search ([`Image::pointed`]) does not (it takes runs of four or
+/// image-wide search (`Image::pointed`) does not (it takes runs of four or
 /// more). A table of the function's own start only is a function pointer, not
 /// a table. Empty: no table is tied to the function.
 pub(super) fn tied_tables(insns: &[Insn], around: &Around<'_>) -> Vec<u32> {
