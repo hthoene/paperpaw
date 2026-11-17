@@ -1945,18 +1945,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-library-bench"
-version = "0.0.0"
-dependencies = [
- "paperpaw-core",
- "paperpaw-epub-family",
- "paperpaw-fat",
- "paperpaw-platform",
- "paperpaw-sdk",
- "paperpaw-zip",
-]
-
-[[package]]
 name = "paperpaw-native"
 version = "0.6.0-beta.3"
 dependencies = [

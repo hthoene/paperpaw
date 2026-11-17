@@ -4,7 +4,7 @@
 //!   catalog) opens it with [`open`] ([`Command::OpenBook`]): the kernel
 //!   opens the screen bound to [`slots::READER`](crate::builtin::slots::READER) with what [`opened`]
 //!   passes on. A reading app that cannot open a book after all says so
-//!   with [`cannot_open`].
+//!   with `cannot_open`.
 //! - The choices for a book and for a folder are kept ([`remember`]): the
 //!   book's moved and removed with it, the folders' in one small file
 //!   (moved with [`folder_moved`] by whatever moves a folder). [`ask`] lets
@@ -44,7 +44,7 @@ const LIMIT: usize = 16 * 1024;
 /// open it ([`cannot_open`]), comma-separated.
 const PAST: &str = "readers-past";
 
-/// The parameter of a page's opening ([`open_page`]): *Back* is offered on
+/// The parameter of a page's opening (`open_page`): *Back* is offered on
 /// it always.
 pub const PAGE: &str = "readers-page";
 
@@ -184,51 +184,6 @@ pub fn open(path: impl Into<String>) -> Command {
     Command::OpenBook(Params::new().with(params::PATH, path.into()))
 }
 
-/// Opens `path`, a page a plugin shows one after another (a web page),
-/// as [`open`] does; readers offer *Back* on it always, to the plugin's
-/// page before (a plugin's other documents, e.g. a text it writes to be
-/// read, show as books do).
-pub fn open_page(path: impl Into<String>) -> Command {
-    Command::OpenBook(
-        Params::new()
-            .with(params::PATH, path.into())
-            .with(PAGE, "1"),
-    )
-}
-
-/// Shows `text`, plain (paragraphs apart by an empty line), to read paged
-/// as a book: written to `path` (a `.txt` in the plugin's own folder),
-/// opened as a plugin's page ([`open_page`]), so *Back* returns to it.
-/// For long texts such as *How it works*.
-pub fn show_text(
-    storage: &dyn crate::Storage,
-    path: &str,
-    text: &str,
-) -> Result<Command, crate::StorageError> {
-    storage.write(path, text.as_bytes())?;
-    Ok(open_page(path))
-}
-
-/// What a reader that cannot open a book after all answers (instead of
-/// showing an error of its own): `params` are those it was opened with,
-/// `reader` its own id. The kernel opens the book with the next reader
-/// for it, at last the slot's own screen; past that, nothing.
-pub fn cannot_open(params: &Params, reader: &Id) -> Command {
-    let mut past = String::from(params.get(PAST).unwrap_or_default());
-    if !past.split(',').any(|p| p == reader.as_str()) {
-        if !past.is_empty() {
-            past.push(',');
-        }
-        past.push_str(reader.as_str());
-    }
-    let path = params.get(params::PATH).unwrap_or_default().to_string();
-    let mut opened = Params::new().with(params::PATH, path).with(PAST, past);
-    if let Some(page) = params.get(PAGE) {
-        opened = opened.with(PAGE, page.to_string());
-    }
-    Command::OpenBook(opened)
-}
-
 /// The readers that could not open the book opened with `params`.
 pub fn past(params: &Params) -> impl Iterator<Item = &str> {
     params
@@ -346,23 +301,5 @@ mod tests {
         );
         let kept = crate::read_file(&storage, FOLDERS, 2 * LIMIT).unwrap();
         assert_eq!(kept.len(), big.len());
-    }
-
-    #[test]
-    fn a_reader_that_cannot_open_is_passed_over() {
-        let comics = Id::new_static("comics.reader");
-        let other = Id::new_static("other.reader");
-        let opened = Params::new().with(params::PATH, "a.cbz");
-        let Command::OpenBook(again) = cannot_open(&opened, &comics) else {
-            panic!("not opened again");
-        };
-        assert_eq!(again.get(params::PATH), Some("a.cbz"));
-        let Command::OpenBook(again) = cannot_open(&again, &other) else {
-            panic!("not opened again");
-        };
-        assert_eq!(
-            past(&again).collect::<Vec<_>>(),
-            ["comics.reader", "other.reader"]
-        );
     }
 }

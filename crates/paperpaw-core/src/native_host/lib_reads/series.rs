@@ -46,7 +46,7 @@ impl CatalogReads {
             return Err(ERR_NOT_FOUND);
         }
         let mut best = None::<(u32, u64)>;
-        catalog::try_each_at(&*self.storage, &mut |at, record| {
+        catalog::try_each_at_with(&*self.storage, &changes, &mut |at, record| {
             // Opened is the flag or a progress: a book opened and closed
             // before a position was kept has no progress but is opened, as
             // in Beta 3 (`Index`'s unread) and as its `lib_entry` says (flag

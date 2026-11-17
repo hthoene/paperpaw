@@ -17,7 +17,7 @@ use crate::env::Env;
 /// gaps between them, together in the middle or where free spaces
 /// ([`FILL`]) push them. Those that do not fit below the others are left
 /// out, as are those with nothing to show. The stack keeps the widgets
-/// it made: [`update`](Self::update) reads them anew, [`draw`](Self::draw)
+/// it made: `update` reads them anew, [`draw`](Self::draw)
 /// draws them.
 pub struct WidgetStack {
     widgets: Vec<Shown>,
@@ -127,33 +127,6 @@ impl WidgetStack {
         for shown in &self.widgets {
             shown.widget.draw(canvas, env, shown.area);
         }
-    }
-
-    /// Reads what the widgets show anew; where it changed, their areas,
-    /// to draw again.
-    pub fn update(&mut self, env: &Env<'_>) -> Vec<Rect> {
-        self.update_where(env, |_| true)
-    }
-
-    /// The same for the live widgets alone ([`Widget::live`]), e.g. each
-    /// minute.
-    pub fn update_live(&mut self, env: &Env<'_>) -> Vec<Rect> {
-        self.update_where(env, |shown| shown.widget.live())
-    }
-
-    /// The same for widget `id` alone (a placement of it too).
-    pub fn update_one(&mut self, env: &Env<'_>, id: &str) -> Vec<Rect> {
-        self.update_where(env, |shown| super::base(&shown.id) == super::base(id))
-    }
-
-    fn update_where(&mut self, env: &Env<'_>, which: impl Fn(&Shown) -> bool) -> Vec<Rect> {
-        let mut changed = Vec::new();
-        for shown in &mut self.widgets {
-            if which(shown) && shown.widget.update(env) {
-                changed.push(shown.area);
-            }
-        }
-        changed
     }
 
     /// The places in the widgets that do something, in reading order.

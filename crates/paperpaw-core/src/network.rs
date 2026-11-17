@@ -52,7 +52,7 @@ impl Kernel {
     /// waited goes on once there is a network.
     pub fn wifi_event(&mut self, now: Instant, event: WifiEvent) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // While the reader waits for the network, what Wi-Fi says is theirs.
         self.shared.reader = self.io.http.reader_waits();
         // Native plugins' join and host requests end by what the radio says.
@@ -139,7 +139,7 @@ impl Kernel {
         let (mut wanted, mut idle) = (false, false);
         match (waiting, self.io.network_waiting) {
             (true, None) => {
-                self.io.network_waiting = Some(self.now);
+                self.io.network_waiting = Some(self.shared.now);
                 self.output.commands.push(events::NETWORK_WANTED.emit(()));
                 wanted = true;
             }
@@ -203,7 +203,7 @@ impl Kernel {
     /// What happened with a socket or a broadcast.
     pub fn socket_event(&mut self, now: Instant, event: SocketEvent) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // Servers and sockets are the reader's connection.
         self.shared.reader = true;
         let storage = &*self.shared.storage;
@@ -216,7 +216,7 @@ impl Kernel {
     /// What happened with a server: started, failed, a request.
     pub fn server_event(&mut self, now: Instant, event: ServerEvent) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // Servers and sockets are the reader's connection.
         self.shared.reader = true;
         let storage = &*self.shared.storage;
@@ -238,7 +238,7 @@ impl Kernel {
             return Effects::default();
         };
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // The computer at the cable is the reader's.
         self.shared.reader = true;
         self.last_activity = now;
@@ -399,7 +399,7 @@ impl Kernel {
     /// Delivers the answer to a request ([`Io::Http`]).
     pub fn http_response(&mut self, now: Instant, response: HttpResponse) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // The answer to the reader's request is the reader's.
         self.shared.reader = self.io.http.of_reader(response.id);
         let storage = &*self.shared.storage;
@@ -422,7 +422,7 @@ impl Kernel {
         total: Option<u64>,
     ) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.io
             .http
             .progress(id, received, total, now, &mut self.output.commands);
@@ -484,7 +484,7 @@ impl Kernel {
     /// How an install goes: plugins hear of it.
     pub fn firmware_state(&mut self, now: Instant, state: FirmwareState) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         if let Some(firmware) = &mut self.shared.firmware
             && firmware.state != state
         {
@@ -498,7 +498,7 @@ impl Kernel {
     /// not be.
     pub fn speech_done(&mut self, now: Instant, id: u32, spoken: bool) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.io.speech.done(id, spoken, &mut self.output.commands);
         self.finish()
     }
@@ -513,7 +513,7 @@ impl Kernel {
     /// copied here is used).
     pub fn clipboard_text(&mut self, now: Instant, text: Option<String>) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         if let Some(text) = text {
             self.shared.clipboard.set(crate::commands::clipped(&text));
         }

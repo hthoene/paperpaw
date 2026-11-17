@@ -716,15 +716,6 @@ impl Settings {
         self.specs.where_is(id).map(super::specs::At::default_now)
     }
 
-    /// The kernel's `walk`, for what the SDK itself reads of the settings.
-    pub(crate) fn walk_specs(
-        &self,
-        pick: super::Pick<'_>,
-        visit: &mut dyn FnMut(&SettingSpec) -> ControlFlow<()>,
-    ) -> Result<(), SettingError> {
-        self.specs.walk(pick, visit)
-    }
-
     /// [`Settings::walk_specs`] over all `pick` takes.
     pub(crate) fn each_spec(
         &self,

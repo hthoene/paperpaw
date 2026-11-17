@@ -182,7 +182,7 @@ impl crate::Kernel {
             return Err(ERR_BUSY);
         }
         let id = instances.id(owner).ok_or(ERR_STATE)?;
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let mut stage = self.callback_stage(owner, id, &env);
         let status = call(&env, &mut stage);
         self.callback_staged(owner, status, &mut stage)
