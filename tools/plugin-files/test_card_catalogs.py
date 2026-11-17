@@ -40,6 +40,13 @@ class CardCatalogs(unittest.TestCase):
                     self.assertIn(name, selected, "source catalog missing from card package")
                     self.assertEqual(selected[name], catalog.read_text().encode())
 
+    def test_every_store_plugin_folder_carries_english_and_german(self):
+        for plugin, _ in catalogue.plugins():
+            names = {name for name, _ in catalogue.card_files(plugin)}
+            for language in ("en", "de"):
+                with self.subTest(plugin=plugin, language=language):
+                    self.assertIn(f"i18n/{language}.ini", names, "the folder would show raw text keys")
+
     def test_battery_zip_contains_english_and_german_titles(self):
         with tempfile.TemporaryDirectory() as directory:
             package = pathlib.Path(directory) / "battery.zip"
