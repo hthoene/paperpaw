@@ -36,7 +36,7 @@ name: Release
 # Only tags of PaperPaw's versions: a plugin's update between releases is
 # published by store-plugin.yml.
 #
-# The plugins' files do not go into the release (#89): a release of 73
+# The plugins' files do not go into the release (#89): a release of 81
 # files is a page one can read. Every plugin file, the folders' ZIPs
 # included, goes to the store release of the year (`plugins-<year>`, a
 # pre-release that is added to and never replaced, `store_release.py`),
@@ -645,7 +645,7 @@ jobs:
           else
             exit 1
           fi
-      # Before anything is uploaded: the release holds exactly its 73 files
+      # Before anything is uploaded: the release holds exactly its 81 files
       # and no plugin file, and every address in the catalogue has an asset,
       # in the store release's plan or in a release that has it already.
       - name: The lists are right
