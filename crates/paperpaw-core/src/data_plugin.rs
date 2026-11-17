@@ -63,6 +63,7 @@ use paperpaw_sdk::FontFace;
 use paperpaw_sdk::presets::Preset;
 use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 
+mod catalogs;
 pub(crate) mod formats;
 pub(crate) mod hyphenation;
 use formats::{actions, menus, setup_steps};
@@ -671,7 +672,6 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
         left3: MAX_FORMAT3_DATA,
         problems: Vec::new(),
     };
-    let mut translations = Vec::new();
     let catalogs = format!("{path}/i18n");
     let mut files: Vec<String> = Vec::new();
     let mut compiled: Vec<String> = Vec::new();
@@ -707,23 +707,18 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
             .iter()
             .any(|path| stem(path.rsplit('/').next().unwrap_or(path)) == stem(file))
     });
-    let mut translations_left = MAX_TRANSLATIONS;
-    for file in files {
-        let path = format!("{catalogs}/{file}");
-        let size = storage
-            .size(&path)
-            .map_or(usize::MAX, |s| usize::try_from(s).unwrap_or(usize::MAX));
-        if size > translations_left.min(MAX_FILE) {
-            budget
-                .problems
-                .push(format!("{path}: left out, more than the plugin may take"));
-            continue;
-        }
-        if let Some(text) = read(storage, &path, MAX_FILE) {
-            translations_left = translations_left.saturating_sub(text.len());
-            translations.push(text);
-        }
-    }
+    let code = paperpaw_sdk::native::CODE_FILES
+        .iter()
+        .any(|file| storage.size(&format!("{path}/{file}")).is_ok());
+    let translations = catalogs::read_all(
+        storage,
+        path,
+        &catalogs,
+        files,
+        code,
+        &mut compiled,
+        &mut budget,
+    );
     let keymap = budget.read_now(storage, &format!("{path}/keymap.ini"));
     let styles = budget.read_now(storage, &format!("{path}/styles.css"));
     let mut later: Vec<String> = LATER
@@ -734,9 +729,6 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
         .collect();
     later.extend(point_files(storage, path, &mut budget));
     let roles = fonts_for_roles(&source, path, &mut budget);
-    let code = paperpaw_sdk::native::CODE_FILES
-        .iter()
-        .any(|file| storage.size(&format!("{path}/{file}")).is_ok());
     let tables = hyphenation_tables(&source, path, code, &mut budget);
     let (family, faces) = family(&source, path);
     let mut fonts = font_files(storage, &format!("{path}/fonts"), false);
