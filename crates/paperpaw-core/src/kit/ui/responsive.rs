@@ -22,6 +22,21 @@ pub const EXPANDED_FROM_MM: u32 = 140;
 /// The reader's size of interface text and its default (both in points,
 /// at least 1): how much larger than PaperPaw's measures it is set. The
 /// same where no size is declared (nothing to scale by).
+/// The class of a screen `area` wide on this device, at the interface
+/// size chosen (a larger size makes a screen read as narrower).
+pub fn class_of(env: &Place<'_>, area: Rect) -> ScreenClass {
+    let tenths = u64::from(area.width) * 254 / u64::from(env.metrics().dpi.max(1));
+    let (size, default) = ui_sizes(env);
+    let tenths = tenths * default / size;
+    if tenths < u64::from(COMPACT_BELOW_MM) * 10 {
+        ScreenClass::Compact
+    } else if tenths < u64::from(EXPANDED_FROM_MM) * 10 {
+        ScreenClass::Medium
+    } else {
+        ScreenClass::Expanded
+    }
+}
+
 fn ui_sizes(env: &Place<'_>) -> (u64, u64) {
     let chosen = env.settings();
     let Some(paperpaw_sdk::SettingValue::Int(default)) = chosen
@@ -56,7 +71,7 @@ mod tests {
     }
 
     fn class(kit: &Kit, width_mm: u16) -> ScreenClass {
-        ScreenClass::of(kit, Rect::new(0, 0, width_mm * 10, 100))
+        class_of(kit, Rect::new(0, 0, width_mm * 10, 100))
     }
 
     #[test]
@@ -93,7 +108,7 @@ mod tests {
         let of = |width: u16, dpi: u16| {
             let mut kit = kit(Some(9), 9);
             kit.device.display.dpi = dpi;
-            ScreenClass::of(kit, Rect::new(0, 0, width, 100))
+            class_of(kit, Rect::new(0, 0, width, 100))
         };
         assert_eq!(of(480, 220), ScreenClass::Compact);
         assert_eq!(of(800, 220), ScreenClass::Compact);

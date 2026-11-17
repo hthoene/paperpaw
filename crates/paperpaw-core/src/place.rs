@@ -259,7 +259,7 @@ impl<'a> Place<'a> {
     /// by width, at the reader's size of text. Compact on the X4 in both
     /// orientations.
     pub fn screen_class(&self) -> crate::kit::ui::ScreenClass {
-        crate::kit::ui::ScreenClass::of(self, self.content)
+        crate::kit::ui::class_of(self, self.content)
     }
 
     /// Whether the part of the screen this is for

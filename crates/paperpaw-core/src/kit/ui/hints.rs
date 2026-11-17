@@ -90,11 +90,11 @@ fn icon_of<'f>(env: &Place<'f>, hint: &Hint) -> Option<Option<(FontHandle<'f>, c
     match hint {
         Hint::Icon(name) => Some(icon(env, name)),
         Hint::Text(text) => {
-            let ch = paperpaw_sdk::icons::of_text(text)?;
+            let ch = icon_of_text(text)?;
             let font = env.fonts().bound(paperpaw_sdk::builtin::fonts::ICONS.as_str());
             Some(font.filter(|font| font.has_char(ch)).map(|font| (font, ch)))
         }
-        Hint::Default | Hint::Hidden | Hint::Other(_) => None,
+        _ => None,
     }
 }
 
@@ -296,11 +296,19 @@ pub fn draw_button_hints(
                     );
                 }
             }
-            Hint::Icon(_) | Hint::Default | Hint::Hidden | Hint::Other(_) if is_pressed => {
+            _ if is_pressed => {
                 let radius = style.radius(u32::from(boxed.height));
                 canvas.fill_round(boxed, radius, Color::BLACK);
             }
-            Hint::Icon(_) | Hint::Default | Hint::Hidden | Hint::Other(_) => {}
+            _ => {}
         }
     }
+}
+
+/// The icon a text written with `icons::as_text` is (the private-use mark
+/// U+E000, then the icon); `None` for any other text.
+fn icon_of_text(text: &str) -> Option<char> {
+    let mut rest = text.strip_prefix('\u{e000}')?.chars();
+    let icon = rest.next()?;
+    rest.next().is_none().then_some(icon)
 }

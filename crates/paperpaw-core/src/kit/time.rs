@@ -264,7 +264,7 @@ fn zone_offset(env: &Place<'_>, unix: i64) -> i32 {
     match chosen_zone(env) {
         Some(zone) => zone.offset_at(unix),
         None => env
-            .status
+            .status()
             .clock
             .and_then(|c| c.utc_offset_minutes)
             .map_or(0, |m| m * 60),
@@ -272,15 +272,15 @@ fn zone_offset(env: &Place<'_>, unix: i64) -> i32 {
 }
 
 /// Seconds since 1970 (UTC) now, if the device knows the time:
-/// `UnixTime::now(env)` as a number, for what keeps seconds.
+/// `unix_now(env)` as a number, for what keeps seconds.
 pub fn unix_seconds(env: &Place<'_>) -> Option<i64> {
-    UnixTime::now(env).map(UnixTime::secs)
+    unix_now(env).map(UnixTime::secs)
 }
 
 /// The local date and time now, in the chosen zone (its offset in
 /// [`LocalTime::offset`]), if the device knows the time.
 pub fn local_time(env: &Place<'_>) -> Option<LocalTime> {
-    let now = UnixTime::now(env)?;
+    let now = unix_now(env)?;
     Some(now.local(zone_offset(env, now.secs())))
 }
 
@@ -559,4 +559,10 @@ mod tests {
             assert!(TimeZone::parse(rule).is_some(), "{id}");
         }
     }
+}
+
+/// Now, if the device knows the time.
+fn unix_now(env: &Place<'_>) -> Option<UnixTime> {
+    let clock = env.status().clock?;
+    Some(UnixTime::from_millis(clock.unix_millis_at(env.now())))
 }

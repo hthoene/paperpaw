@@ -332,7 +332,7 @@ pub fn frame(env: &Place<'_>, widget: &str) -> Frame {
     // Every widget's, where the reader chose one for all and not one for
     // this widget.
     let all = env
-        .settings
+        .settings()
         .text(paperpaw_sdk::builtin::settings::WIDGET_FRAME.static_str());
     if all != OWN_FRAME && FRAMES.contains(&all) && !env.settings().is_chosen(&own) {
         return Frame::of(all);

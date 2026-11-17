@@ -122,7 +122,7 @@ pub fn adopt(env: &Place<'_>) -> bool {
         return true;
     }
     let text: String = env
-        .plugins
+        .plugins()
         .iter()
         .filter(|info| matches!(info.kind, PluginKind::Data | PluginKind::Code))
         .map(|info| {

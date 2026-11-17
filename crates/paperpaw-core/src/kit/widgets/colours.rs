@@ -200,7 +200,7 @@ pub(crate) fn colours(env: &Place<'_>, style: &UiStyle, widget: &str, frame: Fra
         // The page shows, taken to be light.
         (ColourSpec::None, _) => Color::WHITE,
         (ColourSpec::Auto, Frame::Dark) => Color::BLACK,
-        (ColourSpec::Auto, _) => Color::WHITE,
+        (_, _) => Color::WHITE,
     };
     let (ink, faint) = match ink(env, widget) {
         ColourSpec::Is(colour) => (colour, colour),
@@ -224,7 +224,7 @@ pub(crate) fn paint_paper(
     match paper(env, widget) {
         ColourSpec::Auto => return false,
         ColourSpec::Is(colour) => canvas.fill_round_shaded(area, corner, colour),
-        ColourSpec::None => {}
+        _ => {}
     }
     if look.frame == Frame::Line {
         let border = ui::button_border(style);

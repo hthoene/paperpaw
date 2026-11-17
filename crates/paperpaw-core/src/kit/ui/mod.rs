@@ -51,7 +51,7 @@ pub(crate) use button::*;
 pub use hints::*;
 pub use image::*;
 pub use list::*;
-pub use responsive::{COMPACT_BELOW_MM, EXPANDED_FROM_MM, ScreenClass};
+pub use responsive::{COMPACT_BELOW_MM, EXPANDED_FROM_MM, ScreenClass, class_of};
 pub use setting_rows::*;
 pub use style::*;
 pub use text::*;

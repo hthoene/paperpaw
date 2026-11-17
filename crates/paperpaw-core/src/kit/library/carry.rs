@@ -80,6 +80,8 @@ pub fn try_moved(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Stor
             None
         }
         Err(Error::OutOfMemory) => return Err(StorageError::OutOfMemory),
+        // What a newer SDK reads that this kernel does not know: as unreadable.
+        Err(_) => None,
     };
     if let Some(mut book) = book
         && let Some(cover) = book.cover.as_mut()
@@ -243,6 +245,12 @@ fn try_update_list(
         }
         Err(Error::Storage(e)) => return Err(e),
         Err(Error::OutOfMemory) => return Err(StorageError::OutOfMemory),
+        Err(_) => {
+            return match unreadable {
+                Unreadable::Leave => Ok(()),
+                Unreadable::Fail => Err(StorageError::InvalidData),
+            };
+        }
     };
     let mut list = try_lines(&text).map_err(|_| StorageError::OutOfMemory)?;
     drop(text);

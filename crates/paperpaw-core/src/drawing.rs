@@ -465,7 +465,7 @@ impl Kernel {
             let pressed = self.frame.mark.and_then(|(_, cell)| cell);
             crate::kit::ui::draw_button_hints(
                 &mut canvas.clipped(area),
-                env,
+                &env,
                 row,
                 &self.hint.shown,
                 pressed,
@@ -475,15 +475,15 @@ impl Kernel {
         if let Some((mark, None)) = self.frame.mark
             && mark.intersection(&region).is_some()
         {
-            let style = crate::kit::ui::UiStyle::new(env);
+            let style = crate::kit::ui::UiStyle::new(&env);
             let mut canvas = canvas.clipped(mark);
             crate::kit::ui::fill_round(&mut canvas, &style, mark, Color::BLACK);
             let size = f32::from(mark.height) * 0.6;
             let sign = paperpaw_sdk::icons::PAW;
             let x = f32::from(mark.x)
-                + (f32::from(mark.width) - crate::kit::ui::icon_width(env, sign, size))
+                + (f32::from(mark.width) - crate::kit::ui::icon_width(&env, sign, size))
                     / 2.0;
-            crate::kit::ui::draw_icon(&mut canvas, env, sign, size, x, mark, Color::WHITE);
+            crate::kit::ui::draw_icon(&mut canvas, &env, sign, size, x, mark, Color::WHITE);
         }
         // A message over everything.
         if let Some((notice, _)) = &mut self.notice
@@ -551,7 +551,7 @@ impl Kernel {
             if let Some(row) = row {
                 crate::kit::ui::draw_button_hints(
                     &mut canvas.clipped(row),
-                    env,
+                    &env,
                     row,
                     &self.hint.shown,
                     None,
@@ -655,7 +655,7 @@ impl Kernel {
     fn display_changed(&mut self) {
         let panel = self.framebuffer.bounds();
         let class =
-            crate::kit::ui::ScreenClass::of(&self.shared.place(self.shared.now), panel);
+            crate::kit::ui::class_of(&self.shared.place(self.shared.now), panel);
         let landscape = panel.width > panel.height;
         let changed = events::DisplayChanged::new(panel.width, panel.height, class, landscape);
         self.output

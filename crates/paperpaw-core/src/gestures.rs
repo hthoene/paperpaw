@@ -612,7 +612,7 @@ impl Kernel {
                         out.extend(steps);
                     }
                     None => commands::handing(out, |out| {
-                        spec.run(env, params, out);
+                        spec.run(&env, params, out);
                     }),
                 }
                 let owner = action.namespace();

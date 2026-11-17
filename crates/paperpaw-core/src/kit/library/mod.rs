@@ -921,15 +921,7 @@ pub fn take_over_old(storage: &dyn Storage) {
     let _ = storage.remove(&format!("{old}/catalog.txt"));
 }
 
-/// The command that tells everyone something of the book at `path`
-/// changed: `what`, bits of [`what`]
-/// ([`events::BOOK_CHANGED`](paperpaw_sdk::builtin::events::BOOK_CHANGED)).
-pub fn changed_book(path: &str, what: u32) -> paperpaw_sdk::Command {
-    paperpaw_sdk::builtin::events::BOOK_CHANGED.emit(paperpaw_sdk::builtin::events::BookChanged {
-        path: path.to_string(),
-        what,
-    })
-}
+pub use paperpaw_sdk::library::changed_book;
 
 #[cfg(test)]
 mod fallible_tests;
