@@ -74,10 +74,6 @@ pub(crate) mod firmware_install;
 pub(crate) mod literata_notice;
 #[path = "native_host/low_memory.rs"]
 pub(crate) mod low_memory;
-#[path = "native_host/notice.rs"]
-pub(crate) mod notice;
-#[path = "native_host/start_notice.rs"]
-pub(crate) mod start_notice;
 
 #[path = "native_host/install_grants.rs"]
 pub(crate) mod install_grants;
@@ -255,8 +251,6 @@ mod declared_services;
 mod details_job_pump;
 pub mod device_service;
 pub(crate) mod dialog_pump;
-#[path = "native_host/dialogs.rs"]
-pub(crate) mod dialogs;
 pub(crate) mod doc_cache;
 pub(crate) mod doc_host;
 mod doc_pump;
@@ -556,7 +550,7 @@ pub(crate) mod native_screen_factory;
 mod owned_texts;
 
 #[path = "native_host/native_screen.rs"]
-mod native_screen;
+pub(crate) mod native_screen;
 
 #[allow(
     dead_code,

@@ -60,6 +60,7 @@ mod gestures;
 mod gray_later;
 pub mod hear;
 mod hints;
+mod host_screen;
 mod hyphen_feed;
 mod input;
 mod input_filters;
@@ -79,6 +80,7 @@ mod recall;
 mod refresh;
 mod registry;
 mod room;
+mod screen;
 mod screens;
 mod secrets_i6;
 mod shared_env;
@@ -86,7 +88,7 @@ pub use chrome_spec::{ChromeSpec, Edge};
 mod tall_band;
 mod warning;
 pub use hear::{Hear, Stepper};
-pub use layer::{KernelFactory, KernelScreen, Layer, LayerFactory, LayerSpec};
+pub use layer::{Layer, LayerFactory, LayerSpec};
 pub use warning::{Warning, WarningSource};
 #[cfg(test)]
 mod tests;
@@ -204,7 +206,7 @@ pub struct Kernel {
     /// Work plugins declared, timers among it (see [`work`]).
     works: work::Queue,
     /// The short message showing ([`Command::Notify`]) and until when.
-    notice: Option<(Box<dyn Layer>, Instant)>,
+    notice: Option<(screen::Screen, Instant)>,
     stack: Vec<ActiveScreen>,
     output: Output,
     warnings: Vec<Warning>,

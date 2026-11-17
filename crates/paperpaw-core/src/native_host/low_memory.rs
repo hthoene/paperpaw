@@ -13,10 +13,10 @@ use paperpaw_sdk::{Id, Params};
 
 /// The screen's id: a host screen, opened only by the kernel.
 pub(crate) const SCREEN: Id = Id::new_static("core.low-memory");
-pub(super) const TITLE: &str = "title";
-pub(super) const TEXT: &str = "text";
-pub(super) const PLUGINS_WORD: &str = "plugins";
-pub(super) const LATER_WORD: &str = "later";
+pub(crate) const TITLE: &str = "title";
+pub(crate) const TEXT: &str = "text";
+pub(crate) const PLUGINS_WORD: &str = "plugins";
+pub(crate) const LATER_WORD: &str = "later";
 
 impl Kernel {
     /// Whether the home screen is on top, with nothing over it.

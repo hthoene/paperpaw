@@ -2,14 +2,14 @@
 //! provides one. In safe mode it says why the plugins are off and how to
 //! start with them again: on an image without built-in screens (an X4 with
 //! native plugins only) it is all a safe-mode start shows.
-use paperpaw_sdk::builtin::fonts;
+use super::paint::{self, Look};
+use paperpaw_graphics::Canvas;
+use paperpaw_platform::{Color, Rect};
+use paperpaw_sdk::Env;
 use paperpaw_sdk::native::{SafeMode, SafeModeReason};
-use paperpaw_sdk::ui::{self, Label, TextRole, UiStyle};
-use paperpaw_sdk::widgets::Align;
-use paperpaw_sdk::{Canvas, Color, Cx, Env, Handled, Id, Rect};
 
 /// Its text: "Nothing here yet".
-pub(super) const TEXT: &str = "core.screen.placeholder";
+pub(crate) const TEXT: &str = "core.screen.placeholder";
 /// Its title in safe mode.
 pub(super) const SAFE_MODE_TITLE: &str = "core.safe-mode.title";
 /// Safe mode after failed starts (or the Power escape): try again.
@@ -25,83 +25,61 @@ pub(super) fn safe_mode_text(safe_mode: Option<&SafeMode>) -> Option<&'static st
     })
 }
 
-/// Shown when no plugin provides a screen for a slot.
-#[derive(Debug)]
-pub(super) struct PlaceholderScreen;
-
-impl crate::Layer for PlaceholderScreen {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        // The room of the screen, not the canvas's clip: a kernel that
-        // draws in bands (the X4) lends each band as the clip.
-        let area = room(env);
-        let margin = env.metrics().mm(4);
-        let line = env.metrics().tenth_mm(5);
-        let (w, h) = (u32::from(area.width), u32::from(area.height));
-        let inner_w = w.saturating_sub(2 * margin);
-        let inner_h = h.saturating_sub(2 * margin);
-        canvas.stroke_rect(
-            margin as i32,
-            margin as i32,
-            inner_w,
-            inner_h,
-            line,
+/// Draws the placeholder: a frame and its text, or in safe mode the title
+/// and why.
+pub(super) fn draw(canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    // The room of the screen, not the canvas's clip: a kernel that draws in
+    // bands (the X4) lends each band as the clip.
+    let content = env.content();
+    let (w, h) = (u32::from(content.width), u32::from(content.height));
+    let margin = env.metrics().mm(4);
+    let stroke = env.metrics().tenth_mm(5);
+    canvas.stroke_rect(
+        margin as i32,
+        margin as i32,
+        w.saturating_sub(2 * margin),
+        h.saturating_sub(2 * margin),
+        stroke,
+        Color::BLACK,
+    );
+    let Some(font) = paint::font(env.fonts()) else {
+        return;
+    };
+    let safe_mode = env.native().and_then(|native| native.safe_mode.as_ref());
+    if let Some(text) = safe_mode_text(safe_mode) {
+        // The title and the text, wrapped and centred inside the frame. The
+        // catalog's texts are borrowed: nothing is kept.
+        let look = Look::of(env.device(), env.settings(), env.fonts());
+        let inset = u16::try_from(margin)
+            .unwrap_or(u16::MAX)
+            .saturating_add(look.margin);
+        let inner = content.width.saturating_sub(inset.saturating_mul(2));
+        let middle = content.height / 2;
+        let title = Rect::new(
+            inset,
+            middle.saturating_sub(look.row.saturating_add(look.gap)),
+            inner,
+            look.row,
+        );
+        let i18n = env.i18n();
+        paint::line(
+            canvas,
+            &font,
+            look.title,
+            i18n.tr(SAFE_MODE_TITLE),
+            title,
             Color::BLACK,
         );
-        let safe_mode = env.native().and_then(|native| native.safe_mode.as_ref());
-        if let Some(text) = safe_mode_text(safe_mode) {
-            draw_safe_mode(canvas, env, text, margin);
-            return;
-        }
-        if let Some(font) = env.fonts().role(fonts::UI.as_str()) {
-            let size = env.metrics().pt(14.0);
-            let text = env.i18n().tr(TEXT);
-            let width = font.measure(size, text);
-            let x = (w as f32 - width) / 2.0;
-            let baseline = (h / 2) as i32 + (size / 3.0) as i32;
-            font.draw(canvas, size, x, baseline, text, Color::BLACK);
-        }
+        let below = Rect::new(inset, middle, inner, look.row.saturating_mul(4));
+        paint::lines(canvas, &font, look.text, i18n.tr(text), below, Color::BLACK);
+        return;
     }
-
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
-        Handled::No
-    }
-}
-
-/// The room the screen is drawn into, from its own corner.
-fn room(env: &Env<'_>) -> Rect {
-    let content = env.content();
-    Rect::new(0, 0, content.width, content.height)
-}
-
-/// The safe-mode title and `text` (a catalog key), wrapped and centred
-/// inside the frame. The catalog's texts are borrowed: nothing is kept.
-fn draw_safe_mode(canvas: &mut Canvas<'_>, env: &Env<'_>, text: &str, frame: u32) {
-    let area = room(env);
-    let style = UiStyle::new(env);
-    let mut ui = ui::Ui::new(canvas, env, &style);
-    let (gap, row) = (style.gap(), style.row());
-    let inset = u16::try_from(frame)
-        .unwrap_or(u16::MAX)
-        .saturating_add(style.margin());
-    let inner = area.width.saturating_sub(inset.saturating_mul(2));
-    let middle = area.y.saturating_add(area.height / 2);
-    let x = area.x.saturating_add(inset);
-    Label::new(env.i18n().tr(SAFE_MODE_TITLE))
-        .role(TextRole::TITLE)
-        .align(Align::Center)
-        .draw(
-            &mut ui,
-            Rect::new(
-                x,
-                middle.saturating_sub(row.saturating_add(gap)),
-                inner,
-                row,
-            ),
-        );
-    Label::new(env.i18n().tr(text))
-        .align(Align::Center)
-        .wrap()
-        .draw(&mut ui, Rect::new(x, middle, inner, row.saturating_mul(4)));
+    let size = env.metrics().pt(14.0);
+    let text = env.i18n().tr(TEXT);
+    let width = font.measure(size, text);
+    let x = (w as f32 - width) / 2.0;
+    let baseline = (h / 2) as i32 + (size / 3.0) as i32;
+    font.draw(canvas, size, x, baseline, text, Color::BLACK);
 }
 
 #[cfg(test)]

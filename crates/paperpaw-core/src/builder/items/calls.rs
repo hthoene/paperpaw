@@ -35,7 +35,7 @@ pub struct Items {
     plugin: Id,
     contributions: Vec<Contribution>,
     /// Screens kept in the program that the kernel makes as layers.
-    kernel_screens: Vec<&'static [crate::KernelScreen]>,
+    kernel_screens: Vec<&'static [crate::host_screen::HostEntry]>,
     /// Screens added as layers.
     layers: Vec<crate::LayerSpec>,
     /// Bars along an edge.
@@ -51,7 +51,7 @@ pub struct Items {
 /// What a plugin added, taken apart for the kernel to apply.
 pub(crate) struct Parts {
     pub(crate) contributions: Vec<Contribution>,
-    pub(crate) kernel_screens: Vec<&'static [crate::KernelScreen]>,
+    pub(crate) kernel_screens: Vec<&'static [crate::host_screen::HostEntry]>,
     pub(crate) layers: Vec<crate::LayerSpec>,
     pub(crate) chromes: Vec<crate::ChromeSpec>,
     pub(crate) hears: Vec<crate::registry::Subscribed>,
@@ -90,9 +90,9 @@ impl Items {
         self.contributions
     }
 
-    /// What was added, the screens kept in the program that are made as
-    /// layers ([`add_kernel_screens`](Self::add_kernel_screens)) and those
-    /// added as layers ([`add_layer`](Self::add_layer)).
+    /// What was added, the host's own screens
+    /// ([`add_host_screens`](Self::add_host_screens)) and those added as
+    /// layers ([`add_layer`](Self::add_layer)).
     pub(crate) fn into_parts(self) -> Parts {
         Parts {
             contributions: self.contributions,
@@ -161,15 +161,12 @@ impl Items {
         self.add_checked(Contribution::Action(Box::new(action)))
     }
 
-    /// Adds screens kept in the program that the kernel makes as layers (a
-    /// `static` list of [`KernelScreen`](crate::KernelScreen)s): they take
-    /// next to no memory, where each added with
-    /// [`add_layer`](Self::add_layer) takes some 60 bytes.
-    pub fn add_kernel_screens(
+    /// Adds the host's own screens (`host_screen::ENTRIES`).
+    pub(crate) fn add_host_screens(
         &mut self,
-        screens: &'static [crate::KernelScreen],
+        screens: &'static [crate::host_screen::HostEntry],
     ) -> Result<(), RegisterError> {
-        self.check_screens(screens.iter().map(crate::KernelScreen::id))?;
+        self.check_screens(screens.iter().map(crate::host_screen::HostEntry::id))?;
         self.kernel_screens.push(screens);
         Ok(())
     }

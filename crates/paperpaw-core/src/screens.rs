@@ -28,7 +28,7 @@ pub(crate) struct ActiveScreen {
     pub(crate) area: Rect,
     /// What it was opened with, e.g. the book.
     pub(crate) params: Params,
-    pub(crate) screen: Box<dyn Layer>,
+    pub(crate) screen: crate::screen::Screen,
     /// When it wants [`Screen::on_timer`] ([`Cx::wake_at`]); below another
     /// screen, once it is on top again.
     pub(crate) timer: Option<Instant>,
@@ -237,29 +237,29 @@ impl Kernel {
         }
         // An overlay shares its full screen's part, a guard has no bars:
         // made again for that part.
-        let place = self.area_on_top(screen.as_ref(), hinted, &entry, area);
+        let place = self.area_on_top(&screen, hinted, &entry, area);
         if place != area {
             area = place;
             set_area(&mut self.shared.device, &mut self.shared.content, area);
             spec.remake(&mut screen, &self.shared.env(self.now), params);
         }
-        let pane = crate::layer::call_since(screen.as_mut(), 2, Pane::FULL, |s| s.pane()).known();
+        let pane = crate::screen::call_since(&mut screen, 2, Pane::FULL, |s| s.pane()).known();
         drop(running);
         // A detail beside the list on top, where the screen is wide: in
         // place of the detail shown there where the list opened it, made
         // again for its part.
         let full = screen.region(&self.shared.env(self.now)).is_none();
         self.close_detail_for(pane, full);
-        let beside = self.beside_top(screen.as_ref(), pane, area);
+        let beside = self.beside_top(&screen, pane, area);
         if let Some(part) = beside
             && let Some(spec) = self.shared.registry.screens.get(&id)
         {
             area = part;
             set_area(&mut self.shared.device, &mut self.shared.content, area);
             let _running = self.shared.meter.enter(id.namespace());
-            // The one made for all of it goes first (see `Gone`).
+            // The one made for all of it goes first (see `Screen::GONE`).
             if !spec.is_native() {
-                drop(mem::replace(&mut screen, Box::new(Gone)));
+                drop(mem::replace(&mut screen, crate::screen::Screen::GONE));
                 spec.remake(&mut screen, &self.shared.env(self.now), params);
             }
         }
@@ -587,13 +587,13 @@ impl Kernel {
 
     /// Puts `screen` on as the notice, for `core.notice-seconds`; the one
     /// before has ended.
-    pub(crate) fn place_notice(&mut self, screen: Box<dyn Layer>) {
+    pub(crate) fn place_notice(&mut self, screen: crate::screen::Screen) {
         let seconds = self
             .shared
             .settings
             .int(core_settings::NOTICE_SECONDS.as_str())
             .clamp(1, 60) as u32;
-        let region = notice_area(screen.as_ref(), &self.shared.env(self.now));
+        let region = notice_area(&screen, &self.shared.env(self.now));
         self.notice = Some((screen, self.now.add_millis(u64::from(seconds) * 1000)));
         self.invalidate(region);
         self.output.request_refresh(RefreshMode::Fast);
@@ -626,7 +626,7 @@ impl Kernel {
             return;
         };
         let env = self.shared.env(self.now);
-        let region = notice_area(screen.as_ref(), &env);
+        let region = notice_area(&screen, &env);
         self.waiting_notices.ended(screen);
         self.invalidate(region);
         self.output.request_refresh(RefreshMode::Fast);
@@ -1141,7 +1141,7 @@ impl Kernel {
         let asked = self.output.commands.len();
         let before = mem::replace(&mut self.stack[index].area, area);
         let resized = self.with_screen(index, |screen, cx| {
-            crate::layer::call_since(screen, 2, Handled::No, |screen| screen.on_resize(cx))
+            crate::screen::call_since(screen, 2, Handled::No, |screen| screen.on_resize(cx))
         });
         if resized == Handled::Yes {
             self.apply_area(area);
@@ -1162,13 +1162,13 @@ impl Kernel {
             return false;
         };
         let _running = self.shared.meter.enter(active.id.namespace());
-        // `Gone` has no size: nothing is allocated for it.
+        // `Screen::GONE` holds nothing: nothing is allocated for it.
         if !spec.is_native() {
-            active.screen = Box::new(Gone);
+            active.screen = crate::screen::Screen::GONE;
             spec.remake(&mut active.screen, &env, &active.params);
         }
-        let made = active.screen.as_mut();
-        active.pane = crate::layer::call_since(made, 2, Pane::FULL, |s| s.pane()).known();
+        let made = &mut active.screen;
+        active.pane = crate::screen::call_since(made, 2, Pane::FULL, |s| s.pane()).known();
         false
     }
 
@@ -1176,7 +1176,7 @@ impl Kernel {
     pub(crate) fn with_screen(
         &mut self,
         index: usize,
-        f: impl FnOnce(&mut dyn Layer, &mut Cx<'_, '_>) -> Handled,
+        f: impl FnOnce(&mut crate::screen::Screen, &mut Cx<'_, '_>) -> Handled,
     ) -> Handled {
         let earlier = mem::take(&mut self.output.redraw);
         let given = self.output.commands.len();
@@ -1204,7 +1204,7 @@ impl Kernel {
         let mut cx = Cx::new(&env, &mut self.output)
             .for_screen(key)
             .with_params(&self.action_params);
-        let handled = f(active.screen.as_mut(), &mut cx);
+        let handled = f(&mut active.screen, &mut cx);
         drop(running);
         if let (Some(before), Some(stage)) = (armed, self.shared.native_instances.screen_stage()) {
             stage.restore(before);
@@ -1316,8 +1316,8 @@ impl Kernel {
         if (full + 1..=top).any(|i| self.overlay(i).is_none()) {
             return None;
         }
-        let screen = self.stack[full].screen.as_mut();
-        crate::layer::call_since(screen, TIMES_UNDER_OVERLAYS_SINCE, false, |s| {
+        let screen = &mut self.stack[full].screen;
+        crate::screen::call_since(screen, TIMES_UNDER_OVERLAYS_SINCE, false, |s| {
             s.times_under_overlays()
         })
         .then_some(full)
@@ -1361,7 +1361,7 @@ impl Kernel {
     /// Runs `f` with the active screen and a context for it.
     pub(crate) fn with_top(
         &mut self,
-        f: impl FnOnce(&mut dyn Layer, &mut Cx<'_, '_>) -> Handled,
+        f: impl FnOnce(&mut crate::screen::Screen, &mut Cx<'_, '_>) -> Handled,
     ) -> Handled {
         match self.stack.len().checked_sub(1) {
             Some(top) => self.with_screen(top, f),
@@ -1399,7 +1399,7 @@ impl Kernel {
 
 /// Where the notice `screen` shows on the screen: in the part of the
 /// screen on top (`env`'s), from its corner.
-pub(crate) fn notice_area(screen: &dyn Layer, env: &Env<'_>) -> Rect {
+pub(crate) fn notice_area(screen: &crate::screen::Screen, env: &Env<'_>) -> Rect {
     let content = env.content();
     let all = Rect::new(0, 0, content.width, content.height);
     chrome::on_screen(screen.region(env).unwrap_or(all), content)
@@ -1448,18 +1448,6 @@ pub(crate) fn uncovered(area: Rect, cover: Rect) -> Option<Rect> {
         return Some(Rect::new(area.x, area.y, area.width, common.y - area.y));
     }
     Some(area)
-}
-
-/// What a screen's place holds between the old screen dropped and the new
-/// one made ([`Kernel::remake_screen`]): never drawn nor asked anything.
-pub(crate) struct Gone;
-
-impl Layer for Gone {
-    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}
-
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
-        Handled::No
-    }
 }
 
 #[cfg(test)]

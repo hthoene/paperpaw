@@ -40,9 +40,8 @@ pub(crate) struct Screens {
     fixed_titles: Vec<&'static paperpaw_sdk::TitleEntry>,
 }
 
-/// A screen kept in the program, made as a layer (the kernel's own and the
-/// shells', #244 slice D5b).
-pub(crate) type Fixed = &'static crate::KernelScreen;
+/// One of the host's own screens (#293).
+pub(crate) type Fixed = &'static crate::host_screen::HostEntry;
 
 pub(crate) struct AddedMade {
     pub(crate) factory: crate::LayerFactory,
@@ -67,10 +66,10 @@ impl Maker<'_> {
         self,
         env: &paperpaw_sdk::Env<'_>,
         params: &paperpaw_sdk::Params,
-    ) -> Result<alloc::boxed::Box<dyn crate::Layer>, i32> {
+    ) -> Result<crate::screen::Screen, i32> {
         match self {
-            Maker::Added(made) => Ok((made.factory)(env, params)),
-            Maker::Fixed(fixed) => Ok(fixed.make(env, params)),
+            Maker::Added(made) => Ok(crate::screen::Screen::Layer((made.factory)(env, params))),
+            Maker::Fixed(fixed) => Ok(crate::screen::Screen::Host(fixed.make(env, params))),
             Maker::Native(id, made) => made.make(id, params),
         }
     }
@@ -79,7 +78,7 @@ impl Maker<'_> {
     pub(crate) fn prepare_native(
         self,
         params: &paperpaw_sdk::Params,
-    ) -> Result<Option<alloc::boxed::Box<dyn crate::Layer>>, i32> {
+    ) -> Result<Option<crate::screen::Screen>, i32> {
         match self {
             Maker::Native(id, made) => made.make(id, params).map(Some),
             _ => Ok(None),
@@ -89,13 +88,15 @@ impl Maker<'_> {
     /// Native wrappers keep their instance identity while the viewport changes.
     pub(crate) fn remake(
         self,
-        screen: &mut alloc::boxed::Box<dyn crate::Layer>,
+        screen: &mut crate::screen::Screen,
         env: &paperpaw_sdk::Env<'_>,
         params: &paperpaw_sdk::Params,
     ) {
         match self {
-            Maker::Added(made) => *screen = (made.factory)(env, params),
-            Maker::Fixed(fixed) => *screen = fixed.make(env, params),
+            Maker::Added(made) => {
+                *screen = crate::screen::Screen::Layer((made.factory)(env, params))
+            }
+            Maker::Fixed(fixed) => *screen = crate::screen::Screen::Host(fixed.make(env, params)),
             Maker::Native(..) => {}
         }
     }
@@ -107,7 +108,7 @@ impl Maker<'_> {
     pub(crate) fn refresh_on_open(self) -> Option<paperpaw_sdk::RefreshMode> {
         match self {
             Maker::Added(made) => made.refresh_on_open,
-            Maker::Fixed(fixed) => fixed.refresh(),
+            Maker::Fixed(_) => None,
             Maker::Native(_, made) => made.refresh(),
         }
     }
@@ -115,7 +116,7 @@ impl Maker<'_> {
     pub(crate) fn instances(self) -> paperpaw_sdk::Instances {
         match self {
             Maker::Added(made) => made.instances,
-            Maker::Fixed(fixed) => fixed.how_many(),
+            Maker::Fixed(_) => paperpaw_sdk::Instances::PER_PARAMS,
             Maker::Native(_, made) => made.instances(),
         }
     }
@@ -1126,7 +1127,6 @@ mod registry_lines;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::boxed::Box;
     use alloc::string::String;
 
     #[test]
@@ -1159,15 +1159,13 @@ mod tests {
     /// only screens that exist, only this slot), and stops when told.
     #[test]
     fn each_slot_screen_walks_as_slot_screens_lists() {
+        use crate::host_screen::{HostEntry, Kind};
         use paperpaw_sdk::ScreenMaker;
-        fn never(_: &paperpaw_sdk::Env<'_>, _: &paperpaw_sdk::Params) -> Box<dyn crate::Layer> {
-            unreachable!("no screen is made here")
-        }
-        static SCREENS: [crate::KernelScreen; 4] = [
-            crate::KernelScreen::new(Id::new_static("a.one"), "a", never),
-            crate::KernelScreen::new(Id::new_static("b.two"), "b", never),
-            crate::KernelScreen::new(Id::new_static("c.three"), "c", never),
-            crate::KernelScreen::new(Id::new_static("d.four"), "d", never),
+        static SCREENS: [HostEntry; 4] = [
+            HostEntry::new(Id::new_static("a.one"), "a", Kind::Placeholder),
+            HostEntry::new(Id::new_static("b.two"), "b", Kind::Placeholder),
+            HostEntry::new(Id::new_static("c.three"), "c", Kind::Placeholder),
+            HostEntry::new(Id::new_static("d.four"), "d", Kind::Placeholder),
         ];
         let id = |text: &str| Id::parse(text).unwrap();
         let mut registry = Registry::default();
