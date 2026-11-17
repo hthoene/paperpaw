@@ -4,10 +4,3 @@
 //! line, a field's value, is skipped), so nothing here is allocated
 //! beyond the two file names and nothing of the file is held (the details
 //! can be 16 KiB, and [`Book`](super::Book) as much again).
-
-
-
-
-
-
-

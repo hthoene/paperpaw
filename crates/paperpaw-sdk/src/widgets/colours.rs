@@ -24,12 +24,10 @@
 //! [`widget_look`]: super::widget_look
 //! [`draw_frame`]: super::draw_frame
 
-
 use paperpaw_platform::Color;
 
 use crate::builtin::settings::parse_rgb;
 use crate::decorations::{self, Tone};
-
 
 /// The paper as the widget's frame makes it: white, black on a dark card.
 pub const PAPER_NORMAL: &str = "core.plate.normal";
@@ -39,8 +37,6 @@ pub const PAPER_LIGHT_GRAY: &str = "core.plate.light-gray";
 pub const PAPER_DARK_GRAY: &str = "core.plate.dark-gray";
 /// No paper: the page shows (taken to be light for the automatic ink).
 pub const PAPER_NONE: &str = "core.plate.none";
-
-
 
 /// A colour a widget's paper or ink setting names ([`colour_spec`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,17 +72,3 @@ pub fn colour_spec(value: &str) -> ColourSpec {
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -8,16 +8,3 @@
 //! the plugin's ([`settle`]): right after the install, or at the next
 //! start where that was cut short. The file is hidden: neither the Wi-Fi
 //! transfer nor the cable reach it.
-
-
-
-
-
-
-
-
-
-
-
-
-

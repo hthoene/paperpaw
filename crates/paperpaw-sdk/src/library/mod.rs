@@ -45,21 +45,12 @@ pub use fingerprint::Fingerprint;
 
 /// What changed of a book ([`events::BookChanged::what`](crate::builtin::events::BookChanged)):
 /// bits, any together.
-pub mod what {
-}
+pub mod what {}
 
 use alloc::format;
 use alloc::string::{String, ToString};
 
-use crate::Storage;
 use paperpaw_digest::fnv1a64;
-
-
-
-
-
-
-
 
 /// The key that names what is kept for the book at `path`: 16
 /// hexadecimal digits of its hash. Folders of [`BookData`] name their
@@ -68,20 +59,6 @@ pub fn key(path: &str) -> String {
     let mut digits = [0_u8; KEY_LEN];
     String::from(key_into(path, &mut digits))
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /// The part of folder `folder` that what is kept by `key` goes into:
 /// the subfolder of its first two digits (of 256), so that no folder holds
@@ -109,41 +86,6 @@ pub fn kept_path(folder: &str, prefix: &str, book: &str) -> String {
     )
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /// The command that tells everyone something of the book at `path`
 /// changed: `what`, bits of [`what`]
 /// ([`events::BOOK_CHANGED`](crate::builtin::events::BOOK_CHANGED)).
@@ -153,5 +95,3 @@ pub fn changed_book(path: &str, what: u32) -> crate::Command {
         what,
     })
 }
-
-

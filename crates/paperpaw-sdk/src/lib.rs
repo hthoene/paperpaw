@@ -161,12 +161,8 @@ mod help_old;
 /// What interface-7 code uses of the module; the rest of it is the kernel's (feature
 /// `kernel`).
 #[cfg(not(test))]
-pub mod help {
-    
-}
+pub mod help {}
 // end of facade: help
-#[cfg(test)]
-mod test_kit;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use screen::ScreenMaker;
@@ -183,12 +179,12 @@ mod install_old;
 /// `kernel`).
 #[cfg(not(test))]
 pub mod install {
-    pub use crate::install_old::{
-        Digest, MAX_FILES, Package, PackageFile, is_plugin_name, is_safe_path,
-    };
     /// The kernel's and the store's: whether a data plugin fits a kernel.
     #[cfg(feature = "kernel")]
     pub use crate::install_old::fits_sdk;
+    pub use crate::install_old::{
+        Digest, MAX_FILES, Package, PackageFile, is_plugin_name, is_safe_path,
+    };
 }
 // end of facade: install
 pub mod keys;
@@ -253,9 +249,7 @@ mod readers_old;
 /// What interface-7 code uses of the module; the rest of it is the kernel's (feature
 /// `kernel`).
 #[cfg(not(test))]
-pub mod readers {
-    
-}
+pub mod readers {}
 // end of facade: readers
 // facade: reading (#244, D0)
 #[cfg(any(test, feature = "kernel"))]
@@ -316,7 +310,6 @@ mod status_old;
 #[cfg(not(test))]
 pub mod status {
     pub use crate::status_old::item_ids;
-    
 }
 // end of facade: status
 // facade: time (#244, D0)
@@ -329,7 +322,7 @@ mod time_old;
 /// `kernel`).
 #[cfg(not(test))]
 pub mod time {
-    
+
     pub use crate::time_old::{
         CLOCK_12H, LocalTime, TIME_ZONES, TimeZone, UnixTime, civil_from_days, day_of_year,
         days_from_civil, days_in_month, days_in_year, iso_week, weekday, weekday_of,
@@ -354,7 +347,6 @@ pub mod ui {
     /// What interface-7 code uses of it.
     pub mod reorder {
         pub use crate::ui_old::reorder::moved;
-        
     }
 }
 // end of facade: ui
@@ -371,13 +363,13 @@ mod widgets_old;
 /// `kernel`).
 #[cfg(not(test))]
 pub mod widgets {
-    
+
     pub use crate::widgets_old::{
         CellSpan, ColourSpec, PAPER_LIGHT_GRAY, PAPER_NONE, PAPER_NORMAL, categories, colour_spec,
     };
     /// What interface-7 code uses of it.
     pub mod grid {
-        
+
         pub use crate::widgets_old::grid::{
             Cells, Geometry, Item, MAX_COLUMNS, MAX_ROWS, What, columns_for, dragged, free_place,
             parse, write,
@@ -397,11 +389,6 @@ pub mod work;
 #[cfg(not(any(test, feature = "kernel")))]
 mod work;
 
-#[cfg(test)]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use action::{
-    Action, ActionHint, ActionSpec, Actions, FixedAction, FixedHandler, NativeAction,
-};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use command::{
@@ -426,9 +413,6 @@ pub use commands::Commands;
 pub(crate) use commands::Commands;
 /// What a plugin added, for the kernel to apply: opaque to plugins, which
 /// add through `Items`'s methods.
-#[cfg(test)]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use contribution::item::Contribution;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use env::{Capabilities, Capability, Metrics};
@@ -472,11 +456,6 @@ pub use id::Text as ShortText;
 pub use id::{Id, IdError, InvalidId};
 pub use memory_storage::{MemoryStorage, read_file};
 pub use menus::MenuNeed;
-#[cfg(test)]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use menus::{
-    ItemState, ItemStateFn, MenuEntry, MenuItem, MenuPlace, MenuSection, MenuView, Menus,
-};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use params::Params;
@@ -516,12 +495,13 @@ pub use screen::Handled;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use screen::{
-    CloseCause,  Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION,
-    ScreenKey, ScreenList, ShowsThrough, StackEntry};
+    CloseCause, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION, ScreenKey,
+    ScreenList, ShowsThrough, StackEntry,
+};
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use screen::{
-    CloseCause, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION,
-    ScreenKey, ScreenList, ShowsThrough, StackEntry,
+    CloseCause, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION, ScreenKey,
+    ScreenList, ShowsThrough, StackEntry,
 };
 pub use setting::{Setting, Text};
 #[cfg(any(test, feature = "kernel"))]
@@ -558,12 +538,6 @@ pub use paperpaw_platform::{
     PixelFormat, Point, PointerEvent, PointerPhase, PointerTool, Rect, RefreshMode,
 };
 pub use paperpaw_platform::{DirEntry, NoStorage, Storage, StorageError};
-#[cfg(test)]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use status::{
-    StatusFn, StatusFrame, StatusItemSpec, StatusItems, StatusLineFn, StatusLineSpec,
-    StatusSignatureFn, StatusValue,
-};
 
 /// The human-editable config format (see `paperpaw-config`), for plugins
 /// that store their own data as text files.

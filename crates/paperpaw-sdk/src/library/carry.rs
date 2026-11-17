@@ -4,16 +4,3 @@
 //! run again (a power cut, a full card). An error no retry changes (a
 //! path the card refuses, damaged data) does not stop the other parts:
 //! they are still carried, and that error is returned at the end.
-
-
-
-
-
-
-
-
-
-
-
-
-

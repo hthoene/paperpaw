@@ -27,77 +27,11 @@
 //! its status widget; a status line drawn in a place is told which
 //! ([`StatusFrame::place`]).
 
-
-
-
 /// Parameters screens pass to status items. Items ignore what they do not
 /// need; a screen passes what it knows.
 pub(crate) mod context {}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /// The items of a list as stored in a setting: ids separated by commas.
 pub fn item_ids(list: &str) -> impl Iterator<Item = &str> {
     list.split(',').map(str::trim).filter(|id| !id.is_empty())
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_lines_too_long_give_way() {
-        // Battery and time placed by their own width: rounding noise is
-        // no reason to cut the time.
-        let widths = [60.0, 70.1];
-        let room = 70.1 + 60.0 + 20.0 - 0.000_01;
-        assert_eq!(shrink(&widths, &[false, true], 20.0, room), None);
-        // Too long: the longest text gives way, the page stays whole.
-        let widths = [300.0, 80.0];
-        assert_eq!(
-            shrink(&widths, &[true, true], 20.0, 250.0),
-            Some((0, 150.0))
-        );
-        // Nothing to shorten without text.
-        assert_eq!(shrink(&[100.0], &[false], 0.0, 50.0), None);
-    }
 }

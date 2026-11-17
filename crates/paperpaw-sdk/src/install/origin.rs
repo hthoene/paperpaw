@@ -11,18 +11,3 @@
 //! ([`forget_store_install`]), as long as its version differs. On a
 //! device that kept none yet, the plugins installed are taken for the
 //! store's once ([`adopt`]): those it installed before keep its updates.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

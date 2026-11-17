@@ -5,12 +5,3 @@
 //! as they are next time, and a view that shows the book reads its cover
 //! when it first does ([`index`](super::index()), one book at a time), as
 //! for any book not indexed yet.
-
-
-
-
-
-
-
-
-

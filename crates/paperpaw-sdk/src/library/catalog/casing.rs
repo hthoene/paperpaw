@@ -10,11 +10,3 @@
 //! the tests compare both with the standard library for every char, so a
 //! toolchain with newer Unicode data fails there, not silently in the
 //! order of a library.
-
-
-
-
-
-
-
-

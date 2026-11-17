@@ -8,17 +8,3 @@
 //! the others (`Index::total`). A view covered by a book can keep it in
 //! a file (`Index::save`) and let it go, and read it back when it shows
 //! again (`Index::load`).
-
-
-
-
-
-
-
-
-
-
-
-
-
-

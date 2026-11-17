@@ -27,10 +27,8 @@
 //! What changes widths (bold, a larger size) is a text filter instead
 //! (see [`filters`](crate::filters)): it needs the page laid out again.
 
-
 use crate::document::Locator;
-use crate::{
-    Color,  Id};
+use crate::{Color, Id};
 
 /// A named tone for backgrounds, ink and lines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -294,13 +292,6 @@ const fn tone_options(none: &'static str) -> [&'static str; Tone::ALL.len() + 1]
 /// The options of a role's background, and of its ink and line tone.
 static TONES: [&str; Tone::ALL.len() + 1] = tone_options(NONE);
 
-
-
-
-
-
-
-
 /// The settings of a role, as [`add_role`] adds them, kept in the
 /// program: a `static` list for `Items::add_settings`, which takes
 /// next to no memory. The role and its title (a translation key) are
@@ -352,7 +343,6 @@ pub struct PageWord<'a> {
     pub end: Locator,
 }
 
-
 /// A range a decorator marks, with its role.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -374,18 +364,6 @@ impl Decorated {
         })
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 #[cfg(test)]
 mod tests {

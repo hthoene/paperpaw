@@ -6,7 +6,6 @@
 //! ([`book`](super::book), [`key`](super::key)) are these forms with the
 //! error left out (or, for the key, an abort as before).
 
-
 use super::fnv1a64;
 
 /// The digits of a [`key`](super::key).
@@ -23,26 +22,3 @@ pub fn key_into<'o>(path: &str, out: &'o mut [u8; KEY_LEN]) -> &'o str {
     // The digits are ASCII.
     core::str::from_utf8(out).unwrap_or_default()
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

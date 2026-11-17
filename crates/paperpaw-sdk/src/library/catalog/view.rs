@@ -5,27 +5,3 @@
 //! into the caller's buffer by [`try_text_at`], so no frame here holds
 //! more than the path and one chunk (about 0.9 KiB). The memory error is
 //! [`Error::OutOfMemory`].
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

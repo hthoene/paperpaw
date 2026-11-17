@@ -10,11 +10,6 @@
 
 use alloc::string::String;
 
-
-
-
-
-
 /// Time zones to choose from: an id (its translation is the name shown)
 /// and its POSIX `TZ` rule.
 pub const TIME_ZONES: &[(&str, &str)] = &[
@@ -147,7 +142,6 @@ impl UnixTime {
     pub const fn secs(self) -> i64 {
         self.0.div_euclid(1000)
     }
-
 
     /// How it reads on a wall `offset` seconds ahead of UTC.
     pub fn local(self, offset: i32) -> LocalTime {
@@ -502,17 +496,6 @@ pub fn iso_week(year: i32, month: u8, day: u8) -> u8 {
         week as u8
     }
 }
-
-
-
-
-
-
-
-
-
-
-
 
 pub const CLOCK_12H: &str = "core.clock.12h";
 

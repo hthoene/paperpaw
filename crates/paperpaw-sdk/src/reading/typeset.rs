@@ -6,17 +6,14 @@
 //! A reader of one's own lays pages out and draws them as the shipped one
 //! does; what it puts around them (status lines) is its own.
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use super::WordBox;
 use crate::document::Locator;
-use crate::layout::{
-    Face, LineBidi, LineRun, Page, PageLine, Style,
-    Typesetter,
-};
+use crate::layout::{Face, LineBidi, LineRun, Page, PageLine, Style, Typesetter};
 use crate::text::ToneCurve;
-use crate::{Canvas, Color,  FontHandle, FontSet, Id, Rect};
+use crate::{Canvas, Color, FontHandle, FontSet, Id, Rect};
 
 /// Relative sizes of headings 1 to 6.
 const HEADING_SCALE: [f32; 6] = [1.6, 1.4, 1.2, 1.1, 1.0, 1.0];
@@ -29,7 +26,6 @@ const SMALL_CAPS: f32 = 0.78;
 const SCRIPT: f32 = 0.7;
 const RAISED: f32 = 0.33;
 const LOWERED: f32 = 0.15;
-
 
 /// The fonts a book embeds, loaded with the book.
 pub struct EmbeddedFonts {
@@ -147,9 +143,6 @@ pub struct PageType {
     pub key: String,
 }
 
-
-
-
 /// The reading fonts by face, for layout and drawing: the faces bound to
 /// the reading roles (a font the user chose for book text is not mixed
 /// with the default bold or italic), the book's own where it uses them,
@@ -184,7 +177,6 @@ impl core::fmt::Debug for ReadingFaces<'_> {
 }
 
 impl<'a> ReadingFaces<'a> {
-
     /// The book's font for text in an embedded family, else the reading
     /// face; kerned and with ligatures as the settings say.
     pub fn font(&self, face: Face) -> FontHandle<'a> {
@@ -721,8 +713,6 @@ fn reordered_boxes(
         .collect()
 }
 
-
-
 /// Draws `lines` laid out with `faces` in `page_type`, their content box
 /// at `origin`, each word in its ink (`inks`, by the words' order as
 /// [`word_boxes`] has them; black where none). Lines outside the part
@@ -846,8 +836,6 @@ fn words_in(text: &str, runs: &[LineRun]) -> usize {
     }
     count
 }
-
-
 
 #[cfg(test)]
 mod tests {

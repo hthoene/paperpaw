@@ -10,10 +10,3 @@
 //! A painter changes how a thing *looks*, never where it goes or how wide
 //! it is: layout is measured with the stock metrics, and a look that
 //! changed advances would break wrapping, hit areas and screen readers.
-
-
-
-
-
-
-

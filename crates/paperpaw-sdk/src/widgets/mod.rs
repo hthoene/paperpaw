@@ -52,9 +52,6 @@
 //! ([`Command::PreviewSettings`](crate::Command::PreviewSettings)). It is
 //! not offered among the widgets for other screens.
 
-
-
-
 mod colours;
 mod elsewhere;
 pub mod grid;
@@ -62,11 +59,7 @@ pub(crate) mod look;
 mod shape;
 mod stack;
 
-
-pub use colours::{
-    ColourSpec, PAPER_LIGHT_GRAY, PAPER_NONE,
-    PAPER_NORMAL,     colour_spec};
-
+pub use colours::{ColourSpec, PAPER_LIGHT_GRAY, PAPER_NONE, PAPER_NORMAL, colour_spec};
 
 /// The kinds of widgets ([`WidgetSpec::category`]), each the translation
 /// key of its name; screens that offer widgets group them so.
@@ -111,23 +104,6 @@ pub mod categories {
         })
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /// How many cells of a grid a widget takes ([`WidgetSpec::cells`]):
 /// added, it gets `w` by `h` (no more than the grid has), and resized
@@ -187,20 +163,3 @@ impl CellSpan {
         grid::Cells { w, h, ..cells }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#[cfg(test)]
-mod tests;

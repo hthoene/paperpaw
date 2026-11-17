@@ -126,7 +126,6 @@ pub fn as_text(icon: char) -> Option<alloc::string::String> {
     Some(text)
 }
 
-
 /// The names of all icons, sorted: 64 KB, for tools and tests. The
 /// firmware never calls it, so its image is without them (#258).
 pub fn names() -> impl Iterator<Item = &'static str> {

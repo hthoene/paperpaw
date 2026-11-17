@@ -665,7 +665,6 @@ pub struct KeysHeld<'a> {
 }
 
 impl<'a> KeysHeld<'a> {
-
     /// Whether button `name` is held down.
     pub fn contains(&self, name: &str) -> bool {
         self.names.contains(&name)

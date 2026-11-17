@@ -5,14 +5,3 @@
 //! of little memory) whatever the library's size; paused, it writes the
 //! run it holds (a shorter one) or lets go of what it read ahead of the
 //! runs, and keeps the series counted.
-
-
-
-
-
-
-
-
-
-
-

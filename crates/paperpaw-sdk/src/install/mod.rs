@@ -27,11 +27,9 @@ pub mod local;
 pub mod marks;
 mod origin;
 
-
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-
 
 /// Files of one package at most.
 pub const MAX_FILES: usize = 64;
@@ -46,8 +44,6 @@ pub fn fits_sdk(kernel: crate::Version, sdk: &str, formats: u32) -> bool {
             .is_some_and(|v| (v.major, v.minor) <= (kernel.major, kernel.minor));
     sdk_fits && formats <= crate::DATA_FORMATS
 }
-
-
 
 /// Whether `id` can be a data plugin's id and its folder's name: lower-case
 /// letters, digits and `-`, and not the host's own id `core` (reserved, as
@@ -210,4 +206,3 @@ impl Package {
         self.files.iter().map(|f| f.size).sum()
     }
 }
-

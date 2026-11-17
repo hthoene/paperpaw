@@ -11,7 +11,6 @@
 //! beside it is outside, as what lies above it is: a tap there closes the
 //! choice (the screen below is dimmed, and not usable meanwhile).
 
-
 crate::event_data! {
     /// What was chosen: the option, for the context the choice was
     /// opened for.

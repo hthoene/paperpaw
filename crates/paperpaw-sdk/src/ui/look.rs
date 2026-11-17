@@ -12,35 +12,3 @@
 //! of equal ones); [`UiStyle::new`](super::UiStyle::new) takes it from
 //! [`Env::look`](crate::Env::look). A look is a table in the program,
 //! so it takes no memory while it is not in use.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -5,15 +5,3 @@
 //! path, at most 512 bytes; a log line is short), so no line is ever held
 //! whole. A device short of memory gets [`Error::OutOfMemory`] instead of
 //! an abort, and nothing is returned half read.
-
-
-
-
-
-
-
-
-
-
-
-

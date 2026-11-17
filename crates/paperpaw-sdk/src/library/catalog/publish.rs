@@ -9,10 +9,3 @@
 //! published puts it in place. Cut off (the power gone), the catalog is
 //! the books found until then, its last line maybe cut short, and the
 //! next walk compares with it and makes it whole as with any other.
-
-
-
-
-
-
-

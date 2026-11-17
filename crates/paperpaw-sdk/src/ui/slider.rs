@@ -41,6 +41,3 @@
 //! moves, the slider alone is best drawn again with a quick refresh
 //! ([`RefreshMode::Fast`](crate::RefreshMode::Fast)), and the screen
 //! with a clean one when the finger is lifted.
-
-
-

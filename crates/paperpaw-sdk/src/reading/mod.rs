@@ -22,8 +22,8 @@ mod visual;
 pub use index::PageIndex;
 #[cfg(feature = "unstable")]
 pub use typeset::{
-    EmbeddedFonts, PageType, ReadingFaces, StatusRoom,  draw_lines, small_caps_parts,
-     word_boxes};
+    EmbeddedFonts, PageType, ReadingFaces, StatusRoom, draw_lines, small_caps_parts, word_boxes,
+};
 
 use alloc::string::String;
 

@@ -295,4 +295,3 @@ pub fn native(plugin: &str, batches: &[Vec<u8>]) -> Lines {
     }
     out.sort()
 }
-

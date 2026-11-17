@@ -376,9 +376,6 @@ impl Output {
     }
 }
 
-
-
-
 #[cfg(test)]
 mod tests {
     use super::*;

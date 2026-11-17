@@ -9,23 +9,3 @@
 //!   book's moved and removed with it, the folders' in one small file
 //!   (moved with [`folder_moved`] by whatever moves a folder). [`ask`] lets
 //!   the reader choose (*Open with*, a folder's reading app).
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

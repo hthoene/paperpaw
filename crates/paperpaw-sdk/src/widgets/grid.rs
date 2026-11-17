@@ -59,7 +59,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::{ Id, Point, Rect};
+use crate::{Id, Point, Rect};
 
 /// Columns at most, and rows at most.
 pub const MAX_COLUMNS: u8 = 6;
@@ -206,7 +206,6 @@ impl Default for Geometry {
 }
 
 impl Geometry {
-
     /// The grid in `area` with exactly `columns` and `rows` and `gap`.
     pub fn of(area: Rect, columns: u8, rows: u8, gap: u16) -> Self {
         let (columns, rows) = (columns.max(1), rows.max(1));

@@ -6,18 +6,3 @@
 //! section in the order its first key came), but a device short of memory
 //! gets [`Error::OutOfMemory`] instead of an abort, and the size is
 //! counted, and compared with [`MAX_DETAILS`], before the text is made.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

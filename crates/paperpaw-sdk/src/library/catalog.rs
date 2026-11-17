@@ -28,59 +28,14 @@
 //! and its [`generation`]); a catalog of format 1 (six columns, no
 //! status) is still read.
 
-
-
-
-
-
-
-
-
-
-
-
-
 // ---- Reading the catalog ----------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ---- Status changes ---------------------------------------------------
 
-
-
-
-
-
-
-
 // ---- Queries ----------------------------------------------------------
 
-
-
-
-
-
-mod fallible;
 mod casing;
+mod fallible;
 mod scan;
 mod view;
 
@@ -88,4 +43,3 @@ mod view;
 mod making;
 #[cfg(any(test, feature = "kernel"))]
 mod publish;
-

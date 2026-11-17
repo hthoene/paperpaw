@@ -8,6 +8,7 @@ mod data_writers;
 mod library;
 mod pictures_diffused;
 mod pictures_over;
+mod shown_digits;
 mod status_line;
 mod support;
 mod time;

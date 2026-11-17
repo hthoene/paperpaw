@@ -1,15 +1,6 @@
 //! The sizes and looks every part of the UI is drawn with ([`UiStyle`]),
 //! the focus, separators and rounded fills.
 
-#[allow(
-    clippy::wildcard_imports,
-    reason = "a part of the module, which shares its imports"
-)]
-use super::*;
-
-
-
-
 /// What a colour is for ([`UiStyle::ink`]): a colour role of the
 /// interface, each set by the palette (setting `core.ui-palette`), so a
 /// theme changes them all at once and plugins draw in the same colours.
@@ -122,7 +113,6 @@ impl Ink {
         Ink::WARNING,
     ];
 
-
     /// The number the role goes by in data.
     pub const fn value(self) -> u8 {
         self.0
@@ -151,7 +141,6 @@ impl Ink {
             _ => Ink::TEXT,
         }
     }
-
 }
 
 impl core::fmt::Debug for Ink {
@@ -173,16 +162,3 @@ impl core::fmt::Debug for Ink {
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

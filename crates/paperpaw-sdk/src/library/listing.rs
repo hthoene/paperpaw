@@ -7,6 +7,3 @@
 //! keeps only the `n` entries that follow (or precede) a known entry in
 //! sort order. Each step costs a directory scan but only `n` entries of
 //! memory.
-
-
-

@@ -22,25 +22,5 @@
 //! since it was made (how far a book is read, favourites, books removed;
 //! the catalog's log) is taken in as it is read.
 
-
-
 #[cfg(any(test, feature = "kernel"))]
 mod build;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

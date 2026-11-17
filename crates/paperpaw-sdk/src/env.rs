@@ -1,7 +1,3 @@
-
-use paperpaw_platform::Storage;
-
-
 /// What the device and its shell can do: plugins offer only what works
 /// here, and menu entries that need more are left out
 /// ([`MenuNeed`](crate::MenuNeed)).
@@ -149,13 +145,6 @@ impl Capabilities {
         self
     }
 }
-
-
-
-
-
-
-
 
 /// Converts physical lengths to pixels for the current screen, so layouts
 /// look the same on low- and high-density displays.

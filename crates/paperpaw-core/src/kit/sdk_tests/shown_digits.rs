@@ -8,7 +8,18 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod common;
+extern crate std;
+#[allow(unused_imports)]
+use std::{
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+
+use super::common;
 
 use common::Harness;
 use paperpaw_i18n::Catalog;
@@ -53,9 +64,11 @@ fn harness(language: &str) -> Harness {
     let persian = "[meta]\nlanguage = fa\nname = Farsi\nplural = one-other\ndigits = arabext\n\n\
         [messages]\ncore.clock.am = {time} ق.ظ\ncore.clock.pm = {time} ب.ظ\ncore.decimal = ٫\n\
         core.duration.minutes = {m} دقیقه\ncore.duration.hours = {h} ساعت {m} دقیقه\n";
-    h.i18n.add(Catalog::parse(english.to_string()).unwrap());
-    h.i18n.add(Catalog::parse(persian.to_string()).unwrap());
-    h.i18n.set_language(language);
+    h.translator
+        .add(Catalog::parse(english.to_string()).unwrap());
+    h.translator
+        .add(Catalog::parse(persian.to_string()).unwrap());
+    h.translator.set_language(language);
     h
 }
 

@@ -24,17 +24,3 @@
 //! the choice ([`CHOICE`](crate::builtin::slots::CHOICE)) and the yes or
 //! no question ([`CONFIRM`](crate::builtin::slots::CONFIRM)) are screens
 //! another plugin can replace: they answer every question asked this way.
-
-
-
-
-
-
-
-
-
-
-
-
-
-

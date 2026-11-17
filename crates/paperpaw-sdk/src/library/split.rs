@@ -15,15 +15,3 @@
 //! settles it). Where what is moved is there already (written since), that
 //! stays and the old one goes. What cannot be moved stays where it was,
 //! read there; the folder goes once nothing is left of it.
-
-
-
-
-
-
-
-
-
-
-
-
