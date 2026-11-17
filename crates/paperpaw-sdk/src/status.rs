@@ -28,7 +28,6 @@
 //! ([`StatusFrame::place`]).
 
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
@@ -116,16 +115,16 @@ impl<'a> StatusFrame<'a> {
 }
 
 /// Draws a status line into its frame's area (cleared before).
-pub type StatusLineFn = Box<dyn Fn(&mut Canvas<'_>, &Env<'_>, &StatusFrame<'_>)>;
+pub type StatusLineFn = fn(&mut Canvas<'_>, &Env<'_>, &StatusFrame<'_>);
 
 /// What a status line shows now, as a number that changes with it (e.g.
 /// [`Fnv1a64`](crate::digest::Fnv1a64) of what it shows): the screen
 /// redraws the line when it changes (e.g. each minute for a clock).
-pub type StatusSignatureFn = Box<dyn Fn(&Env<'_>, &Params) -> u64>;
+pub type StatusSignatureFn = fn(&Env<'_>, &Params) -> u64;
 
 /// The places in a status line drawn in a frame that do something when
 /// tapped (see [`StatusLineSpec::targets`]).
-pub type StatusTargetsFn = Box<dyn Fn(&Env<'_>, &StatusFrame<'_>) -> Vec<StatusTarget>>;
+pub type StatusTargetsFn = fn(&Env<'_>, &StatusFrame<'_>) -> Vec<StatusTarget>;
 
 /// A place in a status line that does something: a tap on it runs
 /// `command`, e.g. an item's [`StatusItemSpec::tap`].
@@ -235,7 +234,7 @@ pub enum StatusValue {
 }
 
 /// Computes an item's value; `None` hides it (e.g. no battery).
-pub type StatusFn = Box<dyn Fn(&Env<'_>, &Params) -> Option<StatusValue>>;
+pub type StatusFn = fn(&Env<'_>, &Params) -> Option<StatusValue>;
 
 /// How much an item matters where none says ([`StatusItemSpec::priority`]).
 pub const PRIORITY: u8 = 128;
