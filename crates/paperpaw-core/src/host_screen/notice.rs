@@ -85,8 +85,11 @@ impl Notice {
         let line_height = font.line_metrics(look.text).line_height as u16;
         let mut y = r.y.saturating_add(look.gap * 3 / 2);
         for line in &self.lines {
-            let area = Rect::new(r.x, y, r.width, line_height);
-            paint::line(canvas, &font, look.text, line, area, Color::WHITE);
+            // Each line said from where it starts, as Beta 3's were.
+            let width = font.measure(look.text, line);
+            let x = f32::from(r.x) + (f32::from(r.width) - width) / 2.0;
+            let row = Rect::new(r.x, y, r.width, line_height);
+            paint::line_at(canvas, &font, look.text, line, x, row, Color::WHITE);
             y = y.saturating_add(line_height);
         }
     }

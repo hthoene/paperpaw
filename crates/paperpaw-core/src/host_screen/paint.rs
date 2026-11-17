@@ -29,10 +29,26 @@ impl Look {
         let m = Metrics::new(device.display.dpi);
         let base = settings.read(&settings::UI_SIZE).clamp(6, 40) as f32;
         let text = m.pt(base);
-        let line_height = fonts
-            .role(fonts::UI.as_str())
+        let small = m.pt(base * 0.75);
+        let font = fonts.role(fonts::UI.as_str());
+        let line_height = font
+            .as_ref()
             .map_or(text * 1.25, |font| font.line_metrics(text).line_height);
         let rows = settings.read(&settings::UI_ROW).clamp(120, 300) as f32 / 100.0;
+        // A row holds a label on two lines of small text: where the size the
+        // rows set doesn't, as high as that (as the interface's rows are).
+        let control_row = line_height * rows;
+        let row = match &font {
+            Some(f) if 2.0 * f.line_metrics(small * 0.7).line_height > control_row => {
+                if base < 10.0 {
+                    control_row
+                        .max(2.0 * f.line_metrics(small * 0.7).line_height + m.tenth_mm(6) as f32)
+                } else {
+                    control_row.max(2.0 * f.line_metrics(small).line_height + m.mm(2) as f32)
+                }
+            }
+            _ => control_row,
+        };
         let finger = if device.input.touch { m.mm(7) } else { 0 };
         let corner = match settings::CORNERS
             .iter()
@@ -45,9 +61,9 @@ impl Look {
         };
         Self {
             text,
-            small: m.pt(base * 0.75),
+            small,
             title: m.pt(base * 1.15),
-            row: px(((line_height * rows) as u32).max(finger)),
+            row: px((row as u32).max(finger)),
             margin: px(m.mm(settings.read(&settings::UI_MARGIN).clamp(0, 15) as u32)),
             gap: px(m.mm(2)),
             line: m
@@ -117,6 +133,23 @@ pub(crate) fn line(
     let width = font.measure(size, shown);
     let x = f32::from(area.x) + ((room - width) / 2.0).max(0.0);
     font.draw(canvas, size, x, baseline(font, size, area), shown, color);
+}
+
+/// `text` on one line from `x`, in the middle of the height of `row`, said
+/// to be from where it starts to the end of `row`.
+pub(crate) fn line_at(
+    canvas: &mut Canvas<'_>,
+    font: &FontHandle<'_>,
+    size: f32,
+    text: &str,
+    x: f32,
+    row: Rect,
+    color: Color,
+) {
+    let room = f32::from(row.x) + f32::from(row.width) - x;
+    let told = Rect::new(x.max(0.0) as u16, row.y, room.max(0.0) as u16, row.height);
+    canvas.describe(Role::Text, text, told);
+    font.draw(canvas, size, x, baseline(font, size, row), text, color);
 }
 
 /// `text` wrapped to the width of `area`, each line centred, the block in

@@ -171,16 +171,18 @@ impl Screen {
         each!(self, s => s.on_timer(cx), h => h.on_timer(cx));
     }
 
+    // The three items newer than revision 1: the kernel asks them only
+    // through `call_since`.
     pub(crate) fn on_resize(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
-        each!(self, s => s.on_resize(cx), _h => Handled::No)
+        each!(self, s => Layer::on_resize(&mut **s, cx), _h => Handled::No)
     }
 
     pub(crate) fn pane(&self) -> Pane {
-        each!(self, s => s.pane(), _h => Pane::FULL)
+        each!(self, s => Layer::pane(&**s), _h => Pane::FULL)
     }
 
     pub(crate) fn times_under_overlays(&self) -> bool {
-        each!(self, s => s.times_under_overlays(), _h => false)
+        each!(self, s => Layer::times_under_overlays(&**s), _h => false)
     }
 
     /// Where it is kept on the heap, to tell one from another (tests).
