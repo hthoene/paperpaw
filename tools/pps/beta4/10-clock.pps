@@ -1,0 +1,22 @@
+# Beta 4 suite 10: the clock after a restart (#280). X4 only: its RTC keeps the last time through a restart.
+include:common.pps
+
+test:10a-clock-after-restart {
+  if:$target==emu {
+    skip:the X4's RTC
+  }
+  call:home
+  time:set
+  wait:500
+  clock
+  assert:clock.known==1:the clock is set
+  restart
+  wait:5000
+  clock
+  assert:clock.known==1:#280: after a restart the clock is not "--:--"
+  assert:clock.skew_s.max<=600:and within 10 minutes of the host's
+  assert:clock.skew_s.min>=-600
+  call:home
+  expect-not:--:--
+  no-warn
+}

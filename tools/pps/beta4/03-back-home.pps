@@ -1,0 +1,60 @@
+# Beta 4 suite 03: Back -> Home (#294, #308), from a text book and from a book with a cover.
+include:common.pps
+
+test:03a-back-home-text {
+  call:home
+  repeat:5 {
+    open:$book
+    wait:7000
+    measure:back-text:settle=6000 {
+      back
+    }
+    until:Continue reading:10000
+  }
+  assert:back-text.first_ms.median<=1200:Back to Home within 1.2 s
+  assert:back-text.first_ms.median<=baseline*1.1
+  assert:back-text.frames.max<=4
+  no-warn
+}
+
+# Byttet is the owner's book with a cover: only on the X4's card.
+test:03b-back-home-cover {
+  if:$target==emu {
+    skip:no book with a cover on the emulator's card
+  }
+  call:home
+  repeat:5 {
+    open:books/Byttet.epub
+    wait:7000
+    measure:back-cover:settle=6000 {
+      back
+    }
+    until:Continue reading:10000
+  }
+  assert:back-cover.first_ms.median<=1200:Back to Home within 1.2 s
+  assert:back-cover.first_ms.median<=baseline*1.1
+  no-warn
+}
+
+# Holding Back in the reader goes home as well.
+test:03c-hold-back-home {
+  call:home
+  open:$book
+  wait:5000
+  long:back
+  until:Continue reading:10000
+  expect:Edit
+  no-warn
+}
+
+test:03d-home-heap {
+  call:home
+  wait:4000
+  measure:home-heap:settle=0:heap=on {
+  }
+  # The emulator's heap is its own budget, not the X4's: counted on the X4 only.
+  if:$target==x4 {
+    assert:home-heap.heap_block.min>=40000:largest free block at Home (X4 reference: 18A)
+  }
+  assert:home-heap.heap_block.min>=baseline*0.9
+}
