@@ -44,7 +44,7 @@ fn trapped(builder: KernelBuilder) -> KernelBuilder {
             Box::new(|_, _| Box::new(Hidden)),
         ))?;
         items.add_action(ActionSpec::new(OPEN, "trapped.open").handler(
-            |_: &Place<'_>, _, out: &mut Commands| {
+            |_: &paperpaw_sdk::Env<'_>, _, out: &mut Commands| {
                 out.push(Command::OpenScreen(STUCK, Params::new()));
             },
         ))?;

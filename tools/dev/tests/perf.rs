@@ -72,11 +72,11 @@ impl Widget for ReadsWidget {
         false
     }
 
-    fn height(&self, _: &Place<'_>, _: u16) -> u16 {
+    fn height(&self, _: &paperpaw_sdk::Env<'_>, _: u16) -> u16 {
         1
     }
 
-    fn draw(&self, _: &mut Canvas<'_>, env: &Place<'_>, _: Rect) {
+    fn draw(&self, _: &mut Canvas<'_>, env: &paperpaw_sdk::Env<'_>, _: Rect) {
         let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
     }
 }

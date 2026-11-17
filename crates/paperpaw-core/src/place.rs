@@ -365,7 +365,7 @@ impl<'a> Place<'a> {
     }
 
     /// The device's storage. Plugins keep their own files below
-    /// [`Place::plugin_dir`].
+    /// [`data::plugin_dir`](paperpaw_sdk::data::plugin_dir).
     pub fn storage(&self) -> &'a dyn Storage {
         self.shared.storage.as_ref()
     }

@@ -58,7 +58,7 @@ pub(super) fn register_clean_up(r: &mut Items) -> Result<(), RegisterError> {
 pub(super) fn ask_clean_up(env: &paperpaw_sdk::Env<'_>, out: &mut paperpaw_sdk::Commands) {
     let text = clean_up(env, out, BookDataKind::Cache);
     let user = BookDataKind::UserData;
-    match library::unused_books(env.storage(), env.book_data(), library::folder(&env), user) {
+    match library::unused_books(env.storage(), env.book_data(), library::folder(env), user) {
         Ok(count) if count > 0 => {
             let question = env
                 .i18n()
@@ -84,7 +84,7 @@ fn clean_up(
     out: &mut paperpaw_sdk::Commands,
     kind: BookDataKind,
 ) -> String {
-    let library = library::folder(&env);
+    let library = library::folder(env);
     let text = match library::clean_up_unused(env.storage(), env.book_data(), library, kind) {
         Ok(removed) => env.i18n().format(
             "core.cleaned-up",
@@ -92,7 +92,7 @@ fn clean_up(
         ),
         Err(_) => String::from(env.i18n().tr("core.clean-up-failed")),
     };
-    if let Some(now) = paperpaw_sdk::time::unix_seconds(&env) {
+    if let Some(now) = paperpaw_sdk::time::unix_seconds(env) {
         let _ = env
             .storage()
             .write(CLEANED_UP, alloc::format!("{now}\n").as_bytes());

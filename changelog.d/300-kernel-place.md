@@ -1,0 +1,3 @@
+### Changed
+
+- **Kernel: handlers and screens run with the kernel's own `Place` and `Turn` (#300, Decision 209, step S6b-2b).** The kernel's handlers, native and host screens, dispatch, the test fakes and the shells' and tools' kernel users read the kernel's shared state through `paperpaw_core::Place` (the time of the event and the part of the screen they have) and queue what they ask for through `paperpaw_core::Turn`, in place of the SDK's old `Env` and `Cx`. The old kit helpers still in the SDK get the old `Env` made from the `Place` where the kernel calls them; they move into the kernel in the next step. Unrelated local types named `Env`/`Cx` in the kernel are renamed (`Within`, `Facts`, `Subscribed`, `OwnedHost`). What the kernel draws and does is unchanged.

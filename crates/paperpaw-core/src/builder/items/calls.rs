@@ -279,7 +279,7 @@ impl Items {
     /// ([`library::BookData`](paperpaw_sdk::library::BookData)). For what is
     /// made again from the book, [`add_book_cache`](Self::add_book_cache).
     /// The folder must be inside `.paperpaw/` (usually
-    /// [`Place::plugin_dir`](crate::Place::plugin_dir)): one elsewhere is
+    /// [`data::plugin_dir`](paperpaw_sdk::data::plugin_dir)): one elsewhere is
     /// refused with [`RegisterError::Invalid`], so that no file of the
     /// reader's is taken for a book's data.
     pub fn add_book_data(

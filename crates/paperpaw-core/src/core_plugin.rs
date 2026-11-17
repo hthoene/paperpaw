@@ -740,7 +740,7 @@ const CLEAN_UP_ANSWERED: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Confi
 /// tells the time across starts (on the X4 every wake is one).
 fn declare_clean_up(env: &paperpaw_sdk::Env<'_>, out: &mut Commands) {
     use paperpaw_sdk::work::{Moments, Work};
-    let Some(now) = paperpaw_sdk::time::unix_seconds(&env) else {
+    let Some(now) = paperpaw_sdk::time::unix_seconds(env) else {
         return;
     };
     let last = paperpaw_sdk::read_file(env.storage(), CLEANED_UP, 32)
@@ -1531,7 +1531,7 @@ fn items_line<'e>(
     frame: &paperpaw_sdk::StatusFrame<'_>,
 ) -> Option<paperpaw_sdk::status::StatusLine<'e>> {
     let place = env.status_items().place(frame.place?)?;
-    let line = place.line(&env, frame.area, frame.size, frame.color);
+    let line = place.line(env, frame.area, frame.size, frame.color);
     Some(line.percent(frame.percent))
 }
 
@@ -1667,7 +1667,7 @@ fn register_keymaps_and_setup(r: &mut Items) -> Result<(), RegisterError> {
 /// Where a screenshot goes: `Screenshots` beside the library folder,
 /// named by the time ("PaperPaw 2026-10-15 17-30-05.png").
 fn screenshot_path(env: &paperpaw_sdk::Env<'_>) -> alloc::string::String {
-    let library = paperpaw_sdk::library::folder(&env);
+    let library = paperpaw_sdk::library::folder(env);
     let parent = paperpaw_sdk::files::parent(library);
     let dir = if parent.is_empty() {
         alloc::string::String::from("Screenshots")
@@ -1675,7 +1675,7 @@ fn screenshot_path(env: &paperpaw_sdk::Env<'_>) -> alloc::string::String {
         alloc::format!("{parent}/Screenshots")
     };
     let _ = env.storage().create_dir(&dir);
-    let name = match paperpaw_sdk::time::local_time(&env) {
+    let name = match paperpaw_sdk::time::local_time(env) {
         Some(t) => alloc::format!(
             "PaperPaw {}-{:02}-{:02} {:02}-{:02}-{:02}",
             t.year,

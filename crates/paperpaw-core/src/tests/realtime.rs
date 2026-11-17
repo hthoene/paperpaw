@@ -78,7 +78,7 @@ impl crate::testing::Fake for Play {
         if name == "menu" {
             return Handled::No;
         }
-        let held: Vec<&str> = cx.env().keys_held().iter().copied().collect();
+        let held: Vec<&str> = cx.env().keys_held().to_vec();
         let what = if pressed { "down" } else { "up" };
         self.log
             .borrow_mut()
