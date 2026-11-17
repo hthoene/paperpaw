@@ -444,7 +444,16 @@ impl Plugins {
         // Room for one more is kept: a plugin installed after the start
         // goes in without the list being copied, which would hold the old
         // list and one twice its size at once (24 KiB on the X4).
-        self.list.shrink_to(self.list.len() + 1);
+        // Without the abort `Vec::shrink_to` has where the allocator
+        // refuses: the room stays then.
+        let want = self.list.len() + 1;
+        if self.list.capacity() > want {
+            let mut exact = Vec::new();
+            if exact.try_reserve_exact(want).is_ok() {
+                exact.append(&mut self.list);
+                self.list = exact;
+            }
+        }
     }
 }
 

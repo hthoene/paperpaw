@@ -1110,15 +1110,19 @@ impl Kernel {
     /// Releases memory reserved while plugins registered: on small devices
     /// every kilobyte counts, and registries are not modified afterwards.
     pub(crate) fn shrink_to_fit(&mut self) {
+        // The lists the kernel itself holds give their room back through the
+        // helper that keeps the old one where there is no room for the new:
+        // no abort at the fullest moment of a start (#306).
+        use crate::native_host::shrink::shrink;
         self.shared.registry.shrink_to_fit();
-        self.keys.plugins.shrink_to_fit();
-        self.stylesheet_owners.shrink_to_fit();
-        self.keys.presets.shrink_to_fit();
+        shrink(&mut self.keys.plugins);
+        shrink(&mut self.stylesheet_owners);
+        shrink(&mut self.keys.presets);
         self.keys.user.shrink_to_fit();
         self.keys.shell.shrink_to_fit();
         self.subscriptions.shrink_to_fit();
         self.shared.plugins.shrink_to_fit();
-        self.warnings.shrink_to_fit();
+        shrink(&mut self.warnings);
         let shared = &mut self.shared;
         shared.settings.shrink_to_fit();
         shared.menus.shrink_to_fit();

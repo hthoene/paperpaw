@@ -733,13 +733,14 @@ impl BuilderParts {
         }
         kernel.offer_choices();
         kernel.apply_defaults(&self.setting_defaults);
-        if let Some(source) = &stored {
-            kernel.apply_user_config(source);
-            kernel.keys.user.clone_from(source);
+        // Kept as they are, not as a copy beside the text read (#306).
+        if let Some(source) = stored {
+            kernel.apply_user_config(&source);
+            kernel.keys.user = source;
         }
-        if let Some(source) = &user_config {
-            kernel.apply_user_config(source);
-            kernel.keys.shell.clone_from(source);
+        if let Some(source) = user_config {
+            kernel.apply_user_config(&source);
+            kernel.keys.shell = source;
         }
         // The power mode worn before, over the reader's settings.
         kernel.restore_power();
