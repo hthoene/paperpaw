@@ -308,7 +308,7 @@ fn check_text_width(style: &UiStyle, row: Rect) -> u16 {
 
 /// Draws a box, ticked (`on`) or not, in `rect`; `inverted` on a focused
 /// (black) row. A look of a plugin's own may paint it
-/// ([`Painters::check`](super::look::Painters::check)).
+/// (`Painters::check`).
 pub fn draw_check(canvas: &mut Canvas<'_>, style: &UiStyle, rect: Rect, on: bool, inverted: bool) {
     canvas.describe(Role::Check, "", rect).on(Some(on));
     let part = super::look::CheckPart { rect, on, inverted };

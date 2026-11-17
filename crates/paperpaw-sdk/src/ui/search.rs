@@ -5,7 +5,7 @@
 /// searched for); focused, the focus with both in its ink. The library's
 /// search, the settings' and the store's are drawn with it, so they look
 /// the same, in every theme: its inks are the theme's
-/// ([`Ink::TEXT`] for the outline, icon and text, [`Ink::DETAIL`] for
+/// (`Ink::TEXT` for the outline, icon and text, `Ink::DETAIL` for
 /// the hint) and its sizes the style's. Choosing it usually asks for the
 /// text ([`crate::ask::text`]); where the interface runs right to left
 /// the icon is at the right.

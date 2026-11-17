@@ -63,7 +63,7 @@ impl<'a> AddressLines<'a> {
 /// `url` as a QR code (`qr`, if it could be made) as large as fits at the
 /// top of `area`, below it the address as text (on two lines where it is
 /// too long for one, to be typed), `hint` and `last`, what happened last,
-/// all their words ([`address_height`]); all centred.
+/// all their words (`address_height`); all centred.
 #[allow(
     clippy::too_many_arguments,
     reason = "its inputs are separate things; a struct of them would serve this call alone"

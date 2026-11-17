@@ -148,7 +148,7 @@ impl Rows {
     /// Draws the rows of the focused page with `draw_row(canvas, index,
     /// rect, focused)`, headings included: the focused entry (if `focus`
     /// shows) on black, thin lines between entries but not above a
-    /// heading; with [`UiStyle::cards`] the entries between headings on
+    /// heading; with `UiStyle::cards` the entries between headings on
     /// rounded cards.
     pub fn draw(
         &self,
