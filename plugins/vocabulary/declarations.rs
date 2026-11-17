@@ -357,6 +357,11 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
     entry.order = 36;
     declarations.menu_entry(entry)?;
     declarations.icon("vocabulary.flash-cards", "stack-2")?;
+    // The switch of the marks, last but one in the reader's *More*, as in Beta 3.
+    let mut entry = MenuEntryDecl::new("core.reader-more", "vocabulary.mark");
+    entry.order = 40;
+    declarations.menu_entry(entry)?;
+    declarations.icon("vocabulary.mark", "vocabulary")?;
     // Only for key maps and rules, as in Beta 3: no menu entry.
     declarations.action(ActionDecl::new(
         "scan-card",
