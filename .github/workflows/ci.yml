@@ -164,6 +164,8 @@ jobs:
       # store that carry a copy of their card files for the apps read the card without it;
       # the kernel without panes is that of the Xteink devices.
       - run: cargo test --no-fail-fast -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-stats -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features --features paperpaw-plugin-reading-goal/linked,paperpaw-plugin-stats/linked
+      # The X4's real font set (the lean build, packs only): the tests look at what it has.
+      - run: PAPERPAW_FONT_LEAN=1 cargo test --no-fail-fast -p paperpaw-plugin-fonts-default --no-default-features --features packs
       - run: cargo test --no-fail-fast -p paperpaw-plugin-reading-goal --features linked --test acceptance_pending
       # The nested-call gate closed on the small class (the X3's firmware builds so;
       # open by default since #250): the tests that expect refusals run here.
