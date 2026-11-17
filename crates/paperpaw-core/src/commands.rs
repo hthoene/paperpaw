@@ -207,7 +207,8 @@ impl Kernel {
             };
             // Leaving large pictures: a fast refresh would keep their ghost
             // (not where the mode was set exactly).
-            if FULL_AFTER_PICTURES
+            let left = self.stack.last().map(|s| s.serial) != self.frame.pictures_on;
+            if (FULL_AFTER_LEAVING_PICTURES || !left)
                 && set.is_none()
                 && !mode.does_clean_itself()
                 && self.frame.pictures_shown
