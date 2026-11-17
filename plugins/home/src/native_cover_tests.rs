@@ -125,3 +125,66 @@ fn a_ready_cover_is_shown_after_library_changed_without_a_minute_tick() {
         "a cover already ready is not requested again"
     );
 }
+
+/// What the host answers for a cover that is not about the book (no room for
+/// its work, a list older than the catalog because the book was read since)
+/// leaves the card drawn without it and says nothing of the book: the cover is
+/// asked for again and shown when the host has it (#308, Byttet's cover
+/// missing for good after its progress changed).
+fn a_cover_refused_for_now_is_asked_for_again(status: i32) {
+    let host = ScriptedHost::new();
+    let _ui = host.dialogs();
+    let ready = Rc::new(Cell::new(false));
+    let calls = Rc::new(Cell::new(0));
+    let (available, asked) = (ready.clone(), calls.clone());
+    host.service("core.library", 1, 0, move |op, _| {
+        assert_eq!(op, 7);
+        asked.set(asked.get() + 1);
+        if !available.get() {
+            return Err(status);
+        }
+        row(&Record::ServiceDocImage(ServiceDocImage {
+            image: 3,
+            index: u32::MAX,
+            width: 100,
+            height: 150,
+            flags: 0,
+        }))
+    });
+    let plugin = host.load(PROBE.entry()).unwrap();
+    let start = event_batch(&Record::EventWidgetMade(EventWidgetMade {
+        now_ms: 0,
+        widget: "home.continue",
+        instance: 1,
+        place: "home.pages",
+    }))
+    .unwrap();
+    let (done, shown) = plugin.stage_call(100, &start, 16).unwrap();
+    assert_eq!(done.status, 0, "the refusal must not fail the call");
+    assert_eq!(shown, [0]);
+    assert_eq!(calls.get(), 1);
+    ready.set(true);
+    let ended = event_batch(&Record::EventLibraryChanged(EventLibraryChanged {
+        now_ms: 100,
+        what: 1 << 6,
+        generation: 2,
+        path: "",
+    }))
+    .unwrap();
+    let (done, shown) = plugin
+        .stage_call(crate::declarations::LIBRARY_CHANGED, &ended, 16)
+        .unwrap();
+    assert_eq!(done.status, 0);
+    assert_eq!(shown, [1], "the cover is asked for again, not kept as none");
+    assert_eq!(calls.get(), 2);
+}
+
+#[test]
+fn a_cover_of_a_list_older_than_the_catalog_is_asked_for_again() {
+    a_cover_refused_for_now_is_asked_for_again(-6);
+}
+
+#[test]
+fn a_cover_refused_for_lack_of_memory_is_asked_for_again() {
+    a_cover_refused_for_now_is_asked_for_again(-4);
+}
