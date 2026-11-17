@@ -240,6 +240,11 @@ pub struct Display<SPI, DC, RST, BUSY, D> {
     /// How fast refreshes are shown, in place of the panel's own, while
     /// an experiment is on ([`Display::set_experiment`]).
     experiment: Option<Experiment>,
+    /// LAB ONLY (#168): how `power_down` goes: 0 as always, 1 not at all
+    /// (the analog stays on), 2 with the border parked at `0x80` first, 3
+    /// after one more fast refresh of the same frame, 4 after two.
+    #[cfg(feature = "fade-lab")]
+    fade: u8,
     buffer: Vec<u8>,
 }
 
@@ -264,6 +269,8 @@ where
             gray: false,
             tone: GrayTone::default(),
             experiment: None,
+            #[cfg(feature = "fade-lab")]
+            fade: 0,
             buffer: Vec::new(),
         }
     }
@@ -558,12 +565,33 @@ where
     /// and the next refresh powers it up again (its sequence does).
     pub fn power_down(&mut self) -> Result<(), Error> {
         if self.powered {
+            #[cfg(feature = "fade-lab")]
+            match self.fade {
+                // V1: the analog stays on.
+                1 => return Ok(()),
+                // V2: the border parked (VCOM) before the power goes.
+                2 => self.command(cmd::BORDER, &[0x80])?,
+                // V3: the same frame driven once more, then the power goes.
+                3 => self.refresh(Refresh::Fast, false)?,
+                // V4: the same frame driven twice more.
+                4 => {
+                    self.refresh(Refresh::Fast, false)?;
+                    self.refresh(Refresh::Fast, false)?;
+                }
+                _ => {}
+            }
             self.command(cmd::UPDATE_CONTROL_2, &[0x03])?;
             self.command(cmd::ACTIVATE, &[])?;
             self.wait()?;
             self.powered = false;
         }
         Ok(())
+    }
+
+    /// LAB ONLY (#168): chooses how [`Display::power_down`] goes (see `fade`).
+    #[cfg(feature = "fade-lab")]
+    pub fn set_fade_variant(&mut self, variant: u8) {
+        self.fade = variant;
     }
 
     /// Whether the panel's power is on (after a fast refresh).

@@ -119,6 +119,28 @@ fn off_statistics_are_offered_to_be_switched_on() {
     assert!(done.batches_contain(b"stats"), "{done:?}");
 }
 
+/// As a plugin file on the card (the X4) it is not given `uses.registry`, so
+/// the host denies the switch: the list of plugins opens instead.
+#[test]
+fn a_denied_switch_opens_the_list_of_plugins() {
+    let w = world(Some(1));
+    let plugin = w.host.load(NATIVE_ENTRY.entry()).unwrap();
+    made(&plugin);
+    assert_eq!(tap(&plugin), 1);
+    let question = w.dialogs.last().unwrap();
+    let answer = w
+        .dialogs
+        .answer(question.request, &Answer::Choice(0))
+        .unwrap();
+    w.host.reset_counts();
+    w.host
+        .refuse_nth(paperpaw_scripted_host::Slot::Commands, 1, -12);
+    let done = plugin.event(declared::WIDGET_TOKEN, &answer).unwrap();
+    // The scripted host stages no screen command (as `store.open` below): the
+    // action is the one submitted.
+    assert!(done.batches_contain(b"plugin-manager.open"), "{done:?}");
+}
+
 #[test]
 fn missing_statistics_are_offered_from_the_store() {
     let w = world(None);

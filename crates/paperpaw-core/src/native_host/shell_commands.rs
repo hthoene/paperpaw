@@ -86,6 +86,7 @@ impl Kernel {
                     admit.room = admit.room.saturating_sub(inputs.images_held);
                     admit
                 });
+                stage.admit_registry(context.uses_registry());
                 if let Some(dev) = context.dev_context() {
                     stage.admit_dev(dev);
                 }

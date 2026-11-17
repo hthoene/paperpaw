@@ -199,7 +199,14 @@ class StageTests(unittest.TestCase):
                        'core_lookup_v1', 'core_status_v1', 'core_widget_v1']:
             self.assertIn(f'pub mod {module}', source)
         self.assertIn('pub static STAGES:', source)
-        self.assertNotIn('unsafe', source)
+        # The host's stages walk tables with one interpreter (#307): one reader and one
+        # decoder for all of them, no decode, length or write step per record.
+        self.assertEqual(source.count("struct Reader<'a>"), 1)
+        self.assertEqual(source.count('unsafe fn fields_decode<'), 1)
+        self.assertIn('FMT_BLOCK_FIELDS: [FmtBlock', source)
+        self.assertNotIn('fn decode_body(body: &mut Reader', source)
+        # A plugin's own stage schemas keep a codec without tables and without `unsafe`
+        # (`test_stage_codec`).
         for path in ['abi/generated/stages_wire.rs',
                      'crates/paperpaw-core/src/abi7/stages_wire.rs',
                      'crates/paperpaw-sdk/src/native/wire/stages_wire.rs']:

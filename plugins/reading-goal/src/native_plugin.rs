@@ -57,6 +57,8 @@ const SLEEP: u32 = crate::declarations::SLEEP_TOKEN;
 /// The slot the settings fill, and the store's action.
 const SETTINGS_SLOT: &str = "core.settings";
 const STORE: &str = "store.open";
+/// The plugin manager's action: the list of plugins, with their switches.
+const PLUGINS: &str = "plugin-manager.open";
 /// The reading statistics' plugin and the goal setting a tap opens.
 const STATISTICS_ID: &str = "stats";
 const GOAL: &str = "stats.goal";
@@ -628,7 +630,12 @@ impl NativeReadingGoal {
         let mut commands = CommandSender::new(host, &mut scratch);
         match state {
             Statistics::Off => {
-                commands.set_plugin_enabled(STATISTICS_ID, PluginEnabled::On)?;
+                match commands.set_plugin_enabled(STATISTICS_ID, PluginEnabled::On) {
+                    // A plugin file on the card is not given `uses.registry`
+                    // (the X4): the list of plugins has the switch.
+                    Err(Error::Denied) => return commands.run_action(PLUGINS),
+                    switched => switched?,
+                }
                 // Where the shell does not allow a restart the plugin is
                 // still switched on, for the next start.
                 commands.restart().ok();
