@@ -23,35 +23,44 @@ const BOOK: &str = "books/alice-in-wonderland.epub";
 
 /// The host slots a return may enter, all together and the settings reads
 /// (emulator, X4, Home with its default page). Measured with the page and its
-/// look kept: 232 slots and 16 reads (338 and 22 before the bands of a frame
+/// look kept: 195 slots and 12 reads from the drawer, 222 and 17 from a book
+/// (205 and 12, 232 and 16 before the status line kept what it asked of the
+/// host, #294; 338 and 22 before the bands of a frame
 /// shared what the first one composed; 517-528 and 23-36 in October); with the page kept and its look
 /// read at every draw: 857-868 and 333-346 (967-978 and 423-436 before the
 /// names and widgets kept theirs); laid out again on every return, as before:
 /// 1,349 and 712.
-const KEPT_ALL_SLOTS: u32 = 260;
-const KEPT_SETTINGS: u32 = 60;
+const KEPT_ALL_SLOTS: u32 = 225;
+const KEPT_SETTINGS: u32 = 20;
+/// The service calls of a return from the drawer (one of Home's own screens):
+/// the wifi plugin's, the library's listing and the status line's values; the
+/// stack, the registry and the settings the page asked before are kept (#294).
+const KEPT_CALLS: usize = 3;
 /// The first frame of a return with a full shelf (six books), host slots
-/// (emulator): 397 measured, 615 before the bands of a frame shared what the
-/// first one composed.
-const FULL_SHELF_SLOTS: u32 = 430;
+/// (emulator): 289 measured, 299 before the status line kept what it asked of
+/// the host, 615 before the bands of a frame shared what the first one
+/// composed. The emulator draws the five books' placeholders (a title wrapped
+/// by measuring its words) where the X4 draws the covers it has made.
+const FULL_SHELF_SLOTS: u32 = 295;
 /// The step after the return from a book: the book's card has its cover in
 /// the first frame (the library lists the book at once, #267), so the page,
 /// black and white first, is drawn again in grays once it is calm (Decision
 /// 196): the whole page with its look kept (494 slots, 34 settings reads
-/// measured). Where the cover came after the first frame, Home drew that cell
-/// alone (356 slots). The return itself is `KEPT_ALL_SLOTS`; a laid-out page
-/// costs over 1,300.
-const GRAY_PASS_SLOTS: u32 = 520;
+/// measured: 284 slots, 15 settings reads). Where the cover came after the first
+/// frame, Home drew that cell alone (356 slots). The return itself is
+/// `KEPT_ALL_SLOTS`; a laid-out page costs over 1,300.
+const GRAY_PASS_SLOTS: u32 = 300;
 /// A full redraw (five bands) of a page whose look is kept: slots, settings reads
-/// (622 and 270 before the look was kept; 330 and about 12 measured).
-const STEADY_SLOTS: u32 = 370;
-const STEADY_READS: u32 = 40;
+/// (622 and 270 before the look was kept; 188 and 11 measured).
+const STEADY_SLOTS: u32 = 200;
+const STEADY_READS: u32 = 14;
 /// The first lay-out of the page (the first Back out of the start book): host
 /// slots and settings reads (emulator, X4). Measured 587 and 182; 711 and 303
 /// before the looks of the page, its widgets and its status line shared the
-/// interface's settings, and a laid-out page's return makes 520 to 530.
-const COLD_SLOTS: u32 = 620;
-const COLD_SETTINGS: u32 = 200;
+/// interface's settings, and a laid-out page's return makes 520 to 530. 485 and
+/// 185 measured now: the cold page asks each of its things once.
+const COLD_SLOTS: u32 = 500;
+const COLD_SETTINGS: u32 = 190;
 /// The first redraw after a setting changed reads the look of the page and of
 /// each of its widgets again: 160 reads measured, 142 where the page forgets
 /// nothing, 36 where its widgets forget nothing (18 in a steady redraw); 147
@@ -173,6 +182,12 @@ fn the_home_screen_keeps_its_page_while_another_screen_covers_it() {
     assert!(
         all <= KEPT_ALL_SLOTS && settings <= KEPT_SETTINGS,
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
+    );
+    let calls = slot_counts::service_calls();
+    assert!(
+        calls.len() <= KEPT_CALLS,
+        "the return made {} service calls: {calls:?}",
+        calls.len()
     );
 }
 
@@ -310,12 +325,19 @@ fn the_return_from_a_book_does_not_ask_the_library_for_each_band() {
             .count()
     };
     let queries = of("query");
+    // The reader's close, the wifi plugin's call, the library's listing and the
+    // status line's values: Home asks the stack and the registry of nothing (#294).
+    assert!(
+        calls.len() <= 4,
+        "the return made {} service calls: {calls:?}",
+        calls.len()
+    );
     eprintln!("FIRST FRAME service calls: {}", calls.len());
     for (plugin, service, op) in &calls {
         eprintln!("  service {plugin} {service}.{op}");
     }
     assert!(
-        (1..=3).contains(&queries) && of("book") <= 2 && of("cover") <= 1,
+        queries == 1 && of("book") == 0 && of("cover") <= 1,
         "the return asked the library {queries} times for its books: {calls:?}"
     );
 }
@@ -347,7 +369,9 @@ fn with_books(count: usize) -> Device {
 
 /// The service calls the first frame of a return from a book makes when the
 /// card shows a card and a full shelf (#267): the X4 made 19 to 20 of them, about
-/// 37 ms each (18 here before the card, the shelf and the return check shared one
+/// 37 ms each (9 here before the stack, the registry's status and the status
+/// line's settings were kept, #294: 5 now, the reader's close and the wifi
+/// plugin's call among them; 18 here before the card, the shelf and the return check shared one
 /// listing and kept what the host said of files and covers; the two cover calls
 /// left are for covers the emulator host still reports as being made). Counted by what they
 /// ask for: the library once for the listing, and a book's file or cover only
@@ -392,8 +416,11 @@ fn the_first_frame_of_a_return_makes_few_service_calls_with_a_full_shelf() {
     assert!(
         of("home core.library.query") <= 1
             && of("home core.library.book") == 0
-            && of("home core.library.cover") <= 2
-            && calls.len() <= 10,
+            && of("home core.library.cover") <= 1
+            && of("home core.ui.stack") == 0
+            && of("home core.registry.setting") == 0
+            && of("home core.registry.status") == 0
+            && calls.len() <= 6,
         "the return made {} service calls: {calls:?}",
         calls.len()
     );

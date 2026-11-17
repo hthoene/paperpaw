@@ -365,10 +365,14 @@ impl NativeHome {
     /// The stack changed: a dashboard under another screen keeps its page (a
     /// book is read, the page is laid out only if something it shows changed).
     fn covered(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let holding = self
-            .screens
-            .all()
-            .any(|slot| matches!(slot, Slot::Dashboard(d) if d.holds_page()));
+        // A page already covered, or just shown, has nothing to learn from the
+        // stack: the first frame of a return did not ask for it (#294).
+        let mut holding = false;
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                holding |= dashboard.needs_stack();
+            }
+        }
         if !holding {
             return Ok(());
         }
