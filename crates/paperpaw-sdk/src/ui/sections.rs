@@ -315,26 +315,6 @@ impl Sections {
         self.set_focus(next)
     }
 
-    /// Moves the focus to the next (`forward`) or previous entry as
-    /// [`step`](Self::step) does, but where the reader chose that the
-    /// arrow keys stay on the page
-    /// ([`settings::ARROWS_STAY_ON_PAGE`](crate::builtin::settings::ARROWS_STAY_ON_PAGE)),
-    /// past the page's last it goes round to its first, and back: only
-    /// [`turn`](Self::turn) turns pages.
-    pub fn step_in(&mut self, env: &crate::Env<'_>, forward: bool) -> ListChange {
-        let page = self.page_entries();
-        if page.is_empty() || !super::list::stays_on_page(env) {
-            return self.step(forward);
-        }
-        let next = match (forward, self.focus) {
-            (true, focus) if focus + 1 < page.end => focus + 1,
-            (true, _) => page.start,
-            (false, focus) if focus > page.start => focus - 1,
-            (false, _) => page.end - 1,
-        };
-        self.set_focus(next)
-    }
-
     /// Turns to the next (`forward`) or previous page, focusing its first
     /// entry.
     pub fn turn(&mut self, forward: bool) -> ListChange {

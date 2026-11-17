@@ -343,7 +343,7 @@ impl fmt::Debug for Make {
 
 impl Make {
     /// The widget, for a screen that shows it.
-    pub fn make(self, env: &Env<'_>) -> Box<dyn Widget> {
+    pub(crate) fn make(self, env: &Env<'_>) -> Box<dyn Widget> {
         match self {
             Make::Factory(factory) => factory(env),
             Make::Drawn(drawn) => Box::new(DrawnWidget { drawn, shown: None }),
@@ -375,23 +375,6 @@ impl WidgetTarget {
             command,
             touch: false,
             hold: None,
-        }
-    }
-
-    /// A long press on it runs `command`.
-    pub fn hold(self, command: crate::Command) -> Self {
-        Self {
-            hold: Some(command),
-            ..self
-        }
-    }
-
-    /// A place that does something when tapped, which the buttons' focus
-    /// leaves out.
-    pub fn touch(area: Rect, command: crate::Command) -> Self {
-        Self {
-            touch: true,
-            ..Self::new(area, command)
         }
     }
 }
@@ -722,14 +705,6 @@ impl Widget for DrawnWidget {
     }
 }
 
-/// Says that what widget `id` shows changed (e.g. its own data, after a
-/// tap on it): screens showing it read it anew
-/// ([`WIDGET_CHANGED`](crate::builtin::events::WIDGET_CHANGED)).
-pub fn changed(id: &Id) -> crate::Command {
-    use crate::builtin::events;
-    events::WIDGET_CHANGED.emit(events::WidgetChanged { id: id.clone() })
-}
-
 /// How many cells of a grid a widget takes ([`WidgetSpec::cells`]):
 /// added, it gets `w` by `h` (no more than the grid has), and resized
 /// never less than `min_w` by `min_h`; a `square` one stays as wide as
@@ -879,16 +854,6 @@ impl WidgetPlace {
             .as_ref()
             .is_none_or(|(setting, value)| env.settings().text(setting.as_str()) == *value)
     }
-
-    /// The widgets it shows now: their ids, a placement's (`home.clock@2`)
-    /// as it is, in the order of its settings.
-    pub fn widgets<'e>(&self, env: &Env<'e>) -> Vec<&'e str> {
-        self.settings
-            .iter()
-            .flat_map(|setting| listed(env.settings().text(setting.as_str())))
-            .filter(|id| env.widgets().has(id))
-            .collect()
-    }
 }
 
 /// The ids a setting listing widgets names: each item's first word, the
@@ -949,12 +914,6 @@ pub fn refresh(event: &Id, params: &Params, own: &str, shown: &[String]) -> Refr
         return Refresh::Live;
     }
     Refresh::Nothing
-}
-
-/// When live widgets are read anew next: at the next full minute, when a
-/// clock shows another time (a minute from now without a clock).
-pub fn next_minute(env: &Env<'_>) -> crate::Instant {
-    crate::time::next_minute(env).unwrap_or(env.now().add_millis(60_000))
 }
 
 /// The registered widgets.
@@ -1125,7 +1084,7 @@ impl Widgets {
     /// [`Id::placement`]), the widget reads, measures and draws itself in
     /// the placement's own values of its settings
     /// ([`Settings::with_placement`](crate::Settings::with_placement)).
-    pub fn make(&self, id: &str, env: &Env<'_>) -> Option<Box<dyn Widget>> {
+    pub(crate) fn make(&self, id: &str, env: &Env<'_>) -> Option<Box<dyn Widget>> {
         let spec = self.get(id)?;
         let mut widget = if id.contains('@') {
             let inner = env.settings.with_placement(Some(id), || spec.make(env));
@@ -1233,22 +1192,6 @@ pub const SPACE_SIZE: crate::setting::Setting<crate::setting::Text> =
     crate::setting::Setting::new("core.space.size");
 /// The values of [`SPACE_SIZE`]: small, medium, large.
 pub const SPACE_SIZES: &[&str] = &["core.space.small", "core.space.medium", "core.space.large"];
-
-/// A placement of widget `id` (`id@n`, see [`Id::placement`]) that
-/// `used` does not name and that has no values set, for a widget added
-/// again with settings of its own; `id` itself where the first 256 all
-/// are.
-pub fn free_placement(env: &Env<'_>, id: &str, used: impl Fn(&str) -> bool) -> String {
-    let Ok(plain) = Id::parse(base(id)) else {
-        return String::from(id);
-    };
-    (1..=256)
-        .map(|n| plain.placement(n))
-        .find(|placed| {
-            !used(placed.as_str()) && env.settings().placement_values(placed.as_str()).is_empty()
-        })
-        .map_or_else(|| String::from(id), |placed| String::from(placed.as_str()))
-}
 
 /// Whether a list of widgets may hold `id` more than once.
 pub fn repeatable(id: &str) -> bool {
@@ -1364,23 +1307,8 @@ pub const fn align_spec(id: &'static str, widget: Id, default: Align) -> Setting
     .description("core.setting.align.help")
 }
 
-/// Whether widget `id` has settings of its own (a settings group with its
-/// id holding settings, see [`settings_group`]).
-pub fn has_settings(env: &Env<'_>, id: &str) -> bool {
-    use core::ops::ControlFlow::{Break, Continue};
-    let id = base(id);
-    let settings = env.settings();
-    let mut any = false;
-    // One spec at a time: none of a plugin on the card is kept for this.
-    let walked = settings.walk_specs(crate::settings::Pick::All, &mut |spec| {
-        any = settings.group_of(spec).as_str() == id;
-        if any { Break(()) } else { Continue(()) }
-    });
-    settings.groups().any(|group| group.id.as_str() == id) && walked.is_ok() && any
-}
-
 /// Where `widget`'s text sits, by its [`align_setting`]; left without one.
-pub fn align(env: &Env<'_>, widget: &str) -> Align {
+pub(crate) fn align(env: &Env<'_>, widget: &str) -> Align {
     Align::of(env.settings().text(&alloc::format!("{widget}.align")))
 }
 

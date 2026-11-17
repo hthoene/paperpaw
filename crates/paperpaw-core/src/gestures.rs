@@ -134,7 +134,9 @@ impl Kernel {
                 }
                 PointerPhase::Move => {
                     let thresholds = self.thresholds();
-                    self.input.recognizer.pointer(&event, self.shared.now, &thresholds);
+                    self.input
+                        .recognizer
+                        .pointer(&event, self.shared.now, &thresholds);
                 }
                 _ => {}
             }
@@ -172,11 +174,17 @@ impl Kernel {
                 Direction::Up | Direction::Down => input::Edge::End,
                 _ => input::Edge::Side,
             };
-            self.input.recognizer.follow_edge(&event, self.shared.now, edge);
+            self.input
+                .recognizer
+                .follow_edge(&event, self.shared.now, edge);
             return;
         }
         let thresholds = self.thresholds();
-        if let Some(recognized) = self.input.recognizer.pointer(&event, self.shared.now, &thresholds) {
+        if let Some(recognized) =
+            self.input
+                .recognizer
+                .pointer(&event, self.shared.now, &thresholds)
+        {
             self.recognized_filtered(recognized);
         }
     }

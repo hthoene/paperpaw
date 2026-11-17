@@ -191,80 +191,6 @@ pub(crate) fn title_lines(
     (font.wrap(style.text, title, room), line)
 }
 
-/// The height of a row `width` wide with `title` and `value` (as
-/// [`draw_value_row`] draws it): a row ([`UiStyle::row`]), taller where
-/// the title takes more lines beside the value. Its title is never
-/// shortened in a row as high.
-pub(crate) fn value_row_height(
-    env: &Env<'_>,
-    style: &UiStyle,
-    width: u16,
-    title: &str,
-    value: &str,
-) -> u16 {
-    let row = style.row as u16;
-    let Some(font) = style.font(env) else {
-        return row;
-    };
-    let lines = ValueLines::new(&font, style, width, title, value);
-    row.max(lines.height() + style.margin as u16)
-}
-
-/// The height of a noted row `width` wide with `title`, `value` and
-/// `note` (as [`draw_noted_row`] draws it): a noted row as high as its
-/// note needs ([`UiStyle::noted_row_for`]), taller where the title takes
-/// more lines beside the value; without a note, [`value_row_height`].
-pub(crate) fn noted_row_height(
-    env: &Env<'_>,
-    style: &UiStyle,
-    width: u16,
-    title: &str,
-    value: &str,
-    note: &str,
-) -> u16 {
-    if note.is_empty() {
-        return value_row_height(env, style, width, title, value);
-    }
-    let base = style.noted_row_for(env, width, [note]) as u16;
-    let Some(font) = style.font(env) else {
-        return base;
-    };
-    let lines = ValueLines::new(&font, style, width, title, value);
-    let band = title_area(style, Rect::new(0, 0, width, base)).height;
-    base + lines.height().saturating_sub(band)
-}
-
-/// The height of a row `width` wide with a switch, `title` and `note` (as
-/// [`draw_switch_row`] draws it): a row ([`UiStyle::row`]) or a noted one
-/// ([`UiStyle::noted_row_for`]), taller where the title takes more lines
-/// beside the switch. Its title is never shortened in a row as high.
-pub(crate) fn switch_row_height(
-    env: &Env<'_>,
-    style: &UiStyle,
-    width: u16,
-    title: &str,
-    note: &str,
-) -> u16 {
-    let plain = Rect::new(0, 0, width, style.control_row as u16);
-    let base = if note.is_empty() {
-        style.row
-    } else {
-        style.noted_row_for(env, width, [note])
-    } as u16;
-    let Some(font) = style.font(env) else {
-        return base;
-    };
-    // The switch and the gap the title keeps before it.
-    let beside = f32::from(switch_rect(style, plain).width + style.gap as u16);
-    let (lines, line) = title_lines(&font, style, width, beside, title);
-    let titles = line * lines.len() as u16;
-    if note.is_empty() {
-        return base.max(titles + style.margin as u16);
-    }
-    let band = title_area(style, Rect::new(0, 0, width, base)).height;
-    base + titles.saturating_sub(band)
-}
-
 /// Whether `note`, a setting's description, shows whole in a row `width`
 /// wide: on the [`NOTE_LINES`] lines a row gives it. A longer one is
 /// shortened with "…"; descriptions are kept short to fit (detail goes in
@@ -603,26 +529,6 @@ impl RowLines {
     }
 }
 
-/// The line of a row in `rect` that holds its title and its control side
-/// by side, as they are drawn: a number's as high as its − and + need, a
-/// switch's the whole row where it has no note (as [`draw_switch_row`]
-/// draws it).
-fn first_line(style: &UiStyle, spec: &SettingSpec, rect: Rect, noted: bool) -> Rect {
-    let number = matches!(spec.kind, SettingKind::Int { .. });
-    let line = match (number, noted) {
-        (true, true) => return number_title_area(style, rect),
-        (false, true) => return title_area(style, rect),
-        (true, false) => style.touch_row(style.row),
-        (false, false) => style.row,
-    };
-    Rect::new(rect.x, rect.y, rect.width, (line as u16).min(rect.height))
-}
-
-/// Whether setting `spec` shows a switch (else a value or a number).
-fn is_switch(spec: &SettingSpec) -> bool {
-    matches!(spec.kind, SettingKind::Bool) && spec.extra().editor.is_none()
-}
-
 /// `value` as a row shows it where the UI runs right to left: the "›" that
 /// ends a value (it opens a screen) is a "‹" in front of it, at the end the
 /// value stands at. Left to right, `value` as it is.
@@ -634,95 +540,8 @@ fn turn_chevron<'a>(style: &UiStyle, value: &'a str) -> alloc::borrow::Cow<'a, s
     }
 }
 
-/// The widest a setting's value at the right of its row is drawn, of
-/// all it may show in place: a choice's widest option, the widest
-/// language, the wider of on and off; else (a text, a list, changed on a
-/// screen of their own) the value it has. With the mark of a value set
-/// for a scope where it may have one, and "›" where a tap opens a screen
-/// for it.
-fn widest_value(env: &Env<'_>, style: &UiStyle, font: &FontHandle<'_>, spec: &SettingSpec) -> f32 {
-    let size = style.text;
-    let widest = |names: &mut dyn Iterator<Item = &str>| {
-        names
-            .map(|name| font.measure(size, name))
-            .fold(0.0, f32::max)
-    };
-    let value = match &spec.kind {
-        SettingKind::Choice(choices) => widest(&mut choices.iter().map(|o| env.i18n().tr(o))),
-        SettingKind::Language => widest(&mut env.i18n().languages().into_iter().map(|(_, n)| n)),
-        SettingKind::Bool => widest(
-            &mut ["core.on", "core.off"]
-                .into_iter()
-                .map(|k| env.i18n().tr(k)),
-        ),
-        _ => font.measure(size, &plain_setting_value(env, spec)),
-    };
-    let scoped = if spec.scoped {
-        font.measure(size, "• ")
-    } else {
-        0.0
-    };
-    let opens = if opens_screen(env, spec) {
-        font.measure(size, " ›")
-    } else {
-        0.0
-    };
-    value + scoped + opens
-}
-
-/// Whether setting `spec`'s title fits beside its control on `line`
-/// (`room` for a number's value, see [`number_room`]): `−` value `+`, a
-/// switch or a value.
-fn fits_beside(env: &Env<'_>, style: &UiStyle, spec: &SettingSpec, line: Rect, room: &str) -> bool {
-    let Some(font) = style.font(env) else {
-        return true;
-    };
-    let title = env.i18n().tr(&spec.title);
-    let margin = style.margin as f32;
-    let room_for_title = match spec.kind {
-        SettingKind::Int { .. } => {
-            // Its least and greatest: the − and + stay where they are
-            // while it changes.
-            let own = number_room(env, style, core::iter::once(spec));
-            let room = wider(&font, style.text, room, &own);
-            let Some((minus, _)) = stepper_ltr(env, style, line, room) else {
-                return true;
-            };
-            f32::from(minus.x) - f32::from(line.x) - 2.0 * margin
-        }
-        _ if is_switch(spec) => {
-            // The title ends a gap before the switch.
-            let switch = switch_rect(style, line);
-            f32::from(switch.x) - f32::from(line.x) - margin - style.gap as f32
-        }
-        _ => f32::from(line.width) - 3.0 * margin - widest_value(env, style, &font, spec),
-    };
-    // A pixel of slack for rounding, as in [`draw_label`].
-    font.measure(style.text, title) <= room_for_title + 1.0
-}
-
 /// The most lines a title takes on a line of its own (see [`RowLines`]).
 const TITLE_LINES: usize = 2;
-
-/// How high the line of `title` is where it stands on its own, `width`
-/// wide: a title's band, and a line more where it wraps (at most
-/// [`TITLE_LINES`]).
-fn own_title_height(env: &Env<'_>, style: &UiStyle, width: u16, title: &str) -> u16 {
-    let band = style.title_band() as u16;
-    let Some(font) = style.font(env) else {
-        return band;
-    };
-    let room = f32::from(width) - 2.0 * style.margin as f32;
-    if font.measure(style.text, title) <= room + 1.0 {
-        return band;
-    }
-    let lines = font
-        .wrap(style.text, title, room)
-        .len()
-        .clamp(1, TITLE_LINES);
-    let line = font.line_metrics(style.text).line_height as u16;
-    band + line * (lines as u16 - 1)
-}
 
 /// Draws `title` on its own `line` (see [`RowLines`]): wrapped where it
 /// is too wide for one, the last line shortened with "…" past
@@ -783,116 +602,8 @@ fn draw_own_title(
     }
 }
 
-/// How setting `spec`'s row `width` wide is laid out in a list of rows
-/// `row` high (`room` for a number's value, see [`number_room`]; `noted`
-/// rows or not): its title and its control side by side, or the control
-/// below the title where they do not fit, for every value it may show,
-/// and how high it is. At the top left: drawn at its place with
-/// [`RowLines::at`]. Made once with the list (it measures, and wraps a
-/// long title), not each time the row is drawn.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "its inputs are separate things; a struct of them would serve this call alone"
-)]
-pub fn row_lines(
-    env: &Env<'_>,
-    style: &UiStyle,
-    spec: &SettingSpec,
-    width: u16,
-    room: &str,
-    row: u32,
-    noted: bool,
-) -> RowLines {
-    let height = setting_row(style, spec, row, noted) as u16;
-    let rect = Rect::new(0, 0, width, height);
-    let line = first_line(style, spec, rect, noted);
-    // A switch without a note takes the whole row, as it is drawn.
-    let beside = if is_switch(spec) && !(noted && spec.description.is_some()) {
-        rect
-    } else {
-        line
-    };
-    if fits_beside(env, style, spec, beside, room) {
-        return RowLines {
-            height,
-            ..RowLines::one(line)
-        };
-    }
-    let high = own_title_height(env, style, width, env.i18n().tr(&spec.title));
-    let title = Rect::new(line.x, line.y, line.width, high);
-    let control = Rect::new(line.x, title.bottom() as u16, line.width, line.height);
-    RowLines {
-        title,
-        control,
-        height: height + high,
-    }
-}
-
-/// The height of the row of setting `spec` `width` pixels wide in a list
-/// of rows `row` high: as [`setting_row`], and a title's line more where
-/// the title does not fit beside its control (see [`row_lines`], which
-/// tells both).
-#[allow(
-    clippy::too_many_arguments,
-    reason = "its inputs are separate things; a struct of them would serve this call alone"
-)]
-pub fn setting_height(
-    env: &Env<'_>,
-    style: &UiStyle,
-    spec: &SettingSpec,
-    width: u16,
-    room: &str,
-    row: u32,
-    noted: bool,
-) -> u32 {
-    u32::from(row_lines(env, style, spec, width, room, row, noted).height)
-}
-
-/// A setting's row with a switch: as [`Row::switch`](super::Row::switch), on
-/// [`RowLines`] (the switch below the title, at the right, where the
-/// title would not fit beside it).
-#[allow(
-    clippy::too_many_arguments,
-    reason = "its inputs are separate things; a struct of them would serve this call alone"
-)]
-pub fn draw_switch_lines(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    style: &UiStyle,
-    rect: Rect,
-    lines: RowLines,
-    focused: bool,
-    title: &str,
-    note: &str,
-    on: bool,
-) {
-    if !lines.stacked() {
-        return draw_switch_row(canvas, env, style, rect, focused, title, note, on);
-    }
-    if let Some(font) = style.font(env) {
-        draw_own_title(
-            canvas,
-            style,
-            &font,
-            lines.title,
-            title,
-            style.focus_ink(focused),
-        );
-    }
-    if !note.is_empty() {
-        draw_note_below(canvas, env, style, rect, lines.bottom(), focused, note);
-    }
-    draw_switch(
-        canvas,
-        style,
-        lines.control,
-        on,
-        focused && style.dark_focus(),
-    );
-}
-
 /// The note of a number's row below its [`RowLines`].
-pub fn draw_lines_note(
+pub(crate) fn draw_lines_note(
     canvas: &mut Canvas<'_>,
     env: &Env<'_>,
     style: &UiStyle,
@@ -904,26 +615,16 @@ pub fn draw_lines_note(
     draw_note_below(canvas, env, style, rect, lines.bottom(), focused, note);
 }
 
-/// The − and + of a number row showing `value`, exactly where a
-/// [`Row::number`](super::Row::number) and [`draw_stepper`] (and their
-/// `_lines` forms) draw them with `room`: for the hit areas of a screen of
-/// its own.
-pub fn value_stepper(
-    env: &Env<'_>,
-    style: &UiStyle,
-    rect: Rect,
-    room: &str,
-    value: &str,
-) -> Option<(Rect, Rect)> {
-    let font = style.font(env)?;
-    stepper(env, style, rect, wider(&font, style.text, room, value))
-}
-
 /// The − and + buttons of a number row, with room for `room` between
 /// them (at least for "000 %"): the value, or the widest of the
 /// numbers in rows above each other (see [`number_room`]), so their
 /// buttons line up.
-pub fn stepper(env: &Env<'_>, style: &UiStyle, rect: Rect, room: &str) -> Option<(Rect, Rect)> {
+pub(crate) fn stepper(
+    env: &Env<'_>,
+    style: &UiStyle,
+    rect: Rect,
+    room: &str,
+) -> Option<(Rect, Rect)> {
     let (minus, plus) = stepper_ltr(env, style, rect, room)?;
     Some((style.flip(rect, minus), style.flip(rect, plus)))
 }
@@ -951,42 +652,6 @@ pub(super) fn stepper_ltr(
     Some((Rect::new(minus_x, y, size, size), plus))
 }
 
-/// The widest value the numbers among `specs` show, from their least to
-/// their greatest, with their units (and the mark of a value set for a
-/// scope): the room of their steppers (see [`stepper`]) where they are
-/// listed above each other.
-pub fn number_room<'a>(
-    env: &Env<'_>,
-    style: &UiStyle,
-    specs: impl IntoIterator<Item = &'a SettingSpec>,
-) -> String {
-    let Some(font) = style.font(env) else {
-        return String::new();
-    };
-    let mut widest = (0.0, String::new());
-    for spec in specs {
-        let SettingKind::Int { min, max } = spec.kind else {
-            continue;
-        };
-        for v in [min, max] {
-            let text = match &spec.extra().unit {
-                Some(unit) => env.i18n().plural(unit, v, &[]),
-                None => env.i18n().localize_digits(&format!("{v}")).into_owned(),
-            };
-            let text = if spec.scoped {
-                format!("• {text}")
-            } else {
-                text
-            };
-            let width = font.measure(style.text, &text);
-            if width > widest.0 {
-                widest = (width, text);
-            }
-        }
-    }
-    widest.1
-}
-
 /// A number on a light row on [`RowLines`]: its title, then `[−] value
 /// [+]` exactly as in menus, with `room` for the value (see [`stepper`]),
 /// below the title where they are stacked; `focus` frames the `−`
@@ -995,7 +660,7 @@ pub fn number_room<'a>(
     clippy::too_many_arguments,
     reason = "its inputs are separate things; a struct of them would serve this call alone"
 )]
-pub fn draw_number_lines(
+pub(crate) fn draw_number_lines(
     canvas: &mut Canvas<'_>,
     env: &Env<'_>,
     style: &UiStyle,
@@ -1069,104 +734,6 @@ pub(super) fn centred(
     left + (room - font.measure(size, value)) / 2.0
 }
 
-/// A focused number: title, then `[−] value [+]`, with `room` for the
-/// value (see [`stepper`]). While editing with buttons the boxes are
-/// filled.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "its inputs are separate things; a struct of them would serve this call alone"
-)]
-pub fn draw_stepper(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    style: &UiStyle,
-    rect: Rect,
-    title: &str,
-    value: &str,
-    room: &str,
-    editing: bool,
-) {
-    let lines = RowLines::one(rect);
-    draw_stepper_lines(canvas, env, style, lines, title, value, room, editing);
-}
-
-/// Where a stepper's title and its `−` value `+` go in a row `width`
-/// wide and `row` high, at the top left (move them with
-/// [`RowLines::at`]): side by side where the whole title fits beside
-/// them, else the title above, on as many lines as it needs, and the
-/// stepper on a line of its own, as setting rows do. The title is never
-/// shortened; draw with [`draw_stepper_lines`], the row
-/// [`RowLines::height`] high.
-pub fn stepper_lines(
-    env: &Env<'_>,
-    style: &UiStyle,
-    width: u16,
-    row: u16,
-    title: &str,
-    room: &str,
-) -> RowLines {
-    let line = Rect::new(0, 0, width, row);
-    let Some(font) = style.font(env) else {
-        return RowLines::one(line);
-    };
-    let room = wider(&font, style.text, room, room);
-    let beside = stepper_ltr(env, style, line, room).is_some_and(|(minus, _)| {
-        let margin = style.margin as f32;
-        font.measure(style.text, title) <= f32::from(minus.x) - 2.0 * margin + 1.0
-    });
-    if beside {
-        return RowLines::one(line);
-    }
-    let high = own_title_height(env, style, width, title);
-    RowLines {
-        title: Rect::new(0, 0, width, high),
-        control: Rect::new(0, high, width, row),
-        height: high + row,
-    }
-}
-
-/// [`draw_stepper`] on [`RowLines`]: the `−` value `+` below the title
-/// where they are stacked.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "its inputs are separate things; a struct of them would serve this call alone"
-)]
-pub fn draw_stepper_lines(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    style: &UiStyle,
-    lines: RowLines,
-    title: &str,
-    value: &str,
-    room: &str,
-    editing: bool,
-) {
-    let Some(font) = style.font(env) else {
-        return;
-    };
-    let room = wider(&font, style.text, room, value);
-    let Some((minus, plus)) = stepper(env, style, lines.control, room) else {
-        return;
-    };
-    let ink = style.focus_ink(true);
-    let start = stepper_ltr(env, style, lines.control, room).map_or(minus, |(minus, _)| minus);
-    draw_number_title(canvas, style, &font, lines, start, title, ink);
-    let value_x = centred(&font, style.text, value, minus, plus);
-    draw_label_in(
-        canvas,
-        &font,
-        style,
-        TextRole::BODY,
-        style.text,
-        value_x,
-        lines.control,
-        value,
-        ink,
-    );
-    let steps = (minus, plus);
-    draw_focused_steps(canvas, style, &font, lines.control, steps, editing);
-}
-
 /// A number's title on its line: before its `−` (`minus`, as it stands
 /// left to right), or the
 /// line's whole width where the buttons are below it.
@@ -1199,48 +766,4 @@ fn draw_number_title(
         &title,
         ink,
     );
-}
-
-/// The `−` and `+` of a focused number, on the focus bar in `row`:
-/// outlined in white, or filled white while the buttons change it
-/// (`editing`).
-pub(super) fn draw_focused_steps(
-    canvas: &mut Canvas<'_>,
-    style: &UiStyle,
-    font: &FontHandle<'_>,
-    row: Rect,
-    (minus, plus): (Rect, Rect),
-    editing: bool,
-) {
-    for (button, glyph) in [(minus, "−"), (plus, "+")] {
-        let (x, y, w, h) = (
-            i32::from(button.x),
-            i32::from(button.y),
-            u32::from(button.width),
-            u32::from(button.height),
-        );
-        let ink = style.focus_ink(true);
-        let paper = style.focus_paper(true);
-        let r = style.radius(h);
-        let glyph_color = if editing {
-            canvas.fill_round_rect(x, y, w, h, r, ink);
-            paper
-        } else {
-            canvas.stroke_round_rect(x, y, w, h, button_border(style), r, ink);
-            ink
-        };
-        let glyph_width = font.measure(style.text, glyph);
-        let glyph_x = f32::from(button.x) + (f32::from(button.width) - glyph_width) / 2.0;
-        draw_label_in(
-            canvas,
-            font,
-            style,
-            TextRole::BODY,
-            style.text,
-            glyph_x,
-            row,
-            glyph,
-            glyph_color,
-        );
-    }
 }

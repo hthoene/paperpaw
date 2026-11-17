@@ -125,7 +125,10 @@ fn world(outcomes: &[Result<(), Unparked>]) -> World {
     let dropped = Rc::new(Cell::new(0));
     let counts = Rc::new(RefCell::new(Vec::new()));
     let clock = kernel.shared.native_instances.unpark_clock().unwrap();
-    kernel.shared.native_instances.set_now(kernel.shared.now.millis());
+    kernel
+        .shared
+        .native_instances
+        .set_now(kernel.shared.now.millis());
     let lease = NativeLease::parked(
         Box::new(Recipe {
             outcomes: Rc::new(RefCell::new(outcomes.to_vec())),

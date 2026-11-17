@@ -493,7 +493,8 @@ impl crate::Kernel {
             return None;
         };
         let mut record = [0u8; RECORD_BYTES];
-        let len = codec::encode_batch(&[ready.record(self.shared.now.millis())], &mut record).ok()?;
+        let len =
+            codec::encode_batch(&[ready.record(self.shared.now.millis())], &mut record).ok()?;
         self.native_event_call(owner, &lease, &record[..len]).err()
     }
 }

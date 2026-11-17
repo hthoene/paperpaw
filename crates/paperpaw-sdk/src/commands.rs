@@ -37,11 +37,6 @@ impl Commands {
         self.queued.push(event.emit(data));
     }
 
-    /// The commands queued so far, as a slice.
-    pub fn as_slice(&self) -> &[Command] {
-        &self.queued
-    }
-
     /// Takes every command queued, leaving none (for the kernel, which
     /// runs them).
     #[cfg(feature = "kernel")]

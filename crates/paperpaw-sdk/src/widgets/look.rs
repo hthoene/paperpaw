@@ -794,15 +794,15 @@ impl Wrapped {
     /// down to `min` at which it fits `height` pixels whole, no word
     /// wider than a line; at `min` as [`new`](Self::new) where it does
     /// not.
-    pub fn fitting(env: &Env<'_>, text: &str, max: f32, min: f32, width: u16, height: u16) -> Self {
+    pub(crate) fn fitting(
+        env: &Env<'_>,
+        text: &str,
+        max: f32,
+        min: f32,
+        width: u16,
+        height: u16,
+    ) -> Self {
         Self::fitted(env, text, (max, min), (width, height), false)
-    }
-
-    /// A title or heading as [`fitting`](Self::fitting) makes text, its
-    /// lines a heading's apart ([`heading_line_height`]): closer, so that
-    /// they read as one.
-    pub fn heading(env: &Env<'_>, text: &str, max: f32, min: f32, width: u16, height: u16) -> Self {
-        Self::fitted(env, text, (max, min), (width, height), true)
     }
 
     fn fitted(
@@ -846,7 +846,7 @@ impl Wrapped {
     }
 
     /// The height its lines take.
-    pub fn height(&self, env: &Env<'_>) -> u16 {
+    pub(crate) fn height(&self, env: &Env<'_>) -> u16 {
         lines_height(env, self.size, self.heading, self.lines.len())
     }
 

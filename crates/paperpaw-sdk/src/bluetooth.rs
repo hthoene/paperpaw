@@ -990,14 +990,6 @@ pub fn scan(events: &Event<BtEvent>) -> Scan {
     }
 }
 
-/// Ends the scan whose results go to `events`.
-pub fn stop_scan(events: &Event<BtEvent>) -> Command {
-    BtCommand::StopScan {
-        events: events.id().clone(),
-    }
-    .command()
-}
-
 /// Connects to `device`, at [`LinkPower::Low`] unless
 /// [`Connect::power`] says otherwise; all about the link comes as
 /// `events`, the answers of the commands on it too.
@@ -1008,10 +1000,6 @@ pub fn connect(device: DeviceId, events: &Event<BtEvent>) -> Connect {
         power: LinkPower::Low,
         idle: None,
     }
-}
-
-pub fn disconnect(device: DeviceId) -> Command {
-    BtCommand::Disconnect { device }.command()
 }
 
 /// Finds the services of a connected device and their characteristics
@@ -1047,21 +1035,6 @@ pub fn subscribe(device: DeviceId, handle: Handle) -> Command {
     BtCommand::Subscribe { device, handle }.command()
 }
 
-/// [`subscribe`] to characteristic `characteristic` of service `service`,
-/// found by the kernel: no discovery and no handle needed.
-pub fn subscribe_to(device: DeviceId, service: Uuid, characteristic: Uuid) -> Command {
-    BtCommand::SubscribeTo {
-        device,
-        service,
-        characteristic,
-    }
-    .command()
-}
-
-pub fn unsubscribe(device: DeviceId, handle: Handle) -> Command {
-    BtCommand::Unsubscribe { device, handle }.command()
-}
-
 /// Asks the reader to pair with connected `device` ([`BtEvent::Paired`],
 /// or [`BtError::Declined`]).
 pub fn pair(device: DeviceId) -> Command {
@@ -1082,17 +1055,6 @@ pub fn forget(device: DeviceId, events: &Event<BtEvent>) -> Command {
 /// own doing, or the Bluetooth manager's.
 pub fn give(device: DeviceId, plugin: impl Into<Id>, events: &Event<BtEvent>) -> Command {
     BtCommand::Give {
-        device,
-        plugin: plugin.into(),
-        events: events.id().clone(),
-    }
-    .command()
-}
-
-/// Takes bonded `device` back from `plugin`. The reader's own doing, or
-/// the Bluetooth manager's.
-pub fn take_back(device: DeviceId, plugin: impl Into<Id>, events: &Event<BtEvent>) -> Command {
-    BtCommand::TakeBack {
         device,
         plugin: plugin.into(),
         events: events.id().clone(),
@@ -1147,48 +1109,6 @@ pub fn advertise(events: &Event<BtEvent>) -> Advertising {
         power: AdvertisePower::Low,
         lasting: Duration::from_secs(60),
     }
-}
-
-pub fn stop_advertising() -> Command {
-    BtCommand::StopAdvertising.command()
-}
-
-/// Sends `bytes` of characteristic `characteristic` of the plugin's
-/// service `service` to the centrals subscribed to it.
-pub fn notify_centrals(service: Uuid, characteristic: Uuid, bytes: impl Into<Vec<u8>>) -> Command {
-    BtCommand::NotifyCentrals {
-        service,
-        characteristic,
-        bytes: bytes.into(),
-    }
-    .command()
-}
-
-/// Answers a central's read or write ([`BtEvent::ReadRequest`],
-/// [`BtEvent::WriteRequest`]).
-pub fn respond(request: GattRequest, bytes: impl Into<Vec<u8>>) -> Command {
-    BtCommand::Respond {
-        request,
-        bytes: bytes.into(),
-    }
-    .command()
-}
-
-/// Refuses a central's read or write with `error`.
-pub fn refuse(request: GattRequest, error: AttError) -> Command {
-    BtCommand::Refuse { request, error }.command()
-}
-
-/// A command of a feature to come, named by `key`: answered by
-/// [`BtEvent::Extended`], or [`BtError::Unsupported`] where the kernel
-/// does not know it. Later features come as functions writing it, so
-/// they need no new plugin interface.
-pub fn extended(key: impl Into<Id>, params: Params) -> Command {
-    BtCommand::Extended {
-        key: key.into(),
-        params,
-    }
-    .command()
 }
 
 /// A characteristic of a service of the device's own GATT server.

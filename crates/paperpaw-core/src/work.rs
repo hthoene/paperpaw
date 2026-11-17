@@ -575,9 +575,10 @@ impl Kernel {
     /// goes online for the screen in front ([`Command::GoOnline`]).
     pub(crate) fn apply_work(&mut self, command: Command) {
         match command {
-            Command::Work(work) => self
-                .works
-                .declare(*work, self.shared.now, &mut self.output.commands),
+            Command::Work(work) => {
+                self.works
+                    .declare(*work, self.shared.now, &mut self.output.commands)
+            }
             Command::CancelWork(id, key) => {
                 self.works.cancel(&id, key.as_deref());
                 self.close_ended_runs();
@@ -764,7 +765,9 @@ impl Kernel {
 
     /// When the while the reader went online for ends, to look again.
     pub(crate) fn online_ends(&self) -> Option<Instant> {
-        self.works.online_until.filter(|until| self.shared.now < *until)
+        self.works
+            .online_until
+            .filter(|until| self.shared.now < *until)
     }
 
     /// The power work goes by: the mode's, but while the reader went

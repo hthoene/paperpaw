@@ -25,17 +25,15 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use super::catalog::{Changes, Show};
+use super::catalog::Show;
 use super::index::{self, Item, KEY};
-use crate::{Env, Storage};
+use crate::Storage;
 
 #[cfg(any(test, feature = "kernel"))]
 mod build;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use build::{Build, asked, clean_up, kept_archives, wanted};
-
-mod view;
 
 /// The folder of the files of the sorted books, one for each archive
 /// folder a view leaves out ([`file_of`]).
@@ -54,16 +52,6 @@ const MAGIC: &[u8; 4] = b"PPS1";
 const RECORD: usize = 28;
 /// Bytes of the file's end (see [`Trailer`]).
 const TRAILER: usize = 44;
-/// Books a view counts together: how many each filter shows in each
-/// block of them is held.
-const BLOCK: usize = 256;
-/// Books read at once.
-const CHUNK: usize = 64;
-/// Books being read (or gone) told apart from their series' stack at
-/// most; others stay in it.
-const MAX_APART: usize = 1024;
-/// Series whose next book is found at most ([`Sorted::next_in_series`]).
-const MAX_NEXT: usize = 512;
 
 /// The file of the sorted books for a view leaving `archive` out
 /// (trimmed of `/`), named by its hash.
@@ -264,16 +252,6 @@ fn archive_of(storage: &dyn Storage, path: &str, trailer: &Trailer) -> Option<St
     String::from_utf8(bytes).ok()
 }
 
-/// The command that has the kernel make the file for a view leaving
-/// `archive` out, where it is not of the library there is now
-/// ([`SORTED_WANTED`](crate::builtin::events::SORTED_WANTED)); views
-/// hear [`CATALOG_CHANGED`](crate::builtin::events::CATALOG_CHANGED)
-/// once it is.
-pub fn request(archive: &str) -> crate::Command {
-    let wanted = crate::builtin::events::SortedWanted::new(String::from(archive.trim_matches('/')));
-    crate::builtin::events::SORTED_WANTED.emit(wanted)
-}
-
 /// How a view lists the books: those a filter shows, the books read
 /// last first or all by title, the books of a series as one stack (as
 /// covers, of all books).
@@ -306,10 +284,6 @@ pub struct Entry {
     pub stack: u16,
 }
 
-/// The filters counted, by their place: all, unread, being read,
-/// finished, favourites.
-const SHOWS: usize = 5;
-
 fn show_index(show: Show) -> usize {
     match show {
         Show::Unread => 1,
@@ -317,162 +291,6 @@ fn show_index(show: Show) -> usize {
         Show::Finished => 3,
         Show::Favourites => 4,
         _ => 0,
-    }
-}
-
-const SHOWN: [Show; SHOWS] = [
-    Show::All,
-    Show::Unread,
-    Show::Reading,
-    Show::Finished,
-    Show::Favourites,
-];
-
-/// A book read last, as a view holds it.
-#[derive(Debug, Clone, Copy)]
-struct Recent {
-    pos: u32,
-    item: Item,
-    series: u32,
-    members: u16,
-}
-
-/// What a view counts in each block: the books each filter shows but
-/// those read last, and the books of a stacked view (by title; the books
-/// read last first).
-#[derive(Debug, Clone, Copy, Default)]
-struct Counts {
-    shown: [u16; SHOWS],
-    stacked: [u16; 2],
-}
-
-/// The books of the library sorted by title, as a view pages them (see
-/// the [module](self)).
-#[derive(Debug)]
-pub struct Sorted {
-    /// The file read ([`file_of`]).
-    path: String,
-    version: u64,
-    count: usize,
-    archived: usize,
-    /// Each block's counts.
-    blocks: Vec<Counts>,
-    /// The books read last, in their order.
-    recent: Vec<Recent>,
-    /// Books told apart from their series' stack (being read, gone), by
-    /// series and place.
-    apart: Vec<(u32, u32)>,
-    /// The series whose stack a book read last heads (the books read
-    /// last first), and its place among them.
-    heads: Vec<(u32, u8)>,
-    /// What changed since the file was made (the catalog's log), and the
-    /// books read last, hashed.
-    changes: Changes,
-    opened: Vec<u32>,
-    /// Books gone since (hidden until the file is made anew).
-    hidden: Vec<u32>,
-    /// The file was gone or damaged when last read through.
-    gone: bool,
-}
-
-impl Sorted {
-    /// The file of the library there is now (as a view of `archive`
-    /// leaves it out), read through once; `None` where there is none of
-    /// it, or one of another library, version or archive, or one cut
-    /// short or damaged: then ask for it ([`request`]) and say the library
-    /// is being prepared.
-    pub fn open(env: &Env<'_>, archive: &str) -> Option<Sorted> {
-        let archive = archive.trim_matches('/');
-        let version = super::service(env).version(env)?;
-        let storage = env.storage();
-        let path = file_of(archive);
-        let trailer = trailer_of(storage, &path)?;
-        if trailer.version != version || trailer.archive != index::hash(archive) {
-            return None;
-        }
-        // The name it keeps is the one it was made for (else damaged).
-        if archive_of(storage, &path, &trailer)? != archive {
-            return None;
-        }
-        let mut sorted = Sorted {
-            path,
-            version,
-            count: trailer.count as usize,
-            archived: trailer.archived as usize,
-            blocks: Vec::new(),
-            recent: Vec::new(),
-            apart: Vec::new(),
-            heads: Vec::new(),
-            changes: Changes::default(),
-            opened: Vec::new(),
-            hidden: Vec::new(),
-            gone: false,
-        };
-        sorted.read_through(storage, Some(trailer.records))?;
-        Some(sorted)
-    }
-
-    /// Whether it is of the library there is now, its file still there
-    /// (the kernel keeps the files of two archive folders: a third view's
-    /// takes the place of one).
-    pub fn is_current(&self, env: &Env<'_>) -> bool {
-        super::service(env).version(env) == Some(self.version) && env.storage().exists(&self.path)
-    }
-
-    /// Takes in what changed of single books since (how far read,
-    /// favourites, removed, the books read last): read through again.
-    pub fn refresh(&mut self, storage: &dyn Storage) {
-        self.gone = self.read_through(storage, None).is_none();
-        if self.gone {
-            // Gone or damaged meanwhile: nothing shown until made anew.
-            self.count = 0;
-            self.blocks = Vec::new();
-            self.recent = Vec::new();
-            self.apart = Vec::new();
-            self.heads = Vec::new();
-        }
-    }
-
-    /// Hides the book hashing to `hash` (gone, until the file is made
-    /// anew).
-    pub fn hide(&mut self, storage: &dyn Storage, hash: u32) {
-        self.hide_all(storage, &[hash]);
-    }
-
-    /// Hides the books hashing to `hashes`, the file read through once.
-    pub fn hide_all(&mut self, storage: &dyn Storage, hashes: &[u32]) {
-        let before = self.hidden.len();
-        for &hash in hashes {
-            if !self.hidden.contains(&hash) {
-                self.hidden.push(hash);
-            }
-        }
-        if self.hidden.len() > before {
-            self.refresh(storage);
-        }
-    }
-
-    /// Whether the file was gone or damaged when it was last read through
-    /// ([`Sorted::refresh`]; the kernel keeps the files of two archive
-    /// folders, a third view's takes the place of one): then open it anew,
-    /// or ask for it ([`request`]).
-    pub fn is_gone(&self) -> bool {
-        self.gone
-    }
-
-    /// Books in the library but the archive's.
-    pub fn total(&self) -> usize {
-        self.count
-    }
-
-    /// Books in the archive folder, left out.
-    pub fn archived(&self) -> usize {
-        self.archived
-    }
-
-    /// Whether there are books at all (in the archive too).
-    pub fn has_books(&self) -> bool {
-        self.count > 0 || self.archived > 0
     }
 }
 

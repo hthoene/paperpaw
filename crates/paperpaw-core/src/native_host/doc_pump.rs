@@ -52,6 +52,14 @@ impl crate::Kernel {
         }
     }
 
+    /// When the next step of a background job is due: now plus the gap.
+    pub(crate) fn native_job_due(&self) -> u64 {
+        self.shared
+            .now
+            .millis()
+            .saturating_add(self.native_job_gap())
+    }
+
     /// One step of the preparing loop; `true` while more are to be made
     /// (see the module).
     #[inline(never)]

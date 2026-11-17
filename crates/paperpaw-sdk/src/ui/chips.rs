@@ -50,21 +50,6 @@ impl Chips {
         Self { cells, labels }
     }
 
-    /// How tall the chips of `labels` are in an area `width` wide: their
-    /// rows, the style's gap apart.
-    pub fn height_for(env: &Env<'_>, style: &UiStyle, width: u16, labels: &[&str]) -> u16 {
-        let cells = place(
-            style,
-            Rect::new(0, 0, width, 0),
-            widths(env, style, labels.iter()),
-        );
-        cells
-            .iter()
-            .map(|c| c.bottom())
-            .max()
-            .map_or(0, |b| b as u16)
-    }
-
     /// The chips in `area` with the label widths `widths` already known
     /// (the room at their sides included): as [`Chips::new`], without
     /// labels.

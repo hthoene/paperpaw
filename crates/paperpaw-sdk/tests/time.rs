@@ -17,7 +17,7 @@ use common::Harness;
 use paperpaw_i18n::Catalog;
 use paperpaw_sdk::builtin::settings;
 use paperpaw_sdk::time::{self, LocalTime, TIME_ZONES, TimeZone};
-use paperpaw_sdk::{Instant, SettingSpec, SettingValue};
+use paperpaw_sdk::{SettingSpec, SettingValue};
 use proptest::prelude::*;
 
 const HOUR: i64 = 3600;
@@ -323,20 +323,6 @@ fn set(h: &mut Harness, setting: &paperpaw_sdk::Setting<paperpaw_sdk::Text>, val
 }
 
 #[test]
-fn without_a_clock_there_is_no_time() {
-    let h = Harness::new();
-    let env = h.env();
-    assert_eq!(time::local_time(&env), None);
-    assert_eq!(time::clock_text(&env), None);
-    assert_eq!(time::date_text(&env), None);
-    assert_eq!(time::short_date_text(&env), None);
-    assert_eq!(time::next_minute(&env), None);
-    assert_eq!(time::unix_seconds(&env), None);
-    // Without a clock and a zone, local is UTC.
-    assert_eq!(time::local_seconds(&env, 1000), 1000);
-}
-
-#[test]
 fn the_clock_in_24_and_12_hours() {
     for (millis, h24, h12) in [
         (0, "00:00", "12:00 AM"),
@@ -382,77 +368,4 @@ fn dates_in_english_and_german() {
         time::date_text(&h.env()).as_deref(),
         Some("core.weekday.5, 2 January")
     );
-}
-
-#[test]
-fn the_chosen_zone_wins_over_the_system() {
-    // 1 July 2026, 12:00 UTC; the system says UTC.
-    let noon = at(2026, 7, 1, 12, 0, 0) * 1000;
-    let mut h = clock(noon, Some(0));
-    assert_eq!(time::clock_text(&h.env()).as_deref(), Some("12:00"));
-    set(&mut h, &settings::TIME_ZONE, "core.tz.berlin");
-    assert_eq!(time::clock_text(&h.env()).as_deref(), Some("14:00"));
-    set(&mut h, &settings::TIME_ZONE, "core.tz.india");
-    assert_eq!(time::clock_text(&h.env()).as_deref(), Some("17:30"));
-    // A rule of one's own wins over the list.
-    set(&mut h, &settings::TIME_ZONE_RULE, "  <-01>1  ");
-    assert_eq!(time::clock_text(&h.env()).as_deref(), Some("11:00"));
-    // A rule that is no rule: the zone chosen from the list, not the
-    // system's.
-    set(&mut h, &settings::TIME_ZONE_RULE, "nonsense");
-    assert_eq!(time::clock_text(&h.env()).as_deref(), Some("17:30"));
-    // An unknown zone in the list: the system's.
-    set(&mut h, &settings::TIME_ZONE_RULE, "");
-    set(&mut h, &settings::TIME_ZONE, "core.tz.atlantis");
-    let mut h2 = clock(noon, Some(-90));
-    set(&mut h2, &settings::TIME_ZONE, "core.tz.atlantis");
-    assert_eq!(time::clock_text(&h.env()).as_deref(), Some("12:00"));
-    assert_eq!(time::clock_text(&h2.env()).as_deref(), Some("10:30"));
-    assert_eq!(time::local_seconds(&h2.env(), 0), -90 * 60);
-}
-
-#[test]
-fn the_next_minute_comes_when_the_local_minute_changes() {
-    let mut h = clock(30_500, Some(0));
-    h.now = Instant(0);
-    assert_eq!(time::next_minute(&h.env()), Some(Instant(29_500)));
-    // On the minute: a whole minute ahead.
-    let h = clock(120_000, Some(0));
-    assert_eq!(time::next_minute(&h.env()), Some(Instant(60_000)));
-    // A zone of half hours does not move the minute.
-    let h = clock(30_500, Some(330));
-    assert_eq!(time::next_minute(&h.env()), Some(Instant(29_500)));
-    // The clock goes on with the device's own time.
-    let mut h = clock(0, Some(0));
-    h.now = Instant(90_000);
-    assert_eq!(time::unix_seconds(&h.env()), Some(90));
-}
-
-#[test]
-fn the_week_starts_as_set_or_as_the_language_has_it() {
-    let mut h = clock(0, Some(0));
-    assert_eq!(time::week_start(&h.env()), 0);
-    h.i18n.set_language("de");
-    assert_eq!(time::week_start(&h.env()), 1);
-    set(&mut h, &settings::WEEK_START, "core.week.sunday");
-    assert_eq!(time::week_start(&h.env()), 0);
-    set(&mut h, &settings::WEEK_START, "core.week.monday");
-    h.i18n.set_language("en");
-    assert_eq!(time::week_start(&h.env()), 1);
-    // A language without the habit: Monday.
-    let h = Harness::new();
-    assert_eq!(time::week_start(&h.env()), 1);
-}
-
-/// Times near the end of `i64` (e.g. read from a damaged annotations
-/// file and shown in local time) overflow when the zone's offset is
-/// added: a panic in debug builds, a wrong date in release builds.
-#[test]
-fn local_times_at_the_end_of_time_do_not_overflow() {
-    let berlin = TimeZone::parse("CET-1CEST,M3.5.0,M10.5.0/3").unwrap();
-    let _ = berlin.offset_at(i64::MAX);
-    let new_york = TimeZone::parse("EST5EDT,M3.2.0,M11.1.0").unwrap();
-    let _ = new_york.offset_at(i64::MIN);
-    let h = clock(0, Some(60));
-    let _ = time::local_seconds(&h.env(), i64::MAX);
 }

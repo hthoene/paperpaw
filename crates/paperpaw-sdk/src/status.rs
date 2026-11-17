@@ -340,7 +340,7 @@ impl Place {
 
     /// The status line it shows now: the one its line setting names
     /// first, where there is such a line, else its items.
-    pub fn current_line<'e>(&self, env: &Env<'e>) -> &'e str {
+    pub(crate) fn current_line<'e>(&self, env: &Env<'e>) -> &'e str {
         let items = crate::builtin::status_lines::ITEMS.static_str();
         let Some(setting) = &self.line else {
             return items;
@@ -511,7 +511,7 @@ impl StatusItems {
     }
 
     /// Where a tap on status line `id`, drawn in `frame`, does something.
-    pub fn line_targets(
+    pub(crate) fn line_targets(
         &self,
         id: &str,
         env: &Env<'_>,
@@ -524,7 +524,7 @@ impl StatusItems {
     }
 
     /// What status line `id` shows now (see [`StatusSignatureFn`]).
-    pub fn line_signature(&self, id: &str, env: &Env<'_>, context: &Params) -> u64 {
+    pub(crate) fn line_signature(&self, id: &str, env: &Env<'_>, context: &Params) -> u64 {
         use core::fmt::Write;
         match self.line(id).and_then(|l| l.signature.as_ref()) {
             Some(signature) => signature(env, context),
@@ -558,7 +558,7 @@ impl StatusItems {
     /// What a tap on item `id`, drawn with `context`, runs: its action
     /// ([`StatusItemSpec::tap`]) with the context, where the action is
     /// its own plugin's.
-    pub fn tap(&self, id: &str, context: &Params) -> Option<crate::Command> {
+    pub(crate) fn tap(&self, id: &str, context: &Params) -> Option<crate::Command> {
         let item = self.item(id)?;
         let action = item.tap.as_ref()?;
         (action.namespace() == item.id.namespace())

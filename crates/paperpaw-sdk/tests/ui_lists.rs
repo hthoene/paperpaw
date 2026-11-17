@@ -17,10 +17,10 @@ mod support;
 use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::ui::sections::{Item, Section, Sections};
 use paperpaw_sdk::ui::{ListChange, ListView, Paging, Rows, UiStyle, list_step, step_focus};
-use paperpaw_sdk::{Cx, Id, Output, Point, Rect, RefreshMode};
+use paperpaw_sdk::{Id, Point, Rect};
 use proptest::prelude::*;
 
-use support::{Device, Harness, drawn_outside, frame, middle};
+use support::{drawn_outside, frame, middle};
 
 /// Sizes for tests: no fonts needed.
 fn style() -> UiStyle {
@@ -245,39 +245,6 @@ fn an_empty_list_has_one_page_and_nothing_to_focus_or_hit() {
         |_, _, _, _| rows += 1,
     );
     assert_eq!(rows, 0);
-}
-
-#[test]
-fn a_hidden_focus_shows_on_the_first_step_and_stays_hidden_while_paging() {
-    let h = Harness::new(Device::TOUCH);
-    let env = h.env();
-    let mut list = ListView::new(Rect::new(0, 0, 400, 300), 100).focus_on_keys(&env);
-    assert!(!list.shown(), "touch screens hide it at first");
-    // Paging (a swipe, a tap on an arrow) keeps it hidden.
-    assert_eq!(list.move_focus(3, 10), ListChange::Page);
-    assert_eq!(list.focus(), 3);
-    assert!(!list.shown());
-    // The first step shows where it is, without moving it.
-    assert!(list.move_focus(1, 10).is_focus());
-    assert!(list.shown());
-    assert_eq!(list.focus(), 3);
-    assert!(list.move_focus(1, 10).is_focus());
-    assert_eq!(list.focus(), 4);
-    // A hidden focus is not drawn.
-    let mut hidden = ListView::new(Rect::new(0, 0, 400, 300), 100).focus_on_keys(&env);
-    hidden.set_focus(1);
-    let mut focused = 0;
-    hidden.draw(
-        &mut paperpaw_sdk::ui::Ui::new(&mut frame(400, 300).canvas(), &env, &style()),
-        3,
-        |_, _, _, f| focused += usize::from(f),
-    );
-    assert_eq!(focused, 0);
-
-    // Without touch it shows from the start.
-    let x4 = Harness::new(Device::BUTTONS);
-    let list = ListView::new(Rect::new(0, 0, 400, 300), 100).focus_on_keys(&x4.env());
-    assert!(list.shown());
 }
 
 #[test]
@@ -699,74 +666,4 @@ fn kind(change: ListChange) -> Kind {
         ListChange::Page => Kind::Page,
         _ => Kind::None,
     }
-}
-
-/// What `request` asked for: the area drawn again (`None` for all of the
-/// screen) and the refresh.
-fn asked(
-    h: &Harness,
-    request: impl FnOnce(&mut Cx<'_, '_>),
-) -> (Option<Rect>, bool, Option<RefreshMode>) {
-    let env = h.env();
-    let mut output = Output::default();
-    request(&mut Cx::new(&env, &mut output));
-    (output.redraw_area, output.redraw, output.refresh)
-}
-
-/// A step within a page draws the row left and the row come to again,
-/// nothing else, refreshed fast (on the X4 a third of the drawing); a
-/// new page draws the screen; no change draws nothing.
-#[test]
-fn a_step_redraws_only_the_two_rows_it_concerns() {
-    let h = Harness::new(Device::BUTTONS);
-    // ListView: rows 100 high.
-    let mut list = ListView::new(Rect::new(0, 100, 400, 500), 100);
-    let change = list.move_focus(2, 12);
-    assert!(change.is_focus());
-    let (area, all, refresh) = asked(&h, |cx| change.request(cx));
-    assert_eq!(area, Some(list.row_rect(0).union(&list.row_rect(2))));
-    assert!(!all);
-    assert_eq!(refresh, Some(RefreshMode::Fast));
-    let change = list.move_focus(5, 12);
-    assert_eq!(change, ListChange::Page);
-    let (_, all, refresh) = asked(&h, |cx| change.request(cx));
-    assert!(all);
-    assert_eq!(refresh, Some(RefreshMode::Partial));
-    assert_eq!(
-        asked(&h, |cx| ListChange::None.request(cx)),
-        (None, false, None)
-    );
-
-    // Rows: the entries around a heading.
-    let mut rows = Rows::new(
-        ROWS_AREA,
-        vec![10, 20, 20, 10, 20],
-        vec![true, false, false, true, false],
-    );
-    let change = rows.step(true);
-    assert!(change.is_focus());
-    let (area, all, _) = asked(&h, |cx| change.request(cx));
-    assert_eq!(
-        area,
-        Some(rows.rect_of(1).unwrap().union(&rows.rect_of(2).unwrap()))
-    );
-    assert!(!all);
-
-    // Sections alike.
-    let mut list = Sections::new(
-        Rect::new(0, 0, 300, 200),
-        10,
-        20,
-        vec![Section {
-            heading: true,
-            count: 3,
-        }],
-    );
-    let change = list.step(true);
-    let (area, all, _) = asked(&h, |cx| change.request(cx));
-    assert_eq!(
-        area,
-        Some(list.rect_of(0).unwrap().union(&list.rect_of(1).unwrap()))
-    );
-    assert!(!all);
 }

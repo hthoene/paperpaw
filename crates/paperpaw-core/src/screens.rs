@@ -530,7 +530,10 @@ impl Kernel {
             .int(core_settings::NOTICE_SECONDS.as_str())
             .clamp(1, 60) as u32;
         let region = notice_area(&screen, &self.shared.env(self.shared.now));
-        self.notice = Some((screen, self.shared.now.add_millis(u64::from(seconds) * 1000)));
+        self.notice = Some((
+            screen,
+            self.shared.now.add_millis(u64::from(seconds) * 1000),
+        ));
         self.invalidate(region);
         self.output.request_refresh(RefreshMode::Fast);
     }

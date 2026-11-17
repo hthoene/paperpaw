@@ -229,7 +229,7 @@ fn label_lines(
 /// The height of a button `width` wide for `label`, its word whole: a
 /// button's in a row that can be touched ([`Segments::height`]), a line
 /// higher for each more line a word too long for one takes.
-pub fn button_height_for(env: &Env<'_>, style: &UiStyle, width: u16, label: &str) -> u16 {
+pub(crate) fn button_height_for(env: &Env<'_>, style: &UiStyle, width: u16, label: &str) -> u16 {
     let base = Segments::height(style);
     let Some(font) = style.font(env) else {
         return base;

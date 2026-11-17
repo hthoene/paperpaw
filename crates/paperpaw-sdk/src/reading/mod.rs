@@ -31,10 +31,9 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::builtin::events;
 use crate::document::Locator;
-use crate::event::{Event, EventData};
-use crate::{Command, Params, Rect};
+use crate::event::EventData;
+use crate::{Params, Rect};
 /// How a line goes ([`WordBox::bidi`]): also without the `unstable`
 /// layout, for page layers.
 pub use paperpaw_layout::LineBidi;
@@ -253,69 +252,6 @@ pub fn note_text(
     (!text.is_empty()).then_some(text)
 }
 
-/// How books are opened for reading: with their own styles as
-/// [`settings::PUBLISHER_STYLES`](crate::builtin::settings::PUBLISHER_STYLES)
-/// says, and the plugins' stylesheets. A plugin that opens the book a
-/// reader shows (to search it, for its contents, to find an XPointer)
-/// opens it so too, or its places need not fit the reader's, and a book
-/// may be converted a second time.
-pub fn open_options(env: &crate::Env<'_>) -> crate::OpenOptions {
-    let styles = env
-        .settings
-        .read(&crate::builtin::settings::PUBLISHER_STYLES);
-    env.formats()
-        .options()
-        .publisher_styles(styles)
-        .css(env.stylesheets().join("\n"))
-        .settings(format_settings(env))
-}
-
-/// The values of the format plugins' own settings (those in their
-/// namespace), each book's own where it has them.
-fn format_settings(env: &crate::Env<'_>) -> Vec<(String, String)> {
-    let mut owners: Vec<&str> = env
-        .formats
-        .iter()
-        .filter_map(|f| f.id.as_str().split_once('.').map(|(plugin, _)| plugin))
-        .collect();
-    paperpaw_sort::sort(&mut owners);
-    owners.dedup();
-    let mut values = Vec::new();
-    // Only the format plugins' own specs are read, one at a time. Without
-    // room for one its value is left out: the book opens as by default.
-    let _ = env
-        .settings()
-        .each_spec(crate::settings::Pick::OfAny(&owners), |spec| {
-            let id = spec.id.as_str();
-            if let Some(value) = env.settings().get(id) {
-                values.push((id.to_string(), value.to_config_text()));
-            }
-        });
-    values
-}
-
-/// Which conversion of a book [`open_options`] make: places
-/// ([`Locator`]s) are those of one conversion (an EPUB's with its own
-/// styles holds style runs the one without them lacks, so its text is at
-/// other places). Kept with a position (see
-/// [`positions`](crate::positions)) to tell when it needs finding by its
-/// XPointer.
-pub fn conversion(env: &crate::Env<'_>) -> u64 {
-    let styles = env
-        .settings
-        .read(&crate::builtin::settings::PUBLISHER_STYLES);
-    env.stylesheets().iter().fold(
-        paperpaw_digest::fnv1a64([u8::from(styles)]),
-        |hash, sheet| hash.rotate_left(5) ^ paperpaw_digest::fnv1a64(sheet.as_bytes()),
-    )
-}
-
-/// Asks the reader for the words of the page it shows: it answers with
-/// `reply` (nothing comes where no book is open).
-pub fn ask_page_words(reply: &Event<PageWords>) -> Command {
-    events::PAGE_WORDS_WANTED.emit(events::PageWordsWanted::new(reply.id().clone()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,16 +269,5 @@ mod tests {
         assert_eq!(back, words);
         assert_eq!(back.text(), "The rabbit-hole: Kaninchenbau");
         assert!(PageWords::from_params(&Params::new()).is_none());
-    }
-
-    #[test]
-    fn asking_names_the_reply() {
-        const MINE: Event<PageWords> = Event::new("my.words");
-        let Command::Emit(event, params) = ask_page_words(&MINE) else {
-            panic!("an event");
-        };
-        assert_eq!(event, *events::PAGE_WORDS_WANTED.id());
-        let wanted = events::PAGE_WORDS_WANTED.read(&event, &params).unwrap();
-        assert_eq!(wanted.reply, *MINE.id());
     }
 }

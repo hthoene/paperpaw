@@ -96,7 +96,11 @@ impl Kernel {
     /// Takes the row away again once its time is over: the screen below
     /// is drawn there again.
     pub(crate) fn hide_hints(&mut self) {
-        if !self.hint.until.is_some_and(|until| until <= self.shared.now) {
+        if !self
+            .hint
+            .until
+            .is_some_and(|until| until <= self.shared.now)
+        {
             return;
         }
         self.hint.until = None;

@@ -36,7 +36,7 @@ use crate::builtin::groups;
 use crate::document::Locator;
 use crate::setting::Setting;
 use crate::{
-    Canvas, Choices, Color, Env, Id, Rect, RegisterError, SettingExtra, SettingKind, SettingSpec,
+    Choices, Color, Env, Id, Rect, RegisterError, SettingExtra, SettingKind, SettingSpec,
     SettingValue,
 };
 
@@ -281,33 +281,9 @@ impl Decoration {
         }
     }
 
-    /// The look of `role`, as its settings say (see [`add_role`]); no mark
-    /// for a role nobody added.
-    pub fn of_role(env: &Env<'_>, role: &Id) -> Decoration {
-        let settings = env.settings();
-        let tone = |aspect: &str| Tone::from_id(settings.text(&format!("{role}.{aspect}")));
-        Decoration {
-            background: tone("background"),
-            ink: tone("ink"),
-            line: LineKind::from_id(settings.text(&format!("{role}.line"))),
-            line_tone: tone("line-tone"),
-            thickness: settings
-                .int(&format!("{role}.thickness"))
-                .clamp(0, i64::from(u8::MAX)) as u8,
-            frame: settings.bool(&format!("{role}.frame")),
-            struck: settings.bool(&format!("{role}.struck")),
-        }
-    }
-
     /// The colour of the text, where it is not as it is.
     pub fn ink_color(&self) -> Option<Color> {
         self.ink.map(Tone::color)
-    }
-
-    fn stroke_color(&self) -> Color {
-        self.line_tone
-            .or(self.ink)
-            .map_or(Color::BLACK, Tone::color)
     }
 }
 
@@ -604,121 +580,6 @@ pub fn join_boxes(words: impl IntoIterator<Item = (usize, Rect)>) -> Vec<Rect> {
     boxes
 }
 
-/// What lies behind the text of `boxes` (one per line): the background.
-pub fn draw_behind(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    boxes: &[Rect],
-    decoration: &Decoration,
-) {
-    let Some(tone) = decoration.background else {
-        return;
-    };
-    // A little wider than the words, so a marked word does not touch the
-    // edge of its mark.
-    let pad = env.metrics().tenth_mm(5).max(1) as i32;
-    for b in boxes {
-        canvas.fill_shaded(padded(*b, pad), tone.color());
-    }
-}
-
-/// `b` widened by `pad` on either side, cut at the left edge of the canvas
-/// (and the largest width a `Rect` holds) without moving its right side.
-fn padded(b: Rect, pad: i32) -> Rect {
-    let left = (i32::from(b.x) - pad).max(0);
-    let right = (i32::from(b.x) + i32::from(b.width) + pad).min(i32::from(u16::MAX));
-    Rect::new(left as u16, b.y, (right - left).max(0) as u16, b.height)
-}
-
-/// What is drawn over the text of `boxes` (one per line): the line under
-/// it, the frame, the line through it.
-pub fn draw_over(canvas: &mut Canvas<'_>, env: &Env<'_>, boxes: &[Rect], decoration: &Decoration) {
-    if !decoration.has_strokes() {
-        return;
-    }
-    let tenths = if decoration.thickness == 0 {
-        THICKNESS
-    } else {
-        decoration.thickness
-    };
-    let t = env.metrics().tenth_mm(u32::from(tenths)).max(1);
-    let color = decoration.stroke_color();
-    for b in boxes {
-        let (x, w) = (i32::from(b.x), u32::from(b.width));
-        let bottom = b.bottom() as i32;
-        if let Some(kind) = decoration.line {
-            draw_line(canvas, kind, x, w, bottom, t, color);
-        }
-        if decoration.frame {
-            let pad = env.metrics().tenth_mm(5).max(1) as i32;
-            canvas.stroke_rect(
-                x - pad,
-                i32::from(b.y),
-                w + 2 * pad as u32,
-                u32::from(b.height),
-                t,
-                color,
-            );
-        }
-        if decoration.struck {
-            // Through the middle of the small letters.
-            let y = i32::from(b.y) + i32::from(b.height) * 3 / 5 - t as i32 / 2;
-            canvas.fill_rect(x, y, w, t, color);
-        }
-    }
-}
-
-/// A line of `kind` under text from `x`, `width` wide, its lowest pixels
-/// at `bottom - 1`, `t` thick.
-fn draw_line(
-    canvas: &mut Canvas<'_>,
-    kind: LineKind,
-    x: i32,
-    width: u32,
-    bottom: i32,
-    t: u32,
-    color: Color,
-) {
-    let ti = t as i32;
-    let end = x + width as i32;
-    match kind {
-        // A kind of a later build: drawn solid.
-        LineKind::Solid | LineKind::Other(_) => canvas.fill_rect(x, bottom - ti, width, t, color),
-        LineKind::Dotted | LineKind::Dashed => {
-            let (on, step) = if kind == LineKind::Dotted {
-                (ti, 2 * ti)
-            } else {
-                (3 * ti, 5 * ti)
-            };
-            let mut at = x;
-            while at < end {
-                let w = on.min(end - at) as u32;
-                canvas.fill_rect(at, bottom - ti, w, t, color);
-                at += step.max(1);
-            }
-        }
-        LineKind::Wavy => {
-            // Up and down by `t` over a period of four strokes.
-            let amplitude = ti.max(1);
-            let period = (4 * ti).max(4);
-            for column in x..end {
-                let phase = (column - x) % period;
-                let rise = if phase < period / 2 {
-                    phase
-                } else {
-                    period - phase
-                };
-                let dy = rise * 2 * amplitude / period;
-                canvas.fill_rect(column, bottom - ti - dy, 1, t, color);
-            }
-        }
-        LineKind::Double => {
-            canvas.fill_rect(x, bottom - ti, width, t, color);
-            canvas.fill_rect(x, bottom - 3 * ti, width, t, color);
-        }
-    }
-}
-
 /// A word of a page given to decorators: its text and where it is in the
 /// book. A word split over two lines (hyphenated) is two page words, each
 /// with the whole word as its text and its own part's place.
@@ -809,16 +670,6 @@ impl core::fmt::Debug for Decorate {
         match self {
             Decorate::Fn(_) => f.write_str("Fn"),
             Decorate::Patterns(patterns) => f.debug_tuple("Patterns").field(patterns).finish(),
-        }
-    }
-}
-
-impl Decorate {
-    /// The ranges it marks on `page`.
-    pub fn marks(&self, env: &Env<'_>, page: &PageText<'_>) -> Vec<Decorated> {
-        match self {
-            Decorate::Fn(decorate) => decorate(env, page),
-            Decorate::Patterns(patterns) => patterns.decorate(page),
         }
     }
 }
@@ -1134,14 +985,6 @@ impl Decorators {
         self.list.shrink_to_fit();
     }
 
-    fn on(&self, env: &Env<'_>) -> impl Iterator<Item = &DecoratorSpec> {
-        self.list.iter().filter(move |d| {
-            d.switch
-                .as_ref()
-                .is_none_or(|s| env.settings().bool(s.as_str()))
-        })
-    }
-
     /// What the marks of all decorators depend on besides the page: which
     /// are on and their signatures. Readers ask them again when it
     /// changes.
@@ -1168,25 +1011,6 @@ impl Decorators {
                 hash
             }
         })
-    }
-
-    /// The marks of `page` from every decorator that is on, by order.
-    pub fn decorate(&self, env: &Env<'_>, page: &PageText<'_>) -> Vec<Mark> {
-        let mut marks = Vec::new();
-        for decorator in self.on(env) {
-            for range in decorator.decorate.marks(env, page) {
-                if range.start < range.end {
-                    marks.push(Mark {
-                        decorator: decorator.id.clone(),
-                        role: range.role,
-                        start: range.start,
-                        end: range.end,
-                        taps: decorator.taps,
-                    });
-                }
-            }
-        }
-        marks
     }
 }
 
@@ -1301,17 +1125,6 @@ mod tests {
                 other => panic!("{bad}: {other:?}"),
             }
         }
-    }
-
-    #[test]
-    fn backgrounds_keep_their_padding_at_the_edges() {
-        // Inside: as wide as the word and a padding on either side.
-        assert_eq!(padded(Rect::new(10, 5, 20, 8), 3), Rect::new(7, 5, 26, 8));
-        // At the left edge: cut there, the right side where it belongs.
-        assert_eq!(padded(Rect::new(1, 5, 20, 8), 3), Rect::new(0, 5, 24, 8));
-        // At the end of what a `Rect` holds: no wrap.
-        let far = padded(Rect::new(u16::MAX - 4, 0, 4, 8), 3);
-        assert_eq!(far.x + far.width, u16::MAX);
     }
 
     #[test]

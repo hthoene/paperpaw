@@ -352,15 +352,6 @@ impl<'a> MenuView<'a> {
             .collect()
     }
 
-    /// The entries of `menu` shown now: as [`MenuView::items`], without
-    /// those their plugins hide at the moment ([`ItemState::shown`]).
-    pub fn shown_items(&self, env: &crate::Env<'_>, menu: &str) -> Vec<MenuItem<'a>> {
-        self.items(menu)
-            .into_iter()
-            .filter(|item| item.section || self.menus.state(env, item.id.as_str()).shown)
-            .collect()
-    }
-
     /// The menus themselves, for as long as they are lent.
     pub fn menus(&self) -> &'a Menus {
         self.menus

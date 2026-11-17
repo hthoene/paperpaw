@@ -880,65 +880,15 @@ fn write_details(storage: &dyn Storage, path: &str, book: &Book) -> Result<(), c
     Ok(storage.write(&file, ini.as_bytes())?)
 }
 
-/// Reads title, author, series, tags and cover from the book itself and
-/// keeps them. Opening a book the first time may take a moment (e.g. an
-/// EPUB's package is read), so views do this for one book at a time,
-/// e.g. for the rows they show.
-pub fn index(env: &Env<'_>, path: &str) -> Book {
-    let storage = env.storage();
-    // Details that could not be read are not written over.
-    let (mut book, known) = match book_for_update(storage, path) {
-        Ok(book) => (book, true),
-        Err(_) => (Book::default(), false),
-    };
-    book.size = storage.size(path).unwrap_or_default();
-    book.indexed = true;
-    if book.added.is_none() {
-        book.added = today(env);
-    }
-    match env.formats().open(storage, path) {
-        Ok(document) => {
-            // What the book names; else what its source said ([`provide`]).
-            // Copied fallibly; with no memory the book is not written down
-            // (it is read from the book again at the next walk).
-            if fallible::try_merge_metadata(&mut book, document.metadata()).is_err() {
-                // Not indexed: the book does not hold what it names, so a
-                // walk that finds its line must make it again.
-                book.indexed = false;
-                return book;
-            }
-            book.cover = document.cover(storage).ok().flatten();
-        }
-        // A native format's book (the kernel's stand-in): nothing was read,
-        // so nothing is written over or marked as indexed; the host's
-        // details job reads it (`keep_native_details`).
-        Err(crate::document::DocumentError::NotReady) => {
-            book.indexed = false;
-            return book;
-        }
-        Err(_) => {}
-    }
-    if known {
-        write_book(storage, path, &book);
-    }
-    book
-}
-
 /// Today in days since 1970 (UTC), as [`Book::added`] counts, if the
 /// device knows the date.
-pub fn today(env: &Env<'_>) -> Option<u32> {
+pub(crate) fn today(env: &Env<'_>) -> Option<u32> {
     crate::time::unix_seconds(env).and_then(|s| u32::try_from(s.div_euclid(86_400)).ok())
 }
 
 /// Books added this many days ago or less, and never opened, are new
 /// ([`is_new`]).
 pub const NEW_DAYS: u32 = 30;
-
-/// Whether `book` counts as new: added in the last [`NEW_DAYS`] days and
-/// never opened (no progress); `opened` says whether it was opened.
-pub fn is_new(env: &Env<'_>, book: &Book, opened: bool) -> bool {
-    is_new_on(book, opened, today(env))
-}
 
 /// [`is_new`] on the day `today` (none where the date is not known).
 pub fn is_new_on(book: &Book, opened: bool, today: Option<u32>) -> bool {
@@ -947,15 +897,6 @@ pub fn is_new_on(book: &Book, opened: bool, today: Option<u32>) -> bool {
             !opened && book.progress.is_none() && today.saturating_sub(added) <= NEW_DAYS
         }
         _ => false,
-    }
-}
-
-/// What the library knows of the book at `path`, read from the book
-/// first if it is not yet ([`index`](fn@index)).
-pub fn indexed(env: &Env<'_>, path: &str) -> Book {
-    match book(env.storage(), path) {
-        Some(book) if book.indexed => book,
-        _ => index(env, path),
     }
 }
 
@@ -1138,53 +1079,6 @@ pub fn moved(storage: &dyn Storage, from: &str, to: &str) {
     update_list(storage, &favourites_file(), MAX_FAVOURITES, replace);
 }
 
-/// Tells the plugins that what was at `from` (a file or a folder) is at
-/// `to` now, moved or renamed on the storage, so that the data they keep
-/// by a book's path (where it is read, notes, statistics) goes along
-/// ([`BOOK_MOVED`](crate::builtin::events::BOOK_MOVED)): for a folder, of
-/// each book in it (each file a format opens), up to `most`; for a file,
-/// whatever its name now (`a.epub.bak` may be named back). The reading
-/// apps chosen for the folder go along, and settings that hold the folder
-/// moved, or one in it (the library folder, say), follow it. Whether
-/// there were more books than `most`, whose data stays where it was.
-pub fn tell_moved(
-    env: &Env<'_>,
-    from: &str,
-    to: &str,
-    most: usize,
-    out: &mut dyn FnMut(crate::Command),
-) -> bool {
-    use crate::builtin::events;
-    follow_folders(env, from, to, out);
-    #[expect(
-        clippy::let_underscore_must_use,
-        reason = "a reading app chosen for a folder is a convenience: chosen again where it did not move"
-    )]
-    let _ = crate::readers::folder_moved(env.storage(), from, to);
-    let (from, to) = (from.trim_matches('/'), to.trim_matches('/'));
-    if !crate::files::is_dir(env.storage(), to) {
-        out(events::BOOK_MOVED.emit(events::BookMoved::new(from.into(), to.into())));
-        return false;
-    }
-    let mut told = 0;
-    let mut more = false;
-    books_in(env.storage(), env.formats(), to, &mut |book| {
-        let Some(rest) = book.strip_prefix(to) else {
-            return;
-        };
-        if told == most {
-            more = true;
-            return;
-        }
-        told += 1;
-        out(events::BOOK_MOVED.emit(events::BookMoved::new(
-            format!("{from}{rest}"),
-            book.to_string(),
-        )));
-    });
-    more
-}
-
 /// Folder `value` (a setting's), after folder `from` moved to `to`: where
 /// it is `from` or in it, as the storage names entries (`Books` is `books`
 /// on the memory card), the same folder at `to`.
@@ -1204,37 +1098,6 @@ pub fn moved_folder(storage: &dyn Storage, value: &str, from: &str, to: &str) ->
             .collect::<Vec<_>>()
             .join("/"),
     )
-}
-
-/// Settings that name folder `from` or one in it, chosen as folders (with
-/// the folder chooser or the folder editor), name it at `to` now.
-fn follow_folders(env: &Env<'_>, from: &str, to: &str, out: &mut dyn FnMut(crate::Command)) {
-    use crate::builtin::{screens, slots};
-    // An editor is part of a spec's extra, and specs with one are kept
-    // whole: nothing is made for this walk, so it cannot run out of room.
-    let walked = env
-        .settings()
-        .each_spec(crate::settings::Pick::WithExtra, |spec| {
-            let folder = spec
-                .extra()
-                .editor
-                .as_ref()
-                .is_some_and(|editor| match editor {
-                    crate::Editor::Slot(slot) => *slot == slots::CHOOSE_FOLDER,
-                    crate::Editor::Screen(screen) => *screen == screens::FOLDER_EDITOR,
-                });
-            if !folder {
-                return;
-            }
-            let value = env.settings().text(spec.id.as_str());
-            if let Some(moved) = moved_folder(env.storage(), value, from, to) {
-                out(crate::Command::SetSetting(
-                    spec.id.clone(),
-                    crate::SettingValue::Text(moved.into()),
-                ));
-            }
-        });
-    debug_assert!(walked.is_ok(), "no spec with an extra is made on demand");
 }
 
 /// Forgets the book at `path`, deleted: its details, its cover made
@@ -1314,12 +1177,6 @@ pub fn take_over_old(storage: &dyn Storage) {
     let _ = storage.remove(&format!("{old}/catalog.txt"));
 }
 
-/// The command that tells everyone books came into the library or left
-/// it ([`events::LIBRARY_CHANGED`](crate::builtin::events::LIBRARY_CHANGED)).
-pub fn changed() -> crate::Command {
-    crate::builtin::events::LIBRARY_CHANGED.emit(())
-}
-
 /// The command that tells everyone something of the book at `path`
 /// changed: `what`, bits of [`what`]
 /// ([`events::BOOK_CHANGED`](crate::builtin::events::BOOK_CHANGED)).
@@ -1328,34 +1185,6 @@ pub fn changed_book(path: &str, what: u32) -> crate::Command {
         path: path.to_string(),
         what,
     })
-}
-
-/// The command that tells everyone the book at `path` came into the
-/// library, brought by the plugin `source`
-/// ([`events::BOOK_ADDED`](crate::builtin::events::BOOK_ADDED)).
-pub fn added(path: &str, source: &str) -> crate::Command {
-    crate::builtin::events::BOOK_ADDED.emit(crate::builtin::events::BookAdded {
-        path: path.to_string(),
-        source: source.to_string(),
-    })
-}
-
-/// The command a view of the library sends as it shows: the kernel makes
-/// the catalog anew in the background where it was not made since
-/// PaperPaw started or woke (books may have been copied meanwhile) or is not
-/// there ([`events::CATALOG_WANTED`](crate::builtin::events::CATALOG_WANTED));
-/// [`events::CATALOG_CHANGED`](crate::builtin::events::CATALOG_CHANGED)
-/// follows where it was.
-pub fn request_catalog() -> crate::Command {
-    let wanted = crate::builtin::events::CatalogWanted::new(false);
-    crate::builtin::events::CATALOG_WANTED.emit(wanted)
-}
-
-/// The command that has the kernel make the catalog anew in any case,
-/// e.g. where a book it lists is gone without a word.
-pub fn request_catalog_anew() -> crate::Command {
-    let wanted = crate::builtin::events::CatalogWanted::new(true);
-    crate::builtin::events::CATALOG_WANTED.emit(wanted)
 }
 
 #[cfg(test)]

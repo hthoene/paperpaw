@@ -525,11 +525,11 @@ impl crate::Kernel {
         match self.shared.native_instances.retire(key) {
             Ok(replacement) => replacement,
             Err(status) => {
-                if self
-                    .shared
-                    .native_instances
-                    .retirement_failed(key, status, self.shared.now.millis())
-                {
+                if self.shared.native_instances.retirement_failed(
+                    key,
+                    status,
+                    self.shared.now.millis(),
+                ) {
                     self.warn_runtime("native owner cleanup failed; retry delayed");
                 }
                 None

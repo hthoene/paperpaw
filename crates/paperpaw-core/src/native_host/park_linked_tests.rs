@@ -687,7 +687,10 @@ fn a_format_without_room_gives_up_at_once_when_nothing_can_be_parked_again() {
     let mut kernel = kernel(Mode::Parkable);
     let key = admit(&mut kernel);
     MODE.with(|cell| cell.set(Mode::NoRoom));
-    kernel.shared.native_instances.set_now(kernel.shared.now.millis());
+    kernel
+        .shared
+        .native_instances
+        .set_now(kernel.shared.now.millis());
     assert!(lease(&kernel, key).live().is_err());
     assert!(
         !kernel.shared.native_instances.format_gave_up(key),

@@ -42,12 +42,10 @@
 //! ([`RefreshMode::Fast`](crate::RefreshMode::Fast)), and the screen
 //! with a clean one when the finger is lifted.
 
-use super::setting_rows::draw_focused_steps;
 use crate::builtin::actions;
 use crate::id::Id;
-use crate::semantics::Role;
 use crate::settings::{SettingKind, SettingSpec};
-use crate::ui::{UiStyle, button_height, draw_button, draw_note_below, draw_value_row, title_area};
+use crate::ui::{UiStyle, button_height, title_area};
 use crate::{Canvas, Color, Env, PointerEvent, PointerPhase, Rect};
 
 /// A number from `min` to `max` in steps of `step`, set with a slider.
@@ -323,39 +321,6 @@ impl Slider {
         }
     }
 
-    /// Draws a slider's band, `view.area` (see [`band`]): `−`, the track
-    /// at the value and `+`, as its focus says; the value as shown tells
-    /// screen readers what it is set to.
-    pub fn draw_band(
-        &self,
-        canvas: &mut Canvas<'_>,
-        env: &Env<'_>,
-        style: &UiStyle,
-        view: &SliderView<'_>,
-    ) {
-        let band = view.area;
-        let focus = view.focus;
-        let SliderParts { minus, track, plus } = self.parts(style, band);
-        let ink = match focus {
-            SliderFocus::None => {
-                draw_button(canvas, env, style, minus, "−", false, false);
-                draw_button(canvas, env, style, plus, "+", false, false);
-                Color::BLACK
-            }
-            SliderFocus::Focused | SliderFocus::Editing => {
-                if let Some(font) = style.font(env) {
-                    let editing = focus == SliderFocus::Editing;
-                    draw_focused_steps(canvas, style, &font, band, (minus, plus), editing);
-                }
-                Color::WHITE
-            }
-        };
-        canvas
-            .describe(Role::Slider, view.shown, track)
-            .focused(focus != SliderFocus::None);
-        self.draw_track(canvas, style, track, view.value, ink);
-    }
-
     /// Where `−`, the track and `+` are in `band`, as [`parts`] says;
     /// `−` at the right and `+` at the left where it is mirrored
     /// ([`Slider::mirrored`]).
@@ -378,42 +343,6 @@ impl Slider {
     pub fn key_step(&self, action: &Id) -> Option<i64> {
         let mirrored = self.mirrored && (*action == actions::LEFT || *action == actions::RIGHT);
         key_step(action).map(|steps| if mirrored { -steps } else { steps })
-    }
-
-    /// Draws a row of [`row_height`] with a slider, `view.area`: the
-    /// title and the value on its first line, as other rows have them,
-    /// the slider's band below, and the note below that (if the view has
-    /// one; the row is then as high as `row_height(style, true)` says). A
-    /// focused row is drawn white, for the focus bar below it.
-    pub fn draw_row(
-        &self,
-        canvas: &mut Canvas<'_>,
-        env: &Env<'_>,
-        style: &UiStyle,
-        view: &SliderView<'_>,
-    ) {
-        let row = view.area;
-        let focused = view.focus != SliderFocus::None;
-        // A long title on more lines, the band below them: never cut.
-        let room = if view.room.is_empty() {
-            view.shown
-        } else {
-            view.room
-        };
-        let extra = title_extra(env, style, row.width, view.title, room);
-        let title = title_area(style, row);
-        let title = Rect::new(title.x, title.y, title.width, title.height + extra);
-        draw_value_row(canvas, env, style, title, focused, view.title, view.shown);
-        let band = band_below(style, row, extra);
-        let band_view = SliderView {
-            area: band,
-            ..*view
-        };
-        self.draw_band(canvas, env, style, &band_view);
-        if !view.note.is_empty() {
-            let below = band.y + band.height;
-            draw_note_below(canvas, env, style, row, below, focused, view.note);
-        }
     }
 }
 
@@ -453,32 +382,6 @@ pub fn row_height(style: &UiStyle, noted: bool) -> u16 {
         style.title_band() + band + style.gap * 3 / 2
     };
     height as u16
-}
-
-/// How much higher than [`row_height`] a slider's row is where its
-/// `title`, beside its value (as wide as `room`, its widest), takes more
-/// than its line: the band goes as much lower ([`band_below`]).
-pub fn title_extra(env: &Env<'_>, style: &UiStyle, width: u16, title: &str, room: &str) -> u16 {
-    let Some(font) = style.font(env) else {
-        return 0;
-    };
-    let lines = super::setting_rows::ValueLines::new(&font, style, width, title, room);
-    let band = title_area(style, Rect::new(0, 0, width, row_height(style, false))).height;
-    lines.height().saturating_sub(band)
-}
-
-/// [`row_height`] for a slider titled `title` beside its value (as wide
-/// as `room`, its widest), in a row `width` wide: higher by
-/// [`title_extra`] where the title needs more than its line.
-pub fn row_height_for(
-    env: &Env<'_>,
-    style: &UiStyle,
-    width: u16,
-    title: &str,
-    room: &str,
-    noted: bool,
-) -> u16 {
-    row_height(style, noted) + title_extra(env, style, width, title, room)
 }
 
 /// The slider's band in a row whose title takes `extra` more than its

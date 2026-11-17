@@ -35,12 +35,10 @@
 
 use alloc::format;
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 
 use crate::builtin::events::ScreenShown;
-use crate::env::Env;
 use crate::event::Event;
-use crate::{Command, Id, Rect, RegisterError};
+use crate::{Id, Rect, RegisterError};
 
 /// The point hints go to.
 pub const POINT: &str = "help.hints";
@@ -70,15 +68,6 @@ impl Input {
         [Input::Any, Input::Touch, Input::Buttons]
             .into_iter()
             .find(|i| i.id() == id)
-    }
-
-    /// Whether a hint for this shows on `env`'s device.
-    pub fn fits(self, env: &Env<'_>) -> bool {
-        match self {
-            Input::Any => true,
-            Input::Touch => env.device().input.touch,
-            Input::Buttons => !env.device().input.touch,
-        }
     }
 }
 
@@ -206,31 +195,6 @@ pub fn wait(
 "
         ),
     )
-}
-
-/// Whether the hints of `screen` wait until it is ready ([`wait`]).
-pub fn waits(env: &Env<'_>, screen: &str) -> bool {
-    env.services()
-        .contributions(POINT)
-        .flat_map(|(_, text)| text.lines())
-        .any(|line| line.split_once(' ') == Some((screen, "wait")))
-}
-
-/// What a screen whose hints wait ([`wait`]) says once it is ready: its
-/// hints show then, the first time. Cheap to say again.
-pub fn ready(screen: &Id) -> Command {
-    READY.emit(ScreenShown::new(screen.clone()))
-}
-
-/// The hints of `screen` for `env`'s device, in the order they came.
-pub fn hints(env: &Env<'_>, screen: &str) -> Vec<HelpHint> {
-    env.services()
-        .contributions(POINT)
-        .flat_map(|(_, text)| text.lines())
-        .filter_map(HelpHint::parse)
-        .filter(|(s, hint)| *s == screen && hint.input.fits(env))
-        .map(|(_, hint)| hint)
-        .collect()
 }
 
 #[cfg(test)]

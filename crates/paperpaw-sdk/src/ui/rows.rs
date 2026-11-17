@@ -244,35 +244,6 @@ impl Rows {
         next.map_or(ListChange::None, |i| self.set_focus(i))
     }
 
-    /// Moves the focus to the next (`forward`) or previous entry as
-    /// [`step`](Self::step) does, but where the reader chose that the
-    /// arrow keys stay on the page
-    /// ([`settings::ARROWS_STAY_ON_PAGE`](crate::builtin::settings::ARROWS_STAY_ON_PAGE)),
-    /// past the page's last it goes round to its first, and back: only
-    /// [`turn`](Self::turn) turns pages.
-    pub fn step_in(&mut self, env: &crate::Env<'_>, forward: bool) -> ListChange {
-        let page = self
-            .pages
-            .get(self.page_of(self.focus))
-            .map(|p| p.1.clone());
-        let Some(page) = page.filter(|_| super::list::stays_on_page(env)) else {
-            return self.step(forward);
-        };
-        let (all, this) = (self.all_passed(), &*self);
-        let entries =
-            |range: core::ops::Range<usize>| range.filter(move |&i| this.stops_at(i, all));
-        let next = if forward {
-            entries(self.focus + 1..page.end)
-                .next()
-                .or_else(|| entries(page.clone()).next())
-        } else {
-            entries(page.start..self.focus)
-                .next_back()
-                .or_else(|| entries(page.clone()).next_back())
-        };
-        next.map_or(ListChange::None, |i| self.set_focus(i))
-    }
-
     /// Turns to the next (`forward`) or previous page, focusing its
     /// first entry.
     pub fn turn(&mut self, forward: bool) -> ListChange {

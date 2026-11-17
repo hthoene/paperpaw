@@ -106,7 +106,8 @@ impl crate::Kernel {
             return false;
         };
         let mut record = [0u8; RECORD_BYTES];
-        let (input, len) = match ui.next_widget_input(owner, self.shared.now.millis(), &mut record) {
+        let (input, len) = match ui.next_widget_input(owner, self.shared.now.millis(), &mut record)
+        {
             Ok(Some(found)) => found,
             other => {
                 // A record that does not fit its buffer is a bug; a table in

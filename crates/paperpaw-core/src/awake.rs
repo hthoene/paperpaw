@@ -77,7 +77,8 @@ impl Kernel {
         let id = hold.id().clone();
         self.holds.held.retain(|h| h.id != id);
         let until = self
-            .shared.now
+            .shared
+            .now
             .add_millis(u64::try_from(hold.duration().as_millis()).unwrap_or(u64::MAX));
         self.holds.held.push(Held {
             plugin: String::from(id.namespace()),

@@ -129,33 +129,6 @@ impl WidgetStack {
         }
     }
 
-    /// Reads what the widgets show anew; where it changed, their areas,
-    /// to draw again.
-    pub fn update(&mut self, env: &Env<'_>) -> Vec<Rect> {
-        self.update_where(env, |_| true)
-    }
-
-    /// The same for the live widgets alone ([`Widget::live`]), e.g. each
-    /// minute.
-    pub fn update_live(&mut self, env: &Env<'_>) -> Vec<Rect> {
-        self.update_where(env, |shown| shown.widget.live())
-    }
-
-    /// The same for widget `id` alone (a placement of it too).
-    pub fn update_one(&mut self, env: &Env<'_>, id: &str) -> Vec<Rect> {
-        self.update_where(env, |shown| super::base(&shown.id) == super::base(id))
-    }
-
-    fn update_where(&mut self, env: &Env<'_>, which: impl Fn(&Shown) -> bool) -> Vec<Rect> {
-        let mut changed = Vec::new();
-        for shown in &mut self.widgets {
-            if which(shown) && shown.widget.update(env) {
-                changed.push(shown.area);
-            }
-        }
-        changed
-    }
-
     /// The places in the widgets that do something, in reading order.
     pub fn targets(&self, env: &Env<'_>) -> Vec<WidgetTarget> {
         self.widgets

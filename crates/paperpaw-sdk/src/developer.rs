@@ -81,21 +81,6 @@ pub fn open(link: Id, events: Id) -> Command {
     request(DevCommand::Open { link, events })
 }
 
-/// Sends `data` to the computer over `link`.
-pub fn write(link: Id, data: Vec<u8>) -> Command {
-    request(DevCommand::Write { link, data })
-}
-
-/// Asks for the frame shown now ([`DevEvent::Screen`]).
-pub fn screen(link: Id) -> Command {
-    request(DevCommand::Screen { link })
-}
-
-/// Closes `link`.
-pub fn close(link: Id) -> Command {
-    request(DevCommand::Close { link })
-}
-
 /// Why a link closed ([`DevEvent::Closed`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]

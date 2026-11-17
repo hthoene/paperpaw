@@ -31,10 +31,6 @@ use paperpaw_platform::Storage;
 
 use crate::builtin::PLUGIN_DIR;
 use crate::native::{self, CODE_FILES};
-use crate::{Command, Env, Id, PluginKind};
-
-/// The longest `plugin.ini` read for the plugin's id.
-const MAX_MANIFEST: usize = 16 * 1024;
 
 /// Why a plugin was not installed (and nothing installed changed).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,79 +170,6 @@ impl Staging {
         files
     }
 
-    /// Installs the plugin from the files sent (see the [module
-    /// documentation](self)), or says why not; the files stay for another
-    /// try only where the reader has not agreed to its code yet.
-    pub fn commit(
-        &self,
-        env: &Env<'_>,
-        commit: Commit,
-        out: &mut crate::Commands,
-    ) -> Result<Committed, Refusal> {
-        let checked = self.check(env, commit);
-        if !matches!(checked, Ok(_) | Err(Refusal::NeedsApproval)) {
-            self.abort(env.storage());
-        }
-        let code = checked?;
-        let storage = env.storage();
-        // Those the store installed before origins were kept stay its.
-        super::adopt(env);
-        // Named as installed, and no store's, once it is in place.
-        let mut marks = super::marks::Marks::new(super::marks::From::Local);
-        if let Some(sha256) = code {
-            marks = marks.code(sha256);
-        }
-        if super::marks::write(storage, &self.folder(), &marks).is_err() {
-            self.abort(storage);
-            return Err(Refusal::Storage);
-        }
-        let id = Id::parse(&self.plugin).map_err(|_| Refusal::Name)?;
-        out.push(Command::InstallPlugin(id, self.folder()));
-        Ok(Committed {
-            plugin: self.plugin.clone(),
-            code: code.is_some(),
-        })
-    }
-
-    /// Whether the files sent make the plugin; its code's SHA-256 (the
-    /// header's, as installers name it) where it has code.
-    fn check(&self, env: &Env<'_>, commit: Commit) -> Result<Option<[u8; 32]>, Refusal> {
-        let storage = env.storage();
-        let folder = self.folder();
-        if folder_plugin_id(storage, &folder).as_deref() != Some(self.plugin.as_str()) {
-            return Err(Refusal::NotThePlugin);
-        }
-        if env
-            .plugins
-            .get(&self.plugin)
-            .is_some_and(|info| info.kind == PluginKind::BuiltIn)
-        {
-            return Err(Refusal::BuiltIn);
-        }
-        let Some(code) = CODE_FILES
-            .iter()
-            .map(|name| format!("{folder}/{name}"))
-            .find(|path| storage.exists(path))
-        else {
-            return Ok(None);
-        };
-        let native = env
-            .native
-            .filter(|native| code.ends_with(&*native.file))
-            .ok_or(Refusal::NoCode)?;
-        let (header, _) = native::check_file(storage, &code).map_err(|problem| match problem {
-            native::Problem::Other(native::NO_MEMORY) => Refusal::Other(native::NO_MEMORY),
-            _ => Refusal::BadCode,
-        })?;
-        if header.fingerprint != native.fingerprint.0 {
-            return Err(Refusal::OtherBuild);
-        }
-        if commit.approved != Some(header.sha256) {
-            return Err(Refusal::NeedsApproval);
-        }
-        Ok(Some(header.sha256))
-    }
-
     /// The code among the files sent, as installers name it (the SHA-256
     /// its header holds, checked whole): what the reader is asked to let
     /// run ([`Commit::approved`]). `None` where there is none, or it is
@@ -265,16 +188,6 @@ impl Staging {
     pub fn abort(&self, storage: &dyn Storage) {
         let _ = storage.remove_dir_all(&self.folder());
     }
-}
-
-/// The id `plugin.ini` in `folder` names.
-fn folder_plugin_id(storage: &dyn Storage, folder: &str) -> Option<String> {
-    let bytes = crate::read_file(storage, &format!("{folder}/plugin.ini"), MAX_MANIFEST).ok()?;
-    let source = core::str::from_utf8(&bytes).ok()?;
-    paperpaw_config::parse(source)
-        .filter_map(Result::ok)
-        .find(|entry| entry.section == "plugin" && entry.key == "id")
-        .map(|entry| String::from(entry.value.as_str().trim()))
 }
 
 /// The SHA-256 of the file at `path`, read a part at a time.

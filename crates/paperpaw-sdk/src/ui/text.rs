@@ -45,7 +45,7 @@ pub fn icon_width(env: &Env<'_>, name: &str, size: f32) -> f32 {
 
 /// Where icon `name`'s ink begins and ends across at `size`, from where it
 /// is drawn (see [`FontHandle::ink_across`]); `None` without a drawing.
-pub fn icon_ink(env: &Env<'_>, name: &str, size: f32) -> Option<(i32, i32)> {
+pub(crate) fn icon_ink(env: &Env<'_>, name: &str, size: f32) -> Option<(i32, i32)> {
     let (font, ch) = icon(env, name)?;
     let mut text = [0u8; 4];
     font.ink_across(size, ch.encode_utf8(&mut text))
@@ -68,15 +68,9 @@ pub(crate) fn icon<'f>(env: &Env<'f>, name: &str) -> Option<(FontHandle<'f>, cha
     font.has_char(ch).then_some((font, ch))
 }
 
-/// Whether icon `name` has a drawing here (see [`draw_icon`]), e.g. a
-/// semantic icon a theme gave one.
-pub fn has_icon(env: &Env<'_>, name: &str) -> bool {
-    icon(env, name).is_some()
-}
-
 /// Draws icon `name` `size` pixels high with its ink centred at
 /// `(x, y)`; `false`, drawing nothing, where it has no drawing.
-pub fn draw_icon_at(
+pub(crate) fn draw_icon_at(
     canvas: &mut Canvas<'_>,
     env: &Env<'_>,
     name: &str,
@@ -124,15 +118,6 @@ pub(crate) fn draw_icon_centred(
     };
     let baseline = (twice_middle - top - bottom + 1).div_euclid(2);
     font.draw(canvas, size, x, baseline, text, color)
-}
-
-/// The height of a section's heading in a list (see [`Rows`]): small
-/// text with a little room above it.
-pub fn heading_height(env: &Env<'_>, style: &UiStyle) -> u16 {
-    let line = style.font(env).map_or(style.small * 1.3, |f| {
-        f.line_metrics(style.small).line_height
-    });
-    (line * 1.25) as u16 + style.gap as u16
 }
 
 /// Draws a section's heading in `rect`: small and gray, low in its room,
@@ -267,16 +252,6 @@ pub(crate) fn draw_switch(
 /// Icons in lists are this much larger than the text beside them.
 pub const ICON_SCALE: f32 = 1.25;
 
-/// The room icons take at the start of list rows (icon and gap), or 0
-/// without an icon font or when `any` row has none.
-pub fn icon_room(env: &Env<'_>, style: &UiStyle, any: bool) -> u16 {
-    if any && has_icons(env) {
-        (style.text * ICON_SCALE) as u16 + style.gap as u16
-    } else {
-        0
-    }
-}
-
 /// Draws a list row's icon at the margin, centred on the row's first
 /// line (`rect`), and returns the rest of the row for its label: the
 /// label starts where it would after any icon, so rows line up.
@@ -355,27 +330,6 @@ pub(crate) fn draw_switch_row(
         super::setting_rows::draw_note_below(canvas, env, style, rect, below, focused, note);
     }
     draw_switch(canvas, style, band, on, focused && style.dark_focus());
-}
-
-/// Whether icons can be drawn (an icon font is there).
-pub fn has_icons(env: &Env<'_>) -> bool {
-    env.fonts()
-        .bound(crate::builtin::fonts::ICONS.as_str())
-        .is_some()
-}
-
-/// The translation of `key` for how the device is used: where there is
-/// no touch screen, `<key>.buttons` if there is one (e.g. "Select a rule
-/// to pause it" for "Tap a rule to pause it"), else `key`'s own. Notes
-/// that tell what a tap or a hold does use it, so they never speak of
-/// taps on a device without a touch screen.
-pub fn tr_input<'a>(env: &Env<'a>, key: &'a str) -> &'a str {
-    if !env.device().input.touch
-        && let Some(text) = env.i18n().get(&format!("{key}.buttons"))
-    {
-        return text;
-    }
-    env.i18n().tr(key)
 }
 
 /// Draws `text` vertically centred in `area`, starting at `x`; text
@@ -632,17 +586,6 @@ pub fn fit_pair(
     (title, value, value_width)
 }
 
-/// The height [`Ui::message`](super::Ui::message) needs for all of `text` in an area
-/// `width` wide.
-pub fn message_height(env: &Env<'_>, style: &UiStyle, width: u16, text: &str) -> u16 {
-    let Some(font) = style.font(env) else {
-        return 0;
-    };
-    let room = (f32::from(width) - 2.0 * style.margin as f32).max(1.0);
-    let lines = font.wrap(style.text, text, room).len().max(1);
-    (font.line_metrics(style.text).line_height * lines as f32) as u16 + 1
-}
-
 /// Draws wrapped, centred message text in `area` ([`message_height`]
 /// high holds all of it).
 pub(crate) fn draw_message(
@@ -695,18 +638,6 @@ fn as_shown<'a>(
         Some(range) if cut => Cow::Owned(alloc::format!("{}{last}", &text[..range.start])),
         _ => Cow::Borrowed(text),
     }
-}
-
-/// The height [`Ui::note_line`](super::Ui::note_line) needs for all of `text` in an area
-/// `width` wide: its light line and the lines of the text.
-pub fn note_line_height(env: &Env<'_>, style: &UiStyle, width: u16, text: &str) -> u16 {
-    let Some(font) = style.font(env) else {
-        return style.line as u16;
-    };
-    let room = f32::from(width.saturating_sub(2 * style.margin as u16)).max(1.0);
-    let lines = font.wrap(style.small, text, room).len().max(1);
-    let line = font.line_metrics(style.small).line_height;
-    style.line as u16 + (line * lines as f32) as u16 + 1
 }
 
 /// A note at the bottom of a screen (what a tap or a hold does there, or
@@ -855,26 +786,6 @@ fn empty_title_height(font: &FontHandle<'_>, size: f32, count: usize) -> f32 {
     }
     let line = font.line_metrics(size).line_height;
     line + font.heading_line_height(size) * count.saturating_sub(1) as f32
-}
-
-/// The height [`Ui::empty`](super::Ui::empty) needs in an area `width` wide for all of
-/// `title` and `text` in their full sizes, without its icon (which it
-/// shows where there is room for it as well).
-pub fn empty_height(env: &Env<'_>, style: &UiStyle, width: u16, title: &str, text: &str) -> u16 {
-    let Some(font) = style.font(env) else {
-        return 0;
-    };
-    let width = empty_width(style, width);
-    let (size, titles) = empty_title(&font, style, width, title);
-    let words = empty_title_height(&font, size, titles.len());
-    let lines = if text.is_empty() {
-        0
-    } else {
-        font.wrap(style.text, text, width).len()
-    };
-    let text = font.line_metrics(style.text).line_height * lines as f32;
-    let gap = if lines > 0 { style.gap as f32 } else { 0.0 };
-    (words + gap + text) as u16 + 1
 }
 
 /// An empty screen or list, saying what would be here and how it gets

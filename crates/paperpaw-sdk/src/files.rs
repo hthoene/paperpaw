@@ -471,13 +471,6 @@ pub fn size(bytes: u64, decimal: &str) -> String {
     }
 }
 
-/// A size as the language shown writes it: [`size`] with its decimal mark
-/// ([`decimal_mark`](crate::numbers::decimal_mark)) and its digits.
-pub fn shown_size(env: &crate::env::Env<'_>, bytes: u64) -> String {
-    let text = size(bytes, crate::numbers::decimal_mark(env));
-    env.i18n().localize_digits(&text).into_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

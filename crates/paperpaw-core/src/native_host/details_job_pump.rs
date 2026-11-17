@@ -243,7 +243,7 @@ impl crate::Kernel {
                 // came before it), or the next book.
                 self.native_outbox_run();
                 self.native_cover_job_pump();
-                Some(self.shared.now.millis().saturating_add(self.native_job_gap()))
+                Some(self.native_job_due())
             }
             Pass::Refused {
                 status,
@@ -347,7 +347,7 @@ impl crate::Kernel {
             Ok(Look::Book { path, line, next }) => (path, line, next),
             Ok(Look::More(at)) => {
                 run.set_cursor(at);
-                return Pass::Wait(self.shared.now.millis().saturating_add(self.native_job_gap()));
+                return Pass::Wait(self.native_job_due());
             }
             Ok(Look::End) => {
                 run.disarm();
@@ -444,7 +444,7 @@ impl crate::Kernel {
     /// failed where the format failed it). When the next look is due.
     #[inline(never)]
     fn native_details_refused(&self, status: i32, line: u64, next: u64, key: u64) -> u64 {
-        let soon = self.shared.now.millis().saturating_add(self.native_job_gap());
+        let soon = self.native_job_due();
         let Some(run) = self.native_details_job().map(DetailsJob::run) else {
             return soon;
         };
@@ -453,7 +453,8 @@ impl crate::Kernel {
             ERR_BUSY | ERR_FULL | ERR_NO_MEMORY => {
                 let tries = run.later(line, next);
                 return self
-                    .shared.now
+                    .shared
+                    .now
                     .millis()
                     .saturating_add(super::doc_pump::wait(tries));
             }

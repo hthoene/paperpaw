@@ -250,7 +250,9 @@ impl crate::Kernel {
         // clocks run: a plugin whose network was turned off loses what it
         // has open in this pass.
         self.sync_net_policy();
-        self.shared.native_instances.set_now(self.shared.now.millis());
+        self.shared
+            .native_instances
+            .set_now(self.shared.now.millis());
         self.shared
             .native_instances
             .retry_run_closes(self.shared.now.millis());

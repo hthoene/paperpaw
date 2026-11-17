@@ -746,7 +746,7 @@ impl<'a> CommandBatch<'a> {
     }
 
     /// Iterate over commands by value in wire order.
-    pub fn iter(&self) -> impl Iterator<Item = Command<'a>> + '_ {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = Command<'a>> + '_ {
         self.records[..self.len].iter().flatten().copied()
     }
 }
@@ -1725,7 +1725,7 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
 /// Every key, value and bound, and the complete output capacity, are checked
 /// before any write. Failure leaves the entire output unchanged. Empty keys and
 /// absent values return ERR_INVALID; limits and short output return ERR_NO_SPACE.
-pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize, i32> {
+pub(crate) fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize, i32> {
     if commands.len() > COMMAND_MAX_RECORDS {
         return Err(-3);
     }
