@@ -421,7 +421,7 @@ impl<'a> Action<'a> {
 }
 
 /// How the row of hints below the screen shows an action, unless the
-/// screen says otherwise ([`Screen::hint`](crate::Screen::hint)).
+/// screen says otherwise (`hint`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ActionHint {

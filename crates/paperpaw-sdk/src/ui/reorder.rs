@@ -7,7 +7,7 @@
 //! A screen keeps a [`Reorder`], draws rows with [`Reorder::draw_grip`]
 //! in what [`Reorder::content`] leaves, the bar with [`Reorder::draw`],
 //! and passes pointer samples to [`Reorder::on_pointer`] from
-//! [`Screen::on_pointer`](crate::Screen::on_pointer).
+//! `on_pointer`.
 //!
 //! The row's end is where its line of text ends: at the left in a
 //! right-to-left UI language ([`UiStyle::is_rtl`]). [`Reorder::draw`]

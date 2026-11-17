@@ -782,9 +782,9 @@ mod tests {
 
     fn screens_kernel() -> crate::Kernel {
         use crate::Items;
-        use paperpaw_sdk::{Manifest, RegisterError, Screen, ScreenSpec, Version};
+        use paperpaw_sdk::{Manifest, RegisterError, Version};
         struct Empty;
-        impl Screen for Empty {
+        impl crate::Layer for Empty {
             fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}
             fn on_action(
                 &mut self,
@@ -797,7 +797,7 @@ mod tests {
         fn screens() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             |r| {
                 for id in ["probe.base", "probe.old", "probe.new"] {
-                    r.add_screen(ScreenSpec::new(
+                    r.add_layer(crate::LayerSpec::new(
                         Id::new_static(id),
                         "probe.title",
                         alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Empty)),

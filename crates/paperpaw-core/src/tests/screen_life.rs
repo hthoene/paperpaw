@@ -24,7 +24,7 @@ struct ReaderScreen {
     asks: Asks,
 }
 
-impl Screen for ReaderScreen {
+impl crate::Layer for ReaderScreen {
     fn revision(&self) -> u16 {
         self.asks.get().1
     }
@@ -71,7 +71,7 @@ struct Other {
     log: Log,
 }
 
-impl Screen for Other {
+impl crate::Layer for Other {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
@@ -95,7 +95,7 @@ impl Screen for Other {
 fn book_plugin(kept0: Log, kept1: Asks) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let (log, asks) = (kept0.clone(), kept1.clone());
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             READER,
             "reader",
             Box::new(move |_, _| {
@@ -111,7 +111,7 @@ fn book_plugin(kept0: Log, kept1: Asks) -> impl Fn(&mut Items) -> Result<(), Reg
             (FULL, "full", None),
         ] {
             let log = kept0.clone();
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(crate::LayerSpec::new(
                 id,
                 "other",
                 Box::new(move |_, _| {

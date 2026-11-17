@@ -9,7 +9,7 @@ use paperpaw_sdk::builtin::{events, groups, menus, params};
 use paperpaw_sdk::document::Document;
 use paperpaw_sdk::{
     ActionSpec, Canvas, Command, Cx, Env, FormatSpec, Handled, Id, Manifest, MenuEntry, MenuNeed,
-    Params, Rect, RegisterError, Screen, ScreenSpec, SettingSpec, Version,
+    Params, Rect, RegisterError, SettingSpec, Version,
 };
 
 use crate::lights::Lights;
@@ -101,7 +101,7 @@ struct VoiceSettings {
     app: AndroidApp,
 }
 
-impl Screen for VoiceSettings {
+impl paperpaw_core::Layer for VoiceSettings {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
@@ -139,7 +139,7 @@ impl AndroidPlugin {
         )?;
         r.set_menu_need(VOICE, MenuNeed::Speech)?;
         let app = self.app.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(paperpaw_core::LayerSpec::new(
             VOICE_SCREEN,
             "android.voice",
             Box::new(move |_, _| Box::new(VoiceSettings { app: app.clone() })),

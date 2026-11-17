@@ -29,12 +29,14 @@ const BOOK: &str = "books/alice-in-wonderland.epub";
 /// 1,349 and 712.
 const KEPT_ALL_SLOTS: u32 = 560;
 const KEPT_SETTINGS: u32 = 60;
-/// The one step "a cover became ready" after the return: the library announces
-/// the card's cover and Home draws that cell, 0.5 to 1.5 s after the first frame
-/// (356 slots, 9 settings reads measured with the black-and-white first frame
-/// of #1569; nothing else happens up to 7 s). The return itself is
-/// `KEPT_ALL_SLOTS`; a laid-out page costs over 1,300.
-const COVER_READY_SLOTS: u32 = 360;
+/// The step after the return from a book: the book's card has its cover in
+/// the first frame (the library lists the book at once, #267), so the page,
+/// black and white first, is drawn again in grays once it is calm (Decision
+/// 196): the whole page with its look kept (494 slots, 34 settings reads
+/// measured). Where the cover came after the first frame, Home drew that cell
+/// alone (356 slots). The return itself is `KEPT_ALL_SLOTS`; a laid-out page
+/// costs over 1,300.
+const GRAY_PASS_SLOTS: u32 = 520;
 /// A full redraw (five bands) of a page whose look is kept: slots, settings reads
 /// (622 and 270 before the look was kept; 330 and about 12 measured).
 const STEADY_SLOTS: u32 = 370;
@@ -248,8 +250,8 @@ fn what_a_book_changed_under_the_cover_shows_when_it_returns() {
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
     );
     assert!(
-        cover <= COVER_READY_SLOTS && cover_settings <= KEPT_SETTINGS,
-        "the ready cover made {cover} host slots ({cover_settings} settings reads): more than its cell"
+        cover <= GRAY_PASS_SLOTS && cover_settings <= KEPT_SETTINGS,
+        "the gray pass made {cover} host slots ({cover_settings} settings reads): the page was laid out again"
     );
     assert_ne!(
         shot(&mut device, "card-after"),
@@ -346,8 +348,8 @@ fn a_return_from_a_book_read_for_minutes_keeps_the_page() {
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
     );
     assert!(
-        cover <= COVER_READY_SLOTS && cover_settings <= KEPT_SETTINGS,
-        "the ready cover made {cover} host slots ({cover_settings} settings reads): more than its cell"
+        cover <= GRAY_PASS_SLOTS && cover_settings <= KEPT_SETTINGS,
+        "the gray pass made {cover} host slots ({cover_settings} settings reads): the page was laid out again"
     );
 }
 
