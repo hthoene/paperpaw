@@ -4,7 +4,7 @@
 //! it there. Taps on the rest of the row work as before, and buttons keep
 //! their own ways of moving rows (e.g. *Move up*, *Move down*).
 //!
-//! A screen keeps a [`Reorder`], draws rows with [`Reorder::draw_grip`]
+//! A screen keeps a [`Reorder`], draws rows with `Reorder::draw_grip`
 //! in what [`Reorder::content`] leaves, the bar with [`Reorder::draw`],
 //! and passes pointer samples to [`Reorder::on_pointer`] from
 //! `on_pointer`.
@@ -15,12 +15,8 @@
 
 use alloc::vec::Vec;
 
-use crate::semantics::Role;
-use crate::ui::{ListView, UiStyle, draw_icon, icon_width};
-use crate::{Canvas, Color, Env, PointerEvent, PointerPhase, Rect};
-
-/// The grip's icon.
-const GRIP: &str = "menu-2";
+use crate::ui::{ListView, UiStyle};
+use crate::{Color, PointerEvent, PointerPhase, Rect};
 
 /// Rows being moved by dragging; see the [module documentation](self).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -75,28 +71,6 @@ impl Reorder {
             row.x
         };
         Rect::new(x, row.y, row.width - grip.width, row.height)
-    }
-
-    /// Draws the grip of `row` (white on a focused row).
-    pub fn draw_grip(
-        canvas: &mut Canvas<'_>,
-        env: &Env<'_>,
-        style: &UiStyle,
-        row: Rect,
-        focused: bool,
-    ) {
-        let grip = Self::grip(row, style);
-        let size = style.text;
-        // Flush with the margin, where other rows end their values.
-        let x = if style.is_rtl() {
-            f32::from(grip.x) + style.margin as f32
-        } else {
-            let right = f32::from(grip.x + grip.width) - style.margin as f32;
-            right - icon_width(env, GRIP, size)
-        };
-        let ink = style.focus_ink(focused);
-        canvas.describe(Role::Button, env.i18n().tr("core.move"), grip);
-        draw_icon(canvas, env, GRIP, size, x, grip, ink);
     }
 
     /// The row being moved and where it would land, while one is.

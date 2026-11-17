@@ -145,7 +145,7 @@ fn calls(kernel: &mut Kernel) -> Vec<String> {
 
 /// Runs the work `work` at `at`.
 fn run(kernel: &mut Kernel, at: u64, work: Work) {
-    kernel.now = Instant(at - 1);
+    kernel.shared.now = Instant(at - 1);
     kernel.apply(Command::work(work));
     kernel.finish();
     kernel.tick(Instant(at));

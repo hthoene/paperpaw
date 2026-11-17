@@ -435,9 +435,9 @@ pub use env::{Capabilities, Capability, Env, Metrics};
 pub(crate) use env::{Capabilities, Capability, Env, Metrics};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use event::{Event, EventData, FixedSubscription};
+pub use event::{Event, EventData};
 #[cfg(not(any(test, feature = "kernel")))]
-pub(crate) use event::{Event, EventData, FixedSubscription};
+pub(crate) use event::{Event, EventData};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use fonts::{BuiltInFont, BuiltInFonts};

@@ -123,7 +123,7 @@ impl Kernel {
                     if !self
                         .input
                         .recognizer
-                        .lift_edge(event.id, self.now, &thresholds)
+                        .lift_edge(event.id, self.shared.now, &thresholds)
                     {
                         self.edge_lifted(touch, event.point);
                     }
@@ -134,7 +134,9 @@ impl Kernel {
                 }
                 PointerPhase::Move => {
                     let thresholds = self.thresholds();
-                    self.input.recognizer.pointer(&event, self.now, &thresholds);
+                    self.input
+                        .recognizer
+                        .pointer(&event, self.shared.now, &thresholds);
                 }
                 _ => {}
             }
@@ -172,11 +174,17 @@ impl Kernel {
                 Direction::Up | Direction::Down => input::Edge::End,
                 _ => input::Edge::Side,
             };
-            self.input.recognizer.follow_edge(&event, self.now, edge);
+            self.input
+                .recognizer
+                .follow_edge(&event, self.shared.now, edge);
             return;
         }
         let thresholds = self.thresholds();
-        if let Some(recognized) = self.input.recognizer.pointer(&event, self.now, &thresholds) {
+        if let Some(recognized) =
+            self.input
+                .recognizer
+                .pointer(&event, self.shared.now, &thresholds)
+        {
             self.recognized_filtered(recognized);
         }
     }
@@ -269,9 +277,9 @@ impl Kernel {
                     .input
                     .edge_pending
                     .take()
-                    .is_some_and(|(side, until)| side == touch.side && self.now < until);
+                    .is_some_and(|(side, until)| side == touch.side && self.shared.now < until);
                 if !again {
-                    self.input.edge_pending = Some((touch.side, self.now.add_millis(3000)));
+                    self.input.edge_pending = Some((touch.side, self.shared.now.add_millis(3000)));
                     let text = self.shared.translator.tr("core.edge-again").to_string();
                     self.output.commands.push(Command::Notify(text));
                     return;
@@ -435,13 +443,13 @@ impl Kernel {
             return self.route_key(single);
         }
         match self.input.pending.take() {
-            Some((first, until, _)) if first == single && self.now < until => {
+            Some((first, until, _)) if first == single && self.shared.now < until => {
                 self.route_key(double)
             }
             other => {
                 self.input.pending = other;
                 self.route_key_pending();
-                let until = self.now.add_millis(self.double_ms());
+                let until = self.shared.now.add_millis(self.double_ms());
                 let on = self.input_index().map(|index| self.stack[index].serial);
                 self.input.pending = Some((single, until, on));
             }
@@ -579,9 +587,9 @@ impl Kernel {
     /// to show above a screen guarding the device only where the guard was
     /// offered the action and let it pass (`passed`).
     pub(crate) fn run_handler(&mut self, action: &Id, params: &Params, passed: bool) {
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let from = self.output.commands.len();
-        let (reader, now) = (self.shared.reader, self.now);
+        let (reader, now) = (self.shared.reader, self.shared.now);
         let top = self.stack.last().map(|s| s.id.namespace());
         let mut refused_secret = false;
         match self.shared.actions.get(action.as_str()) {

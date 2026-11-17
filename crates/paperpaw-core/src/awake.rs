@@ -77,6 +77,7 @@ impl Kernel {
         let id = hold.id().clone();
         self.holds.held.retain(|h| h.id != id);
         let until = self
+            .shared
             .now
             .add_millis(u64::try_from(hold.duration().as_millis()).unwrap_or(u64::MAX));
         self.holds.held.push(Held {
@@ -160,7 +161,7 @@ impl Kernel {
     /// device does not fall asleep the moment the cable is pulled.
     pub fn set_awake_on_usb(&mut self, now: Instant, on: bool) -> Effects {
         let _running = self.shared.meter.enter(crate::meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         if self.holds.usb && !on {
             self.last_activity = now;
         }
@@ -172,7 +173,7 @@ impl Kernel {
     /// on top.
     fn holding(&self) -> impl Iterator<Item = &Held> {
         let top = self.stack.last().map(|s| s.serial);
-        let now = self.now;
+        let now = self.shared.now;
         let count = self.holds_count();
         self.holds
             .held
@@ -188,7 +189,7 @@ impl Kernel {
     /// Counts the time holds kept the device awake for their plugins, and
     /// lets go of holds that ended or whose screen closed.
     pub(crate) fn count_awake(&mut self) {
-        let now = self.now;
+        let now = self.shared.now;
         if let Some(since) = self.holds.counted_at {
             let millis = now.since(since);
             let holding: Vec<(String, Cow<'static, str>, u64)> = self

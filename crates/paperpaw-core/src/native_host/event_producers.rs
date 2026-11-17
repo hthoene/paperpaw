@@ -214,7 +214,7 @@ impl crate::Kernel {
     pub(crate) fn native_setting_after(&self, key: &str, old: Option<&OldValue>) {
         if let Some(old) = old {
             if let Some(sink) = self.native_event_sink() {
-                sink.setting(self.now.millis(), key, old.bytes());
+                sink.setting(self.shared.now.millis(), key, old.bytes());
             }
             self.native_setting_publish(key, old.bytes());
         }
@@ -224,7 +224,7 @@ impl crate::Kernel {
         if self.native_event_sink().is_some() || self.native_setting_wanted() {
             let old = OldValue::capture(old);
             if let Some(sink) = self.native_event_sink() {
-                sink.setting(self.now.millis(), key, old.bytes());
+                sink.setting(self.shared.now.millis(), key, old.bytes());
             }
             self.native_setting_publish(key, old.bytes());
         }

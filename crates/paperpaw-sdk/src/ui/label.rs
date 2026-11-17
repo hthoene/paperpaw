@@ -6,7 +6,6 @@ use alloc::format;
 use paperpaw_graphics::{Canvas, Role};
 use paperpaw_platform::{Color, Rect};
 
-use crate::env::Env;
 use crate::fonts::FontHandle;
 use crate::widgets::Align;
 
@@ -133,31 +132,6 @@ impl<'t> Label<'t> {
             Size::Role(role) => style.size(role),
             Size::Px(px) => px,
         }
-    }
-
-    /// How wide its text is on one line.
-    pub fn width(&self, env: &Env<'_>, style: &UiStyle) -> f32 {
-        self.font
-            .or_else(|| style.font(env))
-            .map_or(0.0, |font| font.measure(self.size(style), self.text))
-    }
-
-    /// How high it is in an area `width` wide: a line, or the lines its
-    /// text takes there (up to [`Label::lines`]).
-    pub fn height(&self, env: &Env<'_>, style: &UiStyle, width: u16) -> u16 {
-        let Some(font) = self.font.or_else(|| style.font(env)) else {
-            return 0;
-        };
-        let size = self.size(style);
-        let line = font.line_metrics(size).line_height;
-        let lines = if self.lines == 1 {
-            1
-        } else {
-            font.wrap(size, self.text, f32::from(width).max(1.0))
-                .len()
-                .clamp(1, self.lines)
-        };
-        (line * lines as f32) as u16 + 1
     }
 
     /// Draws it in `area`, its lines in the middle of the area's height;

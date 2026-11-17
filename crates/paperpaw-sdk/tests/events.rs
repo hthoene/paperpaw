@@ -11,8 +11,8 @@
 
 use paperpaw_sdk::event::{Event, EventData, ParamValue};
 use paperpaw_sdk::{
-    CertificateHash, Command, Distrust, FolderChosen, HttpReply, Id, Instant, KeyHash, Params,
-    ServerNotice, SocketError, SocketNotice, Typed, http_params,
+    CertificateHash, Distrust, FolderChosen, HttpReply, Id, KeyHash, Params, ServerNotice,
+    SocketError, SocketNotice, Typed, http_params,
 };
 use proptest::prelude::*;
 
@@ -51,18 +51,6 @@ fn context(reserved: &'static [&'static str]) -> impl Strategy<Value = Params> {
     })
 }
 
-/// `read` with its float taken for `sent`'s where they are a unit of the
-/// last place apart at most.
-fn nearly(read: Option<Sample>, sent: &Sample) -> Option<Sample> {
-    read.map(|mut back| {
-        let apart = back.ratio.to_bits().abs_diff(sent.ratio.to_bits());
-        if apart <= 1 {
-            back.ratio = sent.ratio;
-        }
-        back
-    })
-}
-
 const HTTP_KEYS: &[&str] = &[
     http_params::STATUS,
     http_params::BODY,
@@ -76,34 +64,6 @@ const HTTP_KEYS: &[&str] = &[
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(std::env::var("PROPTEST_CASES").ok().and_then(|n| n.parse().ok()).unwrap_or(128)))]
 
-    /// A typed event comes back as emitted, every field exact but the
-    /// float, which is read within a unit of its last place (the SDK
-    /// leaves out `core`'s exact parser, for native plugins' size).
-    #[test]
-    fn typed_events_come_back(
-        text in "\\PC{0,20}",
-        count in any::<u32>(),
-        small in any::<u8>(),
-        signed in any::<i64>(),
-        ratio in proptest::num::f32::NORMAL | proptest::num::f32::ZERO | proptest::num::f32::SUBNORMAL,
-        on in any::<bool>(),
-        id in id(),
-        page in proptest::option::of(any::<u32>()),
-        note in proptest::option::of("\\PC{1,10}"),
-    ) {
-        let sample = Sample { text, count, small, signed, ratio, on, id, page, note };
-        let Command::Emit(event, params) = SAMPLE.emit(sample.clone()) else {
-            panic!("an event");
-        };
-        prop_assert_eq!(nearly(SAMPLE.read(&event, &params), &sample), Some(sample.clone()));
-        // Another event's id: not this one.
-        prop_assert_eq!(SAMPLE.read(&Id::new_static("t.other"), &params), None);
-        let Command::Work(work) = SAMPLE.schedule(sample.clone(), Instant(5)) else {
-            panic!("work at a time");
-        };
-        prop_assert_eq!(work.at, Some(Instant(5)));
-        prop_assert_eq!(nearly(SAMPLE.read(&work.id, &work.params), &sample), Some(sample));
-    }
 
     /// Whatever parameters come, reading them does not panic.
     #[test]

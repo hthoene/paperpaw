@@ -792,6 +792,7 @@ impl BuilderParts {
         }
         Kernel {
             shared: Shared {
+                now: Instant::default(),
                 native_events: None,
                 native_instances: crate::native_host::native_instances::NativeInstances::default(),
                 native_input: crate::native_host::ui_input::InputFilters::new(),
@@ -987,7 +988,6 @@ impl BuilderParts {
             native_registering: true,
             native_catalogs_added: false,
             plugin_choices: Vec::new(),
-            now: Instant::default(),
         }
     }
 }

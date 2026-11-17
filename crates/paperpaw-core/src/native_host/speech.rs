@@ -130,7 +130,7 @@ impl Kernel {
     /// event pump after this tells the queues.
     pub(crate) fn native_speech_pump(&mut self) -> bool {
         let ended = self.io.speech.take_ended();
-        let now_ms = self.now.millis();
+        let now_ms = self.shared.now.millis();
         for params in &ended {
             let number = |key| params.get(key).and_then(|text| text.parse::<u32>().ok());
             let (Some(owner), Some(cookie), Some(status)) =

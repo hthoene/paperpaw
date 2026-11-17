@@ -109,7 +109,7 @@ impl Kernel {
             // A cover that came after the screen's first frame is a part of
             // it: its grays follow once, after the calm. Not after a key (a
             // focus moved over covers costs no pass), nor on a book page.
-            let keyed = self.last_user_input == Some(self.now);
+            let keyed = self.last_user_input == Some(self.shared.now);
             let part = rule.whole
                 && eligible
                 && !screen_grays
@@ -181,12 +181,12 @@ impl Kernel {
         let on_top = self.gray_screen() == Some(gray.screen);
         match gray.phase {
             Phase::Pictured if on_top => {
-                self.frame.gray_later.phase = Phase::At(self.now.add_millis(CALM_MS));
+                self.frame.gray_later.phase = Phase::At(self.shared.now.add_millis(CALM_MS));
             }
             // Something came over it: the calm begins when it is on top again.
             Phase::At(_) if !on_top => self.frame.gray_later.phase = Phase::Pictured,
             Phase::At(at)
-                if at <= self.now
+                if at <= self.shared.now
                     && self.frame.pending.is_none()
                     && self.frame.unrendered.is_none() =>
             {
@@ -270,15 +270,15 @@ impl Kernel {
     pub(crate) fn gray_wake(&self, refreshing: bool) -> Option<Instant> {
         let gray = self.frame.gray_later;
         match gray.phase {
-            Phase::Asked if refreshing => Some(self.now),
+            Phase::Asked if refreshing => Some(self.shared.now),
             // Due but another frame waits (the step cannot start the pass
             // then): a short retry, not the time past (the shell would be
             // woken at once, again and again), and not nothing (no call
             // might come to bring the grays after a plain frame).
             Phase::At(at) if self.gray_screen() == Some(gray.screen) => {
                 let blocked = self.frame.pending.is_some() || self.frame.unrendered.is_some();
-                Some(if at <= self.now && blocked {
-                    self.now.add_millis(RETRY_MS)
+                Some(if at <= self.shared.now && blocked {
+                    self.shared.now.add_millis(RETRY_MS)
                 } else {
                     at
                 })

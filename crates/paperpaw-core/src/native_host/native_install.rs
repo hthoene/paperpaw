@@ -525,11 +525,11 @@ impl crate::Kernel {
         match self.shared.native_instances.retire(key) {
             Ok(replacement) => replacement,
             Err(status) => {
-                if self
-                    .shared
-                    .native_instances
-                    .retirement_failed(key, status, self.now.millis())
-                {
+                if self.shared.native_instances.retirement_failed(
+                    key,
+                    status,
+                    self.shared.now.millis(),
+                ) {
                     self.warn_runtime("native owner cleanup failed; retry delayed");
                 }
                 None
@@ -607,7 +607,7 @@ impl crate::Kernel {
         if let Err(status) = self
             .shared
             .native_instances
-            .retry_orphaned_retirements(self.now.millis())
+            .retry_orphaned_retirements(self.shared.now.millis())
             && status != paperpaw_native::host_glue::ERR_BUSY
         {
             self.warn_runtime(if status == paperpaw_native::host_glue::ERR_FULL {
@@ -622,7 +622,7 @@ impl crate::Kernel {
             if !self
                 .shared
                 .native_instances
-                .retirement_ready(key, self.now.millis())
+                .retirement_ready(key, self.shared.now.millis())
             {
                 continue;
             }
@@ -635,11 +635,11 @@ impl crate::Kernel {
 
     pub(crate) fn native_unload_due(&self) -> Option<paperpaw_platform::Instant> {
         if self.shared.stack_rows.closes_pending() {
-            return Some(self.now);
+            return Some(self.shared.now);
         }
         self.shared
             .native_instances
-            .retirement_due(self.now.millis())
+            .retirement_due(self.shared.now.millis())
             .map(paperpaw_platform::Instant)
     }
 

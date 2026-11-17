@@ -277,7 +277,7 @@ fn an_event_raised_during_a_callback_arrives_after_it_returns() {
 #[test]
 fn an_event_left_waiting_after_the_pump_wants_the_pump_now() {
     let mut w = world(ALL, &[]);
-    w.kernel.now = Instant(5_000);
+    w.kernel.shared.now = Instant(5_000);
     assert_eq!(w.kernel.service_due(), None, "nothing waits");
     w.kernel.emit(builtin::STARTED.id(), &Params::new());
     assert!(tags(&w, 'a').is_empty(), "queued, not told yet");
@@ -292,7 +292,7 @@ fn an_event_left_waiting_after_the_pump_wants_the_pump_now() {
 #[test]
 fn a_failing_callback_leaves_nothing_waiting_after_one_pass() {
     let mut w = world(ALL, &[]);
-    w.kernel.now = Instant(5_000);
+    w.kernel.shared.now = Instant(5_000);
     w.fails.set(true);
     w.kernel.emit(builtin::STARTED.id(), &Params::new());
     assert_eq!(w.kernel.service_due(), Some(Instant(5_000)));
@@ -306,7 +306,7 @@ fn a_failing_callback_leaves_nothing_waiting_after_one_pass() {
 #[test]
 fn the_pump_and_service_due_agree_at_every_pass() {
     let mut w = world(ALL, ALL);
-    w.kernel.now = Instant(5_000);
+    w.kernel.shared.now = Instant(5_000);
     for _ in 0..20 {
         w.kernel
             .emit(builtin::BATTERY_MEASURED.id(), &Params::new());

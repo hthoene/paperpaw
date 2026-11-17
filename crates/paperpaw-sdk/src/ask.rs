@@ -117,12 +117,6 @@ impl TextQuestion {
     pub fn command(self) -> Command {
         Command::OpenSlot(slots::KEYBOARD, self.params)
     }
-
-    /// The command that asks on another device, e.g. a phone (slot
-    /// [`REMOTE_KEYBOARD`](crate::builtin::slots::REMOTE_KEYBOARD)).
-    pub fn remote_command(self) -> Command {
-        Command::OpenSlot(slots::REMOTE_KEYBOARD, self.params)
-    }
 }
 
 /// A question for a folder (see [`folder`]).
