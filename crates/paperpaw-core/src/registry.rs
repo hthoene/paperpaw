@@ -1040,10 +1040,6 @@ impl Staging {
 
 /// Applies the contributions `plugin` made to `staging`, checking what its
 /// registrar could not: key maps, translations, hyphenation patterns.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
 pub(crate) fn stage(
     plugin: &Id,
     items: crate::Items,
