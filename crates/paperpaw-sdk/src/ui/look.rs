@@ -40,12 +40,12 @@ use paperpaw_platform::{Color, Rect};
 
 use super::UiStyle;
 
-pub use super::look_extra::{ExtraPaint, ExtraPainter, ExtraPart, PartKind, TextPainter, TextPart};
+pub(crate) use super::look_extra::{TextPainter, TextPart};
 
 /// The switch of an on/off setting ([`Ui::switch`](super::Ui::switch)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct SwitchPart {
+pub(crate) struct SwitchPart {
     /// Where the switch goes ([`switch_rect`](super::switch_rect)).
     pub rect: Rect,
     pub on: bool,
@@ -57,7 +57,7 @@ pub struct SwitchPart {
 /// be ([`draw_check`](super::draw_check)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct CheckPart {
+pub(crate) struct CheckPart {
     /// Where the box goes.
     pub rect: Rect,
     pub on: bool,
@@ -69,7 +69,7 @@ pub struct CheckPart {
 /// what is drawn on it comes in white.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct FocusPart {
+pub(crate) struct FocusPart {
     /// Where the focus goes ([`focus_rect`](super::focus_rect)).
     pub rect: Rect,
 }
@@ -77,7 +77,7 @@ pub struct FocusPart {
 /// The line below a row ([`Ui::separator`](super::Ui::separator)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct SeparatorPart {
+pub(crate) struct SeparatorPart {
     /// The row.
     pub row: Rect,
     /// Where the row's text starts after the margin.
@@ -106,7 +106,7 @@ impl FramePart {
 /// comes after, in the ink the painter returns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct ButtonPart {
+pub(crate) struct ButtonPart {
     pub rect: Rect,
     /// Chosen, e.g. the value set.
     pub on: bool,
@@ -118,7 +118,7 @@ pub struct ButtonPart {
 /// and note come after, in the ink the painter returns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct HeaderPart {
+pub(crate) struct HeaderPart {
     pub area: Rect,
 }
 
@@ -126,14 +126,14 @@ pub struct HeaderPart {
 /// line that sets it apart; the hints come after.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct HintRowPart {
+pub(crate) struct HintRowPart {
     pub area: Rect,
 }
 
 /// A progress bar ([`Ui::progress`](super::Ui::progress)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct ProgressPart {
+pub(crate) struct ProgressPart {
     pub area: Rect,
     /// Thousandths done, at most 1000.
     pub permille: u16,
@@ -143,7 +143,7 @@ pub struct ProgressPart {
 /// A slider's track and knob ([`Slider::draw_track`](super::slider::Slider::draw_track)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct SliderPart {
+pub(crate) struct SliderPart {
     pub track: Rect,
     /// Where the knob's middle is.
     pub knob_x: i32,
@@ -167,7 +167,7 @@ pub enum Edge {
 /// (a menu, a panel of choices).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct SheetPart {
+pub(crate) struct SheetPart {
     pub rect: Rect,
     /// The edge it comes from.
     pub edge: Edge,
@@ -178,7 +178,7 @@ pub struct SheetPart {
 /// where its title goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct CoverPart {
+pub(crate) struct CoverPart {
     pub rect: Rect,
     /// Where the title is written on it.
     pub title_rect: Rect,
@@ -188,7 +188,7 @@ pub struct CoverPart {
 /// A pill: a small rounded choice in a row of them (a filter, a tag).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct PillPart {
+pub(crate) struct PillPart {
     pub rect: Rect,
     pub selected: bool,
     pub inverted: bool,
@@ -198,7 +198,7 @@ pub struct PillPart {
 /// slider's steps, a page's place).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct TicksPart {
+pub(crate) struct TicksPart {
     pub rect: Rect,
     pub count: u16,
     pub at: u16,
@@ -236,9 +236,9 @@ impl fmt::Debug for PaintCx<'_, '_> {
 }
 
 /// Paints a part; `true` when it did.
-pub type Painter<P> = fn(&mut PaintCx<'_, '_>, &P) -> bool;
+pub(crate) type Painter<P> = fn(&mut PaintCx<'_, '_>, &P) -> bool;
 /// Paints a part's background; the ink for what goes on it when it did.
-pub type InkPainter<P> = fn(&mut PaintCx<'_, '_>, &P) -> Option<Color>;
+pub(crate) type InkPainter<P> = fn(&mut PaintCx<'_, '_>, &P) -> Option<Color>;
 
 /// A look: a painter for each part it changes (see the
 /// [module](self)). Made in the program, e.g. as a `static`.
@@ -259,7 +259,6 @@ pub struct Painters {
     pill: Option<InkPainter<PillPart>>,
     ticks: Option<Painter<TicksPart>>,
     text: Option<TextPainter>,
-    extras: &'static [ExtraPaint],
     flags: u32,
 }
 
@@ -281,7 +280,6 @@ impl fmt::Debug for Painters {
             .field("pill", &self.pill.is_some())
             .field("ticks", &self.ticks.is_some())
             .field("text", &self.text.is_some())
-            .field("extras", &self.extras.len())
             .field("flags", &self.flags)
             .finish()
     }
@@ -312,76 +310,8 @@ impl Painters {
             pill: None,
             ticks: None,
             text: None,
-            extras: &[],
             flags: 0,
         }
-    }
-
-    pub const fn switch(mut self, painter: Painter<SwitchPart>) -> Self {
-        self.switch = Some(painter);
-        self
-    }
-
-    pub const fn focus(mut self, painter: Painter<FocusPart>) -> Self {
-        self.focus = Some(painter);
-        self
-    }
-
-    pub const fn separator(mut self, painter: Painter<SeparatorPart>) -> Self {
-        self.separator = Some(painter);
-        self
-    }
-
-    pub const fn button(mut self, painter: InkPainter<ButtonPart>) -> Self {
-        self.button = Some(painter);
-        self
-    }
-
-    pub const fn header(mut self, painter: InkPainter<HeaderPart>) -> Self {
-        self.header = Some(painter);
-        self
-    }
-
-    pub const fn progress(mut self, painter: Painter<ProgressPart>) -> Self {
-        self.progress = Some(painter);
-        self
-    }
-
-    pub const fn slider(mut self, painter: Painter<SliderPart>) -> Self {
-        self.slider = Some(painter);
-        self
-    }
-
-    /// The text of the interface that [`Label`](super::Label)s draw: the
-    /// painter is asked about each run and says whether it drew it. It may
-    /// change how the text looks (a shadow, an outline, a texture), never
-    /// its width; `part.font.draw(..)` draws it as usual. Book text, page
-    /// layers and a plugin's own drawing do not pass through it.
-    pub const fn text(mut self, painter: TextPainter) -> Self {
-        self.text = Some(painter);
-        self
-    }
-
-    /// Painters for parts of kinds beyond the named ones, by
-    /// [`PartKind`], in a `static` list of the look. There is no limit; of
-    /// two entries for one kind the first is used. A kind the SDK does not
-    /// ask for yet is not painted (see
-    /// [`Capability::LOOK_EXTRAS`](crate::Capability::LOOK_EXTRAS)).
-    pub const fn extras(mut self, list: &'static [ExtraPaint]) -> Self {
-        self.extras = list;
-        self
-    }
-
-    /// Reserved bits, zero now: what a later release gives them is "as
-    /// before" where they are clear.
-    pub const fn flags(mut self, flags: u32) -> Self {
-        self.flags = flags;
-        self
-    }
-
-    /// The reserved bits set with [`Painters::flags`].
-    pub const fn flag_bits(&self) -> u32 {
-        self.flags
     }
 }
 
@@ -401,19 +331,8 @@ impl Look {
     }
 
     /// The painters, if a look is set.
-    pub fn painters(&self) -> Option<&'static Painters> {
+    pub(crate) fn painters(&self) -> Option<&'static Painters> {
         self.0
-    }
-
-    pub(super) fn switch(
-        &self,
-        canvas: &mut Canvas<'_>,
-        style: &UiStyle,
-        part: SwitchPart,
-    ) -> bool {
-        self.0
-            .and_then(|p| p.switch)
-            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     /// Paints a run of interface text with the look's text painter;
@@ -424,64 +343,10 @@ impl Look {
             .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), part))
     }
 
-    /// Paints a part of a kind beyond the named ones with the look's
-    /// painter for its kind (the first entry of it); `false` where it has
-    /// none or it did not.
-    pub fn extra(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: &ExtraPart<'_>) -> bool {
-        self.0
-            .and_then(|p| p.extras.iter().find(|e| e.kind() == part.kind))
-            .is_some_and(|e| (e.painter())(&mut PaintCx::new(canvas, style), part))
-    }
-
-    pub(super) fn check(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: CheckPart) -> bool {
-        self.0
-            .and_then(|p| p.check)
-            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
-    }
-
-    pub(crate) fn frame(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: FramePart) -> bool {
+    pub fn frame(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: FramePart) -> bool {
         self.0
             .and_then(|p| p.frame)
             .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
-    }
-
-    pub(super) fn focus(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: FocusPart) -> bool {
-        self.0
-            .and_then(|p| p.focus)
-            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
-    }
-
-    pub(super) fn separator(
-        &self,
-        canvas: &mut Canvas<'_>,
-        style: &UiStyle,
-        part: SeparatorPart,
-    ) -> bool {
-        self.0
-            .and_then(|p| p.separator)
-            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
-    }
-
-    pub(super) fn button(
-        &self,
-        canvas: &mut Canvas<'_>,
-        style: &UiStyle,
-        part: ButtonPart,
-    ) -> Option<Color> {
-        self.0
-            .and_then(|p| p.button)
-            .and_then(|paint| paint(&mut PaintCx::new(canvas, style), &part))
-    }
-
-    pub(super) fn header(
-        &self,
-        canvas: &mut Canvas<'_>,
-        style: &UiStyle,
-        part: HeaderPart,
-    ) -> Option<Color> {
-        self.0
-            .and_then(|p| p.header)
-            .and_then(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     pub(super) fn hints(
@@ -492,28 +357,6 @@ impl Look {
     ) -> bool {
         self.0
             .and_then(|p| p.hints)
-            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
-    }
-
-    pub(super) fn progress(
-        &self,
-        canvas: &mut Canvas<'_>,
-        style: &UiStyle,
-        part: ProgressPart,
-    ) -> bool {
-        self.0
-            .and_then(|p| p.progress)
-            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
-    }
-
-    pub(super) fn slider(
-        &self,
-        canvas: &mut Canvas<'_>,
-        style: &UiStyle,
-        part: SliderPart,
-    ) -> bool {
-        self.0
-            .and_then(|p| p.slider)
             .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 }

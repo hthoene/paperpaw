@@ -24,7 +24,7 @@ use super::casing::push_lower;
 use super::fallible::{catalog_path_try, copy};
 
 /// The longest catalog line read; a longer one is skipped as damaged.
-pub const LINE_CAP: usize = 8 * 1024;
+pub(crate) const LINE_CAP: usize = 8 * 1024;
 
 /// The books of a catalog (or any library): called with what to do with
 /// each, where it can fail.

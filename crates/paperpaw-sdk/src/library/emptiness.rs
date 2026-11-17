@@ -2,8 +2,8 @@
 //! kernel, which lets a walk run beside a library that holds no index and
 //! need not make the catalog again to know it is empty.
 
-use super::catalog::{HEADER, catalog_path, log_path};
-use crate::{Storage, StorageError};
+use super::catalog::{HEADER, catalog_path};
+use crate::Storage;
 
 /// Whether the catalog certainly lists no book: its header line ends and
 /// nothing follows (a walk of a library with nothing in it). A view of
@@ -31,16 +31,4 @@ pub fn is_empty(storage: &dyn Storage) -> bool {
     };
     // Blank lines only, and the read reached the end of the file.
     n < buf.len() && rest.iter().all(u8::is_ascii_whitespace)
-}
-
-/// Whether the log beside the catalog holds anything (books noted,
-/// removed), or cannot be told: then a view holds an index even of a
-/// catalog without books.
-pub fn log_has_entries(storage: &dyn Storage) -> bool {
-    match storage.size(&log_path()) {
-        Ok(size) => size > 0,
-        Err(StorageError::NotFound) => false,
-        // Cannot be told: as if there were entries.
-        Err(_) => true,
-    }
 }

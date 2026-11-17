@@ -42,19 +42,7 @@ use crate::params::Params;
 
 /// Parameters screens pass to status items. Items ignore what they do not
 /// need; a screen passes what it knows.
-pub mod context {
-    /// The open book's path, title and reading progress in percent are
-    /// [`params::PATH`](crate::builtin::params::PATH),
-    /// [`params::TITLE`](crate::builtin::params::TITLE) and
-    /// [`params::PROGRESS`](crate::builtin::params::PROGRESS).
-    pub const CHAPTER: &str = "chapter";
-    /// The page as shown, e.g. `12 / 340` (or a percentage while pages are
-    /// being counted).
-    pub const PAGE: &str = "page";
-    /// Where the chapters begin, as thousandths of the book separated by
-    /// commas, e.g. `0,112,260`.
-    pub const CHAPTERS: &str = "chapters";
-}
+pub(crate) mod context {}
 
 /// Where and how a status line is drawn (see [`StatusLineSpec`]).
 #[derive(Debug, Clone, Copy)]
@@ -124,7 +112,7 @@ pub type StatusSignatureFn = fn(&Env<'_>, &Params) -> u64;
 
 /// The places in a status line drawn in a frame that do something when
 /// tapped (see [`StatusLineSpec::targets`]).
-pub type StatusTargetsFn = fn(&Env<'_>, &StatusFrame<'_>) -> Vec<StatusTarget>;
+pub(crate) type StatusTargetsFn = fn(&Env<'_>, &StatusFrame<'_>) -> Vec<StatusTarget>;
 
 /// A place in a status line that does something: a tap on it runs
 /// `command`, e.g. an item's [`StatusItemSpec::tap`].
@@ -237,7 +225,7 @@ pub enum StatusValue {
 pub type StatusFn = fn(&Env<'_>, &Params) -> Option<StatusValue>;
 
 /// How much an item matters where none says ([`StatusItemSpec::priority`]).
-pub const PRIORITY: u8 = 128;
+pub(crate) const PRIORITY: u8 = 128;
 
 /// A status item contribution.
 #[non_exhaustive]
@@ -282,22 +270,9 @@ impl StatusItemSpec {
         }
     }
 
-    /// The action a tap on it runs, one of its own plugin's.
-    pub fn tap(self, tap: Id) -> Self {
-        Self {
-            tap: Some(tap),
-            ..self
-        }
-    }
-
     /// How much it matters (higher stays longer; [`PRIORITY`] by default).
     pub fn priority(self, priority: u8) -> Self {
         Self { priority, ..self }
-    }
-
-    /// The least width it takes, in times the text's size.
-    pub fn min_width(self, min_width: f32) -> Self {
-        Self { min_width, ..self }
     }
 }
 
@@ -329,13 +304,6 @@ impl Place {
             parts,
             line: None,
         }
-    }
-
-    /// The status line it shows is the one setting `line` names first.
-    pub const fn with_line(mut self, line: Id) -> Self {
-        // Nothing to drop: made without a line (`new`), in a const.
-        core::mem::forget(self.line.replace(line));
-        self
     }
 
     /// The status line it shows now: the one its line setting names
@@ -452,12 +420,6 @@ impl StatusItems {
         self.places.shrink_to_fit();
     }
 
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn add_place(&mut self, place: Place) {
-        self.places.push(place);
-    }
-
     /// Every place where status items show.
     pub fn places(&self) -> impl Iterator<Item = &Place> {
         self.places.iter()
@@ -477,12 +439,6 @@ impl StatusItems {
     /// Every status line: its id and the translation key of its name.
     pub fn lines(&self) -> impl Iterator<Item = (&Id, &str)> {
         self.lines.iter().map(|l| (&l.id, l.title.as_ref()))
-    }
-
-    /// The id of status line `id` now: its own where `id` is one it had
-    /// before ([`StatusLineSpec::also`]), else `id` as it is.
-    pub fn canonical<'a>(&'a self, id: &'a str) -> &'a str {
-        self.line(id).map_or(id, |line| line.id.as_str())
     }
 
     /// Status line `id`, also by an id it had before

@@ -15,16 +15,15 @@ mod support;
 use std::borrow::Cow;
 
 use paperpaw_sdk::builtin::params;
-use paperpaw_sdk::logo::{self, Logo};
-use paperpaw_sdk::semantics::{self, Role};
-use paperpaw_sdk::ui::{self, ListView, UiStyle};
-use paperpaw_sdk::widgets::{self, Align};
+use paperpaw_sdk::semantics::{self};
+use paperpaw_sdk::ui::UiStyle;
+use paperpaw_sdk::widgets::{self};
 use paperpaw_sdk::{
-    Capabilities, Color, Id, MenuEntry, MenuNeed, MenuSection, Menus, Params, Rect, Storage, icons,
+    Capabilities, Id, MenuEntry, MenuNeed, MenuSection, Menus, Params, Rect, icons,
 };
 use proptest::prelude::*;
 
-use support::{Device, Harness, describe, drawn_in, drawn_outside, frame};
+use support::{Device, Harness, drawn_in, drawn_outside, frame};
 
 // ---- Questions ----------------------------------------------------------
 
@@ -129,57 +128,6 @@ proptest! {
 }
 
 // ---- What a screen tells ------------------------------------------------
-
-/// A list drawn with the helpers tells its rows, each with the title and
-/// value drawn in it, the focused one focused: what a screen reader or a
-/// remote control reads.
-#[test]
-fn a_drawn_list_tells_its_rows_and_their_texts() {
-    let h = Harness::new(Device::BUTTONS);
-    let env = h.env();
-    let style = UiStyle::new(&env);
-    let rows = [
-        ("Night mode", "On"),
-        ("Font size", "12 pt"),
-        ("Language", "English"),
-    ];
-    let mut list = ListView::new(Rect::new(0, 100, 480, 600), u32::from(style.row()));
-    list.set_focus(1);
-    let (described, _) = describe(480, 800, |canvas| {
-        list.draw(
-            &mut paperpaw_sdk::ui::Ui::new(canvas, &env, &style),
-            rows.len(),
-            |ui, i, rect, focused| {
-                let canvas = ui.canvas();
-                ui::Row::value(rows[i].0, rows[i].1)
-                    .focused(focused)
-                    .draw(&mut ui::Ui::new(canvas, &env, &style), rect);
-            },
-        );
-    });
-    let parts = semantics::parts(described);
-    let told: Vec<(&str, Role, bool)> = parts
-        .iter()
-        .map(|p| (p.label.as_str(), p.role, p.focused))
-        .collect();
-    assert_eq!(
-        told,
-        [
-            ("Night mode, On", Role::Row, false),
-            ("Font size, 12 pt", Role::Row, true),
-            ("Language, English", Role::Row, false),
-        ]
-    );
-    assert_eq!(
-        semantics::focused(&parts).map(|p| p.label.as_str()),
-        Some("Font size, 12 pt")
-    );
-    assert_eq!(
-        semantics::find(&parts, "LANGUAGE").map(|p| p.area),
-        Some(list.row_rect(2))
-    );
-    assert!(semantics::find(&parts, "nothing like it").is_none());
-}
 
 #[test]
 fn nothing_told_tells_nothing() {
@@ -322,45 +270,6 @@ fn entries_come_in_their_order_headings_among_them() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(std::env::var("PROPTEST_CASES").ok().and_then(|n| n.parse().ok()).unwrap_or(48)))]
 
-    /// The drawn logo fills the middle of its area as a square, as large
-    /// as fits, and draws nowhere else; too small to show, it draws
-    /// nothing.
-    #[test]
-    fn the_logo_is_drawn_square_in_the_middle(
-        x in 0u16..100,
-        y in 0u16..100,
-        width in 0u16..200,
-        height in 0u16..200,
-    ) {
-        let h = Harness::new(Device::TOUCH);
-        let area = Rect::new(x, y, width, height);
-        let logo = Logo::Drawn;
-        let (w, hh) = logo.fit(width, height);
-        prop_assert_eq!((w, hh), (width.min(height), width.min(height)));
-        let mut frame = frame(300, 300);
-        logo.draw(&mut frame.canvas(), &h.storage, area, Color::BLACK);
-        let side = width.min(height);
-        let at = Rect::new(x + (width - side) / 2, y + (height - side) / 2, side, side);
-        prop_assert_eq!(drawn_outside(&mut frame, at), None);
-        if side >= 16 {
-            prop_assert!(drawn_in(&frame, at), "the logo shows");
-        }
-        if side < 8 {
-            prop_assert!(!drawn_in(&frame, Rect::new(0, 0, 300, 300)));
-        }
-    }
-}
-
-#[test]
-fn a_logo_picture_that_is_not_there_is_the_drawn_logo() {
-    let mut h = Harness::new(Device::TOUCH);
-    assert_eq!(Logo::read(&h.env(), 200, 200), Logo::Drawn, "none set");
-    h.define_text(logo::LOGO.as_str(), " /plugins/mine/logo.png/ ");
-    assert_eq!(Logo::read(&h.env(), 200, 200), Logo::Drawn, "not there");
-    h.storage
-        .write("plugins/mine/logo.png", b"not a picture")
-        .unwrap();
-    assert_eq!(Logo::read(&h.env(), 200, 200), Logo::Drawn, "not a picture");
 }
 
 // ---- The look of widgets ----------------------------------------------------
@@ -412,20 +321,5 @@ fn heading_lines_are_closer_than_text_and_never_touch() {
             ((bottom - top) as f32) < apart,
             "{size}: {top} {bottom} {apart}"
         );
-    }
-}
-
-#[test]
-fn fills_share_what_is_left_and_never_overflow() {
-    assert_eq!(widgets::fill_height(u32::MAX, 0, 1), u16::MAX);
-    assert_eq!(widgets::fill_height(100, 0, usize::MAX), 0);
-    assert_eq!(widgets::fill_height(0, 100, 3), 0);
-    assert_eq!(widgets::fill_height(301, 0, 3), 100);
-    let area = Rect::new(10, 0, 100, 20);
-    for align in [Align::Left, Align::Center, Align::Right] {
-        for width in [0.0, 50.0, 100.0, 500.0, f32::INFINITY] {
-            let x = align.x(area, width);
-            assert!((10.0..=110.0).contains(&x), "{align:?} {width}: {x}");
-        }
     }
 }

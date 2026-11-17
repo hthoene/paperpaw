@@ -33,9 +33,8 @@ mod fallible;
 mod fingerprint;
 pub mod index;
 mod indexed;
-pub mod listing;
+pub(crate) mod listing;
 mod metadata;
-pub mod service;
 pub mod sorted;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
@@ -49,23 +48,12 @@ pub use fingerprint::Fingerprint;
 pub use indexed::try_indexed;
 #[cfg(any(test, feature = "kernel"))]
 pub use metadata::keep_native_details;
-pub use service::{Badge, BookField, Deleted, Library, is_book_path, service};
 
 /// What changed of a book ([`events::BookChanged::what`](crate::builtin::events::BookChanged)):
 /// bits, any together.
 pub mod what {
-    /// Its title, author, series, tags (read from the book, or provided).
-    pub const DETAILS: u32 = 1;
     /// How far it is read.
     pub const PROGRESS: u32 = 1 << 1;
-    /// Its cover.
-    pub const COVER: u32 = 1 << 2;
-    /// Whether it is a favourite.
-    pub const FAVOURITE: u32 = 1 << 3;
-    /// Marked finished or unread.
-    pub const STATUS: u32 = 1 << 4;
-    /// A plugin's field.
-    pub const FIELDS: u32 = 1 << 5;
 }
 
 use alloc::borrow::Cow;
@@ -140,11 +128,6 @@ impl Book {
         self
     }
 
-    pub fn indexed(mut self, indexed: bool) -> Self {
-        self.indexed = indexed;
-        self
-    }
-
     pub fn title(mut self, title: impl Into<Option<String>>) -> Self {
         self.title = title.into();
         self
@@ -155,44 +138,15 @@ impl Book {
         self
     }
 
-    pub fn series(mut self, series: impl Into<Option<String>>) -> Self {
-        self.series = series.into();
-        self
-    }
-
-    pub fn series_index(mut self, series_index: impl Into<Option<String>>) -> Self {
-        self.series_index = series_index.into();
-        self
-    }
-
     pub fn tags(mut self, tags: Vec<String>) -> Self {
         self.tags = tags;
-        self
-    }
-
-    pub fn cover(mut self, cover: impl Into<Option<ImageRef>>) -> Self {
-        self.cover = cover.into();
-        self
-    }
-
-    pub fn progress(mut self, progress: impl Into<Option<u8>>) -> Self {
-        self.progress = progress.into();
-        self
-    }
-
-    pub fn added(mut self, added: impl Into<Option<u32>>) -> Self {
-        self.added = added.into();
-        self
-    }
-
-    pub fn fields(mut self, fields: Vec<(String, String)>) -> Self {
-        self.fields = fields;
         self
     }
 }
 
 impl Book {
     /// The value of field `id`, if set.
+    #[cfg(test)]
     pub fn field(&self, id: &str) -> Option<&str> {
         self.fields
             .iter()
@@ -201,7 +155,7 @@ impl Book {
     }
 
     /// The title, else the file's name without its extension.
-    pub fn title_or<'a>(&'a self, path: &'a str) -> &'a str {
+    pub(crate) fn title_or<'a>(&'a self, path: &'a str) -> &'a str {
         match &self.title {
             Some(title) if !title.is_empty() => title,
             _ => {
@@ -214,7 +168,7 @@ impl Book {
     /// The title to show: the book's own, else its file's name made
     /// readable ([`readable_name`]), e.g. "Alice In Wonderland" for
     /// `alice-in-wonderland.txt`.
-    pub fn shown_title<'a>(&'a self, path: &'a str) -> Cow<'a, str> {
+    pub(crate) fn shown_title<'a>(&'a self, path: &'a str) -> Cow<'a, str> {
         match &self.title {
             Some(title) if !title.is_empty() => Cow::Borrowed(title),
             _ => readable_name(self.title_or(path)),
@@ -226,7 +180,7 @@ impl Book {
 /// `_` or `.` and in small letters only (`alice-in-wonderland`) gets
 /// spaces and capitals (`Alice In Wonderland`); any other is kept as it
 /// is, since its writer chose it.
-pub fn readable_name(stem: &str) -> Cow<'_, str> {
+pub(crate) fn readable_name(stem: &str) -> Cow<'_, str> {
     let joined = |c: char| matches!(c, '-' | '_' | '.');
     let slug = stem.contains(joined)
         && !stem.contains(' ')
@@ -356,14 +310,12 @@ impl BookData {
                 }
             });
             for (name, is_dir) in &entries {
-                if let Some((key, tail)) = self.key_of(name) {
+                if let Some((key, _)) = self.key_of(name) {
                     let path = crate::files::join(&part, name);
                     found(Kept {
                         path: &path,
                         key,
-                        tail,
                         is_dir: *is_dir,
-                        split: !part.is_empty(),
                     });
                 }
             }
@@ -382,42 +334,7 @@ struct Kept<'a> {
     /// In the folder.
     path: &'a str,
     key: &'a str,
-    /// What follows the key in its name.
-    tail: &'a str,
     is_dir: bool,
-    /// In the part of the folder of its key, not in the folder itself.
-    split: bool,
-}
-
-/// Moves what is kept for the book `from` in folders `data` to `to`:
-/// where it was, in the folder itself or in the part of its key
-/// (`split`).
-pub fn move_data(storage: &dyn Storage, data: &[BookData], from: &str, to: &str) {
-    let (old, new) = (key(from), key(to));
-    for folder in data {
-        let mut moves = Vec::new();
-        folder.each(storage, Some(&old), &mut |kept| {
-            let named = format!("{}{new}{}", folder.prefix, kept.tail);
-            let to = match kept.split {
-                true => format!("{}/{named}", split(&folder.folder, &new)),
-                false => crate::files::join(&folder.folder, &named),
-            };
-            moves.push((crate::files::join(&folder.folder, kept.path), to));
-        });
-        for (from, to) in moves {
-            #[expect(
-                clippy::let_underscore_must_use,
-                reason = "what cannot be moved stays under the old name; the book itself is moved already"
-            )]
-            let _ = storage.rename(&from, &to);
-        }
-    }
-}
-
-/// Removes what is kept for the book at `path` in folders `data`.
-pub fn remove_data(storage: &dyn Storage, data: &[BookData], path: &str) {
-    let gone = key(path);
-    clean(storage, data, Some(&gone), &|key| key != gone);
 }
 
 /// Removes what is kept in folders `data` for books whose key `keep` does
@@ -551,65 +468,6 @@ fn file_keys(storage: &dyn Storage, library: &str) -> Result<Vec<u64>, StorageEr
     Ok(keys)
 }
 
-/// The keys ([`key`]) of every book on the storage (every file a format
-/// plugin opens, in any folder but PaperPaw's own), sorted. Folders that
-/// cannot be listed are left out, and books of formats switched off:
-/// to clean up, [`clean_up_unused`] keeps more.
-pub fn book_keys(storage: &dyn Storage, formats: &crate::Formats) -> Vec<u64> {
-    let mut keys = Vec::new();
-    books_in(storage, formats, "", &mut |path| keys.push(fnv1a64(path)));
-    paperpaw_sort::sort_unstable(&mut keys);
-    keys
-}
-
-/// Every book in `folder` and the folders in it (every file a format
-/// plugin opens; not in hidden folders), by its path; the book itself if
-/// `folder` is one. E.g. to say they are gone before a folder is deleted.
-pub fn books_in(
-    storage: &dyn Storage,
-    formats: &crate::Formats,
-    folder: &str,
-    found: &mut dyn FnMut(&str),
-) {
-    let folder = folder.trim_matches('/');
-    if !folder.is_empty() && formats.supports_file(storage, folder) && storage.size(folder).is_ok()
-    {
-        return found(folder);
-    }
-    let mut folders = alloc::vec![String::from(folder)];
-    while let Some(folder) = folders.pop() {
-        // Files without an extension, told by their first bytes once the
-        // folder is listed.
-        let mut unknown: Vec<String> = Vec::new();
-        #[expect(
-            clippy::let_underscore_must_use,
-            reason = "a folder that cannot be listed is left out of the walk"
-        )]
-        let _ = storage.list(&folder, &mut |entry| {
-            if entry.name.starts_with('.') {
-                return;
-            }
-            let path = if folder.is_empty() {
-                String::from(entry.name)
-            } else {
-                format!("{folder}/{}", entry.name)
-            };
-            if entry.is_dir {
-                folders.push(path);
-            } else if formats.supports(entry.name) {
-                found(&path);
-            } else if formats.may_sniff(entry.name) {
-                unknown.push(path);
-            }
-        });
-        for path in unknown {
-            if formats.for_file(storage, &path).is_some() {
-                found(&path);
-            }
-        }
-    }
-}
-
 /// The folder of the books' details, in [`DIR`]: split by the first two
 /// digits of their keys ([`split`]).
 pub(crate) const DETAILS_DIR: &str = "details";
@@ -684,52 +542,6 @@ fn load_details(storage: &dyn Storage, path: &str) -> Result<Option<String>, cra
     fallible::try_load_details(storage, path)
 }
 
-/// The cover of `book` (the one at `path`) made small to fit `width` ×
-/// `height`, as a panel of `format` shows it: kept in the library
-/// (`covers/<hash>.thumb`), so views of many books (a list, a grid) read a
-/// few kilobytes for each instead of its picture. Made anew where the
-/// book or the size asked changed.
-pub fn cover(
-    storage: &dyn Storage,
-    path: &str,
-    book: &Book,
-    width: u16,
-    height: u16,
-    format: paperpaw_platform::PixelFormat,
-) -> Option<crate::ui::Thumbnail> {
-    cover_variant(storage, path, book, width, height, format, "")
-}
-
-/// [`cover`] kept apart for each `variant` (e.g. `row`, `card`, `grid`):
-/// a view that shows a book's cover at several sizes keeps each, instead
-/// of one size made anew over the other. Moved and removed with the book.
-pub fn cover_variant(
-    storage: &dyn Storage,
-    path: &str,
-    book: &Book,
-    width: u16,
-    height: u16,
-    format: paperpaw_platform::PixelFormat,
-    variant: &str,
-) -> Option<crate::ui::Thumbnail> {
-    let image = book.cover.as_ref()?;
-    let (w, h) = crate::ui::fit_image(image, width, height);
-    let stamp = fnv1a64(format!(
-        "{} {} {}x{} {w}x{h} {format:?}",
-        book.size, image.path, image.width, image.height
-    ));
-    let file = cover_variant_file(path, variant);
-    let old = || old_cover_variant_file(path, variant);
-    if let Some(thumb) = crate::ui::Thumbnail::kept(storage, &file, stamp, (w, h))
-        .or_else(|| crate::ui::Thumbnail::kept(storage, &old(), stamp, (w, h)))
-    {
-        return Some(thumb);
-    }
-    let thumb = crate::ui::Thumbnail::new(storage, image, w, h, format)?;
-    thumb.keep(storage, &file, stamp);
-    Some(thumb)
-}
-
 pub(crate) fn opened_file() -> String {
     format!("{DIR}/opened.txt")
 }
@@ -787,7 +599,7 @@ pub fn book(storage: &dyn Storage, path: &str) -> Option<Book> {
 /// [`book`] for a file whose size is known, e.g. from a listing
 /// ([`listing::Entry::size`]): the file is not looked up again (on a card,
 /// a search through its folder).
-pub fn book_sized(storage: &dyn Storage, path: &str, size: u64) -> Option<Book> {
+pub(crate) fn book_sized(storage: &dyn Storage, path: &str, size: u64) -> Option<Book> {
     fallible::surviving(try_book_sized(storage, path, size)).flatten()
 }
 
@@ -854,17 +666,6 @@ fn fit(value: &str) -> &str {
     &value[..end]
 }
 
-/// Keeps `book` as what the library knows of the book at `path`: values
-/// cut at a kilobyte, the first 32 tags, and what a newer version wrote
-/// there that this one does not know; an error where it could not be
-/// written (or would be too large to be read back,
-/// [`StorageError::TooLarge`]), or the details there could not be read.
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub fn save(storage: &dyn Storage, path: &str, book: &Book) -> Result<(), crate::data::Error> {
-    write_details(storage, path, book)
-}
-
 /// [`save`], for the library's own changes of a book: `false` where it
 /// was not kept.
 fn write_book(storage: &dyn Storage, path: &str, book: &Book) -> bool {
@@ -884,20 +685,6 @@ fn write_details(storage: &dyn Storage, path: &str, book: &Book) -> Result<(), c
 /// device knows the date.
 pub(crate) fn today(env: &Env<'_>) -> Option<u32> {
     crate::time::unix_seconds(env).and_then(|s| u32::try_from(s.div_euclid(86_400)).ok())
-}
-
-/// Books added this many days ago or less, and never opened, are new
-/// (`is_new`).
-pub const NEW_DAYS: u32 = 30;
-
-/// `is_new` on the day `today` (none where the date is not known).
-pub fn is_new_on(book: &Book, opened: bool, today: Option<u32>) -> bool {
-    match (book.added, today) {
-        (Some(added), Some(today)) => {
-            !opened && book.progress.is_none() && today.saturating_sub(added) <= NEW_DAYS
-        }
-        _ => false,
-    }
 }
 
 /// What a source knows of a book it brought, e.g. a catalog or Calibre
@@ -920,16 +707,6 @@ impl Provided {
 
     pub fn author(mut self, author: impl Into<Option<String>>) -> Self {
         self.author = author.into();
-        self
-    }
-
-    pub fn series(mut self, series: impl Into<Option<String>>) -> Self {
-        self.series = series.into();
-        self
-    }
-
-    pub fn series_index(mut self, series_index: impl Into<Option<String>>) -> Self {
-        self.series_index = series_index.into();
         self
     }
 
@@ -1114,16 +891,6 @@ pub fn removed(storage: &dyn Storage, path: &str) {
     let without = |list: &mut Vec<String>| list.retain(|p| p != path);
     update_list(storage, &opened_file(), MAX_OPENED, without);
     update_list(storage, &favourites_file(), MAX_FAVOURITES, without);
-}
-
-/// Marks the book at `path` as read to the end, or as not read at all.
-pub fn set_finished(storage: &dyn Storage, path: &str, finished: bool) {
-    let Ok(mut book) = book_for_update(storage, path) else {
-        return;
-    };
-    book.progress = finished.then_some(100);
-    write_book(storage, path, &book);
-    noted_status(storage, path);
 }
 
 /// Paths of the books opened last, most recent first (also of books no

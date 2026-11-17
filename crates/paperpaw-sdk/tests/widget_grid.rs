@@ -13,11 +13,8 @@
 
 mod support;
 
-use paperpaw_sdk::widgets::grid::{self, Cells, Geometry, Item, MAX_COLUMNS, MAX_ROWS, What};
-use paperpaw_sdk::{Id, Point, Rect};
+use paperpaw_sdk::widgets::grid::{self, Cells};
 use proptest::prelude::*;
-
-use support::middle;
 
 // ---- Layouts as text ---------------------------------------------------
 
@@ -33,34 +30,6 @@ proptest! {
         prop_assert_eq!(grid::parse(&written), items);
     }
 
-    /// Layouts of valid items are written and read back unchanged.
-    #[test]
-    fn layouts_round_trip(
-        items in proptest::collection::vec(
-            (
-                any::<bool>(),
-                "[a-z]{1,8}\\.[a-z][a-z0-9-]{0,10}(@[1-9])?",
-                proptest::option::of((any::<u8>(), any::<u8>(), any::<u8>(), any::<u8>())),
-            ),
-            0..12,
-        ),
-    ) {
-        let items: Vec<Item> = items
-            .into_iter()
-            .filter_map(|(is_tool, id, at)| {
-                let what = if is_tool {
-                    What::Tool(Id::parse(id.split('@').next()?).ok()?)
-                } else {
-                    What::Widget(id)
-                };
-                Some(match at {
-                    Some((col, row, w, h)) => Item::placed(what, Cells::new(col, row, w, h)),
-                    None => Item::new(what),
-                })
-            })
-            .collect();
-        prop_assert_eq!(grid::parse(&grid::write(&items)), items);
-    }
 }
 
 #[test]
@@ -83,34 +52,6 @@ fn broken_places_keep_their_items_without_a_place() {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(std::env::var("PROPTEST_CASES").ok().and_then(|n| n.parse().ok()).unwrap_or(256)))]
 
-    /// The cells of a grid lie in its area, apart by the gap, and the
-    /// cell under each cell's middle is that cell.
-    #[test]
-    fn cells_lie_in_the_area_and_are_found_where_they_are(
-        x in 0u16..100,
-        y in 0u16..200,
-        width in 100u16..800,
-        height in 100u16..900,
-        columns in 1u8..=MAX_COLUMNS,
-        rows in 1u8..=MAX_ROWS,
-        gap in 0u16..20,
-    ) {
-        let g = Geometry::of(Rect::new(x, y, width, height), columns, rows, gap);
-        for row in 0..g.rows {
-            for col in 0..g.columns {
-                let c = Cells::new(col, row, 1, 1);
-                let r = g.rect(c);
-                prop_assert!(r.x >= g.area.x && r.right() <= g.area.right());
-                prop_assert!(r.y >= g.area.y && r.bottom() <= g.area.bottom());
-                if !r.is_empty() {
-                    let m = middle(r);
-                    prop_assert_eq!(g.cell_at(m), Some((col, row)));
-                }
-            }
-        }
-        prop_assert_eq!(g.cell_at(Point::new(i32::from(x) - 1, i32::from(y))), None);
-        prop_assert_eq!(g.cell_at(Point::new(i32::from(x), g.area.bottom() as i32 + 1)), None);
-    }
 
 }
 

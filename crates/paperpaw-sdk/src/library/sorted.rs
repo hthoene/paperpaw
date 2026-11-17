@@ -26,7 +26,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use super::catalog::Show;
-use super::index::{self, Item, KEY};
+use super::index::{self, KEY};
 use crate::Storage;
 
 #[cfg(any(test, feature = "kernel"))]
@@ -271,17 +271,6 @@ impl View {
             stacked: stacked && show_index(show) == 0,
         }
     }
-}
-
-/// A book of a view, as `Sorted::page` gives it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct Entry {
-    /// What the index of the library knows of it ([`Item`]); its series
-    /// is [`NO_SERIES`](super::index::NO_SERIES) (the file keeps no names).
-    pub item: Item,
-    /// How many books its stack holds (1 for a book on its own).
-    pub stack: u16,
 }
 
 fn show_index(show: Show) -> usize {

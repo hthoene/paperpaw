@@ -729,16 +729,6 @@ impl Walk {
         })
     }
 
-    /// Books found so far.
-    pub fn found(&self) -> usize {
-        self.making.found
-    }
-
-    /// Books taken from the old catalog so far.
-    pub fn from_old(&self) -> usize {
-        self.old.found
-    }
-
     /// How far the walk is, in parts per million: the folders taken to
     /// walk over those found so far (a library's size is known only at
     /// the end). Folders found later lower that share; what this says

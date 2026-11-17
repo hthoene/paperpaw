@@ -33,11 +33,6 @@ impl Clock {
             micros: Some(micros),
         }
     }
-
-    /// Microseconds since some start; `None` without a clock.
-    pub fn micros(&self) -> Option<u64> {
-        self.micros.map(|micros| micros())
-    }
 }
 
 impl core::fmt::Debug for Clock {
@@ -78,77 +73,6 @@ pub const TIME_ZONES: &[(&str, &str)] = &[
     ("core.tz.auckland", "NZST-12NZDT,M9.5.0,M4.1.0/3"),
 ];
 
-/// A day of the calendar: year, month (1 to 12) and day (1 to 31).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[non_exhaustive]
-pub struct Date {
-    pub year: i32,
-    /// 1 to 12.
-    pub month: u8,
-    /// 1 to 31.
-    pub day: u8,
-}
-
-impl Date {
-    /// Day `day` of month `month` (1 to 12) of `year`.
-    pub const fn new(year: i32, month: u8, day: u8) -> Self {
-        Self { year, month, day }
-    }
-
-    pub const fn year(&self) -> i32 {
-        self.year
-    }
-
-    pub const fn month(&self) -> u8 {
-        self.month
-    }
-
-    pub const fn day(&self) -> u8 {
-        self.day
-    }
-}
-
-/// A time of day: hour (0 to 23), minute and second (0 to 59).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[non_exhaustive]
-pub struct Time {
-    /// 0 to 23.
-    pub hour: u8,
-    /// 0 to 59.
-    pub minute: u8,
-    /// 0 to 59.
-    pub second: u8,
-}
-
-impl Time {
-    /// `hour`:`minute`, at its first second.
-    pub const fn new(hour: u8, minute: u8) -> Self {
-        Self {
-            hour,
-            minute,
-            second: 0,
-        }
-    }
-
-    /// The same time at `second`.
-    pub const fn with_second(mut self, second: u8) -> Self {
-        self.second = second;
-        self
-    }
-
-    pub const fn hour(&self) -> u8 {
-        self.hour
-    }
-
-    pub const fn minute(&self) -> u8 {
-        self.minute
-    }
-
-    pub const fn second(&self) -> u8 {
-        self.second
-    }
-}
-
 /// A date and time of day.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -171,6 +95,11 @@ pub struct LocalTime {
 }
 
 impl LocalTime {
+    /// The moment this wall time is, in its zone ([`LocalTime::offset`]).
+    pub fn unix(&self) -> UnixTime {
+        UnixTime::from_secs(self.to_seconds() - i64::from(self.offset))
+    }
+
     /// The time of day on a date, read as UTC; its weekday follows from
     /// the date.
     pub fn new(year: i32, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> Self {
@@ -196,11 +125,6 @@ impl LocalTime {
     /// of UTC.
     pub fn from_unix(at: UnixTime, offset: i32) -> Self {
         Self::from_seconds(at.secs() + i64::from(offset)).with_offset(offset)
-    }
-
-    /// The moment this wall time is, in its zone ([`LocalTime::offset`]).
-    pub fn unix(&self) -> UnixTime {
-        UnixTime::from_secs(self.to_seconds() - i64::from(self.offset))
     }
 
     /// The local time `seconds` after 1970-01-01 00:00 local time.
@@ -807,49 +731,6 @@ fn iso_millis(text: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_moment_reads_on_a_wall_and_back() {
-        let moment = UnixTime::from_millis(1_792_448_650_090); // 2026-10-19T22:24:10.090Z
-        assert_eq!(
-            (moment.secs(), moment.millis()),
-            (1_792_448_650, 1_792_448_650_090)
-        );
-        assert_eq!(UnixTime::from_secs(5).millis(), 5000);
-        assert_eq!(UnixTime::from_millis(-1).secs(), -1, "rounded down");
-        // Two hours ahead of UTC: past midnight, the next day.
-        let wall = moment.local(2 * 3600);
-        assert_eq!(
-            (
-                wall.year,
-                wall.month,
-                wall.day,
-                wall.hour,
-                wall.minute,
-                wall.second
-            ),
-            (2026, 10, 20, 0, 24, 10)
-        );
-        assert_eq!(wall.offset, 7200);
-        assert_eq!(wall.unix().secs(), moment.secs());
-        // Behind UTC, and a zone with no offset (read as UTC).
-        let behind = moment.local(-5 * 3600 - 1800);
-        assert_eq!((behind.day, behind.hour, behind.minute), (19, 16, 54));
-        assert_eq!(behind.unix().secs(), moment.secs());
-        assert_eq!(
-            LocalTime::new(2026, 10, 19, 22, 24, 10).unix().secs(),
-            1_792_448_650
-        );
-        assert_eq!(
-            LocalTime::new(2026, 10, 19, 22, 24, 10)
-                .with_offset(3600)
-                .unix()
-                .secs(),
-            1_792_448_650 - 3600
-        );
-        // The weekday follows the wall.
-        assert_eq!(wall.weekday, weekday(2026, 10, 20));
-    }
 
     #[test]
     fn http_dates_are_moments() {

@@ -26,4 +26,4 @@ pub const FOCUS_YES: &str = "focus-yes";
 /// whole, which the page buttons scroll where it is long.
 pub const ONLY_YES: &str = "only-yes";
 /// The answer in a [`Confirmed`](crate::replies::Confirmed)'s parameters: `yes` or `no`.
-pub const ANSWER: &str = "answer";
+pub(crate) const ANSWER: &str = "answer";
