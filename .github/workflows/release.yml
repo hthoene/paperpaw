@@ -418,8 +418,14 @@ jobs:
           if [[ "$DEVICE" == x4-classic ]]; then
             table=partitions-classic.csv
           fi
+          # The X4's flash (Puya PY25Q128HA, rated 104 MHz for DIO) is read at
+          # 80 MHz by the bootloader; the other devices' chips stay at 40 MHz.
+          freq=()
+          if [[ "$DEVICE" == x4 ]]; then
+            freq=(--flash-freq 80mhz)
+          fi
           espflash save-image --chip "$FIRMWARE_CHIP" --merge --skip-padding --flash-size 16mb \
-            --partition-table "$table" "$elf" "$GITHUB_WORKSPACE/dist/paperpaw-$DEVICE-$VERSION.bin"
+            "${freq[@]}" --partition-table "$table" "$elf" "$GITHUB_WORKSPACE/dist/paperpaw-$DEVICE-$VERSION.bin"
       # No release image carries the device tests' build (its never-sleep
       # defaults and high-water log): refused by its log lines.
       - name: The image is not a test image
