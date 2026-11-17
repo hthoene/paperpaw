@@ -36,6 +36,25 @@ pub enum Item {
 }
 
 impl Item {
+    /// The item an action of the selection (`reader.selection.*`, as the
+    /// reader declares them: a key bound to one, a remote) asks for. Beta 3 ran
+    /// them from its selection menu; here they do what the bar's button does,
+    /// whether the bar is shown yet or not. *Highlight* is the one action for
+    /// making and removing, as the button is one place. The actions the bar has
+    /// no button for (translate, read aloud from here) are none.
+    #[must_use]
+    pub fn of_action(action: &str) -> Option<Self> {
+        Some(match action.strip_prefix("reader.selection.")? {
+            "look-up" => Self::LookUp,
+            "highlight" => Self::Highlight,
+            "note" => Self::Note,
+            "copy" => Self::Copy,
+            "extend" => Self::Extend,
+            "cancel" => Self::Cancel,
+            _ => return None,
+        })
+    }
+
     /// The key of its label.
     #[must_use]
     pub const fn key(self) -> &'static str {
