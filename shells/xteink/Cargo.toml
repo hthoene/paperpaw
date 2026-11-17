@@ -186,14 +186,25 @@ embassy-sync = { version = "0.8", optional = true }
 # uploads) instead of 16: 12 KB less for each secure connection, where
 # the X4's memory is tightest. Records received stay 16 KB, as servers
 # send them that large.
+#
+# Trimmed (#304, row 24): TLS 1.3 (and HKDF, which only it uses), SHA-1,
+# the CBC suites, RSA key exchange without forward secrecy and the P-521
+# curve are out. What stays is TLS 1.2 with ECDHE (X25519, P-256, P-384),
+# AES-GCM and ChaCha20-Poly1305, RSA and ECDSA certificates signed with
+# SHA-256/384/512 (P-384 stays: Let's Encrypt's, Sectigo's and Google's
+# intermediates are P-384). A server that speaks TLS 1.3 only, or only
+# CBC suites, no longer connects; the servers the firmware knows
+# (paperpaw.org, GitHub, Project Gutenberg, Standard Ebooks, DeepL,
+# Open-Meteo, Wikipedia, Codeberg, KOReader sync, ...) all negotiate
+# TLS 1.2 ECDHE with an AEAD suite (paperpaw-notes, #304).
 mbedtls-rs = { version = "0.3", default-features = false, features = [
-    "tls-client", "tls-core", "tls-proto-tls12", "tls-proto-tls13",
+    "tls-client", "tls-core", "tls-proto-tls12",
     "x509-parse", "pk", "drbg-ctr", "entropy",
     "alg-rsa", "alg-rsa-pss", "alg-ecp", "alg-ecdh", "alg-ecdsa",
-    "curve-secp256r1", "curve-secp384r1", "curve-secp521r1", "curve-curve25519",
-    "alg-aes", "alg-gcm", "alg-chacha20", "alg-chachapoly", "cipher-mode-cbc",
-    "alg-sha1", "alg-sha256", "alg-sha512", "alg-hkdf",
-    "kex-ecdhe-ecdsa", "kex-ecdhe-rsa", "kex-rsa",
+    "curve-secp256r1", "curve-secp384r1", "curve-curve25519",
+    "alg-aes", "alg-gcm", "alg-chacha20", "alg-chachapoly",
+    "alg-sha256", "alg-sha512",
+    "kex-ecdhe-ecdsa", "kex-ecdhe-rsa",
     "ssl-in-content-len-16384", "ssl-out-content-len-4096",
 ] }
 webpki-roots = "1"
