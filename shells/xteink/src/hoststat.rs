@@ -54,8 +54,7 @@ static STAT: Mutex<RefCell<Stat>> = Mutex::new(RefCell::new(Stat {
 
 /// A host slot begins (the hook of `host_slot::set`).
 pub fn begin() {
-    let site = paperpaw_core::native_host::host_slot::last_site()
-        | (u32::from(paperpaw_core::native_host::host_slot::last_id()) << 24);
+    let site = u32::from(paperpaw_core::native_host::host_slot::last_id()) << 24;
     let t = crate::micros();
     critical_section::with(|cs| {
         let mut s = STAT.borrow_ref_mut(cs);
