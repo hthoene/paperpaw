@@ -26,10 +26,10 @@ def entry(*urls):
 
 
 class Names(unittest.TestCase):
-    def test_a_firmware_release_has_seventy_three_assets_and_no_plugin(self):
+    def test_a_firmware_release_has_eighty_one_assets_and_no_plugin(self):
         listed = release_assets.names("0.6.0-beta.3")
-        self.assertEqual(len(listed), 73)
-        self.assertEqual(len(set(listed)), 73)
+        self.assertEqual(len(listed), 81)
+        self.assertEqual(len(set(listed)), 81)
         self.assertFalse([n for n in listed if release_assets.PLUGIN_FILE.match(n)])
         for name in ("paperpaw-0.6.0-beta.3-catalogue.zip", "paperpaw-0.6.0-beta.3-plugins.sha256",
                      "paperpaw-x4-pro-0.6.0-beta.3-abi.txt", "paperpaw-xtensa-std-0.6.0-beta.3.tar.gz.sig"):

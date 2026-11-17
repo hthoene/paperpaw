@@ -7,7 +7,9 @@
 //!   built in (streamed to the caller, a line at a time: the shell keeps no
 //!   list), then every byte of the image hashed (SHA-256) and verified (the
 //!   signature, or another firmware's image the checks the boot loader would
-//!   make). Four pieces of 4 KiB a step.
+//!   make). Four pieces of 4 KiB a step. A packed update (`packed`) is
+//!   inflated as it is read: the image is what is hashed, written and
+//!   shown; the file's own bytes are what the signature covers.
 //! - **Write:** the same image, bound to the digest the user confirmed,
 //!   block by block into the partition not running, hashed again while it is
 //!   written. A digest other than the confirmed one is reason 18 and the
@@ -31,6 +33,7 @@ use paperpaw_sdk::firmware::{
     PLUGINS_HEAD_LEN, PluginCrate, Plugins, Problem, TRAILER_LEN, Trailer,
 };
 
+use super::packed::{self, Fail, Footer, Source};
 use super::{PIECE, Partition, Updates, owned, zeroed};
 use crate::ota::{Flash, Image, State};
 
@@ -160,6 +163,7 @@ enum Phase {
 struct Listing {
     meta: Meta,
     verify: Verify,
+    source: Source,
     at: u64,
     end: u64,
     line: [u8; LINE],
@@ -171,6 +175,7 @@ struct Listing {
 struct Hashing {
     meta: Meta,
     verify: Verify,
+    source: Source,
     sha: Sha256,
     at: u64,
     len: u64,
@@ -196,6 +201,7 @@ enum Stage {
     Writing {
         image: Image,
         verify: Verify,
+        source: Source,
         sha: Sha256,
     },
     Readback {
@@ -230,7 +236,7 @@ impl<F: Flash> Updates<F> {
         storage: &dyn Storage,
         path: &str,
         foreign: Option<bool>,
-    ) -> Result<(Meta, Verify, u64), Reason> {
+    ) -> Result<Opened, Reason> {
         let this = &self.this;
         let foreign = match foreign {
             Some(foreign) => foreign,
@@ -255,7 +261,13 @@ impl<F: Flash> Updates<F> {
             let verify = Verify::Foreign(Held::new(ForeignCheck::new(
                 this.chip, self.board, image.len,
             ))?);
-            return Ok((meta, verify, image.len));
+            return Ok(Opened {
+                meta,
+                verify,
+                len: image.len,
+                source: Source::plain(),
+                raw_head: image.len,
+            });
         }
         let size = storage.size(path).map_err(|_| Reason::CARD)?;
         let tail_at = size
@@ -265,6 +277,11 @@ impl<F: Flash> Updates<F> {
         read_exact(storage, path, tail_at, &mut tail)?;
         let mut head = [0; APP_HEAD_LEN];
         read_exact(storage, path, 0, &mut head)?;
+        let packed = packed_footer(storage, path, tail_at)?;
+        if packed.is_some() {
+            // The container keeps the first byte as 0 (`packed`).
+            head[0] = packed::IMAGE_MAGIC;
+        }
         let trailer = match Trailer::read(&tail, size) {
             Ok(trailer) => trailer,
             // An app image without PaperPaw's trailer: unsigned, not damaged.
@@ -283,9 +300,21 @@ impl<F: Flash> Updates<F> {
         } else {
             Signer::Other { key: trailer.key }
         };
+        // The image's length: a packed file's is in its footer.
+        let (len, raw_head, source) = match packed {
+            Some(footer) => {
+                let source = Source::packed(footer, trailer.image_len).map_err(reason_of_fail)?;
+                (footer.raw_len, u64::from(footer.stored), source)
+            }
+            None => (
+                trailer.image_len,
+                u64::from(trailer.image_len),
+                Source::plain(),
+            ),
+        };
         let meta = Meta {
             chip_ok: info.chip == this.chip && info.project == this.project,
-            size: trailer.image_len,
+            size: len,
             version: Text::new(&info.version),
             project: Text::new(&info.project),
             signer,
@@ -293,7 +322,13 @@ impl<F: Flash> Updates<F> {
         };
         let check = Check::new(&trailer).map_err(|_| Reason::DAMAGED)?;
         let verify = Verify::Signed(Held::new(check)?);
-        Ok((meta, verify, u64::from(trailer.image_len)))
+        Ok(Opened {
+            meta,
+            verify,
+            len: u64::from(len),
+            source,
+            raw_head,
+        })
     }
 
     /// One step of a check.
@@ -308,7 +343,13 @@ impl<F: Flash> Updates<F> {
         let CheckJob { path, buf, phase } = job;
         match phase {
             Phase::Head => {
-                let (meta, verify, len) = self.open_image(storage, path, None)?;
+                let Opened {
+                    meta,
+                    verify,
+                    len,
+                    source,
+                    raw_head,
+                } = self.open_image(storage, path, None)?;
                 // The list, where the image has one (an older one does not).
                 let mut head = [0; PLUGINS_HEAD_LEN];
                 let listed = !meta.foreign
@@ -320,9 +361,12 @@ impl<F: Flash> Updates<F> {
                 };
                 let list_at = (PLUGINS_AT + PLUGINS_HEAD_LEN) as u64;
                 *phase = match text_len {
-                    Some(n) if list_at + n <= len => Phase::List(Listing {
+                    // Read from the file as it is: a packed file keeps the
+                    // list in its stored head.
+                    Some(n) if list_at + n <= raw_head => Phase::List(Listing {
                         meta,
                         verify,
+                        source,
                         at: list_at,
                         end: list_at + n,
                         line: [0; LINE],
@@ -332,6 +376,7 @@ impl<F: Flash> Updates<F> {
                     _ => Phase::Hash(Hashing {
                         meta,
                         verify,
+                        source,
                         sha: Sha256::new(),
                         at: 0,
                         len,
@@ -353,8 +398,12 @@ impl<F: Flash> Updates<F> {
                     return Ok(None);
                 }
                 list.flush(built_in);
-                let Phase::List(Listing { meta, verify, .. }) =
-                    core::mem::replace(phase, Phase::Head)
+                let Phase::List(Listing {
+                    meta,
+                    verify,
+                    source,
+                    ..
+                }) = core::mem::replace(phase, Phase::Head)
                 else {
                     return Err(Reason::OTHER);
                 };
@@ -362,23 +411,14 @@ impl<F: Flash> Updates<F> {
                     len: u64::from(meta.size),
                     meta,
                     verify,
+                    source,
                     sha: Sha256::new(),
                     at: 0,
                 });
                 Ok(None)
             }
             Phase::Hash(hashing) => {
-                for _ in 0..STEP_PIECES {
-                    let n = (hashing.len - hashing.at).min(PIECE as u64) as usize;
-                    if n == 0 {
-                        break;
-                    }
-                    let piece = &mut buf[..n];
-                    read_exact(storage, path, hashing.at, piece)?;
-                    hashing.sha.update(piece);
-                    hashing.verify.absorb(piece);
-                    hashing.at += n as u64;
-                }
+                hashing.step(storage, path, buf)?;
                 if hashing.at < hashing.len {
                     return Ok(None);
                 }
@@ -411,7 +451,13 @@ impl<F: Flash> Updates<F> {
         let stage = core::mem::replace(&mut job.stage, Stage::Start);
         match stage {
             Stage::Start => {
-                let (meta, verify, len) = self.open_image(storage, &job.path, Some(job.foreign))?;
+                let Opened {
+                    meta,
+                    verify,
+                    len,
+                    source,
+                    ..
+                } = self.open_image(storage, &job.path, Some(job.foreign))?;
                 if !meta.chip_ok {
                     return Err(Reason::OTHER_CHIP);
                 }
@@ -426,6 +472,7 @@ impl<F: Flash> Updates<F> {
                 job.stage = Stage::Writing {
                     image: Image::new(meta.size),
                     verify,
+                    source,
                     sha: Sha256::new(),
                 };
                 Ok((0, meta.size, false))
@@ -433,6 +480,7 @@ impl<F: Flash> Updates<F> {
             Stage::Writing {
                 mut image,
                 mut verify,
+                mut source,
                 mut sha,
             } => {
                 let end = image.done().saturating_add(WRITE_BLOCK).min(image.total());
@@ -443,16 +491,22 @@ impl<F: Flash> Updates<F> {
                 while image.done() < end {
                     let len = (end - image.done()).min(PIECE as u32) as usize;
                     let piece = &mut job.buf[..len];
-                    read_exact(storage, &job.path, u64::from(image.done()), piece)?;
+                    source
+                        .read(storage, &job.path, piece, &mut |bytes| verify.absorb(bytes))
+                        .map_err(reason_of_fail)?;
                     sha.update(piece);
-                    verify.absorb(piece);
                     image
                         .write(partition, &mut job.buf[..], len)
                         .map_err(|_| Reason::OTHER)?;
                 }
                 let (done, total) = (image.done(), image.total());
                 if done < total {
-                    job.stage = Stage::Writing { image, verify, sha };
+                    job.stage = Stage::Writing {
+                        image,
+                        verify,
+                        source,
+                        sha,
+                    };
                     return Ok((done, total, false));
                 }
                 // All read: the content is the one confirmed, and verifies.
@@ -517,6 +571,27 @@ impl<F: Flash> Updates<F> {
     }
 }
 
+impl Hashing {
+    /// Up to [`STEP_PIECES`] pieces more of the image, hashed and given to
+    /// the check.
+    fn step(&mut self, storage: &dyn Storage, path: &str, buf: &mut [u8]) -> Result<(), Reason> {
+        for _ in 0..STEP_PIECES {
+            let n = (self.len - self.at).min(PIECE as u64) as usize;
+            if n == 0 {
+                break;
+            }
+            let piece = &mut buf[..n];
+            let verify = &mut self.verify;
+            self.source
+                .read(storage, path, piece, &mut |bytes| verify.absorb(bytes))
+                .map_err(reason_of_fail)?;
+            self.sha.update(piece);
+            self.at += n as u64;
+        }
+        Ok(())
+    }
+}
+
 impl Listing {
     /// The next byte of the list's text: a line is `name version`.
     fn byte(&mut self, byte: u8, built_in: &mut dyn FnMut(&str)) {
@@ -544,6 +619,42 @@ impl Listing {
         self.len = 0;
         self.skipping = false;
     }
+}
+
+/// An opened image: what it says, how it is verified and read, its length
+/// (the image's, unpacked), and how many of its first bytes are in the file
+/// as they are (all of them, unless it is packed).
+struct Opened {
+    meta: Meta,
+    verify: Verify,
+    len: u64,
+    source: Source,
+    raw_head: u64,
+}
+
+fn reason_of_fail(fail: Fail) -> Reason {
+    match fail {
+        Fail::Card => Reason::CARD,
+        Fail::Damaged => Reason::DAMAGED,
+        Fail::NoMemory => Reason::OTHER,
+    }
+}
+
+/// The footer of a packed update file whose trailer begins at `tail_at`,
+/// if it has one.
+fn packed_footer(
+    storage: &dyn Storage,
+    path: &str,
+    tail_at: u64,
+) -> Result<Option<Footer>, Reason> {
+    let Some(at) = tail_at.checked_sub(packed::FOOTER_LEN as u64) else {
+        return Ok(None);
+    };
+    let mut bytes = [0; packed::FOOTER_LEN];
+    read_exact(storage, path, at, &mut bytes)?;
+    Ok(u32::try_from(tail_at)
+        .ok()
+        .and_then(|container_len| Footer::read(&bytes, container_len)))
 }
 
 fn read_exact(storage: &dyn Storage, path: &str, at: u64, buf: &mut [u8]) -> Result<(), Reason> {

@@ -24,6 +24,9 @@ paperpaw-config.workspace = true
 # Updates' files, their signatures and the firmware as plugins see it
 # (`updates`): the kernel's part, as the firmware has it.
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
+# Packed update files, inflated as they are written (`updates::packed`); the
+# firmware has it linked already (ZIP, PNG).
+miniz_oxide = { version = "=0.9.1", default-features = false, features = ["with-alloc"] }
 
 [dev-dependencies]
 # The secrets sealer's rules with a real AES-256-GCM (`key_sealer`); the
