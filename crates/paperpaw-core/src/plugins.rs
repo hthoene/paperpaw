@@ -292,24 +292,11 @@ impl Kernel {
                 id: format.id.clone(),
             });
         }
-        if let Some(spec) = staging
-            .hyphenation
-            .iter()
-            .find(|h| self.shared.hyphenation.contains(h.id.as_str()))
-        {
-            return Err(RegisterError::Duplicate {
-                id: spec.id.clone(),
-            });
-        }
         staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
         // After the last change, however this goes on.
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
         );
-        // A sealed action that came after handlers in its place: they go.
-        for action in self.shared.actions.drop_sealed_overrides() {
-            self.warn_runtime(format!("`{action}` is sealed; not overridden"));
-        }
         for setting in staging.settings.drain(..) {
             // Cannot fail: checked above.
             let _ = setting.define_in(&mut self.shared.settings);
@@ -320,8 +307,6 @@ impl Kernel {
             self.keys.plugins.push((plugin.clone(), source));
         }
         self.keys.presets.append(&mut staging.keymap_presets);
-        // Loaded once the settings are known (`rebuild_keymap`).
-        self.keys.when.append(&mut staging.keymaps_when);
         for catalog in staging.catalogs.drain(..) {
             self.shared.translator.add(catalog);
         }
@@ -350,12 +335,6 @@ impl Kernel {
         for (role, font, priority) in staging.font_roles.drain(..) {
             self.shared.fonts.propose(role, font, priority);
         }
-        // The highest priority, of equal ones the later.
-        for (painters, priority) in staging.ui_looks.drain(..) {
-            if self.shared.look.1.is_none_or(|p| priority >= p) {
-                self.shared.look = (paperpaw_sdk::ui::look::Look::of(painters), Some(priority));
-            }
-        }
         for format in staging.formats.drain(..) {
             // Cannot fail: checked above.
             let _ = self.shared.formats.add(format);
@@ -365,29 +344,7 @@ impl Kernel {
                 self.warn_runtime(format!("{error}"));
             }
         }
-        for spec in staging.hyphenation.drain(..) {
-            // Cannot fail: checked above and by the registrar.
-            let _ = self.shared.hyphenation.add(spec);
-        }
         self.subscriptions.append(&mut staging.subscriptions);
-        for (action, priority, handler) in staging.overrides.drain(..) {
-            // Not in place of a sealed action (one known by now; one that
-            // comes later is never overridden either).
-            if self
-                .shared
-                .actions
-                .get(action.as_str())
-                .is_some_and(paperpaw_sdk::Action::is_sealed)
-            {
-                self.warn_runtime(format!("{plugin}: `{action}` is sealed; not overridden"));
-                continue;
-            }
-            self.shared
-                .actions
-                .add_override(action, priority, plugin.clone(), handler);
-        }
-        self.action_observers.append(&mut staging.action_observers);
-        self.event_observers.append(&mut staging.event_observers);
         self.plugin_defaults.extend(
             staging
                 .setting_defaults
@@ -424,26 +381,11 @@ impl Kernel {
         for (item, state) in staging.item_states.drain(..) {
             self.shared.menus.set_state(item, state);
         }
-        for (item, key) in staging.item_descriptions.drain(..) {
-            self.shared.menus.set_description(item, key);
-        }
-        for (screen, hints) in staging.screen_hints.drain(..) {
-            self.shared.registry.hints.insert(screen, hints);
-        }
         for item in staging.status_items.drain(..) {
             self.shared.status_items.add(item);
         }
         for line in staging.status_lines.drain(..) {
             self.shared.status_items.add_line(line);
-        }
-        for place in staging.status_places.drain(..) {
-            self.shared.status_items.add_place(place);
-        }
-        for place in staging.widget_places.drain(..) {
-            self.shared.widgets.add_place(place);
-        }
-        for category in staging.widget_categories.drain(..) {
-            self.shared.widgets.add_category(category);
         }
         for step in staging.setup_steps.drain(..) {
             self.shared.setup.add(step);
@@ -455,24 +397,15 @@ impl Kernel {
             self.shared.settings.presets_mut().add(preset);
         }
         for widgets in staging.widgets.drain(..) {
-            match widgets {
-                crate::registry::StagedWidgets::One(widget) => {
-                    self.shared.widgets.add_boxed(widget)
-                }
-                crate::registry::StagedWidgets::List(list) => self.shared.widgets.add_fixed(list),
-            }
+            let crate::registry::StagedWidgets::One(widget) = widgets;
+            self.shared.widgets.add_boxed(widget);
         }
         self.stylesheet_owners
             .extend(staging.stylesheets.iter().map(|_| plugin.clone()));
         self.shared.stylesheets.append(&mut staging.stylesheets);
         self.shared.book_data.append(&mut staging.book_data);
-        self.shared.book_fields.append(&mut staging.book_fields);
-        self.shared.book_badges.append(&mut staging.book_badges);
         for (id, service) in staging.services.drain(..) {
             self.shared.services.insert(id, service);
-        }
-        for point in staging.points.drain(..) {
-            self.shared.services.declare_point(point);
         }
         for event in staging.events.drain(..) {
             self.shared.services.declare_event(event);
@@ -482,62 +415,11 @@ impl Kernel {
                 .services
                 .contribute(point, plugin.clone(), contribution);
         }
-        for filter in staging.text_filters.drain(..) {
-            self.shared.text_filters.add(filter);
-        }
         for decorator in staging.decorators.drain(..) {
             self.shared.decorators.add(decorator);
         }
-        for layer in staging.page_layers.drain(..) {
-            self.shared.page_layers.add(layer);
-        }
-        for frame in staging.page_frames.drain(..) {
-            self.shared.page_layers.add_frame(frame);
-        }
-        for provider in staging.lookup_providers.drain(..) {
-            self.shared.lookup.add(provider);
-        }
-        for voice in staging.voices.drain(..) {
-            self.shared.voices.add(voice);
-        }
-        for reader in staging.readers.drain(..) {
-            self.shared.readers.add(reader);
-        }
-        for filter in staging.input_filters.drain(..) {
-            self.shared.input_filters.add(filter);
-        }
-        for service in staging.gatt_services.drain(..) {
-            if let Some(radio) = &mut self.io.bluetooth {
-                radio.add_service(&service);
-            }
-        }
-        for filter in staging.refresh_filters.drain(..) {
-            self.shared.refresh_filters.add(filter);
-        }
         for chrome in staging.chromes.drain(..) {
             self.add_chrome(chrome);
-        }
-        let caps = self.shared.caps;
-        let inputs = staging.inputs.drain(..);
-        let made = inputs.filter(|input| input.need.is_none_or(|need| need.met(caps)));
-        self.shared.inputs.extend(made);
-        // Recognizers are made once, their makers dropped; listed among
-        // the inputs, to bind.
-        for spec in staging.gestures.drain(..) {
-            let recognizer = (spec.factory)();
-            let mut listed = paperpaw_sdk::keys::InputSpec::new(spec.id.clone(), spec.title);
-            listed.kind = paperpaw_sdk::keys::InputKind::Gesture;
-            if caps.touch {
-                self.shared.inputs.push(listed);
-            }
-            let id = spec.id;
-            let fingers = Vec::new();
-            let made = gestures::PluginRecognizer {
-                id,
-                recognizer,
-                fingers,
-            };
-            self.input.recognizers.push(made);
         }
         for spec in staging.works.drain(..) {
             self.works.add_spec(spec);
@@ -1229,12 +1111,9 @@ impl Kernel {
         self.keys.plugins.shrink_to_fit();
         self.stylesheet_owners.shrink_to_fit();
         self.keys.presets.shrink_to_fit();
-        self.keys.when.shrink_to_fit();
         self.keys.user.shrink_to_fit();
         self.keys.shell.shrink_to_fit();
         self.subscriptions.shrink_to_fit();
-        self.action_observers.shrink_to_fit();
-        self.event_observers.shrink_to_fit();
         self.shared.plugins.shrink_to_fit();
         self.warnings.shrink_to_fit();
         let shared = &mut self.shared;
@@ -1248,15 +1127,7 @@ impl Kernel {
         shared.widgets.shrink_to_fit();
         shared.setup.shrink_to_fit();
         shared.services.shrink_to_fit();
-        shared.text_filters.shrink_to_fit();
         shared.decorators.shrink_to_fit();
-        shared.page_layers.shrink_to_fit();
-        shared.lookup.shrink_to_fit();
-        shared.voices.shrink_to_fit();
-        shared.readers.shrink_to_fit();
-        shared.input_filters.shrink_to_fit();
-        shared.inputs.shrink_to_fit();
-        shared.refresh_filters.shrink_to_fit();
         shared.stylesheets.shrink_to_fit();
         shared.translator.shrink_to_fit();
     }

@@ -22,7 +22,7 @@ use paperpaw_sdk::{
     ActionSpec, Canvas, Cx, Env, Handled, Id, ItemState, Manifest, MenuEntry, MenuNeed,
     MenuSection, RegisterError, SettingKind, SettingSpec, SettingValue, Version,
     setup::{SetupPage, SetupStepSpec},
-    widgets::{CellSpan, Drawn, PlaceKind, WidgetPlace, WidgetSpec, categories},
+    widgets::{CellSpan, Drawn, WidgetSpec, categories},
 };
 
 fn id(text: &str) -> Id {
@@ -36,9 +36,6 @@ impl crate::Layer for Quiet {
         Handled::No
     }
 }
-
-const LISTS: &[Id] = &[Id::new_static("demo.list")];
-const OFF_LISTS: &[Id] = &[Id::new_static("demo.off-list")];
 
 /// Everything the ops read from the environment.
 fn demo() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
@@ -121,7 +118,6 @@ fn register_menus(r: &mut Items) -> Result<(), RegisterError> {
     r.set_item_state(id("demo.long"), |_| {
         ItemState::new().enabled(false).label("é".repeat(100))
     })?;
-    r.describe_item(id("demo.open"), "demo.line.open")?;
     r.add_icon(id("demo.open"), "gear")?;
     r.add_keymap("[keymap.global]\ntap.center = demo.open\nswipe.left = none\n[keymap.demo.main]\ntap.center = demo.save\n[keymap.demo.custom]\nswipe.up = demo.open\n")?;
     Ok(())
@@ -144,21 +140,6 @@ fn register_ui(r: &mut Items) -> Result<(), RegisterError> {
             Drawn::new(|_, _| 10, |_, _, _| {}),
         )
         .cells(CellSpan::new(2, 2).square()),
-    )?;
-    r.add_widget_place(WidgetPlace::new(
-        id("demo.home"),
-        "demo.place.home",
-        LISTS,
-        PlaceKind::Grid,
-    ))?;
-    r.add_widget_place(
-        WidgetPlace::new(
-            id("demo.off"),
-            "demo.place.off",
-            OFF_LISTS,
-            PlaceKind::Stack,
-        )
-        .shown_if(id("demo.mode"), "on"),
     )?;
     r.add_setup_step(
         SetupStepSpec::new(

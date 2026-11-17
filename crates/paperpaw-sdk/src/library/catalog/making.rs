@@ -148,12 +148,6 @@ impl Making {
         };
         let mut making = Making {
             log_from,
-            fields: env
-                .book_fields
-                .iter()
-                .filter(|f| f.in_catalog)
-                .map(|f| f.id.as_str().to_string())
-                .collect(),
             first: first_generation(env),
             ..Making::default()
         };

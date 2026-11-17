@@ -53,7 +53,7 @@ pub const POLICIES: [&str; 3] = [
 /// buttons pressed, held and pressed twice, and on touch screens taps,
 /// long taps and double taps in each zone, two-finger taps, swipes,
 /// swipes in from the edges and pinches. Plugins' inputs are in
-/// [`Env::inputs`](crate::Env::inputs).
+/// `Env::inputs`.
 pub fn inputs(caps: &InputCaps) -> Vec<String> {
     let mut all = Vec::new();
     for key in caps.keys {
@@ -101,7 +101,7 @@ impl InputMode {
 /// An input of one's own (`input.<id>` in key maps), e.g. a chord a
 /// plugin recognizes or a switch of a switch-access device: bound like
 /// any other, raised with [`Command::Input`](crate::Command::Input).
-/// [`Env::inputs`](crate::Env::inputs) lists them with the gestures
+/// `Env::inputs` lists them with the gestures
 /// plugins recognize ([`InputKind::Gesture`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -115,7 +115,7 @@ pub struct InputSpec {
     pub kind: InputKind,
 }
 
-/// What an input of [`Env::inputs`](crate::Env::inputs) is.
+/// What an input of `Env::inputs` is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum InputKind {
