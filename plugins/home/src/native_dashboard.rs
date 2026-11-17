@@ -1358,4 +1358,5 @@ fn clamp_i32(value: i32) -> u16 {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "test assertions")]
 mod tests;

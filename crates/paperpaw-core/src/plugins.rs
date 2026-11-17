@@ -110,7 +110,7 @@ impl Kernel {
         let mut staging = Staging::default();
         let mut items = Items::new(id.clone());
         let result = adds(&mut items)
-            .and_then(|()| registry::stage(&id, items.into_contributions(), &mut staging))
+            .and_then(|()| registry::stage(&id, items, &mut staging))
             .and_then(|()| self.merge(&id, staging));
         match result {
             Ok(()) => self.list_plugin(manifest, PluginState::Running, true),
@@ -1153,9 +1153,9 @@ impl Kernel {
         // Registered aside first (its translations, key map, settings): one
         // that would fail leaves the version before in place.
         let mut registrar = Items::new(id.clone());
-        let staged = plugin.register(&mut registrar).and_then(|()| {
-            registry::stage(id, registrar.into_contributions(), &mut Staging::default())
-        });
+        let staged = plugin
+            .register(&mut registrar)
+            .and_then(|()| registry::stage(id, registrar, &mut Staging::default()));
         drop(plugin);
         if let Err(error) = staged {
             return refuse(self, format!("{folder}: not installed: {error}"));

@@ -9,13 +9,13 @@ use alloc::boxed::Box;
 use paperpaw_graphics::Canvas;
 use paperpaw_platform::{PointerEvent, Rect};
 use paperpaw_sdk::{
-    CloseCause, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Outside, Pane, Params,
-    SCREEN_REVISION, Screen, ShowsThrough,
+    CloseCause, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Instances, Outside, Pane,
+    Params, RefreshMode, SCREEN_REVISION, Screen, ShowsThrough, TitleEntry,
 };
 
 /// A screen on the kernel's stack: the same calls, and the same answers when
 /// it says nothing, as the old [`Screen`].
-pub(crate) trait Layer {
+pub trait Layer {
     fn revision(&self) -> u16 {
         SCREEN_REVISION
     }
@@ -160,6 +160,75 @@ pub(crate) trait Layer {
     }
 }
 
+/// What makes a [`KernelScreen`] with the params it is opened with.
+pub type KernelFactory = fn(&Env<'_>, &Params) -> Box<dyn Layer>;
+
+/// A screen kept in the program that the kernel makes as a [`Layer`]
+/// ([`Items::add_kernel_screens`](crate::Items::add_kernel_screens)): the
+/// kernel's own, and those of the shells (#244, slice D5b).
+pub struct KernelScreen {
+    entry: TitleEntry,
+    factory: KernelFactory,
+    refresh_on_open: Option<RefreshMode>,
+    instances: Instances,
+}
+
+impl KernelScreen {
+    /// Screen `id`, called `title` (a translation key), made by `factory`.
+    #[must_use]
+    pub const fn new(id: Id, title: &'static str, factory: KernelFactory) -> Self {
+        Self {
+            entry: TitleEntry::new(id, title),
+            factory,
+            refresh_on_open: None,
+            instances: Instances::PER_PARAMS,
+        }
+    }
+
+    /// How the panel is refreshed when it opens.
+    #[must_use]
+    pub const fn refresh_on_open(mut self, mode: RefreshMode) -> Self {
+        self.refresh_on_open = Some(mode);
+        self
+    }
+
+    /// How many of it may be open at once.
+    #[must_use]
+    pub const fn instances(mut self, instances: Instances) -> Self {
+        self.instances = instances;
+        self
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> &Id {
+        &self.entry.id
+    }
+
+    /// Its id and the translation key of its name.
+    #[must_use]
+    pub const fn entry(&self) -> &TitleEntry {
+        &self.entry
+    }
+
+    pub(crate) fn make(&self, env: &Env<'_>, params: &Params) -> Box<dyn Layer> {
+        (self.factory)(env, params)
+    }
+
+    pub(crate) const fn refresh(&self) -> Option<RefreshMode> {
+        self.refresh_on_open
+    }
+
+    pub(crate) const fn how_many(&self) -> Instances {
+        self.instances
+    }
+}
+
+impl core::fmt::Debug for KernelScreen {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("KernelScreen").field(&self.entry.id).finish()
+    }
+}
+
 /// An old [`Screen`] on the stack.
 pub(crate) struct Old(pub(crate) Box<dyn Screen>);
 
@@ -293,14 +362,17 @@ impl Layer for Old {
     }
 
     fn on_resize(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
+        // Reached through `call_since` on this layer: its revision is the held screen's.
         self.0.on_resize(cx)
     }
 
     fn pane(&self) -> Pane {
+        // Reached through `call_since` on this layer: its revision is the held screen's.
         self.0.pane()
     }
 
     fn times_under_overlays(&self) -> bool {
+        // Reached through `call_since` on this layer: its revision is the held screen's.
         self.0.times_under_overlays()
     }
 }
