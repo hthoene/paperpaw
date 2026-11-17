@@ -1152,10 +1152,10 @@ impl<'a> FontHandle<'a> {
     /// How far the ink of one line of `text` reaches above and below its
     /// baseline, in pixels (above negative), counting pixels at least half
     /// covered, as panels of black and white show them: what centres it
-    /// by its ink rather than by its line ([`Ui::header`]). `None`
+    /// by its ink rather than by its line (`Ui::header`). `None`
     /// for text without ink (spaces).
     ///
-    /// [`Ui::header`]: crate::ui::Ui::header
+    /// `Ui::header`: crate::ui::Ui::header
     pub fn ink(&self, size: f32, text: &str) -> Option<(i32, i32)> {
         if let Some(larger) = self.larger_for(size) {
             return larger.ink(size, text);

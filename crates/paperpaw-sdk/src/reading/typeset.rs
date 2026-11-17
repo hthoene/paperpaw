@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 
 use super::WordBox;
 use crate::builtin::{fonts, settings};
-use crate::document::{DocumentError, Locator};
+use crate::document::Locator;
 use crate::layout::{
     BookStyles, Face, LineBidi, LineRun, Page, PageImage, PageLine, ScriptOptions, Style,
     Typesetter,
@@ -63,7 +63,7 @@ impl core::fmt::Debug for EmbeddedFonts {
 
 impl EmbeddedFonts {
     /// The face of `family` closest to `bold` and `italic`.
-    pub fn face(&self, family: u8, bold: bool, italic: bool) -> Option<FontHandle<'_>> {
+    pub(crate) fn face(&self, family: u8, bold: bool, italic: bool) -> Option<FontHandle<'_>> {
         let of_family = || self.faces.iter().filter(|f| f.0 == family);
         let exact = of_family().find(|f| f.1 == bold && f.2 == italic);
         let regular = || of_family().find(|f| !f.1 && !f.2);
@@ -350,73 +350,6 @@ impl PageType {
             key,
         }
     }
-
-    /// The text's box, in whole pixels.
-    pub fn text_box(&self) -> Rect {
-        Rect::new(
-            self.x as u16,
-            self.y as u16,
-            self.width as u16,
-            self.height as u16,
-        )
-    }
-
-    /// Whether the text is set in columns other than its box (a page
-    /// layer's frame).
-    pub fn in_columns(&self) -> bool {
-        self.columns != [self.text_box()]
-    }
-
-    /// The page from `at` as `lay` lays out a column (its width and
-    /// height, where it begins): the text's box in one, or column by
-    /// column, each taking up where the one before ends, its lines and
-    /// pictures moved to its place (one page for all).
-    pub fn lay_out(
-        &self,
-        at: Locator,
-        mut lay: impl FnMut(f32, f32, Locator) -> Result<Page, DocumentError>,
-    ) -> Result<Page, DocumentError> {
-        if !self.in_columns() {
-            return lay(self.width, self.height, at);
-        }
-        let mut page = Page::new(at, at, Vec::new(), Vec::new());
-        let mut next = at;
-        for (i, column) in self.columns.iter().enumerate() {
-            let mut laid = lay(f32::from(column.width), f32::from(column.height), next)?;
-            if laid.is_past_end() {
-                break;
-            }
-            let (dx, dy) = (f32::from(column.x) - self.x, f32::from(column.y) - self.y);
-            for line in &mut laid.lines {
-                line.x += dx;
-                line.baseline += dy;
-            }
-            for image in &mut laid.images {
-                image.x += dx;
-                image.y += dy;
-            }
-            if i == 0 {
-                page.start = laid.start;
-            }
-            page.end = laid.end;
-            page.lines.append(&mut laid.lines);
-            page.images.append(&mut laid.images);
-            if laid.end <= next {
-                break;
-            }
-            next = laid.end;
-        }
-        Ok(page)
-    }
-
-    /// The width lines are broken in where the start of a place's line is
-    /// looked for: the text's, or its first column's.
-    pub fn line_width(&self) -> f32 {
-        match (self.in_columns(), self.columns.first()) {
-            (true, Some(first)) => f32::from(first.width),
-            _ => self.width,
-        }
-    }
 }
 
 /// The options of the line breaker for a book in `language`: by word
@@ -555,7 +488,7 @@ impl<'a> ReadingFaces<'a> {
 
     /// How far text in `face` sits below the line's baseline, in pixels:
     /// raised above it (negative) for superscript, lowered for subscript.
-    pub fn shift(&self, face: Face) -> i32 {
+    pub(crate) fn shift(&self, face: Face) -> i32 {
         let size = self.line_size(face);
         if face.style.superscript() {
             -(size * RAISED + 0.5) as i32
@@ -591,7 +524,7 @@ impl<'a> ReadingFaces<'a> {
     }
 
     /// The width of `text` in `face`, small capitals included.
-    pub fn measure(&self, face: Face, text: &str) -> f32 {
+    pub(crate) fn measure(&self, face: Face, text: &str) -> f32 {
         let text = &*visible(text);
         let (font, size) = (self.font(face), self.size(face));
         let letters = self.letters(face, text);
@@ -610,7 +543,7 @@ impl<'a> ReadingFaces<'a> {
     /// The lines under, over and through text in `face` from `x`, `width`
     /// wide, on the line's `baseline`, in `ink`, drawn as its line style
     /// says (one, two, dotted or wavy).
-    pub fn decorate(
+    pub(crate) fn decorate(
         &self,
         canvas: &mut Canvas<'_>,
         face: Face,
@@ -642,7 +575,7 @@ impl<'a> ReadingFaces<'a> {
     }
 
     /// A space between words in `face`.
-    pub fn space(&self, face: Face) -> f32 {
+    pub(crate) fn space(&self, face: Face) -> f32 {
         self.font(face).advance(self.size(face), ' ') * self.word_spacing
     }
 
@@ -661,7 +594,7 @@ impl<'a> ReadingFaces<'a> {
 
     /// Draws `text` as [`ReadingFaces::draw`] does, in `ink` (e.g. a
     /// mark's).
-    pub fn draw_in(
+    pub(crate) fn draw_in(
         &self,
         canvas: &mut Canvas<'_>,
         face: Face,

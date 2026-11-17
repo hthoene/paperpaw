@@ -203,7 +203,7 @@ pub struct ProvidedText<'a> {
 /// `indexed` off), a blank value provides nothing, and a list of tags replaces
 /// the tags of the book (an empty one leaves them). The book's details are
 /// read and copied with `try_reserve`; the details are written as
-/// [`save`](super::save) writes them.
+/// `save` writes them.
 ///
 /// # Errors
 /// [`Error::OutOfMemory`] for memory; the storage's errors where the book's
@@ -299,7 +299,7 @@ pub fn try_book(storage: &dyn Storage, path: &str) -> Result<Option<Book>, Error
 }
 
 /// [`try_book`] for a file whose size is known
-/// ([`book_sized`](super::book_sized)).
+/// (`book_sized`).
 ///
 /// # Errors
 /// As [`try_book`].
@@ -497,7 +497,7 @@ fn try_edit_list(
 
 /// `core.library` op 8 `set_status` for the host, with the errors left in:
 /// both masks applied together (bit 0 finished, 1 favourite, 2 opened), the
-/// same changes as [`set_finished`](super::set_finished) and
+/// same changes as `set_finished` and
 /// [`set_favourite`](super::set_favourite) and, for opened, the place among
 /// the books opened last. Clearing *finished* marks the book unread, as
 /// `set_finished(false)` does. Each file is written whole; applying the same

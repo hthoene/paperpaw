@@ -680,7 +680,7 @@ pub const SKIMMED: Event<Skimmed> = Event::new("core.skimmed");
 pub const FOLLOW_LINK: Event<FollowLink> = Event::new("core.follow-link");
 /// The words of the page shown are wanted ([`PageWordsWanted`]):
 /// a reader with a book open answers with
-/// [`reading::PageWords`](crate::reading::PageWords).
+/// `reading::PageWords`.
 pub const PAGE_WORDS_WANTED: Event<PageWordsWanted> = Event::new("core.page-words-wanted");
 /// A word of a book was looked up ([`WordLookedUp`]).
 pub const WORD_LOOKED_UP: Event<WordLookedUp> = Event::new("core.word-looked-up");

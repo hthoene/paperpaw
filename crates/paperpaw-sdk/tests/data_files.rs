@@ -3,7 +3,7 @@
 
 use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::secrets::Secrets;
-use paperpaw_sdk::{MemoryStorage, annotations, library};
+use paperpaw_sdk::{MemoryStorage, annotations};
 
 #[test]
 fn secrets() {
@@ -16,38 +16,6 @@ fn secrets() {
     let wifi = secrets.iter().next().unwrap();
     assert_eq!(wifi.label, "Wi-Fi Home Net");
     assert!(wifi.changeable);
-}
-
-#[test]
-fn library_records_and_lists() {
-    let storage = MemoryStorage::new()
-        .with("books/a.epub", b"12345".to_vec())
-        .with(
-            // The record's name is the FNV-1a of the book's path.
-            ".paperpaw/library/details/0c/0c6afbf2778c9bbf.ini",
-            include_str!("../testdata/library-book.ini.v1"),
-        )
-        .with(
-            ".paperpaw/library/opened.txt",
-            include_str!("../testdata/opened.txt.v1"),
-        );
-    let book = library::book(&storage, "books/a.epub").expect("the record of books/a.epub");
-    // Written by an older version of the details (3): read, and to be
-    // read again from the book (`docs/data-files.md`).
-    assert!(!book.indexed);
-    assert_eq!(book.title.as_deref(), Some("Anna Karenina"));
-    assert_eq!(book.author.as_deref(), Some("Leo Tolstoy"));
-    assert_eq!(book.series.as_deref(), Some("  Classics "));
-    assert_eq!(book.series_index.as_deref(), Some("2"));
-    assert_eq!(book.tags, ["Novel", "Russia"]);
-    let cover = book.cover.as_ref().unwrap();
-    assert_eq!((cover.width, cover.height), (120, 180));
-    assert_eq!(book.progress, Some(42));
-    assert_eq!(book.field("calibre.rating"), Some("4"));
-    assert_eq!(
-        library::opened_books(&storage),
-        ["books/b.epub", "books/a b.txt"]
-    );
 }
 
 #[test]

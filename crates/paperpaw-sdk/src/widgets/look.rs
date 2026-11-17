@@ -200,7 +200,7 @@ impl Padding {
     }
 
     /// The pixels it keeps from the edges of `frame` drawn in `style`.
-    pub fn pixels(self, style: &UiStyle, frame: Frame) -> u16 {
+    pub(crate) fn pixels(self, style: &UiStyle, frame: Frame) -> u16 {
         let gap = style.gap;
         let step = match self {
             Padding::Auto if frame == Frame::None => 0,
@@ -244,11 +244,6 @@ impl WidgetLook {
             paper,
             frame,
         }
-    }
-
-    /// The same look in another area (e.g. a caption's).
-    pub fn within(self, area: Rect) -> Self {
-        Self { area, ..self }
     }
 }
 

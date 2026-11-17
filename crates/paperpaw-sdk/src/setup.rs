@@ -26,7 +26,7 @@ pub enum SetupPage {
 }
 
 /// Whether a step is asked on this device.
-pub type AppliesFn = fn(&Env<'_>) -> bool;
+pub(crate) type AppliesFn = fn(&Env<'_>) -> bool;
 
 /// A step of the first-run setup.
 #[non_exhaustive]

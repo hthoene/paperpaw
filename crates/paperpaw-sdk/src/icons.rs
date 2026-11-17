@@ -29,16 +29,6 @@ pub const BACK: &str = "core.icon.back";
 pub const PREV: &str = "core.icon.prev";
 pub const NEXT: &str = "core.icon.next";
 
-/// The semantic arrow icon pointing the other way, for a UI that runs
-/// right to left: back and previous point right, next points left.
-pub(crate) fn turned(icon: &str) -> &str {
-    match icon {
-        BACK | PREV => NEXT,
-        NEXT => PREV,
-        other => other,
-    }
-}
-
 /// Beside a button's hint where holding it does something too.
 pub const HOLD: &str = "core.icon.hold";
 /// In a button's hint while its press is being worked on.

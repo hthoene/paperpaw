@@ -48,17 +48,8 @@ impl Widgets {
         found
     }
 
-    /// The translation key of the name of widget `id`, registered here or
-    /// declared elsewhere.
-    pub fn title_of(&self, id: &str) -> Option<Cow<'_, str>> {
-        match self.title(id) {
-            Some(title) => Some(Cow::Borrowed(title)),
-            None => self.elsewhere(id).map(|(title, _)| Cow::Owned(title)),
-        }
-    }
-
     /// The kind of widget `id`, registered here or declared elsewhere.
-    pub fn kind_of(&self, id: &str) -> Option<Cow<'_, str>> {
+    pub(crate) fn kind_of(&self, id: &str) -> Option<Cow<'_, str>> {
         match self.category(id) {
             Some(kind) => Some(Cow::Borrowed(kind)),
             None => self.elsewhere(id).map(|(_, kind)| Cow::Owned(kind)),
@@ -67,7 +58,7 @@ impl Widgets {
 
     /// Every widget for screens to show ([`Widgets::iter`]), then those
     /// declared elsewhere: the id and the translation key of the name.
-    pub fn offered(&self) -> Vec<(Id, String)> {
+    pub(crate) fn offered(&self) -> Vec<(Id, String)> {
         let mut offered: Vec<(Id, String)> = self
             .iter()
             .map(|(id, title)| (id.clone(), String::from(title)))
@@ -131,20 +122,6 @@ mod tests {
     }
 
     #[test]
-    fn without_a_lookup_only_the_registered_widgets_are_known() {
-        let widgets = widgets();
-        assert_eq!(
-            widgets.title_of("here.clock").as_deref(),
-            Some("here.clock.title")
-        );
-        assert_eq!(widgets.title_of("home.clock"), None);
-        assert_eq!(widgets.kind_of("home.clock"), None);
-        let offered = widgets.offered();
-        assert_eq!(offered.len(), 1);
-        assert_eq!(offered[0].0.as_str(), "here.clock");
-    }
-
-    #[test]
     fn tools_list_the_widgets_registered_and_declared_elsewhere_with_their_kinds() {
         let mut widgets = widgets();
         assert_eq!(widgets.everywhere().len(), 1);
@@ -160,49 +137,5 @@ mod tests {
         assert_eq!(all[0].1, "here.clock.title");
         assert_eq!(all[1], DECLARED[0]);
         assert_eq!(all[2], DECLARED[1]);
-    }
-
-    #[test]
-    fn widgets_declared_elsewhere_are_named_and_offered() {
-        let mut widgets = widgets();
-        widgets.set_declared_elsewhere(Box::new(declared));
-        assert_eq!(
-            widgets.title_of("home.clock").as_deref(),
-            Some("home.widget.clock")
-        );
-        assert_eq!(
-            widgets.kind_of("home.recent").as_deref(),
-            Some(categories::READING)
-        );
-        // A placement is named as its widget.
-        assert_eq!(
-            widgets.title_of("home.clock@2").as_deref(),
-            Some("home.widget.clock")
-        );
-        assert_eq!(widgets.title_of("home.none"), None);
-        // One registered here stays what it is here, and is offered once.
-        assert_eq!(
-            widgets.title_of("here.clock").as_deref(),
-            Some("here.clock.title")
-        );
-        let offered: Vec<_> = widgets
-            .offered()
-            .into_iter()
-            .map(|(id, title)| (String::from(id.as_str()), title))
-            .collect();
-        assert_eq!(
-            offered,
-            [
-                (String::from("here.clock"), String::from("here.clock.title")),
-                (
-                    String::from("home.clock"),
-                    String::from("home.widget.clock")
-                ),
-                (
-                    String::from("home.recent"),
-                    String::from("home.widget.recent")
-                ),
-            ]
-        );
     }
 }

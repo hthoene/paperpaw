@@ -4,9 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail tests")]
 use super::*;
 use crate::MemoryStorage;
-use crate::document::ImageRef;
-use crate::library::{book, favourites, opened_books, save, set_favourite, set_field};
-use alloc::format;
+use crate::library::{book, favourites, opened_books, set_favourite, set_field};
 use core::cell::{Cell, RefCell};
 use paperpaw_platform::DirEntry;
 
@@ -199,25 +197,6 @@ fn a_list_from_a_newer_version_is_left_as_it_is_and_fails_a_removal() {
     assert_eq!(
         storage.inner.get(&favourites_file()).unwrap(),
         newer.as_bytes()
-    );
-}
-
-#[test]
-fn a_cover_kept_by_the_books_data_is_named_where_the_book_is_now() {
-    let storage = Faulty::new(card());
-    let mut details = book(&storage, "a.epub").unwrap();
-    details.cover = Some(ImageRef {
-        path: format!("format/books/{}/cover.gray", key("a.epub")),
-        width: 3,
-        height: 4,
-    });
-    save(&storage, "a.epub", &details).unwrap();
-    storage.inner.rename("a.epub", "c.epub").unwrap();
-    try_moved(&storage, "a.epub", "c.epub").unwrap();
-    let cover = book(&storage, "c.epub").unwrap().cover.unwrap();
-    assert_eq!(
-        cover.path,
-        format!("format/books/{}/cover.gray", key("c.epub"))
     );
 }
 

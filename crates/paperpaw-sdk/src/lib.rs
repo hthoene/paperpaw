@@ -579,7 +579,7 @@ pub mod config {
 }
 
 /// QR codes, e.g. of an address to open on a phone (see `paperpaw-qr`;
-/// [`ui::draw_qr`] draws one).
+/// `ui::draw_qr` draws one).
 pub mod qr {
     pub use paperpaw_qr::QrCode;
 }
@@ -648,7 +648,7 @@ pub mod image {
     /// Decodes the JPEG, PNG or GIF file `from` into the file `to`, no
     /// larger than `fit` allows, keeping a PNG's transparency
     /// ([`AlphaFile`]; others are opaque), for
-    /// [`ui::draw_image_over`](crate::ui::draw_image_over): a picture over
+    /// `ui::draw_image_over`: a picture over
     /// what is drawn (a page under a sleep picture, a sticker on a
     /// widget). Why not where it is no image PaperPaw reads (another
     /// format, an interlaced PNG, a damaged file).

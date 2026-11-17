@@ -126,11 +126,7 @@ impl Items {
             });
         }
         if let Some(id) = contribution.id() {
-            // The kernel's services a plugin may stand in for (the
-            // library) are published under the kernel's ids.
-            let stands_in = matches!(contribution, Contribution::Published { .. })
-                && paperpaw_sdk::services::REPLACEABLE.contains(&id.as_str());
-            if !id.is_owned_by(&self.plugin) && !stands_in {
+            if !id.is_owned_by(&self.plugin) {
                 return Err(RegisterError::Namespace { id: id.clone() });
             }
             let kind = contribution.id_kind();

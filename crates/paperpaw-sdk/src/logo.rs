@@ -6,89 +6,11 @@
 //! on the card), e.g. one a data plugin brings with
 //! `[core] logo = plugins/mine/logo.png` in its `settings.ini`.
 
-use alloc::format;
-use alloc::string::String;
-
-use crate::document::ImageRef;
 use crate::setting::{Setting, Text};
-use crate::{Canvas, Color, Env, Rect, Storage};
+use crate::{Canvas, Color, Rect};
 
 /// A picture shown in place of the drawn logo; none (empty) for that.
 pub const LOGO: Setting<Text> = Setting::new("core.logo");
-
-/// The logo as it is drawn: the drawn one or a picture, read once.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Logo {
-    /// PaperPaw's own, drawn.
-    Drawn,
-    /// The picture [`LOGO`] names, decoded to fit `width` × `height`.
-    Picture(ImageRef),
-}
-
-impl Logo {
-    /// The logo to draw in up to `width` × `height` pixels: the picture
-    /// [`LOGO`] names, decoded unless it was already for that size, or
-    /// the drawn one (also when the picture cannot be read).
-    pub fn read(env: &Env<'_>, width: u16, height: u16) -> Logo {
-        let path = String::from(env.settings().read(&LOGO).trim().trim_matches('/'));
-        if path.is_empty() {
-            return Logo::Drawn;
-        }
-        picture(env, &path, width, height).map_or(Logo::Drawn, Logo::Picture)
-    }
-
-    /// Its size in up to `width` × `height`, its proportions kept.
-    pub fn fit(&self, width: u16, height: u16) -> (u16, u16) {
-        match self {
-            Logo::Drawn => {
-                let side = width.min(height);
-                (side, side)
-            }
-            Logo::Picture(image) => crate::ui::fit_image(image, width, height),
-        }
-    }
-
-    /// Draws it as large as fits in `area`, in its middle; the drawn one
-    /// in `ink`, its paw and fold showing what is below.
-    pub fn draw(&self, canvas: &mut Canvas<'_>, storage: &dyn Storage, area: Rect, ink: Color) {
-        let (w, h) = self.fit(area.width, area.height);
-        let at = Rect::new(
-            area.x + (area.width - w) / 2,
-            area.y + (area.height - h) / 2,
-            w,
-            h,
-        );
-        match self {
-            Logo::Drawn => draw(canvas, at, ink),
-            Logo::Picture(image) => crate::ui::draw_image(canvas, storage, image, at),
-        }
-    }
-}
-
-/// The picture at `path`, decoded for `width` × `height` into a file of
-/// the logo's own, again only when the picture or the size changed.
-fn picture(env: &Env<'_>, path: &str, width: u16, height: u16) -> Option<ImageRef> {
-    use crate::image::{Fit, ImageFile};
-    let size = env.storage().size(path).ok()?;
-    let color = env.device().display.format.is_color();
-    let stamp = format!("{path}\t{size}\t{width}x{height}\t{color}");
-    let dir = crate::data::DIR;
-    let (pixels, stamp_path) = (format!("{dir}/logo.pixels"), format!("{dir}/logo.stamp"));
-    let kept = crate::read_file(env.storage(), &stamp_path, 1024)
-        .is_ok_and(|kept| kept == stamp.as_bytes());
-    if kept && let Some(file) = ImageFile::open(env.storage(), &pixels) {
-        return Some(ImageRef {
-            path: file.path,
-            width: file.width,
-            height: file.height,
-        });
-    }
-    let fit = Fit::screen(width.into(), height.into());
-    let image = crate::image::picture_from_file(env.storage(), path, &pixels, fit, color)?;
-    let _ = env.storage().write(&stamp_path, stamp.as_bytes());
-    Some(image)
-}
 
 /// The drawing's units: the sheet is 96 across, as in the logo's own
 /// drawing (its SVG, less a margin of 12).
