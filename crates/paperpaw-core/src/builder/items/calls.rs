@@ -35,6 +35,8 @@ use paperpaw_sdk::Contribution;
 pub struct Items {
     plugin: Id,
     contributions: Vec<Contribution>,
+    /// Screens kept in the program that the kernel makes as layers.
+    kernel_screens: Vec<&'static [crate::KernelScreen]>,
 }
 
 impl Items {
@@ -44,6 +46,7 @@ impl Items {
         Self {
             plugin,
             contributions: Vec::new(),
+            kernel_screens: Vec::new(),
         }
     }
 
@@ -60,6 +63,12 @@ impl Items {
     /// What was added, for the kernel to apply.
     pub fn into_contributions(self) -> Vec<Contribution> {
         self.contributions
+    }
+
+    /// What was added and the screens kept in the program that are made
+    /// as layers ([`add_kernel_screens`](Self::add_kernel_screens)).
+    pub(crate) fn into_parts(self) -> (Vec<Contribution>, Vec<&'static [crate::KernelScreen]>) {
+        (self.contributions, self.kernel_screens)
     }
 
     /// Adds `contribution`; every method below is a shorthand for one.
@@ -157,24 +166,46 @@ impl Items {
         &mut self,
         screens: &'static [paperpaw_sdk::FixedScreen],
     ) -> Result<(), RegisterError> {
-        // Each in the plugin's namespace, and once.
+        self.check_screens(screens.iter().map(paperpaw_sdk::FixedScreen::id))?;
+        self.contributions.push(Contribution::FixedScreens(screens));
+        Ok(())
+    }
+
+    /// Adds screens kept in the program that the kernel makes as layers (a
+    /// `static` list of [`KernelScreen`](crate::KernelScreen)s), as
+    /// [`add_screens`](Self::add_screens) does the old SDK's.
+    pub fn add_kernel_screens(
+        &mut self,
+        screens: &'static [crate::KernelScreen],
+    ) -> Result<(), RegisterError> {
+        self.check_screens(screens.iter().map(crate::KernelScreen::id))?;
+        self.kernel_screens.push(screens);
+        Ok(())
+    }
+
+    /// Each of `ids` in the plugin's namespace, once among its screens.
+    fn check_screens<'a>(
+        &self,
+        ids: impl Iterator<Item = &'a Id> + Clone,
+    ) -> Result<(), RegisterError> {
         let added = |id: &Id| {
             self.contributions.iter().any(|c| match c {
                 Contribution::Screen(s) => s.id == *id,
                 Contribution::FixedScreens(list) => list.iter().any(|s| s.id() == id),
                 _ => false,
-            })
+            }) || self
+                .kernel_screens
+                .iter()
+                .any(|list| list.iter().any(|s| s.id() == id))
         };
-        for (n, screen) in screens.iter().enumerate() {
-            let id = screen.id();
+        for (n, id) in ids.clone().enumerate() {
             if !id.is_owned_by(&self.plugin) {
                 return Err(RegisterError::Namespace { id: id.clone() });
             }
-            if added(id) || screens[..n].iter().any(|s| s.id() == id) {
+            if added(id) || ids.clone().take(n).any(|other| other == id) {
                 return Err(RegisterError::Duplicate { id: id.clone() });
             }
         }
-        self.contributions.push(Contribution::FixedScreens(screens));
         Ok(())
     }
 

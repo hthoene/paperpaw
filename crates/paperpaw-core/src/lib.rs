@@ -81,8 +81,7 @@ mod screens;
 mod secrets_i6;
 mod shared_env;
 mod tall_band;
-use layer::Layer;
-use screens::ActiveScreen;
+pub use layer::{KernelFactory, KernelScreen, Layer};
 #[cfg(test)]
 mod tests;
 mod timing;
@@ -133,7 +132,7 @@ pub use crate::io::{
 use crate::keymap::{InputKey, Keymap, Origin, Zone};
 use crate::refresh::RefreshPolicy;
 use crate::registry::{Registry, Staging};
-use crate::screens::uncovered;
+use crate::screens::{ActiveScreen, uncovered};
 pub use crate::work::NetworkSettings;
 #[doc(hidden)]
 pub use crate::work::network_specs_of;
@@ -266,7 +265,8 @@ pub struct Kernel {
     /// Of the commands asked for, those of a screen guarding the device or
     /// one it opened: what they open above it is its own.
     own_trusted: Vec<usize>,
-    /// Notices held back by a guarding screen (`notices`).
+    /// Notices given while a screen guarded the device, shown in turn once it
+    /// lets go (`notices`).
     waiting_notices: notices::Waiting,
     /// When the device was last used (input, a page turned), for sleeping
     /// by itself ([`settings::SLEEP_AFTER`](core_settings::SLEEP_AFTER)).
@@ -300,9 +300,11 @@ pub struct Kernel {
     /// The screen on top when the messages read from the card were last
     /// forgotten (`forget_read_messages`).
     read_top: Option<u32>,
-    /// Unreadable `paperpaw.ini`, reported after the first screen shows.
+    /// `paperpaw.ini` is there but could not be read at start: the user
+    /// is told once the first screen shows.
     config_unreadable: bool,
-    /// No usable card, reported at each start.
+    /// The shell found no card it can use: the reader is told why at
+    /// each start.
     card_trouble: Option<CardTrouble>,
     /// This start ends a sleep that restarted the device (see
     /// [`KernelBuilder::after_sleep`]): [`events::RESUME`] follows
@@ -674,10 +676,9 @@ impl Kernel {
         }
     }
 
-    /// Whether what the screen shows is secret now: a PIN or a password
-    /// being entered (`Screen::secret`),
-    /// or the device guarded. Those who show the screen elsewhere (a
-    /// remote control, tools) leave out what its parts say then.
+    /// Whether what the screen shows is secret now: a PIN or a password being
+    /// entered ([`Layer::secret`]), or the device guarded. Those who show the
+    /// screen elsewhere (a remote control, tools) leave out what it says then.
     pub fn is_secret(&self) -> bool {
         self.guard().is_some() || self.stack.iter().any(ActiveScreen::secret)
     }

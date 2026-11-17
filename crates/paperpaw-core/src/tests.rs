@@ -3258,7 +3258,6 @@ mod kernel_calls;
 mod key_guard;
 mod library_catalog;
 mod library_catalog_native;
-mod low_memory_notice;
 mod net_demand;
 mod net_policy_wiring;
 mod network_work;

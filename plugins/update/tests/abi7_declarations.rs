@@ -63,8 +63,8 @@ fn the_declarations_are_the_reviewed_golden() {
 }
 
 /// What the batches say, decoded and checked by the host's rules: the group
-/// (order 94), the three settings (the server's address among them), the
-/// page, the two actions, the page's row first in the group, the
+/// (order 94), the three settings (the server's address in the developers'
+/// group), the page, the two actions, the page's row first in the group, the
 /// icons, and the `Firmware` need of the group, the server's address, looking
 /// by itself and both actions' rows.
 #[test]
@@ -74,7 +74,7 @@ fn the_decoded_batches_say_what_the_registration_said() {
     assert_eq!(
         native.specs,
         [
-            "server|3|0|update.group|update.setting.server|update.setting.server.help|t:https://paperpaw.org|0|0|\"\"",
+            "server|3|0|core.group.developer|update.setting.server|update.setting.server.help|t:https://paperpaw.org|0|0|\"\"",
             "look|0|0|update.group|update.setting.look|update.setting.look.help|b:0|0|0|\"\"",
             "betas|0|0|update.group|update.setting.betas|update.setting.betas.help|b:0|0|0|\"\"",
         ]

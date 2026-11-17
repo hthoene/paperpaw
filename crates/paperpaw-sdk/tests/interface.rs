@@ -488,14 +488,7 @@ fn newer_screen_items_are_called_only_through_call_since() {
     let mut direct = Vec::new();
     for file in &files {
         let text = std::fs::read_to_string(file).unwrap();
-        // The adapter that holds an old screen as a layer passes each item on
-        // as it comes (`self.0.item(..)`); whoever calls the layer asks
-        // `call_since` first.
-        let adapter = file.ends_with("paperpaw-core/src/layer.rs");
         for (line, code) in direct_calls(&text) {
-            if adapter && code.trim_start().starts_with("self.0.") {
-                continue;
-            }
             direct.push(format!("{}:{line}: {}", file.display(), code.trim()));
         }
     }

@@ -30,7 +30,6 @@ use crate::{clock, device, input, now, power, stack};
 mod cable;
 mod card_swap;
 mod dozing;
-mod low_memory;
 mod paced;
 #[cfg(feature = "remote")]
 mod remote_commands;
@@ -115,8 +114,6 @@ pub struct State {
     /// pressed again) does not change it. Set only in `step`; it ends in the
     /// power-off or a reset, so nothing clears it.
     escape: bool,
-    /// The one-time low-memory notice (`low_memory`).
-    low_memory: paperpaw_x4::low_memory::Notice,
     /// The kernel asked to sleep.
     sleep: bool,
     /// The kernel asked to switch the device off (`Effect::PowerOff`).
@@ -1118,12 +1115,6 @@ impl Firmware {
             // The cable transfer's answers, as soon as they are there.
             while let Some(line) = self.kernel.next_cable_line() {
                 esp_println::println!("{line}");
-            }
-            if let Some(next) = self.low_memory_notice(
-                effects.grays() || effects.sleep() || effects.power_off() || effects.restart(),
-            ) {
-                effects = next;
-                continue;
             }
             return;
         }

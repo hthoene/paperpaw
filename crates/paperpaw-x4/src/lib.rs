@@ -59,7 +59,6 @@ pub mod host_jobs;
 pub mod install_note;
 pub mod key_sealer;
 pub mod light_timer;
-pub mod low_memory;
 pub mod mdns;
 pub mod native_offer;
 pub mod net_lost;

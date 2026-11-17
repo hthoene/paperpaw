@@ -4,7 +4,6 @@
 //! checking: where it cannot, what was chosen and offered before stays and
 //! a line in the warnings says so (the next refresh tries again).
 
-pub(crate) mod literata_notice;
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;

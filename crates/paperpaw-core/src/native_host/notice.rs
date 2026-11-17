@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 
 use paperpaw_sdk::builtin::params;
 use paperpaw_sdk::ui::{self, UiStyle};
-use paperpaw_sdk::{Canvas, Color, Cx, Env, Handled, Id, Params, Rect, Screen};
+use paperpaw_sdk::{Canvas, Color, Cx, Env, Handled, Id, Params, Rect};
 
 /// The screen's id: a host screen, bound to the notice slot as a fallback.
 pub(crate) const SCREEN: Id = Id::new_static("core.notice-box");
@@ -85,7 +85,7 @@ impl Notice {
     }
 }
 
-impl Screen for Notice {
+impl crate::Layer for Notice {
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
         Some(self.region)
     }
