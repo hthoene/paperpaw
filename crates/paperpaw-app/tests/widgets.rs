@@ -204,12 +204,14 @@ fn one_week_start_for_all() {
 #[test]
 #[cfg_attr(
     not(feature = "native-linked-reading"),
-    ignore = "needs the native home and widgets pack (`native-linked-reading`)"
+    ignore = "needs the native home (`native-linked-reading`)"
 )]
 fn a_widget_placed_twice_has_two_looks() {
     let mut app = App::new(X4, "en");
-    // A widget of the native widgets pack, linked in every build.
-    let id = "widgets.day".to_string();
+    // A widget of the native home itself: the widgets pack is linked only
+    // with `native-linked-store`, and its `widgets.day` has no frame setting
+    // where it is not (`native-linked,native-linked-reading` alone).
+    let id = "home.date".to_string();
     app.set("home.page-1", &format!("{id}@1 0/0 2x2, {id}@2 2/0 2x2"));
     app.set(&format!("{id}@2.frame"), "core.frame.dark");
     let settings = app.kernel.settings();

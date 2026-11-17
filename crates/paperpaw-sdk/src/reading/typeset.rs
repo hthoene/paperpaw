@@ -177,8 +177,7 @@ pub struct PageType {
     /// The status lines above and below the content, where there are any.
     pub top_status: Option<Rect>,
     pub status: Option<Rect>,
-    /// The rooms page layers reserve beside the content (see
-    /// [`layers`](crate::layers)), and the columns the content is set in,
+    /// The rooms page layers reserve beside the content, and the columns the content is set in,
     /// left to right: the content alone without a frame.
     pub rooms: Vec<(Id, Rect)>,
     pub columns: Vec<Rect>,
@@ -435,8 +434,8 @@ impl PageType {
         )
     }
 
-    /// Whether the text is set in columns other than its box (a frame,
-    /// see [`layers`](crate::layers)).
+    /// Whether the text is set in columns other than its box (a page
+    /// layer's frame).
     pub fn in_columns(&self) -> bool {
         self.columns != [self.text_box()]
     }
