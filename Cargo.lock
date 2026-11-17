@@ -2529,7 +2529,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.17"
+version = "1.0.18"
 dependencies = [
  "paperpaw-core",
  "paperpaw-epub-family",
@@ -2643,7 +2643,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
