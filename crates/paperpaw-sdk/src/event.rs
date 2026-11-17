@@ -423,7 +423,7 @@ impl<P: EventData> Event<P> {
     }
 
     /// What it carries, if `event` is this event (for screens'
-    /// [`on_event`](crate::Screen::on_event)).
+    /// `on_event`).
     pub fn read(&self, event: &Id, params: &Params) -> Option<P> {
         if *event != self.id {
             return None;

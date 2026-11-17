@@ -1,8 +1,8 @@
 //! Choosing what a status line shows: a screen for any setting that lists
 //! status items (or status lines), bound by the kernel as
-//! [`screens::STATUS_ITEMS`](crate::builtin::screens::STATUS_ITEMS) and
-//! [`screens::STATUS_LINES`](crate::builtin::screens::STATUS_LINES). Name
-//! one as the setting's editor ([`SettingSpec::editor`](crate::SettingSpec)):
+//! [`screens::STATUS_ITEMS`](paperpaw_sdk::builtin::screens::STATUS_ITEMS) and
+//! [`screens::STATUS_LINES`](paperpaw_sdk::builtin::screens::STATUS_LINES). Name
+//! one as the setting's editor ([`SettingSpec::editor`](paperpaw_sdk::SettingSpec)):
 //! it lists the items shown, in their order, then the others; tapping one
 //! shows or hides it (a newly shown one goes last), and shown items are
 //! moved by dragging their grip. With buttons, *Menu* (a long press of
@@ -15,13 +15,13 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::builtin::{actions, params};
-use crate::status::item_ids;
-use crate::ui::reorder::{Reorder, ReorderStep};
-use crate::ui::{self, ListView, UiStyle};
-use crate::{
+use paperpaw_sdk::builtin::{actions, params};
+use paperpaw_sdk::status::item_ids;
+use paperpaw_sdk::ui::reorder::{Reorder, ReorderStep};
+use paperpaw_sdk::ui::{self, ListView, UiStyle};
+use paperpaw_sdk::{
     Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Id, Params, PointerEvent, Rect,
-    RefreshMode, Screen, SettingValue,
+    RefreshMode, SettingValue,
 };
 
 /// The value of [`params::MODE`] that lists status lines, not items.
@@ -59,12 +59,12 @@ impl ItemsScreen {
         let style = UiStyle::new(env);
         let display = env.device().display;
         let header = ui::Header::new(env, &style, true);
-        let top = header.area().height + style.gap as u16;
+        let top = header.area().height + u32::from(style.gap()) as u16;
         let area = Rect::new(0, top, display.width, display.height - top);
         Self {
             setting,
             items,
-            list: ListView::readable(env, &style, area, style.row).focus_on_keys(env),
+            list: ListView::readable(env, &style, area, u32::from(style.row())).focus_on_keys(env),
             reorder: Reorder::default(),
             moving: false,
             style,
@@ -178,7 +178,7 @@ impl core::fmt::Debug for ItemsScreen {
     }
 }
 
-impl Screen for ItemsScreen {
+impl crate::Layer for ItemsScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         let style = self.style;
         let title = self.setting.as_ref().map_or(String::new(), |s| {
@@ -223,7 +223,7 @@ impl Screen for ItemsScreen {
             // light bar), so it looks taken up, not only focused.
             let slot = self.list.focus() % self.list.rows();
             let row = self.list.row_rect(slot);
-            let inset = (style.line * 3) as u16;
+            let inset = (u32::from(style.line()) * 3) as u16;
             let frame = Rect::new(
                 row.x + inset,
                 row.y + inset,
@@ -232,18 +232,18 @@ impl Screen for ItemsScreen {
             );
             let r = style.radius(u32::from(frame.height));
             ui.canvas()
-                .stroke_round(frame, style.line * 2, r, style.focus_ink(true));
+                .stroke_round(frame, u32::from(style.line()) * 2, r, style.focus_ink(true));
         }
     }
 
-    fn hint(&self, action: &Id, env: &Env<'_>) -> crate::Hint {
-        let done = || crate::Hint::Text(env.i18n().tr("core.grid.done").to_string());
+    fn hint(&self, action: &Id, env: &Env<'_>) -> paperpaw_sdk::Hint {
+        let done = || paperpaw_sdk::Hint::Text(env.i18n().tr("core.grid.done").to_string());
         match action {
             a if self.moving && [actions::CONFIRM, actions::BACK].contains(a) => done(),
             a if *a == actions::MENU && !self.moving && self.can_move(env) => {
-                crate::Hint::Text(env.i18n().tr("core.move").to_string())
+                paperpaw_sdk::Hint::Text(env.i18n().tr("core.move").to_string())
             }
-            _ => crate::Hint::Default,
+            _ => paperpaw_sdk::Hint::Default,
         }
     }
 

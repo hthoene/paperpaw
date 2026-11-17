@@ -37,7 +37,7 @@
 //! [`Slider::draw_row`] (what it shows in a [`SliderView`]), or only the
 //! track with [`Slider::draw_track`] where it places the buttons itself,
 //! and passes pointer samples to [`SliderDrag::on_pointer`] from
-//! [`Screen::on_pointer`](crate::Screen::on_pointer). While the knob
+//! `on_pointer`. While the knob
 //! moves, the slider alone is best drawn again with a quick refresh
 //! ([`RefreshMode::Fast`](crate::RefreshMode::Fast)), and the screen
 //! with a clean one when the finger is lifted.

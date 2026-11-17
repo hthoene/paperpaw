@@ -16,7 +16,7 @@ struct Lock {
     locked: Rc<Cell<bool>>,
 }
 
-impl Screen for Lock {
+impl crate::Layer for Lock {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn guards(&self) -> bool {
@@ -41,7 +41,7 @@ struct GuardPlugin {
 fn guard_plugin(kept: GuardPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let locked = kept.locked.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             LOCK,
             "lock",
             Box::new(move |_, _| {

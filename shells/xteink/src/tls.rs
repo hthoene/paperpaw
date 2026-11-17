@@ -327,11 +327,6 @@ impl Session {
     /// certificate, which `trust` says how to check, and SNI).
     pub fn new(name: &str, trust: &Trust, slot: Slot) -> Result<Self, Error> {
         init();
-        // The session takes what the heap has to its last bytes, and the
-        // screens cannot draw then: it is not made where it would.
-        if !paperpaw_x4::tls_gate::session_fits(esp_alloc::HEAP.free()) {
-            return Err(Error::Memory);
-        }
         let host = CString::new(name).map_err(|_| Error::Tls(0))?;
         let mut session = Self {
             contexts: zeroed_contexts().ok_or(Error::Memory)?,

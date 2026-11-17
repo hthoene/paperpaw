@@ -37,6 +37,7 @@ fn question() -> PluginQuestion {
             count: 0,
             more: false,
         },
+        old_secrets: false,
     }
 }
 
@@ -132,8 +133,7 @@ mod kernel_side {
     use crate::Items;
     use crate::Kernel;
     use paperpaw_sdk::{
-        Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Screen, ScreenSpec,
-        Version, builtin::slots,
+        Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Version, builtin::slots,
     };
 
     fn fill(buf: &mut [u8]) -> bool {
@@ -145,7 +145,7 @@ mod kernel_side {
 
     /// A home screen to lie under the confirmation.
     struct Page;
-    impl Screen for Page {
+    impl crate::Layer for Page {
         fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
         fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
             Handled::No
@@ -154,7 +154,7 @@ mod kernel_side {
     fn home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         |r| {
             const HOME: Id = Id::new_static("h.home");
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(crate::LayerSpec::new(
                 HOME,
                 "home",
                 alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Page)),

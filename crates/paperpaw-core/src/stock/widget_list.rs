@@ -1,6 +1,6 @@
 //! Editing a list of widgets shown above each other (a
-//! [`WidgetPlace`](crate::widgets::WidgetPlace) of kind
-//! [`Stack`](crate::widgets::PlaceKind::Stack)), as a list that buttons
+//! [`WidgetPlace`](paperpaw_sdk::widgets::WidgetPlace) of kind
+//! [`Stack`](paperpaw_sdk::widgets::PlaceKind::Stack)), as a list that buttons
 //! work as well as taps: the widgets (dragged by their grip to move them;
 //! choosing one offers to move it up or down, its own settings where it
 //! has some, or to remove it), then *Add a widget*. Every change is kept
@@ -8,10 +8,10 @@
 //!
 //! The kernel shows these screens
 //! ([`screens::WIDGET_LIST`], bound
-//! to slot [`EDIT_WIDGETS`](crate::builtin::slots::EDIT_WIDGETS), and
+//! to slot [`EDIT_WIDGETS`](paperpaw_sdk::builtin::slots::EDIT_WIDGETS), and
 //! [`screens::ADD_WIDGET`]) for a
 //! setting that lists widgets (parameter
-//! [`ID`](crate::builtin::params::ID)), e.g. the sleep screen's: such
+//! [`ID`](paperpaw_sdk::builtin::params::ID)), e.g. the sleep screen's: such
 //! settings name the slot as their editor.
 
 use alloc::borrow::Cow;
@@ -19,16 +19,16 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::builtin::{actions, events, params, screens, slots};
-use crate::event::Event;
-use crate::status::item_ids;
-use crate::ui::choice;
-use crate::ui::reorder::{Reorder, ReorderStep};
-use crate::ui::{self, ListView, UiStyle};
-use crate::widgets;
-use crate::{
+use paperpaw_sdk::builtin::{actions, events, params, screens, slots};
+use paperpaw_sdk::event::Event;
+use paperpaw_sdk::status::item_ids;
+use paperpaw_sdk::ui::choice;
+use paperpaw_sdk::ui::reorder::{Reorder, ReorderStep};
+use paperpaw_sdk::ui::{self, ListView, UiStyle};
+use paperpaw_sdk::widgets;
+use paperpaw_sdk::{
     Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Id, Params, PointerEvent, Rect,
-    RefreshMode, Screen, SettingValue,
+    RefreshMode, SettingValue,
 };
 
 /// A widget's options were chosen.
@@ -79,7 +79,7 @@ impl Target {
     fn title(&self, env: &Env<'_>) -> String {
         match self {
             Target::Setting(id) => env
-                .settings
+                .settings()
                 .with_spec(id, |s| env.i18n().tr(&s.title).to_string())
                 .ok()
                 .flatten()
@@ -110,10 +110,10 @@ impl ListScreen {
         let style = UiStyle::new(env);
         let header = ui::Header::new(env, &style, true);
         let display = env.device().display;
-        let top = header.area().height + style.gap as u16;
+        let top = header.area().height + u32::from(style.gap()) as u16;
         let area = Rect::new(0, top, display.width, display.height.saturating_sub(top));
         Self {
-            list: ListView::readable(env, &style, area, style.row).focus_on_keys(env),
+            list: ListView::readable(env, &style, area, u32::from(style.row())).focus_on_keys(env),
             reorder: Reorder::default(),
             style,
             header,
@@ -161,10 +161,10 @@ impl ListScreen {
                     options.push("settings");
                 }
                 options.push("remove");
-                let named = env.widgets.title_of(id);
+                let named = env.widgets().title_of(id);
                 let title = named.as_deref().map_or(id.as_str(), |t| env.i18n().tr(t));
                 cx.command(
-                    crate::ask::choice(title, &CHOSEN)
+                    paperpaw_sdk::ask::choice(title, &CHOSEN)
                         .about(format!("{at}"))
                         .options(OPTION_LABELS, &options)
                         .command(),
@@ -208,7 +208,7 @@ impl ListScreen {
     }
 }
 
-impl Screen for ListScreen {
+impl crate::Layer for ListScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         let style = self.style;
         let rows = self.rows(env);
@@ -338,11 +338,11 @@ impl AddScreen {
         let style = UiStyle::new(env);
         let header = ui::Header::new(env, &style, true);
         let display = env.device().display;
-        let top = header.area().height + style.gap as u16;
+        let top = header.area().height + u32::from(style.gap()) as u16;
         let area = Rect::new(0, top, display.width, display.height.saturating_sub(top));
         let target = target_of(params);
         let shown = target.widgets(env);
-        let mut offered = env.widgets.offered();
+        let mut offered = env.widgets().offered();
         offered.retain(|(id, _)| {
             widgets::repeatable(id.as_str()) || !shown.iter().any(|s| s == id.as_str())
         });
@@ -359,7 +359,7 @@ impl AddScreen {
         paperpaw_sort::sort_by_cached_key(&mut offered, |(id, _)| rank(id));
         Self {
             widgets: offered,
-            list: ListView::readable(env, &style, area, style.row).focus_on_keys(env),
+            list: ListView::readable(env, &style, area, u32::from(style.row())).focus_on_keys(env),
             style,
             header,
             target,
@@ -380,7 +380,7 @@ impl AddScreen {
     }
 }
 
-impl Screen for AddScreen {
+impl crate::Layer for AddScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         let style = self.style;
         let len = self.widgets.len();
