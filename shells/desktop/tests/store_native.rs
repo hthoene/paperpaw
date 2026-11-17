@@ -17,6 +17,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -77,6 +78,9 @@ struct Offered {
     version: &'static str,
     manifest: String,
     summary: &'static str,
+    /// The files of its folder beside `plugin.ini`, by path.
+    files: Vec<(String, Vec<u8>)>,
+    formats: u32,
 }
 
 impl Offered {
@@ -89,7 +93,53 @@ impl Offered {
             version,
             manifest,
             summary: "A pack.",
+            files: Vec::new(),
+            formats: 4,
         }
+    }
+
+    /// A plugin of format 5 made of the files of `folder` (as a release
+    /// holds a data plugin).
+    fn folder(id: &'static str, name: &'static str, version: &'static str, folder: &Path) -> Self {
+        fn walk(dir: &Path, base: &Path, into: &mut Vec<(String, Vec<u8>)>) {
+            let mut entries: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().collect();
+            entries.sort_by_key(std::fs::DirEntry::path);
+            for entry in entries {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, base, into);
+                } else {
+                    let name = path.strip_prefix(base).unwrap().to_str().unwrap();
+                    into.push((name.replace('\\', "/"), std::fs::read(&path).unwrap()));
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(folder, folder, &mut files);
+        let at = files
+            .iter()
+            .position(|(path, _)| path == "plugin.ini")
+            .unwrap();
+        let manifest = String::from_utf8(files.remove(at).1).unwrap();
+        Self {
+            id,
+            name,
+            version,
+            manifest,
+            summary: "Hyphenation patterns.",
+            files,
+            formats: 5,
+        }
+    }
+
+    /// The bytes of the folder together.
+    fn size(&self) -> usize {
+        self.manifest.len()
+            + self
+                .files
+                .iter()
+                .map(|(_, bytes)| bytes.len())
+                .sum::<usize>()
     }
 
     /// The same plugin with another summary in the library.
@@ -116,30 +166,46 @@ impl Offered {
         format!(
             r#"{{"id": "{}", "name": "{}", "summary": "{}", "group": "reading",
   "author": "PaperPaw", "licence": "OFL-1.1", "kind": "data",
-  "added": "2026-01-01", "latest": {{"version": "{}", "sdk": "0.4", "formats": 4,
+  "added": "2026-01-01", "latest": {{"version": "{}", "sdk": "0.4", "formats": {},
   "size": {}, "date": "2026-01-02"}}}}"#,
             self.id,
             self.name,
             self.summary,
             self.version,
-            self.manifest.len()
+            self.formats,
+            self.size()
         )
     }
 
     fn page(&self) -> String {
+        let mut files = format!(
+            r#"{{"path": "plugin.ini", "url": "{}/{}/plugin.ini", "size": {}, "sha1": "{}"}}"#,
+            self.id,
+            self.version,
+            self.manifest.len(),
+            paperpaw_digest::sha1::hex(self.manifest.as_bytes())
+        );
+        for (path, bytes) in &self.files {
+            files.push_str(&format!(
+                r#", {{"path": "{path}", "url": "{}/{}/{path}", "size": {}, "sha1": "{}"}}"#,
+                self.id,
+                self.version,
+                bytes.len(),
+                paperpaw_digest::sha1::hex(bytes)
+            ));
+        }
         format!(
             r#"{{"format": 2, "plugin": {{"id": "{id}", "name": "{name}",
   "summary": "{summary}", "group": "reading", "author": "PaperPaw",
   "licence": "OFL-1.1", "kind": "data",
-  "latest": {{"version": "{version}", "sdk": "0.4", "formats": 4, "size": {size},
-    "files": [{{"path": "plugin.ini", "url": "{id}/{version}/plugin.ini",
-                "size": {size}, "sha1": "{sha}"}}]}}}}}}"#,
+  "latest": {{"version": "{version}", "sdk": "0.4", "formats": {formats}, "size": {size},
+    "files": [{files}]}}}}}}"#,
             id = self.id,
             name = self.name,
             summary = self.summary,
             version = self.version,
-            size = self.manifest.len(),
-            sha = paperpaw_digest::sha1::hex(self.manifest.as_bytes()),
+            formats = self.formats,
+            size = self.size(),
         )
     }
 }
@@ -157,6 +223,12 @@ fn serve(library: &Library, plugins: &[Offered]) {
             &format!("{BASE}plugins/{}/{}/plugin.ini", plugin.id, plugin.version),
             plugin.manifest.clone(),
         );
+        for (path, bytes) in &plugin.files {
+            library.put(
+                &format!("{BASE}plugins/{}/{}/{path}", plugin.id, plugin.version),
+                bytes.clone(),
+            );
+        }
     }
 }
 
@@ -173,9 +245,12 @@ impl Shop {
     }
 
     fn on(card: MemoryStorage, plugins: &[Offered]) -> Self {
+        let ini = card
+            .get("paperpaw.ini")
+            .unwrap_or_else(|| b"[help]\nshow = false\n".to_vec());
         let card = Rc::new(
             card.with(".paperpaw/plugins/setup/done", "")
-                .with("paperpaw.ini", "[help]\nshow = false\n"),
+                .with("paperpaw.ini", ini),
         );
         let library = Library::default();
         serve(&library, plugins);
@@ -700,4 +775,94 @@ fn an_installed_plugin_is_removed_after_the_reader_confirmed_twice() {
     shop.keys("run:core.confirm");
     shop.settle(3000);
     assert!(!shop.card.exists("plugins/pack-a/plugin.ini"));
+}
+
+/// The German hyphenation pack as the release builds it (data.toml: the
+/// folder `tools/hyphenation-data.py` writes), in a folder of its own.
+fn german_pack() -> std::path::PathBuf {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let out = std::env::temp_dir().join(format!("paperpaw-store-hyphen-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
+    std::fs::create_dir_all(&out).unwrap();
+    let german = paperpaw_hyphenation_packs::PACKAGES
+        .iter()
+        .find(|package| package.id == "hyphenation-de")
+        .unwrap();
+    paperpaw_hyphenation_packs::build(&root, &out, german).unwrap()
+}
+
+/// The card of a German reader: the book, hyphenation on, text set justified.
+fn german_card() -> MemoryStorage {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let book = std::fs::read(root.join("samples/library/books/die-verwandlung.epub")).unwrap();
+    MemoryStorage::new()
+        .with("books/die-verwandlung.epub", book)
+        .with(
+            "paperpaw.ini",
+            "[core]\nfont-size = 12\njustify = on\nhyphenate = on\n[help]\nshow = false\n",
+        )
+}
+
+/// The screen of `shop` with the German book opened and turned to a page
+/// that is set with breaks where there is a table: whether the reader asked
+/// for the hyphenation pack on opening (the store's dialog, answered *Not
+/// now*), the screen's name and its pixels.
+fn german_page(shop: &mut Shop) -> (bool, String, Vec<u8>) {
+    shop.keys("open:reader.screen:path=books/die-verwandlung.epub");
+    shop.settle(4000);
+    let asked = shop.screen() == "core.confirm-dialog";
+    if asked {
+        let dialog = shop.shown();
+        assert!(dialog.contains("hyphenation-de"), "{dialog}");
+        shop.choose("Not now");
+        shop.settle(1500);
+    }
+    for _ in 0..13 {
+        shop.keys("page-forward,wait:1200");
+    }
+    shop.settle(1500);
+    (asked, shop.screen(), shop.device.panel.rgb_bytes())
+}
+
+/// #295: the store lists the German hyphenation pack, installs it as the
+/// reader asks, and a German book is then set with breaks at line ends (it
+/// is set whole until then).
+#[test]
+fn the_german_hyphenation_pack_is_listed_installed_and_breaks_a_german_page() {
+    let folder = german_pack();
+    let pack = || Offered::folder("hyphenation-de", "Hyphenation (German)", "2.0.0", &folder);
+    let mut without = Shop::on(german_card(), &[pack()]);
+    let (asked, screen, whole) = german_page(&mut without);
+    assert!(asked, "the reader did not offer the pack for a German book");
+    assert_eq!(screen, "reader.screen", "{}", without.shown());
+    let mut shop = Shop::on(german_card(), &[pack()]);
+    shop.run("store.open");
+    shop.settle(2000);
+    // The list groups: Reading holds the pack, and its group shows it.
+    let listed = shop.shown();
+    assert!(listed.contains("Reading, 1"), "{listed}");
+    shop.choose("Reading");
+    shop.settle(2000);
+    let group = shop.shown();
+    assert!(group.contains("Hyphenation (German)"), "{group}");
+    // Never put on the card by itself (decision 195).
+    assert!(!shop.card.exists("plugins/hyphenation-de/plugin.ini"));
+    shop.keys("open:store.plugin:id=hyphenation-de");
+    shop.settle(3000);
+    shop.choose("Install");
+    // 346 KB: the download takes longer than a one-file plugin's.
+    shop.settle(15000);
+    assert_eq!(confirm_screen(&mut shop), "core.firmware-confirm");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    assert!(shop.card.exists("plugins/hyphenation-de/plugin.ini"));
+    assert!(
+        shop.card
+            .exists("plugins/hyphenation-de/hyphenation/de.pphp")
+    );
+    let (asked, screen, broken) = german_page(&mut shop);
+    assert!(!asked, "the pack is on the card and the reader asked again");
+    assert_eq!(screen, "reader.screen", "{}", shop.shown());
+    assert_ne!(whole, broken, "the German pack changed nothing on the page");
 }
