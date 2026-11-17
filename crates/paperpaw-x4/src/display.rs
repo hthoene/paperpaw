@@ -1395,7 +1395,11 @@ mod tests {
         assert_eq!(v3, [0xD7, 0xFC, 0xFC, 0x03], "one more fast refresh first");
         assert!(!powered3);
         let (v4, powered4, _) = sequences_for(4);
-        assert_eq!(v4, [0xD7, 0xFC, 0xFC, 0xFC, 0x03], "two more fast refreshes");
+        assert_eq!(
+            v4,
+            [0xD7, 0xFC, 0xFC, 0xFC, 0x03],
+            "two more fast refreshes"
+        );
         assert!(!powered4);
     }
 
