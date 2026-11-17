@@ -385,3 +385,90 @@ proptest! {
         prop_assert_eq!(card.get("not-a-key-at-all!"), None);
     }
 }
+
+/// A store plugin's catalog on the card, as the kernel compiles it.
+const STATS: &str = "[meta]\nlanguage = en\nname = English\n\n[messages]\n\
+    stats.books = Books\nstats.authors = Authors\nstats.year.ring = Ring\n";
+
+/// A key outside a compiled catalog's keys is known not to be in it without
+/// a read of the card and without being remembered (#305): the kernel's own
+/// texts and those of other plugins are asked of every catalog on the card
+/// first, after every change of screen.
+#[test]
+fn a_key_outside_a_compiled_catalogs_keys_is_not_read_from_the_card() {
+    let (card, file) = opened(STATS);
+    let opened = file.reads.get();
+    for key in [
+        "library.title",
+        "settings.wifi",
+        "status.battery",
+        "zzz",
+        "a",
+    ] {
+        assert_eq!(card.get(key), None);
+    }
+    assert_eq!(file.reads.get(), opened, "nothing read");
+    assert_eq!(card.read_bytes(), 0, "nothing remembered");
+    // Its own keys are read, the first and the last too; one between them
+    // that it lacks is read once and remembered.
+    assert_eq!(card.get("stats.authors"), Some("Authors"));
+    assert_eq!(card.get("stats.year.ring"), Some("Ring"));
+    assert_eq!(card.get("stats.books"), Some("Books"));
+    let read = file.reads.get();
+    assert!(read > opened);
+    assert_eq!(card.get("stats.none"), None);
+    assert_eq!(card.get("stats.none"), None);
+    assert!(file.reads.get() <= read + 1);
+    // Through a translator: a built-in text is found in the catalog after it
+    // with no read of the card catalog asked first.
+    let mut t = Translator::new();
+    t.add(
+        Catalog::parse(
+            "[meta]\nlanguage = en\nname = English\n[messages]\nlibrary.title = Library\n",
+        )
+        .unwrap(),
+    );
+    let file = File::new(Catalog::compile(STATS).unwrap());
+    t.add(Catalog::open(file.clone()).unwrap());
+    let opened = file.reads.get();
+    assert_eq!(t.tr("library.title"), "Library");
+    assert_eq!(t.tr("stats.books"), "Books");
+    assert_eq!(file.reads.get(), opened + 1);
+}
+
+/// A catalog that overrides texts of others (a language pack) spans their
+/// keys and still wins; one compiled before the keys were said, or whose
+/// keys are not plain, is read as before.
+#[test]
+fn a_catalog_that_spans_other_keys_still_wins_and_one_without_its_keys_is_read() {
+    let pack = "[meta]\nlanguage = en\nname = English\n[messages]\n\
+        a.first = A\nlibrary.title = My books\nzz.last = Z\n";
+    let mut t = Translator::new();
+    t.add(
+        Catalog::parse(
+            "[meta]\nlanguage = en\nname = English\n[messages]\nlibrary.title = Library\n",
+        )
+        .unwrap(),
+    );
+    t.add(Catalog::open(File::new(Catalog::compile(pack).unwrap())).unwrap());
+    assert_eq!(t.tr("library.title"), "My books");
+    // As compiled before: the meta text ends without the keys.
+    let mut old = Catalog::compile(STATS).unwrap();
+    let said = "first-key = stats.authors\nlast-key = stats.year.ring\n";
+    let at = old
+        .windows(said.len())
+        .position(|w| w == said.as_bytes())
+        .expect("the keys are said at the end of the meta text");
+    old[at..at + said.len()].fill(b'\n');
+    let file = File::new(old);
+    let card = Catalog::open(file.clone()).unwrap();
+    let opened = file.reads.get();
+    assert_eq!(card.get("library.title"), None);
+    assert_eq!(file.reads.get(), opened + 1, "read to learn it");
+    assert_eq!(card.get("stats.books"), Some("Books"));
+    // Keys that are not plain say none.
+    let odd = "[meta]\nlanguage = en\nname = English\n[messages]\n\"a key\" = A\nb = B\n";
+    if let Ok(bytes) = Catalog::compile(odd) {
+        assert!(!bytes.windows(9).any(|w| w == b"first-key"));
+    }
+}
