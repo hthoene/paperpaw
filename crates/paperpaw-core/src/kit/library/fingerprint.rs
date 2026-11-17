@@ -9,16 +9,12 @@
 //! a reader takes it once when it opens a book and keeps it while it is
 //! open.
 
-use alloc::format;
-use alloc::string::String;
-
-use paperpaw_digest::md5;
-use paperpaw_sdk::Storage;
 pub use paperpaw_sdk::library::Fingerprint;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use paperpaw_digest::md5;
     use paperpaw_sdk::MemoryStorage;
 
     /// The size and KOReader's partial MD5, as text and back; text that

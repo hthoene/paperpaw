@@ -55,12 +55,6 @@
 //! }
 //! ```
 
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-
-use crate::Place;
-use crate::kit::ui::UiStyle;
 pub use paperpaw_sdk::widgets::grid::Cells;
 pub use paperpaw_sdk::widgets::grid::Geometry;
 pub use paperpaw_sdk::widgets::grid::Item;
@@ -72,11 +66,11 @@ pub use paperpaw_sdk::widgets::grid::dragged;
 pub use paperpaw_sdk::widgets::grid::free_place;
 pub use paperpaw_sdk::widgets::grid::parse;
 pub use paperpaw_sdk::widgets::grid::write;
-use paperpaw_sdk::{Id, Point, Rect};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use paperpaw_sdk::{Id, Point, Rect};
 
     fn grid() -> Geometry {
         Geometry::of(Rect::new(0, 0, 400, 300), 4, 3, 10)

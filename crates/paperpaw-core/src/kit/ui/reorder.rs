@@ -13,5 +13,4 @@
 //! right-to-left UI language (`UiStyle::is_rtl`). `Reorder::draw`
 //! takes the direction along for the pointer samples that follow.
 
-use alloc::vec::Vec;
 pub use paperpaw_sdk::ui::reorder::moved;

@@ -42,7 +42,7 @@ pub use paperpaw_sdk::decorations::THICKNESS;
 pub use paperpaw_sdk::decorations::Tone;
 use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::{
-    Choices, Color, Id, RegisterError, SettingExtra, SettingKind, SettingSpec, SettingValue,
+    Choices, Id, RegisterError, SettingExtra, SettingKind, SettingSpec, SettingValue,
 };
 
 /// The options of a tone setting: `none` (no tone, or the text as it

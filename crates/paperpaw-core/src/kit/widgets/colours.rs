@@ -31,10 +31,10 @@ use paperpaw_platform::{Color, Rect};
 
 use super::look::{Frame, choice_setting};
 use crate::Place;
-use crate::kit::decorations::{self, Tone};
+use crate::kit::decorations::Tone;
 use crate::kit::ui::{self, UiStyle};
 use paperpaw_sdk::Id;
-use paperpaw_sdk::builtin::settings::{WIDGET_INK, WIDGET_PAPER, parse_rgb};
+use paperpaw_sdk::builtin::settings::{WIDGET_INK, WIDGET_PAPER};
 pub use paperpaw_sdk::widgets::ColourSpec;
 pub use paperpaw_sdk::widgets::PAPER_LIGHT_GRAY;
 pub use paperpaw_sdk::widgets::PAPER_NONE;

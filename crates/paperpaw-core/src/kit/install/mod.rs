@@ -26,10 +26,6 @@ mod origin;
 pub use origin::{Origin, Origins, folder_release, folder_version, origin};
 pub use origin::{adopt, forget_store_install, remember_store_install};
 
-use alloc::format;
-use alloc::string::String;
-use alloc::vec::Vec;
-
 pub use paperpaw_sdk::install::Digest;
 pub use paperpaw_sdk::install::MAX_FILES;
 pub use paperpaw_sdk::install::Package;
@@ -56,6 +52,7 @@ pub fn fits_sdk(kernel: Version, sdk: &str, formats: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::format;
 
     fn file(path: &str) -> PackageFile {
         PackageFile::new(

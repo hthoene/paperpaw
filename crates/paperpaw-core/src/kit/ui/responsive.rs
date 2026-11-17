@@ -2,10 +2,8 @@
 //! layouts that adapt to phones, tablets and a device on its side.
 
 use crate::Place;
-use alloc::string::String;
 use paperpaw_sdk::Rect;
 use paperpaw_sdk::builtin::settings;
-use paperpaw_sdk::event::ParamValue;
 pub use paperpaw_sdk::ui::ScreenClass;
 
 /// A part of the screen narrower than this many millimetres (at the
@@ -54,6 +52,7 @@ mod tests {
     use paperpaw_platform::{
         DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
     };
+    use paperpaw_sdk::event::ParamValue;
     use paperpaw_sdk::{SettingSpec, SettingValue};
 
     /// A kernel whose interface text is `size` points, its default
