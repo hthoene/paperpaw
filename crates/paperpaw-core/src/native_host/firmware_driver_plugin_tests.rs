@@ -144,6 +144,7 @@ fn question(owner: u64, request: u32) -> PluginQuestion {
             count: 0,
             more: false,
         },
+        old_secrets: false,
     }
 }
 
