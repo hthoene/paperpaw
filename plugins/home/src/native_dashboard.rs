@@ -194,9 +194,6 @@ pub struct Dashboard {
     /// What the card and the shelf of the page share of the library: the books
     /// listed and what the host said of their files (#267).
     listing: Listing,
-    /// Laid out while another screen was on top, never shown since
-    /// ([`Dashboard::lay_out_covered`]).
-    prelaid: bool,
 }
 
 impl Dashboard {
@@ -247,11 +244,6 @@ impl Dashboard {
             self.stale = true;
         }
         self.covered = false;
-        // What the library listed when the page was laid out under another
-        // screen is old.
-        if core::mem::take(&mut self.prelaid) {
-            self.listing.fresh();
-        }
         self.returned = true;
         self.fresh = true;
         self.reshow = true;
@@ -681,18 +673,6 @@ impl Dashboard {
     #[must_use]
     pub const fn holds_page(&self) -> bool {
         self.laid.is_some()
-    }
-
-    /// Lays the page out while another screen is on top (the book the device
-    /// opened at its start), and keeps it as a covered page is kept.
-    ///
-    /// # Errors
-    /// As [`Dashboard::ensure`].
-    pub fn lay_out_covered(&mut self, host: &Host<'_>, ui: &Ui) -> Result<(), Error> {
-        self.ensure(host, ui)?;
-        self.prelaid = true;
-        self.cover();
-        Ok(())
     }
 
     /// Another screen is over this one: its page, and the widgets made for it,

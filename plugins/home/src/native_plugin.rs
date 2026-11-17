@@ -190,7 +190,6 @@ impl Plugin for NativeHome {
             Event::Tick { .. } if token == TICK => {
                 self.widgets
                     .tick(host, self.ui.as_ref().ok_or(Error::State)?);
-                self.lay_out_covered(host);
                 self.refresh(host)
             }
             Event::WidgetChanged { .. } if token == WIDGET_CHANGED => {
@@ -370,33 +369,6 @@ impl NativeHome {
             }
         }
         Ok(())
-    }
-
-    /// A dashboard never laid out that is under another screen (the book the
-    /// device opened at its start): laid out now, in a minute's idle, so that the
-    /// first return finds its page kept. Laid out at that return it cost the X4
-    /// 1.2 s more than a later one (#267: 300 settings, 15 to 30 service calls).
-    /// A refusal leaves it for the return, as before.
-    fn lay_out_covered(&mut self, host: &Host<'_>) {
-        if self
-            .screens
-            .all()
-            .all(|slot| !matches!(slot, Slot::Dashboard(d) if !d.holds_page()))
-        {
-            return;
-        }
-        let (Ok(top), Some(ui)) = (self.stack_top(host), self.ui.as_ref()) else {
-            return;
-        };
-        for (instance, slot) in self.screens.all_with_instance() {
-            if let Slot::Dashboard(dashboard) = slot
-                && !dashboard.holds_page()
-                && top.is_some()
-                && Some(instance) != top
-            {
-                dashboard.lay_out_covered(host, ui).ok();
-            }
-        }
     }
 
     /// The instance on top of the screen stack, if there is one.

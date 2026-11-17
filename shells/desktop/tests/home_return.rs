@@ -352,36 +352,6 @@ fn the_first_frame_of_a_return_makes_few_service_calls_with_a_full_shelf() {
     );
 }
 
-/// The first return from the book the device opened at its start found Home never
-/// laid out and laid it out then: on the X4 861 host slots, 321 settings reads
-/// and 31 service calls where a kept page needs 470, 32 and 19, 1.2 s more
-/// (#267). Home lays its page out at the first minute under the book. (The
-/// library here has no book opened before, so the shelf differs at the return
-/// and the page is laid out again then; on a device with a library the page is
-/// kept.)
-#[test]
-fn home_lays_its_page_out_in_the_first_minute_under_the_book_opened_at_the_start() {
-    let mut device = device(true);
-    assert_eq!(screen(&mut device), "reader.screen");
-    slot_counts::reset();
-    run_script(&mut device, "wait:65000").unwrap();
-    assert_eq!(screen(&mut device), "reader.screen");
-    let calls = slot_counts::service_calls();
-    let laid = calls
-        .iter()
-        .filter(|(plugin, service, op)| {
-            *plugin == "home" && *service == "core.registry" && matches!(*op, "widgets" | "menu")
-        })
-        .count();
-    assert!(
-        laid > 0,
-        "Home did not lay its page out under the book: {calls:?}"
-    );
-    run_script(&mut device, "back").unwrap();
-    run_script(&mut device, "wait:3000").unwrap();
-    assert_eq!(screen(&mut device), "home.dashboard");
-}
-
 #[test]
 fn a_plain_setting_changed_just_before_back_shows_when_it_returns() {
     let mut device = device(false);
