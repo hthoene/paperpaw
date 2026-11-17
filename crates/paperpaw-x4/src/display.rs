@@ -1357,52 +1357,6 @@ mod tests {
         assert_eq!(sequences, [0xD7, 0xFC, 0x03]);
     }
 
-    /// LAB ONLY (#168): what each variant of the power-down sends.
-    #[cfg(feature = "fade-lab")]
-    #[test]
-    fn the_fade_variants_power_down_as_chosen() {
-        let sequences_for = |variant: u8| {
-            let controller = Controller::new();
-            let mut display = Display::new(
-                Spi(controller.clone()),
-                Dc(controller.clone()),
-                Pin,
-                Busy,
-                Delay,
-            );
-            display.init().unwrap();
-            display.refresh(Refresh::Fast, false).unwrap();
-            display.refresh(Refresh::Fast, false).unwrap();
-            display.set_fade_variant(variant);
-            display.power_down().unwrap();
-            let powered = display.powered();
-            let c = controller.borrow();
-            let sequences: Vec<u8> = c.refreshes.iter().map(|&(_, two)| two).collect();
-            let border = c.commands.iter().filter(|&&b| b == cmd::BORDER).count();
-            (sequences, powered, border)
-        };
-        // Borders: two refreshes and the init each write one.
-        let (v0, powered0, border0) = sequences_for(0);
-        assert_eq!(v0, [0xD7, 0xFC, 0x03]);
-        assert!(!powered0);
-        let (v1, powered1, _) = sequences_for(1);
-        assert_eq!(v1, [0xD7, 0xFC], "the analog stays on");
-        assert!(powered1);
-        let (v2, _, border2) = sequences_for(2);
-        assert_eq!(v2, [0xD7, 0xFC, 0x03]);
-        assert_eq!(border2, border0 + 1, "the border parked once more");
-        let (v3, powered3, _) = sequences_for(3);
-        assert_eq!(v3, [0xD7, 0xFC, 0xFC, 0x03], "one more fast refresh first");
-        assert!(!powered3);
-        let (v4, powered4, _) = sequences_for(4);
-        assert_eq!(
-            v4,
-            [0xD7, 0xFC, 0xFC, 0xFC, 0x03],
-            "two more fast refreshes"
-        );
-        assert!(!powered4);
-    }
-
     type Shown = (Rc<RefCell<Controller>>, Display<Spi, Dc, Pin, Busy, Delay>);
 
     /// A display that has shown two frames (the first is a half refresh),
