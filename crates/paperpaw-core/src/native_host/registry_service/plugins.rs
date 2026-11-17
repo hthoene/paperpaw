@@ -18,6 +18,7 @@ const REQUIRED: u32 = 1 << 2;
 const LINKED: u32 = 1 << 3;
 const SAFE_MODE: u32 = 1 << 4;
 const FROM_STORE: u32 = 1 << 5;
+const UNSIGNED: u32 = 1 << 6;
 
 /// Room for `<id>.plugin.description`: an id (64), a dot and the suffix.
 type Key = Fixed<96>;
@@ -44,8 +45,11 @@ fn problem(problem: Option<PluginProblem>) -> (u32, u32) {
     }
 }
 
-fn flags(info: &PluginInfo, from_store: bool) -> u32 {
+fn flags(info: &PluginInfo, from_store: bool, unsigned: bool) -> u32 {
     let mut flags = if from_store { FROM_STORE } else { 0 };
+    if unsigned {
+        flags |= UNSIGNED;
+    }
     if info.enabled {
         flags |= ENABLED;
     }
@@ -123,7 +127,13 @@ fn with_row<R>(
             PluginState::Off => 1,
             _ => 2,
         },
-        flags: flags(info, installed.is_some() || waiting.is_some()),
+        flags: flags(
+            info,
+            installed.is_some() || waiting.is_some(),
+            sources
+                .directory
+                .is_some_and(|directory| directory.is_unsigned(id)),
+        ),
         problem,
         problem_arg,
         update: update.as_str(),

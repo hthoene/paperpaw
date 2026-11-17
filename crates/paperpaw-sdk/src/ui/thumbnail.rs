@@ -22,7 +22,7 @@ const HEADER: usize = 17;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Depth {
     /// Black and white, and four grays beside for frames shown in grays
-    /// (see [`Screen::grays`](crate::Screen::grays)), each diffused as
+    /// (see `grays`), each diffused as
     /// such a panel shows pictures ([`Atkinson`]). Each row holds the
     /// black and white pixels first, eight a byte, the first in the high
     /// bit, set for white; then the grays, four a byte, the first in the

@@ -84,7 +84,7 @@ struct Taps {
     doubles: Option<bool>,
 }
 
-impl Screen for Taps {
+impl crate::Layer for Taps {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -115,7 +115,7 @@ fn taps_plugin(
 ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let (log, doubles) = (kept0.clone(), kept1);
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("taps.screen"),
             "taps",
             Box::new(move |_, _| {
@@ -187,7 +187,7 @@ fn two_fingers_and_own_zones() {
 /// actions it gets.
 struct Layered(Log);
 
-impl Screen for Layered {
+impl crate::Layer for Layered {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
@@ -210,7 +210,7 @@ impl Screen for Layered {
 fn layer_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("lay.screen"),
             "layered",
             Box::new(move |_, _| Box::new(Layered(log.clone()))),
@@ -494,7 +494,7 @@ fn recognizers_wake_the_device_seldom() {
 /// it gets.
 struct Lock(Log);
 
-impl Screen for Lock {
+impl crate::Layer for Lock {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn guards(&self) -> bool {
@@ -510,7 +510,7 @@ impl Screen for Lock {
 fn lock_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("lock.screen"),
             "lock",
             Box::new(move |_, _| Box::new(Lock(log.clone()))),
@@ -656,7 +656,7 @@ fn a_guard_takes_the_fingers_of_recognizers() {
 
 struct WayScreen(Log, paperpaw_sdk::lang::Direction);
 
-impl Screen for WayScreen {
+impl crate::Layer for WayScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn direction(&self) -> paperpaw_sdk::lang::Direction {
@@ -676,7 +676,7 @@ fn way_plugin(
 ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let (log, way) = (kept0.clone(), kept1);
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("way.screen"),
             "way",
             Box::new(move |_, _| Box::new(WayScreen(log.clone(), way))),

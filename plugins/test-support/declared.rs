@@ -320,12 +320,6 @@ pub fn legacy(plugin: &str, group: &str, contributions: Vec<Contribution>) -> Li
             )),
             Contribution::FixedSettings(list) => specs.extend(list.iter().cloned()),
             Contribution::Setting(s) => specs.push(*s),
-            Contribution::FixedScreens(list) => {
-                for s in list.iter() {
-                    out.screens
-                        .push(format!("{}|{}", relative(s.id().as_str()), s.title()));
-                }
-            }
             Contribution::SlotBinding {
                 slot,
                 screen,

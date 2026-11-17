@@ -12,8 +12,8 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
 use paperpaw_sdk::{
-    Canvas, Command, Commands, Env, Id, Manifest, Priority, RegisterError, Screen, ScreenSpec,
-    SettingExtra, SettingSpec, SettingValue, builtin,
+    Canvas, Command, Commands, Env, Id, Manifest, Priority, RegisterError, SettingExtra,
+    SettingSpec, SettingValue, builtin,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -468,7 +468,7 @@ fn staged_set_setting_is_read_back_in_the_next_callback() {
 }
 
 struct EmptyEditor;
-impl Screen for EmptyEditor {
+impl paperpaw_core::Layer for EmptyEditor {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
@@ -496,7 +496,7 @@ fn guarded_writer(kept: GuardedWriter) -> impl Fn(&mut Items) -> Result<(), Regi
         let owner = kept.manifest().id;
         if kept.editor {
             let screen = Id::new_static("editor.settings");
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(paperpaw_core::LayerSpec::new(
                 screen.clone(),
                 "Editor",
                 Box::new(|_, _| Box::new(EmptyEditor)),

@@ -15,7 +15,7 @@ struct CoverScreen {
     in_grays: bool,
 }
 
-impl Screen for CoverScreen {
+impl crate::Layer for CoverScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         let image = paperpaw_sdk::document::ImageRef {
             path: "p.gray".into(),
@@ -37,7 +37,7 @@ impl Screen for CoverScreen {
 /// A half screen over the page, as a dialog is.
 struct OverScreen;
 
-impl Screen for OverScreen {
+impl crate::Layer for OverScreen {
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
         Some(Rect::new(0, 45, 90, 45))
     }
@@ -54,24 +54,24 @@ impl Screen for OverScreen {
 fn cover_plugin(kept: CoverPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let in_grays = kept.in_grays;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("cover.page"),
             "page",
             Box::new(move |_, _| Box::new(CoverScreen { in_grays })),
         ))?;
         // Another full screen with no pictures to show in grays, and a half
         // screen over it (a dialog).
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("cover.plain"),
             "plain",
             Box::new(|_, _| Box::new(CoverScreen { in_grays: false })),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("cover.over"),
             "over",
             Box::new(|_, _| Box::new(OverScreen)),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("cover.book"),
             "book",
             Box::new(move |_, _| Box::new(CoverScreen { in_grays })),
@@ -345,7 +345,7 @@ fn a_pass_due_in_a_call_that_makes_a_frame_comes_within_the_retry_with_no_event(
 /// A home screen with no picture in its first frame; one cell comes later (a cover).
 struct LateScreen(Rc<Cell<bool>>);
 
-impl Screen for LateScreen {
+impl crate::Layer for LateScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         if self.0.get() {
             let image = paperpaw_sdk::document::ImageRef {
@@ -377,7 +377,7 @@ impl Screen for LateScreen {
 fn late_plugin(late: Rc<Cell<bool>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let late = late.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("late.home"),
             "home",
             Box::new(move |_, _| Box::new(LateScreen(late.clone()))),
