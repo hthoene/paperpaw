@@ -660,6 +660,12 @@ impl NativeUpdate {
             _ => false,
         };
         if self.screens.top(PAGE).is_some() {
+            // A download that runs is what the page shows: a check of the card
+            // that ends meanwhile must not offer the update again (#232).
+            if self.online.downloading() {
+                self.searched = false;
+                return self.show_downloading(host);
+            }
             let mut view = self.view_for(host, found)?;
             if core::mem::take(&mut self.searched) && no_news(&view) {
                 view = View::UpToDate;
@@ -690,6 +696,9 @@ impl NativeUpdate {
             Some(Button::Close) => CommandSender::new(host, &mut commands).close_screen(),
             Some(Button::Search) => {
                 drop(commands);
+                if self.online.downloading() {
+                    return self.show_downloading(host);
+                }
                 self.show(host, View::Searching)?;
                 self.search(host, false)
             }

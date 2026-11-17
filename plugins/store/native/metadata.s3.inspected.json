@@ -27,6 +27,11 @@
       "key": "uses.power",
       "required": false,
       "revision": 1
+    },
+    {
+      "key": "uses.registry",
+      "required": false,
+      "revision": 1
     }
   ],
   "flags": 0,
@@ -75,5 +80,5 @@
     }
   ],
   "target": "esp32s3-xtensa-lx7-ilp32-windowed-le",
-  "total_bytes": 259
+  "total_bytes": 280
 }

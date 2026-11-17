@@ -628,8 +628,9 @@ pub enum Covered {
 /// ends an image id it needs room for: asked again on each draw).
 ///
 /// # Errors
-/// [`Error::NoMemory`] and refusals of the host that are not about this book's
-/// cover.
+/// What passes ([`Error::NoMemory`], [`Error::State`] for a list older than the
+/// catalog, [`Error::Io`], [`Error::Timeout`]) says nothing of the book: the
+/// answer is no "none" to keep (`cover_known` asks again).
 pub fn cover(host: &Host<'_>, library: &Library, book: &Book) -> Result<Covered, Error> {
     let (mut input, mut out) = (mem::buffer(1024)?, mem::buffer(mem::SERVICE_BUFFER)?);
     let reference = BookRef::catalog(book.key, book.generation)?;
@@ -640,7 +641,7 @@ pub fn cover(host: &Host<'_>, library: &Library, book: &Book) -> Result<Covered,
             height: cover.info().height(),
         })),
         Err(Error::Busy) => Ok(Covered::Busy),
-        Err(Error::NoMemory) => Err(Error::NoMemory),
+        Err(error @ (Error::NoMemory | Error::State | Error::Io | Error::Timeout)) => Err(error),
         // No cover, a book gone from the catalog, a host that draws no pictures:
         // the book is shown without one.
         Err(_) => Ok(Covered::None),
@@ -663,7 +664,20 @@ pub fn cover_known(
     if let Some(covered) = listing.cover_of(book) {
         return Ok(covered);
     }
-    let covered = cover(host, library, book)?;
+    let covered = match cover(host, library, book) {
+        Ok(covered) => covered,
+        // Not now, and nothing about the book: the card or the shelf is drawn
+        // without its cover and asks again at the next minute, as for a cover
+        // being made. Where the list is older than the catalog (a book was
+        // read since it was asked for), it is asked for again too.
+        Err(error @ (Error::NoMemory | Error::State | Error::Io | Error::Timeout)) => {
+            if error == Error::State {
+                listing.fresh();
+            }
+            Covered::Busy
+        }
+        Err(error) => return Err(error),
+    };
     listing.keep_cover(book, covered);
     Ok(covered)
 }

@@ -18,7 +18,7 @@ use paperpaw_sdk::{
         net::{FileRoot, Net, REQUEST_INPUT, Reason, Response, ServedRequest, Server, ServerState},
         secrets::{Secrets, wipe},
         storage::{self, DataStorage, Root},
-        ui::Instance,
+        ui::{ButtonHint, Instance},
     },
     qr::QrCode,
     served::Guard,
@@ -183,6 +183,12 @@ impl Phone {
             return Ok(());
         }
         page.started = true;
+        // Only Back does anything here: the other buttons' hints go (#235).
+        for action in ["core.confirm", "core.left", "core.right"] {
+            if let Ok(hint) = ButtonHint::hidden(action) {
+                let _ = CommandSender::new(host, &mut [0; 256]).set_hint(hint);
+            }
+        }
         match self.start(host) {
             Ok(()) => Ok(()),
             Err(Error::NoMemory) => Err(Error::NoMemory),

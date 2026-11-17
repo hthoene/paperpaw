@@ -48,6 +48,7 @@ pub(crate) fn dispatch_token_staged<S: 'static, M>(
 ) -> Result<i32, Error> {
     batch.dispatch_owner(depth, |context| {
         stage.admit_images(context.image_admit());
+        stage.admit_registry(context.uses_registry());
         if let Some(dev) = context.dev_context() {
             stage.admit_dev(dev);
         }
@@ -173,6 +174,15 @@ impl<S: 'static> super::Context<S> {
                 .images()
                 .prepare_room(self.resources.owner_id()),
         }
+    }
+
+    /// Whether the plugin was admitted with `uses.registry`: a command stage
+    /// lets only such a plugin switch plugins on and off (`registry.md` 4.2).
+    pub(crate) fn uses_registry(&self) -> bool {
+        self.declared_services
+            .features()
+            .feature(super::super::admitted_features::USES_REGISTRY)
+            .is_ok()
     }
 
     /// What a command stage judges the plugin's power, Wi-Fi and firmware

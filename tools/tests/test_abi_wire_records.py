@@ -157,22 +157,47 @@ class WireRecordTests(unittest.TestCase):
                      'pub const SETTING_SYNTHETIC_D_MAX_BYTES: usize = 16;',
                      'pub a: u32,', 'pub b: u64,', 'pub c: i32,', "pub d: &'a str,",
                      "pub e: &'a [u8],", 'pub f: u32,', 'pub i: i32,',
-                     'body.opt_u32(bits, 0x01, 7)?', 'body.opt_i32(bits, 0x08, -3)?',
-                     'body.opt_string(bits, 0x02, SETTING_SYNTHETIC_G_MAX_BYTES)?',
-                     'record.write_bitmap(out, &mut offset);',
-                     'Record::SettingSynthetic(record) => record.bits(),']:
+                     # Its table (#307): a row is a field, its kind, its presence ordinal
+                     # plus one and its cap or the index of its default (7, -3 as a u32).
+                     "SETTING_SYNTHETIC_FIELDS: [SettingSynthetic<'static>; 11] {",
+                     'static WIRE_DEFAULTS: [u64; 3] = [0, 7, 4294967293];',
+                     '        a: u32, 0, 0;', '        c: i32, 0, 0;',
+                     '        d: text, 0, 16;', '        e: bytes, 0, 8;',
+                     '        f: u32, 1, 1;', '        g: text, 2, 4;',
+                     '        i: i32, 4, 2;', '        j: u64, 5, 0;',
+                     '        k: maybe_u32, 6, 0;',
+                     'SETTING_SYNTHETIC_TAG => Record::SettingSynthetic(body.decode()?),',
+                     'Record::SettingSynthetic(record) => record,']:
             self.assertIn(text, source)
 
-    def test_without_optional_fields_the_codec_has_no_bitmap_code(self):
+    def test_no_code_is_generated_per_record(self):
+        # One interpreter walks every record's table (#307): a record adds its struct,
+        # its table and the thin calls of the typed codec, no decoder, sizer or writer.
+        source = rust_records(self.with_record(synthetic()))
+        for text in ('fn decode_fields', 'fn body_len', 'fn bits(', 'write_bitmap',
+                     'body.opt_', 'body.maybe_'):
+            self.assertNotIn(text, source)
+        for text in ('unsafe fn fields_decode<', 'unsafe fn fields_len(',
+                     'unsafe fn fields_write('):
+            self.assertEqual(source.count(text), 1, text)
+        # Required numbers only: the body length is a constant.
+        numbers = synthetic(fields=[field('a', 'u32'), field('b', 'u64')])
+        source = rust_records(self.with_record(numbers))
+        typed = source[source.index('impl WireEncode for SettingSynthetic'):]
+        self.assertIn('fn wire_body_len(&self) -> Result<usize, i32> {\n        Ok(13)\n', typed)
+
+    def test_without_optional_fields_the_codec_compiles_without_dead_code(self):
         plain = synthetic(fields=[field('a', 'u32'), field('d', 'str', 16)])
         schema = self.with_record(plain)
         # The shipped schema declares optional fields (event.page_turned); leave it out.
         schema['records'] = [r for r in schema['records']
                              if not any(f['optional'] for f in r['fields'])]
-        source = rust_records(schema)
-        self.assertNotIn('write_bitmap', source)
-        self.assertNotIn('bitmap_bits', source)
-        self.assertIn('write_varint(0, out, &mut offset);', source)
+        rustc = shutil.which('rustc') or str(Path.home() / '.cargo/bin/rustc')
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'wire.rs'
+            source.write_text('#![no_std]\n' + rust_records(schema))
+            subprocess.run([rustc, '--edition=2024', '--crate-type=lib', '-Dwarnings',
+                            str(source), '-o', str(Path(directory) / 'wire.rlib')], check=True)
 
     def test_generated_source_is_rustfmt_stable(self):
         rustfmt = shutil.which('rustfmt') or str(Path.home() / '.cargo/bin/rustfmt')

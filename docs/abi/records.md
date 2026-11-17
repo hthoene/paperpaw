@@ -73,8 +73,9 @@ proposal's body table: it has no `name` (a language is its own identity), only
 ## Generated records
 
 Every record in `abi/abi.def` except tags 1-4 is generated from its declared
-fields, with no per-record generator code: the struct, `decode`, `encode` and
-body length. Fields use the closed wire types `u32 u64 i32 str bytes`. A `str`
+fields, with no per-record generator code: the struct and a table of its fields,
+which one decoder, one sizer and one writer walk (`tools/abi_tables.py`; no code
+is generated per record). Fields use the closed wire types `u32 u64 i32 str bytes`. A `str`
 or `bytes` field has a `max_bytes` cap of 1 to 4096; a scalar has 0. Required
 fields come first, in order. Optional fields are appended after them, with
 ordinals 0, 1, ... in field order (at most 8), and a `default`: an integer for a
