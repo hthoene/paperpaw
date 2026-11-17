@@ -100,6 +100,38 @@ impl Selection {
         Some(to)
     }
 
+    /// Whether `action` would wrap round the page's ends (the cursor is on the
+    /// last word and goes on, or on the first and goes back): `Some(true)` at
+    /// the end, `Some(false)` at the start, `None` where it moves on the page or
+    /// is no navigation action. The selection turns the page there.
+    pub fn edge(&self, action: &str, words: &[WordBox]) -> Option<bool> {
+        let last = words.len().checked_sub(1)?;
+        let a = action;
+        if a == "core.left" || a == "core.right" {
+            if beside(words, self.cursor, a == "core.right").is_some() {
+                return None;
+            }
+            let (first, end) = line_span(words, self.cursor)?;
+            let rtl = words.get(self.cursor).is_some_and(|w| w.bidi.is_rtl());
+            return if (a == "core.right") != rtl {
+                (end >= last).then_some(true)
+            } else {
+                (first == 0).then_some(false)
+            };
+        }
+        match a {
+            "core.previous" => (self.cursor == 0).then_some(false),
+            "core.next" => (self.cursor >= last).then_some(true),
+            "core.up" | "core.prev-page" => {
+                (nearest_on_line(words, self.cursor, false) == self.cursor).then_some(false)
+            }
+            "core.down" | "core.next-page" => {
+                (nearest_on_line(words, self.cursor, true) == self.cursor).then_some(true)
+            }
+            _ => None,
+        }
+    }
+
     /// Moves the cursor for a navigation action; `None` if `action` is
     /// another one. Left and right go a word, up and down a line (the
     /// page buttons too, a device with two page buttons has no others).
