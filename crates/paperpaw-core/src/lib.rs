@@ -70,6 +70,7 @@ mod input_filters;
 mod io;
 mod key_guard;
 mod keymap;
+mod language_seed;
 mod memory_notice;
 mod meter;
 pub mod native_host;
@@ -154,6 +155,7 @@ pub use crate::io::{
     ServerEvent, SocketCall, SocketEvent, SpeechCall, TlsSetup, WifiEvent,
 };
 use crate::keymap::{InputKey, Keymap, Origin, Zone};
+pub use crate::language_seed::{LanguageSeed, Sink};
 use crate::refresh::RefreshPolicy;
 use crate::registry::{Registry, Staging};
 use crate::screens::{ActiveScreen, uncovered};
@@ -1434,6 +1436,8 @@ struct Shared {
     data_folders: Vec<(Id, String)>,
     /// The folders data plugins are found in.
     plugin_dirs: Vec<String>,
+    /// The language pack the program carries (see [`LanguageSeed`]).
+    language_seed: Option<&'static crate::language_seed::LanguageSeed>,
     /// What plugin libraries call this kind of device (see
     /// [`KernelBuilder::catalog_device`]).
     catalog_device: Option<&'static str>,

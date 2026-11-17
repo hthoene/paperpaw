@@ -65,6 +65,11 @@ test-image = ["native-on"]
 # Closes the nested-callback stack gate on the small class again (#250: the X4
 # measured it open; the X3 builds with this until it is measured).
 x4-gate-closed = ["paperpaw-core/x4-gate-closed"]
+# German's texts built into the firmware, as they were before #251 (about
+# 100 KB of flash more). Off: the firmware carries German as a language pack,
+# compressed, and writes it to the card where German is the language
+# (`language_pack.rs`).
+built-german = ["paperpaw-app/german"]
 # Marks a build as a release (beta.1 and later); set by the release build.
 release = []
 # What both ESP32-C3 devices build with; chosen by `x4` or `x3`, not by
@@ -221,6 +226,8 @@ paperpaw-update = { path = "../../crates/paperpaw-update" }
 paperpaw-native = { path = "../../crates/paperpaw-native" }
 # The device's texts without their keys (`device_messages`, #306).
 paperpaw-i18n = { path = "../../crates/paperpaw-i18n" }
+# The German language pack, compressed (`german_pack`, #251).
+miniz_oxide = { version = "=0.9.1", default-features = false, features = ["with-alloc"] }
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

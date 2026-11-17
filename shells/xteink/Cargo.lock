@@ -2828,6 +2828,7 @@ dependencies = [
  "esp-storage",
  "log",
  "mbedtls-rs",
+ "miniz_oxide",
  "nb 1.1.0",
  "paperpaw-app",
  "paperpaw-core",
