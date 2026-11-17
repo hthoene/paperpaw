@@ -29,8 +29,6 @@ pub struct Env<'a>(core::marker::PhantomData<&'a ()>);
 pub struct Rect;
 pub struct Canvas<'a>(core::marker::PhantomData<&'a mut ()>);
 pub struct Fonts;
-pub struct RoleMemo;
-pub struct SettingMemo;
 pub trait Storage {}
 pub struct Translator;
 pub struct Id;
@@ -50,6 +48,18 @@ pub mod usage {
 #[path = MODULE_PATH]
 mod context;
 '''.replace('MODULE_PATH', json.dumps(str(MODULE))).replace('STATUSES', STATUSES)
+
+
+# A plain type the module names from one of the stand-in crates (`paperpaw_sdk::RoleMemo`)
+# and PREFIX does not declare is a unit struct here: a new memo or cache type of the module
+# needs no line in this fixture (#309). Types with lifetimes, generics or methods are
+# declared in PREFIX by hand.
+_NAMED = sorted(set(re.findall(
+    r'\bpaperpaw_(?:sdk|i18n|native|platform|graphics)::([A-Z][A-Za-z0-9]*)\b',
+    MODULE.read_text(encoding='utf-8'))))
+PREFIX += ''.join(
+    f'pub struct {name};\n' for name in _NAMED
+    if not re.search(rf'\b(?:struct|trait|enum)\s+{name}\b', PREFIX))
 
 
 class FrameLifetimes(unittest.TestCase):

@@ -66,8 +66,10 @@
 //!                                     with no symbol: one callee, by symbol
 //!                                     or 0xaddress, from one caller
 //! allow indirect <caller> <count> <why>
-//!                                     exactly this many calls through a
-//!                                     register in the caller
+//!                                     up to `count` + 2 calls through a
+//!                                     register in the caller (a ceiling, #309:
+//!                                     LLVM's inlining moves a site or two from
+//!                                     one build to the next); fewer is fine
 //! frames-in <family> <why>            every function of the crate (`prefix*`
 //!                                     for several, or a module path such as
 //!                                     `paperpaw_core::chrome`) in the image is
@@ -97,9 +99,10 @@
 //! The roots come from the tables themselves (Kernel's ruling on todo 206):
 //! every function pointer in the tables is read from the ELF and resolved to a
 //! symbol, so a slot wired later is a root without a line here. Every entry of
-//! `allow` is checked as used: one that matches nothing fails, so the list
-//! cannot go stale, and a site that is not listed fails, also an existing
-//! function that gains one. A callee outside the image is listed by its symbol
+//! `allow` is checked as used: a line that matches nothing is reported (a
+//! warning for `allow call` and `allow indirect`, which only ever grant what a
+//! call site needs; a failure for the rest), and a site that is not listed
+//! fails, also an existing function that gains one. A callee outside the image is listed by its symbol
 //! one by one; a range or a blob is never allowed whole.
 //!
 //! A root or table that matches nothing fails, so a rename cannot make the
@@ -160,7 +163,7 @@ const STT_OBJECT: u8 = 1;
 pub enum Allow {
     /// `caller` may call `callee` (a symbol path or `0x` address).
     Call { caller: String, callee: String },
-    /// `caller` has exactly `count` calls through a register.
+    /// `caller` has at most `count` + [`INDIRECT_MARGIN`] calls through a register.
     Indirect { caller: String, count: u32 },
     /// `caller` changes `a1` other than by `entry`.
     Sp { caller: String },
@@ -175,6 +178,11 @@ pub enum Allow {
     /// a register that no line of their own lists (`allow indirect-in`).
     IndirectIn { family: String, max: u32 },
 }
+
+/// What an `allow indirect` line allows above its count (#309): the same
+/// source builds to a count one or two apart across layouts, so an exact count
+/// made the base red after landings that touched nothing of the function.
+const INDIRECT_MARGIN: u32 = 2;
 
 /// The privileged forms an `allow form` line may name besides the ones of a
 /// special register: `wsr.<register>` and `xsr.<register>` (see [`is_form`]).
@@ -983,6 +991,8 @@ pub struct Report {
     pub families: Vec<(String, u32, u32)>,
     /// What the budget refuses, one line each.
     pub problems: Vec<String>,
+    /// What is stale but harmless: lines to remove, which do not fail the scan.
+    pub warnings: Vec<String>,
 }
 
 impl Image<'_> {
@@ -1237,7 +1247,7 @@ fn check_indirect(
     let own = allowed(
         budget,
         used,
-        &|a| matches!(a, Allow::Indirect { caller: c, count: n } if f.is(c) && *n == count),
+        &|a| matches!(a, Allow::Indirect { caller: c, count: n } if f.is(c) && count <= *n + INDIRECT_MARGIN),
     );
     if !own && !family::in_a_family(budget, used, family_sites, f, count) {
         report.problems.push(format!(
@@ -1425,9 +1435,12 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         .extend(family::frames_in_problems(&image, &around, budget));
     for (n, (allow, _)) in budget.allow.iter().enumerate() {
         if !used[n] {
-            report.problems.push(format!(
-                "an `allow` line matches nothing any more: {allow:?}: remove it"
-            ));
+            let line = format!("an `allow` line matches nothing any more: {allow:?}: remove it");
+            if matches!(allow, Allow::Call { .. } | Allow::Indirect { .. }) {
+                report.warnings.push(line);
+            } else {
+                report.problems.push(line);
+            }
         }
     }
     // One line per site is noise: a function calling `memcpy` fifty times is
@@ -1457,6 +1470,9 @@ pub fn run(elf: &str, budget: &str) -> Result<(), String> {
         report.resolved,
         report.indirect
     );
+    for w in &report.warnings {
+        println!("warning: {w}");
+    }
     for (family, count, ceiling) in &report.families {
         println!("indirect-in {family}: {count} counted, ceiling {ceiling}");
     }
