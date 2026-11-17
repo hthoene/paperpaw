@@ -11,6 +11,7 @@ use paperpaw_sdk::{
 };
 
 use crate::native_made::Made;
+use crate::native_recent::Listing;
 
 /// Where the widgets are made (the place the plugin declares).
 pub const PLACE: &str = "home.pages";
@@ -55,7 +56,7 @@ pub fn measure_widget(
         Err(Error::NotFound | Error::Denied) => return Ok(None),
         Err(error) => return Err(error),
     };
-    let measured = made.measure(host, ui, geometry);
+    let measured = made.measure(host, ui, &Listing::default(), geometry);
     made.release(host, ui);
     measured.map(Some)
 }

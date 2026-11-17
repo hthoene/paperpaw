@@ -286,9 +286,86 @@ fn the_return_from_a_book_does_not_ask_the_library_for_each_band() {
             .count()
     };
     let queries = of("query");
+    eprintln!("FIRST FRAME service calls: {}", calls.len());
+    for (plugin, service, op) in &calls {
+        eprintln!("  service {plugin} {service}.{op}");
+    }
     assert!(
         (1..=3).contains(&queries) && of("book") <= 2 && of("cover") <= 1,
         "the return asked the library {queries} times for its books: {calls:?}"
+    );
+}
+
+/// An X4 whose card holds `count` copies of one book (`books/b0.epub` ...), the
+/// first the one last read, the help hint off.
+fn with_books(count: usize) -> Device {
+    let epub = include_bytes!("../../../samples/library/books/alice-in-wonderland.epub").as_slice();
+    let mut files = MemoryStorage::new()
+        .with(".paperpaw/plugins/setup/done", "")
+        .with("paperpaw.ini", "[help]\nshow = false\n")
+        .with(
+            ".paperpaw/plugins/reader/state.ini",
+            "[reader]\nlast = books/b0.epub\n",
+        );
+    for n in 0..count {
+        files = files.with(&format!("books/b{n}.epub"), epub);
+    }
+    paperpaw_emulator::budget::override_limit(None);
+    let profile = profiles::find("xteink-x4").unwrap();
+    let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
+    device.start();
+    run_script(&mut device, "wait:3000").unwrap();
+    device
+}
+
+/// The service calls the first frame of a return from a book makes when the
+/// card shows a card and a full shelf (#267): the X4 made 19 to 20 of them, about
+/// 37 ms each (18 here before the card, the shelf and the return check shared one
+/// listing and kept what the host said of files and covers; the two cover calls
+/// left are for covers the emulator host still reports as being made). Counted by what they
+/// ask for: the library once for the listing, and a book's file or cover only
+/// where Home has not been told it before.
+#[test]
+fn the_first_frame_of_a_return_makes_few_service_calls_with_a_full_shelf() {
+    let mut device = with_books(6);
+    run_script(&mut device, "back").unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    // Every book opened once: all of them are recent.
+    for n in (0..6).rev() {
+        run_script(
+            &mut device,
+            &format!("open:reader.screen:path=books/b{n}.epub"),
+        )
+        .unwrap();
+        run_script(&mut device, "wait:3000").unwrap();
+        run_script(&mut device, "back").unwrap();
+        run_script(&mut device, "wait:3000").unwrap();
+    }
+    assert_eq!(screen(&mut device), "home.dashboard");
+    // The return that matters: out of a book that is on the shelf already.
+    run_script(&mut device, "open:reader.screen:path=books/b3.epub").unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    slot_counts::reset();
+    run_script(&mut device, "back").unwrap();
+    let calls = slot_counts::service_calls();
+    eprintln!("FIRST FRAME service calls: {}", calls.len());
+    for (plugin, service, op) in &calls {
+        eprintln!("  service {plugin} {service}.{op}");
+    }
+    let of = |what: &str| {
+        calls
+            .iter()
+            .filter(|(plugin, service, op)| format!("{plugin} {service}.{op}") == what)
+            .count()
+    };
+    assert_eq!(screen(&mut device), "home.dashboard");
+    assert!(
+        of("home core.library.query") <= 1
+            && of("home core.library.book") == 0
+            && of("home core.library.cover") <= 2
+            && calls.len() <= 10,
+        "the return made {} service calls: {calls:?}",
+        calls.len()
     );
 }
 
