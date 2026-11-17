@@ -752,6 +752,30 @@ impl Widgets {
         }
     }
 
+    /// Whether instance `instance`, laid out in `rect`, would be that high now: only
+    /// for a widget whose height is its font's, not its content's (the card
+    /// and the shelf are laid out again when what they show changes).
+    ///
+    /// # Errors
+    /// Font and host refusals, [`Error::NoMemory`].
+    pub fn keeps_height(
+        &self,
+        host: &Host<'_>,
+        instance: Instance,
+        rect: Rect,
+    ) -> Result<bool, Error> {
+        let Some(item) = self.find(instance.get()) else {
+            return Ok(false);
+        };
+        if item.mine.has_covers() {
+            return Ok(false);
+        }
+        let (height, least) = item
+            .mine
+            .measure(host, &self.listing, u32::from(rect.width))?;
+        Ok(height == rect.height && least == height)
+    }
+
     pub fn covers_ready(&mut self, host: &Host<'_>) {
         let mut scratch = [0; 64];
         let mut commands = CommandSender::new(host, &mut scratch);

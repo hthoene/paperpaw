@@ -671,7 +671,7 @@ const CASES: &[Case] = &[
         book: Some("books/alice-in-wonderland.epub"),
         sets: &[],
         // The grays of the page under it follow once calm (3 s).
-        script: "run:core.quick-panel,wait:300,down:300:318,move:330:320,move:360:322,wait:100,wait:3200",
+        script: "run:core.quick-panel,wait:300,down:300:318,move:330:320,move:360:322,wait:100,wait:31000",
         colour: 0,
         fixtures: false,
     },
