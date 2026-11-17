@@ -7,7 +7,7 @@
 //! A screen that shows a widget makes it (`Widgets::make`) and keeps
 //! it: the widget reads what it shows when the screen updates it (when
 //! it shows, about each minute, after events), and draws from that, so
-//! drawing stays quick ([`Widget`]). Widgets with nothing to read, such
+//! drawing stays quick (`Widget`). Widgets with nothing to read, such
 //! as a clock, are a pair of functions ([`WidgetSpec::drawn`]).
 //!
 //! A widget may have targets: places that do something when tapped, which
@@ -313,7 +313,7 @@ pub struct Drawn {
     /// is drawn again. Without it, it is drawn when its screen is.
     pub shows: Option<fn(&Place<'_>) -> String>,
     /// The places in it that do something, drawn in an area (see
-    /// [`Widget::targets`]).
+    /// `Widget::targets`).
     pub targets: Option<fn(&Place<'_>, Rect) -> Vec<WidgetTarget>>,
 }
 

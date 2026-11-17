@@ -83,7 +83,7 @@ impl Hint {
 
 /// Tells one opened screen from every other, also from another opening
 /// of the same screen: as long as it is open, through being made anew
-/// (see [`StackEntry::key`], [`Cx::close`]).
+/// (see [`StackEntry::key`], `Cx::close`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScreenKey(u32);
 
@@ -119,7 +119,7 @@ pub enum ShowsThrough {
     FullScreen,
 }
 
-/// An open screen, as [`Env::stack`](crate::Env::stack) lists them.
+/// An open screen, as `Env::stack` lists them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct StackEntry {
@@ -242,15 +242,15 @@ pub struct Output {
     pub commands: Vec<Command>,
     /// Requested refresh mode for the region drawn during the event.
     pub refresh: Option<RefreshMode>,
-    /// The mode set exactly ([`Cx::set_refresh`]): it wins over requests.
+    /// The mode set exactly (`Cx::set_refresh`): it wins over requests.
     pub refresh_set: Option<RefreshMode>,
     /// Whether the whole screen should be redrawn.
     pub redraw: bool,
     /// Part of the screen to redraw, from the corner of the part of the
-    /// screen the screen has ([`Env::content`]).
+    /// screen the screen has (`Env::content`).
     pub redraw_area: Option<Rect>,
     /// When the screen wants `on_timer` to be called (see
-    /// [`Cx::wake_at`]).
+    /// `Cx::wake_at`).
     pub wake_at: Option<Instant>,
 }
 

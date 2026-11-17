@@ -75,7 +75,7 @@ mod hold_flags {
 
 /// Keeps the device from going to sleep by itself for a while
 /// ([`Command::KeepAwake`](crate::Command::KeepAwake), or
-/// [`Cx::keep_awake`](crate::Cx::keep_awake) for a screen): a clock or a
+/// `Cx::keep_awake` for a screen): a clock or a
 /// timer shown, a slideshow, a game watched, a long download. It holds
 /// only the sleep after
 /// [`settings::SLEEP_AFTER`](crate::builtin::settings::SLEEP_AFTER)
@@ -294,7 +294,7 @@ impl Power {
     }
 }
 
-/// How PaperPaw started this time ([`Env::started`](crate::Env::started)),
+/// How PaperPaw started this time (`Env::started`),
 /// where the shell can tell: e.g. for a device check, which proves a
 /// sleep by the start that ends it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

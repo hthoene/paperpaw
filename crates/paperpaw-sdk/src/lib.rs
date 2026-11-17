@@ -19,7 +19,7 @@
 //!   reserved for the kernel.
 //! - **Plugins** (`Plugin`): a [`Manifest`] plus a `register` function that
 //!   adds contributions through a `Items`.
-//! - **Contributions**: actions ([`ActionSpec`]),
+//! - **Contributions**: actions (`ActionSpec`),
 //!   slots ([`SlotSpec`]), settings ([`SettingSpec`]), fonts ([`FontSpec`]),
 //!   file formats ([`FormatSpec`]), event subscriptions,
 //!   key maps and translations (data in the PaperPaw config format).
@@ -27,7 +27,7 @@
 //!   may bind a screen to any slot; the user's configuration has the final
 //!   word.
 //! - **Commands** ([`Command`]): plugins never mutate kernel state directly.
-//!   They read through [`Env`] (its parts are methods: `env.settings()`,
+//!   They read through `Env` (its parts are methods: `env.settings()`,
 //!   `env.device()` and so on) and queue changes as commands in
 //!   [`Commands`], which the kernel applies after the plugin returns.
 //!   Plugins loaded from files are native code too, without a sandbox
@@ -67,11 +67,6 @@ pub mod annotations {
     pub(crate) use crate::annotations_old::*;
 }
 // end of facade: annotations
-#[cfg(test)]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub mod ask;
-#[cfg(not(test))]
-mod ask;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod bluetooth;
@@ -647,7 +642,7 @@ pub mod image {
 
     /// Decodes the JPEG or PNG file `from` into the gray file `to`, no
     /// larger than `fit` allows, for
-    /// [`ui::draw_image`](crate::ui::draw_image); `None` if it is no image
+    /// `ui::draw_image`; `None` if it is no image
     /// PaperPaw reads.
     pub fn gray_from_file(
         storage: &dyn Storage,

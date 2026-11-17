@@ -30,7 +30,7 @@ pub enum BuiltInFont {
     /// `font` proposed for one more `role` at the default priority.
     Role { role: Id, font: Id },
     /// A face of `family` in a file on the storage, read only while its
-    /// family is chosen ([`FontFace`]).
+    /// family is chosen (`FontFace`).
     File {
         id: Id,
         path: &'static str,

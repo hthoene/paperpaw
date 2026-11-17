@@ -121,6 +121,10 @@ impl Document for Named {
 }
 
 const BOOK: &str = "books/a.txt";
+/// The book's title: no path the kernel keeps (its size cache, the
+/// catalog's files) is as long, so the one allocation refused for its
+/// length is the title's copy.
+const TITLE: &str = "The Refused Title Of The Walk Through The Long Wood";
 
 fn harness() -> common::Harness {
     let mut h = common::Harness::new();
@@ -135,7 +139,7 @@ fn harness() -> common::Harness {
                 // library's: not refused.
                 Ok(shielded(|| {
                     let mut metadata = Metadata::default();
-                    metadata.title = Some("The Refused Title Of The Walk".to_owned());
+                    metadata.title = Some(TITLE.to_owned());
                     metadata.authors = vec!["Real Author".to_owned()];
                     metadata.subjects = vec!["one".to_owned(), "two".to_owned()];
                     Box::new(Named { metadata }) as Box<dyn Document>
@@ -210,14 +214,14 @@ fn title(storage: &dyn Storage) -> Option<String> {
     found
 }
 
-/// What a walk made of the one book when the copy of its title (30 bytes)
+/// What a walk made of the one book when the copy of its title
 /// was refused: the line without the title, and so stale; the next walk,
 /// with memory, reads the book again and makes it whole.
 #[test]
 fn the_next_walk_makes_the_line_of_a_book_left_stale_for_want_of_memory() {
     let card = card();
     harness().with_env_on(card.clone(), |env| {
-        SIZE.with(|size| size.set("The Refused Title Of The Walk".len()));
+        SIZE.with(|size| size.set(TITLE.len()));
         REFUSED.with(|refused| refused.set(false));
         assert!(walk(env));
         SIZE.with(|size| size.set(0));
@@ -228,9 +232,6 @@ fn the_next_walk_makes_the_line_of_a_book_left_stale_for_want_of_memory() {
         let kept = library::try_book(&card, BOOK).ok().flatten();
         assert!(kept.is_none_or(|kept| !kept.indexed && kept.title.is_none()));
         assert!(walk(env));
-        assert_eq!(
-            title(&card).as_deref(),
-            Some("The Refused Title Of The Walk")
-        );
+        assert_eq!(title(&card).as_deref(), Some(TITLE));
     });
 }

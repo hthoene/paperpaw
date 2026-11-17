@@ -32,10 +32,10 @@ pub enum MenuNeed {
     /// hidden elsewhere.
     Colors,
     /// A device where PaperPaw manages Wi-Fi itself
-    /// ([`Env::wifi`](crate::Env)), hidden elsewhere.
+    /// (`Env::wifi`), hidden elsewhere.
     Wifi,
     /// A device whose firmware PaperPaw is, updated by PaperPaw
-    /// ([`Env::firmware`](crate::Env)), hidden elsewhere.
+    /// (`Env::firmware`), hidden elsewhere.
     Firmware,
     /// A device whose panel shows black and white alone
     /// ([`Capabilities::black_and_white`](crate::Capabilities)), hidden
@@ -43,7 +43,7 @@ pub enum MenuNeed {
     BlackAndWhite,
     /// A front light PaperPaw sets ([`Capabilities::frontlight`](crate::Capabilities)).
     Frontlight,
-    /// A Bluetooth radio the kernel uses ([`Env::bluetooth`](crate::Env)),
+    /// A Bluetooth radio the kernel uses (`Env::bluetooth`),
     /// hidden elsewhere.
     Bluetooth,
     /// A device that can do a [`Capability`](crate::Capability) (new

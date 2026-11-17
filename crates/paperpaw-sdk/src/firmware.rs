@@ -1,5 +1,5 @@
 //! Firmware updates, on devices whose firmware PaperPaw is (the X4):
-//! [`Env::firmware`](crate::Env) is `Some` there. Elsewhere PaperPaw is
+//! `Env::firmware` is `Some` there. Elsewhere PaperPaw is
 //! an app, updated by the system's store.
 //!
 //! The shell does what it is told ([`Command::Firmware`](crate::Command)
@@ -176,7 +176,7 @@ impl From<Problem> for InstallFailure {
     }
 }
 
-/// Firmware as the kernel knows it ([`Env::firmware`](crate::Env)).
+/// Firmware as the kernel knows it (`Env::firmware`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Firmware {

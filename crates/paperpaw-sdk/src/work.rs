@@ -272,7 +272,7 @@ impl Work {
     /// the next moment the radio is on anyway, on waking or charging, at
     /// the latest `within` from now (longer while saving), held in
     /// Offline. For the reader's own doing, act at once instead
-    /// ([`Env::reader`](crate::Env)).
+    /// (`Env::reader`).
     pub fn when_cheap(id: impl Into<Id>, within: Duration) -> Self {
         Self::network(id)
             .within(within)
@@ -675,7 +675,7 @@ impl Note {
 }
 
 /// Where every declared work stands, and the plugins' notes, kept by the
-/// kernel ([`Env::work`](crate::Env)).
+/// kernel (`Env::work`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WorkStates {
     works: Vec<(Id, String, WorkState)>,

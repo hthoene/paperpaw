@@ -1,6 +1,6 @@
 //! Patterns of text: a small part of regular expressions, enough to find
 //! words and phrases (to mark them on a page, see
-//! [`decorations::PatternDecorator`](crate::decorations::PatternDecorator)),
+//! `decorations::PatternDecorator`),
 //! without a library and with bounded work, so a pattern from a data
 //! plugin cannot hang the device.
 //!

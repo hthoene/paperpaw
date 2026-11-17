@@ -61,7 +61,7 @@ mod stack;
 
 pub use colours::{ColourSpec, PAPER_LIGHT_GRAY, PAPER_NONE, PAPER_NORMAL, colour_spec};
 
-/// The kinds of widgets ([`WidgetSpec::category`]), each the translation
+/// The kinds of widgets (`WidgetSpec::category`), each the translation
 /// key of its name; screens that offer widgets group them so.
 pub mod categories {
     /// Clocks, the date, calendars.
@@ -105,7 +105,7 @@ pub mod categories {
     }
 }
 
-/// How many cells of a grid a widget takes ([`WidgetSpec::cells`]):
+/// How many cells of a grid a widget takes (`WidgetSpec::cells`):
 /// added, it gets `w` by `h` (no more than the grid has), and resized
 /// never less than `min_w` by `min_h`; a `square` one stays as wide as
 /// it is high, in cells (a round clock, an icon).

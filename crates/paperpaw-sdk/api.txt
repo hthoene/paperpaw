@@ -5855,7 +5855,6 @@ pub macro paperpaw_sdk::event_data!
 pub macro paperpaw_sdk::hot!
 pub macro paperpaw_sdk::native_plugin!
 pub macro paperpaw_sdk::package_version!
-pub macro paperpaw_sdk::role_settings!
 pub macro paperpaw_sdk::service_type!
 #[non_exhaustive] pub enum paperpaw_sdk::Choices
 pub paperpaw_sdk::Choices::Fixed(&'static [&'static str])

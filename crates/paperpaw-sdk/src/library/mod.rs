@@ -69,10 +69,10 @@ pub(crate) fn split(folder: &str, key: &str) -> String {
 }
 
 /// Where a plugin keeps what it keeps for the book at `book` in folder
-/// `folder` of [`BookData`] (registered with
+/// `folder` of `BookData` (registered with
 /// `Items::add_book_cache` or
 /// `Items::add_book_data`), named `prefix` and
-/// the book's [`key`]: in the part of the folder of the key's first two
+/// the book's `key`: in the part of the folder of the key's first two
 /// digits, `<folder>/<2 digits>/<prefix><key>`, so that no folder holds
 /// thousands of entries (a memory card looks through a folder one entry
 /// after the other for a name). The kernel moves, removes and cleans up
@@ -87,7 +87,7 @@ pub fn kept_path(folder: &str, prefix: &str, book: &str) -> String {
 }
 
 /// The command that tells everyone something of the book at `path`
-/// changed: `what`, bits of [`what`]
+/// changed: `what`, bits of `what`
 /// ([`events::BOOK_CHANGED`](crate::builtin::events::BOOK_CHANGED)).
 pub fn changed_book(path: &str, what: u32) -> crate::Command {
     crate::builtin::events::BOOK_CHANGED.emit(crate::builtin::events::BookChanged {

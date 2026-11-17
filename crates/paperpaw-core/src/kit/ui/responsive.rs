@@ -7,7 +7,7 @@ use paperpaw_sdk::builtin::settings;
 pub use paperpaw_sdk::ui::ScreenClass;
 
 /// A part of the screen narrower than this many millimetres (at the
-/// reader's own size of text, see [`ScreenClass::of`]) is
+/// reader's own size of text, see `ScreenClass::of`) is
 /// [`ScreenClass::Compact`].
 pub const COMPACT_BELOW_MM: u32 = 100;
 

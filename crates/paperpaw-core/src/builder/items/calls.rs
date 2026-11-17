@@ -599,7 +599,7 @@ impl Items {
         self.add_checked(Contribution::Widget(Box::new(widget)))
     }
 
-    /// Adds a step to the first-run setup (see [`setup`](paperpaw_sdk::setup)).
+    /// Adds a step to the first-run setup (see `setup`).
     pub fn add_setup_step(&mut self, step: SetupStepSpec) -> Result<(), RegisterError> {
         self.add_checked(Contribution::SetupStep(Box::new(step)))
     }

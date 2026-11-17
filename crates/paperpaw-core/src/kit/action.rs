@@ -13,7 +13,8 @@ use paperpaw_sdk::Params;
 /// the active screen (e.g. `core.next-page` in a reader vs. in a list).
 ///
 /// ```
-/// use paperpaw_sdk::{ActionHint, ActionSpec, Command, Id};
+/// use paperpaw_core::kit::action::{ActionHint, ActionSpec};
+/// use paperpaw_sdk::{Command, Id};
 ///
 /// const OPEN: Id = Id::new_static("demo.open");
 /// let spec = ActionSpec::new(OPEN, "demo.open")
@@ -151,7 +152,8 @@ pub type FixedHandler = fn(&Place<'_>, &Params, &mut paperpaw_sdk::Commands);
 /// handler needs state of its own is an [`ActionSpec`].
 ///
 /// ```
-/// use paperpaw_sdk::{Command, FixedAction, Id};
+/// use paperpaw_core::kit::action::FixedAction;
+/// use paperpaw_sdk::{Command, Id};
 ///
 /// static ACTIONS: [FixedAction; 1] = [FixedAction::new(Id::new_static("demo.open"), "demo.open")
 ///     .handler(|_, _, out| out.push(Command::Back))];

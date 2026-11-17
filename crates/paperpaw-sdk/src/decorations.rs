@@ -163,7 +163,7 @@ pub const AS_IS: &str = "core.tone.as-is";
 /// millimetre.
 pub const THICKNESS: u8 = 4;
 
-/// How text is marked (see the [module documentation](self)).
+/// How text is marked (see the module documentation).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
 pub struct Decoration {
@@ -291,45 +291,6 @@ const fn tone_options(none: &'static str) -> [&'static str; Tone::ALL.len() + 1]
 
 /// The options of a role's background, and of its ink and line tone.
 static TONES: [&str; Tone::ALL.len() + 1] = tone_options(NONE);
-
-/// The settings of a role, as [`add_role`] adds them, kept in the
-/// program: a `static` list for `Items::add_settings`, which takes
-/// next to no memory. The role and its title (a translation key) are
-/// written out:
-///
-/// ```
-/// use paperpaw_sdk::SettingSpec;
-/// use paperpaw_sdk::decorations::{Decoration, LineKind};
-/// static LEARNING: [SettingSpec; 7] = paperpaw_sdk::role_settings!(
-///     "my.learning",
-///     "my.role.learning",
-///     Decoration::NONE.line(LineKind::Dotted)
-/// );
-/// // In `register`: r.add_settings(&LEARNING)?;
-/// ```
-#[macro_export]
-macro_rules! role_settings {
-    ($role:literal, $title:literal, $default:expr $(,)?) => {{
-        static SECTION: $crate::SettingExtra = $crate::SettingExtra::new().section($title);
-        static THICKNESS: $crate::SettingExtra = $crate::SettingExtra::new()
-            .section($title)
-            .unit("core.unit.tenth-mm");
-        $crate::decorations::fixed_role(
-            [
-                concat!($role, ".background"),
-                concat!($role, ".ink"),
-                concat!($role, ".line"),
-                concat!($role, ".line-tone"),
-                concat!($role, ".thickness"),
-                concat!($role, ".frame"),
-                concat!($role, ".struck"),
-            ],
-            &SECTION,
-            &THICKNESS,
-            $default,
-        )
-    }};
-}
 
 /// A word of a page given to decorators: its text and where it is in the
 /// book. A word split over two lines (hyphenated) is two page words, each

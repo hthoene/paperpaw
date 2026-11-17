@@ -721,7 +721,7 @@ fn break_words(
 
 /// A text broken into the lines [`draw_wrapped`] draws, once: made
 /// where what it says or where it goes changes (e.g. in
-/// [`Widget::place`](super::Widget::place)), drawn as often as needed
+/// `Widget::place`), drawn as often as needed
 /// without measuring the text again.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Wrapped {

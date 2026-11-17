@@ -50,7 +50,7 @@ pub enum ColourSpec {
     Is(Color),
 }
 
-/// The colour `value` names: one of [`PAPERS`] or [`INK_AUTO`], a tone's
+/// The colour `value` names: one of `PAPERS` or `INK_AUTO`, a tone's
 /// id ([`Tone::id`]), [`decorations::NONE`] or a colour code `#rrggbb`
 /// (`#rgb`); automatic for any other.
 pub fn colour_spec(value: &str) -> ColourSpec {

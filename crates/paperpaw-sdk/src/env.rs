@@ -9,14 +9,14 @@ pub struct Capabilities {
     /// The network can be reached: HTTP requests
     /// ([`Command::Http`](crate::Command::Http)), servers and connections.
     /// Not whether it is connected now: where PaperPaw manages Wi-Fi
-    /// ([`Env::wifi`]), work waits for a network a while.
+    /// (`Env::wifi`), work waits for a network a while.
     pub network: bool,
-    /// PaperPaw manages Wi-Fi itself ([`Env::wifi`]).
+    /// PaperPaw manages Wi-Fi itself (`Env::wifi`).
     pub wifi: bool,
-    /// A Bluetooth Low Energy radio the kernel uses ([`Env::bluetooth`]).
+    /// A Bluetooth Low Energy radio the kernel uses (`Env::bluetooth`).
     pub bluetooth: bool,
     /// PaperPaw is the device's firmware and updates it
-    /// ([`Env::firmware`]).
+    /// (`Env::firmware`).
     pub firmware: bool,
     /// Text is spoken aloud ([`Command::Speak`](crate::Command::Speak)):
     /// by the system, or a plugin's voice (see `voices`).

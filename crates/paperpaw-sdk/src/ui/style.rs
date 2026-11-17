@@ -1,12 +1,12 @@
 //! The sizes and looks every part of the UI is drawn with ([`UiStyle`]),
 //! the focus, separators and rounded fills.
 
-/// What a colour is for ([`UiStyle::ink`]): a colour role of the
+/// What a colour is for (`UiStyle::ink`): a colour role of the
 /// interface, each set by the palette (setting `core.ui-palette`), so a
 /// theme changes them all at once and plugins draw in the same colours.
 ///
 /// An `Ink` is a colour role; how text is inked (its tone) is a
-/// [`TextInk`]. The roles are constants of one type, so more can come
+/// `TextInk`. The roles are constants of one type, so more can come
 /// without a new plugin interface: a role this release does not know is
 /// drawn in the colour of its [`fallback`](Ink::fallback), the role a
 /// theme made for older releases already sets. Roles 0 to 13 have a

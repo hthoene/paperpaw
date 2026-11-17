@@ -155,7 +155,7 @@ impl<'a> Place<'a> {
     }
 
     /// The steps of the first-run setup, from every plugin (see
-    /// [`setup`](paperpaw_sdk::setup)).
+    /// `setup`).
     pub fn setup(&self) -> &'a crate::kit::setup::SetupSteps {
         &self.shared.setup
     }

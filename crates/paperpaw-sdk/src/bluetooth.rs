@@ -1,5 +1,5 @@
 //! Bluetooth Low Energy (see [ADR 0027](../../../docs/adr/0027-bluetooth.md)):
-//! [`Env::bluetooth`](crate::Env::bluetooth) is `Some` where the kernel
+//! `Env::bluetooth` is `Some` where the kernel
 //! may use a radio ([`Capabilities::bluetooth`](crate::Capabilities)).
 //!
 //! A plugin that declares [`Uses::BLUETOOTH`](crate::Uses::BLUETOOTH)
@@ -1283,7 +1283,7 @@ impl Bluetooth {
     }
 }
 
-/// Bluetooth as the plugin running sees it ([`Env::bluetooth`](crate::Env::bluetooth)):
+/// Bluetooth as the plugin running sees it (`Env::bluetooth`):
 /// the radio, and the bonded devices given to it (all of them, for the
 /// Bluetooth manager).
 #[derive(Clone, Copy)]
