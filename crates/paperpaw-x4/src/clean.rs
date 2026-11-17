@@ -8,7 +8,7 @@
 //! writes the white.
 
 /// The bytes of the white band the firmware keeps (1 bit a pixel, 1 is white).
-pub const WHITE_BYTES: usize = 4000;
+pub const WHITE_BYTES: usize = 1600;
 
 /// Whether the frame about to be drawn is shown by a clean to white and a fast
 /// refresh instead of a half refresh of itself: after grays only (else the half
@@ -26,13 +26,9 @@ pub const fn wanted(panel: bool, after_gray: bool, half: bool, home: bool) -> bo
 /// [`WHITE_BYTES`]. A screen of no width has none.
 pub fn bands(width: u16, height: u16) -> impl Iterator<Item = (u16, u16)> {
     let stride = usize::from(width).div_ceil(8);
-    let rows = if stride == 0 {
-        0
-    } else {
-        u16::try_from(WHITE_BYTES / stride / 8 * 8)
-            .unwrap_or(8)
-            .max(8)
-    };
+    let rows = WHITE_BYTES
+        .checked_div(stride)
+        .map_or(0, |rows| u16::try_from(rows / 8 * 8).unwrap_or(8).max(8));
     let mut top = 0u16;
     core::iter::from_fn(move || {
         if rows == 0 || top >= height {

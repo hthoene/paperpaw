@@ -393,9 +393,8 @@ impl NativeHome {
                 && !dashboard.holds_page()
                 && top.is_some()
                 && Some(instance) != top
-                && dashboard.ensure(host, ui).is_ok()
             {
-                dashboard.cover();
+                dashboard.lay_out_covered(host, ui).ok();
             }
         }
     }
