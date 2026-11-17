@@ -1,6 +1,6 @@
 //! A whole screen with pictures is shown at once in black and white, its
 //! pictures dithered; the grays follow by themselves once nothing happens for
-//! [`CALM_MS`] (Decision 196). Without this the pictures rule drew the screen
+//! [`GRAY_REST_MS`] (Decision 196). Without this the pictures rule drew the screen
 //! twice before it showed (once to count the pictures, once in grays).
 //!
 //! The wait belongs to the screen that asked for it: it is dropped when that
@@ -15,8 +15,11 @@ use paperpaw_platform::Instant;
 
 use crate::Kernel;
 
-/// How long nothing may happen before the gray pass: no key, no other frame.
-const CALM_MS: u64 = 3_000;
+/// How long the device must rest before the gray pass: no key and no touch for
+/// this long (each one begins it again), no other frame. The pass ends in a
+/// clean to white of 1.7 s on the X4, which the next move after it pays, so it
+/// is left until the device lies still (Decision 216, #308; 3 s before).
+pub const GRAY_REST_MS: u64 = 30_000;
 /// Where the pass is due but a frame waits: when the kernel is called again.
 const RETRY_MS: u64 = 250;
 
@@ -181,7 +184,7 @@ impl Kernel {
         let on_top = self.gray_screen() == Some(gray.screen);
         match gray.phase {
             Phase::Pictured if on_top => {
-                self.frame.gray_later.phase = Phase::At(self.shared.now.add_millis(CALM_MS));
+                self.frame.gray_later.phase = Phase::At(self.shared.now.add_millis(GRAY_REST_MS));
             }
             // Something came over it: the calm begins when it is on top again.
             Phase::At(_) if !on_top => self.frame.gray_later.phase = Phase::Pictured,

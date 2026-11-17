@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::Items;
+use crate::gray_later::GRAY_REST_MS;
 use core::cell::Cell;
 
 /// A home screen with a picture over most of it, or none (`in_grays`).
@@ -121,8 +122,8 @@ fn after_the_calm(kernel: &mut Kernel) -> crate::Effects {
     // The call after the frame is shown begins the calm.
     let effects = kernel.tick(Instant(100));
     assert!(!effects.grays() && effects.refresh().is_none());
-    assert_eq!(effects.wake_at(), Some(Instant(3_100)));
-    kernel.tick(Instant(3_100))
+    assert_eq!(effects.wake_at(), Some(Instant(100 + GRAY_REST_MS)));
+    kernel.tick(Instant(100 + GRAY_REST_MS))
 }
 
 #[test]
@@ -146,7 +147,10 @@ fn screens_with_pictures_come_up_in_black_and_white_and_get_grays_when_calm() {
 fn the_grays_wait_for_calm_and_a_key_begins_the_wait_again() {
     let (mut kernel, _) = comes_up_in_grays(PixelFormat::Mono1, true, "");
     render(&mut kernel);
-    assert_eq!(kernel.tick(Instant(100)).wake_at(), Some(Instant(3_100)));
+    assert_eq!(
+        kernel.tick(Instant(100)).wake_at(),
+        Some(Instant(100 + GRAY_REST_MS))
+    );
     // Not yet.
     let effects = kernel.tick(Instant(2_000));
     assert!(effects.refresh().is_none());
@@ -154,7 +158,13 @@ fn the_grays_wait_for_calm_and_a_key_begins_the_wait_again() {
     press(&mut kernel, 2_500, "down");
     let effects = kernel.tick(Instant(4_000));
     assert!(!effects.grays() && effects.refresh().is_none());
-    let effects = kernel.tick(Instant(5_600));
+    // Not after the old three seconds of calm, nor just short of the rest:
+    // the pass is for a device that lies still (Decision 216, #308).
+    for at in [5_600, 2_600 + GRAY_REST_MS - 1_000] {
+        let effects = kernel.tick(Instant(at));
+        assert!(!effects.grays() && effects.refresh().is_none(), "at {at}");
+    }
+    let effects = kernel.tick(Instant(2_600 + GRAY_REST_MS));
     assert!(effects.refresh().is_some() && effects.grays());
 }
 
@@ -184,7 +194,10 @@ fn a_refresh_set_exactly_is_not_turned_into_grays_and_keeps_the_pass() {
     use crate::gray_later::Phase;
     let (mut kernel, _) = comes_up_in_grays(PixelFormat::Mono1, true, "");
     render(&mut kernel);
-    assert_eq!(kernel.tick(Instant(100)).wake_at(), Some(Instant(3_100)));
+    assert_eq!(
+        kernel.tick(Instant(100)).wake_at(),
+        Some(Instant(100 + GRAY_REST_MS))
+    );
     let whole = kernel.framebuffer.bounds();
     // A focus step: the screen set its refresh exactly. Not grays, and the
     // pass is not lost.
@@ -196,9 +209,12 @@ fn a_refresh_set_exactly_is_not_turned_into_grays_and_keeps_the_pass() {
         effects.refresh().map(|(_, mode)| mode),
         Some(RefreshMode::Fast)
     );
-    assert_eq!(kernel.frame.gray_later.phase, Phase::At(Instant(3_100)));
+    assert_eq!(
+        kernel.frame.gray_later.phase,
+        Phase::At(Instant(100 + GRAY_REST_MS))
+    );
     render(&mut kernel);
-    let effects = kernel.tick(Instant(3_100));
+    let effects = kernel.tick(Instant(100 + GRAY_REST_MS));
     assert!(effects.refresh().is_some() && effects.grays());
 }
 
@@ -217,10 +233,10 @@ fn a_dialog_over_the_screen_holds_the_pass_and_another_screen_drops_it() {
     let effects = kernel.tick(Instant(3_500));
     assert!(effects.refresh().is_none() && effects.wake_at().is_none());
     press(&mut kernel, 4_000, "back");
-    // Not while it waits to be counted from its closing: the pass comes 3 s
-    // after the last thing that happened.
+    // Not while it waits to be counted from its closing: the pass comes the
+    // rest after the last thing that happened.
     kernel.tick(Instant(5_000));
-    let effects = kernel.tick(Instant(8_100));
+    let effects = kernel.tick(Instant(5_000 + GRAY_REST_MS));
     assert!(effects.refresh().is_some() && effects.grays());
     // Another full screen without pictures for grays: no pass for the first.
     let (mut kernel, _) = comes_up_in_grays(PixelFormat::Mono1, true, "");
@@ -328,14 +344,20 @@ fn a_book_page_keeps_its_grays_at_once() {
 fn a_pass_due_in_a_call_that_makes_a_frame_comes_within_the_retry_with_no_event() {
     let (mut kernel, _) = comes_up_in_grays(PixelFormat::Mono1, true, "");
     render(&mut kernel);
-    assert_eq!(kernel.tick(Instant(100)).wake_at(), Some(Instant(3_100)));
+    assert_eq!(
+        kernel.tick(Instant(100)).wake_at(),
+        Some(Instant(100 + GRAY_REST_MS))
+    );
     // The calm is over in a call that itself draws a part of the screen.
     kernel.invalidate(Rect::new(0, 0, 8, 8));
-    let effects = kernel.tick(Instant(3_100));
+    let effects = kernel.tick(Instant(100 + GRAY_REST_MS));
     assert!(!effects.grays() && effects.refresh().is_some());
     render(&mut kernel);
     let wake = effects.wake_at().expect("a call is asked for");
-    assert!(wake.0 > 3_100 && wake.0 <= 3_100 + 250, "{wake:?}");
+    assert!(
+        wake.0 > 100 + GRAY_REST_MS && wake.0 <= 100 + GRAY_REST_MS + 250,
+        "{wake:?}"
+    );
     let effects = kernel.tick(wake);
     assert!(effects.refresh().is_some() && effects.grays());
 }
@@ -424,8 +446,8 @@ fn a_cover_that_comes_after_the_first_frame_gets_one_pass_after_the_calm() {
     assert!(effects.refresh().is_some() && !effects.grays());
     render(&mut kernel);
     let calm = kernel.tick(Instant(200)).wake_at();
-    assert_eq!(calm, Some(Instant(3_200)));
-    let effects = kernel.tick(Instant(3_200));
+    assert_eq!(calm, Some(Instant(200 + GRAY_REST_MS)));
+    let effects = kernel.tick(Instant(200 + GRAY_REST_MS));
     assert!(effects.refresh().is_some() && effects.grays());
     render(&mut kernel);
     // On the X4 a frame while grays are shown is drawn again whole (the
@@ -436,15 +458,15 @@ fn a_cover_that_comes_after_the_first_frame_gets_one_pass_after_the_calm() {
     kernel.invalidate(Rect::new(40, 10, 20, 20));
     let effects = kernel.finish();
     assert!(effects.refresh().is_some() && !effects.grays());
-    let effects = kernel.draw_again(Instant(4_000));
+    let effects = kernel.draw_again(Instant(1_000 + GRAY_REST_MS));
     assert!(effects.refresh().is_some() && !effects.grays());
     render(&mut kernel);
     assert_eq!(kernel.frame.gray_later.phase, Phase::Pictured);
-    kernel.tick(Instant(4_100));
-    let effects = kernel.tick(Instant(7_100));
+    kernel.tick(Instant(1_100 + GRAY_REST_MS));
+    let effects = kernel.tick(Instant(1_100 + 2 * GRAY_REST_MS));
     assert!(effects.refresh().is_some() && effects.grays());
     render(&mut kernel);
-    let effects = kernel.tick(Instant(20_000));
+    let effects = kernel.tick(Instant(1_100 + 4 * GRAY_REST_MS));
     assert!(effects.refresh().is_none() && effects.wake_at().is_none());
 }
 
@@ -455,7 +477,7 @@ fn a_part_without_pictures_leaves_the_grays_of_the_screen_as_they_are() {
     a_cover_comes(&mut kernel, &late);
     render(&mut kernel);
     kernel.tick(Instant(200));
-    assert!(kernel.tick(Instant(3_200)).grays());
+    assert!(kernel.tick(Instant(200 + GRAY_REST_MS)).grays());
     render(&mut kernel);
     assert_eq!(kernel.frame.gray_later.phase, Phase::Done);
     // The clock: a small part with no picture, not in grays, no pass after.
@@ -465,7 +487,7 @@ fn a_part_without_pictures_leaves_the_grays_of_the_screen_as_they_are() {
     assert!(effects.refresh().is_some() && !effects.grays());
     render(&mut kernel);
     assert_eq!(kernel.frame.gray_later.phase, Phase::Done);
-    let effects = kernel.tick(Instant(20_000));
+    let effects = kernel.tick(Instant(200 + 4 * GRAY_REST_MS));
     assert!(effects.refresh().is_none() && effects.wake_at().is_none());
 }
 

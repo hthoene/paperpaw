@@ -93,6 +93,16 @@ impl<B: Storage, P: Storage> Storage for Private<B, P> {
         storage.append(path, data)
     }
 
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        let (storage, path) = self.route(path);
+        storage.write_at(path, offset, data)
+    }
+
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        let (storage, path) = self.route(path);
+        storage.truncate(path, len)
+    }
+
     fn sync(&self) -> Result<(), StorageError> {
         self.private.sync().and(self.base.sync())
     }

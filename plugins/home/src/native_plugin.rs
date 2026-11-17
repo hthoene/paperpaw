@@ -192,16 +192,17 @@ impl Plugin for NativeHome {
                 payload,
                 ..
             } => self.widgets.stage(host, self.ui()?, payload, reply),
+            // A widget that shows something new says so (`widget_changed`, told
+            // back as the event below): the page is not drawn again for a minute
+            // in which none did (#308).
             Event::Tick { .. } if token == TICK => {
                 self.covers_now();
                 self.widgets
                     .tick(host, self.ui.as_ref().ok_or(Error::State)?);
-                self.refresh(host)
+                Ok(())
             }
-            Event::WidgetChanged { .. } if token == WIDGET_CHANGED => {
-                // Under another screen the page is laid out when it is shown.
-                self.invalidate_covered();
-                self.refresh(host)
+            Event::WidgetChanged { instance, .. } if token == WIDGET_CHANGED => {
+                self.widget_changed(host, instance)
             }
             Event::LibraryChanged { what, .. } if token == LIBRARY_CHANGED && what.cover() => {
                 self.covers_ready(host)
@@ -395,6 +396,28 @@ impl NativeHome {
             dashboard.mark_stale();
         }
         redraw(host)
+    }
+
+    /// A widget shows something new. One whose height does not depend on what it
+    /// shows (the clock, the date, the status line) draws its own place again
+    /// where the page stands as it was laid out; else the page is laid out and
+    /// drawn anew (#308).
+    fn widget_changed(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        if let Some(top) = self.screens.top_instance(DASHBOARD)
+            && let Some(Slot::Dashboard(dashboard)) = self.screens.get(top)
+            && let Some(rect) = dashboard.widget_place(instance)
+            && self.widgets.keeps_height(host, instance, rect)?
+            && self.stack_top(host)? == Some(top)
+            && let Some(Slot::Dashboard(dashboard)) = self.screens.get(top)
+        {
+            let area = dashboard.widget_area(rect);
+            let mut scratch = [0; 64];
+            return CommandSender::new(host, &mut scratch)
+                .queue_redraw_area(RedrawMode::Partial, area);
+        }
+        // Under another screen the page is laid out when it is shown.
+        self.invalidate_covered();
+        self.refresh(host)
     }
 
     /// A call into the plugin that is no draw: what the dashboards' widgets
