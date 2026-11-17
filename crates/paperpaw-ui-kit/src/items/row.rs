@@ -137,8 +137,7 @@ pub(super) fn paint_rows(
     heights: &[u16],
     range: core::ops::Range<usize>,
     area: Rect,
-    (shown, cards): (bool, Option<crate::cards::Cards>),
-    clip: (i32, i32),
+    (shown, cards, clip): (bool, Option<crate::cards::Cards>, (i32, i32)),
 ) -> Result<Drawn, Error> {
     let mut drawn = Drawn {
         y: area.y,

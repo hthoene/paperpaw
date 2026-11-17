@@ -719,10 +719,13 @@ impl ItemList {
             &heights,
             starts[page]..end,
             Rect::new(0, y, width, area.height),
-            (shown, cards),
             (
-                frame.clip_top.saturating_sub(frame.rect.y),
-                frame.clip_bottom.saturating_sub(frame.rect.y),
+                shown,
+                cards,
+                (
+                    frame.clip_top.saturating_sub(frame.rect.y),
+                    frame.clip_bottom.saturating_sub(frame.rect.y),
+                ),
             ),
         )?;
         if let Some((from, to)) = self.drag {

@@ -619,6 +619,6 @@ fn a_checker_fill_with_an_unknown_pattern_or_huge_extents_is_refused_or_clipped(
         0,
     )
     .unwrap();
-    assert!(big.view().data.iter().any(|byte| *byte == 0));
-    assert!(big.view().data.iter().any(|byte| *byte == 255));
+    assert!(big.view().data.contains(&0));
+    assert!(big.view().data.contains(&255));
 }
