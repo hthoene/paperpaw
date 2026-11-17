@@ -1614,6 +1614,46 @@
       "reentry": "deny",
       "result": "count",
       "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        },
+        {
+          "name": "color",
+          "type": "u32"
+        },
+        {
+          "name": "pattern",
+          "type": "u32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 43,
+      "max_bytes": 0,
+      "name": "canvas.fill_pattern",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
     }
   ],
   "i18n_limits": {

@@ -17,7 +17,7 @@ use paperpaw_ui_kit::{
     },
 };
 
-use crate::native_recent::{self, Book, Covered, Known, Pictures};
+use crate::native_recent::{self, Ask, Book, Covered, Pictures};
 
 /// The card's one target: a tap on it opens the book, or the library.
 pub const TARGET: u32 = 1;
@@ -139,17 +139,20 @@ pub fn draw(
     cx: &mut Cx<'_>,
     out: &mut Vec<Paint>,
     icons: Option<&Font<'_>>,
-    (pictures, known): (&mut Pictures, &Known),
+    (pictures, ask): (&mut Pictures, Ask<'_>),
     area: Rect,
 ) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
     let host = cx.host;
-    let Some(book) = native_recent::read(host, known, 0, 1)?.into_iter().next() else {
+    let Some(book) = native_recent::read(host, ask.listing, 0, 1)?
+        .into_iter()
+        .next()
+    else {
         return empty(cx, out, icons, &look);
     };
     let covered = if cx.settings.shows("cover").unwrap_or(true) {
         native_recent::with_library(host, |library| {
-            native_recent::cover_known(host, known, library, &book)
+            native_recent::cover_known(host, ask.listing, library, &book)
         })?
     } else {
         Covered::None
