@@ -22,6 +22,8 @@ mod grip;
 mod row;
 pub(crate) use row::draw_row;
 mod stepper;
+pub use empty::Progress;
+pub(crate) use empty::Spot;
 use empty::{draw_empty, draw_progress};
 use grip::{draw_drag, draw_row_with_grip};
 use stepper::draw_stepper;
@@ -226,30 +228,6 @@ pub enum Footer<'a> {
         /// What is said under it.
         caption: &'a str,
     },
-}
-
-/// What [`Footer::Progress`] shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Progress<'a> {
-    /// Said larger.
-    pub title: &'a str,
-    /// The share done in words, e.g. `25 %`; empty for none.
-    pub label: &'a str,
-    /// How much is done, in thousandths.
-    pub permille: u16,
-    /// Said in small letters, wrapped.
-    pub text: &'a str,
-}
-
-/// A room of the last frame that the list remembers.
-#[derive(Debug, Default, Clone, Copy)]
-pub(crate) enum Spot {
-    #[default]
-    None,
-    /// The room above the rows.
-    Head(Rect),
-    /// The bar and label of a [`Footer::Progress`] (kept where there is no head).
-    Band(Rect),
 }
 
 /// A paged list of [`Item`]s. Only scalar geometry survives a draw.

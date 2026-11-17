@@ -1,5 +1,5 @@
 //! What an empty list says: a picture, a title and a few lines, centred.
-use super::{ItemList, Progress, Spot};
+use super::ItemList;
 use crate::{Paint, Style, paint, text};
 use alloc::vec::Vec;
 use paperpaw_sdk::{
@@ -209,4 +209,28 @@ impl ItemList {
         CommandSender::new(host, &mut scratch).queue_redraw_area(RedrawMode::Partial, area)?;
         Ok(true)
     }
+}
+
+/// What [`Footer::Progress`] shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Progress<'a> {
+    /// Said larger.
+    pub title: &'a str,
+    /// The share done in words, e.g. `25 %`; empty for none.
+    pub label: &'a str,
+    /// How much is done, in thousandths.
+    pub permille: u16,
+    /// Said in small letters, wrapped.
+    pub text: &'a str,
+}
+
+/// A room of the last frame that the list remembers.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) enum Spot {
+    #[default]
+    None,
+    /// The room above the rows.
+    Head(Rect),
+    /// The bar and label of a [`Footer::Progress`] (kept where there is no head).
+    Band(Rect),
 }
