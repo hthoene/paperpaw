@@ -198,15 +198,30 @@ def find_port():
     sys.exit("No X4 found on USB; name its port with --port.")
 
 
-def open_port(name):
+def open_port(name, tries=None):
     # A device name (COM10, /dev/ttyACM0) or a URL (rfc2217://host:4001?ign_set_control).
-    port = serial.serial_for_url(name, do_not_open=True)
-    port.timeout = 0.2
-    # Without DTR and RTS, opening the port does not reset the chip.
-    port.dtr = False
-    port.rts = False
-    port.open()
-    return port
+    # An RFC2217 bridge sometimes takes the connection and then dies in the handshake
+    # ("reader thread died", "timeout while waiting for option 'purge'"): a new
+    # connection a moment later usually works, so a URL is tried a few times.
+    if tries is None:
+        tries = 5 if name.startswith("rfc2217://") else 1
+    for attempt in range(1, tries + 1):
+        port = serial.serial_for_url(name, do_not_open=True)
+        port.timeout = 0.2
+        # Without DTR and RTS, opening the port does not reset the chip.
+        port.dtr = False
+        port.rts = False
+        try:
+            port.open()
+            return port
+        except (serial.SerialException, OSError):
+            try:
+                port.close()
+            except (serial.SerialException, OSError):
+                pass
+            if attempt == tries:
+                raise
+            time.sleep(3)
 
 
 def plugin_digest(data):
@@ -367,7 +382,15 @@ class X4:
         there by its MD5."""
         data = Path(local).read_bytes()
         started = time.monotonic()
-        self.write(path, data)
+        for attempt in (1, 2, 3):
+            try:
+                self.write(path, data)
+                break
+            except (serial.SerialException, OSError, LinkError):
+                # The link died during the copy: open it again and send the file once more.
+                if attempt == 3:
+                    raise
+                self.reconnect(40)
         seconds = time.monotonic() - started
         print(f"{path}: {len(data) // 1000} KB in {seconds:.1f} s, checked")
 
