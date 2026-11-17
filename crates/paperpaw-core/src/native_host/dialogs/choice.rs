@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::ui::{self, ListChange, ListView, UiStyle};
 use paperpaw_sdk::{
-    Canvas, Color, Command, Cx, Env, Gesture, GestureKind, Handled, Id, Rect, RefreshMode, Screen,
+    Canvas, Color, Command, Cx, Env, Gesture, GestureKind, Handled, Id, Rect, RefreshMode,
 };
 
 /// Lines of the title, at most.
@@ -123,7 +123,7 @@ impl Choice {
     }
 }
 
-impl Screen for Choice {
+impl crate::Layer for Choice {
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
         Some(self.region)
     }

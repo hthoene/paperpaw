@@ -11,21 +11,19 @@
 
 use std::sync::Mutex;
 
-use paperpaw_core::{Items, KernelBuilder, Plugin};
+use paperpaw_core::{Items, KernelBuilder};
 use paperpaw_dev::cli::Context;
 use paperpaw_dev::perf;
 use paperpaw_dev::report::{Level, Report};
 use paperpaw_dev::target::Target;
 use paperpaw_platform::Rect;
 use paperpaw_sdk::widgets::{Widget, WidgetSpec};
-use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, RegisterError, SDK_VERSION, Screen, ScreenSpec,
-};
+use paperpaw_sdk::{Canvas, Cx, Env, Handled, Id, Manifest, RegisterError, SDK_VERSION};
 
 /// Reads a file whenever it is drawn.
 struct Reads;
 
-impl Screen for Reads {
+impl paperpaw_core::Layer for Reads {
     fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
         let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
     }
@@ -44,7 +42,7 @@ struct Big(
     Vec<u8>,
 );
 
-impl Screen for Big {
+impl paperpaw_core::Layer for Big {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -57,7 +55,7 @@ static LEAKED: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
 
 struct Leaks;
 
-impl Screen for Leaks {
+impl paperpaw_core::Layer for Leaks {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -84,7 +82,7 @@ impl Widget for ReadsWidget {
 
 struct Probe;
 
-impl Plugin for Probe {
+impl Probe {
     fn manifest(&self) -> Manifest {
         Manifest::new(Id::new_static("perf-probe"), "Perf probe", SDK_VERSION)
             .description("Screens that break the X4's budgets.")
@@ -92,17 +90,17 @@ impl Plugin for Probe {
     }
 
     fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(paperpaw_core::LayerSpec::new(
             Id::new_static("perf-probe.reads"),
             "perf-probe.reads",
             Box::new(|_, _| Box::new(Reads)),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(paperpaw_core::LayerSpec::new(
             Id::new_static("perf-probe.big"),
             "perf-probe.big",
             Box::new(|_, _| Box::new(Big(vec![1; 200 * 1024]))),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(paperpaw_core::LayerSpec::new(
             Id::new_static("perf-probe.leaks"),
             "perf-probe.leaks",
             Box::new(|_, _| {
@@ -119,7 +117,7 @@ impl Plugin for Probe {
 }
 
 fn add(builder: KernelBuilder) -> KernelBuilder {
-    builder.plugin(Probe)
+    builder.items(Probe.manifest(), |r| Probe.register(r))
 }
 
 #[test]

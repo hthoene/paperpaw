@@ -54,6 +54,8 @@ impl<T> fmt::Debug for Weak<T> {
     }
 }
 impl<T> Weak<T> {
+    /// Another weak handle; only the tests of the counts make one now.
+    #[cfg(test)]
     pub(crate) fn try_clone(&self) -> Option<Self> {
         // SAFETY: this weak handle retains the header allocation.
         let weak = unsafe { &*core::ptr::addr_of!((*self.pointer.as_ptr()).weak) };

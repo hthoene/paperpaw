@@ -19,7 +19,7 @@
 //!   reserved for the kernel.
 //! - **Plugins** (`Plugin`): a [`Manifest`] plus a `register` function that
 //!   adds contributions through a `Items`.
-//! - **Contributions**: actions ([`ActionSpec`]), screens ([`ScreenSpec`]),
+//! - **Contributions**: actions ([`ActionSpec`]),
 //!   slots ([`SlotSpec`]), settings ([`SettingSpec`]), fonts ([`FontSpec`]),
 //!   file formats ([`FormatSpec`]), event subscriptions ([`EventHandler`]),
 //!   key maps and translations (data in the PaperPaw config format).
@@ -95,11 +95,6 @@ pub mod builtin {
 // end of facade: builtin
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub mod chrome;
-#[cfg(not(any(test, feature = "kernel")))]
-mod chrome;
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod collections;
 #[cfg(not(any(test, feature = "kernel")))]
 mod collections;
@@ -170,11 +165,6 @@ pub mod help {
     pub(crate) use crate::help_old::*;
 }
 // end of facade: help
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub mod host;
-#[cfg(not(any(test, feature = "kernel")))]
-mod host;
 #[cfg(test)]
 mod test_kit;
 #[cfg(any(test, feature = "kernel"))]
@@ -554,15 +544,13 @@ pub use screen::Handled;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use screen::{
-    CloseCause, Cx, FixedFactory, FixedScreen, Hint, HintVisibility, Instances, Output, Outside,
-    Pane, SCREEN_REVISION, Screen, ScreenFactory, ScreenKey, ScreenList, ScreenSpec, ShowsThrough,
-    StackEntry, call_since, revision_holding,
+    CloseCause, Cx, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION,
+    ScreenKey, ScreenList, ShowsThrough, StackEntry,
 };
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use screen::{
-    CloseCause, Cx, FixedFactory, FixedScreen, Hint, HintVisibility, Instances, Output, Outside,
-    Pane, SCREEN_REVISION, Screen, ScreenFactory, ScreenKey, ScreenList, ScreenSpec, ShowsThrough,
-    StackEntry, call_since, revision_holding,
+    CloseCause, Cx, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION,
+    ScreenKey, ScreenList, ShowsThrough, StackEntry,
 };
 pub use setting::{Setting, Text};
 #[cfg(any(test, feature = "kernel"))]

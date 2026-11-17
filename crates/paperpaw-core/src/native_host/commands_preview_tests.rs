@@ -12,9 +12,9 @@ use paperpaw_sdk::{Env, Params, builtin::groups};
 /// screens) and `other` (a guarded switch, a number, a screen).
 fn kernel() -> crate::Kernel {
     use crate::Items;
-    use paperpaw_sdk::{Manifest, Screen, ScreenSpec, Version};
+    use paperpaw_sdk::{Manifest, Version};
     struct Empty;
-    impl Screen for Empty {
+    impl crate::Layer for Empty {
         fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}
         fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
@@ -31,7 +31,7 @@ fn kernel() -> crate::Kernel {
     ) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
         move |r| {
             for id in names {
-                r.add_screen(ScreenSpec::new(
+                r.add_layer(crate::LayerSpec::new(
                     Id::new_static(id),
                     "probe.title",
                     alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Empty)),

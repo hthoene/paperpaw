@@ -226,6 +226,7 @@ impl Mine {
         if self.token == STATUS_WIDGET {
             return native_status::draw_widget(host, ui, frame, (&self.widget, &self.look), area);
         }
+        self.known.begin_draw(frame.clip_top);
         let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
         let mut out = Vec::new();
         let mut pictures = Pictures::default();
@@ -406,6 +407,14 @@ impl Widgets {
         match self.find(instance.get()) {
             Some(item) => item.mine.tap(host, ui, target, kind),
             None => Ok(false),
+        }
+    }
+
+    /// A call into the plugin that is no draw: the books the card and the shelf
+    /// kept are asked of the library again at their next draw.
+    pub fn fresh(&self) {
+        for item in &self.items {
+            item.mine.known.fresh();
         }
     }
 

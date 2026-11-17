@@ -9,10 +9,7 @@ use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_native::host_glue::ERR_STATE;
 use paperpaw_platform::{Color, Instant, Rect, RefreshMode};
-use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Manifest, Params, RegisterError, Screen, ScreenKey, ScreenSpec,
-    Version,
-};
+use paperpaw_sdk::{Canvas, Cx, Env, Handled, Manifest, Params, RegisterError, ScreenKey, Version};
 
 /// A screen of one of the kinds the tests stack: a full page that is black or
 /// white, a full black screen, a black bar (an overlay in the lower half), a
@@ -22,7 +19,7 @@ struct Probe {
     white: Rc<Cell<bool>>,
 }
 
-impl Screen for Probe {
+impl crate::Layer for Probe {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         let color = match self.kind {
             "page" if self.white.get() => Color::WHITE,
@@ -62,7 +59,7 @@ fn probes(kept: Rc<Cell<bool>>) -> impl Fn(&mut Items) -> Result<(), RegisterErr
             ("probe.pin", "pin"),
         ] {
             let white = Rc::clone(&kept);
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(crate::LayerSpec::new(
                 Id::new_static(id),
                 "probe.title",
                 Box::new(move |_, _| {

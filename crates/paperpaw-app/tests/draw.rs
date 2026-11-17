@@ -37,8 +37,7 @@ use paperpaw_sdk::builtin::{actions, params, slots};
 use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::widgets::categories;
 use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, MemoryStorage, Params, SDK_VERSION, Screen, ScreenSpec,
-    library,
+    Canvas, Cx, Env, Handled, Id, Manifest, MemoryStorage, Params, SDK_VERSION, library,
 };
 
 /// An X4 as the emulator's profile and the firmware have it: buttons, no
@@ -565,7 +564,7 @@ fn no_screen_reads_while_it_draws() {
 /// A screen that reads a file while it draws, as screens once did.
 struct Reads;
 
-impl Screen for Reads {
+impl paperpaw_core::Layer for Reads {
     fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
         let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
     }
@@ -580,7 +579,7 @@ fn probe(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder 
         .description("A screen that reads while it draws.")
         .uses(paperpaw_sdk::Uses::NOTHING);
     builder.items(manifest, |items| {
-        items.add_screen(ScreenSpec::new(
+        items.add_layer(paperpaw_core::LayerSpec::new(
             Id::new_static("probe.reads"),
             "probe.reads",
             Box::new(|_, _| Box::new(Reads)),

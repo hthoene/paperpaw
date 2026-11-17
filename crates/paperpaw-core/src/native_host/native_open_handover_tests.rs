@@ -343,7 +343,7 @@ fn legacy_manifest() -> paperpaw_sdk::Manifest {
 fn legacy() -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
     move |r| {
         struct Empty;
-        impl paperpaw_sdk::Screen for Empty {
+        impl crate::Layer for Empty {
             fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
             fn on_action(
                 &mut self,
@@ -353,7 +353,7 @@ fn legacy() -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
                 paperpaw_sdk::Handled::No
             }
         }
-        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("legacy.screen"),
             "legacy.title",
             Box::new(|_, _| Box::new(Empty)),

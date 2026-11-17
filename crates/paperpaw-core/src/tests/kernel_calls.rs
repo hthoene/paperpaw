@@ -10,7 +10,7 @@ struct Rows {
     focus: usize,
 }
 
-impl Screen for Rows {
+impl crate::Layer for Rows {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         for row in 0..3u16 {
             let label = alloc::format!("Row {row}");
@@ -34,7 +34,7 @@ impl Screen for Rows {
 /// Rows of which one has the focus, moved by *Down*.
 fn rows_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("rows.screen"),
             "rows",
             Box::new(|_, _| Box::new(Rows { focus: 0 })),

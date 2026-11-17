@@ -400,7 +400,7 @@ pub fn register(r: &mut Items) -> Result<(), RegisterError> {
     #[cfg(feature = "waveform-lab")]
     {
         r.add_settings(&crate::lab::SETTINGS)?;
-        r.add_screens(&crate::lab::SCREENS)?;
+        r.add_kernel_screens(&crate::lab::SCREENS)?;
         r.add_actions(&crate::lab::ACTIONS)?;
         r.add_menu_entries(&crate::lab::ENTRIES)?;
     }

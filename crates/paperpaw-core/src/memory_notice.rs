@@ -19,7 +19,7 @@ impl Kernel {
         self.waiting_notices.keep_memory_notice(None);
         let words = self.shared.translator.tr(KEY);
         let params = Params::new().with(notice_params::TEXT, words);
-        let notice: Box<dyn Screen> = Box::new(Notice::new(&self.shared.env(self.now), &params));
+        let notice = Box::new(Notice::new(&self.shared.env(self.now), &params));
         self.waiting_notices.keep_memory_notice(Some(notice));
     }
 

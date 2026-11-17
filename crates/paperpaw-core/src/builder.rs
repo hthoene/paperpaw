@@ -8,7 +8,8 @@
 use super::*;
 
 mod items;
-pub use items::{Items, Plugin};
+pub use items::Items;
+pub(crate) use items::Parts;
 
 /// Configures and creates a [`Kernel`].
 ///
@@ -84,19 +85,6 @@ impl fmt::Debug for KernelBuilder {
 }
 
 impl KernelBuilder {
-    /// Adds a plugin. Plugins registered later win priority ties.
-    pub fn plugin(mut self, plugin: impl Plugin + 'static) -> Self {
-        self.0.plugins.push(items::Source::Old(Box::new(plugin)));
-        self
-    }
-
-    /// Adds a plugin that is off until the user switches it on (e.g. in
-    /// the plugin manager), for features not everyone wants.
-    pub fn plugin_off(mut self, plugin: impl Plugin + 'static) -> Self {
-        self.0.off.push(String::from(plugin.manifest().id.as_str()));
-        self.plugin(plugin)
-    }
-
     /// Adds the fonts the program is built with: a table in the program,
     /// listed as a plugin of data is and registered where it is named,
     /// among the plugins (those registered later win priority ties).

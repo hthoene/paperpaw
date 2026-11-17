@@ -68,7 +68,7 @@ fn observing_items(kept: &Log, r: &mut Items) -> Result<(), RegisterError> {
     )?;
     // Opens a screen of its own; a step through profiles, run again
     // with the next.
-    r.add_screen(ScreenSpec::new(
+    r.add_layer(crate::LayerSpec::new(
         Id::new_static("obs.page"),
         "page",
         Box::new(|_, _| Box::new(Lock)),
@@ -160,7 +160,7 @@ struct Lock;
 /// every other action itself.
 const PASSING: [&str; 4] = ["obs.overridden", "obs.wrapped", "obs.guarded", "obs.open"];
 
-impl Screen for Lock {
+impl crate::Layer for Lock {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn guards(&self) -> bool {
@@ -180,7 +180,7 @@ impl Screen for Lock {
 /// place of `obs.plain`'s, and an observer of actions.
 fn guarding(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             LOCK,
             "lock",
             Box::new(|_, _| Box::new(Lock)),
@@ -440,7 +440,7 @@ mod above_the_guard {
 
     struct Gate;
 
-    impl Screen for Gate {
+    impl crate::Layer for Gate {
         fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
         fn guards(&self) -> bool {
@@ -458,7 +458,7 @@ mod above_the_guard {
 
     struct Top;
 
-    impl Screen for Top {
+    impl crate::Layer for Top {
         fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
         fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -468,7 +468,7 @@ mod above_the_guard {
 
     fn gate_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         |r| {
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(crate::LayerSpec::new(
                 Id::new_static("gate.lock"),
                 "lock",
                 Box::new(|_, _| Box::new(Gate)),
@@ -485,7 +485,7 @@ mod above_the_guard {
     fn up() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         |r| {
             for id in ["up.top", "up.evil"] {
-                r.add_screen(ScreenSpec::new(
+                r.add_layer(crate::LayerSpec::new(
                     Id::parse(id).unwrap(),
                     "top",
                     Box::new(|_, _| Box::new(Top)),
@@ -549,7 +549,7 @@ mod secrets_of_others {
     /// The settings editor: the screen of the settings slot.
     fn editor() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         |r| {
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(crate::LayerSpec::new(
                 Id::new_static("editor.screen"),
                 "editor",
                 Box::new(|_, _| Box::new(Lock)),
