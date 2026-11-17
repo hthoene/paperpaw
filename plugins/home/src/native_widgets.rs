@@ -550,7 +550,18 @@ impl Mine {
                 self.waiting.set(kept.busy);
             }
         }
+        // The rows of this band, as the paint's: a cover wholly outside it
+        // changes no pixel and costs a host call.
+        let (top, bottom) = (
+            frame.clip_top.saturating_sub(frame.rect.y),
+            frame.clip_bottom.saturating_sub(frame.rect.y),
+        );
         for (image, at) in &kept.placed {
+            if top < bottom
+                && (i32::from(at.y) + i32::from(at.height) <= top || i32::from(at.y) >= bottom)
+            {
+                continue;
+            }
             if later {
                 let place = Paint::Focus(*at, 0, Some(2), Color::BLACK);
                 paint::replay(frame, font, [place].iter())?;
@@ -725,6 +736,12 @@ impl Widgets {
         for item in &self.items {
             item.mine.known.fresh();
         }
+    }
+
+    /// A press that only moved the focus: the next frame draws the books the
+    /// last one listed, with no question to the library.
+    pub fn focus_step(&self) {
+        self.listing.keep_for_next_frame();
     }
 
     /// A setting or the registry changed: what a widget kept of its look is read
