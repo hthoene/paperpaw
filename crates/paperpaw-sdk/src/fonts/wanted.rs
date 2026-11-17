@@ -58,11 +58,13 @@ impl Fonts {
                 for font in new {
                     self.user.remove(font.as_str());
                 }
+                self.forget();
                 return Err(error);
             }
         };
         self.user
             .retain(|role, font| role != font || fonts.contains(role));
+        self.forget();
         // Opens nothing: closes what is kept no more (at the next load,
         // where the heap has no room for this one's list).
         let _closed = self.try_load(storage);
