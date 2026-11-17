@@ -4,8 +4,7 @@
 //! widget made) took 2.7 s of a 4.4 s return. This counts the host slots of the
 //! return with the kernel's `slot-counts` feature (the emulator counts like the
 //! device; its milliseconds are not the device's, its call counts are).
-//! One binary: slot counts are per thread, the heap is not, so the tests run
-//! one at a time.
+//! One binary, counts are per thread: the tests do not share a thread.
 
 #![allow(
     clippy::unwrap_used,
