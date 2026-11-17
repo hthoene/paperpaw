@@ -50,13 +50,14 @@ pub fn measure_widget(
     id: &str,
     place: &str,
     geometry: &Geometry,
+    listing: &Listing,
 ) -> Result<Option<(u8, u8)>, Error> {
     let made = match Made::make(host, ui, id, place) {
         Ok(made) => made,
         Err(Error::NotFound | Error::Denied) => return Ok(None),
         Err(error) => return Err(error),
     };
-    let measured = made.measure(host, ui, &Listing::default(), geometry);
+    let measured = made.measure(host, ui, listing, geometry);
     made.release(host, ui);
     measured.map(Some)
 }

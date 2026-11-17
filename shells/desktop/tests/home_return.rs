@@ -23,12 +23,17 @@ const BOOK: &str = "books/alice-in-wonderland.epub";
 
 /// The host slots a return may enter, all together and the settings reads
 /// (emulator, X4, Home with its default page). Measured with the page and its
-/// look kept: 517-528 slots and 23-36 reads; with the page kept and its look
+/// look kept: 232 slots and 16 reads (338 and 22 before the bands of a frame
+/// shared what the first one composed; 517-528 and 23-36 in October); with the page kept and its look
 /// read at every draw: 857-868 and 333-346 (967-978 and 423-436 before the
 /// names and widgets kept theirs); laid out again on every return, as before:
 /// 1,349 and 712.
-const KEPT_ALL_SLOTS: u32 = 560;
+const KEPT_ALL_SLOTS: u32 = 260;
 const KEPT_SETTINGS: u32 = 60;
+/// The first frame of a return with a full shelf (six books), host slots
+/// (emulator): 397 measured, 615 before the bands of a frame shared what the
+/// first one composed.
+const FULL_SHELF_SLOTS: u32 = 430;
 /// The step after the return from a book: the book's card has its cover in
 /// the first frame (the library lists the book at once, #267), so the page,
 /// black and white first, is drawn again in grays once it is calm (Decision
@@ -41,10 +46,17 @@ const GRAY_PASS_SLOTS: u32 = 520;
 /// (622 and 270 before the look was kept; 330 and about 12 measured).
 const STEADY_SLOTS: u32 = 370;
 const STEADY_READS: u32 = 40;
+/// The first lay-out of the page (the first Back out of the start book): host
+/// slots and settings reads (emulator, X4). Measured 587 and 182; 711 and 303
+/// before the looks of the page, its widgets and its status line shared the
+/// interface's settings, and a laid-out page's return makes 520 to 530.
+const COLD_SLOTS: u32 = 620;
+const COLD_SETTINGS: u32 = 200;
 /// The first redraw after a setting changed reads the look of the page and of
 /// each of its widgets again: 160 reads measured, 142 where the page forgets
-/// nothing, 36 where its widgets forget nothing (18 in a steady redraw).
-const CHANGED_READS: u32 = 150;
+/// nothing, 36 where its widgets forget nothing (18 in a steady redraw); 147
+/// since the bands of a frame share what its first band composed.
+const CHANGED_READS: u32 = 100;
 /// A return that lays the page out again reads at least this many settings
 /// (614 measured, with a grid of three columns).
 const LAID_SETTINGS: u32 = 120;
@@ -363,6 +375,9 @@ fn the_first_frame_of_a_return_makes_few_service_calls_with_a_full_shelf() {
     slot_counts::reset();
     run_script(&mut device, "back").unwrap();
     let calls = slot_counts::service_calls();
+    let slots = slot_counts::snapshot();
+    let all: u32 = slots.iter().map(|(_, n)| *n).sum();
+    eprintln!("FIRST FRAME slots {all}: {slots:?}");
     eprintln!("FIRST FRAME service calls: {}", calls.len());
     for (plugin, service, op) in &calls {
         eprintln!("  service {plugin} {service}.{op}");
@@ -381,6 +396,49 @@ fn the_first_frame_of_a_return_makes_few_service_calls_with_a_full_shelf() {
             && calls.len() <= 10,
         "the return made {} service calls: {calls:?}",
         calls.len()
+    );
+    // The widgets measure, wrap and paint once for the bands of the frame, not
+    // once for each band (the emulator draws the shelf's placeholders as the
+    // device draws its titles): 615 slots before (#294), the X4's 470 are kept
+    // pages with covers.
+    assert!(
+        all <= FULL_SHELF_SLOTS,
+        "the first frame made {all} host slots"
+    );
+}
+
+/// The first Back out of the book Home was opened under lays the page out for
+/// the first time (#294): the X4 made 861 host slots and 31 service calls there
+/// against 470 and 19 for the return of a laid-out page. The page, each widget
+/// and the status line read the interface's settings once between them (nine
+/// times 17 reads before), the library is listed once for the measure and the
+/// frame, and the name of Settings comes from the catalog, not the core's
+/// actions (their pages are service calls).
+#[test]
+fn the_first_back_to_home_reads_its_settings_and_registry_once() {
+    let mut device = device(true);
+    let (all, settings) = counted(&mut device, &["back"]);
+    assert_eq!(screen(&mut device), "home.dashboard");
+    eprintln!("COLD first back: {all} slots, {settings} settings reads");
+    assert!(
+        settings <= COLD_SETTINGS && all <= COLD_SLOTS,
+        "the first Back made {all} host slots ({settings} settings reads)"
+    );
+    let calls = slot_counts::service_calls();
+    let of = |what: &str| {
+        calls
+            .iter()
+            .filter(|(plugin, service, op)| format!("{plugin} {service}.{op}") == what)
+            .count()
+    };
+    // The registry is asked once for the lay-out (the widgets' list is two
+    // pages), the library once.
+    assert!(
+        of("home core.registry.widgets") <= 2
+            && of("home core.registry.menu") <= 4
+            && of("home core.registry.actions") == 0
+            && of("home core.library.query") <= 1,
+        "the page asked again: {calls:?}"
     );
 }
 

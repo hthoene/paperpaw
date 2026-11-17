@@ -122,6 +122,7 @@ impl Plugin for NativeHome {
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.widgets.fresh();
+        self.new_epoch();
         self.ensure_ui(host)?;
         let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::StackChanged, kinds::RegistryChanged, kinds::LibraryChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
         else {
@@ -247,6 +248,7 @@ impl Plugin for NativeHome {
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         self.widgets.fresh();
+        self.new_epoch();
         self.ensure_ui(host)?;
         let ui = self.ui.as_ref().ok_or(Error::State)?;
         // A tap on a book of the card or the shelf.
@@ -326,6 +328,16 @@ impl NativeHome {
             dashboard.mark_stale();
         }
         redraw(host)
+    }
+
+    /// A call into the plugin that is no draw: what the dashboards' widgets
+    /// composed for the bands of a frame is not for the next one.
+    fn new_epoch(&mut self) {
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                dashboard.new_epoch();
+            }
+        }
     }
 
     /// A setting or the registry changed: a dashboard under another screen is
