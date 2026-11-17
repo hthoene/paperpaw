@@ -1,7 +1,7 @@
 //! What the kernel's built-in parts run, as plain functions kept in the
 //! program (#293): a handler of an event ([`Hear`]) and a step of a job
 //! ([`Stepper`]). No closure and nothing on the heap per handler: what a
-//! handler needs of its own is the kernel's ([`Kernel::core`]).
+//! handler needs of its own is the kernel's (`Kernel::core`).
 
 use alloc::borrow::Cow;
 
