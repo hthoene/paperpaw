@@ -105,6 +105,8 @@ pub enum Why {
     Offline,
     /// The library did not answer, or what came is no list.
     Unreachable,
+    /// The device had no memory for the connection.
+    Memory,
 }
 
 /// How far it is.
@@ -234,6 +236,7 @@ pub fn settle(kind: Kind, tally: &Tally, queued: bool, list: Trouble) -> Phase {
             Trouble::Loading => Phase::Working,
             Trouble::None => Phase::Done,
             Trouble::Offline => Phase::Failed(Why::Offline),
+            Trouble::Memory => Phase::Failed(Why::Memory),
             Trouble::Failed | Trouble::Unsupported => Phase::Failed(Why::Unreachable),
         };
     }
@@ -491,6 +494,7 @@ impl Core {
             Phase::Failed(Why::Missing) => say.format("store.request.failed", &[names]),
             Phase::Failed(Why::Offline) => say.text("store.offline"),
             Phase::Failed(Why::Unreachable) => say.text("store.unreachable"),
+            Phase::Failed(Why::Memory) => say.text("store.memory"),
             Phase::Restart => say.format("store.fetch.restart.text", &[names]),
             Phase::Working | Phase::Done if self.kind == Kind::List => say.text("store.loading"),
             Phase::Working | Phase::Done => copy(&self.names),
