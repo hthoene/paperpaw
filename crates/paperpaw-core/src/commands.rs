@@ -207,7 +207,8 @@ impl Kernel {
             };
             // Leaving large pictures: a fast refresh would keep their ghost
             // (not where the mode was set exactly).
-            if set.is_none()
+            if FULL_AFTER_PICTURES
+                && set.is_none()
                 && !mode.does_clean_itself()
                 && self.frame.pictures_shown
                 && weight * 2 >= area(screen)
