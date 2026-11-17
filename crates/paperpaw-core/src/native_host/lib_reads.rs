@@ -118,6 +118,10 @@ pub(crate) struct CatalogReads {
     old: old_reader::Memo,
     /// Where the last page of names (op 5) ended, for the page after it.
     names: core::cell::Cell<Option<facets::Kept>>,
+    /// How many books the catalog of this generation holds: counting them
+    /// reads the whole catalog, and `state` is asked on every screen of the
+    /// library. The generation changes with the catalog and its log.
+    counted: core::cell::Cell<Option<(u32, u32)>>,
 }
 
 impl CatalogReads {
@@ -169,6 +173,7 @@ impl CatalogReads {
             env,
             old: old_reader::Memo::default(),
             names: core::cell::Cell::new(None),
+            counted: core::cell::Cell::new(None),
         }
     }
 
@@ -258,14 +263,17 @@ impl LibQuery for CatalogReads {
         let mut before = self.snapshot()?;
         let mut answer = None;
         for _ in 0..STATE_TRIES {
-            let books = if before.1 {
-                catalog::try_count(&*self.storage).map_err(fail)?
-            } else {
-                0
+            let books = match self.counted.get() {
+                Some((generation, books)) if before.1 && generation == before.0 => books,
+                _ if before.1 => catalog::try_count(&*self.storage).map_err(fail)?,
+                _ => 0,
             };
             let after = self.snapshot()?;
             answer = Some((before, books));
             if after == before {
+                if before.1 {
+                    self.counted.set(Some((before.0, books)));
+                }
                 break;
             }
             before = after;
