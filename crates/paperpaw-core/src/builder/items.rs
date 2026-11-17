@@ -19,6 +19,7 @@ use paperpaw_sdk::{BuiltInFonts, Manifest, RegisterError};
 mod calls;
 
 pub use calls::Items;
+pub(crate) use calls::Parts;
 
 /// One entry of the builder's list of what registers, in the order given.
 pub(super) enum Source {

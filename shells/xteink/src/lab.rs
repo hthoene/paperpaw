@@ -48,9 +48,8 @@ use paperpaw_sdk::builtin::{actions, groups, menus};
 use paperpaw_sdk::realtime::ScreenMode;
 use paperpaw_sdk::ui::{self, ListView, RowPart, UiStyle};
 use paperpaw_sdk::{
-    Canvas, Color, Command, Cx, Env, FixedAction, FixedScreen, Gesture, GestureKind, Handled, Id,
-    Instances, MenuEntry, Params, Rect, RefreshMode, Screen, SettingExtra, SettingSpec,
-    SettingValue, Settings,
+    Canvas, Color, Command, Cx, Env, FixedAction, Gesture, GestureKind, Handled, Id, Instances,
+    MenuEntry, Params, Rect, RefreshMode, SettingExtra, SettingSpec, SettingValue, Settings,
 };
 use paperpaw_x4::display::{self, TEMPERATURE_RANGE};
 use paperpaw_x4::panel::Experiment;
@@ -225,9 +224,9 @@ pub static ACTIONS: [FixedAction; 1] = [FixedAction::new(OPEN, "x4.lab.title")
 
 pub static ENTRIES: [MenuEntry; 1] = [MenuEntry::new(menus::TOOLS, OPEN).order(97)];
 
-pub static SCREENS: [FixedScreen; 1] =
+pub static SCREENS: [paperpaw_core::KernelScreen; 1] =
     [
-        FixedScreen::new(SCREEN, "x4.lab.title", |env, _| Box::new(Lab::new(env)))
+        paperpaw_core::KernelScreen::new(SCREEN, "x4.lab.title", |env, _| Box::new(Lab::new(env)))
             .instances(Instances::SINGLE),
     ];
 
@@ -506,7 +505,7 @@ impl Lab {
     }
 }
 
-impl Screen for Lab {
+impl paperpaw_core::Layer for Lab {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         let style = self.style;
         let mut ui = ui::Ui::new(canvas, env, &style);

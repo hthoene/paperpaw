@@ -32,7 +32,7 @@ fn library_plugin(kept: LibraryPlugin) -> impl Fn(&mut Items) -> Result<(), Regi
             library::BookField::new(Id::new_static("lib.rating"), "lib.rating").in_catalog(),
         )?;
         // A reader, as the reader's slot shows it.
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("lib.reader"),
             "reader",
             Box::new(|_, _| Box::new(Page)),
@@ -43,7 +43,7 @@ fn library_plugin(kept: LibraryPlugin) -> impl Fn(&mut Items) -> Result<(), Regi
             Priority(i16::MAX),
         )?;
         // A library's list, as the library's slot shows it.
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("lib.list"),
             "list",
             Box::new(|_, _| Box::new(Page)),
@@ -74,7 +74,7 @@ fn library_plugin_manifest() -> Manifest {
 /// A book's page.
 struct Page;
 
-impl Screen for Page {
+impl crate::Layer for Page {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {

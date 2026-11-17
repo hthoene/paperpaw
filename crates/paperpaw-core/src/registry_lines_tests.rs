@@ -15,7 +15,7 @@ use paperpaw_sdk::keys::KeyBindings as _;
 use paperpaw_sdk::{Id, Manifest, Priority, Version};
 
 struct Blank;
-impl paperpaw_sdk::Screen for Blank {
+impl crate::Layer for Blank {
     fn draw(&mut self, _: &mut paperpaw_sdk::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
@@ -30,7 +30,7 @@ const MENU: Id = Id::new_static("shelf.menu");
 
 fn shelf(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
     for id in [LOW, HIGH] {
-        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             id,
             "shelf.screen",
             alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Blank)),

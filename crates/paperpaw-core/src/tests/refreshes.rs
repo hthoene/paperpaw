@@ -23,7 +23,7 @@ type Seen = Rc<RefCell<Vec<Refresh>>>;
 /// A page that guards the device.
 struct Lock;
 
-impl Screen for Lock {
+impl crate::Layer for Lock {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn guards(&self) -> bool {
@@ -39,7 +39,7 @@ impl Screen for Lock {
 /// mode of exactly (`r.exact`), a change that wants grays (`r.grays`).
 struct Page;
 
-impl Screen for Page {
+impl crate::Layer for Page {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
@@ -71,21 +71,21 @@ impl Screen for Page {
 
 fn refreshing_items(kept: Seen) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             PAGE,
             "page",
             Box::new(|_, _| Box::new(Page)),
         ))?;
-        r.add_screen(
-            ScreenSpec::new(SHEET, "sheet", Box::new(|_, _| Box::new(Page)))
+        r.add_layer(
+            crate::LayerSpec::new(SHEET, "sheet", Box::new(|_, _| Box::new(Page)))
                 .refresh_on_open(RefreshMode::Fast),
         )?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             LOCK,
             "lock",
             Box::new(|_, _| Box::new(Lock)),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             READING,
             "reading",
             Box::new(|_, _| Box::new(Page)),
@@ -317,7 +317,7 @@ fn nothing_counts_what_is_typed_into_a_guard() {
 
 struct OverlayHomeScreen;
 
-impl Screen for OverlayHomeScreen {
+impl crate::Layer for OverlayHomeScreen {
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
         Some(Rect::new(0, 45, 90, 45))
     }
@@ -335,7 +335,7 @@ impl Screen for OverlayHomeScreen {
 fn overlay_home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         const HOME: Id = Id::new_static("initial.home");
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             HOME,
             "Home",
             Box::new(|_, _| Box::new(OverlayHomeScreen)),
