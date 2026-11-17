@@ -108,13 +108,21 @@ fn the_start_cards_settings_choose_its_font() {
     app.run(actions::CONFIRM);
     assert_eq!(app.screen(), "settings.list", "{}", app.described());
     let focused = app.focused().unwrap_or_default();
-    assert!(focused.starts_with("Font, "), "{focused}\n{}", app.described());
+    assert!(
+        focused.starts_with("Font, "),
+        "{focused}\n{}",
+        app.described()
+    );
     app.run(actions::CONFIRM);
     assert_eq!(app.screen(), "settings.choose", "{}", app.described());
     // As all widgets, as the menus, as the book.
     app.run(actions::DOWN);
     app.run(actions::DOWN);
     app.run(actions::CONFIRM);
-    let placed = app.kernel.settings().text("home.continue@1.font").to_string();
+    let placed = app
+        .kernel
+        .settings()
+        .text("home.continue@1.font")
+        .to_string();
     assert_eq!(placed.as_str(), BOOK, "{}", app.described());
 }
