@@ -242,7 +242,7 @@ pub struct Display<SPI, DC, RST, BUSY, D> {
     experiment: Option<Experiment>,
     /// LAB ONLY (#168): how `power_down` goes: 0 as always, 1 not at all
     /// (the analog stays on), 2 with the border parked at `0x80` first, 3
-    /// after one more fast refresh of the same frame.
+    /// after one more fast refresh of the same frame, 4 after two.
     #[cfg(feature = "fade-lab")]
     fade: u8,
     buffer: Vec<u8>,
@@ -573,6 +573,11 @@ where
                 2 => self.command(cmd::BORDER, &[0x80])?,
                 // V3: the same frame driven once more, then the power goes.
                 3 => self.refresh(Refresh::Fast, false)?,
+                // V4: the same frame driven twice more.
+                4 => {
+                    self.refresh(Refresh::Fast, false)?;
+                    self.refresh(Refresh::Fast, false)?;
+                }
                 _ => {}
             }
             self.command(cmd::UPDATE_CONTROL_2, &[0x03])?;
@@ -1389,6 +1394,9 @@ mod tests {
         let (v3, powered3, _) = sequences_for(3);
         assert_eq!(v3, [0xD7, 0xFC, 0xFC, 0x03], "one more fast refresh first");
         assert!(!powered3);
+        let (v4, powered4, _) = sequences_for(4);
+        assert_eq!(v4, [0xD7, 0xFC, 0xFC, 0xFC, 0x03], "two more fast refreshes");
+        assert!(!powered4);
     }
 
     type Shown = (Rc<RefCell<Controller>>, Display<Spi, Dc, Pin, Busy, Delay>);

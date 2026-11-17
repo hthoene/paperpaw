@@ -430,7 +430,7 @@ impl Firmware {
                 // LAB ONLY (#168): the variant from the card, a digit.
                 let mut digit = *b"0";
                 let _ = self.kernel.storage().read_at("fade-lab.txt", 0, &mut digit);
-                let variant = digit[0].saturating_sub(b'0').min(3);
+                let variant = digit[0].saturating_sub(b'0').min(4);
                 info!("fade-lab: variant {variant}");
                 self.panel.set_fade_variant(variant);
             }
