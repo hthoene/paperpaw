@@ -390,7 +390,6 @@ UNNAMEABLE = {
     "paperpaw_sdk::command::Command",  # Editor::open
     "paperpaw_sdk::env::Capabilities",  # MenuNeed::met
     "paperpaw_sdk::env::Capability",  # MenuNeed::Has
-    "paperpaw_sdk::env::Env",  # five functions no plugin can call
     "paperpaw_sdk::native::events::kinds::sealed::Sealed",  # seals `Kind`, on purpose
     "paperpaw_sdk::params::Params",  # KeyBindings::extended, GestureRecognizer::extended
     "paperpaw_sdk::plugins::PluginProblem",  # Native::problem_of_file

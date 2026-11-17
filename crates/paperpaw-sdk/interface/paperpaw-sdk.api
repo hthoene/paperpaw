@@ -5745,7 +5745,6 @@ pub paperpaw_sdk::widgets::grid::Geometry::gap: u16
 pub paperpaw_sdk::widgets::grid::Geometry::rows: u8
 impl paperpaw_sdk::widgets::grid::Geometry
 pub fn paperpaw_sdk::widgets::grid::Geometry::cell_at(&self, paperpaw_platform::geometry::Point) -> core::option::Option<(u8, u8)>
-pub fn paperpaw_sdk::widgets::grid::Geometry::new(&paperpaw_sdk::env::Env<'_>, paperpaw_platform::geometry::Rect, u8, u8) -> Self
 pub fn paperpaw_sdk::widgets::grid::Geometry::of(paperpaw_platform::geometry::Rect, u8, u8, u16) -> Self
 pub fn paperpaw_sdk::widgets::grid::Geometry::rect(&self, paperpaw_sdk::widgets::grid::Cells) -> paperpaw_platform::geometry::Rect
 impl core::default::Default for paperpaw_sdk::widgets::grid::Geometry
