@@ -903,3 +903,13 @@ fn a_frame_without_the_host_or_a_caller_refuses_the_family() {
         },
     );
 }
+
+#[test]
+fn a_document_open_for_a_book_a_cover_or_a_job_is_seen_by_the_low_memory_look() {
+    let table = DocumentTable::try_new(Limits::X4).unwrap();
+    assert!(!table.any_open());
+    let (id, _) = table.open(1, true, FORMAT, 0, 0, &|_| true).unwrap();
+    assert!(table.any_open());
+    table.close(1, id).unwrap();
+    assert!(!table.any_open());
+}

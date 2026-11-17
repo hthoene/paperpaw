@@ -329,7 +329,7 @@ if [[ "$native_wanted" == 1 ]]; then
         cargo test --no-fail-fast -j"$1" -p paperpaw-app --no-default-features --features native-linked-reading,packs --test linked_catalogs || rc=1
         cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading --test linked_settings_tables || rc=1
         cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables || rc=1
-        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands --test registry_golden || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands --test registry_golden --test slider_drag || rc=1
         cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked,native-linked-reading,native-linked-store --test kernel_screens || rc=1
         cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading --test sets --test standard || rc=1
         cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading,native-linked-store --test readers || rc=1

@@ -24,7 +24,7 @@ runs:
   steps:
     - name: The versions
       shell: bash
-      run: grep -E '^[A-Z_]+=' shells/xteink/versions.env >> "$GITHUB_ENV"
+      run: grep -E '^[A-Z0-9_]+=' shells/xteink/versions.env >> "$GITHUB_ENV"
     # tools/check-x4-start-stack.py reads the firmware's symbols with rustup's
     # llvm-nm, which is in the `llvm-tools` component of the repository's
     # toolchain (rust-toolchain.toml); no step of any device adds it otherwise.
@@ -97,7 +97,14 @@ runs:
       env:
         GITHUB_TOKEN: ${{ github.token }}
       run: |
-        cargo install espup --version "$ESPUP_VERSION" --locked
+        # The release's binary, not `cargo install` (3.5 minutes of compiling on
+        # every run that has no toolchain cache): checked against the SHA-256
+        # in versions.env, which is GitHub's digest of the release asset.
+        mkdir -p "$HOME/.cargo/bin"
+        curl -sSfL --retry 3 -o "$HOME/.cargo/bin/espup" \
+          "https://github.com/esp-rs/espup/releases/download/v${ESPUP_VERSION}/espup-x86_64-unknown-linux-gnu"
+        echo "$ESPUP_SHA256_X86_64  $HOME/.cargo/bin/espup" | sha256sum -c -
+        chmod +x "$HOME/.cargo/bin/espup"
         espup install --targets esp32s3 --toolchain-version "$ESP_RUST_VERSION" \
           --crosstool-toolchain-version "$ESP_GCC_VERSION" --export-file "$HOME/export-esp.sh"
     - name: Keep espup's toolchain

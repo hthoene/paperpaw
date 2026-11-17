@@ -170,6 +170,13 @@ where
         matches!(self, Panel::UltraChip(display) if display.keeps_frame())
     }
 
+    /// Whether a refresh of every pixel to white can run while the next frame
+    /// is drawn (the SSD1677's: its memories take the frame after the
+    /// refresh, which then drives it with a fast one).
+    pub fn cleans_while_drawing(&self) -> bool {
+        matches!(self, Panel::Ssd1677 { .. })
+    }
+
     pub fn write_gray_rows(&mut self, top: u16, rows: FrameView<'_>) -> Result<(), Error> {
         each!(self, d => d.write_gray_rows(top, rows))
     }

@@ -379,3 +379,19 @@ fn every_allocation_may_be_refused() {
         Ok(())
     });
 }
+
+#[test]
+fn a_language_of_the_store_has_its_hyphenation_pack() {
+    assert_eq!(hyphenation_pack("de"), Some("hyphenation-de"));
+    assert_eq!(hyphenation_pack("de-AT"), Some("hyphenation-de"));
+    assert_eq!(hyphenation_pack("PT_br"), Some("hyphenation-pt"));
+    assert_eq!(hyphenation_pack("no"), Some("hyphenation-nb"));
+    assert_eq!(hyphenation_pack("nb"), Some("hyphenation-nb"));
+    assert_eq!(hyphenation_pack("en"), Some("hyphenation"));
+    assert_eq!(hyphenation_pack("ja"), None);
+    assert_eq!(hyphenation_pack(""), None);
+    // An answer for one is told to the books that asked for it.
+    assert!(is_pack("hyphenation-uk"));
+    assert_ne!(bit("hyphenation-de"), bit(KOREAN_EXTRA));
+    assert_ne!(bit("hyphenation-de"), 0);
+}

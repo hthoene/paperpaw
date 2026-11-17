@@ -29,7 +29,9 @@ use crate::{clock, device, input, now, power, stack};
 
 mod cable;
 mod card_swap;
+mod clean;
 mod dozing;
+mod low_memory;
 mod paced;
 #[cfg(feature = "remote")]
 mod remote_commands;
@@ -114,6 +116,8 @@ pub struct State {
     /// pressed again) does not change it. Set only in `step`; it ends in the
     /// power-off or a reset, so nothing clears it.
     escape: bool,
+    /// The one-time low-memory notice (`low_memory`).
+    low_memory: paperpaw_x4::low_memory::Notice,
     /// The kernel asked to sleep.
     sleep: bool,
     /// The kernel asked to switch the device off (`Effect::PowerOff`).
@@ -170,6 +174,9 @@ pub struct State {
     /// The panel's memories may differ after startup or a paced frame:
     /// the next one drives every pixel.
     frame_stale: bool,
+    /// The panel showed grays until the frame being drawn: its refresh drives
+    /// every pixel ([`clean`]).
+    after_gray: bool,
 }
 
 /// The place of `refresh` in [`State::refresh_ms`].
@@ -1099,6 +1106,7 @@ impl Firmware {
             } else if self.state.gray_shown && effects.refresh().is_some() {
                 // After grays, the whole screen, not only what changed.
                 self.state.gray_shown = false;
+                self.state.after_gray = true;
                 effects = self.kernel.draw_again(now());
                 continue;
             } else if let Some((area, mode)) = effects.refresh() {
@@ -1115,6 +1123,12 @@ impl Firmware {
             // The cable transfer's answers, as soon as they are there.
             while let Some(line) = self.kernel.next_cable_line() {
                 esp_println::println!("{line}");
+            }
+            if let Some(next) = self.low_memory_notice(
+                effects.grays() || effects.sleep() || effects.power_off() || effects.restart(),
+            ) {
+                effects = next;
+                continue;
             }
             return;
         }
@@ -1284,7 +1298,8 @@ impl Firmware {
     fn show(&mut self, area: Rect, mode: RefreshMode) {
         power::mark(power::at::SHOWING);
         let stale = core::mem::take(&mut self.state.frame_stale);
-        let refresh = match mode {
+        let after_gray = core::mem::take(&mut self.state.after_gray);
+        let mut refresh = match mode {
             _ if stale => Refresh::Half,
             // Every pixel driven with a warm panel's waveform (1.6 s), as
             // the stock firmware cleans the panel every few pages.
@@ -1292,6 +1307,15 @@ impl Firmware {
             // Partial and fast, and modes to come.
             _ => Refresh::Fast,
         };
+        // After grays, home is drawn while the panel is cleaned to white
+        // and then shown with a fast refresh (see `clean`).
+        let mut cleaning = self.cleans_while_drawing(after_gray, refresh == Refresh::Half);
+        if cleaning && !self.start_clean() {
+            cleaning = false;
+        }
+        if cleaning {
+            refresh = Refresh::Fast;
+        }
         let planes = if refresh == Refresh::Fast {
             Planes::NEW
         } else {
@@ -1313,7 +1337,8 @@ impl Firmware {
         let mut writing = 0;
         self.kernel.render(&mut |top, rows| {
             let before = now();
-            if let Err(e) = panel.write_rows(top, rows, planes) {
+            // The panel is busy with the clean: the bands are kept to be sent after.
+            if !cleaning && let Err(e) = panel.write_rows(top, rows, planes) {
                 failed = Some(e);
             }
             writing += now().since(before);
@@ -1323,6 +1348,30 @@ impl Firmware {
                 sent.keep(top, &rows);
             }
         });
+        if cleaning {
+            // The clean is over; the panel then shows white, which both memories
+            // hold, and the frame goes into the new one.
+            let network = &mut self.network;
+            if let Err(e) = self.panel.wait_with(|| network.keep_served()) {
+                failed = Some(e);
+            }
+            let before = now();
+            if self.write_white(Planes::BOTH).is_err() {
+                // Not white in both: the next frame drives every pixel.
+                self.state.frame_stale = true;
+            }
+            let panel = &mut self.panel;
+            let mut again = |top: u16, rows: paperpaw_platform::FrameView<'_>| {
+                if let Err(e) = panel.write_rows(top, rows, Planes::NEW) {
+                    failed = Some(e);
+                }
+            };
+            if !sent.replay(&mut again) {
+                // Not kept: drawn once more (the panel is free now).
+                self.kernel.rerender(&mut again);
+            }
+            info!("frame sent after the clean in {} ms", now().since(before));
+        }
         let drawn = now();
         self.kernel.showing(drawn);
         self.set_waveform(refresh, mode);
