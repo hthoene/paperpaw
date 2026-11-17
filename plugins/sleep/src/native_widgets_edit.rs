@@ -208,24 +208,30 @@ impl Editor {
             }
             Mode::Add(offered) => {
                 offered.clear();
-                // By their kind, as `categories::ALL` orders them (the spaces,
-                // which are room, after the widgets that show something).
-                let mut found: Vec<(bool, usize, &Known)> = Vec::new();
-                for known in &self.known {
-                    let shown = self.widgets.iter().any(|w| base(w) == known.id);
-                    if repeatable(&known.id) || !shown {
-                        let order = categories::ALL
-                            .iter()
-                            .position(|k| *k == known.kind)
-                            .unwrap_or(usize::MAX);
-                        push(&mut found, (repeatable(&known.id), order, known))?;
+                // By their kind, as `categories::ALL` orders them, then the
+                // kinds of plugins' own; the spaces, which are room, after the
+                // widgets that show something. In passes, not sorted: no sort's
+                // frame on the device's stack.
+                let rank = |known: &Known| {
+                    categories::ALL
+                        .iter()
+                        .position(|k| *k == known.kind)
+                        .unwrap_or(categories::ALL.len())
+                };
+                for room in [false, true] {
+                    for wanted in 0..=categories::ALL.len() {
+                        for known in &self.known {
+                            let shown = self.widgets.iter().any(|w| base(w) == known.id);
+                            let wanted_here = (repeatable(&known.id) || !shown)
+                                && repeatable(&known.id) == room
+                                && rank(known) == wanted;
+                            if wanted_here {
+                                let kind = messages.copy(host, &known.kind)?;
+                                push(&mut items, Item::row(&known.title, &kind)?)?;
+                                push(offered, copy(&known.id)?)?;
+                            }
+                        }
                     }
-                }
-                found.sort_by_key(|(room, order, _)| (*room, *order));
-                for (_, _, known) in found {
-                    let kind = messages.copy(host, &known.kind)?;
-                    push(&mut items, Item::row(&known.title, &kind)?)?;
-                    push(offered, copy(&known.id)?)?;
                 }
                 self.list.replace(items);
             }
