@@ -588,6 +588,13 @@ impl DocumentTable {
             .copied()
     }
 
+    /// Whether any document is open (a held table counts as one).
+    pub(crate) fn any_open(&self) -> bool {
+        self.documents
+            .try_borrow()
+            .map_or(true, |rows| !rows.is_empty())
+    }
+
     /// Whether any document is preparing (a held table counts as one: the
     /// step will find out).
     pub(crate) fn any_preparing(&self) -> bool {

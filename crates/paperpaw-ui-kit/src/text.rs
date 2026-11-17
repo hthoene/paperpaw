@@ -265,12 +265,17 @@ pub fn with_ellipsis(text: &str) -> Result<String, Error> {
     Ok(result)
 }
 
+/// A word that leaves less than this share of the width to the edge of a line
+/// is measured with the line, not added by its own width.
+const NEAR_EDGE: f32 = 0.04;
+
 /// Breaks `text` into at most `max_lines` lines (none when it is 0) no wider than `width` as
 /// `measure` says, at spaces (inside a word where one alone is too wide). Where
 /// there is more text than the lines hold, the last ends in "…".
 ///
 /// # Errors
 /// Propagates errors of `measure` and allocation errors.
+#[inline(never)]
 pub fn wrap_with(
     mut measure: impl FnMut(&str) -> Result<f32, Error>,
     text: &str,
@@ -282,24 +287,54 @@ pub fn wrap_with(
         return Ok(lines);
     }
     let mut line = String::new();
+    // The width of `line` (exact, or the sum of its words' where they were far
+    // from the edge) and of a space.
+    let mut line_width = 0.0_f32;
+    let mut space_width: Option<f32> = None;
     let mut cut = false;
     let mut words = text.split_whitespace().peekable();
     'outer: for word in words.by_ref() {
         let mut rest = word;
         loop {
-            let joined = if line.is_empty() {
-                copy(rest)?
+            let fits = if line.is_empty() {
+                line_width = measure(rest)?;
+                line_width <= width || rest.chars().count() <= 1
             } else {
-                let mut joined = copy(&line)?;
-                joined
-                    .try_reserve(rest.len().checked_add(1).ok_or(Error::NoMemory)?)
-                    .map_err(|_| Error::NoMemory)?;
-                joined.push(' ');
-                joined.push_str(rest);
-                joined
+                // The word's own width and a space's tell whether it fits far
+                // from the edge, with short strings to measure (the cost of a
+                // measure grows with the text); only a word near the edge is
+                // measured whole, with the line, as before.
+                let space = match space_width {
+                    Some(space) => space,
+                    None => *space_width.insert(measure(" ")?),
+                };
+                let estimate = line_width + space + measure(rest)?;
+                let slack = width * NEAR_EDGE;
+                if estimate <= width - slack {
+                    line_width = estimate;
+                    true
+                } else if estimate > width + slack {
+                    false
+                } else {
+                    let mut joined = copy(&line)?;
+                    joined
+                        .try_reserve(rest.len().checked_add(1).ok_or(Error::NoMemory)?)
+                        .map_err(|_| Error::NoMemory)?;
+                    joined.push(' ');
+                    joined.push_str(rest);
+                    line_width = measure(&joined)?;
+                    line_width <= width
+                }
             };
-            if measure(&joined)? <= width || (line.is_empty() && rest.chars().count() <= 1) {
-                line = joined;
+            if fits {
+                if !line.is_empty() {
+                    line.try_reserve(rest.len().checked_add(1).ok_or(Error::NoMemory)?)
+                        .map_err(|_| Error::NoMemory)?;
+                    line.push(' ');
+                    line.push_str(rest);
+                } else {
+                    line = copy(rest)?;
+                }
                 break;
             }
             if line.is_empty() {
@@ -317,6 +352,7 @@ pub fn wrap_with(
                     }
                     taken = at + ch.len_utf8();
                 }
+                line_width = measure(&piece)?;
                 line = piece;
                 // `taken` ends a character of `rest` (`at + len_utf8`): a boundary.
                 debug_assert!(rest.is_char_boundary(taken));
@@ -426,6 +462,34 @@ mod tests {
     fn words_wrap_at_spaces() {
         let lines = wrap_with(measure, "one two three four", 90.0, 4).unwrap();
         assert_eq!(lines, ["one two", "three", "four"]);
+    }
+
+    #[test]
+    fn a_long_text_is_measured_in_short_pieces_and_wraps_as_by_the_whole_line() {
+        let text = "Reads books from the card, keeps the place of every one of them, \
+                    and shows the list of what is on it in the order the reader chose";
+        let mut chars = 0;
+        let lines = wrap_with(
+            |line| {
+                chars += line.chars().count();
+                measure(line)
+            },
+            text,
+            330.0,
+            8,
+        )
+        .unwrap();
+        assert_eq!(
+            lines,
+            [
+                "Reads books from the card, keeps",
+                "the place of every one of them,",
+                "and shows the list of what is on",
+                "it in the order the reader chose"
+            ]
+        );
+        // Measuring the whole line again for each word it grows by took about 600.
+        assert!(chars < 300, "{chars}");
     }
 
     #[test]
