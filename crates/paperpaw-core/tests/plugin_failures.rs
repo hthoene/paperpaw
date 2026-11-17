@@ -54,6 +54,12 @@ struct Faulty {
     harness: Harness,
 }
 
+std::thread_local! {
+    /// The faulty plugin's log, in the test running (its handler is a plain
+    /// function and holds none).
+    static FAULTY_LOG: std::cell::RefCell<Option<common::Log>> = const { std::cell::RefCell::new(None) };
+}
+
 fn faulty_items(kept: Faulty) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let id = |name: &str| Id::parse(&format!("bad.{name}")).unwrap();
@@ -76,11 +82,12 @@ fn faulty_items(kept: Faulty) -> impl Fn(&mut Items) -> Result<(), RegisterError
             },
             paperpaw_sdk::builtin::groups::OTHER,
         ))?;
-        let log = kept.harness.log.clone();
-        r.subscribe(
-            common::LATER,
-            Box::new(move |_, _, _| log.borrow_mut().push(String::from("faulty heard"))),
-        )?;
+        FAULTY_LOG.with(|log| *log.borrow_mut() = Some(kept.harness.log.clone()));
+        r.subscribe(common::LATER, |_, _| {
+            if let Some(log) = FAULTY_LOG.with(|log| log.borrow().clone()) {
+                log.borrow_mut().push(String::from("faulty heard"));
+            }
+        })?;
         r.add_menu_entry(
             MenuEntry::new(paperpaw_core::sdk::builtin::menus::MAIN, id("act")).order(1),
         )?;

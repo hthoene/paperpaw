@@ -919,6 +919,8 @@ impl BuilderParts {
             timing: crate::timing::Timing::new(self.busy_mark_ms),
             framebuffer,
             subscriptions: crate::registry::Subscriptions::default(),
+            core: crate::core_plugin::State::default(),
+            data_actions: Vec::new(),
             offered_down_to: 0,
             action_params: Params::new(),
             show_pending: false,

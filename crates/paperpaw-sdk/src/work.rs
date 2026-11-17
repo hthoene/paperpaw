@@ -62,7 +62,7 @@
 //!
 //! **Jobs** are work in steps: long work (an install, a catalog synced or
 //! walked, a book's pages counted) registers a step function for its id
-//! ([`WorkSpec`], `Items::add_work`). When it runs, the kernel calls
+//! (the kernel's `WorkSpec`, `Items::add_work`). When it runs, the kernel calls
 //! the step instead of emitting the event, again while it answers
 //! [`Step::Continue`], each time after the frame is drawn and only when no
 //! input waits, so the device answers at once and sleeps between steps.
@@ -86,16 +86,13 @@
 //! [`events::WORK_REFUSED`]: crate::builtin::events::WORK_REFUSED
 //! [`HttpReply::refused`]: crate::HttpReply::refused
 
-use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use core::fmt;
 use core::ops::BitOr;
 use core::time::Duration;
 
 use paperpaw_platform::Instant;
 
-use crate::env::Env;
 use crate::event::EventData;
 use crate::id::Id;
 use crate::params::Params;
@@ -639,7 +636,7 @@ impl Progress {
     }
 }
 
-/// What a job's step says ([`WorkSpec`]).
+/// What a job's step says (the kernel's `WorkSpec`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Step {
@@ -656,44 +653,6 @@ pub enum Step {
     /// Failed: declared again after the backoff ([`backoff`]), with a
     /// line for the plugin's note.
     Failed(String),
-}
-
-/// One step of a job: the work's parameters, commands to send.
-pub type StepFn = Box<dyn Fn(&Env<'_>, &Params, &mut crate::Commands) -> Step>;
-
-/// A job: a work done in steps (see the [module](self)), registered with
-/// `Items::add_work` and run when a
-/// [`Work`] of its id is due.
-#[non_exhaustive]
-pub struct WorkSpec {
-    pub id: Id,
-    /// Translation key of its name, shown on the Power page and in the
-    /// battery view ("Syncing catalogs").
-    pub title: alloc::borrow::Cow<'static, str>,
-    pub step: StepFn,
-}
-
-impl WorkSpec {
-    pub fn new(
-        id: impl Into<Id>,
-        title: impl Into<alloc::borrow::Cow<'static, str>>,
-        step: impl Fn(&Env<'_>, &Params, &mut crate::Commands) -> Step + 'static,
-    ) -> Self {
-        Self {
-            id: id.into(),
-            title: title.into(),
-            step: Box::new(step),
-        }
-    }
-}
-
-impl fmt::Debug for WorkSpec {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WorkSpec")
-            .field("id", &self.id)
-            .field("title", &self.title)
-            .finish_non_exhaustive()
-    }
 }
 
 /// What a plugin's background work last said, kept by the kernel in

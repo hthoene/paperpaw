@@ -39,7 +39,7 @@ fn shelf(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
     // The lower one is offered first: the order tried is by priority.
     r.bind_slot(slots::HOME, LOW, Priority::DEFAULT)?;
     r.bind_slot(slots::HOME, HIGH, Priority::PREFERRED)?;
-    r.subscribe(events::BOOK_CLOSED, alloc::boxed::Box::new(|_, _, _| {}))?;
+    r.subscribe(events::BOOK_CLOSED, |_, _| {})?;
     r.add_action(paperpaw_sdk::ActionSpec::new(TIDY, "shelf.tidy"))?;
     r.add_action(paperpaw_sdk::ActionSpec::new(SORT, "shelf.sort"))?;
     // Entered against their order: a menu's rows stand by order.

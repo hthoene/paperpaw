@@ -144,15 +144,17 @@ fn pane_plugin(kept: PanePlugin) -> impl Fn(&mut Items) -> Result<(), RegisterEr
         for action in [OPEN, FULL, PING, WAKE, MENU] {
             r.add_action(ActionSpec::new(action, "action"))?;
         }
-        let log = kept.log.clone();
-        r.on(events::DISPLAY_CHANGED, move |_, changed, _| {
-            log.borrow_mut().push(alloc::format!(
-                "display {}x{} {} {}",
-                changed.width,
-                changed.height,
-                changed.class.name(),
-                changed.landscape
-            ));
+        crate::tests::hear_into(&kept.log);
+        r.on(events::DISPLAY_CHANGED, |_, p| {
+            if let Some(changed) = crate::hear::data::<events::DisplayChanged>(p) {
+                crate::tests::heard(alloc::format!(
+                    "display {}x{} {} {}",
+                    changed.width,
+                    changed.height,
+                    changed.class.name(),
+                    changed.landscape
+                ));
+            }
         })?;
         r.bind_slot(slots::HOME, SCREEN, Priority::DEFAULT)
     }

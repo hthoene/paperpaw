@@ -1,0 +1,3 @@
+### Changed
+
+- **Kernel: the built-ins' event handlers, job steps and data-plugin actions are plain records (#293, step S2).** A subscription is an event and a function of the kernel (`Hear`), a job's step a function too (`Stepper`, the kernel's `WorkSpec`), an action's handler a function (`FixedHandler`); a data plugin's action keeps its steps for the kernel to run. No boxed closure is made for any of them: what the core plugin's handlers kept between calls (the catalog's job, the reading recorded) is the kernel's own state. The SDK's `EventHandler`, `ActionHandler`, `work::WorkSpec` and its `Subscription`/`Work` contributions are gone (kernel side only; interface 7 unchanged).

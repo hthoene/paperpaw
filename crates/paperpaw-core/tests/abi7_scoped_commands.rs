@@ -388,30 +388,48 @@ fn cross_plugin_settings(owner: &Id, env: &Env<'_>, out: &mut Commands) {
     out.extend(stage.into_commands());
 }
 
+std::thread_local! {
+    /// The probe's log, in the test running (a handler holds none).
+    static PROBE_LOG: RefCell<Option<Rc<RefCell<Vec<String>>>>> = const { RefCell::new(None) };
+    /// The guarded writer, in the test running: its plugin, the authority
+    /// the host resolved for it and what its submit is to answer.
+    static WRITER: RefCell<Option<Writer>> = const { RefCell::new(None) };
+}
+
+/// The guarded writer's plugin, the authority the host resolved for it and
+/// what its submit is to answer.
+type Writer = (Id, Rc<Cell<Option<CommandAuthority>>>, i32);
+
+/// Writes `line` to the probe's log.
+fn note(line: String) {
+    PROBE_LOG.with(|log| {
+        if let Some(log) = log.borrow().as_ref() {
+            log.borrow_mut().push(line);
+        }
+    });
+}
+
 fn probe(kept: Rc<RefCell<Vec<String>>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
+        PROBE_LOG.with(|log| *log.borrow_mut() = Some(kept.clone()));
         r.add_settings(&SETTINGS)?;
-        r.subscribe(
-            builtin::events::STARTED,
-            Box::new(|env, _, out| started(env, out)),
-        )?;
-        let log = kept.clone();
-        r.subscribe(
-            builtin::events::SETTING_CHANGED,
-            Box::new(move |env, event, _| {
+        r.subscribe(builtin::events::STARTED, |k, _| {
+            k.with_env(started);
+        })?;
+        r.subscribe(builtin::events::SETTING_CHANGED, |k, event| {
+            k.with_env(|env, _| {
                 if event.get(builtin::params::ID) == Some("other.flag") {
                     assert!(env.settings().bool("other.flag"));
-                    log.borrow_mut().push("other.flag changed".into());
+                    note("other.flag changed".into());
                     return;
                 }
                 assert_ne!(event.get(builtin::params::ID), Some("other.guarded"));
                 let flag = read(env, "probe.flag");
                 let flag = settings_decode(&flag).unwrap();
                 let text = read(env, "probe.text");
-                log.borrow_mut()
-                    .push(format!("{flag:?} {:?}", settings_decode(&text)));
-            }),
-        )
+                note(format!("{flag:?} {:?}", settings_decode(&text)));
+            })
+        })
     }
 }
 
@@ -505,11 +523,14 @@ fn guarded_writer(kept: GuardedWriter) -> impl Fn(&mut Items) -> Result<(), Regi
         } else {
             r.add_settings(&FOREIGN)?;
         }
-        let authority = kept.authority.clone();
-        let expected = kept.expected;
-        r.subscribe(
-            builtin::events::STARTED,
-            Box::new(move |env, _, out| {
+        WRITER.with(|writer| {
+            *writer.borrow_mut() = Some((owner, kept.authority.clone(), kept.expected));
+        });
+        r.subscribe(builtin::events::STARTED, |k, _| {
+            let Some((owner, authority, expected)) = WRITER.with(|w| w.borrow().clone()) else {
+                return;
+            };
+            k.with_env(|env, out| {
                 let mut stage =
                     CommandStage::new(&owner, env.settings(), authority.get(), 1, BYTES);
                 let scope = pin!(CommandScope::new());
@@ -520,8 +541,8 @@ fn guarded_writer(kept: GuardedWriter) -> impl Fn(&mut Items) -> Result<(), Regi
                     .unwrap();
                 assert_eq!(stage.staged().len(), usize::from(expected == OK));
                 out.extend(stage.into_commands());
-            }),
-        )
+            })
+        })
     }
 }
 

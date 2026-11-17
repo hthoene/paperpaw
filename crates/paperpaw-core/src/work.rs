@@ -23,8 +23,7 @@ use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::power::{self, Power, PowerLevel, Wear};
 use paperpaw_sdk::work::Needs;
 use paperpaw_sdk::work::{
-    Importance, Moments, Progress, Reason, Refusal, Retry, Step, Why, Work, WorkRefused, WorkSpec,
-    WorkState,
+    Importance, Moments, Progress, Reason, Refusal, Retry, Step, Why, Work, WorkRefused, WorkState,
 };
 use paperpaw_sdk::{
     Command, Env, HttpReply, Id, Params, ServerNotice, SocketError, SocketNotice, Uses,
@@ -195,6 +194,38 @@ macro_rules! network_settings {
 #[doc(hidden)]
 pub const fn network_specs_of(network: Id, saving: Id) -> [paperpaw_sdk::SettingSpec; 2] {
     network_specs(network, saving)
+}
+
+/// A job of a built-in: the steps of the work declared with its id.
+pub struct WorkSpec {
+    pub id: Id,
+    /// Translation key of its name, shown on the Power page and in the
+    /// battery view ("Syncing catalogs").
+    pub title: alloc::borrow::Cow<'static, str>,
+    pub step: crate::Stepper,
+}
+
+impl WorkSpec {
+    pub fn new(
+        id: impl Into<Id>,
+        title: impl Into<alloc::borrow::Cow<'static, str>>,
+        step: crate::Stepper,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            step,
+        }
+    }
+}
+
+impl core::fmt::Debug for WorkSpec {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("WorkSpec")
+            .field("id", &self.id)
+            .field("title", &self.title)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The work plugins declared, and the jobs' steps.
@@ -899,12 +930,9 @@ impl Kernel {
                     self.works.entries.remove(index);
                 }
             }
-            if mem::take(&mut self.works.ticking) {
-                let meter = &self.shared.meter;
-                let top = self.stack.last().map(|s| s.id.namespace());
-                let out = &mut self.output.commands;
-                stepped = step_job(&mut self.works, top, &env, meter, out, &mut notes);
-            }
+        }
+        if mem::take(&mut self.works.ticking) {
+            stepped = self.step_job(&mut notes);
         }
         self.works.allow_full(&mut self.output.commands);
         if mem::take(&mut self.works.keep) {
@@ -1034,100 +1062,142 @@ impl Kernel {
     }
 }
 
-/// One step of the first job ready.
-fn step_job(
-    works: &mut Queue,
-    top: Option<&str>,
-    env: &Env<'_>,
-    meter: &alloc::rc::Rc<crate::meter::Meter>,
-    out: &mut Vec<Command>,
-    notes: &mut Vec<(Id, paperpaw_sdk::work::Note)>,
-) -> bool {
-    let now = env.now();
-    for entry in &mut works.entries {
-        if let Some(Job::Until(at)) = entry.job
-            && at <= now
+impl Kernel {
+    /// One step of the first job ready.
+    fn step_job(&mut self, notes: &mut Vec<(Id, paperpaw_sdk::work::Note)>) -> bool {
+        let now = self.now;
+        let Some((index, step, params)) = self.works.ready_job(now) else {
+            return false;
+        };
+        let from = self.output.commands.len();
+        let owner = self.works.entries[index].owner.clone();
+        let step = {
+            let meter = alloc::rc::Rc::clone(&self.shared.meter);
+            let _running = meter.enter(&owner);
+            step(self, &params)
+        };
+        // The step may have ended its own work: what is left of it is not
+        // this job's.
+        if self
+            .works
+            .entries
+            .get(index)
+            .is_none_or(|e| e.owner != owner)
         {
-            entry.job = Some(Job::Ready);
+            return true;
         }
+        let top = self.stack.last().map(|s| s.id.namespace());
+        let random = &self.shared.random;
+        let out = &mut self.output.commands;
+        self.works
+            .after_step(index, from, top, now, step, random, out, notes);
+        true
     }
-    let Some(index) = works.entries.iter().position(|e| e.job == Some(Job::Ready)) else {
-        return false;
-    };
-    works.changed = true;
-    let Some(spec) = works
-        .specs
-        .iter()
-        .find(|s| s.id == works.entries[index].work.id)
-    else {
-        works.entries.remove(index);
-        return false;
-    };
-    let entry = &mut works.entries[index];
-    let from = out.len();
-    let step = {
-        let _running = meter.enter(&entry.owner);
-        crate::commands::handing(out, |out| (spec.step)(env, &entry.work.params, out))
-    };
-    // A job is background work: its notices become its plugin's note.
-    let mut said = Queue::default();
-    quiet(false, top, now, from, &entry.owner, out, &mut said);
-    if let Some(run) = works.runs.of(&entry.work.id, &entry.work.key) {
-        works.runs.claim(run, out.get(from..).unwrap_or_default());
-    }
-    works.foreign.append(&mut said.foreign);
-    for (owner, note) in said.notes {
-        if let Ok(owner) = Id::parse(&owner) {
-            notes.push((owner, note));
+}
+
+impl Queue {
+    /// The first job ready (one whose time came is), with its step and
+    /// params; a job whose spec is gone is dropped.
+    fn ready_job(&mut self, now: Instant) -> Option<(usize, crate::Stepper, Params)> {
+        for entry in &mut self.entries {
+            if let Some(Job::Until(at)) = entry.job
+                && at <= now
+            {
+                entry.job = Some(Job::Ready);
+            }
         }
+        let index = self
+            .entries
+            .iter()
+            .position(|e| e.job == Some(Job::Ready))?;
+        self.changed = true;
+        let id = &self.entries[index].work.id;
+        let Some(spec) = self.specs.iter().find(|s| s.id == *id) else {
+            self.entries.remove(index);
+            return None;
+        };
+        Some((index, spec.step, self.entries[index].work.params.clone()))
     }
-    let tell = |entry: &mut Entry, out: &mut Vec<Command>| {
-        entry.told = Some(now);
-        let params = Params::new().with(params::ID, String::from(entry.work.id.as_str()));
-        out.push(Command::Emit(events::WORK_CHANGED.id().clone(), params));
-    };
-    match step {
-        Step::Continue => {}
-        Step::Progress(progress) => {
-            entry.progress = Some(progress);
-            if entry.told.is_none_or(|t| now.since(t) >= PROGRESS_MS) {
+
+    /// What follows job `index`'s step `step` (its commands from `from` on in
+    /// `out`): its notices become its plugin's note, its progress is told,
+    /// it waits, ends or tries again later (`random` spreads the tries).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parts of the kernel a step's end touches, borrowed apart"
+    )]
+    fn after_step(
+        &mut self,
+        index: usize,
+        from: usize,
+        top: Option<&str>,
+        now: Instant,
+        step: Step,
+        random: &paperpaw_sdk::random::Random,
+        out: &mut Vec<Command>,
+        notes: &mut Vec<(Id, paperpaw_sdk::work::Note)>,
+    ) {
+        let works = self;
+        let entry = &mut works.entries[index];
+        // A job is background work: its notices become its plugin's note.
+        let mut said = Queue::default();
+        quiet(false, top, now, from, &entry.owner, out, &mut said);
+        if let Some(run) = works.runs.of(&entry.work.id, &entry.work.key) {
+            works.runs.claim(run, out.get(from..).unwrap_or_default());
+        }
+        works.foreign.append(&mut said.foreign);
+        for (owner, note) in said.notes {
+            if let Ok(owner) = Id::parse(&owner) {
+                notes.push((owner, note));
+            }
+        }
+        let tell = |entry: &mut Entry, out: &mut Vec<Command>| {
+            entry.told = Some(now);
+            let params = Params::new().with(params::ID, String::from(entry.work.id.as_str()));
+            out.push(Command::Emit(events::WORK_CHANGED.id().clone(), params));
+        };
+        match step {
+            Step::Continue => {}
+            Step::Progress(progress) => {
+                entry.progress = Some(progress);
+                if entry.told.is_none_or(|t| now.since(t) >= PROGRESS_MS) {
+                    tell(entry, out);
+                }
+            }
+            Step::Wait(at) => entry.job = Some(Job::Until(at)),
+            Step::WaitFor(event) => entry.job = Some(Job::For(event)),
+            Step::Done => {
+                works.runs.end_work(&entry.work.id, Some(&entry.work.key));
+                entry.job = None;
+                entry.attempt = 0;
                 tell(entry, out);
+                if !again(entry, now) {
+                    works.entries.remove(index);
+                }
             }
-        }
-        Step::Wait(at) => entry.job = Some(Job::Until(at)),
-        Step::WaitFor(event) => entry.job = Some(Job::For(event)),
-        Step::Done => {
-            works.runs.end_work(&entry.work.id, Some(&entry.work.key));
-            entry.job = None;
-            entry.attempt = 0;
-            tell(entry, out);
-            if !again(entry, now) {
-                works.entries.remove(index);
+            Step::Failed(text) => {
+                works.runs.end_work(&entry.work.id, Some(&entry.work.key));
+                entry.job = None;
+                entry.attempt = entry.attempt.saturating_add(1);
+                entry.declared = now;
+                let mut jitter = [0u8];
+                random.fill(&mut jitter);
+                let jitter = jitter[0];
+                let wait = paperpaw_sdk::work::backoff(entry.attempt, jitter);
+                // A timed job tries again at a new time, others after the wait.
+                if entry.work.at.is_some() {
+                    entry.work.at = Some(now.add_millis(millis(Some(wait))));
+                } else {
+                    entry.work.after = Some(wait);
+                }
+                let owner = Id::parse(&entry.owner).unwrap_or_else(|_| entry.work.id.clone());
+                tell(entry, out);
+                notes.push((owner, paperpaw_sdk::work::Note::new(now, text)));
             }
+            // A step this kernel does not know yet: the job goes on.
+            _ => {}
         }
-        Step::Failed(text) => {
-            works.runs.end_work(&entry.work.id, Some(&entry.work.key));
-            entry.job = None;
-            entry.attempt = entry.attempt.saturating_add(1);
-            entry.declared = now;
-            let mut jitter = [0u8];
-            env.random().fill(&mut jitter);
-            let jitter = jitter[0];
-            let wait = paperpaw_sdk::work::backoff(entry.attempt, jitter);
-            // A timed job tries again at a new time, others after the wait.
-            if entry.work.at.is_some() {
-                entry.work.at = Some(now.add_millis(millis(Some(wait))));
-            } else {
-                entry.work.after = Some(wait);
-            }
-            let owner = Id::parse(&entry.owner).unwrap_or_else(|_| entry.work.id.clone());
-            tell(entry, out);
-            notes.push((owner, paperpaw_sdk::work::Note::new(now, text)));
-        }
-        // A step this kernel does not know yet: the job goes on.
-        _ => {}
     }
-    true
 }
 
 /// What a plugin's handler sent, from `from` on in `out`: work declared

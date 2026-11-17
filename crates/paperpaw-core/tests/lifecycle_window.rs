@@ -108,20 +108,32 @@ struct Saver {
 
 fn saver(kept: Saver) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        for (event, name) in [(events::SUSPEND, "suspend"), (events::STOPPING, "stopping")] {
-            let results = kept.results.clone();
-            r.subscribe(
-                event,
-                Box::new(move |env, _, _| {
-                    let storage = env.storage();
-                    let mut results = results.borrow_mut();
-                    results.push(storage.write(&format!("saver/{name}"), b"state"));
-                    results.push(storage.append("saver/log", name.as_bytes()));
-                }),
-            )?;
-        }
-        Ok(())
+        RESULTS.with(|results| *results.borrow_mut() = Some(kept.results.clone()));
+        r.subscribe(events::SUSPEND, |k, _| save(k, "suspend"))?;
+        r.subscribe(events::STOPPING, |k, _| save(k, "stopping"))
     }
+}
+
+std::thread_local! {
+    /// What the saver's writes gave, in the test running (its handlers are
+    /// plain functions and hold nothing).
+    static RESULTS: RefCell<Option<Results>> = const { RefCell::new(None) };
+}
+
+/// What the saver's writes gave.
+type Results = Rc<RefCell<Vec<Result<(), StorageError>>>>;
+
+/// Saves as the saver does when it hears `name`.
+fn save(kernel: &mut Kernel, name: &str) {
+    let Some(results) = RESULTS.with(|results| results.borrow().clone()) else {
+        return;
+    };
+    kernel.with_env(|env, _| {
+        let storage = env.storage();
+        let mut results = results.borrow_mut();
+        results.push(storage.write(&format!("saver/{name}"), b"state"));
+        results.push(storage.append("saver/log", name.as_bytes()));
+    });
 }
 
 /// What [`saver`] registers under.

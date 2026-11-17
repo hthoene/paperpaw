@@ -1,6 +1,8 @@
 //! Kernel behaviour tests: slots, priorities, key map layers, commands,
 //! settings and transactional plugin registration.
 
+extern crate std;
+
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::rc::Rc;
@@ -208,6 +210,26 @@ fn tap(kernel: &mut Kernel, at: u64, x: i32, y: i32) -> crate::Effects {
 
 pub(crate) fn log() -> Log {
     Rc::new(RefCell::new(Vec::new()))
+}
+
+std::thread_local! {
+    /// The log this test's handlers write to ([`heard`]): a handler is a
+    /// plain function, it holds no log of its own.
+    static HEARD: RefCell<Option<Log>> = const { RefCell::new(None) };
+}
+
+/// Makes `log` the one [`heard`] writes to, for the test running.
+pub(crate) fn hear_into(log: &Log) {
+    HEARD.with(|heard| *heard.borrow_mut() = Some(Rc::clone(log)));
+}
+
+/// Writes `line` to the log of [`hear_into`], if one.
+pub(crate) fn heard(line: impl Into<String>) {
+    HEARD.with(|heard| {
+        if let Some(log) = heard.borrow().as_ref() {
+            log.borrow_mut().push(line.into());
+        }
+    });
 }
 
 #[test]
@@ -868,15 +890,14 @@ pub(crate) fn lifecycle_plugin(
                 })
             }),
         ))?;
-        r.subscribe(
-            paperpaw_sdk::builtin::events::STARTED,
-            Box::new(|_, _, out| {
+        r.subscribe(paperpaw_sdk::builtin::events::STARTED, |k, _| {
+            k.with_env(|_, out| {
                 out.push(paperpaw_sdk::Command::OpenScreen(
                     Id::new_static("life.screen"),
                     paperpaw_sdk::Params::new().with("path", "books/a.txt"),
                 ));
-            }),
-        )?;
+            });
+        })?;
         // Back to the screen below, and at once another over it, as a
         // menu that closes to open a screen does.
         r.add_action(paperpaw_sdk::ActionSpec::new(SWAP, "swap").handler(
@@ -2801,22 +2822,19 @@ fn service_plugin(kept: ServicePlugin) -> impl Fn(&mut Items) -> Result<(), Regi
             return r.contribute(Id::new_static("provider.shapes"), Cow::Borrowed("circle"));
         }
         r.contribute(Id::new_static("provider.shapes"), Cow::Borrowed("square"))?;
-        let log = kept.log.clone();
-        r.subscribe(
-            paperpaw_sdk::builtin::events::STARTED,
-            Box::new(
-                move |env: &Env<'_>, _: &paperpaw_sdk::Params, _: &mut paperpaw_sdk::Commands| {
-                    let greeting = env
-                        .services()
-                        .get::<Greeting>("provider.greeting", Version::new(1, 0, 0))
-                        .map(|g| &g.0);
-                    log.borrow_mut().push(alloc::format!("{greeting:?}"));
-                    for (plugin, shape) in env.services().contributions("provider.shapes") {
-                        log.borrow_mut().push(alloc::format!("{plugin}:{shape}"));
-                    }
-                },
-            ),
-        )
+        hear_into(&kept.log);
+        r.subscribe(paperpaw_sdk::builtin::events::STARTED, |k, _| {
+            k.with_env(|env, _| {
+                let greeting = env
+                    .services()
+                    .get::<Greeting>("provider.greeting", Version::new(1, 0, 0))
+                    .map(|g| &g.0);
+                heard(alloc::format!("{greeting:?}"));
+                for (plugin, shape) in env.services().contributions("provider.shapes") {
+                    heard(alloc::format!("{plugin}:{shape}"));
+                }
+            })
+        })
     }
 }
 
@@ -3038,29 +3056,36 @@ fn leaving_a_large_picture_refreshes_in_full() {
 pub(crate) fn net_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         use paperpaw_sdk::builtin::events;
-        for event in [
-            Id::from(events::NETWORK_WANTED),
-            events::NETWORK_IDLE.into(),
-            events::WIFI_CHANGED.into(),
-            events::WIFI_SCANNED.into(),
-            events::WIFI_FAILED.into(),
-            Id::new_static("net.reply"),
-        ] {
-            let log = kept.clone();
-            let name = event.as_str().to_string();
-            r.subscribe(
-                event.clone(),
-                Box::new(move |_, params, out| {
-                    let extra = params
-                        .get(paperpaw_sdk::http_params::STATUS)
-                        .or(params.get(paperpaw_sdk::builtin::params::REASON))
-                        .unwrap_or_default();
-                    log.borrow_mut().push(alloc::format!("{name} {extra}"));
-                    if event == events::NETWORK_WANTED {
-                        out.push(Command::Wifi(paperpaw_sdk::wifi::WifiCommand::On));
-                    }
-                }),
-            )?;
+        hear_into(&kept);
+        /// Writes down `name` and what it says.
+        fn note(name: &str, params: &paperpaw_sdk::Params) {
+            let extra = params
+                .get(paperpaw_sdk::http_params::STATUS)
+                .or(params.get(paperpaw_sdk::builtin::params::REASON))
+                .unwrap_or_default();
+            heard(alloc::format!("{name} {extra}"));
+        }
+        let hears: [(Id, crate::Hear); 6] = [
+            (events::NETWORK_WANTED.into(), |k, p| {
+                note(events::NETWORK_WANTED.id().as_str(), p);
+                k.with_env(|_, out| out.push(Command::Wifi(paperpaw_sdk::wifi::WifiCommand::On)));
+            }),
+            (events::NETWORK_IDLE.into(), |_, p| {
+                note(events::NETWORK_IDLE.id().as_str(), p)
+            }),
+            (events::WIFI_CHANGED.into(), |_, p| {
+                note(events::WIFI_CHANGED.id().as_str(), p)
+            }),
+            (events::WIFI_SCANNED.into(), |_, p| {
+                note(events::WIFI_SCANNED.id().as_str(), p)
+            }),
+            (events::WIFI_FAILED.into(), |_, p| {
+                note(events::WIFI_FAILED.id().as_str(), p)
+            }),
+            (Id::new_static("net.reply"), |_, p| note("net.reply", p)),
+        ];
+        for (event, run) in hears {
+            r.subscribe(event, run)?;
         }
         Ok(())
     }

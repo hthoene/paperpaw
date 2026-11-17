@@ -239,9 +239,11 @@ fn overlay_home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             Box::new(|_, _| Box::new(OverlayHomeScreen)),
         ))?;
         r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)?;
-        r.on(paperpaw_sdk::builtin::events::STARTED, |_, _, out| {
-            out.push(Command::Sleep);
-            out.push(Command::Restart);
+        r.on(paperpaw_sdk::builtin::events::STARTED, |k, p| {
+            k.with_event(&paperpaw_sdk::builtin::events::STARTED, p, |_, _, out| {
+                out.push(Command::Sleep);
+                out.push(Command::Restart);
+            });
         })
     }
 }
