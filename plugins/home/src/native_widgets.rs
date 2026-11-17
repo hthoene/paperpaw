@@ -12,7 +12,8 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose},
         commands::CommandSender,
-        image::ImageStyle,
+        fonts::Font,
+        image::{ImageId, ImageStyle},
         reply::Reply,
         ui::{Instance, Open, Param, Ui, WidgetInputKind, WidgetTarget, stages::WidgetCall},
     },
@@ -20,9 +21,9 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::{
     icons,
     mem::buffer,
-    paint,
+    Paint, paint,
     text::copy,
-    widget::{Cx, Kept},
+    widget::{Cx, Kept, cx::widget_font},
 };
 
 use crate::declarations::{CARD, CLOCK, DATE, SHELF, STATUS_WIDGET};
@@ -53,6 +54,21 @@ pub struct Mine {
     /// style and its own are some thirty settings. Let go where a setting or the
     /// registry changes ([`Widgets::forget_looks`]).
     look: Looks,
+    /// What it composed for the bands of the frame under way: the first band
+    /// measures, wraps and paints the whole widget, the later ones draw the
+    /// same ([`Mine::draw`]).
+    banded: RefCell<Vec<Banded>>,
+}
+
+/// What a widget composed for a frame's first band, for the next ones.
+#[derive(Debug)]
+struct Banded {
+    area: Rect,
+    epoch: u32,
+    /// The rows of the last band drawn with it.
+    bottom: i32,
+    out: Vec<Paint>,
+    placed: Vec<(ImageId, Rect)>,
 }
 
 /// The look a widget kept: none or one, in a vector so that keeping it is
@@ -130,6 +146,7 @@ impl Mine {
             known: Known::default(),
             placed: Cell::new(None),
             look: Looks::default(),
+            banded: RefCell::new(Vec::new()),
         }))
     }
 
@@ -143,6 +160,7 @@ impl Mine {
     /// Lets go of the look it kept: the next draw reads it again.
     pub fn forget_look(&self) {
         self.look.forget();
+        self.banded.borrow_mut().clear();
     }
 
     /// Whether it waits for a library cover.
@@ -253,6 +271,37 @@ impl Mine {
         drawn
     }
 
+    /// The rows below the widget's area, where the last band that draws it ends.
+    fn end_of(frame: &DrawFrame<'_>, area: Rect) -> i32 {
+        frame
+            .rect
+            .y
+            .saturating_add(i32::from(area.y))
+            .saturating_add(i32::from(area.height))
+    }
+
+    /// What the first band of the frame composed, for the band after it: the
+    /// first band measures and wraps the whole widget and every band after
+    /// it did it again (the X4 draws a frame in two to five bands). Only a band
+    /// that starts where the last one stopped, with nothing but draws between
+    /// them, takes it; the last band of the widget lets it go.
+    fn take_banded(&self, listing: &Listing, frame: &DrawFrame<'_>, area: Rect) -> Option<Banded> {
+        let kept = self.banded.borrow_mut().pop()?;
+        (kept.area == area && kept.epoch == listing.epoch() && kept.bottom == frame.clip_top)
+            .then_some(kept)
+    }
+
+    fn keep_banded(&self, frame: &DrawFrame<'_>, area: Rect, mut kept: Banded) {
+        if frame.clip_bottom >= Self::end_of(frame, area) {
+            return;
+        }
+        kept.bottom = frame.clip_bottom;
+        let mut held = self.banded.borrow_mut();
+        if held.try_reserve_exact(1).is_ok() {
+            held.push(kept);
+        }
+    }
+
     fn draw_own(
         &self,
         host: &Host<'_>,
@@ -260,14 +309,20 @@ impl Mine {
         frame: &mut DrawFrame<'_>,
         area: Rect,
     ) -> Result<(), Error> {
-        let mut cx = Cx::open_kept_with(host, &self.widget, self.look.take(), listing.inputs())?;
-        let mut out = Vec::new();
-        let mut pictures = Pictures::default();
         let icons = if self.token == CARD {
             icons::font(host)?
         } else {
             None
         };
+        if let Some(kept) = self.take_banded(listing, frame, area) {
+            let font = widget_font(host, &self.widget)?;
+            let drawn = self.replay(listing, frame, (&font, icons.as_ref()), &kept);
+            self.keep_banded(frame, area, kept);
+            return drawn;
+        }
+        let mut cx = Cx::open_kept_with(host, &self.widget, self.look.take(), listing.inputs())?;
+        let mut out = Vec::new();
+        let mut pictures = Pictures::default();
         match self.token {
             DATE => native_date::draw(&mut cx, &mut out, area)?,
             CARD => native_card::draw(
@@ -283,11 +338,32 @@ impl Mine {
             _ => native_clock::draw(&mut cx, &mut out, area)?,
         }
         self.waiting.set(pictures.busy);
-        paint::replay_icons(frame, &cx.font, icons.as_ref(), &out)?;
-        // The covers go where nothing else is drawn. One the host no longer has
-        // (it ended the id for room) or cannot draw is left out: the next draw asks
-        // for it again.
-        for (image, at) in &pictures.placed {
+        let kept = Banded {
+            area,
+            epoch: listing.epoch(),
+            bottom: frame.clip_top,
+            out,
+            placed: pictures.placed,
+        };
+        let drawn = self.replay(listing, frame, (&cx.font, icons.as_ref()), &kept);
+        self.keep_banded(frame, area, kept);
+        self.look.keep(cx.keep());
+        drawn
+    }
+
+    /// Replays what was composed in the band of `frame`: the paint, then the
+    /// covers, which go where nothing else is drawn. One the host no longer has
+    /// (it ended the id for room) or cannot draw is left out: the next draw asks
+    /// for it again.
+    fn replay(
+        &self,
+        listing: &Listing,
+        frame: &mut DrawFrame<'_>,
+        (font, icons): (&Font<'_>, Option<&Font<'_>>),
+        kept: &Banded,
+    ) -> Result<(), Error> {
+        paint::replay_icons(frame, font, icons, &kept.out)?;
+        for (image, at) in &kept.placed {
             let drawn = frame.draw_canvas()?.draw_image(
                 *image,
                 paint::frame_rect(*at),
@@ -299,7 +375,6 @@ impl Mine {
                 self.waiting.set(true);
             }
         }
-        self.look.keep(cx.keep());
         Ok(())
     }
 
@@ -450,6 +525,7 @@ impl Widgets {
     /// kept are asked of the library again at their next draw.
     pub fn fresh(&self) {
         self.listing.fresh();
+        self.listing.new_epoch();
         for item in &self.items {
             item.mine.known.fresh();
         }

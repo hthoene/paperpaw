@@ -81,6 +81,9 @@ pub struct Listing {
     /// The interface's settings, shared by the looks of one lay-out
     /// ([`SharedInputs::share`]).
     inputs: SharedInputs,
+    /// Counts the calls into the plugin that are no draw: what a widget kept
+    /// of a frame's first band is for that count only ([`Listing::epoch`]).
+    epoch: Cell<u32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -92,6 +95,18 @@ struct Verdict {
 }
 
 impl Listing {
+    /// Something that is no draw happened (an event, a key, a tap): what the
+    /// widgets composed for the bands of a frame is not for the next one.
+    pub fn new_epoch(&self) {
+        self.epoch.set(self.epoch.get().wrapping_add(1));
+    }
+
+    /// The count of [`Listing::new_epoch`].
+    #[must_use]
+    pub fn epoch(&self) -> u32 {
+        self.epoch.get()
+    }
+
     /// Where the looks made in one lay-out share the interface's settings.
     #[must_use]
     pub const fn inputs(&self) -> &SharedInputs {

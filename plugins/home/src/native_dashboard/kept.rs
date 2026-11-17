@@ -108,6 +108,11 @@ impl Dashboard {
         }
     }
 
+    /// Something that is no draw happened: see [`Listing::new_epoch`].
+    pub fn new_epoch(&self) {
+        self.listing.new_epoch();
+    }
+
     /// A setting or the registry changed: the look the page keeps is read again
     /// at the next draw (the page itself is laid out again only where
     /// [`Dashboard::invalidate_covered`] says so).

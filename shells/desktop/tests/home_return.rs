@@ -22,12 +22,17 @@ const BOOK: &str = "books/alice-in-wonderland.epub";
 
 /// The host slots a return may enter, all together and the settings reads
 /// (emulator, X4, Home with its default page). Measured with the page and its
-/// look kept: 517-528 slots and 23-36 reads; with the page kept and its look
+/// look kept: 232 slots and 16 reads (338 and 22 before the bands of a frame
+/// shared what the first one composed; 517-528 and 23-36 in October); with the page kept and its look
 /// read at every draw: 857-868 and 333-346 (967-978 and 423-436 before the
 /// names and widgets kept theirs); laid out again on every return, as before:
 /// 1,349 and 712.
-const KEPT_ALL_SLOTS: u32 = 560;
+const KEPT_ALL_SLOTS: u32 = 260;
 const KEPT_SETTINGS: u32 = 60;
+/// The first frame of a return with a full shelf (six books), host slots
+/// (emulator): 397 measured, 615 before the bands of a frame shared what the
+/// first one composed.
+const FULL_SHELF_SLOTS: u32 = 430;
 /// The one step "a cover became ready" after the return: the library announces
 /// the card's cover and Home draws that cell, 0.5 to 1.5 s after the first frame
 /// (356 slots, 9 settings reads measured with the black-and-white first frame
@@ -46,8 +51,9 @@ const COLD_SLOTS: u32 = 620;
 const COLD_SETTINGS: u32 = 200;
 /// The first redraw after a setting changed reads the look of the page and of
 /// each of its widgets again: 160 reads measured, 142 where the page forgets
-/// nothing, 36 where its widgets forget nothing (18 in a steady redraw).
-const CHANGED_READS: u32 = 150;
+/// nothing, 36 where its widgets forget nothing (18 in a steady redraw); 147
+/// since the bands of a frame share what its first band composed.
+const CHANGED_READS: u32 = 100;
 /// A return that lays the page out again reads at least this many settings
 /// (614 measured, with a grid of three columns).
 const LAID_SETTINGS: u32 = 120;
@@ -337,6 +343,9 @@ fn the_first_frame_of_a_return_makes_few_service_calls_with_a_full_shelf() {
     slot_counts::reset();
     run_script(&mut device, "back").unwrap();
     let calls = slot_counts::service_calls();
+    let slots = slot_counts::snapshot();
+    let all: u32 = slots.iter().map(|(_, n)| *n).sum();
+    eprintln!("FIRST FRAME slots {all}: {slots:?}");
     eprintln!("FIRST FRAME service calls: {}", calls.len());
     for (plugin, service, op) in &calls {
         eprintln!("  service {plugin} {service}.{op}");
@@ -356,6 +365,11 @@ fn the_first_frame_of_a_return_makes_few_service_calls_with_a_full_shelf() {
         "the return made {} service calls: {calls:?}",
         calls.len()
     );
+    // The widgets measure, wrap and paint once for the bands of the frame, not
+    // once for each band (the emulator draws the shelf's placeholders as the
+    // device draws its titles): 615 slots before (#294), the X4's 470 are kept
+    // pages with covers.
+    assert!(all <= FULL_SHELF_SLOTS, "the first frame made {all} host slots");
 }
 
 /// The first Back out of the book Home was opened under lays the page out for
