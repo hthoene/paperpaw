@@ -31,6 +31,7 @@ pub(crate) struct Lease {
     /// Wi-Fi as it was: in a network (wanted again), or on alone.
     wifi: Option<WifiWas>,
     /// Bluetooth held off.
+    #[cfg(feature = "bluetooth")]
     bluetooth: bool,
     /// The rows of a frame's band before it was made smaller.
     rows: Option<u16>,
@@ -111,6 +112,7 @@ impl Kernel {
             steps: RoomSteps::default(),
             closed: Vec::new(),
             wifi: None,
+            #[cfg(feature = "bluetooth")]
             bluetooth: false,
             rows: None,
         });
@@ -181,6 +183,7 @@ impl Kernel {
                 lease.wifi = was;
             }
         }
+        #[cfg(feature = "bluetooth")]
         if !mode.wants_bluetooth()
             && let Some(radio) = &mut self.io.bluetooth
             && radio.is_on()
@@ -268,6 +271,7 @@ impl Kernel {
             Some(WifiWas::On) => self.io.wifi_calls.push(WifiCommand::On),
             None => {}
         }
+        #[cfg(feature = "bluetooth")]
         if lease.bluetooth
             && let Some(radio) = &mut self.io.bluetooth
         {

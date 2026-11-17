@@ -12,7 +12,7 @@ license = "Apache-2.0"
 resolver = "3"
 
 [dev-dependencies]
-paperpaw-core = { path = "../../crates/paperpaw-core" }
+paperpaw-core = { path = "../../crates/paperpaw-core", features = ["bluetooth"] }
 trouble-host = { path = "../../patches/trouble-host", version = "=0.7.0", default-features = false, features = ["central", "scan", "gatt", "security"] }
 embassy-time = { version = "0.5", features = ["std", "generic-queue-8"] }
 critical-section = { version = "1", features = ["std"] }

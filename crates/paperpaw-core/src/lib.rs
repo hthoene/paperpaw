@@ -41,6 +41,10 @@ extern crate alloc;
 mod abi7;
 mod areas;
 mod awake;
+#[cfg(feature = "bluetooth")]
+mod bluetooth;
+#[cfg(not(feature = "bluetooth"))]
+#[path = "bluetooth_off.rs"]
 mod bluetooth;
 mod builder;
 mod card;
@@ -308,6 +312,7 @@ pub struct Kernel {
     /// kernel seals through it with or without a native plugin admitted.
     secrets_wired: Option<alloc::rc::Rc<dyn crate::native_host::secrets_service::SecretsHost>>,
     /// The number a pairing question's answer must bring back.
+    #[cfg(feature = "bluetooth")]
     pairing_nonce: Option<u64>,
     /// A screen was opened or closed since the last call ended; then the
     /// frame drawn for it is not shown yet (see [`Kernel::shown`]).
@@ -439,6 +444,7 @@ impl Kernel {
         if mem::take(&mut self.after_sleep) {
             self.output.commands.push(events::RESUME.emit(()));
         }
+        #[cfg(feature = "bluetooth")]
         if let Some(radio) = &mut self.io.bluetooth {
             radio.start();
         }
