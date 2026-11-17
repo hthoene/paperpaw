@@ -55,7 +55,6 @@ use core::ops::Range;
 use paperpaw_graphics::Canvas;
 use paperpaw_platform::{Color, Rect};
 
-use crate::env::Env;
 use crate::fonts::FontHandle;
 use crate::ui::{self, UiStyle};
 
@@ -127,23 +126,7 @@ impl Frame {
 
 
 
-/// The height of a line of text `size` pixels large in the UI font.
-pub fn line_height(env: &Env<'_>, size: f32) -> u16 {
-    UiStyle::new(env)
-        .font(env)
-        .map_or(size as u16, |f| f.line_metrics(size).line_height as u16)
-}
 
-/// How far apart the lines of a heading or title on more lines are
-/// ([`FontHandle::heading_line_height`]): closer than those of text
-/// ([`line_height`]).
-///
-/// [`FontHandle::heading_line_height`]: crate::FontHandle::heading_line_height
-pub fn heading_line_height(env: &Env<'_>, size: f32) -> u16 {
-    UiStyle::new(env)
-        .font(env)
-        .map_or(size as u16, |f| f.heading_line_height(size) as u16)
-}
 
 
 /// How far letters may reach past the box their advance gives them, left
@@ -247,90 +230,8 @@ pub struct Wrapped {
 
 impl Wrapped {
 
-    /// [`new`](Self::new) or, for a title or heading, its lines a
-    /// heading's apart.
-    fn made(
-        env: &Env<'_>,
-        text: &str,
-        size: f32,
-        (width, height): (u16, u16),
-        heading: bool,
-    ) -> Self {
-        let mut wrapped = Self {
-            text: String::from(text),
-            size,
-            lines: Vec::new(),
-            whole: true,
-            heading,
-        };
-        let Some(font) = UiStyle::new(env).font(env) else {
-            return wrapped;
-        };
-        let width = f32::from(width);
-        let (ranges, _) = break_words(&font, size, text, width);
-        let fits = lines_in(env, size, heading, height);
-        let count = ranges.len();
-        for (n, range) in ranges.into_iter().enumerate() {
-            let own = text[range.clone()].trim_end();
-            if n + 1 == fits && n + 1 < count {
-                // The last line there is room for: the rest on it, its
-                // breaks as spaces.
-                let rest = text[range.start..].trim_end().replace('\n', " ");
-                wrapped
-                    .lines
-                    .push(ui::fit(&font, size, &format!("{rest} …"), width));
-                wrapped.whole = false;
-                break;
-            }
-            let shown = ui::fit(&font, size, own, width);
-            let shortened = shown != own;
-            wrapped.lines.push(shown);
-            if shortened {
-                wrapped.whole = false;
-                break;
-            }
-        }
-        wrapped
-    }
 
-    /// `text` in lines `width` pixels wide at the largest size from `max`
-    /// down to `min` at which it fits `height` pixels whole, no word
-    /// wider than a line; at `min` as [`new`](Self::new) where it does
-    /// not.
-    pub(crate) fn fitting(
-        env: &Env<'_>,
-        text: &str,
-        max: f32,
-        min: f32,
-        width: u16,
-        height: u16,
-    ) -> Self {
-        Self::fitted(env, text, (max, min), (width, height), false)
-    }
 
-    fn fitted(
-        env: &Env<'_>,
-        text: &str,
-        (max, min): (f32, f32),
-        (width, height): (u16, u16),
-        heading: bool,
-    ) -> Self {
-        let Some(font) = UiStyle::new(env).font(env) else {
-            return Self::made(env, text, max, (width, height), heading);
-        };
-        let room = f32::from(width);
-        let size = largest_size(max, min, |size| {
-            let (lines, too_wide) = break_words(&font, size, text, room);
-            !too_wide && lines_height(env, size, heading, lines.len()) <= height
-        });
-        Self::made(
-            env,
-            text,
-            size.unwrap_or(min.min(max)),
-            (width, height),
-            heading,
-        )
-    }
 
 
     /// Whether its lines show all of the text, nothing shortened or left
@@ -340,77 +241,10 @@ impl Wrapped {
     }
 
 
-    /// The height its lines take.
-    pub(crate) fn height(&self, env: &Env<'_>) -> u16 {
-        lines_height(env, self.size, self.heading, self.lines.len())
-    }
 
-    /// Draws its lines in `area`, each placed as `align` says, together
-    /// in the middle from top to bottom; returns the height drawn.
-    pub fn draw(
-        &self,
-        canvas: &mut Canvas<'_>,
-        env: &Env<'_>,
-        area: Rect,
-        align: super::Align,
-        color: Color,
-    ) -> u16 {
-        let Some(font) = UiStyle::new(env).font(env) else {
-            return 0;
-        };
-        let size = self.size;
-        let line = f32::from(line_height(env, size)).max(1.0);
-        let apart = f32::from(step(env, size, self.heading)).max(1.0);
-        let total = self.height(env);
-        let top = area.y + area.height.saturating_sub(total) / 2;
-        // Told as one text, drawn as lines.
-        let at = Rect::new(area.x, top, area.width, total);
-        canvas.describe(paperpaw_graphics::Role::Text, &self.text, at);
-        let metrics = font.line_metrics(size);
-        // Cut at the sides only: an area lower than a line still shows it.
-        let tall = Rect::new(
-            area.x,
-            area.y,
-            area.width,
-            area.height.max(top - area.y + total),
-        );
-        let mut canvas = canvas.clipped(ink_room(tall));
-        for (n, shown) in self.lines.iter().enumerate() {
-            let y = f32::from(top) + apart * n as f32;
-            let baseline = y + (line + metrics.ascent - metrics.descent) / 2.0;
-            let x = align.x(area, font.measure(size, shown));
-            font.draw(&mut canvas, size, x, baseline as i32, shown, color);
-        }
-        total
-    }
 }
 
-/// From one line's top to the next one's: a heading's line, or text's.
-fn step(env: &Env<'_>, size: f32, heading: bool) -> u16 {
-    if heading {
-        heading_line_height(env, size)
-    } else {
-        line_height(env, size)
-    }
-}
 
-/// The height of `count` lines (none: nothing): a line, and a step for
-/// each of the others ([`step`]).
-fn lines_height(env: &Env<'_>, size: f32, heading: bool, count: usize) -> u16 {
-    match count {
-        0 => 0,
-        _ => {
-            let others = u16::try_from(count - 1).unwrap_or(u16::MAX);
-            line_height(env, size).saturating_add(step(env, size, heading).saturating_mul(others))
-        }
-    }
-}
 
-/// How many lines `height` holds (one at least).
-fn lines_in(env: &Env<'_>, size: f32, heading: bool, height: u16) -> usize {
-    let line = line_height(env, size).max(1);
-    let apart = step(env, size, heading).max(1);
-    1 + usize::from(height.saturating_sub(line) / apart)
-}
 
 

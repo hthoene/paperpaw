@@ -18,7 +18,7 @@ use crate::layout::{
     Typesetter,
 };
 use crate::text::ToneCurve;
-use crate::{Canvas, Color, Env, FontHandle, FontSet, Id, Point, Rect};
+use crate::{Canvas, Color,  FontHandle, FontSet, Id, Point, Rect};
 
 /// Relative sizes of headings 1 to 6.
 const HEADING_SCALE: [f32; 6] = [1.6, 1.4, 1.2, 1.1, 1.0, 1.0];
@@ -37,14 +37,6 @@ const SCRIPT: f32 = 0.7;
 const RAISED: f32 = 0.33;
 const LOWERED: f32 = 0.15;
 
-/// Whether a book's own fonts are used: the font chosen is the book's
-/// (the default choice), and they render on this device (not on small
-/// devices: they take hundreds of kilobytes).
-pub fn uses_book_fonts(env: &Env<'_>) -> bool {
-    crate::text::OUTLINES
-        && env.device().memory != crate::MemoryClass::Small
-        && env.settings().read(&settings::READING_FONT) == settings::DEFAULT_FONT
-}
 
 /// The fonts a book embeds, loaded with the book.
 pub struct EmbeddedFonts {
@@ -162,195 +154,6 @@ pub struct PageType {
     pub key: String,
 }
 
-impl PageType {
-    /// The type of a book in `language` read in `font` (the reading font),
-    /// with `status` for the status lines; a book of `whole_pages` (comics)
-    /// is shown edge to edge, without margins or status lines.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than the limit from before it was set; split it when it is next changed"
-    )]
-    pub fn new(
-        env: &Env<'_>,
-        font: &FontHandle<'_>,
-        language: &str,
-        whole_pages: bool,
-        status: StatusRoom,
-    ) -> Self {
-        let s = env.settings();
-        let m = env.metrics();
-        let size = m.pt(s.read(&settings::FONT_SIZE) as f32);
-        let weight = s.read(&settings::FONT_WEIGHT).clamp(0, 4) as u8;
-        let word_spacing = s.read(&settings::WORD_SPACING).clamp(50, 200) as f32 / 100.0;
-        let metrics = font.line_metrics(size);
-        let natural = metrics.ascent + metrics.descent;
-        // At least the font's own distance; below 100 % that much of it.
-        let spacing = s.read(&settings::LINE_SPACING).clamp(80, 250) as f32 / 100.0;
-        let line_height = (size * spacing).max(natural * spacing.min(1.0));
-        let indent = s.read(&settings::INDENT);
-        let indent_size = s.read(&settings::INDENT_SIZE).clamp(50, 400) as f32 / 100.0;
-        let spaced = s.read(&settings::PARAGRAPH_SPACING);
-        let paragraph_space = s.read(&settings::PARAGRAPH_SPACE).clamp(20, 150) as f32 / 100.0;
-        let balanced = s.read(&settings::LINE_BREAKING) != settings::LINE_BREAKING_FAST;
-        let letter_spacing = s.read(&settings::LETTER_SPACING).clamp(-5, 20) as f32 / 100.0 * size;
-        let kerning = s.read(&settings::KERNING);
-        let ligatures = s.read(&settings::LIGATURES) && letter_spacing == 0.0;
-        let book = [
-            (&settings::BOOK_ALIGN, BookStyles::ALIGN),
-            (&settings::BOOK_INDENT, BookStyles::INDENT),
-            (&settings::BOOK_SIZES, BookStyles::SIZE),
-            (&settings::BOOK_SPACING, BookStyles::SPACING),
-            (&settings::BOOK_FONTS, BookStyles::FONTS),
-            (&settings::BOOK_MARGINS, BookStyles::MARGINS),
-            (&settings::BOOK_LINE_HEIGHT, BookStyles::LINE_HEIGHT),
-        ]
-        .iter()
-        .filter(|(setting, _)| s.read(setting))
-        .fold(BookStyles::NONE, |all, (_, style)| all.with(*style));
-        let justify = s.read(&settings::JUSTIFY);
-        let ascent = metrics.ascent + (line_height - natural) / 2.0;
-        let widows = s.read(&settings::WIDOWS).clamp(1, 4) as u8;
-        let orphans = s.read(&settings::ORPHANS).clamp(1, 4) as u8;
-        let style = Style::new(
-            if spaced {
-                line_height * paragraph_space
-            } else {
-                0.0
-            },
-            if indent { size * indent_size } else { 0.0 },
-            size,
-            justify,
-        )
-        .lines_kept(widows, orphans)
-        .book(book)
-        .balanced(balanced)
-        .script_options(script_options(
-            language,
-            s.read(&settings::KOREAN_BREAKS),
-            s.read(&HANGING_PUNCTUATION),
-        ));
-
-        let display = env.device().display;
-        let millimetres = |setting: &crate::setting::Setting<i64>| match whole_pages {
-            true => 0.0,
-            false => m.mm(s.read(setting).max(0) as u32) as f32,
-        };
-        // At the sides, and at the top and bottom.
-        let (margin, ends) = (
-            millimetres(&settings::MARGIN),
-            millimetres(&settings::MARGIN_ENDS),
-        );
-        let status = if whole_pages {
-            StatusRoom::NONE
-        } else {
-            status
-        };
-        let width = (f32::from(display.width) - 2.0 * margin).max(1.0);
-        // Status lines sit close to the edge, in the text's margin; the
-        // text keeps its margin, and never runs up to a status line, also
-        // on pages it fills to the last pixel.
-        let status_room = status.height + m.mm(2) as f32;
-        let screen = f32::from(display.height);
-        let y = if status.top {
-            ends.max(status.edge + status_room)
-        } else {
-            ends
-        };
-        let end = if status.bottom {
-            (screen - ends).min(screen - status.edge - status_room)
-        } else {
-            screen - ends
-        };
-        let height = (end - y).max(1.0);
-        let (x, y, width) = (margin, y, width);
-        let content = Rect::new(x as u16, y as u16, width as u16, height as u16);
-        let (rooms, columns) = (Vec::new(), alloc::vec![content]);
-        let line = |at: f32| Rect::new(content.x, at as u16, content.width, status.height as u16);
-        let top_status = status.top.then(|| line(status.edge));
-        let bottom_status = status
-            .bottom
-            .then(|| line(screen - status.edge - status.height));
-        let hyphenation = (s.read(&settings::HYPHENATE)
-            && env.hyphenation().get(language).is_some())
-        .then(|| language.to_string());
-        let hyphen_minimums = (
-            s.read(&settings::HYPHEN_MIN_LEFT).clamp(0, 5) as u8,
-            s.read(&settings::HYPHEN_MIN_RIGHT).clamp(0, 5) as u8,
-        );
-        // The language and, where the reader changed them, the minimums:
-        // pages laid out with the language's own keep their key.
-        let hyphenation_key = match (&hyphenation, hyphen_minimums) {
-            (None, _) => String::from("-"),
-            (Some(language), (0, 0)) => language.clone(),
-            (Some(language), (left, right)) => format!("{language}:{left}:{right}"),
-        };
-        // The plugins' stylesheets change what the book's text looks like.
-        let stylesheets = env.stylesheets().iter().fold(0u64, |hash, sheet| {
-            hash.rotate_left(5) ^ paperpaw_digest::fnv1a64(sheet.as_bytes())
-        });
-        // The letters other fonts and packs add (a script's pack, whose
-        // letters measure 0 or another width before it is there): a
-        // pack that comes or goes makes other pages. In no order, so
-        // that how they were registered does not matter.
-        let fonts = env.fonts().ids().fold(0u64, |sum, id| {
-            sum.wrapping_add(paperpaw_digest::fnv1a64(id.as_str()))
-        });
-        let key = {
-            // Floats as `Display` writes them, without `core`'s formatter
-            // of them (#258): the keys stay what they were.
-            use crate::float_text::Shown;
-            let (size, line_height) = (Shown(size), Shown(line_height));
-            let (width, height) = (Shown(width), Shown(height));
-            let (word_spacing, letter_spacing) = (Shown(word_spacing), Shown(letter_spacing));
-            paperpaw_digest::fnv1a64(format!(
-                "{}|{}|{}|{}|{}|{size}|{line_height}|{}|{}|{justify}|{width}x{height}|{}|{}|{}|{word_spacing}|{}|{whole_pages}|{stylesheets:x}|{widows}:{orphans}|{:x}|{letter_spacing}|{balanced}|{kerning}|{ligatures}|{:x}:{:x}:{:?}|{fonts:x}",
-                crate::layout::VERSION,
-                font.id(),
-                face_id(env, &fonts::READING_BOLD),
-                face_id(env, &fonts::READING_ITALIC),
-                face_id(env, &fonts::READING_BOLD_ITALIC),
-                Shown(style.indent),
-                Shown(style.paragraph_spacing),
-                hyphenation_key,
-                s.read(&settings::PUBLISHER_STYLES),
-                uses_book_fonts(env),
-                // Where the text filters' signature was (none now): the key
-                // stays as it was.
-                0u64,
-                book.bits(),
-                // Options of later layouts: in the key before any is used.
-                style.script_options.bits(),
-                style.options.bits(),
-                style.values,
-            ))
-        };
-        let key = format!("{key:016x}");
-        Self {
-            size,
-            weight,
-            word_spacing,
-            letter_spacing,
-            kerning,
-            ligatures,
-            ascent,
-            line_height,
-            style,
-            x,
-            y,
-            width,
-            height,
-            top_status,
-            status: bottom_status,
-            rooms,
-            columns,
-            hyphenation,
-            hyphen_minimums,
-            script: paperpaw_lang::Lang::parse(language).likely_script(),
-            filters: 0,
-            key,
-        }
-    }
-}
 
 /// The options of the line breaker for a book in `language`: by word
 /// (`KEEP_ALL`) only for a Korean book whose reader chose it. The bit is
@@ -369,12 +172,6 @@ fn script_options(language: &str, korean: &str, hanging: bool) -> ScriptOptions 
     }
 }
 
-/// The font bound to an optional reading face, for the layout key.
-fn face_id(env: &Env<'_>, role: &Id) -> String {
-    env.fonts()
-        .bound(role.as_str())
-        .map_or_else(String::new, |font| font.id().to_string())
-}
 
 /// The reading fonts by face, for layout and drawing: the faces bound to
 /// the reading roles (a font the user chose for book text is not mixed
@@ -410,41 +207,6 @@ impl core::fmt::Debug for ReadingFaces<'_> {
 }
 
 impl<'a> ReadingFaces<'a> {
-    /// The faces for `page`; `None` without a reading font.
-    pub fn new(
-        env: &Env<'a>,
-        page: &PageType,
-        embedded: Option<&'a EmbeddedFonts>,
-    ) -> Option<Self> {
-        let all = env.fonts();
-        let regular = all.role(fonts::READING.as_str())?;
-        let custom = all.user_bound(fonts::READING.as_str());
-        let face = |role: &Id| {
-            if custom && !all.user_bound(role.as_str()) {
-                None
-            } else {
-                all.bound(role.as_str())
-            }
-        };
-        let bold = face(&fonts::READING_BOLD).unwrap_or(regular);
-        let italic = face(&fonts::READING_ITALIC).unwrap_or(regular);
-        let bold_italic = face(&fonts::READING_BOLD_ITALIC).unwrap_or(bold);
-        let (tone, sharp) = ink(env, page.script);
-        Some(Self {
-            fonts: [regular, bold, italic, bold_italic],
-            weight: page.weight,
-            tone,
-            sharp,
-            word_spacing: page.word_spacing,
-            letter_spacing: page.letter_spacing,
-            kerning: page.kerning,
-            ligatures: page.ligatures && page.letter_spacing == 0.0,
-            embedded,
-            size: page.size,
-            ascent: page.ascent,
-            line_height: page.line_height,
-        })
-    }
 
     /// The book's font for text in an embedded family, else the reading
     /// face; kerned and with ligatures as the settings say.
@@ -982,31 +744,6 @@ fn reordered_boxes(
         .collect()
 }
 
-/// The tone curve of book text ([`settings::TEXT_CURVE`] if it says one,
-/// else the contrast of [`settings::TEXT_CONTRAST`] a step lighter or
-/// darker as [`settings::TEXT_SHARPNESS`] says), and whether it is drawn
-/// without grays ([`settings::SMOOTH_TEXT`] off, or sharpness sharp).
-/// Smooth text off is not where the panel shows black and white alone:
-/// its frame draws the same letters already, and a page shown in grays
-/// there for its pictures keeps its letters smooth, as before.
-fn ink(env: &Env<'_>, script: Option<&str>) -> (ToneCurve, bool) {
-    let s = env.settings();
-    let mono = env.device().display.format.gray_levels() == Some(2);
-    let smooth_off = !mono && !s.read(&settings::SMOOTH_TEXT);
-    // A curve of one's own (a theme's, a language's) takes the place of
-    // the contrast and the sharpness; the entry for the book's script
-    // comes first.
-    if let Some(curve) = ToneCurve::parse_for(s.text(settings::TEXT_CURVE.as_str()), script) {
-        return (curve, smooth_off);
-    }
-    let level = s.read(&settings::TEXT_CONTRAST);
-    let step = settings::TEXT_CONTRAST_LEVELS
-        .iter()
-        .position(|l| *l == level)
-        .map_or(0, |at| at as i8 + ToneCurve::LIGHTEST);
-    let (shift, sharp) = sharpness(s.read(&settings::TEXT_SHARPNESS));
-    (ToneCurve::contrast(step + shift), smooth_off || sharp)
-}
 
 /// What a value of [`settings::TEXT_SHARPNESS`] does to book text: the
 /// steps it moves the contrast by (soft -1, sharp +1) and whether it
@@ -1147,78 +884,7 @@ fn words_in(text: &str, runs: &[LineRun]) -> usize {
     count
 }
 
-/// Draws a picture of the page at its place in `page_type`'s box; where
-/// it was not decoded (the heap had no room for it), a frame with a note
-/// in its place.
-pub fn draw_image(canvas: &mut Canvas<'_>, env: &Env<'_>, page_type: &PageType, image: &PageImage) {
-    let t = page_type;
-    let left = (t.x + image.x + 0.5) as i32;
-    let top = (t.y + image.y + 0.5) as i32;
-    let (w, h) = ((image.width + 0.5) as i32, (image.height + 0.5) as i32);
-    let area = Rect::new(left as u16, top as u16, w as u16, h as u16);
-    // Frames are drawn in bands: nothing read for those it is not in, nor
-    // where it is only described.
-    if area.intersection(&canvas.clip()).is_some()
-        && !canvas.is_blind()
-        && crate::image::Decoded::peek(env.storage(), &image.image.path).is_none()
-    {
-        return draw_missing_image(canvas, env, area);
-    }
-    crate::ui::draw_image(canvas, env.storage(), &image.image, area);
-}
 
-/// A frame in `area` where a picture is not there: with a short note
-/// where the note fits whole, else crossed out.
-fn draw_missing_image(canvas: &mut Canvas<'_>, env: &Env<'_>, area: Rect) {
-    let style = crate::ui::UiStyle::new(env);
-    let line = u32::from(style.line()).max(1);
-    canvas.stroke(area, line, Color::BLACK);
-    let pad = style.gap();
-    let inner = Rect::new(
-        area.x.saturating_add(pad),
-        area.y.saturating_add(pad),
-        area.width.saturating_sub(2 * pad),
-        area.height.saturating_sub(2 * pad),
-    );
-    if inner.width == 0 || inner.height == 0 {
-        return;
-    }
-    let text = env.i18n().tr("core.picture.missing");
-    let note = crate::widgets::Wrapped::fitting(
-        env,
-        text,
-        style.small(),
-        style.small() * 0.8,
-        inner.width,
-        inner.height,
-    );
-    if note.whole() {
-        let height = note.height(env).min(inner.height);
-        let at = Rect::new(
-            inner.x,
-            inner.y + (inner.height - height) / 2,
-            inner.width,
-            height,
-        );
-        note.draw(canvas, env, at, crate::widgets::Align::Center, Color::BLACK);
-        return;
-    }
-    let to = |edge: u32| i32::try_from(edge).unwrap_or(i32::MAX);
-    let (right, bottom) = (to(inner.right()), to(inner.bottom()));
-    let (x, y) = (i32::from(inner.x), i32::from(inner.y));
-    canvas.draw_line(
-        Point::new(x, y),
-        Point::new(right, bottom),
-        line,
-        Color::BLACK,
-    );
-    canvas.draw_line(
-        Point::new(right, y),
-        Point::new(x, bottom),
-        line,
-        Color::BLACK,
-    );
-}
 
 #[cfg(test)]
 mod tests {

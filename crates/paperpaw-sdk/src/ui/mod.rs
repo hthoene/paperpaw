@@ -62,7 +62,6 @@ use paperpaw_graphics::Canvas;
 use paperpaw_platform::{Color, Point, Rect, Storage};
 
 use crate::builtin::{fonts, settings};
-use crate::env::Env;
 use crate::fonts::FontHandle;
 
 /// Whether a part drawn in `rect` can show on `canvas`: it meets the

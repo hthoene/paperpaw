@@ -395,15 +395,14 @@ pub mod work;
 #[cfg(not(any(test, feature = "kernel")))]
 mod work;
 
-#[cfg(any(test, feature = "kernel"))]
+#[cfg(test)]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use action::{
     Action, ActionHint, ActionSpec, Actions, FixedAction, FixedHandler, NativeAction,
 };
-#[cfg(not(any(test, feature = "kernel")))]
+#[cfg(not(test))]
 pub(crate) use action::{
-    Action, ActionHint, ActionSpec, Actions, FixedAction, FixedHandler, NativeAction,
-};
+     ActionHint,     NativeAction};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use command::{
@@ -428,7 +427,7 @@ pub use commands::Commands;
 pub(crate) use commands::Commands;
 /// What a plugin added, for the kernel to apply: opaque to plugins, which
 /// add through `Items`'s methods.
-#[cfg(any(test, feature = "kernel"))]
+#[cfg(test)]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use contribution::item::Contribution;
 #[cfg(any(test, feature = "kernel"))]
@@ -474,15 +473,14 @@ pub use id::Text as ShortText;
 pub use id::{Id, IdError, InvalidId};
 pub use memory_storage::{MemoryStorage, read_file};
 pub use menus::MenuNeed;
-#[cfg(any(test, feature = "kernel"))]
+#[cfg(test)]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use menus::{
     ItemState, ItemStateFn, MenuEntry, MenuItem, MenuPlace, MenuSection, MenuView, Menus,
 };
-#[cfg(not(any(test, feature = "kernel")))]
+#[cfg(not(test))]
 pub(crate) use menus::{
-    ItemState, ItemStateFn, MenuEntry, MenuItem, MenuPlace, MenuSection, MenuView, Menus,
-};
+    ItemState,  MenuEntry, MenuItem, MenuPlace, MenuSection};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use params::Params;
@@ -522,9 +520,8 @@ pub use screen::Handled;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use screen::{
-    CloseCause, Cx, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION,
-    ScreenKey, ScreenList, ShowsThrough, StackEntry,
-};
+    CloseCause,  Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION,
+    ScreenKey, ScreenList, ShowsThrough, StackEntry};
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use screen::{
     CloseCause, Cx, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION,

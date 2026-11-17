@@ -3,7 +3,7 @@
 
 use crate::builtin::settings;
 use crate::event::ParamValue;
-use crate::{Env, Rect};
+use crate::Rect;
 use alloc::string::String;
 
 /// A part of the screen narrower than this many millimetres (at the
@@ -36,24 +36,6 @@ pub enum ScreenClass {
 }
 
 impl ScreenClass {
-    /// The class of `area` (in pixels of `env`'s display): by its width in
-    /// millimetres, scaled by the reader's size of interface text against
-    /// its default, so that large text makes a screen narrower (a tablet
-    /// read at twice the size is as roomy as one half as wide). Below
-    /// [`COMPACT_BELOW_MM`] compact, from [`EXPANDED_FROM_MM`] expanded,
-    /// medium between.
-    pub fn of(env: &Env<'_>, area: Rect) -> Self {
-        let tenths = u64::from(area.width) * 254 / u64::from(env.metrics().dpi.max(1));
-        let (size, default) = ui_sizes(env);
-        let tenths = tenths * default / size;
-        if tenths < u64::from(COMPACT_BELOW_MM) * 10 {
-            Self::Compact
-        } else if tenths < u64::from(EXPANDED_FROM_MM) * 10 {
-            Self::Medium
-        } else {
-            Self::Expanded
-        }
-    }
 
     /// Its name, as events carry it: `compact`, `medium` or `expanded`.
     pub const fn name(self) -> &'static str {
@@ -65,20 +47,6 @@ impl ScreenClass {
     }
 }
 
-/// The reader's size of interface text and its default (both in points,
-/// at least 1): how much larger than PaperPaw's measures it is set. The
-/// same where no size is declared (nothing to scale by).
-fn ui_sizes(env: &Env<'_>) -> (u64, u64) {
-    let chosen = env.settings();
-    let Some(crate::SettingValue::Int(default)) = chosen
-        .spec(settings::UI_SIZE.as_str())
-        .map(|spec| &spec.default)
-    else {
-        return (1, 1);
-    };
-    let points = |value: i64| value.clamp(1, 100) as u64;
-    (points(chosen.read(&settings::UI_SIZE)), points(*default))
-}
 
 impl ParamValue for ScreenClass {
     fn to_param(&self) -> String {

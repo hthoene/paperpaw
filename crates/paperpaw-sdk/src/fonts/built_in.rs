@@ -8,7 +8,6 @@ use alloc::boxed::Box;
 use paperpaw_text::Font;
 
 use super::{FontFace, FontSpec};
-use crate::contribution::item::Contribution;
 use crate::id::Id;
 use crate::plugin::{Manifest, Priority, RegisterError};
 
@@ -53,46 +52,6 @@ pub struct BuiltInFonts {
 }
 
 impl BuiltInFonts {
-    /// Registers the translations and the fonts, in the table's order,
-    /// through `add` (the kernel's `Items::add`).
-    pub fn register(
-        &self,
-        add: &mut dyn FnMut(Contribution) -> Result<(), RegisterError>,
-    ) -> Result<(), RegisterError> {
-        let binding = |role: &Id, font: &Id| Contribution::FontBinding {
-            role: role.clone(),
-            font: font.clone(),
-            priority: Priority::DEFAULT,
-        };
-        for source in self.translations {
-            add(Contribution::Translations(Cow::Borrowed(*source)))?;
-        }
-        for font in self.fonts {
-            match font {
-                BuiltInFont::Data { id, role, .. } => {
-                    if let Some(spec) = font.spec() {
-                        add(Contribution::Font(Box::new(spec?)))?;
-                    }
-                    add(binding(role, id))?;
-                }
-                BuiltInFont::Role { role, font } => add(binding(role, font))?,
-                BuiltInFont::File {
-                    id,
-                    path,
-                    family,
-                    bold,
-                    italic,
-                } => add(Contribution::FontFace(Box::new(FontFace::new(
-                    id.clone(),
-                    *path,
-                    *family,
-                    *bold,
-                    *italic,
-                ))))?,
-            }
-        }
-        Ok(())
-    }
 
     /// The font `id` made of its data, e.g. for a screen drawn before the
     /// kernel is built; `None` where the table holds no data of that id.

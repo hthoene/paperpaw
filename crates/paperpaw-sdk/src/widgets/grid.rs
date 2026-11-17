@@ -60,7 +60,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::ui::UiStyle;
-use crate::{Env, Id, Point, Rect};
+use crate::{ Id, Point, Rect};
 
 /// Columns at most, and rows at most.
 pub const MAX_COLUMNS: u8 = 6;
@@ -207,23 +207,6 @@ impl Default for Geometry {
 }
 
 impl Geometry {
-    /// The grid in `area` with `columns` (2 to [`MAX_COLUMNS`]) and `rows`
-    /// (2 to [`MAX_ROWS`]; 0: as many as make cells about as high as wide),
-    /// the style's gap between items. The gap's half is left at the area's
-    /// edges, so an area half a gap wider than the content lines items up
-    /// with it.
-    pub fn new(env: &Env<'_>, area: Rect, columns: u8, rows: u8) -> Self {
-        let columns = columns.clamp(2, MAX_COLUMNS);
-        let cell_w = area.width / u16::from(columns);
-        let rows = match rows {
-            0 => {
-                let target = (u32::from(cell_w) * 85 / 100).max(1);
-                ((u32::from(area.height) + target / 2) / target).clamp(3, u32::from(MAX_ROWS)) as u8
-            }
-            n => n.clamp(2, MAX_ROWS),
-        };
-        Self::of(area, columns, rows, UiStyle::new(env).gap as u16)
-    }
 
     /// The grid in `area` with exactly `columns` and `rows` and `gap`.
     pub fn of(area: Rect, columns: u8, rows: u8, gap: u16) -> Self {

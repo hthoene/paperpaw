@@ -480,87 +480,6 @@ pub(crate) enum Separators {
 }
 
 impl UiStyle {
-    pub fn new(env: &Env<'_>) -> Self {
-        let m = env.metrics();
-        let base = env.settings().read(&settings::UI_SIZE).clamp(6, 40) as f32;
-        let text = m.pt(base);
-        let font = env.fonts().role(fonts::UI.as_str());
-        let line_height = font
-            .as_ref()
-            .map_or(text * 1.25, |f| f.line_metrics(text).line_height);
-        let s = env.settings();
-        let rows = s.read(&settings::UI_ROW).clamp(120, 300) as f32 / 100.0;
-        let small = m.pt(base * 0.75);
-        // A row holds a label on two lines in the smallest size rows set
-        // it in (see `draw_value_row`): where even that does not fit (the
-        // fonts come in steps), rows are as high as two lines of text.
-        // Up to 9 pt the least line is as high as a size above it, so
-        // rows are as high as two of those lines and a little room (never
-        // more than a row of the next size up: rows do not grow as the
-        // text gets smaller); from 10 pt up they are as high as two lines
-        // of small text and 2 mm, as before. At other sizes they stay as
-        // they are.
-        let control_row = line_height * rows;
-        let row = match &font {
-            Some(f) if 2.0 * f.line_metrics(small * 0.7).line_height > control_row => {
-                if base < 10.0 {
-                    control_row
-                        .max(2.0 * f.line_metrics(small * 0.7).line_height + m.tenth_mm(6) as f32)
-                } else {
-                    control_row.max(2.0 * f.line_metrics(small).line_height + m.mm(2) as f32)
-                }
-            }
-            _ => control_row,
-        };
-        // On touch screens a row is as high as a fingertip at the least
-        // (about 7 mm), however small the text is set: the bars grow with
-        // the rows.
-        let finger = if env.device().input.touch { m.mm(7) } else { 0 };
-        let lift = finger.saturating_sub(row as u32);
-        Self {
-            text,
-            small,
-            title: m.pt(base * 1.15),
-            head: m.pt(base * s.read(&settings::UI_TITLE).clamp(100, 200) as f32 / 100.0),
-            row: (row as u32).max(finger),
-            control_row: (control_row as u32).max(finger),
-            header: (line_height * (rows + 0.1)) as u32 + lift,
-            margin: m.mm(s.read(&settings::UI_MARGIN).clamp(0, 15) as u32),
-            gap: m.mm(2),
-            line: m
-                .tenth_mm(s.read(&settings::UI_LINES).clamp(1, 10) as u32)
-                .max(1),
-            dark_header: s.text(settings::UI_HEADER.as_str()) == settings::HEADER_DARK,
-            corner: match settings::CORNERS
-                .iter()
-                .position(|c| *c == s.text(settings::UI_CORNERS.as_str()))
-            {
-                Some(1) => m.tenth_mm(8),
-                Some(2) => m.mm(2),
-                Some(3) => m.tenth_mm(35),
-                _ => 0,
-            },
-            strong: s.text(settings::UI_CONTRAST.as_str()) == settings::CONTRAST_STRONG,
-            pill: settings::CORNERS[2..].contains(&s.text(settings::UI_CORNERS.as_str())),
-            focus: match s.text(settings::UI_FOCUS.as_str()) {
-                settings::FOCUS_RING => Focus::Ring,
-                settings::FOCUS_SOFT => Focus::Soft,
-                _ => Focus::Fill,
-            },
-            separators: match s.text(settings::UI_SEPARATORS.as_str()) {
-                settings::SEPARATORS_INSET => Separators::Inset,
-                settings::SEPARATORS_NONE => Separators::None,
-                _ => Separators::Line,
-            },
-            plain_header: s.text(settings::UI_HEADER.as_str()) == settings::HEADER_PLAIN,
-            cards: s.text(settings::UI_GROUPS.as_str()) == settings::GROUPS_CARDS,
-            grays: env.device().display.format.gray_levels().unwrap_or(256),
-            finger,
-            look: env.look(),
-            palette: Palette::parse(s.text(settings::UI_PALETTE.as_str())),
-            direction: u8::from(env.direction() == paperpaw_lang::Direction::Rtl),
-        }
-    }
 
 
     /// The colour of `ink` in the palette; gray text (notes, headings,
@@ -591,11 +510,6 @@ impl UiStyle {
         }
     }
 
-    /// The UI font, inked as the setting `core.ui-text-curve` says (the
-    /// kernel has made it: [`text_ink`]).
-    pub fn font<'a>(&self, env: &Env<'a>) -> Option<FontHandle<'a>> {
-        env.fonts().role(fonts::UI.as_str())
-    }
 }
 
 

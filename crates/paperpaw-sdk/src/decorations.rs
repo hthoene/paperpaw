@@ -33,8 +33,7 @@ use core::fmt;
 
 use crate::document::Locator;
 use crate::{
-    Color, Env, Id,
-};
+    Color,  Id};
 
 /// A named tone for backgrounds, ink and lines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -390,80 +389,10 @@ impl Decorated {
     }
 }
 
-/// What a decorator does: a page's words in, the ranges it marks out.
-pub(crate) type DecorateFn = fn(&Env<'_>, &PageText<'_>) -> Vec<Decorated>;
-/// What a decorator's marks depend on besides the page (its data, its
-/// settings): readers ask again when it changes.
-pub(crate) type DecoratorSignatureFn = fn(&Env<'_>) -> u64;
 
-/// How a decorator marks a page: by a function, or by the rules of a
-/// [`PatternDecorator`] (a plugin without code's `marks.ini`).
-#[non_exhaustive]
-pub enum Decorate {
-    Fn(DecorateFn),
-    Patterns(PatternDecorator),
-}
 
-impl core::fmt::Debug for Decorate {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Decorate::Fn(_) => f.write_str("Fn"),
-            Decorate::Patterns(patterns) => f.debug_tuple("Patterns").field(patterns).finish(),
-        }
-    }
-}
 
-/// A decorator contribution (see the [module documentation](self)).
-#[non_exhaustive]
-pub struct DecoratorSpec {
-    pub id: Id,
-    /// Translation key of its name.
-    pub title: Cow<'static, str>,
-    /// Decorators run by order, smallest first; the earlier wins an
-    /// aspect two set on the same word.
-    pub order: i16,
-    /// A setting that switches it on and off, if any.
-    pub switch: Option<Id>,
-    /// It hears taps on what it marks
-    /// ([`events::DECORATION_TAPPED`](crate::builtin::events::DECORATION_TAPPED)).
-    pub taps: bool,
-    pub signature: DecoratorSignatureFn,
-    pub decorate: Decorate,
-}
 
-impl DecoratorSpec {
-    /// Decorator `id`, named `title`, marking with `decorate`; order 0,
-    /// always on, no taps, no signature.
-    pub fn new(id: Id, title: impl Into<Cow<'static, str>>, decorate: DecorateFn) -> Self {
-        Self::by(id, title, Decorate::Fn(decorate))
-    }
-
-    fn by(id: Id, title: impl Into<Cow<'static, str>>, decorate: Decorate) -> Self {
-        Self {
-            id,
-            title: title.into(),
-            order: 0,
-            switch: None,
-            taps: false,
-            signature: |_| 0,
-            decorate,
-        }
-    }
-
-    pub fn order(mut self, order: i16) -> Self {
-        self.order = order;
-        self
-    }
-
-    /// What its marks depend on besides the page. Readers ask for it
-    /// whenever they draw a page (on some devices once for every band of
-    /// it): it says it from memory, e.g. a count of the changes to its
-    /// data, without reading the storage.
-    pub fn signature(mut self, signature: DecoratorSignatureFn) -> Self {
-        self.signature = signature;
-        self
-    }
-}
 
 /// Marks words by [patterns](crate::pattern): each found on the page's
 /// text (its words with a space between), the words it touches marked in
@@ -483,92 +412,12 @@ impl PatternDecorator {
         self.rules.is_empty()
     }
 
-    /// A decorator `id`, named `title`, marking by these rules.
-    pub fn into_spec(self, id: Id, title: impl Into<Cow<'static, str>>) -> DecoratorSpec {
-        DecoratorSpec::by(id, title, Decorate::Patterns(self))
-    }
 }
 
 
 
-impl fmt::Debug for DecoratorSpec {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DecoratorSpec")
-            .field("id", &self.id)
-            .field("order", &self.order)
-            .field("taps", &self.taps)
-            .finish_non_exhaustive()
-    }
-}
 
-/// The registered decorators, by order.
-#[derive(Debug, Default)]
-pub struct Decorators {
-    list: Vec<DecoratorSpec>,
-}
 
-impl Decorators {
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Adds `decorator` after those of a smaller or the same order.
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn add(&mut self, decorator: DecoratorSpec) {
-        let at = self
-            .list
-            .iter()
-            .position(|d| d.order > decorator.order)
-            .unwrap_or(self.list.len());
-        self.list.insert(at, decorator);
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.list.is_empty()
-    }
-
-    /// The decorator `id`, e.g. for its name.
-    pub fn get(&self, id: &Id) -> Option<&DecoratorSpec> {
-        self.list.iter().find(|d| d.id == *id)
-    }
-
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn shrink_to_fit(&mut self) {
-        self.list.shrink_to_fit();
-    }
-
-    /// What the marks of all decorators depend on besides the page: which
-    /// are on and their signatures. Readers ask them again when it
-    /// changes.
-    pub fn signature(&self, env: &Env<'_>) -> u64 {
-        // FNV-1a as `paperpaw_digest::fnv1a64` computes it, fed piece by
-        // piece: readers ask on every band, so nothing is allocated.
-        const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-        const PRIME: u64 = 0x0000_0100_0000_01b3;
-        let feed = |hash: u64, bytes: &[u8]| {
-            bytes
-                .iter()
-                .fold(hash, |h, &b| (h ^ u64::from(b)).wrapping_mul(PRIME))
-        };
-        self.list.iter().fold(OFFSET, |hash, decorator| {
-            let on = decorator
-                .switch
-                .as_ref()
-                .is_none_or(|s| env.settings().bool(s.as_str()));
-            let hash = feed(hash, decorator.id.as_str().as_bytes());
-            let hash = feed(hash, &[u8::from(on)]);
-            if on {
-                feed(hash, &(decorator.signature)(env).to_le_bytes())
-            } else {
-                hash
-            }
-        })
-    }
-}
 
 #[cfg(test)]
 mod tests {

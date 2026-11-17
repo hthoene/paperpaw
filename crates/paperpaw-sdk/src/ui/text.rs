@@ -5,53 +5,8 @@ use super::*;
 
 
 
-/// The width of icon `name` at `size` pixels, 0 if it cannot be drawn.
-pub fn icon_width(env: &Env<'_>, name: &str, size: f32) -> f32 {
-    icon(env, name).map_or(0.0, |(font, ch)| font.advance(size, ch))
-}
 
-/// The icon font and the character of icon `name`, where it has a drawing
-/// (its own, or an icon pack's). A semantic icon
-/// ([`icons::BACK`](crate::icons::BACK) and the others) is the icon a
-/// plugin named for it, else its default.
-pub(crate) fn icon<'f>(env: &Env<'f>, name: &str) -> Option<(FontHandle<'f>, char)> {
-    let name = if name.starts_with("core.icon.") {
-        env.menus()
-            .icon(name)
-            .or_else(|| crate::icons::default_of(name))?
-    } else {
-        name
-    };
-    let font = env.fonts().bound(crate::builtin::fonts::ICONS.as_str())?;
-    let ch = crate::icons::char(name)?;
-    font.has_char(ch).then_some((font, ch))
-}
 
-/// Draws icon `name` `size` pixels high from `x` with its ink centred
-/// on the line at `twice_middle` / 2 (twice the y, so that a centre
-/// between two pixels is said exactly): to the pixel where the ink's
-/// height and the line allow, else half a pixel lower. Its width, 0
-/// where it has no drawing.
-pub(crate) fn draw_icon_centred(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    name: &str,
-    size: f32,
-    x: f32,
-    twice_middle: i32,
-    color: Color,
-) -> f32 {
-    let Some((font, ch)) = icon(env, name) else {
-        return 0.0;
-    };
-    let mut text = [0u8; 4];
-    let text = ch.encode_utf8(&mut text);
-    let Some((top, bottom)) = font.ink(size, text) else {
-        return font.advance(size, ch);
-    };
-    let baseline = (twice_middle - top - bottom + 1).div_euclid(2);
-    font.draw(canvas, size, x, baseline, text, color)
-}
 
 
 

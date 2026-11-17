@@ -3,7 +3,7 @@
 //! [`WidgetSpec`](super::WidgetSpec)s. The kernel's own screens that name
 //! widgets (the editor of lists of widgets) ask for them through a lookup
 //! the kernel sets; without one they know the registered widgets only.
-use super::{Widgets, base};
+use super::base;
 use crate::Id;
 use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
 
