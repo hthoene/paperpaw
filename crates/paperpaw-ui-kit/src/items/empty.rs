@@ -189,7 +189,7 @@ pub(super) fn draw_progress(
 }
 
 impl ItemList {
-    /// Asks for the bar of the [`Footer::Progress`] drawn last, and its label,
+    /// Asks for the bar of the [`super::Footer::Progress`] drawn last, and its label,
     /// to be drawn again alone (a partial refresh of that room): `false`, and
     /// nothing asked, where the last frame drew none.
     ///
@@ -211,7 +211,7 @@ impl ItemList {
     }
 }
 
-/// What [`Footer::Progress`] shows.
+/// What [`super::Footer::Progress`] shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Progress<'a> {
     /// Said larger.
@@ -231,6 +231,6 @@ pub(crate) enum Spot {
     None,
     /// The room above the rows.
     Head(Rect),
-    /// The bar and label of a [`Footer::Progress`] (kept where there is no head).
+    /// The bar and label of a [`super::Footer::Progress`] (kept where there is no head).
     Band(Rect),
 }
