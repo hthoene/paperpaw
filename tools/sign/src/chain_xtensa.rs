@@ -87,6 +87,11 @@
 //!                                     `paperpaw_plugin_*`, 8 otherwise): `max`
 //!                                     is the count of the last CI scan
 //! include <file>                      the lines of a file beside the budget
+//! allow jx <caller> <why>             the caller has a `jx` (a switch) whose jump
+//!                                     table no `l32r` literal of the function
+//!                                     gives: the scan cannot prove it knows
+//!                                     where the jump goes, and fails unless a
+//!                                     person has read it (a warning when stale)
 //! allow sp <caller> <why>             the caller changes the stack pointer
 //!                                     other than by `entry`
 //! allow nosize <name> <why>           a function with no size (assembly)
@@ -165,6 +170,9 @@ pub enum Allow {
     Call { caller: String, callee: String },
     /// `caller` has at most `count` + [`INDIRECT_MARGIN`] calls through a register.
     Indirect { caller: String, count: u32 },
+    /// `caller` has a `jx` whose jump table this scan cannot tie to the function
+    /// through an `l32r` literal of its own (`allow jx`, #283): read by hand.
+    Jx { caller: String },
     /// `caller` changes `a1` other than by `entry`.
     Sp { caller: String },
     /// `name` is assembly with no size.
@@ -349,6 +357,12 @@ impl Budget {
                 ["allow", "rom" | "indirect-in", ..] => budget
                     .allow
                     .push(family::parse_line(&words).ok_or_else(bad)?),
+                ["allow", "jx", caller, why @ ..] if !why.is_empty() => budget.allow.push((
+                    Allow::Jx {
+                        caller: (*caller).to_string(),
+                    },
+                    why.join(" "),
+                )),
                 ["allow", "sp", caller, why @ ..] if !why.is_empty() => budget.allow.push((
                     Allow::Sp {
                         caller: (*caller).to_string(),
@@ -490,6 +504,9 @@ struct Reads {
     forms: BTreeMap<String, u32>,
     /// An `entry` of a register other than `a1`.
     entry_other: Option<u32>,
+    /// The first `jx` of a function none of whose `l32r` literals gives a jump
+    /// table (#283): where it goes is not proven.
+    untied_jx: Option<u32>,
 }
 
 fn sext18(w: u32) -> i64 {
@@ -654,8 +671,49 @@ fn read_function(code: &[u8], start_addr: u32, around: &Around<'_>) -> Reads {
         }
         at += len;
     }
-    resolve(&insns, &sites, start_addr, around, &mut reads);
+    let tied = tied_tables(&insns, around);
+    if tied.is_empty()
+        && let Some(jx) = insns.iter().find(|i| i.is_jx())
+    {
+        reads.untied_jx = Some(jx.pc);
+    }
+    resolve(&insns, &sites, start_addr, around, &tied, &mut reads);
     reads
+}
+
+/// The jump tables a function itself names (#283): the words from the address
+/// an `l32r` literal of the function holds, for as long as each is the address
+/// of an instruction of the function. A switch's table base is loaded by an
+/// `l32r` of the function (there is no `LITBASE`), whether the `jx` follows at
+/// once or after a spill, so this finds a table of any length, which the
+/// image-wide search ([`Image::pointed`]) does not (it takes runs of four or
+/// more). A table of the function's own start only is a function pointer, not
+/// a table. Empty: no table is tied to the function.
+fn tied_tables(insns: &[Insn], around: &Around<'_>) -> Vec<u32> {
+    if !insns.iter().any(|i| i.is_jx()) {
+        return Vec::new();
+    }
+    let start = insns.first().map_or(0, |i| i.pc);
+    let starts: BTreeSet<u32> = insns.iter().map(|i| i.pc).collect();
+    let mut found = BTreeSet::new();
+    for i in insns {
+        let Some((_, literal)) = i.l32r() else {
+            continue;
+        };
+        let Some(base) = (around.word)(literal) else {
+            continue;
+        };
+        let mut run = Vec::new();
+        let mut at = base;
+        while let Some(w) = (around.word)(at).filter(|w| starts.contains(w)) {
+            run.push(w);
+            at = at.wrapping_add(4);
+        }
+        if run.iter().any(|&w| w != start) {
+            found.extend(run);
+        }
+    }
+    found.into_iter().collect()
 }
 
 /// What a register holds at a point of a function, for [`resolve`]: the
@@ -696,6 +754,7 @@ fn resolve(
     sites: &[usize],
     start_addr: u32,
     around: &Around<'_>,
+    tied: &[u32],
     reads: &mut Reads,
 ) {
     if sites.is_empty() {
@@ -722,6 +781,8 @@ fn resolve(
         };
         entries.push(to);
     }
+    // The words of the tables the function itself loads, of any length.
+    entries.extend(tied.iter().filter_map(|p| index.get(p).copied()));
     // The function's own start does not count as an address to jump to: a
     // vtable or a function pointer holds it, a jump table does not. Jump
     // tables are taken to hold absolute addresses of the instructions.
@@ -1287,6 +1348,18 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
             f.shown
         ));
     }
+    if let Some(pc) = reads.untied_jx
+        && !allowed(
+            budget,
+            used,
+            &|a| matches!(a, Allow::Jx { caller: c } if f.is(c)),
+        )
+    {
+        report.problems.push(format!(
+            "`{}` has a `jx` ({pc:#x}) and no `l32r` literal of its own gives a jump table: where it jumps is not proven (read it, then name it with `allow jx <function> <why>`)",
+            f.shown
+        ));
+    }
     if let Some((pc, what)) = reads.narrow_call {
         report.problems.push(format!(
             "`{}` calls with {what} ({pc:#x}): only call8 and call12 keep the band's bound",
@@ -1343,7 +1416,10 @@ fn report_unused(budget: &Budget, used: &[bool], report: &mut Report) {
     for (n, (allow, _)) in budget.allow.iter().enumerate() {
         if !used[n] {
             let line = format!("an `allow` line matches nothing any more: {allow:?}: remove it");
-            if matches!(allow, Allow::Call { .. } | Allow::Indirect { .. }) {
+            if matches!(
+                allow,
+                Allow::Call { .. } | Allow::Indirect { .. } | Allow::Jx { .. }
+            ) {
                 report.warnings.push(line);
             } else {
                 report.problems.push(line);
@@ -1419,6 +1495,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
             Allow::Rom { .. } | Allow::IndirectIn { .. } => continue,
             Allow::Call { caller: n, .. }
             | Allow::Sp { caller: n }
+            | Allow::Jx { caller: n }
             | Allow::Indirect { caller: n, .. }
             | Allow::Form { caller: n, .. }
             | Allow::NoSize { name: n } => n,
