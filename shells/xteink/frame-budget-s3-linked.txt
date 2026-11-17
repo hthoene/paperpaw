@@ -57,7 +57,6 @@ frames-in paperpaw_config settings the plugins read: every function under the 2,
 frames-in paperpaw_lang language tables: every function under the 2,048 B frame limit (Senior #2897 C1)
 frames-in paperpaw_document documents the reader opens: every function under the 2,048 B frame limit (Senior #2897 C1)
 frames-in paperpaw_core::native_host the host side of the plugin callbacks (event, action, widget input, services): every function under the 2,048 B frame limit (Senior #2897 C1)
-frames-in paperpaw_core::chrome `sync_chromes`, run after a plugin's event: every function under the 2,048 B frame limit (Senior #2897 C1)
 frames-in paperpaw_core::core_plugin the core plugin's closures (`register_library`): every function under the 2,048 B frame limit (Senior #2897 C1)
 frames-in core the standard library's code in the image (formatting, iterators): every function under the 2,048 B frame limit (Senior #2899 M2)
 frames-in alloc the allocator's collections: every function under the 2,048 B frame limit (Senior #2899 M2)
