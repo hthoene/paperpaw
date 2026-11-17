@@ -138,9 +138,14 @@ pub(crate) fn texts(
                 &i18n.format("core.plugin.uses", &[("keys", Arg::Str(&keys))]),
             )?;
         }
+        if question.old_secrets {
+            add(&mut body, i18n.tr("core.plugin.old-secrets"))?;
+        }
     }
     let (title, yes) = if removal {
         ("core.plugin.title.remove", "core.plugin.yes.remove")
+    } else if question.old_secrets {
+        ("core.plugin.title", "core.plugin.yes.erase")
     } else {
         ("core.plugin.title", "core.plugin.yes")
     };

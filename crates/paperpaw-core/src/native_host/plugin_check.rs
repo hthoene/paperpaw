@@ -231,10 +231,9 @@ impl PluginCheck {
             Err(why) => return self.end(why),
         };
         let id = manifest.id.as_str();
-        if id == "core"
-            || env.built_ins.index_of(id).is_some()
-            || super::plugin_unforgotten::has(env.storage, id)
-        {
+        // An id whose secrets stayed after a removal is checked as any other:
+        // its install asks to erase them first (`plugin_install`).
+        if id == "core" || env.built_ins.index_of(id).is_some() {
             return self.end(reason::ID_TAKEN);
         }
         self.manifest = Some(manifest);

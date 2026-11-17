@@ -37,6 +37,7 @@ fn question() -> PluginQuestion {
             count: 0,
             more: false,
         },
+        old_secrets: false,
     }
 }
 
