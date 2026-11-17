@@ -237,12 +237,12 @@ setting core.group.reading | vocabulary.sd-folder Text default=Text("Flashcards"
 setting core.group.reading-aids | aids.bold-beginnings Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=aids.setting.bold-beginnings
 setting core.group.reading-aids | aids.replace Text default=Text("") Advanced scoped=false guarded=false secret=false kept=true title=aids.setting.replace
 setting core.group.reading-aids | aids.pictures Choice(Fixed(["aids.pictures.show", "aids.pictures.caption", "aids.pictures.hide"])) default=Text("aids.pictures.show") Basic scoped=false guarded=false secret=false kept=false title=aids.setting.pictures
-setting core.group.reading-aloud | core.voice Choice(Owned(["core.voice.system"])) default=Text("core.voice.system") Basic scoped=false guarded=false secret=false kept=false title=core.setting.voice
+setting core.group.reading-aloud | core.voice Choice(Fixed(["core.voice.system"])) default=Text("core.voice.system") Basic scoped=false guarded=false secret=false kept=false title=core.setting.voice
 setting core.group.reading-aloud | reader.aloud-speed Int { min: 50, max: 300 } default=Int(100) Basic scoped=false guarded=false secret=false kept=false title=reader.setting.aloud-speed
 setting core.group.reading-aloud | reader.aloud-highlight Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=reader.setting.aloud-highlight
 setting core.group.reading-aloud | reader.aloud-turn-pages Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=reader.setting.aloud-turn-pages
 setting core.group.reading-aloud | reader.aloud-timer Choice(Fixed(["reader.aloud-timer.off", "reader.aloud-timer.15", "reader.aloud-timer.30", "reader.aloud-timer.60", "reader.aloud-timer.90"])) default=Text("reader.aloud-timer.off") Basic scoped=false guarded=false secret=false kept=false title=reader.setting.aloud-timer
-setting core.group.reading-behaviour | core.reading-app Choice(Owned(["core.reading-app.default"])) default=Text("core.reading-app.default") Basic scoped=false guarded=false secret=false kept=false title=core.setting.reading-app
+setting core.group.reading-behaviour | core.reading-app Choice(Fixed(["core.reading-app.default"])) default=Text("core.reading-app.default") Basic scoped=false guarded=false secret=false kept=false title=core.setting.reading-app
 setting core.group.reading-behaviour | core.footnotes Choice(Fixed(["core.footnotes.popup", "core.footnotes.jump"])) default=Text("core.footnotes.popup") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.footnotes
 setting core.group.reading-behaviour | reader.open-last Bool default=Bool(true) Advanced scoped=false guarded=false secret=false kept=false title=reader.setting.open-last
 setting core.group.reading-behaviour | reader.auto-turn-seconds Int { min: 5, max: 600 } default=Int(30) Advanced scoped=false guarded=false secret=false kept=false title=reader.setting.auto-turn-seconds
@@ -274,7 +274,7 @@ setting core.group.reading-layout | core.indent Bool default=Bool(true) Basic sc
 setting core.group.reading-layout | core.paragraph-spacing Bool default=Bool(false) Basic scoped=true guarded=false secret=false kept=false title=core.setting.paragraph-spacing
 setting core.group.reading-layout | core.widows Int { min: 1, max: 4 } default=Int(1) Advanced scoped=true guarded=false secret=false kept=false title=core.setting.widows
 setting core.group.reading-layout | core.orphans Int { min: 1, max: 4 } default=Int(1) Advanced scoped=true guarded=false secret=false kept=false title=core.setting.orphans
-setting core.group.reading-layout | core.page-frame Choice(Owned(["core.page-frame.single"])) default=Text("core.page-frame.single") Basic scoped=true guarded=false secret=false kept=false title=core.setting.page-frame
+setting core.group.reading-layout | core.page-frame Choice(Fixed(["core.page-frame.single"])) default=Text("core.page-frame.single") Basic scoped=true guarded=false secret=false kept=false title=core.setting.page-frame
 setting core.group.reading-layout | core.line-breaking Choice(Fixed(["core.line-breaking.balanced", "core.line-breaking.fast"])) default=Text("core.line-breaking.balanced") Advanced scoped=true guarded=false secret=false kept=false title=core.setting.line-breaking
 setting core.group.reading-layout | core.korean-breaks Choice(Fixed(["core.korean-breaks.syllable", "core.korean-breaks.word"])) default=Text("core.korean-breaks.syllable") Advanced scoped=true guarded=false secret=false kept=false title=core.setting.korean-breaks
 setting core.group.reading-layout | core.hanging-punctuation Bool default=Bool(false) Advanced scoped=true guarded=false secret=false kept=false title=core.setting.hanging-punctuation
@@ -1040,93 +1040,93 @@ action vocabulary.open | title=vocabulary.title sealed=false runs-itself=true na
 action vocabulary.scan-card | title=vocabulary.sd.scan sealed=false runs-itself=true native=Some(18)
 action widgets.todo.open | title=widgets.todo sealed=false runs-itself=true native=Some(11)
 action wifi.open | title=wifi.title sealed=false runs-itself=true native=Some(1)
-screen about.screen | title=about.title hints=Shown
-screen bluetooth.page | title=bluetooth.title hints=Shown
-screen bluetooth.search | title=bluetooth.add hints=Shown
-screen core.add-widget | title=core.widgets.edit.add-to-list hints=Shown
-screen core.choice-dialog | title=core.choice hints=Shown
-screen core.confirm-dialog | title=core.confirm.screen hints=Shown
-screen core.finishing-update | title=core.finishing-update.title hints=Shown
-screen core.firmware-confirm | title=core.firmware.title hints=Shown
-screen core.folder-editor | title=core.setting.library-folder hints=Shown
-screen core.low-memory | title=core.low-memory.title hints=Shown
-screen core.notice-box | title=core.notice-box hints=Shown
-screen core.placeholder | title=core.screen.placeholder hints=Shown
-screen core.status-items | title=core.status.choose hints=Shown
-screen core.status-lines | title=core.status.choose hints=Shown
-screen core.widget-list | title=core.widgets.edit.screen hints=Shown
-screen file-manager.browser | title=file-manager.title hints=Shown
-screen files.browser | title=files.title hints=Shown
-screen files.choose-folder | title=files.choose.title hints=Shown
-screen files.info | title=files.info hints=Shown
-screen files.names | title=files.title hints=Shown
-screen files.shelf | title=files.title hints=Shown
-screen files.shelves | title=files.shelves hints=Shown
-screen fonts-browser.font | title=fonts-browser.title hints=Shown
-screen fonts-browser.list | title=fonts-browser.title hints=Shown
-screen help.again | title=help.setting.again hints=Shown
-screen help.overlay | title=help.title hints=Shown
-screen home.add-widget | title=home.edit.add hints=Shown
-screen home.dashboard | title=home.title hints=Shown
-screen home.drawer | title=home.drawer hints=Shown
-screen home.status-items | title=home.setting.footer-items hints=Shown
-screen keyboard.choose | title=keyboard.setting.layouts hints=Shown
-screen keyboard.screen | title=keyboard.title hints=Shown
-screen lock.screen | title=lock.setting.kind hints=Shown
-screen menu.list | title=menu.title hints=Shown
-screen menu.panel | title=menu.title hints=Shown
-screen news.list | title=news.title hints=Shown
-screen notes-vault.list | title=notes-vault.title hints=Shown
-screen notes-vault.screen | title=notes-vault.title hints=Shown
-screen notes-vault.tags | title=notes-vault.tags hints=Shown
-screen opds.browse | title=opds.title hints=Shown
-screen opds.catalogs | title=opds.title hints=Shown
-screen opds.edit | title=opds.title hints=Shown
-screen picture-home.add | title=picture-home.add hints=Shown
-screen picture-home.dashboard | title=picture-home.title hints=Shown
-screen picture-home.pick | title=picture-home.setting.picture hints=Shown
-screen picture-home.status-items | title=picture-home.setting.bar hints=Shown
-screen plugin-manager.list | title=plugin-manager.title hints=Shown
-screen plugin-manager.screens | title=plugin-manager.screens hints=Shown
-screen reader.annotations | title=reader.annotations hints=Shown
-screen reader.footnote | title=reader.title hints=Shown
-screen reader.screen | title=reader.title hints=Shown
-screen reader.search-results | title=reader.search hints=Shown
-screen reader.skim-screen | title=reader.skim hints=Shown
-screen reader.toc | title=reader.toc hints=Shown
-screen settings.choose | title=settings.title hints=Shown
-screen settings.group | title=settings.title hints=Shown
-screen settings.list | title=settings.title hints=Shown
-screen settings.search | title=settings.search hints=Shown
-screen settings.secret | title=settings.secrets hints=Shown
-screen settings.secrets | title=settings.secrets hints=Shown
-screen settings.themes | title=settings.theme hints=Shown
-screen setup.guide | title=setup.title hints=Shown
-screen sleep.pick-overlay | title=sleep.setting.overlay-picture hints=Shown
-screen sleep.screen | title=sleep.title hints=Shown
-screen store.fetch | title=store.fetch.title hints=Shown
-screen store.letters | title=store.letter hints=Shown
-screen store.list | title=store.title hints=Shown
-screen store.offer | title=store.offer.title hints=Shown
-screen store.plugin | title=store.title hints=Shown
-screen store.shots | title=store.shots hints=Shown
-screen store.source | title=store.source hints=Shown
-screen store.view | title=store.title hints=Shown
-screen transfer.cable | title=transfer.cable.title hints=Shown
-screen transfer.phone | title=transfer.phone.title hints=Shown
-screen transfer.screen | title=transfer.title hints=Shown
-screen update.page | title=update.title hints=Shown
-screen vocabulary.cards | title=vocabulary.cards.title hints=Shown
-screen vocabulary.list | title=vocabulary.title hints=Shown
-screen vocabulary.phone | title=vocabulary.phone.title hints=Shown
-screen vocabulary.review | title=vocabulary.review.title hints=Shown
-screen vocabulary.sd-card | title=vocabulary.sd.title hints=Shown
-screen vocabulary.sd-menu | title=vocabulary.sd.title hints=Shown
-screen vocabulary.sleep-card | title=vocabulary.sleep-card hints=Shown
-screen widgets.todo.list | title=widgets.todo hints=Shown
-screen wifi.networks | title=wifi.networks.title hints=Shown
-screen wifi.page | title=wifi.title hints=Shown
-screen wifi.phone | title=wifi.phone.title hints=Shown
+screen about.screen | title=about.title
+screen bluetooth.page | title=bluetooth.title
+screen bluetooth.search | title=bluetooth.add
+screen core.add-widget | title=core.widgets.edit.add-to-list
+screen core.choice-dialog | title=core.choice
+screen core.confirm-dialog | title=core.confirm.screen
+screen core.finishing-update | title=core.finishing-update.title
+screen core.firmware-confirm | title=core.firmware.title
+screen core.folder-editor | title=core.setting.library-folder
+screen core.low-memory | title=core.low-memory.title
+screen core.notice-box | title=core.notice-box
+screen core.placeholder | title=core.screen.placeholder
+screen core.status-items | title=core.status.choose
+screen core.status-lines | title=core.status.choose
+screen core.widget-list | title=core.widgets.edit.screen
+screen file-manager.browser | title=file-manager.title
+screen files.browser | title=files.title
+screen files.choose-folder | title=files.choose.title
+screen files.info | title=files.info
+screen files.names | title=files.title
+screen files.shelf | title=files.title
+screen files.shelves | title=files.shelves
+screen fonts-browser.font | title=fonts-browser.title
+screen fonts-browser.list | title=fonts-browser.title
+screen help.again | title=help.setting.again
+screen help.overlay | title=help.title
+screen home.add-widget | title=home.edit.add
+screen home.dashboard | title=home.title
+screen home.drawer | title=home.drawer
+screen home.status-items | title=home.setting.footer-items
+screen keyboard.choose | title=keyboard.setting.layouts
+screen keyboard.screen | title=keyboard.title
+screen lock.screen | title=lock.setting.kind
+screen menu.list | title=menu.title
+screen menu.panel | title=menu.title
+screen news.list | title=news.title
+screen notes-vault.list | title=notes-vault.title
+screen notes-vault.screen | title=notes-vault.title
+screen notes-vault.tags | title=notes-vault.tags
+screen opds.browse | title=opds.title
+screen opds.catalogs | title=opds.title
+screen opds.edit | title=opds.title
+screen picture-home.add | title=picture-home.add
+screen picture-home.dashboard | title=picture-home.title
+screen picture-home.pick | title=picture-home.setting.picture
+screen picture-home.status-items | title=picture-home.setting.bar
+screen plugin-manager.list | title=plugin-manager.title
+screen plugin-manager.screens | title=plugin-manager.screens
+screen reader.annotations | title=reader.annotations
+screen reader.footnote | title=reader.title
+screen reader.screen | title=reader.title
+screen reader.search-results | title=reader.search
+screen reader.skim-screen | title=reader.skim
+screen reader.toc | title=reader.toc
+screen settings.choose | title=settings.title
+screen settings.group | title=settings.title
+screen settings.list | title=settings.title
+screen settings.search | title=settings.search
+screen settings.secret | title=settings.secrets
+screen settings.secrets | title=settings.secrets
+screen settings.themes | title=settings.theme
+screen setup.guide | title=setup.title
+screen sleep.pick-overlay | title=sleep.setting.overlay-picture
+screen sleep.screen | title=sleep.title
+screen store.fetch | title=store.fetch.title
+screen store.letters | title=store.letter
+screen store.list | title=store.title
+screen store.offer | title=store.offer.title
+screen store.plugin | title=store.title
+screen store.shots | title=store.shots
+screen store.source | title=store.source
+screen store.view | title=store.title
+screen transfer.cable | title=transfer.cable.title
+screen transfer.phone | title=transfer.phone.title
+screen transfer.screen | title=transfer.title
+screen update.page | title=update.title
+screen vocabulary.cards | title=vocabulary.cards.title
+screen vocabulary.list | title=vocabulary.title
+screen vocabulary.phone | title=vocabulary.phone.title
+screen vocabulary.review | title=vocabulary.review.title
+screen vocabulary.sd-card | title=vocabulary.sd.title
+screen vocabulary.sd-menu | title=vocabulary.sd.title
+screen vocabulary.sleep-card | title=vocabulary.sleep-card
+screen widgets.todo.list | title=widgets.todo
+screen wifi.networks | title=wifi.networks.title
+screen wifi.page | title=wifi.title
+screen wifi.phone | title=wifi.phone.title
 slot core.home | title=core.slot.home bound=Some("picture-home.dashboard")
 slot core.library | title=core.slot.library bound=Some("files.browser")
 slot core.menu | title=core.slot.menu bound=Some("menu.list")
@@ -1239,6 +1239,7 @@ menu-merged core.reader-more | reader.auto-turn by=reader order=17 kind=0 flags=
 menu-merged core.reader-more | reader.select-text by=reader order=20 kind=0 flags=0x22
 menu-merged core.reader-more | reader.links by=reader order=25 kind=0 flags=0x22
 menu-merged core.reader-more | reader.next-status-line by=reader order=30 kind=0 flags=0x22
+menu-merged core.reader-more | vocabulary.mark by=vocabulary order=40 kind=1 flags=0x62
 menu-merged core.reader-more | core.settings by=reader order=50 kind=0 flags=0x22
 menu-merged core.reader-panel | core.scope-only by=reader order=1 kind=1 flags=0x62
 menu-merged core.reader-panel | core.reading-font by=reader order=5 kind=1 flags=0x22
@@ -1343,12 +1344,7 @@ font | fonts-default.icons
 font | fonts-default.literata
 font-family | PaperPaw Sans
 font-family | Literata
-text-filters | TextFilters { filters: [] }
-input-filters | InputFilters { filters: [] }
-refresh-filters | RefreshFilters { filters: [] }
 decorators | Decorators { list: [] }
-page-layers | PageLayers { layers: [], frames: [] }
-lookup | LookupProviders { list: [] }
 book-data | BookData { folder: ".paperpaw/annotations", prefix: "", kind: UserData }
 book-data | BookData { folder: ".paperpaw/positions", prefix: "", kind: UserData }
 book-data | BookData { folder: ".paperpaw/readers", prefix: "", kind: UserData }
@@ -2527,6 +2523,7 @@ native MenuEntry transfer | MenuEntry(MenuEntry { menu: "core.tools", item: "tra
 native MenuEntry update | MenuEntry(MenuEntry { menu: "update.group", item: "update.open", order: 0, place: 0, anchor: "" })
 native MenuEntry vocabulary | MenuEntry(MenuEntry { menu: "core.tools", item: "vocabulary.open", order: 36, place: 0, anchor: "" })
 native MenuEntry vocabulary | MenuEntry(MenuEntry { menu: "core.tools", item: "vocabulary.flash-cards", order: 36, place: 0, anchor: "" })
+native MenuEntry vocabulary | MenuEntry(MenuEntry { menu: "core.reader-more", item: "vocabulary.mark", order: 40, place: 0, anchor: "" })
 native Icon about | IconSpec(IconSpec { item: "about.open", icon: "info-circle" })
 native Icon bluetooth | IconSpec(IconSpec { item: "bluetooth.group", icon: "bluetooth" })
 native Icon bluetooth | IconSpec(IconSpec { item: "bluetooth.open", icon: "bluetooth" })
@@ -2583,6 +2580,7 @@ native Icon update | IconSpec(IconSpec { item: "update.check", icon: "cloud-down
 native Icon update | IconSpec(IconSpec { item: "update.open", icon: "circle-arrow-up" })
 native Icon vocabulary | IconSpec(IconSpec { item: "vocabulary.open", icon: "vocabulary" })
 native Icon vocabulary | IconSpec(IconSpec { item: "vocabulary.flash-cards", icon: "stack-2" })
+native Icon vocabulary | IconSpec(IconSpec { item: "vocabulary.mark", icon: "vocabulary" })
 native Icon widgets | IconSpec(IconSpec { item: "widgets.todo.open", icon: "list-check" })
 native Icon wifi | IconSpec(IconSpec { item: "wifi.group", icon: "wifi" })
 native Icon wifi | IconSpec(IconSpec { item: "wifi.open", icon: "wifi" })

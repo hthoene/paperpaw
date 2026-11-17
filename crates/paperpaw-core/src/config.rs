@@ -112,11 +112,10 @@ impl Kernel {
     /// plugin hears [`events::SETTING_CHANGED`] (it is not made for
     /// nobody).
     pub(crate) fn setting_text_if_heard(&self, id: &Id) -> Option<String> {
-        let heard = !self.event_observers.is_empty()
-            || self
-                .subscriptions
-                .iter()
-                .any(|(event, ..)| *event == events::SETTING_CHANGED);
+        let heard = self
+            .subscriptions
+            .iter()
+            .any(|(event, ..)| *event == events::SETTING_CHANGED);
         let value = self.shared.settings.get(id.as_str()).filter(|_| heard)?;
         Some(value.to_config_text())
     }

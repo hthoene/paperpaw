@@ -360,20 +360,10 @@ proptest! {
     }
 }
 
-/// Sets looks for the parts of screens; its home screen tells which look
-/// its style has.
-struct Looks {
-    name: &'static str,
-    looks: Vec<(
-        &'static paperpaw_core::sdk::ui::look::Painters,
-        paperpaw_core::sdk::Priority,
-    )>,
-    seen: Rc<std::cell::RefCell<String>>,
-}
-
+/// A screen that keeps which look its style has.
 struct LookScreen(Rc<std::cell::RefCell<String>>);
 
-impl paperpaw_core::sdk::Screen for LookScreen {
+impl paperpaw_core::Layer for LookScreen {
     fn draw(&mut self, _: &mut paperpaw_core::sdk::Canvas<'_>, env: &paperpaw_core::sdk::Env<'_>) {
         let style = paperpaw_core::sdk::ui::UiStyle::new(env);
         *self.0.borrow_mut() = format!("{:?}", style.look());
@@ -388,65 +378,6 @@ impl paperpaw_core::sdk::Screen for LookScreen {
     }
 }
 
-impl Looks {
-    fn manifest(&self) -> Manifest {
-        common::manifest(self.name)
-    }
-}
-
-fn looks_items(kept: Looks) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
-    move |r| {
-        for (painters, priority) in &kept.looks {
-            r.set_ui_look(painters, *priority)?;
-        }
-        if kept.name == "looks-a" {
-            let screen = paperpaw_core::sdk::Id::new_static("looks-a.home");
-            let seen = kept.seen.clone();
-            r.add_screen(paperpaw_core::sdk::ScreenSpec::new(
-                screen.clone(),
-                "looks-a.home",
-                Box::new(move |_, _| Box::new(LookScreen(seen.clone()))),
-            ))?;
-            r.bind_slot(slots::HOME, screen, paperpaw_core::sdk::Priority(1000))?;
-        }
-        Ok(())
-    }
-}
-
-#[test]
-fn the_look_of_the_highest_priority_is_used_of_equal_ones_the_later() {
-    use paperpaw_core::sdk::Priority;
-    use paperpaw_core::sdk::ui::look::{FocusPart, PaintCx, Painters, SwitchPart};
-    fn switch(_: &mut PaintCx<'_, '_>, _: &SwitchPart) -> bool {
-        true
-    }
-    fn focus(_: &mut PaintCx<'_, '_>, _: &FocusPart) -> bool {
-        true
-    }
-    static PLAIN: Painters = Painters::new();
-    static SWITCHES: Painters = Painters::new().switch(switch);
-    static FOCUS: Painters = Painters::new().focus(focus);
-    let seen = Rc::new(std::cell::RefCell::new(String::new()));
-    let looks = |name, looks| Looks {
-        name,
-        looks,
-        seen: seen.clone(),
-    };
-    let mut kernel = Kernel::builder(DEVICE)
-        .looks_plugin(looks("looks-a", vec![(&PLAIN, Priority::DEFAULT)]))
-        .looks_plugin(looks("looks-b", vec![(&SWITCHES, Priority::PREFERRED)]))
-        .looks_plugin(looks(
-            "looks-c",
-            vec![(&FOCUS, Priority::PREFERRED), (&PLAIN, Priority::FALLBACK)],
-        ))
-        .storage(MemoryStorage::new())
-        .build()
-        .unwrap();
-    kernel.start(Instant(0));
-    common::render(&mut kernel);
-    assert_eq!(*seen.borrow(), format!("{:?}", FOCUS));
-}
-
 /// Fills the choice slot with a screen of its own.
 struct Asker {
     bind: bool,
@@ -457,7 +388,7 @@ fn asker(kept: Asker) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         if kept.bind {
             let screen = paperpaw_core::sdk::Id::new_static("asker.choice");
             let seen = Rc::new(std::cell::RefCell::new(String::new()));
-            r.add_screen(paperpaw_core::sdk::ScreenSpec::new(
+            r.add_layer(paperpaw_core::LayerSpec::new(
                 screen.clone(),
                 "asker.choice",
                 Box::new(move |_, _| Box::new(LookScreen(seen.clone()))),
@@ -689,7 +620,7 @@ struct Focused {
 
 struct TwoButtons(usize, bool);
 
-impl paperpaw_core::sdk::Screen for TwoButtons {
+impl paperpaw_core::Layer for TwoButtons {
     fn draw(
         &mut self,
         canvas: &mut paperpaw_core::sdk::Canvas<'_>,
@@ -725,7 +656,7 @@ impl paperpaw_core::sdk::Screen for TwoButtons {
 fn focused(kept: Focused) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let screen = paperpaw_core::sdk::Id::new_static("focused.home");
-        r.add_screen(paperpaw_core::sdk::ScreenSpec::new(
+        r.add_layer(paperpaw_core::LayerSpec::new(
             screen.clone(),
             "focused.home",
             {
@@ -861,55 +792,6 @@ fn passwords_typed_reach_the_asker_alone() {
     assert_eq!(*heard.borrow(), ["Ann"]);
 }
 
-/// An input filter that counts what it sees.
-struct Watcher {
-    seen: Rc<std::cell::Cell<u32>>,
-}
-
-fn watcher(kept: Watcher) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
-    move |r| {
-        let seen = kept.seen.clone();
-        r.add_input_filter(paperpaw_core::sdk::filters::InputFilterSpec::new(
-            paperpaw_core::sdk::Id::new_static("watcher.filter"),
-            "watcher.filter",
-            Box::new(move |_, _| {
-                seen.set(seen.get() + 1);
-                paperpaw_core::sdk::filters::InputVerdict::Pass
-            }),
-        ))
-    }
-}
-
-/// What [`watcher`] registers under.
-fn watcher_manifest() -> Manifest {
-    common::manifest("watcher")
-}
-
-/// While a PIN or a password is entered, other plugins' input filters
-/// see none of its keys.
-#[test]
-fn input_filters_see_no_key_of_a_secret() {
-    for secret in [false, true] {
-        let seen = Rc::new(std::cell::Cell::new(0));
-        let mut kernel = Kernel::builder(DEVICE)
-            .items(
-                focused_manifest(),
-                focused(Focused {
-                    heard: Rc::new(std::cell::RefCell::new(Vec::new())),
-                    secret,
-                }),
-            )
-            .items(watcher_manifest(), watcher(Watcher { seen: seen.clone() }))
-            .storage(MemoryStorage::new())
-            .build()
-            .unwrap();
-        kernel.start(Instant(0));
-        common::render(&mut kernel);
-        common::press(&mut kernel, 100, "down");
-        assert_eq!(seen.get() > 0, !secret, "secret {secret}");
-    }
-}
-
 static VAULT_SETTINGS: [paperpaw_core::sdk::SettingSpec; 3] = [
     paperpaw_core::sdk::SettingSpec::text(
         "vault.key",
@@ -1037,11 +919,11 @@ fn keys() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         use paperpaw_core::sdk::builtin::slots;
         let screen = paperpaw_core::sdk::Id::new_static("keys.screen");
-        r.add_screen(paperpaw_core::sdk::ScreenSpec::new(
+        r.add_layer(paperpaw_core::LayerSpec::new(
             screen.clone(),
             "keys",
             Box::new(|_, asked| {
-                Box::new(Answering(Some(asked.clone()))) as Box<dyn paperpaw_core::sdk::Screen>
+                Box::new(Answering(Some(asked.clone()))) as Box<dyn paperpaw_core::Layer>
             }),
         ))?;
         r.bind_slot(
@@ -1061,7 +943,7 @@ fn keys_manifest() -> Manifest {
 /// The keyboard's screen: answers as it shows, then closes.
 struct Answering(Option<Params>);
 
-impl paperpaw_core::sdk::Screen for Answering {
+impl paperpaw_core::Layer for Answering {
     fn draw(&mut self, _: &mut paperpaw_core::sdk::Canvas<'_>, _: &paperpaw_core::sdk::Env<'_>) {}
 
     fn on_action(
@@ -1225,14 +1107,10 @@ fn text_typed_for_a_placement_is_its_own() {
 
 /// Adds the fixtures that keep their fields (`TestPlugin`, `ServicePlugin`) to a builder.
 trait AddFixture {
-    fn looks_plugin(self, plugin: Looks) -> Self;
     fn vault_plugin(self, plugin: Vault) -> Self;
 }
 
 impl AddFixture for paperpaw_core::KernelBuilder {
-    fn looks_plugin(self, plugin: Looks) -> Self {
-        self.items(plugin.manifest(), looks_items(plugin))
-    }
     fn vault_plugin(self, plugin: Vault) -> Self {
         self.items(plugin.manifest(), vault_items(plugin))
     }

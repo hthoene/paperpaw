@@ -6,7 +6,7 @@ use super::dialogs::{ConfirmBox, Touch};
 use alloc::string::String;
 use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::{
-    Canvas, Command, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Params, Rect, Screen,
+    Canvas, Command, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Params, Rect,
 };
 
 /// What an answer does, after the screen closed.
@@ -106,7 +106,7 @@ impl StartNotice {
     }
 }
 
-impl Screen for StartNotice {
+impl crate::layer::Layer for StartNotice {
     fn region(&self, env: &Env<'_>) -> Option<Rect> {
         Some(self.board.region(env))
     }

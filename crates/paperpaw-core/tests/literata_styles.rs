@@ -609,10 +609,10 @@ fn a_beta3_literata_card_gets_one_hint_only_without_the_pack() {
 
 #[test]
 fn configured_wifi_offers_two_buttons_and_opens_the_literata_store_page() {
-    use paperpaw_core::sdk::{Canvas, Env, Params, Screen, ScreenSpec, semantics::Role};
+    use paperpaw_core::sdk::{Canvas, Env, Params, semantics::Role};
     use std::cell::RefCell;
     struct Blank;
-    impl Screen for Blank {
+    impl paperpaw_core::Layer for Blank {
         fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
         fn on_action(
             &mut self,
@@ -628,7 +628,7 @@ fn configured_wifi_offers_two_buttons_and_opens_the_literata_store_page() {
         let target = target.clone();
         move |r: &mut Items| -> Result<(), RegisterError> {
             let target = target.clone();
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(paperpaw_core::LayerSpec::new(
                 Id::new_static("store.plugin"),
                 "Store",
                 Box::new(move |_, params: &Params| {

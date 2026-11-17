@@ -10,7 +10,6 @@
 use core::cell::RefCell;
 
 use paperpaw_sdk::decorations::Decorators;
-use paperpaw_sdk::filters::TextFilters;
 use paperpaw_sdk::secrets::Secrets;
 use paperpaw_sdk::services::Services;
 use paperpaw_sdk::setup::SetupSteps;
@@ -62,11 +61,7 @@ pub struct Harness {
     pub usage: Usage,
     pub plugin_usage: RefCell<Vec<PluginUsage>>,
     pub status_items: StatusItems,
-    pub text_filters: TextFilters,
     pub decorators: Decorators,
-    pub page_layers: paperpaw_sdk::layers::PageLayers,
-    pub lookup: paperpaw_sdk::lookup::LookupProviders,
-    pub readers: paperpaw_sdk::readers::Readers,
     pub widgets: Widgets,
     pub setup: SetupSteps,
     pub services: Services,
@@ -94,11 +89,7 @@ impl Harness {
             usage: Usage::default(),
             plugin_usage: RefCell::default(),
             status_items: StatusItems::new(),
-            text_filters: TextFilters::default(),
             decorators: Decorators::default(),
-            page_layers: Default::default(),
-            lookup: Default::default(),
-            readers: Default::default(),
             widgets: Widgets::new(),
             setup: SetupSteps::default(),
             services: Services::default(),
@@ -147,15 +138,9 @@ impl Harness {
             usage: &self.usage,
             plugin_usage: &self.plugin_usage,
             status_items: &self.status_items,
-            text_filters: &self.text_filters,
             decorators: &self.decorators,
-            page_layers: &self.page_layers,
-            lookup: &self.lookup,
-            readers: &self.readers,
             stylesheets: &[],
             book_data: &[],
-            book_fields: &[],
-            book_badges: &[],
             widgets: &self.widgets,
             setup: &self.setup,
             services: &self.services,
@@ -171,7 +156,6 @@ impl Harness {
             reader: true,
             clipboard: false,
             last_input: paperpaw_sdk::keys::InputMode::at_start(&DEVICE.input),
-            inputs: &[],
             content: paperpaw_platform::Rect::default(),
             stack: &[],
             slots: &[],

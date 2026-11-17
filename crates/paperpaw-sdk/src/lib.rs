@@ -19,7 +19,7 @@
 //!   reserved for the kernel.
 //! - **Plugins** (`Plugin`): a [`Manifest`] plus a `register` function that
 //!   adds contributions through a `Items`.
-//! - **Contributions**: actions ([`ActionSpec`]), screens ([`ScreenSpec`]),
+//! - **Contributions**: actions ([`ActionSpec`]),
 //!   slots ([`SlotSpec`]), settings ([`SettingSpec`]), fonts ([`FontSpec`]),
 //!   file formats ([`FormatSpec`]), event subscriptions ([`EventHandler`]),
 //!   key maps and translations (data in the PaperPaw config format).
@@ -95,11 +95,6 @@ pub mod builtin {
 // end of facade: builtin
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub mod chrome;
-#[cfg(not(any(test, feature = "kernel")))]
-mod chrome;
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod collections;
 #[cfg(not(any(test, feature = "kernel")))]
 mod collections;
@@ -170,11 +165,6 @@ pub mod help {
     pub(crate) use crate::help_old::*;
 }
 // end of facade: help
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub mod host;
-#[cfg(not(any(test, feature = "kernel")))]
-mod host;
 #[cfg(test)]
 mod test_kit;
 #[cfg(any(test, feature = "kernel"))]
@@ -200,11 +190,6 @@ pub mod install {
 }
 // end of facade: install
 pub mod keys;
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub mod layers;
-#[cfg(not(any(test, feature = "kernel")))]
-mod layers;
 // facade: library (#244, D0)
 #[cfg(any(test, feature = "kernel"))]
 pub mod library;
@@ -232,19 +217,7 @@ pub mod logo {
     pub(crate) use crate::logo_old::*;
 }
 // end of facade: logo
-// facade: lookup (#244, D0)
-#[cfg(any(test, feature = "kernel"))]
 pub mod lookup;
-#[cfg(not(any(test, feature = "kernel")))]
-#[path = "lookup.rs"]
-mod lookup_old;
-/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
-/// `kernel`).
-#[cfg(not(any(test, feature = "kernel")))]
-pub mod lookup {
-    pub(crate) use crate::lookup_old::*;
-}
-// end of facade: lookup
 pub mod memory;
 mod memory_storage;
 mod menus;
@@ -294,11 +267,6 @@ pub mod reading {
 }
 // end of facade: reading
 pub mod realtime;
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub mod render;
-#[cfg(not(any(test, feature = "kernel")))]
-mod render;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod replies;
@@ -384,11 +352,6 @@ pub mod ui {
 // end of facade: ui
 pub mod usage;
 mod version;
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub mod voices;
-#[cfg(not(any(test, feature = "kernel")))]
-mod voices;
 pub mod web;
 // facade: widgets (#244, D0)
 #[cfg(any(test, feature = "kernel"))]
@@ -429,13 +392,11 @@ mod work;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use action::{
-    Action, ActionHandler, ActionHint, ActionOverride, ActionSpec, Actions, FixedAction,
-    FixedHandler, NativeAction, Observer, ObserverSpec,
+    Action, ActionHandler, ActionHint, ActionSpec, Actions, FixedAction, FixedHandler, NativeAction,
 };
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use action::{
-    Action, ActionHandler, ActionHint, ActionOverride, ActionSpec, Actions, FixedAction,
-    FixedHandler, NativeAction, Observer, ObserverSpec,
+    Action, ActionHandler, ActionHint, ActionSpec, Actions, FixedAction, FixedHandler, NativeAction,
 };
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
@@ -554,15 +515,13 @@ pub use screen::Handled;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use screen::{
-    CloseCause, Cx, FixedFactory, FixedScreen, Hint, HintVisibility, Instances, Output, Outside,
-    Pane, SCREEN_REVISION, Screen, ScreenFactory, ScreenKey, ScreenList, ScreenSpec, ShowsThrough,
-    StackEntry, call_since, revision_holding,
+    CloseCause, Cx, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION,
+    ScreenKey, ScreenList, ShowsThrough, StackEntry,
 };
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use screen::{
-    CloseCause, Cx, FixedFactory, FixedScreen, Hint, HintVisibility, Instances, Output, Outside,
-    Pane, SCREEN_REVISION, Screen, ScreenFactory, ScreenKey, ScreenList, ScreenSpec, ShowsThrough,
-    StackEntry, call_since, revision_holding,
+    CloseCause, Cx, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION,
+    ScreenKey, ScreenList, ShowsThrough, StackEntry,
 };
 pub use setting::{Setting, Text};
 #[cfg(any(test, feature = "kernel"))]

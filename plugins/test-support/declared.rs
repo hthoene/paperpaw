@@ -320,12 +320,6 @@ pub fn legacy(plugin: &str, group: &str, contributions: Vec<Contribution>) -> Li
             )),
             Contribution::FixedSettings(list) => specs.extend(list.iter().cloned()),
             Contribution::Setting(s) => specs.push(*s),
-            Contribution::FixedScreens(list) => {
-                for s in list.iter() {
-                    out.screens
-                        .push(format!("{}|{}", relative(s.id().as_str()), s.title()));
-                }
-            }
             Contribution::SlotBinding {
                 slot,
                 screen,
@@ -333,30 +327,6 @@ pub fn legacy(plugin: &str, group: &str, contributions: Vec<Contribution>) -> Li
                 ..
             } if screen.as_str().starts_with(&prefix) => {
                 out.slots.push(format!("{slot}|{screen}|{}", priority.0))
-            }
-            Contribution::WidgetPlace(p) if p.id.as_str().starts_with(&prefix) => {
-                let keys: Vec<&str> = p.settings.iter().map(|k| k.as_str()).collect();
-                let (key, value) = p
-                    .shown_if
-                    .as_ref()
-                    .map_or(("", ""), |(id, value)| (id.as_str(), *value));
-                out.widget_places.push(format!(
-                    "{}|{}|{}|{:?}|{key}={value}",
-                    relative(p.id.as_str()),
-                    p.title,
-                    keys.join("\n"),
-                    p.kind
-                ));
-            }
-            Contribution::StatusPlace(p) if p.id.as_str().starts_with(&prefix) => {
-                out.status_places.push(format!(
-                    "{}|{}|{}|{}|{}",
-                    relative(p.id.as_str()),
-                    p.title,
-                    p.parts[0],
-                    p.parts[1],
-                    p.parts[2]
-                ));
             }
             Contribution::Keymap(text) => {
                 let mut layer = String::new();

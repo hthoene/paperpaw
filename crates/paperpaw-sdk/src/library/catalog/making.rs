@@ -148,12 +148,6 @@ impl Making {
         };
         let mut making = Making {
             log_from,
-            fields: env
-                .book_fields
-                .iter()
-                .filter(|f| f.in_catalog)
-                .map(|f| f.id.as_str().to_string())
-                .collect(),
             first: first_generation(env),
             ..Making::default()
         };
@@ -711,6 +705,9 @@ impl Walk {
             )]
             let _ = env.storage().remove(&catalog_path());
         }
+        // One that stood for the catalog until a walk: walked as where there
+        // is none.
+        super::drop_stand_in(env.storage())?;
         let old = OldCatalog::open(env.storage())?;
         let mut making = Making::start(env, true)?;
         // No catalog yet: the books found are shown as it goes on, and

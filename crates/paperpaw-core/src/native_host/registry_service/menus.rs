@@ -493,9 +493,9 @@ fn row(
         .or_else(|| native_icon.as_ref().map(Fixed::as_str))
         .unwrap_or("");
     let native_line = native.and_then(|n| n.describe(item.id));
-    let describe = menus
-        .description(item.id)
-        .or_else(|| native_line.as_ref().map(Fixed::as_str))
+    let describe = native_line
+        .as_ref()
+        .map(Fixed::as_str)
         .map_or("", |key| translated(translator, key, caps::TITLE));
     let by = item.hidden_by.unwrap_or(item.by);
     visit(&Record::ServiceRegMenuRow(wire::ServiceRegMenuRow {

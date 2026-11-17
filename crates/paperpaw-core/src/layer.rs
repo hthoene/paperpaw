@@ -1,8 +1,7 @@
 //! What the kernel's screen stack holds: [`Layer`] (#244, slice D5).
 //!
-//! The kernel's own screens and those of interface-7 plugins are layers;
-//! a screen of the old SDK [`Screen`] trait is held in [`Old`], its adapter,
-//! until the last one is gone (slice D6).
+//! The kernel's own screens, the shells' and those of interface-7 plugins
+//! are layers; the old SDK `Screen` trait is gone (slice D6b).
 
 use alloc::boxed::Box;
 
@@ -10,11 +9,11 @@ use paperpaw_graphics::Canvas;
 use paperpaw_platform::{PointerEvent, Rect};
 use paperpaw_sdk::{
     CloseCause, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Instances, Outside, Pane,
-    Params, RefreshMode, SCREEN_REVISION, Screen, ShowsThrough, TitleEntry,
+    Params, RefreshMode, SCREEN_REVISION, ShowsThrough, TitleEntry,
 };
 
 /// A screen on the kernel's stack: the same calls, and the same answers when
-/// it says nothing, as the old [`Screen`].
+/// it says nothing, as the old SDK `Screen` had.
 pub trait Layer {
     fn revision(&self) -> u16 {
         SCREEN_REVISION
@@ -160,6 +159,61 @@ pub trait Layer {
     }
 }
 
+/// What makes a layer a plugin added ([`LayerSpec`]): it may hold state.
+pub type LayerFactory = Box<dyn Fn(&Env<'_>, &Params) -> Box<dyn Layer>>;
+
+/// A screen a plugin adds that the kernel makes as a [`Layer`]
+/// ([`Items::add_layer`](crate::Items::add_layer)): as the old SDK's
+/// `ScreenSpec` (#244, slice D6a).
+pub struct LayerSpec {
+    pub id: Id,
+    /// Translation key of the screen's display name.
+    pub title: alloc::borrow::Cow<'static, str>,
+    pub factory: LayerFactory,
+    /// How the panel is refreshed when it opens, in place of the kernel's
+    /// choice.
+    pub refresh_on_open: Option<RefreshMode>,
+    /// How many of it may be open at once.
+    pub instances: Instances,
+}
+
+impl LayerSpec {
+    /// Made of what it needs; the rest as set with its methods.
+    pub fn new(
+        id: Id,
+        title: impl Into<alloc::borrow::Cow<'static, str>>,
+        factory: LayerFactory,
+    ) -> Self {
+        Self {
+            id,
+            title: title.into(),
+            factory,
+            refresh_on_open: None,
+            instances: Instances::PER_PARAMS,
+        }
+    }
+
+    /// How the panel is refreshed when it opens.
+    #[must_use]
+    pub fn refresh_on_open(mut self, mode: RefreshMode) -> Self {
+        self.refresh_on_open = Some(mode);
+        self
+    }
+
+    /// How many of it may be open at once.
+    #[must_use]
+    pub fn instances(mut self, instances: Instances) -> Self {
+        self.instances = instances;
+        self
+    }
+}
+
+impl core::fmt::Debug for LayerSpec {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("LayerSpec").field(&self.id).finish()
+    }
+}
+
 /// What makes a [`KernelScreen`] with the params it is opened with.
 pub type KernelFactory = fn(&Env<'_>, &Params) -> Box<dyn Layer>;
 
@@ -229,159 +283,6 @@ impl core::fmt::Debug for KernelScreen {
     }
 }
 
-/// An old [`Screen`] on the stack.
-pub(crate) struct Old(pub(crate) Box<dyn Screen>);
-
-impl Layer for Old {
-    fn revision(&self) -> u16 {
-        self.0.revision()
-    }
-
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        self.0.draw(canvas, env)
-    }
-
-    fn region(&self, env: &Env<'_>) -> Option<Rect> {
-        self.0.region(env)
-    }
-
-    fn grays(&self) -> bool {
-        self.0.grays()
-    }
-
-    fn pictures_in_grays(&self) -> bool {
-        self.0.pictures_in_grays()
-    }
-
-    fn dims_below(&self) -> bool {
-        self.0.dims_below()
-    }
-
-    fn shows_through(&self) -> ShowsThrough {
-        self.0.shows_through()
-    }
-
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_action(action, cx)
-    }
-
-    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_gesture(gesture, cx)
-    }
-
-    fn holds_edges(&self) -> bool {
-        self.0.holds_edges()
-    }
-
-    fn takes_double_taps(&self) -> bool {
-        self.0.takes_double_taps()
-    }
-
-    fn guards(&self) -> bool {
-        self.0.guards()
-    }
-
-    fn secret(&self) -> bool {
-        self.0.secret()
-    }
-
-    fn outside(&self) -> Outside {
-        self.0.outside()
-    }
-
-    fn passes_through(&self) -> bool {
-        self.0.passes_through()
-    }
-
-    fn direction(&self) -> paperpaw_sdk::lang::Direction {
-        self.0.direction()
-    }
-
-    fn hints(&self) -> Option<HintVisibility> {
-        self.0.hints()
-    }
-
-    fn on_close_request(&mut self, why: CloseCause, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_close_request(why, cx)
-    }
-
-    fn on_pointer(&mut self, event: &PointerEvent, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_pointer(event, cx)
-    }
-
-    fn takes_buttons(&self) -> bool {
-        self.0.takes_buttons()
-    }
-
-    fn on_button(&mut self, name: &str, long: bool, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_button(name, long, cx)
-    }
-
-    fn mode(&self) -> paperpaw_sdk::realtime::ScreenMode {
-        self.0.mode()
-    }
-
-    fn on_key(&mut self, key: &paperpaw_sdk::realtime::KeyEvent, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_key(key, cx)
-    }
-
-    fn hint(&self, action: &Id, env: &Env<'_>) -> Hint {
-        self.0.hint(action, env)
-    }
-
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
-        self.0.on_show(cx)
-    }
-
-    fn on_reopen(&mut self, params: &Params, cx: &mut Cx<'_, '_>) {
-        self.0.on_reopen(params, cx)
-    }
-
-    fn on_squeeze(
-        &mut self,
-        squeeze: &paperpaw_sdk::realtime::Squeeze,
-        cx: &mut Cx<'_, '_>,
-    ) -> Handled {
-        self.0.on_squeeze(squeeze, cx)
-    }
-
-    fn on_event(&mut self, event: &Id, params: &Params, cx: &mut Cx<'_, '_>) {
-        self.0.on_event(event, params, cx)
-    }
-
-    fn on_hide(&mut self) {
-        self.0.on_hide()
-    }
-
-    fn on_close(&mut self, cx: &mut Cx<'_, '_>) {
-        self.0.on_close(cx)
-    }
-
-    fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
-        self.0.on_timer(cx)
-    }
-
-    fn on_resize(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
-        // Reached through `call_since` on this layer: its revision is the held screen's.
-        self.0.on_resize(cx)
-    }
-
-    fn pane(&self) -> Pane {
-        // Reached through `call_since` on this layer: its revision is the held screen's.
-        self.0.pane()
-    }
-
-    fn times_under_overlays(&self) -> bool {
-        // Reached through `call_since` on this layer: its revision is the held screen's.
-        self.0.times_under_overlays()
-    }
-}
-
-/// `screen` as a layer.
-pub(crate) fn old(screen: Box<dyn Screen>) -> Box<dyn Layer> {
-    Box::new(Old(screen))
-}
-
 /// `call` when `layer` is of `revision` or later, else `older`.
 pub(crate) fn call_since<T>(
     layer: &mut dyn Layer,
@@ -396,150 +297,47 @@ pub(crate) fn call_since<T>(
     }
 }
 
-/// A layer held as an old [`Screen`], for a test fixture that registers one
-/// through an old [`paperpaw_sdk::ScreenSpec`].
 #[cfg(test)]
-pub(crate) struct AsOld<L>(pub(crate) L);
+mod tests {
+    use super::*;
 
-#[cfg(test)]
-impl<L: Layer> Screen for AsOld<L> {
-    fn revision(&self) -> u16 {
-        self.0.revision()
+    /// A layer saying `revision`, as one built before later items would.
+    struct Built(u16);
+
+    impl Layer for Built {
+        fn revision(&self) -> u16 {
+            self.0
+        }
+
+        fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+
+        fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+            Handled::No
+        }
+
+        fn pane(&self) -> Pane {
+            Pane::DETAIL
+        }
     }
 
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        self.0.draw(canvas, env)
+    #[test]
+    fn newer_items_are_called_only_on_layers_that_have_them() {
+        let ask = |layer: &mut dyn Layer| call_since(layer, 2, Pane::FULL, |layer| layer.pane());
+        assert_eq!(ask(&mut Built(1)), Pane::FULL, "built before: never asked");
+        assert_eq!(ask(&mut Built(2)), Pane::DETAIL);
+        assert_eq!(ask(&mut Built(3)), Pane::DETAIL);
     }
 
-    fn region(&self, env: &Env<'_>) -> Option<Rect> {
-        self.0.region(env)
-    }
-
-    fn grays(&self) -> bool {
-        self.0.grays()
-    }
-
-    fn pictures_in_grays(&self) -> bool {
-        self.0.pictures_in_grays()
-    }
-
-    fn dims_below(&self) -> bool {
-        self.0.dims_below()
-    }
-
-    fn shows_through(&self) -> ShowsThrough {
-        self.0.shows_through()
-    }
-
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_action(action, cx)
-    }
-
-    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_gesture(gesture, cx)
-    }
-
-    fn holds_edges(&self) -> bool {
-        self.0.holds_edges()
-    }
-
-    fn takes_double_taps(&self) -> bool {
-        self.0.takes_double_taps()
-    }
-
-    fn guards(&self) -> bool {
-        self.0.guards()
-    }
-
-    fn secret(&self) -> bool {
-        self.0.secret()
-    }
-
-    fn outside(&self) -> Outside {
-        self.0.outside()
-    }
-
-    fn passes_through(&self) -> bool {
-        self.0.passes_through()
-    }
-
-    fn direction(&self) -> paperpaw_sdk::lang::Direction {
-        self.0.direction()
-    }
-
-    fn hints(&self) -> Option<HintVisibility> {
-        self.0.hints()
-    }
-
-    fn on_close_request(&mut self, why: CloseCause, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_close_request(why, cx)
-    }
-
-    fn on_pointer(&mut self, event: &PointerEvent, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_pointer(event, cx)
-    }
-
-    fn takes_buttons(&self) -> bool {
-        self.0.takes_buttons()
-    }
-
-    fn on_button(&mut self, name: &str, long: bool, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_button(name, long, cx)
-    }
-
-    fn mode(&self) -> paperpaw_sdk::realtime::ScreenMode {
-        self.0.mode()
-    }
-
-    fn on_key(&mut self, key: &paperpaw_sdk::realtime::KeyEvent, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_key(key, cx)
-    }
-
-    fn hint(&self, action: &Id, env: &Env<'_>) -> Hint {
-        self.0.hint(action, env)
-    }
-
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
-        self.0.on_show(cx)
-    }
-
-    fn on_reopen(&mut self, params: &Params, cx: &mut Cx<'_, '_>) {
-        self.0.on_reopen(params, cx)
-    }
-
-    fn on_squeeze(
-        &mut self,
-        squeeze: &paperpaw_sdk::realtime::Squeeze,
-        cx: &mut Cx<'_, '_>,
-    ) -> Handled {
-        self.0.on_squeeze(squeeze, cx)
-    }
-
-    fn on_event(&mut self, event: &Id, params: &Params, cx: &mut Cx<'_, '_>) {
-        self.0.on_event(event, params, cx)
-    }
-
-    fn on_hide(&mut self) {
-        self.0.on_hide()
-    }
-
-    fn on_close(&mut self, cx: &mut Cx<'_, '_>) {
-        self.0.on_close(cx)
-    }
-
-    fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
-        self.0.on_timer(cx)
-    }
-
-    fn on_resize(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
-        self.0.on_resize(cx)
-    }
-
-    fn pane(&self) -> Pane {
-        self.0.pane()
-    }
-
-    fn times_under_overlays(&self) -> bool {
-        self.0.times_under_overlays()
+    #[test]
+    fn layers_say_this_builds_revision() {
+        struct Plain;
+        impl Layer for Plain {
+            fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+            fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+                Handled::No
+            }
+        }
+        assert_eq!(Plain.revision(), SCREEN_REVISION);
+        assert_eq!(Plain.pane(), Pane::FULL);
     }
 }

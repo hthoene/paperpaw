@@ -719,7 +719,14 @@ impl ItemList {
             &heights,
             starts[page]..end,
             Rect::new(0, y, width, area.height),
-            (shown, cards),
+            (
+                shown,
+                cards,
+                (
+                    frame.clip_top.saturating_sub(frame.rect.y),
+                    frame.clip_bottom.saturating_sub(frame.rect.y),
+                ),
+            ),
         )?;
         if let Some((from, to)) = self.drag {
             draw_drag(&mut body, &style, &drawn.hits, from, to)?;
@@ -956,10 +963,9 @@ pub(crate) fn item_height(
             if row.note.is_empty() {
                 return Ok(band);
             }
-            let lines = note_lines(font, style, width, row)?;
+            let count = note_line_count(font, style, width, row)?;
             let line = crate::geometry::line_height(font, style.small)?;
-            let notes =
-                crate::geometry::px((line * lines.len() as f32).min(crate::geometry::MAX_PX))?;
+            let notes = crate::geometry::px((line * count as f32).min(crate::geometry::MAX_PX))?;
             Ok(band.saturating_add(notes).saturating_add(style.gap / 2))
         }
     }
@@ -1107,6 +1113,35 @@ fn switch_pill(
 
 fn zone_room(style: &Style) -> u16 {
     style.row.max(4) / 2 + style.margin
+}
+
+/// How many lines the note of a row takes (what [`note_lines`] gives, without
+/// wrapping where one measure of the whole note says it): a note that fits a
+/// line is one, and where at most two lines are shown, one that does not is
+/// two. Wrapping measures a word at a time, about fifteen measures a row, and
+/// the X4 spends about 3 ms on each (#291).
+#[inline(never)]
+fn note_line_count(
+    font: &Font<'_>,
+    style: &Style,
+    width: u16,
+    row: &RowItem,
+) -> Result<usize, Error> {
+    let most = if row.whole {
+        WHOLE_NOTE_LINES
+    } else {
+        NOTE_LINES
+    };
+    let plain = !row.note.starts_with(' ')
+        && !row.note.ends_with(' ')
+        && !row.note.contains("  ")
+        && !row.note.chars().any(|c| c.is_whitespace() && c != ' ');
+    if plain && most == 2 && !row.note.is_empty() {
+        let room = note_room(style, width, row.zone.is_some());
+        let whole = font.measure_text(style.small, &row.note)?;
+        return Ok(if whole <= room { 1 } else { 2 });
+    }
+    Ok(note_lines(font, style, width, row)?.len())
 }
 
 fn note_lines(

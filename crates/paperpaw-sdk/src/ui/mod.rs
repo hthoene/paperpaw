@@ -23,7 +23,6 @@ mod fields;
 pub(crate) mod header;
 mod hints;
 mod image;
-pub mod items;
 pub(crate) mod label;
 pub(crate) mod layout;
 pub(crate) mod list;
@@ -48,7 +47,6 @@ pub mod slider;
 pub(crate) mod style;
 pub(crate) mod text;
 mod thumbnail;
-pub mod widget_list;
 
 pub use address::*;
 pub use button::*;

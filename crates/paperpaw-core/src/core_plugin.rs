@@ -153,31 +153,21 @@ fn register_reading_apps(r: &mut Items) -> Result<(), RegisterError> {
         let path = wanted.path.trim_matches('/');
         let name = paperpaw_sdk::files::name(path);
         let once = wanted.once == Some(true) && !wanted.folder;
-        let readers_of_book = || {
-            env.readers()
-                .for_book(env, path)
-                .into_iter()
-                .map(|r| r.id.as_str())
-                .collect::<Vec<_>>()
-        };
         let (options, key, kind) = if once {
-            let mut options = readers_of_book();
-            options.extend(
-                env.menus()
-                    .items(menus::OPEN_WITH.as_str())
-                    .into_iter()
-                    .filter(|item| !item.section)
-                    .map(|item| item.id.as_str()),
-            );
+            let mut options: Vec<&str> = env
+                .menus()
+                .items(menus::OPEN_WITH.as_str())
+                .into_iter()
+                .filter(|item| !item.section)
+                .map(|item| item.id.as_str())
+                .collect();
             options.push(ALWAYS);
             (options, "core.reading-app.open-with", "o")
         } else if wanted.folder {
-            let mut options: Vec<&str> = env.readers().iter().map(|r| r.id.as_str()).collect();
-            options.push(settings::READING_APP_DEFAULT);
+            let options = alloc::vec![settings::READING_APP_DEFAULT];
             (options, "core.reading-app.for-folder", "f")
         } else {
-            let mut options = readers_of_book();
-            options.push(settings::READING_APP_DEFAULT);
+            let options = alloc::vec![settings::READING_APP_DEFAULT];
             (options, "core.reading-app.always-with", "b")
         };
         let title = env
@@ -198,8 +188,6 @@ fn register_reading_apps(r: &mut Items) -> Result<(), RegisterError> {
         if kind == "o" {
             if option == ALWAYS {
                 out.push(readers::ask(Choice::Book(path)));
-            } else if let Some(reader) = env.readers().get(option) {
-                out.push(readers::open_with(path, reader));
             } else if let Ok(action) = Id::parse(option) {
                 // Another way to open it, as an action of the book menu.
                 let chosen = events::BookChosen::new(action.clone(), String::from(path));
@@ -208,14 +196,11 @@ fn register_reading_apps(r: &mut Items) -> Result<(), RegisterError> {
             }
             return;
         }
-        let reader = Id::parse(option)
-            .ok()
-            .filter(|id| env.readers().get(id.as_str()).is_some());
         let choice = match kind {
             "f" => Choice::Folder(path),
             _ => Choice::Book(path),
         };
-        if readers::remember(env.storage(), choice, reader.as_ref()).is_err() {
+        if readers::remember(env.storage(), choice, None).is_err() {
             let text = env.i18n().tr("core.reading-app.not-kept");
             out.push(Command::Notify(String::from(text)));
         }
@@ -244,7 +229,7 @@ fn register_open_with(r: &mut Items) -> Result<(), RegisterError> {
     // way to open books.
     r.set_item_state(actions::OPEN_WITH, |env| {
         let others = !env.menus().items(menus::OPEN_WITH.as_str()).is_empty();
-        paperpaw_sdk::ItemState::new().shown(others || env.readers().len() > 1)
+        paperpaw_sdk::ItemState::new().shown(others)
     })?;
     r.on(events::BOOK_CHOSEN, |_, chosen, out| {
         if chosen.action == actions::OPEN_WITH {
@@ -627,14 +612,9 @@ fn register_library(r: &mut Items) -> Result<(), RegisterError> {
         })?;
     }
     {
-        let catalog = Rc::clone(&catalog);
         let recorded = Rc::clone(&recorded);
-        r.on(events::BOOK_CHANGED, move |env, changed, out| {
+        r.on(events::BOOK_CHANGED, move |_, _, _| {
             recorded.take();
-            let kept = env.book_fields().iter().any(|f| f.in_catalog);
-            if changed.what & library::what::FIELDS != 0 && kept {
-                catalog.want_catch_up(Some(&changed.path), false, out);
-            }
         })?;
     }
     register_reading(r, &catalog, &recorded)?;
@@ -803,11 +783,7 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
         crate::KernelScreen::new(
             screens::STATUS_ITEMS,
             "core.status.choose",
-            |env, params| {
-                crate::layer::old(Box::new(paperpaw_sdk::ui::items::ItemsScreen::open(
-                    env, params,
-                )))
-            },
+            |env, params| Box::new(crate::stock::items::ItemsScreen::open(env, params)),
         ),
         crate::KernelScreen::new(
             screens::STATUS_LINES,
@@ -815,37 +791,25 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
             |env, params| {
                 let params = params
                     .clone()
-                    .with(params::MODE, paperpaw_sdk::ui::items::LINES);
-                crate::layer::old(Box::new(paperpaw_sdk::ui::items::ItemsScreen::open(
-                    env, &params,
-                )))
+                    .with(params::MODE, crate::stock::items::LINES);
+                Box::new(crate::stock::items::ItemsScreen::open(env, &params))
             },
         ),
         crate::KernelScreen::new(
             screens::WIDGET_LIST,
             "core.widgets.edit.screen",
-            |env, params| {
-                crate::layer::old(Box::new(paperpaw_sdk::ui::widget_list::ListScreen::open(
-                    env, params,
-                )))
-            },
+            |env, params| Box::new(crate::stock::widget_list::ListScreen::open(env, params)),
         ),
         crate::KernelScreen::new(
             screens::ADD_WIDGET,
             "core.widgets.edit.add-to-list",
-            |env, params| {
-                crate::layer::old(Box::new(paperpaw_sdk::ui::widget_list::AddScreen::open(
-                    env, params,
-                )))
-            },
+            |env, params| Box::new(crate::stock::widget_list::AddScreen::open(env, params)),
         ),
         crate::KernelScreen::new(screens::CHOICE, "core.choice", |env, params| {
-            crate::layer::old(Box::new(paperpaw_sdk::ui::choice::Choice::new(env, params)))
+            Box::new(crate::stock::choice::Choice::new(env, params))
         }),
         crate::KernelScreen::new(screens::CONFIRM, "core.confirm.screen", |env, params| {
-            crate::layer::old(Box::new(paperpaw_sdk::ui::confirm::Confirm::new(
-                env, params,
-            )))
+            Box::new(crate::stock::confirm::Confirm::new(env, params))
         }),
         crate::KernelScreen::new(notice::SCREEN, notice::TITLE, |env, params| {
             Box::new(notice::Notice::new(env, params))
@@ -871,8 +835,8 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
             crate::native_host::low_memory::SCREEN,
             "core.low-memory.title",
             |env, params| {
-                crate::layer::old(Box::new(
-                    crate::native_host::start_notice::StartNotice::low_memory(env, params),
+                Box::new(crate::native_host::start_notice::StartNotice::low_memory(
+                    env, params,
                 ))
             },
         ),

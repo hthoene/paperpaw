@@ -10,18 +10,36 @@
 use alloc::collections::VecDeque;
 
 /// Free heap a new session needs: its 40 KiB, 12 more for the handshake and
-/// the connection's receive window (8 KiB on the X4), and 16 KiB kept for the
+/// the connection's receive window (8 KiB on the X4) less the 2 KiB the
+/// received bytes waiting for mbedTLS no longer take, and 16 KiB kept for the
 /// screens and the reader, which cannot draw or turn a page with the heap
 /// taken to its last 4 KiB (the X4, 16 November: a store download left
 /// 3.9 KiB free and every screen of the plugin refused to draw, with nothing
-/// to free it again).
-pub const SESSION_ROOM: usize = 80 * 1024;
+/// to free it again). The shell gives back what sits idle before a session
+/// opens where the heap is below this (`Kernel::make_room`, #287).
+pub const SESSION_ROOM: usize = 76 * 1024;
 
 /// Whether a session may be opened with `free` bytes of heap free: where not,
 /// the request ends with "not enough memory", and nothing else is starved.
 #[must_use]
 pub const fn session_fits(free: usize) -> bool {
     free >= SESSION_ROOM
+}
+
+/// Whether an mbedTLS error code says an allocation failed: a module's
+/// `ALLOC_FAILED`, alone or added to a code of another (high-level codes carry
+/// the module in bits 7 to 14, low-level ones their number in the low seven).
+#[must_use]
+pub const fn alloc_failed(code: i32) -> bool {
+    let bits = code.unsigned_abs();
+    if code >= 0 {
+        return false;
+    }
+    matches!(
+        bits & 0x7F80,
+        // SSL, X509, PK, ECP, MD, CIPHER, DHM, PEM, PKCS7
+        0x7F00 | 0x2880 | 0x3F80 | 0x4D80 | 0x5180 | 0x6180 | 0x3400 | 0x1180 | 0x5780
+    ) || matches!(bits & 0x7F, 0x10 | 0x6A)
 }
 
 /// The sessions' slots and the queue for them.
@@ -107,10 +125,22 @@ mod tests {
         // The X4 with a book and the home screen used, 16 November: 64 KiB
         // free, and the session took all but 4 KiB.
         assert!(!session_fits(64 * 1024));
-        // A start with nothing else used: 86 KiB free, 17 KiB left.
+        // A start with nothing else used: 86 KiB free, 26 KiB left.
         assert!(session_fits(86 * 1024));
         assert!(!session_fits(SESSION_ROOM - 1));
         assert!(session_fits(SESSION_ROOM));
+    }
+
+    #[test]
+    fn mbedtls_allocation_failures_are_told_from_other_errors() {
+        // SSL, X509, MPI and ECP ALLOC_FAILED, and one added to a low code.
+        for code in [-0x7F00, -0x2880, -0x0010, -0x4D80, -0x4D80 - 0x0010] {
+            assert!(alloc_failed(code), "{code}");
+        }
+        // CONN_EOF, BAD_INPUT_DATA, X509 cert verify failed, no error.
+        for code in [-0x7280, -0x7100, -0x2700, -0x0E, 0, 5] {
+            assert!(!alloc_failed(code), "{code}");
+        }
     }
 
     #[test]

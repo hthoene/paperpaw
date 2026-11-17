@@ -15,8 +15,8 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::builtin::{actions, screens, settings, slots};
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Screen,
-    ScreenSpec, SettingKind, SettingSpec, SettingValue, Version,
+    ActionSpec, Canvas, Command, Cx, Env, Handled, Id, Manifest, Priority, RegisterError,
+    SettingKind, SettingSpec, SettingValue, Version,
 };
 
 use crate::{HttpCall, Io, Kernel, ServerCall, SpeechCall, WarningSource};
@@ -102,7 +102,7 @@ fn test_plugin(kept: TestPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterEr
     move |r| {
         let log = kept.log.clone();
         let name = kept.id;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             kept.screen_id(),
             "test.screen",
             Box::new(move |_, _| {
@@ -139,7 +139,7 @@ struct TestScreen {
     log: Log,
 }
 
-impl Screen for TestScreen {
+impl crate::Layer for TestScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
@@ -249,7 +249,7 @@ fn highest_priority_wins_and_user_config_overrides() {
 
 struct OpenerScreen;
 
-impl Screen for OpenerScreen {
+impl crate::Layer for OpenerScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
@@ -269,7 +269,7 @@ impl Screen for OpenerScreen {
 /// Opens the placeholder screen on *confirm*: a screen change to time.
 pub(crate) fn opener() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("opener.screen"),
             "test.screen",
             Box::new(|_, _| Box::new(OpenerScreen)),
@@ -588,7 +588,7 @@ struct EdgeHolder {
     holds: bool,
 }
 
-impl Screen for EdgeHolder {
+impl crate::Layer for EdgeHolder {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -618,7 +618,7 @@ pub(crate) fn edge_holder_plugin(
 ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let (log, holds) = (kept0.clone(), kept1);
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("holder.screen"),
             "holder",
             Box::new(move |_, _| {
@@ -820,7 +820,7 @@ struct LifecycleScreen {
     ticks: u32,
 }
 
-impl Screen for LifecycleScreen {
+impl crate::Layer for LifecycleScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -856,7 +856,7 @@ pub(crate) fn lifecycle_plugin(
 ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("life.screen"),
             "life",
             Box::new(move |_, params| {
@@ -974,7 +974,7 @@ struct BaseScreen {
     log: Log,
 }
 
-impl Screen for BaseScreen {
+impl crate::Layer for BaseScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         let clip = canvas.clip();
         canvas.describe(paperpaw_sdk::semantics::Role::Text, "base", clip);
@@ -1000,7 +1000,7 @@ impl Screen for BaseScreen {
 
 struct HalfOverlay;
 
-impl Screen for HalfOverlay {
+impl crate::Layer for HalfOverlay {
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
         Some(Rect::new(0, 45, 90, 45))
     }
@@ -1021,13 +1021,13 @@ pub(crate) fn overlay_plugin(
 ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("ov.base"),
             "base",
             Box::new(move |_, _| Box::new(BaseScreen { log: log.clone() })),
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("ov.base"), Priority::DEFAULT)?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("ov.half"),
             "half",
             Box::new(|_, _| Box::new(HalfOverlay)),
@@ -1123,13 +1123,13 @@ pub(crate) fn notice_plugin(
 ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("nt.base"),
             "base",
             Box::new(move |_, _| Box::new(BaseScreen { log: log.clone() })),
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("nt.base"), Priority::DEFAULT)?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("nt.notice"),
             "notice",
             Box::new(|_, _| Box::new(HalfOverlay)),
@@ -1407,7 +1407,7 @@ fn menus_follow_order_and_user_definitions() {
 
 struct GrayScreen;
 
-impl Screen for GrayScreen {
+impl crate::Layer for GrayScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn grays(&self) -> bool {
@@ -1423,13 +1423,13 @@ impl Screen for GrayScreen {
 /// menu.
 pub(crate) fn gray_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("gray.page"),
             "page",
             Box::new(|_, _| Box::new(GrayScreen)),
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("gray.page"), Priority::DEFAULT)?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("gray.menu"),
             "menu",
             Box::new(|_, _| Box::new(HalfOverlay)),
@@ -2842,75 +2842,17 @@ fn plugins_offer_each_other_services() {
     );
 }
 
-/// Turns the `menu` button into the next page, swallows `confirm`, and
-/// refreshes everything in full.
-pub(crate) fn filter_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
-    |r| {
-        use paperpaw_sdk::filters::{
-            InputFilterSpec, InputVerdict, RefreshFilterSpec, RefreshVerdict,
-        };
-        r.add_input_filter(InputFilterSpec::new(
-            Id::new_static("filter.input"),
-            "",
-            Box::new(|_, event| match event {
-                InputEvent::Button {
-                    name: "menu",
-                    state: ButtonState::Pressed,
-                } => InputVerdict::Run(actions::NEXT_PAGE),
-                InputEvent::Button {
-                    name: "menu" | "confirm",
-                    ..
-                } => InputVerdict::Take,
-                _ => InputVerdict::Pass,
-            }),
-        ))?;
-        r.add_refresh_filter(RefreshFilterSpec::new(
-            Id::new_static("filter.refresh"),
-            "",
-            Box::new(|_, refresh| {
-                if refresh.screen.as_ref().map(Id::as_str) == Some("a.screen") {
-                    RefreshVerdict::Mode(RefreshMode::Full)
-                } else {
-                    RefreshVerdict::Keep
-                }
-            }),
-        ))
-    }
+/// A screen of `sized`: the reader's shows the row of hints on a press.
+struct SizedScreen {
+    reader: bool,
 }
 
-/// What [`filter_plugin`] registers under.
-pub(crate) fn filter_plugin_manifest() -> Manifest {
-    Manifest::new(Id::new_static("filter"), "Filters", Version::new(1, 0, 0))
-        .uses(paperpaw_sdk::Uses::NOTHING)
-}
-
-#[test]
-fn filters_see_inputs_and_refreshes_first() {
-    let log = log();
-    let mut kernel = Kernel::builder(DEVICE)
-        .test_plugin(TestPlugin::new("a", &log))
-        .items(filter_plugin_manifest(), filter_plugin())
-        .build()
-        .unwrap();
-    kernel.start(Instant(0));
-    render(&mut kernel);
-    let button = |name, state| InputEvent::Button { name, state };
-    let effects = kernel.handle(Instant(100), button("menu", ButtonState::Pressed));
-    kernel.handle(Instant(150), button("menu", ButtonState::Released));
-    assert_eq!(*log.borrow(), ["a:core.next-page"]);
-    // The screen asked for a partial refresh of a corner: in full, whole.
-    assert_eq!(
-        effects.refresh,
-        Some((Rect::new(0, 0, 90, 90), RefreshMode::Full))
-    );
-    press(&mut kernel, 300, "confirm");
-    assert_eq!(log.borrow().len(), 1, "confirm was taken");
-}
-
-struct SizedScreen;
-
-impl Screen for SizedScreen {
+impl crate::Layer for SizedScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+
+    fn hints(&self) -> Option<paperpaw_sdk::HintVisibility> {
+        self.reader.then_some(paperpaw_sdk::HintVisibility::OnPress)
+    }
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
@@ -2934,20 +2876,18 @@ pub(crate) fn sized_plugin(
         for (name, slot) in [("home", slots::HOME), ("reader", slots::READER)] {
             let made = kept.clone();
             let id = Id::parse(&alloc::format!("sized.{name}")).unwrap();
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(crate::LayerSpec::new(
                 id.clone(),
                 "sized",
                 Box::new(move |env, _| {
                     made.borrow_mut().push((name, env.device().display.height));
-                    Box::new(SizedScreen)
+                    Box::new(SizedScreen {
+                        reader: name == "reader",
+                    })
                 }),
             ))?;
             r.bind_slot(slot, id, Priority::DEFAULT)?;
         }
-        r.set_screen_hints(
-            Id::new_static("sized.reader"),
-            paperpaw_sdk::HintVisibility::OnPress,
-        )?;
         Ok(())
     }
 }
@@ -2984,14 +2924,13 @@ fn a_row_of_hints_names_the_buttons_below_the_screen() {
         ]
     );
 
-    // The reader keeps all of the screen, made once for it.
+    // The reader keeps all of the screen: made again for it, as it says.
     kernel.apply(Command::OpenSlot(
         slots::READER,
         paperpaw_sdk::Params::new(),
     ));
     kernel.finish();
-    assert_eq!(made.borrow().last(), Some(&("reader", 90)));
-    assert_eq!(made.borrow().len(), 2);
+    assert_eq!(made.borrow()[1..], [("reader", above), ("reader", 90)]);
     assert_eq!(kernel.hint_row(), None);
     // A button of the row shows the row over the page for a while; a side
     // button does not.
@@ -3027,7 +2966,7 @@ fn a_row_of_hints_names_the_buttons_below_the_screen() {
 
 struct PictureScreen(Rc<RefCell<bool>>);
 
-impl Screen for PictureScreen {
+impl crate::Layer for PictureScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         if *self.0.borrow() {
             let row = alloc::vec![128u8; usize::from(env.device().display.width)];
@@ -3050,7 +2989,7 @@ pub(crate) fn picture_plugin(
 ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let shown = kept.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("picture.home"),
             "picture",
             Box::new(move |_, _| Box::new(PictureScreen(shown.clone()))),

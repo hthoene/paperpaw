@@ -40,7 +40,7 @@ impl Configured {
     }
 }
 
-impl Screen for Configured {
+impl crate::Layer for Configured {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
@@ -119,8 +119,8 @@ fn stack_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             (MANY, false, Instances::MANY),
         ] {
             let log = kept.clone();
-            r.add_screen(
-                ScreenSpec::new(
+            r.add_layer(
+                crate::LayerSpec::new(
                     id,
                     "screen",
                     Box::new(move |_, params| {
@@ -439,21 +439,20 @@ fn a_screen_opened_again_waits_for_the_ones_above() {
     assert_eq!(names(&kernel), ["s.home", "s.one", "s.screen"]);
 }
 
-/// Uses the same slot and registered hint policy as a sleep plugin.
+/// Uses the same slot and hint policy as a sleep plugin.
 fn hidden_sleep_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         const SLEEP: Id = Id::new_static("quiet.sleep");
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             SLEEP,
             "Sleep",
             Box::new(|_, _| {
                 Box::new(Configured {
                     log: log(),
-                    params: named("sleep"),
+                    params: named("sleep").with("hints", "hidden"),
                 })
             }),
         ))?;
-        r.set_screen_hints(SLEEP, HintVisibility::Hidden)?;
         r.bind_slot(slots::SLEEP, SLEEP, Priority::DEFAULT)
     }
 }

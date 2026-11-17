@@ -9,5 +9,5 @@ pub(crate) const ANSWERED: Id = Id::new_static("core.literata-pack-answered");
 pub(crate) static SCREENS: [crate::KernelScreen; 1] = [crate::KernelScreen::new(
     SCREEN,
     "core.literata-pack.title",
-    |env, params| crate::layer::old(Box::new(StartNotice::literata(env, params))),
+    |env, params| Box::new(StartNotice::literata(env, params)),
 )];

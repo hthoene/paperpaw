@@ -410,17 +410,7 @@ pub fn replay_icons<'a>(
             }
             Paint::Fill(rect, color) => canvas.fill_rectangle(frame_rect(*rect), *color)?,
             Paint::Stipple(rect, color) => {
-                for y in rect.y..rect.y.saturating_add(rect.height) {
-                    if i32::from(y) < clip_top || i32::from(y) >= clip_bottom {
-                        continue;
-                    }
-                    for x in rect.x..rect.x.saturating_add(rect.width) {
-                        if stipple_ink(x, y, *color) {
-                            canvas
-                                .fill_rectangle(frame_rect(Rect::new(x, y, 1, 1)), Color::BLACK)?;
-                        }
-                    }
-                }
+                stipple(&canvas, *rect, *color, (clip_top, clip_bottom))?
             }
             Paint::Focus(rect, radius, thickness, color) => match thickness {
                 Some(thickness) => {
@@ -574,6 +564,37 @@ mod tests {
             assert_eq!(bold_extra(size), extra, "size {size}");
         }
     }
+}
+
+/// A stippled rectangle, ink black: one host call (a checker whose corner
+/// pixel is inked where the rectangle's own is: `x ^ y` even), or one pixel at
+/// a time on a host without the slot (#291: a separator is 200 pixels, and on
+/// the X4 every host call costs about a millisecond).
+fn stipple(
+    canvas: &Canvas<'_>,
+    rect: Rect,
+    color: Color,
+    (clip_top, clip_bottom): (i32, i32),
+) -> Result<(), Error> {
+    if color.luma() < 128 {
+        return canvas.fill_rectangle(frame_rect(rect), Color::BLACK);
+    }
+    let odd = (rect.x ^ rect.y) & 1 == 1;
+    match canvas.fill_checker(frame_rect(rect), Color::BLACK, odd) {
+        Err(Error::Unsupported) => {}
+        other => return other,
+    }
+    for y in rect.y..rect.y.saturating_add(rect.height) {
+        if i32::from(y) < clip_top || i32::from(y) >= clip_bottom {
+            continue;
+        }
+        for x in rect.x..rect.x.saturating_add(rect.width) {
+            if stipple_ink(x, y, color) {
+                canvas.fill_rectangle(frame_rect(Rect::new(x, y, 1, 1)), Color::BLACK)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 // Beta 3's fill_tint uses an alternating pattern for every light monochrome tint.

@@ -19,7 +19,7 @@ mod typeset;
 #[cfg(feature = "unstable")]
 mod visual;
 
-pub use filtered::{DroppedRuns, FilteredDocument};
+pub use filtered::FilteredDocument;
 pub use index::PageIndex;
 #[cfg(feature = "unstable")]
 pub use typeset::{
@@ -40,7 +40,7 @@ use crate::{Command, Params, Rect};
 pub use paperpaw_layout::LineBidi;
 
 /// A word on the page, with its box on the screen and its place in the
-/// book (`word_boxes`, page layers' [`PageView::words`](crate::layers::PageView::words)).
+/// book (`word_boxes`, page layers' `PageView::words`).
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct WordBox {

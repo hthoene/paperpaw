@@ -212,7 +212,7 @@ pub mod slots {
     /// over whatever is open, for a few seconds: parameter
     /// [`TEXT`](super::params::TEXT). It gets no input and is closed by
     /// the kernel; bind another screen here for messages that look
-    /// different. Its [`region`](crate::Screen::region) is where it shows.
+    /// different. Its `region` is where it shows.
     pub const NOTICE: Id = Id::new_static("core.notice");
     /// Translates text (an overlay): parameters
     /// [`TEXT`](super::params::TEXT) and, if known,
@@ -397,25 +397,21 @@ pub mod screens {
 
     /// Shown when a slot has no screen bound to it.
     pub const PLACEHOLDER: Id = Id::new_static("core.placeholder");
-    /// Chooses the status items a setting lists (see
-    /// [`ui::items`](crate::ui::items)): name it as the setting's editor.
+    /// Chooses the status items a setting lists (the kernel's): name it as
+    /// the setting's editor.
     pub const STATUS_ITEMS: Id = Id::new_static("core.status-items");
     /// Chooses the status lines a setting lists.
     pub const STATUS_LINES: Id = Id::new_static("core.status-lines");
-    /// Edits a list of widgets a setting holds (see
-    /// [`ui::widget_list`](crate::ui::widget_list)), bound to slot
+    /// Edits a list of widgets a setting holds (the kernel's), bound to slot
     /// [`EDIT_WIDGETS`](super::slots::EDIT_WIDGETS) unless another screen
     /// is.
     pub const WIDGET_LIST: Id = Id::new_static("core.widget-list");
     /// Adds a widget to a list of widgets a setting holds.
     pub const ADD_WIDGET: Id = Id::new_static("core.add-widget");
-    /// The kernel's choice of a few options
-    /// ([`ui::choice::Choice`](crate::ui::choice::Choice)), bound to slot
+    /// The kernel's choice of a few options, bound to slot
     /// [`CHOICE`](super::slots::CHOICE) unless another screen is.
     pub const CHOICE: Id = Id::new_static("core.choice-dialog");
-    /// The kernel's yes or no question
-    /// ([`ui::confirm::Confirm`](crate::ui::confirm::Confirm)), bound to
-    /// slot [`CONFIRM`](super::slots::CONFIRM) unless another screen is.
+    /// The kernel's yes or no question, bound to slot [`CONFIRM`](super::slots::CONFIRM) unless another screen is.
     pub const CONFIRM: Id = Id::new_static("core.confirm-dialog");
     /// Chooses a folder for a setting with the folder chooser
     /// ([`slots::CHOOSE_FOLDER`](super::slots::CHOOSE_FOLDER)), whichever
@@ -475,7 +471,7 @@ pub mod settings {
     /// [`READING_APP`] and a format's: as the defaults give.
     pub const READING_APP_DEFAULT: &str = "core.reading-app.default";
     /// The voice that speaks text aloud: [`VOICE_SYSTEM`] or a plugin's
-    /// (see [`voices`](crate::voices)).
+    /// (see `voices`).
     pub const VOICE: Setting<Text> = Setting::new("core.voice");
     /// [`VOICE`]: the system's.
     pub const VOICE_SYSTEM: &str = "core.voice.system";
@@ -491,7 +487,7 @@ pub mod settings {
     /// black and white but more grays with a refresh of its own (the X4):
     /// a little slower to show, the pictures finer. What changes on it
     /// after (the focus moving) is shown in black and white. A screen may
-    /// say no ([`Screen::pictures_in_grays`](crate::Screen::pictures_in_grays)).
+    /// say no (`pictures_in_grays`).
     pub const PICTURES_IN_GRAYS: Setting<bool> = Setting::new("core.pictures-in-grays");
     /// Minutes without use after which the device goes to sleep by itself
     /// (`0`: never), where PaperPaw puts it to sleep
@@ -871,7 +867,7 @@ pub mod settings {
     pub const FOOTNOTES_POPUP: &str = "core.footnotes.popup";
     pub const FOOTNOTES_JUMP: &str = "core.footnotes.jump";
     /// The frame that sets book pages in columns (see
-    /// [`layers`](crate::layers)): [`PAGE_FRAME_SINGLE`] or the id of a
+    /// `layers`): [`PAGE_FRAME_SINGLE`] or the id of a
     /// plugin's frame; each book may have its own ([`SCOPE_ONLY`]).
     pub const PAGE_FRAME: Setting<Text> = Setting::new("core.page-frame");
     /// [`PAGE_FRAME`]: the text in one column.

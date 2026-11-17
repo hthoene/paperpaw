@@ -9,6 +9,7 @@ use super::*;
 
 mod items;
 pub use items::Items;
+pub(crate) use items::Parts;
 
 /// Configures and creates a [`Kernel`].
 ///
@@ -823,18 +824,9 @@ impl BuilderParts {
                 widgets: paperpaw_sdk::widgets::Widgets::new(),
                 setup: paperpaw_sdk::setup::SetupSteps::new(),
                 services: paperpaw_sdk::services::Services::new(),
-                text_filters: paperpaw_sdk::filters::TextFilters::new(),
                 decorators: paperpaw_sdk::decorations::Decorators::new(),
-                page_layers: paperpaw_sdk::layers::PageLayers::new(),
-                lookup: paperpaw_sdk::lookup::LookupProviders::new(),
-                voices: paperpaw_sdk::voices::Voices::new(),
-                readers: paperpaw_sdk::readers::Readers::new(),
-                input_filters: paperpaw_sdk::filters::InputFilters::new(),
-                refresh_filters: paperpaw_sdk::filters::RefreshFilters::new(),
                 stylesheets: Vec::new(),
                 book_data: Vec::new(),
-                book_fields: Vec::new(),
-                book_badges: Vec::new(),
                 caps,
                 wifi: caps.wifi.then(paperpaw_sdk::wifi::Wifi::default),
                 bluetooth: caps
@@ -850,7 +842,6 @@ impl BuilderParts {
                 clipboard: alloc::rc::Rc::default(),
                 system_clipboard: false,
                 last_input: paperpaw_sdk::keys::InputMode::at_start(&self.device.input),
-                inputs: Vec::new(),
                 stack: Vec::new(),
                 content: Rect::new(0, 0, display.width, display.height),
                 slots: Vec::new(),
@@ -886,8 +877,6 @@ impl BuilderParts {
                 screenshot: None,
                 mark: None,
                 refresh: RefreshPolicy::after_start(),
-                deferred: None,
-                defers: 0,
                 followup: None,
                 followup_frame: None,
                 gray_later: crate::gray_later::GrayLater::default(),
@@ -905,7 +894,6 @@ impl BuilderParts {
                 swapped: Vec::new(),
                 pending: None,
                 last_tap: None,
-                recognizers: Vec::new(),
                 pressed_on: None,
                 pane_keys: None,
                 thresholds: core::cell::Cell::new(None),
@@ -933,8 +921,6 @@ impl BuilderParts {
             subscriptions: crate::registry::Subscriptions::default(),
             offered_down_to: 0,
             action_params: Params::new(),
-            action_observers: Vec::new(),
-            event_observers: Vec::new(),
             show_pending: false,
             notice: None,
             works: work::Queue::new(match self.device.memory {
@@ -1177,18 +1163,7 @@ impl Kernel {
         );
         self.offer_list(core_settings::KEYMAP_PRESET.as_str(), presets);
         self.offer_font_choices();
-        let frames = crate::font_refresh::choice_list(
-            &[core_settings::PAGE_FRAME_SINGLE],
-            self.shared.page_layers.frames().map(|id| id.as_str()),
-        );
-        self.offer_list(core_settings::PAGE_FRAME.as_str(), frames);
-        let voices = crate::font_refresh::choice_list(
-            &[core_settings::VOICE_SYSTEM],
-            self.shared.voices.ids().map(|id| id.as_str()),
-        );
-        self.offer_list(core_settings::VOICE.as_str(), voices);
-        self.offer_reading_apps();
-        self.shared.caps.speech = self.io.speech.system || !self.shared.voices.is_empty();
+        self.shared.caps.speech = self.io.speech.system;
         self.shared.menus.set_capabilities(self.shared.caps);
     }
 

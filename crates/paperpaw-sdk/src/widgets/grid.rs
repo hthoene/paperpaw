@@ -38,7 +38,7 @@
 //!     }
 //! }
 //!
-//! impl Screen for Board {
+//! impl Layer for Board {
 //!     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) { self.grid.draw(canvas, env) }
 //!     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
 //!         let response = self.grid.on_action(action, cx);

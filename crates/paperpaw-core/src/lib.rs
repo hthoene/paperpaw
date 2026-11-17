@@ -45,6 +45,7 @@ mod builder;
 mod card;
 mod catalog_file;
 mod chrome;
+mod chrome_spec;
 mod code_plugin;
 mod commands;
 mod config;
@@ -80,8 +81,12 @@ mod room;
 mod screens;
 mod secrets_i6;
 mod shared_env;
+pub mod stock;
+pub use chrome_spec::{ChromeSpec, Edge};
 mod tall_band;
-pub use layer::{KernelFactory, KernelScreen, Layer};
+mod warning;
+pub use layer::{KernelFactory, KernelScreen, Layer, LayerFactory, LayerSpec};
+pub use warning::{Warning, WarningSource};
 #[cfg(test)]
 mod tests;
 mod timing;
@@ -136,7 +141,6 @@ use crate::screens::{ActiveScreen, uncovered};
 pub use crate::work::NetworkSettings;
 #[doc(hidden)]
 pub use crate::work::network_specs_of;
-use paperpaw_sdk::filters::InputVerdict;
 pub use paperpaw_sdk::firmware::{Firmware, FirmwareCommand, FirmwareState, InstallFailure};
 pub use paperpaw_sdk::wifi::{JoinFailure, WifiCommand, WifiNetwork, WifiState};
 
@@ -157,40 +161,6 @@ const HINTS_MS: u64 = 4000;
 const MAX_SECRETS: usize = 64 * 1024;
 /// Default memory for glyphs rasterized at runtime.
 const DEFAULT_GLYPH_CACHE: usize = 32 * 1024;
-
-/// Where a warning comes from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum WarningSource {
-    Plugin(Id),
-    DeviceKeymap,
-    UserConfig,
-    Runtime,
-}
-
-/// A non-fatal problem. PaperPaw keeps running with sensible defaults and
-/// reports what it ignored.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Warning {
-    pub source: WarningSource,
-    pub line: Option<u32>,
-    pub message: String,
-}
-
-impl fmt::Display for Warning {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.source {
-            WarningSource::Plugin(id) => write!(f, "plugin `{id}`")?,
-            WarningSource::DeviceKeymap => f.write_str("device key map")?,
-            WarningSource::UserConfig => f.write_str("user configuration")?,
-            WarningSource::Runtime => f.write_str("runtime")?,
-        }
-        if let Some(line) = self.line {
-            write!(f, ", line {line}")?;
-        }
-        write!(f, ": {}", self.message)
-    }
-}
 
 /// An open screen kept while its task is not shown
 /// ([`Command::SwitchTask`]): its id, slot and params.
@@ -215,9 +185,6 @@ pub struct Kernel {
     /// The params of the action offered to the screens now, for their
     /// context ([`Cx::params`](paperpaw_sdk::Cx::params)); none else.
     action_params: Params,
-    /// What sees every action run and every event emitted.
-    action_observers: Vec<paperpaw_sdk::ObserverSpec>,
-    event_observers: Vec<paperpaw_sdk::ObserverSpec>,
     /// The screen on top changed: it is told ([`Screen::on_show`]) once
     /// the commands of the call are done, so that one shown for a moment
     /// (e.g. below a menu that closes to open another screen) is not.
@@ -876,7 +843,6 @@ impl Kernel {
             self.shared.reader = true;
             self.route_key_pending();
         }
-        self.tick_recognizers();
         self.tick_chromes();
         self.tick_pane_list();
         self.screen_timers_due();
@@ -1362,28 +1328,12 @@ struct Shared {
     widgets: paperpaw_sdk::widgets::Widgets,
     setup: paperpaw_sdk::setup::SetupSteps,
     services: paperpaw_sdk::services::Services,
-    text_filters: paperpaw_sdk::filters::TextFilters,
     /// Marks on the words of book pages, from every plugin.
     decorators: paperpaw_sdk::decorations::Decorators,
-    /// Layers on book pages and frames of their text, from every plugin.
-    page_layers: paperpaw_sdk::layers::PageLayers,
-    /// Where words are looked up, from every plugin.
-    lookup: paperpaw_sdk::lookup::LookupProviders,
-    /// Plugins' voices (the kernel's alone: plugins speak with
-    /// `Command::Speak`).
-    voices: paperpaw_sdk::voices::Voices,
-    /// The reading apps, from every plugin.
-    readers: paperpaw_sdk::readers::Readers,
-    /// Filters of every input and of every refresh, from every plugin.
-    input_filters: paperpaw_sdk::filters::InputFilters,
-    refresh_filters: paperpaw_sdk::filters::RefreshFilters,
     /// Plugins' stylesheets for books.
     stylesheets: Vec<Cow<'static, str>>,
     /// Folders of what plugins keep for each book.
     book_data: Vec<paperpaw_sdk::library::BookData>,
-    /// Fields kept with books, badges on their rows, from every plugin.
-    book_fields: Vec<paperpaw_sdk::library::BookField>,
-    book_badges: Vec<paperpaw_sdk::library::BookBadge>,
     /// What the device and its shell can do.
     caps: Capabilities,
     /// Wi-Fi, where PaperPaw manages it (see [`KernelBuilder::wifi`]).
@@ -1420,9 +1370,6 @@ struct Shared {
     system_clipboard: bool,
     /// What the reader used last ([`Env::last_input`]).
     last_input: paperpaw_sdk::keys::InputMode,
-    /// The inputs plugins added, those the device can make
-    /// ([`Env::inputs`]).
-    inputs: Vec<paperpaw_sdk::keys::InputSpec>,
     /// The open screens as plugins see them ([`Env::stack`]), kept in
     /// step with the kernel's stack.
     stack: Vec<paperpaw_sdk::StackEntry>,

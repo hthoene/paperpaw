@@ -509,9 +509,18 @@ impl NativeStore {
     #[inline(never)]
     fn download_failed(&mut self, host: &Host<'_>, why: Failure) -> Result<(), Error> {
         let storage = DataStorage::new(host);
-        let (id, name) = match crate::native_download::Download::progress(&storage)? {
-            Some(job) => (job.plugin, job.name),
-            None => (String::new(), String::new()),
+        // The download's own end took its job away: the plugin is the page's
+        // (its screen waits on the step of this id, and ended on "Downloading"
+        // for ever where the id was empty, #287).
+        let (id, name) = match self.installing.as_ref() {
+            Some(page) => (
+                crate::native_glue::own(&page.entry.id)?,
+                crate::native_glue::own(&page.entry.name)?,
+            ),
+            None => match crate::native_download::Download::progress(&storage)? {
+                Some(job) => (job.plugin, job.name),
+                None => (String::new(), String::new()),
+            },
         };
         self.installing = None;
         self.sync_step(&id);

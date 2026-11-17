@@ -5,7 +5,7 @@ use super::*;
 
 struct Blank;
 
-impl Screen for Blank {
+impl crate::Layer for Blank {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -16,7 +16,7 @@ impl Screen for Blank {
 /// A home screen and another, under "lm".
 fn plain(r: &mut crate::Items) -> Result<(), RegisterError> {
     for id in ["lm.home", "lm.other"] {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static(id),
             "screen",
             Box::new(|_, _| Box::new(Blank)),
@@ -27,7 +27,7 @@ fn plain(r: &mut crate::Items) -> Result<(), RegisterError> {
 
 /// Stands for the plugin manager, which has the list.
 fn manager(r: &mut crate::Items) -> Result<(), RegisterError> {
-    r.add_screen(ScreenSpec::new(
+    r.add_layer(crate::LayerSpec::new(
         Id::new_static("plugin-manager.list"),
         "list",
         Box::new(|_, _| Box::new(Blank)),

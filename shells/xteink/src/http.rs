@@ -191,6 +191,9 @@ impl Calls {
             None => Sink::Memory(Vec::new(), call.max_response, staged),
         };
         let deadline = now_ms() + u64::from(call.timeout_ms);
+        if Url::parse(&call.url).is_some_and(|url| url.https) {
+            crate::tls_slots::ask_room();
+        }
         self.calls.push(Call {
             url: call.url.clone(),
             call,

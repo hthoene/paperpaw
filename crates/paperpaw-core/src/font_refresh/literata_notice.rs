@@ -60,9 +60,7 @@ impl crate::Kernel {
         self.shared
             .registry
             .screens
-            .insert_fixed(crate::registry::Fixed::Kernel(
-                &crate::native_host::literata_notice::SCREENS[0],
-            ));
+            .insert_fixed(&crate::native_host::literata_notice::SCREENS[0]);
         self.open(
             crate::native_host::literata_notice::SCREEN,
             None,
