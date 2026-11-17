@@ -50,16 +50,13 @@ fn library_plugin(kept: LibraryPlugin) -> impl Fn(&mut Items) -> Result<(), Regi
             Id::new_static("lib.list"),
             Priority(i16::MAX),
         )?;
-        let log = kept.log.clone();
-        r.subscribe(
-            events::CATALOG_FAILED.id().clone(),
-            Box::new(move |_, _, _| log.borrow_mut().push(String::from("failed"))),
-        )?;
-        let log = kept.log.clone();
-        r.subscribe(
-            events::CATALOG_CHANGED.id().clone(),
-            Box::new(move |_, _, _| log.borrow_mut().push(String::from("catalog"))),
-        )
+        crate::tests::hear_into(&kept.log);
+        r.subscribe(events::CATALOG_FAILED.id().clone(), |_, _| {
+            crate::tests::heard("failed")
+        })?;
+        r.subscribe(events::CATALOG_CHANGED.id().clone(), |_, _| {
+            crate::tests::heard("catalog")
+        })
     }
 }
 

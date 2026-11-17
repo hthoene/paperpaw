@@ -4,11 +4,14 @@
 //! plugin gone). A socket a plugin opens for the reader goes on as
 //! before, tied to the screens.
 
+extern crate std;
+
 use super::*;
 use crate::Items;
+use crate::WorkSpec;
 use core::cell::Cell;
 use paperpaw_sdk::Params;
-use paperpaw_sdk::work::{Step, Work, WorkSpec};
+use paperpaw_sdk::work::{Step, Work};
 
 use crate::io::SocketCall;
 
@@ -26,6 +29,14 @@ impl crate::Layer for Blank {
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
     }
+}
+
+std::thread_local! {
+    /// The plugin's jobs in the test running: whether the first fails, its
+    /// steps and the late one's (the steps are plain functions and hold
+    /// nothing).
+    static STATE: core::cell::RefCell<(Rc<Cell<bool>>, u32, u32)> =
+        core::cell::RefCell::new((Rc::new(Cell::new(false)), 0, 0));
 }
 
 /// Fetches over a socket as an event's work and as a job (its first step
@@ -50,33 +61,42 @@ fn socket_work(kept: SocketWork) -> impl Fn(&mut Items) -> Result<(), RegisterEr
             ))?;
         }
         r.bind_slot(slots::HOME, Id::new_static("ws.home"), Priority(i16::MAX))?;
-        r.subscribe(FETCH, Box::new(|_, _, out| out.push(connect("ws.mail"))))?;
-        r.subscribe(
-            Id::new_static("ws.open"),
-            Box::new(|_, _, out| out.push(connect("ws.own"))),
-        )?;
-        let fail = Rc::clone(&kept.fail);
-        let steps = Rc::new(Cell::new(0u32));
-        r.add_work(WorkSpec::new(JOB, "job", move |_, _, out| {
-            steps.set(steps.get() + 1);
-            if steps.get() == 1 {
-                out.push(connect("ws.box"));
+        r.subscribe(FETCH, |k, _| {
+            k.with_env(|_, out| out.push(connect("ws.mail")));
+        })?;
+        r.subscribe(Id::new_static("ws.open"), |k, _| {
+            k.with_env(|_, out| out.push(connect("ws.own")));
+        })?;
+        STATE.with(|state| {
+            *state.borrow_mut() = (Rc::clone(&kept.fail), 0, 0);
+        });
+        r.add_work(WorkSpec::new(JOB, "job", |k, _| {
+            let (fail, steps) = STATE.with(|state| {
+                let mut state = state.borrow_mut();
+                state.1 += 1;
+                (Rc::clone(&state.0), state.1)
+            });
+            if steps == 1 {
+                k.with_env(|_, out| out.push(connect("ws.box")));
                 return Step::WaitFor(GO);
             }
-            steps.set(0);
+            STATE.with(|state| state.borrow_mut().1 = 0);
             if fail.get() {
                 Step::Failed(String::from("no answer"))
             } else {
                 Step::Done
             }
         }))?;
-        let late = Rc::new(Cell::new(0u32));
-        r.add_work(WorkSpec::new(LATE, "late", move |_, _, out| {
-            late.set(late.get() + 1);
-            match late.get() {
+        r.add_work(WorkSpec::new(LATE, "late", |k, _| {
+            let late = STATE.with(|state| {
+                let mut state = state.borrow_mut();
+                state.2 += 1;
+                state.2
+            });
+            match late {
                 1 => Step::WaitFor(GO),
                 2 => {
-                    out.push(connect("ws.late"));
+                    k.with_env(|_, out| out.push(connect("ws.late")));
                     Step::WaitFor(GO)
                 }
                 _ => Step::Done,

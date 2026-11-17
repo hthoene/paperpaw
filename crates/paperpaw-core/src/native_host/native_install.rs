@@ -692,7 +692,7 @@ impl crate::Kernel {
                     .map_err(shell::Error::Status)?,
                 Owned::Setting(spec) => {
                     staging
-                        .native(owner, Contribution::Setting(spec))
+                        .native(Contribution::Setting(spec))
                         .map_err(shell::Error::Status)?;
                 }
                 Owned::FixedSettings(list, entries) => staging
@@ -705,10 +705,10 @@ impl crate::Kernel {
                     );
                 }
                 Owned::FixedGroup(group) => staging
-                    .native_group(owner, paperpaw_sdk::SettingGroup::from(group))
+                    .native_group(paperpaw_sdk::SettingGroup::from(group))
                     .map_err(shell::Error::Status)?,
                 Owned::Group(group) => staging
-                    .native_group(owner, paperpaw_sdk::SettingGroup::from_boxed(group))
+                    .native_group(paperpaw_sdk::SettingGroup::from_boxed(group))
                     .map_err(shell::Error::Status)?,
             }
         }

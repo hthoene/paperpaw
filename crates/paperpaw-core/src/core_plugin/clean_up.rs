@@ -8,7 +8,6 @@ use super::*;
 /// What the kernel keeps for books, and cleaning up what is left of books
 /// no longer found: caches by themselves, the reader's data when asked.
 pub(super) fn register_clean_up(r: &mut Items) -> Result<(), RegisterError> {
-    use paperpaw_sdk::work::WorkSpec;
     // The notes of books are the kernel's, and the details (with the
     // day a book came and plugins' fields, which are not read again).
     r.add_book_data(paperpaw_sdk::data_path!("annotations"), "")?;
@@ -24,24 +23,32 @@ pub(super) fn register_clean_up(r: &mut Items) -> Result<(), RegisterError> {
     static ICON: [(paperpaw_sdk::Id, &str); 1] = [(actions::CLEAN_UP, "eraser")];
     r.add_menu_entries(&ENTRY)?;
     r.add_icons(&ICON)?;
-    r.on(CLEAN_UP_ANSWERED, |env, answer, out| {
-        if answer.yes {
-            let text = clean_up(env, out, BookDataKind::UserData);
-            out.push(Command::Notify(text));
-        }
+    r.on(CLEAN_UP_ANSWERED, |k, p| {
+        k.with_event(&CLEAN_UP_ANSWERED, p, |env, answer, out| {
+            if answer.yes {
+                let text = clean_up(env, out, BookDataKind::UserData);
+                out.push(Command::Notify(text));
+            }
+        });
     })?;
     // And by itself now and then, silently: caches only.
-    r.add_work(WorkSpec::new(
+    r.add_work(crate::work::WorkSpec::new(
         CLEAN_UP_WORK,
         "core.work.clean-up",
-        |env, _, out| {
-            // What it found is its note, no notice.
-            let text = clean_up(env, out, BookDataKind::Cache);
-            out.push(Command::Notify(text));
+        |k, _| {
+            k.with_env(|env, out| {
+                // What it found is its note, no notice.
+                let text = clean_up(env, out, BookDataKind::Cache);
+                out.push(Command::Notify(text));
+            });
             paperpaw_sdk::work::Step::Done
         },
     ))?;
-    r.on(events::STARTED, |env, (), out| declare_clean_up(env, out))?;
+    r.on(events::STARTED, |k, p| {
+        k.with_event(&events::STARTED, p, |env, (), out| {
+            declare_clean_up(env, out)
+        });
+    })?;
     Ok(())
 }
 

@@ -120,6 +120,11 @@ fn report(
     eprintln!("native teardown {s:?}: {e:?}");
 }
 type Run = Rc<dyn Fn(&Env<'_>)>;
+std::thread_local! {
+    /// What runs with the live `Env` once the kernel has started, in the
+    /// test running (the handler is a plain function and holds nothing).
+    static CAPTURE: std::cell::RefCell<Option<Run>> = const { std::cell::RefCell::new(None) };
+}
 /// Runs `run` with the live `Env` when the kernel has started.
 fn capture(builder: KernelBuilder, run: Run) -> KernelBuilder {
     let manifest = Manifest::new(
@@ -127,12 +132,13 @@ fn capture(builder: KernelBuilder, run: Run) -> KernelBuilder {
         "Native screen capture",
         Version::new(1, 0, 0),
     );
-    builder.items(manifest, move |items| {
-        let run = Rc::clone(&run);
-        items.subscribe(
-            builtin::events::STARTED,
-            Box::new(move |env, _, _| run(env)),
-        )
+    CAPTURE.with(|capture| *capture.borrow_mut() = Some(run));
+    builder.items(manifest, |items| {
+        items.subscribe(builtin::events::STARTED, |k, _| {
+            if let Some(run) = CAPTURE.with(|capture| capture.borrow().clone()) {
+                k.with_env(|env, _| run(env));
+            }
+        })
     })
 }
 fn declared_services() -> shell::DeclaredServices {

@@ -48,12 +48,14 @@ fn add(builder: KernelBuilder) -> KernelBuilder {
 
 fn installing() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.on(INSTALL, |_, params, out| {
-            if let (Some(plugin), Some(folder)) = (params.get("plugin"), params.get("folder"))
-                && let Ok(id) = Id::parse(plugin)
-            {
-                out.push(Command::InstallPlugin(id, folder.to_string()));
-            }
+        r.on(INSTALL, |k, p| {
+            k.with_event(&INSTALL, p, |_, params, out| {
+                if let (Some(plugin), Some(folder)) = (params.get("plugin"), params.get("folder"))
+                    && let Ok(id) = Id::parse(plugin)
+                {
+                    out.push(Command::InstallPlugin(id, folder.to_string()));
+                }
+            });
         })
     }
 }

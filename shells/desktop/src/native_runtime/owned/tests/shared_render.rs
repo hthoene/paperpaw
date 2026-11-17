@@ -40,6 +40,11 @@ const DRAW: &str = r#"
 "#;
 
 type Run = Rc<dyn Fn(&Env<'_>)>;
+std::thread_local! {
+    /// What runs with the live `Env` once the kernel has started, in the
+    /// test running (the handler is a plain function and holds nothing).
+    static CAPTURE: std::cell::RefCell<Option<Run>> = const { std::cell::RefCell::new(None) };
+}
 /// Binds a font of its own as the UI's and runs `run` with the live `Env` when the kernel has
 /// started.
 fn renderer(builder: KernelBuilder, run: Run) -> KernelBuilder {
@@ -48,6 +53,7 @@ fn renderer(builder: KernelBuilder, run: Run) -> KernelBuilder {
         "Render fixture",
         Version::new(1, 0, 0),
     );
+    CAPTURE.with(|capture| *capture.borrow_mut() = Some(run));
     builder.items(manifest, move |items| {
         let data: &'static [u8] = include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -60,11 +66,11 @@ fn renderer(builder: KernelBuilder, run: Run) -> KernelBuilder {
             Id::new_static("render-fixture.face"),
             Priority::DEFAULT,
         )?;
-        let run = Rc::clone(&run);
-        items.subscribe(
-            builtin::events::STARTED,
-            Box::new(move |env, _, _| run(env)),
-        )
+        items.subscribe(builtin::events::STARTED, |k, _| {
+            if let Some(run) = CAPTURE.with(|capture| capture.borrow().clone()) {
+                k.with_env(|env, _| run(env));
+            }
+        })
     })
 }
 

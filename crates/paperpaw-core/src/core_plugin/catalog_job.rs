@@ -245,10 +245,7 @@ pub(super) fn make_library_folder(env: &Env<'_>) {
 /// The sorted books, for a view leaving an archive out
 /// ([`library::sorted`]): made where they are not of the library there
 /// is now. And the walk wanted again after a wake.
-pub(super) fn register_sorted(
-    r: &mut crate::Items,
-    catalog: &alloc::rc::Rc<super::Catalog>,
-) -> Result<(), paperpaw_sdk::RegisterError> {
+pub(super) fn register_sorted(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
     use paperpaw_sdk::builtin::events;
     // Woken from a light sleep (no start): walked again as after a start,
     // for books copied while it slept (the card in a computer). By the
@@ -256,30 +253,37 @@ pub(super) fn register_sorted(
     // does not ask again; under a book the walk waits until it closes).
     // A walk under way at the sleep starts again (it may have passed the
     // folder a book came into); nothing else under way is started again.
-    let woken = alloc::rc::Rc::clone(catalog);
-    r.on(events::RESUME, move |env, _, out| {
-        woken.walked.set(false);
-        let walking = woken.job.borrow().as_ref().is_some_and(CatalogJob::is_walk);
-        let open = env
-            .stack()
-            .iter()
-            .any(|entry| entry.slot.as_ref() == Some(&paperpaw_sdk::builtin::slots::LIBRARY));
-        if walking {
-            woken.want_walk(true, true, out);
-        } else if open && !env.formats().is_empty() {
-            // Other work under way (sorting, catching up) ends first.
-            woken.walk.set(true);
-            woken.declare(true, out);
-        }
+    r.on(events::RESUME, |k, p| {
+        k.with_core_event(&events::RESUME, p, |env, core, _, out| {
+            core.catalog.walked.set(false);
+            let walking = core
+                .catalog
+                .job
+                .borrow()
+                .as_ref()
+                .is_some_and(CatalogJob::is_walk);
+            let open = env
+                .stack()
+                .iter()
+                .any(|entry| entry.slot.as_ref() == Some(&paperpaw_sdk::builtin::slots::LIBRARY));
+            if walking {
+                core.catalog.want_walk(true, true, out);
+            } else if open && !env.formats().is_empty() {
+                // Other work under way (sorting, catching up) ends first.
+                core.catalog.walk.set(true);
+                core.catalog.declare(true, out);
+            }
+        });
     })?;
-    let catalog = alloc::rc::Rc::clone(catalog);
-    r.on(events::SORTED_WANTED, move |env, wanted, out| {
-        let mut archives = catalog.archives.borrow_mut();
-        library::sorted::asked(env.storage(), &mut archives, &wanted.archive);
-        drop(archives);
-        if catalog.sort_wanted(env).is_some() {
-            catalog.declare(true, out);
-        }
+    r.on(events::SORTED_WANTED, |k, p| {
+        k.with_core_event(&events::SORTED_WANTED, p, |env, core, wanted, out| {
+            let mut archives = core.catalog.archives.borrow_mut();
+            library::sorted::asked(env.storage(), &mut archives, &wanted.archive);
+            drop(archives);
+            if core.catalog.sort_wanted(env).is_some() {
+                core.catalog.declare(true, out);
+            }
+        });
     })
 }
 

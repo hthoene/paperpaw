@@ -120,6 +120,12 @@ impl Harness {
         commands: impl IntoIterator<Item = Command>,
     ) -> paperpaw_core::Effects {
         self.queue.borrow_mut().extend(commands);
+        // Its kernel's queue: a test may drive two kernels at once.
+        DRIVER.with(|driver| {
+            if let Some((_, queue)) = driver.borrow_mut().as_mut() {
+                *queue = self.queue.clone();
+            }
+        });
         kernel.run_action(Instant(now), GO)
     }
 
@@ -157,6 +163,9 @@ pub fn describe(params: &Params) -> String {
     told.join(" ")
 }
 
+/// What the driver's action carries out.
+type Queue = Rc<RefCell<Vec<Command>>>;
+
 /// The test plugin `drv`.
 pub struct Driver {
     log: Log,
@@ -187,36 +196,53 @@ fn driver_items(kept: Driver) -> impl Fn(&mut Items) -> Result<(), RegisterError
         r.bind_slot(slots::HOME, BASE, Priority::DEFAULT)?;
         r.bind_slot(slots::MENU, OVERLAY, Priority::DEFAULT)?;
         r.bind_slot(slots::NOTICE, OVERLAY, Priority::DEFAULT)?;
-        let queue = kept.queue.clone();
-        r.add_action(ActionSpec::new(GO, "drv.go").handler(move |_, _, out| {
-            out.extend(queue.borrow_mut().drain(..));
+        DRIVER.with(|driver| *driver.borrow_mut() = Some((kept.log.clone(), kept.queue.clone())));
+        r.add_action(ActionSpec::new(GO, "drv.go").handler(|_, _, out| {
+            if let Some((_, queue)) = DRIVER.with(|driver| driver.borrow().clone()) {
+                out.extend(queue.borrow_mut().drain(..));
+            }
         }))?;
         r.add_action(ActionSpec::new(LOOP, "drv.loop").handler(|_, _, out| {
             out.push(Command::run(LOOP));
         }))?;
-        for event in [REPLY, LATER, LATER2] {
-            let log = kept.log.clone();
-            r.subscribe(
-                event.clone(),
-                Box::new(move |env, params, out| {
-                    log.borrow_mut().push(format!(
-                        "event {event} at {} {}",
-                        env.now().millis(),
-                        describe(params)
-                    ));
-                    // A timer that comes again every `repeat` milliseconds.
-                    if let Some(every) = params.get(REPEAT).and_then(|r| r.parse().ok()) {
-                        let at = env.now().add_millis(every);
-                        out.push(Command::work(
-                            paperpaw_core::sdk::work::Work::at(event.clone(), at)
-                                .with(params.clone()),
-                        ));
-                    }
-                }),
-            )?;
+        let hears: [(Id, paperpaw_core::Hear); 3] = [
+            (REPLY, |k, p| heard(k, &REPLY, p)),
+            (LATER, |k, p| heard(k, &LATER, p)),
+            (LATER2, |k, p| heard(k, &LATER2, p)),
+        ];
+        for (event, run) in hears {
+            r.subscribe(event, run)?;
         }
         Ok(())
     }
+}
+
+std::thread_local! {
+    /// The driver's log and queue, in the test running (its handlers are
+    /// plain functions and hold neither).
+    static DRIVER: RefCell<Option<(Log, Queue)>> = const { RefCell::new(None) };
+}
+
+/// The driver heard `event`: logged, and asked again every `repeat`
+/// milliseconds where it says.
+fn heard(kernel: &mut paperpaw_core::Kernel, event: &Id, params: &Params) {
+    let Some((log, _)) = DRIVER.with(|driver| driver.borrow().clone()) else {
+        return;
+    };
+    kernel.with_env(|env, out| {
+        log.borrow_mut().push(format!(
+            "event {event} at {} {}",
+            env.now().millis(),
+            describe(params)
+        ));
+        // A timer that comes again every `repeat` milliseconds.
+        if let Some(every) = params.get(REPEAT).and_then(|r| r.parse().ok()) {
+            let at = env.now().add_millis(every);
+            out.push(Command::work(
+                paperpaw_core::sdk::work::Work::at(event.clone(), at).with(params.clone()),
+            ));
+        }
+    });
 }
 
 /// A screen that logs what reaches it: `<name>:<what>`.

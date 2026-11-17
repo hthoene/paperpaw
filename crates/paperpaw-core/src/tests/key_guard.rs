@@ -56,10 +56,10 @@ fn guard_plugin(kept: GuardPlugin) -> impl Fn(&mut Items) -> Result<(), Register
                 "kg.action",
             ))?;
         }
-        let log = kept.log.clone();
+        crate::tests::hear_into(&kept.log);
         r.add_action(
             ActionSpec::new(Id::new_static("kg.own"), "kg.own")
-                .handler(move |_, _, _| log.borrow_mut().push(String::from("kg.own"))),
+                .handler(|_, _, _| crate::tests::heard("kg.own")),
         )?;
         // The guard's own action, another plugin's, and a host action, in
         // the global layer; the other plugin's again in the own key layer.
@@ -85,10 +85,10 @@ fn guard_plugin_manifest() -> Manifest {
 
 fn other_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        let log = kept.clone();
+        crate::tests::hear_into(&kept);
         r.add_action(
             ActionSpec::new(Id::new_static("other.run"), "other.run")
-                .handler(move |_, _, _| log.borrow_mut().push(String::from("other.run"))),
+                .handler(|_, _, _| crate::tests::heard("other.run")),
         )
     }
 }

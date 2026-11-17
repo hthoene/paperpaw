@@ -246,12 +246,19 @@ fn scope_cleanup_and_nested_refusal_preserve_the_current_snapshot() {
         .unwrap();
 }
 
+std::thread_local! {
+    /// The snapshots the probe saw, in the test running (a handler holds none).
+    static SEEN: RefCell<Option<Rc<RefCell<Vec<Snapshot>>>>> = const { RefCell::new(None) };
+}
+
 fn probe(kept: Rc<RefCell<Vec<Snapshot>>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        let seen = kept.clone();
-        r.subscribe(
-            paperpaw_sdk::builtin::events::STARTED,
-            Box::new(move |env, _, _| {
+        SEEN.with(|seen| *seen.borrow_mut() = Some(kept.clone()));
+        r.subscribe(paperpaw_sdk::builtin::events::STARTED, |k, _| {
+            k.with_env(|env, _| {
+                let Some(seen) = SEEN.with(|seen| seen.borrow().clone()) else {
+                    return;
+                };
                 let slot = pin!(paperpaw_core::native_host::environment::EnvironmentScope::new());
                 let mut bytes = [0; SNAPSHOT_BYTES];
                 slot.as_ref()
@@ -268,8 +275,8 @@ fn probe(kept: Rc<RefCell<Vec<Snapshot>>>) -> impl Fn(&mut Items) -> Result<(), 
                     unsafe { slot.copy(bytes.as_mut_ptr(), bytes.len()) },
                     ERR_STATE
                 );
-            }),
-        )
+            })
+        })
     }
 }
 

@@ -21,7 +21,7 @@
 //!   adds contributions through a `Items`.
 //! - **Contributions**: actions ([`ActionSpec`]),
 //!   slots ([`SlotSpec`]), settings ([`SettingSpec`]), fonts ([`FontSpec`]),
-//!   file formats ([`FormatSpec`]), event subscriptions ([`EventHandler`]),
+//!   file formats ([`FormatSpec`]), event subscriptions,
 //!   key maps and translations (data in the PaperPaw config format).
 //! - **Slots**: named UI roles such as [`builtin::slots::HOME`]. Any plugin
 //!   may bind a screen to any slot; the user's configuration has the final
@@ -392,11 +392,11 @@ mod work;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use action::{
-    Action, ActionHandler, ActionHint, ActionSpec, Actions, FixedAction, FixedHandler, NativeAction,
+    Action, ActionHint, ActionSpec, Actions, FixedAction, FixedHandler, NativeAction,
 };
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use action::{
-    Action, ActionHandler, ActionHint, ActionSpec, Actions, FixedAction, FixedHandler, NativeAction,
+    Action, ActionHint, ActionSpec, Actions, FixedAction, FixedHandler, NativeAction,
 };
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
@@ -435,9 +435,9 @@ pub use env::{Capabilities, Capability, Env, Metrics};
 pub(crate) use env::{Capabilities, Capability, Env, Metrics};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use event::{Event, EventData, EventHandler, FixedSubscription};
+pub use event::{Event, EventData, FixedSubscription};
 #[cfg(not(any(test, feature = "kernel")))]
-pub(crate) use event::{Event, EventData, EventHandler, FixedSubscription};
+pub(crate) use event::{Event, EventData, FixedSubscription};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use fonts::{BuiltInFont, BuiltInFonts};
