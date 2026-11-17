@@ -5,13 +5,7 @@
 //! path the card refuses, damaged data) does not stop the other parts:
 //! they are still carried, and that error is returned at the end.
 
-use alloc::collections::TryReserveError;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 
-use super::key;
-use crate::data::{Error, Format};
-use crate::{Storage, StorageError};
 
 
 

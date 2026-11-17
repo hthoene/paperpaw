@@ -6,14 +6,8 @@
 //! ([`book`](super::book), [`key`](super::key)) are these forms with the
 //! error left out (or, for the key, an abort as before).
 
-use alloc::collections::TryReserveError;
-use alloc::string::String;
-use alloc::vec::Vec;
 
-use super::{      config, fnv1a64};
-use crate::Storage;
-use crate::data::Error;
-use crate::document::ImageRef;
+use super::fnv1a64;
 
 /// The digits of a [`key`](super::key).
 pub const KEY_LEN: usize = 16;

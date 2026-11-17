@@ -7,13 +7,7 @@
 //! gets [`Error::OutOfMemory`] instead of an abort, and the size is
 //! counted, and compared with [`MAX_DETAILS`], before the text is made.
 
-use alloc::borrow::Cow;
-use alloc::string::String;
-use alloc::vec::Vec;
 
-use super::config;
-use crate::StorageError;
-use crate::data::Error;
 
 
 

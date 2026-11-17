@@ -28,14 +28,12 @@
 //! (see [`filters`](crate::filters)): it needs the page laid out again.
 
 use alloc::borrow::Cow;
-use alloc::format;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::builtin::groups;
 use crate::document::Locator;
 use crate::{
-    Choices, Color, Env, Id, RegisterError, SettingExtra, SettingKind, SettingSpec, SettingValue,
+    Color, Env, Id,
 };
 
 /// A named tone for backgrounds, ink and lines.

@@ -22,11 +22,7 @@
 //! since it was made (how far a book is read, favourites, books removed;
 //! the catalog's log) is taken in as it is read.
 
-use alloc::string::String;
-use alloc::vec::Vec;
 
-use super::index::self;
-use crate::Storage;
 
 #[cfg(any(test, feature = "kernel"))]
 mod build;

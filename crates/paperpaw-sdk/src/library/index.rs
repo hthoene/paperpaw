@@ -9,10 +9,7 @@
 //! a file (`Index::save`) and let it go, and read it back when it shows
 //! again (`Index::load`).
 
-use alloc::vec::Vec;
 
-use super::catalog::self;
-use crate::Storage;
 
 
 

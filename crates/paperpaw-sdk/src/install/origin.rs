@@ -12,13 +12,8 @@
 //! device that kept none yet, the plugins installed are taken for the
 //! store's once ([`adopt`]): those it installed before keep its updates.
 
-use alloc::format;
-use alloc::string::String;
-use alloc::vec::Vec;
 
-use paperpaw_platform::Storage;
 
-use crate::{Env, PluginKind, Version};
 
 
 

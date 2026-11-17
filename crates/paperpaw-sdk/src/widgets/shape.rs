@@ -13,20 +13,8 @@
 //! [`WIDGET_SHADOW`]: crate::builtin::settings::WIDGET_SHADOW
 //! [`WIDGET_PADDING`]: crate::builtin::settings::WIDGET_PADDING
 
-use alloc::format;
 
-use paperpaw_platform::{Color, Rect};
 
-use super::colours::{self, ColourSpec};
-use super::look::Frame;
-use crate::builtin::settings::{
-    self, WIDGET_CORNERS, WIDGET_FRAME_LINE, WIDGET_GAP, WIDGET_PADDING, WIDGET_SHADOW,
-};
-use crate::decorations::Tone;
-use crate::env::Env;
-use crate::id::Id;
-use crate::settings::SettingSpec;
-use crate::ui::UiStyle;
 
 
 

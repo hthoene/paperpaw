@@ -48,14 +48,10 @@ pub use fingerprint::Fingerprint;
 pub mod what {
 }
 
-use alloc::borrow::Cow;
 use alloc::format;
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 
-use crate::config;
-use crate::document::ImageRef;
-use crate::{Env, Storage, StorageError};
+use crate::Storage;
 use paperpaw_digest::fnv1a64;
 
 

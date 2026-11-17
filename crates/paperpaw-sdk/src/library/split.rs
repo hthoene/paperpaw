@@ -16,15 +16,8 @@
 //! stays and the old one goes. What cannot be moved stays where it was,
 //! read there; the folder goes once nothing is left of it.
 
-use alloc::string::String;
-use alloc::vec::Vec;
 
-use crate::Storage;
-use crate::files;
-use paperpaw_platform::storage::StorageError;
 
-use super::{
-    BookData, BookDataKind};
 
 
 

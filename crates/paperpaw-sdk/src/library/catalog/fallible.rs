@@ -6,11 +6,7 @@
 //! whole. A device short of memory gets [`Error::OutOfMemory`] instead of
 //! an abort, and nothing is returned half read.
 
-use alloc::string::String;
 
-use crate::data::Error;
-use crate::{Storage, StorageError};
-use paperpaw_digest::fnv1a64;
 
 
 

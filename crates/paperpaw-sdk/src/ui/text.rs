@@ -1,11 +1,6 @@
 //! Labels, icons, headings, messages and empty screens: text drawn in
 //! its room, shortened where it does not fit.
 
-#[allow(
-    clippy::wildcard_imports,
-    reason = "a part of the module, which shares its imports"
-)]
-use super::look::TextPart;
 use super::*;
 
 

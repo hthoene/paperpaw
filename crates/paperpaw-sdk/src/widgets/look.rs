@@ -47,7 +47,6 @@
 //! are drawn, so fonts with a few sizes only (the packs of small
 //! devices) fit as well as fonts drawn at any size ([`largest_size`]).
 
-use alloc::borrow::Cow;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -58,8 +57,6 @@ use paperpaw_platform::{Color, Rect};
 
 use crate::env::Env;
 use crate::fonts::FontHandle;
-use crate::id::Id;
-use crate::settings::{Choices, SettingKind, SettingSpec, SettingValue};
 use crate::ui::{self, UiStyle};
 
 /// The values of a widget's frame setting ([`frame_setting`]).

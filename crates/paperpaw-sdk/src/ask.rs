@@ -25,15 +25,7 @@
 //! no question ([`CONFIRM`](crate::builtin::slots::CONFIRM)) are screens
 //! another plugin can replace: they answer every question asked this way.
 
-use alloc::borrow::Cow;
-use alloc::string::String;
 
-use crate::builtin::{params, slots};
-use crate::command::Command;
-use crate::event::Event;
-use crate::params::Params;
-use crate::replies::{Confirmed, FolderChosen, Typed};
-use crate::ui::choice::Picked;
 
 
 

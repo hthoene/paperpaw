@@ -9,13 +9,8 @@
 //! start where that was cut short. The file is hidden: neither the Wi-Fi
 //! transfer nor the cable reach it.
 
-use alloc::format;
-use alloc::string::String;
 
-use paperpaw_platform::Storage;
 
-use crate::Version;
-use crate::native;
 
 
 

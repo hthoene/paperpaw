@@ -6,12 +6,8 @@
 //! when it first does ([`index`](super::index()), one book at a time), as
 //! for any book not indexed yet.
 
-use paperpaw_platform::Storage;
 
-use crate::document::DocumentError;
 
-use crate::Env;
-use crate::config;
 
 
 

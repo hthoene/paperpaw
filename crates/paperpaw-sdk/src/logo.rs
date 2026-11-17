@@ -7,7 +7,6 @@
 //! `[core] logo = plugins/mine/logo.png` in its `settings.ini`.
 
 use crate::setting::{Setting, Text};
-use crate::{Canvas, Color, Rect};
 
 /// A picture shown in place of the drawn logo; none (empty) for that.
 pub const LOGO: Setting<Text> = Setting::new("core.logo");

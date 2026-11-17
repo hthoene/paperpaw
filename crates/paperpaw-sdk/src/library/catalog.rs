@@ -28,12 +28,7 @@
 //! and its [`generation`]); a catalog of format 1 (six columns, no
 //! status) is still read.
 
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 
-use crate::{Storage, StorageError, files};
-use paperpaw_digest::fnv1a64;
 
 
 

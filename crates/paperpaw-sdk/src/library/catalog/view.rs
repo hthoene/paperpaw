@@ -6,9 +6,6 @@
 //! more than the path and one chunk (about 0.9 KiB). The memory error is
 //! [`Error::OutOfMemory`].
 
-use crate::data::Error;
-use crate::{Storage, StorageError};
-use paperpaw_digest::fnv1a64;
 
 
 

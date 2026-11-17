@@ -13,11 +13,7 @@
 //! for byte as `str::to_lowercase` makes it (the final sigma included), so
 //! the order and the cursors of a query are those of the stored catalog.
 
-use alloc::string::String;
-use alloc::vec::Vec;
 
-use crate::data::Error;
-use crate::{Storage, StorageError};
 
 
 

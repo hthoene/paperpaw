@@ -11,9 +11,7 @@
 //! toolchain with newer Unicode data fails there, not silently in the
 //! order of a library.
 
-use alloc::string::String;
 
-use crate::data::Error;
 
 
 

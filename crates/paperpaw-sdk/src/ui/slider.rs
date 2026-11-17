@@ -42,7 +42,5 @@
 //! ([`RefreshMode::Fast`](crate::RefreshMode::Fast)), and the screen
 //! with a clean one when the finger is lifted.
 
-use crate::Env;
-use crate::settings::{SettingKind, SettingSpec};
 
 

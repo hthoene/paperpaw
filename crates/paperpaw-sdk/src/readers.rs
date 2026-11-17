@@ -10,12 +10,7 @@
 //!   (moved with [`folder_moved`] by whatever moves a folder). [`ask`] lets
 //!   the reader choose (*Open with*, a folder's reading app).
 
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 
-use crate::builtin::params;
-use crate::{Command, Id, Params, Storage, StorageError};
 
 
 

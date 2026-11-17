@@ -24,18 +24,11 @@
 //! [`widget_look`]: super::widget_look
 //! [`draw_frame`]: super::draw_frame
 
-use alloc::format;
 
-use paperpaw_graphics::Canvas;
-use paperpaw_platform::{Color, Rect};
+use paperpaw_platform::Color;
 
-use super::look::Frame;
-use crate::builtin::settings::{WIDGET_INK, WIDGET_PAPER, parse_rgb};
+use crate::builtin::settings::parse_rgb;
 use crate::decorations::{self, Tone};
-use crate::env::Env;
-use crate::id::Id;
-use crate::settings::{SettingExtra, SettingSpec};
-use crate::ui::{self, UiStyle};
 
 
 /// The paper as the widget's frame makes it: white, black on a dark card.

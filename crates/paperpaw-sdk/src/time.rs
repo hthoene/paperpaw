@@ -8,11 +8,8 @@
 //! (e.g. `CET-1CEST,M3.5.0,M10.5.0/3`) for zones not in the list. Rules are
 //! a few bytes each, so no time zone database is needed.
 
-use alloc::format;
 use alloc::string::String;
 
-use crate::builtin::settings;
-use crate::env::Env;
 
 /// A monotonic clock in microseconds ([`Env::clock`](crate::Env::clock)),
 /// for measuring how long work takes, e.g. reading a file: the shell's

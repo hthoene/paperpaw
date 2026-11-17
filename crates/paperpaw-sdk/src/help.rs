@@ -19,10 +19,7 @@
 //! and says when it is ready (`ready`): screens below another get no
 //! timers, so it would not get ready under them.
 
-use alloc::format;
-use alloc::string::String;
 
-use crate::{Id, RegisterError};
 
 
 

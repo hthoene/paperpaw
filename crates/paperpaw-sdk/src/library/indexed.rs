@@ -5,9 +5,6 @@
 //! beyond the two file names and nothing of the file is held (the details
 //! can be 16 KiB, and [`Book`](super::Book) as much again).
 
-use super::config;
-use crate::data::Error;
-use crate::{Storage, StorageError};
 
 
 

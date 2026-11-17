@@ -162,7 +162,7 @@ mod help_old;
 /// `kernel`).
 #[cfg(not(test))]
 pub mod help {
-    pub(crate) use crate::help_old::*;
+    
 }
 // end of facade: help
 #[cfg(test)]
@@ -183,7 +183,7 @@ mod install_old;
 /// `kernel`).
 #[cfg(not(test))]
 pub mod install {
-    pub(crate) use crate::install_old::*;
+    
     pub use crate::install_old::{
         Digest, MAX_FILES, Package, PackageFile, is_plugin_name, is_safe_path,
     };
@@ -252,7 +252,7 @@ mod readers_old;
 /// `kernel`).
 #[cfg(not(test))]
 pub mod readers {
-    pub(crate) use crate::readers_old::*;
+    
 }
 // end of facade: readers
 // facade: reading (#244, D0)
@@ -352,7 +352,7 @@ pub mod ui {
     /// What interface-7 code uses of it.
     pub mod reorder {
         pub use crate::ui_old::reorder::moved;
-        pub(crate) use crate::ui_old::reorder::*;
+        
     }
 }
 // end of facade: ui
@@ -375,7 +375,7 @@ pub mod widgets {
     };
     /// What interface-7 code uses of it.
     pub mod grid {
-        pub(crate) use crate::widgets_old::grid::*;
+        
         pub use crate::widgets_old::grid::{
             Cells, Geometry, Item, MAX_COLUMNS, MAX_ROWS, What, columns_for, dragged, free_place,
             parse, write,
@@ -571,11 +571,6 @@ pub use paperpaw_platform::{DirEntry, NoStorage, Storage, StorageError};
 #[cfg(test)]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use status::{
-    StatusFn, StatusFrame, StatusItemSpec, StatusItems, StatusLineFn, StatusLineSpec,
-    StatusSignatureFn, StatusValue,
-};
-#[cfg(not(test))]
-pub(crate) use status::{
     StatusFn, StatusFrame, StatusItemSpec, StatusItems, StatusLineFn, StatusLineSpec,
     StatusSignatureFn, StatusValue,
 };

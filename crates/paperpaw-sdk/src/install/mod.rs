@@ -32,7 +32,6 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::{DATA_FORMATS, SDK_VERSION, Version};
 
 /// Files of one package at most.
 pub const MAX_FILES: usize = 64;

@@ -8,6 +8,5 @@
 //! sort order. Each step costs a directory scan but only `n` entries of
 //! memory.
 
-use crate::Formats;
 
 

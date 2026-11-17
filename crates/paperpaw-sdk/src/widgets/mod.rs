@@ -74,14 +74,11 @@ mod stack;
 
 
 pub use colours::{
-    ColourSpec,   PAPER_DARK_GRAY, PAPER_INVERTED, PAPER_LIGHT_GRAY, PAPER_NONE,
+    ColourSpec, PAPER_LIGHT_GRAY, PAPER_NONE,
     PAPER_NORMAL,     colour_spec};
 
 pub use look::{
-     FRAMES, Frame,       Wrapped,
-         
-          heading_line_height,
-     largest_size, line_height};
+     Frame,       Wrapped};
 
 /// The kinds of widgets ([`WidgetSpec::category`]), each the translation
 /// key of its name; screens that offer widgets group them so.
