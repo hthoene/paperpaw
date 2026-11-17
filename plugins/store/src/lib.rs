@@ -35,6 +35,7 @@ mod native_folders;
 pub mod native_fonts;
 mod native_fonts_host;
 mod native_glue;
+mod native_hints;
 #[doc(hidden)]
 pub mod native_index;
 #[doc(hidden)]
