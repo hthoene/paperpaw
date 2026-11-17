@@ -45,15 +45,4 @@
 use crate::Env;
 use crate::settings::{SettingKind, SettingSpec};
 
-/// Whether `spec` is shown as a slider here: a number marked so
-/// ([`SettingExtra::slider`](crate::SettingExtra::slider)), on a touch
-/// screen. With buttons alone it keeps its compact row with `−` and `+`.
-pub fn shows(env: &Env<'_>, spec: &SettingSpec) -> bool {
-    env.device().input.touch && marked(spec)
-}
 
-/// Whether `spec` is a number marked to be set with a slider, wherever
-/// one is shown ([`shows`]).
-pub fn marked(spec: &SettingSpec) -> bool {
-    matches!(spec.kind, SettingKind::Int { .. }) && spec.extra().slider
-}

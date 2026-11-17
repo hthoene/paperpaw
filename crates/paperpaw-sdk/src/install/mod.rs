@@ -27,10 +27,6 @@ pub mod local;
 pub mod marks;
 mod origin;
 
-pub use origin::{Origin, Origins, folder_release, folder_version, origin};
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use origin::{adopt, forget_store_install, remember_store_install};
 
 use alloc::format;
 use alloc::string::String;
@@ -43,20 +39,7 @@ pub const MAX_FILES: usize = 64;
 /// The longest path of a file in a plugin's folder.
 const MAX_PATH: usize = 100;
 
-/// Whether a data plugin made for the SDK `sdk` (e.g. `0.5`) and the data
-/// formats `formats` is read by a PaperPaw of the SDK this is built with
-/// ([`SDK_VERSION`]); `fits_in` asks the PaperPaw that runs.
-pub fn fits(sdk: &str, formats: u32) -> bool {
-    fits_sdk(SDK_VERSION, sdk, formats)
-}
 
-/// `fits_in` for a kernel of the SDK `kernel`, where the `Env` is not at
-/// hand.
-pub fn fits_sdk(kernel: Version, sdk: &str, formats: u32) -> bool {
-    let sdk_fits = sdk.trim().is_empty()
-        || Version::parse(sdk).is_some_and(|v| (v.major, v.minor) <= (kernel.major, kernel.minor));
-    sdk_fits && formats <= DATA_FORMATS
-}
 
 /// Whether `id` can be a data plugin's id and its folder's name: lower-case
 /// letters, digits and `-`, and not the host's own id `core` (reserved, as

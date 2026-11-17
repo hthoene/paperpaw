@@ -310,10 +310,6 @@ impl Look {
         Self(None)
     }
 
-    /// The painters, if a look is set.
-    pub(crate) fn painters(&self) -> Option<&'static Painters> {
-        self.0
-    }
 
     /// Paints a run of interface text with the look's text painter;
     /// `false` where it has none or it did not (draw the text as usual).
@@ -329,16 +325,6 @@ impl Look {
             .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
-    pub(super) fn hints(
-        &self,
-        canvas: &mut Canvas<'_>,
-        style: &UiStyle,
-        part: HintRowPart,
-    ) -> bool {
-        self.0
-            .and_then(|p| p.hints)
-            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
-    }
 }
 
 impl PartialEq for Look {

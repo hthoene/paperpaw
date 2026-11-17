@@ -101,393 +101,34 @@ impl Frame {
     }
 }
 
-/// The values of a widget's size setting ([`size_setting`]).
-pub const SIZES: &[&str] = &[
-    "core.size.small",
-    "core.size.medium",
-    "core.size.large",
-    "core.size.fit",
-];
 
-/// [`SIZES`] but "as large as fits".
-const SIZES_SET: [&str; 3] = [SIZES[0], SIZES[1], SIZES[2]];
 
-/// The sizes offered: with `fit`, also "as large as fits".
-const fn sizes(fit: bool) -> &'static [&'static str] {
-    if fit { SIZES } else { &SIZES_SET }
-}
 
-/// How large a widget's text is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum TextSize {
-    Small,
-    Medium,
-    Large,
-    /// As large as its place allows: the widget works it out.
-    Fit,
-}
 
-impl TextSize {
-    /// The size a value of [`SIZES`] names; medium for others.
-    pub fn of(value: &str) -> Self {
-        match SIZES.iter().position(|s| *s == value) {
-            Some(0) => TextSize::Small,
-            Some(2) => TextSize::Large,
-            Some(3) => TextSize::Fit,
-            _ => TextSize::Medium,
-        }
-    }
 
-    /// Its value in [`SIZES`].
-    pub const fn value(self) -> &'static str {
-        SIZES[self as usize]
-    }
 
-    /// The text size in pixels: the body's, a title's, or larger (also
-    /// for [`Fit`](TextSize::Fit), where a widget has nothing better).
-    pub fn text(self, style: &UiStyle) -> f32 {
-        match self {
-            TextSize::Small => style.text,
-            TextSize::Medium => style.title,
-            TextSize::Large | TextSize::Fit => style.title * 1.6,
-        }
-    }
-}
 
-/// The values of a widget's padding setting ([`padding_spec`]).
-pub const PADDINGS: &[&str] = &[
-    "core.padding.auto",
-    "core.padding.none",
-    "core.padding.small",
-    "core.padding.normal",
-    "core.padding.large",
-];
 
-/// How far a widget's content keeps from the edges of its frame (or of
-/// its place, without a frame), in steps of the style's gap: none, half
-/// a gap, a gap, two gaps. A frame's line comes on top of that, so the
-/// content never touches it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Padding {
-    /// As suits the frame: [`None`](Padding::None) without one, so that
-    /// what the widget shows lines up with the page's margins and the
-    /// widgets beside it (the grid keeps a gap between them), and
-    /// [`Normal`](Padding::Normal) inside one.
-    Auto,
-    None,
-    Small,
-    Normal,
-    Large,
-}
 
-impl Padding {
-    /// The padding a value of [`PADDINGS`] names; automatic for others.
-    pub fn of(value: &str) -> Self {
-        match PADDINGS.iter().position(|p| *p == value) {
-            Some(1) => Padding::None,
-            Some(2) => Padding::Small,
-            Some(3) => Padding::Normal,
-            Some(4) => Padding::Large,
-            _ => Padding::Auto,
-        }
-    }
 
-    /// Its value in [`PADDINGS`].
-    pub const fn value(self) -> &'static str {
-        PADDINGS[self as usize]
-    }
 
-    /// The pixels it keeps from the edges of `frame` drawn in `style`.
-    pub(crate) fn pixels(self, style: &UiStyle, frame: Frame) -> u16 {
-        let gap = style.gap;
-        let step = match self {
-            Padding::Auto if frame == Frame::None => 0,
-            Padding::Auto | Padding::Normal => gap,
-            Padding::None => 0,
-            Padding::Small => gap / 2,
-            Padding::Large => gap * 2,
-        };
-        // Clear of the frame's line (a card's edge as well).
-        let line = match frame {
-            Frame::None => 0,
-            _ => style.line * 2,
-        };
-        (step + line) as u16
-    }
-}
 
-/// A widget's place inside its frame, and the colours to draw in there.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct WidgetLook {
-    /// Where its content goes.
-    pub area: Rect,
-    /// Text and lines.
-    pub ink: Color,
-    /// Text that matters less (captions, notes).
-    pub faint: Color,
-    /// What lies behind it: white, black on a dark card, or as the
-    /// widget's paper setting says ([`paper`](super::paper)).
-    pub paper: Color,
-    pub frame: Frame,
-}
 
-impl WidgetLook {
-    /// Made of what it needs; the rest as set with its methods.
-    pub fn new(area: Rect, ink: Color, faint: Color, paper: Color, frame: Frame) -> Self {
-        Self {
-            area,
-            ink,
-            faint,
-            paper,
-            frame,
-        }
-    }
-}
 
-/// The id of `widget`'s setting `key`: `<widget>.<key>`.
-pub fn setting_id(widget: &Id, key: &str) -> Id {
-    Id::parse(&format!("{widget}.{key}")).unwrap_or_else(|_| widget.clone())
-}
 
-/// The setting of what `widget` is drawn in, `<widget>.frame`, in the
-/// widget's settings group; [`frame`] reads it.
-pub fn frame_setting(widget: &Id, default: Frame) -> SettingSpec {
-    choice_setting(
-        widget,
-        "frame",
-        "core.setting.frame",
-        FRAMES,
-        default.value(),
-    )
-    .description("core.setting.frame.help")
-}
 
-/// [`frame_setting`] kept in the program (a `static` list), for a
-/// `static` list of the widget's settings: `id` must be
-/// `<widget>.frame`.
-pub const fn frame_spec(id: &'static str, widget: Id, default: Frame) -> SettingSpec {
-    SettingSpec::choice(id, "core.setting.frame", FRAMES, default.value(), widget)
-        .description("core.setting.frame.help")
-}
 
-/// The setting of how far `widget`'s content keeps from its frame,
-/// `<widget>.padding`, in the widget's settings group; [`padding`] reads
-/// it. Automatic ([`Padding::Auto`]) suits nearly every widget.
-pub fn padding_setting(widget: &Id, default: Padding) -> SettingSpec {
-    choice_setting(
-        widget,
-        "padding",
-        "core.setting.padding",
-        PADDINGS,
-        default.value(),
-    )
-    .description("core.setting.padding.help")
-}
 
-/// [`padding_setting`] kept in the program (a `static` list): `id`
-/// must be `<widget>.padding`.
-pub const fn padding_spec(id: &'static str, widget: Id, default: Padding) -> SettingSpec {
-    SettingSpec::choice(
-        id,
-        "core.setting.padding",
-        PADDINGS,
-        default.value(),
-        widget,
-    )
-    .description("core.setting.padding.help")
-}
 
-/// How far `widget`'s content keeps from its frame, by its
-/// [`padding_setting`], else by that of all widgets
-/// ([`WIDGET_PADDING`](crate::builtin::settings::WIDGET_PADDING));
-/// automatic without one.
-pub fn padding(env: &Env<'_>, widget: &str) -> Padding {
-    Padding::of(super::shape::padding_value(env, widget))
-}
 
-/// [`size_setting`] kept in the program (a `static` list): `id`
-/// must be `<widget>.size`.
-pub const fn size_spec(id: &'static str, widget: Id, default: TextSize, fit: bool) -> SettingSpec {
-    SettingSpec::choice(id, "core.setting.size", sizes(fit), default.value(), widget)
-        .description("core.setting.size.help")
-}
 
-/// [`part_setting`] kept in the program (a `static` list): `id`
-/// must be `<widget>.<part>`.
-pub const fn part_spec(
-    id: &'static str,
-    widget: Id,
-    title: &'static str,
-    default: bool,
-) -> SettingSpec {
-    SettingSpec::switch(id, title, default, widget).description("core.setting.part.help")
-}
 
-/// What `widget` is drawn in, by its [`frame_setting`]; none without one.
-pub fn frame(env: &Env<'_>, widget: &str) -> Frame {
-    let own = format!("{widget}.frame");
-    // Every widget's, where the reader chose one for all and not one for
-    // this widget.
-    let all = env
-        .settings
-        .text(crate::builtin::settings::WIDGET_FRAME.static_str());
-    if all != OWN_FRAME && FRAMES.contains(&all) && !env.settings().is_chosen(&own) {
-        return Frame::of(all);
-    }
-    Frame::of(env.settings().text(&own))
-}
 
-/// The value of [`WIDGET_FRAME`](crate::builtin::settings::WIDGET_FRAME)
-/// for each widget its own frame.
-pub const OWN_FRAME: &str = "core.frame.own";
 
-/// The values of [`WIDGET_FRAME`](crate::builtin::settings::WIDGET_FRAME):
-/// each widget its own, or one of [`FRAMES`] for all.
-pub const ALL_FRAMES: &[&str] = &[
-    OWN_FRAME,
-    "core.frame.none",
-    "core.frame.line",
-    "core.frame.card",
-    "core.frame.dark",
-];
 
-/// The setting of how large `widget`'s text is, `<widget>.size`, in the
-/// widget's settings group; with `fit`, also "as large as fits". [`size`]
-/// reads it.
-pub fn size_setting(widget: &Id, default: TextSize, fit: bool) -> SettingSpec {
-    choice_setting(
-        widget,
-        "size",
-        "core.setting.size",
-        sizes(fit),
-        default.value(),
-    )
-    .description("core.setting.size.help")
-}
 
-/// How large `widget`'s text is, by its [`size_setting`]; medium without
-/// one.
-pub fn size(env: &Env<'_>, widget: &str) -> TextSize {
-    TextSize::of(env.settings().text(&format!("{widget}.size")))
-}
 
-/// A switch for a part of what `widget` shows, `<widget>.<part>`, in the
-/// widget's settings group; [`shows`] reads it.
-pub fn part_setting(
-    widget: &Id,
-    part: &str,
-    title: impl Into<Cow<'static, str>>,
-    default: bool,
-) -> SettingSpec {
-    let mut spec = SettingSpec::new(
-        setting_id(widget, part),
-        "",
-        SettingKind::Bool,
-        SettingValue::Bool(default),
-        widget.clone(),
-    )
-    .description("core.setting.part.help");
-    spec.title = crate::Str::new(title);
-    spec
-}
 
-/// Whether `widget` shows `part` ([`part_setting`]).
-pub fn shows(env: &Env<'_>, widget: &str, part: &str) -> bool {
-    env.settings().bool(&format!("{widget}.{part}"))
-}
-
-/// A choice of `values` for `widget`, `<widget>.<key>`, in the widget's
-/// settings group.
-pub fn choice_setting(
-    widget: &Id,
-    key: &str,
-    title: impl Into<Cow<'static, str>>,
-    values: &'static [&'static str],
-    default: &'static str,
-) -> SettingSpec {
-    let mut spec = SettingSpec::new(
-        setting_id(widget, key),
-        "",
-        SettingKind::Choice(Choices::Fixed(values)),
-        SettingValue::Text(Cow::Borrowed(default)),
-        widget.clone(),
-    );
-    spec.title = crate::Str::new(title);
-    spec
-}
-
-/// `widget`'s place inside its frame in `area` and the colours there,
-/// without drawing (e.g. for its targets). Its content keeps from the
-/// frame as its [`padding`] says, but never more than a quarter of the
-/// place on each side, so small places keep room for it; a shadow
-/// ([`shadow`](super::shadow)) takes its room right and below. Shared:
-/// plugins built from interface 6, revision 1 of the
-/// `widgets` family on run the firmware's.
-pub fn widget_look(env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook {
-    let style = super::shape::styled(env, widget, UiStyle::new(env));
-    let frame = frame(env, widget);
-    let area = super::shape::plate_of(
-        area,
-        super::shape::shadow_offset(env, widget, &style, frame),
-    );
-    let pad = padding(env, widget).pixels(&style, frame);
-    let pad_x = pad.min(area.width / 4);
-    let pad_y = pad.min(area.height / 4);
-    let inner = Rect::new(
-        area.x + pad_x,
-        area.y + pad_y,
-        area.width.saturating_sub(2 * pad_x),
-        area.height.saturating_sub(2 * pad_y),
-    );
-    let [paper, ink, faint] = super::colours::colours(env, &style, widget, frame);
-    WidgetLook {
-        area: inner,
-        ink,
-        faint,
-        paper,
-        frame,
-    }
-}
-
-/// Draws `widget`'s frame in `area` (cleared before), in its corners and
-/// line, its shadow below it, and returns where its content goes and in
-/// which colours ([`widget_look`]).
-pub fn draw_frame(canvas: &mut Canvas<'_>, env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook {
-    let style = super::shape::styled(env, widget, UiStyle::new(env));
-    let look = widget_look(env, widget, area);
-    let offset = super::shape::shadow_offset(env, widget, &style, look.frame);
-    let plate = super::shape::plate_of(area, offset);
-    if offset > 0 {
-        let below = Rect::new(
-            plate.x.saturating_add(offset),
-            plate.y.saturating_add(offset),
-            plate.width,
-            plate.height,
-        );
-        let corner = super::shape::plate_corner(env, widget, &style, look.frame);
-        match super::shape::shadow_colour(look.paper) {
-            Color::BLACK => canvas.fill_round(below, corner, Color::BLACK),
-            shade => canvas.fill_round_shaded(below, corner, shade),
-        }
-    }
-    // A paper the reader chose, else as cards are: a look of a plugin's
-    // own paints it, else the usual.
-    if !super::colours::paint_paper(canvas, env, &style, widget, plate, &look) {
-        crate::ui::layout::paint_frame(canvas, &style, plate, look.frame);
-    }
-    look
-}
-
-/// The height `widget`'s frame takes above and below its content, as its
-/// settings make it ([`widget_look`]): what a widget adds to the height of what
-/// it shows.
-pub fn frame_height(env: &Env<'_>, widget: &str) -> u16 {
-    let probe = Rect::new(0, 0, 1000, 1000);
-    1000 - widget_look(env, widget, probe).area.height
-}
 
 /// The height of a line of text `size` pixels large in the UI font.
 pub fn line_height(env: &Env<'_>, size: f32) -> u16 {
@@ -507,12 +148,6 @@ pub fn heading_line_height(env: &Env<'_>, size: f32) -> u16 {
         .map_or(size as u16, |f| f.heading_line_height(size) as u16)
 }
 
-/// The height a caption takes ([`draw_caption`]), the gap below it
-/// included.
-pub fn caption_height(env: &Env<'_>) -> u16 {
-    let style = UiStyle::new(env);
-    line_height(env, style.small) + style.gap as u16 / 2
-}
 
 /// How far letters may reach past the box their advance gives them, left
 /// and right (a slant, a slash's tail); text in a widget's area is cut
@@ -532,38 +167,6 @@ fn ink_room(area: Rect) -> Rect {
     )
 }
 
-/// Draws `text` small at the top of `look`'s area, placed as `widget`'s
-/// alignment says (`align`), e.g. "Today" over the
-/// numbers; returns the area left below it.
-pub fn draw_caption(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    widget: &str,
-    look: &WidgetLook,
-    text: &str,
-) -> Rect {
-    let style = UiStyle::new(env);
-    let area = look.area;
-    let height = caption_height(env).min(area.height);
-    if let Some(font) = style.font(env) {
-        let text = ui::fit(&font, style.small, text, f32::from(area.width));
-        let x = super::align(env, widget).x(area, font.measure(style.small, &text));
-        let row = Rect::new(area.x, area.y, area.width, line_height(env, style.small));
-        let mut canvas = canvas.clipped(ink_room(area));
-        ui::draw_label_in(
-            &mut canvas,
-            &font,
-            &style,
-            ui::TextRole::SMALL,
-            style.small,
-            x,
-            row,
-            &text,
-            look.faint,
-        );
-    }
-    Rect::new(area.x, area.y + height, area.width, area.height - height)
-}
 
 /// The largest size from `max` down to `min` at which `fits` holds, or
 /// `None` where it does not even at `min`. Sizes go down in small steps
@@ -583,94 +186,9 @@ pub fn largest_size(max: f32, min: f32, mut fits: impl FnMut(f32) -> bool) -> Op
     fits(min).then_some(min)
 }
 
-/// `text` on one line `width` pixels wide: the size from `max` down to
-/// `min` at which it fits whole, or at `min` shortened with "…". For
-/// what must not wrap: a time, a date, a number, a title in a small
-/// cell.
-pub fn fit_line(
-    font: &FontHandle<'_>,
-    max: f32,
-    min: f32,
-    text: &str,
-    width: f32,
-) -> (f32, String) {
-    match largest_size(max, min, |size| font.measure(size, text) <= width) {
-        Some(size) => (size, String::from(text)),
-        None => {
-            let min = min.min(max);
-            (min, ui::fit(font, min, text, width))
-        }
-    }
-}
 
-/// The baseline that puts the ink of `text` at `size` in the middle of
-/// `band` from top to bottom, rather than its line (which leaves more
-/// room above the letters than below them): digits and words then sit
-/// in the middle of their place as signs do.
-pub fn ink_baseline(font: &FontHandle<'_>, size: f32, text: &str, band: Rect) -> i32 {
-    let (top, bottom) = font.ink(size, text).unwrap_or_else(|| {
-        let metrics = font.line_metrics(size);
-        (-(metrics.ascent as i32), -(metrics.descent as i32))
-    });
-    let room = i32::from(band.height) - (bottom - top);
-    i32::from(band.y) + room.div_euclid(2) - top
-}
 
-/// Draws `text` on one line in `area` ([`fit_line`]: from `max` down to
-/// `min`, then shortened), placed as `align` says and centred by its ink
-/// from top to bottom; returns the size drawn.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "its inputs are separate things; a struct of them would serve this call alone"
-)]
-pub fn draw_line(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    area: Rect,
-    align: super::Align,
-    max: f32,
-    min: f32,
-    text: &str,
-    color: Color,
-) -> f32 {
-    let Some(font) = UiStyle::new(env).font(env) else {
-        return min;
-    };
-    let (size, shown) = fit_line(&font, max, min, text, f32::from(area.width));
-    let width = font.measure(size, &shown);
-    let x = align.x(area, width);
-    let at = Rect::new(x.max(0.0) as u16, area.y, width as u16, area.height);
-    canvas.describe(paperpaw_graphics::Role::Text, text, at);
-    let baseline = ink_baseline(&font, size, &shown, area);
-    font.draw(canvas, size, x, baseline, &shown, color);
-    size
-}
 
-/// Draws `text` `size` pixels large in `area`, broken into lines between
-/// words where it is wider, each line placed as `align` says, together
-/// in the middle from top to bottom. Where it does not fit, it is made
-/// smaller, down to the style's small size, and only then are words
-/// shortened with "…" and lines left out (the last one shown ending in
-/// "…"). Returns the height drawn. A widget drawing the same text again
-/// and again (in every band of a frame) breaks it once ([`Wrapped`]) and
-/// draws that.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "its inputs are separate things; a struct of them would serve this call alone"
-)]
-pub fn draw_wrapped(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    area: Rect,
-    align: super::Align,
-    size: f32,
-    text: &str,
-    color: Color,
-) -> u16 {
-    let small = UiStyle::new(env).small;
-    Wrapped::fitting(env, text, size, small, area.width, area.height)
-        .draw(canvas, env, area, align, color)
-}
 
 /// The lines `text` breaks into at `size` in `width` pixels: between
 /// words and at line breaks, never inside a word; and whether a word is
@@ -731,13 +249,6 @@ pub struct Wrapped {
 }
 
 impl Wrapped {
-    /// `text` `size` pixels large in lines `width` pixels wide, broken
-    /// between words, as many as fit `height` pixels (at least one). Where
-    /// there is more, or a word is wider than a line, the text ends there
-    /// in "…": never a shortened word with more text after it.
-    pub fn new(env: &Env<'_>, text: &str, size: f32, width: u16, height: u16) -> Self {
-        Self::made(env, text, size, (width, height), false)
-    }
 
     /// [`new`](Self::new) or, for a title or heading, its lines a
     /// heading's apart.
@@ -824,10 +335,6 @@ impl Wrapped {
         )
     }
 
-    /// The size its lines are drawn at.
-    pub fn size(&self) -> f32 {
-        self.size
-    }
 
     /// Whether its lines show all of the text, nothing shortened or left
     /// out: a widget may then rather show something shorter.
@@ -835,10 +342,6 @@ impl Wrapped {
         self.whole
     }
 
-    /// Its lines as drawn.
-    pub fn lines(&self) -> &[String] {
-        &self.lines
-    }
 
     /// The height its lines take.
     pub(crate) fn height(&self, env: &Env<'_>) -> u16 {
@@ -913,14 +416,6 @@ fn lines_in(env: &Env<'_>, size: f32, heading: bool, height: u16) -> usize {
     1 + usize::from(height.saturating_sub(line) / apart)
 }
 
-/// Draws `text` in the body size in the middle of `look`'s area, e.g.
-/// what a widget would show is not there yet ("No words saved yet"):
-/// smaller, down to the small size, where it does not fit.
-pub fn draw_message(canvas: &mut Canvas<'_>, env: &Env<'_>, look: &WidgetLook, text: &str) {
-    let style = UiStyle::new(env);
-    let (area, center) = (look.area, super::Align::Center);
-    draw_wrapped(canvas, env, area, center, style.text, text, look.ink);
-}
 
 #[cfg(test)]
 mod tests {

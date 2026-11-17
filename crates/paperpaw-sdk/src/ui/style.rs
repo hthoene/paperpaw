@@ -111,11 +111,6 @@ impl UiStyle {
         self.look
     }
 
-    /// With corners of radius `corner`.
-    pub(crate) fn with_corner(mut self, corner: u16) -> Self {
-        self.corner = u32::from(corner);
-        self
-    }
 }
 
 /// A size in pixels as the getters give it.
@@ -400,21 +395,6 @@ impl Default for Palette {
     }
 }
 
-/// How the interface's text is inked: the tone curve of the setting
-/// `core.ui-text-curve`, `value` (see
-/// [`ToneCurve::parse_for`](paperpaw_text::ToneCurve::parse_for)), for the
-/// script of the interface's `language` (a code as a catalog names it,
-/// `ar`); the stock ink where it is empty or says nothing usable. The
-/// kernel makes it once, when the setting or the language changes
-/// (`Fonts::set_ui_ink`, kernel only); the UI font's
-/// handles carry it, so plugins do not parse the setting.
-pub fn text_ink(value: &str, language: &str) -> TextInk {
-    if value.is_empty() {
-        return TextInk::DEFAULT;
-    }
-    ToneCurve::parse_for(value, paperpaw_lang::likely_script_of(language))
-        .map_or(TextInk::DEFAULT, TextInk::new)
-}
 
 /// What a text is (see [`UiStyle::size`]): its size follows from the
 /// style's, so text of one kind is as large on every screen.
@@ -582,20 +562,6 @@ impl UiStyle {
         }
     }
 
-    /// The radius of the corners of a shape `height` pixels high: half
-    /// its height for pills, else the style's corners.
-    /// Taller shapes (a row with a note) keep the corners, at most half a
-    /// margin round: the room between their edge and their text, so the
-    /// curve never comes near what is in them.
-    pub(crate) fn radius(&self, height: u32) -> u32 {
-        if self.pill && height <= self.row * 5 / 4 {
-            height / 2
-        } else if height > self.row * 5 / 4 {
-            self.corner.min(self.margin / 2)
-        } else {
-            self.corner
-        }
-    }
 
     /// The colour of `ink` in the palette; gray text (notes, headings,
     /// what cannot be used) black for strong contrast.
@@ -632,18 +598,4 @@ impl UiStyle {
     }
 }
 
-/// Fills a rectangle with the style's corners.
-pub fn fill_round(canvas: &mut Canvas<'_>, style: &UiStyle, area: Rect, color: Color) {
-    canvas.fill_round(area, style.corner, color);
-}
 
-/// Draws a box's frame, `thickness` wide, with the style's corners.
-pub(crate) fn stroke_round(
-    canvas: &mut Canvas<'_>,
-    style: &UiStyle,
-    area: Rect,
-    thickness: u32,
-    color: Color,
-) {
-    canvas.stroke_round(area, thickness, style.corner, color);
-}

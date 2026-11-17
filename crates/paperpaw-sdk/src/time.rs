@@ -43,8 +43,6 @@ impl core::fmt::Debug for Clock {
     }
 }
 
-/// The automatic time zone: the system's, or UTC without one.
-pub const AUTO: &str = "core.tz.auto";
 
 /// Time zones to choose from: an id (its translation is the name shown)
 /// and its POSIX `TZ` rule.
@@ -179,11 +177,6 @@ impl UnixTime {
         self.0.div_euclid(1000)
     }
 
-    /// Now, if the device knows the time.
-    pub(crate) fn now(env: &Env<'_>) -> Option<Self> {
-        let clock = env.status().clock?;
-        Some(Self(clock.unix_millis_at(env.now())))
-    }
 
     /// How it reads on a wall `offset` seconds ahead of UTC.
     pub fn local(self, offset: i32) -> LocalTime {
@@ -539,120 +532,17 @@ pub fn iso_week(year: i32, month: u8, day: u8) -> u8 {
     }
 }
 
-/// The time zone chosen in the settings; `None` for the system's. A rule
-/// that is not one ([`TimeZone::parse`]) counts as none: the zone chosen
-/// from the list then.
-fn chosen_zone(env: &Env<'_>) -> Option<TimeZone> {
-    let rule = env.settings().read(&settings::TIME_ZONE_RULE).trim();
-    if let Some(zone) = TimeZone::parse(rule) {
-        return Some(zone);
-    }
-    let zone = env.settings().read(&settings::TIME_ZONE);
-    TIME_ZONES
-        .iter()
-        .find(|(id, _)| *id == zone)
-        .and_then(|(_, rule)| TimeZone::parse(rule))
-}
 
-/// The seconds the chosen time zone (or the system's) is ahead of UTC at
-/// `unix` seconds since 1970.
-fn zone_offset(env: &Env<'_>, unix: i64) -> i32 {
-    match chosen_zone(env) {
-        Some(zone) => zone.offset_at(unix),
-        None => env
-            .status
-            .clock
-            .and_then(|c| c.utc_offset_minutes)
-            .map_or(0, |m| m * 60),
-    }
-}
 
-/// Seconds since 1970 (UTC) now, if the device knows the time:
-/// `UnixTime::now(env)` as a number, for what keeps seconds.
-pub fn unix_seconds(env: &Env<'_>) -> Option<i64> {
-    UnixTime::now(env).map(UnixTime::secs)
-}
 
-/// The local date and time now, in the chosen zone (its offset in
-/// [`LocalTime::offset`]), if the device knows the time.
-pub fn local_time(env: &Env<'_>) -> Option<LocalTime> {
-    let now = UnixTime::now(env)?;
-    Some(now.local(zone_offset(env, now.secs())))
-}
 
-/// The time now as the user wants to see it: `14:05` or `2:05 PM`
-/// (setting `core.clock-format`), if the device knows the time.
-pub fn clock_text(env: &Env<'_>) -> Option<String> {
-    let t = local_time(env)?;
-    Some(clock_of(env, t.hour, t.minute))
-}
 
-/// Whether the user wants times on a twelve-hour clock (setting
-/// `core.clock-format`).
-pub(crate) fn twelve_hours(env: &Env<'_>) -> bool {
-    env.settings().read(&settings::CLOCK_FORMAT) == CLOCK_12H
-}
 
-/// A time of day (`hour` 0 to 23) as the user wants to see it: `14:05`
-/// or `2:05 PM` ([`twelve_hours`]), in the digits of the language shown.
-pub(crate) fn clock_of(env: &Env<'_>, hour: u8, minute: u8) -> String {
-    if !twelve_hours(env) {
-        return env
-            .i18n()
-            .localize_digits(&format!("{hour:02}:{minute:02}"))
-            .into_owned();
-    }
-    let key = if hour < 12 {
-        "core.clock.am"
-    } else {
-        "core.clock.pm"
-    };
-    let shown = match hour % 12 {
-        0 => 12,
-        h => h,
-    };
-    let time = format!("{shown}:{minute:02}");
-    let time = env.i18n().localize_digits(&time);
-    env.i18n()
-        .format(key, &[("time", paperpaw_i18n::Arg::Str(&time))])
-}
 
-/// Today in words, e.g. "Thursday, 15 October", if the device knows the
-/// date.
-pub fn date_text(env: &Env<'_>) -> Option<String> {
-    dated(env, "core.date", "")
-}
 
-/// Today in short words, e.g. "Thu 15 Oct", if the device knows the date.
-pub fn short_date_text(env: &Env<'_>) -> Option<String> {
-    dated(env, "core.date.short", ".short")
-}
 
-/// Today as the translation `key` writes it, with the names of the
-/// weekday and the month (`core.weekday<kind>.<n>`, `core.month<kind>.<n>`).
-fn dated(env: &Env<'_>, key: &str, kind: &str) -> Option<String> {
-    let now = local_time(env)?;
-    let weekday = format!("core.weekday{kind}.{}", now.weekday);
-    let month = format!("core.month{kind}.{}", now.month);
-    Some(env.i18n().format(
-        key,
-        &[
-            ("weekday", paperpaw_i18n::Arg::Str(env.i18n().tr(&weekday))),
-            ("day", paperpaw_i18n::Arg::Int(i64::from(now.day))),
-            ("month", paperpaw_i18n::Arg::Str(env.i18n().tr(&month))),
-        ],
-    ))
-}
 
-/// The values of the first day of the week
-/// ([`WEEK_START`](crate::builtin::settings::WEEK_START)): as the
-/// language has it, Monday, Sunday.
-pub const WEEK_STARTS: &[&str] = &["core.week.auto", "core.week.monday", "core.week.sunday"];
 
-/// The values of `core.clock-format`
-/// ([`CLOCK_FORMAT`](crate::builtin::settings::CLOCK_FORMAT)): 24 hours,
-/// 12 hours.
-pub const CLOCK_24H: &str = "core.clock.24h";
 pub const CLOCK_12H: &str = "core.clock.12h";
 
 /// [`UnixTime::parse_iso8601`], in milliseconds.

@@ -6,7 +6,3 @@
 )]
 use super::*;
 
-/// The width of buttons' and boxes' borders.
-pub(crate) fn button_border(style: &UiStyle) -> u32 {
-    style.line.max(2)
-}

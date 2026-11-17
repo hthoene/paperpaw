@@ -118,82 +118,7 @@ pub struct Picture<'a> {
     pub tones: Tones,
 }
 
-impl<'a> Picture<'a> {
-    /// A picture of `kind` at `path`, `width` × `height` pixels (as
-    /// [`probe_picture`] found them), whose draw may take `scratch_max`
-    /// bytes of heap for its one transient block.
-    #[must_use]
-    pub const fn new(
-        path: &'a str,
-        kind: PictureKind,
-        width: u32,
-        height: u32,
-        scratch_max: usize,
-    ) -> Self {
-        Self {
-            path,
-            kind,
-            width,
-            height,
-            scratch_max,
-            tones: Tones::Panel,
-        }
-    }
 
-    /// The picture drawn in `tones` (black and white dots, or the panel's
-    /// grays) instead of the panel's own rule.
-    #[must_use]
-    pub const fn with_tones(mut self, tones: Tones) -> Self {
-        self.tones = tones;
-        self
-    }
-}
-
-/// The kind and size of the decoded picture file at `path`, only if its size
-/// is what its header says: one header read, no allocation. The cache
-/// image formats are `PPGI` (gray), `PPCI` (colour, 3 bytes a pixel) and
-/// `PPGA` (gray and opacity, 2), after the 12-byte header.
-///
-/// # Errors
-/// `Io` where the file cannot be read, is shorter than its header or than
-/// its header says it is; `Invalid` where the header is not one of those,
-/// has no size, or the file is longer than it says.
-pub fn probe_picture(
-    storage: &dyn Storage,
-    path: &str,
-) -> Result<(PictureKind, u32, u32), crate::image::ImageError> {
-    use crate::image::ImageError;
-    let mut header = [0_u8; 12];
-    let read = storage
-        .read_at(path, 0, &mut header)
-        .map_err(|_| ImageError::Io)?;
-    if read != header.len() {
-        return Err(ImageError::Io);
-    }
-    let width = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
-    let height = u32::from_le_bytes([header[8], header[9], header[10], header[11]]);
-    let (kind, bytes) = match &header[..4] {
-        b"PPGI" => (PictureKind::Gray, 1_u64),
-        b"PPCI" => (PictureKind::Color, 3),
-        b"PPGA" => (PictureKind::Alpha, 2),
-        _ => return Err(ImageError::Invalid("not a decoded picture")),
-    };
-    if width == 0 || height == 0 {
-        return Err(ImageError::Invalid("a picture with no size"));
-    }
-    let expected = (u64::from(width) * u64::from(height))
-        .checked_mul(bytes)
-        .and_then(|n| n.checked_add(HEADER))
-        .ok_or(ImageError::Invalid("a picture too large"))?;
-    let size = storage.size(path).map_err(|_| ImageError::Io)?;
-    match size.cmp(&expected) {
-        core::cmp::Ordering::Equal => Ok((kind, width, height)),
-        core::cmp::Ordering::Less => Err(ImageError::Io),
-        core::cmp::Ordering::Greater => {
-            Err(ImageError::Invalid("a picture longer than its header"))
-        }
-    }
-}
 
 /// A zeroed buffer, `ImageError::OutOfMemory` where there is no room.
 pub(super) fn grab(len: usize) -> Result<Vec<u8>, crate::image::ImageError> {
@@ -205,26 +130,6 @@ pub(super) fn grab(len: usize) -> Result<Vec<u8>, crate::image::ImageError> {
     Ok(bytes)
 }
 
-/// `draw_image_over` for a checked picture ([`probe_picture`]) with every
-/// allocation fallible and every failure said: `OutOfMemory` (nothing is
-/// drawn: the buffers are taken first), `Io` (a row that cannot be read:
-/// the bands before it are drawn, none after). Nothing is drawn on a frame
-/// that is only described or where the picture is not in the clip or has
-/// no opacity. A dithered picture goes on where the band above left it, as
-/// [`draw_image`] does: the frame keeps its dithering error from band to band
-/// ([`Canvas::keep_diffusion`], a few bytes a column, freed with the frame),
-/// so a band reads only its own rows. Where the frame keeps none (no room,
-/// a band drawn again, a part drawn alone), the picture is dithered from its
-/// first row again: the same pixels, more rows read.
-pub fn try_draw_picture(
-    canvas: &mut Canvas<'_>,
-    storage: &dyn Storage,
-    picture: &Picture<'_>,
-    area: Rect,
-    opacity: u8,
-) -> Result<(), crate::image::ImageError> {
-    draw_picture(canvas, storage, picture, area, opacity, false)
-}
 
 /// The columns (from, to) a picture is made over: a dithered one over all of
 /// its rectangle at `left`, `w` wide (up to `DIFFUSE_WIDTH_MAX`), also where
@@ -787,17 +692,3 @@ fn draw_color_image(
     Ok(())
 }
 
-/// The largest size of `image` that fits `width` × `height`, keeping its
-/// proportions.
-pub fn fit_image(image: &ImageRef, width: u16, height: u16) -> (u16, u16) {
-    if image.width == 0 || image.height == 0 {
-        return (0, 0);
-    }
-    let by_width = u64::from(width) * u64::from(image.height) / u64::from(image.width);
-    if by_width <= u64::from(height) {
-        (width, by_width as u16)
-    } else {
-        let w = u64::from(height) * u64::from(image.width) / u64::from(image.height);
-        (w as u16, height)
-    }
-}

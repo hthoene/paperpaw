@@ -24,72 +24,9 @@ use alloc::string::String;
 
 use crate::{Id, RegisterError};
 
-/// The point hints go to.
-pub(crate) const POINT: &str = "help.hints";
 
-/// What a hint is for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Input {
-    /// Every device.
-    Any,
-    /// Touch screens.
-    Touch,
-    /// Devices with buttons alone.
-    Buttons,
-}
 
-impl Input {
-    fn id(self) -> &'static str {
-        match self {
-            Input::Any => "any",
-            Input::Touch => "touch",
-            Input::Buttons => "buttons",
-        }
-    }
-}
 
-/// A part of the screen, in thousandths of its width and height.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct Zone {
-    pub x: u16,
-    pub y: u16,
-    pub w: u16,
-    pub h: u16,
-}
 
-/// A hint: its text (a translation key), for which devices, where.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct HelpHint {
-    pub text: String,
-    pub input: Input,
-    pub zone: Option<Zone>,
-}
 
-impl HelpHint {
-    /// Its line for `POINT`, for `screen`.
-    pub fn line(&self, screen: &str) -> String {
-        let zone = match self.zone {
-            Some(z) => format!("{},{},{},{}", z.x, z.y, z.w, z.h),
-            None => String::from("-"),
-        };
-        format!("{screen} {} {zone} {}", self.input.id(), self.text)
-    }
-}
 
-/// Adds `hints` for `screen` through `contribute` (the kernel's
-/// `Items::contribute`).
-pub fn add(
-    contribute: &mut dyn FnMut(Id, String) -> Result<(), RegisterError>,
-    screen: &str,
-    hints: &[HelpHint],
-) -> Result<(), RegisterError> {
-    let mut text = String::new();
-    for hint in hints {
-        text.push_str(&hint.line(screen));
-        text.push('\n');
-    }
-    contribute(Id::new_static(POINT), text)
-}

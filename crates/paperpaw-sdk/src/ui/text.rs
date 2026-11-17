@@ -8,28 +8,7 @@
 use super::look::TextPart;
 use super::*;
 
-/// Lines of a row's note, e.g. a setting's description.
-pub(crate) const NOTE_LINES: usize = 2;
 
-/// Draws icon `name` ([`icons`](crate::icons)) `size` pixels high,
-/// vertically centred in `area`, starting at `x`; returns its width, 0 if
-/// there is no icon font or no such icon.
-pub fn draw_icon(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    name: &str,
-    size: f32,
-    x: f32,
-    area: Rect,
-    color: Color,
-) -> f32 {
-    let Some((font, ch)) = icon(env, name) else {
-        return 0.0;
-    };
-    let mut text = [0u8; 4];
-    let text = ch.encode_utf8(&mut text);
-    draw_text(canvas, &font, None, size, x, area, text, color)
-}
 
 /// The width of icon `name` at `size` pixels, 0 if it cannot be drawn.
 pub fn icon_width(env: &Env<'_>, name: &str, size: f32) -> f32 {
@@ -79,88 +58,8 @@ pub(crate) fn draw_icon_centred(
     font.draw(canvas, size, x, baseline, text, color)
 }
 
-/// [`draw_label`] for text that follows the look: `role` says what the
-/// text is ([`TextRole::BUTTON`], [`TextRole::HINT`], [`TextRole::TITLE`]
-/// …) and the look's text painter, if it has one and draws it, paints it
-/// (its width stays the stock one). Same placing, shortening and result as
-/// [`draw_label`].
-#[allow(clippy::too_many_arguments, reason = "draw_label's, and the look")]
-pub(crate) fn draw_label_in(
-    canvas: &mut Canvas<'_>,
-    font: &FontHandle<'_>,
-    style: &UiStyle,
-    role: TextRole,
-    size: f32,
-    x: f32,
-    area: Rect,
-    text: &str,
-    color: Color,
-) -> f32 {
-    let room = f32::from(area.x) + f32::from(area.width) - x;
-    let at = Rect::new(x.max(0.0) as u16, area.y, room.max(0.0) as u16, area.height);
-    canvas.describe(Role::Text, text, at);
-    draw_text(
-        canvas,
-        font,
-        Some((style, role)),
-        size,
-        x,
-        area,
-        text,
-        color,
-    )
-}
 
-/// [`draw_label`] without telling what it draws (icons say nothing), and
-/// by the look's text painter where it has `look` (style and role).
-#[allow(clippy::too_many_arguments, reason = "one run of text")]
-pub(crate) fn draw_text(
-    canvas: &mut Canvas<'_>,
-    font: &FontHandle<'_>,
-    look: Option<(&UiStyle, TextRole)>,
-    size: f32,
-    x: f32,
-    area: Rect,
-    text: &str,
-    color: Color,
-) -> f32 {
-    let metrics = font.line_metrics(size);
-    let baseline = i32::from(area.y)
-        + ((f32::from(area.height) + metrics.ascent - metrics.descent) / 2.0) as i32;
-    let room = f32::from(area.x) + f32::from(area.width) - x;
-    // A pixel of slack for rounding: callers often measured to fit.
-    if room > 0.0 && font.measure(size, text) > room + 1.0 {
-        let text = fit(font, size, text, room);
-        return put_run(canvas, font, look, size, x, baseline, area, &text, color);
-    }
-    put_run(canvas, font, look, size, x, baseline, area, text, color)
-}
 
-/// One run of text: by the look's text painter, if there is a `look`, it
-/// has one and draws it, else as usual; its width.
-#[allow(clippy::too_many_arguments, reason = "one run of text")]
-pub(crate) fn put_run(
-    canvas: &mut Canvas<'_>,
-    font: &FontHandle<'_>,
-    look: Option<(&UiStyle, TextRole)>,
-    size: f32,
-    x: f32,
-    baseline: i32,
-    area: Rect,
-    text: &str,
-    color: Color,
-) -> f32 {
-    if let Some((style, role)) = look
-        && style.look().painters().is_some()
-    {
-        let part = TextPart::new(text, x, baseline, size, color, area, font, role);
-        if style.look().text(canvas, style, &part) {
-            // Looks, not metrics: the width is the stock one.
-            return font.measure(size, text);
-        }
-    }
-    font.draw(canvas, size, x, baseline, text, color)
-}
 
 /// `text` shortened with an ellipsis to fit `width` pixels, its pairs
 /// kerned as [`FontHandle::measure`] sets them (a pair kerned apart, `f\`

@@ -72,27 +72,16 @@ pub(crate) mod look;
 mod shape;
 mod stack;
 
-pub use shape::{
-    CORNER_CHOICES, CORNERS_AUTO, GAP_LARGE, GAP_NORMAL, GAP_SMALL, GAPS, LINE_AUTO, LINE_CHOICES,
-    LINE_MEDIUM, LINE_THICK, LINE_THIN, SHADOW_HARD, SHADOW_NONE, SHADOWS, Shadow,
-    all_corners_spec, all_frame_line_spec, all_gap_spec, all_padding_spec, all_shadow_spec,
-    corners, corners_setting, corners_spec, frame_line, frame_line_setting, frame_line_spec, gap,
-    shadow, shadow_setting, shadow_spec,
-};
 
 pub use colours::{
-    ColourSpec, INK_AUTO, INKS, PAPER_DARK_GRAY, PAPER_INVERTED, PAPER_LIGHT_GRAY, PAPER_NONE,
-    PAPER_NORMAL, PAPERS, Plate, all_ink_spec, all_paper_spec, colour_spec, ink, ink_setting,
-    ink_spec, paper, paper_setting, paper_spec,
-};
+    ColourSpec,   PAPER_DARK_GRAY, PAPER_INVERTED, PAPER_LIGHT_GRAY, PAPER_NONE,
+    PAPER_NORMAL,     colour_spec};
 
 pub use look::{
-    ALL_FRAMES, FRAMES, Frame, OWN_FRAME, PADDINGS, Padding, SIZES, TextSize, WidgetLook, Wrapped,
-    caption_height, choice_setting, draw_caption, draw_frame, draw_line, draw_message,
-    draw_wrapped, fit_line, frame, frame_height, frame_setting, frame_spec, heading_line_height,
-    ink_baseline, largest_size, line_height, padding, padding_setting, padding_spec, part_setting,
-    part_spec, setting_id, shows, size, size_setting, size_spec, widget_look,
-};
+     FRAMES, Frame,       Wrapped,
+         
+          heading_line_height,
+     largest_size, line_height};
 
 /// The kinds of widgets ([`WidgetSpec::category`]), each the translation
 /// key of its name; screens that offer widgets group them so.
@@ -750,25 +739,8 @@ pub fn base(id: &str) -> &str {
     id.split_once('@').map_or(id, |(base, _)| base)
 }
 
-/// A gap of the height [`SPACE_SIZE`] says.
-pub const SPACE: &str = "core.space";
-/// The room the other widgets leave, shared among the fills: its own
-/// height is 0, screens that place widgets give it the rest.
-pub const FILL: &str = "core.fill";
-/// The height of [`SPACE`]: one of [`SPACE_SIZES`].
-pub const SPACE_SIZE: crate::setting::Setting<crate::setting::Text> =
-    crate::setting::Setting::new("core.space.size");
-/// The values of [`SPACE_SIZE`]: small, medium, large.
-pub const SPACE_SIZES: &[&str] = &["core.space.small", "core.space.medium", "core.space.large"];
 
-/// Whether a list of widgets may hold `id` more than once.
-pub fn repeatable(id: &str) -> bool {
-    id == SPACE || id == FILL
-}
 
-/// The values of a widget's alignment setting ([`align_setting`]).
-pub(crate) const ALIGNMENTS: &[&str] =
-    &["core.align.left", "core.align.center", "core.align.right"];
 
 /// Where a widget's text sits in its place. [`Align::Start`] and
 /// [`Align::End`] follow the interface's direction: at the left and the
@@ -787,14 +759,6 @@ pub enum Align {
 }
 
 impl Align {
-    /// The alignment a value of `ALIGNMENTS` names; left for others.
-    pub fn of(value: &str) -> Self {
-        match ALIGNMENTS.iter().position(|a| *a == value) {
-            Some(1) => Align::Center,
-            Some(2) => Align::Right,
-            _ => Align::Left,
-        }
-    }
 
     /// Left, centre or right: [`Align::Start`] and [`Align::End`] for an
     /// interface right to left (`rtl`) or not.
@@ -818,10 +782,6 @@ impl Align {
     }
 }
 
-/// Where `widget`'s text sits, by its [`align_setting`]; left without one.
-pub(crate) fn align(env: &Env<'_>, widget: &str) -> Align {
-    Align::of(env.settings().text(&alloc::format!("{widget}.align")))
-}
 
 #[cfg(test)]
 mod tests;
