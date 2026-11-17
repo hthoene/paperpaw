@@ -2,6 +2,8 @@
 use alloc::rc::Rc;
 use core::cell::RefCell;
 
+use paperpaw_i18n::Catalog;
+use paperpaw_platform::StorageError;
 use paperpaw_sdk::{Manifest, MemoryStorage, Version};
 
 use super::*;
@@ -934,4 +936,128 @@ fn a_file_of_the_format_before_is_no_code_to_load() {
     ));
     assert!(super::fetched_for(&waiting, &native, Some(&X4)).is_empty());
     assert!(!super::code_to_load(&waiting, &native, Some(&X4)));
+}
+
+/// A text catalog of `n` messages of language `tag`.
+fn big_catalog(tag: &str, greeting: &str, n: usize) -> String {
+    let mut text = alloc::format!(
+        "[meta]\nlanguage = {tag}\nname = {tag}\nplural = one-other\n\n[messages]\nhello.greeting = {greeting}\n"
+    );
+    for i in 0..n {
+        text.push_str(&alloc::format!(
+            "hello.filler.{i:04} = A message of the plugin's screens, number {i}\n"
+        ));
+    }
+    text
+}
+
+/// The card, kept by the test across starts.
+struct Card(Rc<MemoryStorage>);
+
+impl Storage for Card {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.0.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.0.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove(path)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        self.0.rename(from, to)
+    }
+    fn create_dir(&self, path: &str) -> Result<(), StorageError> {
+        self.0.create_dir(path)
+    }
+}
+
+fn cached(card: &MemoryStorage) -> Vec<String> {
+    let mut names = Vec::new();
+    let _ = card.list(".paperpaw/cache/catalogs", &mut |e| {
+        names.push(String::from(e.name));
+    });
+    names.sort();
+    names
+}
+
+/// #248: a code plugin's text catalogs (stats: 24 KB for two languages) stayed
+/// in memory whole, the language in use or not, which on the X4 is a block
+/// of some 27 KB that splits the largest free one. Its larger catalogs are
+/// compiled once to the card and read from there as they are needed; the
+/// cache follows the text.
+#[test]
+fn a_code_plugins_large_catalogs_are_read_from_a_compiled_copy_on_the_card() {
+    let card = Rc::new(
+        storage()
+            .with("plugins/hello/i18n/en.ini", big_catalog("en", "Hi", 180))
+            .with("plugins/hello/i18n/de.ini", big_catalog("de", "Hallo", 180)),
+    );
+    let start = || {
+        Kernel::builder(DEVICE)
+            .storage(Card(card.clone()))
+            .user_config("[core]\nlanguage = de\n")
+            .code_plugins(
+                Native::new("code.ppn"),
+                Box::new(Loader {
+                    natives: alloc::vec![("plugins/hello/code.ppn", Ok(()))],
+                    ..loader()
+                }),
+            )
+            .build()
+            .unwrap()
+    };
+    let kernel = start();
+    assert_eq!(kernel.translator().get("hello.greeting"), Some("Hallo"));
+    assert_eq!(
+        kernel.translator().get("hello.filler.0179"),
+        Some("A message of the plugin's screens, number 179"),
+    );
+    // Both languages are on the card, not held as text.
+    let names = cached(&card);
+    assert_eq!(names.len(), 2, "{names:?}");
+    assert!(
+        names
+            .iter()
+            .all(|n| n.starts_with("hello-") && n.ends_with(".ppcat"))
+    );
+    assert!(
+        kernel
+            .translator()
+            .catalogs()
+            .iter()
+            .filter(|c| matches!(c.language(), "de" | "en") && c.get("hello.greeting").is_some())
+            .all(Catalog::is_on_card),
+        "a catalog of the plugin is held as text"
+    );
+    // The next start finds them by name and makes none.
+    drop(start());
+    assert_eq!(cached(&card), names);
+    // A changed text makes a new copy, and the old one goes.
+    card.write(
+        "plugins/hello/i18n/de.ini",
+        big_catalog("de", "Guten Tag", 180).as_bytes(),
+    )
+    .unwrap();
+    let changed = start();
+    assert_eq!(
+        changed.translator().get("hello.greeting"),
+        Some("Guten Tag")
+    );
+    let after = cached(&card);
+    assert_eq!(after.len(), 2, "{after:?}");
+    assert_ne!(after, names);
 }
