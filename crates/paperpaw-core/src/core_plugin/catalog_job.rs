@@ -4,8 +4,8 @@
 use crate::Place;
 use alloc::string::String;
 
+use crate::kit::library;
 use paperpaw_sdk::builtin::{settings, slots};
-use paperpaw_sdk::library;
 
 /// What the kernel does to the catalog: walk the library, or catch up;
 /// before either, once, move the books' details and covers that earlier
@@ -29,12 +29,12 @@ pub(super) enum CatalogJob {
 impl CatalogJob {
     pub(super) fn step(&mut self, env: &Place<'_>) -> Result<bool, paperpaw_sdk::StorageError> {
         match self {
-            CatalogJob::Walk(walk) => walk.step(&env.env()),
-            CatalogJob::Rewrite(rewrite) => rewrite.step(&env.env()),
+            CatalogJob::Walk(walk) => walk.step(env),
+            CatalogJob::Rewrite(rewrite) => rewrite.step(env),
             CatalogJob::Split(split) => split.step(env.storage(), env.book_data()),
-            CatalogJob::Sort(sort) => sort.step(&env.env()),
+            CatalogJob::Sort(sort) => sort.step(env),
             CatalogJob::Shown(_, sort) => {
-                match sort.as_mut().map(|s| s.step(&env.env())) {
+                match sort.as_mut().map(|s| s.step(env)) {
                     Some(Ok(false)) => {}
                     // Not sorted: the views still hear of the books, and
                     // ask for them sorted anew.
@@ -150,11 +150,11 @@ impl super::Catalog {
         let fresh = core::mem::take(&mut *self.fresh.borrow_mut());
         let walk = self.walk.replace(false);
         let started = if walk {
-            library::catalog::Walk::start(&env.env(), fresh.clone()).map(CatalogJob::Walk)
+            library::catalog::Walk::start(env, fresh.clone()).map(CatalogJob::Walk)
         } else if !fresh.is_empty() || library::catalog::log_is_long(env.storage()) {
-            library::catalog::Rewrite::start(&env.env(), fresh.clone()).map(CatalogJob::Rewrite)
+            library::catalog::Rewrite::start(env, fresh.clone()).map(CatalogJob::Rewrite)
         } else if let Some(archive) = self.sort_wanted(env) {
-            library::sorted::Build::start(&env.env(), &archive).map(CatalogJob::Sort)
+            library::sorted::Build::start(env, &archive).map(CatalogJob::Sort)
         } else {
             self.urgent.set(false);
             return Some(Step::Done);
@@ -193,7 +193,7 @@ pub(super) fn after_step(
         Some(CatalogJob::Walk(mut walk)) if published => {
             let sort = catalog
                 .sort_wanted(env)
-                .and_then(|archive| library::sorted::Build::start(&env.env(), &archive).ok());
+                .and_then(|archive| library::sorted::Build::start(env, &archive).ok());
             *job = Some(match sort {
                 Some(sort) => {
                     walk.pause();

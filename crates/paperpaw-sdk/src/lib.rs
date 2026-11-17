@@ -464,6 +464,10 @@ pub use hyphenation::{CardTable, plugin_wins};
 pub use hyphenation::{Hyphenation, HyphenationSpec, Hyphenator};
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use hyphenation::{Hyphenation, HyphenationSpec, Hyphenator};
+/// A text kept in the program or owned, in two words, for the kernel's tables.
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub use id::Text as ShortText;
 pub use id::{Id, IdError, InvalidId};
 pub use memory_storage::{MemoryStorage, read_file};
 pub use menus::MenuNeed;

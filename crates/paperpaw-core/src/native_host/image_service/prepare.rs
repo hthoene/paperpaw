@@ -662,17 +662,17 @@ impl ImageTable {
             return fail(status);
         }
         // What the decoder wrote must be whole: its size is its header's.
-        let Ok((kind, width, height)) = paperpaw_sdk::ui::probe_picture(storage, &path) else {
+        let Ok((kind, width, height)) = crate::kit::ui::probe_picture(storage, &path) else {
             let _ = storage.remove(&path);
             return fail(CARD);
         };
         let channels = match kind {
-            paperpaw_sdk::ui::PictureKind::Color => 3,
-            paperpaw_sdk::ui::PictureKind::Alpha => 2,
+            crate::kit::ui::PictureKind::Color => 3,
+            crate::kit::ui::PictureKind::Alpha => 2,
             _ => 1,
         };
         let luma = recipe::luma_grid(storage, &path, (width as usize, height as usize, channels));
-        let colour = kind == paperpaw_sdk::ui::PictureKind::Color;
+        let colour = kind == crate::kit::ui::PictureKind::Color;
         match self.add_prepared(job.owner, number, width, height, colour) {
             Ok(image) => Ready {
                 owner: job.owner,

@@ -4,8 +4,9 @@
 //! library from ever finishing.
 
 use crate::Items;
+use crate::kit::action::FixedAction;
 use paperpaw_sdk::event::Event;
-use paperpaw_sdk::{Command, FixedAction, Id, RegisterError};
+use paperpaw_sdk::{Command, Id, RegisterError};
 
 use super::catalog_job::CatalogJob;
 

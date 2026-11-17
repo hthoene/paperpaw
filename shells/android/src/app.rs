@@ -10,6 +10,7 @@ use android_activity::input::{InputEvent as AndroidInput, KeyAction, MotionActio
 use android_activity::{AndroidApp, InputStatus, MainEvent, PollEvent, WindowManagerFlags};
 use ndk::hardware_buffer_format::HardwareBufferFormat;
 use ndk::native_window::NativeWindow;
+use paperpaw_core::kit::library;
 use paperpaw_core::{Effects, Io, Kernel};
 use paperpaw_fs::DirStorage;
 use paperpaw_graphics::Framebuffer;
@@ -19,7 +20,6 @@ use paperpaw_platform::{
     StorageError,
 };
 use paperpaw_sdk::builtin::settings;
-use paperpaw_sdk::library;
 
 use crate::epd::Epd;
 use crate::lights::Lights;

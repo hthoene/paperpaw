@@ -98,7 +98,7 @@ struct ReadAction {
 /// An action of `actions.ini`, with its icon.
 pub(super) struct MadeAction {
     pub(super) id: Id,
-    pub(super) spec: paperpaw_sdk::ActionSpec,
+    pub(super) spec: crate::kit::action::ActionSpec,
     /// What it does, a step a line: the kernel runs them.
     pub(super) steps: alloc::boxed::Box<[Step]>,
     pub(super) icon: Option<String>,
@@ -155,7 +155,7 @@ pub(super) fn actions(plugin: &Id, source: &str) -> Result<Vec<MadeAction>, Regi
         } else {
             title
         };
-        let spec = paperpaw_sdk::ActionSpec::new(id.clone(), title).run_by_kernel();
+        let spec = crate::kit::action::ActionSpec::new(id.clone(), title).run_by_kernel();
         let steps = steps.into_boxed_slice();
         made.push(MadeAction {
             id,
@@ -226,7 +226,7 @@ pub(super) fn menus(r: &mut Items, plugin: &Id, source: &str) -> Result<(), Regi
         match (entry.key, foreign) {
             ("title", None) => {
                 let menu = own_id(plugin, entry.section, line)?;
-                r.add_action(paperpaw_sdk::ActionSpec::new(
+                r.add_action(crate::kit::action::ActionSpec::new(
                     menu.clone(),
                     value.trim().to_string(),
                 ))?;
@@ -235,7 +235,7 @@ pub(super) fn menus(r: &mut Items, plugin: &Id, source: &str) -> Result<(), Regi
                 let menu = own_id(plugin, entry.section, line)?;
                 for item in ids_of(&value, line)? {
                     order = order.saturating_add(10);
-                    let entry = paperpaw_sdk::MenuEntry::new(menu.clone(), item);
+                    let entry = crate::kit::menus::MenuEntry::new(menu.clone(), item);
                     r.add_menu_entry(entry.order(order))?;
                 }
             }
@@ -248,10 +248,10 @@ pub(super) fn menus(r: &mut Items, plugin: &Id, source: &str) -> Result<(), Regi
                 let item = parsed_id(item, line)?;
                 match after {
                     Some(after) => {
-                        let place = paperpaw_sdk::MenuPlace::After(parsed_id(after, line)?);
+                        let place = crate::kit::menus::MenuPlace::After(parsed_id(after, line)?);
                         r.place_menu_entry(menu, item, place)?;
                     }
-                    None => r.add_menu_entry(paperpaw_sdk::MenuEntry::new(menu, item))?,
+                    None => r.add_menu_entry(crate::kit::menus::MenuEntry::new(menu, item))?,
                 }
             }
             ("hide", _) => {
@@ -279,8 +279,8 @@ pub(super) fn menus(r: &mut Items, plugin: &Id, source: &str) -> Result<(), Regi
 pub(super) fn setup_steps(
     plugin: &Id,
     source: &str,
-) -> Result<Vec<paperpaw_sdk::setup::SetupStepSpec>, RegisterError> {
-    use paperpaw_sdk::setup::{SetupPage, SetupStepSpec};
+) -> Result<Vec<crate::kit::setup::SetupStepSpec>, RegisterError> {
+    use crate::kit::setup::{SetupPage, SetupStepSpec};
     let mut steps: Vec<(Id, Option<SetupPage>, i32, String, String, u32)> = Vec::new();
     for entry in paperpaw_config::parse(source) {
         let entry = entry.map_err(parse_error)?;

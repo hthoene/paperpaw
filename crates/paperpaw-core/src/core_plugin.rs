@@ -11,6 +11,14 @@ mod widget_settings;
 
 use crate::Items;
 use crate::Place;
+use crate::kit::action::ActionHint;
+use crate::kit::action::FixedAction;
+use crate::kit::library;
+use crate::kit::menus::MenuEntry;
+use crate::kit::status::StatusItemSpec;
+use crate::kit::status::StatusValue;
+use crate::kit::time::{self, AUTO, CLOCK_12H, CLOCK_24H, TIME_ZONES};
+use crate::kit::widgets::{self, Drawn, WidgetSpec};
 use crate::native_host::book_data_steps::{follow_move, follow_removal};
 use alloc::borrow::Cow;
 use alloc::string::String;
@@ -21,13 +29,9 @@ use paperpaw_sdk::builtin::{
     actions, events, group_sections, groups, keymap_presets, menus, params, screens, settings,
     settings_page, slots, status_items,
 };
-use paperpaw_sdk::library;
-use paperpaw_sdk::time::{self, AUTO, CLOCK_12H, CLOCK_24H, TIME_ZONES};
-use paperpaw_sdk::widgets::{self, Drawn, WidgetSpec};
 use paperpaw_sdk::{
-    ActionHint, Command, Commands, FixedAction, Id, Manifest, MenuEntry, Params, Priority,
-    RegisterError, SettingExtra, SettingGroupSpec, SettingKind, SettingSpec, SettingValue,
-    SlotSpec, StatusItemSpec, StatusValue,
+    Command, Commands, Id, Manifest, Params, Priority, RegisterError, SettingExtra,
+    SettingGroupSpec, SettingKind, SettingSpec, SettingValue, SlotSpec,
 };
 
 pub(crate) const CORE: Id = Id::new_static("core");
@@ -129,7 +133,7 @@ static POWER_MODES: [paperpaw_sdk::presets::Preset; 3] = [
 
 /// The reading app chosen from the list: for a book (`b:` and its path),
 /// a folder (`f:`), or to open a book this time (`o:`).
-const READING_APP_PICKED: paperpaw_sdk::event::Event<paperpaw_sdk::ui::choice::Picked> =
+const READING_APP_PICKED: paperpaw_sdk::event::Event<crate::kit::ui::choice::Picked> =
     paperpaw_sdk::event::Event::new("core.reading-app-picked");
 
 /// In the list to open a book this time: asks for the reading app kept
@@ -137,14 +141,14 @@ const READING_APP_PICKED: paperpaw_sdk::event::Event<paperpaw_sdk::ui::choice::P
 const ALWAYS: &str = "core.reading-app.always";
 
 /// Choosing the reading app of a book or a folder (see
-/// `paperpaw_sdk::readers::ask`): the readers that fit are listed; the
+/// `crate::kit::readers::ask`): the readers that fit are listed; the
 /// one chosen is kept, and a book opens with it; *Standard* forgets the
 /// choice. *Open with…* (the book menu's, [`register_open_with`], or the
 /// file manager's) lists the readers of the book, the other ways to open it
 /// plugins add (`menus::OPEN_WITH`) and *Always open it with…*: the one
 /// chosen opens it this time.
 fn register_reading_apps(r: &mut Items) -> Result<(), RegisterError> {
-    use paperpaw_sdk::readers::{self, Choice};
+    use crate::kit::readers::{self, Choice};
     #[cfg(not(feature = "native-reading"))]
     register_open_with(r)?;
     r.on(events::READING_APP_WANTED, |k, p| {
@@ -173,7 +177,7 @@ fn register_reading_apps(r: &mut Items) -> Result<(), RegisterError> {
                 .i18n()
                 .format(key, &[("name", paperpaw_sdk::Arg::Str(name))]);
             out.push(
-                paperpaw_sdk::ask::choice(title, &READING_APP_PICKED)
+                crate::kit::ask::choice(title, &READING_APP_PICKED)
                     .about(alloc::format!("{kind}:{path}"))
                     .options("", &options)
                     .command(),
@@ -218,7 +222,7 @@ fn register_reading_apps(r: &mut Items) -> Result<(), RegisterError> {
 /// manager's, and this one's resolver is interface 6's.
 #[cfg(not(feature = "native-reading"))]
 fn register_open_with(r: &mut Items) -> Result<(), RegisterError> {
-    use paperpaw_sdk::readers;
+    use crate::kit::readers;
     // What it does is asked once the book is known (`BOOK_CHOSEN` below).
     static OPEN_WITH: [FixedAction; 1] =
         [FixedAction::new(actions::OPEN_WITH, "core.action.open-with").handler(|_, _, _| {})];
@@ -231,7 +235,7 @@ fn register_open_with(r: &mut Items) -> Result<(), RegisterError> {
     // way to open books.
     r.set_item_state(actions::OPEN_WITH, |env| {
         let others = !env.menus().items(menus::OPEN_WITH.as_str()).is_empty();
-        paperpaw_sdk::ItemState::new().shown(others)
+        crate::kit::menus::ItemState::new().shown(others)
     })?;
     r.on(events::BOOK_CHOSEN, |k, p| {
         k.with_event(&events::BOOK_CHOSEN, p, |_, chosen, out| {
@@ -431,9 +435,7 @@ impl Catalog {
     /// they are not of the library there is now.
     fn sort_wanted(&self, env: &Place<'_>) -> Option<String> {
         let archives = self.archives.borrow();
-        let mut wanted = archives
-            .iter()
-            .filter(|a| library::sorted::wanted(&env.env(), a));
+        let mut wanted = archives.iter().filter(|a| library::sorted::wanted(env, a));
         wanted.next().cloned()
     }
 
@@ -680,7 +682,7 @@ fn register_reading(r: &mut Items) -> Result<(), RegisterError> {
     r.on(events::BOOK_OPENED, |k, p| {
         k.with_core_event(&events::BOOK_OPENED, p, |env, core, reading, out| {
             core.recorded.take();
-            library::record(&env.env(), reading, true);
+            library::record(env, reading, true);
             out.push(library::changed_book(
                 &reading.path,
                 library::what::PROGRESS,
@@ -698,7 +700,7 @@ fn register_reading(r: &mut Items) -> Result<(), RegisterError> {
             {
                 return;
             }
-            library::record(&env.env(), reading, false);
+            library::record(env, reading, false);
             *recorded = Some((reading.path.clone(), percent));
         });
     })?;
@@ -707,7 +709,7 @@ fn register_reading(r: &mut Items) -> Result<(), RegisterError> {
         r.on(event, |k, p| {
             k.with_core_event(&events::BOOK_CLOSED, p, |env, core, reading, out| {
                 core.recorded.take();
-                library::record(&env.env(), reading, false);
+                library::record(env, reading, false);
                 library::note_status(env.storage(), &reading.path);
                 out.push(library::changed_book(
                     &reading.path,
@@ -738,9 +740,9 @@ const CLEAN_UP_ANSWERED: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Confi
 /// Declares cleaning up by itself: while charging, a week after it was
 /// last done (a day after the first start). Not without a clock, which
 /// tells the time across starts (on the X4 every wake is one).
-fn declare_clean_up(env: &paperpaw_sdk::Env<'_>, out: &mut Commands) {
+fn declare_clean_up(env: &crate::Place<'_>, out: &mut Commands) {
     use paperpaw_sdk::work::{Moments, Work};
-    let Some(now) = paperpaw_sdk::time::unix_seconds(env) else {
+    let Some(now) = crate::kit::time::unix_seconds(env) else {
         return;
     };
     let last = paperpaw_sdk::read_file(env.storage(), CLEANED_UP, 32)
@@ -823,7 +825,8 @@ fn register_menus(r: &mut Items) -> Result<(), RegisterError> {
     ];
     r.add_actions(&SUBMENUS)?;
     r.set_item_state(menus::APPS, |env| {
-        paperpaw_sdk::ItemState::new().shown(!env.menus().items(menus::APPS.as_str()).is_empty())
+        crate::kit::menus::ItemState::new()
+            .shown(!env.menus().items(menus::APPS.as_str()).is_empty())
     })?;
     // A short main menu; the tools plugins bring are one entry, so it
     // stays the same however many there are. The quick panel holds what
@@ -883,7 +886,7 @@ fn register_menus(r: &mut Items) -> Result<(), RegisterError> {
         ),
     ] {
         r.add_menu_section(
-            paperpaw_sdk::MenuSection::new(id, title, menus::SETTINGS).order(order),
+            crate::kit::menus::MenuSection::new(id, title, menus::SETTINGS).order(order),
         )?;
     }
     static GROUPS: [SettingGroupSpec; 11] = [
@@ -1188,7 +1191,7 @@ static LOOK: [SettingSpec; 14] = [
     // A picture in place of PaperPaw's logo: for data plugins, which set
     // it in their settings.ini, and those who type a path.
     SettingSpec::text(
-        paperpaw_sdk::logo::LOGO.static_str(),
+        crate::kit::logo::LOGO.static_str(),
         "core.setting.logo",
         "",
         Id::new_static("sleep.group"),
@@ -1527,9 +1530,9 @@ static BATTERY_LOW: [SettingSpec; 1] = [SettingSpec::number(
 
 /// The line of the items of the place it is drawn in.
 fn items_line<'e>(
-    env: &paperpaw_sdk::Env<'e>,
-    frame: &paperpaw_sdk::StatusFrame<'_>,
-) -> Option<paperpaw_sdk::status::StatusLine<'e>> {
+    env: &crate::Place<'e>,
+    frame: &crate::kit::status::StatusFrame<'_>,
+) -> Option<crate::kit::status::StatusLine<'e>> {
     let place = env.status_items().place(frame.place?)?;
     let line = place.line(env, frame.area, frame.size, frame.color);
     Some(line.percent(frame.percent))
@@ -1540,7 +1543,7 @@ fn items_line<'e>(
 fn register_time_and_battery(r: &mut Items) -> Result<(), RegisterError> {
     r.add_settings(&TIME)?;
     r.add_status_line(
-        paperpaw_sdk::StatusLineSpec::new(
+        crate::kit::status::StatusLineSpec::new(
             paperpaw_sdk::builtin::status_lines::ITEMS,
             "core.status.line.items",
             |canvas, env, frame| {
@@ -1558,7 +1561,7 @@ fn register_time_and_battery(r: &mut Items) -> Result<(), RegisterError> {
                 .places()
                 .flat_map(|p| p.lists(env))
                 .collect();
-            paperpaw_sdk::status::signature(env, &lists, context)
+            crate::kit::status::signature(env, &lists, context)
         })
         // The reader's line of items before it was the kernel's.
         .also(Id::new_static("reader.status-line.items"))
@@ -1628,33 +1631,31 @@ fn register_keymaps_and_setup(r: &mut Items) -> Result<(), RegisterError> {
     // The first-run setup: the language, the buttons where there is
     // no touch, the time zone where the system has none.
     r.add_setup_step(
-        paperpaw_sdk::setup::SetupStepSpec::new(
+        crate::kit::setup::SetupStepSpec::new(
             Id::new_static("core.setup.language"),
             "",
-            paperpaw_sdk::setup::SetupPage::Setting(settings::LANGUAGE.into()),
+            crate::kit::setup::SetupPage::Setting(settings::LANGUAGE.into()),
         )
         .order(10),
     )?;
     r.add_setup_step(
-        paperpaw_sdk::setup::SetupStepSpec::new(
+        crate::kit::setup::SetupStepSpec::new(
             Id::new_static("core.setup.buttons"),
             "",
-            paperpaw_sdk::setup::SetupPage::Setting(settings::KEYMAP_PRESET.into()),
+            crate::kit::setup::SetupPage::Setting(settings::KEYMAP_PRESET.into()),
         )
         .order(20)
-        .applies(|env: &paperpaw_sdk::Env<'_>| {
-            env.device().input.buttons && !env.device().input.touch
-        }),
+        .applies(|env: &crate::Place<'_>| env.device().input.buttons && !env.device().input.touch),
     )?;
     r.add_setup_step(
-        paperpaw_sdk::setup::SetupStepSpec::new(
+        crate::kit::setup::SetupStepSpec::new(
             Id::new_static("core.setup.time-zone"),
             "",
-            paperpaw_sdk::setup::SetupPage::Setting(settings::TIME_ZONE.into()),
+            crate::kit::setup::SetupPage::Setting(settings::TIME_ZONE.into()),
         )
         .help("core.setup.time-zone.help")
         .order(40)
-        .applies(|env: &paperpaw_sdk::Env<'_>| {
+        .applies(|env: &crate::Place<'_>| {
             env.status()
                 .clock
                 .is_none_or(|c| c.utc_offset_minutes.is_none())
@@ -1666,8 +1667,8 @@ fn register_keymaps_and_setup(r: &mut Items) -> Result<(), RegisterError> {
 
 /// Where a screenshot goes: `Screenshots` beside the library folder,
 /// named by the time ("PaperPaw 2026-10-15 17-30-05.png").
-fn screenshot_path(env: &paperpaw_sdk::Env<'_>) -> alloc::string::String {
-    let library = paperpaw_sdk::library::folder(env);
+fn screenshot_path(env: &crate::Place<'_>) -> alloc::string::String {
+    let library = crate::kit::library::folder(env);
     let parent = paperpaw_sdk::files::parent(library);
     let dir = if parent.is_empty() {
         alloc::string::String::from("Screenshots")
@@ -1675,7 +1676,7 @@ fn screenshot_path(env: &paperpaw_sdk::Env<'_>) -> alloc::string::String {
         alloc::format!("{parent}/Screenshots")
     };
     let _ = env.storage().create_dir(&dir);
-    let name = match paperpaw_sdk::time::local_time(env) {
+    let name = match crate::kit::time::local_time(env) {
         Some(t) => alloc::format!(
             "PaperPaw {}-{:02}-{:02} {:02}-{:02}-{:02}",
             t.year,
@@ -1715,7 +1716,7 @@ fn register_spaces(r: &mut Items) -> Result<(), RegisterError> {
     let space = Id::new_static(widgets::SPACE);
     r.add_setting_group(&SPACE_GROUP)?;
     r.add_settings(&SPACE)?;
-    let space_height = |env: &paperpaw_sdk::Env<'_>, _| {
+    let space_height = |env: &crate::Place<'_>, _| {
         let size = env.settings().read(&widgets::SPACE_SIZE);
         let mm = match widgets::SPACE_SIZES.iter().position(|s| *s == size) {
             Some(0) => 4,

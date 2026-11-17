@@ -19,6 +19,7 @@ use native_activation::BuildNative as _;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_core::{Effects, Items, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DirEntry, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat,
@@ -29,9 +30,7 @@ use paperpaw_plugin_menu::native_panel as panel;
 use paperpaw_sdk::builtin::{actions, menus};
 use paperpaw_sdk::semantics::Role;
 use paperpaw_sdk::setting::Setting;
-use paperpaw_sdk::{
-    Manifest, MemoryStorage, MenuEntry, RegisterError, SettingSpec, SettingValue, Version,
-};
+use paperpaw_sdk::{Manifest, MemoryStorage, RegisterError, SettingSpec, SettingValue, Version};
 
 /// An X4 Pro as the emulator's profile has it: touch and buttons, frames
 /// drawn in bands of 96 rows.

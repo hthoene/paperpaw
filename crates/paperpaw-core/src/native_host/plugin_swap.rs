@@ -35,12 +35,12 @@
 //!
 //! The removal of a plugin (`plugin_remove`, record kind 1) shares the journal
 //! file: one change of the plugin folder at a time.
+use crate::kit::install::{self, marks};
 use alloc::vec::Vec;
 use alloc::{boxed::Box, string::String};
 use paperpaw_platform::{Storage, StorageError, firmware::Text};
 use paperpaw_sdk::{
     digest::fnv1a64,
-    install::{self, marks},
     native::{self, keys},
 };
 

@@ -27,6 +27,7 @@
 use super::book::{self, flag};
 use super::{CatalogReads, fail, valid_prefix, zeroed};
 use crate::abi7::context::RowsEnd;
+use crate::kit::library::{self, catalog};
 use crate::native_host::lib_service::Rows;
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::string::String;
@@ -36,7 +37,6 @@ use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
 use paperpaw_sdk::data;
 use paperpaw_sdk::digest::fnv1a64;
-use paperpaw_sdk::library::{self, catalog};
 
 /// Slots a pass keeps: the page, or a step towards the cursor.
 pub(super) const WINDOW: usize = 32;

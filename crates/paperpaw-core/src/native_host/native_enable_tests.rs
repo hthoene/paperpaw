@@ -340,7 +340,7 @@ fn acting() -> Manifest {
 
 /// What it adds.
 fn acting_adds(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
-    r.add_action(paperpaw_sdk::ActionSpec::new(
+    r.add_action(crate::kit::action::ActionSpec::new(
         Id::new_static("acting.go"),
         "Go",
     ))

@@ -2,9 +2,9 @@
 //! of sheets, dialogs and chips, the spacing and how buttons not chosen look.
 //! Each leaves the look as it is until a theme sets it (#114).
 
+use crate::kit::widgets;
 use paperpaw_sdk::SettingSpec;
 use paperpaw_sdk::builtin::{groups, settings};
-use paperpaw_sdk::widgets;
 
 /// After the look settings of the core plugin (`LOOK`), in the same group.
 pub(super) static LOOK_MORE: [SettingSpec; 4] = [

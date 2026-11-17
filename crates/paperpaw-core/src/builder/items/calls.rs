@@ -14,16 +14,18 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::kit::action::ActionSpec;
+use crate::kit::menus::MenuEntry;
+use crate::kit::menus::MenuSection;
+use crate::kit::setup::SetupStepSpec;
+use crate::kit::status::{StatusItemSpec, StatusLineSpec};
+use crate::kit::widgets::WidgetSpec;
 use paperpaw_sdk::presets::Preset;
-use paperpaw_sdk::setup::SetupStepSpec;
-use paperpaw_sdk::status::{StatusItemSpec, StatusLineSpec};
-use paperpaw_sdk::widgets::WidgetSpec;
 use paperpaw_sdk::{
-    ActionSpec, FontFace, FontSpec, FormatSpec, Id, MenuEntry, MenuNeed, MenuSection, Priority,
-    RegisterError, SettingSpec, SlotSpec,
+    FontFace, FontSpec, FormatSpec, Id, MenuNeed, Priority, RegisterError, SettingSpec, SlotSpec,
 };
 
-use paperpaw_sdk::Contribution;
+use crate::kit::contribution::item::Contribution;
 
 /// Collects a plugin's contributions.
 ///
@@ -271,12 +273,12 @@ impl Items {
 
     /// A folder where the plugin keeps the reader's data for each book
     /// (a place, notes, settings for the book), named by the book's key
-    /// ([`library::key`](paperpaw_sdk::library::key)) after `prefix` (alone, or
+    /// ([`library::key`](crate::kit::library::key)) after `prefix` (alone, or
     /// followed by `.` and more, a file or a folder): the kernel moves it
     /// with its book and removes it with it. What is left of books no
     /// longer found goes only when the reader agrees: a book renamed on a
     /// computer or on a card not inserted is not found either
-    /// ([`library::BookData`](paperpaw_sdk::library::BookData)). For what is
+    /// ([`library::BookData`](crate::kit::library::BookData)). For what is
     /// made again from the book, [`add_book_cache`](Self::add_book_cache).
     /// The folder must be inside `.paperpaw/` (usually
     /// [`data::plugin_dir`](paperpaw_sdk::data::plugin_dir)): one elsewhere is
@@ -287,13 +289,11 @@ impl Items {
         folder: impl Into<Cow<'static, str>>,
         prefix: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::BookData(
-            paperpaw_sdk::library::BookData::new(
-                folder.into(),
-                prefix.into(),
-                paperpaw_sdk::library::BookDataKind::UserData,
-            ),
-        ))
+        self.add_checked(Contribution::BookData(crate::kit::library::BookData::new(
+            folder.into(),
+            prefix.into(),
+            crate::kit::library::BookDataKind::UserData,
+        )))
     }
 
     /// As [`add_book_data`](Self::add_book_data), for what the plugin
@@ -305,13 +305,11 @@ impl Items {
         folder: impl Into<Cow<'static, str>>,
         prefix: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::BookData(
-            paperpaw_sdk::library::BookData::new(
-                folder.into(),
-                prefix.into(),
-                paperpaw_sdk::library::BookDataKind::Cache,
-            ),
-        ))
+        self.add_checked(Contribution::BookData(crate::kit::library::BookData::new(
+            folder.into(),
+            prefix.into(),
+            crate::kit::library::BookDataKind::Cache,
+        )))
     }
 
     /// Adds a key map preset (same format as [`Items::add_keymap`]) that
@@ -389,12 +387,12 @@ impl Items {
     /// Puts an action into a menu. Menus can be extended by any plugin and
     /// redefined by the user.
     /// Adds actions kept in the program (a `static` list of
-    /// [`FixedAction`](paperpaw_sdk::FixedAction)s): they take next to no memory,
+    /// [`FixedAction`](crate::kit::action::FixedAction)s): they take next to no memory,
     /// where each added with [`add_action`](Self::add_action) takes some
     /// 90 bytes.
     pub fn add_actions(
         &mut self,
-        actions: &'static [paperpaw_sdk::FixedAction],
+        actions: &'static [crate::kit::action::FixedAction],
     ) -> Result<(), RegisterError> {
         // Each in the plugin's namespace, and once.
         let added = |id: &Id| {
@@ -436,7 +434,7 @@ impl Items {
         &mut self,
         menu: impl Into<Id>,
         item: impl Into<Id>,
-        place: paperpaw_sdk::MenuPlace,
+        place: crate::kit::menus::MenuPlace,
     ) -> Result<(), RegisterError> {
         self.add_menu_entry(MenuEntry::new(menu.into(), item.into()).place(place))
     }
@@ -458,13 +456,13 @@ impl Items {
 
     /// What menus show of `item` now, where it changes: another label, a
     /// switch, faint, hidden, a badge (see
-    /// [`ItemState`](paperpaw_sdk::ItemState)). Asked whenever a menu
+    /// [`ItemState`](crate::kit::menus::ItemState)). Asked whenever a menu
     /// shows it: it says it from memory. Only for the plugin's own
     /// actions and settings ([`RegisterError::Namespace`] otherwise).
     pub fn set_item_state(
         &mut self,
         item: impl Into<Id>,
-        state: paperpaw_sdk::ItemStateFn,
+        state: crate::kit::menus::ItemStateFn,
     ) -> Result<(), RegisterError> {
         self.add_checked(Contribution::ItemState {
             item: item.into(),
@@ -577,7 +575,7 @@ impl Items {
     /// reader (see [`decorations`](paperpaw_sdk::decorations)).
     pub fn add_decorator(
         &mut self,
-        decorator: paperpaw_sdk::decorations::DecoratorSpec,
+        decorator: crate::kit::decorations::DecoratorSpec,
     ) -> Result<(), RegisterError> {
         self.add_checked(Contribution::Decorator(Box::new(decorator)))
     }
@@ -871,10 +869,10 @@ mod tests {
                 ),
                 "{folder:?}"
             );
-            let data = Contribution::BookData(paperpaw_sdk::library::BookData::new(
+            let data = Contribution::BookData(crate::kit::library::BookData::new(
                 Cow::Owned(folder.into()),
                 Cow::Borrowed(""),
-                paperpaw_sdk::library::BookDataKind::UserData,
+                crate::kit::library::BookDataKind::UserData,
             ));
             assert!(r.add(data).is_err(), "{folder:?}");
         }

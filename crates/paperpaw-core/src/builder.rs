@@ -658,7 +658,7 @@ impl BuilderParts {
         kernel.after_sleep = self.after_sleep;
         paperpaw_sdk::data::take_over_old_name(kernel.shared.storage.as_ref());
         kernel.read_secrets();
-        paperpaw_sdk::library::take_over_old(kernel.shared.storage.as_ref());
+        crate::kit::library::take_over_old(kernel.shared.storage.as_ref());
         // The configuration file on the device, then the shell's overrides.
         let stored = kernel.read_stored_config();
         let user_config = self.user_config.take();
@@ -848,10 +848,10 @@ impl BuilderParts {
                 status: SystemStatus::default(),
                 usage: paperpaw_sdk::usage::Usage::default(),
                 status_items: StatusItems::new(),
-                widgets: paperpaw_sdk::widgets::Widgets::new(),
-                setup: paperpaw_sdk::setup::SetupSteps::new(),
+                widgets: crate::kit::widgets::Widgets::new(),
+                setup: crate::kit::setup::SetupSteps::new(),
                 services: paperpaw_sdk::services::Services::new(),
-                decorators: paperpaw_sdk::decorations::Decorators::new(),
+                decorators: crate::kit::decorations::Decorators::new(),
                 stylesheets: Vec::new(),
                 book_data: Vec::new(),
                 caps,
@@ -888,7 +888,7 @@ impl BuilderParts {
                 storage,
                 recall,
                 keymap: Keymap::default(),
-                look: (paperpaw_sdk::ui::look::Look::none(), None),
+                look: (crate::kit::ui::look::Look::none(), None),
             },
             frame: drawing::FrameState {
                 pending: None,
@@ -1139,7 +1139,7 @@ impl Kernel {
                 // An install cut short after the plugin was in place: what
                 // its installer keeps for it is kept now.
                 let id = plugin.manifest().id.clone();
-                paperpaw_sdk::install::marks::settle(storage.as_ref(), id.as_str(), &folder);
+                crate::kit::install::marks::settle(storage.as_ref(), id.as_str(), &folder);
                 for problem in plugin.take_problems() {
                     self.warn_runtime(problem);
                 }

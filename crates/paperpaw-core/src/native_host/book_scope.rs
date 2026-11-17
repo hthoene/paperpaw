@@ -14,10 +14,10 @@
 //! a key is refused ([`could_be_key`]), so the two never meet.
 use super::book_data_steps::{Progress, permanent};
 use super::storage::status;
+use crate::kit::library::{KEY_LEN, key_into};
 use alloc::{string::String, vec::Vec};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_platform::{Storage, StorageError};
-use paperpaw_sdk::library::{KEY_LEN, key_into};
 
 /// The folder of a plugin's Data that holds its book scopes.
 const BOOKS: &str = "books";

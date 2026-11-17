@@ -7,9 +7,10 @@
 use std::borrow::Cow;
 
 use paperpaw_core::Items;
+use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_core::sdk::builtin::{groups, menus};
 use paperpaw_core::sdk::setting::Setting;
-use paperpaw_core::sdk::{Id, Manifest, MenuEntry, RegisterError, SettingSpec, Version};
+use paperpaw_core::sdk::{Id, Manifest, RegisterError, SettingSpec, Version};
 
 /// How bright the light is (0 off).
 pub const FRONTLIGHT: Setting<i64> = Setting::new("emulator.frontlight");

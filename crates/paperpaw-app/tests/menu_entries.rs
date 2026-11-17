@@ -17,16 +17,17 @@ mod native_activation;
 
 use std::borrow::Cow;
 
+use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::kit::menus::ItemState;
+use paperpaw_core::kit::menus::MenuEntry;
+use paperpaw_core::kit::menus::MenuPlace;
 use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
 use paperpaw_sdk::builtin::{params, slots};
 use paperpaw_sdk::semantics::Part;
-use paperpaw_sdk::{
-    ActionSpec, Command, Id, ItemState, Manifest, MemoryStorage, MenuEntry, MenuPlace, Params,
-    RegisterError, SDK_VERSION,
-};
+use paperpaw_sdk::{Command, Id, Manifest, MemoryStorage, Params, RegisterError, SDK_VERSION};
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "test-x4",

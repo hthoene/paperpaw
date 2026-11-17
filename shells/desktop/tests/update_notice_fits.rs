@@ -17,7 +17,7 @@ use std::rc::Rc;
 use std::sync::Mutex;
 
 use paperpaw_core::KernelBuilder;
-use paperpaw_core::sdk::ui::UiStyle;
+use paperpaw_core::kit::ui::UiStyle;
 use paperpaw_core::sdk::{Canvas, Id, Manifest, MemoryStorage, Version};
 use paperpaw_emulator::{device::Device, headless, profiles};
 
@@ -76,8 +76,8 @@ impl paperpaw_core::testing::Fake for Look {
 
 /// How many lines each refusal reason of the update plugin takes on the page.
 fn look(env: &Place<'_>) {
-    let style = UiStyle::new(&env.env());
-    let Some(font) = style.font(&env.env()) else {
+    let style = UiStyle::new(env);
+    let Some(font) = style.font(env) else {
         return;
     };
     let width = f32::from(env.device().display.width) - 4.0 * f32::from(style.margin());

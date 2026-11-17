@@ -407,6 +407,7 @@ fn a_display_of_no_size_clamps_to_the_origin_and_does_not_panic() {
 mod kernel {
     use super::*;
     use crate::Items;
+    use crate::kit::action::ActionSpec;
     use crate::native_host::{
         declaration_store::Allocations,
         flat::FlatDepth,
@@ -420,7 +421,7 @@ mod kernel {
     use paperpaw_graphics::Canvas;
     use paperpaw_native::host_glue::ERR_BUSY;
     use paperpaw_sdk::{
-        ActionSpec, Handled, Id, Manifest, Params, RegisterError, Uses, Version, keys::InputMode,
+        Handled, Id, Manifest, Params, RegisterError, Uses, Version, keys::InputMode,
     };
 
     extern crate std;

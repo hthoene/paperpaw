@@ -40,6 +40,7 @@ std::thread_local! {
 /// The test binary's allocator and its knobs (`shell_alloc_tests.rs`).
 #[path = "shell_alloc_tests.rs"]
 mod alloc_hook;
+pub(crate) use alloc_hook::refuse_nth;
 pub(in crate::native_host) use alloc_hook::{
     FAIL_NTH, FAIL_SIZE, HEAP_LIVE, HEAP_PEAK, HEAP_SHIELD,
 };

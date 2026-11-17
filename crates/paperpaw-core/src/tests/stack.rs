@@ -125,7 +125,7 @@ fn stack_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             )?;
         }
         r.add_action(ActionSpec::new(OPEN_T, "s.action").handler(
-            |_: &paperpaw_sdk::Env<'_>, _, out: &mut Commands| {
+            |_: &crate::Place<'_>, _, out: &mut Commands| {
                 out.push(Command::OpenScreen(SCREEN, named("t")));
             },
         ))?;

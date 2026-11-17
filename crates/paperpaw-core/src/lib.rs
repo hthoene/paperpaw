@@ -70,6 +70,7 @@ mod input_filters;
 mod io;
 mod key_guard;
 mod keymap;
+pub mod kit;
 mod memory_notice;
 mod meter;
 pub mod native_host;
@@ -85,7 +86,6 @@ mod room;
 mod screen;
 mod screens;
 mod secrets_i6;
-mod shared_env;
 mod turn;
 pub use crate::place::Place;
 pub use crate::turn::Turn;
@@ -120,6 +120,10 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::mem;
 
+use crate::kit::action::Actions;
+use crate::kit::contribution::item::Contribution;
+use crate::kit::menus::Menus;
+use crate::kit::status::StatusItems;
 use paperpaw_graphics::{Framebuffer, GraphicsError};
 use paperpaw_i18n::Translator;
 use paperpaw_platform::{
@@ -134,9 +138,9 @@ use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::native::{Native, SafeMode};
 use paperpaw_sdk::setting::{Setting, SettingType};
 use paperpaw_sdk::{
-    Actions, Capabilities, Command, Contribution, Direction, Fonts, Formats, Gesture, GestureKind,
-    Handled, HintVisibility, Hyphenation, Id, Manifest, Menus, Metrics, Output, Params, PluginInfo,
-    PluginState, Plugins, RegisterError, RequiredFor, Settings, ShowsThrough, StatusItems,
+    Capabilities, Command, Direction, Fonts, Formats, Gesture, GestureKind, Handled,
+    HintVisibility, Hyphenation, Id, Manifest, Metrics, Output, Params, PluginInfo, PluginState,
+    Plugins, RegisterError, RequiredFor, Settings, ShowsThrough,
 };
 
 pub use crate::builder::{Items, KernelBuilder, KernelError};
@@ -1034,14 +1038,14 @@ impl Kernel {
     }
 
     /// The widgets every plugin added (e.g. for a test that draws each).
-    pub fn widgets(&self) -> &paperpaw_sdk::widgets::Widgets {
+    pub fn widgets(&self) -> &crate::kit::widgets::Widgets {
         &self.shared.widgets
     }
 
     /// The menus every plugin added to, with their icons (e.g. for a tool
     /// that checks a plugin's).
-    pub fn menus(&self) -> paperpaw_sdk::MenuView<'_> {
-        paperpaw_sdk::MenuView::new(
+    pub fn menus(&self) -> crate::kit::menus::MenuView<'_> {
+        crate::kit::menus::MenuView::new(
             &self.shared.menus,
             &self.shared.actions,
             &self.shared.settings,
@@ -1079,7 +1083,7 @@ impl Kernel {
     }
 
     /// Every action plugins added.
-    pub fn actions(&self) -> &paperpaw_sdk::Actions {
+    pub fn actions(&self) -> &crate::kit::action::Actions {
         &self.shared.actions
     }
 
@@ -1157,7 +1161,7 @@ impl Kernel {
         self.shared.reader = true;
         self.shared.now = now;
         self.last_activity = now;
-        self.output.commands.push(paperpaw_sdk::readers::open(path));
+        self.output.commands.push(crate::kit::readers::open(path));
         self.run_commands();
         self.finish()
     }
@@ -1376,15 +1380,15 @@ struct Shared {
     /// What the device did since start (see [`paperpaw_sdk::usage`]).
     usage: paperpaw_sdk::usage::Usage,
     status_items: StatusItems,
-    widgets: paperpaw_sdk::widgets::Widgets,
-    setup: paperpaw_sdk::setup::SetupSteps,
+    widgets: crate::kit::widgets::Widgets,
+    setup: crate::kit::setup::SetupSteps,
     services: paperpaw_sdk::services::Services,
     /// Marks on the words of book pages, from every plugin.
-    decorators: paperpaw_sdk::decorations::Decorators,
+    decorators: crate::kit::decorations::Decorators,
     /// Plugins' stylesheets for books.
     stylesheets: Vec<Cow<'static, str>>,
     /// Folders of what plugins keep for each book.
-    book_data: Vec<paperpaw_sdk::library::BookData>,
+    book_data: Vec<crate::kit::library::BookData>,
     /// What the device and its shell can do.
     caps: Capabilities,
     /// Wi-Fi, where PaperPaw manages it (see [`KernelBuilder::wifi`]).
@@ -1462,7 +1466,7 @@ struct Shared {
     keymap: Keymap,
     /// The look of the parts of screens a plugin set, and its priority
     /// (see [`Items::set_ui_look`](paperpaw_sdk::Items::set_ui_look)).
-    look: (paperpaw_sdk::ui::look::Look, Option<paperpaw_sdk::Priority>),
+    look: (crate::kit::ui::look::Look, Option<paperpaw_sdk::Priority>),
     /// What each plugin takes.
     meter: alloc::rc::Rc<meter::Meter>,
 }
@@ -1490,6 +1494,6 @@ mod native_battery_pixel_tests;
 /// The host's own plugin id: no installed, linked or native plugin may take
 /// it, so no plugin's action passes for a host `core.*` one (`ui.md` 4.3).
 /// The same literal is refused by `paperpaw_native::bundle` (`Bundle::read`),
-/// `paperpaw_sdk::install::is_plugin_name` and the hyphenation-packs check;
+/// `crate::kit::install::is_plugin_name` and the hyphenation-packs check;
 /// change them together.
 pub(crate) const RESERVED_PLUGIN_ID: &str = "core";

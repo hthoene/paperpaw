@@ -196,7 +196,7 @@ pub(crate) fn is_complete(storage: &dyn Storage, id: &Identity<'_>) -> Result<bo
 /// `ERR_NO_MEMORY`.
 pub(crate) fn content(storage: &dyn Storage, path: &str, css: &str) -> Result<String, i32> {
     let mut text = made(128)?;
-    match paperpaw_sdk::library::Fingerprint::of(storage, path) {
+    match crate::kit::library::Fingerprint::of(storage, path) {
         Some(found) => {
             decimal(found.size, &mut text);
             text.push(' ');

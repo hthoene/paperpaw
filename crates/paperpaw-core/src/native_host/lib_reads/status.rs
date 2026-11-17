@@ -1,13 +1,13 @@
 //! Op 8 `set_status` over the card (`docs/abi/library.md` 2.2): finished,
 //! favourite and opened, both masks applied together. The service has checked
 //! the masks (known bits, none in both); this maps them to
-//! `paperpaw_sdk::library::try_set_status`, the one implementation (the same
+//! `crate::kit::library::try_set_status`, the one implementation (the same
 //! files `set_finished` and `set_favourite` write for an interface 6 plugin),
 //! so an error of the memory or the card is the answer, never a silent OK.
 use super::{CatalogReads, fail};
+use crate::kit::library;
 use crate::native_host::lib_service::BookRef;
 use paperpaw_native::host_glue::ERR_BUSY;
-use paperpaw_sdk::library;
 
 impl CatalogReads {
     /// Op 8 `set_status`, where `busy` says a book is in use (a library move

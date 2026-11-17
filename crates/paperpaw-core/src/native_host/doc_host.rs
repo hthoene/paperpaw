@@ -88,7 +88,7 @@ struct Cache {
     folder: String,
     plugin: String,
     version: String,
-    book: [u8; paperpaw_sdk::library::KEY_LEN],
+    book: [u8; crate::kit::library::KEY_LEN],
     conversion: u64,
     /// What the book's file and the CSS file were when the open began
     /// (`doc_cache::content`).
@@ -898,7 +898,7 @@ impl Bound<'_> {
         })?;
         let plugin = plugin?;
         let version = self.format_version(&plugin)?;
-        let mut digits = [0_u8; paperpaw_sdk::library::KEY_LEN];
+        let mut digits = [0_u8; crate::kit::library::KEY_LEN];
         let (made, content) = {
             let books = self.state.books.try_borrow().map_err(|_| ERR_BUSY)?;
             let book = books
@@ -909,7 +909,7 @@ impl Bound<'_> {
                 return Ok(());
             }
             let content = super::doc_cache::content(storage, &book.path, css)?;
-            let key = paperpaw_sdk::library::key_into(&book.path, &mut digits);
+            let key = crate::kit::library::key_into(&book.path, &mut digits);
             let id = super::doc_cache::Identity {
                 book: key,
                 plugin: &plugin,

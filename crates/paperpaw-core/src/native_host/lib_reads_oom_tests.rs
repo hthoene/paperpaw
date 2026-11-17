@@ -472,7 +472,7 @@ fn the_heap_of_one_fields_page_is_the_details_read_once() {
         );
         for n in 0..count {
             let text = "v".repeat(value);
-            paperpaw_sdk::library::try_set_field(
+            crate::kit::library::try_set_field(
                 &*storage,
                 "books/a.epub",
                 &std::format!("plugin-{n}.field"),

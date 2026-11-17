@@ -44,6 +44,7 @@
 use super::query::{Engine, KEY_TEXT, Key, TRIES, WINDOW, copy, head, push, push_lower};
 use super::{CatalogReads, fail};
 use crate::abi7::context::RowsEnd;
+use crate::kit::library::{catalog, index};
 use crate::native_host::lib_service::Rows;
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::string::String;
@@ -52,7 +53,6 @@ use core::cell::Cell;
 use core::cmp::Ordering;
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::digest::{Fnv1a64, fnv1a64};
-use paperpaw_sdk::library::{catalog, index};
 
 /// Bytes of a `lib_facet.text`.
 const TEXT: usize = 256;

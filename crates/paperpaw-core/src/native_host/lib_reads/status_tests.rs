@@ -5,10 +5,10 @@
 extern crate std;
 use super::super::tests::card;
 use super::*;
+use crate::kit::library;
 use crate::native_host::lib_service::LibWrite;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_IO, ERR_NOT_FOUND};
 use paperpaw_platform::Storage;
-use paperpaw_sdk::library;
 use std::format;
 
 const C: BookRef<'static> = BookRef::Path("books/c.epub");

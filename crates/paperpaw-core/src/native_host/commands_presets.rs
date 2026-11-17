@@ -32,13 +32,13 @@
 //! the chunks before it applied (it is never reported as applied).
 use super::{CommandAuthority, CommandBatch, CommandStage, WireCommand};
 use crate::Kernel;
+use crate::kit::widgets::Widgets;
 use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::{
     Command, Id, IdError, SettingKind, SettingSpec, SettingValue, Settings,
     presets::{self, Preset},
-    widgets::Widgets,
 };
 
 #[cfg_attr(
@@ -128,7 +128,7 @@ fn theme_covers(settings: &Settings, spec: &SettingSpec) -> bool {
     let kept = [
         UI_SIZE.static_str(),
         UI_CONTRAST.static_str(),
-        paperpaw_sdk::logo::LOGO.static_str(),
+        crate::kit::logo::LOGO.static_str(),
         WIDGET_FRAME.static_str(),
     ];
     // `group_of(spec) == LOOK` without the copy of an owned group id.

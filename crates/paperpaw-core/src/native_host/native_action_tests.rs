@@ -131,7 +131,7 @@ fn world(status: Result<i32, i32>) -> World {
 /// without a handler, run by the plugin's key and token (#248).
 fn declare(w: &mut World) {
     let id = Id::try_parse("n.open").unwrap();
-    let action = paperpaw_sdk::NativeAction::new(owned(id), w.owner, 7);
+    let action = crate::kit::action::NativeAction::new(owned(id), w.owner, 7);
     w.kernel.shared.actions.insert_native(action);
 }
 
@@ -234,7 +234,7 @@ fn an_action_that_runs_itself_does_not_hang_the_run() {
 fn the_action_of_a_plugin_not_installed_does_nothing() {
     let mut w = world(Ok(0));
     let id = Id::try_parse("gone.open").unwrap();
-    let action = paperpaw_sdk::NativeAction::new(owned(id.clone()), w.owner + 1, 7);
+    let action = crate::kit::action::NativeAction::new(owned(id.clone()), w.owner + 1, 7);
     w.kernel.shared.actions.insert_native(action);
     let _ = w.kernel.run_action(Instant(10), id);
     assert!(w.seen.borrow().is_empty());

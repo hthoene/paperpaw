@@ -479,7 +479,7 @@ fn a_cache_name_left_by_an_earlier_boot_is_replaced_and_a_sweep_spares_the_live_
         .unwrap();
     let ready = step(&t, &storage).unwrap();
     assert_eq!(ready.status, READY, "the old file is replaced, not trusted");
-    assert!(paperpaw_sdk::ui::probe_picture(&storage, &stale).is_ok());
+    assert!(crate::kit::ui::probe_picture(&storage, &stale).is_ok());
     let mut cursor = SweepCursor::default();
     assert_eq!(t.sweep_cache(&storage, 8, &mut cursor), Ok(false));
     assert!(storage.exists(&stale), "a live image's file stays");
@@ -932,12 +932,12 @@ fn gray_alpha_png(width: u32, height: u32, pixels: &[(u8, u8)]) -> std::vec::Vec
 fn cache_of(
     t: &ImageTable,
     storage: &MemoryStorage,
-) -> (paperpaw_sdk::ui::PictureKind, std::vec::Vec<u8>) {
+) -> (crate::kit::ui::PictureKind, std::vec::Vec<u8>) {
     let file = {
         let inner = t.lock().unwrap();
         file_name(inner.entries[0].owner, inner.entries[0].seq).unwrap()
     };
-    let (kind, _, _) = paperpaw_sdk::ui::probe_picture(storage, &file).unwrap();
+    let (kind, _, _) = crate::kit::ui::probe_picture(storage, &file).unwrap();
     let size = usize::try_from(storage.size(&file).unwrap()).unwrap();
     let mut bytes = std::vec![0_u8; size];
     assert_eq!(storage.read_at(&file, 0, &mut bytes).unwrap(), size);
@@ -964,7 +964,7 @@ fn a_see_through_png_keeps_its_opacity_and_is_gray() {
     let ready = step(&t, &storage).unwrap();
     assert_eq!((ready.status, ready.width, ready.height), (READY, 2, 2));
     let (kind, bytes) = cache_of(&t, &storage);
-    assert_eq!(kind, paperpaw_sdk::ui::PictureKind::Alpha);
+    assert_eq!(kind, crate::kit::ui::PictureKind::Alpha);
     assert_eq!(&bytes[..4], b"PPGA");
     assert_eq!(&bytes[12..], &[0, 0, 0, 255, 200, 128, 100, 255]);
     assert_eq!(t.info(A, ready.image).unwrap().flags & 1, 0, "never colour");
@@ -984,7 +984,7 @@ fn without_the_bit_a_png_is_over_white_and_a_jpeg_ignores_the_bit() {
         .unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, READY);
     let (kind, bytes) = cache_of(&t, &storage);
-    assert_eq!(kind, paperpaw_sdk::ui::PictureKind::Gray);
+    assert_eq!(kind, crate::kit::ui::PictureKind::Gray);
     assert_eq!(&bytes[12..], &[255, 0], "transparent is white");
     // A JPEG has no transparency to keep: gray, as without the bit.
     let storage = MemoryStorage::new();
@@ -994,10 +994,7 @@ fn without_the_bit_a_png_is_over_white_and_a_jpeg_ignores_the_bit() {
     let t = ImageTable::new();
     t.prepare(A, "w.jpg", 64, 1, false, &see_through()).unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, READY);
-    assert_eq!(
-        cache_of(&t, &storage).0,
-        paperpaw_sdk::ui::PictureKind::Gray
-    );
+    assert_eq!(cache_of(&t, &storage).0, crate::kit::ui::PictureKind::Gray);
 }
 
 #[test]
@@ -1037,10 +1034,7 @@ fn a_see_through_cache_file_goes_on_release_on_stop_and_in_the_boot_sweep() {
     let ready = step(&t, &storage).unwrap();
     let file = file_at(&t, 0);
     assert!(file.starts_with(DIR) && ours(file.rsplit('/').next().unwrap()));
-    assert_eq!(
-        cache_of(&t, &storage).0,
-        paperpaw_sdk::ui::PictureKind::Alpha
-    );
+    assert_eq!(cache_of(&t, &storage).0, crate::kit::ui::PictureKind::Alpha);
     t.release(A, ready.image).unwrap();
     assert_eq!(step(&t, &storage), None);
     assert!(!storage.exists(&file));
@@ -1080,16 +1074,16 @@ fn an_opaque_cache_is_never_reused_for_a_see_through_request() {
     assert_ne!(opaque.image, clear.image);
     let (first, second) = (file_at(&t, 0), file_at(&t, 1));
     assert_ne!(first, second, "every request gets its own file");
-    let kind = |path: &str| paperpaw_sdk::ui::probe_picture(&storage, path).unwrap().0;
-    assert_eq!(kind(&first), paperpaw_sdk::ui::PictureKind::Gray);
-    assert_eq!(kind(&second), paperpaw_sdk::ui::PictureKind::Alpha);
+    let kind = |path: &str| crate::kit::ui::probe_picture(&storage, path).unwrap().0;
+    assert_eq!(kind(&first), crate::kit::ui::PictureKind::Gray);
+    assert_eq!(kind(&second), crate::kit::ui::PictureKind::Alpha);
     // Also after the opaque one ended and its number could come back.
     t.release(A, opaque.image).unwrap();
     assert_eq!(step(&t, &storage), None);
     t.prepare(A, "a.png", 0, 3, false, &see_through()).unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, READY);
     let newest = file_at(&t, 1);
-    assert_eq!(kind(&newest), paperpaw_sdk::ui::PictureKind::Alpha);
+    assert_eq!(kind(&newest), crate::kit::ui::PictureKind::Alpha);
 }
 
 #[test]

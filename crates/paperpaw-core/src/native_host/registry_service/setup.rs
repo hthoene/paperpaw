@@ -14,6 +14,7 @@ use super::{
     sources::Sources,
 };
 use crate::Place;
+use crate::kit::setup::SetupPage;
 use crate::native_host::{
     declaration_store::{DeclarationStore, Kind},
     item_state::ItemStates,
@@ -21,7 +22,6 @@ use crate::native_host::{
 };
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_BUSY;
-use paperpaw_sdk::setup::SetupPage;
 
 /// `reg_setup_step.flags`.
 const APPLIES: u32 = 1;
@@ -116,10 +116,7 @@ fn merged(
         };
         if env_first {
             if let Some(step) = ahead {
-                let applies = step
-                    .applies
-                    .as_ref()
-                    .is_none_or(|applies| applies(&env.env()));
+                let applies = step.applies.as_ref().is_none_or(|applies| applies(env));
                 env_row(env, step, applies, visit)?;
             }
             ahead = own.next();
@@ -140,14 +137,13 @@ fn merged(
 /// The row of a step a code plugin added; `applies` is its `AppliesFn` now.
 fn env_row(
     env: &Place<'_>,
-    step: &paperpaw_sdk::setup::SetupStepSpec,
+    step: &crate::kit::setup::SetupStepSpec,
     applies: bool,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> ControlFlow<()> {
     let (page_kind, page) = match &step.page {
         SetupPage::Setting(id) => (0, id.as_str()),
         SetupPage::Screen(id) => (1, id.as_str()),
-        _ => return ControlFlow::Continue(()),
     };
     // An empty title is the setting's own.
     let key: &str = if step.title.is_empty() {

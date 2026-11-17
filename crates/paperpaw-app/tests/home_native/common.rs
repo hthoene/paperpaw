@@ -29,10 +29,10 @@ pub use paperpaw_sdk::semantics::{Part, Role};
 pub use paperpaw_sdk::{DirEntry, Id, MemoryStorage, Params, Storage, StorageError};
 
 use paperpaw_core::Items;
+use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_sdk::replies::Typed;
-use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Handled, Manifest, MenuEntry, Priority, RegisterError, Version,
-};
+use paperpaw_sdk::{Canvas, Command, Handled, Manifest, Priority, RegisterError, Version};
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
 pub const X4: DeviceInfo = DeviceInfo::new(

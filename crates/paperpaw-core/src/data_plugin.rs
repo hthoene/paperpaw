@@ -358,9 +358,9 @@ impl DataPlugin {
             r.bind_font(role, font, paperpaw_sdk::Priority::DEFAULT)?;
         }
         if let Some(source) = self.read_later("marks.ini") {
-            let marks = paperpaw_sdk::decorations::MarkRules::parse(&self.manifest.id, &source)?;
+            let marks = crate::kit::decorations::MarkRules::parse(&self.manifest.id, &source)?;
             for (role, title, look) in marks.roles {
-                paperpaw_sdk::decorations::add_role(&mut |s| r.add_setting(s), &role, title, look)?;
+                crate::kit::decorations::add_role(&mut |s| r.add_setting(s), &role, title, look)?;
             }
             if !marks.decorator.is_empty() {
                 let id = Id::parse(&format!("{}.marks", self.manifest.id)).map_err(|_| {
@@ -1206,7 +1206,7 @@ version = 1.0.0-gamma
             .contributions()
             .iter()
             .filter_map(|c| match c {
-                paperpaw_sdk::Contribution::FontFace(face) => Some((
+                crate::kit::contribution::item::Contribution::FontFace(face) => Some((
                     face.id.to_string(),
                     String::from(face.family.as_ref()),
                     face.bold,

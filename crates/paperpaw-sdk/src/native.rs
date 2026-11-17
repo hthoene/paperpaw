@@ -191,6 +191,10 @@ pub fn check_file(
 /// The [`Problem::Other`] code of a check that had no memory for itself
 /// (the author's check, about 700 bytes): the file is not judged, and a
 /// later check may well hold. Not a signature that fails (#250).
+#[cfg(any(test, feature = "kernel"))]
+pub const NO_MEMORY: u16 = 1;
+/// As the kernel's, for the SDK's own checks.
+#[cfg(not(any(test, feature = "kernel")))]
 pub(crate) const NO_MEMORY: u16 = 1;
 
 /// [`check_file`], for the marks an installer left ([`install::marks`](crate::install::marks)).

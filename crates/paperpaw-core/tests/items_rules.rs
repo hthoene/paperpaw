@@ -17,11 +17,12 @@ mod common;
 use std::borrow::Cow;
 
 use paperpaw_core::Items;
+use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::kit::contribution::item::Contribution;
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::presets::Preset;
 use paperpaw_sdk::{
-    ActionSpec, Contribution, Id, Params, Priority, RegisterError, SettingKind, SettingSpec,
-    SettingValue, SlotSpec,
+    Id, Params, Priority, RegisterError, SettingKind, SettingSpec, SettingValue, SlotSpec,
 };
 
 fn setting(id: &'static str) -> SettingSpec {

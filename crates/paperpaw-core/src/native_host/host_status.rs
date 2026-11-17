@@ -10,7 +10,7 @@
 //!   whose owner is [`HOST`]: no plugin ever has that owner id, so the
 //!   handle never resolves to a plugin's code. No value hides the item.
 //! - **Drawing.** Slot 35 kind 1 for such a handle draws the one item with
-//!   the interface-6 renderer (`paperpaw_sdk::status::StatusLine`) in the
+//!   the interface-6 renderer (`crate::kit::status::StatusLine`) in the
 //!   place given, with its percentage, in the interface's font: the line's
 //!   text size is the place's width over [`DRAWN_WIDTH`], the least width op
 //!   21 lists for it, so it is drawn at the size the line was laid out with.
@@ -21,13 +21,10 @@
 //! layout of one item), freed at the return.
 use crate::Place;
 use crate::abi7::context::{ComposeRequest, HostStatus};
+use crate::kit::status::{StatusLine, StatusValue};
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_UNSUPPORTED};
-use paperpaw_sdk::{
-    Color, Params,
-    builtin::fonts,
-    status::{StatusLine, StatusValue},
-};
+use paperpaw_sdk::{Color, Params, builtin::fonts};
 
 /// The owner id of the host's own status handles: plugin owner ids start at
 /// 1 (`HostResources::try_owner`, and a seat of owner 0 is refused).
@@ -64,9 +61,7 @@ pub(crate) fn token_of(item: &str) -> Option<u32> {
 /// value (the item hides).
 pub(crate) fn value(env: &Place<'_>, item: &str, out: &mut [u8]) -> Option<HostStatus> {
     let token = token_of(item)?;
-    let value = env
-        .status_items()
-        .value(item, &env.env(), &Params::default())?;
+    let value = env.status_items().value(item, env, &Params::default())?;
     match value {
         StatusValue::Text(text) => {
             let mut len = text.len().min(out.len());
@@ -130,7 +125,7 @@ pub(crate) fn draw(
     let mut canvas = canvas.clipped(visible);
     StatusLine::new(area, ["", "", item], size, Color::BLACK)
         .percent(true)
-        .draw(&mut canvas, &env.env(), &font, &Params::default());
+        .draw(&mut canvas, env, &font, &Params::default());
     Ok(())
 }
 

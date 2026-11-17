@@ -261,7 +261,7 @@ impl Kernel {
         let context = Params::new()
             .with(DEVICE, device.number().to_string())
             .with(NONCE, nonce.to_string());
-        let ask = paperpaw_sdk::ask::confirm(title, &PAIR_ANSWERED)
+        let ask = crate::kit::ask::confirm(title, &PAIR_ANSWERED)
             .text(text)
             .yes(i18n.tr("core.bluetooth.pair.yes"))
             .no(i18n.tr("core.bluetooth.pair.no"))
