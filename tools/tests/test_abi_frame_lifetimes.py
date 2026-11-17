@@ -29,6 +29,8 @@ pub struct Env<'a>(core::marker::PhantomData<&'a ()>);
 pub struct Rect;
 pub struct Canvas<'a>(core::marker::PhantomData<&'a mut ()>);
 pub struct Fonts;
+pub struct RoleMemo;
+pub struct SettingMemo;
 pub trait Storage {}
 pub struct Translator;
 pub struct Id;
