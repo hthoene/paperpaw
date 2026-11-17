@@ -55,19 +55,6 @@ pub fn draw_image(canvas: &mut Canvas<'_>, storage: &dyn Storage, image: &ImageR
     draw_image_over(canvas, storage, image, area, 255);
 }
 
-/// Draws `image` into `area` as [`draw_image`] does, as a small picture
-/// (a cover in a list or a widget): it does not count as a picture that
-/// leaves ghosts on e-paper, which a full refresh clears after large
-/// ones.
-pub fn draw_small_image(
-    canvas: &mut Canvas<'_>,
-    storage: &dyn Storage,
-    image: &ImageRef,
-    area: Rect,
-) {
-    canvas.small_pictures(|canvas| draw_image(canvas, storage, image, area));
-}
-
 /// Draws a decoded image over what is drawn in `area`, as
 /// [`draw_image`]: a picture with transparency
 /// ([`image::picture_with_alpha`](crate::image::picture_with_alpha))

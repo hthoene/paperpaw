@@ -205,7 +205,7 @@ impl Screens {
     }
 
     /// Adds a screen kept in the program, in place of one of its id.
-    fn insert_fixed(&mut self, screen: Fixed) {
+    pub(crate) fn insert_fixed(&mut self, screen: Fixed) {
         let id = screen.id().as_str();
         self.forget(id);
         match self.find_fixed(id) {

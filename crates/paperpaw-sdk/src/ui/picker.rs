@@ -581,13 +581,6 @@ impl TimePicker {
         }
     }
 
-    /// The hour shown 1 to 12 with AM or PM, as the user may want it
-    /// ([`time::twelve_hours`](crate::time::twelve_hours)); the value
-    /// stays 0 to 23.
-    pub fn twelve_hours(self, twelve: bool) -> Self {
-        Self { twelve, ..self }
-    }
-
     /// The height a time picker takes.
     pub fn height(style: &UiStyle) -> u16 {
         picker_height(style)

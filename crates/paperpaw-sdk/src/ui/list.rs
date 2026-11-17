@@ -124,12 +124,6 @@ impl ListView {
         self.row
     }
 
-    /// Makes the rows `row` high from now on (e.g. as high as their notes
-    /// need, which changed: [`UiStyle::noted_row_for`]), the focus kept.
-    pub fn set_row(&mut self, row: u32) {
-        self.row = row.max(1);
-    }
-
     /// The item with the focus.
     pub fn focus(&self) -> usize {
         self.focus
@@ -149,16 +143,6 @@ impl ListView {
         } else {
             ListChange::Page
         }
-    }
-
-    /// Whether the focused row is highlighted; off while the focus is on
-    /// another element of the screen.
-    pub fn active(&self) -> bool {
-        self.active
-    }
-
-    pub fn set_active(&mut self, active: bool) {
-        self.active = active;
     }
 
     /// Whether the focus shows at all: on touch screens only once a
