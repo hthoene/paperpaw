@@ -506,3 +506,43 @@ fn a_focus_moved_over_a_cover_costs_no_pass() {
     let effects = kernel.tick(Instant(9_000));
     assert!(effects.refresh().is_none() && effects.wake_at().is_none());
 }
+
+#[test]
+fn the_grays_come_back_after_every_rest_where_a_move_dithered_the_pictures_again() {
+    use crate::gray_later::Phase;
+    let (mut kernel, _) = comes_up_in_grays(PixelFormat::Mono1, true, "");
+    assert!(after_the_calm(&mut kernel).grays());
+    render(&mut kernel);
+    assert_eq!(kernel.frame.gray_later.phase, Phase::Done);
+    // Already gray and nothing changed: no pass again, however long it rests.
+    for at in [2 * GRAY_REST_MS, 4 * GRAY_REST_MS] {
+        let effects = kernel.tick(Instant(at));
+        assert!(effects.refresh().is_none() && effects.wake_at().is_none());
+    }
+    // Twice: a move (a part of the screen, as the focus moves), the shell draws
+    // the screen again whole in black and white, and after the next rest the
+    // grays come again, and once.
+    let mut last = 4 * GRAY_REST_MS;
+    for _ in 0..2 {
+        last += 1_000;
+        press(&mut kernel, last, "down");
+        kernel.invalidate(Rect::new(0, 0, 8, 8));
+        let effects = kernel.finish();
+        assert!(effects.refresh().is_some() && !effects.grays());
+        let effects = kernel.draw_again(Instant(last + 200));
+        assert!(effects.refresh().is_some() && !effects.grays());
+        render(&mut kernel);
+        assert_eq!(kernel.frame.gray_later.phase, Phase::Pictured);
+        kernel.tick(Instant(last + 300));
+        let early = kernel.tick(Instant(last + GRAY_REST_MS - 1_000));
+        assert!(!early.grays() && early.refresh().is_none());
+        last += 300 + GRAY_REST_MS;
+        let effects = kernel.tick(Instant(last));
+        assert!(effects.refresh().is_some() && effects.grays());
+        render(&mut kernel);
+        assert_eq!(kernel.frame.gray_later.phase, Phase::Done);
+        last += 4 * GRAY_REST_MS;
+        let effects = kernel.tick(Instant(last));
+        assert!(effects.refresh().is_none() && effects.wake_at().is_none());
+    }
+}

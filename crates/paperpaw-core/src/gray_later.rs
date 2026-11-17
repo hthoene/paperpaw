@@ -99,15 +99,24 @@ impl Kernel {
         }
         let screen_grays = rule.whole && rule.grays;
         let big_whole = rule.whole && rule.big;
-        if rule.again {
-            return (screen_grays, Frame::Other);
-        }
         let eligible = rule.pictures
             && self.shared.device.display.format.gray_levels() == Some(2)
             && self
                 .shared
                 .settings
                 .bool(paperpaw_sdk::builtin::settings::PICTURES_IN_GRAYS.as_str());
+        if rule.again {
+            // The whole screen after grays, in black and white: its pictures
+            // are dithered again, so their grays are due again after the next
+            // rest (Decision 216). Without this a move after the pass left
+            // them dithered for good.
+            let regray =
+                rule.whole && eligible && !screen_grays && !rule.sleeping && !self.gray_reading();
+            return (
+                screen_grays,
+                if regray { Frame::Later } else { Frame::Other },
+            );
+        }
         if !big_whole {
             // A cover that came after the screen's first frame is a part of
             // it: its grays follow once, after the calm. Not after a key (a
