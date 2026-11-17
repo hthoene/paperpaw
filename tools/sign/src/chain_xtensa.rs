@@ -87,11 +87,7 @@
 //!                                     `paperpaw_plugin_*`, 8 otherwise): `max`
 //!                                     is the count of the last CI scan
 //! include <file>                      the lines of a file beside the budget
-//! allow jx <caller> <why>             the caller has a `jx` (a switch) whose jump
-//!                                     table no `l32r` literal of the function
-//!                                     gives: the scan cannot prove it knows
-//!                                     where the jump goes, and fails unless a
-//!                                     person has read it (a warning when stale)
+//! allow jx <caller> <why>             a `jx` no jump table of its own is tied to
 //! allow sp <caller> <why>             the caller changes the stack pointer
 //!                                     other than by `entry`
 //! allow nosize <name> <why>           a function with no size (assembly)
@@ -147,6 +143,7 @@
 //! same layout for plugins).
 
 mod family;
+mod jx;
 mod regs;
 mod tables;
 
@@ -170,8 +167,7 @@ pub enum Allow {
     Call { caller: String, callee: String },
     /// `caller` has at most `count` + [`INDIRECT_MARGIN`] calls through a register.
     Indirect { caller: String, count: u32 },
-    /// `caller` has a `jx` whose jump table this scan cannot tie to the function
-    /// through an `l32r` literal of its own (`allow jx`, #283): read by hand.
+    /// `caller`'s `jx` has no jump table tied to it (see [`jx`]): read by hand.
     Jx { caller: String },
     /// `caller` changes `a1` other than by `entry`.
     Sp { caller: String },
@@ -354,15 +350,9 @@ impl Budget {
                 ["allow", "frame", ..] => budget
                     .frame_exceptions
                     .push(family::parse_frame(&words).ok_or_else(bad)?),
-                ["allow", "rom" | "indirect-in", ..] => budget
+                ["allow", "rom" | "indirect-in" | "jx", ..] => budget
                     .allow
                     .push(family::parse_line(&words).ok_or_else(bad)?),
-                ["allow", "jx", caller, why @ ..] if !why.is_empty() => budget.allow.push((
-                    Allow::Jx {
-                        caller: (*caller).to_string(),
-                    },
-                    why.join(" "),
-                )),
                 ["allow", "sp", caller, why @ ..] if !why.is_empty() => budget.allow.push((
                     Allow::Sp {
                         caller: (*caller).to_string(),
@@ -504,8 +494,7 @@ struct Reads {
     forms: BTreeMap<String, u32>,
     /// An `entry` of a register other than `a1`.
     entry_other: Option<u32>,
-    /// The first `jx` of a function none of whose `l32r` literals gives a jump
-    /// table (#283): where it goes is not proven.
+    /// A `jx` no jump table is tied to (see [`jx`]).
     untied_jx: Option<u32>,
 }
 
@@ -671,49 +660,10 @@ fn read_function(code: &[u8], start_addr: u32, around: &Around<'_>) -> Reads {
         }
         at += len;
     }
-    let tied = tied_tables(&insns, around);
-    if tied.is_empty()
-        && let Some(jx) = insns.iter().find(|i| i.is_jx())
-    {
-        reads.untied_jx = Some(jx.pc);
-    }
+    let tied = jx::tied_tables(&insns, around);
+    reads.untied_jx = jx::untied(&insns, &tied);
     resolve(&insns, &sites, start_addr, around, &tied, &mut reads);
     reads
-}
-
-/// The jump tables a function itself names (#283): the words from the address
-/// an `l32r` literal of the function holds, for as long as each is the address
-/// of an instruction of the function. A switch's table base is loaded by an
-/// `l32r` of the function (there is no `LITBASE`), whether the `jx` follows at
-/// once or after a spill, so this finds a table of any length, which the
-/// image-wide search ([`Image::pointed`]) does not (it takes runs of four or
-/// more). A table of the function's own start only is a function pointer, not
-/// a table. Empty: no table is tied to the function.
-fn tied_tables(insns: &[Insn], around: &Around<'_>) -> Vec<u32> {
-    if !insns.iter().any(|i| i.is_jx()) {
-        return Vec::new();
-    }
-    let start = insns.first().map_or(0, |i| i.pc);
-    let starts: BTreeSet<u32> = insns.iter().map(|i| i.pc).collect();
-    let mut found = BTreeSet::new();
-    for i in insns {
-        let Some((_, literal)) = i.l32r() else {
-            continue;
-        };
-        let Some(base) = (around.word)(literal) else {
-            continue;
-        };
-        let mut run = Vec::new();
-        let mut at = base;
-        while let Some(w) = (around.word)(at).filter(|w| starts.contains(w)) {
-            run.push(w);
-            at = at.wrapping_add(4);
-        }
-        if run.iter().any(|&w| w != start) {
-            found.extend(run);
-        }
-    }
-    found.into_iter().collect()
 }
 
 /// What a register holds at a point of a function, for [`resolve`]: the
@@ -781,7 +731,6 @@ fn resolve(
         };
         entries.push(to);
     }
-    // The words of the tables the function itself loads, of any length.
     entries.extend(tied.iter().filter_map(|p| index.get(p).copied()));
     // The function's own start does not count as an address to jump to: a
     // vtable or a function pointer holds it, a jump table does not. Jump
@@ -1348,18 +1297,7 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
             f.shown
         ));
     }
-    if let Some(pc) = reads.untied_jx
-        && !allowed(
-            budget,
-            used,
-            &|a| matches!(a, Allow::Jx { caller: c } if f.is(c)),
-        )
-    {
-        report.problems.push(format!(
-            "`{}` has a `jx` ({pc:#x}) and no `l32r` literal of its own gives a jump table: where it jumps is not proven (read it, then name it with `allow jx <function> <why>`)",
-            f.shown
-        ));
-    }
+    jx::judge(f, reads, budget, used, report);
     if let Some((pc, what)) = reads.narrow_call {
         report.problems.push(format!(
             "`{}` calls with {what} ({pc:#x}): only call8 and call12 keep the band's bound",
@@ -1398,18 +1336,6 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
     }
 }
 
-/// `resolve` takes a jump table to be its function's own: a part split off a
-/// function (`.cold`, `.part.N`) could be entered from the other's table.
-fn no_split_parts(funcs: &[Function]) -> Result<(), String> {
-    let split = |f: &&Function| f.symbol.contains(".cold") || f.symbol.contains(".part.");
-    funcs.iter().find(split).map_or(Ok(()), |f| {
-        Err(format!(
-            "`{}` is a part split off a function: this scan cannot place the jumps into it",
-            f.symbol
-        ))
-    })
-}
-
 /// The `allow` lines nothing used: a warning for the two kinds that only grant what a site
 /// needs (#309), a problem for the rest.
 fn report_unused(budget: &Budget, used: &[bool], report: &mut Report) {
@@ -1434,7 +1360,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     }
     let image = image(elf)?;
     let funcs = &image.funcs;
-    no_split_parts(funcs)?;
+    jx::no_split_parts(funcs)?;
     let mut report = Report::default();
     // Which `allow` lines were used.
     let mut used = vec![false; budget.allow.len()];

@@ -783,14 +783,14 @@ fn forms_that_stay_unknown_cannot_be_allowed_and_the_line_is_read_strictly() {
 // ---- calls through a register that an `l32r` literal gives -----------------
 
 /// `l32r a<reg>, <literal>` at `pc`.
-fn l32r(reg: u32, pc: u32, literal: u32) -> [u8; 3] {
+pub(super) fn l32r(reg: u32, pc: u32, literal: u32) -> [u8; 3] {
     let imm = ((i64::from(literal) - i64::from((pc + 3) & !3)) >> 2) as u32 & 0xFFFF;
     let w = 0x01 | reg << 4 | imm << 8;
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
 }
 
 /// `callx<n> a<reg>`.
-fn callx_reg(n: u32, reg: u32) -> [u8; 3] {
+pub(super) fn callx_reg(n: u32, reg: u32) -> [u8; 3] {
     let w = (0xC + n / 4) << 4 | reg << 8;
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
 }
@@ -838,10 +838,10 @@ fn firmware_lit_flags(
     b.build()
 }
 
-fn run_lit(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32], extra: &str) -> Report {
+pub(super) fn run_lit(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32], more: &str) -> Report {
     let bytes = firmware_lit(lits, funcs, data);
     let elf = Elf::parse(&bytes).unwrap();
-    let text = format!("root root\n{extra}");
+    let text = format!("root root\n{more}");
     check(&elf, &Budget::parse(&text).unwrap()).unwrap()
 }
 
@@ -945,7 +945,7 @@ fn a_callx_whose_register_holds_no_literal_on_every_path_stays_indirect() {
 /// A function `root` of the instructions `parts` at `BASE + 0x40` (the first
 /// literal is the helper's address, the second the same address again), and
 /// the helper after it.
-fn root_of(parts: &[&[u8]]) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
+pub(super) fn root_of(parts: &[&[u8]]) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
     let root_at = BASE + 0x40;
     let root = f(parts);
     let helper_at = (root_at + root.len() as u32 + 15) & !15;
@@ -956,7 +956,7 @@ fn root_of(parts: &[&[u8]]) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
     )
 }
 
-fn outcome(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32]) -> (u32, u32) {
+pub(super) fn outcome(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32]) -> (u32, u32) {
     let report = run_lit(lits, funcs, data, "");
     (report.resolved, report.indirect)
 }
@@ -1497,83 +1497,4 @@ fn a_frames_in_line_holds_every_function_of_the_family_reached_or_not() {
         "{:?}",
         gone.problems
     );
-}
-
-/// `root`: `entry; jx a3; l32r a8 (a callee); callx8 a8; l32r a9 (the table
-/// literal); retw.n`, at `BASE + 0x40`; the third literal is the table's
-/// address (`BASE + 0x1_0000`).
-fn root_with_table_literal(literal: u32) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
-    let at = BASE + 0x40;
-    let code = [
-        &entry(32)[..],
-        &[0xa0, 0x03, 0x00],
-        &l32r(8, at + 6, BASE),
-        &callx_reg(8, 8),
-        &l32r(9, at + 12, BASE + 8),
-        &RETW_N,
-    ];
-    let (mut lits, funcs) = root_of(&code);
-    lits.push(literal);
-    (lits, funcs)
-}
-
-#[test]
-fn a_jx_whose_table_no_literal_of_the_function_gives_fails_unless_it_is_listed() {
-    let at = BASE + 0x40;
-    // The table words (at the data section) hold the `l32r`: found by the image-wide
-    // search (four words) in both cases; only the literal ties it to the function.
-    let table = [at + 6; 4];
-    // The function loads the table's address: tied, no problem.
-    let (lits, funcs) = root_with_table_literal(BASE + 0x1_0000);
-    let tied = run_lit(&lits, &funcs, &table, "");
-    assert!(
-        !tied.problems.iter().any(|p| p.contains("`jx`")),
-        "{:?}",
-        tied.problems
-    );
-    // A literal that is not the table's address: the `jx` is not tied, the scan fails.
-    let (lits, funcs) = root_with_table_literal(0x1234_5678);
-    let missed = run_lit(&lits, &funcs, &table, "");
-    assert!(
-        missed.problems.iter().any(|p| p.contains("has a `jx`")),
-        "{:?}",
-        missed.problems
-    );
-    // Listed with a reason: it passes (the `jx` and its callx stay counted as before),
-    // and a line that matches nothing only warns.
-    let listed = run_lit(
-        &lits,
-        &funcs,
-        &table,
-        "allow jx root read by hand: a switch\n",
-    );
-    assert!(
-        !listed.problems.iter().any(|p| p.contains("`jx`")),
-        "{:?}",
-        listed.problems
-    );
-    let stale = run_lit(
-        &[lits[0], lits[1], BASE + 0x1_0000],
-        &funcs,
-        &table,
-        "allow jx root read by hand\n",
-    );
-    assert!(
-        stale.warnings.iter().any(|w| w.contains("Jx")),
-        "{:?}",
-        stale.warnings
-    );
-    assert!(!stale.problems.iter().any(|p| p.contains("`jx`")));
-}
-
-#[test]
-fn a_table_the_function_loads_is_followed_at_any_length() {
-    let at = BASE + 0x40;
-    // One word: the image-wide search takes no table of fewer than four, but the
-    // function loads this one itself, so the `l32r` after the `jx` is reached.
-    let (lits, funcs) = root_with_table_literal(BASE + 0x1_0000);
-    assert_eq!(outcome(&lits, &funcs, &[at + 6]), (1, 1));
-    // A table of the function's own start only is a function pointer: no tie.
-    let report = run_lit(&lits, &funcs, &[at], "");
-    assert!(report.problems.iter().any(|p| p.contains("has a `jx`")));
 }
