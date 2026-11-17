@@ -126,13 +126,6 @@ pub fn as_text(icon: char) -> Option<alloc::string::String> {
     Some(text)
 }
 
-/// The icon a text of `as_text` is; `None` for any other text.
-pub(crate) fn of_text(text: &str) -> Option<char> {
-    let mut rest = text.strip_prefix(AS_TEXT)?.chars();
-    let icon = rest.next()?;
-    rest.next().is_none().then_some(icon)
-}
-
 /// The names of all icons, sorted: 64 KB, for tools and tests. The
 /// firmware never calls it, so its image is without them (#258).
 pub fn names() -> impl Iterator<Item = &'static str> {

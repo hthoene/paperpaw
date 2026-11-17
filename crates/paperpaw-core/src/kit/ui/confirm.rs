@@ -1,7 +1,7 @@
 //! A yes or no question in a box in the middle of the screen, e.g.
 //! whether to delete a file: the screen of slot
 //! [`CONFIRM`](paperpaw_sdk::builtin::slots::CONFIRM), which
-//! [`ask::confirm`](paperpaw_sdk::ask::confirm) asks. The answer comes back as
+//! `ask::confirm` asks. The answer comes back as
 //! the plugin's reply event, a [`Confirmed`](paperpaw_sdk::replies::Confirmed) with the context it was
 //! asked with. *Back*, or a tap outside the box, answers nothing. On a
 //! screen wider than the readable column (`ui::readable`)

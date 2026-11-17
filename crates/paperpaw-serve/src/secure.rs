@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use paperpaw_core::TlsSetup;
 use paperpaw_core::sdk::{CertificateHash, Distrust, KeyHash, SocketError, Trust};
 
-use crate::tls::{self, Env, Gate, Refusal, Secure};
+use crate::tls::{self, Gate, Refusal, Secure, TlsContext};
 
 /// Which certificates are trusted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,7 +117,7 @@ pub fn handshake(
         timeout_ms: u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX),
         idle_ms: 0,
     };
-    let env = Env::system();
+    let env = TlsContext::system();
     let deadline = Instant::now() + timeout;
     // The caller counts the sessions; this gate only holds the one slot.
     let slot = Arc::new(Gate::new(1))

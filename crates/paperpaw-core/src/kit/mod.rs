@@ -14,6 +14,8 @@ pub mod library;
 pub mod logo;
 pub mod menus;
 pub mod readers;
+#[cfg(test)]
+mod sdk_tests;
 pub mod setup;
 pub mod status;
 pub mod time;

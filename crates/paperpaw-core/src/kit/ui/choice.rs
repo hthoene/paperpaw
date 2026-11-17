@@ -1,7 +1,7 @@
 //! An overlay at the bottom with a title and a few choices, e.g. what to
 //! do with a file or whether to delete it: the screen of slot
 //! [`CHOICE`](paperpaw_sdk::builtin::slots::CHOICE), which
-//! [`ask::choice`](paperpaw_sdk::ask::choice) asks. The choice comes back as
+//! `ask::choice` asks. The choice comes back as
 //! the plugin's reply event, a [`Picked`] with the context it was asked
 //! for and the option chosen. Tapping outside, or *Back*, chooses
 //! nothing.

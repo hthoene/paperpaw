@@ -589,6 +589,14 @@ impl KernelBuilder {
         Ok(kernel)
     }
 
+    /// The kernel with nothing registered and nothing started: for the
+    /// tests of the kernel's kit, which register what they test.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn build_bare(mut self) -> Result<Kernel, KernelError> {
+        let framebuffer = self.0.framebuffer()?;
+        Ok(self.0.new_kernel(framebuffer))
+    }
+
     /// [`Self::build`], the kernel on the heap: for a shell whose stack is
     /// small (the X4's). The kernel is large (about 6 KB there); built so, it
     /// is on the stack only while it is made, before the start reads the

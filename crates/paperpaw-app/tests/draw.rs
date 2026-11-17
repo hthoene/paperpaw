@@ -28,6 +28,7 @@ use std::cell::RefCell;
 use std::fmt::Write as _;
 use std::rc::Rc;
 
+use paperpaw_core::kit::library;
 use paperpaw_core::kit::widgets::categories;
 use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
@@ -37,7 +38,7 @@ use paperpaw_platform::{
 use paperpaw_sdk::annotations::{self, Annotation, Kind, Mark};
 use paperpaw_sdk::builtin::{actions, params, slots};
 use paperpaw_sdk::document::Locator;
-use paperpaw_sdk::{Canvas, Handled, Id, Manifest, MemoryStorage, Params, SDK_VERSION, library};
+use paperpaw_sdk::{Canvas, Handled, Id, Manifest, MemoryStorage, Params, SDK_VERSION};
 
 /// An X4 as the emulator's profile and the firmware have it: buttons, no
 /// touch, frames drawn in bands of 192 rows (five a frame).

@@ -3,8 +3,9 @@
 //! the phases a delete runs through, a replay, and the importer record.
 extern crate std;
 use super::*;
+use crate::kit::library;
 use crate::native_host::lib_reads::tests::card;
-use paperpaw_sdk::{library, positions};
+use paperpaw_sdk::positions;
 
 #[test]
 fn a_delete_runs_details_then_marks_then_is_done_and_a_replay_changes_nothing() {

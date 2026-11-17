@@ -7,7 +7,7 @@
 //! A screen that shows a widget makes it (`Widgets::make`) and keeps
 //! it: the widget reads what it shows when the screen updates it (when
 //! it shows, about each minute, after events), and draws from that, so
-//! drawing stays quick ([`Widget`]). Widgets with nothing to read, such
+//! drawing stays quick (`Widget`). Widgets with nothing to read, such
 //! as a clock, are a pair of functions ([`WidgetSpec::drawn`]).
 //!
 //! A widget may have targets: places that do something when tapped, which
@@ -63,7 +63,6 @@ use paperpaw_platform::Rect;
 
 use crate::Place;
 use paperpaw_sdk::Id;
-use paperpaw_sdk::Params;
 pub use paperpaw_sdk::widgets::CellSpan;
 
 mod colours;
@@ -151,158 +150,17 @@ pub(crate) struct WidgetCategory {
     pub icon: Cow<'static, str>,
 }
 
-/// A widget as a screen shows it: made for that screen by its spec
-/// ([`WidgetSpec`]), it keeps what it shows.
-///
-/// What it shows is read in [`update`](Self::update), when the screen
-/// asks: when it shows the widget, about each minute, and after events
-/// that may change it (e.g. the library or a setting changed). Drawing
-/// then only draws: a frame may be drawn in bands, so
-/// [`draw`](Self::draw) runs several times for it and reads nothing from
-/// the storage (but pictures, which are drawn from their files).
-pub trait Widget {
-    /// Reads what it shows anew; `true` if that changed since it was
-    /// last read, so that the screen draws it again. Widgets with nothing
-    /// to read keep the default: nothing changes.
-    fn update(&mut self, env: &Place<'_>) -> bool {
-        let _ = env;
-        false
-    }
-
-    /// Whether what it shows changes by itself (the time, the battery):
-    /// it is read anew each minute and when the device's status changes.
-    /// Widgets that show what changes only after events (books, settings)
-    /// say `false`, and are read when shown and after those events only:
-    /// reading them each minute would cost time and battery for nothing.
-    fn live(&self) -> bool {
-        true
-    }
-
-    /// The height it needs at `width`, in pixels (0: nothing to show).
-    fn height(&self, env: &Place<'_>, width: u16) -> u16;
-
-    /// The least height it can do with at `width`, drawn smaller (e.g.
-    /// covers in a row): where its full [`height`](Self::height) has no
-    /// room, it is placed in less, down to this. Widgets that cannot
-    /// shrink keep the default, their full height.
-    fn min_height(&self, env: &Place<'_>, width: u16) -> u16 {
-        self.height(env, width)
-    }
-
-    /// Where it is drawn from now on, before it is drawn there: screens
-    /// that show it call this once they placed it, and again when its
-    /// place changes. A widget that makes something for the size it is
-    /// drawn at, such as a cover made small
-    /// (`Thumbnail`, drawn in every band without
-    /// reading the picture again), makes it here, and anew in
-    /// [`update`](Self::update) when what it shows changed. Most widgets
-    /// need nothing of it.
-    fn place(&mut self, env: &Place<'_>, area: Rect) {
-        let _ = (env, area);
-    }
-
-    /// Draws it into `area` (cleared before), from what it read.
-    fn draw(&self, canvas: &mut Canvas<'_>, env: &Place<'_>, area: Rect);
-
-    /// The places in it that do something, drawn in `area`, in reading
-    /// order; without them it only shows something.
-    fn targets(&self, env: &Place<'_>, area: Rect) -> Vec<WidgetTarget> {
-        let _ = (env, area);
-        Vec::new()
-    }
-
-    /// Where it is shown, told once it is placed (after
-    /// [`place`](Self::place)): its placement (a to-do list's `@2`, to
-    /// tell its own taps from another's), the screen showing it, how
-    /// large it is drawn.
-    fn context(&mut self, env: &Place<'_>, context: &WidgetContext<'_>) {
-        let _ = (env, context);
-    }
-
-    /// Input on it beside taps on its targets: a swipe that started on it
-    /// (a list turning its page), the buttons' focus coming to one of its
-    /// targets or leaving it. `true` if it took it, the commands it asks
-    /// for in `out`: the screen draws it again; after a swipe it took, it
-    /// also asks its [`targets`](Self::targets) anew (its page turned).
-    /// Widgets that take none keep the default.
-    ///
-    /// The buttons send swipes too: the page buttons, while one of its
-    /// targets has the focus (the next page as a swipe to the left). A
-    /// widget refuses a swipe it cannot do (at its last page): the screen
-    /// then turns its own page. Left and Right always move the focus on,
-    /// out of the widget after its last target, so a widget that pages
-    /// without end never keeps it. Where its targets are the only ones,
-    /// the page buttons are the screen's and Left and Right are the
-    /// swipes, at its first and last target.
-    fn on_input(
-        &mut self,
-        env: &Place<'_>,
-        input: WidgetInput,
-        area: Rect,
-        out: &mut paperpaw_sdk::Commands,
-    ) -> bool {
-        let _ = (env, input, area, out);
-        false
-    }
-
-    /// Draws the focus on its target `target` its own way; `false` (the
-    /// default) for the screen's frame round it.
-    fn draw_focus(&self, canvas: &mut Canvas<'_>, env: &Place<'_>, target: Rect) -> bool {
-        let _ = (canvas, env, target);
-        false
-    }
-
-    /// A call that comes after this release, by its key and parameters:
-    /// what PaperPaw asks of widgets later reaches widgets built now,
-    /// which answer [`Handled::No`](paperpaw_sdk::Handled::No) to keys they do
-    /// not know.
-    fn on_extended(&mut self, key: &Id, params: &Params, env: &Place<'_>) -> paperpaw_sdk::Handled {
-        let _ = (key, params, env);
-        paperpaw_sdk::Handled::No
-    }
-}
-
-/// Where a widget is shown ([`Widget::context`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct WidgetContext<'a> {
-    /// Its placement, e.g. `notes.todo@2`, where it is one; `None` for
-    /// the widget itself.
-    pub placement: Option<&'a str>,
-    /// The screen showing it, where the screen says.
-    pub host: Option<&'a str>,
-    /// How large it is drawn.
-    pub size: SizeClass,
-}
-
-/// Input a widget may take beside taps ([`Widget::on_input`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum WidgetInput {
-    /// A swipe that started on it, this way; also a page button while one
-    /// of its targets has the focus (see [`Widget::on_input`]).
-    Swipe(paperpaw_sdk::Direction),
-    /// The buttons' focus came to its target in this area, or (`None`)
-    /// left it.
-    Focus(Option<Rect>),
-}
-
-/// Makes a widget for a screen that shows it.
-pub(crate) type WidgetFactory = fn(&Place<'_>) -> Box<dyn Widget>;
-
-/// How a widget ([`WidgetSpec`], `FixedWidget`) is made: by a function of
-/// its own, or as a [`Drawn`] widget from what it draws with.
+/// How a widget ([`WidgetSpec`], `FixedWidget`) is made: as a [`Drawn`]
+/// widget from what it draws with.
 #[derive(Clone, Copy)]
 #[non_exhaustive]
 pub enum Make {
-    Factory(WidgetFactory),
     Drawn(Drawn),
 }
 
 impl fmt::Debug for Make {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Make::Factory(_) => "Factory",
             Make::Drawn(_) => "Drawn",
         })
     }
@@ -349,11 +207,6 @@ pub struct WidgetSpec {
 }
 
 impl WidgetSpec {
-    /// A widget of a type of its own ([`Widget`]), made by `factory`.
-    pub fn new(id: Id, title: impl Into<Cow<'static, str>>, factory: WidgetFactory) -> Self {
-        Self::made(id, title, Make::Factory(factory))
-    }
-
     fn made(id: Id, title: impl Into<Cow<'static, str>>, make: Make) -> Self {
         Self {
             id,
@@ -460,7 +313,7 @@ pub struct Drawn {
     /// is drawn again. Without it, it is drawn when its screen is.
     pub shows: Option<fn(&Place<'_>) -> String>,
     /// The places in it that do something, drawn in an area (see
-    /// [`Widget::targets`]).
+    /// `Widget::targets`).
     pub targets: Option<fn(&Place<'_>, Rect) -> Vec<WidgetTarget>>,
 }
 

@@ -532,6 +532,7 @@ fn a_file_that_is_no_book_is_renamed_without_the_librarys_job() {
 /// in the book are found under the new name.
 #[test]
 fn a_book_whose_format_is_off_moves_with_what_the_library_keeps() {
+    use crate::kit::library;
     use crate::native_host::{
         host_services::HostServices, lib_moves_service::Pump, storage_files::StorageFiles,
     };
@@ -539,7 +540,6 @@ fn a_book_whose_format_is_off_moves_with_what_the_library_keeps() {
     use paperpaw_sdk::{
         MemoryStorage,
         document::Locator,
-        library,
         positions::{self, Position},
     };
     let card = Rc::new(MemoryStorage::new());

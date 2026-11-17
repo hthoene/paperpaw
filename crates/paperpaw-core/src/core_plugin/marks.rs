@@ -3,7 +3,7 @@
 
 use crate::Items;
 use crate::kit::decorations::{Decoration, LineKind, Tone};
-use paperpaw_sdk::role_settings;
+use crate::role_settings;
 use paperpaw_sdk::{RegisterError, SettingSpec};
 
 pub(super) static HIGHLIGHT: [SettingSpec; 7] = role_settings!(

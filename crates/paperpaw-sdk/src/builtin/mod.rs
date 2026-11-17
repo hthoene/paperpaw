@@ -31,7 +31,7 @@ pub mod actions {
     pub const CONFIRM: Id = Id::new_static("core.confirm");
     /// Select held: what a long press does where the focus is, where a
     /// screen takes it (a widget's own, see
-    /// [`WidgetTarget::hold`](crate::widgets::WidgetTarget::hold)); else
+    /// `WidgetTarget::hold`); else
     /// the menu, as before.
     pub const LONG_CONFIRM: Id = Id::new_static("core.long-confirm");
     pub const MENU: Id = Id::new_static("core.menu");
@@ -42,7 +42,7 @@ pub mod actions {
     pub const LIBRARY: Id = Id::new_static("core.library");
     /// *Open with…* in the book menu ([`menus::BOOK`](super::menus::BOOK)):
     /// asks which reading app opens the book this time
-    /// ([`readers::ask_once`](crate::readers::ask_once)).
+    /// (`readers::ask_once`).
     pub const OPEN_WITH: Id = Id::new_static("core.open-with");
     /// Opens the settings slot.
     pub const SETTINGS: Id = Id::new_static("core.settings");
@@ -95,7 +95,7 @@ pub mod slots {
     /// [`FOCUS`](super::params::FOCUS), the page of that setting with
     /// the focus on it.
     pub const SETTINGS: Id = Id::new_static("core.settings");
-    /// The first-run setup (see [`setup`](crate::setup)): shown once on
+    /// The first-run setup (see `setup`): shown once on
     /// the first start, and again when asked.
     pub const SETUP: Id = Id::new_static("core.setup");
     /// Looks up a word (an overlay): opened with the parameters
@@ -106,7 +106,7 @@ pub mod slots {
     /// Looks a word up online (an overlay), with the same parameters as
     /// [`LOOKUP`]: an encyclopedia, an online dictionary, a translator.
     /// Dictionaries offer it beside their own entries when a screen is
-    /// bound here ([`Env::has_slot`](crate::Env::has_slot)) and there is
+    /// bound here (`Env::has_slot`) and there is
     /// a network.
     pub const LOOKUP_ONLINE: Id = Id::new_static("core.lookup-online");
     /// Shows a menu as a panel of controls for quick changes (an overlay):
@@ -140,7 +140,7 @@ pub mod slots {
     /// [`ID`](super::params::ID) different for every request (opening a
     /// slot with the parameters it is open with only brings it forward).
     /// The reader opens links out of a book this way, if a browser is
-    /// bound here ([`Env::has_slot`](crate::Env::has_slot)).
+    /// bound here (`Env::has_slot`).
     pub const BROWSER: Id = Id::new_static("core.browser");
     /// The Bluetooth page: the plugin whose screen is bound here is the
     /// Bluetooth manager, which sees every bond and decides when remotes
@@ -153,8 +153,8 @@ pub mod slots {
     /// set to the folder; [`TEXT`](super::params::TEXT), where to start.
     pub const CHOOSE_FOLDER: Id = Id::new_static("core.choose-folder");
     /// Edits a list of widgets shown above each other (a
-    /// [`WidgetPlace`](crate::widgets::WidgetPlace) of kind
-    /// [`Stack`](crate::widgets::PlaceKind::Stack), e.g. the sleep
+    /// `WidgetPlace` of kind
+    /// `Stack`, e.g. the sleep
     /// screen's): parameter [`ID`](super::params::ID), the setting that
     /// lists them. The kernel's [`screens::WIDGET_LIST`](super::screens::WIDGET_LIST)
     /// unless a plugin binds another; name it as the setting's editor
@@ -167,16 +167,16 @@ pub mod slots {
     pub const CHOOSE_VALUE: Id = Id::new_static("core.choose-value");
     /// Asks to choose one of a few options, e.g. what to do with a file
     /// or whether to delete it (an overlay at the bottom): asked with
-    /// [`ask::choice`](crate::ask::choice), answered with a
-    /// [`Picked`](crate::ui::choice::Picked). Every plugin's questions
+    /// `ask::choice`, answered with a
+    /// `Picked`. Every plugin's questions
     /// come here, so a screen bound here asks them all another way.
     pub const CHOICE: Id = Id::new_static("core.choice");
     /// Asks yes or no, e.g. whether to delete a book (a box in the middle
-    /// of the screen): asked with [`ask::confirm`](crate::ask::confirm),
+    /// of the screen): asked with `ask::confirm`,
     /// answered with a [`Confirmed`](crate::replies::Confirmed), nothing
     /// on *Back* or a tap outside. Every plugin's yes or no questions come
     /// here, so a screen bound here asks them all another way (see
-    /// [`ui::confirm`](crate::ui::confirm) for its parameters).
+    /// `ui::confirm` for its parameters).
     pub const CONFIRM: Id = Id::new_static("core.confirm");
     /// Shows what is known of a book: parameter [`PATH`](super::params::PATH).
     pub const BOOK_INFO: Id = Id::new_static("core.book-info");
@@ -280,7 +280,7 @@ pub mod menus {
     pub const BOOK: Id = Id::new_static("core.book-menu");
     /// Other ways to open a book, listed with the reading apps where the
     /// reader chooses one (*Open with…*, see
-    /// [`readers::ask_once`](crate::readers::ask_once)): plugins add their
+    /// `readers::ask_once`): plugins add their
     /// actions (open it in a browser, send it to a computer); when one is
     /// chosen, [`events::BOOK_CHOSEN`](super::events::BOOK_CHOSEN) is sent
     /// with the book, then it runs, as in [`BOOK`].
@@ -325,7 +325,7 @@ pub mod params {
     /// [`slots::SETTINGS`](super::slots::SETTINGS).
     pub const FOCUS: &str = "focus";
     /// Set (to `1`) when a question is answered on each change too, e.g.
-    /// the keyboard's ([`ask::TextQuestion::live`](crate::ask::TextQuestion::live)).
+    /// the keyboard's (`ask::TextQuestion::live`).
     pub const LIVE: &str = "live";
     /// Set (to `1`) on an answer given while the reader still types
     /// ([`Typed::typing`](crate::replies::Typed::typing)).
@@ -367,7 +367,7 @@ pub mod status_lines {
     use crate::Id;
 
     /// The items of the place it is drawn in, at its left, centre and
-    /// right ([`status::Place`](crate::status::Place)).
+    /// right (`status::Place`).
     pub const ITEMS: Id = Id::new_static("core.status-line.items");
 }
 
@@ -383,10 +383,10 @@ pub mod status_items {
     /// ([`settings::BATTERY_LOW`](super::settings::BATTERY_LOW)): a calm
     /// line while there is enough.
     pub const BATTERY_LOW: Id = Id::new_static("core.status.battery-low");
-    /// Today in words ([`time::date_text`](crate::time::date_text)).
+    /// Today in words (`time::date_text`).
     pub const DATE: Id = Id::new_static("core.status.date");
     /// Today in short words, e.g. "Thu 15 Oct"
-    /// ([`time::short_date_text`](crate::time::short_date_text)), for
+    /// (`time::short_date_text`), for
     /// narrow places.
     pub const DATE_SHORT: Id = Id::new_static("core.status.date-short");
 }
@@ -437,7 +437,7 @@ pub mod settings {
     /// The library folder, where books are kept (`books`; empty for the
     /// storage's top): the kernel's, so that any library and every plugin
     /// that puts books somewhere reads the same
-    /// ([`library::folder`](crate::library::folder)).
+    /// (`library::folder`).
     pub const LIBRARY_FOLDER: Setting<Text> = Setting::new("core.library-folder");
     /// Draw everything inverted.
     pub const NIGHT_MODE: Setting<bool> = Setting::new("core.night-mode");
@@ -621,33 +621,33 @@ pub mod settings {
     pub const HEADER_LIGHT: &str = "core.header.light";
     pub const HEADER_PLAIN: &str = "core.header.plain";
     /// The frame of every widget whose own the reader did not choose: one
-    /// of [`widgets::ALL_FRAMES`](crate::widgets::ALL_FRAMES)
+    /// of `widgets::ALL_FRAMES`
     /// (each widget its own at first).
     pub const WIDGET_FRAME: Setting<Text> = Setting::new("core.widgets.frame");
     /// The paper of every widget whose own the reader did not choose: one
-    /// of [`widgets::PAPERS`](crate::widgets::PAPERS), a tone or a colour
+    /// of `widgets::PAPERS`, a tone or a colour
     /// code ([`widgets::colour_spec`](crate::widgets::colour_spec)); normal
     /// leaves each widget its own.
     pub const WIDGET_PAPER: Setting<Text> = Setting::new("core.widgets.paper");
     /// The ink of every widget whose own the reader did not choose: one of
-    /// [`widgets::INKS`](crate::widgets::INKS), a tone or a colour code;
+    /// `widgets::INKS`, a tone or a colour code;
     /// automatic leaves each widget its own.
     pub const WIDGET_INK: Setting<Text> = Setting::new("core.widgets.ink");
     /// The corners of every widget whose own the reader did not choose:
-    /// one of [`widgets::CORNER_CHOICES`](crate::widgets::CORNER_CHOICES);
+    /// one of `widgets::CORNER_CHOICES`;
     /// automatic leaves each widget its own.
     pub const WIDGET_CORNERS: Setting<Text> = Setting::new("core.widgets.corners");
     /// The frame line of every widget whose own the reader did not choose:
-    /// one of [`widgets::LINE_CHOICES`](crate::widgets::LINE_CHOICES).
+    /// one of `widgets::LINE_CHOICES`.
     pub const WIDGET_FRAME_LINE: Setting<Text> = Setting::new("core.widgets.frame-line");
     /// The shadow of every widget whose own the reader did not choose: one
-    /// of [`widgets::SHADOWS`](crate::widgets::SHADOWS).
+    /// of `widgets::SHADOWS`.
     pub const WIDGET_SHADOW: Setting<Text> = Setting::new("core.widgets.shadow");
     /// The spacing inside every widget whose own the reader did not
-    /// choose: one of [`widgets::PADDINGS`](crate::widgets::PADDINGS).
+    /// choose: one of `widgets::PADDINGS`.
     pub const WIDGET_PADDING: Setting<Text> = Setting::new("core.widgets.padding");
     /// The gap between widgets: one of
-    /// [`widgets::GAPS`](crate::widgets::GAPS) ([`widgets::gap`](crate::widgets::gap)).
+    /// `widgets::GAPS` (`widgets::gap`).
     pub const WIDGET_GAP: Setting<Text> = Setting::new("core.widgets.gap");
     /// Corners of highlights, buttons and boxes: one of [`CORNERS`].
     pub const UI_CORNERS: Setting<Text> = Setting::new("core.ui-corners");
@@ -667,11 +667,11 @@ pub mod settings {
     pub const FOCUS_RING: &str = "core.focus.ring";
     pub const FOCUS_SOFT: &str = "core.focus.soft";
     /// Whether sheets, dialogs and chips cast a hard shadow: one of
-    /// [`widgets::SHADOWS`](crate::widgets::SHADOWS). None where a theme
+    /// `widgets::SHADOWS`. None where a theme
     /// does not say.
     pub const UI_SHADOW: Setting<Text> = Setting::new("core.ui-shadow");
     /// The frame of sheets, dialogs and chips: [`FRAME_OWN`] (each as it
-    /// always was) or one of [`widgets::FRAMES`](crate::widgets::FRAMES).
+    /// always was) or one of `widgets::FRAMES`.
     pub const UI_FRAME: Setting<Text> = Setting::new("core.ui-frame");
     pub const FRAME_OWN: &str = "core.frame.own";
     /// How much room the interface leaves between and round its parts:
@@ -883,7 +883,7 @@ pub mod settings {
     /// `core.clock.24h` or `core.clock.12h`.
     pub const CLOCK_FORMAT: Setting<Text> = Setting::new("core.clock-format");
     /// The first day of the week, one of
-    /// [`time::WEEK_STARTS`](crate::time::WEEK_STARTS); read it with
+    /// `time::WEEK_STARTS`; read it with
     /// `time::week_start`.
     pub const WEEK_START: Setting<Text> = Setting::new("core.week-start");
     /// The time zone: `core.tz.auto` (the system's) or one of

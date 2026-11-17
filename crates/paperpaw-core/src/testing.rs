@@ -348,3 +348,17 @@ impl crate::native_host::native_instances::NativeInstance for FakeInstance {
     }
     fn stop(&self) {}
 }
+
+/// What the kit's tests read and set on a kernel (#300).
+impl crate::Kernel {
+    /// Runs `f` with the kernel's state as a handler of an event at `now`
+    /// sees it.
+    pub fn with_place<R>(&self, now: Instant, f: impl FnOnce(&Place<'_>) -> R) -> R {
+        f(&self.shared.place(now))
+    }
+
+    /// Its formats, for a test that registers its own.
+    pub fn formats_mut(&mut self) -> &mut paperpaw_sdk::Formats {
+        &mut self.shared.formats
+    }
+}

@@ -242,7 +242,7 @@ fn boxes_and_fitting_follow_the_sizes() {
             };
             assert_eq!(
                 fit((iw, ih), bw, bh),
-                paperpaw_sdk::ui::fit_image(&image, bw, bh),
+                paperpaw_core::kit::ui::fit_image(&image, bw, bh),
                 "{iw}x{ih} in {bw}x{bh}"
             );
         }

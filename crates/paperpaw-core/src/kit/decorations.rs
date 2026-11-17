@@ -112,7 +112,7 @@ const ASPECTS: [&str; 7] = [
 /// `<role>.background`, `.ink`, `.line`, `.line-tone`, `.thickness`,
 /// `.frame` and `.struck`; themes set their defaults like any setting's.
 /// A role known when the plugin is written takes less memory with
-/// [`role_settings!`](paperpaw_sdk::role_settings) instead.
+/// [`role_settings!`](crate::role_settings) instead.
 pub fn add_role(
     add: &mut dyn FnMut(SettingSpec) -> Result<(), RegisterError>,
     role: &Id,
@@ -196,7 +196,7 @@ pub fn add_role(
 }
 
 /// The settings of a role (see [`add_role`]) kept in the program, for
-/// `Items::add_settings`: made by [`role_settings!`](paperpaw_sdk::role_settings).
+/// `Items::add_settings`: made by [`role_settings!`](crate::role_settings).
 #[doc(hidden)]
 pub const fn fixed_role(
     ids: [&'static str; 7],

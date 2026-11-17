@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use paperpaw_core::{SocketCall, SocketEvent};
 
 use crate::link::{self, Job, Link};
-use crate::tls::Env;
+use crate::tls::TlsContext;
 
 /// The largest answer to a broadcast read.
 const DATAGRAM: usize = 1500;
@@ -44,7 +44,7 @@ pub struct Sockets {
     broadcast_to: Ipv4Addr,
     wake: Wake,
     /// What TLS depends on besides the server (tests set it).
-    pub(crate) tls: Env,
+    pub(crate) tls: TlsContext,
 }
 
 impl std::fmt::Debug for Sockets {
@@ -67,7 +67,7 @@ impl Sockets {
             broadcasts: 0,
             broadcast_to: Ipv4Addr::BROADCAST,
             wake: Arc::new(wake),
-            tls: Env::system(),
+            tls: TlsContext::system(),
         }
     }
 

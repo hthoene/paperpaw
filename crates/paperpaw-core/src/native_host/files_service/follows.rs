@@ -11,8 +11,9 @@
 //! read: a name without an extension counts as a book wherever a format
 //! tells files by their first bytes, and a book's `.bak` sibling counts as
 //! the book (the carry takes `a.epub.bak` for one, it may be named back).
+use crate::kit::library;
 use paperpaw_platform::Storage;
-use paperpaw_sdk::{Formats, files, library};
+use paperpaw_sdk::{Formats, files};
 
 /// Whether the library follows the root-1 move of `from` to `to` (paths of
 /// the card `storage`; `folder`: `from` is one). Without the kernel's

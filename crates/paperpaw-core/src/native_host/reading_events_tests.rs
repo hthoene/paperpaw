@@ -4,6 +4,7 @@
 //! told to a native plugin once.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
+use crate::kit::library;
 use crate::native_host::{
     commands::CommandStage,
     doc_reading::{Edge, Facts, Reading},
@@ -19,7 +20,7 @@ use core::cell::RefCell;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::{DirEntry, Storage, StorageError};
-use paperpaw_sdk::{Id, MemoryStorage, library};
+use paperpaw_sdk::{Id, MemoryStorage};
 
 const ALICE: &str = "books/alice.epub";
 const BOB: &str = "books/bob.epub";

@@ -10,10 +10,6 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-// The SDK's test harness: an `Place` of empty registries.
-#[path = "../../paperpaw-sdk/tests/common/mod.rs"]
-mod common;
-
 use std::borrow::Cow;
 
 use paperpaw_core::Items;

@@ -11,9 +11,6 @@
 //! beside it is outside, as what lies above it is: a tap there closes the
 //! choice (the screen below is dimmed, and not usable meanwhile).
 
-/// The option chosen.
-pub const OPTION: &str = "option";
-
 crate::event_data! {
     /// What was chosen: the option, for the context the choice was
     /// opened for.
@@ -23,7 +20,3 @@ crate::event_data! {
         pub option: alloc::string::String,
     }
 }
-/// The options, separated by commas.
-pub const OPTIONS: &str = "options";
-/// Translation keys of the options: this, then the option.
-pub const LABELS: &str = "labels";

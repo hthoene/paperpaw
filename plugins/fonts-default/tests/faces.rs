@@ -20,17 +20,60 @@ use paperpaw_plugin_fonts_default::{
 #[cfg(any(feature = "outline", feature = "packs"))]
 use paperpaw_sdk::Font;
 use paperpaw_sdk::builtin::fonts;
-use paperpaw_sdk::{BuiltInFonts, Contribution, FontSpec, Id, icons};
+use paperpaw_sdk::{BuiltInFont, BuiltInFonts, FontSpec, Id, icons};
 use paperpaw_text::charset::{chars, named};
+
+/// What the kernel registers of a fonts table, in order (as
+/// `paperpaw-core`'s built-in fonts do): each font held, each role bound,
+/// each face in a file.
+enum Contribution {
+    Font(Box<FontSpec>),
+    FontBinding { role: Id, font: Id },
+    FontFace(Face),
+}
+
+/// A face in a file on the storage.
+struct Face {
+    id: Id,
+    path: String,
+    family: String,
+    bold: bool,
+    italic: bool,
+}
 
 /// What `fonts` adds, in order, as the kernel is given it.
 fn added_by(fonts: &BuiltInFonts) -> Vec<Contribution> {
     let mut all = Vec::new();
-    let mut add = |c| {
-        all.push(c);
-        Ok(())
-    };
-    fonts.register(&mut add).unwrap();
+    for font in fonts.fonts {
+        match font {
+            BuiltInFont::Data { id, role, .. } => {
+                if let Some(spec) = fonts.font(id) {
+                    all.push(Contribution::Font(Box::new(spec.unwrap())));
+                }
+                all.push(Contribution::FontBinding {
+                    role: role.clone(),
+                    font: id.clone(),
+                });
+            }
+            BuiltInFont::Role { role, font } => all.push(Contribution::FontBinding {
+                role: role.clone(),
+                font: font.clone(),
+            }),
+            BuiltInFont::File {
+                id,
+                path,
+                family,
+                bold,
+                italic,
+            } => all.push(Contribution::FontFace(Face {
+                id: id.clone(),
+                path: (*path).to_string(),
+                family: (*family).to_string(),
+                bold: *bold,
+                italic: *italic,
+            })),
+        }
+    }
     all
 }
 

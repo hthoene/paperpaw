@@ -74,6 +74,8 @@ paperpaw-plugin-battery = { workspace = true, features = ["linked"] }
 paperpaw-plugin-widgets = { workspace = true, features = ["linked"] }
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 png = "0.18"
+# The kit's picture tests write their pictures (tests/kit_thumbnail.rs).
+paperpaw-image.workspace = true
 paperpaw-platform = { workspace = true, features = ["fake"] }
 # Scalable fonts for the stock screens' tests that draw text (tests/stock_screens.rs).
 paperpaw-text = { workspace = true, features = ["outline"] }

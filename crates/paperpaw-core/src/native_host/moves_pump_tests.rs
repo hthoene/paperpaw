@@ -4,11 +4,12 @@
 //! a refused step waits [`WAIT_MS`], and what a step sends runs after the pump.
 extern crate std;
 use super::*;
+use crate::kit::library;
 use crate::{Instant, Kernel, native_host::HostResources};
 use alloc::{borrow::Cow, rc::Rc, vec::Vec};
 use core::cell::Cell;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
-use paperpaw_sdk::{Command, FormatSpec, Id, MemoryStorage, document::DocumentError, library};
+use paperpaw_sdk::{Command, FormatSpec, Id, MemoryStorage, document::DocumentError};
 
 /// The card, whose writes can be refused.
 struct Card {

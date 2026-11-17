@@ -75,7 +75,7 @@ pub fn inputs(caps: &InputCaps) -> Vec<String> {
     all
 }
 
-/// What the reader used last ([`Env::last_input`](crate::Env::last_input)).
+/// What the reader used last (`Env::last_input`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum InputMode {

@@ -15,15 +15,5 @@
 //! starts on yes, else on no) and [`params::REPLY`](crate::builtin::params::REPLY), and answers with
 //! [`Confirmed::new`](crate::replies::Confirmed::new) and all of the parameters it was opened with.
 
-/// The word on the yes button, e.g. *Delete*.
-pub const YES_LABEL: &str = "yes-label";
-/// The word on the no button, e.g. *Keep*.
-pub const NO_LABEL: &str = "no-label";
-/// Set: the focus starts on yes, where yes is the answer to expect and
-/// harmless.
-pub const FOCUS_YES: &str = "focus-yes";
-/// Set: one button only, yes (by default *OK*): a text shown to be read
-/// whole, which the page buttons scroll where it is long.
-pub const ONLY_YES: &str = "only-yes";
 /// The answer in a [`Confirmed`](crate::replies::Confirmed)'s parameters: `yes` or `no`.
 pub(crate) const ANSWER: &str = "answer";

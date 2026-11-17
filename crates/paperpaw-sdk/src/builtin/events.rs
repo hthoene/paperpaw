@@ -170,7 +170,7 @@ crate::event_data! {
     /// What changed of a book ([`BOOK_CHANGED`]).
     pub struct BookChanged {
         pub path: String,
-        /// What changed: bits of [`library::what`](crate::library::what).
+        /// What changed: bits of `library::what`.
         pub what: u32,
     }
 }
@@ -487,14 +487,14 @@ crate::event_data! {
 crate::event_data! {
     /// The reading app of a book or a folder is to be chosen
     /// ([`READING_APP_WANTED`], see
-    /// [`readers::ask`](crate::readers::ask)).
+    /// `readers::ask`).
     pub struct ReadingAppWanted {
         pub path: String,
         pub folder: bool,
     }
     optional {
         /// Only to open the book this time, not kept
-        /// ([`readers::ask_once`](crate::readers::ask_once)).
+        /// (`readers::ask_once`).
         pub once: bool,
     }
 }
@@ -607,7 +607,7 @@ pub const BOOK_CHANGED: Event<BookChanged> = Event::new("core.book-changed");
 /// plugin whose action it is does it for that book.
 pub const BOOK_CHOSEN: Event<BookChosen> = Event::new("core.book-chosen");
 /// The catalog of the library was made anew
-/// ([`library::catalog`](crate::library::catalog)): views of it read it
+/// (`library::catalog`): views of it read it
 /// again.
 pub const CATALOG_CHANGED: Event<()> = Event::new("core.catalog-changed");
 /// The catalog of the library could not be made: the library folder or
@@ -693,7 +693,7 @@ pub const READ_TODAY: Event<ReadToday> = Event::new("core.read-today");
 /// What a widget shows changed by other means than the events screens
 /// already follow, e.g. a tap on it turned to another quote or ticked
 /// an item off ([`WidgetChanged`]): screens showing it read it anew
-/// ([`Widget::update`](crate::widgets::Widget::update)). See
+/// (`Widget::update`). See
 /// `widgets::changed`.
 pub const WIDGET_CHANGED: Event<WidgetChanged> = Event::new("core.widget-changed");
 /// A data plugin was loaded or removed while running
@@ -715,7 +715,7 @@ pub const PLUGINS_REQUESTED: Event<PluginsRequested> = Event::new("core.plugins-
 pub const PLUGINS_ANSWERED: Event<PluginsAnswered> = Event::new("core.plugins-answered");
 /// Another screen is shown on top ([`ScreenShown`]): one opened, or
 /// the one below a screen closed. The whole stack is in
-/// [`Env::stack`](crate::Env::stack). For plugins that subscribe:
+/// `Env::stack`. For plugins that subscribe:
 /// screens learn that they show from `on_show`.
 pub const SCREEN_SHOWN: Event<ScreenShown> = Event::new("core.screen-shown");
 /// A menu was redefined or reset ([`MenuChanged`]).
@@ -739,15 +739,15 @@ pub const USB_DRIVE_ENDED: Event<()> = Event::new("core.usb-drive-ended");
 pub const STOPPING: Event<()> = Event::new("core.stopping");
 /// The battery or the time zone changed; status lines redraw.
 pub const STATUS_CHANGED: Event<()> = Event::new("core.status-changed");
-/// The battery was measured again ([`Env::status`](crate::Env::status)),
+/// The battery was measured again (`Env::status`),
 /// about once a minute where the device measures it: for plugins that
 /// record its use. Nothing need be drawn anew.
 pub const BATTERY_MEASURED: Event<()> = Event::new("core.battery-measured");
-/// The Wi-Fi state changed ([`Env::wifi`](crate::Env), see
+/// The Wi-Fi state changed (`Env::wifi`, see
 /// [`wifi`](crate::wifi)).
 pub const WIFI_CHANGED: Event<()> = Event::new("core.wifi-changed");
 /// Bluetooth changed: the radio, a bonded device, a link
-/// ([`Env::bluetooth`](crate::Env::bluetooth)).
+/// (`Env::bluetooth`).
 pub const BLUETOOTH_CHANGED: Event<()> = Event::new("core.bluetooth-changed");
 /// Networks were found ([`Wifi::networks`](crate::wifi::Wifi)).
 pub const WIFI_SCANNED: Event<()> = Event::new("core.wifi-scanned");

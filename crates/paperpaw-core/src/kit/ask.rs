@@ -4,7 +4,7 @@
 //! `Items::on`:
 //!
 //! ```
-//! use paperpaw_sdk::ask;
+//! use paperpaw_core::kit::ask;
 //! use paperpaw_sdk::event::Event;
 //! use paperpaw_sdk::replies::Typed;
 //!
@@ -165,9 +165,9 @@ pub struct ChoiceQuestion {
 /// [`CHOICE`](paperpaw_sdk::builtin::slots::CHOICE):
 ///
 /// ```
-/// use paperpaw_sdk::ask;
+/// use paperpaw_core::kit::ask;
 /// use paperpaw_sdk::event::Event;
-/// use paperpaw_sdk::ui::choice::Picked;
+/// use paperpaw_core::kit::ui::choice::Picked;
 ///
 /// const CHOSEN: Event<Picked> = Event::new("demo.chosen");
 /// let command = ask::choice("Delete “a.epub”?", &CHOSEN)
@@ -224,7 +224,7 @@ pub struct ConfirmQuestion {
 /// [`CONFIRM`](paperpaw_sdk::builtin::slots::CONFIRM):
 ///
 /// ```
-/// use paperpaw_sdk::ask;
+/// use paperpaw_core::kit::ask;
 /// use paperpaw_sdk::event::Event;
 /// use paperpaw_sdk::replies::Confirmed;
 ///

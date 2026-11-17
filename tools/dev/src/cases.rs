@@ -3,9 +3,10 @@
 //! drawn (picture, described parts) and, for widgets, the cell it was
 //! given. Galleries, visual checks and budgets share these.
 
+use paperpaw_core::kit::widgets;
+use paperpaw_core::sdk::Params;
 use paperpaw_core::sdk::builtin::slots;
 use paperpaw_core::sdk::semantics::{Described, Part};
-use paperpaw_core::sdk::{Params, widgets};
 use paperpaw_platform::Rect;
 
 use crate::image::Image;

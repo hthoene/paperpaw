@@ -301,17 +301,6 @@ pub(crate) fn write_f32(out: &mut impl fmt::Write, value: f32) -> fmt::Result {
     Ok(())
 }
 
-/// A float to write as [`write_f32`] writes it, for `format!`.
-#[cfg(any(feature = "unstable", test))]
-pub(crate) struct Shown(pub f32);
-
-#[cfg(any(feature = "unstable", test))]
-impl fmt::Display for Shown {
-    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_f32(out, self.0)
-    }
-}
-
 /// `value` with one digit after the point, as `{:.1}` writes an `f32`:
 /// rounded to the nearer tenth, half way to the even one. From 10^15 on
 /// (whole numbers all) the digits are those of [`write_f32`], which read
@@ -357,41 +346,6 @@ mod tests {
         });
         let edges = [0.0, -0.0, f32::MIN_POSITIVE, f32::MAX, f32::MIN, 1e-45];
         spread.chain(usual).chain(edges)
-    }
-
-    /// What the page indexes' keys rest on (a key of other digits would
-    /// lay every book out anew): each float as `core` writes it.
-    #[test]
-    fn floats_are_written_as_core_writes_them() {
-        for value in samples() {
-            assert_eq!(Shown(value).to_string(), value.to_string(), "{value:e}");
-        }
-        assert_eq!(Shown(f32::NAN).to_string(), "NaN");
-        assert_eq!(Shown(f32::NEG_INFINITY).to_string(), "-inf");
-        // Seven digits a hair short of half way to the next float still
-        // read as this one: no eighth is written.
-        let hard = f32::from_bits(0x15ae_43fd);
-        assert_eq!(
-            Shown(hard).to_string(),
-            "0.00000000000000000000000007038531"
-        );
-        assert_eq!(Shown(hard).to_string(), hard.to_string());
-    }
-
-    #[test]
-    fn what_is_written_reads_back_as_the_same_float() {
-        for value in samples().filter(|value| !value.is_nan()) {
-            let read = parse_f32(&Shown(value).to_string()).expect("a number");
-            assert_eq!(read.to_bits(), value.to_bits(), "{value:e}");
-        }
-        assert!(parse_f32("NaN").is_some_and(f32::is_nan));
-        // A hair short of half way to the next float: the f64's steps alone
-        // read the float beside it (the one float in all that they did).
-        for bits in [0x15ae_43fd_u32, 0x95ae_43fd] {
-            let hard = f32::from_bits(bits);
-            let read = parse_f32(&Shown(hard).to_string()).expect("a number");
-            assert_eq!(read.to_bits(), bits);
-        }
     }
 
     /// Numbers at the floats' ends and half way between two floats, in up
