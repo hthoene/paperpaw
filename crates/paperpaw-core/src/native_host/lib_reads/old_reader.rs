@@ -55,6 +55,11 @@ impl Kept {
 pub(crate) struct Memo(Cell<(u64, u8)>);
 
 impl Memo {
+    /// Nothing is settled.
+    pub(super) fn forget(&self) {
+        self.0.set((0, 0));
+    }
+
     /// [`adopt`], unless the book's file of `kept` is settled already: then
     /// nothing is looked at and nothing is held. A move that could not be made
     /// leaves the bit clear, so the next read tries again.

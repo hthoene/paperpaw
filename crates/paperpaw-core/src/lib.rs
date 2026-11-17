@@ -1304,8 +1304,7 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.woke(now);
         // A computer may have changed the card, or another card is in.
-        self.shared.hyphenation.card_changed();
-        self.shared.hyphen_feed.card_changed();
+        self.card_changed();
         self.output.commands.push(events::USB_DRIVE_ENDED.emit(()));
         self.output.commands.push(events::LIBRARY_CHANGED.emit(()));
         self.finish()

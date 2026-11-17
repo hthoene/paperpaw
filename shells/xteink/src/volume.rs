@@ -5,10 +5,7 @@ use alloc::boxed::Box;
 
 use log::warn;
 use paperpaw_core::CardTrouble;
-use paperpaw_fat::fatfs::{FileSystem, FsOptions};
-use paperpaw_fat::{
-    BlockDisk, Blocks, CardSwap, FatStorage, Restart, SharedDisk, Swapped, VolumeError, Watched,
-};
+use paperpaw_fat::{Blocks, CardSwap, Restart, Swapped, VolumeError, Watched};
 use paperpaw_platform::Storage;
 
 /// The card mounted: the storage for the kernel, and what watches the
@@ -61,18 +58,10 @@ fn clock_ms() -> u64 {
 /// The FAT file system on `blocks`; without one PaperPaw can read, why.
 pub fn mount<B: Blocks + 'static>(blocks: B) -> Result<Box<dyn Storage>, CardTrouble> {
     // The disk shared with the storage, which writes back its changed
-    // blocks (folders, the FAT) on sync.
-    let fs = BlockDisk::volume(blocks)
-        .map(SharedDisk::new)
-        .and_then(|disk| {
-            FileSystem::new(disk.clone(), FsOptions::new())
-                .map(|fs| (fs, disk))
-                .map_err(|_| VolumeError::NoFat)
-        });
-    match fs {
-        Ok((fs, disk)) => Ok(Box::new(
-            FatStorage::new(Box::leak(Box::new(fs))).with_disk(disk),
-        )),
+    // blocks (folders, the FAT) on sync; the storage owns its file system,
+    // so a card mounted anew gives back what the old mount took (#151).
+    match paperpaw_fat::mount(blocks) {
+        Ok(storage) => Ok(Box::new(storage)),
         Err(e) => Err(match e {
             VolumeError::ExFat => {
                 warn!("SD card: exFAT; PaperPaw reads FAT32");
