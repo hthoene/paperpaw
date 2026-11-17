@@ -131,6 +131,29 @@ fn column(cx: &Cx<'_>, parts: &Parts) -> Result<u16, Error> {
         .saturating_add(if parts.progress { small } else { 0 }))
 }
 
+/// What the card composes its lines from, to tell a later frame that nothing
+/// changed (`Mine::draw` keeps the lines across returns): the card's place, the
+/// book with its progress and what the listing knows of its cover; its
+/// settings are the look's (let go where one changes). `None`
+/// where that is not safe to compare (a title the font may lack letters of).
+///
+/// # Errors
+/// The host's refusals and [`Error::NoMemory`].
+pub fn key(cx: &Cx<'_>, ask: Ask<'_>, area: Rect) -> Result<Option<u64>, Error> {
+    let book = native_recent::read(cx.host, ask.listing, 0, 1)?
+        .into_iter()
+        .next();
+    let mut key = native_recent::Content::new();
+    key.rect(area);
+    if let Some(book) = &book {
+        if !book.title.is_ascii() {
+            return Ok(None);
+        }
+        key.book(ask.listing, book);
+    }
+    Ok(Some(key.finish()))
+}
+
 /// Draws the card in `area`; where its cover goes is put in `pictures`.
 ///
 /// # Errors

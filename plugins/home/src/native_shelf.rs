@@ -190,6 +190,28 @@ pub fn targets(cx: &mut Cx<'_>, ask: Ask<'_>, area: Rect) -> Result<Vec<(u32, Re
     Ok(found)
 }
 
+/// What the shelf composes its lines from, to tell a later frame that nothing
+/// changed (`Mine::draw` keeps the lines across returns): its place, what it
+/// shows of each book and the listing's knowledge of the covers. `None` where
+/// that is not safe to compare (a title the font may lack letters of).
+///
+/// # Errors
+/// The host's refusals and [`Error::NoMemory`].
+pub fn key(cx: &Cx<'_>, ask: Ask<'_>, area: Rect) -> Result<Option<u64>, Error> {
+    // All the books it could show (what the setting says it shows is the
+    // look's): the key asks the host for no setting.
+    let books = native_recent::read(cx.host, ask.listing, 1, MOST)?;
+    let mut key = native_recent::Content::new();
+    key.rect(area);
+    for book in &books {
+        if !book.title.is_ascii() {
+            return Ok(None);
+        }
+        key.book(ask.listing, book);
+    }
+    Ok(Some(key.finish()))
+}
+
 /// Draws the shelf in `area`; where its covers go is put in `pictures`.
 ///
 /// # Errors

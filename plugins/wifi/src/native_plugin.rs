@@ -12,7 +12,7 @@ use paperpaw_sdk::native::{
     callbacks::{DrawFrame, Input},
     commands::{CommandSender, RedrawMode},
     device::{Device, DeviceCursor, WifiInfo, WifiState},
-    events::{AnswerOutcome, Answered, Event, Incoming},
+    events::{AnswerOutcome, Answered, Event, Incoming, WifiLinkState},
     formatting::Arg,
     net::Net,
     registrations,
@@ -95,6 +95,10 @@ pub struct NativeWifi {
     work: Option<Work>,
     idle_generation: Option<u32>,
     retry_generation: Option<u32>,
+    /// The radio is known to be off: its last change event or a read said so.
+    /// A change of the screen stack then asks nothing of the host (the first
+    /// frame of the home screen after a book went without this call, #294).
+    radio_off: bool,
 }
 
 impl Plugin for NativeWifi {
@@ -132,7 +136,8 @@ impl Plugin for NativeWifi {
                 self.keep_file(host)?;
                 self.charging(host, now_ms, true)
             }
-            Event::WifiChanged { now_ms, .. } if token == WIFI_CHANGED => {
+            Event::WifiChanged { now_ms, state, .. } if token == WIFI_CHANGED => {
+                self.radio_off = state == WifiLinkState::Off;
                 self.radio_changed(host, now_ms)
             }
             Event::NetworkWanted { now_ms, .. } if token == NETWORK_WANTED => {
