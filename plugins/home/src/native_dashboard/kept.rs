@@ -4,6 +4,7 @@ use super::{
     CommandSender, Dashboard, Error, Host, RedrawMode, Snapshot, What, focus_area, grid,
     native_pages, redraw, snapshot,
 };
+use crate::native_recent::Listing;
 
 /// What a page was laid out for: the display (width, height), whether it has a
 /// recent shelf, and whether that had a book (the shelf is no rows without one).
@@ -15,30 +16,35 @@ pub(super) struct Kept {
 }
 
 impl Kept {
-    pub(super) fn of(host: &Host<'_>, display: &Snapshot, shown: &[grid::Item]) -> Self {
+    pub(super) fn of(
+        host: &Host<'_>,
+        listing: &Listing,
+        display: &Snapshot,
+        shown: &[grid::Item],
+    ) -> Self {
         let shelf = shown.iter().any(
             |item| matches!(&item.what, What::Widget(id) if native_pages::base(id) == "home.recent"),
         );
         Self {
             display: (display.display_width(), display.display_height()),
             shelf,
-            recent: shelf && has_recent(host) == Some(true),
+            recent: shelf && has_recent(host, listing) == Some(true),
         }
     }
 
     /// Whether the display or the shelf's books are other than they were.
-    pub(super) fn differs(&self, host: &Host<'_>, display: &Snapshot) -> bool {
+    pub(super) fn differs(&self, host: &Host<'_>, listing: &Listing, display: &Snapshot) -> bool {
         (display.display_width(), display.display_height()) != self.display
-            || (self.shelf && has_recent(host) != Some(self.recent))
+            || (self.shelf && has_recent(host, listing) != Some(self.recent))
     }
 }
 
 /// Whether the recent shelf has a book (the card shows the first): `None` where
 /// the host refuses.
-fn has_recent(host: &Host<'_>) -> Option<bool> {
-    crate::native_recent::read_listed(host, 1, 1)
-        .ok()
-        .map(|books| !books.is_empty())
+/// Asked through the page's listing, which the card and the shelf of the frame
+/// then use: one library query for the return, not one for each of them.
+fn has_recent(host: &Host<'_>, listing: &Listing) -> Option<bool> {
+    listing.listed(host).ok().map(|books| books > 0)
 }
 
 impl Dashboard {
@@ -67,7 +73,11 @@ impl Dashboard {
             let Some(super::Made::Mine(mine)) = &cell.widget else {
                 continue;
             };
-            if mine.covers_ready()
+            let ready = mine.covers_ready();
+            if ready {
+                self.listing.forget_covers();
+            }
+            if ready
                 && shown
                 && !refused
                 && sender
@@ -123,7 +133,7 @@ impl Dashboard {
         let Ok(display) = snapshot::capture_snapshot(host) else {
             return true;
         };
-        laid.kept.differs(host, &display)
+        laid.kept.differs(host, &self.listing, &display)
     }
 }
 

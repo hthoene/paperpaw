@@ -23,6 +23,7 @@ use paperpaw_ui_kit::{
 };
 
 use crate::native_measure as measure;
+use crate::native_recent::Listing;
 use crate::native_widgets::Mine;
 
 /// A widget made for a screen of home.
@@ -87,6 +88,7 @@ impl Made {
         &self,
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         geometry: &Geometry,
     ) -> Result<(u8, u8), Error> {
         let (height, least) = match self {
@@ -102,7 +104,7 @@ impl Made {
                 (size.height(), size.min_height())
             }
             Self::Mine(mine) => {
-                let (height, least) = mine.measure(host, measure::grid_width(geometry))?;
+                let (height, least) = mine.measure(host, listing, measure::grid_width(geometry))?;
                 (u32::from(height), u32::from(least))
             }
         };
@@ -118,6 +120,7 @@ impl Made {
         &self,
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         frame: &mut DrawFrame<'_>,
         rect: Rect,
     ) -> Result<(), Error> {
@@ -125,7 +128,7 @@ impl Made {
             Self::Host(widget) => {
                 Ui::compose(host, Compose::Widget(*widget), paint::frame_rect(rect))
             }
-            Self::Mine(mine) => mine.draw(host, ui, frame, rect),
+            Self::Mine(mine) => mine.draw(host, ui, listing, frame, rect),
         }
     }
 
@@ -135,15 +138,25 @@ impl Made {
     ///
     /// # Errors
     /// [`Error::NoMemory`].
-    pub fn targets(&self, host: &Host<'_>, ui: &Ui, rect: Rect) -> Result<Vec<(u32, Rect)>, Error> {
-        match self.reach(host, ui, rect) {
+    pub fn targets(
+        &self,
+        host: &Host<'_>,
+        (ui, listing): (&Ui, &Listing),
+        rect: Rect,
+    ) -> Result<Vec<(u32, Rect)>, Error> {
+        match self.reach(host, (ui, listing), rect) {
             Err(Error::NoMemory) => Err(Error::NoMemory),
             Err(_) => Ok(Vec::new()),
             found => found,
         }
     }
 
-    fn reach(&self, host: &Host<'_>, ui: &Ui, rect: Rect) -> Result<Vec<(u32, Rect)>, Error> {
+    fn reach(
+        &self,
+        host: &Host<'_>,
+        (ui, listing): (&Ui, &Listing),
+        rect: Rect,
+    ) -> Result<Vec<(u32, Rect)>, Error> {
         let mut found = Vec::new();
         match self {
             Self::Host(widget) => {
@@ -161,7 +174,7 @@ impl Made {
                 }
             }
             Self::Mine(mine) => {
-                for target in mine.targets(host, ui, rect)? {
+                for target in mine.targets(host, ui, listing, rect)? {
                     push(&mut found, (target.target(), from_frame(target.rect())))?;
                 }
             }
@@ -176,7 +189,7 @@ impl Made {
     pub fn input(
         &self,
         host: &Host<'_>,
-        ui: &Ui,
+        (ui, listing): (&Ui, &Listing),
         target: u32,
         at: Point,
         kind: WidgetInputKind,
@@ -186,7 +199,7 @@ impl Made {
                 let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
                 ui.widget_input(host, *widget, target, at, kind, &mut input, &mut out)
             }
-            Self::Mine(mine) => mine.tap(host, ui, target, kind).map(drop),
+            Self::Mine(mine) => mine.tap(host, ui, listing, target, kind).map(drop),
         }
     }
 
