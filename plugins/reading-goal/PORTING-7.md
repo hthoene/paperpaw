@@ -102,7 +102,7 @@ feature `embedded-pictures` (the app no longer carries the plugin, so the cats a
   *not now*, where they are missing *get them from the store* or *not now*. The first answer is
   done (`set_plugin_enabled stats` and a restart, which the shell may refuse, `uses.power` is not
   required; the switch needs `uses.registry`, which a plugin file on the card is not given, so
-  where it is denied `plugin-manager.open` shows the list with the switch, #279; or `store.open`); a second tap while the question is open asks nothing. Run over the
+  where its own registry row is not linked (flags bit 3) the choice reads *Open Manage plugins* and runs `plugin-manager.open`, which has the switch, #279; or `store.open`); a second tap while the question is open asks nothing. Run over the
   scripted host in `tests/scripted_offer.rs` (the staged command is checked); the settings opening is
   a screen command the scripted host does not stage (BLOCKED H1: acceptance case
   `the_widget_is_drawn_and_a_tap_opens_the_goal`).

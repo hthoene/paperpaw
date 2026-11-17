@@ -61,6 +61,10 @@ const STORE: &str = "store.open";
 const PLUGINS: &str = "plugin-manager.open";
 /// The reading statistics' plugin and the goal setting a tap opens.
 const STATISTICS_ID: &str = "stats";
+/// This plugin, and the flag of a registry row that a plugin is linked into
+/// the firmware (`registry.md`, `reg_plugin.flags` bit 3).
+const OWN_ID: &str = "reading-goal";
+const LINKED: u32 = 1 << 3;
 const GOAL: &str = "stats.goal";
 /// The setting that names the folder of one's own pictures.
 const PICTURES: &str = "reading-goal.pictures";
@@ -94,7 +98,7 @@ pub struct NativeReadingGoal {
     items: Vec<Item>,
     /// The offer of the statistics, if open: its request and the state it
     /// was made for.
-    asked: Option<(RequestId, Statistics)>,
+    asked: Option<(RequestId, Statistics, bool)>,
     /// The cat's picture of the mood shown, and what is asked for it.
     pictures: Pictures,
 }
@@ -601,12 +605,16 @@ impl NativeReadingGoal {
     /// of switching them on or getting them. One offer at a time: the first
     /// is still open and its answer is the one that counts.
     fn tapped(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let Some(labels) = native_widget::offer(self.statistics) else {
+        if self.statistics == Statistics::Counting {
+            return open_goal(host);
+        }
+        let may_switch = may_switch(host);
+        let Some(labels) = native_widget::offer(self.statistics, may_switch) else {
             return open_goal(host);
         };
         if self.asked.is_none() {
             let request = ask_offer(host, &labels)?;
-            self.asked = Some((request, self.statistics));
+            self.asked = Some((request, self.statistics, may_switch));
         }
         Ok(())
     }
@@ -614,13 +622,13 @@ impl NativeReadingGoal {
     /// The answer to the offer: switch the statistics on (at the next start,
     /// so started anew at once) or go to the store.
     fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
-        let Some((request, _)) = &self.asked else {
+        let Some((request, ..)) = &self.asked else {
             return Ok(());
         };
         if *request != answer.request() || answer.outcome() == AnswerOutcome::Typing {
             return Ok(());
         }
-        let Some((_, state)) = self.asked.take() else {
+        let Some((_, state, may_switch)) = self.asked.take() else {
             return Ok(());
         };
         if answer.outcome() != AnswerOutcome::Answered || answer.choice() != 0 {
@@ -629,6 +637,8 @@ impl NativeReadingGoal {
         let mut scratch = [0; 256];
         let mut commands = CommandSender::new(host, &mut scratch);
         match state {
+            // Where the plugin may not switch, the label said it opens the list.
+            Statistics::Off if !may_switch => commands.run_action(PLUGINS),
             Statistics::Off => {
                 match commands.set_plugin_enabled(STATISTICS_ID, PluginEnabled::On) {
                     // A plugin file on the card is not given `uses.registry`
@@ -667,19 +677,36 @@ fn settle(
 
 /// Whether the statistics count: running, off (or failed), or not installed.
 fn read_statistics(host: &Host<'_>) -> Result<Statistics, Error> {
+    let found = find_plugin(host, STATISTICS_ID)?;
+    Ok(Statistics::of(
+        found.map(|(state, _)| state == RegistryPluginState::Running),
+    ))
+}
+
+/// Whether this plugin is linked into the firmware (the emulator, Android),
+/// where it declares `uses.registry` and is given it. A plugin file on the
+/// card (the X4) is never given it: the host refuses its switch (#279).
+fn may_switch(host: &Host<'_>) -> bool {
+    find_plugin(host, OWN_ID)
+        .ok()
+        .flatten()
+        .is_some_and(|(_, flags)| flags & LINKED != 0)
+}
+
+/// The state and flags of the plugin `id` in the registry's list, if listed.
+fn find_plugin(host: &Host<'_>, id: &str) -> Result<Option<(RegistryPluginState, u32)>, Error> {
     let registry = Registry::open(host)?;
     let found = (|| {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let mut cursor = PageCursor::start();
         for _ in 0..MOST_PAGES {
             let page = registry.plugins(host, cursor, &mut input, &mut out)?;
-            if let Some(plugin) = page.rows().find(|plugin| plugin.id() == STATISTICS_ID) {
-                let running = plugin.state() == RegistryPluginState::Running;
-                return Ok(Statistics::of(Some(running)));
+            if let Some(plugin) = page.rows().find(|plugin| plugin.id() == id) {
+                return Ok(Some((plugin.state(), plugin.flags())));
             }
             match page.end().next_cursor() {
                 Some(next) => cursor = next,
-                None => return Ok(Statistics::of(None)),
+                None => return Ok(None),
             }
         }
         Err(Error::NoSpace)

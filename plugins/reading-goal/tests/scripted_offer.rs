@@ -25,8 +25,13 @@ struct World {
 }
 
 /// A host with the registry listing `stats` in `state` (0 running, 1 off), or
-/// not listing it.
+/// not listing it; Reading goal's own row is linked into the firmware (flags
+/// bit 3: the emulator, Android) or a plugin file on the card (the X4).
 fn world(stats: Option<u32>) -> World {
+    world_as(stats, true)
+}
+
+fn world_as(stats: Option<u32>, linked: bool) -> World {
     let host = ScriptedHost::new();
     host.add_catalogs_in(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n"))
         .unwrap();
@@ -39,7 +44,7 @@ fn world(stats: Option<u32>) -> World {
             version: "1.0.0",
             kind: 0,
             state: 0,
-            flags: 0,
+            flags: if linked { 1 << 3 } else { 0 },
             problem: 0,
             problem_arg: 0,
             update: "",
@@ -120,7 +125,30 @@ fn off_statistics_are_offered_to_be_switched_on() {
 }
 
 /// As a plugin file on the card (the X4) it is not given `uses.registry`, so
-/// the host denies the switch: the list of plugins opens instead.
+/// the offer says it opens Manage plugins (the label follows what the plugin
+/// was given, not the device) and that is what the first choice does, without
+/// a switch the host would deny.
+#[test]
+fn where_the_switch_is_not_given_the_offer_opens_the_list_of_plugins() {
+    let w = world_as(Some(1), false);
+    let plugin = w.host.load(NATIVE_ENTRY.entry()).unwrap();
+    made(&plugin);
+    assert_eq!(tap(&plugin), 1);
+    let question = w.dialogs.last().unwrap();
+    assert_eq!(question.choices, "Open Manage plugins\nNot now");
+    let answer = w
+        .dialogs
+        .answer(question.request, &Answer::Choice(0))
+        .unwrap();
+    let done = plugin.event(declared::WIDGET_TOKEN, &answer).unwrap();
+    // The scripted host stages no screen command (as `store.open` below): the
+    // action is the one submitted.
+    assert!(done.batches_contain(b"plugin-manager.open"), "{done:?}");
+    assert!(!done.batches_contain(b"stats"), "{done:?}");
+}
+
+/// A switch the host denies anyway (a linked plugin whose feature is
+/// unavailable) falls back to the list of plugins.
 #[test]
 fn a_denied_switch_opens_the_list_of_plugins() {
     let w = world(Some(1));
@@ -136,8 +164,6 @@ fn a_denied_switch_opens_the_list_of_plugins() {
     w.host
         .refuse_nth(paperpaw_scripted_host::Slot::Commands, 1, -12);
     let done = plugin.event(declared::WIDGET_TOKEN, &answer).unwrap();
-    // The scripted host stages no screen command (as `store.open` below): the
-    // action is the one submitted.
     assert!(done.batches_contain(b"plugin-manager.open"), "{done:?}");
 }
 
