@@ -332,7 +332,7 @@ fn catalog(w: &World, books: &[(&str, bool)]) {
         .collect();
     // Through the kernel's storage, as a walk writes it: what the kernel
     // read before is not looked at again.
-    let env = w.kernel.shared.env(w.kernel.now);
+    let env = w.kernel.shared.env(w.kernel.shared.now);
     catalog::write(env.storage(), &records).unwrap();
 }
 
@@ -343,7 +343,7 @@ fn started(w: &mut World) {
 }
 
 fn pump(w: &mut World, now: u64) {
-    w.kernel.now = Instant(now);
+    w.kernel.shared.now = Instant(now);
     w.kernel.native_service_pump();
     // No source of the pump's wake leaves one in the past: it would wake the
     // device again at once, round after round. "Now" is the pump's own way
@@ -435,7 +435,7 @@ fn while_it_runs_the_catalog_is_wanted_at_most_once_in_two_minutes_and_none_when
     let mut w = world(&books);
     catalog(&w, &books.map(|book| (book, false)));
     started(&mut w);
-    w.kernel.now = Instant(0);
+    w.kernel.shared.now = Instant(0);
     w.kernel.native_details_arm();
     pump(&mut w, 10_000);
     assert_eq!(wanted(&w), 0);
@@ -576,7 +576,7 @@ fn a_look_due_inside_a_callback_waits_a_gap_and_leaves_no_wake_in_the_past() {
     let mut w = world(&["books/a.epub"]);
     catalog(&w, &[("books/a.epub", false)]);
     started(&mut w);
-    w.kernel.now = Instant(5_000);
+    w.kernel.shared.now = Instant(5_000);
     w.kernel.native_details_arm();
     assert_eq!(w.kernel.native_details_due(), Some(5_000));
     // A pass of the pump while a callback is on the stack makes no look.
@@ -1039,7 +1039,7 @@ fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
     // The details job's own pump alone: the queue's pump would run the check.
     // The documents' clock as the service pump sets it (the quiet second
     // after the start, `job_may_begin`).
-    w.kernel.now = Instant(2_000);
+    w.kernel.shared.now = Instant(2_000);
     w.docs.set_now(2_000);
     w.kernel.native_details_job_pump();
     assert_eq!(w.format.opens(), 0, "a check waits in the queue");
@@ -1047,7 +1047,7 @@ fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
     // A queue its own pump holds borrowed counts as busy too.
     {
         let _held = driver.borrow_mut();
-        w.kernel.now = Instant(3_000);
+        w.kernel.shared.now = Instant(3_000);
         w.docs.set_now(3_000);
         w.kernel.native_details_job_pump();
         assert_eq!(w.format.opens(), 0, "the queue is borrowed");
@@ -1055,7 +1055,7 @@ fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
     }
     driver.borrow_mut().cancel(9, 1);
     w.kernel.shared.recall.clear();
-    w.kernel.now = Instant(5_000);
+    w.kernel.shared.now = Instant(5_000);
     w.docs.set_now(5_000);
     w.kernel.native_details_job_pump();
     assert_eq!(w.format.opens(), 1, "the queue is empty");

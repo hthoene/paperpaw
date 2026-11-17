@@ -187,7 +187,7 @@ impl Kernel {
         if !mode.wants_bluetooth()
             && let Some(radio) = &mut self.io.bluetooth
             && radio.is_on()
-            && radio.hold_off(true, self.now)
+            && radio.hold_off(true, self.shared.now)
         {
             taken = true;
             if let Some(lease) = &mut self.lease {
@@ -275,7 +275,7 @@ impl Kernel {
         if lease.bluetooth
             && let Some(radio) = &mut self.io.bluetooth
         {
-            radio.hold_off(false, self.now);
+            radio.hold_off(false, self.shared.now);
         }
         self.works.hold(false);
         self.note_room();

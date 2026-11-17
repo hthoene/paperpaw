@@ -66,7 +66,7 @@ impl Kernel {
         let input::Recognized::Gesture(gesture) = recognized else {
             return self.recognized(recognized);
         };
-        match self.native_gesture(self.now, &gesture) {
+        match self.native_gesture(self.shared.now, &gesture) {
             // A replace that made a key or a finger is refused (counted by the
             // chain) and passes the original; `Replaced` does not come here.
             Native::Pass | Native::Replaced(_) => self.recognized(recognized),

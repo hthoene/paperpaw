@@ -32,6 +32,7 @@ pub(crate) mod dual_boot_ini;
 pub(crate) mod dual_boot_job;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
+pub(crate) mod host_memos;
 pub(crate) mod registry_generation;
 
 #[path = "native_host/work_sched.rs"]
@@ -218,6 +219,8 @@ pub(crate) mod shared;
 #[path = "native_host/resources.rs"]
 pub mod resources;
 pub use fixed_settings::FixedTables;
+pub(crate) use native_batch::NativeBatch;
+pub use native_batch::NativeTimes;
 pub use park_linked::ParkShell;
 pub use resources::HostResources;
 
@@ -227,7 +230,7 @@ pub use shell_wiring::{HostWiring, HyphenTables, WiredHosts};
 
 #[path = "native_host/fonts.rs"]
 mod fonts;
-#[cfg(any(test, feature = "testing"))]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
 pub use fonts::answer_text_ink_as_the_x4;
 #[path = "native_host/fonts_data.rs"]
 mod fonts_data;
@@ -510,6 +513,8 @@ pub(crate) mod native_status;
 
 #[path = "native_host/core_events.rs"]
 pub(crate) mod core_events;
+#[path = "native_host/native_batch.rs"]
+mod native_batch;
 #[path = "native_host/native_call.rs"]
 #[allow(
     dead_code,

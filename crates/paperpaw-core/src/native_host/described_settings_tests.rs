@@ -589,7 +589,7 @@ fn whether_a_described_setting_is_a_secret_is_told_without_its_spec() {
     settings.define(long_key.with_extra(&SECRET)).unwrap();
     let (long_placed, long_none) = (long.replacen('.', "@2.", 1), alloc::format!("{long}x"));
     let long_none_placed = long_none.replacen('.', "@2.", 1);
-    let secret = |key: &str| SettingIdentity::new(key).unwrap().secret(&settings);
+    let secret = |key: &str| SettingIdentity::new(key).unwrap().secret(&settings, None);
     // Asked of a placement too (`probe@2.one` is `probe.one` placed).
     FAIL_NTH.with(|fail| fail.set(1));
     assert_eq!(secret("probe.one"), Some(false));

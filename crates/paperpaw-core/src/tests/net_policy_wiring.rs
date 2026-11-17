@@ -203,7 +203,7 @@ fn the_first_pass_fills_it_and_a_plugin_that_is_allowed_is_let_through() {
 fn a_setting_turned_off_is_known_to_the_next_callback_even_in_the_same_call() {
     let (mut kernel, policy, log) = wired();
     // Turned off before anything filled the policy: it is never open.
-    kernel.now = Instant(5);
+    kernel.shared.now = Instant(5);
     kernel.apply(network_of_wk(false));
     kernel.run_commands();
     assert_eq!(
@@ -219,7 +219,7 @@ fn a_setting_turned_off_is_known_to_the_next_callback_even_in_the_same_call() {
         Some(reason::NETWORK_OFF)
     );
     // Turned on again, it is let through as soon as the setting is applied.
-    kernel.now = Instant(30);
+    kernel.shared.now = Instant(30);
     kernel.apply(network_of_wk(true));
     kernel.run_commands();
     assert_eq!(policy.end_for("wk", false), None);

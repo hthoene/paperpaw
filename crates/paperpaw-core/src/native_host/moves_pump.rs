@@ -48,7 +48,7 @@ impl crate::Kernel {
         if instances.depth() > 0 {
             return true;
         }
-        let now = self.now.millis();
+        let now = self.shared.now.millis();
         // A move the user just began is not held back by the wait of an
         // earlier step.
         if let Some(moves) = hosts.library_moves() {
@@ -58,7 +58,7 @@ impl crate::Kernel {
             return false;
         }
         instances.set_moves_retry(None);
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let out = &mut self.output.commands;
         let pump = hosts.pump_library_moves(&env, &mut |command| out.push(command));
         let set_aside = hosts

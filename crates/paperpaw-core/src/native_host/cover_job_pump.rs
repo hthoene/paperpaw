@@ -46,7 +46,7 @@ impl crate::Kernel {
             return;
         }
         let step = {
-            let env = self.shared.env(self.now);
+            let env = self.shared.env(self.shared.now);
             let route = HostRoute {
                 registry: instances,
                 env: &env,
@@ -199,7 +199,7 @@ impl crate::Kernel {
             documents.0.cover_job_suspend_later();
             return;
         }
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let route = HostRoute {
             registry: instances,
             env: &env,

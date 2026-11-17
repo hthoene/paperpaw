@@ -93,7 +93,6 @@ impl Fonts {
     /// [`FontError::OutOfMemory`].
     pub fn try_set_family(&mut self, family: Option<&str>) -> Result<Option<String>, FontError> {
         let family = family.map(try_string).transpose()?;
-        self.forget();
         Ok(core::mem::replace(&mut self.family, family))
     }
 
@@ -109,7 +108,6 @@ impl Fonts {
 
     /// Gives back the family [`Fonts::try_set_family`] returned.
     pub fn restore_family(&mut self, previous: Option<String>) {
-        self.forget();
         self.family = previous;
     }
 
@@ -120,13 +118,11 @@ impl Fonts {
     /// [`FontError::OutOfMemory`].
     pub fn try_set_status(&mut self, choice: &str) -> Result<Option<String>, FontError> {
         let choice = try_string(choice)?;
-        self.forget();
         Ok(self.status.replace(choice))
     }
 
     /// Gives back the choice [`Fonts::try_set_status`] returned.
     pub fn restore_status(&mut self, previous: Option<String>) {
-        self.forget();
         self.status = previous;
     }
 
@@ -177,7 +173,7 @@ impl Fonts {
     /// # Errors
     /// [`FontError::OutOfMemory`].
     pub fn try_load(&mut self, storage: &Rc<dyn Storage>) -> Result<Vec<String>, FontError> {
-        let done = match self.load_once(storage) {
+        match self.load_once(storage) {
             Err(FontError::OutOfMemory) if self.cache_bytes() > 0 => {
                 // The glyphs are drawn again; the pack that will not open is
                 // dearer.
@@ -185,11 +181,7 @@ impl Fonts {
                 self.load_once(storage)
             }
             done => done,
-        };
-        // Files were opened or freed, and what was found on the way is of
-        // the fonts as they were.
-        self.forget();
-        done
+        }
     }
 
     fn load_once(&mut self, storage: &Rc<dyn Storage>) -> Result<Vec<String>, FontError> {

@@ -202,7 +202,7 @@ fn no_step_runs_inside_a_callback_and_the_pass_asks_again() {
 fn a_refused_step_waits_two_seconds_and_keeps_the_job() {
     let mut w = world();
     begun(&w);
-    w.kernel.now = Instant(10_000);
+    w.kernel.shared.now = Instant(10_000);
     w.refuse.set(true);
     // The steps that only read go on; the first one that must write is refused.
     let mut passes = 0;
@@ -219,12 +219,12 @@ fn a_refused_step_waits_two_seconds_and_keeps_the_job() {
     assert_eq!(w.kernel.service_due(), Some(Instant(10_000 + WAIT_MS)));
     // Not before the wait is over, even with the card back.
     w.refuse.set(false);
-    w.kernel.now = Instant(10_000 + WAIT_MS - 1);
+    w.kernel.shared.now = Instant(10_000 + WAIT_MS - 1);
     assert!(!w.kernel.native_moves_pump());
     assert!(w.moves.moves().active());
     let sent = book_moved(&w.kernel.output.commands);
     // Then the step is tried again, and the job goes on to its end.
-    w.kernel.now = Instant(10_000 + WAIT_MS);
+    w.kernel.shared.now = Instant(10_000 + WAIT_MS);
     while w.kernel.native_moves_pump() {}
     assert!(!w.moves.moves().active());
     // The events are sent at least once: those of a step that was cut are
@@ -248,7 +248,7 @@ fn a_card_that_stays_broken_is_tried_less_and_less_often() {
     let mut now = 10_000;
     let mut waits = Vec::new();
     for _ in 0..70 {
-        w.kernel.now = Instant(now);
+        w.kernel.shared.now = Instant(now);
         while w.kernel.native_moves_pump() {}
         let at = w.kernel.shared.native_instances.moves_retry().unwrap();
         waits.push(at - now);
@@ -266,7 +266,7 @@ fn a_card_that_stays_broken_is_tried_less_and_less_often() {
     );
     // A card that is back ends the job and the back-off starts again.
     w.refuse.set(false);
-    w.kernel.now = Instant(now);
+    w.kernel.shared.now = Instant(now);
     while w.kernel.native_moves_pump() {}
     assert!(!w.moves.moves().active());
     assert_eq!(w.kernel.shared.native_instances.moves_retry(), None);
@@ -281,7 +281,7 @@ fn a_move_begun_during_the_back_off_is_not_held_back_by_it() {
     for _ in 0..8 {
         instances.moves_failed();
     }
-    w.kernel.now = Instant(100_000);
+    w.kernel.shared.now = Instant(100_000);
     instances.set_moves_retry(Some(100_000 + WAIT_MAX_MS));
     assert!(!w.kernel.native_moves_pump(), "held back, nothing begun");
     begun(&w);

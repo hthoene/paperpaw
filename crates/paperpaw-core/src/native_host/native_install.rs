@@ -233,6 +233,11 @@ impl crate::Kernel {
         fixed: super::FixedTables,
         park: Option<super::park_linked::ParkArgs<S>>,
     ) -> Result<(), shell::Error> {
+        if self.native_batch.is_some() {
+            // One of a batch: what looks at all the plugins is done once,
+            // when it ends (`native_batch.rs`).
+            return self.admit_in_batch(host, depth, folder, report, fixed, park);
+        }
         let fonts_before = self.shared.fonts.ids().count();
         let offers_before = self.shared.registry.offers();
         let keys_before = self.native_key_count();
@@ -319,7 +324,7 @@ impl crate::Kernel {
 
     /// [`Self::admit_native`] for a plugin with a table of settings kept in the
     /// program (`fixed`, empty for none).
-    fn admit_native_with<S: Services + 'static, M: 'static>(
+    pub(super) fn admit_native_with<S: Services + 'static, M: 'static>(
         &mut self,
         host: shell::Hosted<S, M>,
         depth: &FlatDepth,
@@ -447,7 +452,7 @@ impl crate::Kernel {
     /// ([`paperpaw_sdk::Env::has_slot`]), made anew where offers came or went:
     /// where the heap has no room for the list the one known stays, and a
     /// warning says so.
-    fn refresh_slots(&mut self) {
+    pub(super) fn refresh_slots(&mut self) {
         match self.shared.registry.try_bound_slots() {
             Some(slots) => self.shared.slots = slots,
             None => {
@@ -525,11 +530,11 @@ impl crate::Kernel {
         match self.shared.native_instances.retire(key) {
             Ok(replacement) => replacement,
             Err(status) => {
-                if self
-                    .shared
-                    .native_instances
-                    .retirement_failed(key, status, self.now.millis())
-                {
+                if self.shared.native_instances.retirement_failed(
+                    key,
+                    status,
+                    self.shared.now.millis(),
+                ) {
                     self.warn_runtime("native owner cleanup failed; retry delayed");
                 }
                 None
@@ -607,7 +612,7 @@ impl crate::Kernel {
         if let Err(status) = self
             .shared
             .native_instances
-            .retry_orphaned_retirements(self.now.millis())
+            .retry_orphaned_retirements(self.shared.now.millis())
             && status != paperpaw_native::host_glue::ERR_BUSY
         {
             self.warn_runtime(if status == paperpaw_native::host_glue::ERR_FULL {
@@ -622,7 +627,7 @@ impl crate::Kernel {
             if !self
                 .shared
                 .native_instances
-                .retirement_ready(key, self.now.millis())
+                .retirement_ready(key, self.shared.now.millis())
             {
                 continue;
             }
@@ -635,11 +640,11 @@ impl crate::Kernel {
 
     pub(crate) fn native_unload_due(&self) -> Option<paperpaw_platform::Instant> {
         if self.shared.stack_rows.closes_pending() {
-            return Some(self.now);
+            return Some(self.shared.now);
         }
         self.shared
             .native_instances
-            .retirement_due(self.now.millis())
+            .retirement_due(self.shared.now.millis())
             .map(paperpaw_platform::Instant)
     }
 

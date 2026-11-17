@@ -13,7 +13,6 @@ use alloc::string::String;
 
 use crate::builtin::settings;
 use crate::env::Env;
-use paperpaw_platform::Instant;
 
 /// A monotonic clock in microseconds ([`Env::clock`](crate::Env::clock)),
 /// for measuring how long work takes, e.g. reading a file: the shell's
@@ -257,7 +256,7 @@ impl UnixTime {
     }
 
     /// Now, if the device knows the time.
-    pub fn now(env: &Env<'_>) -> Option<Self> {
+    pub(crate) fn now(env: &Env<'_>) -> Option<Self> {
         let clock = env.status().clock?;
         Some(Self(clock.unix_millis_at(env.now())))
     }
@@ -644,26 +643,10 @@ fn zone_offset(env: &Env<'_>, unix: i64) -> i32 {
     }
 }
 
-/// Local milliseconds since 1970 at `now`, if the device knows the time.
-fn local_millis(env: &Env<'_>, now: Instant) -> Option<i64> {
-    let clock = env.status().clock?;
-    let utc = clock.unix_millis_at(now);
-    Some(utc + i64::from(zone_offset(env, utc.div_euclid(1000))) * 1000)
-}
-
 /// Seconds since 1970 (UTC) now, if the device knows the time:
 /// `UnixTime::now(env)` as a number, for what keeps seconds.
 pub fn unix_seconds(env: &Env<'_>) -> Option<i64> {
     UnixTime::now(env).map(UnixTime::secs)
-}
-
-/// `unix` seconds since 1970 (UTC) as local seconds since 1970, in the
-/// chosen time zone (or the system's); see [`LocalTime::from_seconds`].
-/// A chosen zone gives the offset of that time, summer or not. The
-/// system's zone is known by its offset now only: a time in another
-/// season is off by the hour summer time adds.
-pub fn local_seconds(env: &Env<'_>, unix: i64) -> i64 {
-    unix.saturating_add(i64::from(zone_offset(env, unix)))
 }
 
 /// The local date and time now, in the chosen zone (its offset in
@@ -671,15 +654,6 @@ pub fn local_seconds(env: &Env<'_>, unix: i64) -> i64 {
 pub fn local_time(env: &Env<'_>) -> Option<LocalTime> {
     let now = UnixTime::now(env)?;
     Some(now.local(zone_offset(env, now.secs())))
-}
-
-/// When the minute changes next, e.g. to update a clock.
-pub fn next_minute(env: &Env<'_>) -> Option<Instant> {
-    let ms = local_millis(env, env.now())?;
-    Some(
-        env.now()
-            .add_millis((60_000 - ms.rem_euclid(60_000)) as u64),
-    )
 }
 
 /// The time now as the user wants to see it: `14:05` or `2:05 PM`
@@ -691,13 +665,13 @@ pub fn clock_text(env: &Env<'_>) -> Option<String> {
 
 /// Whether the user wants times on a twelve-hour clock (setting
 /// `core.clock-format`).
-pub fn twelve_hours(env: &Env<'_>) -> bool {
+pub(crate) fn twelve_hours(env: &Env<'_>) -> bool {
     env.settings().read(&settings::CLOCK_FORMAT) == CLOCK_12H
 }
 
 /// A time of day (`hour` 0 to 23) as the user wants to see it: `14:05`
 /// or `2:05 PM` ([`twelve_hours`]), in the digits of the language shown.
-pub fn clock_of(env: &Env<'_>, hour: u8, minute: u8) -> String {
+pub(crate) fn clock_of(env: &Env<'_>, hour: u8, minute: u8) -> String {
     if !twelve_hours(env) {
         return env
             .i18n()
@@ -750,17 +724,6 @@ fn dated(env: &Env<'_>, key: &str, kind: &str) -> Option<String> {
 /// ([`WEEK_START`](crate::builtin::settings::WEEK_START)): as the
 /// language has it, Monday, Sunday.
 pub const WEEK_STARTS: &[&str] = &["core.week.auto", "core.week.monday", "core.week.sunday"];
-
-/// The first day of the week, 0 (Sunday) or 1 (Monday), as set or, where
-/// set to the language's habit, as the translation `core.week-start-day`
-/// says. Every calendar and week of a plugin starts there.
-pub fn week_start(env: &Env<'_>) -> u8 {
-    match env.settings().read(&crate::builtin::settings::WEEK_START) {
-        "core.week.sunday" => 0,
-        "core.week.monday" => 1,
-        _ => u8::from(env.i18n().tr("core.week-start-day") != "0"),
-    }
-}
 
 /// The values of `core.clock-format`
 /// ([`CLOCK_FORMAT`](crate::builtin::settings::CLOCK_FORMAT)): 24 hours,
@@ -839,30 +802,6 @@ fn iso_millis(text: &str) -> Option<i64> {
         .checked_mul(86_400_000)?
         .checked_add(((hour * 60 + minute) * 60 + second) * 1000 + millis)?;
     ms.checked_sub(offset)
-}
-
-/// A length of time as people read it: `1 h 05 min`, `42 min`, or
-/// `< 1 min` (in the language's words and digits, `core.duration.*`).
-pub fn duration_text(env: &Env<'_>, seconds: u64) -> String {
-    let minutes = seconds / 60;
-    if minutes == 0 {
-        return env.i18n().tr("core.duration.under-a-minute").into();
-    }
-    if minutes < 60 {
-        return env.i18n().format(
-            "core.duration.minutes",
-            &[("m", paperpaw_i18n::Arg::Int(minutes as i64))],
-        );
-    }
-    let m = alloc::format!("{:02}", minutes % 60);
-    let m = env.i18n().localize_digits(&m);
-    env.i18n().format(
-        "core.duration.hours",
-        &[
-            ("h", paperpaw_i18n::Arg::Int((minutes / 60) as i64)),
-            ("m", paperpaw_i18n::Arg::Str(&m)),
-        ],
-    )
 }
 
 #[cfg(test)]

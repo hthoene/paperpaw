@@ -71,6 +71,7 @@ struct BuilderParts {
     network_settings: &'static [crate::NetworkSettings],
     catalog_indexes: paperpaw_i18n::FixedIndexes,
     built_catalogs: &'static [paperpaw_i18n::BuiltLanguage],
+    built_messages: Vec<&'static [paperpaw_i18n::BuiltMessages]>,
     /// The most Bluetooth links the shell keeps; none without a radio.
     bluetooth_links: u8,
 }
@@ -172,6 +173,16 @@ impl KernelBuilder {
     /// [`BuiltLanguage`](paperpaw_i18n::BuiltLanguage)).
     pub fn built_catalogs(mut self, tables: &'static [paperpaw_i18n::BuiltLanguage]) -> Self {
         self.0.built_catalogs = tables;
+        self
+    }
+
+    /// Texts built into the program without their keys, made by its build
+    /// script ([`BuiltMessages`](paperpaw_i18n::BuiltMessages)): the kernel's
+    /// own texts (`paperpaw_app::CORE_MESSAGES`: the kernel does not carry the
+    /// sources of its catalogs) and the shell's. May be called more than
+    /// once; every other catalog takes precedence over them.
+    pub fn built_messages(mut self, tables: &'static [paperpaw_i18n::BuiltMessages]) -> Self {
+        self.0.built_messages.push(tables);
         self
     }
 
@@ -722,13 +733,14 @@ impl BuilderParts {
         }
         kernel.offer_choices();
         kernel.apply_defaults(&self.setting_defaults);
-        if let Some(source) = &stored {
-            kernel.apply_user_config(source);
-            kernel.keys.user.clone_from(source);
+        // Kept as they are, not as a copy beside the text read (#306).
+        if let Some(source) = stored {
+            kernel.apply_user_config(&source);
+            kernel.keys.user = source;
         }
-        if let Some(source) = &user_config {
-            kernel.apply_user_config(source);
-            kernel.keys.shell.clone_from(source);
+        if let Some(source) = user_config {
+            kernel.apply_user_config(&source);
+            kernel.keys.shell = source;
         }
         // The power mode worn before, over the reader's settings.
         kernel.restore_power();
@@ -790,8 +802,16 @@ impl BuilderParts {
         for table in self.built_catalogs {
             translator.built_language(table);
         }
+        for tables in &self.built_messages {
+            for table in *tables {
+                translator.built_messages(table);
+            }
+        }
+        let font_removals =
+            alloc::rc::Rc::new(crate::native_host::font_removals::FontRemovals::new());
         Kernel {
             shared: Shared {
+                now: Instant::default(),
                 native_events: None,
                 native_instances: crate::native_host::native_instances::NativeInstances::default(),
                 native_input: crate::native_host::ui_input::InputFilters::new(),
@@ -801,15 +821,21 @@ impl BuilderParts {
                 registry: Registry::default(),
                 meter,
                 device: self.device,
-                settings: Settings::new(),
+                settings: crate::native_host::host_memos::Watched::new(
+                    Settings::new(),
+                    alloc::rc::Rc::clone(&font_removals),
+                    crate::native_host::host_memos::forget_places,
+                ),
                 translator,
-                fonts: Fonts::new(self.glyph_cache)
-                    .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
+                fonts: crate::native_host::host_memos::Watched::new(
+                    Fonts::new(self.glyph_cache)
+                        .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
+                    alloc::rc::Rc::clone(&font_removals),
+                    crate::native_host::host_memos::forget_roles,
+                ),
                 stack_rows: alloc::rc::Rc::new(Default::default()),
                 key_guard_warned: Default::default(),
-                font_removals: alloc::rc::Rc::new(
-                    crate::native_host::font_removals::FontRemovals::new(),
-                ),
+                font_removals,
                 registry_generation: alloc::rc::Rc::new(
                     crate::native_host::registry_generation::RegistryGeneration::new(),
                 ),
@@ -986,8 +1012,10 @@ impl BuilderParts {
             late_config: Vec::new(),
             native_registering: true,
             native_catalogs_added: false,
+            native_batch: None,
+            native_clock: None,
+            native_times: crate::native_host::NativeTimes::default(),
             plugin_choices: Vec::new(),
-            now: Instant::default(),
         }
     }
 }
@@ -1417,6 +1445,7 @@ impl Kernel {
             network_settings: &[],
             catalog_indexes: &[],
             built_catalogs: &[],
+            built_messages: Vec::new(),
             bluetooth_links: 0,
         }))
     }

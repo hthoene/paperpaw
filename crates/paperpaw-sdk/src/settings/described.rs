@@ -10,6 +10,8 @@ use core::cell::{Cell, OnceCell};
 use core::fmt;
 use core::ops::ControlFlow;
 
+#[cfg(any(test, feature = "kernel"))]
+use super::specs::SettingMemo;
 use super::{Level, SettingError, SettingSpec, SettingValue, Settings};
 use crate::Id;
 
@@ -148,6 +150,7 @@ impl Block {
     }
 
     /// Whether setting `at` is `plugin`'s `name`.
+    #[cfg(any(test, feature = "kernel"))]
     pub(super) fn is_named(&self, at: usize, plugin: &str, name: &str) -> bool {
         let mut same = false;
         self.plugin.as_str() == plugin
@@ -609,6 +612,16 @@ impl Settings {
         self.specs.where_is(id).map(super::specs::At::secret_flag)
     }
 
+    /// [`Settings::secret_of`] where `memo` (the kernel's, forgotten by every
+    /// change of the settings) remembers the place of `id`.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn secret_of_in(&self, memo: &SettingMemo, id: &str) -> Option<bool> {
+        self.specs
+            .where_is_in(memo, id)
+            .map(super::specs::At::secret_flag)
+    }
+
     /// Whether setting `id` (for a placement's id the setting's own, as
     /// [`Settings::spec`]) is defined and may differ per scope
     /// ([`SettingSpec::scoped`]). Nothing is made for it.
@@ -714,15 +727,6 @@ impl Settings {
     /// a placement's): nothing is made for it.
     pub(crate) fn default_of(&self, id: &str) -> Option<&SettingValue> {
         self.specs.where_is(id).map(super::specs::At::default_now)
-    }
-
-    /// The kernel's `walk`, for what the SDK itself reads of the settings.
-    pub(crate) fn walk_specs(
-        &self,
-        pick: super::Pick<'_>,
-        visit: &mut dyn FnMut(&SettingSpec) -> ControlFlow<()>,
-    ) -> Result<(), SettingError> {
-        self.specs.walk(pick, visit)
     }
 
     /// [`Settings::walk_specs`] over all `pick` takes.

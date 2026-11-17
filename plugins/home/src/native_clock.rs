@@ -108,8 +108,25 @@ struct Room<'a, 'c> {
 fn ink_of(cx: &Cx<'_>, size: f32, text: &str) -> Result<(i32, i32), Error> {
     match cx.font.ink(size, text)? {
         Some(ink) => paperpaw_ui_kit::geometry::check_ink(ink.top, ink.bottom),
-        None => paperpaw_ui_kit::geometry::estimated_ink(size, text),
+        None => paperpaw_ui_kit::geometry::estimated_ink(drawn_size(cx, size)?, text),
     }
+}
+
+/// The size the host really draws `size` at: font packs stop growing at their
+/// largest size, so the time at the size that fills the width stands no taller
+/// than that one's (found by the line's height, which the host answers).
+fn drawn_size(cx: &Cx<'_>, size: f32) -> Result<f32, Error> {
+    use paperpaw_ui_kit::geometry::line_height;
+    // A size every pack has: the line's height in parts of the size.
+    const SMALL: f32 = 24.0;
+    if size <= SMALL {
+        return Ok(size);
+    }
+    let per_size = line_height(&cx.font, SMALL)? / SMALL;
+    if per_size <= 0.0 {
+        return Ok(size);
+    }
+    Ok((line_height(&cx.font, size)? / per_size).min(size))
 }
 
 impl Layout {

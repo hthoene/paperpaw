@@ -190,7 +190,7 @@ pub struct StoredPatterns<S: Source> {
     rules: Rules,
     entries_at: u64,
     patterns_len: u32,
-    index: Vec<u32>,
+    index: Offsets,
     /// The first four bytes of each block's first key (zero padded): most
     /// searches are decided here, without reading a block.
     fences: Vec<[u8; 4]>,
@@ -226,6 +226,81 @@ fn heap_needed(blocks: u32, exceptions_len: u32, largest_block: u32, cache_block
         + exceptions_len as usize
         + cache_blocks * (core::mem::size_of::<Slot>() + largest_block as usize)
         + SCRATCH
+}
+
+/// Where each block starts, kept in 16-bit steps: every [`Offsets::EVERY`]th
+/// offset whole (`marks`) and, for each block, the distance to the next
+/// (`steps`; a block is at most [`MAX_BLOCK_BYTES`] long, so it fits). Two
+/// bytes a block and a quarter of that again, not four (#306).
+struct Offsets {
+    marks: Vec<u32>,
+    steps: Vec<u16>,
+    len: usize,
+    last: u32,
+}
+
+impl Offsets {
+    const EVERY: usize = 16;
+
+    fn reserved(blocks: usize) -> Result<Self, TryReserveFailed> {
+        Ok(Self {
+            marks: reserved(blocks.div_ceil(Self::EVERY))?,
+            steps: reserved(blocks.saturating_sub(1))?,
+            len: 0,
+            last: 0,
+        })
+    }
+
+    /// Adds the start of the next block, which is after the one before;
+    /// `false`, adding nothing, where the distance does not fit.
+    fn push(&mut self, offset: u32) -> bool {
+        if self.len > 0 {
+            let Some(step) = offset
+                .checked_sub(self.last)
+                .and_then(|step| u16::try_from(step).ok())
+            else {
+                return false;
+            };
+            self.steps.push(step);
+        }
+        if self.len.is_multiple_of(Self::EVERY) {
+            self.marks.push(offset);
+        }
+        self.len += 1;
+        self.last = offset;
+        true
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    fn last(&self) -> Option<u32> {
+        (self.len > 0).then_some(self.last)
+    }
+
+    /// Where block `b` starts.
+    fn get(&self, b: usize) -> Option<u32> {
+        if b >= self.len {
+            return None;
+        }
+        let from = b - b % Self::EVERY;
+        let mark = *self.marks.get(b / Self::EVERY)?;
+        let steps = self.steps.get(from..b)?;
+        Some(mark + steps.iter().map(|&step| u32::from(step)).sum::<u32>())
+    }
+
+    fn iter(&self) -> impl Iterator<Item = u32> + '_ {
+        (0..self.len).filter_map(|b| self.get(b))
+    }
+
+    fn heap_bytes(&self) -> usize {
+        self.marks.capacity() * 4 + self.steps.capacity() * 2
+    }
 }
 
 fn reserved<T>(n: usize) -> Result<Vec<T>, TryReserveFailed> {
@@ -370,7 +445,7 @@ impl<S: Source> StoredPatterns<S> {
     fn read_filter(
         src: &mut S,
         layout: &Layout,
-        index: &[u32],
+        index: &Offsets,
         scratch: &mut [u8],
     ) -> Result<Option<Filter>, Unread<S::Error>> {
         let Some(mut filter) = Filter::new(index.len()) else {
@@ -380,14 +455,14 @@ impl<S: Source> StoredPatterns<S> {
         let patterns = u64::from(layout.exceptions_at) - entries_at;
         let mut b = 0;
         while b < index.len() {
-            let first = u64::from(index[b]);
+            let first = u64::from(index.get(b).ok_or(Unread::Bounds)?);
             let room = (patterns - first).min(scratch.len() as u64) as usize;
             let window = scratch.get_mut(..room).ok_or(Unread::Bounds)?;
             raw_read(src, layout.table_len(), entries_at + first, window)?;
             let mut taken = 0;
             while b < index.len() {
-                let start = u64::from(index[b]);
-                let end = index.get(b + 1).map_or(patterns, |&next| u64::from(next));
+                let start = u64::from(index.get(b).ok_or(Unread::Bounds)?);
+                let end = index.get(b + 1).map_or(patterns, u64::from);
                 // Offsets in the window; a block that does not end in it is the next window's.
                 let (from, to) = ((start - first) as usize, (end - first) as usize);
                 if to > room {
@@ -418,9 +493,9 @@ impl<S: Source> StoredPatterns<S> {
         src: &mut S,
         layout: &Layout,
         scratch: &mut [u8],
-    ) -> Result<Vec<u32>, Unread<S::Error>> {
+    ) -> Result<Offsets, Unread<S::Error>> {
         let blocks = layout.blocks as usize;
-        let mut index = reserved::<u32>(blocks).map_err(|_| Unread::NoMemory)?;
+        let mut index = Offsets::reserved(blocks).map_err(|_| Unread::NoMemory)?;
         let window = scratch.len() & !3;
         let patterns = u64::from(layout.exceptions_at) - layout.entries_at();
         let (mut pos, mut left) = (HEADER as u64, blocks * 4);
@@ -429,15 +504,15 @@ impl<S: Source> StoredPatterns<S> {
             raw_read(src, layout.table_len(), pos, &mut scratch[..n])?;
             for chunk in scratch[..n].as_chunks::<4>().0 {
                 let offset = u32::from_le_bytes(*chunk);
-                let ascending = index.last().is_none_or(|&before| offset > before);
-                let size = offset - index.last().copied().unwrap_or(offset);
+                let ascending = index.last().is_none_or(|before| offset > before);
+                let size = offset - index.last().unwrap_or(offset);
                 if !ascending
                     || u64::from(offset) >= patterns
                     || size as usize > (layout.largest_block as usize)
+                    || !index.push(offset)
                 {
                     return Err(Unread::Bounds);
                 }
-                index.push(offset);
             }
             pos += n as u64;
             left -= n;
@@ -452,7 +527,7 @@ impl<S: Source> StoredPatterns<S> {
     fn read_fences(
         src: &mut S,
         layout: &Layout,
-        index: &[u32],
+        index: &Offsets,
         scratch: &mut [u8],
     ) -> Result<Vec<[u8; 4]>, Unread<S::Error>> {
         let mut fences = reserved::<[u8; 4]>(index.len()).map_err(|_| Unread::NoMemory)?;
@@ -461,8 +536,8 @@ impl<S: Source> StoredPatterns<S> {
         let patterns = patterns_end - entries_at;
         let size = scratch.len() as u64;
         let (mut window_at, mut window_len) = (0u64, 0u64);
-        for (b, &start) in index.iter().enumerate() {
-            let end = index.get(b + 1).map_or(patterns, |&next| u64::from(next));
+        for (b, start) in index.iter().enumerate() {
+            let end = index.get(b + 1).map_or(patterns, u64::from);
             let n = (end - u64::from(start)).min(5);
             let at = entries_at + u64::from(start);
             if at < window_at || at + n > window_at + window_len {
@@ -565,7 +640,7 @@ impl<S: Source> StoredPatterns<S> {
 
     /// Bytes of heap the reader holds, not counting the source.
     pub fn heap_bytes(&self) -> usize {
-        self.index.capacity() * 4
+        self.index.heap_bytes()
             + self.fences.capacity() * 4
             + self.exceptions.capacity()
             + self.filter.as_ref().map_or(0, |f| f.bits.capacity())
@@ -630,9 +705,9 @@ impl<S: Source> StoredPatterns<S> {
             return Some(i);
         }
         let victim = (0..self.slots.len()).min_by_key(|&i| self.slots[i].stamp)?;
-        let start = u64::from(*self.index.get(b)?);
+        let start = u64::from(self.index.get(b)?);
         let end = match self.index.get(b + 1) {
-            Some(&next) => u64::from(next),
+            Some(next) => u64::from(next),
             None => u64::from(self.patterns_len),
         };
         let size = usize::try_from(end.checked_sub(start)?).ok()?;

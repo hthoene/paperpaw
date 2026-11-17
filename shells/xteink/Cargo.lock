@@ -2577,7 +2577,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2836,6 +2836,7 @@ dependencies = [
  "paperpaw-fat",
  "paperpaw-graphics",
  "paperpaw-http",
+ "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-wifi",

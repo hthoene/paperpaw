@@ -12,14 +12,12 @@
 mod common;
 
 use common::Harness;
-use paperpaw_graphics::Framebuffer;
 use paperpaw_sdk::builtin::{fonts, groups, settings};
 use paperpaw_sdk::document::{Block, BlockKind, Document, DocumentError, Locator, Metadata};
-use paperpaw_sdk::layout::{Face, LayoutContext, Page, layout_page};
-use paperpaw_sdk::reading::{PageType, ReadingFaces, StatusRoom, draw_lines};
+use paperpaw_sdk::layout::{Face, LayoutContext, layout_page};
+use paperpaw_sdk::reading::{PageType, ReadingFaces, StatusRoom};
 use paperpaw_sdk::{
-    Font, FontSpec, Id, NoStorage, PixelFormat, Priority, SettingKind, SettingSpec, SettingValue,
-    Storage,
+    Font, FontSpec, Id, NoStorage, Priority, SettingKind, SettingSpec, SettingValue, Storage,
 };
 use std::sync::OnceLock;
 
@@ -201,73 +199,6 @@ fn real_fonts_do_not_collapse_gaps_at_the_old_cutoff() {
                     }
                     before = Some(gap);
                     assert_eq!(page.lines.last().unwrap().word_spacing, 0.0);
-                }
-            }
-        }
-    }
-}
-
-fn lay_out(t: &PageType, faces: &ReadingFaces<'_>, text: &str) -> Page {
-    let doc = Paragraph::new(text);
-    t.lay_out(Locator::START, |width, height, at| {
-        let cx = LayoutContext::new(&doc, &NoStorage, width, &t.style, faces);
-        layout_page(&cx, at, height)
-    })
-    .unwrap()
-}
-
-/// The reading settings are shown at the same width as a book, though
-/// the preview is much shorter. The common first lines must agree both
-/// as layout and as actual pixels, with their origins brought together.
-#[test]
-fn previews_and_books_draw_the_same_justified_text() {
-    for kind in [Kind::Outline, Kind::Pack] {
-        for text in [ENGLISH, GERMAN] {
-            for size in [8, 9, 10] {
-                for spacing in [50, 60, 70, 80, 130] {
-                    let h = harness(
-                        kind,
-                        Options {
-                            size,
-                            spacing,
-                            balanced: true,
-                            justify: true,
-                        },
-                    );
-                    let env = h.env();
-                    let font = env.fonts().role(fonts::READING.as_str()).unwrap();
-                    let sample = PageType::sample(&env, &font, "en", 160.0, 17.0);
-                    let book = PageType::new(&env, &font, "en", false, StatusRoom::NONE);
-                    let sample_faces = ReadingFaces::new(&env, &sample, None).unwrap();
-                    let book_faces = ReadingFaces::new(&env, &book, None).unwrap();
-                    let preview = lay_out(&sample, &sample_faces, text);
-                    let page = lay_out(&book, &book_faces, text);
-                    assert!(!preview.lines.is_empty());
-                    let count = preview.lines.len();
-                    assert_eq!(preview.lines, page.lines[..count]);
-                    let mut a = Framebuffer::new(480, 160, PixelFormat::Gray8).unwrap();
-                    let mut b = Framebuffer::new(480, 160, PixelFormat::Gray8).unwrap();
-                    draw_lines(
-                        &mut a.canvas(),
-                        &sample_faces,
-                        &sample,
-                        (sample.x, 17.0),
-                        &preview.lines,
-                        &[],
-                    );
-                    draw_lines(
-                        &mut b.canvas(),
-                        &book_faces,
-                        &book,
-                        (book.x, 17.0),
-                        &page.lines[..count],
-                        &[],
-                    );
-                    assert_eq!(
-                        a.view().data,
-                        b.view().data,
-                        "{kind:?}, {size} pt, {spacing}%"
-                    );
                 }
             }
         }

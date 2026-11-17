@@ -51,7 +51,7 @@ impl Kernel {
         {
             return (false, Effects::default());
         }
-        self.now = now;
+        self.shared.now = now;
         let tr = &self.shared.translator;
         let params = Params::new()
             .with(TITLE, tr.tr("core.low-memory.title"))

@@ -156,27 +156,34 @@ impl Kernel {
         let gray_rows = (((u32::from(rows) * bits / 2) as u16) / align * align)
             .max(align)
             .min(bounds.height);
-        // The band goes first, the gray one taking its place.
+        // The band's memory is the gray one's (as many bytes) and then the
+        // band's again: one block kept, nothing allocated between them
+        // (#306).
         let Ok(none) = Framebuffer::new(1, 1, format) else {
             return false;
         };
-        self.framebuffer = none;
+        let room = core::mem::replace(&mut self.framebuffer, none).into_data();
+        let mut room = Some(room);
         let gray = with_fewer_rows(gray_rows, align, |rows| {
-            Framebuffer::banded(bounds.width, bounds.height, rows, PixelFormat::Gray2)
+            Framebuffer::banded_in(
+                bounds.width,
+                bounds.height,
+                rows,
+                PixelFormat::Gray2,
+                room.take().unwrap_or_default(),
+            )
         });
-        let drawn = match gray {
+        let (drawn, room) = match gray {
             Some(gray) => {
-                self.framebuffer = look.on(gray);
+                let none = core::mem::replace(&mut self.framebuffer, look.on(gray));
                 self.frame.unrendered = Some(bounds);
                 self.render(out);
-                true
+                let gray = core::mem::replace(&mut self.framebuffer, none);
+                (true, gray.into_data())
             }
-            None => false,
+            None => (false, Vec::new()),
         };
-        if let Ok(none) = Framebuffer::new(1, 1, format) {
-            self.framebuffer = none;
-        }
-        self.restore_frame(look, bounds.width, bounds.height, rows, format);
+        self.restore_frame(look, bounds.width, bounds.height, rows, format, room);
         drawn
     }
 
@@ -191,10 +198,12 @@ impl Kernel {
         height: u16,
         rows: u16,
         format: paperpaw_platform::PixelFormat,
+        room: Vec<u8>,
     ) -> bool {
         let align = self.frame.row_align;
+        let mut room = Some(room);
         match with_fewer_rows(rows, align, |rows| {
-            Framebuffer::banded(width, height, rows, format)
+            Framebuffer::banded_in(width, height, rows, format, room.take().unwrap_or_default())
         }) {
             Some(framebuffer) => {
                 if framebuffer.rows() < rows {
@@ -395,7 +404,7 @@ impl Kernel {
             .iter()
             .map(|s| s.screen.shows_through())
             .collect();
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         // Overlays that wash out what lies below them.
         let dims: Vec<bool> = self
             .stack
@@ -524,7 +533,7 @@ impl Kernel {
     fn draw_aside(&mut self, canvas: &mut paperpaw_sdk::Canvas<'_>) {
         let regions: Vec<Option<Rect>> = (0..self.stack.len()).map(|i| self.overlay(i)).collect();
         let row = self.hint_row();
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let base = self.full_base();
         {
             for (active, own) in self.stack[base..].iter_mut().zip(&regions[base..]) {
@@ -568,7 +577,7 @@ impl Kernel {
             return Vec::new();
         };
         let area = self.region_of(top);
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let active = &mut self.stack[top];
         let device = env.device_within(active.area);
         let own_env = env.within(&device, active.area);
@@ -634,7 +643,7 @@ impl Kernel {
     /// showed something of its own on the panel (e.g. a test picture).
     pub fn draw_again(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.apply(Command::Redraw(RefreshMode::Full));
         self.frame.again = true;
         self.finish()
@@ -644,7 +653,7 @@ impl Kernel {
     /// ([`events::DISPLAY_CHANGED`]).
     fn display_changed(&mut self) {
         let panel = self.framebuffer.bounds();
-        let class = paperpaw_sdk::ui::ScreenClass::of(&self.shared.env(self.now), panel);
+        let class = paperpaw_sdk::ui::ScreenClass::of(&self.shared.env(self.shared.now), panel);
         let landscape = panel.width > panel.height;
         let changed = events::DisplayChanged::new(panel.width, panel.height, class, landscape);
         self.output
@@ -659,7 +668,7 @@ impl Kernel {
     /// and the whole screen is drawn again.
     pub fn resize(&mut self, now: Instant, width: u16, height: u16) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         let panel = self.framebuffer.bounds();
         let format = self.shared.device.display.format;
         if (panel.width, panel.height) == (width, height) {
@@ -687,7 +696,7 @@ impl Kernel {
             if let Ok(none) = Framebuffer::new(1, 1, format) {
                 self.framebuffer = none;
             }
-            let turned = self.restore_frame(look, width, height, rows, format);
+            let turned = self.restore_frame(look, width, height, rows, format, Vec::new());
             if turned {
                 self.shared.device.display.width = width;
                 self.shared.device.display.height = height;
@@ -696,7 +705,7 @@ impl Kernel {
                 self.renew_memory_notice();
                 self.display_changed();
             } else {
-                self.restore_frame(look, panel.width, panel.height, before, format);
+                self.restore_frame(look, panel.width, panel.height, before, format, Vec::new());
             }
         }
         self.finish()

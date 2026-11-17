@@ -9,12 +9,10 @@ use core::ops::Range;
 use paperpaw_graphics::{Canvas, Role};
 use paperpaw_platform::{Color, Point, Rect};
 
+use crate::Id;
 use crate::builtin::actions;
 use crate::env::Env;
-use crate::event::Event;
 use crate::gesture::{Direction, Gesture, GestureKind};
-use crate::replies::Typed;
-use crate::{Command, Id};
 
 use super::{Ink, Response, UiStyle};
 
@@ -70,23 +68,6 @@ fn text_field_layout_ltr(
         button,
     );
     (title, field, true)
-}
-
-/// The height of a text field's row `width` wide titled `title`: a row
-/// ([`UiStyle::row`]) where the box fits beside the whole title, else the
-/// title's lines and the box below them ([`text_field_layout`]).
-pub fn text_field_height(env: &Env<'_>, style: &UiStyle, width: u16, title: &str) -> u16 {
-    let row = Rect::new(0, 0, width, style.row as u16);
-    let Some(font) = style.font(env) else {
-        return row.height;
-    };
-    let (lines, widest, line) = title_lines(&font, style, title, width);
-    let (_, field, below) = text_field_layout(style, row, widest, lines, line);
-    if below {
-        field.y + field.height + style.margin as u16 / 2
-    } else {
-        row.height
-    }
 }
 
 /// `title` in the text size: its lines where it is wrapped into a row
@@ -247,12 +228,6 @@ fn draw_lines(
     }
 }
 
-/// What opens the keyboard for a text field titled `title` with `value`
-/// in it; what is typed comes back as `reply` ([`ask::text`](crate::ask::text)).
-pub fn edit_text(title: &str, value: &str, reply: &Event<Typed>) -> Command {
-    crate::ask::text(title, reply).initial(value).command()
-}
-
 /// Where the box of a ticked row goes: at the row's start (its left, its
 /// right where the UI runs right to left), a margin in, as a switch in a
 /// plain row is tall, beside the row's first line.
@@ -270,40 +245,6 @@ fn check_rect_ltr(style: &UiStyle, row: Rect) -> Rect {
         side,
         side,
     )
-}
-
-/// The height of a ticked row `width` wide: a row ([`UiStyle::row`]), or
-/// taller where `title` (whole, wrapped beside the box) and `note` need
-/// more lines.
-pub fn check_row_height(
-    env: &Env<'_>,
-    style: &UiStyle,
-    width: u16,
-    title: &str,
-    note: &str,
-) -> u16 {
-    let row = Rect::new(0, 0, width, style.row as u16);
-    let Some(font) = style.font(env) else {
-        return row.height;
-    };
-    let text = check_text_width(style, row);
-    let line = font.line_metrics(style.text).line_height as u16;
-    let small = font.line_metrics(style.small).line_height as u16;
-    let lines = font.wrap(style.text, title, f32::from(text)).len().max(1) as u16;
-    let notes = if note.is_empty() {
-        0
-    } else {
-        font.wrap(style.small, note, f32::from(text)).len().max(1) as u16
-    };
-    let needed = line * lines + small * notes + style.margin as u16;
-    row.height.max(needed)
-}
-
-/// The width a ticked row's text has beside its box.
-fn check_text_width(style: &UiStyle, row: Rect) -> u16 {
-    let check = check_rect_ltr(style, row);
-    let x = check.x + check.width + style.margin as u16;
-    (row.x + row.width).saturating_sub(x + style.margin as u16)
 }
 
 /// Draws a box, ticked (`on`) or not, in `rect`; `inverted` on a focused
@@ -340,82 +281,6 @@ pub fn draw_check(canvas: &mut Canvas<'_>, style: &UiStyle, rect: Rect, on: bool
         width,
         paper,
     );
-}
-
-/// Draws a row of a list where several may be ticked: its box on the
-/// left ([`draw_check`]), `title` beside it, `note` small below where
-/// given. Draw the focus first where it is focused, as for other rows.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "its inputs are separate things; a struct of them would serve this call alone"
-)]
-pub fn draw_check_row(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    style: &UiStyle,
-    row: Rect,
-    focused: bool,
-    title: &str,
-    note: &str,
-    on: bool,
-) {
-    let check = check_rect(style, row);
-    draw_check(canvas, style, check, on, focused && style.dark_focus());
-    let check = check_rect_ltr(style, row);
-    let Some(font) = style.font(env) else {
-        return;
-    };
-    let ink = style.focus_ink(focused);
-    let x = check.x + check.width + style.margin as u16;
-    let width = check_text_width(style, row);
-    let line = font.line_metrics(style.text).line_height as u16;
-    let small = font.line_metrics(style.small).line_height as u16;
-    let titles = font.wrap(style.text, title, f32::from(width));
-    let notes = if note.is_empty() {
-        Vec::new()
-    } else {
-        font.wrap(style.small, note, f32::from(width))
-    };
-    // The text whole, in the middle of the row's height.
-    let height = line * titles.len().max(1) as u16 + small * notes.len() as u16;
-    let mut y = row.y + row.height.saturating_sub(height) / 2;
-    for range in titles {
-        let at = Rect::new(x, y, width, line);
-        super::draw_label_out(
-            canvas,
-            &font,
-            style,
-            row,
-            super::TextRole::BODY,
-            style.text,
-            f32::from(x),
-            at,
-            &title[range],
-            ink,
-        );
-        y += line;
-    }
-    let muted = if focused && style.dark_focus() {
-        Color::WHITE
-    } else {
-        style.ink(Ink::MUTED)
-    };
-    for range in notes {
-        let at = Rect::new(x, y, width, small);
-        super::draw_label_out(
-            canvas,
-            &font,
-            style,
-            row,
-            super::TextRole::SMALL,
-            style.small,
-            f32::from(x),
-            at,
-            &note[range],
-            muted,
-        );
-        y += small;
-    }
 }
 
 /// Text longer than its room, a page of lines at a time: the up and down
@@ -656,15 +521,5 @@ mod tests {
         assert_eq!(check.x, margin);
         assert_eq!(check.width, check.height);
         assert!(check.bottom() <= row.bottom());
-    }
-
-    #[test]
-    fn editing_a_field_asks_for_text_with_its_value() {
-        const NAMED: Event<Typed> = Event::new("demo.named");
-        let command = edit_text("Name", "Ada", &NAMED);
-        assert!(
-            matches!(command, Command::OpenSlot(..) | Command::OpenScreen(..)),
-            "{command:?}"
-        );
     }
 }

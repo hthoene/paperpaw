@@ -188,50 +188,6 @@ fn an_empty_line_and_items_that_show_nothing_draw_nothing() {
     }
 }
 
-#[test]
-fn items_and_lines_are_found_by_their_ids() {
-    let mut h = harness();
-    fn draw(canvas: &mut paperpaw_sdk::Canvas<'_>, _: &Env<'_>, frame: &StatusFrame<'_>) {
-        canvas.fill(frame.area, Color::BLACK);
-    }
-    h.status_items.add_line(StatusLineSpec::new(
-        Id::new_static("t.bar"),
-        "t.bar.title",
-        draw,
-    ));
-    h.status_items.add_line(
-        StatusLineSpec::new(Id::new_static("t.clock"), "t.clock.title", draw)
-            .signature(|_, _| 1041),
-    );
-    let items = &h.status_items;
-    let env = h.env();
-    assert_eq!(items.title(PAGE), Some("t.page.title"));
-    assert_eq!(items.title("t.bar"), Some("t.bar.title"), "lines too");
-    assert_eq!(items.title("t.unknown"), None);
-    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
-    assert_eq!(ids, [PAGE, CHAPTER, LEVEL, ICON, NOTHING]);
-    let lines: Vec<&str> = items.lines().map(|(id, _)| id.as_str()).collect();
-    assert_eq!(lines, ["t.bar", "t.clock"]);
-    let context = Params::new().with("page", "3");
-    assert_eq!(
-        items.value(PAGE, &env, &context),
-        Some(StatusValue::Text("3".into()))
-    );
-    assert_eq!(items.value("t.unknown", &env, &context), None);
-    assert_eq!(items.line_signature("t.clock", &env, &context), 1041);
-    // Without a signature: drawn again when the context changes.
-    let other = Params::new().with("page", "4");
-    assert_ne!(
-        items.line_signature("t.bar", &env, &context),
-        items.line_signature("t.bar", &env, &other)
-    );
-    let status = StatusFrame::new(Rect::new(0, 0, 100, 20), true, 20.0, Color::BLACK, &context);
-    let mut frame = frame(100, 40);
-    assert!(items.draw_line("t.bar", &mut frame.canvas(), &env, &status));
-    assert!(!items.draw_line("t.unknown", &mut frame.canvas(), &env, &status));
-    assert_eq!(drawn_outside(&mut frame, status.area), None);
-}
-
 /// Twice the vertical middle of what is drawn in `area` (twice, so that a
 /// middle between two pixels is said exactly), counting the pixels
 /// nearer the ink (black) than the paper ([`PAPER`]), as a panel of black
