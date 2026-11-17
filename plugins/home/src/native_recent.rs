@@ -7,11 +7,12 @@ use paperpaw_sdk::{
     Rect,
     native::{
         Error, Host,
+        fonts::Font,
         image::ImageId,
         library::{BookRef, Library, Query, Sort},
     },
 };
-use paperpaw_ui_kit::{mem, text::copy};
+use paperpaw_ui_kit::{SharedInputs, mem, text::copy};
 
 /// Covers a shelf holds at most (and the setting's largest count).
 pub const MOST: usize = 8;
@@ -47,93 +48,121 @@ pub fn with_library<T>(
     Ok(done)
 }
 
-/// Which books of a catalog generation the host found gone, kept by an instance
-/// so that a redraw or a tap does not ask the card again: asked once per book
-/// and generation (the host looks at the card for each `library.book`), and
-/// again when the generation changes or the instance forgets (the tick found
-/// what it shows changed).
+/// What the card, the shelf and the page's check share (one for each page of
+/// the home screen, and one for the widgets other screens made): the books the
+/// library listed, and which of them the host found gone. Each of them used to ask
+/// the library itself, and a query is a score of card reads on the X4 (#267).
 #[derive(Debug, Default)]
-pub struct Known {
-    held: RefCell<(u32, Vec<(u32, bool)>)>,
-    /// Where each book's cover stood when it was last asked (generation, key):
-    /// a draw asks the host once, not once for each band of a frame.
-    /// A cover that is ready is kept across generations (the key and the title
+pub struct Listing {
+    /// The books the library listed (the opened ones, at most one page) at the
+    /// last read: a frame is drawn in bands, and every band asked the host
+    /// again. Kept for the bands of one frame ([`Known::begin_draw`]) and let go
+    /// by every call into the plugin that is no draw ([`Listing::fresh`]): a
+    /// draw after the library changed asks again, as it always did.
+    page: RefCell<Option<Vec<Book>>>,
+    /// Whether a draw began since `page` was read by something that is no draw
+    /// (what a measure or the page's check just read is used by the frame).
+    by_draw: Cell<bool>,
+    /// A draw is under way (its reads are the frame's).
+    drawing: Cell<bool>,
+    /// The frames begun, to let the instances of one frame agree on who begins it.
+    frame: Cell<u32>,
+    /// What the host said of each book's file (book, title, gone): a book that
+    /// is there stays so across the catalog's generations (it changes with every
+    /// book read, and the host's look is 17 reads of the card each time), one
+    /// that is gone is asked again with the next generation.
+    held: RefCell<Vec<Verdict>>,
+    /// Where each book's cover stood when it was last asked (generation, key, title):
+    /// a draw asks the host once, not once for each band of a frame, and the card
+    /// and the shelf share the answer (a book moves from one to the other).
+    /// A cover that is ready, or none, is kept across generations (the key and the title
     /// tell the book): the catalog changes with every book read, and the
     /// host's look at the book's files costs more than a half second on the X4.
     covers: RefCell<Vec<(u32, u32, u64, Covered)>>,
-    /// The books the library listed (the opened ones, at most one page) at the
-    /// last read: a frame is drawn in bands, and each asked the host again (a
-    /// query is a score of card reads on the X4, #267). Kept for the bands of
-    /// one frame ([`Known::begin_draw`]) and let go by every call into the
-    /// plugin that is no draw ([`Known::fresh`]): a draw after the library
-    /// changed asks again, as it always did.
-    listed: RefCell<Option<Vec<Book>>>,
-    /// The `clip_top` of the last draw of this widget: bands of a frame come
-    /// top down, so a draw not below the last one begins a frame.
-    last_top: Cell<i32>,
-    /// Whether `listed` was read by a draw (not by a measure, which the first
-    /// draw after it may use).
-    by_draw: Cell<bool>,
+    /// The interface's settings, shared by the looks of one lay-out
+    /// ([`SharedInputs::share`]).
+    inputs: SharedInputs,
+    /// Counts the calls into the plugin that are no draw: what a widget kept
+    /// of a frame's first band is for that count only ([`Listing::epoch`]).
+    epoch: Cell<u32>,
 }
 
-impl Known {
-    fn gone(&self, generation: u32, key: u32) -> Option<bool> {
-        let held = self.held.borrow();
-        if held.0 != generation {
-            return None;
-        }
-        held.1
+#[derive(Debug, Clone, Copy)]
+struct Verdict {
+    generation: u32,
+    key: u32,
+    title: u64,
+    gone: bool,
+}
+
+impl Listing {
+    /// Something that is no draw happened (an event, a key, a tap): what the
+    /// widgets composed for the bands of a frame is not for the next one.
+    pub fn new_epoch(&self) {
+        self.epoch.set(self.epoch.get().wrapping_add(1));
+    }
+
+    /// The count of [`Listing::new_epoch`].
+    #[must_use]
+    pub fn epoch(&self) -> u32 {
+        self.epoch.get()
+    }
+
+    /// Where the looks made in one lay-out share the interface's settings.
+    #[must_use]
+    pub const fn inputs(&self) -> &SharedInputs {
+        &self.inputs
+    }
+
+    fn gone(&self, book: &Book) -> Option<bool> {
+        let title = title_hash(&book.title);
+        self.held
+            .borrow()
             .iter()
-            .find(|(k, _)| *k == key)
-            .map(|(_, gone)| *gone)
+            .find(|v| {
+                v.key == book.key
+                    && v.title == title
+                    && (!v.gone || v.generation == book.generation)
+            })
+            .map(|v| v.gone)
     }
 
-    fn remember(&self, generation: u32, key: u32, gone: bool) -> Result<(), Error> {
+    fn remember(&self, book: &Book, gone: bool) -> Result<(), Error> {
+        let title = title_hash(&book.title);
         let mut held = self.held.borrow_mut();
-        if held.0 != generation {
-            *held = (generation, Vec::new());
-        }
+        held.retain(|v| !(v.key == book.key && v.title == title));
         // At most the rows one page holds: the cache never grows past what a read asks.
-        if held.1.len() >= PAGE {
-            return Ok(());
+        if held.len() >= PAGE {
+            held.remove(0);
         }
-        mem::push(&mut held.1, (key, gone))
+        mem::push(
+            &mut held,
+            Verdict {
+                generation: book.generation,
+                key: book.key,
+                title,
+                gone,
+            },
+        )
     }
 
-    /// What the host said is not kept any more.
+    /// What the host said of the files is not kept any more (the page was laid
+    /// out again, or the books changed).
     pub fn forget(&self) {
-        *self.held.borrow_mut() = (0, Vec::new());
-        // A cover that is ready is the book's still (a draw that finds the host
-        // ended its picture, or a tick that finds one being made, forgets them all).
-        self.covers
-            .borrow_mut()
-            .retain(|(.., covered)| matches!(covered, Covered::Ready(_)));
+        self.held.borrow_mut().clear();
         self.fresh();
     }
 
-    /// The list of books is asked of the host again at the next read: what
-    /// happened since the last draw (an event, a tick, a tap) may have changed it.
-    pub fn fresh(&self) {
-        *self.listed.borrow_mut() = None;
-        self.last_top.set(i32::MAX);
-        self.by_draw.set(false);
-    }
-
-    /// A draw of this widget begins, its clip starting at row `top`: one that
-    /// does not start below the last begins a frame, which asks the library
-    /// again; the bands after it use what it read. What a measure just read
-    /// (no draw between it and this one) is used by the frame.
-    pub fn begin_draw(&self, top: i32) {
-        if top <= self.last_top.get() && self.by_draw.get() {
-            *self.listed.borrow_mut() = None;
-        }
-        self.last_top.set(top);
-        self.by_draw.set(true);
-    }
-
     /// The covers are asked about anew at the next draw: one that was being
-    /// made may be ready, one the host ended is made again.
+    /// made may be ready; the ready ones and the books without a cover stay.
     pub fn forget_covers(&self) {
+        self.covers
+            .borrow_mut()
+            .retain(|(.., covered)| settled(covered));
+    }
+
+    /// The covers are all asked about anew: the host ended a picture.
+    pub fn forget_all_covers(&self) {
         self.covers.borrow_mut().clear();
     }
 
@@ -143,9 +172,7 @@ impl Known {
             .borrow()
             .iter()
             .find(|(g, k, t, covered)| {
-                *k == book.key
-                    && (*g == book.generation
-                        || (*t == title && matches!(covered, Covered::Ready(_))))
+                *k == book.key && (*g == book.generation || (*t == title && settled(covered)))
             })
             .map(|(.., covered)| *covered)
     }
@@ -155,8 +182,7 @@ impl Known {
         let mut covers = self.covers.borrow_mut();
         // Only what is ready outlives its generation, and a book has one place.
         covers.retain(|(g, k, t, old)| {
-            (*g == book.generation || matches!(old, Covered::Ready(_)))
-                && !(*k == book.key && *t == title)
+            (*g == book.generation || settled(old)) && !(*k == book.key && *t == title)
         });
         // At most the rows one page holds; a refused allocation keeps nothing,
         // and the next draw asks again.
@@ -168,6 +194,107 @@ impl Known {
         }
         covers.push((book.generation, book.key, title, covered));
     }
+
+    /// The list of books is asked of the host again at the next read: what
+    /// happened since the last draw (an event, a tick, a tap) may have changed it.
+    pub fn fresh(&self) {
+        *self.page.borrow_mut() = None;
+        self.by_draw.set(false);
+    }
+
+    /// A draw begins (`true`) or is over.
+    pub fn drawing(&self, on: bool) {
+        self.drawing.set(on);
+    }
+
+    /// An instance that drew before begins a frame again; `seen` is the frame
+    /// it knew. The first of the frame lets the old list go, unless something
+    /// that is no draw read it since.
+    fn begin_frame(&self, seen: &Cell<u32>) {
+        if seen.get() == self.frame.get() {
+            if self.by_draw.get() {
+                *self.page.borrow_mut() = None;
+            }
+            self.frame.set(self.frame.get().wrapping_add(1));
+        }
+        seen.set(self.frame.get());
+    }
+
+    /// The page, read once for as long as it is kept.
+    fn page(&self, host: &Host<'_>) -> Result<(), Error> {
+        if self.page.borrow().is_none() {
+            let page = listed(host, PAGE)?;
+            *self.page.borrow_mut() = Some(page);
+            if !self.drawing.get() {
+                self.by_draw.set(false);
+            }
+        }
+        Ok(())
+    }
+
+    /// The books of the page (opened ones, files not looked at).
+    ///
+    /// # Errors
+    /// The host's refusals and [`Error::NoMemory`].
+    pub fn listed(&self, host: &Host<'_>) -> Result<usize, Error> {
+        self.page(host)?;
+        Ok(self.page.borrow().as_ref().map_or(0, Vec::len))
+    }
+}
+
+/// What a read of the card or the shelf uses: its own instance's memory and
+/// what its page shares.
+#[derive(Debug, Clone, Copy)]
+pub struct Ask<'a> {
+    pub known: &'a Known,
+    pub listing: &'a Listing,
+}
+
+/// What an instance of the card or the shelf keeps for itself.
+#[derive(Debug, Default)]
+pub struct Known {
+    /// The `clip_top` of the last draw of this widget: bands of a frame come
+    /// top down, so a draw not below the last one begins a frame.
+    last_top: Cell<i32>,
+    /// Whether this instance drew since the list was let go.
+    by_draw: Cell<bool>,
+    /// The frame of the [`Listing`] this instance knew at its last draw.
+    seen: Cell<u32>,
+}
+
+impl Known {
+    pub fn forget(&self, listing: &Listing) {
+        // A cover that is ready is the book's still.
+        listing.forget_covers();
+        listing.fresh();
+        self.fresh();
+    }
+
+    /// This instance asks again at the next read: what happened since the last
+    /// draw may have changed what it shows.
+    pub fn fresh(&self) {
+        self.last_top.set(i32::MAX);
+        self.by_draw.set(false);
+    }
+
+    /// A draw of this widget begins, its clip starting at row `top`: one that
+    /// does not start below the last begins a frame, which asks the library
+    /// again; the bands after it use what it read. What a measure just read
+    /// (no draw between it and this one) is used by the frame.
+    pub fn begin_draw(&self, top: i32, listing: &Listing) {
+        if top <= self.last_top.get() && self.by_draw.get() {
+            listing.begin_frame(&self.seen);
+        }
+        self.last_top.set(top);
+        self.by_draw.set(true);
+        listing.by_draw.set(true);
+    }
+}
+
+/// A cover answer that holds for the book whatever the catalog's generation: a
+/// picture that is ready, or a book that has none.
+fn settled(covered: &Covered) -> bool {
+    matches!(covered, Covered::Ready(_) | Covered::None)
 }
 
 /// FNV-1a of a title, to tell a book of one generation from another's.
@@ -185,8 +312,13 @@ fn title_hash(title: &str) -> u64 {
 ///
 /// # Errors
 /// The host's refusals and [`Error::NoMemory`].
-pub fn read(host: &Host<'_>, known: &Known, skip: usize, take: usize) -> Result<Vec<Book>, Error> {
-    recent(host, Some(known), skip, take)
+pub fn read(
+    host: &Host<'_>,
+    listing: &Listing,
+    skip: usize,
+    take: usize,
+) -> Result<Vec<Book>, Error> {
+    recent(host, Some(listing), skip, take)
 }
 
 /// [`read`] without asking about the files: the books the catalog lists, for
@@ -201,7 +333,7 @@ pub fn read_listed(host: &Host<'_>, skip: usize, take: usize) -> Result<Vec<Book
 
 fn recent(
     host: &Host<'_>,
-    known: Option<&Known>,
+    listing: Option<&Listing>,
     skip: usize,
     take: usize,
 ) -> Result<Vec<Book>, Error> {
@@ -209,17 +341,14 @@ fn recent(
     if want <= skip {
         return Ok(Vec::new());
     }
-    let Some(known) = known else {
+    let Some(listing) = listing else {
         // The tick's read: one query, never from what a draw kept.
         let mut books = listed(host, want)?;
         books.drain(..skip.min(books.len()));
         return Ok(books);
     };
-    if known.listed.borrow().is_none() {
-        let page = listed(host, PAGE)?;
-        *known.listed.borrow_mut() = Some(page);
-    }
-    let memo = known.listed.borrow();
+    listing.page(host)?;
+    let memo = listing.page.borrow();
     let all = memo.as_deref().unwrap_or_default();
     let mut books = Vec::new();
     let mut seen = 0;
@@ -227,7 +356,7 @@ fn recent(
         if seen == want {
             break;
         }
-        if gone_known(host, known, book)? {
+        if gone_known(host, listing, book)? {
             continue;
         }
         seen += 1;
@@ -274,44 +403,78 @@ fn listed(host: &Host<'_>, rows: usize) -> Result<Vec<Book>, Error> {
     })
 }
 
-/// [`gone`] with the library opened only where the host has to be asked.
-fn gone_known(host: &Host<'_>, known: &Known, book: &Book) -> Result<bool, Error> {
-    if let Some(gone) = known.gone(book.generation, book.key) {
+/// The title as `font` draws it: where it lacks letters (a Cyrillic title
+/// before the pack of letters is there) a run of them is one "…", never a row
+/// of question marks. A host that cannot say what the font covers changes
+/// nothing.
+pub fn drawable(font: &Font<'_>, title: &mut String) -> Result<(), Error> {
+    // Plain ASCII is in every font: no question to the host (a host call a
+    // frame of Home's cover is counted, `home_return`).
+    if title.is_ascii() {
+        return Ok(());
+    }
+    let covers = |text: &str| font.covers(text).ok();
+    let dots = if covers("…") == Some("…".len()) {
+        "…"
+    } else {
+        "..."
+    };
+    let fixed = without_missing(covers, title, dots)?;
+    if let Some(fixed) = fixed {
+        *title = fixed;
+    }
+    Ok(())
+}
+
+/// `title` with each run of characters `covers` cannot draw replaced by
+/// `dots`; `None` where all are drawn (or `covers` cannot tell).
+fn without_missing(
+    mut covers: impl FnMut(&str) -> Option<usize>,
+    title: &str,
+    dots: &str,
+) -> Result<Option<String>, Error> {
+    if covers(title).is_none_or(|n| n >= title.len()) {
+        return Ok(None);
+    }
+    let mut out = String::new();
+    out.try_reserve(title.len().saturating_add(dots.len()))
+        .map_err(|_| Error::NoMemory)?;
+    let mut missing = false;
+    for (at, ch) in title.char_indices() {
+        let one = &title[at..at + ch.len_utf8()];
+        if covers(one).is_some_and(|n| n >= one.len()) {
+            out.try_reserve(one.len()).map_err(|_| Error::NoMemory)?;
+            out.push(ch);
+            missing = false;
+        } else if !missing {
+            out.try_reserve(dots.len()).map_err(|_| Error::NoMemory)?;
+            out.push_str(dots);
+            missing = true;
+        }
+    }
+    Ok(Some(out))
+}
+
+/// Whether the file of `book` is not on the card now, the library opened only
+/// where the host has to be asked. A book the catalog no longer has (a newer
+/// generation) is not asked about again: it is kept, as the query just listed it.
+fn gone_known(host: &Host<'_>, listing: &Listing, book: &Book) -> Result<bool, Error> {
+    if let Some(gone) = listing.gone(book) {
         return Ok(gone);
     }
     with_library(host, |library| {
         let (mut ask, mut answer) = (mem::buffer(1024)?, mem::buffer(mem::SERVICE_BUFFER)?);
-        gone(
-            host,
-            library,
-            (known, book.generation, book.key),
-            (&mut ask[..], &mut answer[..]),
-        )
+        let reference = BookRef::catalog(book.key, book.generation)?;
+        let gone = match library.book(host, reference, &mut ask[..], &mut answer[..]) {
+            Ok(found) => found.missing(),
+            Err(Error::NotFound) => true,
+            Err(Error::State) => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        // A cache write that fails costs the next read one more call, not the draw.
+        listing.remember(book, gone).ok();
+        Ok(gone)
     })
-}
-
-/// Whether the file of the book `key` is not on the card now. A book the
-/// catalog no longer has (a newer generation) is not asked about again: it is
-/// kept, as the query just listed it.
-fn gone(
-    host: &Host<'_>,
-    library: &Library,
-    (known, generation, key): (&Known, u32, u32),
-    (ask, answer): (&mut [u8], &mut [u8]),
-) -> Result<bool, Error> {
-    if let Some(gone) = known.gone(generation, key) {
-        return Ok(gone);
-    }
-    let reference = BookRef::catalog(key, generation)?;
-    let gone = match library.book(host, reference, ask, answer) {
-        Ok(book) => book.missing(),
-        Err(Error::NotFound) => true,
-        Err(Error::State) => return Ok(false),
-        Err(error) => return Err(error),
-    };
-    // A cache write that fails costs the next read one more call, not the draw.
-    known.remember(generation, key, gone).ok();
-    Ok(gone)
 }
 
 /// What `books` show, to tell when it changed: their keys, titles and how far
@@ -386,15 +549,15 @@ pub fn cover(host: &Host<'_>, library: &Library, book: &Book) -> Result<Covered,
 /// As [`cover`].
 pub fn cover_known(
     host: &Host<'_>,
-    known: &Known,
+    listing: &Listing,
     library: &Library,
     book: &Book,
 ) -> Result<Covered, Error> {
-    if let Some(covered) = known.cover_of(book) {
+    if let Some(covered) = listing.cover_of(book) {
         return Ok(covered);
     }
     let covered = cover(host, library, book)?;
-    known.keep_cover(book, covered);
+    listing.keep_cover(book, covered);
     Ok(covered)
 }
 
@@ -460,7 +623,7 @@ mod tests {
 
     #[test]
     fn a_cover_is_remembered_by_book_and_generation_until_forgotten() {
-        let known = Known::default();
+        let known = Listing::default();
         let (a, b) = (book(1, 7, "A"), book(1, 8, "B"));
         assert_eq!(known.cover_of(&a), None);
         known.keep_cover(&a, Covered::Busy);
@@ -469,23 +632,31 @@ mod tests {
         assert_eq!(known.cover_of(&b), Some(Covered::None));
         // Another generation of the catalog is another question.
         assert_eq!(known.cover_of(&book(2, 7, "A")), None);
+        // A book without a cover has none in the next generation, too.
+        assert_eq!(known.cover_of(&book(2, 8, "B")), Some(Covered::None));
         known.forget_covers();
         assert_eq!(known.cover_of(&a), None);
-        // What the tick found changed forgets what was not ready with the files.
+        // What was settled stays; the host ending a picture lets all go.
         known.keep_cover(&a, Covered::None);
-        known.forget();
+        known.forget_covers();
+        assert_eq!(known.cover_of(&a), Some(Covered::None));
+        known.forget_all_covers();
         assert_eq!(known.cover_of(&a), None);
     }
 
     #[test]
     fn a_ready_cover_outlives_the_generation_and_the_tick_for_the_same_book() {
-        let known = Known::default();
+        let known = Listing::default();
         known.keep_cover(&book(1, 7, "A"), ready());
-        known.forget();
+        known.forget_covers();
         assert_eq!(known.cover_of(&book(2, 7, "A")), Some(ready()));
         // Another title at the key is another book.
         assert_eq!(known.cover_of(&book(2, 7, "B")), None);
+        // A cover that is ready stays when covers that were being made are asked
+        // about again; the host ending a picture lets it go.
         known.forget_covers();
+        assert_eq!(known.cover_of(&book(2, 7, "A")), Some(ready()));
+        known.forget_all_covers();
         assert_eq!(known.cover_of(&book(2, 7, "A")), None);
     }
 
@@ -520,30 +691,49 @@ mod tests {
     }
 
     #[test]
-    fn what_the_host_said_is_kept_for_its_generation_and_forgotten() {
-        let known = Known::default();
-        assert_eq!(known.gone(1, 7), None);
-        known.remember(1, 7, true).unwrap();
-        known.remember(1, 8, false).unwrap();
-        assert_eq!(known.gone(1, 7), Some(true));
-        assert_eq!(known.gone(1, 8), Some(false));
-        // Another generation asks anew, and holds only its own.
-        assert_eq!(known.gone(2, 7), None);
-        known.remember(2, 9, true).unwrap();
-        assert_eq!(known.gone(1, 7), None);
-        assert_eq!(known.gone(2, 9), Some(true));
-        known.forget();
-        assert_eq!(known.gone(2, 9), None);
+    fn a_book_that_is_there_stays_so_across_generations_and_one_gone_is_asked_again() {
+        let listing = Listing::default();
+        let (there, gone) = (book(1, 7, "A"), book(1, 8, "B"));
+        assert_eq!(listing.gone(&there), None);
+        listing.remember(&there, false).unwrap();
+        listing.remember(&gone, true).unwrap();
+        assert_eq!(listing.gone(&there), Some(false));
+        assert_eq!(listing.gone(&gone), Some(true));
+        // The next generation asks anew about the one gone only; another title
+        // at the key is another book.
+        assert_eq!(listing.gone(&book(2, 7, "A")), Some(false));
+        assert_eq!(listing.gone(&book(2, 8, "B")), None);
+        assert_eq!(listing.gone(&book(2, 7, "C")), None);
+        listing.forget();
+        assert_eq!(listing.gone(&there), None);
     }
 
     #[test]
     fn the_cache_holds_no_more_than_a_page_of_books() {
-        let known = Known::default();
+        let listing = Listing::default();
         for key in 0..(PAGE as u32 + 5) {
-            known.remember(1, key, false).unwrap();
+            listing.remember(&book(1, key, "A"), false).unwrap();
         }
-        assert_eq!(known.held.borrow().1.len(), PAGE);
-        assert_eq!(known.gone(1, PAGE as u32 + 1), None);
+        assert_eq!(listing.held.borrow().len(), PAGE);
+        assert_eq!(listing.gone(&book(1, PAGE as u32 + 1, "A")), Some(false));
+        assert_eq!(listing.gone(&book(1, 0, "A")), None);
+    }
+
+    #[test]
+    fn letters_the_font_lacks_are_one_gap_not_question_marks() {
+        let latin = |text: &str| {
+            Some(
+                text.char_indices()
+                    .find(|(_, c)| !c.is_ascii())
+                    .map_or(text.len(), |(at, _)| at),
+            )
+        };
+        let fixed = |title| without_missing(latin, title, "…").unwrap();
+        assert_eq!(fixed("Alice"), None);
+        assert_eq!(fixed("Шинель").as_deref(), Some("…"));
+        assert_eq!(fixed("Gogol: Шинель 2").as_deref(), Some("Gogol: … 2"));
+        assert_eq!(fixed("Шинель Gogol").as_deref(), Some("… Gogol"));
+        assert_eq!(without_missing(|_| None, "Шинель", "…").unwrap(), None);
     }
 
     #[test]

@@ -12,6 +12,20 @@ use paperpaw_platform::{DirEntry, Storage, StorageError};
 pub enum Card {
     Dir(DirStorage),
     Memory(Rc<MemoryStorage>),
+    /// Any other storage, e.g. a FAT volume on a RAM disk that counts the
+    /// card's commands (`tests/library_card_cost.rs`).
+    Shared(Shared),
+}
+
+/// A storage of the caller's, shared by the card of each kernel the device
+/// builds.
+#[derive(Clone)]
+pub struct Shared(pub Rc<dyn Storage>);
+
+impl std::fmt::Debug for Shared {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Shared")
+    }
 }
 
 thread_local! {
@@ -49,6 +63,7 @@ impl Card {
         match self {
             Card::Dir(storage) => f(storage),
             Card::Memory(files) => budget::untracked(|| f(&**files)),
+            Card::Shared(files) => budget::untracked(|| f(&*files.0)),
         }
     }
 }
@@ -92,6 +107,7 @@ impl Storage for Card {
         match self {
             Card::Dir(storage) => storage.list(dir, visit),
             Card::Memory(files) => files.list(dir, visit),
+            Card::Shared(files) => files.0.list(dir, visit),
         }
     }
 
@@ -106,6 +122,7 @@ impl Storage for Card {
         match self {
             Card::Dir(storage) => storage.list_from(dir, from, visit),
             Card::Memory(files) => files.list_from(dir, from, visit),
+            Card::Shared(files) => files.0.list_from(dir, from, visit),
         }
     }
     fn remove(&self, path: &str) -> Result<(), StorageError> {

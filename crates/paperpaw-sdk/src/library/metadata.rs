@@ -26,7 +26,7 @@ const METADATA: &str = "metadata";
 /// [`DocumentError::NotReady`] (the kernel's stand-in) and the host's details
 /// job reads it later ([`keep_native_details`]). Until then nothing is
 /// marked as read and the book is of no known size, so each walk makes its
-/// line again from its details file (the same line while nothing changed).
+/// line again (the same line while nothing changed).
 pub(crate) fn index_details(env: &Env<'_>, path: &str) -> (Book, bool) {
     let storage = env.storage();
     // Details that could not be read are not written over.
@@ -57,11 +57,11 @@ pub(crate) fn index_details(env: &Env<'_>, path: &str) -> (Book, bool) {
         Err(DocumentError::NotReady) => {
             book.indexed = false;
             book.size = 0;
-            // The day it came is kept once (not marked as read), so its line
-            // is the same at every walk until its details are read.
-            if known && first_seen && book.added.is_some() {
-                let _kept = super::write_book(storage, path, &book);
-            }
+            // Nothing is written for it now: the host's details job writes its
+            // file once, with the day it came, and a card writes a file in
+            // many commands (#297: a stand-in file for each book of a first
+            // walk was a third of the card's writes). Until then its line is
+            // the same at every walk of the day.
             return (book, false);
         }
         // Also where it cannot be opened: not tried again at every walk.

@@ -83,6 +83,7 @@ host text.covers 1
 host icon.glyph 1
 host text.draw_inked 1
 host canvas.describe 1
+host canvas.fill_pattern 1
 callback drop 1
 callback dispatch_event 1
 callback draw 1

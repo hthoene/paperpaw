@@ -785,7 +785,7 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
     // (`core.choice`, `core.confirm`), a list of widgets the sleep plugin's
     // (`core.edit-widgets`), a folder for a setting the folder chooser's,
     // whichever plugin fills those slots (#293).
-    static SCREENS: [crate::KernelScreen; 4] = [
+    static SCREENS: [crate::KernelScreen; 5] = [
         crate::KernelScreen::new(notice::SCREEN, notice::TITLE, |env, params| {
             Box::new(notice::Notice::new(env, params))
         }),
@@ -802,6 +802,15 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
             "core.firmware.title",
             |env, params| {
                 Box::new(crate::native_host::firmware_confirm::HostConfirm::new(
+                    env, params,
+                ))
+            },
+        ),
+        crate::KernelScreen::new(
+            crate::native_host::low_memory::SCREEN,
+            "core.low-memory.title",
+            |env, params| {
+                Box::new(crate::native_host::start_notice::StartNotice::low_memory(
                     env, params,
                 ))
             },

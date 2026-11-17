@@ -17,6 +17,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
+    Messages,
     mem::{SERVICE_BUFFER, buffer, push},
     rows,
     text::copy,
@@ -247,7 +248,7 @@ impl HostSource {
         }
         if !tools.iter().any(|(t, _)| t == SETTINGS) {
             // Named as the core names it, in the reader's language.
-            let title = Self::settings_title(host, registry, &mut input, &mut out)?;
+            let title = Self::settings_title(host)?;
             push(&mut looks, Look::settings()?)?;
             push(&mut tools, (copy(SETTINGS)?, title))?;
         }
@@ -273,25 +274,16 @@ impl HostSource {
         })
     }
 
-    /// The core's name for Settings, translated as the core's actions are
-    /// (`actions` of `core`); its catalog key where the core lists no such
-    /// action, as before.
-    fn settings_title(
-        host: &Host<'_>,
-        registry: &Registry,
-        input: &mut [u8],
-        out: &mut [u8],
-    ) -> Result<String, Error> {
-        let mut title = None;
-        rows!(cursor => registry.actions(host, "core", cursor, input, out), |r| {
-            if title.is_none() && r.id() == SETTINGS {
-                title = Some(copy(r.title())?);
-            }
-            Ok(())
-        })?;
-        match title {
-            Some(title) => Ok(title),
-            None => copy("core.action.settings"),
+    /// The core's name for Settings: its catalog text in the reader's language
+    /// (the core titles its actions by it; asking its `actions` for the same text
+    /// is a service call, several where they are paged); the catalog key where
+    /// the catalog lacks it.
+    fn settings_title(host: &Host<'_>) -> Result<String, Error> {
+        const KEY: &str = "core.action.settings";
+        match Messages::new()?.copy(host, KEY) {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Ok(title) if !title.is_empty() => Ok(title),
+            _ => copy(KEY),
         }
     }
 

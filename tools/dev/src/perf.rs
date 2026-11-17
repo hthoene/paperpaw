@@ -1169,6 +1169,7 @@ mod tests {
             op,
             path: path.to_string(),
             bytes,
+            cost: 0,
         }
     }
 
