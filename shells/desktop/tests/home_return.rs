@@ -369,7 +369,10 @@ fn the_first_frame_of_a_return_makes_few_service_calls_with_a_full_shelf() {
     // once for each band (the emulator draws the shelf's placeholders as the
     // device draws its titles): 615 slots before (#294), the X4's 470 are kept
     // pages with covers.
-    assert!(all <= FULL_SHELF_SLOTS, "the first frame made {all} host slots");
+    assert!(
+        all <= FULL_SHELF_SLOTS,
+        "the first frame made {all} host slots"
+    );
 }
 
 /// The first Back out of the book Home was opened under lays the page out for

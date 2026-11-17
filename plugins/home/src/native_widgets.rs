@@ -19,9 +19,9 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    icons,
+    Paint, icons,
     mem::buffer,
-    Paint, paint,
+    paint,
     text::copy,
     widget::{Cx, Kept, cx::widget_font},
 };
