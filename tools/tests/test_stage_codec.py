@@ -39,17 +39,95 @@ def module(source, name):
     return source[start:end if end > 0 else len(source)]
 
 
+def public_items(source):
+    """The public items of a codec module, by kind and name."""
+    import re
+    return sorted(re.findall(r'pub (?:const fn|fn|const|struct|enum|static) (\w+)', source))
+
+
+# One schema, the host's codec (tables) and a plugin's (steps): the same bytes both ways,
+# the same refusals.
+BOTH_CODECS = r'''
+use host::core_status_v1 as h;
+use plugin::reader_status_v1 as p;
+
+fn both(items: &str, context: &[u8], item: &str, flags: u32, text: &str) {
+    let (mut a, mut b) = ([0xAA_u8; 4096], [0xAA_u8; 4096]);
+    let asked = (
+        h::input_encode(&[h::Record::StatusAsk(h::StatusAsk::new(items, context))], &mut a),
+        p::input_encode(&[p::Record::StatusAsk(p::StatusAsk::new(items, context))], &mut b),
+    );
+    assert_eq!(asked.0, asked.1);
+    assert_eq!(a, b);
+    if let Ok(n) = asked.0 {
+        let (x, y) = (h::StatusAsk::decode(&b[..n]).unwrap(), p::StatusAsk::decode(&a[..n]).unwrap());
+        assert_eq!((x.items, x.context), (y.items, y.context));
+        assert_eq!((x.items, x.context), (items, context));
+        for cut in 0..n {
+            assert_eq!(h::input_decode(&a[..cut]).err(), p::input_decode(&a[..cut]).err());
+        }
+    }
+    let (mut a, mut b) = ([0xAA_u8; 4096], [0xAA_u8; 4096]);
+    let rows = [h::Record::StatusValue(h::StatusValue::new(item, flags, text)); 3];
+    let own = [p::Record::StatusValue(p::StatusValue::new(item, flags, text)); 3];
+    let replied = (h::reply_encode(&rows, &mut a), p::reply_encode(&own, &mut b));
+    assert_eq!(replied.0, replied.1);
+    assert_eq!(a, b);
+    if let Ok(n) = replied.0 {
+        let (x, y) = (h::reply_decode(&b[..n]).unwrap(), p::reply_decode(&a[..n]).unwrap());
+        assert_eq!(format!("{:?}", x.collect::<Vec<_>>()), format!("{:?}", y.collect::<Vec<_>>()));
+        // A bad byte anywhere is refused or read alike.
+        for at in 0..n {
+            let mut bad = a;
+            bad[at] ^= 0x81;
+            let show = |r: Result<Vec<String>, i32>| format!("{r:?}");
+            assert_eq!(
+                show(h::reply_decode(&bad[..n]).map(|s| s.map(|r| format!("{r:?}")).collect())),
+                show(p::reply_decode(&bad[..n]).map(|s| s.map(|r| format!("{r:?}")).collect())),
+            );
+        }
+    }
+}
+
+#[test]
+fn the_same_bytes_and_the_same_refusals() {
+    let long = "x".repeat(129);
+    both("a\nb", &[1, 2, 3], "battery", 7, "87 %");
+    both("clock", &[], "", 0, "");
+    both("", &[9; 1024], "é", u32::MAX, "日本");
+    both("a\n\nb", &[9; 1025], &long, 1, &long);
+    both(&"item\n".repeat(8), &[], &long[..128], 0x80, &long[..128]);
+}
+'''
+
+
 class PluginStages(unittest.TestCase):
     def test_a_plugin_stage_gets_the_host_codec_under_its_own_key(self):
+        # The host's stages walk tables with one interpreter (#307); a plugin's own few
+        # records keep their decode, length and write steps. Two texts, one codec: the
+        # same public items, and (below) the same bytes.
         host = source_stages({'minor': 65535, 'stages': [host_stage()], 'records': []})
         plugin = plugin_stages_source([plugin_stage()])
-        self.assertEqual(
-            module(host, 'core_status_v1').replace('core_status_v1', 'M')
-            .replace('"core.status"', 'K'),
-            module(plugin, 'reader_status_v1').replace('reader_status_v1', 'M')
-            .replace('"reader.status"', 'K'))
+        self.assertEqual(public_items(module(host, 'core_status_v1')),
+                         public_items(module(plugin, 'reader_status_v1')))
+        self.assertIn('STATUS_ASK_FIELDS', host)
+        self.assertNotIn('_FIELDS', plugin)
+        self.assertNotIn('unsafe', plugin)
         self.assertIn('pub static STAGES: &[StageSchema]', plugin)
         self.assertIn('reader_status_v1::KEY', plugin)
+
+    @unittest.skipUnless(shutil.which('rustc'), 'rustc')
+    def test_both_codecs_of_a_schema_write_and_read_the_same_bytes(self):
+        host = source_stages({'minor': 65535, 'stages': [host_stage()], 'records': []})
+        plugin = plugin_stages_source([plugin_stage()])
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'both.rs'
+            source.write_text('#![allow(dead_code)]\nmod host {\n' + host + '}\nmod plugin {\n'
+                              + plugin + '}\n' + BOTH_CODECS)
+            binary = Path(folder) / 'both'
+            subprocess.run(['rustc', '--edition', '2024', '--test', str(source), '-o',
+                            str(binary)], check=True, capture_output=True)
+            subprocess.run([str(binary)], check=True, capture_output=True)
 
     def test_core_keys_are_the_host_s_and_other_keys_a_plugin_s(self):
         with self.assertRaisesRegex(ValueError, 'not core'):
