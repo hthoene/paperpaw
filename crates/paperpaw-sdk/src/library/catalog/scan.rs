@@ -200,7 +200,7 @@ impl Line {
     }
 }
 
-/// [`super::each_at`] with the memory error and the reads' errors: calls
+/// `super::each_at` with the memory error and the reads' errors: calls
 /// `f` with each book of the catalog and where its line starts, as noted
 /// last (those removed left out). One line at a time is held (at most
 /// 8 KiB); a longer one, one that is not text and one without a
@@ -248,7 +248,7 @@ pub fn try_each_at(storage: &dyn Storage, f: &mut dyn FnMut(u64, Record)) -> Res
     line.end(offset, &changes, f)
 }
 
-/// [`super::query_in`] with the memory error and the books' errors: `n`
+/// `super::query_in` with the memory error and the books' errors: `n`
 /// books `query` finds, in its order, those after `after`. The page held
 /// across the scan (`n` books and their keys, one more) is reserved at once;
 /// a book and its key are made, compared and dropped one at a time.

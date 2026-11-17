@@ -3,12 +3,12 @@
 //!
 //! A [`Package`] names a plugin's files, each with its address, size and
 //! digest, as a plugin library lists them (a code plugin's code is one
-//! more file). An [`Installer`] downloads them one after another into a
+//! more file). An `Installer` downloads them one after another into a
 //! folder PaperPaw does not load (`plugins/.<id>.part`) and checks each by
 //! its size and digest. Once all are there the job is complete: the owner
 //! looks at what came if it wants (a code plugin's author, see
 //! [`native::author`](crate::native::author)) and has the kernel install it
-//! (`Installer::install`, [`Command::InstallPlugin`]): in place of every
+//! (`Installer::install`, `Command::InstallPlugin`): in place of every
 //! version of it before, which stays until the new one is all there, and
 //! with what was chosen from it still chosen. Nothing is unpacked and
 //! nothing is held whole in memory: each file goes from the network
@@ -18,23 +18,6 @@
 //! goes on while none of its screens is open: the plugin hears the
 //! answers with `Items::on` and hands them to
 //! `Installer::received`.
-//!
-//! ```
-//! use paperpaw_sdk::event::Event;
-//! use paperpaw_sdk::install::{Installer, Received};
-//! use paperpaw_sdk::{Command, Id};
-//!
-//! const INSTALLER: Installer =
-//!     Installer::new(Id::new_static("my-store"), Event::new("my-store.downloaded"));
-//!
-//! // In `register`:
-//! // r.on(INSTALLER.reply(), |env, reply, out| {
-//! //     if let Received::Complete(done) = INSTALLER.received(env, reply, out) {
-//! //         INSTALLER.install(env, out);
-//! //         out.push(Command::Notify(format!("{} is ready", done.name)));
-//! //     }
-//! // })?;
-//! ```
 
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]

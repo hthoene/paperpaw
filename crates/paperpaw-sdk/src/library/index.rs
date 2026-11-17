@@ -1,13 +1,13 @@
 //! An index of the library for views of every book (a list, a grid): each
 //! book of the catalog with what it is sorted and filtered by, in 24
-//! bytes, made in one pass over the catalog ([`Index::build`]). Its
-//! books' lines are read again by where they start ([`Index::record`])
+//! bytes, made in one pass over the catalog (`Index::build`). Its
+//! books' lines are read again by where they start (`Index::record`)
 //! for the page a view shows, never while drawing.
 //!
-//! On devices of little memory it holds [`cap`] books at most and counts
-//! the others ([`Index::total`]). A view covered by a book can keep it in
+//! On devices of little memory it holds `cap` books at most and counts
+//! the others (`Index::total`). A view covered by a book can keep it in
 //! a file (`Index::save`) and let it go, and read it back when it shows
-//! again ([`Index::load`]).
+//! again (`Index::load`).
 
 use alloc::vec::Vec;
 
@@ -24,22 +24,22 @@ pub(crate) const KEY: usize = 8;
 #[non_exhaustive]
 pub struct Item {
     /// Its key in the library: where its line starts in the catalog
-    /// ([`catalog::read_page`]), or what a library of one's own names it
-    /// by ([`super::Library::each`]).
+    /// (`catalog::read_page`), or what a library of one's own names it
+    /// by (`super::Library::each`).
     pub offset: u32,
     /// A hash of its path, to find it again ([`hash`]).
     pub hash: u32,
-    /// Its title's first letters, to sort by ([`sort_key`]).
+    /// Its title's first letters, to sort by (`sort_key`).
     pub key: [u8; KEY],
-    /// Its series, as an index of [`Index::series`], or [`NO_SERIES`].
+    /// Its series, as an index of `Index::series`, or `NO_SERIES`.
     pub series: u16,
-    /// Its number in the series in tenths ([`number`]), to order by.
+    /// Its number in the series in tenths (`number`), to order by.
     pub number: u16,
     /// How far it is read in percent, or [`NONE`] never opened.
     pub progress: u8,
-    /// Its place among the books read last (0 the last), or [`NEVER`].
+    /// Its place among the books read last (0 the last), or `NEVER`.
     pub recent: u8,
-    /// [`FAVOURITE`], [`OPENED`], [`REMOVED`].
+    /// `FAVOURITE`, `OPENED`, `REMOVED`.
     pub flags: u8,
 }
 
@@ -52,8 +52,8 @@ pub(crate) const REMOVED: u8 = 4;
 
 impl Item {
     /// The item of `record`, whose key is `offset`, of the series
-    /// `series` ([`Index::series`], or [`NO_SERIES`]), at the place
-    /// `recent` among the books read last (or [`NEVER`]).
+    /// `series` (`Index::series`, or `NO_SERIES`), at the place
+    /// `recent` among the books read last (or `NEVER`).
     pub fn new(offset: u32, record: &Record, series: u16, recent: u8) -> Item {
         let mut flags = 0;
         if record.status.favourite {

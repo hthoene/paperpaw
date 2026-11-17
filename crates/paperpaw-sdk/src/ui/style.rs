@@ -8,7 +8,7 @@
 use super::*;
 
 /// Sizes of the standard UI elements, in pixels: made for the device and
-/// the user's settings with [`UiStyle::new`], or [`UiStyle::PLAIN`] where
+/// the user's settings with [`UiStyle::new`], or `UiStyle::PLAIN` where
 /// there is no environment (tests, pictures made beforehand).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
@@ -421,8 +421,8 @@ pub fn text_ink(value: &str, language: &str) -> TextInk {
 ///
 /// The roles are constants of one type, so more can come without a new
 /// plugin interface: a role this release does not know is sized as
-/// [`TextRole::BODY`], and a look's text painter
-/// ([`Painters::text`](crate::ui::look::Painters::text)) gets the role of
+/// `TextRole::BODY`, and a look's text painter
+/// (`Painters::text`) gets the role of
 /// every run it is asked about.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TextRole(u8);
@@ -608,7 +608,7 @@ impl UiStyle {
     }
 
     /// The size of text of `role` (one this release does not know is
-    /// sized as [`TextRole::BODY`]).
+    /// sized as `TextRole::BODY`).
     pub fn size(&self, role: TextRole) -> f32 {
         match role {
             TextRole::CAPTION => self.small * 0.8,

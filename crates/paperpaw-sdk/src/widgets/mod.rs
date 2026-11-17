@@ -14,8 +14,8 @@
 //! buttons reach one after the other too (see [`WidgetTarget`]).
 //!
 //! A widget may have settings of its own, e.g. where its text sits
-//! ([`align_setting`]): they go in a settings group with the widget's id
-//! ([`settings_group`]). The settings list leaves such groups out; screens
+//! (`align_setting`): they go in a settings group with the widget's id
+//! (`settings_group`). The settings list leaves such groups out; screens
 //! that edit widgets open them (slot
 //! [`SETTINGS`](crate::builtin::slots::SETTINGS) with parameter
 //! [`ID`](crate::builtin::params::ID)).
@@ -24,12 +24,12 @@
 //! may hold more than once ([`repeatable`]): [`SPACE`], a gap of a set
 //! height, and [`FILL`], the room the others leave. Screens that place
 //! widgets one below the other give each fill its share of that room
-//! ([`fill_height`]); elsewhere it is not there.
+//! (`fill_height`); elsewhere it is not there.
 //!
 //! Screens that show widgets in a grid, as the home screen does, use
 //! [`grid`]: its layout as data, and a view that edits it in place.
 //! Screens that show them above each other, as the sleep screen does, use
-//! a [`WidgetStack`]. Either way the screen asks [`refresh`] what an event means
+//! a `WidgetStack`. Either way the screen asks `refresh` what an event means
 //! for the widgets it shows, and reads the live ones anew each minute
 //! (`next_minute`).
 //!
@@ -192,7 +192,7 @@ pub trait Widget {
     /// that show it call this once they placed it, and again when its
     /// place changes. A widget that makes something for the size it is
     /// drawn at, such as a cover made small
-    /// ([`Thumbnail`](crate::ui::Thumbnail), drawn in every band without
+    /// (`Thumbnail`, drawn in every band without
     /// reading the picture again), makes it here, and anew in
     /// [`update`](Self::update) when what it shows changed. Most widgets
     /// need nothing of it.
@@ -289,7 +289,7 @@ pub enum WidgetInput {
 /// Makes a widget for a screen that shows it.
 pub(crate) type WidgetFactory = fn(&Env<'_>) -> Box<dyn Widget>;
 
-/// How a widget ([`WidgetSpec`], [`FixedWidget`]) is made: by a function of
+/// How a widget ([`WidgetSpec`], `FixedWidget`) is made: by a function of
 /// its own, or as a [`Drawn`] widget from what it draws with.
 #[derive(Clone, Copy)]
 #[non_exhaustive]
@@ -577,7 +577,7 @@ pub enum SizeClass {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PlaceKind {
-    /// Above each other ([`WidgetStack`]): a setting of widget ids separated by
+    /// Above each other (`WidgetStack`): a setting of widget ids separated by
     /// commas, [`FILL`] and [`SPACE`] among them.
     Stack,
     /// In a grid of cells ([`grid`]): settings of items with their cells,
@@ -773,7 +773,7 @@ pub(crate) const ALIGNMENTS: &[&str] =
 /// Where a widget's text sits in its place. [`Align::Start`] and
 /// [`Align::End`] follow the interface's direction: at the left and the
 /// right in left-to-right languages, the other way round in
-/// right-to-left ones ([`Align::resolved`]).
+/// right-to-left ones (`Align::resolved`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Align {
@@ -787,7 +787,7 @@ pub enum Align {
 }
 
 impl Align {
-    /// The alignment a value of [`ALIGNMENTS`] names; left for others.
+    /// The alignment a value of `ALIGNMENTS` names; left for others.
     pub fn of(value: &str) -> Self {
         match ALIGNMENTS.iter().position(|a| *a == value) {
             Some(1) => Align::Center,

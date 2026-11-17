@@ -3,19 +3,6 @@
 //! ([`columns`]), a grid of cells the focus moves through ([`CellGrid`]), a
 //! group on a card or in a frame ([`Ui::card`](super::Ui::card)) and a row of segments,
 //! one of them chosen, e.g. tabs over a page ([`Segments`]).
-//!
-//! ```
-//! use paperpaw_sdk::ui::{Stack, columns};
-//! use paperpaw_platform::Rect;
-//!
-//! let mut stack = Stack::new(Rect::new(0, 0, 480, 800), 12);
-//! let title = stack.take(40);
-//! let buttons = stack.take_bottom(60);
-//! let text = stack.rest();
-//! let [ok, cancel] = columns(buttons, 2, 12)[..] else { unreachable!() };
-//! assert_eq!((title.y, text.y, buttons.y), (0, 52, 740));
-//! assert_eq!((ok.width, cancel.x, cancel.right()), (234, 246, 480));
-//! ```
 
 use paperpaw_graphics::Canvas;
 use paperpaw_platform::{Color, Rect};

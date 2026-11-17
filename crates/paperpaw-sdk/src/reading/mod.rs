@@ -1,12 +1,12 @@
 //! Building blocks of reading, for readers and for the plugins around
-//! them: a book through the plugins' text filters ([`FilteredDocument`]),
+//! them: a book through the plugins' text filters (`FilteredDocument`),
 //! the starts of its pages kept on the device ([`PageIndex`]), how it is
 //! opened (`open_options`); with the feature `unstable` (as the layout
 //! it builds on, until 1.0) the type of its pages and the page drawn
 //! (`PageType`, `ReadingFaces`, `word_boxes`, `draw_lines`).
 //!
 //! The words of the page shown: any plugin asks the reader with
-//! `ask_page_words` and hears them as [`PageWords`] (a dictionary that
+//! `ask_page_words` and hears them as `PageWords` (a dictionary that
 //! lists the page's hard words, a summary, a word count). The reader
 //! answers while a book is open; nothing comes otherwise. Decorators get
 //! the words with every page without asking (see

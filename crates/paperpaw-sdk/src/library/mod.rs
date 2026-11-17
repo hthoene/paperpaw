@@ -14,7 +14,7 @@
 //! - The books opened last, most recent first (`opened.txt`), and the
 //!   favourites (`favourites.txt`).
 //! - The catalog of all books under the library folder ([`catalog`]),
-//!   and listings of a folder's books ([`listing`]).
+//!   and listings of a folder's books (`listing`).
 //!
 //! The kernel keeps them up to date from the standard reading events and
 //! moves them with a book ([`record`], [`moved`]). Nothing here grows
@@ -224,8 +224,8 @@ pub fn key(path: &str) -> String {
 /// other for a name). Registered with
 /// `Items::add_book_data` or
 /// `Items::add_book_cache`, the
-/// kernel moves it with its book ([`move_data`]), removes it with it
-/// ([`remove_data`]) and when its book is no longer there
+/// kernel moves it with its book (`move_data`), removes it with it
+/// (`remove_data`) and when its book is no longer there
 /// ([`clean_up_unused`]): a cache by itself, the reader's data only when
 /// the reader says so.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -789,7 +789,7 @@ pub fn record(env: &Env<'_>, reading: &crate::builtin::events::Reading, opened: 
 /// is a favourite, whether it was opened) beside the catalog
 /// (the catalog's log), so views of the library show it without reading
 /// each book's details. The kernel calls it when a book is opened,
-/// closed or finished; [`set_finished`] and [`set_favourite`] call it.
+/// closed or finished; `set_finished` and [`set_favourite`] call it.
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub fn note_status(storage: &dyn Storage, path: &str) {

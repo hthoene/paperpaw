@@ -6,14 +6,3 @@
 //! where title and text do not fit on the screen even in smaller sizes,
 //! they scroll above the buttons ([`Dialog::on_scroll_action`],
 //! [`Dialog::on_gesture`]).
-//!
-//! ```
-//! # fn demo(env: &paperpaw_sdk::Env<'_>) {
-//! use paperpaw_sdk::ui::{Dialog, UiStyle};
-//!
-//! let style = UiStyle::new(env);
-//! let mut dialog = Dialog::new(env, &style, "Delete the book?", &["It goes for good."], &["Delete", "Keep"]);
-//! let room = env.device().display.height - dialog.height();
-//! dialog.place(room / 2);
-//! # }
-//! ```

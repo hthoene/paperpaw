@@ -4,7 +4,7 @@
 //! [`ask::confirm`](crate::ask::confirm) asks. The answer comes back as
 //! the plugin's reply event, a [`Confirmed`](crate::replies::Confirmed) with the context it was
 //! asked with. *Back*, or a tap outside the box, answers nothing. On a
-//! screen wider than the readable column ([`ui::readable`](super::readable))
+//! screen wider than the readable column (`ui::readable`)
 //! the box is as wide as the column at most, and what lies beside it is
 //! outside.
 //!

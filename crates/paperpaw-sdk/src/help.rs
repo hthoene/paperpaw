@@ -8,28 +8,14 @@
 //! tap zones), drawn as a frame with the text in it; hints without a zone
 //! are listed in a box in the middle.
 //!
-//! ```
-//! use paperpaw_sdk::help::{self, HelpHint, Zone};
-//! # use paperpaw_sdk::{Id, RegisterError};
-//! # fn register(
-//! #     mut contribute: impl FnMut(Id, String) -> Result<(), RegisterError>,
-//! # ) -> Result<(), RegisterError> {
-//! help::add(&mut contribute, "my.screen", &[
-//!     HelpHint::touch("my.help.next").zone(Zone::new(667, 0, 333, 1000)),
-//!     HelpHint::buttons("my.help.select"),
-//! ])?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! The hints go to the point [`POINT`] as text, a line each:
+//! The hints go to the point `POINT` as text, a line each:
 //! `<screen> <input> <zone> <text key>`, `input` one of `any`, `touch`,
 //! `buttons`, `zone` `x,y,w,h` or `-` (so data plugins and native ones can
 //! add them alike). Readers switch them off (`help.show`) or have them
 //! shown again (*Show hints again*, in the system settings).
 //!
 //! They show as the screen opens. A screen that first prepares what it
-//! shows (the reader, opening a book) has them wait instead ([`wait`]),
+//! shows (the reader, opening a book) has them wait instead (`wait`),
 //! and says when it is ready (`ready`): screens below another get no
 //! timers, so it would not get ready under them.
 
@@ -83,7 +69,7 @@ pub struct HelpHint {
 }
 
 impl HelpHint {
-    /// Its line for [`POINT`], for `screen`.
+    /// Its line for `POINT`, for `screen`.
     pub fn line(&self, screen: &str) -> String {
         let zone = match self.zone {
             Some(z) => format!("{},{},{},{}", z.x, z.y, z.w, z.h),

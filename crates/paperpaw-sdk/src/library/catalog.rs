@@ -582,7 +582,7 @@ fn next_header(storage: &dyn Storage, first: u64) -> String {
 /// Notes the status of the book at `path` (how far it is read, favourite,
 /// opened) beside the catalog, read with it at once. The kernel calls
 /// this from the reading events and the library's setters
-/// ([`super::record`], [`super::set_finished`], [`super::set_favourite`]),
+/// ([`super::record`], `super::set_finished`, [`super::set_favourite`]),
 /// and folds the log into the catalog at a calm moment once it is long.
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
@@ -701,7 +701,7 @@ pub enum Sort {
     Other(&'static str),
 }
 
-/// What books to find in the catalog ([`query`]): all of the conditions set.
+/// What books to find in the catalog (`query`): all of the conditions set.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Query {

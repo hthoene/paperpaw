@@ -205,7 +205,7 @@ pub(super) fn grab(len: usize) -> Result<Vec<u8>, crate::image::ImageError> {
     Ok(bytes)
 }
 
-/// [`draw_image_over`] for a checked picture ([`probe_picture`]) with every
+/// `draw_image_over` for a checked picture ([`probe_picture`]) with every
 /// allocation fallible and every failure said: `OutOfMemory` (nothing is
 /// drawn: the buffers are taken first), `Io` (a row that cannot be read:
 /// the bands before it are drawn, none after). Nothing is drawn on a frame

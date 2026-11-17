@@ -1,16 +1,16 @@
 //! Every book of the library sorted by title, kept on the card and read a
 //! page at a time, so that a list of any length takes a few kilobytes
-//! (the X4 holds no more than 2,000 books of an [`Index`](super::index::Index)).
+//! (the X4 holds no more than 2,000 books of an `Index`).
 //!
 //! The kernel makes the file of a view's archive folder (one for each,
 //! for two at most) after the catalog was written anew, or when a
 //! view asks for it (`request`): every book but those in the archive
 //! folder, sorted by its title's first letters
-//! ([`sort_key`](super::index::sort_key)) and where its line starts, each
+//! (`sort_key`) and where its line starts, each
 //! with its series (a hash of the name), its place among the books of
 //! its series and how many there are. It is written to a file beside it
 //! and put in place whole, its end saying of which library it is
-//! ([`Library::version`](super::service::Library::version)), how many
+//! (`Library::version`), how many
 //! books it has and a check of them: a file of another version, cut
 //! short or damaged is not read (`Sorted::open` gives `None`), and the
 //! view says the library is being prepared until the kernel made it

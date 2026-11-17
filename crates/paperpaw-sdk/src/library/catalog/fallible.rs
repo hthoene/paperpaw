@@ -126,7 +126,7 @@ pub(super) fn copy(text: &str) -> Result<String, Error> {
 }
 
 /// How many books the catalog holds, as noted last (those removed left
-/// out): [`each_at`](super::each_at)'s books counted, none held.
+/// out): `each_at`'s books counted, none held.
 ///
 /// # Errors
 /// As [`try_changes`], and the storage's error where the catalog cannot
@@ -147,7 +147,7 @@ pub fn try_count(storage: &dyn Storage) -> Result<u32, Error> {
 }
 
 /// The path of the book whose line starts at `offset` in the catalog (as
-/// [`each_at`](super::each_at) told): `None` for no line there or a book
+/// `each_at` told): `None` for no line there or a book
 /// removed.
 ///
 /// # Errors

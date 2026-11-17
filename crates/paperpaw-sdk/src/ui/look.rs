@@ -6,27 +6,7 @@
 //! The SDK keeps where a part goes, what it says to screen readers and
 //! how it is touched; a look only paints the part's rectangle. A painter
 //! returns whether it painted (else the part is drawn as usual), and the
-//! painters of parts with a label on them return the ink for it:
-//!
-//! ```
-//! use paperpaw_sdk::Priority;
-//! use paperpaw_sdk::ui::look::{PaintCx, Painters, SwitchPart};
-//! use paperpaw_platform::Color;
-//!
-//! /// Square switches: a box, filled when on.
-//! fn switch(cx: &mut PaintCx<'_, '_>, part: &SwitchPart) -> bool {
-//!     let ink = if part.inverted { Color::WHITE } else { Color::BLACK };
-//!     cx.canvas.stroke_round(part.rect, 2, 0, ink);
-//!     if part.on {
-//!         cx.canvas.fill(part.rect.inset(4, 4), ink);
-//!     }
-//!     true
-//! }
-//!
-//! static SQUARE: Painters = Painters::new().switch(switch);
-//! // In `register`: r.set_ui_look(&SQUARE, Priority::DEFAULT)?;
-//! # let _ = (&SQUARE, Priority::DEFAULT);
-//! ```
+//! painters of parts with a label on them return the ink for it.
 //!
 //! The look in use is the one set with the highest priority (the later
 //! of equal ones); [`UiStyle::new`](super::UiStyle::new) takes it from

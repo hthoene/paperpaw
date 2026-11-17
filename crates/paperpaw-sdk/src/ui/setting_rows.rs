@@ -10,7 +10,7 @@ use super::*;
 // ---- Settings as rows --------------------------------------------------
 
 /// Whether `note`, a setting's description, shows whole in a row `width`
-/// wide: on the [`NOTE_LINES`] lines a row gives it. A longer one is
+/// wide: on the `NOTE_LINES` lines a row gives it. A longer one is
 /// shortened with "…"; descriptions are kept short to fit (detail goes in
 /// the plugin's How it works).
 pub fn note_fits(env: &Env<'_>, style: &UiStyle, width: u16, note: &str) -> bool {

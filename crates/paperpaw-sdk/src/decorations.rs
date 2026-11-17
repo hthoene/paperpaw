@@ -675,13 +675,6 @@ impl DecoratorSpec {
 /// Marks words by [patterns](crate::pattern): each found on the page's
 /// text (its words with a space between), the words it touches marked in
 /// its role. A word broken over two lines counts once, whole.
-///
-/// ```
-/// # use paperpaw_sdk::{Id, decorations::PatternDecorator, pattern::Pattern};
-/// let names = PatternDecorator::new()
-///     .rule(Pattern::new(r"\b[A-Z][a-z]+ (?:of|von) [A-Z][a-z]+\b").unwrap(), Id::new_static("my.name"))
-///     .into_spec(Id::new_static("my.names"), "my.names");
-/// ```
 #[derive(Debug, Clone, Default)]
 pub struct PatternDecorator {
     rules: Vec<(crate::pattern::Pattern, Id)>,

@@ -7,7 +7,7 @@
 //! where (the reader does this for its lines above and below the text).
 //! An item computes its value from the environment and from the context the
 //! screen passes, e.g. the reader's `title`, `chapter`, `page` and
-//! `progress` (see [`context`]).
+//! `progress` (see `context`).
 //!
 //! An item may do something when it is tapped ([`StatusItemSpec::tap`]:
 //! the battery opens its settings), and says how much it matters
@@ -54,7 +54,7 @@ pub struct StatusFrame<'a> {
     /// Text size in pixels, as the user set it for status lines.
     pub size: f32,
     pub color: Color,
-    /// What the screen tells about its content (see [`context`]).
+    /// What the screen tells about its content (see `context`).
     pub context: &'a Params,
     /// The place it is drawn in ([`Place`]), whose items a line of items
     /// shows; `None` where the screen has none.
@@ -235,14 +235,14 @@ pub struct StatusItemSpec {
     pub title: Cow<'static, str>,
     pub value: StatusFn,
     /// The action a tap on it runs, one of its own plugin's, with the
-    /// context its line was drawn with (see [`context`];
+    /// context its line was drawn with (see `context`;
     /// [`Command::RunAction`](crate::Command::RunAction)): it
     /// runs as that plugin, whichever screen shows the line, and can be
     /// bound to buttons too. Without it a tap does what the screen does
     /// with the line.
     pub tap: Option<Id>,
     /// How much it matters: where a line has no room for all its items,
-    /// those of the lowest priority are left out first ([`PRIORITY`] by
+    /// those of the lowest priority are left out first (`PRIORITY` by
     /// default).
     pub priority: u8,
     /// The least width it takes, in times the text's size, so that the
@@ -270,7 +270,7 @@ impl StatusItemSpec {
         }
     }
 
-    /// How much it matters (higher stays longer; [`PRIORITY`] by default).
+    /// How much it matters (higher stays longer; `PRIORITY` by default).
     pub fn priority(self, priority: u8) -> Self {
         Self { priority, ..self }
     }

@@ -4,13 +4,13 @@
 //! setting, so every plugin's UI looks consistent and scales together when
 //! the user chooses larger text.
 //!
-//! A screen draws with a [`Ui`]: the canvas, the environment and the style
+//! A screen draws with a `Ui`: the canvas, the environment and the style
 //! together, with the interface's parts as its methods (`ui.button(..)`,
-//! `ui.message(..)`, `ui.focus(..)`). Text of the interface is a [`Label`],
-//! and a row of a list is a [`Row`]. The parts that keep state (a
-//! [`Dialog`], [`Chips`], a [`ListView`]) draw with the `Ui`, and those that
-//! take the buttons' actions and gestures (a [`Dialog`], a [`TextView`])
-//! answer with a [`Response`].
+//! `ui.message(..)`, `ui.focus(..)`). Text of the interface is a `Label`,
+//! and a row of a list is a `Row`. The parts that keep state (a
+//! `Dialog`, `Chips`, a `ListView`) draw with the `Ui`, and those that
+//! take the buttons' actions and gestures (a `Dialog`, a `TextView`)
+//! answer with a `Response`.
 
 mod address;
 pub(crate) mod button;
