@@ -33,7 +33,7 @@ const FOREIGN_MENU: &str = "menu ";
 
 /// A step of an action of `actions.ini`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Step {
+pub(crate) enum Step {
     /// `<setting>=<value>`, the value as written in `paperpaw.ini`.
     Set(Id, String),
     /// `<action>`.
@@ -70,7 +70,7 @@ impl Step {
 
     /// The command of this step; a value not of the setting's kind (or a
     /// setting not there) makes none.
-    fn command(&self, env: &paperpaw_sdk::Env<'_>) -> Option<paperpaw_sdk::Command> {
+    pub(crate) fn command(&self, env: &paperpaw_sdk::Env<'_>) -> Option<paperpaw_sdk::Command> {
         use paperpaw_sdk::{Command, Params};
         Some(match self {
             Step::Set(id, text) => {
@@ -99,6 +99,8 @@ struct ReadAction {
 pub(super) struct MadeAction {
     pub(super) id: Id,
     pub(super) spec: paperpaw_sdk::ActionSpec,
+    /// What it does, a step a line: the kernel runs them.
+    pub(super) steps: alloc::boxed::Box<[Step]>,
     pub(super) icon: Option<String>,
 }
 
@@ -153,10 +155,14 @@ pub(super) fn actions(plugin: &Id, source: &str) -> Result<Vec<MadeAction>, Regi
         } else {
             title
         };
-        let spec = paperpaw_sdk::ActionSpec::new(id.clone(), title).handler(move |env, _, out| {
-            out.extend(steps.iter().filter_map(|step| step.command(env)));
+        let spec = paperpaw_sdk::ActionSpec::new(id.clone(), title).run_by_kernel();
+        let steps = steps.into_boxed_slice();
+        made.push(MadeAction {
+            id,
+            spec,
+            steps,
+            icon,
         });
-        made.push(MadeAction { id, spec, icon });
     }
     Ok(made)
 }

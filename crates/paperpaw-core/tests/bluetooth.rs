@@ -67,6 +67,40 @@ impl paperpaw_core::Layer for Logged {
     }
 }
 
+std::thread_local! {
+    /// Each pulse plugin of the test running: its id, queue and log (its
+    /// handlers are plain functions and hold neither).
+    static PULSES: RefCell<Vec<(&'static str, Queue, Log)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// What the test queued for plugin `id`, taken.
+fn queue_of(id: &str) -> Vec<Command> {
+    PULSES.with(|pulses| {
+        pulses
+            .borrow()
+            .iter()
+            .find(|(of, ..)| *of == id)
+            .map(|(_, queue, _)| queue.borrow_mut().drain(..).collect())
+            .unwrap_or_default()
+    })
+}
+
+/// Logs `event` heard, in its plugin's log.
+fn note(event: &Event<BtEvent>, params: &paperpaw_sdk::Params) {
+    let Some(heard) = paperpaw_core::hear::data::<BtEvent>(params) else {
+        return;
+    };
+    PULSES.with(|pulses| {
+        if let Some((_, _, log)) = pulses
+            .borrow()
+            .iter()
+            .find(|(of, ..)| *of == event.id().namespace())
+        {
+            log.borrow_mut().push(format!("{}: {heard:?}", event.id()));
+        }
+    });
+}
+
 /// A plugin that runs what the test queues, and logs what it hears.
 struct Pulse {
     id: &'static str,
@@ -84,18 +118,26 @@ impl Pulse {
 fn pulse(kept: Pulse) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let go = Id::parse(&format!("{}.go", kept.id)).unwrap();
-        let queue = kept.queue.clone();
-        r.add_action(ActionSpec::new(go, "go").handler(move |_, _, out| {
-            out.extend(queue.borrow_mut().drain(..));
-        }))?;
-        for event in [FOUND, LINK, OTHER_FOUND] {
-            if event.id().namespace() != kept.id {
-                continue;
+        // A kernel made again (as after a restart) is the one driven.
+        PULSES.with(|pulses| {
+            let mut pulses = pulses.borrow_mut();
+            pulses.retain(|(id, ..)| *id != kept.id);
+            pulses.push((kept.id, kept.queue.clone(), kept.log.clone()));
+        });
+        let run: paperpaw_sdk::FixedHandler = match kept.id {
+            "pulse" => |_, _, out| out.extend(queue_of("pulse")),
+            _ => |_, _, out| out.extend(queue_of("other")),
+        };
+        r.add_action(ActionSpec::new(go, "go").handler(run))?;
+        let hears: [(&Event<BtEvent>, paperpaw_core::Hear); 3] = [
+            (&FOUND, |_, p| note(&FOUND, p)),
+            (&LINK, |_, p| note(&LINK, p)),
+            (&OTHER_FOUND, |_, p| note(&OTHER_FOUND, p)),
+        ];
+        for (event, run) in hears {
+            if event.id().namespace() == kept.id {
+                r.subscribe(event.id().clone(), run)?;
             }
-            let log = kept.log.clone();
-            r.on(event.clone(), move |_, heard: &BtEvent, _| {
-                log.borrow_mut().push(format!("{}: {heard:?}", event.id()));
-            })?;
         }
         if kept.id == "pulse" {
             let log = kept.log.clone();

@@ -38,16 +38,17 @@ fn cleaning_up_keeps_what_belongs_to_files_still_there() {
 /// found go: the question asked.
 fn heard(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        let log = kept.clone();
-        let answered: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Confirmed> =
+        const ANSWERED: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Confirmed> =
             paperpaw_sdk::event::Event::new("core.clean-up-answered");
-        r.on(answered, move |_, answer, _| {
-            let asked = answer
-                .context
-                .get(paperpaw_sdk::builtin::params::TITLE)
-                .unwrap_or_default();
-            log.borrow_mut()
-                .push(alloc::format!("{asked} {}", answer.yes));
+        crate::tests::hear_into(&kept);
+        r.on(ANSWERED, |_, p| {
+            if let Some(answer) = crate::hear::data::<paperpaw_sdk::replies::Confirmed>(p) {
+                let asked = answer
+                    .context
+                    .get(paperpaw_sdk::builtin::params::TITLE)
+                    .unwrap_or_default();
+                crate::tests::heard(alloc::format!("{asked} {}", answer.yes));
+            }
         })
     }
 }

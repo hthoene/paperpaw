@@ -93,6 +93,13 @@ pub fn environment(
     result.borrow_mut().take().expect("capture action ran")
 }
 
+std::thread_local! {
+    /// Where the capture action of the test running copies to (the action's
+    /// handler is a plain function and holds nothing).
+    static RESULT: RefCell<Option<Rc<RefCell<Option<EnvironmentBytes>>>>> =
+        const { RefCell::new(None) };
+}
+
 /// Registers a setting and an action that copies the live `Env` through a pinned scope into
 /// `result`.
 fn capture(builder: KernelBuilder, result: Rc<RefCell<Option<EnvironmentBytes>>>) -> KernelBuilder {
@@ -101,6 +108,7 @@ fn capture(builder: KernelBuilder, result: Rc<RefCell<Option<EnvironmentBytes>>>
         "Wire fixture",
         paperpaw_sdk::Version::new(1, 0, 0),
     );
+    RESULT.with(|kept| *kept.borrow_mut() = Some(result));
     builder.items(manifest, move |items| {
         items.add_setting(SettingSpec::switch(
             ENABLED,
@@ -108,9 +116,11 @@ fn capture(builder: KernelBuilder, result: Rc<RefCell<Option<EnvironmentBytes>>>
             true,
             Id::new_static("power.group"),
         ))?;
-        let result = Rc::clone(&result);
         items.add_action(ActionSpec::new(CAPTURE, "battery.fixture-capture").handler(
-            move |env, _, _| {
+            |env, _, _| {
+                let Some(result) = RESULT.with(|result| result.borrow().clone()) else {
+                    return;
+                };
                 let scope = Box::pin(EnvironmentScope::new());
                 scope
                     .as_ref()

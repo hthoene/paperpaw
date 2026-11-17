@@ -36,6 +36,15 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 
 const GO: Id = Id::new_static("asker.go");
 
+std::thread_local! {
+    /// The asker's queue and the states it noted, in the test running (its
+    /// handlers are plain functions and hold neither).
+    static ASKER: RefCell<Option<Asked>> = const { RefCell::new(None) };
+}
+
+/// The asker's queue and the firmware states it noted.
+type Asked = (Rc<RefCell<Vec<Command>>>, Rc<RefCell<Vec<FirmwareState>>>);
+
 /// A plugin that sends what the test queues, and notes the firmware's
 /// state as it hears of it.
 struct Asker {
@@ -45,15 +54,23 @@ struct Asker {
 
 fn asker(kept: Asker) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        let queue = kept.queue.clone();
-        r.add_action(ActionSpec::new(GO, "go").handler(move |_, _, out| {
-            out.extend(queue.borrow_mut().drain(..));
-        }))?;
-        let states = kept.states.clone();
-        r.on(events::FIRMWARE_CHANGED, move |env, (), _| {
-            if let Some(firmware) = env.firmware() {
-                states.borrow_mut().push(firmware.state.clone());
+        ASKER.with(|asker| {
+            *asker.borrow_mut() = Some((kept.queue.clone(), kept.states.clone()));
+        });
+        r.add_action(ActionSpec::new(GO, "go").handler(|_, _, out| {
+            if let Some((queue, _)) = ASKER.with(|asker| asker.borrow().clone()) {
+                out.extend(queue.borrow_mut().drain(..));
             }
+        }))?;
+        r.on(events::FIRMWARE_CHANGED, |k, _| {
+            let Some((_, states)) = ASKER.with(|asker| asker.borrow().clone()) else {
+                return;
+            };
+            k.with_env(|env, _| {
+                if let Some(firmware) = env.firmware() {
+                    states.borrow_mut().push(firmware.state.clone());
+                }
+            });
         })?;
         Ok(())
     }

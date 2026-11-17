@@ -71,32 +71,34 @@ pub(crate) fn items(device_name: &str, r: &mut Items) -> Result<(), RegisterErro
     register_keymaps_and_setup(r)?;
     r.add_presets(&POWER_MODES)?;
     // Text typed for a setting (`ui::setting_opens`), whichever screen asked.
-    r.on(events::SETTING_TYPED, |env, typed, out| {
-        // Only once the reader is done typing, not at each key.
-        if typed.typing {
-            return;
-        }
-        let id = typed
-            .context
-            .get(params::ID)
-            .and_then(|id| Id::parse(id).ok());
-        // The id typed for, a placement's too (`widgets.countdown@2.title`):
-        // its spec is the plain setting's.
-        let Some(id) = id else {
-            return;
-        };
-        // Asked without its spec: what was typed is not dropped for
-        // lack of room to read one (#248); the change itself says so.
-        if !env.settings().knows(id.as_str()) {
-            return;
-        }
-        // A secret setting's text is kept with the secrets, never in
-        // the settings (see `Kernel::apply_setting`).
-        let text = typed.text.trim();
-        out.push(Command::SetSetting(
-            id,
-            paperpaw_sdk::SettingValue::Text(Cow::Owned(String::from(text))),
-        ));
+    r.on(events::SETTING_TYPED, |k, p| {
+        k.with_event(&events::SETTING_TYPED, p, |env, typed, out| {
+            // Only once the reader is done typing, not at each key.
+            if typed.typing {
+                return;
+            }
+            let id = typed
+                .context
+                .get(params::ID)
+                .and_then(|id| Id::parse(id).ok());
+            // The id typed for, a placement's too (`widgets.countdown@2.title`):
+            // its spec is the plain setting's.
+            let Some(id) = id else {
+                return;
+            };
+            // Asked without its spec: what was typed is not dropped for
+            // lack of room to read one (#248); the change itself says so.
+            if !env.settings().knows(id.as_str()) {
+                return;
+            }
+            // A secret setting's text is kept with the secrets, never in
+            // the settings (see `Kernel::apply_setting`).
+            let text = typed.text.trim();
+            out.push(Command::SetSetting(
+                id,
+                paperpaw_sdk::SettingValue::Text(Cow::Owned(String::from(text))),
+            ));
+        });
     })?;
     crate::work::register_network(r)?;
     Ok(())
@@ -149,64 +151,68 @@ fn register_reading_apps(r: &mut Items) -> Result<(), RegisterError> {
     use paperpaw_sdk::readers::{self, Choice};
     #[cfg(not(feature = "native-reading"))]
     register_open_with(r)?;
-    r.on(events::READING_APP_WANTED, |env, wanted, out| {
-        let path = wanted.path.trim_matches('/');
-        let name = paperpaw_sdk::files::name(path);
-        let once = wanted.once == Some(true) && !wanted.folder;
-        let (options, key, kind) = if once {
-            let mut options: Vec<&str> = env
-                .menus()
-                .items(menus::OPEN_WITH.as_str())
-                .into_iter()
-                .filter(|item| !item.section)
-                .map(|item| item.id.as_str())
-                .collect();
-            options.push(ALWAYS);
-            (options, "core.reading-app.open-with", "o")
-        } else if wanted.folder {
-            let options = alloc::vec![settings::READING_APP_DEFAULT];
-            (options, "core.reading-app.for-folder", "f")
-        } else {
-            let options = alloc::vec![settings::READING_APP_DEFAULT];
-            (options, "core.reading-app.always-with", "b")
-        };
-        let title = env
-            .i18n()
-            .format(key, &[("name", paperpaw_sdk::Arg::Str(name))]);
-        out.push(
-            paperpaw_sdk::ask::choice(title, &READING_APP_PICKED)
-                .about(alloc::format!("{kind}:{path}"))
-                .options("", &options)
-                .command(),
-        );
+    r.on(events::READING_APP_WANTED, |k, p| {
+        k.with_event(&events::READING_APP_WANTED, p, |env, wanted, out| {
+            let path = wanted.path.trim_matches('/');
+            let name = paperpaw_sdk::files::name(path);
+            let once = wanted.once == Some(true) && !wanted.folder;
+            let (options, key, kind) = if once {
+                let mut options: Vec<&str> = env
+                    .menus()
+                    .items(menus::OPEN_WITH.as_str())
+                    .into_iter()
+                    .filter(|item| !item.section)
+                    .map(|item| item.id.as_str())
+                    .collect();
+                options.push(ALWAYS);
+                (options, "core.reading-app.open-with", "o")
+            } else if wanted.folder {
+                let options = alloc::vec![settings::READING_APP_DEFAULT];
+                (options, "core.reading-app.for-folder", "f")
+            } else {
+                let options = alloc::vec![settings::READING_APP_DEFAULT];
+                (options, "core.reading-app.always-with", "b")
+            };
+            let title = env
+                .i18n()
+                .format(key, &[("name", paperpaw_sdk::Arg::Str(name))]);
+            out.push(
+                paperpaw_sdk::ask::choice(title, &READING_APP_PICKED)
+                    .about(alloc::format!("{kind}:{path}"))
+                    .options("", &options)
+                    .command(),
+            );
+        });
     })?;
-    r.on(READING_APP_PICKED, |env, picked, out| {
-        let Some((kind, path)) = picked.path.split_once(':') else {
-            return;
-        };
-        let option = picked.option.as_str();
-        if kind == "o" {
-            if option == ALWAYS {
-                out.push(readers::ask(Choice::Book(path)));
-            } else if let Ok(action) = Id::parse(option) {
-                // Another way to open it, as an action of the book menu.
-                let chosen = events::BookChosen::new(action.clone(), String::from(path));
-                out.push(events::BOOK_CHOSEN.emit(chosen));
-                out.push(Command::run(action));
+    r.on(READING_APP_PICKED, |k, p| {
+        k.with_event(&READING_APP_PICKED, p, |env, picked, out| {
+            let Some((kind, path)) = picked.path.split_once(':') else {
+                return;
+            };
+            let option = picked.option.as_str();
+            if kind == "o" {
+                if option == ALWAYS {
+                    out.push(readers::ask(Choice::Book(path)));
+                } else if let Ok(action) = Id::parse(option) {
+                    // Another way to open it, as an action of the book menu.
+                    let chosen = events::BookChosen::new(action.clone(), String::from(path));
+                    out.push(events::BOOK_CHOSEN.emit(chosen));
+                    out.push(Command::run(action));
+                }
+                return;
             }
-            return;
-        }
-        let choice = match kind {
-            "f" => Choice::Folder(path),
-            _ => Choice::Book(path),
-        };
-        if readers::remember(env.storage(), choice, None).is_err() {
-            let text = env.i18n().tr("core.reading-app.not-kept");
-            out.push(Command::Notify(String::from(text)));
-        }
-        if kind == "b" {
-            out.push(readers::open(path));
-        }
+            let choice = match kind {
+                "f" => Choice::Folder(path),
+                _ => Choice::Book(path),
+            };
+            if readers::remember(env.storage(), choice, None).is_err() {
+                let text = env.i18n().tr("core.reading-app.not-kept");
+                out.push(Command::Notify(String::from(text)));
+            }
+            if kind == "b" {
+                out.push(readers::open(path));
+            }
+        });
     })
 }
 
@@ -231,10 +237,12 @@ fn register_open_with(r: &mut Items) -> Result<(), RegisterError> {
         let others = !env.menus().items(menus::OPEN_WITH.as_str()).is_empty();
         paperpaw_sdk::ItemState::new().shown(others)
     })?;
-    r.on(events::BOOK_CHOSEN, |_, chosen, out| {
-        if chosen.action == actions::OPEN_WITH {
-            out.push(readers::ask_once(&chosen.path));
-        }
+    r.on(events::BOOK_CHOSEN, |k, p| {
+        k.with_event(&events::BOOK_CHOSEN, p, |_, chosen, out| {
+            if chosen.action == actions::OPEN_WITH {
+                out.push(readers::ask_once(&chosen.path));
+            }
+        });
     })?;
     Ok(())
 }
@@ -529,55 +537,52 @@ impl Catalog {
 /// The library service and what plugins keep for books, which follow
 /// the books.
 fn register_library(r: &mut Items) -> Result<(), RegisterError> {
-    use alloc::rc::Rc;
-    use paperpaw_sdk::work::WorkSpec;
-
     // The catalog, made anew or caught up as a job: a few books a step,
     // after the frame and while no input waits; views hear
     // CATALOG_CHANGED.
-    r.on(events::STARTED, |env, _, _| make_library_folder(env))?;
-    let catalog = Rc::new(Catalog::default());
+    r.on(events::STARTED, |k, p| {
+        k.with_event(&events::STARTED, p, |env, _, _| make_library_folder(env));
+    })?;
     // What earlier versions kept for books in one folder each: moved at a
     // calm moment after the start, a few at a time.
-    {
-        let catalog = Rc::clone(&catalog);
-        r.on(events::STARTED, move |env, _, out| {
+    r.on(events::STARTED, |k, p| {
+        k.with_core_event(&events::STARTED, p, |env, core, _, out| {
             // What a making of the sorted books cut short left goes; the
             // views they were for are those they are made anew for.
             library::sorted::clean_up(env.storage());
-            *catalog.archives.borrow_mut() = library::sorted::kept_archives(env.storage());
+            *core.catalog.archives.borrow_mut() = library::sorted::kept_archives(env.storage());
             if library::split::wanted(env.storage()) {
-                catalog.split.set(true);
-                catalog.declare(false, out);
+                core.catalog.split.set(true);
+                core.catalog.declare(false, out);
             }
-        })?;
-    }
-    let recorded = Recorded::default();
-    {
-        let catalog = Rc::clone(&catalog);
-        r.add_work(WorkSpec::new(
-            CATALOG_WORK,
-            "core.work.catalog",
-            move |env, _, out| catalog.step(env, out),
-        ))?;
-    }
+        });
+    })?;
+
+    r.add_work(crate::work::WorkSpec::new(
+        CATALOG_WORK,
+        "core.work.catalog",
+        |k, _| {
+            let mut step = paperpaw_sdk::work::Step::Done;
+            k.with_core(|env, core, out| step = core.catalog.step(env, out));
+            step
+        },
+    ))?;
     // Walked when a view of the library first shows after a start or a
     // wake (books may have been copied meanwhile) or asks for it anew, for
     // another library folder, and when books came or went without saying
     // which (`LIBRARY_CHANGED`): at once, taking the books whose files did
     // not change from the old catalog. Never at every start or wake by
     // itself: on the X4 they are many. Without a format nothing is a book.
-    {
-        let catalog = Rc::clone(&catalog);
-        r.on(events::CATALOG_WANTED, move |env, wanted, out| {
+    r.on(events::CATALOG_WANTED, |k, p| {
+        k.with_core_event(&events::CATALOG_WANTED, p, |env, core, wanted, out| {
             let missing =
                 library::catalog::state(env.storage()) == library::catalog::State::Missing;
-            if !env.formats().is_empty() && (wanted.anew || missing || !catalog.walked.get()) {
-                catalog.want_walk(true, wanted.anew, out);
+            if !env.formats().is_empty() && (wanted.anew || missing || !core.catalog.walked.get()) {
+                core.catalog.want_walk(true, wanted.anew, out);
             } else if library::catalog::log_is_long(env.storage()) {
                 // The library service's status notes made the log long: it
                 // is folded in at a calm moment, as after a book closed.
-                catalog.want_catch_up(None, false, out);
+                core.catalog.want_catch_up(None, false, out);
             } else if library::emptiness::is_empty(env.storage()) {
                 // Walked since the start and listing nothing: not again
                 // (a walk costs a wake's time and battery on the X4), but
@@ -585,104 +590,106 @@ fn register_library(r: &mut Items) -> Result<(), RegisterError> {
                 // no books rather than that they are being collected.
                 out.push(events::CATALOG_CHANGED.emit(()));
             }
-        })?;
-    }
-    catalog_job::register_sorted(r, &catalog)?;
-    look_again::register(r, &catalog)?;
-    {
-        let catalog = Rc::clone(&catalog);
-        r.on(events::LIBRARY_CHANGED, move |_, _, out| {
-            catalog.want_walk(true, true, out);
-        })?;
-    }
-    {
-        let catalog = Rc::clone(&catalog);
-        r.on(events::SETTING_CHANGED, move |_, changed, out| {
+        });
+    })?;
+
+    catalog_job::register_sorted(r)?;
+    look_again::register(r)?;
+    r.on(events::LIBRARY_CHANGED, |k, p| {
+        k.with_core_event(&events::LIBRARY_CHANGED, p, |_, core, _, out| {
+            core.catalog.want_walk(true, true, out);
+        });
+    })?;
+
+    r.on(events::SETTING_CHANGED, |k, p| {
+        k.with_core_event(&events::SETTING_CHANGED, p, |_, core, changed, out| {
             if changed.id == *library::FOLDER.id() {
-                catalog.want_walk(true, true, out);
+                core.catalog.want_walk(true, true, out);
             }
-        })?;
-    }
+        });
+    })?;
+
     // A book came, or changed what the catalog keeps of it: caught up at
     // a calm moment, without walking the library.
-    {
-        let catalog = Rc::clone(&catalog);
-        r.on(events::BOOK_ADDED, move |_, added, out| {
-            catalog.want_catch_up(Some(&added.path), false, out);
-        })?;
-    }
-    {
-        let recorded = Rc::clone(&recorded);
-        r.on(events::BOOK_CHANGED, move |_, _, _| {
-            recorded.take();
-        })?;
-    }
-    register_reading(r, &catalog, &recorded)?;
+    r.on(events::BOOK_ADDED, |k, p| {
+        k.with_core_event(&events::BOOK_ADDED, p, |_, core, added, out| {
+            core.catalog.want_catch_up(Some(&added.path), false, out);
+        });
+    })?;
+
+    r.on(events::BOOK_CHANGED, |k, p| {
+        k.with_core_event(&events::BOOK_CHANGED, p, |_, core, _, _| {
+            core.recorded.take();
+        });
+    })?;
+
+    register_reading(r)?;
     // What plugins keep for a book follows it: moved, removed. The catalog
     // leaves it out at once (noted beside it); a book moved is caught up
     // where it is now, at once (the book is not where views show it).
-    {
-        let catalog = Rc::clone(&catalog);
-        let recorded = Rc::clone(&recorded);
-        r.on(events::BOOK_MOVED, move |env, moved, out| {
-            recorded.take();
+    r.on(events::BOOK_MOVED, |k, p| {
+        k.with_core_event(&events::BOOK_MOVED, p, |env, core, moved, out| {
+            core.recorded.take();
             library::moved(env.storage(), &moved.from, &moved.path);
             follow_move(env.storage(), env.book_data(), &moved.from, &moved.path);
             let _ = library::catalog::forget(env.storage(), &moved.from);
-            catalog.fresh.borrow_mut().retain(|p| *p != moved.from);
-            catalog.want_catch_up(Some(&moved.path), true, out);
-        })?;
-    }
-    {
-        let catalog = Rc::clone(&catalog);
-        let recorded = Rc::clone(&recorded);
-        r.on(events::BOOK_REMOVED, move |env, removed, out| {
-            recorded.take();
+            core.catalog.fresh.borrow_mut().retain(|p| *p != moved.from);
+            core.catalog.want_catch_up(Some(&moved.path), true, out);
+        });
+    })?;
+
+    r.on(events::BOOK_REMOVED, |k, p| {
+        k.with_core_event(&events::BOOK_REMOVED, p, |env, core, removed, out| {
+            core.recorded.take();
             library::removed(env.storage(), &removed.path);
             follow_removal(env.storage(), env.book_data(), &removed.path);
             let _ = library::catalog::forget(env.storage(), &removed.path);
-            catalog.fresh.borrow_mut().retain(|p| *p != removed.path);
+            core.catalog
+                .fresh
+                .borrow_mut()
+                .retain(|p| *p != removed.path);
             if library::catalog::log_is_long(env.storage()) {
-                catalog.want_catch_up(None, false, out);
+                core.catalog.want_catch_up(None, false, out);
             }
-        })?;
-    }
+        });
+    })?;
+
     register_clean_up(r)
 }
 
-/// The book and the percentage recorded at the last page turned: the
-/// details are written only when it changes, so a page turned that does
-/// not change it reads nothing. Forgotten when the book opens, closes or
-/// changes.
-type Recorded = alloc::rc::Rc<core::cell::RefCell<Option<(String, u8)>>>;
+/// What the core plugin's handlers keep between calls, the kernel's
+/// ([`Kernel::with_core`]).
+#[derive(Default)]
+pub(crate) struct State {
+    /// The catalog's job and what it is to do.
+    catalog: Catalog,
+    /// The book and the percentage recorded at the last page turned: the
+    /// details are written only when it changes, so a page turned that
+    /// does not change it reads nothing. Forgotten when the book opens,
+    /// closes or changes.
+    recorded: core::cell::RefCell<Option<(String, u8)>>,
+}
 
-fn register_reading(
-    r: &mut Items,
-    catalog: &alloc::rc::Rc<Catalog>,
-    recorded: &Recorded,
-) -> Result<(), RegisterError> {
-    use alloc::rc::Rc;
-
+fn register_reading(r: &mut Items) -> Result<(), RegisterError> {
     // The library service follows the reading, whichever plugins
     // show it: how far a book is read, in its details and, when it is
     // opened, closed or finished, beside the catalog (folded into it at a
     // calm moment once the log is long).
-    {
-        let recorded = Rc::clone(recorded);
-        r.on(events::BOOK_OPENED, move |env, reading, out| {
-            recorded.take();
+    r.on(events::BOOK_OPENED, |k, p| {
+        k.with_core_event(&events::BOOK_OPENED, p, |env, core, reading, out| {
+            core.recorded.take();
             library::record(env, reading, true);
             out.push(library::changed_book(
                 &reading.path,
                 library::what::PROGRESS,
             ));
-        })?;
-    }
-    {
-        let recorded = Rc::clone(recorded);
-        r.on(events::PAGE_TURNED, move |env, reading, _| {
+        });
+    })?;
+
+    r.on(events::PAGE_TURNED, |k, p| {
+        k.with_core_event(&events::PAGE_TURNED, p, |env, core, reading, _| {
             let percent = (reading.progress + 0.5).clamp(0.0, 100.0) as u8;
-            let mut recorded = recorded.borrow_mut();
+            let mut recorded = core.recorded.borrow_mut();
             if recorded
                 .as_ref()
                 .is_some_and(|(path, p)| *p == percent && *path == reading.path)
@@ -691,22 +698,23 @@ fn register_reading(
             }
             library::record(env, reading, false);
             *recorded = Some((reading.path.clone(), percent));
-        })?;
-    }
+        });
+    })?;
+
     for event in [events::BOOK_CLOSED, events::BOOK_FINISHED] {
-        let catalog = Rc::clone(catalog);
-        let recorded = Rc::clone(recorded);
-        r.on(event, move |env, reading, out| {
-            recorded.take();
-            library::record(env, reading, false);
-            library::note_status(env.storage(), &reading.path);
-            out.push(library::changed_book(
-                &reading.path,
-                library::what::PROGRESS,
-            ));
-            if library::catalog::log_is_long(env.storage()) {
-                catalog.want_catch_up(None, false, out);
-            }
+        r.on(event, |k, p| {
+            k.with_core_event(&events::BOOK_CLOSED, p, |env, core, reading, out| {
+                core.recorded.take();
+                library::record(env, reading, false);
+                library::note_status(env.storage(), &reading.path);
+                out.push(library::changed_book(
+                    &reading.path,
+                    library::what::PROGRESS,
+                ));
+                if library::catalog::log_is_long(env.storage()) {
+                    core.catalog.want_catch_up(None, false, out);
+                }
+            });
         })?;
     }
     Ok(())

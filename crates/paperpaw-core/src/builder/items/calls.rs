@@ -19,8 +19,8 @@ use paperpaw_sdk::setup::SetupStepSpec;
 use paperpaw_sdk::status::{StatusItemSpec, StatusLineSpec};
 use paperpaw_sdk::widgets::WidgetSpec;
 use paperpaw_sdk::{
-    ActionSpec, EventHandler, FontFace, FontSpec, FormatSpec, Id, MenuEntry, MenuNeed, MenuSection,
-    Priority, RegisterError, SettingSpec, SlotSpec,
+    ActionSpec, FontFace, FontSpec, FormatSpec, Id, MenuEntry, MenuNeed, MenuSection, Priority,
+    RegisterError, SettingSpec, SlotSpec,
 };
 
 use paperpaw_sdk::Contribution;
@@ -40,6 +40,12 @@ pub struct Items {
     layers: Vec<crate::LayerSpec>,
     /// Bars along an edge.
     chromes: Vec<crate::ChromeSpec>,
+    /// Handlers of events.
+    hears: Vec<crate::registry::Subscribed>,
+    /// Jobs: the steps of declared work.
+    works: Vec<crate::work::WorkSpec>,
+    /// The steps of a data plugin's actions, by action.
+    data_actions: Vec<crate::registry::DataAction>,
 }
 
 /// What a plugin added, taken apart for the kernel to apply.
@@ -48,6 +54,9 @@ pub(crate) struct Parts {
     pub(crate) kernel_screens: Vec<&'static [crate::KernelScreen]>,
     pub(crate) layers: Vec<crate::LayerSpec>,
     pub(crate) chromes: Vec<crate::ChromeSpec>,
+    pub(crate) hears: Vec<crate::registry::Subscribed>,
+    pub(crate) works: Vec<crate::work::WorkSpec>,
+    pub(crate) data_actions: Vec<crate::registry::DataAction>,
 }
 
 impl Items {
@@ -60,6 +69,9 @@ impl Items {
             kernel_screens: Vec::new(),
             layers: Vec::new(),
             chromes: Vec::new(),
+            hears: Vec::new(),
+            works: Vec::new(),
+            data_actions: Vec::new(),
         }
     }
 
@@ -87,6 +99,9 @@ impl Items {
             kernel_screens: self.kernel_screens,
             layers: self.layers,
             chromes: self.chromes,
+            hears: self.hears,
+            works: self.works,
+            data_actions: self.data_actions,
         }
     }
 
@@ -525,40 +540,42 @@ impl Items {
         self.add_checked(Contribution::Format(Box::new(format)))
     }
 
-    /// Subscribes to an event by its id, with what it carries as named
-    /// strings, e.g. for events known only at run time; [`Items::on`]
-    /// hears an [`Event`](paperpaw_sdk::event::Event) with its data.
+    /// Subscribes to an event by its id, e.g. one known only at run time;
+    /// [`Items::on`] names an [`Event`](paperpaw_sdk::event::Event).
     pub fn subscribe(
         &mut self,
         event: impl Into<Id>,
-        handler: EventHandler,
+        run: crate::Hear,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Subscription {
+        self.hears.push(crate::registry::Subscribed {
             event: event.into(),
-            handler,
-        })
+            run,
+        });
+        Ok(())
     }
 
-    /// Hears `event` with what it carries (see [`event`](paperpaw_sdk::event)):
-    /// `handler` is not called for an emit of it that lacks what it needs.
+    /// Adds an action of a data plugin (`actions.ini`): the kernel runs its
+    /// `steps`.
+    pub(crate) fn add_data_action(
+        &mut self,
+        spec: ActionSpec,
+        steps: Box<[crate::data_plugin::formats::Step]>,
+    ) -> Result<(), RegisterError> {
+        let id = spec.id.clone();
+        self.add_action(spec)?;
+        self.data_actions
+            .push(crate::registry::DataAction { id, steps });
+        Ok(())
+    }
+
+    /// Hears `event`: `run` reads what it carries with
+    /// [`hear::data`](crate::hear::data).
     pub fn on<P: paperpaw_sdk::event::EventData>(
         &mut self,
         event: paperpaw_sdk::event::Event<P>,
-        handler: impl Fn(&paperpaw_sdk::Env<'_>, &P, &mut paperpaw_sdk::Commands) + 'static,
+        run: crate::Hear,
     ) -> Result<(), RegisterError> {
-        self.subscribe(
-            event.id().clone(),
-            // What the event carries as it is, without a copy; else as
-            // written.
-            Box::new(move |env, params, out| match params.carried::<P>() {
-                Some(data) => handler(env, data, out),
-                None => {
-                    if let Some(data) = P::from_params(params) {
-                        handler(env, &data, out);
-                    }
-                }
-            }),
-        )
+        self.subscribe(event.id().clone(), run)
     }
 
     /// Adds an item that status lines can show, e.g. a clock or the
@@ -592,8 +609,15 @@ impl Items {
 
     /// Adds a job: the steps of the work declared with its id (see
     /// [`work`](paperpaw_sdk::work)).
-    pub fn add_work(&mut self, work: paperpaw_sdk::work::WorkSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Work(Box::new(work)))
+    pub fn add_work(&mut self, work: crate::work::WorkSpec) -> Result<(), RegisterError> {
+        if !work.id.is_owned_by(&self.plugin) {
+            return Err(RegisterError::Namespace { id: work.id });
+        }
+        if self.works.iter().any(|w| w.id == work.id) {
+            return Err(RegisterError::Duplicate { id: work.id });
+        }
+        self.works.push(work);
+        Ok(())
     }
 
     /// Adds a widget, e.g. for the home screen (see

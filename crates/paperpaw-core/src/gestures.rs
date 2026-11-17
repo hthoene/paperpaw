@@ -680,9 +680,16 @@ impl Kernel {
             Some(spec) if spec.runs_itself() => {
                 let _running = self.shared.meter.enter(action.namespace());
                 let out = &mut self.output.commands;
-                commands::handing(out, |out| {
-                    spec.run(&env, params, out);
-                });
+                match self.data_actions.iter().find(|data| data.id == *action) {
+                    // A data plugin's: its steps, each a command.
+                    Some(data) => {
+                        let steps = data.steps.iter().filter_map(|step| step.command(&env));
+                        out.extend(steps);
+                    }
+                    None => commands::handing(out, |out| {
+                        spec.run(&env, params, out);
+                    }),
+                }
                 let owner = action.namespace();
                 work::quiet(reader, top, now, from, owner, out, &mut self.works);
                 let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);

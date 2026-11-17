@@ -148,11 +148,12 @@ fn stack_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         for action in [CLOSE, WHO] {
             r.add_action(ActionSpec::new(action, "s.action"))?;
         }
-        let log = kept.clone();
-        r.on(events::SCREEN_SHOWN, move |_, shown, _| {
-            let slot = shown.slot.as_ref().map_or("-", Id::as_str);
-            log.borrow_mut()
-                .push(alloc::format!("shown {} for {slot}", shown.screen));
+        crate::tests::hear_into(&kept);
+        r.on(events::SCREEN_SHOWN, |_, p| {
+            if let Some(shown) = crate::hear::data::<events::ScreenShown>(p) {
+                let slot = shown.slot.as_ref().map_or("-", Id::as_str);
+                crate::tests::heard(alloc::format!("shown {} for {slot}", shown.screen));
+            }
         })
     }
 }
