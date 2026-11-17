@@ -52,7 +52,11 @@ fn columns(settings: &Settings<'_, '_>, dpi: u16, width: u16) -> Result<(usize, 
 /// The host's refusals and [`Error::NoMemory`].
 pub fn books(cx: &Cx<'_>, ask: Ask<'_>) -> Result<Vec<Book>, Error> {
     let (fit, _) = cx_columns(cx, cx.snapshot.display_width())?;
-    native_recent::read(cx.host, ask.listing, 1, fit)
+    let mut books = native_recent::read(cx.host, ask.listing, 1, fit)?;
+    for book in &mut books {
+        native_recent::drawable(&cx.font, &mut book.title)?;
+    }
+    Ok(books)
 }
 
 fn cx_columns(cx: &Cx<'_>, width: u16) -> Result<(usize, u16), Error> {

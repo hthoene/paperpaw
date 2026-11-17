@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CI's S3 frame-budget scan, run locally (job "Firmware (x4-pro)" and
+# CI's S3 frame-budget scan, run locally (job "Firmware interface-7 build (x4-pro)" and
 # "(x4-classic)", step "The S3's host frames and calls fit under the band"):
 #
 #   tools/check-s3-budget.sh <worktree> [x4-pro|x4-classic|both]

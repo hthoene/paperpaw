@@ -748,6 +748,9 @@ impl super::doc_service::DocHost for DocState {
     fn preparing(&self) -> bool {
         self.table.any_preparing()
     }
+    fn documents_open(&self) -> bool {
+        self.table.any_open()
+    }
     fn prepare_step(
         &self,
         hosts: &super::host_services::HostServices,
