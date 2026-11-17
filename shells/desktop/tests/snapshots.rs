@@ -891,7 +891,9 @@ fn library(case: &Case) -> PathBuf {
     }
     // Hyphenation is data: the German names of the drawer break only where
     // the German pack is installed (built from the sources, as shipped).
-    if case.name == "x4-drawer-de" {
+    // The German book of the bookmarks case would make the reader ask the store
+    // for the pack, and the question would cover the list.
+    if case.name == "x4-drawer-de" || case.name == "x4-bookmarks" {
         let german = paperpaw_hyphenation_packs::PACKAGES
             .iter()
             .find(|package| package.id == "hyphenation-de")
@@ -904,17 +906,6 @@ fn library(case: &Case) -> PathBuf {
     let setup = dir.join(".paperpaw/plugins/setup");
     fs::create_dir_all(&setup).unwrap();
     fs::write(setup.join("done"), "").unwrap();
-    // English is hyphenated as on a device (the firmware seeds the pack): the
-    // reader would ask the store for it otherwise and the question would cover
-    // the page.
-    for (path, bytes) in paperpaw_default_packs::english() {
-        let target = dir
-            .join("plugins")
-            .join(paperpaw_default_packs::HYPHENATION)
-            .join(path);
-        fs::create_dir_all(target.parent().unwrap()).unwrap();
-        fs::write(target, bytes).unwrap();
-    }
     if let Some(book) = case.book {
         let state = dir.join(".paperpaw/plugins/reader");
         fs::create_dir_all(&state).unwrap();
