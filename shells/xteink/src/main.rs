@@ -312,6 +312,22 @@ fn device_log(line: &str) {
     log::info!("host: {line}");
 }
 
+/// The crash log's line if the last run ended by a watchdog or a brownout
+/// (`paperpaw_x4::reset_note`).
+fn watchdog_entry() -> Option<alloc::string::String> {
+    let (place, naps, reason) = power::last_run();
+    let (name, meaning) = paperpaw_x4::reset_note::watchdog(reason? as u32)?;
+    Some(alloc::format!(
+        "{}",
+        paperpaw_x4::reset_note::Entry {
+            name,
+            meaning,
+            place: power::place_name(place),
+            naps,
+        }
+    ))
+}
+
 /// How this start came, from the chip's reason for its reset: a sleep
 /// that cut the power ends by the power coming again.
 fn started() -> paperpaw_sdk::power::Start {
@@ -605,6 +621,11 @@ fn prepare() -> Ready {
     // For bug reports: on the card, and said over USB.
     if let Some(message) = &panicked {
         crash::keep(storage.as_ref(), message);
+    } else if let Some(entry) = watchdog_entry() {
+        // A watchdog or brownout leaves no message: the reason and the
+        // place are what there is (#289).
+        warn!("the last run ended by a reset: {entry}");
+        crash::keep(storage.as_ref(), &entry);
     }
     // The run before's lows, a line on the card (test image).
     #[cfg(feature = "test-image")]
