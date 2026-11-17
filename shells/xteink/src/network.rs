@@ -225,7 +225,7 @@ impl Network {
         // short for it, what sits idle is given back first (#287).
         if crate::tls_slots::take_room_asked() {
             let free = esp_alloc::HEAP.free();
-            if !paperpaw_x4::tls_gate::session_fits(free) {
+            if !paperpaw_x4::tls_gate::session_fits(free, crate::largest_block()) {
                 let parked = kernel.make_room();
                 log::info!(
                     "secure request: {free} B free, {} B after parking {parked} idle plugins",
