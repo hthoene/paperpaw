@@ -69,68 +69,9 @@ pub fn key(path: &str) -> String {
     String::from(key_into(path, &mut digits))
 }
 
-/// A folder where a plugin keeps something for each book, named by the
-/// book's [`key`] after `prefix`, alone or followed by `.` and more (a
-/// file or a folder): `cache/0123456789abcdef`, `epub-0123…/`,
-/// `0123….ini`; in the folder itself, or in the part of the folder of
-/// the key's first two digits (`01/0123…`), where a folder would hold
-/// thousands (a memory card looks through a folder one entry after the
-/// other for a name). Registered with
-/// `Items::add_book_data` or
-/// `Items::add_book_cache`, the
-/// kernel moves it with its book (`move_data`), removes it with it
-/// (`remove_data`) and when its book is no longer there
-/// ([`clean_up_unused`]): a cache by itself, the reader's data only when
-/// the reader says so.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct BookData {
-    pub folder: alloc::borrow::Cow<'static, str>,
-    pub prefix: alloc::borrow::Cow<'static, str>,
-    pub kind: BookDataKind,
-}
 
-impl BookData {
-    /// Data of `kind` in `folder`, named `prefix` and the book's id.
-    pub fn new(
-        folder: impl Into<alloc::borrow::Cow<'static, str>>,
-        prefix: impl Into<alloc::borrow::Cow<'static, str>>,
-        kind: BookDataKind,
-    ) -> Self {
-        Self {
-            folder: folder.into(),
-            prefix: prefix.into(),
-            kind,
-        }
-    }
-}
 
-/// What a folder of [`BookData`] holds.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum BookDataKind {
-    /// The reader's: a place, notes, settings for the book, a sync's
-    /// state. A book not found may be on a card not inserted, or renamed
-    /// on a computer: its data goes only when the reader agrees.
-    #[default]
-    UserData,
-    /// Made again from the book when needed (pages laid out, a cover made
-    /// small): it goes by itself once its book is not found.
-    Cache,
-}
 
-impl BookData {
-    /// The book key entry `name` of the folder is named by, if it is one
-    /// of these, and what follows it.
-    pub fn key_of<'n>(&self, name: &'n str) -> Option<(&'n str, &'n str)> {
-        let rest = name.strip_prefix(&*self.prefix)?;
-        let key = rest.get(..16)?;
-        let tail = &rest[16..];
-        let hex = key.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-        (hex && (tail.is_empty() || tail.starts_with('.'))).then_some((key, tail))
-    }
-
-}
 
 
 

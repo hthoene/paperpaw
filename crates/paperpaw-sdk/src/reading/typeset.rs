@@ -6,30 +6,23 @@
 //! A reader of one's own lays pages out and draws them as the shipped one
 //! does; what it puts around them (status lines) is its own.
 
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use super::WordBox;
-use crate::builtin::{fonts, settings};
 use crate::document::Locator;
 use crate::layout::{
-    BookStyles, Face, LineBidi, LineRun, Page, PageImage, PageLine, ScriptOptions, Style,
+    Face, LineBidi, LineRun, Page, PageLine, Style,
     Typesetter,
 };
 use crate::text::ToneCurve;
-use crate::{Canvas, Color,  FontHandle, FontSet, Id, Point, Rect};
+use crate::{Canvas, Color,  FontHandle, FontSet, Id, Rect};
 
 /// Relative sizes of headings 1 to 6.
 const HEADING_SCALE: [f32; 6] = [1.6, 1.4, 1.2, 1.1, 1.0, 1.0];
 
 /// Small capitals are this much of the text size.
 const SMALL_CAPS: f32 = 0.78;
-/// The reader's "Hanging punctuation" setting (the core plugin's), off
-/// where it is not defined: punctuation at the lines' ends set out into
-/// the margins ([`ScriptOptions::HANGING_PUNCTUATION`]).
-const HANGING_PUNCTUATION: crate::setting::Setting<bool> =
-    crate::setting::Setting::new("core.hanging-punctuation");
 
 /// Superscript and subscript are this much of the text size, raised or
 /// lowered by this much of it.
@@ -155,22 +148,6 @@ pub struct PageType {
 }
 
 
-/// The options of the line breaker for a book in `language`: by word
-/// (`KEEP_ALL`) only for a Korean book whose reader chose it. The bit is
-/// never global: it would lay out Chinese and Japanese text badly. And
-/// hanging punctuation where the reader chose it (`hanging`).
-fn script_options(language: &str, korean: &str, hanging: bool) -> ScriptOptions {
-    let primary = language.split(['-', '_']).next().unwrap_or("");
-    let options = match primary.eq_ignore_ascii_case("ko") && korean == settings::KOREAN_BREAKS_WORD
-    {
-        true => ScriptOptions::KEEP_ALL,
-        false => ScriptOptions::NONE,
-    };
-    match hanging {
-        true => options.with(ScriptOptions::HANGING_PUNCTUATION),
-        false => options,
-    }
-}
 
 
 /// The reading fonts by face, for layout and drawing: the faces bound to
@@ -745,20 +722,6 @@ fn reordered_boxes(
 }
 
 
-/// What a value of [`settings::TEXT_SHARPNESS`] does to book text: the
-/// steps it moves the contrast by (soft -1, sharp +1) and whether it
-/// draws without grays (sharp). Normal, and a value it does not know,
-/// change nothing.
-fn sharpness(level: &str) -> (i8, bool) {
-    match settings::TEXT_SHARPNESS_LEVELS
-        .iter()
-        .position(|l| *l == level)
-    {
-        Some(0) => (-1, false),
-        Some(2) => (1, true),
-        _ => (0, false),
-    }
-}
 
 /// Draws `lines` laid out with `faces` in `page_type`, their content box
 /// at `origin`, each word in its ink (`inks`, by the words' order as

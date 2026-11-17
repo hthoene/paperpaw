@@ -665,9 +665,6 @@ pub struct KeysHeld<'a> {
 }
 
 impl<'a> KeysHeld<'a> {
-    pub(crate) const fn of(names: &'a [&'static str]) -> Self {
-        Self { names }
-    }
 
     /// Whether button `name` is held down.
     pub fn contains(&self, name: &str) -> bool {

@@ -1,200 +1,15 @@
-use alloc::borrow::Cow;
-use alloc::string::String;
-use alloc::vec::Vec;
-use core::fmt;
-
-use crate::collections::VecMap;
-use crate::id::{Id, Text};
-
-/// Where an entry goes in its menu, beside others (see
-/// [`MenuEntry::place`]).
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum MenuPlace {
-    /// By order with the others placed so, lower first.
-    Order(i16),
-    /// Right after this entry (or heading).
-    After(Id),
-    /// Right before it.
-    Before(Id),
-    /// Last in the part below this heading ([`MenuSection`]).
-    InSection(Id),
-    /// Before everything else.
-    First,
-    /// After everything else.
-    Last,
-    /// A value a later build adds, by its name (a constant of that build);
-    /// a build that doesn't know it: an entry for a place it doesn't know is not shown.
-    Other(&'static str),
-}
-
-/// What a menu shows of an entry now, where it changes (see
-/// `Items::set_item_state`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct ItemState {
-    /// In place of its title, as shown (translated).
-    pub label: Option<Cow<'static, str>>,
-    /// Shown with a switch, on or off.
-    pub checked: Option<bool>,
-    /// It can be chosen; else it is shown faint.
-    pub enabled: bool,
-    /// It is shown at all.
-    pub shown: bool,
-    /// A short text at its right (a count, `new`).
-    pub badge: Option<Cow<'static, str>>,
-}
-
-impl Default for ItemState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ItemState {
-    /// Shown as it is, and can be chosen.
-    pub const fn new() -> Self {
-        Self {
-            label: None,
-            checked: None,
-            enabled: true,
-            shown: true,
-            badge: None,
-        }
-    }
-
-    pub fn label(mut self, label: impl Into<Cow<'static, str>>) -> Self {
-        self.label = Some(label.into());
-        self
-    }
-
-    pub fn checked(mut self, on: bool) -> Self {
-        self.checked = Some(on);
-        self
-    }
-
-    pub fn enabled(mut self, enabled: bool) -> Self {
-        self.enabled = enabled;
-        self
-    }
-
-    pub fn shown(mut self, shown: bool) -> Self {
-        self.shown = shown;
-        self
-    }
-
-    pub fn badge(mut self, badge: impl Into<Cow<'static, str>>) -> Self {
-        self.badge = Some(badge.into());
-        self
-    }
-
-    /// What a place with room for one short line (a bar, a panel's
-    /// button, a tile) shows: the label in place of `title` where there
-    /// is one, the badge after it.
-    pub fn text(&self, title: &str) -> String {
-        let label = self.label.as_deref().unwrap_or(title);
-        match &self.badge {
-            Some(badge) => alloc::format!("{label} · {badge}"),
-            None => String::from(label),
-        }
-    }
-}
 
 
 
 
-/// Puts an action or a setting into a menu.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct MenuEntry {
-    /// The menu, e.g. [`builtin::menus::MAIN`](crate::builtin::menus::MAIN)
-    /// or `reader.menu`.
-    pub menu: Id,
-    /// An action, run when the entry is chosen, or a setting, shown with
-    /// its current value and changed in place. Its title is the label. An
-    /// action named like a menu with entries is shown as that submenu.
-    pub item: Id,
-    /// Position; lower comes first.
-    pub order: i16,
-    /// Where it goes beside other entries, in place of its order.
-    pub place: Option<MenuPlace>,
-}
 
-impl MenuEntry {
-    /// Made of what it needs; the rest as set with its methods. A `const`
-    /// fn, so that a plugin's entries can be a `static` list
-    /// (`Items::add_menu_entries`).
-    pub const fn new(menu: Id, item: Id) -> Self {
-        Self {
-            menu,
-            item,
-            order: 0,
-            place: None,
-        }
-    }
 
-    pub const fn order(mut self, order: i16) -> Self {
-        self.order = order;
-        self
-    }
 
-    /// Placed beside other entries, e.g. right after another plugin's.
-    pub fn place(mut self, place: MenuPlace) -> Self {
-        self.place = Some(place);
-        self
-    }
 
-    /// Put into `menu` at `place`, as [`MenuEntry::place`] puts it; for
-    /// `static` lists.
-    pub const fn placed(menu: Id, item: Id, place: MenuPlace) -> Self {
-        Self {
-            menu,
-            item,
-            order: 0,
-            place: Some(place),
-        }
-    }
 
-    /// Where it goes as entries placed by order go.
-    fn by_order(&self) -> Option<i16> {
-        match &self.place {
-            None => Some(self.order),
-            Some(MenuPlace::Order(order)) => Some(*order),
-            Some(_) => None,
-        }
-    }
-}
 
-/// A heading in a menu: the entries after it, up to the next heading,
-/// belong to it (see `Items::add_menu_section`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct MenuSection {
-    /// `<plugin>.<name>`; also usable in the user's menu definitions.
-    pub id: Id,
-    /// Translation key of the heading.
-    pub title: Cow<'static, str>,
-    pub menu: Id,
-    /// Position among the menu's entries; lower comes first.
-    pub order: i16,
-}
 
-impl MenuSection {
-    /// Made of what it needs; the rest as set with its methods.
-    pub fn new(id: Id, title: impl Into<Cow<'static, str>>, menu: Id) -> Self {
-        Self {
-            id,
-            title: title.into(),
-            menu,
-            order: 0,
-        }
-    }
 
-    pub fn order(mut self, order: i16) -> Self {
-        self.order = order;
-        self
-    }
-}
 
 /// What a menu entry needs to be offered (see
 /// `Items::set_menu_need`), so
@@ -271,19 +86,6 @@ impl MenuNeed {
     }
 }
 
-/// One entry of a resolved menu.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct MenuItem<'a> {
-    /// An action or a setting, or a section.
-    pub id: &'a Id,
-    /// Translation key of the label.
-    pub title: &'a str,
-    /// The icon's name ([`icons`](crate::icons)), if it has one.
-    pub icon: Option<&'a str>,
-    /// A heading rather than an entry ([`MenuSection`]).
-    pub section: bool,
-}
 
 
 

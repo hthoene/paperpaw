@@ -1,13 +1,6 @@
-use core::fmt;
 
-use paperpaw_i18n::Translator;
-use paperpaw_platform::{DeviceInfo, Instant, Storage, SystemStatus};
+use paperpaw_platform::Storage;
 
-use crate::fonts::Fonts;
-use crate::formats::Formats;
-use crate::hyphenation::Hyphenation;
-use crate::plugins::Plugins;
-use crate::settings::Settings;
 
 /// What the device and its shell can do: plugins offer only what works
 /// here, and menu entries that need more are left out

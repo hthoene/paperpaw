@@ -314,7 +314,7 @@ mod status_old;
 #[cfg(not(test))]
 pub mod status {
     pub use crate::status_old::item_ids;
-    pub(crate) use crate::status_old::*;
+    
 }
 // end of facade: status
 // facade: time (#244, D0)
@@ -327,7 +327,7 @@ mod time_old;
 /// `kernel`).
 #[cfg(not(test))]
 pub mod time {
-    pub(crate) use crate::time_old::*;
+    
     pub use crate::time_old::{
         CLOCK_12H, LocalTime, TIME_ZONES, TimeZone, UnixTime, civil_from_days, day_of_year,
         days_from_civil, days_in_month, days_in_year, iso_week, weekday, weekday_of,
@@ -369,7 +369,7 @@ mod widgets_old;
 /// `kernel`).
 #[cfg(not(test))]
 pub mod widgets {
-    pub(crate) use crate::widgets_old::*;
+    
     pub use crate::widgets_old::{
         CellSpan, ColourSpec, PAPER_LIGHT_GRAY, PAPER_NONE, PAPER_NORMAL, categories, colour_spec,
     };
@@ -400,9 +400,6 @@ mod work;
 pub use action::{
     Action, ActionHint, ActionSpec, Actions, FixedAction, FixedHandler, NativeAction,
 };
-#[cfg(not(test))]
-pub(crate) use action::{
-     ActionHint,     NativeAction};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use command::{
@@ -478,9 +475,6 @@ pub use menus::MenuNeed;
 pub use menus::{
     ItemState, ItemStateFn, MenuEntry, MenuItem, MenuPlace, MenuSection, MenuView, Menus,
 };
-#[cfg(not(test))]
-pub(crate) use menus::{
-    ItemState,  MenuEntry, MenuItem, MenuPlace, MenuSection};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use params::Params;

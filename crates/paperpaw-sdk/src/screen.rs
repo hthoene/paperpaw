@@ -377,8 +377,6 @@ impl Output {
 }
 
 
-/// No params, for a context without an action's.
-const NO_PARAMS: &Params = &Params::new();
 
 
 #[cfg(test)]

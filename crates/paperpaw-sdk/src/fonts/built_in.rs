@@ -3,13 +3,12 @@
 //! (`KernelBuilder::built_in_fonts` of `paperpaw-core`).
 
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
 
 use paperpaw_text::Font;
 
-use super::{FontFace, FontSpec};
+use super::FontSpec;
 use crate::id::Id;
-use crate::plugin::{Manifest, Priority, RegisterError};
+use crate::plugin::{Manifest, RegisterError};
 
 /// One entry of [`BuiltInFonts`], registered in the table's order.
 #[derive(Debug, Clone)]

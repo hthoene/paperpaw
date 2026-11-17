@@ -1,19 +1,10 @@
 //! How much room a screen has: its class by width ([`ScreenClass`]), for
 //! layouts that adapt to phones, tablets and a device on its side.
 
-use crate::builtin::settings;
 use crate::event::ParamValue;
-use crate::Rect;
 use alloc::string::String;
 
-/// A part of the screen narrower than this many millimetres (at the
-/// reader's own size of text, see [`ScreenClass::of`]) is
-/// [`ScreenClass::Compact`].
-pub const COMPACT_BELOW_MM: u32 = 100;
 
-/// A part of the screen at least this many millimetres wide (at the
-/// reader's own size of text) is [`ScreenClass::Expanded`].
-pub const EXPANDED_FROM_MM: u32 = 140;
 
 /// How much room a part of the screen has, by its width. The X4 and other
 /// small readers are compact in both orientations; a phone on its side

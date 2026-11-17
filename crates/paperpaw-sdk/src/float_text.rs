@@ -301,16 +301,7 @@ pub(crate) fn write_f32(out: &mut impl fmt::Write, value: f32) -> fmt::Result {
     Ok(())
 }
 
-/// A float to write as [`write_f32`] writes it, for `format!`.
-#[cfg(any(feature = "unstable", test))]
-pub(crate) struct Shown(pub f32);
 
-#[cfg(any(feature = "unstable", test))]
-impl fmt::Display for Shown {
-    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_f32(out, self.0)
-    }
-}
 
 /// `value` with one digit after the point, as `{:.1}` writes an `f32`:
 /// rounded to the nearer tenth, half way to the even one. From 10^15 on

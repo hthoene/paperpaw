@@ -11,34 +11,8 @@
 use alloc::string::String;
 
 
-/// A monotonic clock in microseconds ([`Env::clock`](crate::Env::clock)),
-/// for measuring how long work takes, e.g. reading a file: the shell's
-/// (`KernelBuilder::clock`). Unlike [`Env::now`](crate::Env::now), it
-/// goes on during a call. Where the shell gives none, nothing is measured.
-#[derive(Clone, Copy, Default)]
-pub struct Clock {
-    micros: Option<fn() -> u64>,
-}
 
-impl Clock {
-    /// No clock: nothing is measured.
-    pub const NONE: Self = Self { micros: None };
 
-    /// The clock `micros`, microseconds since some start (for the kernel).
-    pub const fn new(micros: fn() -> u64) -> Self {
-        Self {
-            micros: Some(micros),
-        }
-    }
-}
-
-impl core::fmt::Debug for Clock {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Clock")
-            .field("available", &self.micros.is_some())
-            .finish()
-    }
-}
 
 
 /// Time zones to choose from: an id (its translation is the name shown)

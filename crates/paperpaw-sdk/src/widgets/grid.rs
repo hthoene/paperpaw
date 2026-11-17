@@ -59,7 +59,6 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::ui::UiStyle;
 use crate::{ Id, Point, Rect};
 
 /// Columns at most, and rows at most.

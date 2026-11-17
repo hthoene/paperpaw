@@ -1,79 +1,17 @@
-use alloc::borrow::Cow;
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use core::fmt;
-
-use crate::id::Id;
-use crate::params::Params;
-
-
-/// What few actions have ([`ActionSpec`]).
-#[derive(Default)]
-struct ActionExtra {
-    description: Option<Cow<'static, str>>,
-    keywords: Option<Cow<'static, str>>,
-    sealed: bool,
-    /// The kernel runs it from what it keeps of it (a data plugin's steps).
-    by_kernel: bool,
-}
 
 
 
 
 
 
-/// An action of an interface-7 plugin (`docs/abi/screens-input.md` section
-/// 2): what it is called and which plugin's callback runs it, without a
-/// handler of its own. The kernel runs it by delivering `event.action_run`
-/// to `token` of plugin `owner` (`Action::native`, with the `kernel`
-/// feature). Its id and title are a linked plugin's entry kept in the program
-/// ([`Titled::kept`](crate::Titled::kept)) or a copy: some 24 bytes on a
-/// 32-bit device where an [`ActionSpec`] with a handler takes some 100 (#248).
-#[derive(Debug)]
-pub struct NativeAction {
-    titled: crate::Titled,
-    owner: u64,
-    token: u32,
-}
-
-impl NativeAction {
-    /// The action named by `titled` (its id and title), run by `token` of
-    /// plugin `owner`.
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn new(titled: crate::Titled, owner: u64, token: u32) -> Self {
-        Self {
-            titled,
-            owner,
-            token,
-        }
-    }
-}
 
 
-/// How the row of hints shows a native action: by its title.
-static NATIVE_HINT: ActionHint = ActionHint::Title;
 
 
-/// How the row of hints below the screen shows an action, unless the
-/// screen says otherwise (`hint`).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum ActionHint {
-    /// Its title.
-    #[default]
-    Title,
-    /// A word shorter than its title (a translation key), e.g. *Select*
-    /// for confirming.
-    Label(Cow<'static, str>),
-    /// An icon ([`icons`](crate::icons)), e.g. an arrow for moving.
-    Icon(&'static str),
-    /// Nothing, e.g. for an action that does nothing.
-    Hidden,
-    /// A value a later build adds, by its name (a constant of that build);
-    /// a build that doesn't know it: it shows no hint.
-    Other(&'static str),
-}
+
+
+
+
 
 
 

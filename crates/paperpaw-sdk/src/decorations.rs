@@ -27,9 +27,6 @@
 //! What changes widths (bold, a larger size) is a text filter instead
 //! (see [`filters`](crate::filters)): it needs the page laid out again.
 
-use alloc::borrow::Cow;
-use alloc::vec::Vec;
-use core::fmt;
 
 use crate::document::Locator;
 use crate::{
@@ -355,17 +352,6 @@ pub struct PageWord<'a> {
     pub end: Locator,
 }
 
-/// The words of a page, for decorators.
-#[derive(Debug, Clone, Copy)]
-#[non_exhaustive]
-pub struct PageText<'a> {
-    /// The book.
-    pub path: &'a str,
-    /// Its language, e.g. `de` (empty where unknown).
-    pub language: &'a str,
-    /// In reading order.
-    pub words: &'a [PageWord<'a>],
-}
 
 /// A range a decorator marks, with its role.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -394,25 +380,7 @@ impl Decorated {
 
 
 
-/// Marks words by [patterns](crate::pattern): each found on the page's
-/// text (its words with a space between), the words it touches marked in
-/// its role. A word broken over two lines counts once, whole.
-#[derive(Debug, Clone, Default)]
-pub struct PatternDecorator {
-    rules: Vec<(crate::pattern::Pattern, Id)>,
-}
 
-impl PatternDecorator {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-
-    pub fn is_empty(&self) -> bool {
-        self.rules.is_empty()
-    }
-
-}
 
 
 

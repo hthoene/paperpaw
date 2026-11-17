@@ -8,22 +8,8 @@
 //!
 //! `Items::add_setup_step`: crate::Items::add_setup_step
 
-use alloc::borrow::Cow;
-use alloc::vec::Vec;
-use core::fmt;
 
-use crate::Id;
 
-/// What a step asks for.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum SetupPage {
-    /// A setting, chosen on the guide's page (or in its editor).
-    Setting(Id),
-    /// A screen of the step's plugin, opened from the guide's page (e.g.
-    /// the Wi-Fi networks to join).
-    Screen(Id),
-}
 
 
 

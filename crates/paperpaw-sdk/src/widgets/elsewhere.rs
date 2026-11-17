@@ -3,28 +3,9 @@
 //! [`WidgetSpec`](super::WidgetSpec)s. The kernel's own screens that name
 //! widgets (the editor of lists of widgets) ask for them through a lookup
 //! the kernel sets; without one they know the registered widgets only.
-use super::base;
-use crate::Id;
-use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
 
-/// Calls its second argument with the id, the translation key of the name
-/// and the kind of each widget to add that is declared elsewhere; of the
-/// widget its first argument names only, where it names one.
-type Lookup = dyn Fn(Option<&str>, &mut dyn FnMut(&str, &str, &str));
 
-/// The kernel's lookup, where it set one.
-#[derive(Default)]
-pub(super) struct Elsewhere(Option<Box<Lookup>>);
 
-impl core::fmt::Debug for Elsewhere {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(if self.0.is_some() {
-            "Elsewhere(set)"
-        } else {
-            "Elsewhere"
-        })
-    }
-}
 
 #[cfg(test)]
 mod tests {

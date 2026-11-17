@@ -52,17 +52,8 @@
 //! ([`Command::PreviewSettings`](crate::Command::PreviewSettings)). It is
 //! not offered among the widgets for other screens.
 
-use alloc::borrow::Cow;
-use alloc::boxed::Box;
-use alloc::string::String;
-use alloc::vec::Vec;
-use core::fmt;
 
-use paperpaw_graphics::Canvas;
-use paperpaw_platform::Rect;
 
-use crate::id::Id;
-use crate::params::Params;
 
 mod colours;
 mod elsewhere;
@@ -76,8 +67,6 @@ pub use colours::{
     ColourSpec, PAPER_LIGHT_GRAY, PAPER_NONE,
     PAPER_NORMAL,     colour_spec};
 
-pub use look::{
-     Frame,       Wrapped};
 
 /// The kinds of widgets ([`WidgetSpec::category`]), each the translation
 /// key of its name; screens that offer widgets group them so.
@@ -123,37 +112,6 @@ pub mod categories {
     }
 }
 
-/// A kind of widgets of a plugin's own
-/// (`Items::add_widget_category`),
-/// beside [`categories`]: its id, the translation key of its name, and
-/// its icon. Screens offering widgets list such kinds after the
-/// kernel's.
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub(crate) struct WidgetCategory {
-    pub id: Id,
-    pub icon: Cow<'static, str>,
-}
-
-/// A widget as a screen shows it: made for that screen by its spec
-/// ([`WidgetSpec`]), it keeps what it shows.
-///
-/// What it shows is read in [`update`](Self::update), when the screen
-/// asks: when it shows the widget, about each minute, and after events
-/// that may change it (e.g. the library or a setting changed). Drawing
-/// then only draws: a frame may be drawn in bands, so
-/// [`draw`](Self::draw) runs several times for it and reads nothing from
-/// the storage (but pictures, which are drawn from their files).
-pub trait Widget {
-
-    /// Whether what it shows changes by itself (the time, the battery):
-    /// it is read anew each minute and when the device's status changes.
-    /// Widgets that show what changes only after events (books, settings)
-    /// say `false`, and are read when shown and after those events only:
-    /// reading them each minute would cost time and battery for nothing.
-    fn live(&self) -> bool {
-        true
-    }
 
 
 
@@ -161,53 +119,6 @@ pub trait Widget {
 
 
 
-
-
-}
-
-/// Where a widget is shown ([`Widget::context`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct WidgetContext<'a> {
-    /// Its placement, e.g. `notes.todo@2`, where it is one; `None` for
-    /// the widget itself.
-    pub placement: Option<&'a str>,
-    /// The screen showing it, where the screen says.
-    pub host: Option<&'a str>,
-    /// How large it is drawn.
-    pub size: SizeClass,
-}
-
-/// Input a widget may take beside taps ([`Widget::on_input`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum WidgetInput {
-    /// A swipe that started on it, this way; also a page button while one
-    /// of its targets has the focus (see [`Widget::on_input`]).
-    Swipe(crate::gesture::Direction),
-    /// The buttons' focus came to its target in this area, or (`None`)
-    /// left it.
-    Focus(Option<Rect>),
-}
-
-
-
-
-/// A place in a widget that does something: a tap on it, or confirm
-/// once buttons moved the focus there, runs `command` (a tap alone where
-/// it is [`touch`](Self::touch)).
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct WidgetTarget {
-    pub area: Rect,
-    pub command: crate::Command,
-    /// Tapped only: the buttons' focus does not stop there (what it does
-    /// is reached otherwise, e.g. by an action bound to a button).
-    pub touch: bool,
-    /// What a long press on it runs, if anything (else a long press does
-    /// what it does on the screen, e.g. editing the page).
-    pub hold: Option<crate::Command>,
-}
 
 
 
@@ -277,107 +188,18 @@ impl CellSpan {
     }
 }
 
-/// How large a widget is drawn, for widgets that show more where they
-/// have the room (a day's forecast small, the week's large): by the
-/// shorter side of its area, in millimetres.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[non_exhaustive]
-pub enum SizeClass {
-    /// Less than 20 mm on its shorter side: a figure, an icon.
-    Small,
-    /// Up to 45 mm.
-    Medium,
-    /// More.
-    Large,
-}
-
-/// How a place holds its widgets ([`WidgetPlace::kind`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum PlaceKind {
-    /// Above each other (`WidgetStack`): a setting of widget ids separated by
-    /// commas, [`FILL`] and [`SPACE`] among them.
-    Stack,
-    /// In a grid of cells ([`grid`]): settings of items with their cells,
-    /// one a page.
-    Grid,
-}
-
-/// A place where widgets show: the settings that list them, and how it
-/// holds them. Screens of any plugin register theirs, so that plugins
-/// can ask whether their widget shows anywhere ([`Widgets::shown`]) and
-/// editors know them.
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct WidgetPlace {
-    pub id: Id,
-    /// Translation key of its name, e.g. "Sleep screen".
-    pub title: Cow<'static, str>,
-    /// The settings that list its widgets (a grid's pages each one).
-    pub settings: Cow<'static, [Id]>,
-    pub kind: PlaceKind,
-    /// It shows only while this setting has this value (a mode of a
-    /// screen), see [`WidgetPlace::shown_if`].
-    pub shown_if: Option<(Id, &'static str)>,
-}
-
-
-/// The ids a setting listing widgets names: each item's first word, the
-/// cells of a grid's items after it left out.
-fn listed(text: &str) -> impl Iterator<Item = &str> {
-    text.split(',')
-        .filter_map(|item| item.split_whitespace().next())
-}
-
-
-
-/// The widget a placement shows: `widgets.clock` for `widgets.clock@2`.
-pub fn base(id: &str) -> &str {
-    id.split_once('@').map_or(id, |(base, _)| base)
-}
 
 
 
 
-/// Where a widget's text sits in its place. [`Align::Start`] and
-/// [`Align::End`] follow the interface's direction: at the left and the
-/// right in left-to-right languages, the other way round in
-/// right-to-left ones (`Align::resolved`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Align {
-    Left,
-    Center,
-    Right,
-    /// Where lines start: left, or right in a right-to-left interface.
-    Start,
-    /// Where lines end: right, or left in a right-to-left interface.
-    End,
-}
 
-impl Align {
 
-    /// Left, centre or right: [`Align::Start`] and [`Align::End`] for an
-    /// interface right to left (`rtl`) or not.
-    pub(crate) const fn resolved(self, rtl: bool) -> Align {
-        match (self, rtl) {
-            (Align::Start, false) | (Align::End, true) => Align::Left,
-            (Align::Start, true) | (Align::End, false) => Align::Right,
-            (other, _) => other,
-        }
-    }
 
-    /// Where something `width` wide starts in `area`.
-    pub(crate) fn x(self, area: Rect, width: f32) -> f32 {
-        let left = f32::from(area.x);
-        let room = (f32::from(area.width) - width).max(0.0);
-        match self.resolved(false) {
-            Align::Center => left + room / 2.0,
-            Align::Right => left + room,
-            _ => left,
-        }
-    }
-}
+
+
+
+
+
 
 
 #[cfg(test)]
