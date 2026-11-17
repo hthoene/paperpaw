@@ -51,7 +51,7 @@ use crate::native_widgets::Widgets;
 /// 0.5 s later on the X4, as the reader does for the pictures of a page;
 /// #294): the first frame spends no time on decoding them (about 270 ms). The
 /// switch is this line.
-pub const COVERS_IN_FOLLOWUP: bool = false;
+pub const COVERS_IN_FOLLOWUP: bool = true;
 
 /// The setting the footer's editor changes.
 const FOOTER_ITEMS: &str = "home.footer.items";
