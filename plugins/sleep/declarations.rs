@@ -21,6 +21,8 @@ pub const SETTING_CHANGED: u32 = 14;
 pub const IMAGE_READY: u32 = 16;
 /// The picker of the picture or the widget over the page (`native_picker`).
 pub const PICK: u32 = 17;
+/// The editor of a list of widgets above each other (slot `core.edit-widgets`).
+pub const EDIT: u32 = 18;
 
 const GROUP: &str = "sleep.group";
 const SHOW: [&str; 7] = [
@@ -168,7 +170,8 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The picker of what goes over the page and the sleep screen.
+/// The picker of what goes over the page, the editor of a list of widgets
+/// and the sleep screen.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -176,6 +179,13 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         "pick-overlay",
         "sleep.setting.overlay-picture",
         PICK,
+    ))?;
+    // The list of a setting's widgets, and what can be added to it: one
+    // screen, opened again in its adding mode.
+    d.screen(ScreenDecl::new(
+        "edit-widgets",
+        "core.widgets.edit.screen",
+        EDIT,
     ))?;
     // An overlay: the host draws the page below first, which the modes that
     // leave it (`page`, `overlay`) need; the screen never draws it itself. A
@@ -205,7 +215,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The slot, the icon, the needs and the places the widgets go.
+/// The slots, the icon, the needs and the places the widgets go.
 pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -214,6 +224,10 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
         d.menu_need(item, MenuNeed::Sleep)?;
     }
     d.slot_offer(SlotOfferDecl::new("core.sleep", "sleep.screen"))?;
+    d.slot_offer(SlotOfferDecl::new(
+        "core.edit-widgets",
+        "sleep.edit-widgets",
+    ))?;
     for (name, key, value) in [
         ("widgets", "sleep.widgets", "sleep.show.widgets"),
         ("overlay", "sleep.overlay-widget", "sleep.show.overlay"),

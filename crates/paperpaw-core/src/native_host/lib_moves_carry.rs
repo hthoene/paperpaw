@@ -37,7 +37,7 @@ use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{
     Command, Editor, Env, Formats, SettingValue, Settings,
-    builtin::{events, screens, slots},
+    builtin::{events, slots},
     files, library,
     library::BookData,
     readers,
@@ -177,16 +177,9 @@ impl<'a> EnvCarry<'a> {
     fn follow_folders(&self, from: &str, to: &str) -> Result<(), i32> {
         // An editor is in a setting's extra: those are kept as they are.
         for spec in self.settings.kept_specs() {
-            let folder = spec
-                .extra()
-                .editor
-                .as_ref()
-                .is_some_and(|editor| match editor {
-                    Editor::Slot(slot) => *slot == slots::CHOOSE_FOLDER,
-                    Editor::Screen(screen) => *screen == screens::FOLDER_EDITOR,
-                    // A kind of editor added later is not a folder one.
-                    _ => false,
-                });
+            let folder = spec.extra().editor.as_ref().is_some_and(
+                |editor| matches!(editor, Editor::Slot(slot) if *slot == slots::CHOOSE_FOLDER),
+            );
             if !folder {
                 continue;
             }

@@ -82,7 +82,6 @@ mod room;
 mod screens;
 mod secrets_i6;
 mod shared_env;
-pub mod stock;
 pub use chrome_spec::{ChromeSpec, Edge};
 mod tall_band;
 mod warning;

@@ -1043,16 +1043,11 @@ action wifi.open | title=wifi.title sealed=false runs-itself=true native=Some(1)
 screen about.screen | title=about.title
 screen bluetooth.page | title=bluetooth.title
 screen bluetooth.search | title=bluetooth.add
-screen core.add-widget | title=core.widgets.edit.add-to-list
 screen core.finishing-update | title=core.finishing-update.title
 screen core.firmware-confirm | title=core.firmware.title
-screen core.folder-editor | title=core.setting.library-folder
 screen core.low-memory | title=core.low-memory.title
 screen core.notice-box | title=core.notice-box
 screen core.placeholder | title=core.screen.placeholder
-screen core.status-items | title=core.status.choose
-screen core.status-lines | title=core.status.choose
-screen core.widget-list | title=core.widgets.edit.screen
 screen file-manager.browser | title=file-manager.title
 screen files.browser | title=files.title
 screen files.choose-folder | title=files.choose.title
@@ -1101,6 +1096,7 @@ screen settings.secret | title=settings.secrets
 screen settings.secrets | title=settings.secrets
 screen settings.themes | title=settings.theme
 screen setup.guide | title=setup.title
+screen sleep.edit-widgets | title=core.widgets.edit.screen
 screen sleep.pick-overlay | title=sleep.setting.overlay-picture
 screen sleep.screen | title=sleep.title
 screen store.fetch | title=store.fetch.title
@@ -1139,7 +1135,7 @@ slot-offer core.choice | keyboard.ask Priority(0)
 slot-offer core.choose-folder | files.choose-folder Priority(0)
 slot-offer core.choose-value | settings.choose Priority(0)
 slot-offer core.confirm | keyboard.ask Priority(0)
-slot-offer core.edit-widgets | core.widget-list Priority(0)
+slot-offer core.edit-widgets | sleep.edit-widgets Priority(0)
 slot-offer core.footnote | reader.footnote Priority(0)
 slot-offer core.home | core.placeholder Priority(-32768)
 slot-offer core.home | files.browser Priority(-100)
@@ -2311,6 +2307,7 @@ native Screen settings | ScreenSpec(ScreenSpec { name: "secrets", title: "settin
 native Screen settings | ScreenSpec(ScreenSpec { name: "secret", title: "settings.secrets", token: 16, flags: 0 })
 native Screen setup | ScreenSpec(ScreenSpec { name: "guide", title: "setup.title", token: 20, flags: 64 })
 native Screen sleep | ScreenSpec(ScreenSpec { name: "pick-overlay", title: "sleep.setting.overlay-picture", token: 17, flags: 0 })
+native Screen sleep | ScreenSpec(ScreenSpec { name: "edit-widgets", title: "core.widgets.edit.screen", token: 18, flags: 0 })
 native Screen sleep | ScreenSpec(ScreenSpec { name: "screen", title: "sleep.title", token: 11, flags: 324 })
 native Screen store | ScreenSpec(ScreenSpec { name: "list", title: "store.title", token: 20, flags: 64 })
 native Screen store | ScreenSpec(ScreenSpec { name: "plugin", title: "store.title", token: 21, flags: 0 })
@@ -2642,6 +2639,7 @@ native SlotOffer settings | SlotOffer(SlotOffer { slot: "core.settings", screen:
 native SlotOffer settings | SlotOffer(SlotOffer { slot: "core.choose-value", screen: "settings.choose", priority: 0 })
 native SlotOffer setup | SlotOffer(SlotOffer { slot: "core.setup", screen: "setup.guide", priority: 0 })
 native SlotOffer sleep | SlotOffer(SlotOffer { slot: "core.sleep", screen: "sleep.screen", priority: 0 })
+native SlotOffer sleep | SlotOffer(SlotOffer { slot: "core.edit-widgets", screen: "sleep.edit-widgets", priority: 0 })
 native SlotOffer transfer | SlotOffer(SlotOffer { slot: "core.remote-keyboard", screen: "transfer.phone", priority: 0 })
 native SlotOffer transfer | SlotOffer(SlotOffer { slot: "core.cable", screen: "transfer.cable", priority: 0 })
 native SlotOffer vocabulary | SlotOffer(SlotOffer { slot: "core.sleep", screen: "vocabulary.sleep-card", priority: -1 })

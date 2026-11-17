@@ -59,6 +59,7 @@ pub mod native_plugin;
 mod native_screen;
 pub mod native_sleep;
 mod native_stack;
+mod native_widgets_edit;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 

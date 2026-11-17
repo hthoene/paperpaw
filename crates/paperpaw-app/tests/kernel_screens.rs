@@ -223,8 +223,9 @@ fn choice(device: DeviceInfo) {
 
 fn folder_editor(device: DeviceInfo) {
     let mut app = App::on(device);
-    app.open(
-        screens::FOLDER_EDITOR,
+    // The library folder's editor is the folder chooser's slot (#293).
+    app.ask(
+        slots::CHOOSE_FOLDER,
         Params::new().with(params::PATH, "books"),
     );
     app.check("folder-editor");

@@ -28,9 +28,9 @@ use paperpaw_sdk::library;
 use paperpaw_sdk::time::{self, AUTO, CLOCK_12H, CLOCK_24H, TIME_ZONES};
 use paperpaw_sdk::widgets::{self, Drawn, WidgetSpec};
 use paperpaw_sdk::{
-    ActionHint, Canvas, Command, Commands, Cx, Env, FixedAction, Handled, Id, Manifest, MenuEntry,
-    Params, Priority, RegisterError, SettingExtra, SettingGroupSpec, SettingKind, SettingSpec,
-    SettingValue, SlotSpec, StatusItemSpec, StatusValue,
+    ActionHint, Command, Commands, Env, FixedAction, Id, Manifest, MenuEntry, Params, Priority,
+    RegisterError, SettingExtra, SettingGroupSpec, SettingKind, SettingSpec, SettingValue,
+    SlotSpec, StatusItemSpec, StatusValue,
 };
 
 pub(crate) const CORE: Id = Id::new_static("core");
@@ -781,37 +781,11 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
         // Lowest possible priority: any real screen wins.
         r.bind_slot(id, screens::PLACEHOLDER, Priority(i16::MIN))?;
     }
-    // Choosing the items or lines of a status line, for any setting;
-    // lists of widgets above each other (the sleep screen's) edited,
-    // unless a plugin fills the slot; a folder for a setting: the folder
-    // chooser's, whichever plugin fills its slot. The choice and the yes or
-    // no question are the dialog plugin's (`core.choice`, `core.confirm`).
-    static SCREENS: [crate::KernelScreen; 10] = [
-        crate::KernelScreen::new(
-            screens::STATUS_ITEMS,
-            "core.status.choose",
-            |env, params| Box::new(crate::stock::items::ItemsScreen::open(env, params)),
-        ),
-        crate::KernelScreen::new(
-            screens::STATUS_LINES,
-            "core.status.choose",
-            |env, params| {
-                let params = params
-                    .clone()
-                    .with(params::MODE, crate::stock::items::LINES);
-                Box::new(crate::stock::items::ItemsScreen::open(env, &params))
-            },
-        ),
-        crate::KernelScreen::new(
-            screens::WIDGET_LIST,
-            "core.widgets.edit.screen",
-            |env, params| Box::new(crate::stock::widget_list::ListScreen::open(env, params)),
-        ),
-        crate::KernelScreen::new(
-            screens::ADD_WIDGET,
-            "core.widgets.edit.add-to-list",
-            |env, params| Box::new(crate::stock::widget_list::AddScreen::open(env, params)),
-        ),
+    // The choice and the yes or no question are the dialog plugin's
+    // (`core.choice`, `core.confirm`), a list of widgets the sleep plugin's
+    // (`core.edit-widgets`), a folder for a setting the folder chooser's,
+    // whichever plugin fills those slots (#293).
+    static SCREENS: [crate::KernelScreen; 5] = [
         crate::KernelScreen::new(notice::SCREEN, notice::TITLE, |env, params| {
             Box::new(notice::Notice::new(env, params))
         }),
@@ -841,42 +815,12 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
                 ))
             },
         ),
-        crate::KernelScreen::new(
-            screens::FOLDER_EDITOR,
-            "core.setting.library-folder",
-            |_, params| {
-                Box::new(FolderEditor {
-                    params: params.clone(),
-                })
-            },
-        ),
     ];
     r.add_kernel_screens(&SCREENS)?;
-    r.bind_slot(slots::EDIT_WIDGETS, screens::WIDGET_LIST, Priority::DEFAULT)?;
     // Notices are the host's (`docs/abi/ui.md`, *Messages*) where no plugin
     // shows them its own way (#257).
     r.bind_slot(slots::NOTICE, notice::SCREEN, Priority::FALLBACK)?;
     Ok(())
-}
-
-/// Opens the folder chooser in its own place, with what it was given
-/// ([`screens::FOLDER_EDITOR`]).
-struct FolderEditor {
-    params: paperpaw_sdk::Params,
-}
-
-impl crate::Layer for FolderEditor {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
-        Handled::No
-    }
-
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
-        cx.command(Command::Back);
-        let params = core::mem::take(&mut self.params);
-        cx.command(Command::OpenSlot(slots::CHOOSE_FOLDER, params));
-    }
 }
 
 /// The main menu, the tools, the quick panel and the settings' sections
@@ -1122,7 +1066,7 @@ static GENERAL: [SettingSpec; 9] = [
 
 /// The library folder, chosen with the folder chooser: the reader's own,
 /// kept when the settings are reset.
-static FOLDER_EDITOR: SettingExtra = SettingExtra::new().editor(screens::FOLDER_EDITOR);
+static FOLDER_EDITOR: SettingExtra = SettingExtra::new().editor_slot(slots::CHOOSE_FOLDER);
 static LIBRARY: [SettingSpec; 1] = [SettingSpec::text(
     settings::LIBRARY_FOLDER.static_str(),
     "core.setting.library-folder",
