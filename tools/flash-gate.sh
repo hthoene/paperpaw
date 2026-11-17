@@ -42,7 +42,7 @@
 # Defaults: head HEAD with features `x4` (native plugins on, as the firmware
 # ships); base `v0.6.0-beta.3` with `x4`. Each tree builds with its own
 # `rust-toolchain.toml` and `.cargo/config.toml`, release profile, no default
-# features (no `remote`, no `waveform-lab`), as the release image is built.
+# features (no `remote`), as the release image is built.
 # Until interface 6 is removed the result is an ESTIMATE: say so with
 # `--label 'estimate, interface 6 still linked'`; the label is printed with
 # the result. Exit 0: within the limit. Exit 1: ONLY when the delta is over it.

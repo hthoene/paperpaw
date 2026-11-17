@@ -6,17 +6,15 @@
 //!   the image, its signer (a PaperPaw key by name, another key by
 //!   fingerprint, or none), "older" where the plugin allowed it and, for a
 //!   foreign image, the four points (the first two again for a restart).
-//! * **Screen.** [`HostConfirm`] is a kernel-owned screen on `ui::Dialog`. It
+//! * **Screen.** `host_screen::Confirm`, one of the host's own screens. It
 //!   guards the device (a host row that guards is the input target, see
-//!   `ui_guard::input_index`), starts with the focus on *No*, drops what
-//!   arrives within [`GUARD_MS`] of being shown, ends as *dismissed* on Back
-//!   or after [`TIMEOUT_MS`], and tells the kernel its answer with an event
-//!   that carries the random nonce only the host and this screen know.
+//!   `ui_guard::input_index`), starts with the focus on *No*, and tells the
+//!   kernel its answer with an event that carries the random nonce only the
+//!   host and this screen know.
 //! * **Kernel.** [`Kernel::firmware_confirm_pump`] opens the screen when a
 //!   question waits and nothing guards (never over the lock), takes the
 //!   answer ([`Kernel::firmware_answer`]), dismisses at sleep and does the
 //!   restart after a yes.
-use super::dialogs::Touch;
 use super::firmware_install::{Answer, Ask};
 use crate::Kernel;
 use alloc::{
@@ -25,28 +23,21 @@ use alloc::{
     vec::Vec,
 };
 use paperpaw_i18n::Arg;
-use paperpaw_platform::{Instant, firmware::Signer};
-use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::{
-    Canvas, Command, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Params, Rect,
-};
+use paperpaw_platform::firmware::Signer;
+use paperpaw_sdk::{Id, Params};
 
 /// The screen's id: a host screen (`core.*`), opened only by the kernel.
 pub(crate) const SCREEN: Id = Id::new_static("core.firmware-confirm");
 /// The event the screen answers with; the kernel's alone (see
 /// [`Kernel::firmware_answer`]).
 pub(crate) const ANSWERED: Id = Id::new_static("core.firmware-answered");
-pub(super) const NONCE: &str = "nonce";
-const TITLE: &str = "title";
-const TEXT: &str = "text";
-const YES_WORD: &str = "yes";
-const NO_WORD: &str = "no";
-const DATA_WORD: &str = "data";
-const ANSWER: &str = "answer";
-/// Input within this long of being shown is dropped (`device.md` 5.0).
-const GUARD_MS: u64 = 500;
-/// Ten minutes without an answer end it as dismissed (decision 132).
-const TIMEOUT_MS: u64 = 600_000;
+pub(crate) const NONCE: &str = "nonce";
+pub(crate) const TITLE: &str = "title";
+pub(crate) const TEXT: &str = "text";
+pub(crate) const YES_WORD: &str = "yes";
+pub(crate) const NO_WORD: &str = "no";
+pub(crate) const DATA_WORD: &str = "data";
+pub(crate) const ANSWER: &str = "answer";
 
 /// What the screen says.
 #[derive(Debug, PartialEq, Eq)]
@@ -137,179 +128,6 @@ pub(crate) fn texts(i18n: &paperpaw_i18n::Translator, asker: &str, ask: &Ask) ->
         yes: String::from(i18n.tr(yes)),
         no: String::from(i18n.tr("core.firmware.no")),
         data: None,
-    }
-}
-
-/// The buttons, in their order.
-pub(super) const YES: usize = 0;
-
-/// The confirmation screen; see the [module documentation](self).
-pub(crate) struct HostConfirm {
-    /// The box the host's confirmations share (`dialogs::ConfirmBox`).
-    board: super::dialogs::ConfirmBox,
-    nonce: String,
-    /// The buttons in their order: yes, [yes with data,] no. The focus starts
-    /// on the last, *No*.
-    labels: Vec<String>,
-    /// When it was shown: the input guard and the timeout count from here.
-    shown: Option<Instant>,
-    /// It has answered (or ended as dismissed): nothing is told twice.
-    done: bool,
-}
-
-impl HostConfirm {
-    /// The screen the kernel opened with `params` (see [`open_params`]).
-    pub(crate) fn new(env: &Env<'_>, params: &Params) -> Self {
-        let get = |key| params.get(key).unwrap_or("");
-        let mut labels = Vec::from([String::from(get(YES_WORD))]);
-        if let Some(data) = params.get(DATA_WORD) {
-            labels.push(String::from(data));
-        }
-        labels.push(String::from(get(NO_WORD)));
-        let buttons: Vec<&str> = labels.iter().map(String::as_str).collect();
-        // The focus starts on No, the last.
-        let board =
-            super::dialogs::ConfirmBox::new(env, get(TITLE), get(TEXT), &buttons, labels.len() - 1);
-        Self {
-            board,
-            nonce: String::from(get(NONCE)),
-            labels,
-            shown: None,
-            done: false,
-        }
-    }
-
-    /// Whether input counts yet (not within [`GUARD_MS`] of being shown).
-    fn counts(&self, env: &Env<'_>) -> bool {
-        self.shown
-            .is_some_and(|at| env.now().0.saturating_sub(at.0) >= GUARD_MS)
-    }
-
-    /// What pressing the button `at` answers: the first is a yes, a middle one
-    /// a yes with the data, the last a no.
-    fn answer_of(&self, at: usize) -> Answer {
-        if at == YES {
-            Answer::Yes
-        } else if at + 1 == self.labels.len() {
-            Answer::No
-        } else {
-            Answer::YesAndData
-        }
-    }
-
-    /// Tells the kernel the answer, once, and closes.
-    fn finish(&mut self, answer: Answer, cx: &mut Cx<'_, '_>) {
-        if self.done {
-            return;
-        }
-        self.done = true;
-        let code = match answer {
-            Answer::Yes => "yes",
-            Answer::No => "no",
-            Answer::YesAndData => "yes-data",
-            Answer::Dismissed => "dismissed",
-        };
-        cx.command(Command::Emit(
-            ANSWERED,
-            Params::new()
-                .with(NONCE, self.nonce.clone())
-                .with(ANSWER, code),
-        ));
-        cx.close();
-    }
-}
-
-impl crate::Layer for HostConfirm {
-    fn region(&self, env: &Env<'_>) -> Option<Rect> {
-        Some(self.board.region(env))
-    }
-
-    fn dims_below(&self) -> bool {
-        true
-    }
-
-    // Nothing shows above it, and no plugin's input reaches it.
-    fn guards(&self) -> bool {
-        true
-    }
-
-    fn holds_edges(&self) -> bool {
-        true
-    }
-
-    fn hints(&self) -> Option<HintVisibility> {
-        Some(HintVisibility::Hidden)
-    }
-
-    fn hint(&self, action: &Id, _: &Env<'_>) -> Hint {
-        if *action == actions::CONFIRM {
-            Hint::Text(self.labels[self.board.focus()].clone())
-        } else {
-            Hint::Hidden
-        }
-    }
-
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
-        if self.shown.is_none() {
-            let now = cx.env().now();
-            self.shown = Some(now);
-            cx.wake_at(Instant(now.0.saturating_add(TIMEOUT_MS)));
-        }
-    }
-
-    fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
-        let due = self
-            .shown
-            .is_some_and(|at| cx.env().now().0.saturating_sub(at.0) >= TIMEOUT_MS);
-        if due {
-            self.finish(Answer::Dismissed, cx);
-        }
-    }
-
-    // Back (and a tap outside) dismiss; nothing else closes it.
-    fn on_close_request(&mut self, _: paperpaw_sdk::CloseCause, cx: &mut Cx<'_, '_>) -> Handled {
-        if self.counts(cx.env()) {
-            self.finish(Answer::Dismissed, cx);
-        }
-        Handled::Yes
-    }
-
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        self.board.draw(canvas, env);
-    }
-
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
-        if !self.counts(cx.env()) {
-            return Handled::Yes;
-        }
-        if *action == actions::CONFIRM {
-            let answer = self.answer_of(self.board.focus());
-            self.finish(answer, cx);
-            return Handled::Yes;
-        }
-        if *action == actions::BACK {
-            self.finish(Answer::Dismissed, cx);
-            return Handled::Yes;
-        }
-        // Scrolls or moves the focus; every other action does nothing: only
-        // the user's answer counts.
-        let _ = self.board.on_action(action, cx);
-        Handled::Yes
-    }
-
-    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
-        if !self.counts(cx.env()) {
-            return Handled::Yes;
-        }
-        // A touch counts only inside its own buttons.
-        match self.board.on_gesture(gesture, cx) {
-            Touch::Button(at) => {
-                let answer = self.answer_of(at);
-                self.finish(answer, cx);
-            }
-            Touch::Taken => {}
-        }
-        Handled::Yes
     }
 }
 

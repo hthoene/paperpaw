@@ -14,7 +14,7 @@ impl Firmware {
     /// would else show with what the last frame to wait for the panel left.
     pub(super) fn set_waveform(&mut self, refresh: Refresh, mode: RefreshMode) {
         let experiment = if refresh == Refresh::Fast {
-            fast_waveform(mode, self.kernel.settings(), self.kernel.active_screen())
+            fast_waveform(mode, self.kernel.settings())
         } else {
             None
         };
@@ -23,8 +23,7 @@ impl Firmware {
     }
 }
 
-/// The waveform of a fast refresh on the X4: the waveform lab's own while
-/// it is open, else a direct drive of a few frames for the modes that ask
+/// The waveform of a fast refresh on the X4: a direct drive of a few frames for the modes that ask
 /// for speed: `RefreshMode::Fast` (menus, focus moved, small changes; the
 /// setting *Fast changes* says how, 4 to 8 frames in about 160 to 240 ms, or
 /// the panel's own, about 500 ms) and `RefreshMode::Mono` (what a screen with
@@ -36,18 +35,7 @@ impl Firmware {
 fn fast_waveform(
     mode: RefreshMode,
     settings: &paperpaw_sdk::Settings,
-    active: Option<&paperpaw_sdk::Id>,
 ) -> Option<paperpaw_x4::panel::Experiment> {
-    #[cfg(feature = "waveform-lab")]
-    if crate::lab::is_open(active) {
-        // Only the picture's flips (fast refreshes) take what is tried.
-        return if mode == RefreshMode::Fast {
-            crate::lab::experiment(active, settings)
-        } else {
-            None
-        };
-    }
-    let _ = active;
     menu_waveform(mode, settings)
 }
 

@@ -175,7 +175,7 @@ impl Kernel {
     /// device (or one above such a screen) no bars; else `area`.
     pub(crate) fn area_on_top(
         &self,
-        screen: &dyn Layer,
+        screen: &crate::screen::Screen,
         hinted: bool,
         entry: &StackEntry,
         area: Rect,

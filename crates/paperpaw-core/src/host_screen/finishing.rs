@@ -8,11 +8,9 @@
 //! ([`FROM`], [`UNTIL`], in milliseconds of [`Instant`]) and restarts
 //! from it.
 
-use paperpaw_sdk::ui::{self, Ink, Label, TextRole, UiStyle};
-use paperpaw_sdk::widgets::Align;
+use super::paint::{self, Look};
 use paperpaw_sdk::{
-    Canvas, CloseCause, Color, Cx, Env, Gesture, Handled, Hint, HintVisibility, Id, Instant,
-    Params, PointerEvent, Rect, RefreshMode,
+    Canvas, Color, Cx, Env, Handled, Hint, HintVisibility, Id, Instant, Params, Rect, RefreshMode,
 };
 
 /// When the trial began, in milliseconds.
@@ -72,94 +70,71 @@ impl Finishing {
     }
 }
 
-impl crate::Layer for Finishing {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+impl Finishing {
+    pub(super) fn draw(&self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         // All of its part of the screen: drawn in strips, each clipped.
         let content = env.content();
         let area = Rect::new(0, 0, content.width, content.height);
         canvas.fill(area, Color::WHITE);
-        let style = UiStyle::new(env);
-        let mut ui = ui::Ui::new(canvas, env, &style);
-        let (margin, gap, row) = (style.margin(), style.gap(), style.row());
+        let Some(font) = paint::font(env.fonts()) else {
+            return;
+        };
+        let look = Look::of(env.device(), env.settings(), env.fonts());
+        let (margin, gap, row) = (look.margin, look.gap, look.row);
         let inner = area.width.saturating_sub(2 * margin);
-        let middle = area.y + area.height / 2;
-        let title = env.i18n().tr("core.finishing-update.title");
-        Label::new(title)
-            .role(TextRole::TITLE)
-            .align(Align::Center)
-            .draw(
-                &mut ui,
-                Rect::new(
-                    area.x + margin,
-                    middle.saturating_sub(row + gap),
-                    inner,
-                    row,
-                ),
-            );
-        let bar = Rect::new(area.x + margin, middle, inner, gap);
+        let middle = area.height / 2;
+        let i18n = env.i18n();
+        let title = Rect::new(margin, middle.saturating_sub(row + gap), inner, row);
+        paint::line(
+            canvas,
+            &font,
+            look.title,
+            i18n.tr("core.finishing-update.title"),
+            title,
+            Color::BLACK,
+        );
         let permille = (self.step(env.now()) * 1000 / STEPS) as u16;
-        ui.progress(bar, permille, Color::BLACK);
-        let text = env.i18n().tr("core.finishing-update.text");
-        let below = Rect::new(area.x + margin, middle + gap * 2, inner, row * 2);
-        Label::new(text)
-            .role(TextRole::SMALL)
-            .ink(Ink::NOTE)
-            .align(Align::Center)
-            .wrap()
-            .draw(&mut ui, below);
+        paint::bar(
+            canvas,
+            &look,
+            Rect::new(margin, middle, inner, gap),
+            permille,
+            Color::BLACK,
+        );
+        let below = Rect::new(margin, middle + gap * 2, inner, row * 2);
+        let text = i18n.tr("core.finishing-update.text");
+        paint::lines(canvas, &font, look.small, text, below, Color::gray(60));
     }
 
-    // While it holds on, nothing shows above it, nothing closes it, and
-    // it takes no input.
-    fn guards(&self) -> bool {
+    // While it holds on, nothing shows above it, nothing closes it, and it
+    // takes no input.
+    pub(super) fn holding(&self) -> bool {
         self.holding
     }
 
-    fn holds_edges(&self) -> bool {
-        self.holding
-    }
-
-    fn hints(&self) -> Option<HintVisibility> {
+    pub(super) fn hints(&self) -> Option<HintVisibility> {
         self.holding.then_some(HintVisibility::Hidden)
     }
 
-    fn hint(&self, action: &Id, _: &Env<'_>) -> Hint {
+    pub(super) fn hint(&self, action: &Id) -> Hint {
         match self.holding {
             true => Hint::Hidden,
             false => Hint::only_back(action),
         }
     }
 
-    fn on_close_request(&mut self, _: CloseCause, _: &mut Cx<'_, '_>) -> Handled {
-        self.taken()
-    }
-
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
-        self.taken()
-    }
-
-    fn on_gesture(&mut self, _: Gesture, _: &mut Cx<'_, '_>) -> Handled {
-        self.taken()
-    }
-
-    fn on_pointer(&mut self, _: &PointerEvent, _: &mut Cx<'_, '_>) -> Handled {
-        self.taken()
-    }
-
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(super) fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
         self.wake(cx);
     }
 
-    fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(super) fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
         cx.request_redraw();
         cx.request_refresh(RefreshMode::Fast);
         self.wake(cx);
     }
-}
 
-impl Finishing {
     /// Input and closing taken (and so passed over) while it holds on.
-    fn taken(&self) -> Handled {
+    pub(super) fn taken(&self) -> Handled {
         match self.holding {
             true => Handled::Yes,
             false => Handled::No,

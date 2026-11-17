@@ -4,18 +4,14 @@
 
 mod catalog_job;
 mod clean_up;
-mod finishing;
 mod look_again;
 mod look_more;
-mod placeholder;
 mod reading;
 mod widget_settings;
 
 use crate::Items;
 use crate::native_host::book_data_steps::{follow_move, follow_removal};
-use crate::native_host::notice;
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use catalog_job::{CatalogJob, make_library_folder, waits};
@@ -785,32 +781,14 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
     // (`core.choice`, `core.confirm`), a list of widgets the sleep plugin's
     // (`core.edit-widgets`), a folder for a setting the folder chooser's,
     // whichever plugin fills those slots (#293).
-    static SCREENS: [crate::KernelScreen; 4] = [
-        crate::KernelScreen::new(notice::SCREEN, notice::TITLE, |env, params| {
-            Box::new(notice::Notice::new(env, params))
-        }),
-        crate::KernelScreen::new(screens::PLACEHOLDER, placeholder::TEXT, |_, _| {
-            Box::new(placeholder::PlaceholderScreen)
-        }),
-        crate::KernelScreen::new(
-            screens::FINISHING_UPDATE,
-            "core.finishing-update.title",
-            |_, params| Box::new(finishing::Finishing::new(params)),
-        ),
-        crate::KernelScreen::new(
-            crate::native_host::firmware_confirm::SCREEN,
-            "core.firmware.title",
-            |env, params| {
-                Box::new(crate::native_host::firmware_confirm::HostConfirm::new(
-                    env, params,
-                ))
-            },
-        ),
-    ];
-    r.add_kernel_screens(&SCREENS)?;
+    r.add_host_screens(&crate::host_screen::ENTRIES)?;
     // Notices are the host's (`docs/abi/ui.md`, *Messages*) where no plugin
     // shows them its own way (#257).
-    r.bind_slot(slots::NOTICE, notice::SCREEN, Priority::FALLBACK)?;
+    r.bind_slot(
+        slots::NOTICE,
+        crate::host_screen::NOTICE,
+        Priority::FALLBACK,
+    )?;
     Ok(())
 }
 

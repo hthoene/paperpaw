@@ -117,35 +117,6 @@ python tools/x4-remote.py --script "run:update.open,until:Search online,expect:W
 python tools/x4-remote.py --push my-fonts .paperpaw/fonts --info
 ```
 
-## Waveform lab
-
-The developer firmware of the X4 and the X4 Pro has *Waveform lab* under Tools
-(feature `waveform-lab`, on by default for the X4 and in the `x4pro` aliases;
-`src/lab.rs`). It
-flips a test picture and shows each flip with a waveform chosen on the
-screen instead of the panel's fast one: the panel's own tables at a
-temperature (0 to 90 degrees), or a direct drive made here (the frames a
-changed pixel is driven, and a kick of the other colour before), at the
-stock voltages. The time the panel took is shown for each frame. *Clean up*
-shows the screen with the stock refresh that drives every pixel; do it
-every few dozen flips, as the experiments let ghosts build up. The
-rows are settings of the developer group (`x4.lab.*`), set with the ordinary
-controls (`−` and `+` on a touch screen, left and right on buttons) and kept,
-but they count only while the lab is the screen shown: leaving it is the stock
-firmware again. On a touch screen a tap on the picture flips it.
-
-It tries the waveforms of an **SSD1677** (the X4, some X4 Pros) and of a
-**UC8179** (the X4 Pro, the log says which: `display: UC8179 … driven as
-UC8179`). On a UC8179 the direct drive is made of the controller's waveform
-registers and has more to try: the frame rate (the `PLL` register, 20 to 100
-Hz, its own 50), the group's repeat (0 or 1: the datasheet says "0: 0 time",
-so if nothing changes at 0, try 1) and the levels of white and black, which are
-assumed from the stock gray waveform and turned round with *Levels of white and
-black* should the picture come out the wrong way. The voltages are the
-controller's own (the registers' defaults): none is set. The menus' and games'
-waveforms and the settings `x4.ssd1677.*` are the SSD1677's only; the X4 Pro's
-are to come from what the lab finds.
-
 ## Back to another firmware
 
 Put the other firmware's file (`.bin`, CrossPoint's for example) at the

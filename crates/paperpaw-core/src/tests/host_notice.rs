@@ -35,7 +35,7 @@ fn without_a_plugins_notice_the_host_shows_it() {
     render(&mut kernel);
     assert_eq!(
         kernel.shared.registry.resolve_slot(slots::NOTICE.as_str()),
-        Some(&crate::native_host::notice::SCREEN)
+        Some(&crate::host_screen::NOTICE)
     );
     kernel.apply(Command::Notify(String::from("Saved")));
     let effects = kernel.finish();
@@ -103,12 +103,12 @@ fn a_long_text_is_cut_to_three_lines() {
         .unwrap();
     let env = kernel.shared.env(Instant(0));
     let long = "aaaa ".repeat(400);
-    let notice = crate::native_host::notice::Notice::new(
+    let notice = crate::host_screen::Notice::new(
         &env,
         &Params::new().with(paperpaw_sdk::builtin::params::TEXT, long.as_str()),
     );
     assert_eq!(notice.lines().len(), 3, "{:?}", notice.lines());
-    let short = crate::native_host::notice::Notice::new(
+    let short = crate::host_screen::Notice::new(
         &env,
         &Params::new().with(paperpaw_sdk::builtin::params::TEXT, "Saved"),
     );
@@ -119,7 +119,7 @@ fn a_long_text_is_cut_to_three_lines() {
         Params::new(),
         Params::new().with(paperpaw_sdk::builtin::params::TEXT, ""),
     ] {
-        let empty = crate::native_host::notice::Notice::new(&env, &params);
+        let empty = crate::host_screen::Notice::new(&env, &params);
         assert!(empty.lines().len() <= 1, "{:?}", empty.lines());
         assert!(
             empty.lines().iter().all(String::is_empty),
@@ -138,12 +138,9 @@ fn back_closes_the_notice_opened_as_a_screen() {
     render(&mut kernel);
     let below = kernel.active_screen().cloned();
     let params = Params::new().with(paperpaw_sdk::builtin::params::TEXT, "Opened");
-    kernel.open_screen(Instant(10), crate::native_host::notice::SCREEN, params);
+    kernel.open_screen(Instant(10), crate::host_screen::NOTICE, params);
     render(&mut kernel);
-    assert_eq!(
-        kernel.active_screen(),
-        Some(&crate::native_host::notice::SCREEN)
-    );
+    assert_eq!(kernel.active_screen(), Some(&crate::host_screen::NOTICE));
     kernel.run_action(Instant(20), actions::BACK);
     render(&mut kernel);
     assert_eq!(kernel.active_screen().cloned(), below, "Back closed it");
