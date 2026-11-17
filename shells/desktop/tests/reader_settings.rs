@@ -48,10 +48,16 @@ fn card(name: &str, book: &str, ini: &str) -> PathBuf {
         format!("[reader]\nlast = books/{book}\n"),
     )
     .unwrap();
-    // The first-run hints would cover the page.
+    // The first-run hints would cover the page, and so would the question for
+    // a hyphenation pack the card lacks: off, unless the test sets it.
+    let tables = if ini.contains("hyphenate") {
+        ""
+    } else {
+        "[core]\nhyphenate = off\n"
+    };
     fs::write(
         dir.join("paperpaw.ini"),
-        format!("{ini}[help]\nshow = off\n"),
+        format!("{tables}{ini}[help]\nshow = off\n"),
     )
     .unwrap();
     dir
@@ -355,7 +361,18 @@ fn broken(book: &str, german: bool, (on, left, right): (bool, u32, u32), turned:
         with_german_pack(&card);
     }
     let shot = card.join("page.png");
-    session(&card, &shot, &turns(turned));
+    let mut requests = Vec::new();
+    if on && !german && book.starts_with("die-") {
+        // The reader asks the store for the German pack it lacks: declined.
+        for pressed in ["true", "false"] {
+            requests.push(format!(
+                "{{\"op\": \"button\", \"name\": \"back\", \"pressed\": {pressed}}}"
+            ));
+        }
+        requests.push("{\"op\": \"wait\", \"ms\": 1500}".to_string());
+    }
+    requests.extend(turns(turned));
+    session(&card, &shot, &requests);
     page(&shot)
 }
 

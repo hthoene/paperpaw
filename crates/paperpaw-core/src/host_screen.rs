@@ -2,14 +2,17 @@
 //! draw. The firmware confirmation (`docs/abi/device.md` 5.0: the host's own
 //! words and screen), the placeholder under a slot nobody serves (all a
 //! safe-mode start shows), the screen that finishes an update before the
-//! plugins start, the notice where no plugin shows notices, and what holds a
+//! plugins start, the notice where no plugin shows notices, the one-time
+//! notices at start (the Literata hint, low memory) and what holds a
 //! screen's place while it is made anew. Drawn by the small painter in
 //! [`paint`] from the kernel's fonts, settings and texts.
+mod board;
 mod confirm;
 mod finishing;
 mod notice;
 mod paint;
 mod placeholder;
+mod start_notice;
 
 use alloc::boxed::Box;
 
@@ -20,6 +23,7 @@ use paperpaw_sdk::{
 };
 
 pub(crate) use notice::Notice;
+use start_notice::StartNotice;
 
 /// The notice's screen, bound to the notice slot as a fallback.
 pub(crate) const NOTICE: Id = notice::SCREEN;
@@ -31,6 +35,8 @@ pub(crate) enum Kind {
     Finishing,
     Notice,
     Confirm,
+    Literata,
+    LowMemory,
 }
 
 /// A host screen as the registry lists it: its id, the translation key of
@@ -65,12 +71,14 @@ impl HostEntry {
             Kind::Finishing => HostScreen::Finishing(Box::new(finishing::Finishing::new(params))),
             Kind::Notice => HostScreen::Notice(Box::new(Notice::new(env, params))),
             Kind::Confirm => HostScreen::Confirm(Box::new(confirm::Confirm::new(env, params))),
+            Kind::Literata => HostScreen::Start(Box::new(StartNotice::literata(env, params))),
+            Kind::LowMemory => HostScreen::Start(Box::new(StartNotice::low_memory(env, params))),
         }
     }
 }
 
 /// The host's screens a kernel lists, by id.
-pub(crate) static ENTRIES: [HostEntry; 4] = [
+pub(crate) static ENTRIES: [HostEntry; 5] = [
     HostEntry::new(notice::SCREEN, notice::TITLE, Kind::Notice),
     HostEntry::new(screens::PLACEHOLDER, placeholder::TEXT, Kind::Placeholder),
     HostEntry::new(
@@ -83,7 +91,20 @@ pub(crate) static ENTRIES: [HostEntry; 4] = [
         "core.firmware.title",
         Kind::Confirm,
     ),
+    HostEntry::new(
+        crate::native_host::low_memory::SCREEN,
+        "core.low-memory.title",
+        Kind::LowMemory,
+    ),
 ];
+
+/// The Literata hint's screen, listed only once it is due
+/// (`offer_literata_notice`).
+pub(crate) static LITERATA: HostEntry = HostEntry::new(
+    crate::native_host::literata_notice::SCREEN,
+    "core.literata-pack.title",
+    Kind::Literata,
+);
 
 /// One of the host's screens on the stack.
 pub(crate) enum HostScreen {
@@ -94,6 +115,7 @@ pub(crate) enum HostScreen {
     Finishing(Box<finishing::Finishing>),
     Notice(Box<Notice>),
     Confirm(Box<confirm::Confirm>),
+    Start(Box<StartNotice>),
 }
 
 impl HostScreen {
@@ -103,6 +125,7 @@ impl HostScreen {
             Self::Finishing(screen) => screen.draw(canvas, env),
             Self::Notice(screen) => screen.draw(canvas, env),
             Self::Confirm(screen) => screen.draw(canvas, env),
+            Self::Start(screen) => screen.draw(canvas, env),
             Self::Gone => {}
         }
     }
@@ -111,12 +134,13 @@ impl HostScreen {
         match self {
             Self::Notice(screen) => Some(screen.region()),
             Self::Confirm(screen) => Some(screen.region()),
+            Self::Start(screen) => Some(screen.region()),
             _ => None,
         }
     }
 
     pub(crate) fn dims_below(&self) -> bool {
-        matches!(self, Self::Confirm(_))
+        matches!(self, Self::Confirm(_) | Self::Start(_))
     }
 
     /// Nothing shows above it and no plugin's input reaches it: the
@@ -136,7 +160,7 @@ impl HostScreen {
 
     pub(crate) fn hints(&self) -> Option<HintVisibility> {
         match self {
-            Self::Confirm(_) => Some(HintVisibility::Hidden),
+            Self::Confirm(_) | Self::Start(_) => Some(HintVisibility::Hidden),
             Self::Finishing(screen) => screen.hints(),
             _ => None,
         }
@@ -145,6 +169,7 @@ impl HostScreen {
     pub(crate) fn hint(&self, action: &Id) -> Hint {
         match self {
             Self::Confirm(screen) => screen.hint(action),
+            Self::Start(screen) => screen.hint(action),
             Self::Finishing(screen) => screen.hint(action),
             _ => Hint::Default,
         }
@@ -177,6 +202,7 @@ impl HostScreen {
     pub(crate) fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
         match self {
             Self::Confirm(screen) => screen.on_action(action, cx),
+            Self::Start(screen) => screen.on_action(action, cx),
             Self::Finishing(screen) => screen.taken(),
             _ => Handled::No,
         }
@@ -185,6 +211,7 @@ impl HostScreen {
     pub(crate) fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
         match self {
             Self::Confirm(screen) => screen.on_gesture(gesture, cx),
+            Self::Start(screen) => screen.on_gesture(gesture, cx),
             Self::Finishing(screen) => screen.taken(),
             _ => Handled::No,
         }

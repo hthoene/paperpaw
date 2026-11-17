@@ -336,23 +336,25 @@ Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Text "0 %" at 414,753 31x29
 Text "<time>"
-Dialog "" at 0,227 480x528
-Row "Skim through the book" (focused) at 0,250 480x61
-Row "Go to page" at 0,311 480x61
-Row "Go to a percentage" at 0,372 480x61
-Row "Turn pages automatically" at 0,433 480x61
-Row "Select text" at 0,494 480x61
-Row "Links and marks" at 0,555 480x61
-Row "Next status line" at 0,616 480x61
+Dialog "" at 0,166 480x589
+Row "Skim through the book" (focused) at 0,189 480x61
+Row "Go to page" at 0,250 480x61
+Row "Go to a percentage" at 0,311 480x61
+Row "Turn pages automatically" at 0,372 480x61
+Row "Select text" at 0,433 480x61
+Row "Links and marks" at 0,494 480x61
+Row "Next status line" at 0,555 480x61
+Row "Mark vocabulary" (off) at 0,616 480x61
 Row "Settings" at 0,677 480x61
-Dialog "" at 0,227 480x528
-Row "Skim through the book" (focused) at 0,250 480x61
-Row "Go to page" at 0,311 480x61
-Row "Go to a percentage" at 0,372 480x61
-Row "Turn pages automatically" at 0,433 480x61
-Row "Select text" at 0,494 480x61
-Row "Links and marks" at 0,555 480x61
-Row "Next status line" at 0,616 480x61
+Dialog "" at 0,166 480x589
+Row "Skim through the book" (focused) at 0,189 480x61
+Row "Go to page" at 0,250 480x61
+Row "Go to a percentage" at 0,311 480x61
+Row "Turn pages automatically" at 0,372 480x61
+Row "Select text" at 0,433 480x61
+Row "Links and marks" at 0,494 480x61
+Row "Next status line" at 0,555 480x61
+Row "Mark vocabulary" (off) at 0,616 480x61
 Row "Settings" at 0,677 480x61
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42

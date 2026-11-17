@@ -385,3 +385,16 @@ fn the_native_main_menu_offers_edit_home_screen() {
         "{labels:?}"
     );
 }
+
+/// A store plugin that is switched on reaches Tools (the X4 session of #250
+/// found no Battery row there).
+#[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
+#[test]
+fn the_tools_list_has_battery_when_it_is_on() {
+    let mut off = App::new("", |b| b);
+    let tools = off.tools();
+    assert!(!tools.iter().any(|l| l.starts_with("Battery")), "{tools:?}");
+    let mut app = App::new("\n[plugins]\nbattery = on\n", |b| b);
+    let tools = app.tools();
+    assert!(tools.iter().any(|l| l.starts_with("Battery")), "{tools:?}");
+}

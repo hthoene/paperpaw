@@ -53,8 +53,10 @@ fn card(name: &str, marks: bool) -> PathBuf {
     let setup = dir.join(".paperpaw/plugins/setup");
     fs::create_dir_all(&setup).unwrap();
     fs::write(setup.join("done"), "").unwrap();
+    // No hyphenation pack on the card: the reader would ask the store for it,
+    // and the question would cover the page.
     let ini = format!(
-        "[core]\nfont-size = 12\n[vocabulary]\nmark = {}\n",
+        "[core]\nfont-size = 12\nhyphenate = off\n[vocabulary]\nmark = {}\n",
         if marks { "on" } else { "off" }
     );
     fs::write(dir.join("paperpaw.ini"), ini).unwrap();

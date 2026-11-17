@@ -45,6 +45,7 @@ use crate::native_icons::{self as icons, Face, Fonts, NAME_LINES, Tool};
 use crate::native_made::Made;
 use crate::native_measure::{self as measure, PLACE};
 use crate::native_pages;
+use crate::native_recent::Listing;
 use crate::native_shown::Shown;
 use crate::native_source::HostSource;
 
@@ -169,6 +170,10 @@ pub struct Dashboard {
     reshow: bool,
     /// Another screen is over this one: the page it holds is kept as it is.
     covered: bool,
+    /// Shown, and not drawn or asked since: the stack change that came with
+    /// the show has nothing to tell (the screen is on top), and its query is
+    /// left out ([`Dashboard::needs_stack`]).
+    just_shown: bool,
     /// Shown again with its page kept: what the book widgets' heights depend on
     /// and the display are looked at once before it draws.
     returned: bool,
@@ -190,6 +195,9 @@ pub struct Dashboard {
     /// The top left of the screen's region at the last draw: where the
     /// cells' places are counted from when a part of it is drawn again.
     origin: (i32, i32),
+    /// What the card and the shelf of the page share of the library: the books
+    /// listed and what the host said of their files (#267).
+    listing: Listing,
 }
 
 impl Dashboard {
@@ -240,6 +248,7 @@ impl Dashboard {
             self.stale = true;
         }
         self.covered = false;
+        self.just_shown = true;
         self.returned = true;
         self.fresh = true;
         self.reshow = true;
@@ -307,6 +316,11 @@ impl Dashboard {
         display: &Snapshot,
         font: &Font<'_>,
     ) -> Result<Laid, Error> {
+        // Laid out anew: what the host said of the books is asked again.
+        self.listing.forget();
+        // The looks of the page, of each widget and of the status line read
+        // the interface's settings once between them.
+        let _sharing = self.listing.inputs().share();
         let Shown {
             mut src,
             metrics,
@@ -314,7 +328,7 @@ impl Dashboard {
             pages,
             wide,
             ..
-        } = Shown::read(host, display, font)?;
+        } = Shown::read_with(host, display, font, self.listing.inputs())?;
         let turned = self.page_after_turn(&src, &pages, wide)?;
         let nav = self.nav.get_or_insert(Nav::new(pages.len()));
         nav.resize(pages.len());
@@ -327,7 +341,7 @@ impl Dashboard {
             || Ok(Vec::new()),
             |page| native_pages::expand(&src, &page.items),
         )?;
-        Self::measure_unplaced(host, ui, &mut src, &frame.geometry, &items)?;
+        Self::measure_unplaced(host, (ui, &self.listing), &mut src, &frame.geometry, &items)?;
         let (shown, _) = grid::fit(&src, &frame.geometry, &items)?;
         let editing = self.editing;
         let pencil_on = editing || src.pencil;
@@ -338,7 +352,7 @@ impl Dashboard {
         let buttons = Buttons::new(editing, pencil_on);
         let made = Self::fill(
             host,
-            ui,
+            (ui, &self.listing),
             &src,
             &frame,
             &shown,
@@ -375,6 +389,7 @@ impl Dashboard {
             ui,
             (font, display),
             (&cells, src.tool_labels, frame.status),
+            self.listing.inputs(),
         ) {
             Ok(both) => both,
             Err(error) => {
@@ -398,7 +413,7 @@ impl Dashboard {
             items,
             slot,
             wide,
-            kept: Kept::of(host, display, &shown),
+            kept: Kept::of(host, &self.listing, display, &shown),
             handle: (metrics.row / 2).max(16),
             status,
             ring_room: look.first().map_or(0, |look| ring_room(&look.style)),
@@ -439,7 +454,7 @@ impl Dashboard {
     /// host cannot measure keeps the default of one row.
     fn measure_unplaced(
         host: &Host<'_>,
-        ui: &Ui,
+        (ui, listing): (&Ui, &Listing),
         src: &mut HostSource,
         geometry: &Geometry,
         items: &[grid::Item],
@@ -452,7 +467,7 @@ impl Dashboard {
             if src.declares(id) {
                 continue;
             }
-            match measure::measure_widget(host, ui, id, PLACE, geometry) {
+            match measure::measure_widget(host, ui, id, PLACE, geometry, listing) {
                 Ok(Some((rows, least))) => src.measured(id, rows, least)?,
                 Ok(None) => {}
                 Err(Error::NoMemory) => return Err(Error::NoMemory),
@@ -466,7 +481,7 @@ impl Dashboard {
     /// actions. On an error the caller lets the cells made so far go.
     fn fill(
         host: &Host<'_>,
-        ui: &Ui,
+        (ui, listing): (&Ui, &Listing),
         src: &HostSource,
         frame: &Frame,
         shown: &[grid::Item],
@@ -474,11 +489,12 @@ impl Dashboard {
         cells: &mut Vec<Cell>,
     ) -> Result<(Vec<Target>, Actions), Error> {
         for (index, item) in shown.iter().enumerate() {
-            if let Some(cell) = Self::cell(host, ui, src, &frame.geometry, (index, item))? {
+            if let Some(cell) = Self::cell(host, ui, listing, src, &frame.geometry, (index, item))?
+            {
                 push(cells, cell)?;
             }
         }
-        let targets = Self::targets(host, ui, cells, footer, buttons)?;
+        let targets = Self::targets(host, ui, listing, cells, footer, buttons)?;
         let mut actions = Vec::new();
         let shown = src.footer.iter().take(footer.actions.len());
         // A nameless action is told by a word for any action, not as nothing.
@@ -498,6 +514,7 @@ impl Dashboard {
     fn cell(
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         src: &HostSource,
         geometry: &Geometry,
         (index, item): (usize, &grid::Item),
@@ -547,7 +564,9 @@ impl Dashboard {
                 return Err(error);
             }
         };
-        let measured = widget.as_ref().map(|made| made.measure(host, ui, geometry));
+        let measured = widget
+            .as_ref()
+            .map(|made| made.measure(host, ui, listing, geometry));
         let least = match measured {
             Some(Ok((_, least))) => least,
             Some(Err(Error::NoMemory)) => {
@@ -589,6 +608,7 @@ impl Dashboard {
     fn targets(
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         cells: &[Cell],
         footer: &Footer,
         buttons: Buttons,
@@ -612,7 +632,7 @@ impl Dashboard {
                     },
                 )?,
                 Some(made) => {
-                    for (target, rect) in made.targets(host, ui, cell.rect)? {
+                    for (target, rect) in made.targets(host, (ui, listing), cell.rect)? {
                         push(
                             &mut targets,
                             Target {
@@ -658,10 +678,14 @@ impl Dashboard {
         Ok((word, wide))
     }
 
-    /// Whether a page is held.
-    #[must_use]
-    pub const fn holds_page(&self) -> bool {
-        self.laid.is_some()
+    /// Whether a stack change can tell this dashboard something: it holds a
+    /// page that no screen is known to cover, and it was not just shown. The
+    /// change that came with the show is answered without the stack query (the
+    /// first frame of a return made it, #294); a cover it missed shows as a
+    /// page laid out again at the next show, as one the stack query failed for.
+    pub fn needs_stack(&mut self) -> bool {
+        let shown = core::mem::take(&mut self.just_shown);
+        !shown && self.laid.is_some() && !self.covered
     }
 
     /// Another screen is over this one: its page, and the widgets made for it,
@@ -697,6 +721,7 @@ impl Dashboard {
         ui: &Ui,
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
+        self.just_shown = false;
         self.ensure(host, ui)?;
         self.ensure_dialog(host)?;
         self.describe_dialog(paint::asking(frame));
@@ -761,6 +786,7 @@ impl Dashboard {
     fn compose_widgets(
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         frame: &mut DrawFrame<'_>,
         laid: &Laid,
     ) -> Result<(), Error> {
@@ -774,7 +800,7 @@ impl Dashboard {
                 .filter_map(|cell| Some((cell.widget.as_ref()?, cell.rect)))
                 .chain(laid.status.as_ref().map(|(made, rect)| (made, *rect))),
             band,
-            |made, rect| made.draw(host, ui, frame, rect),
+            |made, rect| made.draw(host, ui, listing, frame, rect),
         )
         .map(drop)
     }
@@ -912,7 +938,7 @@ impl Dashboard {
             ring(&mut above, target.rect, style)?;
         }
         paint::replay_icons(frame, font, fonts.icons, below.iter())?;
-        Self::compose_widgets(host, ui, frame, laid)?;
+        Self::compose_widgets(host, ui, &self.listing, frame, laid)?;
         paint::replay(frame, font, above.iter())?;
         let mut dialog = Vec::new();
         self.dialog_paint(font, &mut dialog)?;
@@ -925,6 +951,7 @@ impl Dashboard {
     /// # Errors
     /// Allocation and host errors.
     pub fn input(&mut self, host: &Host<'_>, ui: &Ui, input: &Input<'_>) -> Result<Handled, Error> {
+        self.just_shown = false;
         self.ensure(host, ui)?;
         if let Some(handled) = self.arrange_input(host, ui, input)? {
             return Ok(handled);
@@ -1044,11 +1071,11 @@ impl Dashboard {
                 .filter(|(_, rect)| inside(*rect, point))
         {
             // A refusal of the line's targets leaves the tap to the grid.
-            match made.targets(host, ui, *rect) {
+            match made.targets(host, (ui, &self.listing), *rect) {
                 Ok(found) => {
                     for (target, at) in found {
                         if inside(at, point) {
-                            made.input(host, ui, target, point, kind)?;
+                            made.input(host, (ui, &self.listing), target, point, kind)?;
                             return Ok(Handled::Yes);
                         }
                     }
@@ -1132,7 +1159,7 @@ impl Dashboard {
                     return Ok(Next::Nothing);
                 };
                 let (point, kind) = touched.unwrap_or((middle(target.rect), WidgetInputKind::Tap));
-                made.input(host, ui, id, point, kind)?;
+                made.input(host, (ui, &self.listing), id, point, kind)?;
             }
             Owner::Button(_) => {}
         }
