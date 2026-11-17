@@ -23,7 +23,7 @@ fn txt_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             Id::new_static("txt.txt"),
             "TXT",
             alloc::vec![Cow::Borrowed("txt")],
-            Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         ))
     }
 }

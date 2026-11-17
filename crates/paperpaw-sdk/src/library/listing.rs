@@ -334,9 +334,7 @@ mod tests {
                 id: crate::Id::new_static("test.txt"),
                 title: alloc::borrow::Cow::Borrowed("TXT"),
                 extensions: alloc::vec![alloc::borrow::Cow::Borrowed("txt")],
-                open: alloc::boxed::Box::new(|_, _, _| {
-                    Err(crate::document::DocumentError::UnsupportedFormat)
-                }),
+                open: |_, _, _| Err(crate::document::DocumentError::UnsupportedFormat),
                 prepared: None,
                 sniff: None,
             })
@@ -478,13 +476,9 @@ mod tests {
                 id: crate::Id::new_static("test.zip"),
                 title: alloc::borrow::Cow::Borrowed("ZIP"),
                 extensions: alloc::vec![alloc::borrow::Cow::Borrowed("zip")],
-                open: alloc::boxed::Box::new(|_, _, _| {
-                    Err(crate::document::DocumentError::UnsupportedFormat)
-                }),
+                open: |_, _, _| Err(crate::document::DocumentError::UnsupportedFormat),
                 prepared: None,
-                sniff: Some(alloc::boxed::Box::new(|head: &[u8]| {
-                    head.starts_with(b"PK")
-                })),
+                sniff: Some(|head: &[u8]| head.starts_with(b"PK")),
             })
             .unwrap();
         // 40 books without an extension, a LICENSE and a README among

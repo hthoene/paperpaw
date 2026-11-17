@@ -195,9 +195,7 @@ fn what_is_kept_for_a_book_follows_it() {
                 alloc::borrow::Cow::Borrowed("txt"),
                 alloc::borrow::Cow::Borrowed("epub")
             ],
-            open: alloc::boxed::Box::new(|_, _, _| {
-                Err(crate::document::DocumentError::UnsupportedFormat)
-            }),
+            open: |_, _, _| Err(crate::document::DocumentError::UnsupportedFormat),
             prepared: None,
             sniff: None,
         })
@@ -630,9 +628,7 @@ fn books_without_an_extension_are_found_by_their_first_bytes() {
                 crate::Id::new_static("test.book"),
                 "book",
                 alloc::vec![alloc::borrow::Cow::Borrowed("txt")],
-                alloc::boxed::Box::new(|_, _, _| {
-                    Err(crate::document::DocumentError::UnsupportedFormat)
-                }),
+                |_, _, _| Err(crate::document::DocumentError::UnsupportedFormat),
             )
             .sniff(|head| head.starts_with(b"BOOK")),
         )

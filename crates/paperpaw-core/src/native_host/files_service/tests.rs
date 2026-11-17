@@ -705,9 +705,7 @@ pub(super) fn with<R>(
                 paperpaw_sdk::Id::new_static("test.epub"),
                 "EPUB",
                 std::vec![alloc::borrow::Cow::Borrowed("epub")],
-                alloc::boxed::Box::new(|_, _, _| {
-                    Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat)
-                }),
+                |_, _, _| Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat),
             ))
             .unwrap();
     }

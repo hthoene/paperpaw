@@ -475,11 +475,11 @@ impl Items {
     pub fn set_item_state(
         &mut self,
         item: impl Into<Id>,
-        state: impl Fn(&paperpaw_sdk::Env<'_>) -> paperpaw_sdk::ItemState + 'static,
+        state: paperpaw_sdk::ItemStateFn,
     ) -> Result<(), RegisterError> {
         self.add_checked(Contribution::ItemState {
             item: item.into(),
-            state: Box::new(state),
+            state,
         })
     }
 

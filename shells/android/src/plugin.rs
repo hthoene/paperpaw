@@ -50,6 +50,8 @@ struct Platform {
     lights: Option<Lights>,
     /// The light follows a level shown, not kept.
     following: bool,
+    /// The screen's size in pixels, which PDF pages are rendered to fit.
+    screen: (u32, u32),
 }
 
 std::thread_local! {
@@ -105,15 +107,19 @@ impl AndroidPlugin {
             self.register_frontlight(r, frontlight)?;
         }
         self.register_voice(r)?;
-        let (app, screen) = (self.app.clone(), self.screen);
+        PLATFORM.with(|platform| platform.borrow_mut().screen = self.screen);
         r.add_format(FormatSpec::new(
             PDF,
             "android.pdf",
             vec![Cow::Borrowed("pdf")],
-            Box::new(move |storage, path, _| {
+            |storage, path, _| {
+                let Some(app) = platform_app() else {
+                    return Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat);
+                };
+                let screen = PLATFORM.with(|platform| platform.borrow().screen);
                 crate::pdf::PdfDocument::open(&app, storage, path, screen)
                     .map(|d| Box::new(d) as Box<dyn Document>)
-            }),
+            },
         ))?;
         r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
         r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
