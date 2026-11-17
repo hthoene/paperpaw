@@ -1,24 +1,18 @@
-//! Refreshes: why the panel is refreshed, verdicts of
-//! filters (a mode, grays, later), a mode set exactly, a screen's own
-//! mode when it opens.
+//! Refreshes: a mode set exactly, a screen's own mode when it opens,
+//! the periodic full refresh.
 
 use super::*;
 use crate::Items;
 use paperpaw_sdk::Params;
-use paperpaw_sdk::filters::{Refresh, RefreshCause, RefreshFilterSpec, RefreshVerdict};
 
 const PAGE: Id = Id::new_static("r.page");
 const SHEET: Id = Id::new_static("r.sheet");
 const STATUS: Id = Id::new_static("r.status");
 const EXACT: Id = Id::new_static("r.exact");
-const GRAYS: Id = Id::new_static("r.grays");
 const TURN: Id = Id::new_static("r.turn");
 const LOCK: Id = Id::new_static("r.lock");
-const OPEN: Id = Id::new_static("r.open");
 const ITEM: Id = Id::new_static("r.item");
 const READING: Id = Id::new_static("r.reading");
-
-type Seen = Rc<RefCell<Vec<Refresh>>>;
 
 /// A page that guards the device.
 struct Lock;
@@ -36,7 +30,7 @@ impl crate::Layer for Lock {
 }
 
 /// A page: its status line changes (`r.status`), a change it sets the
-/// mode of exactly (`r.exact`), a change that wants grays (`r.grays`).
+/// mode of exactly (`r.exact`).
 struct Page;
 
 impl crate::Layer for Page {
@@ -45,23 +39,16 @@ impl crate::Layer for Page {
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
         if *action == STATUS {
             cx.request_redraw_area(Rect::new(0, 0, 10, 5));
-            cx.refresh_cause(RefreshCause::Status);
         } else if *action == EXACT {
             cx.request_redraw_area(Rect::new(0, 20, 10, 5));
             cx.request_refresh(RefreshMode::Full);
             cx.set_refresh(RefreshMode::Fast);
-        } else if *action == GRAYS {
-            cx.request_redraw_area(Rect::new(0, 40, 10, 5));
         } else if *action == ITEM {
             // A line of the screen, as a clock or a focus moved.
             cx.request_redraw_area(Rect::new(0, 60, 10, 5));
         } else if *action == TURN {
             // A page turned: the whole screen.
             cx.request_redraw();
-        } else if *action == OPEN {
-            // A screen opened, said to be a status line.
-            cx.refresh_cause(RefreshCause::Status);
-            cx.command(Command::OpenScreen(SHEET, paperpaw_sdk::Params::new()));
         } else {
             return Handled::No;
         }
@@ -69,7 +56,7 @@ impl crate::Layer for Page {
     }
 }
 
-fn refreshing_items(kept: Seen) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn refreshing_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         r.add_layer(crate::LayerSpec::new(
             PAGE,
@@ -91,22 +78,7 @@ fn refreshing_items(kept: Seen) -> impl Fn(&mut Items) -> Result<(), RegisterErr
             Box::new(|_, _| Box::new(Page)),
         ))?;
         r.bind_slot(slots::HOME, PAGE, Priority::DEFAULT)?;
-        r.bind_slot(slots::READER, READING, Priority::DEFAULT)?;
-        let seen = kept.clone();
-        r.add_refresh_filter(RefreshFilterSpec::new(
-            Id::new_static("r.filter"),
-            "",
-            Box::new(move |_, refresh| {
-                seen.borrow_mut().push(refresh.clone());
-                match refresh.cause {
-                    // A status line changed: shown with what comes next;
-                    // screens too, as far as the kernel lets it.
-                    RefreshCause::Status | RefreshCause::Screens => RefreshVerdict::Defer,
-                    _ if refresh.region.y == 40 => RefreshVerdict::Grays(true),
-                    _ => RefreshVerdict::Keep,
-                }
-            }),
-        ))
+        r.bind_slot(slots::READER, READING, Priority::DEFAULT)
     }
 }
 
@@ -116,26 +88,20 @@ fn refreshing_manifest() -> Manifest {
         .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
-fn refreshing() -> (Kernel, Seen) {
-    let seen = Seen::default();
+fn refreshing() -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .items(refreshing_manifest(), refreshing_items(seen.clone()))
+        .items(refreshing_manifest(), refreshing_items())
         .build()
         .unwrap();
     kernel.start(Instant(0));
     render(&mut kernel);
-    seen.borrow_mut().clear();
-    (kernel, seen)
+    kernel
 }
 
-/// Filters hear why the panel is refreshed: a screen opened, a status
-/// line; a refresh deferred goes with the next one.
+/// A mode set exactly wins over the full refresh requested.
 #[test]
-fn a_deferred_refresh_goes_with_the_next() {
-    let (mut kernel, seen) = refreshing();
-    let effects = kernel.run_action(Instant(10), STATUS);
-    assert_eq!(effects.refresh(), None);
-    assert_eq!(seen.borrow()[0].cause, RefreshCause::Status);
+fn a_mode_set_exactly_wins() {
+    let mut kernel = refreshing();
     let effects = kernel.run_action(Instant(20), EXACT);
     let (region, mode) = effects.refresh().unwrap();
     assert_eq!(
@@ -143,30 +109,18 @@ fn a_deferred_refresh_goes_with_the_next() {
         RefreshMode::Fast,
         "set exactly, over the full requested"
     );
-    assert!(
-        region.contains(Point::new(1, 1)),
-        "the status line: {region:?}"
-    );
     assert!(region.contains(Point::new(1, 21)), "{region:?}");
-    let effects = kernel.run_action(Instant(30), GRAYS);
-    assert!(effects.grays, "a filter wanted grays");
 }
 
-/// A screen opened in the mode it asks for; the filters hear it was a
-/// screen, on top, and how many partial refreshes were made since the
-/// panel was last cleaned.
+/// A screen opened in the mode it asks for.
 #[test]
 fn a_screen_opens_in_its_own_mode() {
-    let (mut kernel, seen) = refreshing();
+    let mut kernel = refreshing();
     let effects = kernel.open_screen(Instant(10), SHEET, Params::new());
     assert_eq!(
         effects.refresh().map(|(_, mode)| mode),
         Some(RefreshMode::Fast)
     );
-    let refresh = seen.borrow()[0].clone();
-    assert_eq!(refresh.cause, RefreshCause::Screens);
-    assert_eq!(refresh.screen, Some(SHEET));
-    assert!(!refresh.periodic);
     let effects = kernel.open_screen(Instant(20), PAGE, Params::new());
     assert_eq!(
         effects.refresh().map(|(_, mode)| mode),
@@ -174,11 +128,11 @@ fn a_screen_opens_in_its_own_mode() {
     );
 }
 
-/// The periodic full refresh says it is one; a clearing refresh cleans
-/// the panel as a full one does.
+/// A clearing refresh cleans the panel as a full one does: the periodic
+/// full refresh counts from it.
 #[test]
-fn the_periodic_full_refresh_says_so() {
-    let (mut kernel, seen) = refreshing();
+fn the_periodic_full_refresh_counts_from_a_clearing_one() {
+    let mut kernel = refreshing();
     kernel
         .set_setting(Instant(1), settings::FULL_REFRESH_INTERVAL.as_str(), "2")
         .unwrap();
@@ -190,16 +144,15 @@ fn the_periodic_full_refresh_says_so() {
         screen,
         crate::refresh::Intervals::default(),
     );
-    seen.borrow_mut().clear();
-    for at in [10, 20] {
-        kernel.run_action(Instant(at), TURN);
-        render(&mut kernel);
-    }
-    let seen = seen.borrow();
-    assert_eq!(seen[0].since_full, 0);
-    assert!(!seen[0].periodic);
-    assert!(seen[1].periodic, "{:?}", seen[1]);
-    assert_eq!(seen[1].mode, RefreshMode::Full);
+    assert_eq!(kernel.frame.refresh.since_full(), 0);
+    let modes: Vec<_> = [10, 20]
+        .map(|at| {
+            let mode = kernel.run_action(Instant(at), TURN).refresh().map(|r| r.1);
+            render(&mut kernel);
+            mode
+        })
+        .into();
+    assert_eq!(modes, [Some(RefreshMode::Partial), Some(RefreshMode::Full)]);
 }
 
 /// Where the menus' full refresh is set (#255), small refreshes in a menu
@@ -207,7 +160,7 @@ fn the_periodic_full_refresh_says_so() {
 /// (the reader's slot) they neither count nor flash.
 #[test]
 fn small_refreshes_flash_in_menus_but_never_while_reading() {
-    let (mut kernel, seen) = refreshing();
+    let mut kernel = refreshing();
     kernel
         .set_setting(Instant(1), crate::refresh::UI_FULL_REFRESH_INTERVAL, "3")
         .unwrap();
@@ -221,14 +174,15 @@ fn small_refreshes_flash_in_menus_but_never_while_reading() {
     assert_eq!(kernel.active_screen(), Some(&READING));
     let screen = kernel.framebuffer.bounds();
     let modes = |kernel: &mut Kernel, start: u64| {
-        seen.borrow_mut().clear();
-        for at in 0..5 {
-            kernel.run_action(Instant(start + at * 10), ITEM);
-            render(kernel);
-        }
-        seen.borrow()
-            .iter()
-            .map(|r| (r.mode, r.region == screen))
+        (0..5)
+            .map(|at| {
+                let (region, mode) = kernel
+                    .run_action(Instant(start + at * 10), ITEM)
+                    .refresh()
+                    .unwrap();
+                render(kernel);
+                (mode, region == screen)
+            })
             .collect::<Vec<_>>()
     };
     let small = (RefreshMode::Partial, false);
@@ -245,73 +199,17 @@ fn small_refreshes_flash_in_menus_but_never_while_reading() {
     );
 }
 
-/// Refreshes are deferred at most three times in a row, and never while
-/// a screen guards the device.
-#[test]
-fn refreshes_are_deferred_seldom() {
-    let (mut kernel, _) = refreshing();
-    for at in [10, 20, 30] {
-        assert_eq!(kernel.run_action(Instant(at), STATUS).refresh(), None);
-    }
-    assert!(kernel.run_action(Instant(40), STATUS).refresh().is_some());
-    kernel.open_screen(Instant(50), LOCK, Params::new());
-    render(&mut kernel);
-    assert!(
-        kernel.run_action(Instant(60), STATUS).refresh().is_some(),
-        "under the lock"
-    );
-}
-
-/// A screen opened is refreshed, whatever cause a screen said.
-#[test]
-fn a_screen_opened_is_never_deferred() {
-    let (mut kernel, _) = refreshing();
-    let effects = kernel.run_action(Instant(10), OPEN);
-    assert!(effects.refresh().is_some());
-    assert_eq!(kernel.active_screen(), Some(&SHEET));
-}
-
-/// Counts the refreshes it sees.
-fn spy(kept: Rc<core::cell::Cell<u32>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
-    move |r| {
-        let seen = kept.clone();
-        r.add_refresh_filter(RefreshFilterSpec::new(
-            Id::new_static("spy.refresh"),
-            "",
-            Box::new(move |_, _| {
-                seen.set(seen.get() + 1);
-                RefreshVerdict::Keep
-            }),
-        ))
-    }
-}
-
-/// What [`spy`] registers under.
-fn spy_manifest() -> Manifest {
-    Manifest::new(Id::new_static("spy"), "Spy", Version::new(1, 0, 0))
-        .uses(paperpaw_sdk::Uses::NOTHING)
-}
-
-/// While a screen guards the device, another plugin's refresh filters see
-/// no refresh, and presses are not counted: neither tells how long a code
-/// typed is.
+/// While a screen guards the device, presses are not counted: that would
+/// tell how long a code typed is.
 #[test]
 fn nothing_counts_what_is_typed_into_a_guard() {
-    let seen = Rc::new(core::cell::Cell::new(0));
-    let mut kernel = Kernel::builder(DEVICE)
-        .items(refreshing_manifest(), refreshing_items(Seen::default()))
-        .items(spy_manifest(), spy(seen.clone()))
-        .build()
-        .unwrap();
-    kernel.start(Instant(0));
-    render(&mut kernel);
+    let mut kernel = refreshing();
     kernel.open_screen(Instant(10), LOCK, paperpaw_sdk::Params::new());
     render(&mut kernel);
-    let (before, inputs) = (seen.get(), kernel.shared.usage.inputs);
+    let inputs = kernel.shared.usage.inputs;
     press(&mut kernel, 1000, "confirm");
     kernel.run_action(Instant(2000), STATUS);
     render(&mut kernel);
-    assert_eq!(seen.get(), before);
     assert_eq!(kernel.shared.usage.inputs, inputs);
 }
 
@@ -454,7 +352,7 @@ fn two_small_items_far_apart_are_no_page_and_keep_a_picture_in_place() {
 /// one made the full refresh of the whole screen that is due.
 #[test]
 fn a_followup_of_most_of_the_screen_is_no_page_turned() {
-    let (mut kernel, seen) = refreshing();
+    let mut kernel = refreshing();
     kernel
         .set_setting(Instant(1), settings::FULL_REFRESH_INTERVAL.as_str(), "3")
         .unwrap();
@@ -481,45 +379,12 @@ fn a_followup_of_most_of_the_screen_is_no_page_turned() {
         mode: Some(RefreshMode::Partial),
         areas: alloc::vec![area],
     });
-    seen.borrow_mut().clear();
     let (region, mode) = kernel.tick(Instant(30)).refresh().unwrap();
     assert_eq!(mode, RefreshMode::Partial);
     assert_eq!(u32::from(region.height), height, "the pictures' box only");
-    assert!(!seen.borrow()[0].periodic);
     render(&mut kernel);
     assert_eq!(kernel.frame.refresh.since_full(), 2);
     // The page turned next is.
     let (region, mode) = kernel.run_action(Instant(40), TURN).refresh().unwrap();
     assert_eq!((region, mode), (screen, RefreshMode::Full));
-}
-
-/// A follow-up of `command.redraw_area` held back by a filter is drawn as
-/// the follow-up when it is drawn at last: its screen's draws are marked.
-#[test]
-fn a_deferred_followup_is_still_drawn_as_the_followup() {
-    let (mut kernel, _) = refreshing();
-    let key = kernel.shared.stack.last().unwrap().key;
-    let area = crate::native_host::commands::Area::new(0, 0, 10, 5).unwrap();
-    kernel.frame.followup = Some(crate::native_host::commands::Followup {
-        screen: key,
-        mode: Some(RefreshMode::Partial),
-        areas: alloc::vec![area],
-    });
-    // The filter holds its refresh back (said to be a status line's).
-    kernel.output.refresh_cause = Some(RefreshCause::Status);
-    assert_eq!(kernel.tick(Instant(10)).refresh(), None);
-    assert!(kernel.frame.followup.is_none());
-    // Calls before it is drawn keep the frame the follow-up's.
-    kernel.tick(Instant(20));
-    assert_eq!(kernel.frame.followup_frame, Some(key));
-    // A page turn takes it along: drawn with the marker.
-    assert!(kernel.run_action(Instant(30), TURN).refresh().is_some());
-    let rows = Rc::clone(&kernel.shared.stack_rows);
-    let mut marked = false;
-    kernel.render(&mut |_, _| marked |= rows.is_followup(key));
-    assert!(marked, "the deferred follow-up drawn unmarked");
-    assert!(!kernel.shared.stack_rows.is_followup(key));
-    // Drawn: the next call ends it.
-    kernel.tick(Instant(40));
-    assert_eq!(kernel.frame.followup_frame, None);
 }

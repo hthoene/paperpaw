@@ -1,11 +1,11 @@
 //! Services and introspection: services by contract and
-//! version, points and events declared, the screens of slots, the
+//! version, events declared, the screens of slots, the
 //! bindings of a layer with their origin.
 
 use super::*;
 use crate::Items;
 use paperpaw_sdk::keys::{BindingOrigin, KeyBindings};
-use paperpaw_sdk::services::{EventSpec, PointSpec};
+use paperpaw_sdk::services::EventSpec;
 
 /// A service with a contract.
 struct Forecast(&'static str);
@@ -24,10 +24,6 @@ fn weather() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             Forecast("sunny"),
             Version::new(1, 2, 0),
         )?;
-        r.add_point(
-            PointSpec::new(Id::new_static("weather.sources"), "weather.sources")
-                .doc("A line each: name = url"),
-        )?;
         r.declare_event(
             EventSpec::new(Id::new_static("weather.changed"), "weather.changed").params(&["sky"]),
         )?;
@@ -44,7 +40,7 @@ fn weather_manifest() -> Manifest {
 }
 
 /// A service with a contract is found by it and by the version needed;
-/// another type claiming the contract is not; points and events declared
+/// another type claiming the contract is not; events declared
 /// are listed.
 #[test]
 fn services_by_contract_and_version() {
@@ -78,7 +74,6 @@ fn services_by_contract_and_version() {
     let pretender = Pretender(0, 0, 0);
     assert_eq!(pretender.0 + pretender.1 + pretender.2, 0);
     assert!(services.ids().any(|id| id.as_str() == "weather.today"));
-    assert_eq!(services.points()[0].doc, "A line each: name = url");
     assert_eq!(services.events()[0].params, ["sky"]);
 }
 

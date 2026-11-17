@@ -19,7 +19,7 @@ use paperpaw_platform::Instant;
 use paperpaw_sdk::bluetooth::{
     Access, AdvertisePower, Advertising, Bluetooth, Bonded, BtError, BtEvent, BtFailure, BtOp,
     Device, DeviceId, DeviceKind, GattService, LinkPower, ManufacturerData, Properties, RadioState,
-    Scan, ScanPower, Security, ServiceData, ServiceSpec, Uuid, ValueKind,
+    Scan, ScanPower, Security, ServiceData, Uuid, ValueKind,
 };
 use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::{Command, Id};
@@ -575,32 +575,6 @@ impl Radio {
 
     fn manager_is(&self, plugin: &str) -> bool {
         self.manager.as_deref() == Some(plugin)
-    }
-
-    /// A service of the device's own GATT server, from a plugin's
-    /// registration.
-    pub fn add_service(&mut self, spec: &ServiceSpec) {
-        let first = self.served.last().map_or(1, |s| s.handle + 1);
-        let mut characteristics = Vec::new();
-        for (handle, c) in (first..).zip(&spec.characteristics) {
-            characteristics.push(ServedCharacteristic {
-                uuid: c.uuid,
-                properties: c.properties,
-                access: c.access,
-                max_len: c.max_len,
-                handle,
-            });
-            self.served.push(Served {
-                handle,
-                service: spec.uuid,
-                characteristic: c.uuid,
-                events: spec.events.clone(),
-            });
-        }
-        self.services.push(ServedService {
-            uuid: spec.uuid,
-            characteristics,
-        });
     }
 
     /// The bonds and the GATT server for the shell, at start.

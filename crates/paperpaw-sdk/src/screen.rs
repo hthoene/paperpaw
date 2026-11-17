@@ -360,8 +360,6 @@ pub struct Output {
     pub refresh: Option<RefreshMode>,
     /// The mode set exactly ([`Cx::set_refresh`]): it wins over requests.
     pub refresh_set: Option<RefreshMode>,
-    /// Why the panel is refreshed ([`Cx::refresh_cause`]).
-    pub refresh_cause: Option<crate::filters::RefreshCause>,
     /// Whether the whole screen should be redrawn.
     pub redraw: bool,
     /// Part of the screen to redraw, from the corner of the part of the
@@ -495,12 +493,6 @@ impl<'a, 'e> Cx<'a, 'e> {
         if let Some(key) = self.key {
             self.output.commands.push(Command::SetKeyLayer(key, layer));
         }
-    }
-
-    /// Says why the panel is refreshed, for refresh filters (the reader
-    /// tells [`RefreshCause::PageTurn`](crate::filters::RefreshCause::PageTurn)).
-    pub fn refresh_cause(&mut self, cause: crate::filters::RefreshCause) {
-        self.output.refresh_cause = Some(cause);
     }
 
     /// Requests a complete redraw via `draw`.

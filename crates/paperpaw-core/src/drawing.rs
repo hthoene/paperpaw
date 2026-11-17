@@ -35,11 +35,6 @@ pub(crate) struct FrameState {
     /// The mark shown while slow work waits, and the hint cell it is.
     pub(crate) mark: Option<(Rect, Option<usize>)>,
     pub(crate) refresh: RefreshPolicy,
-    /// What a refresh filter deferred ([`RefreshVerdict::Defer`]): it goes
-    /// with the next refresh.
-    pub(crate) deferred: Option<Rect>,
-    /// Refreshes deferred in a row (see [`MAX_DEFERS`]).
-    pub(crate) defers: u8,
     /// Areas a native screen asked for with the whole screen, drawn in the
     /// frame after it (`commands_redraw.rs`).
     pub(crate) followup: Option<crate::native_host::commands::Followup>,
@@ -50,10 +45,6 @@ pub(crate) struct FrameState {
     /// white, once calm (`gray_later.rs`).
     pub(crate) gray_later: crate::gray_later::GrayLater,
 }
-
-/// Refreshes deferred in a row at most: the next is made whatever the
-/// filters say.
-pub(crate) const MAX_DEFERS: u8 = 3;
 
 /// How a framebuffer draws, kept while it is made anew.
 #[derive(Debug, Clone, Copy)]

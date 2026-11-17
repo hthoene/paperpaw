@@ -177,8 +177,7 @@ pub struct PageType {
     /// The status lines above and below the content, where there are any.
     pub top_status: Option<Rect>,
     pub status: Option<Rect>,
-    /// The rooms page layers reserve beside the content (see
-    /// [`layers`](crate::layers)), and the columns the content is set in,
+    /// The rooms page layers reserve beside the content, and the columns the content is set in,
     /// left to right: the content alone without a frame.
     pub rooms: Vec<(Id, Rect)>,
     pub columns: Vec<Rect>,
@@ -192,8 +191,8 @@ pub struct PageType {
     /// per script (`core.text-curve`) look at; none for a language written
     /// in Latin letters or one not known.
     pub script: Option<&'static str>,
-    /// What the plugins' text filters did when it was made
-    /// ([`TextFilters::signature`](crate::filters::TextFilters)).
+    /// What the plugins' text filters did when it was made: 0, there are
+    /// none (kept in the page key as it was).
     pub filters: u64,
     /// Names this layout: what pages laid out with it look like depends
     /// on nothing else (the settings, the faces, the box, the filters, the
@@ -301,29 +300,10 @@ impl PageType {
         } else {
             screen - ends
         };
-        let mut height = (end - y).max(1.0);
-        let (mut x, mut y, mut width) = (margin, y, width);
-        // The layers' rooms, then the frame's columns; for whole pages
-        // neither.
+        let height = (end - y).max(1.0);
+        let (x, y, width) = (margin, y, width);
         let content = Rect::new(x as u16, y as u16, width as u16, height as u16);
-        // Asked only where there are layers or frames: nothing is made
-        // for each book's type otherwise (the X4's heap).
-        let (rooms, columns, layers) = match whole_pages || env.page_layers().is_idle() {
-            true => (Vec::new(), alloc::vec![content], None),
-            false => {
-                let (rooms, text) = env.page_layers().rooms(env, content);
-                if !rooms.is_empty() {
-                    (x, y) = (f32::from(text.x), f32::from(text.y));
-                    (width, height) = (f32::from(text.width), f32::from(text.height));
-                }
-                let columns = env.page_layers().columns(env, text);
-                // Laid out as before, with the key as before, where they
-                // change nothing.
-                let changed = !rooms.is_empty() || columns != [text];
-                let key = changed.then(|| env.page_layers().key(env, content));
-                (rooms, columns, key)
-            }
-        };
+        let (rooms, columns) = (Vec::new(), alloc::vec![content]);
         let line = |at: f32| Rect::new(content.x, at as u16, content.width, status.height as u16);
         let top_status = status.top.then(|| line(status.edge));
         let bottom_status = status
@@ -373,7 +353,9 @@ impl PageType {
                 hyphenation_key,
                 s.read(&settings::PUBLISHER_STYLES),
                 uses_book_fonts(env),
-                env.text_filters().signature(env),
+                // Where the text filters' signature was (none now): the key
+                // stays as it was.
+                0u64,
                 book.bits(),
                 // Options of later layouts: in the key before any is used.
                 style.script_options.bits(),
@@ -382,12 +364,6 @@ impl PageType {
             ))
         };
         let key = format!("{key:016x}");
-        // Pages without layers' rooms or a frame keep their key (and their
-        // page indexes).
-        let key = match layers {
-            None => key,
-            Some(layers) => format!("{key}-{:016x}", paperpaw_digest::fnv1a64(&layers)),
-        };
         Self {
             size,
             weight,
@@ -409,7 +385,7 @@ impl PageType {
             hyphenation,
             hyphen_minimums,
             script: paperpaw_lang::Lang::parse(language).likely_script(),
-            filters: env.text_filters().signature(env),
+            filters: 0,
             key,
         }
     }
@@ -438,11 +414,7 @@ impl PageType {
         let page = Self::new(env, font, language, false, StatusRoom::NONE);
         let height = (height - 2.0 * pad).max(1.0);
         let text = Rect::new(page.x as u16, pad as u16, page.width as u16, height as u16);
-        // In the frame chosen, as book pages are.
-        let columns = match env.page_layers().has_frames() {
-            true => env.page_layers().columns(env, text),
-            false => alloc::vec![text],
-        };
+        let columns = alloc::vec![text];
         Self {
             y: pad,
             height,
@@ -462,8 +434,8 @@ impl PageType {
         )
     }
 
-    /// Whether the text is set in columns other than its box (a frame,
-    /// see [`layers`](crate::layers)).
+    /// Whether the text is set in columns other than its box (a page
+    /// layer's frame).
     pub fn in_columns(&self) -> bool {
         self.columns != [self.text_box()]
     }

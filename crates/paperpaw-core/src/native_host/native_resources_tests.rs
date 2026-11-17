@@ -343,44 +343,16 @@ fn every_allocation_of_an_install_with_resources_refuses_whole() {
     );
 }
 
-/// A reader of every format, and the format `t.txt` they read.
-fn two_readers_of_a_format(kernel: &mut crate::Kernel) {
-    use alloc::borrow::Cow;
-    use paperpaw_sdk::FormatSpec;
-    use paperpaw_sdk::readers::ReaderSpec;
-    let format = FormatSpec::new(
-        Id::new_static("t.txt"),
-        "TXT",
-        vec![Cow::Borrowed("txt")],
-        Box::new(|_, _, _| Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat)),
-    );
-    kernel.shared.formats.add(format).unwrap();
-    for reader in ["t.a", "t.b"] {
-        let screen = Id::new_static("t.screen");
-        kernel
-            .shared
-            .readers
-            .add(ReaderSpec::new(Id::new_static(reader), screen));
-    }
-}
-
 #[test]
 fn every_allocation_of_the_choices_refresh_keeps_what_was_or_makes_what_is_new() {
     use alloc::borrow::Cow;
     use alloc::string::ToString;
     use paperpaw_sdk::{SettingKind, SettingSpec, SettingValue};
-    const SETTINGS: [&str; 5] = [
-        "core.reading-font",
-        "core.status-font",
-        "core.reading-app",
-        "t.mode",
-        "core.reading-app.t.txt",
-    ];
+    const SETTINGS: [&str; 3] = ["core.reading-font", "core.status-font", "t.mode"];
     // Offered by a plugin: `t.b`, among the choices of its own setting.
     static MODES: [&str; 1] = ["t.a"];
     let prepare = |kernel: &mut crate::Kernel| {
         admit_resources(kernel, 1, FOLDER).unwrap();
-        two_readers_of_a_format(kernel);
         let mode = SettingSpec::new(
             Id::new_static("t.mode"),
             "t.mode",
@@ -421,10 +393,9 @@ fn every_allocation_of_the_choices_refresh_keeps_what_was_or_makes_what_is_new()
     let made = state(&twin);
     assert!(made[0].as_ref().unwrap().iter().any(|f| f == "Serif"));
     assert_eq!(
-        made[3].as_deref(),
+        made[2].as_deref(),
         Some(&["t.a".to_string(), "t.b".to_string()][..])
     );
-    assert!(made[4].is_some(), "the setting for the format is made");
     assert!(twin.plugin_choices.is_empty());
     let (mut kept, mut done) = (0, 0);
     for allocation in 1..600 {
@@ -445,7 +416,7 @@ fn every_allocation_of_the_choices_refresh_keeps_what_was_or_makes_what_is_new()
         // A choice not added is still waiting for the next refresh.
         assert_eq!(
             kernel.plugin_choices.len(),
-            usize::from(after[3] == before[3]),
+            usize::from(after[2] == before[2]),
             "at {allocation}"
         );
         // The family in use is the one before or the one chosen, whole.

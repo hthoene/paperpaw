@@ -2,8 +2,8 @@
 //! redefined shows the entries of plugins installed since (after the
 //! entry before them), but not where it was redefined before that was
 //! kept; entries placed beside others or taken out by a plugin; and
-//! entries that show what they are now (a switch, faint, hidden) with a
-//! line under them, said only by the plugin they belong to. They run with the
+//! entries that show what they are now (a switch, faint, hidden), said only
+//! by the plugin they belong to. They run with the
 //! native menu (`native-linked`): the interface-6 menu is gone (#244).
 
 #![cfg(feature = "native-linked")]
@@ -71,7 +71,7 @@ fn early(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder 
 }
 
 /// Installed later: C right after A; and entries that say what they are
-/// now, one with a line under it.
+/// now.
 fn late(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
     let manifest = Manifest::new(Id::new_static("late"), "Late", SDK_VERSION)
         .uses(paperpaw_sdk::Uses::NOTHING);
@@ -102,9 +102,8 @@ fn late(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
             items.set_item_state(Id::new_static("late.gone"), |_| {
                 ItemState::new().shown(false)
             })?;
-            items.describe_item(Id::new_static("late.on"), "late.on.help")?;
             items.add_translations(Cow::Borrowed(
-                "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n[messages]\nlate.c = Late C\nlate.on = Late on\nlate.faint = Late faint\nlate.gone = Late gone\nlate.on.help = Says what it does\n",
+                "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n[messages]\nlate.c = Late C\nlate.on = Late on\nlate.faint = Late faint\nlate.gone = Late gone\n",
             ))
 
     })
@@ -141,8 +140,6 @@ fn meddler(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilde
             ItemState::new().label("Meddled").enabled(false)
         });
         assert!(matches!(state, Err(RegisterError::Namespace { .. })));
-        let line = items.describe_item(Id::new_static("early.a"), "meddler.line");
-        assert!(matches!(line, Err(RegisterError::Namespace { .. })));
         Ok(())
     })
 }
@@ -310,7 +307,7 @@ fn entries_go_where_plugins_place_them_and_are_taken_out() {
 }
 
 #[test]
-fn entries_show_what_they_are_now_with_a_line_under_them() {
+fn entries_show_what_they_are_now() {
     let mut app = App::new("", |b| late(early(b)));
     let parts = app.menu();
     let on = parts
@@ -319,10 +316,6 @@ fn entries_show_what_they_are_now_with_a_line_under_them() {
         .unwrap_or_else(|| panic!("{parts:?}"));
     assert_eq!(on.on, Some(true));
     let labels: Vec<&str> = parts.iter().map(|p| p.label.as_str()).collect();
-    assert!(
-        labels.iter().any(|l| l.contains("Says what it does")),
-        "{labels:?}"
-    );
     assert!(
         !labels.iter().any(|l| l.contains("Late gone")),
         "{labels:?}"
