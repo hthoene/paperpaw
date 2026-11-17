@@ -19,7 +19,7 @@ use paperpaw_sdk::{
     keys::InputMode,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, Input, InputGestureKind},
+        callbacks::{DrawFrame, FrameRect, Input, InputGestureKind},
         canvas::PartRole,
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
@@ -255,6 +255,43 @@ impl Dashboard {
         self.last_input = last_input;
         // A finger's drag does not outlive the screen's being covered.
         self.drag = None;
+    }
+
+    /// Whether the page's cards and shelves have a cover ready (it may be
+    /// drawn in the frame after the page's).
+    #[must_use]
+    pub fn any_cover_ready(&self) -> bool {
+        self.listing.any_cover_ready()
+    }
+
+    /// The frame about to be drawn draws the covers' places (`on`), the covers
+    /// come in the frame after it; or nothing waits for it, what is drawn next
+    /// has its covers.
+    pub fn covers_later(&self, on: bool) {
+        self.listing.covers_later(on);
+    }
+
+    /// Where the cards and the shelves of the page are, as areas of the screen's
+    /// region: what is drawn again in the frame after the page's, for their
+    /// covers (`COVERS_IN_FOLLOWUP`). None while no page is laid out. A page
+    /// kept under another screen is as it was laid out: one that is laid out
+    /// again moves its widgets by the next frame's draw, which draws them whole.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn cover_areas(&self) -> Result<Vec<FrameRect>, Error> {
+        let mut areas = Vec::new();
+        let Some(laid) = self.laid.as_ref() else {
+            return Ok(areas);
+        };
+        for cell in &laid.cells {
+            if let Some(Made::Mine(mine)) = &cell.widget
+                && mine.has_covers()
+            {
+                paperpaw_ui_kit::mem::push(&mut areas, focus_area(cell.rect, 0, self.origin))?;
+            }
+        }
+        Ok(areas)
     }
 
     /// Lays the page out when it is stale: the widgets of the page before are
@@ -952,6 +989,7 @@ impl Dashboard {
     /// Allocation and host errors.
     pub fn input(&mut self, host: &Host<'_>, ui: &Ui, input: &Input<'_>) -> Result<Handled, Error> {
         self.just_shown = false;
+        self.listing.covers_later(false);
         self.ensure(host, ui)?;
         if let Some(handled) = self.arrange_input(host, ui, input)? {
             return Ok(handled);

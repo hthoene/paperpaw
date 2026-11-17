@@ -164,6 +164,13 @@ const MAX_COMMAND_ROUNDS: usize = 16;
 /// with a full refresh: e-paper keeps ghosts of large pictures where text
 /// leaves none. Covers in a list stay below it.
 const PICTURES_PERCENT: u32 = 15;
+/// Whether leaving a screen that showed such pictures (Back from a cover page
+/// to Home) is a full refresh (1.7 s on the X4, a flash) where the next frame
+/// is most of the screen. `false` (Decision 212, #294): the next frame is
+/// refreshed as it asked (fast, 0.5 s) and keeps some ghost of the pictures,
+/// which the grays pass after it cleans. Turning pages on the same screen
+/// still refreshes in full after pictures, whatever this says.
+const FULL_AFTER_LEAVING_PICTURES: bool = false;
 /// Of the screen, in percent, pictures cover at least for grays to follow a whole
 /// screen ([`settings::PICTURES_IN_GRAYS`](paperpaw_sdk::builtin::settings::PICTURES_IN_GRAYS)): a cover or two.
 const PICTURES_GRAY_PERCENT: u32 = 2;
@@ -652,7 +659,7 @@ impl Kernel {
     }
 
     /// Whether what the screen shows is secret now: a PIN or a password being
-    /// entered (`Layer::secret`), or the device guarded. Those who show the
+    /// entered (a screen on the stack says so), or the device guarded. Those who show the
     /// screen elsewhere (a remote control, tools) leave out what it says then.
     pub fn is_secret(&self) -> bool {
         self.guard().is_some() || self.stack.iter().any(ActiveScreen::secret)
