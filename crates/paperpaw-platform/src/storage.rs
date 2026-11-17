@@ -834,7 +834,11 @@ mod tests {
     /// to the whole-file write (12 commands instead of 1 block, #308).
     #[test]
     fn mounted_storage_forwards_writes_in_place() {
-        let storage = Mounted::new(InPlace(Default::default()), "books", InPlace(Default::default()));
+        let storage = Mounted::new(
+            InPlace(Default::default()),
+            "books",
+            InPlace(Default::default()),
+        );
         assert_eq!(storage.write_at("positions/a", 512, b"x"), Ok(()));
         assert_eq!(storage.write_at("books/a", 0, b"x"), Ok(()));
         assert_eq!(storage.truncate("books/a", 1), Ok(()));
