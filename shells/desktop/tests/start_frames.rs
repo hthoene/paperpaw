@@ -35,7 +35,9 @@ fn started_on(profile: &str, last: Option<&str>) -> (Device, Option<String>) {
             include_bytes!("../../../samples/library/books/alice-in-wonderland.epub").to_vec(),
         )
         .with(".paperpaw/plugins/setup/done", "")
-        .with("paperpaw.ini", "[help]\nshow = false\n");
+        // The card has no hyphenation pack (the firmware seeds English): the reader
+        // would ask the store for it, and the question would cover the page.
+        .with("paperpaw.ini", "[core]\nhyphenate = off\n[help]\nshow = false\n");
     if let Some(book) = last {
         files = files.with(
             ".paperpaw/plugins/reader/state.ini",
