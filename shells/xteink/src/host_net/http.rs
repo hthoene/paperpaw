@@ -233,7 +233,9 @@ fn finish(
 
 /// Whether a failure's text says the answer was too large.
 fn too_large(text: &[u8]) -> bool {
-    text.starts_with(b"too large") || text.starts_with(b"the answer is too large")
+    text.starts_with(b"too large")
+        || text.starts_with(b"the answer is too large")
+        || text.starts_with(b"not enough memory")
 }
 
 /// The job's headers as owned pairs, or `ERR_NO_MEMORY`.

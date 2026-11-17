@@ -19,6 +19,7 @@
 //! | `card-out`, `card-in` | the card is taken out of its slot (everything asked of the storage fails as on a card that went) and put back |
 //! | `phone-joins` | a phone joins the device's own network (the setup with a phone) |
 //! | `ble-key:right` | the pretend Bluetooth remote's key pressed (`right`, `left`, `up`, `down`, `page-down`, `page-up`, `space`, `enter`, `escape`, `volume-up`, `volume-down`), once its keys go to the key maps |
+//! | `make-room` | what the X4 does before a secure connection: close hyphenation tables, park idle plugins (`Kernel::make_room`) |
 //! | `reset-peak` | measure the heap's peak anew from now (what one step takes) |
 //! | `step:<name>` | print the heap's peak since the last step (`step <name>: peak … KiB, live … KiB`), then measure anew |
 //! | `emit:core.library-changed` | send an event without parameters, as a plugin would |
@@ -119,6 +120,10 @@ fn run_step(device: &mut Device, step: &str) -> Result<(), String> {
             }
         }
         ["reset-peak"] => crate::budget::reset_peak(),
+        ["make-room"] => {
+            let parked = device.kernel.make_room();
+            println!("make-room: parked {parked} idle plugins");
+        }
         ["step", name] => {
             let stats = crate::budget::stats();
             let kib = |bytes: usize| bytes as f64 / 1024.0;
