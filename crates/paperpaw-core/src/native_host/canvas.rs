@@ -203,7 +203,7 @@ impl CanvasScope {
     }
 
     /// Raw slot-43 patterned fill: the checker over a rectangle (see
-    /// [`graphics::fill_pattern`]), clipped like every fill.
+    /// `graphics::fill_pattern`), clipped like every fill.
     #[must_use]
     pub fn fill_pattern(
         &self,
