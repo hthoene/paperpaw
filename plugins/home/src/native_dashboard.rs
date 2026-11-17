@@ -982,6 +982,20 @@ impl Dashboard {
         paint::replay(frame, font, dialog.iter())
     }
 
+    /// Whether `input` only moves the focus on a page that is not being
+    /// arranged: no book, widget or setting can change by it, so what the
+    /// widgets read and composed for the last draw stays (no library call, no
+    /// new composition: only the two targets are drawn again).
+    #[must_use]
+    pub fn is_focus_step(&self, input: &Input<'_>) -> bool {
+        !self.editing
+            && matches!(
+                *input,
+                Input::Action { action, .. }
+                    if matches!(Press::of(action), Some(press) if press != Press::Confirm)
+            )
+    }
+
     /// Takes an input: the page buttons turn the page, the others move the
     /// focus or run what it stands on, a tap runs a tool or reaches a widget.
     ///
