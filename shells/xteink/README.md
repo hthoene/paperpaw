@@ -115,7 +115,11 @@ the device after the requested interval.
 python tools/x4-remote.py --script "page-forward,right,describe" --screenshot out/x4.png
 python tools/x4-remote.py --script "run:update.open,until:Search online,expect:Wi-Fi transfer"
 python tools/x4-remote.py --push my-fonts .paperpaw/fonts --info
+python tools/x4-remote.py --script-file tools/pps/smoke.pps --out out/smoke
 ```
+
+Script files (`.pps`) add variables, loops, measurements, checks and a report, and run
+unchanged on the emulator (`--emulator`): [`docs/device-test-scripts.md`](../../docs/device-test-scripts.md).
 
 ## Back to another firmware
 

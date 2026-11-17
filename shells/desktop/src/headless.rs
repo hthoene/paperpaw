@@ -1,5 +1,9 @@
 //! Scripted, windowless runs for screenshots, CI and bug reports.
 //!
+//! This is the emulator's own short script. For tests with loops, measurements and
+//! checks that also run on the X4, see `docs/device-test-scripts.md`: `tools/x4-remote.py
+//! --emulator` drives `--repl` ([`crate::repl`]) with the same `.pps` files it drives an X4 with.
+//!
 //! A script is a comma-separated list of steps:
 //!
 //! | Step | Meaning |
@@ -44,12 +48,40 @@ const LONG_MS: u64 = 1200;
 pub fn run_script(device: &mut Device, script: &str) -> Result<(), String> {
     for step in script.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         run_step(device, step).map_err(|e| format!("step `{step}`: {e}"))?;
-        // Network answers take real time; wait for them, so runs repeat.
-        device.poll_http(Some(std::time::Duration::from_secs(25)));
-        device.advance(STEP_MS);
-        device.tick_if_due();
+        settle(device);
     }
     Ok(())
+}
+
+/// What goes on between steps: network answers take real time (waited for,
+/// so runs repeat), then a little emulated time passes.
+pub fn settle(device: &mut Device) {
+    device.poll_http(Some(std::time::Duration::from_secs(25)));
+    device.advance(STEP_MS);
+    device.tick_if_due();
+}
+
+/// Lets `ms` of emulated time pass (the remote protocol's `wait`, see [`crate::repl`]).
+pub fn pass_time(device: &mut Device, ms: u64) {
+    hold(device, ms);
+}
+
+/// A press of the button `name`, held `hold_ms` (the remote protocol's
+/// `press` and `hold`, see [`crate::repl`]).
+pub fn press_button(device: &mut Device, name: &str, hold_ms: u64) -> Result<(), String> {
+    let name = button(device, name)?;
+    press(device, name, hold_ms);
+    Ok(())
+}
+
+/// A finger put down, lifted or moved at a point (the remote's `touch`).
+pub fn touch_phase(device: &mut Device, down: bool, up: bool, x: i32, y: i32) {
+    let phase = match (down, up) {
+        (true, _) => PointerPhase::Down,
+        (_, true) => PointerPhase::Up,
+        _ => PointerPhase::Move,
+    };
+    device.input(finger(phase, Point::new(x, y)));
 }
 
 #[expect(

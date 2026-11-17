@@ -153,6 +153,9 @@ pub struct Device {
     pub warnings: Vec<Warning>,
     /// The last `KEPT_FRAMES` frames shown (region, mode), for tests of a start.
     pub shown: Vec<(paperpaw_platform::Rect, RefreshMode)>,
+    /// How many frames were shown since start (scripts' `--repl` counts
+    /// them, as the X4's log lines do).
+    pub frames_shown: u64,
     /// Requests are answered from the emulator's fixtures
     /// ([`Device::use_fixtures`]).
     fixtures: bool,
@@ -336,6 +339,7 @@ impl Device {
             speech: std::collections::VecDeque::new(),
             warnings: Vec::new(),
             shown: Vec::new(),
+            frames_shown: 0,
             fixtures: false,
             wifi_online: WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed),
             #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
@@ -903,6 +907,7 @@ impl Device {
             self.shown.remove(0);
         }
         self.shown.push((region, mode));
+        self.frames_shown += 1;
         // Shown as soon as drawn: plugins that pace themselves by the
         // panel go as fast as they can here.
         let drawn = core::time::Duration::from_micros(crate::host::micros() - started);
