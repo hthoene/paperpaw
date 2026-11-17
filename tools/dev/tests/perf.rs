@@ -12,13 +12,12 @@
 use paperpaw_core::{Place, Turn};
 use std::sync::Mutex;
 
+use paperpaw_core::kit::widgets::{Drawn, WidgetSpec};
 use paperpaw_core::{Items, KernelBuilder};
 use paperpaw_dev::cli::Context;
 use paperpaw_dev::perf;
 use paperpaw_dev::report::{Level, Report};
 use paperpaw_dev::target::Target;
-use paperpaw_platform::Rect;
-use paperpaw_sdk::widgets::{Widget, WidgetSpec};
 use paperpaw_sdk::{Canvas, Handled, Id, Manifest, RegisterError, SDK_VERSION};
 
 /// Reads a file whenever it is drawn.
@@ -64,23 +63,6 @@ impl paperpaw_core::testing::Fake for Leaks {
     }
 }
 
-/// A widget reading a file whenever it is drawn.
-struct ReadsWidget;
-
-impl Widget for ReadsWidget {
-    fn live(&self) -> bool {
-        false
-    }
-
-    fn height(&self, _: &paperpaw_sdk::Env<'_>, _: u16) -> u16 {
-        1
-    }
-
-    fn draw(&self, _: &mut Canvas<'_>, env: &paperpaw_sdk::Env<'_>, _: Rect) {
-        let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
-    }
-}
-
 struct Probe;
 
 impl Probe {
@@ -109,10 +91,16 @@ impl Probe {
                 Box::new(Leaks)
             }),
         ))?;
-        r.add_widget(WidgetSpec::new(
+        // A widget reading a file whenever it is drawn.
+        r.add_widget(WidgetSpec::drawn(
             Id::new_static("perf-probe.widget"),
             "perf-probe.widget",
-            |_| Box::new(ReadsWidget),
+            Drawn::new(
+                |_, _| 1,
+                |_, env, _| {
+                    let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
+                },
+            ),
         ))
     }
 }

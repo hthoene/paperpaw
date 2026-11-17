@@ -15,7 +15,7 @@ use std::rc::Rc;
 use std::sync::Mutex;
 
 use paperpaw_core::KernelBuilder;
-use paperpaw_core::sdk::ui::{self, UiStyle};
+use paperpaw_core::kit::ui::{self, UiStyle};
 use paperpaw_core::sdk::{Canvas, Id, Manifest, MemoryStorage, Version};
 use paperpaw_emulator::{device::Device, headless, profiles};
 
@@ -44,7 +44,7 @@ impl paperpaw_core::testing::Fake for Look {
 /// Every setting's description that does not fit, kept in [`CUT`].
 fn look(env: &Place<'_>) {
     {
-        let style = UiStyle::new(&env.env());
+        let style = UiStyle::new(env);
         let width = env.device().display.width;
         let language = env.i18n().language().to_string();
         for spec in env.settings().specs() {
@@ -55,7 +55,7 @@ fn look(env: &Place<'_>) {
                 continue;
             }
             let text = env.i18n().tr(key);
-            if !ui::note_fits(&env.env(), &style, width, text) {
+            if !ui::note_fits(env, &style, width, text) {
                 CUT.lock().unwrap().push(format!(
                     "{} {language} {} [{key}]: {text}",
                     env.device().id,

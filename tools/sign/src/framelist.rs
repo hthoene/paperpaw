@@ -33,7 +33,7 @@
 use std::fmt::Write as _;
 
 use crate::elf::{Elf, SHF_ALLOC, SHF_EXECINSTR, SHF_WRITE, Symbol};
-use crate::frames::{Env, Tables, function_ranges, noreturn_functions, path, sizes_in};
+use crate::frames::{ScanScope, Tables, function_ranges, noreturn_functions, path, sizes_in};
 
 /// The most the read-only data of a firmware may span (its first section to
 /// its last, in address): the listing reads it as one run of bytes.
@@ -129,7 +129,7 @@ pub fn frames(elf: &Elf<'_>) -> Result<Vec<Frame>, String> {
             .collect();
         let ranges = function_ranges(&sized, code.len());
         let noreturn = noreturn_functions(code, &ranges, section.addr, tables, true);
-        let env = Env {
+        let env = ScanScope {
             base: section.addr,
             noreturn: &noreturn,
             tables,

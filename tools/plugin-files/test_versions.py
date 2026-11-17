@@ -558,6 +558,16 @@ echo "fingerprint: $(head -1 "$2")"; echo "interface: 6"; echo "compiler: abc"
         self.commit("the firmware's fingerprint changed")
         self.assertTrue(self.bytes_check())
 
+    def test_a_release_before_interface_7_has_no_bytes_to_compare(self):
+        self.released_with_a_dependency()
+        self.assertTrue(self.bytes_check())
+        # The release's tree has no interface-7 build: nothing to compare, not a failure.
+        self.git("rm", "-q", "tools/plugin-files7/build.sh")
+        self.git("commit", "-q", "-m", "an old tree")
+        self.git("tag", "v0.5.0-beta.4")
+        self.git("revert", "--no-edit", "HEAD")
+        self.assertTrue(self.check("--release", "--bytes", "--sign", str(self.sign), "v0.5.0-beta.4"))
+
     def test_the_release_s_build_is_kept_and_not_made_twice(self):
         self.released_with_a_dependency()
         built = []

@@ -495,7 +495,7 @@ impl Fonts {
     }
 
     /// How the UI font's letters are inked from now on
-    /// ([`ui::text_ink`](crate::ui::text_ink)), which its handles carry.
+    /// (`ui::text_ink`), which its handles carry.
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn set_ui_ink(&mut self, ink: paperpaw_text::TextInk) {

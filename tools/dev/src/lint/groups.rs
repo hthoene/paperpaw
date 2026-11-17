@@ -110,7 +110,7 @@ pub(super) fn groups(kernel: &Kernel, ours: &dyn Fn(&str) -> Option<String>) -> 
 
 #[cfg(test)]
 mod tests {
-    use paperpaw_sdk::widgets::{Drawn, WidgetSpec};
+    use paperpaw_core::kit::widgets::{Drawn, WidgetSpec};
     use paperpaw_sdk::{Id, Manifest, MemoryStorage, SettingGroupSpec, SettingSpec, Version};
 
     use super::*;

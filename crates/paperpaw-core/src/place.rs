@@ -2,12 +2,11 @@
 //! event and the part of the screen it has (#300, D209). The kernel's own
 //! in place of the SDK's old `Env`.
 
+use crate::kit::action::Actions;
+use crate::kit::status::StatusItems;
 use paperpaw_i18n::Translator;
 use paperpaw_platform::{DeviceInfo, Instant, Rect, Storage, SystemStatus};
-use paperpaw_sdk::{
-    Actions, Capabilities, Env, Fonts, Formats, Hyphenation, Metrics, Plugins, ScreenMaker,
-    Settings, StatusItems,
-};
+use paperpaw_sdk::{Capabilities, Fonts, Formats, Hyphenation, Metrics, Plugins, Settings};
 
 use crate::Shared;
 
@@ -96,8 +95,8 @@ impl<'a> Place<'a> {
     }
 
     /// Its menus, labelled by its actions and settings.
-    pub fn menus(&self) -> paperpaw_sdk::MenuView<'a> {
-        paperpaw_sdk::MenuView::new(
+    pub fn menus(&self) -> crate::kit::menus::MenuView<'a> {
+        crate::kit::menus::MenuView::new(
             &self.shared.menus,
             &self.shared.actions,
             &self.shared.settings,
@@ -134,7 +133,7 @@ impl<'a> Place<'a> {
 
     /// Marks on the words of book pages, from every plugin (see
     /// [`decorations`](paperpaw_sdk::decorations)).
-    pub fn decorators(&self) -> &'a paperpaw_sdk::decorations::Decorators {
+    pub fn decorators(&self) -> &'a crate::kit::decorations::Decorators {
         &self.shared.decorators
     }
 
@@ -146,18 +145,18 @@ impl<'a> Place<'a> {
 
     /// Folders of what plugins keep for each book
     /// (`Items::add_book_data`).
-    pub fn book_data(&self) -> &'a [paperpaw_sdk::library::BookData] {
+    pub fn book_data(&self) -> &'a [crate::kit::library::BookData] {
         &self.shared.book_data
     }
 
     /// Widgets for screens that show them, from every plugin.
-    pub fn widgets(&self) -> &'a paperpaw_sdk::widgets::Widgets {
+    pub fn widgets(&self) -> &'a crate::kit::widgets::Widgets {
         &self.shared.widgets
     }
 
     /// The steps of the first-run setup, from every plugin (see
-    /// [`setup`](paperpaw_sdk::setup)).
-    pub fn setup(&self) -> &'a paperpaw_sdk::setup::SetupSteps {
+    /// `setup`).
+    pub fn setup(&self) -> &'a crate::kit::setup::SetupSteps {
         &self.shared.setup
     }
 
@@ -173,8 +172,8 @@ impl<'a> Place<'a> {
 
     /// The look a plugin gave the parts of screens, set with
     /// `Items::set_ui_look` (see
-    /// [`ui::look`](paperpaw_sdk::ui::look)).
-    pub fn look(&self) -> paperpaw_sdk::ui::look::Look {
+    /// [`ui::look`](crate::kit::ui::look)).
+    pub fn look(&self) -> crate::kit::ui::look::Look {
         self.shared.look.0
     }
 
@@ -256,11 +255,11 @@ impl<'a> Place<'a> {
     }
 
     /// How much room the part of the screen this is for has
-    /// ([`content`](Self::content)): its [class](paperpaw_sdk::ui::ScreenClass)
+    /// ([`content`](Self::content)): its [class](crate::kit::ui::ScreenClass)
     /// by width, at the reader's size of text. Compact on the X4 in both
     /// orientations.
-    pub fn screen_class(&self) -> paperpaw_sdk::ui::ScreenClass {
-        paperpaw_sdk::ui::ScreenClass::of(&self.env(), self.content)
+    pub fn screen_class(&self) -> crate::kit::ui::ScreenClass {
+        crate::kit::ui::class_of(self, self.content)
     }
 
     /// Whether the part of the screen this is for
@@ -283,7 +282,7 @@ impl<'a> Place<'a> {
 
     /// Every screen: its id and the translation key of its name, e.g. for
     /// settings that differ per screen (what gestures do there).
-    pub fn screens(&self) -> paperpaw_sdk::ScreenList<'a> {
+    pub fn screens(&self) -> crate::screen_names::ScreenNames<'a> {
         self.shared.registry.screens.list()
     }
 
@@ -320,8 +319,8 @@ impl<'a> Place<'a> {
     }
 
     /// A monotonic clock in microseconds, for measuring how long work
-    /// takes (see [`time::Clock`](paperpaw_sdk::time::Clock)).
-    pub fn clock(&self) -> paperpaw_sdk::time::Clock {
+    /// takes (see [`time::Clock`](crate::kit::time::Clock)).
+    pub fn clock(&self) -> crate::kit::time::Clock {
         self.shared.meter.clock()
     }
 
@@ -404,12 +403,12 @@ impl<'a> Place<'a> {
 
     /// The screen chosen for `slot`, if any is offered.
     pub fn slot_screen(&self, slot: &str) -> Option<&'a paperpaw_sdk::Id> {
-        ScreenMaker::slot_screen(&self.shared.registry, slot)
+        self.shared.registry.slot_screen(slot)
     }
 
     /// Every screen offered for `slot`.
     pub fn slot_screens(&self, slot: &str) -> alloc::vec::Vec<&'a paperpaw_sdk::Id> {
-        ScreenMaker::slot_screens(&self.shared.registry, slot)
+        self.shared.registry.ordered_screens(slot)
     }
 
     /// Visits the screens offered for `slot` while `visit` says go on.
@@ -418,22 +417,22 @@ impl<'a> Place<'a> {
         slot: &str,
         visit: &mut dyn FnMut(&'a paperpaw_sdk::Id) -> bool,
     ) {
-        ScreenMaker::each_slot_screen(&self.shared.registry, slot, visit);
+        self.shared.registry.each_slot_screen(slot, visit);
     }
 
     /// The screen the reader chose for `slot`, if any.
     pub fn slot_choice(&self, slot: &str) -> Option<&'a paperpaw_sdk::Id> {
-        ScreenMaker::slot_choice(&self.shared.registry, slot)
+        self.shared.registry.slot_choice(slot)
     }
 
     /// The title of `slot`'s choice.
     pub fn slot_title(&self, slot: &str) -> Option<&'a str> {
-        ScreenMaker::slot_title(&self.shared.registry, slot)
+        self.shared.registry.slot_title(slot)
     }
 
     /// The title of `screen`.
     pub fn screen_title(&self, screen: &paperpaw_sdk::Id) -> Option<&'a str> {
-        ScreenMaker::screen_title(&self.shared.registry, screen)
+        self.shared.registry.screen_title(screen)
     }
 
     /// The screen on top.
@@ -449,10 +448,5 @@ impl<'a> Place<'a> {
     /// What each plugin took so far.
     pub fn plugin_usage(&self) -> alloc::vec::Vec<paperpaw_sdk::usage::PluginUsage> {
         self.shared.meter.table.borrow().clone()
-    }
-
-    /// The SDK's old view of this place, for the kit that still takes one.
-    pub fn env(&self) -> Env<'a> {
-        self.shared.env(self.now).within(self.device, self.content)
     }
 }

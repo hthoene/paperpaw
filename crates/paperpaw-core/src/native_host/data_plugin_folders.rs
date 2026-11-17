@@ -149,7 +149,7 @@ fn host_named(name: &str) -> bool {
     paperpaw_sdk::native::CODE_FILES
         .iter()
         .copied()
-        .chain([paperpaw_sdk::install::marks::FILE])
+        .chain([crate::kit::install::marks::FILE])
         .any(|hidden| super::files_service::same_fold(name, hidden))
 }
 
@@ -169,7 +169,7 @@ pub(crate) fn host_file(
             && paperpaw_sdk::native::CODE_FILES
                 .iter()
                 .copied()
-                .chain([paperpaw_sdk::install::marks::FILE])
+                .chain([crate::kit::install::marks::FILE])
                 .any(|hidden| exists_in(storage, folder, hidden)))
 }
 

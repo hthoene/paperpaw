@@ -10,8 +10,6 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod support;
-
 use paperpaw_sdk::decorations::{AS_IS, LineKind, NONE, Tone};
 use proptest::prelude::*;
 

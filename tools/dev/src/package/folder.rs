@@ -14,7 +14,7 @@
 //!   and an id and a version named in `plugin.ini` that its catalogue
 //!   entry repeats.
 
-use paperpaw_sdk::install::{self, Digest, MAX_FILES, Package, PackageFile};
+use paperpaw_core::kit::install::{self, Digest, MAX_FILES, Package, PackageFile};
 use paperpaw_sdk::{DATA_FORMATS, Id, Version};
 
 use crate::report::{Finding, Report};

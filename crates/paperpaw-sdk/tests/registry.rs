@@ -8,8 +8,6 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod common;
-
 use std::borrow::Cow;
 
 use paperpaw_sdk::document::DocumentError;

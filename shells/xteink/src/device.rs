@@ -427,7 +427,7 @@ pub static GERMAN: paperpaw_core::LanguageSeed = paperpaw_core::LanguageSeed {
 #[cfg(feature = "x4-pro")]
 fn register_light(r: &mut Items) -> Result<(), RegisterError> {
     use alloc::borrow::Cow;
-    use paperpaw_sdk::MenuEntry;
+    use paperpaw_core::kit::menus::MenuEntry;
     use paperpaw_sdk::builtin::menus;
     r.add_settings(&LIGHT_SETTINGS)?;
     for (n, item) in [FRONTLIGHT, WARMTH].into_iter().enumerate() {

@@ -9,6 +9,8 @@
 )]
 
 use paperpaw_core::KernelBuilder;
+use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_core::{Place, Turn};
 use paperpaw_dev::cli::Context;
 use paperpaw_dev::reach::{self, Limits};
@@ -18,9 +20,7 @@ use paperpaw_dev::variant::Variant;
 use paperpaw_platform::Rect;
 use paperpaw_sdk::builtin::menus;
 use paperpaw_sdk::semantics::Role;
-use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Commands, Handled, Id, Manifest, MenuEntry, Params, Version,
-};
+use paperpaw_sdk::{Canvas, Command, Commands, Handled, Id, Manifest, Params, Version};
 
 const OPEN: Id = Id::new_static("trapped.open");
 const STUCK: Id = Id::new_static("trapped.stuck");
@@ -44,7 +44,7 @@ fn trapped(builder: KernelBuilder) -> KernelBuilder {
             Box::new(|_, _| Box::new(Hidden)),
         ))?;
         items.add_action(ActionSpec::new(OPEN, "trapped.open").handler(
-            |_: &paperpaw_sdk::Env<'_>, _, out: &mut Commands| {
+            |_: &paperpaw_core::Place<'_>, _, out: &mut Commands| {
                 out.push(Command::OpenScreen(STUCK, Params::new()));
             },
         ))?;

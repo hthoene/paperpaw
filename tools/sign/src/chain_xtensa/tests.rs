@@ -526,11 +526,15 @@ fn an_entry_of_another_register_fails_and_a_jx_counts_as_indirect() {
     let jx = f(&[&entry(32), &[0xa0, 0x02, 0x00]]);
     let bare = run(&[("root", jx.clone())], &["root"], "");
     assert_eq!(bare.indirect, 1);
-    assert!(bare.problems[0].contains("through a register"));
+    assert!(
+        bare.problems
+            .iter()
+            .any(|p| p.contains("through a register"))
+    );
     let listed = run(
         &[("root", jx)],
         &["root"],
-        "allow indirect root 1 jump table\n",
+        "allow indirect root 1 jump table\nallow jx root no table, read by hand\n",
     );
     assert!(listed.problems.is_empty(), "{:?}", listed.problems);
 }
@@ -779,14 +783,14 @@ fn forms_that_stay_unknown_cannot_be_allowed_and_the_line_is_read_strictly() {
 // ---- calls through a register that an `l32r` literal gives -----------------
 
 /// `l32r a<reg>, <literal>` at `pc`.
-fn l32r(reg: u32, pc: u32, literal: u32) -> [u8; 3] {
+pub(super) fn l32r(reg: u32, pc: u32, literal: u32) -> [u8; 3] {
     let imm = ((i64::from(literal) - i64::from((pc + 3) & !3)) >> 2) as u32 & 0xFFFF;
     let w = 0x01 | reg << 4 | imm << 8;
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
 }
 
 /// `callx<n> a<reg>`.
-fn callx_reg(n: u32, reg: u32) -> [u8; 3] {
+pub(super) fn callx_reg(n: u32, reg: u32) -> [u8; 3] {
     let w = (0xC + n / 4) << 4 | reg << 8;
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
 }
@@ -834,10 +838,10 @@ fn firmware_lit_flags(
     b.build()
 }
 
-fn run_lit(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32], extra: &str) -> Report {
+pub(super) fn run_lit(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32], more: &str) -> Report {
     let bytes = firmware_lit(lits, funcs, data);
     let elf = Elf::parse(&bytes).unwrap();
-    let text = format!("root root\n{extra}");
+    let text = format!("root root\n{more}");
     check(&elf, &Budget::parse(&text).unwrap()).unwrap()
 }
 
@@ -941,7 +945,7 @@ fn a_callx_whose_register_holds_no_literal_on_every_path_stays_indirect() {
 /// A function `root` of the instructions `parts` at `BASE + 0x40` (the first
 /// literal is the helper's address, the second the same address again), and
 /// the helper after it.
-fn root_of(parts: &[&[u8]]) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
+pub(super) fn root_of(parts: &[&[u8]]) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
     let root_at = BASE + 0x40;
     let root = f(parts);
     let helper_at = (root_at + root.len() as u32 + 15) & !15;
@@ -952,7 +956,7 @@ fn root_of(parts: &[&[u8]]) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
     )
 }
 
-fn outcome(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32]) -> (u32, u32) {
+pub(super) fn outcome(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32]) -> (u32, u32) {
     let report = run_lit(lits, funcs, data, "");
     (report.resolved, report.indirect)
 }

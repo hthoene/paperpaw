@@ -87,6 +87,7 @@
 //!                                     `paperpaw_plugin_*`, 8 otherwise): `max`
 //!                                     is the count of the last CI scan
 //! include <file>                      the lines of a file beside the budget
+//! allow jx <caller> <why>             a `jx` no jump table of its own is tied to
 //! allow sp <caller> <why>             the caller changes the stack pointer
 //!                                     other than by `entry`
 //! allow nosize <name> <why>           a function with no size (assembly)
@@ -142,6 +143,7 @@
 //! same layout for plugins).
 
 mod family;
+mod jx;
 mod regs;
 mod tables;
 
@@ -165,6 +167,8 @@ pub enum Allow {
     Call { caller: String, callee: String },
     /// `caller` has at most `count` + [`INDIRECT_MARGIN`] calls through a register.
     Indirect { caller: String, count: u32 },
+    /// `caller`'s `jx` has no jump table tied to it (see [`jx`]): read by hand.
+    Jx { caller: String },
     /// `caller` changes `a1` other than by `entry`.
     Sp { caller: String },
     /// `name` is assembly with no size.
@@ -346,7 +350,7 @@ impl Budget {
                 ["allow", "frame", ..] => budget
                     .frame_exceptions
                     .push(family::parse_frame(&words).ok_or_else(bad)?),
-                ["allow", "rom" | "indirect-in", ..] => budget
+                ["allow", "rom" | "indirect-in" | "jx", ..] => budget
                     .allow
                     .push(family::parse_line(&words).ok_or_else(bad)?),
                 ["allow", "sp", caller, why @ ..] if !why.is_empty() => budget.allow.push((
@@ -490,6 +494,8 @@ struct Reads {
     forms: BTreeMap<String, u32>,
     /// An `entry` of a register other than `a1`.
     entry_other: Option<u32>,
+    /// A `jx` no jump table is tied to (see [`jx`]).
+    untied_jx: Option<u32>,
 }
 
 fn sext18(w: u32) -> i64 {
@@ -654,7 +660,9 @@ fn read_function(code: &[u8], start_addr: u32, around: &Around<'_>) -> Reads {
         }
         at += len;
     }
-    resolve(&insns, &sites, start_addr, around, &mut reads);
+    let tied = jx::tied_tables(&insns, around);
+    reads.untied_jx = jx::untied(&insns, &tied);
+    resolve(&insns, &sites, start_addr, around, &tied, &mut reads);
     reads
 }
 
@@ -696,6 +704,7 @@ fn resolve(
     sites: &[usize],
     start_addr: u32,
     around: &Around<'_>,
+    tied: &[u32],
     reads: &mut Reads,
 ) {
     if sites.is_empty() {
@@ -722,6 +731,7 @@ fn resolve(
         };
         entries.push(to);
     }
+    entries.extend(tied.iter().filter_map(|p| index.get(p).copied()));
     // The function's own start does not count as an address to jump to: a
     // vtable or a function pointer holds it, a jump table does not. Jump
     // tables are taken to hold absolute addresses of the instructions.
@@ -1287,6 +1297,7 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
             f.shown
         ));
     }
+    jx::judge(f, reads, budget, used, report);
     if let Some((pc, what)) = reads.narrow_call {
         report.problems.push(format!(
             "`{}` calls with {what} ({pc:#x}): only call8 and call12 keep the band's bound",
@@ -1325,25 +1336,16 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
     }
 }
 
-/// `resolve` takes a jump table to be its function's own: a part split off a
-/// function (`.cold`, `.part.N`) could be entered from the other's table.
-fn no_split_parts(funcs: &[Function]) -> Result<(), String> {
-    let split = |f: &&Function| f.symbol.contains(".cold") || f.symbol.contains(".part.");
-    funcs.iter().find(split).map_or(Ok(()), |f| {
-        Err(format!(
-            "`{}` is a part split off a function: this scan cannot place the jumps into it",
-            f.symbol
-        ))
-    })
-}
-
 /// The `allow` lines nothing used: a warning for the two kinds that only grant what a site
 /// needs (#309), a problem for the rest.
 fn report_unused(budget: &Budget, used: &[bool], report: &mut Report) {
     for (n, (allow, _)) in budget.allow.iter().enumerate() {
         if !used[n] {
             let line = format!("an `allow` line matches nothing any more: {allow:?}: remove it");
-            if matches!(allow, Allow::Call { .. } | Allow::Indirect { .. }) {
+            if matches!(
+                allow,
+                Allow::Call { .. } | Allow::Indirect { .. } | Allow::Jx { .. }
+            ) {
                 report.warnings.push(line);
             } else {
                 report.problems.push(line);
@@ -1358,7 +1360,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     }
     let image = image(elf)?;
     let funcs = &image.funcs;
-    no_split_parts(funcs)?;
+    jx::no_split_parts(funcs)?;
     let mut report = Report::default();
     // Which `allow` lines were used.
     let mut used = vec![false; budget.allow.len()];
@@ -1419,6 +1421,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
             Allow::Rom { .. } | Allow::IndirectIn { .. } => continue,
             Allow::Call { caller: n, .. }
             | Allow::Sp { caller: n }
+            | Allow::Jx { caller: n }
             | Allow::Indirect { caller: n, .. }
             | Allow::Form { caller: n, .. }
             | Allow::NoSize { name: n } => n,

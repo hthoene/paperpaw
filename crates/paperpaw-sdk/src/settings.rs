@@ -255,7 +255,7 @@ pub struct SettingExtra {
     pub step: i64,
     /// A number better set by eye than by its value, such as the line
     /// spacing or a light's brightness: on touch screens settings pages
-    /// and panels show it as a slider ([`ui::slider`](crate::ui::slider)),
+    /// and panels show it as a slider (`ui::slider`),
     /// in its steps; with buttons alone it keeps `−` and `+`.
     pub slider: bool,
     /// Translation key of the part of its group it belongs to (e.g.
@@ -823,7 +823,7 @@ impl core::error::Error for SettingError {}
 
 /// All registered settings and their current values.
 ///
-/// Plugins receive it read-only through [`Env`](crate::Env) and change values
+/// Plugins receive it read-only through `Env` and change values
 /// with [`Command::SetSetting`](crate::Command::SetSetting).
 ///
 /// Something placed more than once, such as a widget on two pages, has

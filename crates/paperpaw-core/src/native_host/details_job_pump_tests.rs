@@ -325,8 +325,10 @@ fn catalog(w: &World, books: &[(&str, bool)]) {
     let records: Vec<catalog::Record> = books
         .iter()
         .map(|(path, read)| {
-            let mut book = paperpaw_sdk::library::Book::default();
-            book.size = if *read { 6 } else { 0 };
+            let book = crate::kit::library::Book {
+                size: if *read { 6 } else { 0 },
+                ..Default::default()
+            };
             catalog::Record::of(path, &book)
         })
         .collect();

@@ -12,9 +12,12 @@
 
 use super::KernelBuilder;
 use crate::Kernel;
+use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::string::String;
-use paperpaw_sdk::{BuiltInFonts, Manifest, RegisterError};
+use paperpaw_sdk::{BuiltInFont, BuiltInFonts, FontFace, Id, Manifest, Priority, RegisterError};
+
+use crate::kit::contribution::item::Contribution;
 
 mod calls;
 
@@ -54,7 +57,7 @@ impl Source {
             Self::Fonts(fonts) => {
                 kernel.add_items(
                     fonts.manifest.clone(),
-                    &|items| fonts.register(&mut |c| items.add(c)),
+                    &|items| register_built_in(fonts, &mut |c| items.add(c)),
                     disabled,
                 );
             }
@@ -93,4 +96,46 @@ impl KernelBuilder {
         self.0.off.push(String::from(manifest.id.as_str()));
         self.items(manifest, register)
     }
+}
+
+/// What a program's built-in fonts add: their translations, each font kept
+/// in the program with its role bound to it, the other roles' bindings, and
+/// the faces read from files.
+fn register_built_in(
+    fonts: &BuiltInFonts,
+    add: &mut dyn FnMut(Contribution) -> Result<(), RegisterError>,
+) -> Result<(), RegisterError> {
+    let binding = |role: &Id, font: &Id| Contribution::FontBinding {
+        role: role.clone(),
+        font: font.clone(),
+        priority: Priority::DEFAULT,
+    };
+    for source in fonts.translations {
+        add(Contribution::Translations(Cow::Borrowed(*source)))?;
+    }
+    for font in fonts.fonts {
+        match font {
+            BuiltInFont::Data { id, role, .. } => {
+                if let Some(spec) = fonts.font(id) {
+                    add(Contribution::Font(Box::new(spec?)))?;
+                }
+                add(binding(role, id))?;
+            }
+            BuiltInFont::Role { role, font } => add(binding(role, font))?,
+            BuiltInFont::File {
+                id,
+                path,
+                family,
+                bold,
+                italic,
+            } => add(Contribution::FontFace(Box::new(FontFace::new(
+                id.clone(),
+                *path,
+                *family,
+                *bold,
+                *italic,
+            ))))?,
+        }
+    }
+    Ok(())
 }

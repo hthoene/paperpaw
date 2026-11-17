@@ -5,13 +5,13 @@
 
 use super::*;
 use crate::Items;
+use crate::kit::library::{self, catalog};
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
 use paperpaw_sdk::builtin::{events, params};
 use paperpaw_sdk::document::DocumentError;
 use paperpaw_sdk::event::EventData;
-use paperpaw_sdk::library::{self, catalog};
 use paperpaw_sdk::{FormatSpec, MemoryStorage, Params};
 
 /// Reads text books (as names only) and keeps a rating in the catalog;

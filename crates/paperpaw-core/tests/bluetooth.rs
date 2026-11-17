@@ -16,13 +16,14 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use paperpaw_core::Items;
+use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::sdk::bluetooth::{
     self, BtEvent, DeviceId, Handle, ScanPower, Security, Uuid, ValueKind,
 };
 use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::{
-    ActionSpec, Canvas, Command, Event, Handled, Id, Manifest, MemoryStorage, Priority,
-    RegisterError, Uses, Version,
+    Canvas, Command, Event, Handled, Id, Manifest, MemoryStorage, Priority, RegisterError, Uses,
+    Version,
 };
 use paperpaw_core::{BtCall, BtReport, Found, Io, Kernel};
 use paperpaw_platform::{
@@ -122,7 +123,7 @@ fn pulse(kept: Pulse) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             pulses.retain(|(id, ..)| *id != kept.id);
             pulses.push((kept.id, kept.queue.clone(), kept.log.clone()));
         });
-        let run: paperpaw_sdk::FixedHandler = match kept.id {
+        let run: paperpaw_core::kit::action::FixedHandler = match kept.id {
             "pulse" => |_, _, out| out.extend(queue_of("pulse")),
             _ => |_, _, out| out.extend(queue_of("other")),
         };

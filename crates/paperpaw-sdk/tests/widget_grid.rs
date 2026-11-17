@@ -11,8 +11,6 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod support;
-
 use paperpaw_sdk::widgets::grid::{self, Cells};
 use proptest::prelude::*;
 

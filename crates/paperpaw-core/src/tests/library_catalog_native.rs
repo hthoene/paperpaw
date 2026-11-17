@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::Items;
+use crate::kit::library::catalog;
 use crate::native_host::native_book_formats::tests::{Plugin as FormatPlugin, declare};
 use crate::native_host::native_declarations::NativeDeclarations;
 use crate::native_host::shared::Shared;
@@ -13,7 +14,6 @@ use core::cell::Cell;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::document::DocumentError;
 use paperpaw_sdk::event::EventData;
-use paperpaw_sdk::library::catalog;
 use paperpaw_sdk::{FormatSpec, MemoryStorage};
 
 /// An interface 6 format of TXT, beside them.

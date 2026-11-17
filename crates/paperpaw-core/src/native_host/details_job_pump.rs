@@ -56,6 +56,7 @@ use super::{
     native_host_call::HostRoute, registry_service::Sources,
 };
 use crate::abi7::context::{Frame, registry_views::RegistryView};
+use crate::kit::library::{self, catalog};
 use alloc::string::String;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE,
@@ -63,7 +64,6 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::builtin::{events, slots};
-use paperpaw_sdk::library::{self, catalog};
 
 /// The most catalog lines one pass looks at.
 const LINES_PER_PASS: usize = 32;

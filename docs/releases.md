@@ -244,17 +244,24 @@ catalogue ZIP, a mirror for the site to import from, and a card tree with each
 plugin's `code.ppn`); its docstring has the site's settings. A single plugin
 (or a fix) between releases takes *Store plugin update* below, with its id.
 
+**After the release: updates from the current base.** A fix to code plugins reaches readers
+without a firmware release through *Store plugin update* (below), once the release is out: run it
+by hand from the integration branch or `main` with `plugins` = `changed` (or ids), `base` = the
+release's tag, `dry_run` on first. Its dry run lists the batch, the three files of each plugin and
+the commands that would upload and tag, and stops on the consistency check's refusals; the same
+check runs locally (below). Dispatching it, signing and publishing need the owner's OK.
+
 ## A store plugin between releases
 
 One or several of PaperPaw's own store plugins, updates or new ones, can be
 published between releases with the workflow *Store plugin update* (run by hand,
 with the first-party plugin key): inputs `plugins` (ids, separated by commas or
-spaces), `base` (the release whose firmware it is for, e.g. `v0.6.0-beta.2`),
+spaces, or `changed` or `all`: below), `base` (the release whose firmware it is for, e.g. `v0.6.0-beta.2`),
 `ref` (`main`, the default, or a branch made from that tag), `notes`, `dry_run`
 (on by default: nothing is uploaded or tagged, the commands and the lists are
 printed) and, only for a branch and only when needed, `accept`. It builds each
-plugin for the base firmware of each device, checks that each file has the base
-firmware's fingerprint, signs them and adds them to the store release, with one
+plugin for the base firmware of each device (interface 7, format 5: no fingerprint;
+the base's ABI `7.<minor>` decides, see below), checks each file, signs them and adds them to the store release, with one
 catalogue ZIP for each plugin (`paperpaw-<id>-v<version>-catalogue.zip`, in the
 store release too); the plugin's commit gets the git tag `<id>-v<version>`
 (`versions.py` reads it). Devices are offered no firmware with it. Before it
@@ -263,12 +270,52 @@ published: not older than a published one (a version published already is
 allowed: the upload skips the same bytes and stops for other ones), and its id
 may not begin with `v` and a digit (its tag would start `release.yml`).
 
-From `main` (`ref` = `main`): what main has of the plugins now, built against the
-base release's fingerprint and core libraries. A plugin that needs a newer SDK
-or kernel than the base's firmware does not get that fingerprint, so the build
-or the check before the signing fails: it needs a firmware release. Other
-differences between main and the base are noted in the log, not refused
+From `main` (`ref` = `main`, or the integration branch the base was cut from, given as a
+branch name): what that has of the plugins now, built for the base release's interface. A
+format-5 file has no fingerprint and no draft check: the base firmware takes it when its target,
+`abi_major` (7) and `needs_minor` fit (`7.<minor>` of
+`crates/paperpaw-native/src/host_glue/paperpaw_abi.rs` at the base's tag). A plugin whose
+metadata needs a newer minor than the base's, or a source on another plugin interface, cannot
+be published between releases: it needs a firmware release (`store_consistency.py`, below).
+Other differences between main and the base are noted in the log, not refused
 (`store_update.py --main`).
+
+**A batch (`changed`, `all`).** `plugins` may name `changed`: every code plugin of `plugins.txt`
+with something to publish (a version that is not published yet, a change since the commit that
+published its version, or a build published for another plugin interface), or `all`: every code
+plugin (at most 20 in a run). Data plugins are named by id. Each plugin of the batch still has
+its own version, newer than the base's (`store_update.py`), and is built, checked and published
+together with the others, or not at all.
+
+**The consistency check** (`tools/plugin-files/store_consistency.py`, tests in
+`test_store_consistency.py`) holds each plugin of a batch to the source, to what is published and
+to what the released firmware accepts. It builds and uploads nothing, and the workflow runs it
+from its trusted checkout (the source is data to it). Locally, from a checkout of the source:
+
+```sh
+gh api --paginate --slurp repos/hthoene/paperpaw/releases > releases.json     # what is published
+python3 tools/plugin-files/store_consistency.py select changed --base v0.6.0-beta.4 --releases releases.json
+python3 tools/plugin-files/store_consistency.py check changed  --base v0.6.0-beta.4 --releases releases.json
+```
+
+`check` prints the base's ABI (`7.1`) and fails, with a line for each plugin, when
+
+- the source's plugin interface is not the base's (a firmware release is needed; a different draft
+  is only a note);
+- the plugin's generated metadata (`native/metadata.bin`, and `metadata.s3.bin` for the X4 Pro and
+  the X4 Classic: the numbers its file's header gets) has another ABI major, or needs a minor
+  above the base's: the firmware would refuse the file;
+- its version is older than the published one, or the same although its files
+  (`plugins/<id>/`, `tools/plugin-files7/src/bin/<id>.rs`) changed since the commit that published
+  it (the tag `<id>-v<version>`, else the oldest firmware tag with that version), or it was published
+  for another plugin interface (every build published before Beta 4 is interface 6): raise the
+  version in `plugins/<id>/Cargo.toml`, as `versions.py` asks.
+
+The workflow runs `check` in its first job (the ABI it prints is passed on), `files` on the built
+files before they are signed (format 5, the device's chip, ABI major 7, `needs_minor` not above the
+base's) and `entries` on the catalogue ZIPs before they are uploaded (the batch's version, a build
+for each of the three devices with an `abi` of `7.<minor>` the base accepts, nothing older than
+what is published).
 
 From a branch: the published firmware is the base's, so the source must differ
 from the base's tag only in the plugins, the plugin files' project (the
@@ -284,13 +331,13 @@ plugin must be another crate of the workspace): a decision for whoever runs it,
 who has to know the change cannot differ from what the firmware does.
 
 The source is somebody's push, so the workflow runs from `main` and keeps its
-code away from the key: the check, the fingerprint test (`check_files.sh`), the
+code away from the key: the check, the file checks (`check_files.sh`, `store_consistency.py`), the
 signing and the upload run this workflow's own scripts, from a checkout of the
 commit the workflow is at (`github.workflow_sha`), not the source's. The
 source's code runs only where there is no secret and the token only reads
 (building the plugins, their catalogue entries); the signing job takes the
-build's files, accepts only the names and the base firmware's fingerprint it
-expects, and signs them; the release job, the only one that writes, runs none of
+build's files, accepts only the names and the base firmware's chip, format and ABI
+it expects, and signs them; the release job, the only one that writes, runs none of
 the source's code. A data plugin has no signature, and its version is read by
 the source's script (`data.py`) with no secret.
 

@@ -58,6 +58,10 @@ paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-hid.workspace = true
 paperpaw-hyphen = { workspace = true, features = ["kernel"] }
 paperpaw-sort.workspace = true
+paperpaw-digest.workspace = true
+paperpaw-document.workspace = true
+paperpaw-lang.workspace = true
+paperpaw-text.workspace = true
 
 [dev-dependencies]
 # Tests' screens (`testing`) for the tests in `tests/`.
@@ -66,10 +70,15 @@ paperpaw-core = { path = ".", features = ["testing", "bluetooth"] }
 paperpaw-fat.workspace = true
 # The stack depth of the files service on that card, held to the device's (#256).
 paperpaw-stack-budget.workspace = true
-paperpaw-plugin-battery = { workspace = true, features = ["linked"] }
-paperpaw-plugin-widgets = { workspace = true, features = ["linked"] }
-paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
+# By path alone, without a version: these plugins depend on this crate, and
+# cargo drops a dev-dependency that has no version when it publishes, so the
+# two do not wait for each other (`publish-workspace.py --dry-run` found the cycle).
+paperpaw-plugin-battery = { path = "../../plugins/battery", features = ["linked"] }
+paperpaw-plugin-widgets = { path = "../../plugins/widgets", features = ["linked"] }
+paperpaw-plugin-fonts-default = { path = "../../plugins/fonts-default", features = ["packs"] }
 png = "0.18"
+# The kit's picture tests write their pictures (tests/kit_thumbnail.rs).
+paperpaw-image.workspace = true
 paperpaw-platform = { workspace = true, features = ["fake"] }
 # Scalable fonts for the stock screens' tests that draw text (tests/stock_screens.rs).
 paperpaw-text = { workspace = true, features = ["outline"] }

@@ -664,7 +664,7 @@ pub enum Command {
     /// Closes the current screen (no-op on the root screen).
     Back,
     /// Closes the open screen `.0` wherever it is in the stack, leaving
-    /// the screens above it (see [`Cx::close`](crate::Cx::close)); none
+    /// the screens above it (see `Cx::close`); none
     /// where it is the only one.
     Close(crate::ScreenKey),
     /// Opens screen `.0` with `.1` in place of the one on top, in one
@@ -678,7 +678,7 @@ pub enum Command {
     /// Opens a book with the reading app chosen for it, in
     /// [`slots::READER`](crate::builtin::slots::READER): its path in
     /// `params::PATH`, and the readers that could not open it. See
-    /// [`readers::open`](crate::readers::open) and
+    /// `readers::open` and
     /// `readers::cannot_open`, which make
     /// it, and `readers::resolve`, which says
     /// what it does.
@@ -704,7 +704,7 @@ pub enum Command {
     /// (`[keymap.<layer>]`): it applies while that screen is on top and
     /// goes with it; not below a screen that guards the device. `None`
     /// takes it away. A screen sends it with
-    /// [`Cx::set_key_layer`](crate::Cx::set_key_layer); sent from anywhere
+    /// `Cx::set_key_layer`; sent from anywhere
     /// else (a handler, a rule), it is refused.
     SetKeyLayer(crate::ScreenKey, Option<Id>),
     /// Shows task `.0`, a tab of tabs: the screens open now are kept as
@@ -712,7 +712,7 @@ pub enum Command {
     /// and made anew when it is shown again), and those of task `.0` open
     /// again, or the first time the screen of slot `.0` (or screen `.0`).
     /// Each task keeps its own way back; its first screen is the first of
-    /// [`Env::stack`](crate::Env::stack). At start the task is the home
+    /// `Env::stack`. At start the task is the home
     /// slot's.
     SwitchTask(Id),
     /// Binds slot `.0` to screen `.1` for the user, or back to what the
@@ -756,7 +756,7 @@ pub enum Command {
     Emit(Id, Params),
     /// Runs action `.0` as if the user had triggered it (e.g. from a
     /// menu), with params `.1`: its handler gets them, and so does a
-    /// screen that takes it ([`Cx::params`](crate::Cx::params)), e.g. a
+    /// screen that takes it (`Cx::params`), e.g. a
     /// rule applying the profile it names. [`Command::run`] runs it
     /// without.
     RunAction(Id, Params),
@@ -859,7 +859,7 @@ pub enum Command {
     /// available in this release.
     Developer(alloc::boxed::Box<crate::developer::DevRequest>),
     /// Tells the radio what to do, where PaperPaw manages Wi-Fi
-    /// ([`Env::wifi`](crate::Env)); see [`wifi`](crate::wifi). Ignored
+    /// (`Env::wifi`); see [`wifi`](crate::wifi). Ignored
     /// elsewhere.
     Wifi(crate::wifi::WifiCommand),
     /// No network is coming for now (none saved, none in reach): the
@@ -894,7 +894,7 @@ pub enum Command {
     /// by the plugin that chooses the mode.
     Wear(crate::power::Wear),
     /// Installs a firmware update or restarts, where PaperPaw is the
-    /// device's firmware ([`Env::firmware`](crate::Env)); see
+    /// device's firmware (`Env::firmware`); see
     /// [`firmware`](crate::firmware). Ignored elsewhere.
     Firmware(crate::firmware::FirmwareCommand),
     /// Asks the shell to sleep once the frame is shown, where it can
@@ -951,7 +951,7 @@ pub enum Command {
     /// Answers a request of a server. Made with [`Command::respond`].
     Respond(alloc::boxed::Box<ServerResponse>),
     /// Asks for the text on the clipboard (see
-    /// [`Env::clipboard`](crate::Env)). It comes as the event `.0` with
+    /// `Env::clipboard`). It comes as the event `.0` with
     /// the parameters `.1` plus `text` ([`params::TEXT`](crate::builtin::params::TEXT)),
     /// empty if there is none: a [`Typed`](crate::replies::Typed). Read it only when the user asks to paste:
     /// some systems tell the user every time an app reads the clipboard.

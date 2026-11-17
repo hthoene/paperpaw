@@ -121,7 +121,7 @@ pub trait Edits {
     ) -> Result<bool, Error>;
 }
 
-/// The annotation file of the book whose key is `key` ([`crate::library::key`]
+/// The annotation file of the book whose key is `key` (`crate::library::key`
 /// as a number): the file [`super::file`] names for its path, without the path.
 ///
 /// # Errors

@@ -1,12 +1,12 @@
 //! Ops 3 `book` and 4 `text`: one book's line, whole texts by offsets.
 use super::{CatalogReads, fail, valid_prefix, zeroed};
+use crate::kit::library::{self, catalog};
 use crate::native_host::lib_service::{BookRef, One};
 use crate::native_host::registrations::{self as wire, Record};
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
 };
 use paperpaw_platform::StorageError;
-use paperpaw_sdk::library::{self, catalog};
 
 /// Bytes of the long forms `lib_book` carries.
 const PATH: usize = 512;

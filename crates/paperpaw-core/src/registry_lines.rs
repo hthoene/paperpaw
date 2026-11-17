@@ -24,7 +24,7 @@ use crate::native_host::registry_service::Sources;
 use alloc::{format, string::String, vec::Vec};
 use core::fmt::{Debug, Display};
 use core::ops::ControlFlow;
-use paperpaw_sdk::{ScreenMaker as _, keys::KeyBindings as _};
+use paperpaw_sdk::keys::KeyBindings as _;
 
 /// The longest a printed value may be before it is cut to its start, its
 /// length and its hash (an icon's bitmap, a long list).
@@ -236,10 +236,10 @@ impl Kernel {
             });
         }
         lines.end("slot-order");
-        // The same order as a list (`ScreenMaker::slot_screens`): code of
+        // The same order as a list (`Registry::ordered_screens`): code of
         // its own, which a view of the slot's screens asks.
         for (id, _) in registry.slots.iter() {
-            for screen in paperpaw_sdk::ScreenMaker::slot_screens(registry, id.as_str()) {
+            for screen in registry.ordered_screens(id.as_str()) {
                 lines.add(id, screen);
             }
         }

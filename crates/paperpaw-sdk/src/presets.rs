@@ -190,10 +190,10 @@ pub const WIDGET_LOOK: &str = "core.widget-look";
 
 /// The settings a widget look covers: each registered widget's frame,
 /// padding, size, alignment, colours and shape (`<widget>.frame` …, of
-/// `widgets`), and those of all and the gap between widgets
+/// each id `is_widget` says is a widget's), and those of all and the gap between widgets
 /// ([`WIDGET_FRAME`](crate::builtin::settings::WIDGET_FRAME) …); not the
 /// settings of other things that end so (the status lines' size).
-pub fn widget_look_settings(settings: &Settings, widgets: &crate::widgets::Widgets) -> Vec<Id> {
+pub fn widget_look_settings(settings: &Settings, is_widget: &dyn Fn(&str) -> bool) -> Vec<Id> {
     use crate::builtin::settings as s;
     const PARTS: [&str; 9] = [
         ".frame",
@@ -217,10 +217,9 @@ pub fn widget_look_settings(settings: &Settings, widgets: &crate::widgets::Widge
         s::WIDGET_GAP.static_str(),
     ];
     let of_widget = |id: &str| {
-        PARTS.iter().any(|part| {
-            id.strip_suffix(part)
-                .is_some_and(|widget| widgets.has(widget))
-        })
+        PARTS
+            .iter()
+            .any(|part| id.strip_suffix(part).is_some_and(is_widget))
     };
     let mut covered = Vec::new();
     let walked = settings.each_spec(crate::settings::Pick::All, |spec| {
@@ -237,10 +236,10 @@ pub fn widget_look_settings(settings: &Settings, widgets: &crate::widgets::Widge
 /// What `look` changes among [`widget_look_settings`].
 pub fn widget_look_changes(
     settings: &Settings,
-    widgets: &crate::widgets::Widgets,
+    is_widget: &dyn Fn(&str) -> bool,
     look: &Preset,
 ) -> Vec<(Id, Option<SettingValue>)> {
-    let covered = widget_look_settings(settings, widgets);
+    let covered = widget_look_settings(settings, is_widget);
     let mut changes = look.changes(settings, &covered);
     changes.retain(|(id, _)| covered.contains(id));
     changes

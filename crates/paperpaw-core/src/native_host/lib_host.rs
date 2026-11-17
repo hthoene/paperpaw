@@ -422,7 +422,7 @@ impl LibWrite for LibraryHost {
         // The status went to the log beside the catalog: a long log is folded
         // in, as the kernel's own status notes ask (`core_plugin`), so that a
         // catalog read never reserves for more than its lines (#248).
-        if paperpaw_sdk::library::catalog::log_is_long(&*self.storage) {
+        if crate::kit::library::catalog::log_is_long(&*self.storage) {
             self.catalog_wanted.set(true);
         }
         Ok(())

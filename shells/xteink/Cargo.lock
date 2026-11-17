@@ -2318,14 +2318,18 @@ name = "paperpaw-core"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
+ "paperpaw-digest",
+ "paperpaw-document",
  "paperpaw-graphics",
  "paperpaw-hid",
  "paperpaw-hyphen",
  "paperpaw-i18n",
+ "paperpaw-lang",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sdk",
  "paperpaw-sort",
+ "paperpaw-text",
 ]
 
 [[package]]
@@ -2625,7 +2629,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-plugin-manager"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2672,7 +2676,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.13"
+version = "1.0.14"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2697,7 +2701,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-vocabulary"
-version = "1.1.9"
+version = "1.1.10"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",

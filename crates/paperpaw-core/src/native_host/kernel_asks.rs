@@ -12,11 +12,11 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::kit::ui::choice::{LABELS, OPTION, OPTIONS};
+use crate::kit::ui::confirm::{FOCUS_YES, NO_LABEL, ONLY_YES, YES_LABEL};
 use paperpaw_sdk::builtin::{params, slots};
 use paperpaw_sdk::event::EventData as _;
 use paperpaw_sdk::replies::Confirmed;
-use paperpaw_sdk::ui::choice::{LABELS, OPTION, OPTIONS};
-use paperpaw_sdk::ui::confirm::{FOCUS_YES, NO_LABEL, ONLY_YES, YES_LABEL};
 use paperpaw_sdk::{Command, Id, Params};
 
 use super::ui_requests::Question;

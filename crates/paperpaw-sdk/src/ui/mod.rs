@@ -47,34 +47,6 @@ pub(crate) mod style;
 pub(crate) mod text;
 mod thumbnail;
 
-pub(crate) use button::*;
-pub use hints::*;
-pub use image::*;
 pub use list::*;
-pub use responsive::{COMPACT_BELOW_MM, EXPANDED_FROM_MM, ScreenClass};
-pub use setting_rows::*;
+pub use responsive::ScreenClass;
 pub use style::*;
-pub use text::*;
-
-use crate::semantics::Role;
-
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-
-use paperpaw_document::ImageRef;
-use paperpaw_graphics::Canvas;
-use paperpaw_platform::{Color, Point, Rect, Storage};
-
-use crate::builtin::{fonts, settings};
-use crate::env::Env;
-use crate::fonts::FontHandle;
-use crate::screen::Hint;
-use paperpaw_text::{TextInk, ToneCurve};
-
-/// Whether a part drawn in `rect` can show on `canvas`: it meets the
-/// canvas's clip (one band of the frame), or the canvas only tells what
-/// is drawn, as for a screen reader, which hears every part. Parts that
-/// cannot show are left out before their text is looked up and measured.
-pub(crate) fn shows(canvas: &Canvas<'_>, rect: Rect) -> bool {
-    canvas.is_describing() || canvas.is_blind() || canvas.clip().intersection(&rect).is_some()
-}

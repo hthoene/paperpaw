@@ -54,7 +54,7 @@ impl crate::Kernel {
             };
             // What a details job read is kept as the book's details.
             let mut keep = |path: &str, metadata: &paperpaw_sdk::document::Metadata| {
-                paperpaw_sdk::library::keep_native_details(&env.env(), path, metadata).is_ok()
+                crate::kit::library::keep_native_details(&env, path, metadata).is_ok()
             };
             documents.0.cover_job_step(hosts, &route, &mut keep)
         };

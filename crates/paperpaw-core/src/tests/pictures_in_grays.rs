@@ -24,7 +24,7 @@ impl crate::testing::Fake for CoverScreen {
             height: 8,
         };
         if self.in_grays {
-            paperpaw_sdk::ui::draw_image(canvas, env.storage(), &image, Rect::new(10, 10, 60, 60));
+            crate::kit::ui::draw_image(canvas, env.storage(), &image, Rect::new(10, 10, 60, 60));
         }
     }
 
@@ -374,12 +374,7 @@ impl crate::testing::Fake for LateScreen {
                 height: 8,
             };
             for x in [10, 40] {
-                paperpaw_sdk::ui::draw_image(
-                    canvas,
-                    env.storage(),
-                    &image,
-                    Rect::new(x, 10, 20, 20),
-                );
+                crate::kit::ui::draw_image(canvas, env.storage(), &image, Rect::new(x, 10, 20, 20));
             }
         }
     }

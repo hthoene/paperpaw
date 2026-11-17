@@ -20,6 +20,7 @@ use card::{ALICE, Card, GREGOR};
 
 use std::rc::Rc;
 
+use paperpaw_core::kit::library;
 use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat, Point,
@@ -27,7 +28,7 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::builtin::{CONFIG_FILE, actions, settings as core_settings};
 use paperpaw_sdk::semantics::Role;
-use paperpaw_sdk::{Id, Params, library};
+use paperpaw_sdk::{Id, Params};
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
 const BUTTONS: DeviceInfo = DeviceInfo::new(

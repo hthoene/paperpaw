@@ -534,14 +534,18 @@ name = "paperpaw-core"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
+ "paperpaw-digest",
+ "paperpaw-document",
  "paperpaw-graphics",
  "paperpaw-hid",
  "paperpaw-hyphen",
  "paperpaw-i18n",
+ "paperpaw-lang",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sdk",
  "paperpaw-sort",
+ "paperpaw-text",
 ]
 
 [[package]]

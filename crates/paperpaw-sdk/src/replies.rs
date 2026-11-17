@@ -2,7 +2,7 @@
 //! request ([`HttpReply`]), what happens to its server ([`ServerNotice`])
 //! or its sockets ([`SocketNotice`]), and what the reader typed, chose or
 //! answered when asked ([`Typed`], [`FolderChosen`], [`Confirmed`], see
-//! [`ask`](crate::ask)).
+//! `ask`).
 //!
 //! A plugin names the event that brings it, e.g.
 //! `const FETCHED: Event<HttpReply> = Event::new("news.fetched")`, passes
@@ -764,14 +764,14 @@ impl EventData for SocketNotice {
     }
 }
 
-/// What the reader typed when asked ([`ask::text`](crate::ask::text)).
+/// What the reader typed when asked (`ask::text`).
 /// Made with [`Typed::new`] (a keyboard of one's own answers so).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Typed {
     pub text: String,
     /// The text so far, while the reader still types: an answer to a
-    /// question asked [`live`](crate::ask::TextQuestion::live).
+    /// question asked `live`.
     pub typing: bool,
     /// The parameters the question was asked with.
     pub context: Params,
@@ -815,7 +815,7 @@ impl EventData for Typed {
     }
 }
 
-/// The folder the reader chose when asked ([`ask::folder`](crate::ask::folder)).
+/// The folder the reader chose when asked (`ask::folder`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FolderChosen {
@@ -847,7 +847,7 @@ impl EventData for FolderChosen {
     }
 }
 
-/// The answer to a yes or no question ([`ask::confirm`](crate::ask::confirm)).
+/// The answer to a yes or no question (`ask::confirm`).
 /// Made with [`Confirmed::new`] (a screen of one's own on slot
 /// [`CONFIRM`](crate::builtin::slots::CONFIRM) answers so). No answer
 /// comes when the reader goes back.

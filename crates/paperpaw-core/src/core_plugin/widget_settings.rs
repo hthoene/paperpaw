@@ -2,8 +2,8 @@
 //! home's group of settings): its frame, colours and shape, the gap
 //! between widgets (#206) and the font (#262).
 
+use crate::kit::widgets::{self, ALL_FRAMES, OWN_FRAME};
 use paperpaw_sdk::builtin::settings;
-use paperpaw_sdk::widgets::{self, ALL_FRAMES, OWN_FRAME};
 use paperpaw_sdk::{Id, SettingSpec};
 
 use crate::font_refresh::widget_fonts;

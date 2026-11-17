@@ -4,11 +4,12 @@
 extern crate std;
 use super::super::tests::card;
 use super::*;
+use crate::kit::library;
 use crate::native_host::lib_service::{BookRef, LibWrite};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND};
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::annotations::{Annotation, Kind, Mark};
 use paperpaw_sdk::document::Locator;
-use paperpaw_sdk::{Storage, library};
 
 #[test]
 fn a_book_with_nothing_kept_is_deletable_with_no_facts() {

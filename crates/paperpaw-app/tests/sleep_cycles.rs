@@ -37,12 +37,13 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
 use card::Card;
+use paperpaw_core::kit::action::Action;
 use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation, Storage,
 };
 use paperpaw_sdk::builtin::{actions, slots};
-use paperpaw_sdk::{Action, Id, Params};
+use paperpaw_sdk::{Id, Params};
 
 /// Whether this allocation is left out: the card's own files (a test's
 /// storage, not the kernel's heap).

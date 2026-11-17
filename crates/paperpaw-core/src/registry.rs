@@ -4,12 +4,15 @@ use alloc::borrow::Cow;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
+use crate::kit::action::ActionSpec;
+use crate::kit::action::Actions;
+use crate::kit::contribution::item::Contribution;
+use crate::kit::menus::MenuEntry;
+use crate::kit::status::StatusItemSpec;
+use crate::kit::status::StatusLineSpec;
 use paperpaw_i18n::Catalog;
 use paperpaw_sdk::collections::VecMap;
-use paperpaw_sdk::{
-    ActionSpec, Actions, Contribution, FontSpec, FormatSpec, Id, MenuEntry, Priority,
-    RegisterError, SettingSpec, SlotSpec, StatusItemSpec, StatusLineSpec,
-};
+use paperpaw_sdk::{FontSpec, FormatSpec, Id, Priority, RegisterError, SettingSpec, SlotSpec};
 
 pub(crate) const NATIVE_CAPACITY_OVERFLOW: &str = "native screen capacity overflow";
 pub(crate) const NATIVE_CAPACITY_UNAVAILABLE: &str = "native screen capacity unavailable";
@@ -357,8 +360,8 @@ impl Screens {
     }
 
     /// Every screen with the translation key of its name.
-    pub(crate) fn list(&self) -> paperpaw_sdk::ScreenList<'_> {
-        paperpaw_sdk::ScreenList::new(&self.titles, &self.native, &self.fixed_titles)
+    pub(crate) fn list(&self) -> crate::screen_names::ScreenNames<'_> {
+        crate::screen_names::ScreenNames::new(&self.titles, &self.native, &self.fixed_titles)
     }
 
     fn shrink_to_fit(&mut self) {
@@ -374,7 +377,7 @@ impl Screens {
 
 /// A widget a plugin added.
 pub(crate) enum StagedWidgets {
-    One(alloc::boxed::Box<paperpaw_sdk::widgets::WidgetSpec>),
+    One(alloc::boxed::Box<crate::kit::widgets::WidgetSpec>),
 }
 
 /// The events plugins subscribed to, plugin by plugin in the order they
@@ -599,22 +602,24 @@ impl Registry {
     }
 }
 
-impl paperpaw_sdk::ScreenMaker for Registry {
-    fn slot_screen(&self, slot: &str) -> Option<&Id> {
+/// What screens and slots are shown as: the screen each slot shows, the
+/// screens offered for it, the user's choice and their names' keys.
+impl Registry {
+    pub(crate) fn slot_screen(&self, slot: &str) -> Option<&Id> {
         self.resolve_slot(slot)
     }
 
-    fn slot_choice(&self, slot: &str) -> Option<&Id> {
+    pub(crate) fn slot_choice(&self, slot: &str) -> Option<&Id> {
         self.user_bindings
             .get(slot)
             .filter(|screen| self.screens.contains_key(screen.as_str()))
     }
 
-    fn slot_title(&self, slot: &str) -> Option<&str> {
+    pub(crate) fn slot_title(&self, slot: &str) -> Option<&str> {
         self.slots.get(slot).map(|spec| spec.title.as_ref())
     }
 
-    fn screen_title(&self, screen: &Id) -> Option<&str> {
+    pub(crate) fn screen_title(&self, screen: &Id) -> Option<&str> {
         self.screens.title(screen.as_str())
     }
 
@@ -622,7 +627,7 @@ impl paperpaw_sdk::ScreenMaker for Registry {
     /// offered: the plugins' choice ([`Registry::resolve_slot`]) is the
     /// last of the first priority, so those before it bind the slot as
     /// high and those after it lower.
-    fn slot_screens(&self, slot: &str) -> Vec<&Id> {
+    pub(crate) fn ordered_screens(&self, slot: &str) -> Vec<&Id> {
         let mut candidates: Vec<_> = self
             .candidates
             .iter()
@@ -638,11 +643,15 @@ impl paperpaw_sdk::ScreenMaker for Registry {
         screens
     }
 
-    /// [`slot_screens`](Self::slot_screens)' order without a list: each
+    /// [`ordered_screens`](Self::ordered_screens)' order without a list: each
     /// priority from the highest down, those of one priority in the order
     /// offered, a screen visited once (at its first place). Nothing is
     /// allocated; a slot has few offers, so the repeated walks stay short.
-    fn each_slot_screen<'s>(&'s self, slot: &str, visit: &mut dyn FnMut(&'s Id) -> bool) {
+    pub(crate) fn each_slot_screen<'s>(
+        &'s self,
+        slot: &str,
+        visit: &mut dyn FnMut(&'s Id) -> bool,
+    ) {
         let offered = |c: &SlotCandidate| {
             c.slot.as_str() == slot && self.screens.contains_key(c.screen.as_str())
         };
@@ -741,7 +750,7 @@ impl Staged {
 pub(crate) struct Staging {
     actions: Vec<ActionSpec>,
     /// Interface-7 plugins' actions, kept without a handler (#248).
-    native_actions: Vec<paperpaw_sdk::NativeAction>,
+    native_actions: Vec<crate::kit::action::NativeAction>,
     /// Tests' screens (none outside the feature `testing`).
     layer_screens: Vec<crate::FakeSpec>,
     native_screens: Vec<crate::native_host::native_screen_factory::NativeScreenSpec>,
@@ -764,33 +773,33 @@ pub(crate) struct Staging {
     pub(crate) setting_groups: Vec<paperpaw_sdk::SettingGroup>,
     /// Events, the plugins that hear them, and their handlers.
     pub(crate) subscriptions: Vec<(Id, Subscribed)>,
-    pub(crate) fixed_actions: Vec<&'static [paperpaw_sdk::FixedAction]>,
+    pub(crate) fixed_actions: Vec<&'static [crate::kit::action::FixedAction]>,
     pub(crate) fixed_screens: Vec<Fixed>,
     pub(crate) menu_entries: Vec<MenuEntry>,
     pub(crate) fixed_menu_entries: Vec<&'static [MenuEntry]>,
-    pub(crate) menu_sections: Vec<paperpaw_sdk::MenuSection>,
+    pub(crate) menu_sections: Vec<crate::kit::menus::MenuSection>,
     pub(crate) events: Vec<paperpaw_sdk::services::EventSpec>,
     pub(crate) icons: Vec<(Id, Cow<'static, str>)>,
     pub(crate) fixed_icons: Vec<&'static [(Id, &'static str)]>,
     pub(crate) menu_needs: Vec<(Id, paperpaw_sdk::MenuNeed)>,
     /// (menu, item, the plugin hiding it).
     pub(crate) hidden_entries: Vec<(Id, Id, Id)>,
-    pub(crate) item_states: Vec<(Id, paperpaw_sdk::ItemStateFn)>,
+    pub(crate) item_states: Vec<(Id, crate::kit::menus::ItemStateFn)>,
     pub(crate) keymap_presets: Vec<(Id, Cow<'static, str>)>,
     pub(crate) setting_defaults: Vec<(Id, Cow<'static, str>)>,
     pub(crate) choices: Vec<(Id, Cow<'static, str>)>,
     pub(crate) status_items: Vec<StatusItemSpec>,
     pub(crate) status_lines: Vec<StatusLineSpec>,
     pub(crate) widgets: Vec<StagedWidgets>,
-    pub(crate) setup_steps: Vec<paperpaw_sdk::setup::SetupStepSpec>,
+    pub(crate) setup_steps: Vec<crate::kit::setup::SetupStepSpec>,
     pub(crate) presets: Vec<paperpaw_sdk::presets::Preset>,
     pub(crate) fixed_presets: Vec<&'static [paperpaw_sdk::presets::Preset]>,
-    pub(crate) decorators: Vec<paperpaw_sdk::decorations::DecoratorSpec>,
+    pub(crate) decorators: Vec<crate::kit::decorations::DecoratorSpec>,
     /// Jobs: the steps of declared work (see [`paperpaw_sdk::work`]).
     pub(crate) works: Vec<crate::work::WorkSpec>,
     pub(crate) data_actions: Vec<DataAction>,
     pub(crate) stylesheets: Vec<Cow<'static, str>>,
-    pub(crate) book_data: Vec<paperpaw_sdk::library::BookData>,
+    pub(crate) book_data: Vec<crate::kit::library::BookData>,
     pub(crate) services: Vec<(Id, paperpaw_sdk::services::Service)>,
     pub(crate) contributions: Vec<(Id, Cow<'static, str>)>,
 }
@@ -839,15 +848,15 @@ impl Staging {
     pub(crate) fn native_action(
         &mut self,
         owner: &Id,
-        action: paperpaw_sdk::NativeAction,
+        action: crate::kit::action::NativeAction,
     ) -> Result<(), i32> {
-        let id = paperpaw_sdk::Action::Native(&action).id();
+        let id = crate::kit::action::Action::Native(&action).id();
         if id.namespace() != owner.as_str()
             || self.actions.iter().any(|other| &other.id == id)
             || self
                 .native_actions
                 .iter()
-                .any(|other| paperpaw_sdk::Action::Native(other).id() == id)
+                .any(|other| crate::kit::action::Action::Native(other).id() == id)
         {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
         }
@@ -966,7 +975,7 @@ impl Staging {
             .chain(
                 self.native_actions
                     .iter()
-                    .map(|a| paperpaw_sdk::Action::Native(a).id()),
+                    .map(|a| crate::kit::action::Action::Native(a).id()),
             )
             .find(|id| actions.contains(id.as_str()))
             .or_else(|| {
@@ -1037,10 +1046,6 @@ impl Staging {
 
 /// Applies the contributions `plugin` made to `staging`, checking what its
 /// registrar could not: key maps, translations, hyphenation patterns.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
 pub(crate) fn stage(
     plugin: &Id,
     items: crate::Items,
@@ -1136,15 +1141,6 @@ pub(crate) fn stage(
             Contribution::EventDeclared(event) => staging.events.push(*event),
             Contribution::Translations(source) => staging.catalogs.push(catalog(source)?),
             Contribution::TranslationFile(path) => staging.catalog_files.push(path),
-            // A kind of a newer SDK than this kernel knows: said, not lost.
-            other => {
-                return Err(RegisterError::Invalid {
-                    message: Cow::Owned(alloc::format!(
-                        "a contribution of kind `{}` this PaperPaw does not know",
-                        other.kind()
-                    )),
-                });
-            }
         }
     }
     Ok(())
@@ -1212,13 +1208,12 @@ mod tests {
     /// Subscriptions come back as they were added: in order, each with its
     /// event and plugin, a plugin's id kept once for its run of them, the
     /// lists kept in the program among those made.
-    /// The walk without a list visits what `slot_screens` lists, in its
+    /// The walk without a list visits what `ordered_screens` lists, in its
     /// order (priorities down, offer order within one, each screen once,
     /// only screens that exist, only this slot), and stops when told.
     #[test]
     fn each_slot_screen_walks_as_slot_screens_lists() {
         use crate::host_screen::{HostEntry, Kind};
-        use paperpaw_sdk::ScreenMaker;
         static SCREENS: [HostEntry; 4] = [
             HostEntry::new(Id::new_static("a.one"), "a", Kind::Placeholder),
             HostEntry::new(Id::new_static("b.two"), "b", Kind::Placeholder),
@@ -1247,25 +1242,26 @@ mod tests {
                 priority,
             });
         }
-        let listed: Vec<&str> = ScreenMaker::slot_screens(&registry, "core.home")
+        let listed: Vec<&str> = registry
+            .ordered_screens("core.home")
             .into_iter()
             .map(Id::as_str)
             .collect();
         assert_eq!(listed, ["a.one", "c.three", "b.two", "d.four"]);
         let mut seen = Vec::new();
-        ScreenMaker::each_slot_screen(&registry, "core.home", &mut |screen| {
+        registry.each_slot_screen("core.home", &mut |screen| {
             seen.push(screen.as_str());
             true
         });
         assert_eq!(seen, listed);
         seen.clear();
-        ScreenMaker::each_slot_screen(&registry, "core.home", &mut |screen| {
+        registry.each_slot_screen("core.home", &mut |screen| {
             seen.push(screen.as_str());
             seen.len() < 2
         });
         assert_eq!(seen, ["a.one", "c.three"]);
         seen.clear();
-        ScreenMaker::each_slot_screen(&registry, "no.slot", &mut |screen| {
+        registry.each_slot_screen("no.slot", &mut |screen| {
             seen.push(screen.as_str());
             true
         });

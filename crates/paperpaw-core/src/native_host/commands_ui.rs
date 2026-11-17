@@ -359,21 +359,36 @@ impl<'a> CommandStage<'a> {
                 }
                 Ok(plugins.len())
             }
-            // A plugin switched for the next start (`registry.md` 4.2): `core` is
-            // the host's own and a plugin does not switch itself off, the whole
-            // batch refused. What the switch may not turn off (a plugin another
-            // one needs) is the kernel's to say when it applies it.
             WireCommand::SetPluginEnabled { plugin, enabled } => {
-                copy_id(plugin)?;
-                if plugin == crate::core_plugin::CORE.as_str()
-                    || (enabled == 0 && plugin == self.owner.as_str())
-                {
-                    return Err(ERR_DENIED);
-                }
-                Ok(plugin.len())
+                self.validate_switch(ui.env.plugins(), plugin, enabled != 0)
             }
             _ => Err(ERR_UNSUPPORTED),
         }
+    }
+
+    /// A plugin switched for the next start (`registry.md` 4.2), the whole
+    /// batch refused otherwise: only a plugin admitted with `uses.registry`
+    /// switches plugins; `core` is the host's own, a plugin does not switch
+    /// itself off, and neither one the device cannot be without (the sole
+    /// provider of a standard slot or of the interface font).
+    fn validate_switch(
+        &self,
+        plugins: &paperpaw_sdk::Plugins,
+        plugin: &str,
+        enabled: bool,
+    ) -> Result<usize, i32> {
+        copy_id(plugin)?;
+        if !self.registry
+            || plugin == crate::core_plugin::CORE.as_str()
+            || (!enabled && plugin == self.owner.as_str())
+        {
+            return Err(ERR_DENIED);
+        }
+        let info = plugins.get(plugin).ok_or(ERR_NOT_FOUND)?;
+        if !enabled && !info.can_switch_off() {
+            return Err(ERR_DENIED);
+        }
+        Ok(plugin.len())
     }
 
     /// At most `speech::MAX_TEXTS` texts per plugin: a queued `command.speak`

@@ -58,6 +58,7 @@ pub mod gt911;
 pub mod high_water;
 pub mod host_jobs;
 pub mod install_note;
+pub mod kept_time;
 pub mod key_sealer;
 pub mod language_pack;
 pub mod light_timer;

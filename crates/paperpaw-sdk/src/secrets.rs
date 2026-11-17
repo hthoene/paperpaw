@@ -1,5 +1,5 @@
 //! Passwords and keys, kept in one place for every plugin: plugins read
-//! them with [`Env::secrets`](crate::Env) and keep or remove them with
+//! them with `Env::secrets` and keep or remove them with
 //! [`Command::SetSecret`](crate::Command::SetSecret); the settings list
 //! them all under *Passwords and keys* to change or remove.
 //!
@@ -9,7 +9,7 @@
 //! can read them.
 //!
 //! A plugin sees its own secrets alone, those in its namespace
-//! (`kosync.key` for `kosync`): [`Env::secrets`](crate::Env) is a
+//! (`kosync.key` for `kosync`): `Env::secrets` is a
 //! [`Visible`] view that hands out a value only to the plugin whose code
 //! runs. Every plugin may see which secrets there are, by name and label
 //! ([`Visible::listed`]), as the settings' list of them shows. Code a

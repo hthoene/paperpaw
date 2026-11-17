@@ -70,3 +70,13 @@ unsafe impl core::alloc::GlobalAlloc for Failing {
 
 #[global_allocator]
 static ALLOCATOR: Failing = Failing;
+
+/// Runs `operation` with its `number`-th allocation (1 is the first)
+/// refused; says whether one was.
+pub(crate) fn refuse_nth<T>(number: usize, operation: impl FnOnce() -> T) -> (T, bool) {
+    let nth = u32::try_from(number).unwrap_or(u32::MAX);
+    FAIL_NTH.with(|n| n.set(nth));
+    let result = operation();
+    let refused = FAIL_NTH.with(|n| n.replace(0)) == 0 && nth != 0;
+    (result, refused)
+}

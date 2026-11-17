@@ -1358,10 +1358,13 @@ fn a_duplicate_setting_or_action_is_refused_before_anything_is_published() {
                 ))
                 .unwrap(),
             _ => {
-                kernel.shared.actions.insert(paperpaw_sdk::ActionSpec::new(
-                    Id::new_static("factory.action"),
-                    "other",
-                ));
+                kernel
+                    .shared
+                    .actions
+                    .insert(crate::kit::action::ActionSpec::new(
+                        Id::new_static("factory.action"),
+                        "other",
+                    ));
             }
         }
         ARMS.with(|value| value.set(1));

@@ -408,7 +408,7 @@ fn a_named_generation_that_is_not_the_catalogs_is_state_and_zero_is_the_current_
     q.generation = generation ^ 0x5555;
     assert_eq!(page(&reads, &q, 1).err(), Some(ERR_STATE));
     // The catalog changed: the old generation is stale.
-    paperpaw_sdk::library::catalog::forget(&*s.storage, "books/00.epub").unwrap();
+    crate::kit::library::catalog::forget(&*s.storage, "books/00.epub").unwrap();
     q.generation = generation;
     assert_eq!(page(&reads, &q, 1).err(), Some(ERR_STATE));
     let (_, end) = page(&reads, &ask(), 1).unwrap();
@@ -620,7 +620,7 @@ fn a_book_is_checked_for_its_index_once_in_a_generation() {
     assert_eq!(again, first, "the same rows");
     assert_eq!(looks(), after_first, "none is checked again");
     // The library changed: its generation is another, so they are checked.
-    paperpaw_sdk::library::catalog::forget(&*s.storage, "books/00.epub").unwrap();
+    crate::kit::library::catalog::forget(&*s.storage, "books/00.epub").unwrap();
     page(&reads, &ask(), 8).unwrap();
     assert!(looks() > after_first, "a new generation asks again");
     // While the catalog is made nothing is kept.

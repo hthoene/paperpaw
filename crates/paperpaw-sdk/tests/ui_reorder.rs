@@ -9,8 +9,6 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-mod support;
-
 use paperpaw_sdk::ui::reorder::moved;
 use proptest::prelude::*;
 

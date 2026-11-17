@@ -23,6 +23,12 @@ Usage:
   python tools/x4-remote.py --profile --script "page-forward,wait:2000"
       (where the time goes during the steps: the functions the processor
       was in most, from the firmware's symbols; needs rustup's llvm-tools)
+  python tools/x4-remote.py --script-file test.pps --out out/run1 --baseline out/run0/results.json
+      (a script file, with measurements, checks and a report; see "The script
+      language" below and docs/device-test-scripts.md)
+  python tools/x4-remote.py --emulator target/debug/paperpaw-emu --library card/ --script-file test.pps
+      (the same file on the emulator: write and debug a test there, run it
+      unchanged on the X4)
 
 STEPS, separated by commas:
   page-forward       a short press of a button (back, confirm, left, right,
@@ -93,6 +99,52 @@ STEPS, separated by commas:
   restart            the X4 starts again (waits until it is back)
   panic:why          a panic, to try what a crash leaves (waits until back)
 
+  Also: wifi-connect:NAME:PASSWORD (`${env:WIFI_PASSWORD}` keeps it out of
+  the script and the logs)  reset:40 (hard reset, its boot measured)
+  crashes (count of the crash file)  chip:esp32c3  flash:IMAGE:chip=esp32c3
+
+The script language (`.pps` files, or `--script "a,b,c"`; steps above, and):
+  Files: a step a line, `#` comments, `include:other.pps`. In `--script`, steps
+  are told apart by commas and newlines (`\,` is a comma, `\{` `\}` braces).
+  Variables: `let:book=books/a.epub`, `calc:n=$n+1`, `$book`, `${book}`,
+  `${env:NAME}`, `--var name=value`; `$1`..`$9` in a `call`. Predefined:
+  $target (x4, emu), $out, $date, $run.
+  Blocks (`{` ends the header line, `}` closes):
+    repeat:5 {…}   repeat:5:k {…} ($k counts from 1)   retry:3 {…} (again while a
+    check in it fails)   try {…} (errors of steps are ignored)
+    for:f in ls:books/*.epub {…}  also list:a|b|c  range:1..5  local:glob;
+      $f, ${f.name}, ${f.stem}, ${f.dir}, ${f.ext}
+    if:shows:Text {…} else {…}   also not-shows:T  log:RE  has:METRIC  exists:PATH
+      and comparisons, `if:$n>=3`
+    define:turn {…}  and  call:turn:arg1:arg2
+    test:04-turns {…}   a point with its own verdict: PASS, FAIL, or NOT TESTABLE
+      after `skip:why`; a failing step fails the test, the next one runs
+    measure:turn:n=10:warm=1:settle=4000:gap=0[:heap=on][:usage=on] {…}   the steps
+      n times, each followed by `settle` ms of watching the log; per run it records
+      first_ms, last_ms (key line -> first/last frame line, host time), frames,
+      grays, unprompted (frames 3 s after the last key), warns, wall_ms, drawn_ms,
+      shown_ms, action_ms (`run:` lines), card_reads/card_writes (hoststat lines, when
+      the build has them), hw_block (high-water lines), and with heap=on
+      heap_used/free/block/peak, with usage=on use_read_kb, use_written_kb, use_refresh_*.
+      Asking the device costs it time, so heap and usage are off unless wanted.
+  Checks (a failed one makes the exit code 1; a step that errors outright ends a
+  test, or the script, with the exit code 2 and a STOPPED file in --out):
+    expect:Text  expect-not:Text  until:Text[:ms]   on the screen
+    expect-log:REGEX[:ms]  no-log:REGEX  until-log:REGEX[:ms]  no-warn  known-warn:REGEX
+      on the log lines since `mark` (a `test:` or `mark` starts anew)
+    assert:turn.first_ms.median<=1000[:why]   METRIC[.STAT] OP NUMBER; OP one of
+      <= >= < > == !=; STAT: median (default) min max mean p90 n last sum; the number may
+      be baseline, baseline*1.1, baseline+50 (the same metric in --baseline; no value: SKIP)
+    record:name=5  note:name=text  heap (also records heap.used/free/block/peak/stack)
+    usage  fail:why  skip:why  abort:why  on-fail:stop
+  On the emulator a step it cannot do says SKIP; so do asserts on its times and gray
+  passes, which only the X4 has.
+  Robustness: a lost link is opened again (--retries); asking steps are asked again, a
+  key press is not repeated (the check says so). `flash:` reads the chip first and
+  never writes a different one than `chip=`; `--esptool` names the command.
+  Output (--out DIR): results.json (tests, checks, every metric's samples), report.md
+  (tests, measurements with before -> now, checks, new WARN lines), device.log, STOPPED.
+
 Needs pyserial (pip install pyserial). Without --port, the X4 is found by
 its USB id.
 """
@@ -102,17 +154,31 @@ import bisect
 import getpass
 import glob
 import hashlib
+import importlib.util
+import json
 import os
+import queue
 import re
+import shlex
 import struct
 import subprocess
 import sys
+import threading
 import time
 import zlib
 from pathlib import Path
 
 import serial
 from serial.tools import list_ports
+
+# The script language's engine, next to this file (`python -I` does not look there).
+if "ppscript" not in sys.modules:
+    _spec = importlib.util.spec_from_file_location("ppscript", Path(__file__).resolve().with_name("ppscript.py"))
+    sys.modules["ppscript"] = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(sys.modules["ppscript"])
+ppscript = sys.modules["ppscript"]
+LinkError, StepError, ScriptError = ppscript.LinkError, ppscript.StepError, ppscript.ScriptError
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 # Espressif's USB serial and JTAG unit, built into the X4's ESP32-C3.
 USB_ID = (0x303A, 0x1001)
@@ -133,8 +199,8 @@ def find_port():
 
 
 def open_port(name):
-    port = serial.Serial()
-    port.port = name
+    # A device name (COM10, /dev/ttyACM0) or a URL (rfc2217://host:4001?ign_set_control).
+    port = serial.serial_for_url(name, do_not_open=True)
     port.timeout = 0.2
     # Without DTR and RTS, opening the port does not reset the chip.
     port.dtr = False
@@ -165,36 +231,116 @@ class X4:
         self.verbose = False
         # Checks of the script that did not hold.
         self.failed = []
+        # Every log line (not the `PP:` answers) with the host time it was read at:
+        # what measurements and log checks of the scripts look at.
+        self.logbuf = []
+        self.last_heap = None
+        self.last_usage = None
+        self.reset_log = []
 
     def line(self, deadline):
         """The next line from the X4, or None once the deadline passed."""
         while b"\n" not in self.buffer:
             if time.monotonic() > deadline:
                 return None
-            self.buffer += self.port.read(self.port.in_waiting or 1)
+            try:
+                self.buffer += self.port.read(self.port.in_waiting or 1)
+            except (serial.SerialException, OSError) as error:
+                raise LinkError(f"link lost: {error}") from error
         line, self.buffer = self.buffer.split(b"\n", 1)
-        return line.decode("utf-8", "replace").rstrip("\r")
+        text = line.decode("utf-8", "replace").rstrip("\r")
+        if not text.startswith("PP:"):
+            self.logbuf.append((time.monotonic(), ANSI.sub("", text)))
+        return text
+
+    def drain(self):
+        """Reads what the X4 said meanwhile (into the log buffer; printed with -v)."""
+        deadline = time.monotonic() + 0.02
+        while (line := self.line(deadline)) is not None:
+            if self.verbose and not line.startswith("PP:"):
+                print(line)
+
+    def reopen(self):
+        """The port opened again (after a flash, or a lost link)."""
+        try:
+            self.port.close()
+        except (serial.SerialException, OSError):
+            pass
+        self.port = open_port(self.name)
+        self.buffer = b""
+
+    def reconnect(self, wait=40):
+        """Opens the link again after it was lost (the RFC2217 server or the cable hiccuped)
+        and checks that PaperPaw answers."""
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                self.reopen()
+                self.ask("screen", "SCREEN", 10)
+                return
+            except (serial.SerialException, OSError, LinkError) as error:
+                if time.monotonic() > deadline:
+                    raise LinkError(f"no link again in {wait} s: {error}") from error
+                time.sleep(2)
+
+    def hard_reset(self, seconds):
+        """Resets the chip (RTS) and logs its start for `seconds`: `reset_log` holds the lines,
+        timed from the reset."""
+        self.port.dtr = False
+        self.port.rts = True
+        time.sleep(0.2)
+        self.port.rts = False
+        self.buffer = b""
+        start, t0 = len(self.logbuf), time.monotonic()
+        while (line := self.line(t0 + seconds)) is not None:
+            if self.verbose and not line.startswith("PP:"):
+                print(line)
+        self.reset_log = [(t - t0, text) for t, text in self.logbuf[start:]]
+        self.reconnect(30)
+
+    def heap_values(self):
+        _, used, free, *more = self.ask("heap", "HEAP")[-1].split()
+        got = {"used": int(used), "free": int(free), "stack": None, "block": int(free), "peak": 0}
+        if more and int(more[1]):
+            got["stack"] = int(more[0])
+        if len(more) > 2:
+            got["block"] = int(more[2])
+        if len(more) > 3:
+            got["peak"] = int(more[3])
+        self.last_heap = got
+        return got
+
+    def usage_totals(self):
+        return self.parse_usage(self.ask("usage", "END")[:-1])
+
+    def parse_usage(self, answers):
+        f, p, u, _pixels, _inputs, _sleeps, panel = (int(v) for v in answers[0].split()[1:])
+        rows = [a.split()[1:] for a in answers[1:]]
+        got = {"refresh_fast": f, "refresh_partial": p, "refresh_full": u, "panel_ms": panel,
+               "read_kb": sum(int(r[7]) for r in rows) / 1000, "written_kb": sum(int(r[8]) for r in rows) / 1000,
+               "busy_ms": sum(int(r[1]) for r in rows) / 1000}
+        self.last_usage = got
+        return got
 
     def pass_time(self, seconds):
-        """Lets `seconds` go by; with `verbose`, the X4's log meanwhile is
-        printed, not dropped by the next command."""
-        if not self.verbose:
-            time.sleep(seconds)
-            return
+        """Lets `seconds` go by, reading the X4's log meanwhile (kept for the script's
+        measurements, with the time each line came; printed with `verbose`)."""
         deadline = time.monotonic() + seconds
         while (line := self.line(deadline)) is not None:
-            if not line.startswith("PP:"):
+            if self.verbose and not line.startswith("PP:"):
                 print(line)
 
     def ask(self, command, until, timeout=TIMEOUT_S):
         """Sends a command and returns the X4's answers (lines with "PP:")
         up to the one starting with `until`."""
-        if self.verbose:
-            # What the log said since the last command, before it goes.
-            self.pass_time(0)
-        self.port.reset_input_buffer()
-        self.buffer = b""
-        self.port.write(command.encode() + b"\n")
+        # What the log said since the last command, before it goes.
+        self.drain()
+        try:
+            self.port.reset_input_buffer()
+            self.buffer = b""
+            self.port.write(command.encode() + b"\n")
+        except (serial.SerialException, OSError) as error:
+            raise LinkError(f"{command}: link lost: {error}") from error
         return self.expect(command, until, timeout)
 
     def expect(self, command, until, timeout=TIMEOUT_S):
@@ -204,14 +350,14 @@ class X4:
         while True:
             line = self.line(deadline)
             if line is None:
-                sys.exit(f"{command}: no answer from the X4")
+                raise LinkError(f"{command}: no answer from the X4")
             if not line.startswith("PP:"):
                 if self.verbose:
                     print(line)
                 continue
             answer = line[3:]
             if answer.startswith(("ERR", "BUSY")):
-                sys.exit(f"{command}: {answer}")
+                raise StepError(f"{command}: {answer}")
             answers.append(answer)
             if answer.startswith(until):
                 return answers
@@ -240,7 +386,7 @@ class X4:
         try:
             digest = plugin_digest(self.read(f"plugins/{folder}/code.ppn"))
         except ValueError as error:
-            sys.exit(f"plugins/{folder}/code.ppn: {error}")
+            raise StepError(f"plugins/{folder}/code.ppn: {error}") from error
         ini = self.read(f"plugins/{folder}/plugin.ini").decode("utf-8", "replace")
         ids = re.findall(r"(?m)^\s*id\s*=\s*(\S+)", ini)
         plugin = ids[0] if ids else folder
@@ -261,7 +407,7 @@ class X4:
         self.expect(f"put {path}", "OK")
         there = self.ask(f"md5 {path}", "MD5")[-1].split()
         if there[1] != hashlib.md5(data).hexdigest() or int(there[2]) != len(data):
-            sys.exit(f"{path}: arrived changed (MD5 {there[1]}, {there[2]} bytes)")
+            raise StepError(f"{path}: arrived changed (MD5 {there[1]}, {there[2]} bytes)")
 
     def read(self, path):
         """The bytes of the file `path` on the X4's card."""
@@ -347,12 +493,12 @@ class X4:
                 self.buffer = b""
                 self.boot()
                 return
-            except (serial.SerialException, SystemExit):
+            except (serial.SerialException, OSError, LinkError, StepError):
                 try:
                     self.port.close()
                 except serial.SerialException:
                     pass
-        sys.exit(f"{command}: the X4 did not come back in 40 s")
+        raise LinkError(f"{command}: the X4 did not come back in 40 s")
 
     def press(self, button, ms):
         self.ask(f"hold {button} {ms}", "OK")
@@ -360,7 +506,7 @@ class X4:
     def screenshot(self, path):
         answers = self.ask("shot", "END")
         _, width, height, bits = answers[0].split()
-        width, height, bits = int(width), int(height), int(bits)
+        width, height, bits = int(width), max(int(height), len(answers) - 2), int(bits)
         rows = {}
         for answer in answers[1:-1]:
             _, y, runs = answer.split(" ", 2) if answer.count(" ") >= 2 else (*answer.split(), "")
@@ -380,6 +526,188 @@ class X4:
                 pixels.append(level * 255 // levels)
         write_png(path, width, height, bytes(pixels))
         print(f"screenshot saved to {path}")
+
+
+class EmuPort:
+    """The emulator (`paperpaw-emu --headless --repl`) as a port: its standard output is what the
+    X4 sends, what is written goes to its standard input."""
+
+    def __init__(self, command):
+        self.proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, bufsize=0)
+        self.chunks = queue.Queue()
+        self.pending = b""
+        self.port = "emulator"
+        threading.Thread(target=self.pump, daemon=True).start()
+
+    def pump(self):
+        while data := self.proc.stdout.read(65536):
+            self.chunks.put(data)
+        self.chunks.put(b"")
+
+    @property
+    def in_waiting(self):
+        while True:
+            try:
+                self.pending += self.chunks.get_nowait()
+            except queue.Empty:
+                return len(self.pending)
+
+    def read(self, count=1):
+        if not self.pending:
+            try:
+                self.pending = self.chunks.get(timeout=0.2)
+            except queue.Empty:
+                return b""
+            if not self.pending:
+                raise serial.SerialException("the emulator ended")
+        data, self.pending = self.pending[:count], self.pending[count:]
+        return data
+
+    def write(self, data):
+        try:
+            self.proc.stdin.write(data)
+            self.proc.stdin.flush()
+        except OSError as error:
+            raise serial.SerialException(f"the emulator ended: {error}") from error
+
+    def reset_input_buffer(self):
+        self.in_waiting
+        self.pending = b""
+
+    def close(self):
+        try:
+            self.proc.stdin.close()
+            self.proc.wait(timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            self.proc.kill()
+
+
+class EmuX4(X4):
+    """The same, on the emulator: the card is the library folder, time is emulated
+    (`wait` and the settling of measurements cost no real time)."""
+
+    def __init__(self, command, root):
+        super().__init__(EmuPort(command))
+        self.name = "emulator"
+        self.root = Path(root).resolve()
+
+    def path(self, name):
+        full = (self.root / name.strip("/")).resolve()
+        if full != self.root and self.root not in full.parents:
+            raise StepError(f"{name}: outside the card")
+        return full
+
+    def pass_time(self, seconds):
+        self.drain()
+        if seconds > 0:
+            super().ask(f"wait {int(seconds * 1000)}", "OK", 600)
+        self.drain()
+
+    def reconnect(self, wait=40):
+        raise LinkError("the emulator ended")
+
+    def hard_reset(self, seconds):
+        start = len(self.logbuf)
+        super().ask("restart", "OK")
+        self.pass_time(min(seconds, 2))
+        self.reset_log = [(0.0, text) for _, text in self.logbuf[start:]]
+
+    def back_again(self, command, until):
+        super().ask(command, "OK")
+        self.pass_time(0.2)
+
+    def ask(self, command, until, timeout=TIMEOUT_S):
+        word, _, rest = command.partition(" ")
+        if word not in ("ls", "stat", "md5", "rm", "mkdir", "mv", "get"):
+            return super().ask(command, until, timeout)
+        if word == "mv":
+            old, new = (bytes.fromhex(h).decode() for h in rest.split())
+            self.path(old).rename(self.path(new))
+            return ["OK"]
+        full = self.path(rest)
+        if word == "ls":
+            if not full.is_dir():
+                raise StepError(f"{command}: ERR no such folder")
+            rows = [f"ENTRY {'d' if e.is_dir() else 'f'} {0 if e.is_dir() else e.stat().st_size} {e.name}"
+                    for e in sorted(full.iterdir())]
+            return rows + ["END"]
+        if word == "stat":
+            if full.is_file():
+                return [f"STAT f {full.stat().st_size}"]
+            return ["STAT d 0"] if full.is_dir() else ["STAT - 0"]
+        if word == "md5":
+            data = full.read_bytes()
+            return [f"MD5 {hashlib.md5(data).hexdigest()} {len(data)}"]
+        if word == "rm":
+            import shutil
+            shutil.rmtree(full) if full.is_dir() else full.unlink()
+            return ["OK"]
+        if word == "mkdir":
+            full.mkdir(parents=True, exist_ok=True)
+            return ["OK"]
+        raise StepError(f"{command}: not on the emulator")
+
+    def write(self, path, data):
+        full = self.path(path)
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_bytes(data)
+
+    def read(self, path):
+        full = self.path(path)
+        if not full.is_file():
+            raise StepError(f"{path}: ERR no such file")
+        return full.read_bytes()
+
+    def screenshot(self, path):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        super().ask(f"png {Path(path).resolve().as_posix().encode().hex()}", "OK")
+        print(f"screenshot saved to {path}")
+
+
+class Esptool:
+    """Flashing through esptool, `command` with {chip} and {port} in it. The chip on the
+    link is read first: a wrong one is never written."""
+
+    def __init__(self, command, x4):
+        self.command, self.x4 = command, x4
+
+    def run(self, chip, *args, timeout=900):
+        line = self.command.format(chip=chip, port=self.x4.name)
+        return subprocess.run([*shlex.split(line), *args], capture_output=True, text=True, timeout=timeout)
+
+    def check_chip(self, chip):
+        self.x4.port.close()
+        try:
+            done = self.run("auto", "chip-id", timeout=60)
+        finally:
+            self.x4.reopen()
+        text = ANSI.sub("", done.stdout + done.stderr)
+        found = re.findall(r"Chip(?: type| is)\s*:?\s*(ESP32[-\w]*)", text)
+        want = re.sub(r"[^a-z0-9]", "", chip.lower())
+        if not found or re.sub(r"[^a-z0-9]", "", found[0].lower()) != want:
+            raise StepError(f"the chip is {found[0] if found else 'not read'}, not {chip}: not flashed")
+        return f"chip {found[0]} as wanted"
+
+    def flash(self, image, chip, opts):
+        said = self.check_chip(chip)
+        offset = opts.get("offset", "0x0")
+        erase = opts.get("erase", "0xd000+0x2000")
+        steps = []
+        if erase != "none":
+            at, _, size = erase.partition("+")
+            steps.append(("erase-region", at, size))
+        steps.append(("write-flash", offset, image))
+        steps.append(("verify-flash", offset, image))
+        self.x4.port.close()
+        try:
+            for name, *args in steps:
+                done = self.run(chip, name, *args)
+                if done.returncode != 0:
+                    raise StepError(f"{name} failed: {ANSI.sub('', done.stdout + done.stderr)[-300:]}")
+        finally:
+            self.x4.reopen()
+        return f"{said}; {image} written and verified at {offset}"
 
 
 FIRMWARE = Path(__file__).resolve().parent.parent / "shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink"
@@ -527,25 +855,6 @@ def run(x4, step):
     match parts:
         case ["wait", ms]:
             x4.pass_time(int(ms) / 1000)
-        case ["until", *_]:
-            text, ms = rest, 30000
-            if ":" in rest and rest.rsplit(":", 1)[1].isdigit():
-                text, ms = rest.rsplit(":", 1)[0], int(rest.rsplit(":", 1)[1])
-            deadline = time.monotonic() + ms / 1000
-            while not x4.shows(text):
-                if time.monotonic() > deadline:
-                    x4.failed.append(f"until {text}: not shown in {ms} ms")
-                    print(f"FAILED: {text} not shown in {ms} ms")
-                    return
-                time.sleep(0.5)
-        case ["expect", *_]:
-            if not x4.shows(rest):
-                x4.failed.append(f"expect {rest}")
-                print(f"FAILED: {rest} not shown")
-        case ["expect-not", *_]:
-            if x4.shows(rest):
-                x4.failed.append(f"expect-not {rest}")
-                print(f"FAILED: {rest} shown")
         case ["tap", x, y]:
             x4.touch("down", x, y)
             time.sleep(0.08)
@@ -571,7 +880,7 @@ def run(x4, step):
         case ["tap-label", *_]:
             found = [p for p in x4.parts() if rest in p[6]]
             if not found:
-                sys.exit(f"tap-label: nothing shows {rest}")
+                raise StepError(f"tap-label: nothing shows {rest}")
             _, x, y, w, h, _, _ = found[-1]
             run(x4, f"tap:{x + w // 2}:{y + h // 2}")
         case ["boot"]:
@@ -631,6 +940,7 @@ def run(x4, step):
             f, p, u, pixels, inputs, sleeps, panel = answers[0].split()[1:]
             print(f"refreshes {f} fast, {p} partial, {u} full; {pixels} pixels; "
                   f"{inputs} inputs, {sleeps} sleeps, panel {panel} ms")
+            x4.parse_usage(answers)
             print(f"{'plugin':<20}{'busy ms':>10}{'calls':>8}{'shown s':>9}"
                   f"{'refreshes':>12}{'read KB':>9}{'written KB':>11}")
             rows = [a.split()[1:] for a in answers[1:]]
@@ -643,6 +953,15 @@ def run(x4, step):
             x4.ask(f"time set {at}", "OK")
         case ["log", level]:
             x4.ask(f"log {level}", "OK")
+        case ["wifi-connect", *_]:
+            # `wifi-connect:NAME:PASSWORD` (`${env:WIFI_PASSWORD}` keeps it out of the script).
+            ssid, _, password = rest.partition(":")
+            x4.drain()
+            x4.port.reset_input_buffer()
+            x4.buffer = b""
+            x4.port.write(f"wifi connect {ssid.encode().hex()} {password.encode().hex() or '-'}\n".encode())
+            print(x4.expect("wifi connect", "CONNECTED")[-1])
+            print(x4.expect("wifi connect", "IP")[-1])
         case ["restart"]:
             x4.back_again("restart", "BOOT")
         case ["panic", *_]:
@@ -676,12 +995,14 @@ def run(x4, step):
         case ["heap"]:
             _, used, free, *stack = x4.ask("heap", "HEAP")[-1].split()
             print(f"heap: {used} bytes used, {free} free")
-            if stack:
+            if stack and int(stack[1]):
                 print(f"stack: {stack[0]} of {stack[1]} bytes never used")
             if len(stack) > 2:
                 print(f"largest free block: {stack[2]} bytes")
             if len(stack) > 3:
                 print(f"peak: {stack[3]} bytes used at most since start")
+            x4.last_heap = {"used": int(used), "free": int(free), "stack": int(stack[0]) if stack and int(stack[1]) else None,
+                            "block": int(stack[2]) if len(stack) > 2 else int(free), "peak": int(stack[3]) if len(stack) > 3 else 0}
         case ["describe"]:
             for answer in x4.ask("describe", "END")[:-1]:
                 _, role, x, y, w, h, state, *label = answer.split(" ")
@@ -692,7 +1013,7 @@ def run(x4, step):
         case [button]:
             x4.press(button, 60)
         case _:
-            sys.exit(f"unknown step: {step}")
+            raise StepError(f"unknown step: {step}")
 
 
 def main():
@@ -700,7 +1021,19 @@ def main():
     sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--port")
-    parser.add_argument("--script", default="")
+    parser.add_argument("--script", default="", help="steps, separated by commas (see below)")
+    parser.add_argument("--script-file", action="append", default=[], metavar="FILE.pps",
+                        help="a script file, a step a line (run before --script)")
+    parser.add_argument("--out", metavar="DIR", help="write results.json, report.md, device.log (and STOPPED) here")
+    parser.add_argument("--baseline", metavar="results.json", help="an earlier run to compare with (before -> now, `baseline` in asserts)")
+    parser.add_argument("--var", action="append", default=[], metavar="NAME=VALUE", help="a script variable ($NAME)")
+    parser.add_argument("--stop-on-fail", action="store_true", help="end the script at the first failed check")
+    parser.add_argument("--retries", type=int, default=2, help="tries to get the link back when it is lost")
+    parser.add_argument("--esptool", metavar="COMMAND", help="esptool with {chip} and {port} (for `flash:` and `chip:`)")
+    parser.add_argument("--emulator", metavar="PAPERPAW-EMU", help="run the script on the emulator, not on an X4")
+    parser.add_argument("--library", metavar="DIR", help="the emulator's card (a folder)")
+    parser.add_argument("--device-profile", default="xteink-x4", help="the emulator's device (default xteink-x4)")
+    parser.add_argument("--emu-arg", action="append", default=[], metavar="ARG", help="more for the emulator, e.g. --emu-arg=--set --emu-arg=core.language=de")
     parser.add_argument("--screenshot")
     parser.add_argument("--log", type=float, metavar="SECONDS")
     parser.add_argument("-v", "--verbose", action="store_true", help="print the X4's log too")
@@ -728,10 +1061,29 @@ def main():
         "--wifi-connect", metavar="NAME", help="join a network (asks for its password, not shown)"
     )
     args = parser.parse_args()
-    name = args.port or find_port()
-    port = open_port(name)
-    x4 = X4(port)
-    x4.name = name
+    try:
+        sys.exit(session(args))
+    except (StepError, LinkError, ScriptError) as error:
+        sys.exit(f"{error}")
+
+
+def session(args):
+    if args.emulator:
+        if not args.library:
+            sys.exit("--emulator needs --library (the emulator's card, a folder)")
+        x4 = EmuX4([args.emulator, "--headless", "--repl", "--profile", args.device_profile,
+                    "--library", args.library, *args.emu_arg], args.library)
+    else:
+        name = args.port or find_port()
+        x4 = X4(open_port(name))
+        x4.name = name
+    try:
+        return talk(args, x4)
+    finally:
+        x4.port.close()
+
+
+def talk(args, x4):
     x4.verbose = args.verbose
     if args.log:
         deadline = time.monotonic() + args.log
@@ -781,10 +1133,22 @@ def main():
         x4.ask("profile start", "OK")
     if args.trace:
         x4.ask("trace start", "OK")
-    # Steps apart at commas, but for those written `\,`.
-    steps = re.split(r"(?<!\\),", args.script)
-    for step in filter(None, (s.strip().replace("\\,", ",") for s in steps)):
-        run(x4, step)
+    code = 0
+    if args.script or args.script_file:
+        statements = []
+        for path in args.script_file:
+            statements += ppscript.parse(Path(path).read_text(encoding="utf-8"), path)
+        statements += ppscript.parse(args.script, "--script", inline=True)
+        baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8")) if args.baseline else None
+        esptool = args.esptool or f"{shlex.quote(sys.executable)} -m esptool --chip {{chip}} --port {{port}} --after no-reset"
+        engine = ppscript.Engine(
+            x4, lambda step: run(x4, step), target="emu" if args.emulator else "x4", out=args.out,
+            baseline=baseline, variables=dict(v.partition("=")[::2] for v in args.var),
+            stop_on_fail=args.stop_on_fail, retries=args.retries, reconnect=x4.reconnect,
+            flasher=Esptool(esptool, x4))
+        engine.script_name = ", ".join([Path(p).name for p in args.script_file] + (["--script"] if args.script else []))
+        engine.run(statements)
+        code = engine.exit_code()
     if args.trace:
         for answer in x4.ask("trace stop", "END")[:-1]:
             print(answer[3:])
@@ -795,7 +1159,9 @@ def main():
     if args.screenshot:
         x4.screenshot(args.screenshot)
     if x4.failed:
-        sys.exit(f"{len(x4.failed)} check(s) failed: " + "; ".join(x4.failed))
+        print(f"{len(x4.failed)} check(s) failed: " + "; ".join(x4.failed), file=sys.stderr)
+        code = code or 1
+    return code
 
 
 if __name__ == "__main__":

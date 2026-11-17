@@ -463,7 +463,7 @@ fn code_that_no_function_covers_is_refused_unless_it_is_padding() {
     // A function's range ends where its symbol says: what lies beyond is read
     // as the neighbour's or not at all, never as part of it.
     let f = code(&[W(RET), W(addi(SP, SP, -1600))]);
-    assert_eq!(scan_ranges(&f, &[(0, 4)], Env::none()), None);
+    assert_eq!(scan_ranges(&f, &[(0, 4)], ScanScope::none()), None);
 }
 
 #[test]
@@ -514,7 +514,7 @@ fn code_after_a_call_that_never_returns_is_not_reached_from_it() {
     ]);
     let base = 0x4200_0000;
     let noreturn = [base + 32];
-    let env = Env {
+    let env = ScanScope {
         base,
         noreturn: &noreturn,
         tables: Tables::none(),
@@ -524,7 +524,7 @@ fn code_after_a_call_that_never_returns_is_not_reached_from_it() {
     assert_eq!(frame_sizes_in(&f, &[(0, 24)], env), vec![Some(16)]);
     // Without knowing that, the call falls through into a loop that moves sp.
     assert!(matches!(
-        scan_ranges(&f, &[(0, 24)], Env::none()),
+        scan_ranges(&f, &[(0, 24)], ScanScope::none()),
         Some(Finding::Unknown { .. })
     ));
 }
@@ -574,7 +574,7 @@ fn a_panic_like_name_does_not_end_the_path_of_a_call_that_returns() {
     let base = 0x4200_0000;
     let proved = noreturn_functions(&f, &ranges, base, Tables::none(), false);
     assert_eq!(proved, Vec::<u32>::new());
-    let env = Env {
+    let env = ScanScope {
         base,
         noreturn: &proved,
         tables: Tables::none(),
@@ -609,9 +609,9 @@ fn a_jump_through_a_register_inside_a_frame_is_refused() {
     // read from the state at the jump, but the function is not sized: the
     // frame is a lower bound, which the listing says and a budget refuses.
     let f = code(&[W(addi(SP, SP, -1024)), W(jr(A0))]);
-    let env = Env {
+    let env = ScanScope {
         lenient: true,
-        ..Env::none()
+        ..ScanScope::none()
     };
     assert_eq!(frame_sizes_in(&f, &[(0, 8)], env), vec![None]);
     assert_eq!(
@@ -628,12 +628,12 @@ fn an_instruction_cut_by_a_symbols_end_is_refused() {
     // `addi sp, sp, -1600` is four bytes; ranges of two bytes each hold half.
     let f = code(&[W(addi(SP, SP, -1600))]);
     assert_eq!(
-        scan_ranges(&f, &[(0, 2), (2, 4)], Env::none()),
+        scan_ranges(&f, &[(0, 2), (2, 4)], ScanScope::none()),
         Some(Finding::Unknown { at: 0 })
     );
     // A function that does not start on a halfword.
     assert!(matches!(
-        scan_ranges(&f, &[(1, 4)], Env::none()),
+        scan_ranges(&f, &[(1, 4)], ScanScope::none()),
         Some(Finding::Unknown { .. })
     ));
 }
@@ -720,7 +720,7 @@ fn random_code_and_ranges_never_panic_the_scan() {
         };
         let proved = noreturn_functions(&bytes, &ranges, base, tables, false);
         for lenient in [false, true] {
-            let env = Env {
+            let env = ScanScope {
                 base,
                 noreturn: &proved,
                 tables,
@@ -794,13 +794,13 @@ fn rodata(words: &[u32]) -> Vec<u8> {
 fn with_table(f: &[u8], words: &[u32], relocated: &[u32]) -> Option<Finding> {
     let bytes = rodata(words);
     let relocated: std::collections::BTreeSet<u32> = relocated.iter().copied().collect();
-    let env = Env {
+    let env = ScanScope {
         tables: Tables {
             addr: ROD,
             bytes: &bytes,
             relocated: Some(&relocated),
         },
-        ..Env::none()
+        ..ScanScope::none()
     };
     scan_ranges(f, &[(0, f.len())], env)
 }
@@ -820,7 +820,7 @@ fn a_jump_table_is_followed_to_each_of_its_entries() {
     ));
     // The same without a table to read: a jump through a register in a frame.
     assert!(matches!(
-        scan_ranges(&f, &[(0, f.len())], Env::none()),
+        scan_ranges(&f, &[(0, f.len())], ScanScope::none()),
         Some(Finding::Table { .. })
     ));
 }
@@ -1084,14 +1084,14 @@ fn a_table_longer_than_the_function_is_refused_not_cut() {
 /// and `relocated` is `None`.
 fn linked_sizes(f: &[u8], words: &[u32]) -> Sized {
     let bytes = rodata(words);
-    let env = Env {
+    let env = ScanScope {
         tables: Tables {
             addr: ROD,
             bytes: &bytes,
             relocated: None,
         },
         lenient: true,
-        ..Env::none()
+        ..ScanScope::none()
     };
     sizes_in(f, &[(0, f.len())], env)[0]
 }
@@ -1140,9 +1140,9 @@ fn an_unreadable_jump_at_sp_zero_may_enter_code_already_walked_in_the_listing_to
         W(RET),
     ]);
     for lenient in [false, true] {
-        let env = Env {
+        let env = ScanScope {
             lenient,
-            ..Env::none()
+            ..ScanScope::none()
         };
         assert_eq!(
             sizes_in(&f, &[(0, f.len())], env)[0].bytes,
@@ -1186,9 +1186,9 @@ fn a_tail_call_target_wraps_in_32_bits_and_clears_the_low_bit_as_jalr_does() {
     const T1: u32 = 6;
     let at_zero = |items: &[I]| {
         let f = code(items);
-        let env = Env {
+        let env = ScanScope {
             base: 0,
-            ..Env::none()
+            ..ScanScope::none()
         };
         sizes_in(&f, &[(0, f.len())], env)[0].bytes
     };
@@ -1310,14 +1310,14 @@ fn table_after_outlined_call(sequence: &[I]) -> Vec<u8> {
 fn outlined_frame(sequence: &[I]) -> Option<u32> {
     let f = table_after_outlined_call(sequence);
     let bytes = rodata(&[TEXT + 32, TEXT + 40]);
-    let env = Env {
+    let env = ScanScope {
         tables: Tables {
             addr: ROD,
             bytes: &bytes,
             relocated: None,
         },
         lenient: true,
-        ..Env::none()
+        ..ScanScope::none()
     };
     sizes_in(&f, &[(0, 56)], env)[0].bytes
 }
@@ -1389,7 +1389,7 @@ fn an_outlined_sequence_that_lowers_sp_is_part_of_the_callers_frame() {
         W(sw(S0, SP)),          // 24
         W(JR_T0),               // 28
     ]);
-    let env = Env::none();
+    let env = ScanScope::none();
     assert_eq!(
         frame_sizes_in(&f, &[(0, 16)], env),
         vec![Some(2064)],
@@ -1425,11 +1425,11 @@ fn an_outlined_sequence_that_lowers_sp_and_gives_it_back_is_refused() {
         code(&items)
     };
     assert_eq!(
-        frame_sizes_in(&helper(false), &[(0, 16)], Env::none()),
+        frame_sizes_in(&helper(false), &[(0, 16)], ScanScope::none()),
         vec![Some(16)]
     );
     assert!(matches!(
-        scan_ranges(&helper(true), &[(0, 16)], Env::none()),
+        scan_ranges(&helper(true), &[(0, 16)], ScanScope::none()),
         Some(Finding::Unknown { .. })
     ));
 }
@@ -1448,7 +1448,7 @@ fn an_outlined_sequence_whose_effect_on_sp_cannot_be_followed_is_refused() {
         W(RET),               // 24
     ]);
     assert!(matches!(
-        scan_ranges(&f, &[(0, 16)], Env::none()),
+        scan_ranges(&f, &[(0, 16)], ScanScope::none()),
         Some(Finding::Unknown { .. })
     ));
 }
@@ -1470,7 +1470,7 @@ fn a_register_an_outlined_sequence_writes_is_forgotten_whatever_value_it_gets() 
         W(JR_T0),             // 28
     ]);
     assert!(matches!(
-        scan_ranges(&f, &[(0, 20)], Env::none()),
+        scan_ranges(&f, &[(0, 20)], ScanScope::none()),
         Some(Finding::Unknown { .. })
     ));
 }
