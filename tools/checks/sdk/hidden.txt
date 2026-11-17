@@ -8,7 +8,6 @@ crates/paperpaw-graphics/src/canvas.rs: pub fn keep_diffusion  # for the kernel 
 crates/paperpaw-graphics/src/canvas.rs: pub fn note_picture  # for the kernel alone, goes behind the feature (SDK review A2)
 crates/paperpaw-graphics/src/canvas.rs: pub fn small_pictures  # for the kernel alone, goes behind the feature (SDK review A2)
 crates/paperpaw-graphics/src/canvas.rs: pub fn take_diffusion  # for the kernel alone, goes behind the feature (SDK review A2)
-crates/paperpaw-sdk/src/decorations.rs: pub const fn fixed_role  # what role_settings! expands to
 crates/paperpaw-sdk/src/event.rs: pub fn put  # what event_data! expands to
 crates/paperpaw-sdk/src/event.rs: pub fn take  # what event_data! expands to
 crates/paperpaw-sdk/src/version.rs: pub const fn number  # what package_version! expands to

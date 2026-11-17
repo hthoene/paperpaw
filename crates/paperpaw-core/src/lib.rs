@@ -122,10 +122,9 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::mem;
 
-use crate::kit::action::Actions;
-use crate::kit::contribution::item::Contribution;
-use crate::kit::menus::Menus;
-use crate::kit::status::StatusItems;
+use crate::kit::{
+    action::Actions, contribution::item::Contribution, menus::Menus, status::StatusItems,
+};
 use paperpaw_graphics::{Framebuffer, GraphicsError};
 use paperpaw_i18n::Translator;
 use paperpaw_platform::{
