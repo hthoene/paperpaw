@@ -118,6 +118,7 @@ textprobe = ["remote", "dep:paperpaw-text"]
 # idle power is being measured. The controller's code takes internal
 # RAM from the heap (`HEAP_SIZE`).
 bluetooth = [
+    "paperpaw-core/bluetooth",
     "esp-radio/ble",
     "esp-radio/coex",
     "dep:trouble-host",

@@ -348,7 +348,8 @@ impl KernelBuilder {
     /// reported with [`Kernel::bluetooth_event`]); 0, the default, for
     /// none. See [`paperpaw_sdk::bluetooth`].
     pub fn bluetooth(mut self, max_links: u8) -> Self {
-        self.0.caps.bluetooth = max_links > 0;
+        // Without the `bluetooth` feature the kernel has no radio model.
+        self.0.caps.bluetooth = cfg!(feature = "bluetooth") && max_links > 0;
         self.0.bluetooth_links = max_links;
         self
     }
@@ -906,6 +907,7 @@ impl BuilderParts {
                 speech: io::speech::Speech::new(caps.speech),
                 clipboard: io::clipboard::Clipboard::new(caps.system_clipboard),
                 wifi_calls: Vec::new(),
+                #[cfg(feature = "bluetooth")]
                 bluetooth: caps.bluetooth.then(|| io::bluetooth::Radio::new(links)),
                 firmware_calls: Vec::new(),
                 network_waiting: None,
@@ -977,6 +979,7 @@ impl BuilderParts {
             secrets_unreadable: false,
             secrets_opened: false,
             secrets_wired: None,
+            #[cfg(feature = "bluetooth")]
             pairing_nonce: None,
             plugin_defaults: Vec::new(),
             late_device_defaults: Vec::new(),
@@ -1003,6 +1006,7 @@ impl Kernel {
                 let text = String::from_utf8_lossy(data.as_deref().unwrap_or_default());
                 self.shared.secrets = Self::decode_secrets(&text, host.as_ref());
                 self.secrets_unreadable = false;
+                #[cfg(feature = "bluetooth")]
                 if let Some(radio) = &mut self.io.bluetooth {
                     let kept = self.shared.secrets.iter();
                     radio.load(kept.map(|s| (s.id.as_str(), s.value.as_str())));
