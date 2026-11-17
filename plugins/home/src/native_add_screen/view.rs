@@ -98,7 +98,14 @@ impl AddScreen {
             let Some(id) = widget_of(&self.rows, &self.entries, row) else {
                 continue;
             };
-            match measure::measure_widget(host, ui, id, measure::PLACE, &shown.frame.geometry) {
+            match measure::measure_widget(
+                host,
+                ui,
+                id,
+                measure::PLACE,
+                &shown.frame.geometry,
+                &Listing::default(),
+            ) {
                 Ok(Some((rows, least))) => shown.src.measured(id, rows, least)?,
                 Ok(None) => {}
                 Err(Error::Unsupported) => return Ok(None),

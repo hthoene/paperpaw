@@ -62,5 +62,5 @@ pub use list::ListRenderer;
 pub use messages::Messages;
 pub use paint::{Page, Paint};
 pub use screens::Screens;
-pub use style::{Style, StyleCache};
+pub use style::{SharedInputs, Sharing, Style, StyleCache, StyleInputs};
 pub use window::{RowSource, WindowList};

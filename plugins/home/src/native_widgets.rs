@@ -169,7 +169,7 @@ impl Mine {
         listing: &Listing,
         width: u32,
     ) -> Result<(u16, u16), Error> {
-        let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
+        let mut cx = Cx::open_kept_with(host, &self.widget, self.look.take(), listing.inputs())?;
         let width = u16::try_from(width).unwrap_or(u16::MAX);
         let size = match self.token {
             DATE => same(native_date::height(&mut cx, width)?),
@@ -197,7 +197,8 @@ impl Mine {
         let mut found: Vec<WidgetTarget> = Vec::new();
         match self.token {
             STATUS_WIDGET => {
-                let cx = Cx::open_kept(host, &self.widget, self.look.take())?;
+                let cx =
+                    Cx::open_kept_with(host, &self.widget, self.look.take(), listing.inputs())?;
                 let inner = cx.shape.look(rect).area;
                 for (id, at) in native_status::targets(&cx, ui, inner)? {
                     let target = WidgetTarget::new(id, paint::frame_rect(at));
@@ -210,7 +211,8 @@ impl Mine {
                 WidgetTarget::new(native_card::TARGET, paint::frame_rect(rect)),
             )?,
             SHELF => {
-                let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
+                let mut cx =
+                    Cx::open_kept_with(host, &self.widget, self.look.take(), listing.inputs())?;
                 for (id, at) in native_shelf::targets(&mut cx, self.ask(listing), rect)? {
                     let target = WidgetTarget::new(id, paint::frame_rect(at));
                     paperpaw_ui_kit::mem::push(&mut found, target)?;
@@ -236,7 +238,13 @@ impl Mine {
         area: Rect,
     ) -> Result<(), Error> {
         if self.token == STATUS_WIDGET {
-            return native_status::draw_widget(host, ui, frame, (&self.widget, &self.look), area);
+            return native_status::draw_widget(
+                host,
+                ui,
+                frame,
+                (&self.widget, &self.look, listing.inputs()),
+                area,
+            );
         }
         self.known.begin_draw(frame.clip_top, listing);
         listing.drawing(true);
@@ -252,7 +260,7 @@ impl Mine {
         frame: &mut DrawFrame<'_>,
         area: Rect,
     ) -> Result<(), Error> {
-        let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
+        let mut cx = Cx::open_kept_with(host, &self.widget, self.look.take(), listing.inputs())?;
         let mut out = Vec::new();
         let mut pictures = Pictures::default();
         let icons = if self.token == CARD {
