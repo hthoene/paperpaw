@@ -8,9 +8,9 @@
 
 use super::fallible::{each_head, in_library, path_of, try_changes};
 use super::{Changes, State, Status};
+use paperpaw_digest::fnv1a64;
 use paperpaw_sdk::data::Error;
 use paperpaw_sdk::{Storage, StorageError};
-use paperpaw_digest::fnv1a64;
 
 /// The longest path of a book; a longer one is no book of the library.
 pub const VIEW_PATH: usize = 512;

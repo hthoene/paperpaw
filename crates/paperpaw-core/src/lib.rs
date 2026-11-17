@@ -39,7 +39,6 @@ extern crate alloc;
 
 #[allow(dead_code, reason = "M1 adapters compile before host table activation")]
 mod abi7;
-pub mod kit;
 mod areas;
 mod awake;
 #[cfg(feature = "bluetooth")]
@@ -71,6 +70,7 @@ mod input_filters;
 mod io;
 mod key_guard;
 mod keymap;
+pub mod kit;
 mod memory_notice;
 mod meter;
 pub mod native_host;
@@ -120,6 +120,10 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::mem;
 
+use crate::kit::action::Actions;
+use crate::kit::contribution::item::Contribution;
+use crate::kit::menus::Menus;
+use crate::kit::status::StatusItems;
 use paperpaw_graphics::{Framebuffer, GraphicsError};
 use paperpaw_i18n::Translator;
 use paperpaw_platform::{
@@ -133,11 +137,11 @@ use paperpaw_sdk::builtin::{
 use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::native::{Native, SafeMode};
 use paperpaw_sdk::setting::{Setting, SettingType};
-use paperpaw_sdk::{Capabilities, Command, Direction, Fonts, Formats, Gesture, GestureKind, Handled, HintVisibility, Hyphenation, Id, Manifest, Metrics, Output, Params, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Settings, ShowsThrough};
-use crate::kit::action::Actions;
-use crate::kit::contribution::item::Contribution;
-use crate::kit::menus::Menus;
-use crate::kit::status::StatusItems;
+use paperpaw_sdk::{
+    Capabilities, Command, Direction, Fonts, Formats, Gesture, GestureKind, Handled,
+    HintVisibility, Hyphenation, Id, Manifest, Metrics, Output, Params, PluginInfo, PluginState,
+    Plugins, RegisterError, RequiredFor, Settings, ShowsThrough,
+};
 
 pub use crate::builder::{Items, KernelBuilder, KernelError};
 pub use crate::card::CardTrouble;

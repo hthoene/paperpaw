@@ -71,7 +71,11 @@ impl Marks {
 
 /// Writes `marks` into `folder`, the plugin about to be installed; an
 /// error if they could not be written (then do not install it).
-pub fn write(storage: &dyn Storage, folder: &str, marks: &Marks) -> Result<(), paperpaw_sdk::data::Error> {
+pub fn write(
+    storage: &dyn Storage,
+    folder: &str,
+    marks: &Marks,
+) -> Result<(), paperpaw_sdk::data::Error> {
     let hex = paperpaw_digest::hex::encode;
     let mut text = match marks.from {
         From::Store(version) => format!("from store {version}\n"),
@@ -196,8 +200,8 @@ fn signer(storage: &dyn Storage, path: &str) -> Result<Option<native::Signature>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use paperpaw_sdk::MemoryStorage;
     use crate::kit::install::{Origin, origin};
+    use paperpaw_sdk::MemoryStorage;
 
     /// Kept once settled, the file gone; a local one forgets the store.
     #[test]

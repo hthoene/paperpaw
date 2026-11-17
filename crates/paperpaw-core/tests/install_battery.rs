@@ -13,12 +13,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use paperpaw_core::Items;
+use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::sdk::builtin::events;
 use paperpaw_core::sdk::firmware::{
     CHIP_ESP32_C3, Firmware, FirmwareCommand, FirmwareState, INSTALL_BATTERY, InstallFailure,
 };
 use paperpaw_core::sdk::{Command, Id, Manifest, MemoryStorage, RegisterError, Version};
-use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::{Io, Kernel};
 use paperpaw_platform::{
     Battery, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,

@@ -32,11 +32,14 @@
 //! the chunks before it applied (it is never reported as applied).
 use super::{CommandAuthority, CommandBatch, CommandStage, WireCommand};
 use crate::Kernel;
+use crate::kit::widgets::Widgets;
 use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED};
-use paperpaw_sdk::{Command, Id, IdError, SettingKind, SettingSpec, SettingValue, Settings, presets::{self, Preset}};
-use crate::kit::widgets::Widgets;
+use paperpaw_sdk::{
+    Command, Id, IdError, SettingKind, SettingSpec, SettingValue, Settings,
+    presets::{self, Preset},
+};
 
 #[cfg_attr(
     not(test),

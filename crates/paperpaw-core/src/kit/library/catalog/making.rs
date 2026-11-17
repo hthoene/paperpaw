@@ -12,10 +12,10 @@ use super::{
     Changes, HEADER, Record, Status, building_path, catalog_path, count_lines, first_generation,
     first_path, lines, lines_from, log_path, next_header, read_changes,
 };
-use crate::kit::library::{self, DIR};
 use crate::Place;
-use paperpaw_sdk::{Storage, StorageError, files};
+use crate::kit::library::{self, DIR};
 use paperpaw_digest::fnv1a64;
+use paperpaw_sdk::{Storage, StorageError, files};
 
 /// Where a walk keeps the listing of the folder it walks, so that it goes
 /// on where it was without listing the folder again.

@@ -33,8 +33,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use super::{Book, DIR};
-use paperpaw_sdk::{Storage, StorageError, files};
 use paperpaw_digest::fnv1a64;
+use paperpaw_sdk::{Storage, StorageError, files};
 
 /// Between a book's tags (and its fields) in the catalog.
 const SEPARATOR: char = '\u{1f}';

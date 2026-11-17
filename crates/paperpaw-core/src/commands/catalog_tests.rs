@@ -3,10 +3,10 @@
 #![allow(clippy::unwrap_used, reason = "tests fail on unexpected errors")]
 
 use crate::Items;
+use crate::kit::action::ActionSpec;
 use alloc::{format, rc::Rc, string::String, vec::Vec};
 use paperpaw_i18n::{Catalog, CatalogFile, MAX_READ};
 use paperpaw_sdk::{Command, Id, Manifest, RegisterError, Version};
-use crate::kit::action::ActionSpec;
 
 use crate::{Kernel, tests::DEVICE};
 

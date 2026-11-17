@@ -4,8 +4,8 @@
 use crate::Place;
 use alloc::string::String;
 
-use paperpaw_sdk::builtin::{settings, slots};
 use crate::kit::library;
+use paperpaw_sdk::builtin::{settings, slots};
 
 /// What the kernel does to the catalog: walk the library, or catch up;
 /// before either, once, move the books' details and covers that earlier

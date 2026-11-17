@@ -61,9 +61,10 @@ fn place_hint_text(
     }
     let room = f32::from(span.width);
     let least = style.small * 0.6;
-    let size =
-        crate::kit::widgets::largest_size(style.small, least, |size| font.measure(size, text) <= room)
-            .unwrap_or(least);
+    let size = crate::kit::widgets::largest_size(style.small, least, |size| {
+        font.measure(size, text) <= room
+    })
+    .unwrap_or(least);
     // Two lines set close: the row is a line and a half high.
     let metrics = font.line_metrics(size);
     let line = (metrics.ascent + metrics.descent).min(metrics.line_height);
@@ -91,7 +92,9 @@ fn icon_of<'f>(env: &Place<'f>, hint: &Hint) -> Option<Option<(FontHandle<'f>, c
         Hint::Icon(name) => Some(icon(env, name)),
         Hint::Text(text) => {
             let ch = icon_of_text(text)?;
-            let font = env.fonts().bound(paperpaw_sdk::builtin::fonts::ICONS.as_str());
+            let font = env
+                .fonts()
+                .bound(paperpaw_sdk::builtin::fonts::ICONS.as_str());
             Some(font.filter(|font| font.has_char(ch)).map(|font| (font, ch)))
         }
         _ => None,

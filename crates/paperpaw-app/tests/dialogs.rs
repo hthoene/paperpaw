@@ -24,6 +24,7 @@ mod common;
 
 use common::{AddDriver as _, Harness};
 use paperpaw_core::Kernel;
+use paperpaw_core::kit::ui::choice::Picked;
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rect, Rotation,
 };
@@ -31,7 +32,6 @@ use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::event::Event;
 use paperpaw_sdk::replies::Confirmed;
 use paperpaw_sdk::semantics::Role;
-use paperpaw_core::kit::ui::choice::Picked;
 use paperpaw_sdk::{Command, Id, MemoryStorage};
 
 /// The emulator's `xteink-x4`: buttons only.

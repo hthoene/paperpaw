@@ -352,12 +352,7 @@ impl crate::testing::Fake for LateScreen {
                 height: 8,
             };
             for x in [10, 40] {
-                crate::kit::ui::draw_image(
-                    canvas,
-                    env.storage(),
-                    &image,
-                    Rect::new(x, 10, 20, 20),
-                );
+                crate::kit::ui::draw_image(canvas, env.storage(), &image, Rect::new(x, 10, 20, 20));
             }
         }
     }

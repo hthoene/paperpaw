@@ -178,10 +178,13 @@ fn a_language_twice_refuses_the_whole_plugin() {
 #[test]
 fn a_merge_refusal_takes_the_tables_out_again() {
     let mut kernel = fresh();
-    kernel.shared.actions.insert(crate::kit::action::ActionSpec::new(
-        Id::new_static("factory.action"),
-        "other",
-    ));
+    kernel
+        .shared
+        .actions
+        .insert(crate::kit::action::ActionSpec::new(
+            Id::new_static("factory.action"),
+            "other",
+        ));
     let result = install_resources(&mut kernel, 4, FOLDER);
     assert!(result.is_err(), "{result:?}");
     nothing_published(&kernel);

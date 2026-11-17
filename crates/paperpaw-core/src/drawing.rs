@@ -481,8 +481,7 @@ impl Kernel {
             let size = f32::from(mark.height) * 0.6;
             let sign = paperpaw_sdk::icons::PAW;
             let x = f32::from(mark.x)
-                + (f32::from(mark.width) - crate::kit::ui::icon_width(&env, sign, size))
-                    / 2.0;
+                + (f32::from(mark.width) - crate::kit::ui::icon_width(&env, sign, size)) / 2.0;
             crate::kit::ui::draw_icon(&mut canvas, &env, sign, size, x, mark, Color::WHITE);
         }
         // A message over everything.
@@ -654,8 +653,7 @@ impl Kernel {
     /// ([`events::DISPLAY_CHANGED`]).
     fn display_changed(&mut self) {
         let panel = self.framebuffer.bounds();
-        let class =
-            crate::kit::ui::class_of(&self.shared.place(self.shared.now), panel);
+        let class = crate::kit::ui::class_of(&self.shared.place(self.shared.now), panel);
         let landscape = panel.width > panel.height;
         let changed = events::DisplayChanged::new(panel.width, panel.height, class, landscape);
         self.output

@@ -2,8 +2,8 @@
 //! hash-checked by the shell: checked here and marked for the kernel to
 //! install. Marks take effect only after the folder is in place.
 
-use paperpaw_core::sdk as paperpaw_sdk;
 use paperpaw_core::kit::install::marks::{self, From, Marks};
+use paperpaw_core::sdk as paperpaw_sdk;
 use paperpaw_sdk::native::{self, Author};
 use paperpaw_sdk::{Storage, Version};
 

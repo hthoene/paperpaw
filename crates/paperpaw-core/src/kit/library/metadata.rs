@@ -104,7 +104,8 @@ pub fn keep_native_details(
             .map_err(|_| paperpaw_sdk::data::Error::OutOfMemory)?
     };
     let ini = super::details::try_details_text(&book, &before)?;
-    let file = super::fallible::try_book_file(path).map_err(|_| paperpaw_sdk::data::Error::OutOfMemory)?;
+    let file =
+        super::fallible::try_book_file(path).map_err(|_| paperpaw_sdk::data::Error::OutOfMemory)?;
     Ok(storage.write(&file, ini.as_bytes())?)
 }
 
@@ -115,7 +116,8 @@ pub fn keep_native_details(
 pub(crate) fn read_book(storage: &dyn Storage, path: &str, size: u64) -> Option<Book> {
     let source = super::fallible::surviving(load_details(storage, path))??;
     let book = super::fallible::surviving(
-        super::fallible::try_parse_details(&source).map_err(|_| paperpaw_sdk::data::Error::OutOfMemory),
+        super::fallible::try_parse_details(&source)
+            .map_err(|_| paperpaw_sdk::data::Error::OutOfMemory),
     )?;
     (book.size == size && (book.indexed || metadata_read(&source))).then_some(book)
 }

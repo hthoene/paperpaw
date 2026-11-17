@@ -19,14 +19,14 @@ use paperpaw_platform::{Color, Rect};
 
 use super::colours::{self, ColourSpec};
 use super::look::{Frame, choice_setting};
+use crate::Place;
+use crate::kit::decorations::Tone;
+use crate::kit::ui::UiStyle;
+use paperpaw_sdk::Id;
+use paperpaw_sdk::SettingSpec;
 use paperpaw_sdk::builtin::settings::{
     self, WIDGET_CORNERS, WIDGET_FRAME_LINE, WIDGET_GAP, WIDGET_PADDING, WIDGET_SHADOW,
 };
-use crate::kit::decorations::Tone;
-use crate::Place;
-use paperpaw_sdk::Id;
-use paperpaw_sdk::SettingSpec;
-use crate::kit::ui::UiStyle;
 
 /// Corners as the interface has them ([`settings::UI_CORNERS`]).
 pub const CORNERS_AUTO: &str = "core.corners.auto";

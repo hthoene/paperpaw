@@ -30,17 +30,17 @@ use paperpaw_graphics::Canvas;
 use paperpaw_platform::{Color, Rect};
 
 use super::look::{Frame, choice_setting};
-use paperpaw_sdk::builtin::settings::{WIDGET_INK, WIDGET_PAPER, parse_rgb};
-use crate::kit::decorations::{self, Tone};
 use crate::Place;
-use paperpaw_sdk::Id;
-use paperpaw_sdk::{SettingExtra, SettingSpec};
+use crate::kit::decorations::{self, Tone};
 use crate::kit::ui::{self, UiStyle};
+use paperpaw_sdk::Id;
+use paperpaw_sdk::builtin::settings::{WIDGET_INK, WIDGET_PAPER, parse_rgb};
 pub use paperpaw_sdk::widgets::ColourSpec;
 pub use paperpaw_sdk::widgets::PAPER_LIGHT_GRAY;
 pub use paperpaw_sdk::widgets::PAPER_NONE;
 pub use paperpaw_sdk::widgets::PAPER_NORMAL;
 pub use paperpaw_sdk::widgets::colour_spec;
+use paperpaw_sdk::{SettingExtra, SettingSpec};
 
 /// What lies under the widgets of a grid
 /// (`GridView::draw_on`); a widget's
@@ -75,8 +75,6 @@ pub const PAPERS: &[&str] = &[
 
 /// The inks every panel shows, in the order settings offer them.
 pub const INKS: &[&str] = &[INK_AUTO, Tone::Black.id(), Tone::White.id()];
-
-
 
 /// `widget`'s paper, by its [`paper_setting`], else by
 /// [`WIDGET_PAPER`](paperpaw_sdk::builtin::settings::WIDGET_PAPER).

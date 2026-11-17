@@ -7,10 +7,10 @@
 //! tags replaces the book's, the book is read from its file anew, and an
 //! error of the memory or the card is the answer, never a silent OK.
 use super::{CatalogReads, fail};
+use crate::kit::library::{self, ProvidedText};
 use crate::native_host::lib_service::BookRef;
 use crate::native_host::registrations as wire;
 use paperpaw_native::host_glue::ERR_BUSY;
-use crate::kit::library::{self, ProvidedText};
 
 impl CatalogReads {
     /// Op 24 `provide`, where `busy` says a book is in use (a library

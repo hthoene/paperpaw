@@ -15,13 +15,13 @@ use super::{
     sources::Sources,
 };
 use crate::Place;
+use crate::kit::widgets::base;
 use crate::native_host::{
     declaration_store::{DeclKey, DeclarationStore, Kind},
     registrations::{self as wire, Record},
 };
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
-use crate::kit::widgets::base;
 
 /// `reg_widget.flags`.
 const SHOWN: u32 = 1;

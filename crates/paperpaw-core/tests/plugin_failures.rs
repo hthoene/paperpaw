@@ -19,10 +19,13 @@ use std::borrow::Cow;
 
 use common::{BASE, DEVICE, Harness, press};
 use paperpaw_core::Items;
-use paperpaw_core::sdk::builtin::{actions, slots};
-use paperpaw_core::sdk::{Command, Id, Manifest, MemoryStorage, Params, PluginState, Priority, RegisterError, Setting, SettingSpec};
 use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::kit::menus::MenuEntry;
+use paperpaw_core::sdk::builtin::{actions, slots};
+use paperpaw_core::sdk::{
+    Command, Id, Manifest, MemoryStorage, Params, PluginState, Priority, RegisterError, Setting,
+    SettingSpec,
+};
 use paperpaw_core::{Kernel, Warning, WarningSource};
 use paperpaw_platform::Instant;
 use proptest::prelude::*;

@@ -30,16 +30,13 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::{DATA_FORMATS, SDK_VERSION, Version};
 pub use paperpaw_sdk::install::Digest;
 pub use paperpaw_sdk::install::MAX_FILES;
 pub use paperpaw_sdk::install::Package;
 pub use paperpaw_sdk::install::PackageFile;
 pub use paperpaw_sdk::install::is_plugin_name;
 pub use paperpaw_sdk::install::is_safe_path;
-
-/// The longest path of a file in a plugin's folder.
-const MAX_PATH: usize = 100;
+use paperpaw_sdk::{DATA_FORMATS, SDK_VERSION, Version};
 
 /// Whether a data plugin made for the SDK `sdk` (e.g. `0.5`) and the data
 /// formats `formats` is read by a PaperPaw of the SDK this is built with
@@ -56,28 +53,17 @@ pub fn fits_sdk(kernel: Version, sdk: &str, formats: u32) -> bool {
     sdk_fits && formats <= DATA_FORMATS
 }
 
-
-
-
-
-
-
-
-
-
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn file(path: &str) -> PackageFile {
-        PackageFile {
-            path: path.into(),
-            url: format!("https://x/{path}"),
-            size: 3,
-            digest: Digest::Sha1("a".repeat(40)),
-        }
+        PackageFile::new(
+            path.into(),
+            format!("https://x/{path}"),
+            3,
+            Digest::Sha1("a".repeat(40)),
+        )
     }
 
     #[test]
@@ -97,11 +83,8 @@ mod tests {
 
     #[test]
     fn packages_are_checked() {
-        let mut package = Package {
-            plugin: "airy".into(),
-            name: "Airy".into(),
-            files: alloc::vec![file("plugin.ini"), file("i18n/de.ini")],
-        };
+        let mut package = Package::new("airy".into(), "Airy".into());
+        package.files = alloc::vec![file("plugin.ini"), file("i18n/de.ini")];
         assert!(package.is_valid());
         assert_eq!(package.size(), 6);
         package.files.push(file("i18n/de.ini"));

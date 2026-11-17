@@ -994,10 +994,7 @@ fn without_the_bit_a_png_is_over_white_and_a_jpeg_ignores_the_bit() {
     let t = ImageTable::new();
     t.prepare(A, "w.jpg", 64, 1, false, &see_through()).unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, READY);
-    assert_eq!(
-        cache_of(&t, &storage).0,
-        crate::kit::ui::PictureKind::Gray
-    );
+    assert_eq!(cache_of(&t, &storage).0, crate::kit::ui::PictureKind::Gray);
 }
 
 #[test]
@@ -1037,10 +1034,7 @@ fn a_see_through_cache_file_goes_on_release_on_stop_and_in_the_boot_sweep() {
     let ready = step(&t, &storage).unwrap();
     let file = file_at(&t, 0);
     assert!(file.starts_with(DIR) && ours(file.rsplit('/').next().unwrap()));
-    assert_eq!(
-        cache_of(&t, &storage).0,
-        crate::kit::ui::PictureKind::Alpha
-    );
+    assert_eq!(cache_of(&t, &storage).0, crate::kit::ui::PictureKind::Alpha);
     t.release(A, ready.image).unwrap();
     assert_eq!(step(&t, &storage), None);
     assert!(!storage.exists(&file));

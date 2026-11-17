@@ -526,7 +526,6 @@ impl StatusItems {
     }
 }
 
-
 /// A status line: the items listed (comma-separated ids) for its left,
 /// centre and right, drawn in `area` with text of `size` in `color`.
 #[derive(Debug, Clone, Copy)]

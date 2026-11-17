@@ -4,15 +4,15 @@ use alloc::borrow::Cow;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
-use paperpaw_i18n::Catalog;
-use paperpaw_sdk::collections::VecMap;
-use paperpaw_sdk::{FontSpec, FormatSpec, Id, Priority, RegisterError, SettingSpec, SlotSpec};
 use crate::kit::action::ActionSpec;
 use crate::kit::action::Actions;
 use crate::kit::contribution::item::Contribution;
 use crate::kit::menus::MenuEntry;
 use crate::kit::status::StatusItemSpec;
 use crate::kit::status::StatusLineSpec;
+use paperpaw_i18n::Catalog;
+use paperpaw_sdk::collections::VecMap;
+use paperpaw_sdk::{FontSpec, FormatSpec, Id, Priority, RegisterError, SettingSpec, SlotSpec};
 
 pub(crate) const NATIVE_CAPACITY_OVERFLOW: &str = "native screen capacity overflow";
 pub(crate) const NATIVE_CAPACITY_UNAVAILABLE: &str = "native screen capacity unavailable";
@@ -1139,15 +1139,6 @@ pub(crate) fn stage(
             Contribution::EventDeclared(event) => staging.events.push(*event),
             Contribution::Translations(source) => staging.catalogs.push(catalog(source)?),
             Contribution::TranslationFile(path) => staging.catalog_files.push(path),
-            // A kind of a newer SDK than this kernel knows: said, not lost.
-            other => {
-                return Err(RegisterError::Invalid {
-                    message: Cow::Owned(alloc::format!(
-                        "a contribution of kind `{}` this PaperPaw does not know",
-                        other.kind()
-                    )),
-                });
-            }
         }
     }
     Ok(())

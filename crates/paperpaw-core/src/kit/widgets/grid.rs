@@ -59,9 +59,8 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::kit::ui::UiStyle;
 use crate::Place;
-use paperpaw_sdk::{Id, Point, Rect};
+use crate::kit::ui::UiStyle;
 pub use paperpaw_sdk::widgets::grid::Cells;
 pub use paperpaw_sdk::widgets::grid::Geometry;
 pub use paperpaw_sdk::widgets::grid::Item;
@@ -73,23 +72,7 @@ pub use paperpaw_sdk::widgets::grid::dragged;
 pub use paperpaw_sdk::widgets::grid::free_place;
 pub use paperpaw_sdk::widgets::grid::parse;
 pub use paperpaw_sdk::widgets::grid::write;
-
-/// Tools are written with this before their action's id.
-const TOOL: &str = "tool:";
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+use paperpaw_sdk::{Id, Point, Rect};
 
 #[cfg(test)]
 mod tests {
@@ -150,10 +133,10 @@ mod tests {
         assert_eq!(moved, Some(Cells::new(2, 1, 2, 1)));
         // Not left of the grid's edge.
         let left = dragged(&g, item, at(250, 50), at(50, 50), false);
-        assert_eq!(left, Some(Cells { col: 0, ..item }));
+        assert_eq!(left, Some(Cells::new(0, 0, 2, 1)));
         // Its corner pulled to the third row: as high as that.
         let sized = dragged(&g, item, at(290, 90), at(150, 250), true);
-        assert_eq!(sized, Some(Cells { w: 1, h: 3, ..item }));
+        assert_eq!(sized, Some(Cells::new(1, 0, 1, 3)));
         // Off the grid: nowhere.
         assert_eq!(dragged(&g, item, at(250, 50), at(450, 50), false), None);
     }

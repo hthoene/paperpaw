@@ -90,7 +90,7 @@ fn the_sets_are_those_the_sdk_defines() {
         (presets::THEME, presets::theme_settings(settings)),
         (
             presets::WIDGET_LOOK,
-            presets::widget_look_settings(settings, widgets),
+            presets::widget_look_settings(settings, &|id| widgets.has(id)),
         ),
     ] {
         assert!(!sdk.is_empty(), "{kind}");
@@ -480,7 +480,9 @@ fn sdk_commands(kernel: &crate::Kernel, preset: &Preset) -> std::vec::Vec<paperp
     let (settings, widgets) = (&kernel.shared.settings, &kernel.shared.widgets);
     let changes = match preset.kind.as_str() {
         presets::THEME => presets::theme_changes(settings, preset),
-        presets::WIDGET_LOOK => presets::widget_look_changes(settings, widgets, preset),
+        presets::WIDGET_LOOK => {
+            presets::widget_look_changes(settings, &|id| widgets.has(id), preset)
+        }
         _ => preset.changes(settings, &[]),
     };
     presets::commands(settings, &changes)

@@ -3,10 +3,10 @@
 //! an error no retry changes lets the other parts go on.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail tests")]
 use super::*;
-use paperpaw_sdk::MemoryStorage;
 use crate::kit::library::{book, favourites, opened_books, set_favourite, set_field};
 use core::cell::{Cell, RefCell};
 use paperpaw_platform::DirEntry;
+use paperpaw_sdk::MemoryStorage;
 
 /// A memory card whose chosen renames, removes or writes (counted from 0)
 /// fail, each with its error.

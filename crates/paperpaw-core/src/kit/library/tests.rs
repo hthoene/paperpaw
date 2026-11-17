@@ -1,6 +1,6 @@
 use super::*;
+use paperpaw_platform::{DirEntry, Storage, StorageError};
 use paperpaw_sdk::MemoryStorage;
-use paperpaw_sdk::Unreadable;
 
 #[test]
 fn what_sources_provide_is_kept() {
@@ -317,5 +317,36 @@ fn only_a_catalog_whose_header_ends_with_nothing_after_it_is_empty() {
     ] {
         let storage = MemoryStorage::new().with(path, text);
         assert!(!emptiness::is_empty(&storage), "{text:?}");
+    }
+}
+
+/// A storage whose files cannot be read, as on a failing card: what is
+/// there says [`StorageError::Io`] where it is read or its size asked
+/// for. For tests of what must not be written over.
+struct Unreadable(pub MemoryStorage);
+
+impl Storage for Unreadable {
+    fn read_at(&self, path: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+        self.size(path).map(|_| 0)
+    }
+
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.0.size(path).and(Err(StorageError::Io))
+    }
+
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.write(path, data)
+    }
+
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.append(path, data)
+    }
+
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.0.list(dir, visit)
+    }
+
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove(path)
     }
 }

@@ -49,8 +49,12 @@ pub(crate) fn draw_image_over(
     }
     // Its kind from one read of its header, band by band.
     let (kind, width, height) = match paperpaw_sdk::image::Decoded::peek(storage, &image.path) {
-        Some(paperpaw_sdk::image::Decoded::Alpha(file)) => (PictureKind::Alpha, file.width, file.height),
-        Some(paperpaw_sdk::image::Decoded::Color(file)) => (PictureKind::Color, file.width, file.height),
+        Some(paperpaw_sdk::image::Decoded::Alpha(file)) => {
+            (PictureKind::Alpha, file.width, file.height)
+        }
+        Some(paperpaw_sdk::image::Decoded::Color(file)) => {
+            (PictureKind::Color, file.width, file.height)
+        }
         _ => (PictureKind::Gray, image.width, image.height),
     };
     // This drawer has always drawn what it could and said nothing.
@@ -380,7 +384,10 @@ fn start_diffusion(
     levels: Option<u8>,
     (key, shown, top): (u64, i32, i32),
     (vw, lenient): (usize, bool),
-) -> Result<(i32, Option<(paperpaw_graphics::diffuse::Atkinson, u8)>), paperpaw_sdk::image::ImageError> {
+) -> Result<
+    (i32, Option<(paperpaw_graphics::diffuse::Atkinson, u8)>),
+    paperpaw_sdk::image::ImageError,
+> {
     let Some(levels) = levels else {
         return Ok((shown, None));
     };

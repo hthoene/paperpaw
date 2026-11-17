@@ -4,8 +4,8 @@
 //! widgets (the editor of lists of widgets) ask for them through a lookup
 //! the kernel sets; without one they know the registered widgets only.
 use super::{Widgets, base};
-use paperpaw_sdk::Id;
 use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
+use paperpaw_sdk::Id;
 
 /// Calls its second argument with the id, the translation key of the name
 /// and the kind of each widget to add that is declared elsewhere; of the

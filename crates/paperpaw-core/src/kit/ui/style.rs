@@ -123,7 +123,6 @@ fn px(value: u32) -> u16 {
     u16::try_from(value).unwrap_or(u16::MAX)
 }
 
-
 /// The names of the named [`Ink`]s in the palette, by their numbers.
 const INKS: [&str; 19] = [
     "text",
@@ -146,9 +145,6 @@ const INKS: [&str; 19] = [
     "selection",
     "warning",
 ];
-
-
-
 
 /// What a colour is for ([`UiStyle::ink`]): a colour role of the
 /// interface, each set by the palette (setting `core.ui-palette`), so a

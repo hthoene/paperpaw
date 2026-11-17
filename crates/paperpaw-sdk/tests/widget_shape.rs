@@ -285,10 +285,11 @@ fn the_gap_between_widgets() {
 #[test]
 fn a_widget_look_covers_the_shape() {
     let h = harness(true);
-    let covered: Vec<String> = paperpaw_sdk::presets::widget_look_settings(&h.settings, &h.widgets)
-        .iter()
-        .map(|id| id.as_str().to_string())
-        .collect();
+    let covered: Vec<String> =
+        paperpaw_sdk::presets::widget_look_settings(&h.settings, &|id| h.widgets.has(id))
+            .iter()
+            .map(|id| id.as_str().to_string())
+            .collect();
     for id in [
         "t.clock.corners",
         "t.clock.frame-line",

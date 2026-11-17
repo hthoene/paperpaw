@@ -21,10 +21,10 @@
 //! layout of one item), freed at the return.
 use crate::Place;
 use crate::abi7::context::{ComposeRequest, HostStatus};
+use crate::kit::status::{StatusLine, StatusValue};
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::{Color, Params, builtin::fonts};
-use crate::kit::status::{StatusLine, StatusValue};
 
 /// The owner id of the host's own status handles: plugin owner ids start at
 /// 1 (`HostResources::try_owner`, and a seat of owner 0 is refused).
@@ -61,9 +61,7 @@ pub(crate) fn token_of(item: &str) -> Option<u32> {
 /// value (the item hides).
 pub(crate) fn value(env: &Place<'_>, item: &str, out: &mut [u8]) -> Option<HostStatus> {
     let token = token_of(item)?;
-    let value = env
-        .status_items()
-        .value(item, env, &Params::default())?;
+    let value = env.status_items().value(item, env, &Params::default())?;
     match value {
         StatusValue::Text(text) => {
             let mut len = text.len().min(out.len());

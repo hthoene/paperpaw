@@ -2,11 +2,13 @@
 //! event and the part of the screen it has (#300, D209). The kernel's own
 //! in place of the SDK's old `Env`.
 
-use paperpaw_i18n::Translator;
-use paperpaw_platform::{DeviceInfo, Instant, Rect, Storage, SystemStatus};
-use paperpaw_sdk::{Capabilities, Fonts, Formats, Hyphenation, Metrics, Plugins, ScreenMaker, Settings};
 use crate::kit::action::Actions;
 use crate::kit::status::StatusItems;
+use paperpaw_i18n::Translator;
+use paperpaw_platform::{DeviceInfo, Instant, Rect, Storage, SystemStatus};
+use paperpaw_sdk::{
+    Capabilities, Fonts, Formats, Hyphenation, Metrics, Plugins, ScreenMaker, Settings,
+};
 
 use crate::Shared;
 

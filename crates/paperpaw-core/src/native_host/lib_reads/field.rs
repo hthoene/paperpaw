@@ -5,9 +5,9 @@
 //! the one implementation, so an interface 6 reader sees the same details.
 //! An error of the memory or the card is the answer, never a silent OK.
 use super::{CatalogReads, fail};
+use crate::kit::library;
 use crate::native_host::lib_service::{BookRef, FieldKind};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND};
-use crate::kit::library;
 
 /// Op 23's declared-field lookup: `ERR_NOT_FOUND` for a field no plugin
 /// declared.

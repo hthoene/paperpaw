@@ -9,13 +9,13 @@ use super::{
     retained::Retained,
     shell,
 };
+use crate::kit::action::NativeAction;
+use crate::kit::contribution::item::Contribution;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED, Services,
 };
 use paperpaw_sdk::{Id, RegisterError};
-use crate::kit::contribution::item::Contribution;
-use crate::kit::action::NativeAction;
 
 /// Owned mapping results; future declaration families extend this one dispatch.
 pub(super) enum Owned {

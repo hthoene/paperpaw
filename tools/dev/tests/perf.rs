@@ -12,13 +12,13 @@
 use paperpaw_core::{Place, Turn};
 use std::sync::Mutex;
 
+use paperpaw_core::kit::widgets::{Widget, WidgetSpec};
 use paperpaw_core::{Items, KernelBuilder};
 use paperpaw_dev::cli::Context;
 use paperpaw_dev::perf;
 use paperpaw_dev::report::{Level, Report};
 use paperpaw_dev::target::Target;
 use paperpaw_platform::Rect;
-use paperpaw_core::kit::widgets::{Widget, WidgetSpec};
 use paperpaw_sdk::{Canvas, Handled, Id, Manifest, RegisterError, SDK_VERSION};
 
 /// Reads a file whenever it is drawn.

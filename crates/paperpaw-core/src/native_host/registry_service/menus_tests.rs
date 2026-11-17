@@ -10,6 +10,12 @@ use super::{
     tests::{call_in, page, query_flags, read},
 };
 use crate::Items;
+use crate::kit::action::ActionSpec;
+use crate::kit::menus::ItemState;
+use crate::kit::menus::MenuEntry;
+use crate::kit::menus::MenuSection;
+use crate::kit::setup::{SetupPage, SetupStepSpec};
+use crate::kit::widgets::{CellSpan, Drawn, WidgetSpec, categories};
 use crate::native_host::{
     declaration_store::{Allocations, DeclarationStore, ImageOwner, PendingDeclarations},
     native_declarations::NativeDeclarations,
@@ -19,13 +25,10 @@ use crate::{Place, Turn};
 use alloc::{borrow::Cow, boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
-use paperpaw_sdk::{Canvas, Handled, Id, Manifest, MenuNeed, RegisterError, SettingKind, SettingSpec, SettingValue, Version};
-use crate::kit::action::ActionSpec;
-use crate::kit::menus::ItemState;
-use crate::kit::menus::MenuEntry;
-use crate::kit::menus::MenuSection;
-use crate::kit::setup::{SetupPage, SetupStepSpec};
-use crate::kit::widgets::{CellSpan, Drawn, WidgetSpec, categories};
+use paperpaw_sdk::{
+    Canvas, Handled, Id, Manifest, MenuNeed, RegisterError, SettingKind, SettingSpec, SettingValue,
+    Version,
+};
 
 fn id(text: &str) -> Id {
     Id::parse(text).unwrap()

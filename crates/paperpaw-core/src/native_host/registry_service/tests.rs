@@ -6,14 +6,17 @@ extern crate std;
 use super::*;
 use crate::Items;
 use crate::abi7::services_wire::service_schema;
+use crate::kit::action::ActionSpec;
 use crate::native_host::host_services::{Caller, HostServices};
 use crate::{Place, Turn};
 use alloc::{borrow::Cow, boxed::Box, format, string::String, vec::Vec};
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Canvas, Handled, Id, Manifest, Priority, RegisterError, SettingGroupSpec, Settings, SlotSpec, Version};
-use crate::kit::action::ActionSpec;
+use paperpaw_sdk::{
+    Canvas, Handled, Id, Manifest, Priority, RegisterError, SettingGroupSpec, Settings, SlotSpec,
+    Version,
+};
 
 struct Quiet;
 impl crate::testing::Fake for Quiet {

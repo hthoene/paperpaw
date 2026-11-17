@@ -48,7 +48,9 @@ pub(crate) fn icon<'f>(env: &Place<'f>, name: &str) -> Option<(FontHandle<'f>, c
     } else {
         name
     };
-    let font = env.fonts().bound(paperpaw_sdk::builtin::fonts::ICONS.as_str())?;
+    let font = env
+        .fonts()
+        .bound(paperpaw_sdk::builtin::fonts::ICONS.as_str())?;
     let ch = paperpaw_sdk::icons::char(name)?;
     font.has_char(ch).then_some((font, ch))
 }

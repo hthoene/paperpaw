@@ -12,11 +12,9 @@
 use alloc::format;
 use alloc::string::String;
 
-use paperpaw_sdk::Storage;
 use paperpaw_digest::md5;
+use paperpaw_sdk::Storage;
 pub use paperpaw_sdk::library::Fingerprint;
-
-
 
 #[cfg(test)]
 mod tests {

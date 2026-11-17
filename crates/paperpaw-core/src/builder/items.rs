@@ -12,9 +12,9 @@
 
 use super::KernelBuilder;
 use crate::Kernel;
+use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::string::String;
-use alloc::borrow::Cow;
 use paperpaw_sdk::{BuiltInFont, BuiltInFonts, FontFace, Id, Manifest, Priority, RegisterError};
 
 use crate::kit::contribution::item::Contribution;

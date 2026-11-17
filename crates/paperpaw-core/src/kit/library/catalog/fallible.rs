@@ -9,10 +9,10 @@
 use alloc::string::String;
 
 use super::{Changes, MAX_CHANGES, parse_change};
-use paperpaw_sdk::data::Error;
 use crate::kit::library::DIR;
-use paperpaw_sdk::{Storage, StorageError};
 use paperpaw_digest::fnv1a64;
+use paperpaw_sdk::data::Error;
+use paperpaw_sdk::{Storage, StorageError};
 
 /// The bytes of a line looked at: the longest path (512) and a tab.
 const HEAD: usize = 520;

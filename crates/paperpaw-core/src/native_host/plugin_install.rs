@@ -33,6 +33,7 @@
 //! The stage is removed on every end before the journal. A job aborted while
 //! it holds the card leaves the stage for the next start's cleanup (B2c-3);
 //! after the journal, the next start finishes the swap.
+use crate::kit::install::marks::{self, From, Marks};
 use alloc::{boxed::Box, string::String, vec::Vec};
 use paperpaw_native::{
     header5::{HEADER_LEN, Header5},
@@ -40,7 +41,6 @@ use paperpaw_native::{
 };
 use paperpaw_platform::{Storage, StorageError, firmware::Text};
 use paperpaw_sdk::{Version, native::CODE_FILES};
-use crate::kit::install::marks::{self, From, Marks};
 
 use super::files_service::same_fold;
 use super::firmware_install::BuiltIns;

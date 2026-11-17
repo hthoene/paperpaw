@@ -5,9 +5,9 @@
 //! files `set_finished` and `set_favourite` write for an interface 6 plugin),
 //! so an error of the memory or the card is the answer, never a silent OK.
 use super::{CatalogReads, fail};
+use crate::kit::library;
 use crate::native_host::lib_service::BookRef;
 use paperpaw_native::host_glue::ERR_BUSY;
-use crate::kit::library;
 
 impl CatalogReads {
     /// Op 8 `set_status`, where `busy` says a book is in use (a library move

@@ -32,23 +32,18 @@ use alloc::format;
 use alloc::vec::Vec;
 use core::fmt;
 
-use paperpaw_sdk::builtin::groups;
-use paperpaw_sdk::document::Locator;
 use crate::Place;
-use paperpaw_sdk::{Choices, Color, Id, RegisterError, SettingExtra, SettingKind, SettingSpec, SettingValue};
+use paperpaw_sdk::builtin::groups;
 pub use paperpaw_sdk::decorations::AS_IS;
 pub use paperpaw_sdk::decorations::Decoration;
 pub use paperpaw_sdk::decorations::LineKind;
 pub use paperpaw_sdk::decorations::NONE;
 pub use paperpaw_sdk::decorations::THICKNESS;
 pub use paperpaw_sdk::decorations::Tone;
-
-
-
-
-
-
-
+use paperpaw_sdk::document::Locator;
+use paperpaw_sdk::{
+    Choices, Color, Id, RegisterError, SettingExtra, SettingKind, SettingSpec, SettingValue,
+};
 
 /// The options of a tone setting: `none` (no tone, or the text as it
 /// is), then every tone.
@@ -295,7 +290,8 @@ pub const fn fixed_role(
 #[macro_export]
 macro_rules! role_settings {
     ($role:literal, $title:literal, $default:expr $(,)?) => {{
-        static SECTION: $paperpaw_sdk::SettingExtra = $paperpaw_sdk::SettingExtra::new().section($title);
+        static SECTION: $paperpaw_sdk::SettingExtra =
+            $paperpaw_sdk::SettingExtra::new().section($title);
         static THICKNESS: $paperpaw_sdk::SettingExtra = $paperpaw_sdk::SettingExtra::new()
             .section($title)
             .unit("core.unit.tenth-mm");
@@ -348,18 +344,6 @@ pub struct Decorated {
     /// Just after its last character.
     pub end: Locator,
     pub role: Id,
-}
-
-impl Decorated {
-    /// The range of `words` (from the first's start to the last's end) in
-    /// `role`.
-    pub(crate) fn words(words: &[PageWord<'_>], role: &Id) -> Option<Decorated> {
-        Some(Decorated {
-            start: words.first()?.start,
-            end: words.last()?.end,
-            role: role.clone(),
-        })
-    }
 }
 
 /// What a decorator does: a page's words in, the ranges it marks out.

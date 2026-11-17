@@ -28,8 +28,8 @@ impl Frame for Place<'_> {
         let mut value = capture(self.device(), self.status(), self.now())?;
         // The zone the user sees (`core.time-zone`, else the system's), as
         // the SDK's local time reads it; absent without a clock.
-        value.utc_offset_minutes = crate::kit::time::local_time(self)
-            .and_then(|local| utc_offset_minutes(local.offset));
+        value.utc_offset_minutes =
+            crate::kit::time::local_time(self).and_then(|local| utc_offset_minutes(local.offset));
         Ok(value)
     }
 }

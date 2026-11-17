@@ -5,9 +5,9 @@
 extern crate std;
 use super::super::tests::card;
 use super::*;
+use crate::kit::library;
 use crate::native_host::lib_service::LibWrite;
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
-use crate::kit::library;
 
 // Book C has its file on the card; B has none.
 const B: BookRef<'static> = BookRef::Path("books/c.epub");

@@ -6,16 +6,16 @@ use alloc::string::String;
 use core::fmt;
 
 use crate::kit::action::ActionSpec;
-use paperpaw_sdk::{FontFace, FontSpec};
-use paperpaw_sdk::FormatSpec;
-use paperpaw_sdk::Id;
 use crate::kit::menus::{MenuEntry, MenuNeed, MenuSection};
-use paperpaw_sdk::{Priority, SlotSpec};
-use paperpaw_sdk::presets::Preset;
-use paperpaw_sdk::SettingSpec;
 use crate::kit::setup::SetupStepSpec;
 use crate::kit::status::{StatusItemSpec, StatusLineSpec};
 use crate::kit::widgets::WidgetSpec;
+use paperpaw_sdk::FormatSpec;
+use paperpaw_sdk::Id;
+use paperpaw_sdk::SettingSpec;
+use paperpaw_sdk::presets::Preset;
+use paperpaw_sdk::{FontFace, FontSpec};
+use paperpaw_sdk::{Priority, SlotSpec};
 
 /// One thing a plugin adds. New kinds come in minor versions. The large
 /// ones are boxed: a plugin's list stays small on small devices.

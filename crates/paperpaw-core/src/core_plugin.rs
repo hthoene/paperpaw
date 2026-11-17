@@ -11,6 +11,14 @@ mod widget_settings;
 
 use crate::Items;
 use crate::Place;
+use crate::kit::action::ActionHint;
+use crate::kit::action::FixedAction;
+use crate::kit::library;
+use crate::kit::menus::MenuEntry;
+use crate::kit::status::StatusItemSpec;
+use crate::kit::status::StatusValue;
+use crate::kit::time::{self, AUTO, CLOCK_12H, CLOCK_24H, TIME_ZONES};
+use crate::kit::widgets::{self, Drawn, WidgetSpec};
 use crate::native_host::book_data_steps::{follow_move, follow_removal};
 use alloc::borrow::Cow;
 use alloc::string::String;
@@ -21,15 +29,10 @@ use paperpaw_sdk::builtin::{
     actions, events, group_sections, groups, keymap_presets, menus, params, screens, settings,
     settings_page, slots, status_items,
 };
-use crate::kit::library;
-use crate::kit::time::{self, AUTO, CLOCK_12H, CLOCK_24H, TIME_ZONES};
-use crate::kit::widgets::{self, Drawn, WidgetSpec};
-use paperpaw_sdk::{Command, Commands, Id, Manifest, Params, Priority, RegisterError, SettingExtra, SettingGroupSpec, SettingKind, SettingSpec, SettingValue, SlotSpec};
-use crate::kit::action::ActionHint;
-use crate::kit::action::FixedAction;
-use crate::kit::menus::MenuEntry;
-use crate::kit::status::StatusItemSpec;
-use crate::kit::status::StatusValue;
+use paperpaw_sdk::{
+    Command, Commands, Id, Manifest, Params, Priority, RegisterError, SettingExtra,
+    SettingGroupSpec, SettingKind, SettingSpec, SettingValue, SlotSpec,
+};
 
 pub(crate) const CORE: Id = Id::new_static("core");
 
@@ -432,9 +435,7 @@ impl Catalog {
     /// they are not of the library there is now.
     fn sort_wanted(&self, env: &Place<'_>) -> Option<String> {
         let archives = self.archives.borrow();
-        let mut wanted = archives
-            .iter()
-            .filter(|a| library::sorted::wanted(env, a));
+        let mut wanted = archives.iter().filter(|a| library::sorted::wanted(env, a));
         wanted.next().cloned()
     }
 
@@ -824,7 +825,8 @@ fn register_menus(r: &mut Items) -> Result<(), RegisterError> {
     ];
     r.add_actions(&SUBMENUS)?;
     r.set_item_state(menus::APPS, |env| {
-        crate::kit::menus::ItemState::new().shown(!env.menus().items(menus::APPS.as_str()).is_empty())
+        crate::kit::menus::ItemState::new()
+            .shown(!env.menus().items(menus::APPS.as_str()).is_empty())
     })?;
     // A short main menu; the tools plugins bring are one entry, so it
     // stays the same however many there are. The quick panel holds what
@@ -1643,9 +1645,7 @@ fn register_keymaps_and_setup(r: &mut Items) -> Result<(), RegisterError> {
             crate::kit::setup::SetupPage::Setting(settings::KEYMAP_PRESET.into()),
         )
         .order(20)
-        .applies(|env: &crate::Place<'_>| {
-            env.device().input.buttons && !env.device().input.touch
-        }),
+        .applies(|env: &crate::Place<'_>| env.device().input.buttons && !env.device().input.touch),
     )?;
     r.add_setup_step(
         crate::kit::setup::SetupStepSpec::new(

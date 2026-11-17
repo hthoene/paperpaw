@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail tests")]
 extern crate std;
 use super::*;
-use paperpaw_sdk::native::commands::menu_alloc_tests::refuse_nth;
+use crate::native_host::shell::tests::refuse_nth;
 use paperpaw_platform::DirEntry;
 use std::cell::RefCell;
 use std::string::ToString;

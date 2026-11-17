@@ -9,8 +9,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use super::*;
-use paperpaw_sdk::MemoryStorage;
 use crate::kit::library::{self, BookData, BookDataKind, key};
+use paperpaw_sdk::MemoryStorage;
 
 /// Where the details of the book at `path` are kept now.
 fn details(path: &str) -> String {

@@ -739,8 +739,7 @@ impl ImageTable {
         // the id says, and it must be readable now.
         // A short file or a card that fails is ERR_IO, a header that is not
         // what it should be ERR_INVALID.
-        let (kind, fw, fh) =
-            crate::kit::ui::probe_picture(storage, &path).map_err(draw_status)?;
+        let (kind, fw, fh) = crate::kit::ui::probe_picture(storage, &path).map_err(draw_status)?;
         if (fw, fh) != (w, h) {
             return Err(ERR_INVALID);
         }
@@ -771,8 +770,7 @@ impl ImageTable {
                 drawn = crate::kit::ui::try_draw_picture(child, storage, &picture, area, opacity);
             });
         } else {
-            drawn =
-                crate::kit::ui::try_draw_picture(&mut child, storage, &picture, area, opacity);
+            drawn = crate::kit::ui::try_draw_picture(&mut child, storage, &picture, area, opacity);
         }
         // Nothing is marked drawn for a draw that failed.
         drawn.map_err(draw_status)?;

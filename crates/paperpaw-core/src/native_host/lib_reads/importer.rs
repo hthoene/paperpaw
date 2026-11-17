@@ -15,12 +15,12 @@
 //! book moved away and back is not taken for the importer's again; a delete
 //! removes it with the rest of the book's marks.
 use super::{kept_file, storage_status};
+use crate::kit::library::Fingerprint;
 use crate::native_host::lib_jobs::carry_status;
 use alloc::string::String;
 use core::fmt::Write as _;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_MEMORY};
 use paperpaw_platform::Storage;
-use crate::kit::library::Fingerprint;
 
 /// The folder of the records.
 const DIR: &str = ".paperpaw/library/imported";

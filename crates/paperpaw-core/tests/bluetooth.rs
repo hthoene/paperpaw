@@ -16,12 +16,15 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use paperpaw_core::Items;
+use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::sdk::bluetooth::{
     self, BtEvent, DeviceId, Handle, ScanPower, Security, Uuid, ValueKind,
 };
 use paperpaw_core::sdk::builtin::{actions, slots};
-use paperpaw_core::sdk::{Canvas, Command, Event, Handled, Id, Manifest, MemoryStorage, Priority, RegisterError, Uses, Version};
-use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::sdk::{
+    Canvas, Command, Event, Handled, Id, Manifest, MemoryStorage, Priority, RegisterError, Uses,
+    Version,
+};
 use paperpaw_core::{BtCall, BtReport, Found, Io, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,

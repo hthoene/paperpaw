@@ -12,13 +12,16 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 
 use crate::Items;
+use crate::kit::action::ActionSpec;
 use paperpaw_platform::{
     ButtonState, Color, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, PixelFormat,
     Point, PointerEvent, PointerPhase, PointerTool, Rect, RefreshMode, Rotation,
 };
 use paperpaw_sdk::builtin::{actions, screens, settings, slots};
-use paperpaw_sdk::{Canvas, Command, Handled, Id, Manifest, Priority, RegisterError, SettingKind, SettingSpec, SettingValue, Version};
-use crate::kit::action::ActionSpec;
+use paperpaw_sdk::{
+    Canvas, Command, Handled, Id, Manifest, Priority, RegisterError, SettingKind, SettingSpec,
+    SettingValue, Version,
+};
 
 use crate::{HttpCall, Io, Kernel, ServerCall, SpeechCall, WarningSource};
 

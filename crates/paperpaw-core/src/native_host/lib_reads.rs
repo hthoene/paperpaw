@@ -32,6 +32,7 @@
 //! annotation list is the file's own number, never 0 (`annotations::generation_of`).
 use super::lib_service::{BookRef, LibQuery, One, Rows};
 use crate::abi7::context::RowsEnd;
+use crate::kit::library::{self, catalog};
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::rc::Rc;
 use alloc::string::String;
@@ -46,7 +47,6 @@ use paperpaw_native::host_glue::{
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::data;
 use paperpaw_sdk::digest::{fnv1a64, md5};
-use crate::kit::library::{self, catalog};
 
 mod annotations;
 mod book;

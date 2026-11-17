@@ -57,10 +57,10 @@ use paperpaw_graphics::Canvas;
 use paperpaw_platform::{Color, Rect};
 
 use crate::Place;
+use crate::kit::ui::{self, UiStyle};
 use paperpaw_sdk::FontHandle;
 use paperpaw_sdk::Id;
 use paperpaw_sdk::{Choices, SettingKind, SettingSpec, SettingValue};
-use crate::kit::ui::{self, UiStyle};
 
 /// The values of a widget's frame setting ([`frame_setting`]).
 pub const FRAMES: &[&str] = &[
@@ -455,7 +455,12 @@ pub fn widget_look(env: &Place<'_>, widget: &str, area: Rect) -> WidgetLook {
 /// Draws `widget`'s frame in `area` (cleared before), in its corners and
 /// line, its shadow below it, and returns where its content goes and in
 /// which colours ([`widget_look`]).
-pub fn draw_frame(canvas: &mut Canvas<'_>, env: &Place<'_>, widget: &str, area: Rect) -> WidgetLook {
+pub fn draw_frame(
+    canvas: &mut Canvas<'_>,
+    env: &Place<'_>,
+    widget: &str,
+    area: Rect,
+) -> WidgetLook {
     let style = super::shape::styled(env, widget, UiStyle::new(env));
     let look = widget_look(env, widget, area);
     let offset = super::shape::shadow_offset(env, widget, &style, look.frame);

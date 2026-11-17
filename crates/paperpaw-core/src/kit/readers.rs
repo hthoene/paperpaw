@@ -184,10 +184,9 @@ pub fn ask(choice: Choice<'_>) -> Command {
         Choice::Book(path) => (path, false),
         Choice::Folder(path) => (path, true),
     };
-    paperpaw_sdk::builtin::events::READING_APP_WANTED.emit(paperpaw_sdk::builtin::events::ReadingAppWanted::new(
-        path.to_string(),
-        folder,
-    ))
+    paperpaw_sdk::builtin::events::READING_APP_WANTED.emit(
+        paperpaw_sdk::builtin::events::ReadingAppWanted::new(path.to_string(), folder),
+    )
 }
 
 /// Asks which reading app opens the book at `path` this time (*Open
@@ -196,8 +195,9 @@ pub fn ask(choice: Choice<'_>) -> Command {
 /// and *Always open it with…*, which asks as [`ask`] does and keeps the
 /// choice.
 pub fn ask_once(path: &str) -> Command {
-    paperpaw_sdk::builtin::events::READING_APP_WANTED
-        .emit(paperpaw_sdk::builtin::events::ReadingAppWanted::new(path.to_string(), false).once(true))
+    paperpaw_sdk::builtin::events::READING_APP_WANTED.emit(
+        paperpaw_sdk::builtin::events::ReadingAppWanted::new(path.to_string(), false).once(true),
+    )
 }
 
 #[cfg(test)]

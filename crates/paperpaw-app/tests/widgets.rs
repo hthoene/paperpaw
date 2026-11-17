@@ -13,12 +13,12 @@
 
 mod native_activation;
 
+use paperpaw_core::kit::widgets::{self, FRAMES};
 use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
 use paperpaw_sdk::builtin::{params, slots};
-use paperpaw_core::kit::widgets::{self, FRAMES};
 use paperpaw_sdk::{MemoryStorage, Params};
 
 const X4: DeviceInfo = DeviceInfo::new(
@@ -190,8 +190,8 @@ fn every_widget_can_be_shaped() {
 
 #[test]
 fn one_week_start_for_all() {
-    use paperpaw_sdk::builtin::settings::WEEK_START;
     use paperpaw_core::kit::time::WEEK_STARTS;
+    use paperpaw_sdk::builtin::settings::WEEK_START;
     let mut app = App::new(X4, "en");
     assert_eq!(app.kernel.settings().read(&WEEK_START), WEEK_STARTS[0]);
     app.set(WEEK_START.as_str(), "core.week.sunday");

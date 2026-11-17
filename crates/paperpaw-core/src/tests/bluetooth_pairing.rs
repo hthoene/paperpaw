@@ -7,13 +7,15 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+use crate::kit::action::ActionSpec;
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
 use paperpaw_sdk::bluetooth::{self, BtEvent, DeviceId, Security, Uuid};
 use paperpaw_sdk::replies::Confirmed;
-use paperpaw_sdk::{Command, Event, EventData, Id, Manifest, MemoryStorage, Params, RegisterError, Uses, Version};
-use crate::kit::action::ActionSpec;
+use paperpaw_sdk::{
+    Command, Event, EventData, Id, Manifest, MemoryStorage, Params, RegisterError, Uses, Version,
+};
 
 use super::questions;
 use crate::native_host::shared::Shared;

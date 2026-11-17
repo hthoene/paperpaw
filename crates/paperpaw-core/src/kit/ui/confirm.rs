@@ -25,5 +25,3 @@ pub const FOCUS_YES: &str = "focus-yes";
 /// Set: one button only, yes (by default *OK*): a text shown to be read
 /// whole, which the page buttons scroll where it is long.
 pub const ONLY_YES: &str = "only-yes";
-/// The answer in a [`Confirmed`](paperpaw_sdk::replies::Confirmed)'s parameters: `yes` or `no`.
-pub(crate) const ANSWER: &str = "answer";

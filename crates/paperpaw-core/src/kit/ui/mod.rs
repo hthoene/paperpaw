@@ -65,10 +65,10 @@ use paperpaw_document::ImageRef;
 use paperpaw_graphics::Canvas;
 use paperpaw_platform::{Color, Point, Rect, Storage};
 
-use paperpaw_sdk::builtin::{fonts, settings};
 use crate::Place;
 use paperpaw_sdk::FontHandle;
 use paperpaw_sdk::Hint;
+use paperpaw_sdk::builtin::{fonts, settings};
 use paperpaw_text::{TextInk, ToneCurve};
 
 /// Whether a part drawn in `rect` can show on `canvas`: it meets the

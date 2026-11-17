@@ -21,6 +21,7 @@ use super::{
     sources::Sources,
 };
 use crate::Place;
+use crate::kit::menus::ItemState;
 use crate::native_host::item_state::ItemStates;
 use crate::native_host::{
     native_menus::MENU_USER_DEFINED,
@@ -29,7 +30,6 @@ use crate::native_host::{
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::{Id, SettingKind};
-use crate::kit::menus::ItemState;
 
 /// `reg_query.flags` of op 12.
 const ALL: u32 = 1;

@@ -156,7 +156,8 @@ pub fn folder_release(storage: &dyn Storage, folder: &str) -> Option<String> {
 /// Keeps `version` for `plugin` (the oldest of its versions going past
 /// [`VERSIONS_KEPT`]), or forgets all of its versions.
 fn change(storage: &dyn Storage, plugin: &str, version: Option<String>) -> bool {
-    let Ok(kept) = paperpaw_sdk::files::load_text_for_update(storage, STORE_INSTALLS, 64 * 1024) else {
+    let Ok(kept) = paperpaw_sdk::files::load_text_for_update(storage, STORE_INSTALLS, 64 * 1024)
+    else {
         return false;
     };
     let kept = kept.unwrap_or_default();

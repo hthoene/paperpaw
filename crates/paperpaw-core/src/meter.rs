@@ -119,10 +119,8 @@ impl Meter {
 
     /// The clock as plugins get it ([`Place::clock`](crate::Place::clock)).
     pub(crate) fn clock(&self) -> crate::kit::time::Clock {
-        self.clock.map_or(
-            crate::kit::time::Clock::NONE,
-            crate::kit::time::Clock::new,
-        )
+        self.clock
+            .map_or(crate::kit::time::Clock::NONE, crate::kit::time::Clock::new)
     }
 
     /// The row of `plugin`, added the first time.

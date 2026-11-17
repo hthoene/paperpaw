@@ -13,9 +13,9 @@ use super::{
     BUILDING, CHECK_START, FOLDER, KEPT_FILES, RECORD, RUNS, Rec, TRAILER, Trailer, archive_of,
     checked, file_of, is_file_name, series_hash, trailer_of,
 };
+use crate::Place;
 use crate::kit::library::catalog::{self, Record};
 use crate::kit::library::index::{self, FAVOURITE, NONE, OPENED};
-use crate::Place;
 use paperpaw_sdk::{MemoryClass, Storage, StorageError, files};
 
 /// Books sorted in memory at once (a run) on a device of little memory

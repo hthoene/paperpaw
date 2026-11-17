@@ -7,10 +7,10 @@ use alloc::borrow::Cow;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
+use crate::kit::action::ActionHint;
 use paperpaw_platform::{Instant, Rect, RefreshMode};
 use paperpaw_sdk::builtin::settings as core_settings;
 use paperpaw_sdk::{Hint, HintVisibility, Id};
-use crate::kit::action::ActionHint;
 
 use crate::keymap::InputKey;
 use crate::{ActiveScreen, HINTS_MS, Kernel};

@@ -34,9 +34,9 @@ fn private_shared_refusal_drops_input_once_and_cloning_does_not_allocate() {
 /// listed as failed and nothing of it is published (#244).
 #[test]
 fn a_refused_room_for_a_contribution_fails_the_plugin_without_abort_or_anything_published() {
-    use paperpaw_sdk::{PluginState, RegisterError};
     use crate::kit::action::ActionSpec;
     use crate::kit::contribution::item::Contribution;
+    use paperpaw_sdk::{PluginState, RegisterError};
     reset(NORMAL);
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()

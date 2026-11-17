@@ -8,10 +8,10 @@
 //! line starts, nothing else; the row is then read from its line.
 use super::query::{ENTRY_BUFFER, row};
 use super::{CatalogReads, fail, zeroed};
+use crate::kit::library::catalog;
 use crate::native_host::lib_service::{BookRef, One};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE};
-use crate::kit::library::catalog;
 
 /// The bytes of a series read to compare it (a value is a kilobyte at most).
 const SERIES: usize = 1024;

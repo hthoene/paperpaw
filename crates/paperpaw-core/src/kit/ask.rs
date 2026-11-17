@@ -28,12 +28,12 @@
 use alloc::borrow::Cow;
 use alloc::string::String;
 
-use paperpaw_sdk::builtin::{params, slots};
-use paperpaw_sdk::Command;
-use paperpaw_sdk::event::Event;
-use paperpaw_sdk::Params;
-use paperpaw_sdk::replies::{Confirmed, FolderChosen, Typed};
 use crate::kit::ui::choice::Picked;
+use paperpaw_sdk::Command;
+use paperpaw_sdk::Params;
+use paperpaw_sdk::builtin::{params, slots};
+use paperpaw_sdk::event::Event;
+use paperpaw_sdk::replies::{Confirmed, FolderChosen, Typed};
 
 /// A question for text (see [`text`]).
 #[derive(Debug, Clone, PartialEq, Eq)]

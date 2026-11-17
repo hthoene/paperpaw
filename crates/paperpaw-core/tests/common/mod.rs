@@ -13,9 +13,11 @@ use std::rc::Rc;
 
 use paperpaw_core::Items;
 use paperpaw_core::Kernel;
-use paperpaw_core::sdk::builtin::{actions, slots};
-use paperpaw_core::sdk::{Canvas, Command, Gesture, Handled, Id, Manifest, Params, Priority, RegisterError, Version};
 use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::sdk::builtin::{actions, slots};
+use paperpaw_core::sdk::{
+    Canvas, Command, Gesture, Handled, Id, Manifest, Params, Priority, RegisterError, Version,
+};
 use paperpaw_platform::{
     ButtonState, Color, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, PixelFormat,
     Point, PointerEvent, PointerPhase, PointerTool, Rect, Rotation,

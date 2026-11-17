@@ -55,12 +55,12 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::Place;
+use paperpaw_digest::fnv1a64;
 use paperpaw_sdk::config;
 use paperpaw_sdk::document::ImageRef;
-use crate::Place;
-use paperpaw_sdk::{Storage, StorageError};
-use paperpaw_digest::fnv1a64;
 pub use paperpaw_sdk::library::kept_path;
+use paperpaw_sdk::{Storage, StorageError};
 
 /// Where the library keeps what it knows.
 pub const DIR: &str = paperpaw_sdk::data_path!("library");
@@ -351,7 +351,10 @@ fn clean(
         let mut gone = Vec::new();
         folder.each(storage, only, &mut |kept| {
             if !keep(kept.key) {
-                gone.push((paperpaw_sdk::files::join(&folder.folder, kept.path), kept.is_dir));
+                gone.push((
+                    paperpaw_sdk::files::join(&folder.folder, kept.path),
+                    kept.is_dir,
+                ));
             }
         });
         for (path, is_dir) in gone {
@@ -485,7 +488,6 @@ pub(crate) fn split(folder: &str, key: &str) -> String {
     format!("{folder}/{}", key.get(..2).unwrap_or("00"))
 }
 
-
 fn book_file(path: &str) -> String {
     let key = key(path);
     format!("{}/{key}.ini", split(&format!("{DIR}/{DETAILS_DIR}"), &key))
@@ -517,7 +519,10 @@ fn old_cover_variant_file(path: &str, variant: &str) -> String {
 
 /// The details of the book at `path` as kept: where they are now, else
 /// where an earlier version kept them and they were not moved yet.
-fn load_details(storage: &dyn Storage, path: &str) -> Result<Option<String>, paperpaw_sdk::data::Error> {
+fn load_details(
+    storage: &dyn Storage,
+    path: &str,
+) -> Result<Option<String>, paperpaw_sdk::data::Error> {
     fallible::try_load_details(storage, path)
 }
 
@@ -651,7 +656,11 @@ fn write_book(storage: &dyn Storage, path: &str, book: &Book) -> bool {
     write_details(storage, path, book).is_ok()
 }
 
-fn write_details(storage: &dyn Storage, path: &str, book: &Book) -> Result<(), paperpaw_sdk::data::Error> {
+fn write_details(
+    storage: &dyn Storage,
+    path: &str,
+    book: &Book,
+) -> Result<(), paperpaw_sdk::data::Error> {
     let before = load_details(storage, path)?;
     // Made without an infallible allocation, and not at all where it
     // would be over what is read back.

@@ -19,9 +19,9 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use paperpaw_platform::storage::StorageError;
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::files;
-use paperpaw_platform::storage::StorageError;
 
 use super::{
     BookData, BookDataKind, DETAILS_DIR, DIR, OLD_DETAILS_DIR, OLD_THUMBS_DIR, THUMBS_DIR,

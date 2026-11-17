@@ -14,14 +14,16 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::presets::Preset;
-use crate::kit::setup::SetupStepSpec;
-use crate::kit::status::{StatusItemSpec, StatusLineSpec};
-use crate::kit::widgets::WidgetSpec;
-use paperpaw_sdk::{FontFace, FontSpec, FormatSpec, Id, MenuNeed, Priority, RegisterError, SettingSpec, SlotSpec};
 use crate::kit::action::ActionSpec;
 use crate::kit::menus::MenuEntry;
 use crate::kit::menus::MenuSection;
+use crate::kit::setup::SetupStepSpec;
+use crate::kit::status::{StatusItemSpec, StatusLineSpec};
+use crate::kit::widgets::WidgetSpec;
+use paperpaw_sdk::presets::Preset;
+use paperpaw_sdk::{
+    FontFace, FontSpec, FormatSpec, Id, MenuNeed, Priority, RegisterError, SettingSpec, SlotSpec,
+};
 
 use crate::kit::contribution::item::Contribution;
 
@@ -287,13 +289,11 @@ impl Items {
         folder: impl Into<Cow<'static, str>>,
         prefix: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::BookData(
-            crate::kit::library::BookData::new(
-                folder.into(),
-                prefix.into(),
-                crate::kit::library::BookDataKind::UserData,
-            ),
-        ))
+        self.add_checked(Contribution::BookData(crate::kit::library::BookData::new(
+            folder.into(),
+            prefix.into(),
+            crate::kit::library::BookDataKind::UserData,
+        )))
     }
 
     /// As [`add_book_data`](Self::add_book_data), for what the plugin
@@ -305,13 +305,11 @@ impl Items {
         folder: impl Into<Cow<'static, str>>,
         prefix: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::BookData(
-            crate::kit::library::BookData::new(
-                folder.into(),
-                prefix.into(),
-                crate::kit::library::BookDataKind::Cache,
-            ),
-        ))
+        self.add_checked(Contribution::BookData(crate::kit::library::BookData::new(
+            folder.into(),
+            prefix.into(),
+            crate::kit::library::BookDataKind::Cache,
+        )))
     }
 
     /// Adds a key map preset (same format as [`Items::add_keymap`]) that

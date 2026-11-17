@@ -14,10 +14,10 @@
 use paperpaw_core::{Place, Turn};
 use std::cell::{Cell, RefCell};
 
-use paperpaw_core::{Items, KernelBuilder};
-use paperpaw_platform::Rect;
 use paperpaw_core::kit::ui::{self, UiStyle};
 use paperpaw_core::kit::widgets::{Widget, WidgetSpec};
+use paperpaw_core::{Items, KernelBuilder};
+use paperpaw_platform::Rect;
 use paperpaw_sdk::{Canvas, Handled, Id, Manifest, RegisterError, Version};
 
 use crate::AddPlugins;

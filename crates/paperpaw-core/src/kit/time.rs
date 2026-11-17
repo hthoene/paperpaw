@@ -11,8 +11,8 @@
 use alloc::format;
 use alloc::string::String;
 
-use paperpaw_sdk::builtin::settings;
 use crate::Place;
+use paperpaw_sdk::builtin::settings;
 pub use paperpaw_sdk::time::CLOCK_12H;
 pub use paperpaw_sdk::time::LocalTime;
 pub use paperpaw_sdk::time::TIME_ZONES;
@@ -59,173 +59,6 @@ impl core::fmt::Debug for Clock {
 /// The automatic time zone: the system's, or UTC without one.
 pub const AUTO: &str = "core.tz.auto";
 
-
-
-
-
-
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Summer {
-    offset: i32,
-    start: Rule,
-    end: Rule,
-}
-
-/// When summer time starts or ends: a day of the year, at `time` seconds
-/// local time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Rule {
-    day: Day,
-    time: i32,
-}
-
-/// A day of the year as POSIX `TZ` rules name it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Day {
-    /// `Mm.w.d`: weekday `d` (0 = Sunday) of week `w` (5 = the last) of
-    /// month `m`.
-    Weekday { month: u8, week: u8, weekday: u8 },
-    /// `Jn`: day `n` from 1 to 365, 29 February not counted.
-    Julian(u16),
-    /// `n`: day `n` from 0 to 365, 29 February counted.
-    Ordinal(u16),
-}
-
-/// The most a rule's offset from UTC may be: POSIX gives the hours as 0 to
-/// 24 (a rule of `<>200` would be an offset of more than a week).
-const MAX_OFFSET: i32 = 24 * 3600;
-
-
-impl Rule {
-    /// When the rule applies in `year`, in seconds since 1970 local time.
-    fn local_seconds(&self, year: i32) -> i64 {
-        let days = match self.day {
-            Day::Weekday {
-                month,
-                week,
-                weekday,
-            } => {
-                let first = days_from_civil(year, month, 1);
-                let mut day = 1 + (weekday + 7 - weekday_of(first)) % 7 + (week - 1) * 7;
-                while day > days_in_month(year, month) {
-                    day -= 7;
-                }
-                first + i64::from(day) - 1
-            }
-            Day::Julian(n) => {
-                let leap_day = is_leap(year) && n >= 60;
-                days_from_civil(year, 1, 1) + i64::from(n) - 1 + i64::from(leap_day)
-            }
-            Day::Ordinal(n) => days_from_civil(year, 1, 1) + i64::from(n),
-        };
-        days * 86_400 + i64::from(self.time)
-    }
-}
-
-struct Parser<'a>(&'a [u8]);
-
-impl Parser<'_> {
-    fn peek(&self) -> Option<u8> {
-        self.0.first().copied()
-    }
-
-    fn done(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    fn expect(&mut self, byte: u8) -> Option<()> {
-        (self.peek()? == byte).then(|| self.0 = &self.0[1..])
-    }
-
-    /// A zone name: letters, or anything in angle brackets.
-    fn name(&mut self) -> Option<()> {
-        if self.peek()? == b'<' {
-            let end = self.0.iter().position(|&b| b == b'>')?;
-            self.0 = &self.0[end + 1..];
-            return Some(());
-        }
-        let len = self
-            .0
-            .iter()
-            .take_while(|b| b.is_ascii_alphabetic())
-            .count();
-        (len >= 3).then(|| self.0 = &self.0[len..])
-    }
-
-    fn number(&mut self) -> Option<i32> {
-        let len = self.0.iter().take_while(|b| b.is_ascii_digit()).count();
-        if len == 0 || len > 3 {
-            return None;
-        }
-        let value = self.0[..len]
-            .iter()
-            .fold(0, |n, &b| n * 10 + i32::from(b - b'0'));
-        self.0 = &self.0[len..];
-        Some(value)
-    }
-
-    /// `[+-]hh[:mm[:ss]]` in seconds.
-    fn offset(&mut self) -> Option<i32> {
-        let sign = match self.peek()? {
-            b'-' => {
-                self.0 = &self.0[1..];
-                -1
-            }
-            b'+' => {
-                self.0 = &self.0[1..];
-                1
-            }
-            _ => 1,
-        };
-        let mut seconds = self.number()? * 3600;
-        for unit in [60, 1] {
-            if self.peek() != Some(b':') {
-                break;
-            }
-            self.0 = &self.0[1..];
-            seconds += self.number()? * unit;
-        }
-        Some(sign * seconds)
-    }
-
-    /// `Mm.w.d`, `Jn` or `n`, then `[/time]`.
-    fn rule(&mut self) -> Option<Rule> {
-        let day = match self.peek()? {
-            b'M' => {
-                self.0 = &self.0[1..];
-                let month = self.number()?;
-                self.expect(b'.')?;
-                let week = self.number()?;
-                self.expect(b'.')?;
-                let weekday = self.number()?;
-                let valid = (1..=12).contains(&month) && (1..=5).contains(&week) && weekday <= 6;
-                valid.then_some(Day::Weekday {
-                    month: month as u8,
-                    week: week as u8,
-                    weekday: weekday as u8,
-                })?
-            }
-            b'J' => {
-                self.0 = &self.0[1..];
-                let n = self.number()?;
-                (1..=365).contains(&n).then_some(Day::Julian(n as u16))?
-            }
-            _ => {
-                let n = self.number()?;
-                (0..=365).contains(&n).then_some(Day::Ordinal(n as u16))?
-            }
-        };
-        let time = if self.peek() == Some(b'/') {
-            self.0 = &self.0[1..];
-            self.offset()?
-        } else {
-            7200
-        };
-        Some(Rule { day, time })
-    }
-}
-
 // The calendar: days and weeks of the proleptic Gregorian calendar in
 // whole numbers, for plugins that count days (statistics, calendars,
 // forecasts).
@@ -234,14 +67,6 @@ impl Parser<'_> {
 pub fn is_leap(year: i32) -> bool {
     year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 }
-
-
-
-
-
-
-
-
 
 /// The time zone chosen in the settings; `None` for the system's. A rule
 /// that is not one ([`TimeZone::parse`]) counts as none: the zone chosen
@@ -357,79 +182,6 @@ pub const WEEK_STARTS: &[&str] = &["core.week.auto", "core.week.monday", "core.w
 /// ([`CLOCK_FORMAT`](paperpaw_sdk::builtin::settings::CLOCK_FORMAT)): 24 hours,
 /// 12 hours.
 pub const CLOCK_24H: &str = "core.clock.24h";
-
-/// [`UnixTime::parse_iso8601`], in milliseconds.
-fn iso_millis(text: &str) -> Option<i64> {
-    let text = text.trim();
-    let (date, clock) = match text.split_once(['T', ' ']) {
-        Some((date, clock)) => (date, Some(clock)),
-        None => (text, None),
-    };
-    // Digits alone: no "+1".
-    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-    let mut d = date.splitn(3, '-');
-    let (year, month, day) = (d.next()?, d.next()?, d.next()?);
-    if !(digits(year) && digits(month) && digits(day)) {
-        return None;
-    }
-    let year: i32 = year.parse().ok()?;
-    let month: u8 = month.parse().ok()?;
-    let day: u8 = day.parse().ok()?;
-    if !(1..=12).contains(&month) || day == 0 || day > days_in_month(year, month) {
-        return None;
-    }
-    let days = days_from_civil(year, month, day);
-    let Some(clock) = clock else {
-        return days.checked_mul(86_400_000);
-    };
-    // The offset: `Z`, `+hh:mm`, `-hh:mm` (or `+hhmm`), or none.
-    let (clock, offset) = if let Some(clock) = clock.strip_suffix('Z') {
-        (clock, 0)
-    } else if let Some(at) = clock.rfind(['+', '-']) {
-        let (clock, zone) = clock.split_at(at);
-        let sign = if zone.starts_with('-') { -1 } else { 1 };
-        let digits: alloc::string::String = zone[1..].chars().filter(|c| *c != ':').collect();
-        if digits.len() != 4 || !digits.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        let hours: i64 = digits[..2].parse().ok()?;
-        let minutes: i64 = digits[2..].parse().ok()?;
-        if hours > 23 || minutes > 59 {
-            return None;
-        }
-        (clock, sign * (hours * 60 + minutes) * 60_000)
-    } else {
-        (clock, 0)
-    };
-    let (hms, fraction) = clock.split_once(['.', ',']).unwrap_or((clock, ""));
-    let mut parts = hms.splitn(3, ':');
-    // Digits alone: no hour of `-1` or `+5`.
-    let number = |s: &str| {
-        (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
-            .then(|| s.parse::<u8>().ok())
-            .flatten()
-            .map(i64::from)
-    };
-    let hour = number(parts.next()?)?;
-    let minute = number(parts.next()?)?;
-    let second = parts.next().map_or(Some(0), number)?;
-    if hour > 23 || minute > 59 || second > 60 {
-        return None;
-    }
-    // Milliseconds from the first three digits of the fraction.
-    let mut millis = 0i64;
-    for (n, c) in fraction.chars().enumerate() {
-        let digit = i64::from(c.to_digit(10)?);
-        if n < 3 {
-            millis += digit * [100, 10, 1][n];
-        }
-    }
-    // Years far out overflow the milliseconds: none then.
-    let ms = days
-        .checked_mul(86_400_000)?
-        .checked_add(((hour * 60 + minute) * 60 + second) * 1000 + millis)?;
-    ms.checked_sub(offset)
-}
 
 #[cfg(test)]
 mod tests {

@@ -3,9 +3,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
+pub use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::collections::VecMap;
 use paperpaw_sdk::{Id, ShortText as Text};
-pub use paperpaw_sdk::MenuNeed;
 
 /// Where an entry goes in its menu, beside others (see
 /// [`MenuEntry::place`]).
@@ -205,8 +205,6 @@ impl MenuSection {
     }
 }
 
-
-
 /// One entry of a resolved menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -266,7 +264,11 @@ impl<'a> MenuView<'a> {
             .titles
             .get(item)
             .map(AsRef::as_ref)
-            .or_else(|| self.actions.get(item).map(crate::kit::action::Action::title))
+            .or_else(|| {
+                self.actions
+                    .get(item)
+                    .map(crate::kit::action::Action::title)
+            })
             .or_else(|| self.settings.spec(item).map(|spec| spec.title.as_ref()))
     }
 
@@ -714,6 +716,13 @@ mod tests {
     use super::*;
     use alloc::vec;
 
+    /// What a touch screen can do.
+    fn touch() -> paperpaw_sdk::Capabilities {
+        let mut caps = paperpaw_sdk::Capabilities::default();
+        caps.touch = true;
+        caps
+    }
+
     fn ids(menus: &Menus) -> Vec<&str> {
         menus.ids("m.menu").iter().map(|i| i.as_str()).collect()
     }
@@ -861,7 +870,10 @@ mod tests {
         menus.set_title(Id::new_static("a.first"), Cow::Borrowed("First"));
         menus.set_title(Id::new_static("a.second"), Cow::Borrowed("Second"));
         fn titles(menus: &Menus) -> Vec<String> {
-            let (actions, settings) = (crate::kit::action::Actions::new(), paperpaw_sdk::Settings::new());
+            let (actions, settings) = (
+                crate::kit::action::Actions::new(),
+                paperpaw_sdk::Settings::new(),
+            );
             let view = MenuView::new(menus, &actions, &settings);
             view.items("a.menu")
                 .iter()
@@ -872,7 +884,10 @@ mod tests {
 
         menus.customize(Id::new_static("a.menu"), vec![Id::new_static("a.second")]);
         assert_eq!(titles(&menus), ["Second"]);
-        let (actions, settings) = (crate::kit::action::Actions::new(), paperpaw_sdk::Settings::new());
+        let (actions, settings) = (
+            crate::kit::action::Actions::new(),
+            paperpaw_sdk::Settings::new(),
+        );
         assert!(
             MenuView::new(&menus, &actions, &settings)
                 .items("other")
@@ -890,20 +905,14 @@ mod tests {
         menus.set_title(Id::new_static("a.links"), Cow::Borrowed("Links"));
         menus.set_need(Id::new_static("a.links"), MenuNeed::NoTouch);
         assert_eq!(titles(&menus).last().map(String::as_str), Some("Links"));
-        menus.set_capabilities(paperpaw_sdk::Capabilities {
-            touch: true,
-            ..Default::default()
-        });
+        menus.set_capabilities(touch());
         assert_eq!(titles(&menus).last().map(String::as_str), Some("Second"));
         // One for touch screens shows only on them.
         menus.set_need(Id::new_static("a.second"), MenuNeed::Touch);
         assert_eq!(titles(&menus).last().map(String::as_str), Some("Second"));
         menus.set_capabilities(paperpaw_sdk::Capabilities::default());
         assert_eq!(titles(&menus).last().map(String::as_str), Some("Links"));
-        menus.set_capabilities(paperpaw_sdk::Capabilities {
-            touch: true,
-            ..Default::default()
-        });
+        menus.set_capabilities(touch());
         // Listed by the user, it shows; one that needs speech does not.
         menus.set_need(Id::new_static("a.second"), MenuNeed::Speech);
         menus.customize(
@@ -913,7 +922,8 @@ mod tests {
         assert_eq!(titles(&menus), ["Links"]);
 
         // Left out where a menu is opened.
-        let params = paperpaw_sdk::Params::new().with(paperpaw_sdk::builtin::params::HIDE, "a.first, a.links");
+        let params = paperpaw_sdk::Params::new()
+            .with(paperpaw_sdk::builtin::params::HIDE, "a.first, a.links");
         assert!(Menus::hidden(&params, "a.links"));
         assert!(!Menus::hidden(&params, "a.second"));
         assert!(!Menus::hidden(&paperpaw_sdk::Params::new(), "a.links"));

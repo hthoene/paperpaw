@@ -501,8 +501,6 @@ impl fmt::Debug for Drawn {
     }
 }
 
-
-
 /// How large a widget is drawn, for widgets that show more where they
 /// have the room (a day's forecast small, the week's large): by the
 /// shorter side of its area, in millimetres.
