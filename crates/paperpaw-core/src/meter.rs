@@ -118,10 +118,10 @@ impl Meter {
     }
 
     /// The clock as plugins get it ([`Place::clock`](crate::Place::clock)).
-    pub(crate) fn clock(&self) -> paperpaw_sdk::time::Clock {
+    pub(crate) fn clock(&self) -> crate::kit::time::Clock {
         self.clock.map_or(
-            paperpaw_sdk::time::Clock::NONE,
-            paperpaw_sdk::time::Clock::new,
+            crate::kit::time::Clock::NONE,
+            crate::kit::time::Clock::new,
         )
     }
 

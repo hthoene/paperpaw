@@ -667,7 +667,7 @@ fn beta_3s_own_annotations_are_moved_at_the_first_edit_and_the_next_edit_goes_to
     let t = fixture();
     let old = std::format!(
         ".paperpaw/plugins/reader/books/{}/annotations.txt",
-        paperpaw_sdk::library::key(BOOK)
+        crate::kit::library::key(BOOK)
     );
     t.card
         .storage

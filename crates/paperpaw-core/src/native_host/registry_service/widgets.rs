@@ -21,7 +21,7 @@ use crate::native_host::{
 };
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
-use paperpaw_sdk::widgets::base;
+use crate::kit::widgets::base;
 
 /// `reg_widget.flags`.
 const SHOWN: u32 = 1;
@@ -51,7 +51,7 @@ impl Wanted<'_> {
 
 /// The cells of a code plugin's widget as `widget.spec.cells` has them: columns
 /// in bits 0-7, rows 8-15, the least columns 16-23 and the least rows 24-31.
-fn cells(span: paperpaw_sdk::widgets::CellSpan) -> u32 {
+fn cells(span: crate::kit::widgets::CellSpan) -> u32 {
     u32::from_le_bytes([span.w, span.h, span.min_w, span.min_h])
 }
 
@@ -83,7 +83,7 @@ pub(super) fn rows(
     for (id, title, previews) in listed.chain(previewing) {
         let kind = widgets.category(id.as_str()).unwrap_or("");
         let span = widgets.cells(id.as_str());
-        let flags = if widgets.shown(&env.env(), id.as_str()) {
+        let flags = if widgets.shown(env, id.as_str()) {
             SHOWN
         } else {
             0
@@ -192,7 +192,7 @@ fn declared(
 /// Whether a place that shows now lists widget `id`: one of the environment's
 /// places (`Widgets::shown`) or a native `widget.place`.
 fn listed(env: &Place<'_>, store: &DeclarationStore, id: &str) -> bool {
-    if env.widgets().shown(&env.env(), id) {
+    if env.widgets().shown(env, id) {
         return true;
     }
     let mut found = false;

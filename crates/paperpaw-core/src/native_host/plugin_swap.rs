@@ -38,11 +38,8 @@
 use alloc::vec::Vec;
 use alloc::{boxed::Box, string::String};
 use paperpaw_platform::{Storage, StorageError, firmware::Text};
-use paperpaw_sdk::{
-    digest::fnv1a64,
-    install::{self, marks},
-    native::{self, keys},
-};
+use paperpaw_sdk::{digest::fnv1a64, native::{self, keys}};
+use crate::kit::install::{self, marks};
 
 use super::plugin_job::{ID_MAX, reason};
 use super::plugin_rules::{Pins, ROTATIONS_MAX, Rotation};

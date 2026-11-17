@@ -408,7 +408,7 @@ impl Kernel {
     /// what the book's params say of it: its path, the page, the readers
     /// passed over.
     fn open_book_command(&mut self, params: Params) {
-        let opened = paperpaw_sdk::readers::opened(&params);
+        let opened = crate::kit::readers::opened(&params);
         let screen = self
             .shared
             .registry

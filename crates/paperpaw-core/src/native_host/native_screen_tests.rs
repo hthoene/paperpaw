@@ -55,7 +55,7 @@ impl Dispatch for Recorder {
                 height: 8,
             };
             let area = Rect::new(10, 10, 60, 60);
-            paperpaw_sdk::ui::draw_image(canvas, env.storage(), &image, area);
+            crate::kit::ui::draw_image(canvas, env.storage(), &image, area);
         }
         self.draws.borrow_mut().push((
             token,

@@ -711,7 +711,7 @@ version = 2.0.0
 
 #[test]
 fn pending_install_marks_settle_before_the_startup_snapshot() {
-    use paperpaw_sdk::install::marks::{self, From, Marks};
+    use crate::kit::install::marks::{self, From, Marks};
     let storage = storage();
     let native = Native::new("code.ppn");
     assert!(paperpaw_sdk::native::remember_code(

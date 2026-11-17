@@ -6,7 +6,7 @@ use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
 };
 use paperpaw_platform::StorageError;
-use paperpaw_sdk::library::{self, catalog};
+use crate::kit::library::{self, catalog};
 
 /// Bytes of the long forms `lib_book` carries.
 const PATH: usize = 512;

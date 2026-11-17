@@ -28,7 +28,8 @@ use crate::native_host::{
 };
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_BUSY;
-use paperpaw_sdk::{Id, ItemState, SettingKind};
+use paperpaw_sdk::{Id, SettingKind};
+use crate::kit::menus::ItemState;
 
 /// `reg_query.flags` of op 12.
 const ALL: u32 = 1;
@@ -429,7 +430,7 @@ fn row(
     let Some(key) = key else {
         return ControlFlow::Continue(());
     };
-    let mut state: ItemState = menus.state(&env.env(), item.id);
+    let mut state: ItemState = menus.state(env, item.id);
     // What the plugin pushed for its own item wins over the SDK's state.
     let push = call.pushed.as_deref().and_then(|states| {
         let (plugin, relative) = item.id.split_once('.')?;

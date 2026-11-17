@@ -22,7 +22,7 @@ pub(crate) const RESERVED_IDS: [&str; 6] =
 /// The config section with what plugins contributed to menus the user
 /// redefined, and the user left out (see [`Menus::set_known`]).
 ///
-/// [`Menus::set_known`]: paperpaw_sdk::Menus::set_known
+/// [`Menus::set_known`]: crate::kit::menus::Menus::set_known
 pub(crate) const KNOWN: &str = "menus-known";
 
 /// The key maps the kernel's is built from.
@@ -626,7 +626,7 @@ impl Kernel {
     /// a label of both directions starts at the right (`Wi-Fi` in Arabic).
     pub(crate) fn apply_ui_text_curve(&mut self) {
         use paperpaw_sdk::text::TextInk;
-        let ink = paperpaw_sdk::ui::text_ink(
+        let ink = crate::kit::ui::text_ink(
             self.shared
                 .settings
                 .text(core_settings::UI_TEXT_CURVE.as_str()),
@@ -928,7 +928,7 @@ impl Kernel {
         // them stays where the new one offers it too; what its installer
         // keeps for it (its code named, where it came from) is kept now.
         placed.clear(self.shared.storage.as_ref());
-        paperpaw_sdk::install::marks::settle(
+        crate::kit::install::marks::settle(
             self.shared.storage.as_ref(),
             id.as_str(),
             &placed.target,
@@ -983,7 +983,7 @@ impl Kernel {
             if let Some(placed) = self.place_plugin(&id, &folder, dirs, ours) {
                 placed.clear(self.shared.storage.as_ref());
                 let storage = self.shared.storage.as_ref();
-                paperpaw_sdk::install::marks::settle(storage, id.as_str(), &placed.target);
+                crate::kit::install::marks::settle(storage, id.as_str(), &placed.target);
             }
         }
     }

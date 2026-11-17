@@ -52,7 +52,7 @@ use core::cell::Cell;
 use core::cmp::Ordering;
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::digest::{Fnv1a64, fnv1a64};
-use paperpaw_sdk::library::{catalog, index};
+use crate::kit::library::{catalog, index};
 
 /// Bytes of a `lib_facet.text`.
 const TEXT: usize = 256;

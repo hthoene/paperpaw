@@ -17,7 +17,7 @@ use super::storage::status;
 use alloc::{string::String, vec::Vec};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_platform::{Storage, StorageError};
-use paperpaw_sdk::library::{KEY_LEN, key_into};
+use crate::kit::library::{KEY_LEN, key_into};
 
 /// The folder of a plugin's Data that holds its book scopes.
 const BOOKS: &str = "books";

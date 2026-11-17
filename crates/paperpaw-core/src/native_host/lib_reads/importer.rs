@@ -20,7 +20,7 @@ use alloc::string::String;
 use core::fmt::Write as _;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_MEMORY};
 use paperpaw_platform::Storage;
-use paperpaw_sdk::library::Fingerprint;
+use crate::kit::library::Fingerprint;
 
 /// The folder of the records.
 const DIR: &str = ".paperpaw/library/imported";

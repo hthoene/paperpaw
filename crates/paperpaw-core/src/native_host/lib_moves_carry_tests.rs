@@ -6,12 +6,8 @@ use super::*;
 use alloc::{borrow::Cow, vec::Vec};
 use core::cell::Cell;
 use paperpaw_platform::{DirEntry, StorageError};
-use paperpaw_sdk::{
-    FormatSpec, Id, MemoryStorage, SettingExtra, SettingSpec,
-    builtin::groups,
-    document::DocumentError,
-    library::{BookDataKind, key},
-};
+use paperpaw_sdk::{FormatSpec, Id, MemoryStorage, SettingExtra, SettingSpec, builtin::groups, document::DocumentError};
+use crate::kit::library::{BookDataKind, key};
 use std::string::ToString;
 
 /// A library with `.epub` as a format, one folder of plugin book data

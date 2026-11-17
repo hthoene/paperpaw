@@ -12,10 +12,8 @@ use alloc::{borrow::Cow, boxed::Box, format, string::String, vec::Vec};
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{
-    ActionSpec, Canvas, Handled, Id, Manifest, Priority, RegisterError, SettingGroupSpec, Settings,
-    SlotSpec, Version,
-};
+use paperpaw_sdk::{Canvas, Handled, Id, Manifest, Priority, RegisterError, SettingGroupSpec, Settings, SlotSpec, Version};
+use crate::kit::action::ActionSpec;
 
 struct Quiet;
 impl crate::testing::Fake for Quiet {

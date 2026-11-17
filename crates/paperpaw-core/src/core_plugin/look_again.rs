@@ -5,7 +5,8 @@
 
 use crate::Items;
 use paperpaw_sdk::event::Event;
-use paperpaw_sdk::{Command, FixedAction, Id, RegisterError};
+use paperpaw_sdk::{Command, Id, RegisterError};
+use crate::kit::action::FixedAction;
 
 use super::catalog_job::CatalogJob;
 

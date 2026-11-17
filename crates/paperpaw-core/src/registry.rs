@@ -6,10 +6,13 @@ use alloc::vec::Vec;
 
 use paperpaw_i18n::Catalog;
 use paperpaw_sdk::collections::VecMap;
-use paperpaw_sdk::{
-    ActionSpec, Actions, Contribution, FontSpec, FormatSpec, Id, MenuEntry, Priority,
-    RegisterError, SettingSpec, SlotSpec, StatusItemSpec, StatusLineSpec,
-};
+use paperpaw_sdk::{FontSpec, FormatSpec, Id, Priority, RegisterError, SettingSpec, SlotSpec};
+use crate::kit::action::ActionSpec;
+use crate::kit::action::Actions;
+use crate::kit::contribution::item::Contribution;
+use crate::kit::menus::MenuEntry;
+use crate::kit::status::StatusItemSpec;
+use crate::kit::status::StatusLineSpec;
 
 pub(crate) const NATIVE_CAPACITY_OVERFLOW: &str = "native screen capacity overflow";
 pub(crate) const NATIVE_CAPACITY_UNAVAILABLE: &str = "native screen capacity unavailable";
@@ -374,7 +377,7 @@ impl Screens {
 
 /// A widget a plugin added.
 pub(crate) enum StagedWidgets {
-    One(alloc::boxed::Box<paperpaw_sdk::widgets::WidgetSpec>),
+    One(alloc::boxed::Box<crate::kit::widgets::WidgetSpec>),
 }
 
 /// The events plugins subscribed to, plugin by plugin in the order they
@@ -741,7 +744,7 @@ impl Staged {
 pub(crate) struct Staging {
     actions: Vec<ActionSpec>,
     /// Interface-7 plugins' actions, kept without a handler (#248).
-    native_actions: Vec<paperpaw_sdk::NativeAction>,
+    native_actions: Vec<crate::kit::action::NativeAction>,
     /// Tests' screens (none outside the feature `testing`).
     layer_screens: Vec<crate::FakeSpec>,
     native_screens: Vec<crate::native_host::native_screen_factory::NativeScreenSpec>,
@@ -764,33 +767,33 @@ pub(crate) struct Staging {
     pub(crate) setting_groups: Vec<paperpaw_sdk::SettingGroup>,
     /// Events, the plugins that hear them, and their handlers.
     pub(crate) subscriptions: Vec<(Id, Subscribed)>,
-    pub(crate) fixed_actions: Vec<&'static [paperpaw_sdk::FixedAction]>,
+    pub(crate) fixed_actions: Vec<&'static [crate::kit::action::FixedAction]>,
     pub(crate) fixed_screens: Vec<Fixed>,
     pub(crate) menu_entries: Vec<MenuEntry>,
     pub(crate) fixed_menu_entries: Vec<&'static [MenuEntry]>,
-    pub(crate) menu_sections: Vec<paperpaw_sdk::MenuSection>,
+    pub(crate) menu_sections: Vec<crate::kit::menus::MenuSection>,
     pub(crate) events: Vec<paperpaw_sdk::services::EventSpec>,
     pub(crate) icons: Vec<(Id, Cow<'static, str>)>,
     pub(crate) fixed_icons: Vec<&'static [(Id, &'static str)]>,
     pub(crate) menu_needs: Vec<(Id, paperpaw_sdk::MenuNeed)>,
     /// (menu, item, the plugin hiding it).
     pub(crate) hidden_entries: Vec<(Id, Id, Id)>,
-    pub(crate) item_states: Vec<(Id, paperpaw_sdk::ItemStateFn)>,
+    pub(crate) item_states: Vec<(Id, crate::kit::menus::ItemStateFn)>,
     pub(crate) keymap_presets: Vec<(Id, Cow<'static, str>)>,
     pub(crate) setting_defaults: Vec<(Id, Cow<'static, str>)>,
     pub(crate) choices: Vec<(Id, Cow<'static, str>)>,
     pub(crate) status_items: Vec<StatusItemSpec>,
     pub(crate) status_lines: Vec<StatusLineSpec>,
     pub(crate) widgets: Vec<StagedWidgets>,
-    pub(crate) setup_steps: Vec<paperpaw_sdk::setup::SetupStepSpec>,
+    pub(crate) setup_steps: Vec<crate::kit::setup::SetupStepSpec>,
     pub(crate) presets: Vec<paperpaw_sdk::presets::Preset>,
     pub(crate) fixed_presets: Vec<&'static [paperpaw_sdk::presets::Preset]>,
-    pub(crate) decorators: Vec<paperpaw_sdk::decorations::DecoratorSpec>,
+    pub(crate) decorators: Vec<crate::kit::decorations::DecoratorSpec>,
     /// Jobs: the steps of declared work (see [`paperpaw_sdk::work`]).
     pub(crate) works: Vec<crate::work::WorkSpec>,
     pub(crate) data_actions: Vec<DataAction>,
     pub(crate) stylesheets: Vec<Cow<'static, str>>,
-    pub(crate) book_data: Vec<paperpaw_sdk::library::BookData>,
+    pub(crate) book_data: Vec<crate::kit::library::BookData>,
     pub(crate) services: Vec<(Id, paperpaw_sdk::services::Service)>,
     pub(crate) contributions: Vec<(Id, Cow<'static, str>)>,
 }
@@ -839,15 +842,15 @@ impl Staging {
     pub(crate) fn native_action(
         &mut self,
         owner: &Id,
-        action: paperpaw_sdk::NativeAction,
+        action: crate::kit::action::NativeAction,
     ) -> Result<(), i32> {
-        let id = paperpaw_sdk::Action::Native(&action).id();
+        let id = crate::kit::action::Action::Native(&action).id();
         if id.namespace() != owner.as_str()
             || self.actions.iter().any(|other| &other.id == id)
             || self
                 .native_actions
                 .iter()
-                .any(|other| paperpaw_sdk::Action::Native(other).id() == id)
+                .any(|other| crate::kit::action::Action::Native(other).id() == id)
         {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
         }
@@ -966,7 +969,7 @@ impl Staging {
             .chain(
                 self.native_actions
                     .iter()
-                    .map(|a| paperpaw_sdk::Action::Native(a).id()),
+                    .map(|a| crate::kit::action::Action::Native(a).id()),
             )
             .find(|id| actions.contains(id.as_str()))
             .or_else(|| {

@@ -46,7 +46,7 @@ use paperpaw_native::host_glue::{
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::data;
 use paperpaw_sdk::digest::{fnv1a64, md5};
-use paperpaw_sdk::library::{self, catalog};
+use crate::kit::library::{self, catalog};
 
 mod annotations;
 mod book;

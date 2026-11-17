@@ -17,10 +17,8 @@ use paperpaw_platform::{
     Point, PointerEvent, PointerPhase, PointerTool, Rect, RefreshMode, Rotation,
 };
 use paperpaw_sdk::builtin::{actions, screens, settings, slots};
-use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Handled, Id, Manifest, Priority, RegisterError, SettingKind,
-    SettingSpec, SettingValue, Version,
-};
+use paperpaw_sdk::{Canvas, Command, Handled, Id, Manifest, Priority, RegisterError, SettingKind, SettingSpec, SettingValue, Version};
+use crate::kit::action::ActionSpec;
 
 use crate::{HttpCall, Io, Kernel, ServerCall, SpeechCall, WarningSource};
 
@@ -877,8 +875,8 @@ pub(crate) fn lifecycle_plugin(
         })?;
         // Back to the screen below, and at once another over it, as a
         // menu that closes to open a screen does.
-        r.add_action(paperpaw_sdk::ActionSpec::new(SWAP, "swap").handler(
-            |_: &paperpaw_sdk::Env<'_>, _, out: &mut paperpaw_sdk::Commands| {
+        r.add_action(crate::kit::action::ActionSpec::new(SWAP, "swap").handler(
+            |_: &crate::Place<'_>, _, out: &mut paperpaw_sdk::Commands| {
                 out.push(paperpaw_sdk::Command::Back);
                 out.push(paperpaw_sdk::Command::OpenScreen(
                     Id::new_static("life.screen"),
@@ -1011,7 +1009,7 @@ pub(crate) fn overlay_plugin(
         r.bind_slot(slots::MENU, Id::new_static("ov.half"), Priority::DEFAULT)?;
         for (action, order) in [(actions::TOGGLE_NIGHT_MODE, 20), (actions::HOME, 10)] {
             r.add_menu_entry(
-                paperpaw_sdk::MenuEntry::new(paperpaw_sdk::builtin::menus::MAIN, action)
+                crate::kit::menus::MenuEntry::new(paperpaw_sdk::builtin::menus::MAIN, action)
                     .order(order),
             )?;
         }

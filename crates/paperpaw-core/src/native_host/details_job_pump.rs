@@ -63,7 +63,7 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::builtin::{events, slots};
-use paperpaw_sdk::library::{self, catalog};
+use crate::kit::library::{self, catalog};
 
 /// The most catalog lines one pass looks at.
 const LINES_PER_PASS: usize = 32;

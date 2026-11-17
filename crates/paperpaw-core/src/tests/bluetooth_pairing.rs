@@ -12,10 +12,8 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::bluetooth::{self, BtEvent, DeviceId, Security, Uuid};
 use paperpaw_sdk::replies::Confirmed;
-use paperpaw_sdk::{
-    ActionSpec, Command, Event, EventData, Id, Manifest, MemoryStorage, Params, RegisterError,
-    Uses, Version,
-};
+use paperpaw_sdk::{Command, Event, EventData, Id, Manifest, MemoryStorage, Params, RegisterError, Uses, Version};
+use crate::kit::action::ActionSpec;
 
 use super::questions;
 use crate::native_host::shared::Shared;

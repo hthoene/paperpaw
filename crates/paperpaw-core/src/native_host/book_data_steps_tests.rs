@@ -5,10 +5,8 @@
 extern crate std;
 use super::*;
 use crate::native_host::net_service::fail_nth;
-use paperpaw_sdk::{
-    DirEntry, MemoryStorage, Storage, StorageError,
-    library::{self, BookDataKind},
-};
+use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
+use crate::kit::library::{self, BookDataKind};
 use std::{cell::Cell, format, string::String, vec::Vec};
 
 /// A card that refuses to rename or remove an entry whose path holds `name`,

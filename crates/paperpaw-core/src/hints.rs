@@ -9,7 +9,8 @@ use alloc::vec::Vec;
 
 use paperpaw_platform::{Instant, Rect, RefreshMode};
 use paperpaw_sdk::builtin::settings as core_settings;
-use paperpaw_sdk::{ActionHint, Hint, HintVisibility, Id};
+use paperpaw_sdk::{Hint, HintVisibility, Id};
+use crate::kit::action::ActionHint;
 
 use crate::keymap::InputKey;
 use crate::{ActiveScreen, HINTS_MS, Kernel};
@@ -122,7 +123,7 @@ impl Kernel {
                 .bool(core_settings::BUTTON_HINTS.as_str())
             && self.rotation() == paperpaw_platform::Rotation::Deg0;
         if shown {
-            paperpaw_sdk::ui::button_hints_height(&self.shared.place(self.shared.now).env())
+            crate::kit::ui::button_hints_height(&self.shared.place(self.shared.now))
         } else {
             0
         }

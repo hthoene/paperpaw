@@ -20,7 +20,7 @@ const PROGRESS: &str = "[progress]\nsection = 7\noffset = 1234\npercent = 41.5\n
 fn old(name: &str) -> String {
     format!(
         "{BOOKS}/{}/{name}",
-        paperpaw_sdk::library::key("books/a.epub")
+        crate::kit::library::key("books/a.epub")
     )
 }
 
@@ -60,7 +60,7 @@ fn the_old_folder_is_the_one_beta_3s_reader_kept() {
         format!(
             "{}/books/{}/progress.ini",
             paperpaw_sdk::data::plugin_dir("reader"),
-            paperpaw_sdk::library::key("books/a.epub")
+            crate::kit::library::key("books/a.epub")
         )
     );
     assert_eq!(

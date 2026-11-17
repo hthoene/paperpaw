@@ -419,9 +419,8 @@ mod kernel {
     use core::cell::{Cell, RefCell};
     use paperpaw_graphics::Canvas;
     use paperpaw_native::host_glue::ERR_BUSY;
-    use paperpaw_sdk::{
-        ActionSpec, Handled, Id, Manifest, Params, RegisterError, Uses, Version, keys::InputMode,
-    };
+    use paperpaw_sdk::{Handled, Id, Manifest, Params, RegisterError, Uses, Version, keys::InputMode};
+    use crate::kit::action::ActionSpec;
 
     extern crate std;
     std::thread_local! {

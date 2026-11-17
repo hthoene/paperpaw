@@ -16,7 +16,7 @@
 //! Prepared images have their own eight (`ERR_FULL`) and are never evicted.
 //!
 //! **Drawing** reads the file row by row from the card through the SDK's band
-//! drawer (`paperpaw_sdk::ui::try_draw_picture`), clipped by the canvas. Its
+//! drawer (`crate::kit::ui::try_draw_picture`), clipped by the canvas. Its
 //! buffers (a row chunk of 8 KiB, and a few bytes per source pixel and per
 //! destination column on the clip only, at most 32 KiB together) are taken
 //! fallibly before the first band and freed on return: no room is
@@ -468,7 +468,7 @@ impl ImageTable {
         full.push('/');
         full.push_str(path);
         // Downloaded input: the header must say what the format says.
-        let Ok((kind, width, height)) = paperpaw_sdk::ui::probe_picture(storage, &full) else {
+        let Ok((kind, width, height)) = crate::kit::ui::probe_picture(storage, &full) else {
             return Ok(None);
         };
         if (width, height) != (image.width, image.height) {
@@ -478,7 +478,7 @@ impl ImageTable {
             document,
             index: image.index,
         };
-        let colour = kind == paperpaw_sdk::ui::PictureKind::Color && screen_colour;
+        let colour = kind == crate::kit::ui::PictureKind::Color && screen_colour;
         match self.add(owner, origin, &full, image.width, image.height, colour) {
             Ok(id) => Ok(Some((id, colour))),
             Err(ERR_INVALID) => Ok(None),
@@ -740,7 +740,7 @@ impl ImageTable {
         // A short file or a card that fails is ERR_IO, a header that is not
         // what it should be ERR_INVALID.
         let (kind, fw, fh) =
-            paperpaw_sdk::ui::probe_picture(storage, &path).map_err(draw_status)?;
+            crate::kit::ui::probe_picture(storage, &path).map_err(draw_status)?;
         if (fw, fh) != (w, h) {
             return Err(ERR_INVALID);
         }
@@ -757,22 +757,22 @@ impl ImageTable {
             return self.drawn(owner, id);
         };
         let tones = match flags & (DOTS | GRAYS) {
-            DOTS => paperpaw_sdk::ui::Tones::Dots,
-            GRAYS => paperpaw_sdk::ui::Tones::Grays,
-            _ => paperpaw_sdk::ui::Tones::Panel,
+            DOTS => crate::kit::ui::Tones::Dots,
+            GRAYS => crate::kit::ui::Tones::Grays,
+            _ => crate::kit::ui::Tones::Panel,
         };
-        let picture = paperpaw_sdk::ui::Picture::new(&path, kind, w, h, self.scratch_max.get())
+        let picture = crate::kit::ui::Picture::new(&path, kind, w, h, self.scratch_max.get())
             .with_tones(tones);
         let mut child = canvas.clipped(visible).offset(place.left, place.top);
         let area = Rect::new(0, 0, place.width, place.height);
         let mut drawn = Ok(());
         if flags & SMALL != 0 {
             child.small_pictures(|child| {
-                drawn = paperpaw_sdk::ui::try_draw_picture(child, storage, &picture, area, opacity);
+                drawn = crate::kit::ui::try_draw_picture(child, storage, &picture, area, opacity);
             });
         } else {
             drawn =
-                paperpaw_sdk::ui::try_draw_picture(&mut child, storage, &picture, area, opacity);
+                crate::kit::ui::try_draw_picture(&mut child, storage, &picture, area, opacity);
         }
         // Nothing is marked drawn for a draw that failed.
         drawn.map_err(draw_status)?;

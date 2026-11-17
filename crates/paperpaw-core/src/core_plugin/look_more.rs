@@ -4,7 +4,7 @@
 
 use paperpaw_sdk::SettingSpec;
 use paperpaw_sdk::builtin::{groups, settings};
-use paperpaw_sdk::widgets;
+use crate::kit::widgets;
 
 /// After the look settings of the core plugin (`LOOK`), in the same group.
 pub(super) static LOOK_MORE: [SettingSpec; 4] = [

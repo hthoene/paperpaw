@@ -21,7 +21,7 @@ use crate::native_host::{
 };
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_BUSY;
-use paperpaw_sdk::setup::SetupPage;
+use crate::kit::setup::SetupPage;
 
 /// `reg_setup_step.flags`.
 const APPLIES: u32 = 1;
@@ -119,7 +119,7 @@ fn merged(
                 let applies = step
                     .applies
                     .as_ref()
-                    .is_none_or(|applies| applies(&env.env()));
+                    .is_none_or(|applies| applies(env));
                 env_row(env, step, applies, visit)?;
             }
             ahead = own.next();
@@ -140,7 +140,7 @@ fn merged(
 /// The row of a step a code plugin added; `applies` is its `AppliesFn` now.
 fn env_row(
     env: &Place<'_>,
-    step: &paperpaw_sdk::setup::SetupStepSpec,
+    step: &crate::kit::setup::SetupStepSpec,
     applies: bool,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> ControlFlow<()> {

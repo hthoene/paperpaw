@@ -2,7 +2,7 @@
 //! search hit, the sentence read aloud (see `paperpaw_sdk::decorations`).
 
 use crate::Items;
-use paperpaw_sdk::decorations::{Decoration, LineKind, Tone};
+use crate::kit::decorations::{Decoration, LineKind, Tone};
 use paperpaw_sdk::role_settings;
 use paperpaw_sdk::{RegisterError, SettingSpec};
 

@@ -39,11 +39,8 @@ use paperpaw_native::{
     metadata,
 };
 use paperpaw_platform::{Storage, StorageError, firmware::Text};
-use paperpaw_sdk::{
-    Version,
-    install::marks::{self, From, Marks},
-    native::CODE_FILES,
-};
+use paperpaw_sdk::{Version, native::CODE_FILES};
+use crate::kit::install::marks::{self, From, Marks};
 
 use super::files_service::same_fold;
 use super::firmware_install::BuiltIns;

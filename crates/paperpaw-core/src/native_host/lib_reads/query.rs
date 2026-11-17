@@ -36,7 +36,7 @@ use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
 use paperpaw_sdk::data;
 use paperpaw_sdk::digest::fnv1a64;
-use paperpaw_sdk::library::{self, catalog};
+use crate::kit::library::{self, catalog};
 
 /// Slots a pass keeps: the page, or a step towards the cursor.
 pub(super) const WINDOW: usize = 32;

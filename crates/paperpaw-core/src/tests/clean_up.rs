@@ -4,7 +4,7 @@
 use super::*;
 use crate::Items;
 use paperpaw_sdk::MemoryStorage;
-use paperpaw_sdk::library::key;
+use crate::kit::library::key;
 
 /// What is kept for a file still on the storage stays, also where no
 /// plugin opens its format now (switched off); what is kept for a file

@@ -40,11 +40,11 @@ fn shelf(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
     r.bind_slot(slots::HOME, LOW, Priority::DEFAULT)?;
     r.bind_slot(slots::HOME, HIGH, Priority::PREFERRED)?;
     r.subscribe(events::BOOK_CLOSED, |_, _| {})?;
-    r.add_action(paperpaw_sdk::ActionSpec::new(TIDY, "shelf.tidy"))?;
-    r.add_action(paperpaw_sdk::ActionSpec::new(SORT, "shelf.sort"))?;
+    r.add_action(crate::kit::action::ActionSpec::new(TIDY, "shelf.tidy"))?;
+    r.add_action(crate::kit::action::ActionSpec::new(SORT, "shelf.sort"))?;
     // Entered against their order: a menu's rows stand by order.
-    r.add_menu_entry(paperpaw_sdk::MenuEntry::new(MENU, TIDY).order(30))?;
-    r.add_menu_entry(paperpaw_sdk::MenuEntry::new(MENU, SORT).order(10))?;
+    r.add_menu_entry(crate::kit::menus::MenuEntry::new(MENU, TIDY).order(30))?;
+    r.add_menu_entry(crate::kit::menus::MenuEntry::new(MENU, SORT).order(10))?;
     // Two layers of its own, the later name first.
     r.add_keymap(
         "[keymap.shelf.zeta]\ntap.center = shelf.tidy\n[keymap.shelf.alpha]\nswipe.up = shelf.sort\n",
@@ -54,7 +54,7 @@ fn shelf(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
 /// The old-API side of `clock`: the action its natively declared menu row
 /// names.
 fn clock(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
-    r.add_action(paperpaw_sdk::ActionSpec::new(
+    r.add_action(crate::kit::action::ActionSpec::new(
         Id::new_static("clock.go"),
         "clock.go",
     ))

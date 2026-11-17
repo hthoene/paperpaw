@@ -99,14 +99,14 @@ struct Measuring;
 
 impl paperpaw_core::testing::Fake for Measuring {
     fn draw(&mut self, _: &mut Canvas<'_>, env: &Place<'_>) {
-        let style = UiStyle::new(&env.env());
+        let style = UiStyle::new(env);
         let width = env.device().display.width;
         let cut: Vec<(String, String)> = env
             .settings()
             .specs()
             .filter_map(|spec| {
                 let text = env.i18n().tr(spec.description.as_deref()?);
-                (!ui::note_fits(&env.env(), &style, width, text))
+                (!ui::note_fits(env, &style, width, text))
                     .then(|| (spec.id.to_string(), text.to_string()))
             })
             .collect();

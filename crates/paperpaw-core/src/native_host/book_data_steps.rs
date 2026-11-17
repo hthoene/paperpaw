@@ -34,7 +34,7 @@ use super::storage::status;
 use alloc::{string::String, vec::Vec};
 use paperpaw_native::host_glue::ERR_NO_MEMORY;
 use paperpaw_platform::{Storage, StorageError};
-use paperpaw_sdk::library::{BookData, KEY_LEN, key_into};
+use crate::kit::library::{BookData, KEY_LEN, key_into};
 
 /// Entries of one book in one folder found, and then changed, as one batch.
 /// A book with more (per-page files) takes more batches.

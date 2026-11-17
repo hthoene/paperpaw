@@ -20,7 +20,7 @@ use alloc::vec::Vec;
 use core::cmp::Ordering;
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::digest::Fnv1a64;
-use paperpaw_sdk::library;
+use crate::kit::library;
 
 /// Bytes of a `lib_field` value and of its id and title.
 const VALUE: usize = 1024;
