@@ -179,19 +179,10 @@ impl<'e> FontSizes<'e> {
     }
 }
 
-/// The value number setting `spec` shows for `value`, e.g. where a finger
-/// leaves a slider: `value`, but for the size of book text the smallest
-/// of the sizes the reading font draws alike (a font pack has a few pixel
-/// sizes; on the X4 Pro 9 and 10 points are both 28 pixels), so that no
-/// two sizes offered look the same. Values kept stay as they are.
-pub fn shown_number(env: &Env<'_>, spec: &SettingSpec, value: i64) -> i64 {
-    FontSizes::of(env, spec).map_or(value, |sizes| sizes.first_alike(value))
-}
-
 /// The value number setting `spec` steps to from `from` towards `to`
 /// (a step of its own, a button's, a key's): `to`, but for the size of
 /// book text the next size that looks different from `from`, as
-/// [`shown_number`] shows it, and `from` where none that way does.
+/// `shown_number` shows it, and `from` where none that way does.
 pub fn shown_step(env: &Env<'_>, spec: &SettingSpec, from: i64, to: i64) -> i64 {
     let Some(sizes) = FontSizes::of(env, spec).filter(|_| to != from) else {
         return to;
@@ -207,20 +198,6 @@ pub fn shown_step(env: &Env<'_>, spec: &SettingSpec, from: i64, to: i64) -> i64 
         points = next;
     }
     sizes.first_alike(points)
-}
-
-/// The value a slider of number setting `spec` comes to, moved from
-/// `before` (its value when the finger came down, or the key was
-/// pressed) to `value` ([`Slider`](crate::ui::slider::Slider) steps and
-/// drags): a step away, the next value that looks different
-/// ([`shown_step`]); further, the value shown for `value`
-/// ([`shown_number`]). Only the size of book text skips values.
-pub fn shown_slider_value(env: &Env<'_>, spec: &SettingSpec, before: i64, value: i64) -> i64 {
-    if value.abs_diff(before) == spec.extra().step.unsigned_abs().max(1) {
-        shown_step(env, spec, before, value)
-    } else {
-        shown_number(env, spec, value)
-    }
 }
 
 /// The value after one step of the setting: a switch toggles, a number

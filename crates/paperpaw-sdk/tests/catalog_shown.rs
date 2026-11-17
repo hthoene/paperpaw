@@ -33,7 +33,7 @@ fn harness(storage: MemoryStorage) -> common::Harness {
             Id::new_static("test.txt"),
             "TXT",
             vec![Cow::Borrowed("txt")],
-            Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         ))
         .unwrap();
     h.formats = formats;

@@ -28,7 +28,6 @@
 //! (see [`filters`](crate::filters)): it needs the page laid out again.
 
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
 use alloc::format;
 use alloc::vec::Vec;
 use core::fmt;
@@ -792,10 +791,37 @@ impl Decorated {
 }
 
 /// What a decorator does: a page's words in, the ranges it marks out.
-pub type DecorateFn = Box<dyn Fn(&Env<'_>, &PageText<'_>) -> Vec<Decorated>>;
+pub type DecorateFn = fn(&Env<'_>, &PageText<'_>) -> Vec<Decorated>;
 /// What a decorator's marks depend on besides the page (its data, its
 /// settings): readers ask again when it changes.
-pub type DecoratorSignatureFn = Box<dyn Fn(&Env<'_>) -> u64>;
+pub type DecoratorSignatureFn = fn(&Env<'_>) -> u64;
+
+/// How a decorator marks a page: by a function, or by the rules of a
+/// [`PatternDecorator`] (a plugin without code's `marks.ini`).
+#[non_exhaustive]
+pub enum Decorate {
+    Fn(DecorateFn),
+    Patterns(PatternDecorator),
+}
+
+impl core::fmt::Debug for Decorate {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Decorate::Fn(_) => f.write_str("Fn"),
+            Decorate::Patterns(patterns) => f.debug_tuple("Patterns").field(patterns).finish(),
+        }
+    }
+}
+
+impl Decorate {
+    /// The ranges it marks on `page`.
+    pub fn marks(&self, env: &Env<'_>, page: &PageText<'_>) -> Vec<Decorated> {
+        match self {
+            Decorate::Fn(decorate) => decorate(env, page),
+            Decorate::Patterns(patterns) => patterns.decorate(page),
+        }
+    }
+}
 
 /// A decorator contribution (see the [module documentation](self)).
 #[non_exhaustive]
@@ -812,25 +838,25 @@ pub struct DecoratorSpec {
     /// ([`events::DECORATION_TAPPED`](crate::builtin::events::DECORATION_TAPPED)).
     pub taps: bool,
     pub signature: DecoratorSignatureFn,
-    pub decorate: DecorateFn,
+    pub decorate: Decorate,
 }
 
 impl DecoratorSpec {
     /// Decorator `id`, named `title`, marking with `decorate`; order 0,
     /// always on, no taps, no signature.
-    pub fn new(
-        id: Id,
-        title: impl Into<Cow<'static, str>>,
-        decorate: impl Fn(&Env<'_>, &PageText<'_>) -> Vec<Decorated> + 'static,
-    ) -> Self {
+    pub fn new(id: Id, title: impl Into<Cow<'static, str>>, decorate: DecorateFn) -> Self {
+        Self::by(id, title, Decorate::Fn(decorate))
+    }
+
+    fn by(id: Id, title: impl Into<Cow<'static, str>>, decorate: Decorate) -> Self {
         Self {
             id,
             title: title.into(),
             order: 0,
             switch: None,
             taps: false,
-            signature: Box::new(|_| 0),
-            decorate: Box::new(decorate),
+            signature: |_| 0,
+            decorate,
         }
     }
 
@@ -855,8 +881,8 @@ impl DecoratorSpec {
     /// whenever they draw a page (on some devices once for every band of
     /// it): it says it from memory, e.g. a count of the changes to its
     /// data, without reading the storage.
-    pub fn signature(mut self, signature: impl Fn(&Env<'_>) -> u64 + 'static) -> Self {
-        self.signature = Box::new(signature);
+    pub fn signature(mut self, signature: DecoratorSignatureFn) -> Self {
+        self.signature = signature;
         self
     }
 }
@@ -934,7 +960,7 @@ impl PatternDecorator {
 
     /// A decorator `id`, named `title`, marking by these rules.
     pub fn into_spec(self, id: Id, title: impl Into<Cow<'static, str>>) -> DecoratorSpec {
-        DecoratorSpec::new(id, title, move |_, page| self.decorate(page))
+        DecoratorSpec::by(id, title, Decorate::Patterns(self))
     }
 }
 
@@ -1148,7 +1174,7 @@ impl Decorators {
     pub fn decorate(&self, env: &Env<'_>, page: &PageText<'_>) -> Vec<Mark> {
         let mut marks = Vec::new();
         for decorator in self.on(env) {
-            for range in (decorator.decorate)(env, page) {
+            for range in decorator.decorate.marks(env, page) {
                 if range.start < range.end {
                     marks.push(Mark {
                         decorator: decorator.id.clone(),

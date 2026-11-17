@@ -122,11 +122,6 @@ impl<'r> Row<'r> {
         self
     }
 
-    /// What it shows beside its title.
-    pub const fn kind(&self) -> RowKind<'r> {
-        self.kind
-    }
-
     /// How high it is `width` wide: a row (a noted one with a note),
     /// taller where its title takes more lines beside what it shows.
     pub fn height(&self, env: &Env<'_>, style: &UiStyle, width: u16) -> u16 {

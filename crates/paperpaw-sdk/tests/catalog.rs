@@ -29,7 +29,7 @@ fn harness(storage: MemoryStorage) -> common::Harness {
             Id::new_static("test.txt"),
             "TXT",
             vec![Cow::Borrowed("txt")],
-            Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         ))
         .unwrap();
     h.formats = formats;
@@ -555,7 +555,7 @@ fn a_book_without_an_extension_known_by_its_first_bytes_is_deleted() {
                 Id::new_static("test.story"),
                 "Story",
                 vec![Cow::Borrowed("story")],
-                Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+                |_, _, _| Err(DocumentError::UnsupportedFormat),
             )
             .sniff(|bytes| bytes.starts_with(b"%STORY")),
         )
@@ -850,7 +850,7 @@ fn native_library() -> common::Harness {
             Id::new_static("native.docx"),
             "DOCX",
             vec![Cow::Borrowed("docx")],
-            Box::new(|_, _, _| Err(DocumentError::NotReady)),
+            |_, _, _| Err(DocumentError::NotReady),
         ))
         .unwrap();
     h

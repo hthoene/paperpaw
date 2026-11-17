@@ -26,7 +26,7 @@ fn library_plugin(kept: LibraryPlugin) -> impl Fn(&mut Items) -> Result<(), Regi
             Id::new_static("lib.txt"),
             "TXT",
             alloc::vec![Cow::Borrowed("txt")],
-            Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         ))?;
         // A reader, as the reader's slot shows it.
         r.add_layer(crate::LayerSpec::new(

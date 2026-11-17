@@ -152,7 +152,7 @@ fn register_ui(r: &mut Items) -> Result<(), RegisterError> {
     r.add_setup_step(
         SetupStepSpec::new(id("demo.one"), "", SetupPage::Screen(id("demo.main")))
             .order(10)
-            .applies(Box::new(|_| true)),
+            .applies(|_| true),
     )?;
     r.add_setup_step(
         SetupStepSpec::new(
@@ -161,7 +161,7 @@ fn register_ui(r: &mut Items) -> Result<(), RegisterError> {
             SetupPage::Screen(id("demo.main")),
         )
         .order(5)
-        .applies(Box::new(|_| false)),
+        .applies(|_| false),
     )?;
     Ok(())
 }

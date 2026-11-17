@@ -29,10 +29,10 @@ fn test_epub(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuil
             Id::new_static("format-epub.epub"),
             "format-epub.title",
             vec![std::borrow::Cow::Borrowed("epub")],
-            Box::new(|storage, path, options| {
+            |storage, path, options| {
                 paperpaw_epub_family::EpubDocument::open_options(storage, path, options)
                     .map(|d| Box::new(d) as Box<dyn paperpaw_sdk::document::Document>)
-            }),
+            },
         ))
     })
 }

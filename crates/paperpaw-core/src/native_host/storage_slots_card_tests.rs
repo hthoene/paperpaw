@@ -347,7 +347,7 @@ fn a_root_one_rename_is_the_librarys_move_and_its_books_keep_their_place() {
             Id::new_static("test.epub"),
             "EPUB",
             alloc::vec![Cow::Borrowed("epub")],
-            alloc::boxed::Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         ))
         .unwrap();
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
@@ -460,7 +460,7 @@ fn a_file_that_is_no_book_is_renamed_without_the_librarys_job() {
             Id::new_static("test.epub"),
             "EPUB",
             alloc::vec![Cow::Borrowed("epub")],
-            alloc::boxed::Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         ))
         .unwrap();
     let env = kernel.shared.env(paperpaw_platform::Instant(0));

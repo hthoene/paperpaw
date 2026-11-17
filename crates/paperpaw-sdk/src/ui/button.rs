@@ -17,40 +17,6 @@ pub fn button_height(style: &UiStyle, row: Rect) -> u16 {
     (height * 7 / 10).max(style.finger).min(height) as u16
 }
 
-/// The height of a bar of buttons along the top or bottom edge of the
-/// screen: its buttons as in a row made with [`UiStyle::touch_row`], the
-/// room of such a row toward the content, and toward the edge the margin
-/// the screen's sides have, so the buttons keep it from every edge.
-pub fn edge_bar_height(style: &UiStyle) -> u16 {
-    let row = style.touch_row(style.control_row) as u16;
-    let button = button_height(style, Rect::new(0, 0, 0, row));
-    let room = (row - button) / 2;
-    button + room + style.margin as u16
-}
-
-/// Where the buttons of `bar`, a bar along the screen's bottom edge (or
-/// its top, `at_top`) made [`edge_bar_height`] high, go: a band as high as
-/// they are, the side margin from the edge (see [`edge_bar_height`]).
-pub fn edge_bar_band(style: &UiStyle, bar: Rect, at_top: bool) -> Rect {
-    let row = style.touch_row(style.control_row) as u16;
-    let button = button_height(style, Rect::new(0, 0, 0, row));
-    let margin = style.margin as u16;
-    let y = if at_top {
-        bar.y + margin
-    } else {
-        (bar.y + bar.height).saturating_sub(margin + button)
-    };
-    Rect::new(bar.x, y, bar.width, button)
-}
-
-/// The room to leave between a row of buttons `row` high and the edge of
-/// the screen it lies along, so that its buttons, centred in it, keep the
-/// side margin from that edge as well.
-pub fn edge_room(style: &UiStyle, row: u16) -> u16 {
-    let button = button_height(style, Rect::new(0, 0, 0, row));
-    (style.margin as u16).saturating_sub((row - button) / 2)
-}
-
 /// The width of buttons' and boxes' borders.
 pub fn button_border(style: &UiStyle) -> u32 {
     style.line.max(2)
@@ -270,25 +236,6 @@ pub fn button_height_for(env: &Env<'_>, style: &UiStyle, width: u16, label: &str
     };
     let (lines, line) = label_lines(&font, style, f32::from(width), label);
     base + line * (lines.len().max(1) as u16 - 1)
-}
-
-/// The height of a button's slot in a column of buttons `width` wide, one
-/// below the other: a row that can be touched ([`UiStyle::touch_row`]),
-/// higher only by the lines more a long `label` takes
-/// ([`button_height_for`]). [`button_in_slot`] places the button in it.
-pub fn button_slot_height(env: &Env<'_>, style: &UiStyle, width: u16, label: &str) -> u16 {
-    let row = style.touch_row(style.control_row) as u16;
-    row + button_height_for(env, style, width, label).saturating_sub(Segments::height(style))
-}
-
-/// The button in `slot` ([`button_slot_height`] high): as high as a
-/// button in a row that can be touched, and as much higher as the slot
-/// is, centred in the row's room.
-pub fn button_in_slot(style: &UiStyle, slot: Rect) -> Rect {
-    let row = (style.touch_row(style.control_row) as u16).min(slot.height);
-    let base = Segments::height(style).min(row);
-    let extra = slot.height - row;
-    Rect::new(slot.x, slot.y + (row - base) / 2, slot.width, base + extra)
 }
 
 /// A button's word, centred: on more lines where it is too long for one
