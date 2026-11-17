@@ -141,7 +141,7 @@ fn format(id: &'static str, extensions: &[&'static str]) -> FormatSpec {
         Id::new_static(id),
         "",
         extensions.iter().map(|e| Cow::Borrowed(*e)).collect(),
-        Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+        |_, _, _| Err(DocumentError::UnsupportedFormat),
     )
 }
 

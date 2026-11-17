@@ -453,11 +453,6 @@ impl Segments {
         }
     }
 
-    /// The label of segment `index`, as given (a translation key).
-    pub fn label(&self, index: usize) -> Option<&str> {
-        self.labels.get(index).map(|label| &**label)
-    }
-
     /// Draws the segments, `chosen` on and `focus` (where the focus is on
     /// them) focused.
     pub fn draw(&self, ui: &mut super::Ui<'_>, chosen: usize, focus: Option<usize>) {

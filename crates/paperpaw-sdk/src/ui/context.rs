@@ -72,26 +72,10 @@ impl<'c> Ui<'c> {
         self.font
     }
 
-    /// The translation of `key`.
-    pub fn tr(&self, key: &'c str) -> &'c str {
-        self.env.i18n().tr(key)
-    }
-
     /// The same, drawing within `area` only.
     pub fn clipped(&mut self, area: Rect) -> Ui<'_> {
         Ui {
             canvas: self.canvas.clipped(area),
-            env: self.env,
-            style: self.style,
-            font: self.font,
-        }
-    }
-
-    /// The same, every part drawn telling it does nothing now where
-    /// `disabled` ([`Canvas::disabling`]).
-    pub fn disabling(&mut self, disabled: bool) -> Ui<'_> {
-        Ui {
-            canvas: self.canvas.disabling(disabled),
             env: self.env,
             style: self.style,
             font: self.font,
@@ -109,35 +93,6 @@ impl<'c> Ui<'c> {
             on,
             focused,
         );
-    }
-
-    /// A button filled as an `on` one is, without being on: e.g. a key
-    /// whose fill is the focus of the buttons.
-    pub fn filled_button(&mut self, rect: Rect, label: &str, focused: bool) {
-        super::button::draw_button_said(
-            &mut self.canvas,
-            self.env,
-            self.style,
-            rect,
-            label,
-            true,
-            false,
-            focused,
-        );
-    }
-
-    /// An icon button filled without being on (see
-    /// [`Ui::filled_button`]); the ink of its icon.
-    pub fn filled_icon_button(&mut self, rect: Rect, name: &str, focused: bool) -> Color {
-        super::button::draw_icon_button_said(
-            &mut self.canvas,
-            self.style,
-            rect,
-            name,
-            true,
-            false,
-            focused,
-        )
     }
 
     /// A button that does nothing now.
@@ -201,11 +156,6 @@ impl<'c> Ui<'c> {
     /// A progress bar.
     pub fn progress(&mut self, area: Rect, permille: u16, ink: Color) {
         super::draw_progress(&mut self.canvas, self.style, area, permille, ink);
-    }
-
-    /// An icon; where it ends.
-    pub fn icon(&mut self, name: &str, size: f32, x: f32, area: Rect, color: Color) -> f32 {
-        super::draw_icon(&mut self.canvas, self.env, name, size, x, area, color)
     }
 
     /// The icon at the start of a row; the room right of it.

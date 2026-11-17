@@ -84,7 +84,7 @@ fn interface_6(id: &'static str, extension: &'static str) -> FormatSpec {
         Id::new_static(id),
         "I6",
         vec![Cow::Borrowed(extension)],
-        Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+        |_, _, _| Err(DocumentError::UnsupportedFormat),
     )
 }
 

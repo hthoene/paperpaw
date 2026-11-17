@@ -1034,11 +1034,23 @@ impl Widget for Paged {
 
 /// A grid of a paged widget (`endless` or not) above a tool.
 fn paged(h: &mut Harness, endless: bool) {
-    h.widgets.add(WidgetSpec::new(
-        Id::new_static("t.paged"),
-        "t.paged",
-        move |_| Box::new(Paged { page: 0, endless }),
-    ));
+    let make: paperpaw_sdk::widgets::WidgetFactory = if endless {
+        |_| {
+            Box::new(Paged {
+                page: 0,
+                endless: true,
+            })
+        }
+    } else {
+        |_| {
+            Box::new(Paged {
+                page: 0,
+                endless: false,
+            })
+        }
+    };
+    h.widgets
+        .add(WidgetSpec::new(Id::new_static("t.paged"), "t.paged", make));
 }
 
 fn paged_items() -> [Item; 2] {

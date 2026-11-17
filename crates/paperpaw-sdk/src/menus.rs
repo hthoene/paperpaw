@@ -1,5 +1,4 @@
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
@@ -102,7 +101,7 @@ impl ItemState {
 }
 
 /// What an entry shows now.
-pub type ItemStateFn = Box<dyn Fn(&crate::Env<'_>) -> ItemState>;
+pub type ItemStateFn = fn(&crate::Env<'_>) -> ItemState;
 
 struct StateFn(ItemStateFn);
 

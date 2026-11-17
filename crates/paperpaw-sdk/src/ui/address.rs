@@ -7,24 +7,6 @@
 )]
 use super::*;
 
-/// The height of what [`draw_address`] writes below the code in an area
-/// `width` wide: the address, `hint` and `last`, all their words. An area
-/// as high holds them without the code; the code takes what is more.
-pub fn address_height(
-    env: &Env<'_>,
-    style: &UiStyle,
-    width: u16,
-    url: &str,
-    hint: &str,
-    last: Option<&str>,
-) -> u16 {
-    let Some(font) = style.font(env) else {
-        return 0;
-    };
-    let lines = AddressLines::new(&font, style, width, (url, hint, last), style.small);
-    lines.height(&font, style)
-}
-
 /// The lines [`draw_address`] writes: the address (on two lines, the
 /// host and the rest, where it is too long for one), the hint's and the
 /// last thing's, wrapped in `size`.
@@ -81,7 +63,7 @@ impl<'a> AddressLines<'a> {
 /// `url` as a QR code (`qr`, if it could be made) as large as fits at the
 /// top of `area`, below it the address as text (on two lines where it is
 /// too long for one, to be typed), `hint` and `last`, what happened last,
-/// all their words ([`address_height`]); all centred.
+/// all their words (`address_height`); all centred.
 #[allow(
     clippy::too_many_arguments,
     reason = "its inputs are separate things; a struct of them would serve this call alone"

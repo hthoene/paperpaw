@@ -269,11 +269,10 @@ fn status_harness(device: Device, value: &str) -> Harness {
         ("t.page", "t.page"),
         ("t.battery", "t.battery"),
     ] {
-        h.status_items.add(StatusItemSpec::new(
-            Id::new_static(id),
-            title,
-            Box::new(|_, _| Some(StatusValue::Text("x".into()))),
-        ));
+        h.status_items
+            .add(StatusItemSpec::new(Id::new_static(id), title, |_, _| {
+                Some(StatusValue::Text("x".into()))
+            }));
     }
     h.settings
         .define(SettingSpec::new(
@@ -495,7 +494,7 @@ fn a_line_kept_by_its_old_id_is_chosen_once_and_kept_by_its_own() {
     let mut h = status_harness(Device::BUTTONS, "t.old-line, t.line");
     for id in ["t.line", "t.other-line"] {
         h.status_items.add_line(
-            paperpaw_sdk::StatusLineSpec::new(Id::new_static(id), id, Box::new(|_, _, _| {})).also(
+            paperpaw_sdk::StatusLineSpec::new(Id::new_static(id), id, |_, _, _| {}).also(
                 Id::new_static(if id == "t.line" {
                     "t.old-line"
                 } else {
