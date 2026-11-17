@@ -82,7 +82,7 @@ fn without_bak(name: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::{borrow::Cow, boxed::Box, vec};
+    use alloc::{borrow::Cow, vec};
     use paperpaw_sdk::{FormatSpec, Id, MemoryStorage, document::DocumentError};
 
     fn spec(id: &'static str, extension: &'static str) -> FormatSpec {
@@ -90,7 +90,7 @@ mod tests {
             Id::new_static(id),
             "Book",
             vec![Cow::Borrowed(extension)],
-            Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         )
     }
 

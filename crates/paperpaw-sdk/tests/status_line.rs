@@ -31,41 +31,40 @@ const NOTHING: &str = "t.nothing";
 /// page, a battery at a level, an icon, and one that shows nothing.
 fn harness() -> Harness {
     let mut h = Harness::new(Device::TOUCH);
-    let from = |key: &'static str| -> paperpaw_sdk::StatusFn {
-        Box::new(move |_: &Env<'_>, context: &Params| {
-            context.get(key).map(|v| StatusValue::Text(v.to_string()))
-        })
-    };
+    /// The text the context has under `key`.
+    fn text(context: &Params, key: &str) -> Option<StatusValue> {
+        context.get(key).map(|v| StatusValue::Text(v.to_string()))
+    }
     h.status_items.add(StatusItemSpec::new(
         Id::new_static(PAGE),
         "t.page.title",
-        from("page"),
+        |_, context| text(context, "page"),
     ));
     h.status_items.add(StatusItemSpec::new(
         Id::new_static(CHAPTER),
         "t.chapter.title",
-        from("chapter"),
+        |_, context| text(context, "chapter"),
     ));
     h.status_items.add(StatusItemSpec::new(
         Id::new_static(LEVEL),
         "t.battery.title",
-        Box::new(|_, context| {
+        |_, context| {
             let percent = context.get("level")?.parse().ok()?;
             Some(StatusValue::Level {
                 percent,
                 charging: context.get("charging").is_some(),
             })
-        }),
+        },
     ));
     h.status_items.add(StatusItemSpec::new(
         Id::new_static(ICON),
         "t.speaking.title",
-        Box::new(|_, _| Some(StatusValue::Icon(Cow::Borrowed("volume")))),
+        |_, _| Some(StatusValue::Icon(Cow::Borrowed("volume"))),
     ));
     h.status_items.add(StatusItemSpec::new(
         Id::new_static(NOTHING),
         "t.nothing.title",
-        Box::new(|_, _| None),
+        |_, _| None,
     ));
     h
 }
@@ -198,11 +197,11 @@ fn items_and_lines_are_found_by_their_ids() {
     h.status_items.add_line(StatusLineSpec::new(
         Id::new_static("t.bar"),
         "t.bar.title",
-        Box::new(draw),
+        draw,
     ));
     h.status_items.add_line(
-        StatusLineSpec::new(Id::new_static("t.clock"), "t.clock.title", Box::new(draw))
-            .signature(Box::new(|_, _| 1041)),
+        StatusLineSpec::new(Id::new_static("t.clock"), "t.clock.title", draw)
+            .signature(|_, _| 1041),
     );
     let items = &h.status_items;
     let env = h.env();
@@ -258,7 +257,7 @@ fn every_item_stands_on_the_line_s_middle() {
     h.status_items.add(StatusItemSpec::new(
         Id::new_static("t.progress"),
         "t.progress.title",
-        Box::new(|_, _| Some(StatusValue::Bar { permille: 400 })),
+        |_, _| Some(StatusValue::Bar { permille: 400 }),
     ));
     let env = h.env();
     let font = paperpaw_sdk::ui::UiStyle::new(&env).font(&env).unwrap();
@@ -391,42 +390,32 @@ fn a_crowded_line_keeps_its_right_part_whole_at_the_edge() {
 fn tapping() -> Harness {
     let mut h = harness();
     h.status_items.add(
-        StatusItemSpec::new(
-            Id::new_static("t.high"),
-            "t.high.title",
-            Box::new(|_, _| Some(StatusValue::Text("Important".into()))),
-        )
+        StatusItemSpec::new(Id::new_static("t.high"), "t.high.title", |_, _| {
+            Some(StatusValue::Text("Important".into()))
+        })
         .priority(200)
         .tap(Id::new_static("t.high-tapped")),
     );
     h.status_items.add(
-        StatusItemSpec::new(
-            Id::new_static("t.low"),
-            "t.low.title",
-            Box::new(|_, _| Some(StatusValue::Text("Unimportant".into()))),
-        )
+        StatusItemSpec::new(Id::new_static("t.low"), "t.low.title", |_, _| {
+            Some(StatusValue::Text("Unimportant".into()))
+        })
         .priority(10)
         .tap(Id::new_static("t.low-tapped")),
     );
     h.status_items.add(
-        StatusItemSpec::new(
-            Id::new_static("t.labelled"),
-            "t.labelled.title",
-            Box::new(|_, _| {
-                Some(StatusValue::Labelled {
-                    icon: Cow::Borrowed("wifi"),
-                    text: "Home network".into(),
-                })
-            }),
-        )
+        StatusItemSpec::new(Id::new_static("t.labelled"), "t.labelled.title", |_, _| {
+            Some(StatusValue::Labelled {
+                icon: Cow::Borrowed("wifi"),
+                text: "Home network".into(),
+            })
+        })
         .tap(Id::new_static("t.labelled-tapped")),
     );
     h.status_items.add(
-        StatusItemSpec::new(
-            Id::new_static("t.clock"),
-            "t.clock.title",
-            Box::new(|_, _| Some(StatusValue::Text("9:59".into()))),
-        )
+        StatusItemSpec::new(Id::new_static("t.clock"), "t.clock.title", |_, _| {
+            Some(StatusValue::Text("9:59".into()))
+        })
         .min_width(4.0)
         .tap(Id::new_static("t.clock-tapped")),
     );
@@ -592,12 +581,8 @@ fn a_least_width_keeps_the_items_after_it_in_place() {
 fn a_line_answers_to_its_old_id_and_is_listed_once() {
     let mut h = harness();
     h.status_items.add_line(
-        StatusLineSpec::new(
-            Id::new_static("t.line"),
-            "t.line.title",
-            Box::new(|_, _, _| {}),
-        )
-        .also(Id::new_static("t.old-line")),
+        StatusLineSpec::new(Id::new_static("t.line"), "t.line.title", |_, _, _| {})
+            .also(Id::new_static("t.old-line")),
     );
     let env = h.env();
     let listed: Vec<&str> = env

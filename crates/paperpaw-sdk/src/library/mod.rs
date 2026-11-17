@@ -49,7 +49,7 @@ pub use fingerprint::Fingerprint;
 pub use indexed::try_indexed;
 #[cfg(any(test, feature = "kernel"))]
 pub use metadata::keep_native_details;
-pub use service::{Badge, BookBadge, BookField, Deleted, Library, is_book_path, service};
+pub use service::{Badge, BookField, Deleted, Library, is_book_path, service};
 
 /// What changed of a book ([`events::BookChanged::what`](crate::builtin::events::BookChanged)):
 /// bits, any together.

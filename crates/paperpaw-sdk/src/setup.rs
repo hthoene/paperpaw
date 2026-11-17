@@ -9,7 +9,6 @@
 //! `Items::add_setup_step`: crate::Items::add_setup_step
 
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::fmt;
 
@@ -27,7 +26,7 @@ pub enum SetupPage {
 }
 
 /// Whether a step is asked on this device.
-pub type AppliesFn = Box<dyn Fn(&Env<'_>) -> bool>;
+pub type AppliesFn = fn(&Env<'_>) -> bool;
 
 /// A step of the first-run setup.
 #[non_exhaustive]

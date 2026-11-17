@@ -1,8 +1,7 @@
 //! The library as a service: one place every view of the books asks
 //! ([`service`]), which a plugin may replace with its own (a library kept
 //! by Calibre's database, say), and what plugins add to every view of a
-//! book: fields kept with it ([`BookField`]) and badges on its row
-//! ([`BookBadge`]).
+//! book: fields kept with it ([`BookField`]).
 //!
 //! The kernel's library (the default) keeps what it knows in
 //! `.paperpaw/library`: each book's details, the books read last, the
@@ -13,10 +12,8 @@
 //! that ask [`service`] show its books.
 
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::fmt;
 
 use super::catalog::{self, Query, Record, State};
 use super::index::Index;
@@ -293,42 +290,4 @@ pub enum Badge {
     Text(alloc::string::String),
     /// An icon by its name.
     Icon(&'static str),
-}
-
-/// What a badge says of a book: asked for the books of a page when it is
-/// read, never while drawing.
-pub type BadgeFn = Box<dyn Fn(&Env<'_>, &Record) -> Option<Badge>>;
-
-/// A badge plugins put on books' rows in views of the library, e.g. a
-/// rating or "on loan"; views show two at most. Added with
-/// `Items::add_book_badge`.
-#[non_exhaustive]
-pub struct BookBadge {
-    pub id: Id,
-    /// Translation key of its name (where views list them).
-    pub title: Cow<'static, str>,
-    pub badge: BadgeFn,
-}
-
-impl BookBadge {
-    pub fn new(
-        id: impl Into<Id>,
-        title: impl Into<Cow<'static, str>>,
-        badge: impl Fn(&Env<'_>, &Record) -> Option<Badge> + 'static,
-    ) -> Self {
-        Self {
-            id: id.into(),
-            title: title.into(),
-            badge: Box::new(badge),
-        }
-    }
-}
-
-impl fmt::Debug for BookBadge {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("BookBadge")
-            .field("id", &self.id)
-            .field("title", &self.title)
-            .finish_non_exhaustive()
-    }
 }
