@@ -971,6 +971,7 @@ impl BuilderParts {
             config_unreadable: false,
             card_trouble: None,
             after_sleep: false,
+            storage_kept: false,
             secrets_unreadable: false,
             secrets_opened: false,
             secrets_wired: None,

@@ -298,6 +298,10 @@ pub struct Kernel {
     /// [`KernelBuilder::after_sleep`]): [`events::RESUME`] follows
     /// [`events::STARTED`].
     after_sleep: bool,
+    /// The wake told last was one the storage came through as it was left
+    /// ([`Kernel::resume_storage_kept`]): the library is not walked again
+    /// for it.
+    storage_kept: bool,
     /// The file of passwords and keys is there but could not be read at
     /// start: it is not written over.
     secrets_unreadable: bool,
@@ -1245,8 +1249,23 @@ impl Kernel {
         self.finish()
     }
 
+    /// [`Kernel::resume`], for a shell that knows that nothing changed the
+    /// storage while the device slept: a memory card that kept its power
+    /// through a light sleep (a card taken out loses it, and is told with
+    /// [`Kernel::usb_drive_ended`] once it is mounted anew). Nothing can
+    /// have been copied onto it, so the library is not walked again for
+    /// this wake, and a walk under way goes on where it was (#305).
+    pub fn resume_storage_kept(&mut self, now: Instant) -> Effects {
+        let _running = self.shared.meter.enter(meter::CORE);
+        self.shared.native_input.clear();
+        self.woke(now);
+        self.storage_kept = true;
+        self.finish()
+    }
+
     /// What waking does before the frame: the time asleep, plugins told.
     fn woke(&mut self, now: Instant) {
+        self.storage_kept = false;
         if let Some(at) = self.suspended_at.take() {
             let slept = now.0.saturating_sub(at.0);
             self.shared.slept_for = Some(core::time::Duration::from_millis(slept));

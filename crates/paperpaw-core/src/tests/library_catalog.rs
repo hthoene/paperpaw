@@ -174,6 +174,61 @@ fn after_a_wake_the_first_view_walks_the_library_again() {
     assert_eq!(log.borrow().len(), 2);
 }
 
+/// A wake the storage came through as it was left (the X4's card kept its
+/// power through a light sleep; one taken out is told as a card swapped):
+/// nothing was copied onto it, so the library is not walked again, neither
+/// by the first view to show nor at once where the library is open (#305).
+/// A wake of which that is not known walks it as before.
+#[test]
+fn a_wake_the_storage_came_through_as_it_was_walks_nothing_again() {
+    let (mut kernel, log, now) = library(two_books());
+    let effects = kernel.run_action(Instant(now), actions::LIBRARY);
+    let now = run(&mut kernel, now, effects);
+    let now = want(&mut kernel, now, false);
+    assert_eq!(log.borrow().len(), 1);
+    let effects = kernel.suspend(Instant(now + 1000));
+    let now = run(&mut kernel, now + 1000, effects);
+    let effects = kernel.resume_storage_kept(Instant(now + 60_000));
+    let now = run(&mut kernel, now + 60_000, effects);
+    let now = want(&mut kernel, now, false);
+    assert_eq!(log.borrow().len(), 1, "walked again");
+    assert_eq!(paths(&kernel), ["books/a.txt", "books/b.txt"]);
+    // The next wake is one of which it is not known: walked at once (the
+    // library is open), and the book that came is found.
+    let effects = kernel.suspend(Instant(now + 1000));
+    let now = run(&mut kernel, now + 1000, effects);
+    kernel.storage().write("books/c.txt", b"three").unwrap();
+    let effects = kernel.resume(Instant(now + 60_000));
+    run(&mut kernel, now + 60_000, effects);
+    assert_eq!(log.borrow().len(), 2);
+    assert_eq!(
+        paths(&kernel),
+        ["books/a.txt", "books/b.txt", "books/c.txt"]
+    );
+}
+
+/// A walk under way at such a wake goes on where it was and ends with
+/// every book: it is not started again.
+#[test]
+fn a_walk_under_way_goes_on_after_a_wake_the_storage_came_through() {
+    const BOOKS: usize = 600;
+    let mut storage = MemoryStorage::new();
+    for n in 0..BOOKS {
+        storage = storage.with(&alloc::format!("books/b{n:03}.txt"), "x");
+    }
+    let (mut kernel, _log, now) = library(storage);
+    let wanted = events::CatalogWanted::new(false).to_params();
+    kernel.send_event(Instant(now), events::CATALOG_WANTED.id().clone(), wanted);
+    for at in 1..=8u64 {
+        kernel.tick(Instant(now + at * 10));
+    }
+    assert!(paths(&kernel).is_empty());
+    kernel.suspend(Instant(now + 1000));
+    let effects = kernel.resume_storage_kept(Instant(now + 60_000));
+    run(&mut kernel, now + 60_000, effects);
+    assert_eq!(paths(&kernel).len(), BOOKS);
+}
+
 #[test]
 fn nothing_is_done_while_a_book_is_read() {
     let (mut kernel, log, now) = library(two_books());
