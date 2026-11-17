@@ -3051,6 +3051,36 @@ fn leaving_a_large_picture_refreshes_in_full() {
     assert!(!kernel.frame.pictures_shown);
 }
 
+/// Leaving a screen that showed a large picture for another is no full
+/// refresh (Decision 212, #294: Back from a cover page to Home); turning on
+/// the same screen is (`leaving_a_large_picture_refreshes_in_full`).
+#[test]
+fn leaving_a_screen_with_a_large_picture_refreshes_as_asked() {
+    let shown = Rc::new(RefCell::new(true));
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(picture_plugin_manifest(), picture_plugin(shown.clone()))
+        .build()
+        .unwrap();
+    kernel.start(Instant(0));
+    render(&mut kernel);
+    kernel.apply(Command::Redraw(RefreshMode::Partial));
+    kernel.finish();
+    render(&mut kernel);
+    assert!(kernel.frame.pictures_shown);
+    // The pictures were shown by another opening of a screen than the one on top.
+    kernel.frame.pictures_on = kernel
+        .frame
+        .pictures_on
+        .map(|serial| serial.wrapping_add(1));
+    *shown.borrow_mut() = false;
+    kernel.apply(Command::Redraw(RefreshMode::Partial));
+    let effects = kernel.finish();
+    assert_eq!(
+        effects.refresh().map(|(_, mode)| mode),
+        Some(RefreshMode::Partial)
+    );
+}
+
 /// Writes down the network's events, and asks for Wi-Fi on when the
 /// network is wanted (as the `wifi` plugin does).
 pub(crate) fn net_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
