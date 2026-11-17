@@ -1338,6 +1338,7 @@ mod failing_writes;
 mod free_follow;
 mod free_kept;
 mod free_space;
+mod in_place;
 mod listed;
 mod noted;
 mod same_entry;
