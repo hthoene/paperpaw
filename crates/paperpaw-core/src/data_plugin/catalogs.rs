@@ -82,7 +82,10 @@ fn compile(
     let plugin = folder.rsplit('/').next().unwrap_or(folder);
     let stem = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
     let prefix = format!("{plugin}-{}-", stem.to_ascii_lowercase());
-    let kept = format!("{DIR}/{prefix}{size:x}-{:08x}.ppcat", digest(storage, path)?);
+    let kept = format!(
+        "{DIR}/{prefix}{size:x}-{:08x}.ppcat",
+        digest(storage, path)?
+    );
     if storage.size(&kept).is_ok_and(|n| n > MAGIC.len() as u64) && has_magic(storage, &kept) {
         return Some(kept);
     }
