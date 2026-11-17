@@ -103,3 +103,28 @@ fn a_focus_move_on_home_asks_nothing_and_draws_each_cover_once() {
         );
     }
 }
+
+/// A minute that comes while Home is shown draws what changed in it (the clock
+/// at most), not the whole page laid out anew: on the X4 that was a 1.8 s
+/// rebuild of 480x755 a few seconds after a move, a key press waiting for it
+/// (#308).
+#[test]
+fn a_minute_does_not_draw_the_page_again() {
+    let mut device = home();
+    device.shown.clear();
+    run_script(&mut device, "right,wait:1500").unwrap();
+    for _ in 0..8 {
+        run_script(&mut device, "wait:20000").unwrap();
+    }
+    run_script(&mut device, "right,wait:1500").unwrap();
+    let wide: Vec<_> = device
+        .shown
+        .iter()
+        .filter(|(rect, mode)| {
+            *mode != paperpaw_platform::RefreshMode::Full
+                && u32::from(rect.width) * u32::from(rect.height) * 2 > 480 * 755
+                && rect.x == 0
+        })
+        .collect();
+    assert!(wide.is_empty(), "the page was drawn again: {wide:?}");
+}

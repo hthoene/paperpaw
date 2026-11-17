@@ -19,3 +19,32 @@ pub(super) fn focus_area(rect: Rect, room: i32, origin: (i32, i32)) -> FrameRect
         grown(rect.height),
     )
 }
+
+use paperpaw_sdk::native::ui::Instance;
+
+use super::Dashboard;
+use crate::native_made::Made;
+
+impl Dashboard {
+    /// Where widget `instance` was laid out, where the page stands as it was laid
+    /// out and drawn (not stale, not kept under another screen, not just shown
+    /// again with its books to look at): it can draw its own place alone.
+    pub(crate) fn widget_place(&self, instance: Instance) -> Option<Rect> {
+        if self.stale || self.fresh || self.covered || self.returned {
+            return None;
+        }
+        self.laid
+            .as_ref()?
+            .cells
+            .iter()
+            .find_map(|cell| match &cell.widget {
+                Some(Made::Host(widget)) if widget.instance() == instance => Some(cell.rect),
+                _ => None,
+            })
+    }
+
+    /// The part of the screen's region a widget at `rect` takes.
+    pub(crate) fn widget_area(&self, rect: Rect) -> FrameRect {
+        focus_area(rect, 0, self.origin)
+    }
+}
